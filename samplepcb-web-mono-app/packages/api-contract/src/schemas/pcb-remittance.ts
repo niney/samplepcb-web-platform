@@ -199,8 +199,10 @@ export type AdminPcbRemittanceDetailResponseType = z.infer<
 export const PcbRemittanceCreateBody = z.object({
   remittedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.number().positive(),
-  /** 외화 송금의 실제 적용 환율. KRW 발주면 무시된다. */
-  exchangeRate: z.number().positive().nullable().optional(),
+  /** 외화 송금의 실제 적용 환율. KRW 발주면 무시된다.
+   *  생략 시 오늘(KST) 송금에 한해 서버가 수출입은행 TTS 캐시를 자동 적용한다.
+   *  과거·미래 송금일 또는 캐시 미준비면 EXCHANGE_RATE_REQUIRED. */
+  exchangeRate: z.number().positive().optional(),
   memo: z.string().trim().max(500).nullable().optional(),
 });
 export type PcbRemittanceCreateBodyType = z.infer<typeof PcbRemittanceCreateBody>;

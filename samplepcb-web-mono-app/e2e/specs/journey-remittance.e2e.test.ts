@@ -828,7 +828,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
   }, 180_000);
 
   // ── M7(후행 실행). 가드 순환 — 잠김 → 정리 → 열림 ───────────────────────────
-  test('M7. 가드 순환 — 입력 검증 · 통화 고정/환율 누락 실동작 · HAS_REMITTANCE 409 → 정리 → 취소 200', async (ctx) => {
+  test('M7. 가드 순환 — 입력 검증 · 당일 자동 환율/과거일 가드 · HAS_REMITTANCE 409 → 정리 → 취소 200', async (ctx) => {
     if (specId === null || poId === null || remit1Id === null || remit2Id === null) return ctx.skip();
     const prisma = getPrisma();
 
@@ -841,26 +841,44 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     });
     expect(ghost.status, '없는 발주서').toBe(404);
 
-    // (2) 통화는 서버가 정한다 + 외화 환율 누락의 **실동작**(가드가 없다 — 박제).
-    //     바디에 currency 를 실어도 무시되고 발주 통화로 기록되며, 환율을 빼면
-    //     krwAmount 가 비어 회계 합계에서 그 건만 사라진다(잔액·통화 계산은 정상).
-    const extra = await api(A, 'POST', remitPath(), {
+    // (2) 과거 송금일에 최신 자동 환율을 붙이면 시점이 거짓말하므로 명시 환율을 요구한다.
+    const pastWithoutRate = await api(A, 'POST', remitPath(), {
       remittedOn: R2.on,
       amount: 10,
+      memo: '[여정 8호] 과거일 환율 누락 가드',
+    });
+    expect(pastWithoutRate.status, `과거일 환율 누락: ${JSON.stringify(pastWithoutRate.json)}`).toBe(400);
+    expect(pastWithoutRate.json?.error, '과거일은 수동 환율 요구').toBe('EXCHANGE_RATE_REQUIRED');
+
+    // 오늘은 같은 PCB 공용 TTS 캐시를 서버가 자동 박제한다. 바디의 currency 는 무시하고
+    // 발주 통화(USD)를 지키며, 환율 누락 행이 회계 합계에서 사라지는 경로를 닫는다.
+    const rateRes = await api(A, 'GET', '/api/admin/pcb-exchange-rate?from=USD');
+    expect(rateRes.status, `당일 환율 조회: ${JSON.stringify(rateRes.json)}`).toBe(200);
+    const dailyRate = Number(rateRes.json?.data?.rate);
+    expect(Number.isFinite(dailyRate) && dailyRate > 0, '당일 USD→KRW TTS 캐시').toBe(true);
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const extra = await api(A, 'POST', remitPath(), {
+      remittedOn: today,
+      amount: 10,
       currency: 'KRW',
-      memo: '[여정 8호] 과지급·환율 누락 프로브',
+      memo: '[여정 8호] 과지급·당일 자동 환율 프로브',
     });
     expect(extra.status, `과지급 기록: ${JSON.stringify(extra.json)}`).toBe(200);
     const extraRow = (extra.json?.data?.remittances ?? []).at(-1);
     expect(extraRow.currency, '통화는 발주 통화로 고정(바디 KRW 무시)').toBe('USD');
-    expect(extraRow.exchangeRate, '외화인데 환율 없음 — 막지 않는다').toBeNull();
-    expect(extraRow.krwAmount, '환율이 없으면 KRW 환산이 빈다').toBeNull();
+    expect(extraRow.exchangeRate, '생략 환율 = 당일 TTS 자동 박제').toBe(dailyRate);
+    expect(extraRow.krwAmount, '자동 환율로 KRW 환산 박제').toBe(Math.round(10 * dailyRate));
     expect(extra.json?.data?.summary?.status, '발주가 초과 = 과지급(감추지 않는다)').toBe('over');
     expect(extra.json?.data?.summary?.balance, '과지급 잔액은 음수').toBe(-10);
     F(
       'M7',
       'obs',
-      '외화 송금 환율 누락은 400 이 아니다 — krwAmount=null 로 기록되어 KRW 회계 합계에서 그 건만 빠진다(현행 동작 박제)',
+      `외화 송금 환율 — 과거일 누락 400 · 오늘 생략은 TTS @${String(dailyRate)} 자동 박제`,
     );
 
     const overQueue = await queue('done');

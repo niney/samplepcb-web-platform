@@ -622,6 +622,23 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
   폭>0(`measurePoRowPartnerWidths` — 견적관리 가드의 미러) · `잔여 발주` 수와 통화별
   `balance>0` 의 관계 · 원장 실지급 델타(=₩412,500) ≠ 발주 회계(₩414,000).
 
+### P3.11 후속 (2026-08-12 — 송금 환율 자동 적용·누락 차단)
+
+- **PCB 선정 패턴 재사용** — 외화 송금 입력을 열면 공용 `GET /admin/pcb-exchange-rate`
+  (수출입은행 TTS 캐시)로 당일 USD/CNY→KRW 환율과 고시일을 자동 채운다. 늦은 응답은
+  관리자가 이미 고친 값을 덮지 않고, 자동값은 실제 은행 적용값으로 수정할 수 있다.
+- **날짜 안전 규칙** — 자동값은 `remittedOn=오늘(KST)`에만 쓴다. 과거·미래 송금일에
+  최신 캐시를 붙이면 '송금 시점 실제 환율'이 거짓이 되므로 화면·서버 모두 명시 입력을
+  요구한다. 화면은 `금액×환율` 예상 KRW도 저장 전에 보여준다.
+- **서버 보증** — 외화 신규 송금에서 환율 생략 시 서버도 `getPcbExchangeRate(ccy,'KRW')`로
+  당일값을 박제한다. 캐시 미준비 또는 오늘이 아닌 날짜면 400 `EXCHANGE_RATE_REQUIRED`.
+  따라서 UI 외 호출도 `krwAmount=null` 신규 행을 만들 수 없다. 수정도 금액·환율을 건드릴
+  때 환율 없는 상태를 허용하지 않는다.
+- **레거시 가시성 유지** — 이미 존재하는 환율 미기입 행의 배지·집계 누락 경고는 남겨
+  과거 데이터 문제를 감추지 않는다. 수정 화면에서 환율을 채우면 정상 KRW 박제로 치유된다.
+- **회귀 가드 갱신** — 여정 8호 M7은 과거일 환율 생략 400과 오늘 생략 시 공용 TTS 자동
+  박제(`exchangeRate`·`krwAmount`)를 함께 검증한다.
+
 ### P4.1 구현 기록 (2026-08-07 — EQ 고객 확인: 관리자 요청 → 주문내역 승인)
 
 **D16 의 구현.** sp-php(그누보드)를 처음으로 쓰기 경로에 넣은 작업이다.
@@ -1646,6 +1663,10 @@ KRW 환산이 원장이 아니라 비례배분**(`admin-pcb-remittances.ts:206-2
 그 화면의 '지급 ₩'는 실지급이 아니라 발주 회계를 되쓴다 — **환차가 집계 화면에는 안 드러난다**
 (P3.11 '남은 것'과 같은 사안이라 어서션으로 못 박아 두었다).
 
+→ **두 건 모두 해소**: ②는 2026-08-11 P3.11 보강의 원장 실합 전환으로, ①은
+2026-08-12 P3.11 후속의 당일 자동 환율+과거일 명시 가드로 닫았다. 여정 M7도 더 이상
+`krwAmount=null`을 기대하지 않고 자동 박제와 400 가드를 기대한다.
+
 검증: 10/10 green(연속 3회) · e2e typecheck · 게이트 없이 전량 skip · 정리 CLEAN.
 
 ### 여정 10호 — 주문 취소·부분 취소(고객 축) (2026-08-11)
@@ -2583,7 +2604,6 @@ placeholder 를 '검색'으로 가정(여섯 중 다섯이 안 맞아 검증이 
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
-
 
 
 

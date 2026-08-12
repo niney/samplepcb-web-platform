@@ -9,7 +9,7 @@ import type {
   PcbRemittanceViewType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
-import { roundPcbAmount } from './exchange-rate';
+import { getPcbExchangeRate, roundPcbAmount } from './exchange-rate';
 import { asPcbCurrency } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { buildPcbRemittanceSettledEmail, pcbPriceText, sendPcbMail } from './pcb-rfq-email';
@@ -148,7 +148,10 @@ const krwFields = (
   return { exchangeRate, krwAmount: roundPcbAmount(amount * exchangeRate, 'KRW') };
 };
 
-export type PcbRemittanceError = 'PO_NOT_FOUND' | 'REMITTANCE_NOT_FOUND';
+export type PcbRemittanceError =
+  | 'PO_NOT_FOUND'
+  | 'REMITTANCE_NOT_FOUND'
+  | 'EXCHANGE_RATE_REQUIRED';
 
 export const createPcbRemittance = async (
   poId: bigint,
@@ -157,14 +160,26 @@ export const createPcbRemittance = async (
 ): Promise<{ ok: true } | { ok: false; error: PcbRemittanceError }> => {
   const po = await prisma.spPcbPo.findUnique({ where: { id: poId } });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
-  const amount = roundPcbAmount(body.amount, asPcbCurrency(po.currency));
+  const currency = asPcbCurrency(po.currency);
+  const amount = roundPcbAmount(body.amount, currency);
+  let exchangeRate = body.exchangeRate;
+  if (currency !== 'KRW' && exchangeRate === undefined) {
+    // 자동 환율은 **오늘 송금**에만 안전하다. 과거·미래 날짜에 최신 캐시를 붙이면
+    // '송금 시점 실제 환율'이라는 원장 의미가 깨지므로 그 경우는 명시 입력을 요구한다.
+    if (body.remittedOn !== kstDateStr(new Date())) {
+      return { ok: false, error: 'EXCHANGE_RATE_REQUIRED' };
+    }
+    const daily = await getPcbExchangeRate(currency, 'KRW');
+    if (daily === null) return { ok: false, error: 'EXCHANGE_RATE_REQUIRED' };
+    exchangeRate = daily.rate;
+  }
   await prisma.spPcbRemittance.create({
     data: {
       poId,
       remittedOn: parseKstDate(body.remittedOn),
       currency: po.currency, // 발주 통화 고정 — 클라이언트 값을 받지 않는다
       amount,
-      ...krwFields(po.currency, amount, body.exchangeRate),
+      ...krwFields(po.currency, amount, exchangeRate),
       memo: body.memo ?? null,
       createdBy: actorMbId,
     },
@@ -186,8 +201,14 @@ export const patchPcbRemittance = async (
     body.amount === undefined
       ? Number(row.amount)
       : roundPcbAmount(body.amount, asPcbCurrency(row.currency));
-  const nextRate =
-    body.exchangeRate === undefined ? decNum(row.exchangeRate) : body.exchangeRate;
+  const nextRate = body.exchangeRate ?? decNum(row.exchangeRate);
+  if (
+    asPcbCurrency(row.currency) !== 'KRW' &&
+    (body.amount !== undefined || body.exchangeRate !== undefined) &&
+    nextRate === null
+  ) {
+    return { ok: false, error: 'EXCHANGE_RATE_REQUIRED' };
+  }
   const money =
     body.amount === undefined && body.exchangeRate === undefined
       ? {}

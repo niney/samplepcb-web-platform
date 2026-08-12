@@ -11,6 +11,7 @@ import {
   usePatchPcbRemittance,
   useUploadRemittanceFile,
 } from '../../../admin/useAdminPcbRemittances';
+import { fetchPcbExchangeRate } from '../../../admin/pcbExchangeRate';
 import { fmtPcbAmount } from '../../../lib/pcb-money';
 import { confirmDialog } from '../../../lib/confirmDialog';
 
@@ -51,7 +52,12 @@ const isForeign = computed(() => (summary.value?.currency ?? 'KRW') !== 'KRW');
 const formOn = ref(kstToday());
 const formAmount = ref('');
 const formRate = ref('');
+const formRateDate = ref<string | null>(null);
+const formRateIsAuto = ref(false);
+const formRateLoading = ref(false);
+const formRateError = ref('');
 const formMemo = ref('');
+let formRateRequest = 0;
 
 watch(
   data,
@@ -65,11 +71,96 @@ watch(
   { immediate: true },
 );
 
+const rateCurrency = computed<'USD' | 'CNY' | null>(() => {
+  const currency = summary.value?.currency;
+  return currency === 'USD' || currency === 'CNY' ? currency : null;
+});
+const isTodayRemittance = computed(() => formOn.value === kstToday());
+
+/**
+ * 당일 TTS 를 새 송금의 제안값으로 채운다. 늦은 응답은 수동 입력·다른 발주를 덮지 않는다.
+ * 과거·미래 송금일에는 최신 캐시를 실제 시점 환율인 것처럼 붙이지 않고 직접 입력을 요구한다.
+ */
+async function prefillFormRate(force = false): Promise<void> {
+  const request = ++formRateRequest;
+  const currency = rateCurrency.value;
+  const remittedOn = formOn.value;
+  formRateError.value = '';
+
+  if (currency === null || remittedOn !== kstToday()) {
+    if (formRateIsAuto.value) formRate.value = '';
+    formRateIsAuto.value = false;
+    formRateDate.value = null;
+    formRateLoading.value = false;
+    return;
+  }
+  if (!force && formRate.value.trim() !== '' && !formRateIsAuto.value) return;
+
+  formRateLoading.value = true;
+  try {
+    const result = await fetchPcbExchangeRate(currency);
+    if (
+      request !== formRateRequest ||
+      rateCurrency.value !== currency ||
+      formOn.value !== remittedOn
+    ) {
+      return;
+    }
+    if (result === null) {
+      if (formRateIsAuto.value) formRate.value = '';
+      formRateIsAuto.value = false;
+      formRateDate.value = null;
+      formRateError.value = '자동 환율이 준비되지 않았습니다. 적용 환율을 직접 입력해 주세요.';
+      return;
+    }
+    formRate.value = String(result.rate);
+    formRateDate.value = result.rateDate;
+    formRateIsAuto.value = true;
+  } catch (e) {
+    if (request !== formRateRequest) return;
+    if (formRateIsAuto.value) formRate.value = '';
+    formRateIsAuto.value = false;
+    formRateDate.value = null;
+    formRateError.value =
+      e instanceof Error && e.message !== ''
+        ? e.message
+        : '자동 환율 조회에 실패했습니다. 적용 환율을 직접 입력해 주세요.';
+  } finally {
+    if (request === formRateRequest) formRateLoading.value = false;
+  }
+}
+
+watch([rateCurrency, formOn], () => {
+  void prefillFormRate();
+}, { immediate: true });
+
+function onFormRateInput(): void {
+  // 진행 중 자동 조회를 무효화해 늦은 응답이 방금 친 숫자를 덮지 않게 한다.
+  formRateRequest += 1;
+  formRateLoading.value = false;
+  formRateError.value = '';
+  formRateDate.value = null;
+  formRateIsAuto.value = false;
+}
+
 const amountNum = computed(() => Number(formAmount.value.replaceAll(',', '').trim()));
-/** 외화인데 환율을 안 적었다 — 막지는 않지만(실무상 나중에 확정되는 값) 말은 해 준다. */
+const formRateNum = computed(() => {
+  const raw = formRate.value.replaceAll(',', '').trim();
+  if (raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+});
+/** 외화 환율 누락은 회계 합계에서 행을 사라지게 하므로 신규 기록을 막는다. */
 const rateMissingWarn = computed(
-  () => isForeign.value && formRate.value.trim() === '' && Number.isFinite(amountNum.value) && amountNum.value > 0,
+  () => isForeign.value && formRateNum.value === null && Number.isFinite(amountNum.value) && amountNum.value > 0,
 );
+const formKrwPreview = computed(() => {
+  const amount = amountNum.value;
+  const rate = formRateNum.value;
+  return isForeign.value && Number.isFinite(amount) && amount > 0 && rate !== null
+    ? Math.round(amount * rate)
+    : null;
+});
 /** 잔액 초과 = 과지급. 감추지 않되 손이 미끄러진 것인지 한 번 묻는다. */
 const willOverpay = computed(
   () =>
@@ -81,6 +172,7 @@ const willOverpay = computed(
 const canSubmit = computed(() => {
   const n = amountNum.value;
   if (isFreeAs.value && !freeAsUnlocked.value) return false;
+  if (isForeign.value && formRateNum.value === null) return false;
   return Number.isFinite(n) && n > 0 && formOn.value !== '' && !createMut.isPending.value;
 });
 
@@ -102,21 +194,25 @@ async function submitNew(): Promise<void> {
     return;
   }
   error.value = '';
-  const rate = formRate.value.replaceAll(',', '').trim();
+  const rate = formRateNum.value;
+  if (isForeign.value && rate === null) return;
   try {
     await createMut.mutateAsync({
       poId: props.poId,
       body: {
         remittedOn: formOn.value,
         amount,
-        ...(isForeign.value && rate !== '' ? { exchangeRate: Number(rate) } : {}),
+        ...(isForeign.value && rate !== null ? { exchangeRate: rate } : {}),
         ...(formMemo.value.trim() === '' ? {} : { memo: formMemo.value.trim() }),
       },
     });
     formAmount.value = '';
     formRate.value = '';
+    formRateDate.value = null;
+    formRateIsAuto.value = false;
     formMemo.value = '';
     formOn.value = kstToday();
+    void prefillFormRate(true);
   } catch (e) {
     surface(e, '송금 기록에 실패했습니다.');
   }
@@ -130,6 +226,20 @@ const editOn = ref('');
 const editAmount = ref('');
 const editRate = ref('');
 const editMemo = ref('');
+const editAmountNum = computed(() => Number(editAmount.value.replaceAll(',', '').trim()));
+const editRateNum = computed(() => {
+  const raw = editRate.value.replaceAll(',', '').trim();
+  if (raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+});
+const editCanSubmit = computed(() => {
+  if (!Number.isFinite(editAmountNum.value) || editAmountNum.value <= 0 || editOn.value === '') {
+    return false;
+  }
+  if (isForeign.value && editRateNum.value === null) return false;
+  return !patchMut.isPending.value;
+});
 
 function startEdit(r: (typeof rows.value)[number]): void {
   editId.value = r.id;
@@ -139,18 +249,17 @@ function startEdit(r: (typeof rows.value)[number]): void {
   editMemo.value = r.memo ?? '';
 }
 async function submitEdit(): Promise<void> {
-  if (editId.value === null) return;
+  if (editId.value === null || !editCanSubmit.value) return;
   error.value = '';
-  const rate = editRate.value.replaceAll(',', '').trim();
+  const rate = editRateNum.value;
   try {
     await patchMut.mutateAsync({
       poId: props.poId,
       remittanceId: editId.value,
       body: {
         remittedOn: editOn.value,
-        amount: Number(editAmount.value.replaceAll(',', '').trim()),
-        // 외화만 의미가 있고, 비우면 **환산 해제**(null)로 서버가 krwAmount 를 지운다.
-        ...(isForeign.value ? { exchangeRate: rate === '' ? null : Number(rate) } : {}),
+        amount: editAmountNum.value,
+        ...(isForeign.value && rate !== null ? { exchangeRate: rate } : {}),
         memo: editMemo.value.trim() === '' ? null : editMemo.value.trim(),
       },
     });
@@ -350,16 +459,18 @@ const fxDiff = computed(() => {
                 </label>
                 <label v-if="isForeign" class="block sm:col-span-2">
                   <span class="text-[11px] font-semibold text-gray-500">
-                    적용 환율 (KRW 환산용)
-                    <span class="ml-1 font-normal text-gray-400">비우면 환산이 지워집니다</span>
+                    적용 환율 (KRW 환산용) *
                   </span>
                   <input v-model="editRate" type="text" inputmode="decimal" placeholder="송금 시점 실제 환율" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm tabular-nums">
+                  <span v-if="editRateNum === null" class="mt-1 block text-[11px] font-semibold text-amber-700">
+                    외화 송금은 환율 없이 저장할 수 없습니다.
+                  </span>
                 </label>
               </div>
               <input v-model="editMemo" type="text" placeholder="메모 — 협력사 포털에 그대로 보입니다" class="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm">
               <div class="mt-2 flex justify-end gap-2 text-xs">
                 <button type="button" class="rounded-md border border-gray-200 px-2 py-1" @click="editId = null">취소</button>
-                <button type="button" class="rounded-md bg-blue-600 px-2.5 py-1 font-bold text-white disabled:opacity-40" :disabled="patchMut.isPending.value" @click="void submitEdit()">저장</button>
+                <button type="button" class="rounded-md bg-blue-600 px-2.5 py-1 font-bold text-white disabled:opacity-40" :disabled="!editCanSubmit" @click="void submitEdit()">저장</button>
               </div>
             </template>
 
@@ -436,8 +547,26 @@ const fxDiff = computed(() => {
               <input v-model="formAmount" type="text" inputmode="decimal" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm tabular-nums">
             </label>
             <label v-if="isForeign" class="block">
-              <span class="text-[11px] font-semibold text-gray-500">적용 환율 (KRW 환산용)</span>
-              <input v-model="formRate" type="text" inputmode="decimal" placeholder="송금 시점 실제 환율" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm tabular-nums">
+              <span class="flex items-center justify-between gap-2 text-[11px] font-semibold text-gray-500">
+                <span>적용 환율 (KRW 환산용) *</span>
+                <button
+                  v-if="isTodayRemittance"
+                  type="button"
+                  class="font-semibold text-blue-600 hover:text-blue-800 disabled:text-gray-300"
+                  :disabled="formRateLoading"
+                  @click="void prefillFormRate(true)"
+                >자동 환율</button>
+              </span>
+              <input v-model="formRate" type="text" inputmode="decimal" placeholder="송금 시점 실제 환율" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm tabular-nums" @input="onFormRateInput">
+              <span v-if="formRateLoading" class="mt-1 block text-[11px] text-blue-600">수출입은행 TTS 환율을 불러오는 중…</span>
+              <span v-else-if="formRateIsAuto" class="mt-1 block text-[11px] text-emerald-700">
+                수출입은행 <template v-if="formRateDate !== null">{{ formRateDate }} </template>고시(송금 기준) 자동 반영 · 실제 적용값으로 수정 가능
+              </span>
+              <span v-else-if="!isTodayRemittance" class="mt-1 block text-[11px] text-amber-700">
+                과거·미래 송금일에는 해당 시점의 실제 적용 환율을 직접 입력해 주세요.
+              </span>
+              <span v-else-if="formRateError !== ''" class="mt-1 block text-[11px] text-amber-700">{{ formRateError }}</span>
+              <span v-else-if="formRateNum !== null" class="mt-1 block text-[11px] text-gray-400">관리자가 입력한 환율로 박제됩니다.</span>
             </label>
             <label class="block" :class="isForeign ? '' : 'sm:col-span-2'">
               <span class="text-[11px] font-semibold text-gray-500">
@@ -447,10 +576,13 @@ const fxDiff = computed(() => {
               <input v-model="formMemo" type="text" placeholder="선금 50% 등" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm">
             </label>
           </div>
+          <p v-if="formKrwPreview !== null" class="mt-2 text-right text-xs text-gray-500">
+            예상 원화 환산 <b class="tabular-nums text-gray-800">{{ fmtPcbAmount('KRW', formKrwPreview) }}</b>
+          </p>
           <div class="mt-2 flex flex-wrap items-center justify-end gap-2">
-            <!-- 환율 공란 경고 — 저장은 되지만 KRW 회계에서 이 건이 조용히 빠진다 -->
+            <!-- 환율 공란은 회계 합계에서 해당 행을 사라지게 하므로 신규 저장을 막는다. -->
             <p v-if="rateMissingWarn" class="text-[11px] font-semibold text-amber-700">
-              ⚠ 환율이 비어 있어 <b>KRW 환산 없이</b> 저장됩니다(회계 합계에서 제외).
+              ⚠ 외화 송금은 적용 환율이 필요합니다.
             </p>
             <p v-if="willOverpay && summary !== null" class="text-[11px] font-semibold text-rose-700">
               ⚠ 잔액 {{ fmtPcbAmount(summary.currency, summary.balance) }} 초과 — 과지급으로 기록됩니다.

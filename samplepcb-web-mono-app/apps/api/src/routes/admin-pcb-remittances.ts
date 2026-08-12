@@ -357,7 +357,7 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
       schema: {
         params: PoParams,
         body: PcbRemittanceCreateBody,
-        response: { 200: PcbRemittanceMutationResponse, 404: ApiError },
+        response: { 200: PcbRemittanceMutationResponse, 400: ApiError, 404: ApiError },
       },
     },
     async (request, reply) => {
@@ -366,7 +366,16 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         request.body,
         request.user.mbId,
       );
-      if (!outcome.ok) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (!outcome.ok) {
+        if (outcome.error === 'EXCHANGE_RATE_REQUIRED') {
+          return reply.status(400).send({
+            error: outcome.error,
+            message:
+              '자동 적용 가능한 당일 환율이 없습니다 — 적용 환율을 직접 입력해 주세요.',
+          });
+        }
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
       // 이 송금으로 잔액이 0 이 됐으면 협력사에 1회 알린다(여정 8호 결정 — 회차마다가
       // 아니라 완납만). 비차단: 메일 사정으로 송금 기록이 흔들리면 안 된다.
       void notifyPcbRemittanceSettled(request.log, request.params.poId, request.user.mbId);
@@ -381,7 +390,7 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
       schema: {
         params: RemittanceParams,
         body: PcbRemittancePatchBody,
-        response: { 200: PcbRemittanceMutationResponse, 404: ApiError },
+        response: { 200: PcbRemittanceMutationResponse, 400: ApiError, 404: ApiError },
       },
     },
     async (request, reply) => {
@@ -390,7 +399,15 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         request.params.remittanceId,
         request.body,
       );
-      if (!outcome.ok) return reply.notFound('송금 기록을 찾을 수 없습니다');
+      if (!outcome.ok) {
+        if (outcome.error === 'EXCHANGE_RATE_REQUIRED') {
+          return reply.status(400).send({
+            error: outcome.error,
+            message: '외화 송금에는 적용 환율이 필요합니다.',
+          });
+        }
+        return reply.notFound('송금 기록을 찾을 수 없습니다');
+      }
       // 금액 정정으로 비로소 완납이 되는 경우도 있다 — 생성과 같은 규칙(1회)이 적용된다.
       void notifyPcbRemittanceSettled(request.log, request.params.poId, request.user.mbId);
       return mutationResult(request.params.poId);

@@ -11,6 +11,7 @@
 //   ④ **수정·삭제가 합계에 반영된다** — 원장은 정정되는 기록이다(잘못 적은 회차를 고치면
 //      잔액이 즉시 따라와야 한다).
 //   ⑤ **과지급은 막거나 드러난다** — 남은 잔액보다 많이 보내려 할 때.
+//   ⑥ **환율 자동/가드** — 오늘은 TTS 자동 박제, 과거일 누락은 400 으로 회계 공백을 막는다.
 //
 // 시드 발주(협력2·USD)로 돈 축만 본다 — 주문·생산은 8호가 이미 밟았다.
 //
@@ -111,6 +112,47 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
     expect(Number(summary.paidAmount ?? 0), '초기 지급액 0').toBe(0);
     expect(Number(summary.balance ?? -1), '초기 잔액 = 발주가').toBe(PRICE);
     F('P1', 'obs', `준비 — po #${String(poId)} $${String(PRICE)} · 지급 0 · 잔액 ${String(PRICE)}`);
+  }, 180_000);
+
+  test('P1b. 외화 환율 — 오늘은 TTS 자동 박제, 과거일 누락은 거부', async (ctx) => {
+    if (poId === null) return ctx.skip();
+
+    const past = await api(A, 'POST', `/api/admin/pcb-remittances/${String(poId)}`, {
+      remittedOn: '2026-08-11',
+      amount: 1,
+      memo: '[여정 30호] 과거일 환율 누락 가드',
+    });
+    expect(past.status, `과거일 환율 누락: ${JSON.stringify(past.json)}`).toBe(400);
+    expect(past.json?.error, '과거일은 명시 환율 요구').toBe('EXCHANGE_RATE_REQUIRED');
+
+    const rateRes = await api(A, 'GET', '/api/admin/pcb-exchange-rate?from=USD');
+    expect(rateRes.status, `당일 환율 조회: ${JSON.stringify(rateRes.json)}`).toBe(200);
+    const dailyRate = Number(rateRes.json?.data?.rate);
+    expect(Number.isFinite(dailyRate) && dailyRate > 0, 'USD→KRW TTS 캐시').toBe(true);
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const auto = await api(A, 'POST', `/api/admin/pcb-remittances/${String(poId)}`, {
+      remittedOn: today,
+      amount: 1,
+      memo: '[여정 30호] 당일 자동 환율',
+    });
+    expect(auto.status, `당일 자동 환율 송금: ${JSON.stringify(auto.json)}`).toBe(200);
+    const row = (auto.json?.data?.remittances ?? []).at(-1);
+    expect(row.exchangeRate, '생략 환율은 TTS 박제').toBe(dailyRate);
+    expect(row.krwAmount, '자동 환율 KRW 환산').toBe(Math.round(dailyRate));
+
+    const removed = await api(
+      A,
+      'DELETE',
+      `/api/admin/pcb-remittances/${String(poId)}/${String(row.id)}`,
+    );
+    expect(removed.status, `자동 환율 프로브 정리: ${JSON.stringify(removed.json)}`).toBe(200);
+    expect(removed.json?.data?.summary?.paidAmount, '프로브 정리 후 지급액 원복').toBe(0);
+    F('P1b', 'obs', `환율 — 과거일 누락 400 · 오늘 생략 TTS @${String(dailyRate)} 자동 박제 · 정리 완료`);
   }, 180_000);
 
   test('P2. 세 번에 나눠 보내도 합계·잔액이 정확하다', async (ctx) => {
@@ -225,4 +267,3 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
     );
   }, 300_000);
 });
-

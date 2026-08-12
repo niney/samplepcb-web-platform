@@ -25,8 +25,8 @@ import {
 import { fmtKstDate, kstDateInput, kstDateOnly, kstToday } from '@sp/utils';
 import { downloadAdminFile, useAdminQuoteDetail, useConfirmPrice } from '../../admin/useAdminQuotes';
 import { useAdminPartnerList, type AdminPartnerFilters } from '../../admin/useAdminPartners';
+import { fetchPcbExchangeRate } from '../../admin/pcbExchangeRate';
 import {
-  fetchPcbSelectRate,
   pcbMagicReplyUrl,
   useAdminPcbRfqReply,
   useAdminPcbRfqs,
@@ -434,7 +434,7 @@ function openSelect(row: AdminPcbRfqViewType): void {
     syncMarginFromFinal(); // KRW — 원가 환산이 필요 없다
     return;
   }
-  void fetchPcbSelectRate(row.currency).then((r) => {
+  void fetchPcbExchangeRate(row.currency).then((r) => {
     // 늦은 응답이 사용자의 입력·다른 행 모달을 덮지 않게 — 같은 행, 미입력일 때만 반영
     if (selectTarget.value?.rfqId !== row.rfqId || selectRate.value !== '' || r === null) return;
     selectRate.value = String(r.rate);

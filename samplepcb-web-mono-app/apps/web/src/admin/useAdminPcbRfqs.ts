@@ -1,7 +1,6 @@
 import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
-  AdminPcbExchangeRateResponse,
   AdminPcbRfqActionResponse,
   AdminPcbRfqCaseListResponse,
   AdminPcbRfqListResponse,
@@ -14,17 +13,6 @@ import {
   type PcbRfqReplyBodyType,
 } from '@sp/api-contract';
 import { apiGet, apiSend } from '@sp/shared';
-
-/** 선정 모달 prefill 용 당일 환율(결제통화→KRW) — 캐시 미준비면 null(수동 입력 유도). */
-export async function fetchPcbSelectRate(
-  from: 'USD' | 'CNY',
-): Promise<{ rate: number; rateDate: string | null } | null> {
-  const res = await apiGet(
-    `${apiRoutes.adminPcbExchangeRate}?from=${from}`,
-    AdminPcbExchangeRateResponse,
-  );
-  return res.data;
-}
 
 // PCB 협력 모듈 서버 상태 훅 — docs/PCB_PARTNER_TRACK.md §5.4. 계약은
 // @sp/api-contract(pcb-rfq.ts), 무효화는 ['admin','pcbRfq'] 접두 일괄(관례).
