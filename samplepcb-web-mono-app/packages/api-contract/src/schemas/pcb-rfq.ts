@@ -179,7 +179,17 @@ export const pcbMarginPercent = (sellingPrice: number, costKrw: number): number 
   costKrw <= 0 ? null : Math.round((sellingPrice / PCB_VAT_RATE / costKrw - 1) * 1000) / 10;
 
 // ── 관리자: 횡단 워크큐 (/api/admin/pcb-rfqs) — 스펙(견적건) 단위 그룹 ────────
-export const ADMIN_PCB_RFQ_TABS = ['pending', 'quoted', 'selected', 'all'] as const;
+// 탭 축 — 앞 넷은 **협력사 축**(회신·선정), 마지막이 **고객 축**(확정가)이다. 둘은 따로
+// 일어난다: 선정만 하고 확정가를 나중에 매길 수 있고(선정 모달의 [선정만]), 진행 중 주문은
+// 판매가 없이 원가만 고른다. 그래서 '선정 완료' 한 칸에 두 무더기를 담지 않고 가른다 —
+// 확정가 대기(지금 할 일)가 견적 완료(끝난 일) 수십 건에 묻히던 것을 푼 것이다(2026-08-12).
+export const ADMIN_PCB_RFQ_TABS = [
+  'pending',
+  'quoted',
+  'awaiting_price',
+  'priced',
+  'all',
+] as const;
 export type AdminPcbRfqTabType = (typeof ADMIN_PCB_RFQ_TABS)[number];
 
 export const AdminPcbRfqCaseItem = z.object({
@@ -216,8 +226,9 @@ export const AdminPcbRfqCaseListResponse = z.object({
     pageSize: z.number().int(),
     counts: z.object({
       pending: z.number().int(), // 회신 대기 행이 남은 스펙 수
-      quoted: z.number().int(), // 회신은 모였고 선정 전(내 차례)
-      selected: z.number().int(), // 선정 완료 = 화면의 '견적 완료' 탭(확정가 등록 대기 포함)
+      quoted: z.number().int(), // 회신은 모였고 선정 전(내 차례) — 사이드바 배지가 세는 수
+      awaiting_price: z.number().int(), // 선정했는데 확정가가 없다(다음 할 일)
+      priced: z.number().int(), // 선정 + 확정가 등록까지 끝났다(고객이 주문할 수 있다)
       all: z.number().int(),
     }),
   }),

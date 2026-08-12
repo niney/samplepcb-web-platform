@@ -36,11 +36,12 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.va
 const TABS: { key: RfqTabKey; label: string }[] = [
   { key: 'todo', label: '요청 대기' },
   { key: 'pending', label: '회신 대기' },
-  // 탭 이름은 '견적' 축으로 부른다(사용자 결정 2026-08-12) — 이 화면에서 관리자가 하는
-  // 일이 곧 견적을 받아 확정하는 것이라, 내부 용어(선정)보다 업무 이름이 맞다.
-  // ⚠ 키(quoted/selected)는 서버 counts·필터의 축이라 그대로다 — 라벨만 바뀐다.
-  { key: 'quoted', label: '견적 대기' },
-  { key: 'selected', label: '견적 완료' },
+  // 앞 넷은 "무엇을 기다리는가", 마지막만 종결 — 이름만 보고 다음 행동이 읽히게 한다.
+  // 선정(협력사 축)과 확정가(고객 축)는 따로 일어나므로 선정 뒤를 두 칸으로 가른다:
+  // 확정가 대기 = 지금 할 일, 견적 완료 = 고객이 주문할 수 있는 상태.
+  { key: 'quoted', label: '선정 대기' },
+  { key: 'awaiting_price', label: '확정가 대기' },
+  { key: 'priced', label: '견적 완료' },
   { key: 'all', label: '전체' },
 ];
 const tabCount = (key: RfqTabKey): number | null =>

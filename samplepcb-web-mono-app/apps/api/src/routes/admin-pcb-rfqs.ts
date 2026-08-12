@@ -74,7 +74,8 @@ export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       const counts = {
         pending: filtered.filter((r) => r.tab === 'pending').length,
         quoted: filtered.filter((r) => r.tab === 'quoted').length,
-        selected: filtered.filter((r) => r.tab === 'selected').length,
+        awaiting_price: filtered.filter((r) => r.tab === 'awaiting_price').length,
+        priced: filtered.filter((r) => r.tab === 'priced').length,
         all: filtered.length,
       };
       const tabbed =

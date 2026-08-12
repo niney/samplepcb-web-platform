@@ -773,13 +773,22 @@ export const loadPartnerPcbSpecFile = async (
 
 // ── 관리자 횡단 워크큐(스펙 단위 그룹, 메모리 페이지네이션은 라우트 몫) ────────
 
-export type AdminPcbRfqCaseTab = 'pending' | 'quoted' | 'selected';
+export type AdminPcbRfqCaseTab = 'pending' | 'quoted' | 'awaiting_price' | 'priced';
 
+// 선정 뒤가 둘로 갈린다 — 확정가가 없으면 그게 다음 할 일(awaiting_price)이고, 있으면
+// 고객이 주문할 수 있는 상태(priced)다. 선정 전 구간은 협력사 축 그대로.
 export const pcbRfqCaseTabOf = (agg: {
   anySelected: boolean;
   anyReplied: boolean;
+  priced: boolean;
 }): AdminPcbRfqCaseTab =>
-  agg.anySelected ? 'selected' : agg.anyReplied ? 'quoted' : 'pending';
+  agg.anySelected
+    ? agg.priced
+      ? 'priced'
+      : 'awaiting_price'
+    : agg.anyReplied
+      ? 'quoted'
+      : 'pending';
 
 export const loadAdminPcbRfqCases = async (): Promise<
   { item: AdminPcbRfqCaseItemType; tab: AdminPcbRfqCaseTab }[]
@@ -836,7 +845,11 @@ export const loadAdminPcbRfqCases = async (): Promise<
         latestRequestedAt: new Date(latest).toISOString(),
         specCreatedAt: spec.createdAt.toISOString(),
       },
-      tab: pcbRfqCaseTabOf({ anySelected: selected !== undefined, anyReplied }),
+      tab: pcbRfqCaseTabOf({
+        anySelected: selected !== undefined,
+        anyReplied,
+        priced: spec.finalPrice !== null,
+      }),
     });
   }
   result.sort((a, b) => (a.item.latestRequestedAt < b.item.latestRequestedAt ? 1 : -1));
