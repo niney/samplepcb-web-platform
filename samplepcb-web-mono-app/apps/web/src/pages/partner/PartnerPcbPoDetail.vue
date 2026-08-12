@@ -31,10 +31,10 @@ import {
   useUploadPartnerPcbEqFile,
 } from '../../partner/usePartnerPcbPos';
 import { fmtKstDate as dateOnly } from '@sp/utils';
-import { formatBytes } from '../../lib/format';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
+import PcbEqTimeline from '../../components/pcb/PcbEqTimeline.vue';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
 
@@ -103,11 +103,49 @@ const canRevert = computed(
 const hasWorkingFile = computed(
   () => detail.value?.eq.files.some((f) => f.fileType === 'working') ?? false,
 );
-// 관리자가 보낸 회신 첨부 — 위 두 칸은 fileType===kind 로 걸러 자동 제외되므로 여기서 따로 모은다.
-const replyFiles = computed(
-  () => detail.value?.eq.files.filter((f) => f.fileType === 'reply') ?? [],
-);
 const filesEditable = computed(() => detail.value?.status === 'issued');
+
+/** 타임라인의 파일 클릭 — poId 좁히기를 템플릿에 두지 않는다(콜백 안에서는 안 좁혀진다). */
+const downloadEq = (fileId: number, name: string): void => {
+  if (poId.value === null) return;
+  void downloadPartnerPcbEqFile(poId.value, fileId, name);
+};
+
+// '지금 할 일' — 타임라인 마지막 칸이 할 말. 상태마다 **한 문장으로 못박는다**(무엇을 봐야
+// 하고 무엇을 해야 하는지를 협력사가 조립하지 않게). 반려 뒤 구간은 보완 여부까지 말한다 —
+// 같은 파일로 다시 요청하면 같은 사유로 되돌아온다.
+const nowTodo = computed<{ title: string; hint: string }>(() => {
+  const d = detail.value;
+  if (d === null) return { title: '', hint: '' };
+  if (d.eq.myRole !== 'RECEIVER') {
+    return { title: '진행 상황을 확인해 주세요.', hint: '이 발주의 EQ 진행은 수주 조직이 합니다.' };
+  }
+  if (d.status === 'issued') {
+    return eqRejection.value !== null
+      ? {
+          title: '반려된 건입니다 — 보완 파일을 올리고 다시 승인요청해 주세요.',
+          hint: hasFixAfterReject.value
+            ? '반려 후 새 파일을 올렸습니다 — 승인요청을 진행해 주세요.'
+            : '아직 반려 후 새로 올린 파일이 없습니다. 같은 파일로 다시 요청하면 같은 사유로 반려될 수 있습니다.',
+        }
+      : {
+          title: 'EQ 질의서·Working 데이터를 올리고 승인요청해 주세요.',
+          hint: hasWorkingFile.value
+            ? ''
+            : 'Working 파일은 생산에 쓰는 자료입니다 — 승인요청 후에는 추가·교체할 수 없으니 지금 올리시길 권합니다(없이도 요청은 가능합니다).',
+        };
+  }
+  if (d.status === 'eq_requested') {
+    return {
+      title: '샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.',
+      hint: '승인요청 중에는 첨부를 바꿀 수 없습니다 — 바꾸려면 요청을 취소한 뒤 올려 주세요.',
+    };
+  }
+  if (d.status === 'eq_done') return { title: 'EQ가 승인됐습니다 — 생산을 시작해 주세요.', hint: '' };
+  if (d.status === 'producing')
+    return { title: '생산 중입니다 — 끝나면 [생산 완료]를 눌러 주세요.', hint: '' };
+  return { title: '생산이 끝났습니다 — 발송을 시작해 주세요.', hint: '' };
+});
 
 // ── 파일 업로드 ──────────────────────────────────────────────────────────────
 const upload = useUploadPartnerPcbEqFile();
@@ -460,126 +498,49 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
           하위 협력사에 발주하면 EQ가 시작됩니다 — 아래 [하위 발주]를 진행해 주세요.
         </p>
 
-        <!-- 파일 (발주접수 단계에서 편집) -->
-        <div v-if="detail.eq.delegatePoId === null && !detail.eq.blocked" class="mt-4 grid gap-3 sm:grid-cols-2">
-          <div
-            v-for="kind in (['eq', 'working'] as const)"
-            :key="kind"
-            class="rounded-lg border p-3"
-            :class="kind === 'working' && !hasWorkingFile ? 'border-amber-200 bg-amber-50/40' : 'border-gray-100'"
-          >
-            <div class="flex items-center justify-between">
-              <p class="text-xs font-bold text-gray-600">
-                {{ kind === 'eq' ? 'EQ 파일 (질의서)' : 'Working 파일 (작업 데이터)' }}
-                <span v-if="kind === 'eq'" class="ml-1 font-semibold text-gray-400">선택</span>
-                <span v-else-if="!hasWorkingFile" class="ml-1 font-semibold text-amber-600">업로드 권장</span>
-                <span v-else class="ml-1 font-semibold text-emerald-600">업로드됨</span>
-              </p>
+
+        <!-- EQ 진행 — 이력과 첨부를 **한 시간축**으로. 예전에는 반려 배너·내 파일 두 칸·받은
+             첨부·이력 details 네 곳에 흩어져 있어 협력사가 순서를 스스로 조립해야 했다. -->
+        <div v-if="detail.eq.delegatePoId === null && !detail.eq.blocked" class="mt-4">
+          <PcbEqTimeline
+            :history="detail.eq.history"
+            :files="detail.eq.files"
+            me-role="PARTNER"
+            :editable="filesEditable && detail.eq.myRole === 'RECEIVER'"
+            @download="downloadEq"
+            @delete="(fileId) => void deleteFile(fileId)"
+          />
+
+          <!-- 지금 할 일 — 타임라인의 마지막 칸. 무엇을 해야 하는지 한 문장으로 못박고,
+               할 수 있는 것만 버튼으로 연다(첨부는 승인요청 뒤 잠긴다). -->
+          <div class="mt-3 rounded-xl border border-blue-200 bg-blue-50/40 p-3">
+            <p class="text-sm font-bold text-blue-900">{{ nowTodo.title }}</p>
+            <p v-if="nowTodo.hint !== ''" class="mt-1 text-xs leading-5 text-blue-700">
+              {{ nowTodo.hint }}
+            </p>
+            <div
+              v-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
+              class="mt-2 flex flex-wrap gap-2"
+            >
               <button
-                v-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
                 type="button"
-                class="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                class="rounded-md border border-blue-300 bg-surface px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
                 :disabled="upload.isPending.value"
-                @click="pickAndUpload(kind)"
+                @click="pickAndUpload('eq')"
               >
-                ⬆ 업로드
+                ＋ EQ 질의서
+              </button>
+              <button
+                type="button"
+                class="rounded-md border px-2.5 py-1.5 text-xs font-semibold hover:bg-blue-50 disabled:opacity-40"
+                :class="hasWorkingFile ? 'border-blue-300 bg-surface text-blue-700' : 'border-amber-300 bg-amber-50 text-amber-700'"
+                :disabled="upload.isPending.value"
+                @click="pickAndUpload('working')"
+              >
+                ＋ Working 데이터
               </button>
             </div>
-            <p class="mt-1.5 text-xs" :class="kind === 'working' && !hasWorkingFile ? 'text-amber-700' : 'text-gray-400'">
-              {{ kind === 'eq' ? '제조 확인 사항이 있을 때만 첨부해 주세요.' : '생산에 사용할 작업 데이터가 있으면 업로드를 권장합니다.' }}
-            </p>
-            <!-- 다시 올려도 **이전 파일은 지워지지 않는다**(여러 장 올리는 경우를 위해).
-                 그래서 어느 것이 최신인지 밝히고, 쓰지 않을 파일은 지우라고 알린다 —
-                 남아 있으면 관리자가 그것을 보고 승인할 수 있다(여정 22호). -->
-            <ul class="mt-2 space-y-1">
-              <li
-                v-for="f in detail.eq.files.filter((x) => x.fileType === kind)"
-                :key="f.fileId"
-                class="flex items-center gap-2 text-xs"
-                :class="f.isLatest ? 'text-gray-600' : 'text-gray-400'"
-              >
-                <button type="button" class="truncate font-medium hover:underline" :class="f.isLatest ? 'text-blue-700' : 'text-gray-500'" @click="void downloadPartnerPcbEqFile(detail.poId, f.fileId, f.name)">
-                  {{ f.name }}
-                </button>
-                <span
-                  v-if="!f.isLatest"
-                  class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700"
-                >
-                  이전
-                </span>
-                <span v-else-if="detail.eq.files.filter((x) => x.fileType === kind).length > 1" class="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-700">
-                  최신
-                </span>
-                <!-- 1KB 미만은 바이트로(재점검 #20 — toFixed(0) 나누기는 작은 파일이 '0KB') -->
-                <span class="text-gray-300">{{ formatBytes(f.size) }}</span>
-                <button
-                  v-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
-                  type="button"
-                  class="text-gray-300 hover:text-red-600"
-                  aria-label="파일 삭제"
-                  @click="void deleteFile(f.fileId)"
-                >
-                  ✕
-                </button>
-              </li>
-              <li v-if="detail.eq.files.filter((x) => x.fileType === kind).length === 0" class="text-xs text-gray-300">
-                아직 없음
-              </li>
-            </ul>
-            <p
-              v-if="detail.eq.files.filter((x) => x.fileType === kind && !x.isLatest).length > 0"
-              class="mt-1.5 text-[11px] text-amber-700"
-            >
-              이전 파일도 그대로 남아 담당자에게 보입니다 —
-              {{ filesEditable && detail.eq.myRole === 'RECEIVER' ? '쓰지 않을 파일은 ✕ 로 지워 주세요.' : '잘못 올린 것이 있으면 담당자에게 알려 주세요.' }}
-            </p>
           </div>
-        </div>
-
-        <!-- 관리자 회신 — 위 두 칸(내가 올리는 것)과 **방향이 반대**인 첨부다. 받은 자료라
-             삭제 버튼이 없다(서버도 막는다). 반려 배너 바로 위에 둬서 "왜 되돌아왔는가"와
-             "무엇을 보고 고쳐야 하는가"가 한자리에서 읽히게 한다. -->
-        <div v-if="replyFiles.length > 0" class="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
-          <p class="text-sm font-bold text-blue-800">
-            관리자 회신 첨부 {{ replyFiles.length }}건
-          </p>
-          <p class="mt-0.5 text-xs text-blue-600">
-            수정 지시 자료입니다 — 확인 후 보완해서 다시 승인요청해 주세요.
-          </p>
-          <ul class="mt-2 space-y-1">
-            <li v-for="f in replyFiles" :key="f.fileId" class="flex items-center gap-2 text-xs">
-              <button
-                type="button"
-                class="truncate font-medium text-blue-700 hover:underline"
-                @click="void downloadPartnerPcbEqFile(detail.poId, f.fileId, f.name)"
-              >
-                {{ f.name }}
-              </button>
-              <span class="shrink-0 text-blue-300">{{ formatBytes(f.size) }}</span>
-              <span class="shrink-0 text-blue-400">{{ f.uploadedAt.slice(0, 10) }}</span>
-            </li>
-          </ul>
-        </div>
-
-        <!-- 반려 배너 — 되돌아온 이유를 가장 먼저 보여준다. 이력 <details> 안에만 두면
-             화면이 신규 발주와 똑같아져서 "왜 다시 왔지"를 알 수 없다. -->
-        <div v-if="eqRejection !== null" class="mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
-          <p class="text-sm font-bold text-red-700">EQ 반려 — 보완 후 다시 승인요청해 주세요</p>
-          <p v-if="eqRejection.note !== null && eqRejection.note !== ''" class="mt-1 whitespace-pre-wrap text-sm text-red-800">
-            {{ eqRejection.note }}
-          </p>
-          <p v-else class="mt-1 text-sm text-red-800">사유가 기록되지 않았습니다 — 담당자에게 문의해 주세요.</p>
-          <p class="mt-1.5 text-xs text-red-500">{{ eqRejection.at.slice(0, 16).replace('T', ' ') }}</p>
-          <!-- 보완 파일을 올렸는지 여기서 알려 준다. 파일 없이 재요청하면 관리자에게는
-               "같은 도면"으로 보여 다시 반려된다 — 왕복이 한 번 더 늘 뿐이다. -->
-          <p
-            class="mt-2 rounded px-2 py-1 text-xs font-semibold"
-            :class="hasFixAfterReject ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-red-700'"
-          >
-            {{ hasFixAfterReject
-              ? '반려 후 새 파일을 올렸습니다 — 승인요청을 진행해 주세요.'
-              : '아직 반려 후 새로 올린 파일이 없습니다. 파일 없이 다시 요청하면 같은 사유로 반려될 수 있습니다.' }}
-          </p>
         </div>
 
         <!-- 액션 -->
@@ -594,12 +555,7 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
           >
             {{ detail.eq.fallback ? `(MD 대행) ${forward.label}` : forward.label }}
           </button>
-          <p v-if="detail.status === 'issued' && !hasWorkingFile" class="max-w-xl text-xs leading-5 text-amber-700">
-            Working 파일은 생산 작업에 사용하는 자료입니다. 승인요청 후에는 추가·교체할 수 없으므로 지금 업로드를 권장합니다. 파일 없이도 승인요청할 수 있습니다.
-          </p>
-          <p v-else-if="detail.status === 'eq_requested'" class="text-sm text-gray-500">
-            샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.
-          </p>
+          <!-- 안내 문구는 위 '지금 할 일' 한 곳으로 모았다(같은 말을 두 번 하지 않는다). -->
           <button
             v-if="canRevert && revert !== null"
             type="button"
@@ -610,19 +566,6 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             ↩ {{ revert.label }}
           </button>
         </div>
-
-        <!-- 이력 -->
-        <details v-if="detail.eq.history.length > 0" class="mt-4 rounded-lg border border-gray-100">
-          <summary class="cursor-pointer px-3 py-2 text-xs font-bold text-gray-500">진행 이력 ({{ detail.eq.history.length }})</summary>
-          <ul class="space-y-1 px-3 pb-3 text-xs text-gray-500">
-            <li v-for="(ev, i) in [...detail.eq.history].reverse()" :key="i">
-              {{ ev.at.slice(0, 16).replace('T', ' ') }} · {{ ev.byRole }} ·
-              {{ PCB_PO_STATUS_LABELS[ev.fromStatus as keyof typeof PCB_PO_STATUS_LABELS] ?? ev.fromStatus }}
-              → {{ PCB_PO_STATUS_LABELS[ev.toStatus as keyof typeof PCB_PO_STATUS_LABELS] ?? ev.toStatus }}
-              <b v-if="ev.note !== null && ev.note !== ''" class="text-red-600">— {{ ev.note }}</b>
-            </li>
-          </ul>
-        </details>
       </section>
 
       <!-- P3 선적 — 발송 준비/핑퐁/입고확인 -->

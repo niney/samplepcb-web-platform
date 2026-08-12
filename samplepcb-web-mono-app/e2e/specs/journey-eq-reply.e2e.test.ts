@@ -25,15 +25,19 @@ import {
   RUN,
   api,
   cleanupPcbPos,
+  closeBrowser,
   countPcbResidue,
   createPcbPo,
   disconnectPrisma,
   getPartner,
   getPrisma,
+  gotoApp,
   mailpitMessage,
   mailpitSearch,
+  newSession,
   pickFreeSpecs,
   signJwt,
+  snap,
   type PartnerFixture,
 } from '../helpers';
 
@@ -118,6 +122,7 @@ describe.skipIf(!RUN)('EQ 회신 첨부 — 관리자 → 협력사 역방향', 
     await cleanupPcbPos(seeded);
     const residue = await countPcbResidue(seeded);
     expect(residue.pos, '시드 발주 잔재').toBe(0);
+    await closeBrowser();
     await disconnectPrisma();
   });
 
@@ -211,7 +216,29 @@ describe.skipIf(!RUN)('EQ 회신 첨부 — 관리자 → 협력사 역방향', 
     expect(full?.Attachments?.length ?? 0, '메일에 파일을 붙이지는 않는다').toBe(0);
   });
 
-  test('E6. 왕복이 닫힌다 — 보완 → 재요청 → 승인', async () => {
+  test('E6. 협력사 화면 — 반려가 대화 한 줄기로 읽힌다', async () => {
+    // API 가 옳아도 협력사가 **화면에서** 못 읽으면 왕복이 늘어난다. 반려 직후 상태(issued)
+    // 에서 포털 상세를 열어 타임라인·지금 할 일·회신 첨부가 실제로 보이는지 확인한다.
+    const session = await newSession({ mbId: owner.mbId ?? '', ttlSec: 3600 });
+    try {
+      await gotoApp(session.page, `/partner/pcb/pos/${String(poId)}`);
+      await session.page.waitForLoadState('networkidle');
+      const body = await session.page.locator('body').innerText();
+
+      expect(body, '반려가 타임라인에 선다').toContain('EQ 반려');
+      expect(body, '사유가 그대로 보인다').toContain('실크 위치를 좌측으로');
+      expect(body, '지금 할 일이 못박힌다').toContain('보완 파일을 올리고 다시 승인요청');
+      expect(body, '관리자 회신 첨부가 대화에 붙는다').toContain('markup-v1.zip');
+      expect(body, '받은 자료임을 라벨이 말한다').toContain('수정 지시');
+      // 내가 올린 것도 같은 축에 — 순서가 한 줄기여야 흐름이 읽힌다.
+      expect(body, '내 첨부도 타임라인에').toContain('eq-v1.zip');
+      await snap(session.page, 'eq-reply-partner-timeline');
+    } finally {
+      await session.context.close();
+    }
+  });
+
+  test('E7. 왕복이 닫힌다 — 보완 → 재요청 → 승인', async () => {
     // 반려로 issued 가 됐으니 협력사 첨부가 다시 열린다(보완분).
     const fix = await upload(P, partnerEqPath(), 'working', 'working-v2-fixed.zip');
     expect(fix.status, `보완 업로드: ${JSON.stringify(fix.json)}`).toBe(200);

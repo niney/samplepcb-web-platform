@@ -202,6 +202,118 @@ export const lastPcbEqRejectedAt = (
   history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
 ): string | null => lastPcbEqRejection(history)?.at ?? null;
 
+// ── EQ 타임라인 — 이력과 첨부를 한 시간축으로 ────────────────────────────────
+// EQ 왕복은 구조적으로 **대화**다: "이거 봐주세요(파일)" → "여기 고쳐주세요(사유+파일)" →
+// "고쳤습니다(파일)". 그런데 화면은 그 대화를 네 곳(반려 배너·내 파일 칸·받은 첨부·이력)에
+// 흩어 놓아, 협력사가 순서를 스스로 조립해야 했다. 여기서 한 축으로 합친다.
+//
+// 회차는 **반려를 경계로** 나눈다(A/S 회차 reorderRound 와는 다른 축 — 이름이 섞이지 않게
+// 주의). 왕복이 서너 번이면 화면이 길어지므로 최신만 펼치고 이전은 접는 것이 전제다.
+
+export interface PcbEqTimelineItem<F> {
+  /** event=상태 전이(승인요청·반려·승인…) · files=연속된 같은 주체의 업로드 묶음 */
+  kind: 'event' | 'files';
+  at: string;
+  byRole: string; // ADMIN | PARTNER | MASTER_DEALER
+  fromStatus?: string;
+  toStatus?: string;
+  note?: string | null;
+  files?: F[];
+}
+
+export interface PcbEqTimelineRound<F> {
+  /** 1부터 — 반려로 닫힐 때마다 다음 회차가 열린다. */
+  index: number;
+  items: PcbEqTimelineItem<F>[];
+  /** 이 회차를 닫은 반려 사유. 진행 중인 마지막 회차는 null. */
+  closedByNote: string | null;
+}
+
+/**
+ * 이력 + 첨부를 시간 순으로 병합해 회차별로 나눈다.
+ *
+ * 파일은 이벤트에 붙이지 않고 **자기 시각 그대로** 놓는다 — "언제 올렸는지"가 곧 흐름이고,
+ * 승인요청 전에 올린 것과 반려 후 올린 것이 자연히 갈린다. 다만 연속된 같은 주체의 업로드는
+ * 한 묶음으로 접는다(파일 다섯 개가 말풍선 다섯 개가 되면 대화가 안 읽힌다).
+ *
+ * ⚠ 같은 시각 정렬 — **파일이 먼저, 전이가 나중**이다(올리고 나서 승인요청을 누른다). 그 다음
+ *   각자 fileId·입력 순서로 안정화한다. 두 종류의 seq(이벤트 인덱스 vs fileId)를 한 수로
+ *   비교하면 안 된다 — 같은 수 공간이 아니라 앞뒤가 뒤집힌다.
+ */
+export const buildPcbEqTimeline = <
+  F extends { fileId: number; uploadedAt: string; uploadedBy: string | null },
+>(
+  history: readonly { at: string; byRole: string; fromStatus: string; toStatus: string; note: string | null }[],
+  files: readonly F[],
+): PcbEqTimelineRound<F>[] => {
+  type Sortable = { at: string; kindOrder: number; seq: number; item: PcbEqTimelineItem<F> };
+  const rows: Sortable[] = [];
+  history.forEach((e, i) => {
+    rows.push({
+      at: e.at,
+      kindOrder: 1, // 같은 시각이면 전이가 뒤 — 파일을 올리고 나서 누른다
+      seq: i,
+      item: {
+        kind: 'event',
+        at: e.at,
+        byRole: e.byRole,
+        fromStatus: e.fromStatus,
+        toStatus: e.toStatus,
+        note: e.note,
+      },
+    });
+  });
+  for (const f of files) {
+    rows.push({
+      at: f.uploadedAt,
+      kindOrder: 0,
+      seq: f.fileId,
+      item: {
+        kind: 'files',
+        at: f.uploadedAt,
+        byRole: f.uploadedBy ?? 'PARTNER',
+        files: [f],
+      },
+    });
+  }
+  rows.sort((a, b) =>
+    a.at < b.at ? -1 : a.at > b.at ? 1 : a.kindOrder - b.kindOrder || a.seq - b.seq,
+  );
+
+  const rounds: PcbEqTimelineRound<F>[] = [{ index: 1, items: [], closedByNote: null }];
+  for (const row of rows) {
+    const cur = rounds[rounds.length - 1];
+    if (cur === undefined) continue;
+    const last = cur.items[cur.items.length - 1];
+    // 연속된 같은 주체의 업로드는 한 말풍선으로 합친다.
+    if (
+      row.item.kind === 'files' &&
+      last !== undefined &&
+      last.kind === 'files' &&
+      last.byRole === row.item.byRole
+    ) {
+      last.files = [...(last.files ?? []), ...(row.item.files ?? [])];
+      continue;
+    }
+    cur.items.push(row.item);
+    // 반려(사유 있는 eq_requested→issued)가 회차를 닫는다 — lastPcbEqRejection 과 같은 사전.
+    if (
+      row.item.kind === 'event' &&
+      row.item.fromStatus === 'eq_requested' &&
+      row.item.toStatus === 'issued' &&
+      row.item.note !== null &&
+      row.item.note !== undefined &&
+      row.item.note !== ''
+    ) {
+      cur.closedByNote = row.item.note;
+      rounds.push({ index: cur.index + 1, items: [], closedByNote: null });
+    }
+  }
+  // 마지막 회차가 비어 있으면(반려 직후 아무 일도 없음) 빈 칸을 남긴다 — "지금 당신 차례"가
+  // 그 빈 자리로 보이는 게 맞다(화면이 '지금 할 일' 블록을 거기 붙인다).
+  return rounds;
+};
+
 export const PcbEqEvent = z.object({
   at: z.string(),
   byRole: z.string(), // ADMIN|PARTNER|MASTER_DEALER
@@ -498,6 +610,9 @@ export const PartnerPcbPoListItem = z.object({
   issuedAt: z.string(),
   /** 내 차례(수주 방향 RECEIVER 액션 — 위임·차단 반영). */
   myTurn: z.boolean(),
+  /** 직전 EQ 반려 시각(없으면 null) — myTurn 만으로는 **왜** 내 차례인지 모른다(첫 EQ 요청과
+   *  반려 뒤 보완이 같은 얼굴이 된다). 포털에 들어오자마자 갈리게 하는 배지의 근거. */
+  rejectedAt: z.string().nullable().default(null),
 });
 export type PartnerPcbPoListItemType = z.infer<typeof PartnerPcbPoListItem>;
 

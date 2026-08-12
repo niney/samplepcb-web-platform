@@ -983,6 +983,8 @@ export const loadPartnerPcbPos = async (
       remittedAt: iso(po.remittedAt),
       issuedAt: po.issuedAt.toISOString(),
       myTurn: eqTurn || shipTurn,
+      // 이력은 행에 이미 있다 — 관리자 워크큐 배지와 같은 사전(추가 조회 없음).
+      rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
     });
   }
   for (const po of issued) {
@@ -1010,6 +1012,8 @@ export const loadPartnerPcbPos = async (
       issuedAt: po.issuedAt.toISOString(),
       // EQ 승인은 관리자 몫(D3)이지만 하위 **입고 확인**은 MD 차례다(P3).
       myTurn: inboundTurn,
+      // 내가 발주한 축(하위 진행분)의 반려 이력 — 상대가 보완 중임을 MD 도 알아야 한다.
+      rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
     });
   }
   items.sort((a, b) => (a.issuedAt < b.issuedAt ? 1 : -1));

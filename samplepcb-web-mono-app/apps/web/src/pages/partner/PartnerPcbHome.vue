@@ -234,6 +234,14 @@ const rfqStatusCls = (s: string): string =>
                 <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-700">
                   A/S {{ po.reorderRound }}차
                 </span>
+                <!-- '내 차례'만으로는 **왜** 내 차례인지 모른다 — 첫 EQ 요청과 반려 뒤 보완이
+                     같은 얼굴이 된다. 들어오자마자 갈리게 한다. -->
+                <span
+                  v-if="po.status === 'issued' && po.rejectedAt !== null"
+                  class="ml-1 rounded bg-red-100 px-1 text-[11px] font-bold text-red-700"
+                >
+                  반려됨 — 보완 필요
+                </span>
               </p>
               <p class="mt-0.5 text-sm text-gray-500">
                 {{ po.qty }}매 · {{ po.counterpartyName }} ·
