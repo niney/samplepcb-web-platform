@@ -9,12 +9,14 @@ import {
   isPcbDeliveryOverdue,
   canEditPcbEqFile,
   lastPcbEqRejectedAt,
+  lastPcbEqRejection,
   pcbMarginPercent,
   pcbSellingPrice,
   resolvePcbDirectShipCountry,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
   type PcbEqFileTypeType,
+  type PcbEqRejection,
   type BomShipmentStatusType,
   type PcbRfqReplyBodyType,
   type PcbShipmentAdvanceBodyType,
@@ -983,6 +985,11 @@ const replyFilesOf = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
 // **사이**에 올라온다. 그 구간이 비어 있는데 다시 승인요청이 와 있으면 협력사가 **같은
 // 도면으로 재요청**한 것이다. 승인 버튼 옆에서 말해 주지 않으면 관리자는 "보완됐겠지" 하고
 // 누른다 — 반려 사유가 반영되지 않은 채 생산으로 넘어간다.
+// 직전 반려(시각+사유) — 상태 칸이 "돌려보낸 건"임을 말하고 사유를 그대로 보여 준다.
+// 데이터는 상세 응답의 eqHistory 에 이미 있다(추가 조회 없음). 판정은 계약 순수 함수.
+const poRejection = (po: AdminPcbPoViewType): PcbEqRejection | null =>
+  lastPcbEqRejection(po.eqHistory);
+
 const eqUnfixedAfterReject = (po: AdminPcbPoViewType): boolean =>
   po.status === 'eq_requested' &&
   lastPcbEqRejectedAt(po.eqHistory) !== null &&
@@ -1741,10 +1748,26 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     포털 계정 없음 — 대행 필요
                   </p>
                 </td>
-                <td class="whitespace-nowrap px-4 py-2.5">
-                  <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="PO_STATUS_CLS[po.status]">
+                <td class="px-4 py-2.5">
+                  <span class="whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold" :class="PO_STATUS_CLS[po.status]">
                     {{ PCB_PO_STATUS_LABELS[po.status] }}
                   </span>
+                  <!-- 반려하면 상태가 issued 로 돌아가 화면엔 '발주접수'만 남는다 — 방금
+                       돌려보낸 건과 발주 직후인 건이 글자까지 같아진다. 워크큐와 **같은 문구**로
+                       갈라 주고, 내가 쓴 사유를 함께 보여 준다(재요청이 오면 대조할 근거다). -->
+                  <span
+                    v-if="po.status === 'issued' && poRejection(po) !== null"
+                    class="ml-1 whitespace-nowrap rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
+                  >
+                    반려됨 {{ fmtKstDate(poRejection(po)?.at ?? null) }}
+                  </span>
+                  <p
+                    v-if="poRejection(po) !== null && (po.status === 'issued' || po.status === 'eq_requested')"
+                    class="mt-1 max-w-[13rem] truncate text-[11px] text-red-600"
+                    :title="poRejection(po)?.note"
+                  >
+                    “{{ poRejection(po)?.note }}”
+                  </p>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 tabular-nums">
                   {{ pcbMoneyWithSub(po.currency, po.priceOriginal, po.subCurrency, po.subPriceOriginal) }}

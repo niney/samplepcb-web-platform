@@ -166,9 +166,22 @@ export const orderPcbEqFiles = <
  * 보완 파일은 반드시 반려와 재요청 **사이**에 올라온다. 그 구간에 아무것도 없으면 협력사가
  * 같은 도면으로 다시 승인을 요청한 것이고, 관리자는 그것을 모른 채 승인하게 된다.
  */
-export const lastPcbEqRejectedAt = (
+export interface PcbEqRejection {
+  at: string;
+  /** 관리자가 쓴 반려 사유 — 협력사에게 메일로 나간 그 문장이다. */
+  note: string;
+}
+
+/**
+ * 가장 최근 EQ 반려(시각 + 사유) — 없으면 null. 판정 규칙은 위 설명과 같다.
+ *
+ * 사유까지 돌려주는 이유: 관리자 화면이 **자기가 뭐라고 썼는지**를 보여줘야 한다. 반려하면
+ * 상태가 issued 로 돌아가 화면에는 '발주접수'만 남는데, 그러면 방금 돌려보낸 건과 발주
+ * 직후인 건이 글자까지 같아진다. 재요청이 왔을 때 무엇을 고쳐 달라 했는지 대조할 근거도 없다.
+ */
+export const lastPcbEqRejection = (
   history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
-): string | null => {
+): PcbEqRejection | null => {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const e = history[i];
     if (e === undefined) continue;
@@ -179,11 +192,15 @@ export const lastPcbEqRejectedAt = (
       e.note !== '' &&
       e.at !== ''
     ) {
-      return e.at;
+      return { at: e.at, note: e.note };
     }
   }
   return null;
 };
+
+export const lastPcbEqRejectedAt = (
+  history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
+): string | null => lastPcbEqRejection(history)?.at ?? null;
 
 export const PcbEqEvent = z.object({
   at: z.string(),
