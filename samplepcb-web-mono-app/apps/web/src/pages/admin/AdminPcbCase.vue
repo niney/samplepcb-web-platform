@@ -54,6 +54,7 @@ import {
 } from '../../admin/useAdminPcbPos';
 import { useConfirmPcbOrderReceipt, usePcbCompleteCustomerOrder } from '../../admin/useAdminPcbOrders';
 import EstimateModal from '../../components/admin/EstimateModal.vue';
+import { emptyMailLogFilters, useAdminMailLogList } from '../../admin/useAdminMailLogs';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
@@ -134,6 +135,54 @@ const selectedRow = computed(() => adminRows.value.find((r) => r.status === 'sel
 // 견적서(A4 보기·인쇄·발송) — 견적 관리 드로어와 **같은 모달**을 쓴다(창구만 둘).
 // 확정가 등록이 이 화면에서 끝나므로 "확정 → 곧장 발송"이 여기서 이어진다.
 const estimateProjectId = ref<number | null>(null);
+
+// 견적서를 보냈는가 — 발송 원장(sp_mail_log)에 이미 다 남아 있으므로 새 API 를 만들지 않고
+// 같은 목록을 kind/channel 로 좁혀 **최신 1건만** 본다. 아래 '보낸 메일' 섹션과 같은 원장이라
+// 두 표시가 어긋날 수 없다. 알림톡은 게이트가 따로라(로컬 skipped) 이메일 축으로만 판정한다.
+// refId 를 '0' 으로 두는 건 specId 미확정 구간에 **전역 최신 1건**이 딸려오는 것을 막기 위함이다
+// (필터는 빈 문자열을 '전체'로 읽는다).
+const estimateMailFilters = computed(() =>
+  emptyMailLogFilters({
+    refType: 'pcb_spec',
+    refId: String(specId.value ?? 0),
+    kind: 'estimate',
+    channel: 'email',
+    pageSize: 1,
+  }),
+);
+const estimateMailQuery = useAdminMailLogList(estimateMailFilters);
+const lastEstimateMail = computed(() => estimateMailQuery.data.value?.data.items[0] ?? null);
+const estimateSentBadge = computed<{ label: string; cls: string; title: string } | null>(() => {
+  const m = lastEstimateMail.value;
+  if (m === null) return null;
+  const when = fmtKstDate(m.createdAt);
+  if (m.status === 'sent')
+    return {
+      label: `견적서 발송 ${when}`,
+      cls: 'bg-emerald-100 text-emerald-700',
+      title: `${m.recipient} 로 발송했습니다. 다시 보내려면 [견적서]를 열어 발송하세요.`,
+    };
+  if (m.status === 'failed')
+    return {
+      label: '견적서 발송 실패',
+      cls: 'bg-red-100 text-red-700',
+      title: `${when} 발송 실패(${m.reason ?? '사유 미상'}) — [견적서]에서 다시 보내세요.`,
+    };
+  // skipped = 보내려 했으나 채널이 꺼졌거나 수신처가 없었다. "안 보냈다"를 숨기지 않는다.
+  return {
+    label: '견적서 미발송',
+    cls: 'bg-amber-100 text-amber-700',
+    title: `${when} 발송 건너뜀(${m.reason ?? '사유 미상'}) — 설정·수신처를 확인하세요.`,
+  };
+});
+
+// 확정 직후 유도 — 확정가 등록은 자동 발송을 하지 않는다(진입점이 둘이라 선정 중에 고객
+// 메일이 나가는 사고를 만들지 않는다). 대신 "이제 보낼 수 있다"를 한 번 말해 준다.
+const estimatePromptOpen = ref(false);
+const openEstimateFromPrompt = (): void => {
+  estimatePromptOpen.value = false;
+  estimateProjectId.value = specId.value;
+};
 // 발행 가능 판정은 드로어와 같은 규칙(활성 ∧ 가격 확정). 다만 **버튼은 감추지 않는다** —
 // 이 화면은 RFQ 워크큐의 종착지라 확정 전 건이 다수인데, 조건부로 숨기면 기능이 있다는
 // 사실 자체가 안 보인다(PcbSelectionBar 와 같은 규율). 대신 비활성 + 사유 툴팁.
@@ -253,6 +302,8 @@ async function submitPrice(): Promise<void> {
   try {
     await confirmPrice.mutateAsync({ projectId: specId.value, finalPrice: Math.round(value) });
     priceModalOpen.value = false;
+    // 확정만으로는 고객이 모른다 — 발송 동선을 여기서 한 번 권한다(자동 발송은 하지 않는다).
+    estimatePromptOpen.value = true;
   } catch (e) {
     surfaceError(e, '확정가 등록에 실패했습니다.');
   }
@@ -1185,12 +1236,23 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       >
         배송 처리 대기 · 배송 처리 →
       </button>
+      <!-- 보낸 흔적 — 버튼 왼쪽에 둔다. "눌러야 할 것"보다 "이미 한 일"이 앞에 와야
+           같은 건을 두 번 보내지 않는다. -->
+      <span
+        v-if="specId !== null && estimateSentBadge !== null"
+        class="ml-auto rounded px-1.5 py-0.5 text-[11px] font-semibold"
+        :class="estimateSentBadge.cls"
+        :title="estimateSentBadge.title"
+      >
+        {{ estimateSentBadge.label }}
+      </span>
       <!-- 견적서 — 위험 버튼(삭제) 왼쪽에 중립 색으로 세워 둘이 시각적으로 갈리게 한다.
            확정 전이어도 자리를 지킨다(비활성 + 사유 툴팁). -->
       <button
         v-if="specId !== null"
         type="button"
-        class="ml-auto rounded-md border border-blue-300 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
+        class="rounded-md border border-blue-300 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
+        :class="estimateSentBadge === null ? 'ml-auto' : ''"
         :disabled="!estimateEnabled"
         :title="estimateBlockedReason"
         @click="estimateProjectId = specId"
@@ -1206,6 +1268,34 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         @click="deleteOpen = true"
       >
         견적 삭제
+      </button>
+    </div>
+
+    <!-- 확정 직후 발송 유도 — 확정가를 등록해도 고객에게는 아무것도 가지 않는다(자동 발송
+         없음). 그 사실을 모르면 "확정했으니 됐다"로 끝나므로 이 자리에서 한 번 권한다. -->
+    <div
+      v-if="estimatePromptOpen"
+      class="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm"
+    >
+      <span class="font-semibold text-blue-800">확정가가 등록됐습니다.</span>
+      <span class="text-blue-700">
+        {{ lastEstimateMail === null
+          ? '고객에게 견적서를 보낼 수 있습니다.'
+          : '바뀐 금액으로 견적서를 다시 보낼 수 있습니다.' }}
+      </span>
+      <button
+        type="button"
+        class="ml-auto rounded-md bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700"
+        @click="openEstimateFromPrompt"
+      >
+        견적서 열기 →
+      </button>
+      <button
+        type="button"
+        class="rounded-md px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+        @click="estimatePromptOpen = false"
+      >
+        나중에
       </button>
     </div>
 
