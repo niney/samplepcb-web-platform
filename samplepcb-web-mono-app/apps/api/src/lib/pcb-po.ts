@@ -138,11 +138,16 @@ const resolveEqDelegation = async (po: SpPcbPo): Promise<EqDelegation> => {
 // (orderPcbEqFiles 몫).
 type EqFileBase = Omit<PcbEqFileViewType, 'isLatest' | 'afterReject'>;
 
+// DB 컬럼은 문자열 — 계약 유니온으로 총함수 내로잉. ⚠ 새 종류를 여기 안 더하면 그 파일이
+// 조용히 'eq' 로 뭉개져 협력사 질의서 칸에 섞인다(방향을 가르려고 종류를 만든 의미가 사라진다).
+const asEqFileType = (v: string | null): PcbEqFileTypeType =>
+  v === 'working' ? 'working' : v === 'reply' ? 'reply' : 'eq';
+
 const toEqFileView = (f: SpFile): EqFileBase => ({
   fileId: Number(f.id),
   name: f.originFileName,
   size: Number(f.size),
-  fileType: f.fileType === 'working' ? 'working' : 'eq',
+  fileType: asEqFileType(f.fileType),
   uploadedBy: f.uploadedBy,
   uploadedAt: f.writeDate.toISOString(),
 });
@@ -217,6 +222,22 @@ export const getPcbEqFileDownload = async (
   if (row === null) return null;
   if (row.refType !== EQ_REF_TYPE || row.refId !== poId) return null;
   return { pathToken: row.pathToken, originFileName: row.originFileName };
+};
+
+/** 이 발주의 관리자 회신 첨부 수 — 반려 메일이 "첨부가 있다"를 말할 근거. */
+export const countPcbEqReplyFiles = async (poId: bigint): Promise<number> =>
+  prisma.spFile.count({ where: { refType: EQ_REF_TYPE, refId: poId, fileType: 'reply' } });
+
+/** 삭제 가능 판정에 종류가 필요하다 — 회신(reply)과 협력사 산출물은 잠기는 시점이 다르고,
+ *  협력사는 회신 파일을 지울 수 없다(관리자가 준 것이다). 없으면 null. */
+export const getPcbEqFileType = async (
+  poId: bigint,
+  fileId: bigint,
+): Promise<PcbEqFileTypeType | null> => {
+  const row = await prisma.spFile.findUnique({ where: { id: fileId } });
+  if (row === null) return null;
+  if (row.refType !== EQ_REF_TYPE || row.refId !== poId) return null;
+  return asEqFileType(row.fileType);
 };
 
 // ── 직렬화 ───────────────────────────────────────────────────────────────────

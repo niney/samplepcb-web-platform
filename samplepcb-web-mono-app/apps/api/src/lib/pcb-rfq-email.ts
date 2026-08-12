@@ -384,6 +384,9 @@ export interface PcbEqDecisionEmailParams extends PcbPortalCtaParams {
   reason: string | null; // 반려 사유
   /** 대상 발주 — 있으면 버튼이 발주 상세로 간다(없으면 포털 홈 폴백). */
   poId?: string;
+  /** 관리자 회신 첨부 수 — 파일 자체는 붙이지 않는다(포털에서 받는다). 0=언급 없음.
+   *  사유만 오는 메일과 "첨부를 봐야 하는" 메일은 다른 행동을 부른다. */
+  replyFileCount?: number;
 }
 
 /** EQ 승인/반려 → 수주 협력사 통지. */
@@ -408,7 +411,14 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
             ? '사유 확인 후 보완 파일을 샘플피씨비 담당자에게 전달해 주세요 — 재승인요청은 담당자가 대행합니다.'
             : '사유 확인 후 파일 보완 → 다시 승인요청해 주세요.'
         }</p>
-      ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">반려 사유: <b>${esc(p.reason)}</b></p>`}`;
+      ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">반려 사유: <b>${esc(p.reason)}</b></p>`}
+      ${
+        (p.replyFileCount ?? 0) === 0
+          ? ''
+          : `<p style="margin:0 0 12px;font-size:13px;color:#1d4ed8;line-height:1.6;">
+        수정 지시 첨부 <b>${String(p.replyFileCount)}건</b>이 함께 있습니다 —
+        ${noAccount ? '담당자에게 요청해 받아 보세요.' : '포털 발주 상세의 [관리자 회신]에서 내려받아 확인해 주세요.'}</p>`
+      }`;
   const target = p.poId === undefined ? pcbPartnerPortalUrl() : pcbPartnerPoUrl(p.poId);
   // 계정 없는 조직 — 포털 버튼 대신 대행 안내(열어도 로그인 화면에서 막히는 CTA 를 없앤다).
   const cta = noAccount

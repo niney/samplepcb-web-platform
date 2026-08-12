@@ -13,6 +13,7 @@ import {
   type AdminPcbPoPatchBodyType,
   type AdminPcbPoTabType,
   type AdminPcbShipmentTabType,
+  type PcbEqFileTypeType,
   type BomInvoiceDataType,
   type PcbShipmentAdvanceBodyType,
 } from '@sp/api-contract';
@@ -211,7 +212,8 @@ export function useUploadAdminPcbEqFile() {
       specId: number;
       poId: number;
       file: File;
-      fileType: 'eq' | 'working';
+      // reply = 관리자 회신(반려하며 돌려보내는 수정지시) — 협력사 산출물과 방향이 반대다.
+      fileType: PcbEqFileTypeType;
     }) => {
       const form = new FormData();
       form.set('fileType', fileType);

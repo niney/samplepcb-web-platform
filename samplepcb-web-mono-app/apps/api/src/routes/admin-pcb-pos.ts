@@ -16,15 +16,20 @@ import {
   PcbPoRejectBody,
   PcbShipmentAdvanceBody,
   PcbShipmentReceiveBody,
+  asPcbEqFileType,
   bomShipmentStatusLabel,
+  canEditPcbEqFile,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
   advancePcbPoEq,
+  asPcbPoStatus,
+  countPcbEqReplyFiles,
   createAdminPcbPo,
   deletePcbPo,
   deletePcbEqFile,
   getPcbEqFileDownload,
+  getPcbEqFileType,
   loadAdminPcbPoWorkItems,
   loadAdminPcbPos,
   loadPcbPoWithPartner,
@@ -347,9 +352,12 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           .status(409)
           .send({ error: res.error, message: 'EQ 승인요청 상태에서만 반려할 수 있습니다.' });
 
-      const [spec, portalCta] = await Promise.all([
+      const [spec, portalCta, replyFileCount] = await Promise.all([
         prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
         resolvePcbPortalCta(po.partnerId),
+        // 회신 첨부는 메일에 붙이지 않는다(포털에서 받는다) — 대신 **있다는 사실**을 알린다.
+        // 사유만 오는 반려와 "도면을 봐야 하는" 반려는 협력사가 할 일이 다르다.
+        countPcbEqReplyFiles(po.id),
       ]);
       void sendPcbMail(
         request.log,
@@ -360,6 +368,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           approved: false,
           reason: request.body.reason,
           poId: String(po.id),
+          replyFileCount,
           ...portalCta,
         }),
         {
@@ -429,27 +438,33 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     );
   }
 
-  // ── EQ 첨부 대행 업로드/삭제(D11) — 포털과 같은 잠금 규칙(issued 에서만) ──────
+  // ── EQ 첨부 업로드/삭제 — 두 갈래다 ─────────────────────────────────────────
+  // ① eq·working = 협력사 산출물 대행 업로드(D11) — 포털과 같은 잠금(issued 에서만)
+  // ② reply = **관리자 회신**(반려하며 돌려보내는 수정지시) — 승인요청을 받은 상태에서도
+  //    붙일 수 있다. 판정은 계약의 canEditPcbEqFile 하나(포털과 같은 사전).
   fastify.post(
     '/pcb-projects/:id/pos/:poId/eq-files',
     { schema: { params: PoParams, response: { 200: PcbPoActionResponse, 400: ApiError, 409: ApiError } } },
     async (request, reply) => {
       const { files, fields } = await collectMultipart(request);
-      const kind = fields.fileType === 'working' ? 'working' : fields.fileType === 'eq' ? 'eq' : null;
+      const kind = asPcbEqFileType(fields.fileType);
       const file = files[0];
       if (kind === null || file === undefined) {
         return reply.status(400).send({
           error: 'BAD_UPLOAD',
-          message: 'fileType(eq|working)과 파일이 필요합니다.',
+          message: 'fileType(eq|working|reply)과 파일이 필요합니다.',
         });
       }
       const po = await loadPcbPoWithPartner(request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
-      if (po.status !== 'issued') {
+      if (!canEditPcbEqFile(kind, asPcbPoStatus(po.status))) {
         return reply.status(409).send({
           error: 'EQ_LOCKED',
-          message: 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+          message:
+            kind === 'reply'
+              ? '생산이 시작된 뒤에는 회신 첨부를 올릴 수 없습니다.'
+              : 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
         });
       }
       await uploadPcbEqFile(po.id, file, kind, 'ADMIN');
@@ -464,10 +479,16 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const po = await loadPcbPoWithPartner(request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
-      if (po.status !== 'issued') {
+      // 잠금은 **종류마다 다르다** — 회신(reply)은 승인요청 중에도 붙였다 뗄 수 있어야 한다.
+      const kind = await getPcbEqFileType(po.id, request.params.fileId);
+      if (kind === null) return reply.notFound('파일을 찾을 수 없습니다');
+      if (!canEditPcbEqFile(kind, asPcbPoStatus(po.status))) {
         return reply.status(409).send({
           error: 'EQ_LOCKED',
-          message: 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+          message:
+            kind === 'reply'
+              ? '생산이 시작된 뒤에는 회신 첨부를 지울 수 없습니다.'
+              : 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
         });
       }
       const removed = await deletePcbEqFile(po.id, request.params.fileId);

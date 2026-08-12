@@ -7,12 +7,14 @@ import {
   PCB_RFQ_STATUS_LABELS,
   bomShipmentNextStatus,
   isPcbDeliveryOverdue,
+  canEditPcbEqFile,
   lastPcbEqRejectedAt,
   pcbMarginPercent,
   pcbSellingPrice,
   resolvePcbDirectShipCountry,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
+  type PcbEqFileTypeType,
   type BomShipmentStatusType,
   type PcbRfqReplyBodyType,
   type PcbShipmentAdvanceBodyType,
@@ -698,7 +700,7 @@ async function runSubstitute(po: AdminPcbPoViewType): Promise<void> {
     surfaceError(e, '대행 진행에 실패했습니다.');
   }
 }
-function pickEqFileAdmin(po: AdminPcbPoViewType, fileType: 'eq' | 'working'): void {
+function pickEqFileAdmin(po: AdminPcbPoViewType, fileType: PcbEqFileTypeType): void {
   if (specId.value === null) return;
   const input = document.createElement('input');
   input.type = 'file';
@@ -762,10 +764,17 @@ const rejectFields = computed<PromptField[]>(() => {
       required: true,
       value: fromCustomer,
       placeholder: '예) 실크 위치를 좌측으로 옮겨 주세요.',
-      hint:
+      // 회신 첨부는 이 모달이 아니라 첨부 칸에서 올린다(여러 장·반려 전 미리 올리기를 위해).
+      // 대신 **몇 건이 함께 가는지**를 여기서 말해 준다 — 안 붙이고 보내는 실수를 막는다.
+      hint: `${
         fromCustomer === ''
           ? '이 문장이 협력사에게 메일로 전달됩니다.'
-          : '고객이 남긴 사유를 채워 두었습니다 — 그대로 보내거나 다듬어 주세요.',
+          : '고객이 남긴 사유를 채워 두었습니다 — 그대로 보내거나 다듬어 주세요.'
+      }${
+        po === null || replyFilesOf(po).length === 0
+          ? ' 회신 첨부는 [↩ 회신]의 [⬆ 회신 첨부]로 올릴 수 있습니다.'
+          : ` 회신 첨부 ${String(replyFilesOf(po).length)}건이 함께 전달됩니다.`
+      }`,
     },
   ];
 });
@@ -967,10 +976,21 @@ const toggleEqHistory = (poId: number): void => {
     ? eqHistoryOpen.value.filter((id) => id !== poId)
     : [...eqHistoryOpen.value, poId];
 };
+// 협력사 산출물(eq·working)과 관리자 회신(reply)은 **방향이 반대**라 한 줄에 섞지 않는다.
+// 섞으면 "협력사가 올린 것"과 "우리가 보낸 것"을 색만으로 구분해야 하고, 승인 근거를 고를 때
+// 위험하다. 아래 두 함수는 협력사 산출물 축만 본다.
+const partnerEqFiles = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
+  po.eqFiles.filter((f) => f.fileType !== 'reply');
 const eqFilesShown = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
-  eqHistoryOpen.value.includes(po.poId) ? po.eqFiles : po.eqFiles.filter((f) => f.isLatest);
+  eqHistoryOpen.value.includes(po.poId)
+    ? partnerEqFiles(po)
+    : partnerEqFiles(po).filter((f) => f.isLatest);
 const eqOlderCount = (po: AdminPcbPoViewType): number =>
-  po.eqFiles.filter((f) => !f.isLatest).length;
+  partnerEqFiles(po).filter((f) => !f.isLatest).length;
+
+// 관리자 회신 첨부 — 반려하며 돌려보내는 수정지시. 협력사는 못 지운다(서버가 막는다).
+const replyFilesOf = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
+  po.eqFiles.filter((f) => f.fileType === 'reply');
 
 // 반려 뒤 보완 — 첨부는 승인요청 뒤 잠기므로(EQ_LOCKED) 보완 파일은 반드시 반려와 재요청
 // **사이**에 올라온다. 그 구간이 비어 있는데 다시 승인요청이 와 있으면 협력사가 **같은
@@ -1821,7 +1841,48 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       ⬆ working
                     </button>
                   </template>
-                  <span v-else-if="po.eqFiles.length === 0" class="text-xs text-gray-300">—</span>
+                  <span
+                    v-else-if="po.eqFiles.length === 0"
+                    class="text-xs text-gray-300"
+                  >—</span>
+
+                  <!-- 관리자 회신 — 우리가 협력사에게 **보내는** 첨부(수정지시 도면·마크업).
+                       줄을 갈라 방향을 눈에 보이게 한다. 승인요청을 받은 상태에서도 붙일 수
+                       있다(그때가 회신할 순간이다 — 계약 canEditPcbEqFile). -->
+                  <div
+                    v-if="replyFilesOf(po).length > 0 || canEditPcbEqFile('reply', po.status)"
+                    class="mt-1.5 flex flex-wrap items-center gap-1 border-t border-dashed border-gray-200 pt-1.5"
+                  >
+                    <span class="text-[11px] font-semibold text-blue-500">↩ 회신</span>
+                    <span v-for="f in replyFilesOf(po)" :key="f.fileId" class="inline-flex items-center">
+                      <button
+                        type="button"
+                        class="rounded-l border border-blue-200 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+                        :title="`관리자 회신 · ${f.name} — 협력사가 포털에서 받습니다`"
+                        @click="specId !== null && void downloadAdminPcbEqFile(specId, po.poId, f.fileId, f.name)"
+                      >
+                        ⬇ {{ f.name }}
+                      </button>
+                      <button
+                        v-if="canEditPcbEqFile('reply', po.status)"
+                        type="button"
+                        class="rounded-r border border-l-0 border-blue-200 px-1 py-0.5 text-[11px] text-blue-300 hover:bg-red-50 hover:text-red-600"
+                        title="회신 첨부 삭제"
+                        @click="void removeEqFileAdmin(po, f.fileId)"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                    <button
+                      v-if="canEditPcbEqFile('reply', po.status)"
+                      type="button"
+                      class="rounded border border-dashed border-blue-300 px-1.5 py-0.5 text-[11px] font-semibold text-blue-600 hover:bg-blue-50"
+                      title="협력사에게 돌려보낼 수정지시 파일을 첨부합니다 — 반려 메일이 첨부 사실을 알립니다."
+                      @click="pickEqFileAdmin(po, 'reply')"
+                    >
+                      ⬆ 회신 첨부
+                    </button>
+                  </div>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-right text-xs">
                   <template v-if="po.status === 'eq_requested' && po.eqDelegatePoId === null">

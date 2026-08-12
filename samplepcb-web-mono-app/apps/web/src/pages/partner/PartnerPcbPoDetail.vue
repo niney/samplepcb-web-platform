@@ -103,6 +103,10 @@ const canRevert = computed(
 const hasWorkingFile = computed(
   () => detail.value?.eq.files.some((f) => f.fileType === 'working') ?? false,
 );
+// 관리자가 보낸 회신 첨부 — 위 두 칸은 fileType===kind 로 걸러 자동 제외되므로 여기서 따로 모은다.
+const replyFiles = computed(
+  () => detail.value?.eq.files.filter((f) => f.fileType === 'reply') ?? [],
+);
 const filesEditable = computed(() => detail.value?.status === 'issued');
 
 // ── 파일 업로드 ──────────────────────────────────────────────────────────────
@@ -530,6 +534,31 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
               {{ filesEditable && detail.eq.myRole === 'RECEIVER' ? '쓰지 않을 파일은 ✕ 로 지워 주세요.' : '잘못 올린 것이 있으면 담당자에게 알려 주세요.' }}
             </p>
           </div>
+        </div>
+
+        <!-- 관리자 회신 — 위 두 칸(내가 올리는 것)과 **방향이 반대**인 첨부다. 받은 자료라
+             삭제 버튼이 없다(서버도 막는다). 반려 배너 바로 위에 둬서 "왜 되돌아왔는가"와
+             "무엇을 보고 고쳐야 하는가"가 한자리에서 읽히게 한다. -->
+        <div v-if="replyFiles.length > 0" class="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+          <p class="text-sm font-bold text-blue-800">
+            관리자 회신 첨부 {{ replyFiles.length }}건
+          </p>
+          <p class="mt-0.5 text-xs text-blue-600">
+            수정 지시 자료입니다 — 확인 후 보완해서 다시 승인요청해 주세요.
+          </p>
+          <ul class="mt-2 space-y-1">
+            <li v-for="f in replyFiles" :key="f.fileId" class="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                class="truncate font-medium text-blue-700 hover:underline"
+                @click="void downloadPartnerPcbEqFile(detail.poId, f.fileId, f.name)"
+              >
+                {{ f.name }}
+              </button>
+              <span class="shrink-0 text-blue-300">{{ formatBytes(f.size) }}</span>
+              <span class="shrink-0 text-blue-400">{{ f.uploadedAt.slice(0, 10) }}</span>
+            </li>
+          </ul>
         </div>
 
         <!-- 반려 배너 — 되돌아온 이유를 가장 먼저 보여준다. 이력 <details> 안에만 두면

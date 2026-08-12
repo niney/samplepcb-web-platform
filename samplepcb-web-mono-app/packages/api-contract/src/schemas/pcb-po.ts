@@ -73,9 +73,34 @@ export const PCB_EQ_REVERT: Record<PcbPoStatusType, PcbEqRevertAction | null> = 
 };
 
 // EQ 첨부 종류 — eq(질의서)·working(작업 파일). 저장은 sp_file(refType 'sp_pcb_po_eq').
-export const PCB_EQ_FILE_TYPES = ['eq', 'working'] as const;
+// eq·working 은 **협력사 → 관리자** 산출물(질의서·작업 데이터)이고, reply 는 그 반대
+// 방향 — 관리자가 반려하며 돌려보내는 회신 첨부(수정지시 도면·마크업)다. 방향을 종류로
+// 가르는 이유는 isLatest 가 **종류별**로 계산되기 때문이다: 같은 칸에 섞으면 관리자가 올린
+// 지시서가 협력사의 최신 작업도면을 밀어내고, 다음 승인 때 자기 파일을 '협력사 최신 도면'
+// 으로 보고 승인하게 된다(EQ 는 생산의 근거 서류라 그대로 만들어진다).
+export const PCB_EQ_FILE_TYPES = ['eq', 'working', 'reply'] as const;
 export type PcbEqFileTypeType = (typeof PCB_EQ_FILE_TYPES)[number];
 export const PcbEqFileType = z.enum(PCB_EQ_FILE_TYPES);
+
+/** multipart 폼 필드(문자열)를 종류로 좁힌다 — 모르는 값은 null(호출부가 400). */
+export const asPcbEqFileType = (v: unknown): PcbEqFileTypeType | null =>
+  typeof v === 'string' && (PCB_EQ_FILE_TYPES as readonly string[]).includes(v)
+    ? (v as PcbEqFileTypeType)
+    : null;
+
+/**
+ * 지금 이 종류의 첨부를 올리거나 지울 수 있는가 — 관리자·협력사 라우트가 같은 사전을 쓴다.
+ *
+ * 협력사 산출물(eq·working)은 **승인요청 뒤 잠긴다**(EQ_LOCKED): 관리자가 검토하는 동안
+ * 근거 서류가 바뀌면 무엇을 보고 승인했는지가 사라진다. 반면 관리자 회신(reply)은 **승인요청
+ * 을 받은 상태에서도 붙일 수 있어야 한다** — 받아 보고 "이걸 고쳐 달라"고 말하는 그 순간이
+ * 곧 eq_requested 이기 때문이다. 생산이 시작된 뒤(eq_done~)에는 양쪽 다 닫힌다.
+ */
+export const canEditPcbEqFile = (
+  fileType: PcbEqFileTypeType,
+  status: PcbPoStatusType,
+): boolean =>
+  fileType === 'reply' ? status === 'issued' || status === 'eq_requested' : status === 'issued';
 
 export const PcbEqFileView = z.object({
   fileId: z.number(),
@@ -84,7 +109,7 @@ export const PcbEqFileView = z.object({
   fileType: PcbEqFileType,
   uploadedBy: z.string().nullable(), // ADMIN|PARTNER|MASTER_DEALER
   uploadedAt: z.string(),
-  /** 같은 종류(eq/working) 중 가장 나중에 올라온 1건 — 여정 22호. orderPcbEqFiles 가 정한다. */
+  /** 같은 종류(eq/working/reply) 중 가장 나중에 올라온 1건 — 여정 22호. orderPcbEqFiles 가 정한다. */
   isLatest: z.boolean(),
   /** 직전 EQ 반려 뒤에 올라온 파일(=보완분). 반려 이력이 없으면 전부 false. */
   afterReject: z.boolean(),

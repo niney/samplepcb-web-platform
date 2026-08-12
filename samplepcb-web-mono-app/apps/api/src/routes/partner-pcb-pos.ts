@@ -25,6 +25,7 @@ import {
   createChildPcbPo,
   deletePcbEqFile,
   getPcbEqFileDownload,
+  getPcbEqFileType,
   loadPartnerPcbPoDetail,
   loadPartnerPcbPoSpecFile,
   loadPartnerPcbPos,
@@ -224,10 +225,15 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const { files, fields } = await collectMultipart(request);
       const kind = PcbEqFileType.safeParse(fields.fileType);
       const file = files[0];
-      if (!kind.success || file === undefined) {
+      // reply 는 **관리자가 협력사에게 주는** 회신 첨부다 — 협력사가 만들 수 있으면 방향이
+      // 무너지고, 협력사 화면의 '관리자 회신' 칸에 자기 파일이 끼어든다.
+      if (!kind.success || kind.data === 'reply' || file === undefined) {
         return reply.status(400).send({
           error: 'BAD_UPLOAD',
-          message: 'fileType(eq|working)과 파일이 필요합니다.',
+          message:
+            kind.success && kind.data === 'reply'
+              ? '회신 첨부는 관리자만 올릴 수 있습니다.'
+              : 'fileType(eq|working)과 파일이 필요합니다.',
         });
       }
       const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
@@ -253,6 +259,13 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const ctx = requireCtx(request);
       const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      // 관리자 회신은 받은 자료다 — 받는 쪽이 지울 수 있으면 반려 근거가 사라진다.
+      if ((await getPcbEqFileType(po.id, request.params.fileId)) === 'reply') {
+        return reply.status(409).send({
+          error: 'REPLY_READONLY',
+          message: '관리자 회신 첨부는 지울 수 없습니다.',
+        });
+      }
       if (po.status !== 'issued') {
         return reply.status(409).send({
           error: 'EQ_LOCKED',
