@@ -152,37 +152,37 @@ const estimateMailFilters = computed(() =>
 );
 const estimateMailQuery = useAdminMailLogList(estimateMailFilters);
 const lastEstimateMail = computed(() => estimateMailQuery.data.value?.data.items[0] ?? null);
-const estimateSentBadge = computed<{ label: string; cls: string; title: string } | null>(() => {
+const estimateSent = computed(() => lastEstimateMail.value?.status === 'sent');
+// ② 칸의 한 줄 — 상태 문구·색·툴팁. 미발송을 회색으로 흘리지 않는다(확정만 하고 끝내는
+// 것이 이 트랙의 실제 실수라, 아직 안 보냈다는 사실이 눈에 걸려야 한다).
+const estimateSendState = computed<{ label: string; cls: string; title: string }>(() => {
   const m = lastEstimateMail.value;
-  if (m === null) return null;
+  if (m === null)
+    return {
+      label: '미발송',
+      cls: 'text-amber-700',
+      title: '아직 고객에게 견적서를 보내지 않았습니다.',
+    };
   const when = fmtKstDate(m.createdAt);
   if (m.status === 'sent')
     return {
-      label: `견적서 발송 ${when}`,
-      cls: 'bg-emerald-100 text-emerald-700',
-      title: `${m.recipient} 로 발송했습니다. 다시 보내려면 [견적서]를 열어 발송하세요.`,
+      label: `${when} 발송함`,
+      cls: 'text-emerald-700',
+      title: `${m.recipient} 로 발송했습니다.`,
     };
   if (m.status === 'failed')
     return {
-      label: '견적서 발송 실패',
-      cls: 'bg-red-100 text-red-700',
-      title: `${when} 발송 실패(${m.reason ?? '사유 미상'}) — [견적서]에서 다시 보내세요.`,
+      label: '발송 실패',
+      cls: 'text-red-600',
+      title: `${when} 발송 실패(${m.reason ?? '사유 미상'}) — 다시 보내세요.`,
     };
-  // skipped = 보내려 했으나 채널이 꺼졌거나 수신처가 없었다. "안 보냈다"를 숨기지 않는다.
+  // skipped = 보내려 했으나 채널이 꺼졌거나 수신처가 없었다.
   return {
-    label: '견적서 미발송',
-    cls: 'bg-amber-100 text-amber-700',
+    label: '미발송(건너뜀)',
+    cls: 'text-amber-700',
     title: `${when} 발송 건너뜀(${m.reason ?? '사유 미상'}) — 설정·수신처를 확인하세요.`,
   };
 });
-
-// 확정 직후 유도 — 확정가 등록은 자동 발송을 하지 않는다(진입점이 둘이라 선정 중에 고객
-// 메일이 나가는 사고를 만들지 않는다). 대신 "이제 보낼 수 있다"를 한 번 말해 준다.
-const estimatePromptOpen = ref(false);
-const openEstimateFromPrompt = (): void => {
-  estimatePromptOpen.value = false;
-  estimateProjectId.value = specId.value;
-};
 // 발행 가능 판정은 드로어와 같은 규칙(활성 ∧ 가격 확정). 다만 **버튼은 감추지 않는다** —
 // 이 화면은 RFQ 워크큐의 종착지라 확정 전 건이 다수인데, 조건부로 숨기면 기능이 있다는
 // 사실 자체가 안 보인다(PcbSelectionBar 와 같은 규율). 대신 비활성 + 사유 툴팁.
@@ -302,8 +302,6 @@ async function submitPrice(): Promise<void> {
   try {
     await confirmPrice.mutateAsync({ projectId: specId.value, finalPrice: Math.round(value) });
     priceModalOpen.value = false;
-    // 확정만으로는 고객이 모른다 — 발송 동선을 여기서 한 번 권한다(자동 발송은 하지 않는다).
-    estimatePromptOpen.value = true;
   } catch (e) {
     surfaceError(e, '확정가 등록에 실패했습니다.');
   }
@@ -1236,23 +1234,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       >
         배송 처리 대기 · 배송 처리 →
       </button>
-      <!-- 보낸 흔적 — 버튼 왼쪽에 둔다. "눌러야 할 것"보다 "이미 한 일"이 앞에 와야
-           같은 건을 두 번 보내지 않는다. -->
-      <span
-        v-if="specId !== null && estimateSentBadge !== null"
-        class="ml-auto rounded px-1.5 py-0.5 text-[11px] font-semibold"
-        :class="estimateSentBadge.cls"
-        :title="estimateSentBadge.title"
-      >
-        {{ estimateSentBadge.label }}
-      </span>
       <!-- 견적서 — 위험 버튼(삭제) 왼쪽에 중립 색으로 세워 둘이 시각적으로 갈리게 한다.
-           확정 전이어도 자리를 지킨다(비활성 + 사유 툴팁). -->
+           확정 전이어도 자리를 지킨다(비활성 + 사유 툴팁). 발송 상태·행동은 여기가 아니라
+           '고객 견적' 카드의 ①→② 흐름이 맡는다(헤더는 Case 전체를 말하는 자리다). -->
       <button
         v-if="specId !== null"
         type="button"
-        class="rounded-md border border-blue-300 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
-        :class="estimateSentBadge === null ? 'ml-auto' : ''"
+        class="ml-auto rounded-md border border-blue-300 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
         :disabled="!estimateEnabled"
         :title="estimateBlockedReason"
         @click="estimateProjectId = specId"
@@ -1268,34 +1256,6 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         @click="deleteOpen = true"
       >
         견적 삭제
-      </button>
-    </div>
-
-    <!-- 확정 직후 발송 유도 — 확정가를 등록해도 고객에게는 아무것도 가지 않는다(자동 발송
-         없음). 그 사실을 모르면 "확정했으니 됐다"로 끝나므로 이 자리에서 한 번 권한다. -->
-    <div
-      v-if="estimatePromptOpen"
-      class="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm"
-    >
-      <span class="font-semibold text-blue-800">확정가가 등록됐습니다.</span>
-      <span class="text-blue-700">
-        {{ lastEstimateMail === null
-          ? '고객에게 견적서를 보낼 수 있습니다.'
-          : '바뀐 금액으로 견적서를 다시 보낼 수 있습니다.' }}
-      </span>
-      <button
-        type="button"
-        class="ml-auto rounded-md bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700"
-        @click="openEstimateFromPrompt"
-      >
-        견적서 열기 →
-      </button>
-      <button
-        type="button"
-        class="rounded-md px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-        @click="estimatePromptOpen = false"
-      >
-        나중에
       </button>
     </div>
 
@@ -1388,16 +1348,63 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             </dd>
           </div>
         </dl>
-        <!-- 확정가(판매가)는 주문 후 불변 — 주문된 건에선 버튼 자체를 숨긴다(D10). -->
-        <button
-          v-if="detail.order === null"
-          type="button"
-          class="mt-3 w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
-          :disabled="detail.cartState !== 'none' || detail.status !== 'active'"
-          @click="openPriceModal"
-        >
-          {{ detail.finalPrice === null ? '확정가 등록' : '확정가 수정' }}
-        </button>
+        <!-- ① 확정 ─▸ ② 발송 — 견적 관리 드로어와 같은 흐름 UI(화면 언어 통일).
+             확정가만 등록하고 끝내면 **고객은 아무것도 모른다**(자동 발송 없음). 두 칸을
+             연결선으로 이어 "확정하고 보낸다"를 한 줄로 만든다. 상태와 행동이 같은 자리에
+             있어야 같은 건을 두 번 보내지도, 보낸 걸 또 찾아보지도 않는다. -->
+        <div class="mt-3 border-t border-gray-100 pt-3">
+          <div class="flex items-center justify-between text-xs font-semibold">
+            <span class="flex items-center gap-1.5 text-gray-500">
+              <span
+                class="inline-flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                :class="detail.finalPrice === null ? 'bg-gray-300' : 'bg-emerald-500'"
+              >1</span>
+              확정가
+            </span>
+            <span
+              class="flex items-center gap-1.5"
+              :class="estimateEnabled ? 'text-gray-500' : 'text-gray-300'"
+            >
+              <span
+                class="inline-flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                :class="estimateSent ? 'bg-emerald-500' : estimateEnabled ? 'bg-blue-500' : 'bg-gray-300'"
+              >2</span>
+              견적서 발송
+            </span>
+          </div>
+          <div class="mt-2 flex items-center gap-2">
+            <!-- ① 확정가(판매가)는 주문 후 불변 — 주문된 건에선 버튼 대신 금액만 남는다(D10). -->
+            <button
+              v-if="detail.order === null"
+              type="button"
+              class="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+              :disabled="detail.cartState !== 'none' || detail.status !== 'active'"
+              @click="openPriceModal"
+            >
+              {{ detail.finalPrice === null ? '확정가 등록' : '확정가 수정' }}
+            </button>
+            <span v-else class="shrink-0 text-sm font-semibold text-gray-700">
+              {{ fmtPcbAmount('KRW', detail.finalPrice) }}
+            </span>
+            <span class="min-w-3 flex-1 border-t border-dashed border-gray-300" />
+            <!-- ② 발송 — 누르면 견적서가 열리고, 수신자를 확인한 뒤 그 안에서 보낸다.
+                 (클릭 즉시 발송이 아니다 — 받는 사람을 눈으로 보고 보내는 편이 안전하다.) -->
+            <div class="flex shrink-0 items-center gap-1.5">
+              <span class="text-xs font-semibold" :class="estimateSendState.cls" :title="estimateSendState.title">
+                {{ estimateSendState.label }}
+              </span>
+              <button
+                type="button"
+                class="rounded-md border border-blue-300 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
+                :disabled="!estimateEnabled"
+                :title="estimateEnabled ? '견적서를 열어 수신자를 확인하고 발송합니다' : estimateBlockedReason"
+                @click="estimateProjectId = specId"
+              >
+                {{ estimateSent ? '다시 보내기' : '보내기' }}
+              </button>
+            </div>
+          </div>
+        </div>
         <p v-if="detail.order === null" class="mt-1.5 text-[11px] leading-4 text-gray-400">
           확정가를 등록해야 고객이 주문할 수 있습니다(견적 확정). 협력사 [선정] 모달에서
           마진을 더해 함께 등록할 수 있고, 여기서는 등록된 확정가를 수정합니다.
