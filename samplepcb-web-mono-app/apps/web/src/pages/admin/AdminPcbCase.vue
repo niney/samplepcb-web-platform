@@ -56,6 +56,7 @@ import {
 } from '../../admin/useAdminPcbPos';
 import { useConfirmPcbOrderReceipt, usePcbCompleteCustomerOrder } from '../../admin/useAdminPcbOrders';
 import EstimateModal from '../../components/admin/EstimateModal.vue';
+import PcbEqRejectModal from '../../components/admin/pcb/PcbEqRejectModal.vue';
 import { emptyMailLogFilters, useAdminMailLogList } from '../../admin/useAdminMailLogs';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
@@ -750,41 +751,27 @@ async function approvePo(po: AdminPcbPoViewType): Promise<void> {
     surfaceError(e, 'EQ 승인에 실패했습니다.');
   }
 }
-// EQ 반려 사유는 협력사에게 메일로 그대로 나가는 대외 문구다 — 줄바꿈도 안 되는 prompt 대신
-// 모달에서 받고, 고객이 반려한 건이면 그 사유를 채워 둔다(다시 타이핑하지 않게).
-const rejectTarget = ref<AdminPcbPoViewType | null>(null);
-const rejectFields = computed<PromptField[]>(() => {
+// EQ 반려는 **사유와 수정지시 첨부를 함께** 받는다 — 전용 모달(PcbEqRejectModal).
+// 값 하나만 받는 조작은 공용 UiPromptModal 을 쓰지만(P4.11), 여기는 파일을 여러 개 붙이고
+// 이미 붙인 것을 빼야 해서 프롬프트로 표현되지 않는다.
+// ⚠ 대상은 **id 로** 들고 목록에서 다시 찾는다 — 행 스냅샷을 잡아 두면 모달 안에서 첨부를
+//   올려도 그 값이 갱신되지 않아 방금 올린 파일이 목록에 안 보인다.
+const rejectPoId = ref<number | null>(null);
+const rejectTarget = computed<AdminPcbPoViewType | null>(() =>
+  rejectPoId.value === null ? null : (allPos.value.find((p) => p.poId === rejectPoId.value) ?? null),
+);
+// 고객이 반려한 건이면 그 사유를 채워 둔다(다시 타이핑하지 않게).
+const rejectPrefill = computed<string>(() => {
   const po = rejectTarget.value;
-  const fromCustomer = po?.eqReview?.status === 'rejected' ? (po.eqReview.decisionNote ?? '') : '';
-  return [
-    {
-      name: 'reason',
-      label: '반려 사유',
-      type: 'textarea',
-      required: true,
-      value: fromCustomer,
-      placeholder: '예) 실크 위치를 좌측으로 옮겨 주세요.',
-      // 회신 첨부는 이 모달이 아니라 첨부 칸에서 올린다(여러 장·반려 전 미리 올리기를 위해).
-      // 대신 **몇 건이 함께 가는지**를 여기서 말해 준다 — 안 붙이고 보내는 실수를 막는다.
-      hint: `${
-        fromCustomer === ''
-          ? '이 문장이 협력사에게 메일로 전달됩니다.'
-          : '고객이 남긴 사유를 채워 두었습니다 — 그대로 보내거나 다듬어 주세요.'
-      }${
-        po === null || replyFilesOf(po).length === 0
-          ? ' 회신 첨부는 [↩ 회신]의 [⬆ 회신 첨부]로 올릴 수 있습니다.'
-          : ` 회신 첨부 ${String(replyFilesOf(po).length)}건이 함께 전달됩니다.`
-      }`,
-    },
-  ];
+  return po?.eqReview?.status === 'rejected' ? (po.eqReview.decisionNote ?? '') : '';
 });
-async function submitReject(values: Record<string, string>): Promise<void> {
+async function submitReject(reason: string): Promise<void> {
   const po = rejectTarget.value;
   if (specId.value === null || po === null) return;
   actionError.value = '';
   try {
-    await rejectEq.mutateAsync({ specId: specId.value, poId: po.poId, reason: values.reason ?? '' });
-    rejectTarget.value = null;
+    await rejectEq.mutateAsync({ specId: specId.value, poId: po.poId, reason });
+    rejectPoId.value = null;
   } catch (e) {
     surfaceError(e, 'EQ 반려에 실패했습니다.');
   }
@@ -1907,7 +1894,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       반려 후 새 파일 없음
                     </span>
                     <button type="button" class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(po)">EQ 승인</button>
-                    <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="rejectTarget = po">반려</button>
+                    <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="rejectPoId = po.poId">반려</button>
                   </template>
                   <!-- EQ 단계가 지나도 고객 확인 결과는 남긴다(승인의 근거) — 클릭하면 이력. -->
                   <button
@@ -2094,7 +2081,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       </button>
                       <template v-if="child.status === 'eq_requested'">
                         <button type="button" class="rounded-md bg-emerald-600 px-2 py-0.5 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(child)">EQ 승인</button>
-                        <button type="button" class="rounded-md border border-red-300 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50" @click="rejectTarget = child">반려</button>
+                        <button type="button" class="rounded-md border border-red-300 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50" @click="rejectPoId = child.poId">반려</button>
                       </template>
                       <button
                         v-else-if="child.status === 'eq_done'"
@@ -2436,17 +2423,17 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       @close="customerShipOdId = null"
     />
 
-    <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) — 한 화면에서 받고 필수값을 잠근다 -->
-    <UiPromptModal
-      :title="rejectTarget === null ? null : `EQ 반려 — ${rejectTarget.partnerName}`"
-      :fields="rejectFields"
-      description="협력사에게 메일로 전달되고, 발주는 '발주접수'로 되돌아갑니다."
-      confirm-label="반려하고 알리기"
-      tone="danger"
+    <!-- EQ 반려 — 사유와 수정지시 첨부를 한 자리에서(전용 폼) -->
+    <PcbEqRejectModal
+      :po="rejectTarget"
+      :spec-id="specId"
+      :prefill-reason="rejectPrefill"
       :busy="rejectEq.isPending.value"
-      @close="rejectTarget = null"
-      @confirm="(v) => void submitReject(v)"
+      @close="rejectPoId = null"
+      @confirm="(reason) => void submitReject(reason)"
     />
+
+    <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) — 한 화면에서 받고 필수값을 잠근다 -->
     <UiPromptModal
       :title="shipPrompt === null ? null : `${pcbShipmentStatusLabel(shipPrompt.mode, shipPrompt.next, { directShip: shipPrompt.directShip })} 진행`"
       :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next)"
