@@ -14,6 +14,7 @@
 //
 // 실행: pnpm -F e2e journey:currency  (PORTAL_E2E=1 + JOURNEY=1 — 거버 불필요, 시드 발주)
 // 스크린샷 접두사는 **X** 가 아니라 **U** 전용(X 는 11호가 쓴다).
+// 발주 UI의 선정 필수 UX는 pcb-po-selection-guide 에서 외부 거버 없이 별도 회귀한다.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -303,5 +304,3 @@ describe.skipIf(!RUN || !JOURNEY)('여정 20호 — 환율·통화 축', () => {
     F('U5', 'obs', `화면 관찰 — 외화 발주의 KRW 환산 원가(₩270,000) 노출 확인`);
   }, 240_000);
 });
-
-

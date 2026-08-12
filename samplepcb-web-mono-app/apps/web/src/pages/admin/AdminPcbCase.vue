@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -136,6 +136,8 @@ const expandSection = (section: CaseSection): void => {
   next.delete(section);
   collapsed.value = next;
 };
+const rfqSectionEl = ref<HTMLElement | null>(null);
+const poSelectionGuide = ref('');
 
 const detailQuery = useAdminQuoteDetail(specId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
@@ -480,6 +482,7 @@ async function submitSelect(withPrice: boolean): Promise<void> {
       ...(exchangeRate === undefined ? {} : { exchangeRate }),
       ...(finalPrice === undefined ? {} : { finalPrice }),
     });
+    poSelectionGuide.value = '';
     selectTarget.value = null;
   } catch (e) {
     surfaceError(e, '선정에 실패했습니다.');
@@ -529,6 +532,12 @@ const adminPos = computed(() => allPos.value.filter((p) => p.parentPartnerId ===
 const latestRound = computed(() =>
   Math.max(0, ...adminRows.value.map((r) => r.reorderRound), ...adminPos.value.map((p) => p.reorderRound)),
 );
+const latestRoundRfqs = computed(() =>
+  adminRows.value.filter((row) => row.reorderRound === latestRound.value),
+);
+const selectedPoRfq = computed(() =>
+  latestRoundRfqs.value.find((row) => row.status === 'selected') ?? null,
+);
 const roundsExpanded = ref(false);
 const inLatestRound = (row: { reorderRound: number }): boolean =>
   roundsExpanded.value || row.reorderRound === latestRound.value;
@@ -567,37 +576,75 @@ const poIsCustomPaymentDate = computed(
 const poRemittanceDuePreview = computed(() =>
   poIsNet7.value ? addDateOnlyDays(kstToday(), 7) : poRemittanceDue.value,
 );
+const poTargetRfq = computed(() =>
+  selectedPoRfq.value?.partnerId === poPartnerId.value ? selectedPoRfq.value : null,
+);
 const poCanSubmit = computed(
   () =>
     !createPo.isPending.value &&
     poPartnerId.value !== null &&
+    poTargetRfq.value !== null &&
     (!poIsCustomPaymentDate.value || poRemittanceDue.value !== ''),
-);
-
-const poTargetRfq = computed(() =>
-  adminRows.value.find((r) => r.partnerId === poPartnerId.value && r.status === 'selected') ??
-  adminRows.value.find((r) => r.partnerId === poPartnerId.value && r.priceOriginal !== null) ??
-  null,
 );
 const poCurrencyOf = (partnerId: number | null): string =>
   adminRows.value.find((r) => r.partnerId === partnerId)?.currency ??
   assignCandidates.value.find((p) => p.partnerId === partnerId)?.defaultCurrency ??
   'KRW';
+const poSelectionGuideMessage = computed(() => {
+  if (latestRoundRfqs.value.some((row) => row.status === 'quoted')) {
+    return '발주 전에 협력사를 선정해 주세요. 아래 회신 완료 행의 [선정]을 눌러 주세요.';
+  }
+  if (latestRoundRfqs.value.length === 0) {
+    return '먼저 협력사 견적요청을 보내고, 회신이 오면 협력사를 선정해 주세요.';
+  }
+  return '아직 선정 가능한 회신이 없습니다. 회신을 기다리거나 [대리 회신]을 등록한 뒤 선정해 주세요.';
+});
 
-function openPoModal(): void {
+function guidePoSelection(message = poSelectionGuideMessage.value): void {
+  poModalOpen.value = false;
+  poSelectionGuide.value = message;
+  expandSection('rfq');
+  void nextTick(() => {
+    const section = rfqSectionEl.value;
+    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const selectButton = section?.querySelector<HTMLButtonElement>('[data-pcb-rfq-select]');
+    const nextAction = section?.querySelector<HTMLButtonElement>(
+      '[data-pcb-rfq-reply], [data-pcb-rfq-assign]',
+    );
+    (selectButton ?? nextAction ?? section)?.focus({ preventScroll: true });
+  });
+}
+
+async function openPoModal(): Promise<void> {
   if (rfqGate.value === 'closed') return;
-  const selected = selectedRow.value;
-  poPartnerId.value = selected?.partnerId ?? assignCandidates.value[0]?.partnerId ?? null;
+  let selected = selectedPoRfq.value;
+  // Case 진입 직후 RFQ 조회보다 발주 버튼이 먼저 보일 수 있다. 그 순간 빈 캐시를 근거로
+  // "미배정" 안내를 만들면 곧 회신 행이 떠도 잘못된 안내·포커스가 남는다. 미선정 경로만
+  // 한 번 동기화한 뒤 실제 현재 회차를 판정한다(선정 경로에는 추가 요청 없음).
+  if (selected === null) {
+    await rfqsQuery.refetch();
+    selected = selectedPoRfq.value;
+  }
+  if (selected === null) {
+    guidePoSelection();
+    return;
+  }
+  poSelectionGuide.value = '';
+  poPartnerId.value = selected.partnerId;
   poPrice.value = '';
   poRate.value = '';
   poTerms.value = '';
   poRemittanceDue.value = '';
-  poDelivery.value = kstDateInput(selected?.quotedDeliveryDate);
+  poDelivery.value = kstDateInput(selected.quotedDeliveryDate);
   poMemo.value = '';
   poModalOpen.value = true;
 }
 async function submitPo(): Promise<void> {
-  if (specId.value === null || poPartnerId.value === null) return;
+  if (specId.value === null) return;
+  if (poPartnerId.value === null || poTargetRfq.value === null) {
+    guidePoSelection();
+    return;
+  }
   if (poIsCustomPaymentDate.value && poRemittanceDue.value === '') return;
   actionError.value = '';
   const priceRaw = poPrice.value.replaceAll(',', '').trim();
@@ -607,7 +654,7 @@ async function submitPo(): Promise<void> {
       specId: specId.value,
       body: {
         partnerId: poPartnerId.value,
-        rfqId: poTargetRfq.value?.rfqId ?? null,
+        rfqId: poTargetRfq.value.rfqId,
         ...(priceRaw === '' ? {} : { priceOriginal: Number(priceRaw) }),
         ...(rateRaw === '' ? {} : { exchangeRate: Number(rateRaw) }),
         paymentTerms: poTerms.value.trim() === '' ? null : poTerms.value.trim(),
@@ -618,6 +665,11 @@ async function submitPo(): Promise<void> {
     });
     poModalOpen.value = false;
   } catch (e) {
+    if (e instanceof ApiRequestError && e.payload?.error === 'RFQ_NOT_SELECTED') {
+      await rfqsQuery.refetch();
+      guidePoSelection('선정 상태가 변경되었습니다. 협력사를 다시 선정한 뒤 발주해 주세요.');
+      return;
+    }
     surfaceError(e, '발주서 발행에 실패했습니다.');
   }
 }
@@ -1559,13 +1611,19 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       <span>▸ 협력사 견적요청 ({{ adminRows.length }}곳)</span>
       <span class="text-xs text-gray-400">펼치기</span>
     </button>
-    <section v-else class="rounded-xl border border-gray-200 bg-surface">
+    <section
+      v-else
+      ref="rfqSectionEl"
+      tabindex="-1"
+      class="scroll-mt-4 rounded-xl border border-gray-200 bg-surface focus:outline-none"
+    >
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
         <h2 class="text-sm font-bold text-gray-700">
           협력사 견적요청
           <span class="ml-1 text-xs font-normal text-gray-400">{{ adminRows.length }}곳</span>
         </h2>
         <button
+          data-pcb-rfq-assign
           type="button"
           class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
           :disabled="rfqGate !== 'ok'"
@@ -1575,6 +1633,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           협력사 견적요청 {{ adminRows.length > 0 ? '변경' : '보내기' }}
         </button>
       </div>
+      <p
+        v-if="poSelectionGuide !== ''"
+        role="alert"
+        class="border-b border-amber-100 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-700"
+      >
+        {{ poSelectionGuide }}
+      </p>
       <p v-if="rfqGate !== 'ok'" class="border-b border-gray-50 px-4 py-2 text-xs font-semibold text-amber-600">
         {{ RFQ_GATE_NOTES[rfqGate] }}
       </p>
@@ -1635,6 +1700,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 <td class="whitespace-nowrap px-4 py-2.5 text-right text-xs">
                   <button
                     v-if="editableRow(row)"
+                    data-pcb-rfq-reply
                     type="button"
                     class="mr-1 rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
                     @click="replyTarget = row"
@@ -1643,6 +1709,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   </button>
                   <button
                     v-if="row.status === 'quoted'"
+                    data-pcb-rfq-select
                     type="button"
                     class="mr-1 rounded-md bg-violet-600 px-2 py-1 font-semibold text-white hover:bg-violet-700"
                     @click="openSelect(row)"
@@ -1742,12 +1809,23 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </h2>
         <button
           type="button"
-          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-          :disabled="rfqGate === 'closed'"
-          :title="rfqGate === 'closed' ? '완료·취소된 PCB 주문에는 발주서를 발행할 수 없습니다.' : undefined"
-          @click="openPoModal"
+          class="rounded-lg px-3 py-1.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+          :class="rfqsQuery.isPending.value
+            ? 'bg-gray-300'
+            : selectedPoRfq === null
+              ? 'bg-amber-600 hover:bg-amber-700'
+              : 'bg-emerald-600 hover:bg-emerald-700'"
+          :disabled="rfqGate === 'closed' || rfqsQuery.isPending.value"
+          :title="rfqGate === 'closed'
+            ? '완료·취소된 PCB 주문에는 발주서를 발행할 수 없습니다.'
+            : rfqsQuery.isPending.value
+              ? '협력사 선정 상태를 확인하는 중입니다.'
+              : selectedPoRfq === null
+                ? '발주 전에 협력사 선정이 필요합니다.'
+                : '선정된 협력사로 발주서를 발행합니다.'"
+          @click="void openPoModal()"
         >
-          발주서 발행
+          {{ rfqsQuery.isPending.value ? '협력사 확인 중' : selectedPoRfq === null ? '협력사 선정 필요' : '발주서 발행' }}
         </button>
       </div>
       <p class="border-b border-gray-50 px-4 py-2 text-xs text-gray-400">
@@ -2223,23 +2301,27 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
 
     <!-- 발주 모달 -->
     <div v-if="poModalOpen" class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="poModalOpen = false">
-      <div class="w-full max-w-md rounded-xl bg-surface p-5 shadow-xl">
-        <h3 class="text-sm font-bold text-gray-800">발주서 발행</h3>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pcb-po-modal-title"
+        class="w-full max-w-md rounded-xl bg-surface p-5 shadow-xl"
+      >
+        <h3 id="pcb-po-modal-title" class="text-sm font-bold text-gray-800">발주서 발행</h3>
         <p class="mt-1 text-xs text-gray-500">
-          선정 회신이 있으면 통화·금액·납기가 자동 승계됩니다(비우면 승계값 사용).
+          선정된 회신의 통화·금액·납기가 자동 승계됩니다(비우면 승계값 사용).
         </p>
-        <label class="mt-3 block">
+        <div class="mt-3 block">
           <span class="text-xs font-semibold text-gray-500">협력사 *</span>
-          <select v-model="poPartnerId" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
-            <option v-for="p in assignCandidates" :key="p.partnerId" :value="p.partnerId">
-              {{ p.name }} ({{ p.defaultCurrency }})
-            </option>
-          </select>
+          <div class="mt-1 w-full rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+            {{ poTargetRfq?.partnerName ?? '선정된 협력사가 없습니다.' }}
+            <span v-if="poTargetRfq !== null" class="ml-1 text-xs font-medium text-emerald-600">({{ poTargetRfq.currency }})</span>
+          </div>
           <span v-if="poTargetRfq !== null" class="mt-1 block text-[11px] text-emerald-600">
             회신 승계: {{ pcbMoneyWithSub(poTargetRfq.currency, poTargetRfq.priceOriginal, poTargetRfq.subCurrency, poTargetRfq.subPriceOriginal) }}
             <template v-if="poTargetRfq.quotedDeliveryDate !== null"> · 납기 {{ fmtKstDate(poTargetRfq.quotedDeliveryDate) }}</template>
           </span>
-        </label>
+        </div>
         <div class="mt-2 grid gap-2 sm:grid-cols-2">
           <label class="block">
             <span class="text-xs font-semibold text-gray-500">발주가 ({{ poCurrencyOf(poPartnerId) }})</span>
