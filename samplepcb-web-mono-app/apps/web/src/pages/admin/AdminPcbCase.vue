@@ -53,6 +53,7 @@ import {
   type AdminPcbEqSubstituteAction,
 } from '../../admin/useAdminPcbPos';
 import { useConfirmPcbOrderReceipt, usePcbCompleteCustomerOrder } from '../../admin/useAdminPcbOrders';
+import EstimateModal from '../../components/admin/EstimateModal.vue';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
@@ -129,6 +130,24 @@ const childrenOf = (partnerId: number): AdminPcbRfqViewType[] =>
   allRows.value.filter((r) => r.parentPartnerId === partnerId);
 const selectedRow = computed(() => adminRows.value.find((r) => r.status === 'selected') ?? null);
 
+
+// 견적서(A4 보기·인쇄·발송) — 견적 관리 드로어와 **같은 모달**을 쓴다(창구만 둘).
+// 확정가 등록이 이 화면에서 끝나므로 "확정 → 곧장 발송"이 여기서 이어진다.
+const estimateProjectId = ref<number | null>(null);
+// 발행 가능 판정은 드로어와 같은 규칙(활성 ∧ 가격 확정). 다만 **버튼은 감추지 않는다** —
+// 이 화면은 RFQ 워크큐의 종착지라 확정 전 건이 다수인데, 조건부로 숨기면 기능이 있다는
+// 사실 자체가 안 보인다(PcbSelectionBar 와 같은 규율). 대신 비활성 + 사유 툴팁.
+const estimateEnabled = computed<boolean>(() => {
+  const d = detail.value;
+  return d !== null && d.status === 'active' && d.price !== null;
+});
+const estimateBlockedReason = computed<string>(() => {
+  const d = detail.value;
+  if (d === null) return '';
+  if (d.status !== 'active') return '보관된 견적은 견적서를 발행할 수 없습니다.';
+  if (d.price === null) return '가격 확정 후 견적서를 발행할 수 있습니다.';
+  return '견적서를 보고 인쇄·발송합니다.';
+});
 
 // 영구 삭제 — 삭제되면 이 Case 는 사라지므로 진입 워크큐로 되돌린다.
 const deleteOpen = ref(false);
@@ -1166,12 +1185,24 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       >
         배송 처리 대기 · 배송 처리 →
       </button>
+      <!-- 견적서 — 위험 버튼(삭제) 왼쪽에 중립 색으로 세워 둘이 시각적으로 갈리게 한다.
+           확정 전이어도 자리를 지킨다(비활성 + 사유 툴팁). -->
+      <button
+        v-if="specId !== null"
+        type="button"
+        class="ml-auto rounded-md border border-blue-300 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
+        :disabled="!estimateEnabled"
+        :title="estimateBlockedReason"
+        @click="estimateProjectId = specId"
+      >
+        견적서
+      </button>
       <!-- 영구 삭제 — 차단을 푸는 곳(발주 취소·선적 취소)이 바로 이 화면이라, 정리하고
            곧장 지울 수 있게 둔다. 모달·판정은 견적 관리와 같은 것을 쓴다(창구만 둘). -->
       <button
         v-if="specId !== null"
         type="button"
-        class="ml-auto rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+        class="rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
         @click="deleteOpen = true"
       >
         견적 삭제
@@ -2224,6 +2255,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     />
 
     <!-- 견적 영구 삭제 — 견적 관리와 같은 모달(차단·경고·사유 판정은 서버가 정본) -->
+    <!-- 견적서 — 마운트를 v-if 로 제어해야 인쇄 전역 스타일 주입/제거가 모달 수명과 맞는다. -->
+    <EstimateModal
+      v-if="estimateProjectId !== null"
+      :project-id="estimateProjectId"
+      @close="estimateProjectId = null"
+    />
+
     <DeleteQuoteModal
       v-if="deleteOpen && specId !== null"
       :ids="[specId]"
