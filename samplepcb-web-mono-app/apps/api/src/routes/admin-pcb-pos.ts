@@ -134,6 +134,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           (item.mbId ?? '').toLowerCase().includes(q),
       );
       const counts = {
+        waiting: filtered.filter((r) => r.tabs.includes('waiting')).length,
         eq_pending: filtered.filter((r) => r.tabs.includes('eq_pending')).length,
         producing: filtered.filter((r) => r.tabs.includes('producing')).length,
         produced: filtered.filter((r) => r.tabs.includes('produced')).length,

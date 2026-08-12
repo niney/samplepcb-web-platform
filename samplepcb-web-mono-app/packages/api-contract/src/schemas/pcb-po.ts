@@ -395,7 +395,13 @@ export type PcbPoRejectBodyType = z.infer<typeof PcbPoRejectBody>;
 // to_ship = 생산완료인데 아직 발송에 담기지 않은 발주서 = **선적·배송의 "발송 대기"**.
 // 다른 탭과 달리 배타적이지 않다(produced 의 부분집합) — 물류가 "이제 보낼 것"을 자기
 // 화면 첫 탭에서 보기 위한 절단면이라, 서버는 행별로 소속 탭을 배열로 돌려준다.
+// ⚠ 'waiting'(=issued) 이 없던 시절, 발주는 나갔는데 협력사가 아직 EQ 승인요청을 안 한 건이
+// **어느 탭에도 없었다** — 실측 49건 중 14건이 '전체'에서만 보였다(2026-08-12). 그중엔 반려
+// 뒤 보완을 기다리는 건도 섞여 있어, 반려해 놓고도 그 사실이 목록에서 사라졌다.
+// 관리자 차례는 아니지만 **재촉해야 할 대상**이라 조감이 필요하다(RFQ 워크큐의 '회신 대기'와
+// 같은 성격 — 상대 차례도 탭으로 둔다).
 export const ADMIN_PCB_PO_TABS = [
+  'waiting',
   'eq_pending',
   'producing',
   'produced',
@@ -428,6 +434,9 @@ export const AdminPcbPoWorkItem = z.object({
   adminTurn: z.boolean(),
   /** 생산완료·발송 미편성 — 보내는측이 발송을 시작해야 하는 상태(to_ship 탭 표시용). */
   awaitingShipment: z.boolean(),
+  /** 마지막 EQ 반려 시각(없으면 null) — '협력사 진행' 탭에서 "그냥 대기"와 "반려 뒤 보완
+   *  대기"를 가른다. 판정은 lastPcbEqRejectedAt(반려와 요청취소는 같은 전이라 note 로 갈린다). */
+  rejectedAt: z.string().nullable(),
   /** EQ 고객 확인 요약(Case 상세와 같은 요약) — 'EQ 승인 대기' 탭에서 지금 승인하면 되는
    *  건(고객 승인)과 고객 확인중·고객 반려·미요청을 목록에서 가른다. null=미요청. */
   eqReview: PcbPoEqReviewSummary.nullable(),
@@ -442,6 +451,7 @@ export const AdminPcbPoWorkListResponse = z.object({
     page: z.number().int(),
     pageSize: z.number().int(),
     counts: z.object({
+      waiting: z.number().int(), // 발주 후 협력사 차례(첫 EQ 대기 + 반려 뒤 보완 대기)
       eq_pending: z.number().int(),
       producing: z.number().int(),
       produced: z.number().int(),

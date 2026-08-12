@@ -151,7 +151,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 23호 — 집계·카운트 정합', (
     const notes = await checkQueue({
       label: 'PO',
       path: '/api/admin/pcb-pos',
-      tabs: ['eq_pending', 'producing', 'produced', 'to_ship', 'all'],
+      // waiting = 발주 후 협력사 차례(첫 EQ 대기 + 반려 뒤 보완 대기) — 2026-08-12 신설.
+      // 이 탭이 없던 동안 issued 가 어느 탭에도 없어 '전체'에서만 보였다.
+      tabs: ['waiting', 'eq_pending', 'producing', 'produced', 'to_ship', 'all'],
     });
     F(
       'Q2',

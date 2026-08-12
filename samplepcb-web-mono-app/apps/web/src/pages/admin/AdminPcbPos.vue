@@ -42,6 +42,9 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.va
 
 const TABS: { key: PosTabKey; label: string }[] = [
   { key: 'awaiting', label: '발주 대기' },
+  // 협력사 차례 — 관리자가 지금 누를 것은 없지만 **재촉해야 할 대상**이라 조감한다.
+  // 이 탭이 없던 동안 발주 후 무소식인 건(반려 뒤 보완 대기 포함)이 '전체'에만 있었다.
+  { key: 'waiting', label: '협력사 진행' },
   { key: 'eq_pending', label: 'EQ 승인 대기' },
   { key: 'producing', label: '생산 진행' },
   { key: 'produced', label: '생산완료' },
@@ -181,6 +184,15 @@ function openCase(specId: number): void {
                 </span>
                 <span v-if="row.adminTurn" class="ml-1 rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                   내 차례
+                </span>
+                <!-- 반려 뒤 보완 대기 — 같은 '발주접수'라도 "아직 안 온 건"과 "돌려보낸 건"은
+                     관리자가 할 말이 다르다(후자는 사유가 이미 나갔다). -->
+                <span
+                  v-if="row.status === 'issued' && row.rejectedAt !== null"
+                  class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
+                  :title="`${fmtDate(row.rejectedAt)} 반려 — 협력사가 보완 중입니다. 사유·회신 첨부는 Case 상세에서 볼 수 있습니다.`"
+                >
+                  반려됨 {{ fmtDate(row.rejectedAt) }}
                 </span>
                 <span
                   v-if="showEqReview(row)"

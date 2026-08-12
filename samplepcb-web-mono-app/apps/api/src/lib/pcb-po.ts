@@ -1215,7 +1215,7 @@ export const partnerCanTouchPo = async (
 // ── 관리자 횡단 워크큐 — 경유 상위(위임)는 숨기고 실작업 단위만 나열 ───────────
 // 소속 탭은 **배열**이다 — to_ship(발송 대기)은 produced 의 부분집합이라 배타적이지
 // 않다(선적·배송 화면의 첫 탭으로 쓰인다).
-export type AdminPcbPoTab = 'eq_pending' | 'producing' | 'produced' | 'to_ship';
+export type AdminPcbPoTab = 'waiting' | 'eq_pending' | 'producing' | 'produced' | 'to_ship';
 
 export const loadAdminPcbPoWorkItems = async (): Promise<
   { item: AdminPcbPoWorkItemType; tabs: AdminPcbPoTab[] }[]
@@ -1259,6 +1259,8 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
     // 세면 지금 승인해도 되는 건과 섞인다. 기한이 지나면 재촉이 관리자 몫이라 되돌아온다.
     const awaitingCustomer = eqReview?.status === 'requested' && !eqReview.overdue;
     const tabs: AdminPcbPoTab[] = [];
+    // 협력사 차례 — 발주는 나갔는데 아직 EQ 승인요청이 없다(첫 요청 대기 또는 반려 뒤 보완).
+    if (status === 'issued') tabs.push('waiting');
     if (status === 'eq_requested') tabs.push('eq_pending');
     if (status === 'producing' || status === 'eq_done') tabs.push('producing');
     if (status === 'produced') tabs.push('produced');
@@ -1285,6 +1287,9 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
         issuedAt: po.issuedAt.toISOString(),
         adminTurn: status === 'eq_requested' && !delegation.blocked && !awaitingCustomer,
         awaitingShipment,
+        // 이력은 행에 이미 있다(추가 조회 없음) — 반려와 요청취소를 note 로 가르는 판정은
+        // 계약의 순수 함수가 한다(Case 상세의 반려 배너와 같은 사전).
+        rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
         eqReview,
       },
       tabs,
