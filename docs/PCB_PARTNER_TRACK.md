@@ -387,6 +387,24 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **납기 하루 밀림 교정(08-06)**: 위 실검에서 발견 — §7-8 참조. 공용 `@sp/utils/kst-date`(`fmtKstDate`·`kstDateInput`·`kstToday`, 단위테스트 8) 신설 후 PCB 관리자 6화면·포털 2화면·매직링크·회신 폼과 **SmartBOM 동일 결함 11개 파일**을 일괄 교체. 서버는 원래 맞았으므로 스키마·API 무변경.
 - **후속**: `loadAdminPcbPoWorkItems` 는 여전히 `sp_pcb_po` 전건 로드 + 행별 `resolveEqDelegation`(N+1) — PO 가 쌓이면 SQL 페이지네이션으로 옮겨야 한다(주문·결제·진행현황이 선례). 역할 권한(계정별 메뉴 제한)은 SmartBOM 과 동일하게 후속. 남은 `slice(0, 10)` 은 재능마켓·회원·파트너 목록의 생성일뿐이다(같은 −9h 이지만 업무 판정에 쓰이지 않아 후속). **`OrderFilterBar.toYmd` 는 결함이 아니다** — `kstMidnight()` 이 KST 날짜를 UTC 자정에 앵커해 두므로 UTC 게터·슬라이스가 전부 정합이다(2026-08-06 오인 → 재확인).
 
+### P3.6 후속 (2026-08-12 — 발주·EQ 확정 납기 단일일·기간 검색)
+
+- **필터 의미** — 발주서가 존재하는 `EQ 승인 대기·생산 진행·생산완료·전체` 탭에서
+  `sp_pcb_po.deliveryDate`(확정 납기)를 검색한다. 첫 `발주 대기` 탭은 아직 발주서·확정 납기가
+  없으므로 필터를 숨긴다. 선정 RFQ의 제시 납기를 섞어 같은 이름으로 검색하지 않는다.
+- **한 범위 계약** — UI는 `단일일`과 `기간`을 명시적으로 나누되 API는
+  `deliveryFrom`/`deliveryTo` 한 쌍으로 통일한다. 단일일은 두 값이 같고, 기간은 KST 시작일
+  0시 이상·종료 다음 날 0시 미만으로 바꿔 양끝을 포함한다. 한쪽 누락·역전 기간·실재하지 않는
+  날짜는 400이며, 범위 검색에서 납기 미정(null)은 제외한다.
+- **DB 선필터** — 프로젝트·협력사·고객명 검색과 탭·counts·페이지네이션보다 먼저 Prisma의
+  `deliveryDate` 범위 조건으로 발주서 모수를 줄인다. 마이그레이션
+  `20260812180000_index_pcb_po_delivery_date`로 범위 인덱스를 추가했다.
+- **회귀 가드** — 날짜 계약·KST 변환 단위 4건과 여정 30호 P1b(단일일 포함/다른 날 제외,
+  기간 종료일 포함, null 제외, 역전·한쪽 누락 400)를 추가했다. 관리자 실화면에서 발주 대기
+  필터 숨김, 두 모드 전환, 빈 날짜·역전 오류, 기간 적용·초기화를 확인했다. 납기 도구는 일반
+  검색어 입력 바로 왼쪽에 두고 입력·버튼 높이를 32px로 통일했으며, 좁은 폭에서는 도구 묶음이
+  함께 다음 줄로 감기게 했다.
+
 ### P3.7 구현 기록 (2026-08-06 — 견적 영구 삭제의 협력 트랙 안전장치)
 
 배경: "BOM 에 있는 삭제 기능을 PCB 에도"(사용자). 조사해 보니 PCB 에도 배치 삭제
@@ -2622,6 +2640,4 @@ placeholder 를 '검색'으로 가정(여섯 중 다섯이 안 맞아 검증이 
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
-
-
 

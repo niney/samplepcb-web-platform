@@ -1,11 +1,11 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
-  ADMIN_PCB_PO_TABS,
   ADMIN_PCB_SHIPMENT_TABS,
   AdminPcbPoCreateBody,
   AdminPcbPoListResponse,
   AdminPcbPoPatchBody,
+  AdminPcbPoWorkListQuery,
   AdminPcbPoWorkListResponse,
   AdminPcbShipmentWorkListResponse,
   ApiError,
@@ -68,6 +68,7 @@ import {
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
 import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
+import { resolvePcbDeliveryDateRange } from '../lib/pcb-delivery-filter';
 import { kstDateStr } from '../lib/kst';
 
 // ── PCB 발주서·EQ 관리자 라우트(P2) — docs/PCB_PARTNER_TRACK.md §5.4 ──────────
@@ -80,13 +81,6 @@ const PoFileParams = z.object({
   id: z.coerce.bigint(),
   poId: z.coerce.bigint(),
   fileId: z.coerce.bigint(),
-});
-
-const WorkListQuery = z.object({
-  tab: z.enum(ADMIN_PCB_PO_TABS).default('all'),
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  q: z.string().trim().max(100).optional(),
 });
 
 const CREATE_ERROR_MESSAGES: Record<string, { code: 400 | 409; message: string }> = {
@@ -125,9 +119,20 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   // ── GET /pcb-pos — 횡단 워크큐(경유 상위 제외한 실작업 단위) ────────────────
   fastify.get(
     '/pcb-pos',
-    { schema: { querystring: WorkListQuery, response: { 200: AdminPcbPoWorkListResponse } } },
+    {
+      schema: {
+        querystring: AdminPcbPoWorkListQuery,
+        response: { 200: AdminPcbPoWorkListResponse },
+      },
+    },
     async (request) => {
-      const all = await loadAdminPcbPoWorkItems();
+      // 확정 납기 필터는 발주서 축 DB 조회에서 먼저 적용한다. KST 날짜 양끝 포함이며
+      // deliveryDate=null(납기 미정)은 Prisma 범위 조건에서 자연히 제외된다.
+      const deliveryRange = resolvePcbDeliveryDateRange(
+        request.query.deliveryFrom,
+        request.query.deliveryTo,
+      );
+      const all = await loadAdminPcbPoWorkItems(deliveryRange);
       const q = request.query.q?.toLowerCase() ?? '';
       const filtered = all.filter(
         ({ item }) =>

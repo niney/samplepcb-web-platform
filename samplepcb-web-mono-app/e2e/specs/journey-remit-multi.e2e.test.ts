@@ -13,6 +13,7 @@
 //   ⑤ **과지급은 막거나 드러난다** — 남은 잔액보다 많이 보내려 할 때.
 //   ⑥ **환율 자동/가드** — 오늘은 TTS 자동 박제, 과거일 누락은 400 으로 회계 공백을 막는다.
 //   ⑦ **송금 예정일** — NET 7은 발주일+7일 서버 계산, CUSTOM은 명시 날짜 필수.
+//   ⑧ **납기 필터** — 발주·EQ 목록에서 단일일·양끝 포함 기간을 KST 기준으로 찾는다.
 //
 // 시드 발주(협력2·USD)로 돈 축만 본다 — 주문·생산은 8호가 이미 밟았다.
 //
@@ -176,7 +177,64 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
     );
   }, 180_000);
 
-  test('P1b. 외화 환율 — 오늘은 TTS 자동 박제, 과거일 누락은 거부', async (ctx) => {
+  test('P1b. 납기 필터 — 단일일·기간 양끝 포함·잘못된 범위 차단', async (ctx) => {
+    if (poId === null) return ctx.skip();
+    const prisma = getPrisma();
+    const deliveryOn = '2026-08-20';
+    await prisma.spPcbPo.update({
+      where: { id: BigInt(poId) },
+      data: { deliveryDate: new Date('2026-08-19T15:00:00.000Z') }, // KST 2026-08-20 00:00
+    });
+
+    const list = async (from: string, to: string) =>
+      api(
+        A,
+        'GET',
+        `/api/admin/pcb-pos?tab=all&page=1&pageSize=100&deliveryFrom=${from}&deliveryTo=${to}`,
+      );
+    const hasTarget = (res: { json: any }): boolean =>
+      (res.json?.data?.items ?? []).some((row: any) => Number(row.poId) === poId);
+
+    const exact = await list(deliveryOn, deliveryOn);
+    expect(exact.status, `납기 단일일: ${JSON.stringify(exact.json)}`).toBe(200);
+    expect(hasTarget(exact), '단일일은 해당 KST 납기를 포함').toBe(true);
+
+    const miss = await list('2026-08-19', '2026-08-19');
+    expect(miss.status, `납기 단일일 대조: ${JSON.stringify(miss.json)}`).toBe(200);
+    expect(hasTarget(miss), '다른 단일일에는 제외').toBe(false);
+
+    const range = await list('2026-08-18', deliveryOn);
+    expect(range.status, `납기 기간: ${JSON.stringify(range.json)}`).toBe(200);
+    expect(hasTarget(range), '기간 종료일도 포함').toBe(true);
+
+    const reversed = await list('2026-08-21', deliveryOn);
+    expect(reversed.status, '역전 기간은 계약에서 차단').toBe(400);
+    const oneSide = await api(
+      A,
+      'GET',
+      '/api/admin/pcb-pos?tab=all&page=1&pageSize=100&deliveryFrom=2026-08-20',
+    );
+    expect(oneSide.status, '기간 한쪽 누락은 계약에서 차단').toBe(400);
+
+    await prisma.spPcbPo.update({
+      where: { id: BigInt(poId) },
+      data: { deliveryDate: null },
+    });
+    const unset = await list(deliveryOn, deliveryOn);
+    expect(hasTarget(unset), '납기 미정은 날짜 범위에서 제외').toBe(false);
+    await prisma.spPcbPo.update({
+      where: { id: BigInt(poId) },
+      data: { deliveryDate: new Date('2026-08-19T15:00:00.000Z') },
+    });
+
+    F(
+      'P1b',
+      'obs',
+      `납기 필터 — 단일일 ${deliveryOn} 포함 · 기간 종료일 포함 · 다른 날/null 제외 · 역전/한쪽 누락 400`,
+    );
+  }, 180_000);
+
+  test('P1c. 외화 환율 — 오늘은 TTS 자동 박제, 과거일 누락은 거부', async (ctx) => {
     if (poId === null) return ctx.skip();
 
     const past = await api(A, 'POST', `/api/admin/pcb-remittances/${String(poId)}`, {
@@ -214,7 +272,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
     );
     expect(removed.status, `자동 환율 프로브 정리: ${JSON.stringify(removed.json)}`).toBe(200);
     expect(removed.json?.data?.summary?.paidAmount, '프로브 정리 후 지급액 원복').toBe(0);
-    F('P1b', 'obs', `환율 — 과거일 누락 400 · 오늘 생략 TTS @${String(dailyRate)} 자동 박제 · 정리 완료`);
+    F('P1c', 'obs', `환율 — 과거일 누락 400 · 오늘 생략 TTS @${String(dailyRate)} 자동 박제 · 정리 완료`);
   }, 180_000);
 
   test('P2. 세 번에 나눠 보내도 합계·잔액이 정확하다', async (ctx) => {

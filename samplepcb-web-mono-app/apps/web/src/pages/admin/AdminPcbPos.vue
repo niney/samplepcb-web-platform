@@ -27,10 +27,18 @@ import {
 // 실작업 발주서 단위(MD 경유 상위는 서버가 제외)이고, 조작은 전부 Case 상세.
 
 type PosTabKey = AdminPcbPoTabType | 'awaiting';
+type DeliveryFilterMode = 'single' | 'range';
 
 const router = useRouter();
 const tab = ref<PosTabKey>('awaiting');
-const filters = ref<AdminPcbPoWorkFilters>({ page: 1, pageSize: 20, tab: 'eq_pending', q: '' });
+const filters = ref<AdminPcbPoWorkFilters>({
+  page: 1,
+  pageSize: 20,
+  tab: 'eq_pending',
+  q: '',
+  deliveryFrom: '',
+  deliveryTo: '',
+});
 const list = useAdminPcbPoWork(filters);
 const isAdminUser = computed(() => true); // 이 화면 자체가 관리자 전용 라우트
 const { todoPo } = useAdminPcbTodoCounts(isAdminUser);
@@ -66,6 +74,51 @@ const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
 };
 
+// 확정 납기 필터 — 단일일도 API에서는 from=to인 범위로 보내 서버 규칙을 한 벌만 둔다.
+// 발주 대기 탭은 아직 PO와 확정 납기가 없으므로 필터 자체를 노출하지 않는다.
+const deliveryMode = ref<DeliveryFilterMode>('single');
+const deliverySingle = ref('');
+const deliveryFrom = ref('');
+const deliveryTo = ref('');
+const deliveryError = ref('');
+const deliveryFiltered = computed(
+  () => filters.value.deliveryFrom !== '' && filters.value.deliveryTo !== '',
+);
+const deliveryFilterLabel = computed(() =>
+  filters.value.deliveryFrom === filters.value.deliveryTo
+    ? filters.value.deliveryFrom
+    : `${filters.value.deliveryFrom} ~ ${filters.value.deliveryTo}`,
+);
+
+const setDeliveryMode = (mode: DeliveryFilterMode): void => {
+  deliveryMode.value = mode;
+  deliveryError.value = '';
+};
+const applyDeliveryFilter = (): void => {
+  const from = deliveryMode.value === 'single' ? deliverySingle.value : deliveryFrom.value;
+  const to = deliveryMode.value === 'single' ? deliverySingle.value : deliveryTo.value;
+  if (from === '' || to === '') {
+    deliveryError.value =
+      deliveryMode.value === 'single'
+        ? '납기일을 선택해 주세요.'
+        : '시작일과 종료일을 모두 선택해 주세요.';
+    return;
+  }
+  if (from > to) {
+    deliveryError.value = '종료일은 시작일보다 빠를 수 없습니다.';
+    return;
+  }
+  deliveryError.value = '';
+  filters.value = { ...filters.value, deliveryFrom: from, deliveryTo: to, page: 1 };
+};
+const clearDeliveryFilter = (): void => {
+  deliverySingle.value = '';
+  deliveryFrom.value = '';
+  deliveryTo.value = '';
+  deliveryError.value = '';
+  filters.value = { ...filters.value, deliveryFrom: '', deliveryTo: '', page: 1 };
+};
+
 // EQ 고객 확인 축(D16) — 'EQ 승인 대기' 탭의 행들은 발주 상태가 모두 eq_requested 라
 // 그것만으로는 "지금 승인하면 되는 건"과 "고객 답을 기다리는 건"이 섞인다. 그 갈림을
 // 배지가 말한다. 승인 대기가 아니어도 결정이 있으면 남긴다(승인의 근거 — Case 와 동형).
@@ -93,7 +146,7 @@ function openCase(specId: number): void {
   <div class="pcb-readable space-y-4">
     <h1 class="text-xl font-bold">PCB 발주·EQ</h1>
 
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200">
+    <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-gray-200">
       <div class="flex flex-wrap gap-1">
         <button
           v-for="entry in TABS"
@@ -107,14 +160,90 @@ function openCase(specId: number): void {
           <span v-if="tabCount(entry.key) !== null" class="ml-0.5 text-xs opacity-60">{{ tabCount(entry.key) }}</span>
         </button>
       </div>
-      <form v-if="tab !== 'awaiting'" class="pb-1" @submit.prevent="applySearch">
-        <input
-          v-model="searchText"
-          type="search"
-          placeholder="프로젝트·협력사·고객명 검색"
-          class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-        >
-      </form>
+      <div v-if="tab !== 'awaiting'" class="flex min-w-0 flex-col items-end gap-1 pb-1">
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <!-- 납기 도구를 일반 검색 바로 왼쪽에 둔다. 전부 h-8로 맞춰 한 줄 정렬하고,
+               폭이 좁으면 두 form이 함께 다음 줄로 자연스럽게 감긴다. -->
+          <form class="flex flex-wrap items-center justify-end gap-1.5" @submit.prevent="applyDeliveryFilter">
+            <span
+              class="text-xs font-semibold text-gray-600"
+              title="발주서의 확정 납기 기준입니다. 기간은 양끝 날짜를 모두 포함합니다."
+            >납기</span>
+            <fieldset class="inline-flex h-8 items-center rounded-md border border-gray-300 bg-surface p-0.5">
+              <legend class="sr-only">납기일 검색 방식</legend>
+              <button
+                type="button"
+                class="h-7 rounded px-2 text-xs font-semibold"
+                :class="deliveryMode === 'single' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                @click="setDeliveryMode('single')"
+              >
+                단일일
+              </button>
+              <button
+                type="button"
+                class="h-7 rounded px-2 text-xs font-semibold"
+                :class="deliveryMode === 'range' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                @click="setDeliveryMode('range')"
+              >
+                기간
+              </button>
+            </fieldset>
+
+            <input
+              v-if="deliveryMode === 'single'"
+              v-model="deliverySingle"
+              type="date"
+              aria-label="납기일"
+              class="h-8 w-[9.25rem] rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
+            >
+            <template v-else>
+              <input
+                v-model="deliveryFrom"
+                type="date"
+                aria-label="납기 시작일"
+                class="h-8 w-[9.25rem] rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
+              >
+              <span class="text-gray-400">~</span>
+              <input
+                v-model="deliveryTo"
+                type="date"
+                aria-label="납기 종료일"
+                class="h-8 w-[9.25rem] rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
+              >
+            </template>
+
+            <button
+              type="submit"
+              class="h-8 rounded-md bg-blue-600 px-2.5 text-xs font-semibold text-white hover:bg-blue-700"
+            >
+              적용
+            </button>
+            <button
+              v-if="deliveryFiltered"
+              type="button"
+              class="h-8 rounded-md border border-gray-300 bg-surface px-2.5 text-xs text-gray-600 hover:bg-gray-100"
+              @click="clearDeliveryFilter"
+            >
+              초기화
+            </button>
+          </form>
+
+          <form @submit.prevent="applySearch">
+            <input
+              v-model="searchText"
+              type="search"
+              placeholder="프로젝트·협력사·고객명 검색"
+              class="h-8 w-56 rounded-md border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+            >
+          </form>
+        </div>
+        <p v-if="deliveryError !== ''" role="alert" class="text-xs font-semibold text-red-600">
+          {{ deliveryError }}
+        </p>
+        <p v-else-if="deliveryFiltered" class="text-xs font-semibold text-blue-700">
+          납기 {{ deliveryFilterLabel }} 적용 · 납기 미정 제외
+        </p>
+      </div>
     </div>
 
     <!-- 발주 대기 — 발주서가 아직 없는 스펙 축(PO 축에는 존재하지 않는 모수) -->

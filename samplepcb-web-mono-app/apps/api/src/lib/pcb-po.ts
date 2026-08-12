@@ -37,6 +37,7 @@ import {
 } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { loadEqReviewRowSummaries } from './pcb-eq-review';
+import type { PcbDeliveryDateRange } from './pcb-delivery-filter';
 import { resolvePcbRemittanceDueOn } from './pcb-payment-terms';
 import { loadRemittanceSummaries, summarizePcbRemittances } from './pcb-remittance';
 import {
@@ -1247,10 +1248,21 @@ export const partnerCanTouchPo = async (
 // 않다(선적·배송 화면의 첫 탭으로 쓰인다).
 export type AdminPcbPoTab = 'waiting' | 'eq_pending' | 'producing' | 'produced' | 'to_ship';
 
-export const loadAdminPcbPoWorkItems = async (): Promise<
+export const loadAdminPcbPoWorkItems = async (
+  deliveryDateRange?: PcbDeliveryDateRange,
+): Promise<
   { item: AdminPcbPoWorkItemType; tabs: AdminPcbPoTab[] }[]
 > => {
   const rows = await prisma.spPcbPo.findMany({
+    where:
+      deliveryDateRange === undefined
+        ? {}
+        : {
+            deliveryDate: {
+              gte: deliveryDateRange.from,
+              lt: deliveryDateRange.toExclusive,
+            },
+          },
     include: { spec: true, partner: true },
     orderBy: { issuedAt: 'desc' },
   });

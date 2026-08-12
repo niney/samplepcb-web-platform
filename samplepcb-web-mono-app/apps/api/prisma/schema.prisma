@@ -1456,6 +1456,7 @@ model SpPcbPo {
 
   @@unique([specId, partnerId, parentPartnerId, reorderRound])
   @@index([partnerId, status]) // 협력사 포털 워크큐
+  @@index([deliveryDate]) // 관리자 발주·EQ 납기 범위 필터
   @@index([specId])
   @@map("sp_pcb_po")
 }

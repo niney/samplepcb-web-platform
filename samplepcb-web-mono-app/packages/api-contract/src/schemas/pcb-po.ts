@@ -560,6 +560,58 @@ export const ADMIN_PCB_PO_TABS = [
 ] as const;
 export type AdminPcbPoTabType = (typeof ADMIN_PCB_PO_TABS)[number];
 
+const PCB_WORK_DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const isValidPcbWorkDateOnly = (value: string): boolean => {
+  const match = PCB_WORK_DATE_ONLY_RE.exec(value);
+  if (match === null) return false;
+  const year = Number(match[1] ?? '');
+  const month = Number(match[2] ?? '');
+  const day = Number(match[3] ?? '');
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+};
+const PcbWorkDateOnly = z
+  .string()
+  .regex(PCB_WORK_DATE_ONLY_RE)
+  .refine(isValidPcbWorkDateOnly, '유효한 날짜를 입력해 주세요.');
+
+/** 관리자 발주·EQ 워크큐 쿼리. 납기 범위는 KST 날짜 양끝 포함이며 두 값을 한 쌍으로 받는다. */
+export const AdminPcbPoWorkListQuery = z
+  .object({
+    tab: z.enum(ADMIN_PCB_PO_TABS).default('all'),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(20),
+    q: z.string().trim().max(100).optional(),
+    deliveryFrom: PcbWorkDateOnly.optional(),
+    deliveryTo: PcbWorkDateOnly.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if ((value.deliveryFrom === undefined) !== (value.deliveryTo === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [value.deliveryFrom === undefined ? 'deliveryFrom' : 'deliveryTo'],
+        message: '납기 시작일과 종료일을 함께 입력해 주세요.',
+      });
+      return;
+    }
+    if (
+      value.deliveryFrom !== undefined &&
+      value.deliveryTo !== undefined &&
+      value.deliveryFrom > value.deliveryTo
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deliveryTo'],
+        message: '납기 종료일은 시작일보다 빠를 수 없습니다.',
+      });
+    }
+  });
+export type AdminPcbPoWorkListQueryType = z.infer<typeof AdminPcbPoWorkListQuery>;
+
 export const AdminPcbPoWorkItem = z.object({
   poId: z.number(),
   specId: z.number(),

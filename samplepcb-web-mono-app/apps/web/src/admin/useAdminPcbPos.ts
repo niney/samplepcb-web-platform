@@ -27,6 +27,9 @@ export interface AdminPcbPoWorkFilters {
   pageSize: number;
   tab: AdminPcbPoTabType;
   q: string;
+  /** 확정 납기 KST 날짜 범위(양끝 포함). 단일일은 같은 날짜를 두 값에 넣는다. */
+  deliveryFrom: string;
+  deliveryTo: string;
 }
 
 const workListPath = (f: AdminPcbPoWorkFilters): string => {
@@ -35,6 +38,10 @@ const workListPath = (f: AdminPcbPoWorkFilters): string => {
   params.set('pageSize', String(f.pageSize));
   params.set('tab', f.tab);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
+  if (f.deliveryFrom !== '' && f.deliveryTo !== '') {
+    params.set('deliveryFrom', f.deliveryFrom);
+    params.set('deliveryTo', f.deliveryTo);
+  }
   return `${apiRoutes.adminPcbPos}?${params.toString()}`;
 };
 

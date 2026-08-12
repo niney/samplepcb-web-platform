@@ -45,7 +45,14 @@ const filters = ref<AdminPcbShipmentFilters>({ page: 1, pageSize: 20, tab: 'pend
 const list = useAdminPcbShipmentWork(filters);
 
 // 발송 대기 = 발주서 축(produced·미편성) — 선적 문서가 아직 없으니 PO 워크큐에서 가져온다.
-const poFilters = ref<AdminPcbPoWorkFilters>({ page: 1, pageSize: 20, tab: 'to_ship', q: '' });
+const poFilters = ref<AdminPcbPoWorkFilters>({
+  page: 1,
+  pageSize: 20,
+  tab: 'to_ship',
+  q: '',
+  deliveryFrom: '',
+  deliveryTo: '',
+});
 const poQuery = useAdminPcbPoWork(poFilters);
 const toShipRows = computed(() => poQuery.data.value?.data.items ?? []);
 const toShipTotal = computed(() => poQuery.data.value?.data.total ?? 0);
