@@ -33,12 +33,13 @@
 // 미갱신. 화이트리스트(updateMemberInfo 맵) 밖 컬럼 쓰기 금지.
 // ⑩ g5_shop_order·g5_shop_cart 및 주문 보조 원장 read-only SELECT(관리자 견적 삭제 프리뷰 — 주문됨 견적이
 // 묶인 주문의 결제상태·수납액·PG거래·같은 주문의 다른 견적 파악: od_status·od_receipt_price·
-// od_receipt_point·od_cart_coupon·od_coupon·od_send_coupon·od_cart_price·od_settle_case·
-// od_tno·od_pg·od_misu·od_tax_mny·od_vat_mny·od_free_mny(`getOrderHeadersLite` 주문 세액 표시) +
+// od_receipt_point·od_refund_price·od_cart_coupon·od_coupon·od_send_coupon·od_cart_price·
+// od_cancel_price·od_send_cost·od_send_cost2·od_settle_case·od_tno·od_pg·od_misu·od_tax_mny·
+// od_vat_mny·od_free_mny(`getOrderHeadersLite` 주문 세액·결제대상·순결제 표시) +
 // od_name·od_email·od_tel·od_hp·mb_id(`getOrdererContactByOdId` PCB·BOM Case 주문자 표시) +
 // od_b_name·od_b_tel·od_b_hp·od_b_zip1/2·od_b_addr1~3(`getOrderHeadersLite` SmartBOM
 // 고객 배송 워크큐의 주문 시점 수령인·배송지·배송 메일 수신처 표시) +
-// cart od_id/ct_status/it_id/it_name/io_id/io_price. 완전삭제 프리뷰에 한해 g5_shop_order_data·
+// cart od_id/ct_status/it_id/it_name/io_id/io_type/io_price/ct_price/ct_qty. 완전삭제 프리뷰에 한해 g5_shop_order_data·
 // g5_shop_coupon_log·g5_shop_coupon·g5_shop_personalpay·g5_shop_order_post_log·
 // g5_shop_inicis_log·g5_shop_order_delete·g5_point의 od_id/oid/de_key/주문 관계키별 건수도 읽는다).
 // ⑪ g5_shop_order 주문 삭제(관리자 견적 완전삭제 — 기본은 코어 adm/shop_admin/orderlistdelete.php
@@ -56,7 +57,8 @@
 // searchOrders(목록+배타 counts), getOrderRow(상세 헤더), getCartRowsByOdId(카트 라인),
 // getMemberOrderCounts(누적주문수 배치), getDeliveryExcelRows(엑셀 배송처리 대상 —
 // orderdeliveryexcel.php 이식: od_status='준비' AND od_misu=0, od_id desc, 받는분 연락처·주소
-// 포함). WHERE 조립은 순수 함수 buildOrderListWhere/
+// 포함). 목록 cartCount는 실제 g5_shop_cart를 일반 상품 distinct it_id + 커스텀 행별로 집계해
+// 과거 od_cart_count 오저장을 표시 시 보정한다. WHERE 조립은 순수 함수 buildOrderListWhere/
 // buildOrderBaseConds/buildOrderTabCond(파라미터 바인딩, 문자열 보간 없음 — qField·정렬 컬럼은
 // 화이트리스트 상수). 컬럼: 목록은 ORDER_LIST_COLUMNS, 상세는 ORDER_DETAIL_COLUMNS(둘 다
 // 화이트리스트). **민감 컬럼 od_pwd·od_cash·od_cash_info 는 SELECT 에서 절대 제외**. 날짜는
@@ -602,9 +604,16 @@ export interface OrderHeaderLite {
   settleCase: string;
   cartPrice: number;
   cancelPrice: number;
+  cartCoupon: number;
+  orderCoupon: number;
+  sendCoupon: number;
   sendCost: number;
   sendCost2: number;
   receiptPrice: number;
+  receiptPoint: number;
+  refundPrice: number;
+  /** 취소·쿠폰·배송비까지 반영한 현재 주문 결제 대상액. */
+  orderPrice: number;
   misu: number;
   taxMny: number;
   vatMny: number;
@@ -650,8 +659,9 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
     `SELECT od_id, mb_id, od_name, od_email, od_tel, od_hp,
             od_b_name, od_b_tel, od_b_hp, od_b_zip1, od_b_zip2, od_b_addr1, od_b_addr2, od_b_addr3,
-            od_status, od_settle_case, od_cart_price, od_cancel_price, od_send_cost, od_send_cost2,
-            od_receipt_price, od_misu,
+            od_status, od_settle_case, od_cart_price, od_cancel_price,
+            od_cart_coupon, od_coupon, od_send_coupon, od_send_cost, od_send_cost2,
+            od_receipt_price, od_receipt_point, od_refund_price, od_misu,
             od_tax_mny, od_vat_mny, od_free_mny,
             DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        FROM g5_shop_order WHERE od_id IN (${odIds.map(() => '?').join(',')})`,
@@ -659,6 +669,13 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
   );
   for (const row of rows) {
     const odTime = String(row.od_time ?? '');
+    const cartPrice = Number(row.od_cart_price ?? 0);
+    const cancelPrice = Number(row.od_cancel_price ?? 0);
+    const cartCoupon = Number(row.od_cart_coupon ?? 0);
+    const orderCoupon = Number(row.od_coupon ?? 0);
+    const sendCoupon = Number(row.od_send_coupon ?? 0);
+    const sendCost = Number(row.od_send_cost ?? 0);
+    const sendCost2 = Number(row.od_send_cost2 ?? 0);
     headers.set(String(row.od_id), {
       odId: String(row.od_id),
       mbId: String(row.mb_id ?? ''),
@@ -677,11 +694,18 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
       odStatus: String(row.od_status ?? ''),
       isPaid: String(row.od_status) !== '주문',
       settleCase: String(row.od_settle_case ?? ''),
-      cartPrice: Number(row.od_cart_price ?? 0),
-      cancelPrice: Number(row.od_cancel_price ?? 0),
-      sendCost: Number(row.od_send_cost ?? 0),
-      sendCost2: Number(row.od_send_cost2 ?? 0),
+      cartPrice,
+      cancelPrice,
+      cartCoupon,
+      orderCoupon,
+      sendCoupon,
+      sendCost,
+      sendCost2,
       receiptPrice: Number(row.od_receipt_price ?? 0),
+      receiptPoint: Number(row.od_receipt_point ?? 0),
+      refundPrice: Number(row.od_refund_price ?? 0),
+      orderPrice:
+        cartPrice + sendCost + sendCost2 - cartCoupon - orderCoupon - sendCoupon - cancelPrice,
       misu: Number(row.od_misu ?? 0),
       taxMny: Number(row.od_tax_mny ?? 0),
       vatMny: Number(row.od_vat_mny ?? 0),
@@ -714,6 +738,8 @@ export interface OrderInfo {
   rowCtStatus: string; // 이 ct_id 의 ct_status(주문 헤더 상태가 아닌 라인 상태)
   rowIoId: string; // io_id(= contractKey 대조)
   rowIoPrice: number; // io_price(= amount 대조)
+  /** 이 ct_id에 주문 시점 박제된 줄 총액(io_type·수량 반영, 할인 전). */
+  rowLineAmount: number;
 }
 
 /** 완전삭제 전용 금전·권리 흔적. 일반 Case 상세와 분리해 삭제 플랜에서만 읽는다. */
@@ -740,7 +766,8 @@ async function loadOrderInfoByCtId(
 ): Promise<OrderInfo | OrderDeletionInfo | null> {
   const pool = getG5Pool();
   const [cartRows] = await pool.query<RowDataPacket[]>(
-    `SELECT od_id, ct_status, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
+    `SELECT od_id, ct_status, io_id, io_type, io_price, ct_price, ct_qty
+       FROM g5_shop_cart WHERE ct_id = ?`,
     [ctId],
   );
   const cart = cartRows[0];
@@ -787,6 +814,10 @@ async function loadOrderInfoByCtId(
     rowCtStatus: String(cart.ct_status ?? ''),
     rowIoId: String(cart.io_id ?? ''),
     rowIoPrice: Number(cart.io_price ?? 0),
+    rowLineAmount:
+      Number(cart.io_type ?? 0) === 1
+        ? Number(cart.io_price ?? 0) * Number(cart.ct_qty ?? 0)
+        : (Number(cart.ct_price ?? 0) + Number(cart.io_price ?? 0)) * Number(cart.ct_qty ?? 0),
   };
   if (!includeDeletionEvidence) return info;
   const memberId = String(order.mb_id ?? '');
@@ -2228,11 +2259,20 @@ export interface SearchOrdersResult {
 
 // 목록 SELECT 컬럼(화이트리스트) — 계산 컬럼(order_price·coupon_price)은 SQL 에서.
 // 날짜는 KST native 문자열 그대로, zero-date 는 NULLIF→null.
+// cart_count는 신규 주문의 저장값만 믿지 않고 PHP sp_order_cart_count()와 같은 규칙으로
+// 실제 cart를 센다. 이로써 과거 다건 PCB/BOM/마켓 주문도 통합 관리자에서 소급 보정된다.
+const CUSTOM_CART_ROW_IT_IDS_SQL = sqlStatusList([
+  ...new Set([...Object.values(TEMPLATE_ITEMS), MARKET_ANCHOR_IT_ID]),
+]);
 const ORDER_LIST_COLUMNS = `od_id, od_name, mb_id, od_tel, od_hp, od_b_name, od_status, od_settle_case,
     (od_cart_price + od_send_cost + od_send_cost2) AS order_price,
     od_receipt_price, od_cancel_price,
     (od_cart_coupon + od_coupon + od_send_coupon) AS coupon_price,
-    od_misu, od_cart_count, od_delivery_company, od_invoice,
+    od_misu,
+    COALESCE((SELECT COUNT(DISTINCT IF(c.it_id NOT IN (${CUSTOM_CART_ROW_IT_IDS_SQL}), c.it_id, NULL))
+                       + SUM(IF(c.it_id IN (${CUSTOM_CART_ROW_IT_IDS_SQL}), 1, 0))
+                FROM g5_shop_cart c WHERE c.od_id = g5_shop_order.od_id), od_cart_count) AS cart_count,
+    od_delivery_company, od_invoice,
     DATE_FORMAT(NULLIF(od_invoice_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS invoice_time,
     DATE_FORMAT(NULLIF(od_receipt_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS receipt_time,
     DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time,
@@ -2275,7 +2315,7 @@ function mapOrderListRow(row: RowDataPacket): OrderListRow {
     cancelPrice: Number(row.od_cancel_price ?? 0),
     couponPrice: Number(row.coupon_price ?? 0),
     misu: Number(row.od_misu ?? 0),
-    cartCount: Number(row.od_cart_count ?? 0),
+    cartCount: Number(row.cart_count ?? 0),
     deliveryCompany: emptyToNull(String(row.od_delivery_company ?? '')),
     invoiceNo: emptyToNull(String(row.od_invoice ?? '')),
     invoiceTime: row.invoice_time == null ? null : String(row.invoice_time),
@@ -3588,7 +3628,17 @@ export interface PcbOrderSpecRow {
   odStatus: string;
   ctStatus: string;
   settleCase: string;
+  /** 이 PCB 카트행의 주문 시점 금액. */
+  lineAmount: number;
+  /** 취소·쿠폰·배송비를 반영한 주문 전체 결제 대상액. */
+  orderAmount: number;
+  /** 같은 od_id에 연결된 PCB 스펙 수(취소 행 포함). */
+  orderPcbCount: number;
   receiptPrice: number;
+  receiptPoint: number;
+  refundPrice: number;
+  /** 수납액 + 사용 포인트 - 환불 누계. */
+  netReceipt: number;
   /** 잔여 미수금. 상태만 올린 주문(force-status)은 수납이 안 잡혀 여기 남는다 — 화면 경고용. */
   misu: number;
   orderedAt: string | null;
@@ -3693,16 +3743,17 @@ export async function listPcbOrderSpecs(params: {
       ${PCB_SHIP_JOIN}
      WHERE ${conds.join(' AND ')}`;
 
-  // counts — 탭 미반영·검색 반영(견적 관리 counts 관례 동일). 탭별 total 로도 재사용.
+  // 워크큐의 조작 단위는 od_id다. 한 주문에 PCB가 여러 줄이어도 탭·사이드바·페이지에서는
+  // 주문 1건으로 세고, 선택된 주문의 PCB 줄을 아래 목록에서 함께 펼친다.
   const [countRows] = await pool.query<RowDataPacket[]>(
     `SELECT
-        COALESCE(SUM(${PCB_LINE_ACTIVE} AND o.od_status = '주문'), 0) AS awaiting,
-        COALESCE(SUM(${PCB_LINE_ACTIVE} AND o.od_status NOT IN ('주문', '완료', '취소')), 0) AS active,
-        COALESCE(SUM(${PCB_LINE_ACTIVE} AND o.od_status = '완료'), 0) AS done,
-        COALESCE(SUM(${PCB_LINE_CANCELED} OR o.od_status = '취소'), 0) AS canceled,
-        COUNT(*) AS all_cnt,
-        COALESCE(SUM(${PCB_TO_SHIP}), 0) AS to_ship_cnt,
-        COALESCE(SUM(${PCB_SHIPPING}), 0) AS shipping_cnt
+        COUNT(DISTINCT CASE WHEN ${PCB_LINE_ACTIVE} AND o.od_status = '주문' THEN c.od_id END) AS awaiting,
+        COUNT(DISTINCT CASE WHEN ${PCB_LINE_ACTIVE} AND o.od_status NOT IN ('주문', '완료', '취소') THEN c.od_id END) AS active,
+        COUNT(DISTINCT CASE WHEN ${PCB_LINE_ACTIVE} AND o.od_status = '완료' THEN c.od_id END) AS done,
+        COUNT(DISTINCT CASE WHEN ${PCB_LINE_CANCELED} OR o.od_status = '취소' THEN c.od_id END) AS canceled,
+        COUNT(DISTINCT c.od_id) AS all_cnt,
+        COUNT(DISTINCT CASE WHEN ${PCB_TO_SHIP} THEN c.od_id END) AS to_ship_cnt,
+        COUNT(DISTINCT CASE WHEN ${PCB_SHIPPING} THEN c.od_id END) AS shipping_cnt
       ${base}`,
     args,
   );
@@ -3727,18 +3778,42 @@ export async function listPcbOrderSpecs(params: {
   };
 
   const tabCond = params.tab === 'all' ? '1=1' : PCB_ORDER_TAB_SQL[params.tab];
-  const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT s.id AS spec_id, c.od_id, c.ct_status, o.od_name, o.od_status, o.od_settle_case, o.od_receipt_price, o.od_misu,
-            o.od_delivery_company, o.od_invoice,
-            DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
+  const [pageOrderRows] = await pool.query<RowDataPacket[]>(
+    `SELECT c.od_id, MAX(o.od_time) AS order_time
        ${base} AND ${tabCond}
-      ORDER BY o.od_time DESC, s.id DESC
+      GROUP BY c.od_id
+      ORDER BY order_time DESC, c.od_id DESC
       LIMIT ? OFFSET ?`,
     [...args, params.pageSize, (params.page - 1) * params.pageSize],
+  );
+  const pageOdIds = pageOrderRows.map((row) => String(row.od_id));
+  if (pageOdIds.length === 0) {
+    return { rows: [], total: totalByTab[params.tab], counts };
+  }
+  const orderPlaceholders = pageOdIds.map(() => '?').join(',');
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT s.id AS spec_id, c.od_id, c.ct_status, o.od_name, o.od_status, o.od_settle_case,
+            IF(c.io_type = 1, c.io_price * c.ct_qty, (c.ct_price + c.io_price) * c.ct_qty) AS line_amount,
+            o.od_cart_price, o.od_cancel_price, o.od_cart_coupon, o.od_coupon, o.od_send_coupon,
+            o.od_send_cost, o.od_send_cost2, o.od_receipt_price, o.od_receipt_point,
+            o.od_refund_price, o.od_misu,
+            (SELECT COUNT(*)
+               FROM sp_order_spec s2
+               JOIN g5_shop_cart c2 ON c2.ct_id = s2.ctId
+              WHERE s2.status = 'active' AND c2.ct_status <> '쇼핑' AND c2.od_id = c.od_id
+            ) AS order_pcb_count,
+            o.od_delivery_company, o.od_invoice,
+            DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
+       ${base} AND ${tabCond} AND c.od_id IN (${orderPlaceholders})
+      ORDER BY FIELD(c.od_id, ${orderPlaceholders}), s.id DESC`,
+    [...args, ...pageOdIds, ...pageOdIds],
   );
   return {
     rows: rows.map((row) => {
       const odTime = String(row.od_time ?? '');
+      const receiptPrice = Number(row.od_receipt_price ?? 0);
+      const receiptPoint = Number(row.od_receipt_point ?? 0);
+      const refundPrice = Number(row.od_refund_price ?? 0);
       return {
         specId: Number(row.spec_id),
         odId: String(row.od_id),
@@ -3746,7 +3821,20 @@ export async function listPcbOrderSpecs(params: {
         odStatus: String(row.od_status ?? ''),
         ctStatus: String(row.ct_status ?? ''),
         settleCase: String(row.od_settle_case ?? ''),
-        receiptPrice: Number(row.od_receipt_price ?? 0),
+        lineAmount: Number(row.line_amount ?? 0),
+        orderAmount:
+          Number(row.od_cart_price ?? 0) +
+          Number(row.od_send_cost ?? 0) +
+          Number(row.od_send_cost2 ?? 0) -
+          Number(row.od_cart_coupon ?? 0) -
+          Number(row.od_coupon ?? 0) -
+          Number(row.od_send_coupon ?? 0) -
+          Number(row.od_cancel_price ?? 0),
+        orderPcbCount: Number(row.order_pcb_count ?? 0),
+        receiptPrice,
+        receiptPoint,
+        refundPrice,
+        netReceipt: receiptPrice + receiptPoint - refundPrice,
         misu: Number(row.od_misu ?? 0),
         orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
         // 코어 기본값 '0' 은 "택배사 미지정"이다 — 그대로 흘리면 화면에 택배사가 `0` 으로

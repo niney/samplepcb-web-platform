@@ -218,6 +218,7 @@ describe('SmartBOM Case 영구 삭제 실행 순서', () => {
       rowCtStatus: '주문',
       rowIoId: 'bom-31',
       rowIoPrice: 1000,
+      rowLineAmount: 1000,
       relatedRecordCount: 0,
     };
 
@@ -278,6 +279,7 @@ describe('SmartBOM Case 영구 삭제 실행 순서', () => {
       rowCtStatus: '주문',
       rowIoId: 'bom-31',
       rowIoPrice: 1000,
+      rowLineAmount: 1000,
       relatedRecordCount: 0,
     };
     mocks.deleteUnpaidOrder.mockResolvedValue('paid');
@@ -343,6 +345,7 @@ describe('SmartBOM Case 영구 삭제 실행 순서', () => {
       rowCtStatus: '입금',
       rowIoId: 'bom-31',
       rowIoPrice: 1000,
+      rowLineAmount: 1000,
       relatedRecordCount: 2,
     };
 

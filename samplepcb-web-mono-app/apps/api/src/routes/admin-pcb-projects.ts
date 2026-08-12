@@ -418,8 +418,15 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         odStatus: string;
         ctStatus: string;
         isPaid: boolean;
-        receiptPrice: number;
+        lineAmount: number;
+        orderPcbCount: number;
         cartPrice: number;
+        orderPrice: number;
+        receiptPrice: number;
+        receiptPoint: number;
+        refundPrice: number;
+        netReceipt: number;
+        misu: number;
         settleCase: string;
         orderedAt: string | null;
         taxAmounts: {
@@ -443,13 +450,27 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           ]);
           const header = headers.get(link.odId);
           if (header !== undefined) {
+            const siblingCtIds = lineOrderInfo?.siblingCarts.map((row) => row.ctId) ?? [];
+            const orderPcbCount = await prisma.spOrderSpec.count({
+              where: {
+                status: 'active',
+                ctId: { in: [spec.ctId, ...siblingCtIds] },
+              },
+            });
             order = {
               odId: header.odId,
               odStatus: header.odStatus,
               ctStatus: lineOrderInfo?.rowCtStatus ?? header.odStatus,
               isPaid: header.isPaid,
-              receiptPrice: header.receiptPrice,
+              lineAmount: lineOrderInfo?.rowLineAmount ?? 0,
+              orderPcbCount: Math.max(1, orderPcbCount),
               cartPrice: header.cartPrice,
+              orderPrice: header.orderPrice,
+              receiptPrice: header.receiptPrice,
+              receiptPoint: header.receiptPoint,
+              refundPrice: header.refundPrice,
+              netReceipt: header.receiptPrice + header.receiptPoint - header.refundPrice,
+              misu: header.misu,
               settleCase: header.settleCase,
               orderedAt: header.orderedAt,
               taxAmounts: {

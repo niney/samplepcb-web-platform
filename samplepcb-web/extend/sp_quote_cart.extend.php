@@ -116,6 +116,36 @@ function sp_custom_row_it_ids_in()
     }, array_merge(sp_quote_it_ids(), sp_market_it_ids(), sp_bom_it_ids())));
 }
 
+// 주문 헤더 od_cart_count 용 집계식. 영카트 기본 COUNT(DISTINCT it_id)는 같은 템플릿
+// 상품을 공유하는 PCB·BOM·마켓 행 여러 개를 1건으로 접는다. 주문서 렌더 단위와 똑같이
+// 일반 상품은 it_id별 1건, 커스텀 스냅샷은 실제 ct_id 행마다 1건으로 센다.
+// 호출부가 select 목록에 그대로 넣는 고정 SQL 조각이라 외부 입력은 받지 않는다.
+function sp_order_cart_count_sql()
+{
+    $in = sp_custom_row_it_ids_in();
+
+    return "COUNT(DISTINCT IF(it_id NOT IN ($in), it_id, NULL))"
+        ." + SUM(IF(it_id IN ($in), 1, 0))";
+}
+
+// 기존 주문 표시용 실시간 보정. 이미 od_cart_count=1로 저장된 다건 커스텀 주문도 DB
+// 일괄 UPDATE 없이 고객 주문목록에서 정확히 보이게 한다. 주문당 카트 행은 소수이고
+// 목록 페이지 범위에서만 호출된다.
+function sp_order_cart_count($od_id)
+{
+    global $g5;
+
+    $od_id = sql_real_escape_string(trim((string) $od_id));
+    if ($od_id === '') return 0;
+
+    $count_sql = sp_order_cart_count_sql();
+    $row = sql_fetch(" select ($count_sql) as cnt
+                         from {$g5['g5_shop_cart_table']}
+                        where od_id = '$od_id' ");
+
+    return $row ? (int) $row['cnt'] : 0;
+}
+
 // ④ 견적 행 거버 썸네일 서명 URL — sp-node lib/thumb-url.ts signedThumbUrl() 의 PHP 미러.
 //    시크릿(SPCB_JWT_SECRET = node JWT_SECRET) 공유라 서명을 PHP 가 직접 발급하고,
 //    바이트 서빙은 node(/api/pcb-thumbs)가 전담한다(파일서버·pathToken 경계 불변).

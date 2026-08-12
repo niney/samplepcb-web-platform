@@ -160,8 +160,15 @@ export const AdminQuoteDetail = AdminQuoteListItem.extend({
       odStatus: z.string(), // '주문'(미입금)|'입금'|'준비'|…|'완료'|'취소'
       ctStatus: z.string(), // 이 PCB 스펙의 카트행 상태 — 부분취소면 odStatus와 다를 수 있다.
       isPaid: z.boolean(), // od_status !== '주문'
-      receiptPrice: z.number(),
-      cartPrice: z.number(),
+      lineAmount: z.number(), // 현재 Case PCB 한 줄의 주문 시점 금액
+      orderPcbCount: z.number().int().positive(), // 같은 주문에 포함된 PCB 줄 수
+      cartPrice: z.number(), // 주문 전체 상품합(취소 전 헤더 금액)
+      orderPrice: z.number(), // 취소·쿠폰·배송비를 반영한 현재 주문 결제 대상액
+      receiptPrice: z.number(), // 현금 수납액
+      receiptPoint: z.number(), // 사용 포인트
+      refundPrice: z.number(), // 환불 누계
+      netReceipt: z.number(), // 수납 + 포인트 - 환불
+      misu: z.number(),
       settleCase: z.string(),
       orderedAt: z.string().nullable(),
       // 영카트 주문 헤더의 실제 저장 세액. 견적가 역산값과 구분한다.

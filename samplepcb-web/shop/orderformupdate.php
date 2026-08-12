@@ -103,8 +103,11 @@ $i_send_coupon  = isset($_POST['od_send_coupon']) ? abs((int) $_POST['od_send_co
 $i_temp_point = isset($_POST['od_temp_point']) ? (int) $_POST['od_temp_point'] : 0;
 
 // 주문금액이 상이함
+$sp_cart_count_sql = function_exists('sp_order_cart_count_sql')
+                    ? sp_order_cart_count_sql()
+                    : 'COUNT(distinct it_id)';
 $sql = " select SUM(IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty))) as od_price,
-              COUNT(distinct it_id) as cart_count
+              ($sp_cart_count_sql) as cart_count
             from {$g5['g5_shop_cart_table']} where od_id = '$tmp_cart_id' and ct_select = '1' ";
 $row = sql_fetch($sql);
 $tot_ct_price = $row['od_price'];

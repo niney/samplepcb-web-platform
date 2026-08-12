@@ -61,7 +61,17 @@ export const AdminPcbOrderItem = z.object({
   ctStatus: z.string(), // 이 PCB 스펙의 카트행 상태 — 부분취소면 odStatus 와 다를 수 있다.
   isPaid: z.boolean(),
   settleCase: z.string(), // od_settle_case — 무통장만 관리자 수동 입금확인 대상(서버 가드 동일)
-  receiptPrice: z.number(), // od_receipt_price 수납액(주문 헤더 단위)
+  /** 이 PCB 카트행의 주문 시점 금액(io_type·수량 반영). */
+  lineAmount: z.number(),
+  /** 취소·쿠폰·배송비를 반영한 주문 전체 결제 대상액. */
+  orderAmount: z.number(),
+  /** 같은 주문에 포함된 PCB 줄 수. 주문 단위 액션의 영향 범위를 설명하는 값이다. */
+  orderPcbCount: z.number().int().positive(),
+  receiptPrice: z.number(), // od_receipt_price 현금 수납액(주문 헤더 단위)
+  receiptPoint: z.number(), // od_receipt_point 사용 포인트(주문 헤더 단위)
+  refundPrice: z.number(), // od_refund_price 환불 누계(주문 헤더 단위)
+  /** 수납액 + 사용 포인트 - 환불 누계. */
+  netReceipt: z.number(),
   /**
    * od_misu 잔여 미수금. isPaid 는 od_status 파생이라 '상태만 올린' 주문(force-status)도
    * 결제됨으로 보인다 — 그 어긋남을 화면에서 잡아내려면 이 값이 필요하다.

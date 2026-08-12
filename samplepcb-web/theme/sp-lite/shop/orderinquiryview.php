@@ -399,7 +399,10 @@ if($od['od_pg'] == 'lg') {
         $cancel_price   = $od['od_cancel_price'];
 
         $misu = true;
-        $misu_price = $tot_price - $receipt_price;
+        // 결제·부분취소·환불 이후의 정본은 주문 상태 변경 경로가 재계산해 저장한 od_misu다.
+        // 화면에서 총액-수납액만 다시 계산하면 od_refund_price가 빠져, 환불 완료 주문도
+        // 음수 미수로 남고 완불·현금영수증 판정이 DB와 어긋난다.
+        $misu_price = (int) $od['od_misu'];
 
         if ($misu_price == 0 && ($od['od_cart_price'] > $od['od_cancel_price'])) {
             $wanbul = " (완불)";

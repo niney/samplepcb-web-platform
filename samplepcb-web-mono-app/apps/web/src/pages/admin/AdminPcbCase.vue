@@ -279,7 +279,10 @@ const canConfirmReceipt = computed(() => {
 async function confirmReceipt(): Promise<void> {
   const order = detail.value?.order;
   if (order === null || order === undefined) return;
-  if (!(await confirmDialog(`주문 ${order.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`))) {
+  if (!(await confirmDialog(
+    `주문 ${order.odId} 전체(PCB ${String(order.orderPcbCount)}건 포함)를 입금확인 처리할까요?\n` +
+      `이 주문의 결제 가능한 모든 상품이 함께 입금 상태로 변경되고 고객에게 확인 메일이 발송됩니다.`,
+  ))) {
     return;
   }
   actionError.value = '';
@@ -1531,7 +1534,10 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           <dl class="mt-2 space-y-1.5 text-sm">
             <div class="flex justify-between">
               <dt class="text-gray-500">주문번호</dt>
-              <dd class="font-mono text-xs text-gray-600">{{ detail.order.odId }}</dd>
+              <dd class="text-right">
+                <span class="block font-mono text-xs text-gray-600">{{ detail.order.odId }}</span>
+                <span class="text-[11px] font-semibold text-blue-600">PCB {{ detail.order.orderPcbCount }}건 포함</span>
+              </dd>
             </div>
             <div class="flex justify-between">
               <dt class="text-gray-500">상태</dt>
@@ -1545,8 +1551,12 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
               </dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-gray-500">주문금액</dt>
-              <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.order.cartPrice) }}</dd>
+              <dt class="text-gray-500">이 PCB 주문금액</dt>
+              <dd class="tabular-nums font-semibold text-gray-900">{{ fmtPcbAmount('KRW', detail.order.lineAmount) }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-gray-500">주문 전체 결제대상</dt>
+              <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.order.orderPrice) }}</dd>
             </div>
             <div class="!mt-2 space-y-1 rounded-lg bg-gray-50 px-3 py-2 text-xs">
               <div class="flex justify-between">
@@ -1561,12 +1571,32 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 <dt class="text-gray-500">비과세액</dt>
                 <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.taxFree) }}</dd>
               </div>
-              <p class="pt-0.5 text-[11px] text-gray-400">영카트 주문에 저장된 실제 세액 기준</p>
+              <p class="pt-0.5 text-[11px] text-gray-400">주문 전체에 저장된 영카트 실제 세액 기준</p>
             </div>
             <div class="flex justify-between">
-              <dt class="text-gray-500">수납액</dt>
+              <dt class="text-gray-500">주문 전체 현금수납</dt>
               <dd class="tabular-nums" :class="detail.order.receiptPrice > 0 ? 'text-emerald-700' : 'text-gray-400'">
                 {{ fmtPcbAmount('KRW', detail.order.receiptPrice) }}
+              </dd>
+            </div>
+            <div v-if="detail.order.receiptPoint !== 0" class="flex justify-between">
+              <dt class="text-gray-500">사용 포인트</dt>
+              <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.order.receiptPoint) }}</dd>
+            </div>
+            <div v-if="detail.order.refundPrice !== 0" class="flex justify-between">
+              <dt class="text-gray-500">환불 누계</dt>
+              <dd class="tabular-nums text-red-600">-{{ fmtPcbAmount('KRW', detail.order.refundPrice) }}</dd>
+            </div>
+            <div v-if="detail.order.receiptPoint !== 0 || detail.order.refundPrice !== 0" class="flex justify-between border-t border-gray-100 pt-1">
+              <dt class="font-semibold text-gray-600">순결제액</dt>
+              <dd class="tabular-nums font-semibold text-emerald-700">{{ fmtPcbAmount('KRW', detail.order.netReceipt) }}</dd>
+            </div>
+            <div v-if="detail.order.misu !== 0" class="flex justify-between">
+              <dt class="font-semibold" :class="detail.order.misu > 0 ? 'text-red-600' : 'text-amber-600'">
+                {{ detail.order.misu > 0 ? '미수금' : '과입금' }}
+              </dt>
+              <dd class="tabular-nums font-semibold" :class="detail.order.misu > 0 ? 'text-red-600' : 'text-amber-600'">
+                {{ fmtPcbAmount('KRW', Math.abs(detail.order.misu)) }}
               </dd>
             </div>
             <div class="flex justify-between">

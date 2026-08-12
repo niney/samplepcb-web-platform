@@ -19,7 +19,7 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
         <th scope="col">주문일시</th>
         <th scope="col">상품수</th>
         <th scope="col">주문금액</th>
-        <th scope="col">입금액</th>
+        <th scope="col">결제액</th>
         <th scope="col">미입금액</th>
         <th scope="col">상태</th>
     </tr>
@@ -35,6 +35,16 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
     for ($i=0; $row=sql_fetch_array($result); $i++)
     {
         $uid = function_exists('get_shop_uid') ? get_shop_uid('order', $row['od_id'], $row['od_time'], $row['od_ip']) : md5($row['od_id'].$row['od_time'].$row['od_ip']);
+        // 과거 주문은 같은 템플릿 PCB 여러 줄이 od_cart_count=1로 저장돼 있을 수 있다.
+        // 커스텀 행 건별 집계가 있으면 실제 cart 구성으로 보정하고, 미배치 환경은 저장값 폴백.
+        $cart_count = function_exists('sp_order_cart_count')
+                    ? sp_order_cart_count($row['od_id'])
+                    : (int) $row['od_cart_count'];
+        // 부분취소 환불 뒤에도 총수납만 보이면 실제로 남은 결제액보다 크게 보인다.
+        // 영카트 미수 산식과 같은 수납 + 포인트 - 환불을 목록의 결제액으로 쓴다.
+        $net_receipt_price = (int) $row['od_receipt_price']
+                           + (int) $row['od_receipt_point']
+                           - (int) $row['od_refund_price'];
 
         // 상태 배지 — 고객노출 라벨/색은 공용 헬퍼(extend/sp_order_status.extend.php)로 일원화.
         // 상세(orderinquiryview.php)와 같은 함수를 써 목록↔상세 표기가 어긋나지 않게 한다.
@@ -50,9 +60,9 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
     <tr>
         <td class="sod_col_id" data-th="주문번호"><a href="<?php echo $view_url; ?>"><?php echo $row['od_id']; ?></a></td>
         <td class="sod_col_time" data-th="주문일시"><?php echo substr($row['od_time'],2,14); ?> (<?php echo get_yoil($row['od_time']); ?>)</td>
-        <td class="sod_col_cnt" data-th="상품수"><?php echo (int)$row['od_cart_count']; ?></td>
+        <td class="sod_col_cnt" data-th="상품수"><?php echo $cart_count; ?></td>
         <td class="sod_col_price" data-th="주문금액"><?php echo display_price($row['od_cart_price'] + $row['od_send_cost'] + $row['od_send_cost2']); ?></td>
-        <td class="sod_col_pay" data-th="입금액"><?php echo display_price($row['od_receipt_price']); ?></td>
+        <td class="sod_col_pay" data-th="결제액"><?php echo display_price($net_receipt_price); ?></td>
         <td class="sod_col_misu" data-th="미입금액"><?php echo display_price($row['od_misu']); ?></td>
         <td class="sod_col_status" data-th="상태"><?php echo $od_status; ?></td>
     </tr>
