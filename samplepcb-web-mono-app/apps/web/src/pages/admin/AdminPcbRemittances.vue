@@ -25,12 +25,21 @@ import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vu
 // '협력사별' 탭은 사용자가 요청한 "파트너사에 송금했는지" 조감 — 통화별 잔액 한 줄.
 
 type View = AdminPcbRemittanceTabType | 'partners';
+type LastRemittedFilterMode = 'single' | 'range';
+type LastRemittedPreset = 'today' | 'thisMonth' | 'lastMonth';
 const view = ref<View>('pending');
 const isPartnerView = computed(() => view.value === 'partners');
 
 const router = useRouter();
 const searchText = ref('');
-const filters = ref<AdminPcbRemittanceFilters>({ tab: 'pending', q: '', page: 1, pageSize: 20 });
+const filters = ref<AdminPcbRemittanceFilters>({
+  tab: 'pending',
+  q: '',
+  page: 1,
+  pageSize: 20,
+  lastRemittedFrom: '',
+  lastRemittedTo: '',
+});
 const list = useAdminPcbRemittances(filters);
 const partners = useAdminPcbRemittancePartners(isPartnerView);
 
@@ -65,9 +74,135 @@ const dueTiming = (
   return { label: `D-${String(delta)}`, className: 'text-blue-600' };
 };
 
+// 최근 송금 필터 — 목록은 발주서 1행 + 전체 원장 누적이므로, 기간 중 임의 송금이 아니라
+// 표에 표시되는 summary.lastRemittedOn을 검색한다. 송금 전·협력사 집계에는 적용하지 않는다.
+const lastRemittedMode = ref<LastRemittedFilterMode>('single');
+const lastRemittedSingle = ref('');
+const lastRemittedFrom = ref('');
+const lastRemittedTo = ref('');
+const lastRemittedPreset = ref<'' | LastRemittedPreset>('');
+const lastRemittedError = ref('');
+const lastRemittedFiltered = computed(
+  () => filters.value.lastRemittedFrom !== '' && filters.value.lastRemittedTo !== '',
+);
+const lastRemittedFilterLabel = computed(() =>
+  filters.value.lastRemittedFrom === filters.value.lastRemittedTo
+    ? filters.value.lastRemittedFrom
+    : `${filters.value.lastRemittedFrom} ~ ${filters.value.lastRemittedTo}`,
+);
+
+const setLastRemittedMode = (mode: LastRemittedFilterMode): void => {
+  lastRemittedMode.value = mode;
+  lastRemittedPreset.value = '';
+  lastRemittedError.value = '';
+};
+
+const commitLastRemittedFilter = (from: string, to: string): void => {
+  if (from === '' || to === '') {
+    lastRemittedError.value =
+      lastRemittedMode.value === 'single'
+        ? '최근 송금일을 선택해 주세요.'
+        : '시작일과 종료일을 모두 선택해 주세요.';
+    return;
+  }
+  if (from > to) {
+    lastRemittedError.value = '종료일은 시작일보다 빠를 수 없습니다.';
+    return;
+  }
+  lastRemittedError.value = '';
+  filters.value = {
+    ...filters.value,
+    lastRemittedFrom: from,
+    lastRemittedTo: to,
+    page: 1,
+  };
+};
+
+const applyLastRemittedFilter = (): void => {
+  lastRemittedPreset.value = '';
+  const from =
+    lastRemittedMode.value === 'single' ? lastRemittedSingle.value : lastRemittedFrom.value;
+  const to =
+    lastRemittedMode.value === 'single' ? lastRemittedSingle.value : lastRemittedTo.value;
+  commitLastRemittedFilter(from, to);
+};
+
+const resetLastRemittedInputs = (): void => {
+  lastRemittedSingle.value = '';
+  lastRemittedFrom.value = '';
+  lastRemittedTo.value = '';
+  lastRemittedPreset.value = '';
+  lastRemittedError.value = '';
+};
+
+const clearLastRemittedFilter = (): void => {
+  resetLastRemittedInputs();
+  filters.value = {
+    ...filters.value,
+    lastRemittedFrom: '',
+    lastRemittedTo: '',
+    page: 1,
+  };
+};
+
+const ymd = (date: Date): string => date.toISOString().slice(0, 10);
+const presetLastRemittedRange = (
+  preset: LastRemittedPreset,
+): { from: string; to: string } => {
+  const today = new Date(`${kstToday()}T00:00:00Z`);
+  if (preset === 'today') return { from: ymd(today), to: ymd(today) };
+  if (preset === 'thisMonth') {
+    return {
+      from: ymd(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))),
+      to: ymd(today),
+    };
+  }
+  return {
+    from: ymd(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1))),
+    to: ymd(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0))),
+  };
+};
+
+const applyLastRemittedPreset = (event: Event): void => {
+  const preset = (event.target as HTMLSelectElement).value;
+  if (preset !== 'today' && preset !== 'thisMonth' && preset !== 'lastMonth') return;
+  const range = presetLastRemittedRange(preset);
+  lastRemittedPreset.value = preset;
+  if (preset === 'today') {
+    lastRemittedMode.value = 'single';
+    lastRemittedSingle.value = range.from;
+  } else {
+    lastRemittedMode.value = 'range';
+    lastRemittedFrom.value = range.from;
+    lastRemittedTo.value = range.to;
+  }
+  commitLastRemittedFilter(range.from, range.to);
+};
+
 function selectView(next: View): void {
   view.value = next;
-  if (next !== 'partners') filters.value = { ...filters.value, tab: next, page: 1 };
+  if (next === 'partners') {
+    resetLastRemittedInputs();
+    filters.value = {
+      ...filters.value,
+      lastRemittedFrom: '',
+      lastRemittedTo: '',
+      page: 1,
+    };
+    return;
+  }
+  if (next === 'pending') {
+    resetLastRemittedInputs();
+    filters.value = {
+      ...filters.value,
+      tab: next,
+      lastRemittedFrom: '',
+      lastRemittedTo: '',
+      page: 1,
+    };
+    return;
+  }
+  filters.value = { ...filters.value, tab: next, page: 1 };
 }
 function applySearch(): void {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
@@ -79,10 +214,26 @@ function applySearch(): void {
 function drillPartner(partnerId: number): void {
   view.value = 'all';
   searchText.value = '';
-  filters.value = { tab: 'all', q: '', page: 1, pageSize: 20, partnerId };
+  resetLastRemittedInputs();
+  filters.value = {
+    tab: 'all',
+    q: '',
+    page: 1,
+    pageSize: 20,
+    lastRemittedFrom: '',
+    lastRemittedTo: '',
+    partnerId,
+  };
 }
 function clearPartnerFilter(): void {
-  filters.value = { tab: filters.value.tab, q: filters.value.q, page: 1, pageSize: filters.value.pageSize };
+  filters.value = {
+    tab: filters.value.tab,
+    q: filters.value.q,
+    page: 1,
+    pageSize: filters.value.pageSize,
+    lastRemittedFrom: filters.value.lastRemittedFrom,
+    lastRemittedTo: filters.value.lastRemittedTo,
+  };
 }
 
 const STATUS_CLS: Record<PcbRemittanceStatusType, string> = {
@@ -117,7 +268,7 @@ const openCase = (specId: number): void => {
       </p>
     </header>
 
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
       <nav class="flex flex-wrap gap-1 border-b border-gray-200">
         <button
           v-for="t in ADMIN_PCB_REMITTANCE_TABS"
@@ -139,14 +290,107 @@ const openCase = (specId: number): void => {
           협력사별
         </button>
       </nav>
-      <form v-if="!isPartnerView" @submit.prevent="applySearch">
-        <input
-          v-model="searchText"
-          type="search"
-          placeholder="프로젝트·협력사·고객명·견적번호"
-          class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-        >
-      </form>
+      <div v-if="!isPartnerView" class="flex min-w-0 flex-col items-end gap-1">
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <!-- 최근 송금 도구를 일반 검색 바로 왼쪽에 둔다. 송금 대기는 실제 송금일이 없으므로 숨긴다. -->
+          <form
+            v-if="view !== 'pending'"
+            class="flex flex-wrap items-center justify-end gap-1.5"
+            @submit.prevent="applyLastRemittedFilter"
+          >
+            <span
+              class="text-xs font-semibold text-gray-600"
+              title="발주서별 가장 최근 실제 송금일 기준입니다. 기간은 양끝 날짜를 모두 포함합니다."
+            >최근 송금</span>
+            <fieldset class="inline-flex h-8 items-center rounded-md border border-gray-300 bg-surface p-0.5">
+              <legend class="sr-only">최근 송금일 검색 방식</legend>
+              <button
+                type="button"
+                class="h-7 rounded px-2 text-xs font-semibold"
+                :class="lastRemittedMode === 'single' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                @click="setLastRemittedMode('single')"
+              >
+                단일일
+              </button>
+              <button
+                type="button"
+                class="h-7 rounded px-2 text-xs font-semibold"
+                :class="lastRemittedMode === 'range' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                @click="setLastRemittedMode('range')"
+              >
+                기간
+              </button>
+            </fieldset>
+
+            <input
+              v-if="lastRemittedMode === 'single'"
+              v-model="lastRemittedSingle"
+              type="date"
+              aria-label="최근 송금일"
+              class="h-8 w-[9.25rem] rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
+              @input="lastRemittedPreset = ''"
+            >
+            <template v-else>
+              <input
+                v-model="lastRemittedFrom"
+                type="date"
+                aria-label="최근 송금 시작일"
+                class="h-8 w-[9.25rem] rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
+                @input="lastRemittedPreset = ''"
+              >
+              <span class="text-gray-400">~</span>
+              <input
+                v-model="lastRemittedTo"
+                type="date"
+                aria-label="최근 송금 종료일"
+                class="h-8 w-[9.25rem] rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
+                @input="lastRemittedPreset = ''"
+              >
+            </template>
+
+            <select
+              v-model="lastRemittedPreset"
+              aria-label="최근 송금일 빠른 선택"
+              class="h-8 rounded-md border border-gray-300 bg-surface px-2 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
+              @change="applyLastRemittedPreset"
+            >
+              <option value="">빠른 선택</option>
+              <option value="today">오늘</option>
+              <option value="thisMonth">이번 달</option>
+              <option value="lastMonth">지난달</option>
+            </select>
+            <button
+              type="submit"
+              class="h-8 rounded-md bg-blue-600 px-2.5 text-xs font-semibold text-white hover:bg-blue-700"
+            >
+              적용
+            </button>
+            <button
+              v-if="lastRemittedFiltered"
+              type="button"
+              class="h-8 rounded-md border border-gray-300 bg-surface px-2.5 text-xs text-gray-600 hover:bg-gray-100"
+              @click="clearLastRemittedFilter"
+            >
+              초기화
+            </button>
+          </form>
+
+          <form @submit.prevent="applySearch">
+            <input
+              v-model="searchText"
+              type="search"
+              placeholder="프로젝트·협력사·고객명·견적번호"
+              class="h-8 w-56 rounded-md border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+            >
+          </form>
+        </div>
+        <p v-if="lastRemittedError !== ''" role="alert" class="text-xs font-semibold text-red-600">
+          {{ lastRemittedError }}
+        </p>
+        <p v-else-if="lastRemittedFiltered" class="text-xs font-semibold text-blue-700">
+          최근 송금 {{ lastRemittedFilterLabel }} 적용 · 송금액과 잔액은 발주별 전체 누적
+        </p>
+      </div>
     </div>
 
     <!-- ── 발주서별 지급 목록 ─────────────────────────────────────────── -->

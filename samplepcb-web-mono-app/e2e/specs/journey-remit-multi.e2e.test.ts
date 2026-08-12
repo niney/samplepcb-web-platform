@@ -14,6 +14,7 @@
 //   ⑥ **환율 자동/가드** — 오늘은 TTS 자동 박제, 과거일 누락은 400 으로 회계 공백을 막는다.
 //   ⑦ **송금 예정일** — NET 7은 발주일+7일 서버 계산, CUSTOM은 명시 날짜 필수.
 //   ⑧ **납기 필터** — 발주·EQ 목록에서 단일일·양끝 포함 기간을 KST 기준으로 찾는다.
+//   ⑨ **최근 송금 필터** — 발주별 마지막 실제 송금일을 단일일·기간으로 찾는다.
 //
 // 시드 발주(협력2·USD)로 돈 축만 본다 — 주문·생산은 8호가 이미 밟았다.
 //
@@ -300,6 +301,65 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
       'obs',
       `다회 송금 실측 — ${steps.join('+')}=$${String(expectedPaid)} · 잔액 0 · 원장 ` +
         `${String(items.length)}건(회차가 뭉치지 않는다)`,
+    );
+  }, 300_000);
+
+  test('P2a. 최근 송금일 필터 — 마지막 회차 기준·양끝 포함·잘못된 범위 차단', async (ctx) => {
+    if (poId === null || specId === null || remitIds.length < 2) return ctx.skip();
+
+    // 첫 송금을 하루 전으로 옮겨 "기간에 한 번이라도 있었나"와 "최근 송금일"을 갈라 놓는다.
+    // 목록의 행·금액은 발주서 전체 누적이므로 필터도 표에 보이는 마지막 날짜와 같아야 한다.
+    const firstRemitId = remitIds[0] ?? 0;
+    const moved = await api(
+      A,
+      'PATCH',
+      `/api/admin/pcb-remittances/${String(poId)}/${String(firstRemitId)}`,
+      { remittedOn: '2026-08-10', exchangeRate: RATE },
+    );
+    expect(moved.status, `첫 송금일 이동: ${JSON.stringify(moved.json)}`).toBe(200);
+
+    const list = async (from: string, to: string) =>
+      api(
+        A,
+        'GET',
+        `/api/admin/pcb-remittances?tab=all&q=${String(specId)}&page=1&pageSize=100` +
+          `&lastRemittedFrom=${from}&lastRemittedTo=${to}`,
+      );
+    const hasTarget = (res: { json: any }): boolean =>
+      (res.json?.data?.items ?? []).some((row: any) => Number(row.poId) === poId);
+
+    const exact = await list('2026-08-11', '2026-08-11');
+    expect(exact.status, `최근 송금 단일일: ${JSON.stringify(exact.json)}`).toBe(200);
+    expect(hasTarget(exact), '최근 송금일 단일일에 포함').toBe(true);
+    expect(exact.json?.data?.byCurrency?.[0]?.paidAmount, '기간이 아니라 발주 전체 누적 표시').toBe(
+      PRICE,
+    );
+
+    const earlier = await list('2026-08-10', '2026-08-10');
+    expect(earlier.status, `과거 회차 대조: ${JSON.stringify(earlier.json)}`).toBe(200);
+    expect(hasTarget(earlier), '기간 중 과거 송금이 있어도 최근일이 다르면 제외').toBe(false);
+    expect(earlier.json?.data?.counts?.all, '탭 수량도 같은 날짜 모수').toBe(0);
+    expect(earlier.json?.data?.byCurrency ?? [], '통화별 소계도 같은 날짜 모수').toHaveLength(0);
+
+    const range = await list('2026-08-10', '2026-08-11');
+    expect(range.status, `최근 송금 기간: ${JSON.stringify(range.json)}`).toBe(200);
+    expect(hasTarget(range), '기간 종료일도 포함').toBe(true);
+
+    const reversed = await list('2026-08-12', '2026-08-11');
+    expect(reversed.status, '역전 기간은 계약에서 차단').toBe(400);
+    const oneSide = await api(
+      A,
+      'GET',
+      `/api/admin/pcb-remittances?tab=all&q=${String(specId)}&page=1&pageSize=100` +
+        '&lastRemittedFrom=2026-08-11',
+    );
+    expect(oneSide.status, '기간 한쪽 누락은 계약에서 차단').toBe(400);
+
+    F(
+      'P2a',
+      'obs',
+      '최근 송금 필터 — 08-10 과거 회차가 있어도 최근 08-11 기준 · 단일일/기간 종료일 포함 · ' +
+        'counts/통화 소계 동기 · 역전/한쪽 누락 400',
     );
   }, 300_000);
 

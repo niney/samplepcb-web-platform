@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DateOnly } from './common';
 import { PcbPoEqReviewSummary } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
 import {
@@ -560,25 +561,6 @@ export const ADMIN_PCB_PO_TABS = [
 ] as const;
 export type AdminPcbPoTabType = (typeof ADMIN_PCB_PO_TABS)[number];
 
-const PCB_WORK_DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const isValidPcbWorkDateOnly = (value: string): boolean => {
-  const match = PCB_WORK_DATE_ONLY_RE.exec(value);
-  if (match === null) return false;
-  const year = Number(match[1] ?? '');
-  const month = Number(match[2] ?? '');
-  const day = Number(match[3] ?? '');
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
-};
-const PcbWorkDateOnly = z
-  .string()
-  .regex(PCB_WORK_DATE_ONLY_RE)
-  .refine(isValidPcbWorkDateOnly, '유효한 날짜를 입력해 주세요.');
-
 /** 관리자 발주·EQ 워크큐 쿼리. 납기 범위는 KST 날짜 양끝 포함이며 두 값을 한 쌍으로 받는다. */
 export const AdminPcbPoWorkListQuery = z
   .object({
@@ -586,8 +568,8 @@ export const AdminPcbPoWorkListQuery = z
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
     q: z.string().trim().max(100).optional(),
-    deliveryFrom: PcbWorkDateOnly.optional(),
-    deliveryTo: PcbWorkDateOnly.optional(),
+    deliveryFrom: DateOnly.optional(),
+    deliveryTo: DateOnly.optional(),
   })
   .superRefine((value, ctx) => {
     if ((value.deliveryFrom === undefined) !== (value.deliveryTo === undefined)) {

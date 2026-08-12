@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DateOnly } from './common';
 import { PcbPoStatus } from './pcb-po';
 
 // ── PCB 송금 원장 계약(P3.11) — 설계 정본: docs/PCB_PARTNER_TRACK.md §5.4·D15 ──
@@ -108,13 +109,38 @@ export const AdminPcbRemittanceItem = z.object({
 });
 export type AdminPcbRemittanceItemType = z.infer<typeof AdminPcbRemittanceItem>;
 
-export const AdminPcbRemittanceListQuery = z.object({
-  tab: AdminPcbRemittanceTab.default('pending'),
-  q: z.string().trim().max(100).optional(),
-  partnerId: z.coerce.number().int().positive().optional(),
-  page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-});
+export const AdminPcbRemittanceListQuery = z
+  .object({
+    tab: AdminPcbRemittanceTab.default('pending'),
+    q: z.string().trim().max(100).optional(),
+    partnerId: z.coerce.number().int().positive().optional(),
+    /** 발주서별 전체 원장에서 계산한 최근 실제 송금일의 KST 날짜 범위(양끝 포함). */
+    lastRemittedFrom: DateOnly.optional(),
+    lastRemittedTo: DateOnly.optional(),
+    page: z.coerce.number().int().positive().default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  })
+  .superRefine((value, ctx) => {
+    if ((value.lastRemittedFrom === undefined) !== (value.lastRemittedTo === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [value.lastRemittedFrom === undefined ? 'lastRemittedFrom' : 'lastRemittedTo'],
+        message: '최근 송금 시작일과 종료일을 함께 입력해 주세요.',
+      });
+      return;
+    }
+    if (
+      value.lastRemittedFrom !== undefined &&
+      value.lastRemittedTo !== undefined &&
+      value.lastRemittedFrom > value.lastRemittedTo
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lastRemittedTo'],
+        message: '최근 송금 종료일은 시작일보다 빠를 수 없습니다.',
+      });
+    }
+  });
 export type AdminPcbRemittanceListQueryType = z.infer<typeof AdminPcbRemittanceListQuery>;
 
 export const AdminPcbRemittanceListResponse = z.object({

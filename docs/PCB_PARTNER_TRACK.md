@@ -675,6 +675,24 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 - **회귀 가드** — 여정 30호 P1a가 CUSTOM 누락 400, NET 7 서버 계산(임의 클라이언트 날짜
   무시), CUSTOM KST 날짜 왕복, 송금 큐 노출, 실제 송금 0건 유지를 한 흐름으로 검증한다.
 
+### P3.11 후속 (2026-08-12 — 최근 송금일 단일일·기간 검색)
+
+- **필터 의미는 `최근 송금`** — 송금 화면은 개별 원장 행이 아니라 **발주서 1행 + 전체 송금
+  누적** 구조다. 따라서 "기간 중 한 번이라도 송금한 발주"가 아니라 전체 원장에서 계산한
+  `summary.lastRemittedOn`이 KST 날짜 범위에 드는 발주를 찾는다. 표의 최근 송금 날짜와 검색
+  결과가 같은 뜻을 유지하며, 기간 적용 뒤에도 송금액·잔액은 해당 발주의 전체 누적이다.
+- **노출 경계** — `부분 송금·송금 완료·전체`에서 단일일/기간을 지원하고 `송금 대기`는 실제
+  송금일이 없으므로 숨긴다. `협력사별`도 집계 화면이라 제외하며 두 화면으로 이동하면 숨어 있는
+  날짜 조건도 함께 해제한다. 도구는 일반 검색 바로 왼쪽, 입력·버튼 32px 높이에 맞췄다.
+- **빠른 선택과 계약** — `오늘·이번 달·지난달`을 KST 달력으로 즉시 적용한다. API는
+  `lastRemittedFrom`/`lastRemittedTo` 한 쌍을 양끝 포함으로 받고 한쪽 누락·역전·실재하지 않는
+  날짜를 400으로 거부한다. 날짜 조건은 검색·탭 counts·통화별 소계·페이지네이션의 같은 모수에
+  적용된다. DB 컬럼·마이그레이션·응답 형태 변경은 없다.
+- **회귀 가드** — 계약·KST 경계 단위 4건과 여정 30호 P2a를 추가했다. 첫 송금을 08-10,
+  나머지를 08-11로 갈라 08-10에 원장 행이 있어도 최근일 검색에서는 제외되는지, 단일일·기간
+  종료일 포함, counts·통화 소계 동기, 잘못된 범위 400을 검증한다. 관리자 실화면에서는 대기 탭
+  숨김·빈 값/역전 오류·이번 달 적용·탭 이동 시 해제와 검색창 왼쪽 32px 정렬을 확인했다.
+
 ### P4.1 구현 기록 (2026-08-07 — EQ 고객 확인: 관리자 요청 → 주문내역 승인)
 
 **D16 의 구현.** sp-php(그누보드)를 처음으로 쓰기 경로에 넣은 작업이다.
@@ -2640,4 +2658,3 @@ placeholder 를 '검색'으로 가정(여섯 중 다섯이 안 맞아 검증이 
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
-

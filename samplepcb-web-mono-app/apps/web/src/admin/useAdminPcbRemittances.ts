@@ -20,6 +20,9 @@ export interface AdminPcbRemittanceFilters {
   q: string;
   page: number;
   pageSize: number;
+  /** 발주서별 최근 실제 송금일의 KST 날짜 범위(양끝 포함). */
+  lastRemittedFrom: string;
+  lastRemittedTo: string;
   partnerId?: number;
 }
 
@@ -37,6 +40,10 @@ const listUrl = (f: AdminPcbRemittanceFilters): string => {
   });
   if (f.q !== '') params.set('q', f.q);
   if (f.partnerId !== undefined) params.set('partnerId', String(f.partnerId));
+  if (f.lastRemittedFrom !== '' && f.lastRemittedTo !== '') {
+    params.set('lastRemittedFrom', f.lastRemittedFrom);
+    params.set('lastRemittedTo', f.lastRemittedTo);
+  }
   return `${apiRoutes.adminPcbRemittances}?${params.toString()}`;
 };
 

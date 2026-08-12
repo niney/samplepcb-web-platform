@@ -34,6 +34,7 @@ import {
 } from '../lib/pcb-remittance';
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
+import { matchesPcbLastRemittedRange } from '../lib/pcb-remittance-filter';
 
 // ── 관리자 송금 워크큐(P3.11) — docs/PCB_PARTNER_TRACK.md D15 ────────────────
 // 역할별 워크큐 교리(D12) 그대로: 첫 탭 = 이 역할(경리·재무)이 시작해야 할 대기 큐 =
@@ -107,6 +108,8 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
   const loadRows = async (filters: {
     q?: string;
     partnerId?: number;
+    lastRemittedFrom?: string;
+    lastRemittedTo?: string;
   }): Promise<AdminPcbRemittanceItemType[]> => {
     const q = filters.q?.trim() ?? '';
     const pos = await prisma.spPcbPo.findMany({
@@ -153,7 +156,16 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         summary: isFreeAs ? { ...summary, balance: 0 } : summary,
       };
     });
-    return q === '' ? rows : rows.filter((row) => matchesRemittanceQuery(row, q));
+    // 최근 송금일은 원장 전체에서 만든 summary.lastRemittedOn을 기준으로 한다. 기간 중
+    // 송금 존재 여부로 거르면 화면의 '최근 송금' 날짜와 필터 결과가 서로 달라진다.
+    const dateRows = rows.filter((row) =>
+      matchesPcbLastRemittedRange(
+        row.summary.lastRemittedOn,
+        filters.lastRemittedFrom,
+        filters.lastRemittedTo,
+      ),
+    );
+    return q === '' ? dateRows : dateRows.filter((row) => matchesRemittanceQuery(row, q));
   };
 
   // 무상 A/S 행은 지급 대기 축(pending/partial/done) 어디에도 서지 않는다 — '전체' 전용.
@@ -177,6 +189,12 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
       const rows = await loadRows({
         ...(request.query.q === undefined ? {} : { q: request.query.q }),
         ...(request.query.partnerId === undefined ? {} : { partnerId: request.query.partnerId }),
+        ...(request.query.lastRemittedFrom === undefined
+          ? {}
+          : { lastRemittedFrom: request.query.lastRemittedFrom }),
+        ...(request.query.lastRemittedTo === undefined
+          ? {}
+          : { lastRemittedTo: request.query.lastRemittedTo }),
       });
       const counts = {
         pending: rows.filter((r) => inTab(r, 'pending')).length,
