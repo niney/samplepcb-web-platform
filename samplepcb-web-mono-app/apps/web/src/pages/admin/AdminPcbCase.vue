@@ -18,6 +18,7 @@ import {
   resolvePcbDirectShipCountry,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
+  type AdminPcbShipmentViewType,
   type PcbEqFileTypeType,
   type PcbEqRejection,
   type BomShipmentStatusType,
@@ -910,7 +911,7 @@ const PO_STATUS_CLS: Record<string, string> = {
 // ── 선적 패널(P3) — 관리자는 받는측 + 양측 만능 대행(서버 isSideActor) ────────
 const shipments = computed(() => posQuery.data.value?.data.shipments ?? []);
 const shipmentByPo = computed(() => {
-  const map = new Map<number, PcbShipmentViewType>();
+  const map = new Map<number, AdminPcbShipmentViewType>();
   for (const s of shipments.value) for (const pid of s.poIds) map.set(pid, s);
   return map;
 });
@@ -935,18 +936,32 @@ const caseAnchorPoOf = (s: PcbShipmentViewType): number | null => {
   return Math.min(...(top.length > 0 ? top : mine).map((p) => p.poId));
 };
 // 서브행 v-for 용 — Case 당 발송 1줄(묶음이어도 한 번만).
-const shipRowsOf = (poId: number): PcbShipmentViewType[] => {
+const shipRowsOf = (poId: number): AdminPcbShipmentViewType[] => {
   const s = shipmentByPo.value.get(poId);
   if (s === undefined) return [];
   return caseAnchorPoOf(s) === poId ? [s] : [];
 };
-/** 묶음 구성 — 이 Case 것과 남의 Case 것을 갈라 보여준다(오조작 방지). */
-const shipMatesOf = (s: PcbShipmentViewType): { poId: number; projectName: string; mine: boolean }[] =>
+/** 묶음 구성 — 이 Case 것과 남의 Case 것을 갈라 보여준다(오조작 방지). 남의 것은
+ *  "누구 것인지"(고객)까지 말하고 그 Case 로 바로 열어 준다 — 묶음은 고객 경계를
+ *  넘어서, 익명 칩은 "다른 Case"라는 사실 외엔 아무 정보가 없었다(2026-08-12). */
+const shipMatesOf = (
+  s: AdminPcbShipmentViewType,
+): { poId: number; specId: number; projectName: string; customerLabel: string; mine: boolean }[] =>
   s.groupPos.map((g) => ({
     poId: g.poId,
+    specId: g.specId,
     projectName: g.projectName,
+    customerLabel: g.customerName !== '' ? g.customerName : (g.mbId ?? '비회원'),
     mine: allPos.value.some((p) => p.poId === g.poId),
   }));
+// 동반 건의 Case 로 이동 — 같은 라우트 params 교체(specId computed 가 반응해 전체 재조회).
+function openMateCase(mateSpecId: number): void {
+  void router.push({
+    name: 'admin-pcb-case',
+    params: { id: String(mateSpecId) },
+    ...(typeof route.query.from === 'string' ? { query: { from: route.query.from } } : {}),
+  });
+}
 
 const shipAdvanceAdmin = useAdminPcbShipmentAdvance();
 const shipBoxAdmin = useAdminPcbShipmentBox();
@@ -2152,20 +2167,30 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       <template v-if="s.destinationCountry !== null"> · 직송 {{ s.destinationCountry }}</template>
                     </span>
                     <!-- 묶음은 Case(고객) 경계를 넘는다 — 건수만 알려주면 "무엇이 함께
-                         움직이는지"를 알 수 없어, 구성원을 열거하고 남의 Case 것을 표시한다. -->
+                         움직이는지"를 알 수 없어, 구성원을 열거하고 남의 Case 것은
+                         고객까지 밝혀 그 Case 로 바로 연다(관리자 전용 뷰 — 포털 비노출). -->
                     <span
                       v-if="s.poIds.length > 1"
                       class="rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700"
                     >묶음 {{ s.poIds.length }}건</span>
-                    <span
-                      v-for="m in (s.poIds.length > 1 ? shipMatesOf(s) : [])"
-                      :key="`mate-${String(m.poId)}`"
-                      class="rounded px-1.5 py-0.5"
-                      :class="m.mine ? 'bg-teal-100 font-semibold text-teal-800' : 'bg-gray-100 text-gray-500'"
-                      :title="m.mine ? '이 Case 의 발주서' : '다른 Case(다른 고객)의 발주서 — 함께 움직입니다'"
-                    >
-                      PO-{{ m.poId }} {{ m.projectName }}<template v-if="m.mine"> · 이 Case</template>
-                    </span>
+                    <template v-for="m in (s.poIds.length > 1 ? shipMatesOf(s) : [])" :key="`mate-${String(m.poId)}`">
+                      <span
+                        v-if="m.mine"
+                        class="rounded bg-teal-100 px-1.5 py-0.5 font-semibold text-teal-800"
+                        title="이 Case 의 발주서"
+                      >
+                        PO-{{ m.poId }} {{ m.projectName }} · 이 Case
+                      </span>
+                      <button
+                        v-else
+                        type="button"
+                        class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500 hover:bg-indigo-50 hover:text-indigo-700"
+                        :title="`다른 Case(고객 ${m.customerLabel})의 발주서 — 함께 움직입니다. 눌러서 그 Case 를 엽니다.`"
+                        @click="openMateCase(m.specId)"
+                      >
+                        PO-{{ m.poId }} {{ m.projectName }} · {{ m.customerLabel }} ↗
+                      </button>
+                    </template>
                     <span v-if="s.shipDate !== null" class="text-gray-500">출고예정 {{ fmtKstDate(s.shipDate) }}</span>
                     <span v-if="s.trackingNumber !== null" class="tabular-nums text-gray-500">{{ s.carrier ?? '' }} {{ s.trackingNumber }}</span>
                     <span v-if="s.receivedAt !== null" class="font-semibold text-emerald-600">

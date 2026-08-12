@@ -280,16 +280,23 @@ export interface AdminPcbShipmentFilters {
   page: number;
   pageSize: number;
   tab: AdminPcbShipmentTabType;
+  /** 검색 — 구성원(다른 고객 포함) 필드까지 서버가 훑는다(고객·프로젝트·PO·운송장). */
+  q: string;
 }
+
+const shipmentWorkPath = (f: AdminPcbShipmentFilters): string => {
+  const params = new URLSearchParams();
+  params.set('page', String(f.page));
+  params.set('pageSize', String(f.pageSize));
+  params.set('tab', f.tab);
+  if (f.q.trim() !== '') params.set('q', f.q.trim());
+  return `${apiRoutes.adminPcbShipments}?${params.toString()}`;
+};
 
 export function useAdminPcbShipmentWork(filters: Ref<AdminPcbShipmentFilters>) {
   return useQuery({
     queryKey: ['admin', 'pcbShipment', 'work', filters],
-    queryFn: () =>
-      apiGet(
-        `${apiRoutes.adminPcbShipments}?page=${String(filters.value.page)}&pageSize=${String(filters.value.pageSize)}&tab=${filters.value.tab}`,
-        AdminPcbShipmentWorkListResponse,
-      ),
+    queryFn: () => apiGet(shipmentWorkPath(filters.value), AdminPcbShipmentWorkListResponse),
     placeholderData: keepPreviousData,
   });
 }

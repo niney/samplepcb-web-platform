@@ -47,7 +47,7 @@ import {
   findPcbShipmentByPo,
   getPcbShipmentFileDownload,
   loadAdminPcbShipmentWorkItems,
-  loadPcbShipmentsForPoIds,
+  loadAdminPcbShipmentsForPoIds,
   cancelPcbShipment,
   countPcbShipmentPos,
   receivePcbShipment,
@@ -110,7 +110,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       loadAdminPcbPos(specId),
       prisma.spPcbPo.findMany({ where: { specId }, select: { id: true } }),
     ]);
-    return { pos, shipments: await loadPcbShipmentsForPoIds(ids.map((r) => r.id)) };
+    return { pos, shipments: await loadAdminPcbShipmentsForPoIds(ids.map((r) => r.id)) };
   };
 
   // 포털 CTA 분기(재점검 #15)는 lib/pcb-portal-cta.ts resolvePcbPortalCta 로 승격 —
@@ -569,6 +569,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       schema: {
         querystring: z.object({
           tab: z.enum(ADMIN_PCB_SHIPMENT_TABS).default('all'),
+          q: z.string().trim().max(100).default(''),
           page: z.coerce.number().int().min(1).default(1),
           pageSize: z.coerce.number().int().min(1).max(100).default(20),
         }),
@@ -577,20 +578,48 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
     async (request) => {
       const all = await loadAdminPcbShipmentWorkItems();
+      // 검색 — 전량 로드 후 메모리 페이징 구조라 필터도 메모리(LIKE 이스케이프 함정 없음).
+      // 묶음의 **구성원(다른 고객 포함) 필드까지** 훑는다 — 대표만 맞춰 보면 동반 건이
+      // 검색으로 영영 안 잡힌다. counts 도 검색을 반영한다(/pcb-pos 워크큐와 같은 규칙).
+      const needle = request.query.q.toLowerCase();
+      const filtered =
+        needle === ''
+          ? all
+          : all.filter(({ item }) =>
+              [
+                `sh-${String(item.shipmentId)}`,
+                item.trackingNumber ?? '',
+                item.carrier ?? '',
+                item.senderName,
+                item.receiverName,
+                ...item.members.flatMap((m) => [
+                  `po-${String(m.poId)}`,
+                  `q${String(m.specId)}`,
+                  m.projectName,
+                  m.mbId ?? '',
+                  m.customerName,
+                ]),
+              ]
+                .join('\n')
+                .toLowerCase()
+                .includes(needle),
+            );
       const counts = {
-        pending: all.filter((r) => r.tab === 'pending').length,
-        active: all.filter((r) => r.tab === 'active').length,
-        received: all.filter((r) => r.tab === 'received').length,
-        all: all.length,
+        pending: filtered.filter((r) => r.tab === 'pending').length,
+        active: filtered.filter((r) => r.tab === 'active').length,
+        received: filtered.filter((r) => r.tab === 'received').length,
+        all: filtered.length,
       };
       const tabbed =
-        request.query.tab === 'all' ? all : all.filter((r) => r.tab === request.query.tab);
+        request.query.tab === 'all' ? filtered : filtered.filter((r) => r.tab === request.query.tab);
       const start = (request.query.page - 1) * request.query.pageSize;
       return {
         result: true as const,
         data: {
           items: tabbed.slice(start, start + request.query.pageSize).map((r) => r.item),
           total: tabbed.length,
+          // 행은 구성원(발주) 단위로 펼쳐 보이므로 "박스 N · 발주 M" 병기용 합계.
+          poTotal: tabbed.reduce((acc, r) => acc + r.item.poCount, 0),
           page: request.query.page,
           pageSize: request.query.pageSize,
           counts,

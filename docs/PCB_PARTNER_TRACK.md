@@ -2672,7 +2672,36 @@ placeholder 를 '검색'으로 가정(여섯 중 다섯이 안 맞아 검증이 
 **같은 견적으로 같은 협력사에 RFQ 를 다시 보내면 중복이라 시도조차 없다**(발송 경로를 여러 번
 태우려면 견적을 나눠야 한다).
 
-## 10. 조사 자료 색인
+### 선적 워크큐 — 다중 고객 묶음의 개별 가시성 (2026-08-12)
+
+배경(사용자 지적): 다중 고객 묶음(여정 9호)에서 선적·배송 워크큐 행이 대표 프로젝트
+하나로만 서고 동반 건은 프로젝트 셀 안 작은 링크였다 — "묶음이되 각 개별로 보이게".
+검토 결론은 **축의 분리**: 조회·식별(프로젝트·고객·Case 진입)은 발주(=고객) 단위가
+맞고, 조작(전이·입고확인·취소)은 물리 사실(한 박스=한 운송장=한 입고 사건)대로 박스
+단위여야 한다 — `receivePcbShipment` 는 재호출 시 receivedAt 을 덮어쓰므로 행마다
+버튼을 늘리면 입고 원장이 흔들린다. 리스트의 액션은 내비게이션뿐이라 행 분해가 안전했다.
+
+- **리스트**(AdminPcbShipments): 박스 1개 = **구성원 행 N개**, 박스 공통 셀(발송·경로·
+  구분·상태·입고·생성일)은 rowspan 으로 한 번만. **고객명 열 신설**(단건도 그간 고객이
+  안 보였다), 발송 셀에 운송장 소줄. 총계 "박스 N · 발주 M" 병기(`data.poTotal`).
+  페이징·탭 카운트 축은 박스 유지(journey-counts Q4 어서션 무영향 — items 는 여전히
+  박스 단위, 행 펼침은 렌더링).
+- **검색 `q`**: 전량 로드 후 메모리 페이징 구조라 필터도 메모리(24호 LIKE escape 함정
+  자체가 없음). **구성원 필드까지** 훑는다(SH/PO/Q번호·프로젝트·mbId·고객명·운송장·
+  협력사) — 대표만 맞추면 동반 건이 검색으로 영영 안 잡힌다. counts 도 검색 반영
+  (/pcb-pos 와 같은 규칙). 입력 하나가 발주서 축(to_ship=poFilters.q)과 선적 축에 같이 탄다.
+- **Case 상세 칩**: "다른 Case" 익명 칩 → **고객명 + 클릭 시 그 Case 로 이동**(from
+  쿼리 승계, route.params 반응으로 재조회). 왕복 실측.
+- **계약 분리(누출 방지)**: `PcbShipmentGroupPo`(공유 — 포털 보내기 보드·발주 상세가
+  같은 뷰) vs `AdminPcbShipmentGroupPo`(+specId·mbId·customerName, **관리자 전용**).
+  채움도 `loadAdminPcbShipmentsForPoIds` 관리자 함수만 한다 — groupPos 는 협력사 포털과
+  공유 계약이라 여기에 고객 신원을 실으면 다른 엔드 고객의 이름·아이디가 협력사에게 샌다.
+  워크큐 `members[].customerName` 은 원래 관리자 전용 계약이라 직접 추가(od_name >
+  mb_name — lib/pcb-customer 단일 사전). `loadAdminPcbShipmentWorkItems` 는 박스당
+  3쿼리(N+1)를 배치 4쿼리로 정리.
+- **검증**: typecheck·ESLint 0건(+직전 커밋이 남긴 pcb-po.ts lint 2건 정리), vitest pcb
+  89 green, 실DB 스모크(SH-367 고객 2명 실림·포털 공유 뷰 groupPos 키에 신원 없음·
+  q="e2e-customer2" → SH-367 1건), 브라우저 실측(그룹 렌더·검색·카운트 병기·칩 왕복).
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
 - 레거시 프론트 근거: `sp-smartbom-web/src/` — views/Pcb*.vue 11종, `types/pcbEqWorkflow.ts`(EQ 전이표), `views/Shipment.types.ts`(선적 전이·필드·택배사), `services/{shipmentService,asCaseService}.ts`, `utils/currency.ts`, `components/pcb/*`·`components/shipment/*`.

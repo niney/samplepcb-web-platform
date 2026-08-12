@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client';
 import type { SpFile, SpPartner, SpPcbPo, SpPcbShipment } from '@prisma/client';
 import type {
+  AdminPcbShipmentViewType,
+  AdminPcbShipmentWorkItemType,
   BomInvoiceDataType,
   BomShipmentFileTypeType,
   BomShipmentModeType,
@@ -23,6 +25,7 @@ import {
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getBusinessInfo, getOrderInfoByCtId, isCanceledCartStatus } from './g5-db';
+import { loadPcbCustomerNames } from './pcb-customer';
 import { loadHousePartnerName } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { kstDateStr } from './kst';
@@ -679,7 +682,8 @@ export const toPcbShipmentView = async (
   };
 };
 
-/** 발주서 집합의 소속 선적 뷰(중복 제거) — Case 발주 패널·포털 상세 공용. */
+/** 발주서 집합의 소속 선적 뷰(중복 제거) — 공유(포털 안전) 형태. 관리자 응답은
+ *  loadAdminPcbShipmentsForPoIds 가 이 위에 고객 신원을 얹는다. */
 export const loadPcbShipmentsForPoIds = async (poIds: bigint[]): Promise<PcbShipmentViewType[]> => {
   if (poIds.length === 0) return [];
   const links = await prisma.spPcbShipmentPo.findMany({
@@ -695,6 +699,40 @@ export const loadPcbShipmentsForPoIds = async (poIds: bigint[]): Promise<PcbShip
     out.push(await toPcbShipmentView(link.shipment));
   }
   return out;
+};
+
+/**
+ * **관리자 전용** — 공유 뷰에 묶음 구성원의 고객 신원(specId·mbId·고객명)을 얹는다.
+ * 묶음은 고객(Case) 경계를 넘어 합류하므로 관리자 화면(Case 상세 묶음 칩)은 "누구
+ * 것이 함께 묶였는지"까지 말해야 한다(2026-08-12). 협력사 포털 응답에는 절대 쓰지
+ * 않는다 — 다른 엔드 고객의 이름·아이디가 협력사에게 새는 자리다.
+ */
+export const loadAdminPcbShipmentsForPoIds = async (
+  poIds: bigint[],
+): Promise<AdminPcbShipmentViewType[]> => {
+  const views = await loadPcbShipmentsForPoIds(poIds);
+  const memberIds = [...new Set(views.flatMap((v) => v.poIds))];
+  if (memberIds.length === 0) return views.map((v) => ({ ...v, groupPos: [] }));
+  const pos = await prisma.spPcbPo.findMany({
+    where: { id: { in: memberIds.map((id) => BigInt(id)) } },
+    include: { spec: true },
+  });
+  const names = await loadPcbCustomerNames(
+    pos.map((p) => ({ specId: p.specId, mbId: p.spec.mbId, ctId: p.spec.ctId })),
+  );
+  const byPoId = new Map(pos.map((p) => [Number(p.id), p]));
+  return views.map((v) => ({
+    ...v,
+    groupPos: v.groupPos.map((g) => {
+      const po = byPoId.get(g.poId);
+      return {
+        ...g,
+        specId: Number(po?.specId ?? 0),
+        mbId: po?.spec.mbId ?? null,
+        customerName: po === undefined ? '' : (names.get(po.specId.toString()) ?? ''),
+      };
+    }),
+  }));
 };
 
 /** [📦 PCB 보내기] 보드 — 선반(수주 produced·미편성)·곧 보낼 물건(생산완료 전)·
@@ -939,57 +977,47 @@ export const savePcbInvoiceData = async (
 export type AdminPcbShipmentTab = 'pending' | 'active' | 'received';
 
 export const loadAdminPcbShipmentWorkItems = async (): Promise<
-  {
-    item: {
-      shipmentId: number;
-      poId: number;
-      specId: number;
-      projectName: string;
-      senderName: string;
-      receiverKind: 'admin' | 'md';
-      receiverName: string;
-      mode: BomShipmentModeType;
-      status: BomShipmentStatusType;
-      poCount: number;
-      /** 묶음 구성 전체 — 대표 하나만 실으면 동반 건(다른 고객)이 큐에서 사라진다(여정 9호). */
-      members: {
-        poId: number;
-        specId: number;
-        projectName: string;
-        mbId: string | null;
-      }[];
-      receivedAt: string | null;
-      destinationCountry: string | null;
-      reorderRound: number;
-      adminTurn: boolean;
-      createdAt: string;
-    };
-    tab: AdminPcbShipmentTab;
-  }[]
+  { item: AdminPcbShipmentWorkItemType; tab: AdminPcbShipmentTab }[]
 > => {
   const shipments = await prisma.spPcbShipment.findMany({
     include: { pos: true },
     orderBy: { createdAt: 'desc' },
   });
+  // 배치 조회 — 구판은 박스마다 3쿼리(N+1)였다. 대표는 구성원의 부분집합이므로
+  // 발주서는 한 번에 모으고, 고객명 사전(od_name > mb_name)도 스펙 전체로 1회.
   const house = await loadHousePartnerName();
-  const out = [];
+  const allPoIds = [...new Set(shipments.flatMap((s) => s.pos.map((p) => p.poId)))];
+  const pos = await prisma.spPcbPo.findMany({
+    where: { id: { in: allPoIds } },
+    include: { partner: true, spec: true },
+  });
+  const poById = new Map(pos.map((p) => [p.id.toString(), p]));
+  const mdIds = [
+    ...new Set(
+      shipments
+        .filter((s) => s.receiverKind === 'md')
+        .map((s) => s.receiverPartnerId)
+        .filter((id): id is bigint => id !== null),
+    ),
+  ];
+  const mdPartners = await prisma.spPartner.findMany({ where: { id: { in: mdIds } } });
+  const mdNameById = new Map(mdPartners.map((p) => [p.id.toString(), p.name]));
+  const customerNames = await loadPcbCustomerNames(
+    pos.map((p) => ({ specId: p.specId, mbId: p.spec.mbId, ctId: p.spec.ctId })),
+  );
+
+  const out: { item: AdminPcbShipmentWorkItemType; tab: AdminPcbShipmentTab }[] = [];
   for (const shipment of shipments) {
-    const rep = await prisma.spPcbPo.findUnique({
-      where: { id: shipment.poId },
-      include: { partner: true, spec: true },
-    });
+    const rep = poById.get(shipment.poId.toString()) ?? null;
     const receiverName =
       shipment.receiverKind === 'md'
-        ? ((
-            await prisma.spPartner.findUnique({ where: { id: shipment.receiverPartnerId ?? 0n } })
-          )?.name ?? '중개 조직')
+        ? (mdNameById.get((shipment.receiverPartnerId ?? 0n).toString()) ?? '중개 조직')
         : house;
     // 묶음 구성 — 대표 외 발주서는 다른 Case(다른 고객)일 수 있으므로 주인까지 싣는다.
-    const memberPos = await prisma.spPcbPo.findMany({
-      where: { id: { in: shipment.pos.map((p) => p.poId) } },
-      include: { spec: true },
-      orderBy: { id: 'asc' },
-    });
+    const memberPos = shipment.pos
+      .map((p) => poById.get(p.poId.toString()))
+      .filter((p): p is NonNullable<typeof p> => p !== undefined)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const adminTurn = shipment.receiverKind !== 'md' && pcbShipmentReceiverTurn(shipment);
     const tab: AdminPcbShipmentTab =
       shipment.receivedAt !== null ? 'received' : adminTurn ? 'pending' : 'active';
@@ -1004,12 +1032,15 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
         receiverName,
         mode: asPcbShipmentMode(shipment.mode),
         status: asPcbShipmentStatus(asPcbShipmentMode(shipment.mode), shipment.status),
+        carrier: shipment.carrier,
+        trackingNumber: shipment.trackingNumber,
         poCount: shipment.pos.length,
         members: memberPos.map((p) => ({
           poId: Number(p.id),
           specId: Number(p.specId),
           projectName: p.spec.projectName,
           mbId: p.spec.mbId,
+          customerName: customerNames.get(p.specId.toString()) ?? '',
         })),
         receivedAt: iso(shipment.receivedAt),
         // 큐 배지 — 직송(실물이 자사를 안 거침)·A/S 회차(대표 발주 기준)를 행에서 바로 읽게.

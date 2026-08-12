@@ -260,7 +260,12 @@ export const buildPcbEqTimeline = <
   history: readonly { at: string; byRole: string; fromStatus: string; toStatus: string; note: string | null }[],
   files: readonly F[],
 ): PcbEqTimelineRound<F>[] => {
-  type Sortable = { at: string; kindOrder: number; seq: number; item: PcbEqTimelineItem<F> };
+  interface Sortable {
+    at: string;
+    kindOrder: number;
+    seq: number;
+    item: PcbEqTimelineItem<F>;
+  }
   const rows: Sortable[] = [];
   history.forEach((e, i) => {
     rows.push({
@@ -302,8 +307,7 @@ export const buildPcbEqTimeline = <
     // 연속된 같은 주체의 업로드는 한 말풍선으로 합친다.
     if (
       row.item.kind === 'files' &&
-      last !== undefined &&
-      last.kind === 'files' &&
+      last?.kind === 'files' &&
       last.byRole === row.item.byRole
     ) {
       last.files = [...(last.files ?? []), ...(row.item.files ?? [])];
@@ -354,6 +358,17 @@ export const PcbShipmentFileView = z.object({
 });
 export type PcbShipmentFileViewType = z.infer<typeof PcbShipmentFileView>;
 
+/** 묶음 소속 발주서 한 줄 — 협력사 포털까지 공유하는 표시 정보. 고객 신원(이름·아이디)은
+ *  여기 싣지 않는다 — 관리자 전용은 AdminPcbShipmentGroupPo(아래)가 확장한다. */
+export const PcbShipmentGroupPo = z.object({
+  poId: z.number(),
+  projectName: z.string(),
+  qty: z.number().int(),
+  currency: z.string(),
+  priceOriginal: z.number(),
+});
+export type PcbShipmentGroupPoType = z.infer<typeof PcbShipmentGroupPo>;
+
 export const PcbShipmentView = z.object({
   shipmentId: z.number(),
   poId: z.number(), // 대표(생성) 발주서
@@ -380,18 +395,29 @@ export const PcbShipmentView = z.object({
   poIds: z.array(z.number()), // 소속 발주서 전체(조인 기준 — 대표 포함)
   // 소속 발주서 표시 정보 — 묶음 구성이 화면(보내기 보드·상세 발송 카드)에 보여야
   // "무엇이 같이 나가는지"를 확인하고 발송할 수 있다(§9 묶음 재구성).
-  groupPos: z.array(
-    z.object({
-      poId: z.number(),
-      projectName: z.string(),
-      qty: z.number().int(),
-      currency: z.string(),
-      priceOriginal: z.number(),
-    }),
-  ),
+  groupPos: z.array(PcbShipmentGroupPo),
   files: z.array(PcbShipmentFileView),
 });
 export type PcbShipmentViewType = z.infer<typeof PcbShipmentView>;
+
+// ── 관리자 전용 선적 뷰 — 묶음 구성원의 고객 신원까지 싣는다 ──────────────────
+// 묶음은 고객(Case) 경계를 넘어 합류하므로(박스 키에 고객 축이 없다 — 여정 9호)
+// 관리자는 "누구 것이 함께 묶였는지"를 알아야 한다. **협력사 포털이 쓰는
+// PcbShipmentGroupPo 에는 절대 싣지 않는다** — 보내기 보드·발주 상세가 같은 뷰를
+// 공유해, 거기 실으면 다른 엔드 고객의 이름·아이디가 협력사에게 샌다.
+// 채움도 lib/pcb-shipment 의 관리자 전용 함수(loadAdminPcbShipmentsForPoIds)만 한다.
+export const AdminPcbShipmentGroupPo = PcbShipmentGroupPo.extend({
+  specId: z.number(),
+  mbId: z.string().nullable(),
+  /** od_name > mb_name 사전(lib/pcb-customer) — 없으면 ''(표시 문구는 화면 몫). */
+  customerName: z.string(),
+});
+export type AdminPcbShipmentGroupPoType = z.infer<typeof AdminPcbShipmentGroupPo>;
+
+export const AdminPcbShipmentView = PcbShipmentView.extend({
+  groupPos: z.array(AdminPcbShipmentGroupPo),
+});
+export type AdminPcbShipmentViewType = z.infer<typeof AdminPcbShipmentView>;
 
 /**
  * 납기 경과 판정(여정 14호 T2) — 화면이 "이 발주가 납기를 넘겼는가"를 같은 규칙으로 말하게
@@ -491,7 +517,8 @@ export type AdminPcbPoViewType = z.infer<typeof AdminPcbPoView>;
 export const AdminPcbPoListResponse = z.object({
   result: z.literal(true),
   // shipments 는 P3 확장 — 발주 패널이 발주서와 소속 선적을 함께 소비한다.
-  data: z.object({ pos: z.array(AdminPcbPoView), shipments: z.array(PcbShipmentView) }),
+  // 관리자 뷰(구성원 고객 신원 포함) — 묶음 칩이 "누구 것"인지 말해야 한다.
+  data: z.object({ pos: z.array(AdminPcbPoView), shipments: z.array(AdminPcbShipmentView) }),
 });
 export type AdminPcbPoListResponseType = z.infer<typeof AdminPcbPoListResponse>;
 
@@ -914,10 +941,15 @@ export const AdminPcbShipmentWorkItem = z.object({
   receiverName: z.string(),
   mode: BomShipmentMode,
   status: BomShipmentStatus,
+  /** 운송장 — '이동 중' 박스를 큐에서 바로 식별(검색 축이기도 하다). */
+  carrier: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
   poCount: z.number().int(),
   /**
    * 묶음 구성 전체(대표 포함) — 묶음은 **고객(Case) 경계를 넘어** 합류하므로(박스 키에
    * 고객 축이 없다), 대표 프로젝트만 실으면 동반 건이 큐에서 통째로 사라진다(여정 9호).
+   * 행 렌더의 정본이기도 하다 — 화면은 박스당 1행이 아니라 구성원마다 한 줄을 세우고,
+   * 박스 공통 셀만 rowspan 으로 묶는다(다중 고객 개별 가시성 — 2026-08-12).
    */
   members: z.array(
     z.object({
@@ -925,6 +957,8 @@ export const AdminPcbShipmentWorkItem = z.object({
       specId: z.number(),
       projectName: z.string(),
       mbId: z.string().nullable(),
+      /** od_name > mb_name 사전(lib/pcb-customer) — 없으면 ''. */
+      customerName: z.string(),
     }),
   ),
   receivedAt: z.string().nullable(),
@@ -942,7 +976,11 @@ export const AdminPcbShipmentWorkListResponse = z.object({
   result: z.literal(true),
   data: z.object({
     items: z.array(AdminPcbShipmentWorkItem),
+    /** 박스(발송 문서) 수 — 페이징·탭 카운트의 축. */
     total: z.number().int(),
+    /** 현재 탭의 발주서 합 — 행은 구성원(발주) 단위로 펼쳐지므로 화면이
+     *  "박스 N · 발주 M"을 병기할 수 있게 서버가 함께 센다. */
+    poTotal: z.number().int(),
     page: z.number().int(),
     pageSize: z.number().int(),
     counts: z.object({
