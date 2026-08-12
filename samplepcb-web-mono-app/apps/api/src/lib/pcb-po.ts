@@ -37,6 +37,7 @@ import {
 } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { loadEqReviewRowSummaries } from './pcb-eq-review';
+import { resolvePcbRemittanceDueOn } from './pcb-payment-terms';
 import { loadRemittanceSummaries, summarizePcbRemittances } from './pcb-remittance';
 import {
   findPcbShipmentByPo,
@@ -290,6 +291,7 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   subExchangeRate: decNum(po.subExchangeRate),
   destinationCountry: po.destinationCountry,
   paymentTerms: po.paymentTerms,
+  remittanceDueOn: iso(po.remittanceDueOn),
   remittedAt: iso(po.remittedAt),
   remittance: extras.remittance,
   deliveryDate: iso(po.deliveryDate),
@@ -370,7 +372,8 @@ export type CreatePcbPoError =
   | 'RFQ_MISMATCH'
   | 'RFQ_NOT_SELECTED'
   | 'PRICE_REQUIRED'
-  | 'EXCHANGE_RATE_REQUIRED';
+  | 'EXCHANGE_RATE_REQUIRED'
+  | 'REMITTANCE_DUE_REQUIRED';
 
 export const createAdminPcbPo = async (
   specId: bigint,
@@ -442,6 +445,14 @@ export const createAdminPcbPo = async (
     stampRate = rate;
   }
 
+  const issuedAt = new Date();
+  const remittanceDue = resolvePcbRemittanceDueOn({
+    paymentTerms: body.paymentTerms ?? null,
+    requestedDueOn: body.remittanceDueOn,
+    issuedAt,
+  });
+  if (!remittanceDue.ok) return remittanceDue;
+
   // 동시 발행(여정 16호 C1) — 위의 ALREADY_ISSUED 사전 검사는 두 요청이 **같은 순간**
   // 통과할 수 있다. 데이터는 UK(specId+partnerId+parentPartnerId+reorderRound)가 한 장으로
   // 막아 주지만, 그 P2002 를 그냥 두면 진 쪽이 **안내 없는 500**을 본다(두 창을 연 관리자가
@@ -464,6 +475,7 @@ export const createAdminPcbPo = async (
       subExchangeRate: rfq?.subExchangeRate ?? null,
       destinationCountry: body.destinationCountry ?? null,
       paymentTerms: body.paymentTerms ?? null,
+      remittanceDueOn: remittanceDue.dueOn,
       // 송금은 원장(sp_pcb_remittance)이 정본 — 발주 시점엔 항상 비어 있다(P3.11).
       remittedAt: null,
       deliveryDate:
@@ -472,6 +484,7 @@ export const createAdminPcbPo = async (
           : parseKstDate(body.deliveryDate),
       memo: body.memo ?? null,
       eqHistory: [],
+      issuedAt,
     },
     });
     return { ok: true, po, partner };
@@ -644,6 +657,7 @@ export type PatchPcbPoError =
   | 'NOT_ISSUER'
   | 'PRICE_LOCKED'
   | 'EXCHANGE_RATE_REQUIRED'
+  | 'REMITTANCE_DUE_REQUIRED'
   | 'IN_SHIPMENT';
 
 export const patchPcbPo = async (
@@ -688,11 +702,20 @@ export const patchPcbPo = async (
     }
   }
 
+  const remittanceDue = resolvePcbRemittanceDueOn({
+    paymentTerms: body.paymentTerms === undefined ? po.paymentTerms : body.paymentTerms,
+    requestedDueOn: body.remittanceDueOn,
+    issuedAt: po.issuedAt,
+    existingDueOn: po.remittanceDueOn,
+  });
+  if (!remittanceDue.ok) return remittanceDue;
+
   await prisma.spPcbPo.update({
     where: { id: po.id },
     data: {
       ...priceFields,
       ...(body.paymentTerms === undefined ? {} : { paymentTerms: body.paymentTerms }),
+      remittanceDueOn: remittanceDue.dueOn,
       ...(body.deliveryDate === undefined
         ? {}
         : { deliveryDate: body.deliveryDate === null ? null : parseKstDate(body.deliveryDate) }),
@@ -980,6 +1003,7 @@ export const loadPartnerPcbPos = async (
       subCurrency: po.subCurrency,
       subPriceOriginal: decNum(po.subPriceOriginal),
       deliveryDate: iso(po.deliveryDate),
+      remittanceDueOn: iso(po.remittanceDueOn),
       remittedAt: iso(po.remittedAt),
       issuedAt: po.issuedAt.toISOString(),
       myTurn: eqTurn || shipTurn,
@@ -1008,6 +1032,7 @@ export const loadPartnerPcbPos = async (
       subCurrency: po.subCurrency,
       subPriceOriginal: decNum(po.subPriceOriginal),
       deliveryDate: iso(po.deliveryDate),
+      remittanceDueOn: iso(po.remittanceDueOn),
       remittedAt: iso(po.remittedAt),
       issuedAt: po.issuedAt.toISOString(),
       // EQ 승인은 관리자 몫(D3)이지만 하위 **입고 확인**은 MD 차례다(P3).
@@ -1116,6 +1141,7 @@ export const loadPartnerPcbPoDetail = async (
     subPriceOriginal: decNum(po.subPriceOriginal),
     subExchangeRate: decNum(po.subExchangeRate),
     paymentTerms: po.paymentTerms,
+    remittanceDueOn: iso(po.remittanceDueOn),
     remittedAt: iso(po.remittedAt),
     // 수금 내역 — 협력사는 자기 발주서 건만 본다(증빙 파일은 내부 자료라 제외).
     ...(await (async () => {

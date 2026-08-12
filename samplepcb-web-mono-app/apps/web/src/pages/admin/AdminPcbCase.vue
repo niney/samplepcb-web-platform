@@ -3,6 +3,9 @@ import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
+  PCB_PAYMENT_TERM_CUSTOM_DATE,
+  PCB_PAYMENT_TERM_NET_7,
+  PCB_PAYMENT_TERM_OPTIONS,
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
   bomShipmentNextStatus,
@@ -105,6 +108,13 @@ const BACK_TARGETS: Record<string, { name: string; label: string }> = {
 const backTarget = computed(
   () => BACK_TARGETS[String(route.query.from ?? '')] ?? { name: 'admin-quotes', label: '견적 관리' },
 );
+
+/** YYYY-MM-DD 달력 날짜 덧셈 — 시각/브라우저 타임존을 끼우지 않아 KST 날짜가 밀리지 않는다. */
+const addDateOnlyDays = (value: string, days: number): string => {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
 
 // 역할별 진입 컨텍스트(§6.12 미러) — 무관 섹션은 한 줄 접힘 바로 축소한다(존재 신호 +
 // 한 클릭 복원). 완전 숨김이 아닌 이유는 SmartBOM 과 같다: 인접 단계 참조가 잦고, 같은
@@ -546,9 +556,23 @@ const poPartnerId = ref<number | null>(null);
 const poPrice = ref('');
 const poRate = ref('');
 const poTerms = ref('');
+const poRemittanceDue = ref('');
 const poDelivery = ref('');
 const poMemo = ref('');
 const createPo = useCreatePcbPo();
+const poIsNet7 = computed(() => poTerms.value.trim() === PCB_PAYMENT_TERM_NET_7);
+const poIsCustomPaymentDate = computed(
+  () => poTerms.value.trim() === PCB_PAYMENT_TERM_CUSTOM_DATE,
+);
+const poRemittanceDuePreview = computed(() =>
+  poIsNet7.value ? addDateOnlyDays(kstToday(), 7) : poRemittanceDue.value,
+);
+const poCanSubmit = computed(
+  () =>
+    !createPo.isPending.value &&
+    poPartnerId.value !== null &&
+    (!poIsCustomPaymentDate.value || poRemittanceDue.value !== ''),
+);
 
 const poTargetRfq = computed(() =>
   adminRows.value.find((r) => r.partnerId === poPartnerId.value && r.status === 'selected') ??
@@ -567,12 +591,14 @@ function openPoModal(): void {
   poPrice.value = '';
   poRate.value = '';
   poTerms.value = '';
+  poRemittanceDue.value = '';
   poDelivery.value = kstDateInput(selected?.quotedDeliveryDate);
   poMemo.value = '';
   poModalOpen.value = true;
 }
 async function submitPo(): Promise<void> {
   if (specId.value === null || poPartnerId.value === null) return;
+  if (poIsCustomPaymentDate.value && poRemittanceDue.value === '') return;
   actionError.value = '';
   const priceRaw = poPrice.value.replaceAll(',', '').trim();
   const rateRaw = poRate.value.replaceAll(',', '').trim();
@@ -585,6 +611,7 @@ async function submitPo(): Promise<void> {
         ...(priceRaw === '' ? {} : { priceOriginal: Number(priceRaw) }),
         ...(rateRaw === '' ? {} : { exchangeRate: Number(rateRaw) }),
         paymentTerms: poTerms.value.trim() === '' ? null : poTerms.value.trim(),
+        remittanceDueOn: poIsCustomPaymentDate.value ? poRemittanceDue.value : null,
         deliveryDate: poDelivery.value === '' ? null : poDelivery.value,
         memo: poMemo.value.trim() === '' ? null : poMemo.value.trim(),
       },
@@ -606,8 +633,23 @@ const deletePoMut = useDeletePcbPo();
 const patchPo = usePatchPcbPo();
 const editPo = ref<AdminPcbPoViewType | null>(null);
 const editTerms = ref('');
+const editRemittanceDue = ref('');
 const editDelivery = ref('');
 const editMemo = ref('');
+const editIsNet7 = computed(() => editTerms.value.trim() === PCB_PAYMENT_TERM_NET_7);
+const editIsCustomPaymentDate = computed(
+  () => editTerms.value.trim() === PCB_PAYMENT_TERM_CUSTOM_DATE,
+);
+const editRemittanceDuePreview = computed(() => {
+  if (!editIsNet7.value) return editRemittanceDue.value;
+  const issuedOn = kstDateOnly(editPo.value?.issuedAt) ?? kstToday();
+  return addDateOnlyDays(issuedOn, 7);
+});
+const editCanSubmit = computed(
+  () =>
+    !patchPo.isPending.value &&
+    (!editIsCustomPaymentDate.value || editRemittanceDue.value !== ''),
+);
 
 /** 송금 원장 패널 — 워크큐(송금 메뉴)와 같은 컴포넌트를 쓴다. */
 const remittancePoId = ref<number | null>(null);
@@ -648,6 +690,7 @@ const specEditSaved = (): void => {
 function openPoEdit(po: AdminPcbPoViewType): void {
   editPo.value = po;
   editTerms.value = po.paymentTerms ?? '';
+  editRemittanceDue.value = kstDateInput(po.remittanceDueOn);
   editDelivery.value = kstDateInput(po.deliveryDate);
   editMemo.value = po.memo ?? '';
 }
@@ -655,6 +698,7 @@ function openPoEdit(po: AdminPcbPoViewType): void {
 async function submitPoEdit(): Promise<void> {
   const target = editPo.value;
   if (specId.value === null || target === null) return;
+  if (editIsCustomPaymentDate.value && editRemittanceDue.value === '') return;
   actionError.value = '';
   try {
     await patchPo.mutateAsync({
@@ -662,6 +706,7 @@ async function submitPoEdit(): Promise<void> {
       poId: target.poId,
       body: {
         paymentTerms: editTerms.value.trim() === '' ? null : editTerms.value.trim(),
+        remittanceDueOn: editIsCustomPaymentDate.value ? editRemittanceDue.value : null,
         deliveryDate: editDelivery.value === '' ? null : editDelivery.value,
         memo: editMemo.value.trim() === '' ? null : editMemo.value.trim(),
       },
@@ -1779,6 +1824,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                      제목으로 넘기고 폭을 고정한다. 안 그러면 왼쪽 협력사 칸을 밀어낸다. -->
                 <td class="max-w-[14rem] px-4 py-2.5 text-xs text-gray-600">
                   <p class="truncate" :title="po.paymentTerms ?? ''">{{ po.paymentTerms ?? '—' }}</p>
+                  <p v-if="po.remittanceDueOn !== null" class="mt-0.5 text-[11px] font-semibold text-blue-600">
+                    송금 예정 {{ fmtKstDate(po.remittanceDueOn) }}
+                  </p>
                   <!-- 초록 배지 하나로는 부분 송금과 완납이 같아 보인다 — 금액으로 말한다 -->
                   <p v-if="po.remittance.count > 0" class="mt-0.5">
                     <span
@@ -2205,10 +2253,27 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             <span class="text-xs font-semibold text-gray-500">결제조건</span>
             <input v-model="poTerms" type="text" list="pcb-payment-terms" placeholder="T/T in Advance" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
             <datalist id="pcb-payment-terms">
-              <option value="T/T in Advance" />
-              <option value="NET30 DAYS" />
-              <option value="50% PRE-PAID" />
+              <option v-for="term in PCB_PAYMENT_TERM_OPTIONS" :key="term" :value="term" />
             </datalist>
+          </label>
+          <label v-if="poIsNet7 || poIsCustomPaymentDate" class="block">
+            <span class="text-xs font-semibold text-gray-500">송금 예정일 *</span>
+            <input
+              v-if="poIsCustomPaymentDate"
+              v-model="poRemittanceDue"
+              type="date"
+              class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            >
+            <input
+              v-else
+              :value="poRemittanceDuePreview"
+              type="date"
+              disabled
+              class="mt-1 w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600"
+            >
+            <span class="mt-1 block text-[11px] text-gray-400">
+              {{ poIsNet7 ? '서버가 발주일 기준 7일 후로 확정합니다.' : '실제 송금일은 송금 원장에 별도로 기록합니다.' }}
+            </span>
           </label>
           <label class="block">
             <span class="text-xs font-semibold text-gray-500">납기</span>
@@ -2216,8 +2281,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           </label>
         </div>
         <p class="mt-2 text-[11px] text-gray-400">
-          송금은 발행 뒤 발주서 행의 <b class="text-gray-500">[송금]</b> 에서 기록합니다 —
-          부분 송금과 증빙까지 원장에 남습니다.
+          위 날짜는 송금 <b class="text-gray-500">예정일</b>입니다. 실제 송금은 발행 뒤
+          발주서 행의 <b class="text-gray-500">[송금]</b>에서 금액·환율·증빙과 함께 기록합니다.
         </p>
         <label class="mt-2 block">
           <span class="text-xs font-semibold text-gray-500">메모</span>
@@ -2225,7 +2290,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </label>
         <div class="mt-4 flex justify-end gap-2">
           <button type="button" class="rounded-md border border-gray-200 px-3 py-1.5 text-sm" @click="poModalOpen = false">취소</button>
-          <button type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="createPo.isPending.value || poPartnerId === null" @click="void submitPo()">발행</button>
+          <button type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="!poCanSubmit" @click="void submitPo()">발행</button>
         </div>
       </div>
     </div>
@@ -2264,7 +2329,30 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
 
         <label class="mt-3 block">
           <span class="text-xs font-semibold text-gray-500">결제조건</span>
-          <input v-model="editTerms" type="text" list="pcb-payment-terms" placeholder="T/T in Advance" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+          <input v-model="editTerms" type="text" list="pcb-payment-terms-edit" placeholder="T/T in Advance" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+          <datalist id="pcb-payment-terms-edit">
+            <option v-for="term in PCB_PAYMENT_TERM_OPTIONS" :key="term" :value="term" />
+          </datalist>
+        </label>
+
+        <label v-if="editIsNet7 || editIsCustomPaymentDate" class="mt-2 block">
+          <span class="text-xs font-semibold text-gray-500">송금 예정일 *</span>
+          <input
+            v-if="editIsCustomPaymentDate"
+            v-model="editRemittanceDue"
+            type="date"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+          >
+          <input
+            v-else
+            :value="editRemittanceDuePreview"
+            type="date"
+            disabled
+            class="mt-1 w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600"
+          >
+          <span class="mt-1 block text-[11px] text-gray-400">
+            {{ editIsNet7 ? '최초 발주일 기준 7일 후로 서버가 다시 확정합니다.' : '실제 송금일과는 별도인 예정 날짜입니다.' }}
+          </span>
         </label>
 
         <label class="mt-2 block">
@@ -2279,7 +2367,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
 
         <div class="mt-4 flex justify-end gap-2">
           <button type="button" class="rounded-md border border-gray-200 px-3 py-1.5 text-sm" @click="editPo = null">취소</button>
-          <button type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="patchPo.isPending.value" @click="void submitPoEdit()">저장</button>
+          <button type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="!editCanSubmit" @click="void submitPoEdit()">저장</button>
         </div>
       </div>
     </div>

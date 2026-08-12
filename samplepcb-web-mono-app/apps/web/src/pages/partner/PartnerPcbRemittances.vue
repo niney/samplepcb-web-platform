@@ -93,6 +93,7 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
             <th class="px-4 py-2.5">프로젝트</th>
             <th class="px-4 py-2.5">발주처</th>
             <th class="whitespace-nowrap px-4 py-2.5">진행</th>
+            <th class="whitespace-nowrap px-4 py-2.5">입금 예정</th>
             <th class="whitespace-nowrap px-4 py-2.5 text-right">발주가</th>
             <th class="whitespace-nowrap px-4 py-2.5 text-right">입금액</th>
             <th class="whitespace-nowrap px-4 py-2.5 text-right">미수금</th>
@@ -116,6 +117,9 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
                   {{ PCB_PO_STATUS_LABELS[it.poStatus] }}
                 </span>
+              </td>
+              <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
+                {{ dateOnly(it.remittanceDueOn) }}
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-gray-700">
                 {{ fmtPcbAmount(it.summary.currency, it.summary.poAmount) }}
@@ -157,7 +161,7 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
             </tr>
             <!-- 입금 건별 — 부분 입금이면 언제 얼마가 들어왔는지가 핵심이다 -->
             <tr v-if="expanded === it.poId && it.remittances.length > 0" class="bg-gray-50/60">
-              <td colspan="9" class="px-6 py-3">
+              <td colspan="10" class="px-6 py-3">
                 <ul class="space-y-1 text-xs">
                   <li v-for="r in it.remittances" :key="r.id" class="flex flex-wrap items-center gap-2">
                     <span class="text-gray-500">{{ dateOnly(r.remittedOn) }}</span>
@@ -168,11 +172,11 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
               </td>
             </tr>
             <tr v-else-if="expanded === it.poId" class="bg-gray-50/60">
-              <td colspan="9" class="px-6 py-3 text-xs text-gray-400">아직 입금 내역이 없습니다.</td>
+              <td colspan="10" class="px-6 py-3 text-xs text-gray-400">아직 입금 내역이 없습니다.</td>
             </tr>
           </template>
           <tr v-if="visible.length === 0">
-            <td colspan="9" class="px-4 py-10 text-center text-sm text-gray-400">
+            <td colspan="10" class="px-4 py-10 text-center text-sm text-gray-400">
               {{ query.isFetching.value ? '불러오는 중…' : onlyUnpaid ? '미수금이 없습니다.' : '받은 발주가 없습니다.' }}
             </td>
           </tr>

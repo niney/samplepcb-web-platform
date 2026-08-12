@@ -430,6 +430,7 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             <dd class="font-bold tabular-nums">{{ pcbMoneyWithSub(detail.currency, detail.priceOriginal, detail.subCurrency, detail.subPriceOriginal) }}</dd>
           </div>
           <div class="flex justify-between"><dt class="text-gray-500">결제조건</dt><dd>{{ detail.paymentTerms ?? '—' }}</dd></div>
+          <div class="flex justify-between"><dt class="text-gray-500">송금 예정</dt><dd>{{ dateOnly(detail.remittanceDueOn) }}</dd></div>
           <div class="flex justify-between">
             <dt class="text-gray-500">수금</dt>
             <dd :class="remitStatusCls">{{ remitStatusText }}</dd>

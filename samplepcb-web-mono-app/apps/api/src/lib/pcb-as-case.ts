@@ -6,8 +6,9 @@ import type {
   PcbAsCandidateViewType,
   PcbAsCaseFileViewType,
 } from '@sp/api-contract';
-import { defaultPcbAsCharge } from '@sp/api-contract';
+import { defaultPcbAsCharge, PCB_PAYMENT_TERM_NET_7 } from '@sp/api-contract';
 import { prisma } from './prisma';
+import { resolvePcbRemittanceDueOn } from './pcb-payment-terms';
 import { isPcbOrderLineCanceled } from './pcb-shipment';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 
@@ -390,6 +391,16 @@ export const proceedPcbAsCase = async (
   });
   if (origin === null) return { ok: false, error: 'NO_ORIGIN_PO' };
 
+  const issuedAt = new Date();
+  const net7Due =
+    origin.paymentTerms === PCB_PAYMENT_TERM_NET_7
+      ? resolvePcbRemittanceDueOn({
+          paymentTerms: origin.paymentTerms,
+          requestedDueOn: undefined,
+          issuedAt,
+        })
+      : null;
+
   return prisma.$transaction(async (tx) => {
     const max = await tx.spPcbAsCase.aggregate({
       where: { specId: c.specId },
@@ -413,10 +424,14 @@ export const proceedPcbAsCase = async (
         subExchangeRate: origin.subExchangeRate,
         destinationCountry: origin.destinationCountry,
         paymentTerms: origin.paymentTerms,
+        // A/S 회차는 새 지급 일정이다. NET 7은 새 회차 발주일에서 다시 계산하고,
+        // CUSTOM은 과거 회차 날짜를 복사하지 않고 조건 수정에서 새 날짜를 확정한다.
+        remittanceDueOn: net7Due?.ok === true ? net7Due.dueOn : null,
         remittedAt: null,
         deliveryDate: null,
         memo: origin.memo,
         eqHistory: [],
+        issuedAt,
       },
     });
     const asCase = await tx.spPcbAsCase.update({

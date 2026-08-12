@@ -639,6 +639,24 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 - **회귀 가드 갱신** — 여정 8호 M7은 과거일 환율 생략 400과 오늘 생략 시 공용 TTS 자동
   박제(`exchangeRate`·`krwAmount`)를 함께 검증한다.
 
+### P3.11 후속 (2026-08-12 — 결제조건별 송금 예정일)
+
+- **표준 조건 두 가지 추가** — 기존 자유 입력은 문서 호환을 위해 유지하면서 선택 목록에
+  `NET 7 DAYS`(정기결제 1주 후)와 `CUSTOM PAYMENT DATE`(직접입력)를 추가했다. 화면과 서버는
+  `@sp/api-contract`의 같은 상수를 써 문자열 오타로 일정 계산이 빠지지 않게 한다.
+- **예정과 실제를 분리** — `sp_pcb_po.remittanceDueOn`은 발주 단계의 **송금 예정일**만 담는다.
+  실제 송금일·금액·환율은 계속 `sp_pcb_remittance.remittedOn` 원장이 정본이고, 예정일 저장만으로
+  송금 완료나 원장 행이 생기지 않는다(마이그레이션 `20260812160000_add_pcb_remittance_due_on`).
+- **서버가 날짜를 확정** — `NET 7 DAYS`는 클라이언트 날짜를 무시하고 최초 발주일의 KST
+  달력 날짜 +7일로 계산한다. `CUSTOM PAYMENT DATE`는 날짜가 없으면 400
+  `REMITTANCE_DUE_REQUIRED`; 그 밖의 자유 결제조건은 예정일을 비운다. A/S 재발주는 과거
+  예정일을 복사하지 않으며 NET 7만 새 회차 발주일에서 다시 계산한다.
+- **업무 화면 노출** — 관리자 Case 발주 행·송금 워크큐와 협력사 발주 상세·수금 현황에서
+  예정일을 확인한다. 관리자 워크큐는 잔액이 있는 건에만 `D-n`/`오늘`/`n일 지연`을 표시해
+  완납 건에 과거 일정 경고가 남지 않게 했다.
+- **회귀 가드** — 여정 30호 P1a가 CUSTOM 누락 400, NET 7 서버 계산(임의 클라이언트 날짜
+  무시), CUSTOM KST 날짜 왕복, 송금 큐 노출, 실제 송금 0건 유지를 한 흐름으로 검증한다.
+
 ### P4.1 구현 기록 (2026-08-07 — EQ 고객 확인: 관리자 요청 → 주문내역 승인)
 
 **D16 의 구현.** sp-php(그누보드)를 처음으로 쓰기 경로에 넣은 작업이다.
@@ -2604,7 +2622,6 @@ placeholder 를 '검색'으로 가정(여섯 중 다섯이 안 맞아 검증이 
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
-
 
 
 

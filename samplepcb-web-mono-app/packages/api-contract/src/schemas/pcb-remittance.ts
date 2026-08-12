@@ -92,6 +92,8 @@ export const AdminPcbRemittanceItem = z.object({
   partnerName: z.string(),
   poStatus: PcbPoStatus,
   paymentTerms: z.string().nullable(),
+  /** 실제 송금일과 분리된 발주 단계의 송금 예정일. */
+  remittanceDueOn: z.string().nullable(),
   issuedAt: z.string(),
   deliveryDate: z.string().nullable(),
   /** 0=원발주, 1..=A/S 회차. 같은 프로젝트가 회차만큼 여러 줄로 서므로 이 값이 없으면
@@ -231,6 +233,7 @@ export const PartnerPcbRemittanceItem = z.object({
   ordererName: z.string(),
   poStatus: PcbPoStatus,
   issuedAt: z.string(),
+  remittanceDueOn: z.string().nullable(),
   /** 0=원발주, 1..=A/S 회차 — 같은 프로젝트가 두 줄로 서므로 회차 표기가 없으면
    *  협력사가 "이미 받은 그 건"과 새 회차를 구분할 수 없다(유상 회차면 둘 다 돈이다). */
   reorderRound: z.number().int(),

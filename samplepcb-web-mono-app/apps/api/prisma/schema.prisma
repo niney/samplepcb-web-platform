@@ -1434,6 +1434,9 @@ model SpPcbPo {
   // 배송 목적지(KR/CN/VN) — 직송 스위치는 P3 범위, 컬럼만 선반영(D5).
   destinationCountry String?  @db.VarChar(2)
   paymentTerms    String?     @db.VarChar(50) // 'T/T in Advance' 등
+  // 발주 단계의 송금 예정일. 실제 송금일은 sp_pcb_remittance.remittedOn 이 정본이며,
+  // 이 값은 지급 일정·지연 표시만 담당한다.
+  remittanceDueOn DateTime?
   // ⚠ 송금의 정본은 sp_pcb_remittance(원장)다. 이 컬럼은 **파생 캐시** — 마지막 송금일을
   // 서버가 원장 변경마다 다시 계산해 넣는다(목록·협력사 포털의 기존 표시가 쓰는 값).
   // 직접 쓰지 말 것: 원장을 거치지 않으면 금액·잔액과 어긋난다.

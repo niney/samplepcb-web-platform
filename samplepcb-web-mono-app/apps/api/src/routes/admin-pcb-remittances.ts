@@ -142,6 +142,8 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         partnerName: po.partner.name,
         poStatus: asPcbPoStatus(po.status),
         paymentTerms: po.paymentTerms,
+        remittanceDueOn:
+          po.remittanceDueOn === null ? null : po.remittanceDueOn.toISOString(),
         issuedAt: po.issuedAt.toISOString(),
         deliveryDate: po.deliveryDate === null ? null : po.deliveryDate.toISOString(),
         reorderRound: po.reorderRound,

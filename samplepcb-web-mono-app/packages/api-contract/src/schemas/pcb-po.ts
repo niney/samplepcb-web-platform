@@ -31,6 +31,19 @@ export const PCB_PO_STATUS_LABELS = {
   produced: '생산완료',
 } as const satisfies Record<PcbPoStatusType, string>;
 
+// 결제조건은 협력사 문서에 그대로 보이는 문자열이라 기존 자유 입력을 유지한다. 그중
+// 송금 예정일을 자동/직접 결정하는 두 표준값만 계약 상수로 공유해 화면과 서버의 문자열
+// 비교가 어긋나지 않게 한다.
+export const PCB_PAYMENT_TERM_NET_7 = 'NET 7 DAYS';
+export const PCB_PAYMENT_TERM_CUSTOM_DATE = 'CUSTOM PAYMENT DATE';
+export const PCB_PAYMENT_TERM_OPTIONS = [
+  'T/T in Advance',
+  'NET30 DAYS',
+  '50% PRE-PAID',
+  PCB_PAYMENT_TERM_NET_7,
+  PCB_PAYMENT_TERM_CUSTOM_DATE,
+] as const;
+
 // EQ 역할 — RECEIVER=수주 조직(MD 하위 트랙은 MD 가 fallback 대행 가능),
 // ORDERER=항상 루트 관리자(§6 D3 — 레거시 실코드 승계, MD 는 승인자가 아니라 다리).
 export const PCB_EQ_ROLES = ['RECEIVER', 'ORDERER'] as const;
@@ -446,6 +459,8 @@ export const AdminPcbPoView = z.object({
   subExchangeRate: z.number().nullable(),
   destinationCountry: z.string().nullable(),
   paymentTerms: z.string().nullable(),
+  /** 실제 송금일이 아닌 지급 예정일. 실제 송금은 remittance 원장이 정본이다. */
+  remittanceDueOn: z.string().nullable(),
   remittedAt: z.string().nullable(),
   /** 송금 원장 파생 요약(P3.11 — 원장이 정본, remittedAt 은 마지막 송금일 캐시일 뿐).
    *  날짜만으로는 **부분 송금과 완납이 같은 초록 배지**가 되어 반쯤 나간 돈을 다 준 것처럼
@@ -489,6 +504,12 @@ export const AdminPcbPoCreateBody = z.object({
   /** 외화 관리자 발주의 KRW 회계 환율 — 생략 시 rfq 선정 박제값 승계. */
   exchangeRate: z.number().positive().optional(),
   paymentTerms: z.string().trim().max(50).nullable().optional(),
+  /** 송금 예정일. CUSTOM PAYMENT DATE면 필수, NET 7 DAYS면 서버가 발주일+7일로 확정. */
+  remittanceDueOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
   // ⚠ 송금은 여기서 받지 않는다 — 원장(sp_pcb_remittance)이 정본이고 창구는
   //   /pcb-remittances 하나다(P3.11). 발주 바디로도 받으면 금액 없는 기록이 다시 생긴다.
   deliveryDate: z
@@ -606,6 +627,7 @@ export const PartnerPcbPoListItem = z.object({
   subCurrency: z.string().nullable(),
   subPriceOriginal: z.number().nullable(),
   deliveryDate: z.string().nullable(),
+  remittanceDueOn: z.string().nullable(),
   remittedAt: z.string().nullable(),
   issuedAt: z.string(),
   /** 내 차례(수주 방향 RECEIVER 액션 — 위임·차단 반영). */
@@ -635,6 +657,7 @@ export const PartnerPcbPoDetail = z.object({
   subPriceOriginal: z.number().nullable(),
   subExchangeRate: z.number().nullable(),
   paymentTerms: z.string().nullable(),
+  remittanceDueOn: z.string().nullable(),
   remittedAt: z.string().nullable(),
   /** 수금 내역(P3.11) — 협력사가 **자기 발주서 건만** 본다. 날짜·금액·메모까지 공개하는
    *  이유는 "언제 얼마 들어왔나" 문의가 전화로 오기 때문이다. 증빙 파일은 내부 자료라

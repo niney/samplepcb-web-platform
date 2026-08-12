@@ -12,6 +12,7 @@
 //      잔액이 즉시 따라와야 한다).
 //   ⑤ **과지급은 막거나 드러난다** — 남은 잔액보다 많이 보내려 할 때.
 //   ⑥ **환율 자동/가드** — 오늘은 TTS 자동 박제, 과거일 누락은 400 으로 회계 공백을 막는다.
+//   ⑦ **송금 예정일** — NET 7은 발주일+7일 서버 계산, CUSTOM은 명시 날짜 필수.
 //
 // 시드 발주(협력2·USD)로 돈 축만 본다 — 주문·생산은 8호가 이미 밟았다.
 //
@@ -41,6 +42,8 @@ const PARTNER_NAME = '협력2';
 /** 발주가는 $300 — 100/100/100 세 번으로 나눠 보낸다. */
 const PRICE = 300;
 const RATE = 1400;
+const PAYMENT_TERM_NET_7 = 'NET 7 DAYS';
+const PAYMENT_TERM_CUSTOM_DATE = 'CUSTOM PAYMENT DATE';
 
 describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () => {
   const rp = createJourneyReport('findings-remitmulti', '여정 30호 송금 다회 탐색 주행 리포트');
@@ -49,6 +52,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
   let partner: PartnerFixture;
   let A = '';
   const poIds: bigint[] = [];
+  let specId: bigint | null = null;
   let poId: number | null = null;
   const remitIds: number[] = [];
 
@@ -97,8 +101,10 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
 
   test('P1. 준비 — $300 발주(지급 대기)', async () => {
     const specs = await pickFreeSpecs(1);
+    const pickedSpecId = specs[0].id;
+    specId = pickedSpecId;
     const po = await createPcbPo({
-      specId: specs[0].id,
+      specId: pickedSpecId,
       partnerId: partner.id,
       status: 'produced',
       currency: 'USD',
@@ -112,6 +118,62 @@ describe.skipIf(!RUN || !JOURNEY)('여정 30호 — 송금 다회·증빙', () =
     expect(Number(summary.paidAmount ?? 0), '초기 지급액 0').toBe(0);
     expect(Number(summary.balance ?? -1), '초기 잔액 = 발주가').toBe(PRICE);
     F('P1', 'obs', `준비 — po #${String(poId)} $${String(PRICE)} · 지급 0 · 잔액 ${String(PRICE)}`);
+  }, 180_000);
+
+  test('P1a. 결제조건 — NET 7 자동 예정일·CUSTOM 날짜 필수', async (ctx) => {
+    if (poId === null || specId === null) return ctx.skip();
+    const path = `/api/admin/pcb-projects/${String(specId)}/pos/${String(poId)}`;
+
+    const missing = await api(A, 'PATCH', path, {
+      paymentTerms: PAYMENT_TERM_CUSTOM_DATE,
+      remittanceDueOn: null,
+    });
+    expect(missing.status, `CUSTOM 날짜 누락: ${JSON.stringify(missing.json)}`).toBe(400);
+    expect(missing.json?.error, 'CUSTOM 날짜 필수 오류').toBe('REMITTANCE_DUE_REQUIRED');
+
+    const net7 = await api(A, 'PATCH', path, {
+      paymentTerms: PAYMENT_TERM_NET_7,
+      // 서버 계산이 정본 — 클라이언트가 보낸 날짜는 이 값으로 박제되면 안 된다.
+      remittanceDueOn: '2099-01-01',
+    });
+    expect(net7.status, `NET 7 조건 저장: ${JSON.stringify(net7.json)}`).toBe(200);
+    const net7Row = (net7.json?.data?.pos ?? []).find((p: any) => Number(p.poId) === poId);
+    const issuedKstPlus7 = new Date(
+      Date.parse(String(net7Row.issuedAt)) + 7 * 86_400_000 + 9 * 3_600_000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const dueKst = new Date(Date.parse(String(net7Row.remittanceDueOn)) + 9 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    expect(net7Row.paymentTerms, 'NET 7 조건 박제').toBe(PAYMENT_TERM_NET_7);
+    expect(dueKst, '발주 KST 날짜+7일 서버 계산').toBe(issuedKstPlus7);
+
+    const customOn = '2026-08-28';
+    const custom = await api(A, 'PATCH', path, {
+      paymentTerms: PAYMENT_TERM_CUSTOM_DATE,
+      remittanceDueOn: customOn,
+    });
+    expect(custom.status, `CUSTOM 예정일 저장: ${JSON.stringify(custom.json)}`).toBe(200);
+    const customRow = (custom.json?.data?.pos ?? []).find((p: any) => Number(p.poId) === poId);
+    const customKst = new Date(Date.parse(String(customRow.remittanceDueOn)) + 9 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    expect(customKst, 'CUSTOM KST 날짜 왕복').toBe(customOn);
+
+    const restored = await api(A, 'PATCH', path, { paymentTerms: PAYMENT_TERM_NET_7 });
+    expect(restored.status, `NET 7 복원: ${JSON.stringify(restored.json)}`).toBe(200);
+    const pending = await api(A, 'GET', '/api/admin/pcb-remittances?tab=pending&page=1&pageSize=100');
+    const queueRow = (pending.json?.data?.items ?? []).find((p: any) => Number(p.poId) === poId);
+    expect(queueRow?.remittanceDueOn, '송금 대기 큐에도 예정일 노출').toBeTruthy();
+
+    const dbPo = await getPrisma().spPcbPo.findUnique({ where: { id: BigInt(poId) } });
+    expect(dbPo?.remittedAt, '예정일 저장이 실제 송금 완료를 만들지 않는다').toBeNull();
+    F(
+      'P1a',
+      'obs',
+      `결제 일정 — CUSTOM 누락 400 · NET 7 ${issuedKstPlus7} 서버 계산 · CUSTOM ${customOn} 왕복 · 실제 송금 0건`,
+    );
   }, 180_000);
 
   test('P1b. 외화 환율 — 오늘은 TTS 자동 박제, 과거일 누락은 거부', async (ctx) => {

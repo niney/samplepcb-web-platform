@@ -101,6 +101,10 @@ const CREATE_ERROR_MESSAGES: Record<string, { code: 400 | 409; message: string }
   },
   PRICE_REQUIRED: { code: 400, message: '발주가를 입력해 주세요(회신 견적이 없는 직접 발주).' },
   EXCHANGE_RATE_REQUIRED: { code: 400, message: '외화 발주에는 KRW 회계 환율이 필요합니다.' },
+  REMITTANCE_DUE_REQUIRED: {
+    code: 400,
+    message: 'CUSTOM PAYMENT DATE에는 송금 예정일이 필요합니다.',
+  },
 };
 
 export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
@@ -250,6 +254,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           return reply
             .status(400)
             .send({ error: res.error, message: '외화 발주에는 KRW 회계 환율이 필요합니다.' });
+        if (res.error === 'REMITTANCE_DUE_REQUIRED')
+          return reply
+            .status(400)
+            .send({ error: res.error, message: 'CUSTOM PAYMENT DATE에는 송금 예정일이 필요합니다.' });
         return reply.status(409).send({
           error: res.error,
           message:

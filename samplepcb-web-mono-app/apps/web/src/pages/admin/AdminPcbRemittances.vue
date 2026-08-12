@@ -10,7 +10,7 @@ import {
   type AdminPcbRemittanceTabType,
   type PcbRemittanceStatusType,
 } from '@sp/api-contract';
-import { fmtKstDate } from '@sp/utils';
+import { fmtKstDate, kstDateOnly, kstToday } from '@sp/utils';
 import {
   useAdminPcbRemittancePartners,
   useAdminPcbRemittances,
@@ -48,6 +48,21 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.va
 const elapsedDays = (iso: string): number => {
   const ms = Date.now() - new Date(iso).getTime();
   return Math.max(0, Math.floor(ms / 86_400_000));
+};
+
+const DAY_MS = 86_400_000;
+/** 미지급 잔액이 있는 행만 예정일의 남은 날/지연을 말한다. 완납 뒤에는 과거 일정 경고를 끈다. */
+const dueTiming = (
+  row: AdminPcbRemittanceItemType,
+): { label: string; className: string } | null => {
+  const dueOn = kstDateOnly(row.remittanceDueOn);
+  if (dueOn === null || row.summary.balance <= 0) return null;
+  const delta = Math.round(
+    (Date.parse(`${dueOn}T00:00:00Z`) - Date.parse(`${kstToday()}T00:00:00Z`)) / DAY_MS,
+  );
+  if (delta < 0) return { label: `${String(-delta)}일 지연`, className: 'text-rose-700' };
+  if (delta === 0) return { label: '오늘', className: 'text-amber-700' };
+  return { label: `D-${String(delta)}`, className: 'text-blue-600' };
 };
 
 function selectView(next: View): void {
@@ -173,6 +188,7 @@ const openCase = (specId: number): void => {
               <th class="px-4 py-2.5">협력사</th>
               <th class="whitespace-nowrap px-4 py-2.5">발주 상태</th>
               <th class="whitespace-nowrap px-4 py-2.5">결제조건</th>
+              <th class="whitespace-nowrap px-4 py-2.5">송금 예정</th>
               <th class="whitespace-nowrap px-4 py-2.5">발주일</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">발주가</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">송금액</th>
@@ -212,6 +228,14 @@ const openCase = (specId: number): void => {
               <!-- 결제조건·경과일 — "언제까지 줘야 하나"를 이 화면에서 판단하려면 필요하다 -->
               <td class="max-w-[12rem] truncate px-4 py-2.5 text-xs text-gray-600" :title="row.paymentTerms ?? ''">
                 {{ row.paymentTerms ?? '—' }}
+              </td>
+              <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
+                {{ fmtKstDate(row.remittanceDueOn) }}
+                <span
+                  v-if="dueTiming(row) !== null"
+                  class="ml-1 font-semibold tabular-nums"
+                  :class="dueTiming(row)?.className"
+                >{{ dueTiming(row)?.label }}</span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
                 {{ fmtKstDate(row.issuedAt) }}
@@ -262,7 +286,7 @@ const openCase = (specId: number): void => {
               </td>
             </tr>
             <tr v-if="rows.length === 0">
-              <td colspan="13" class="px-4 py-10 text-center text-sm text-gray-400">
+              <td colspan="14" class="px-4 py-10 text-center text-sm text-gray-400">
                 {{ list.isFetching.value ? '불러오는 중…' : '해당하는 발주가 없습니다.' }}
               </td>
             </tr>
