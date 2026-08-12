@@ -11,6 +11,7 @@ import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbSelectionBar from '../../components/admin/pcb/PcbSelectionBar.vue';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
 import { useRowSelection } from '../../admin/useRowSelection';
+import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix } from '../../lib/pcb-money';
 
 // PCB 견적요청(RFQ) 워크큐 — docs/PCB_PARTNER_TRACK.md §5.4. 큐 흐름:
@@ -188,7 +189,17 @@ function openCase(specId: number): void {
               <td class="px-4 py-2.5 text-gray-600">
                 <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
               </td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.category }} · {{ row.qty }}매</td>
+              <!-- 분류는 배지로 — standard 와 advance 는 공정·단가가 다른 물건이라
+                   회색 텍스트로 흘리면 행을 훑을 때 갈리지 않는다. -->
+              <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">
+                <span
+                  class="rounded px-1.5 py-0.5 text-xs font-semibold"
+                  :class="pcbCategoryBadge(row.category).cls"
+                >
+                  {{ pcbCategoryBadge(row.category).label }}
+                </span>
+                <span class="ml-1 tabular-nums">{{ row.qty }}매</span>
+              </td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span
                   class="rounded px-1.5 py-0.5 text-xs font-semibold"
