@@ -583,7 +583,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await advancePcbShipment(
         po,
-        { kind: 'partner', partnerId: ctx.partnerId },
+        { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
         request.body,
       );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
@@ -731,7 +731,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await receivePcbShipment(
         po,
-        { kind: 'partner', partnerId: ctx.partnerId },
+        { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
         request.body.note ?? null,
       );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
@@ -773,7 +773,11 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const ctx = requireCtx(request);
       const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await detachPcbShipmentPo(po, { kind: 'partner', partnerId: ctx.partnerId });
+      const res = await detachPcbShipmentPo(po, {
+        kind: 'partner',
+        partnerId: ctx.partnerId,
+        mbId: request.user.mbId,
+      });
       if (!res.ok) return reply.status(409).send(shipError(res.error));
       return { result: true as const };
     },
@@ -799,7 +803,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (shipment === null) {
         const advanceable = await advancePcbShipment(
           po,
-          { kind: 'partner', partnerId: ctx.partnerId },
+          { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
           {},
         );
         // 첫 전이는 필수값 부족으로 실패할 수 있다 — 발송 생성만 필요하므로 재조회.
@@ -887,7 +891,11 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       let shipment = await findPcbShipmentByPo(po.id);
       if (shipment === null) {
-        await advancePcbShipment(po, { kind: 'partner', partnerId: ctx.partnerId }, {});
+        await advancePcbShipment(
+          po,
+          { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
+          {},
+        );
         shipment = await findPcbShipmentByPo(po.id);
       }
       if (shipment === null) return reply.status(409).send(shipError('NOT_SHIPPED'));

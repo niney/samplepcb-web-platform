@@ -303,6 +303,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminPcbShipments.vue'),
       },
       {
+        // PCB Case QR 스캔 도착점 — token은 식별자, 접근은 관리자 가드와 API 인증이 담당.
+        path: 'pcb/packages/:code',
+        name: 'admin-pcb-package',
+        component: () => import('./pages/admin/AdminPcbPackage.vue'),
+      },
+      {
         path: 'pcb/cases/:id',
         name: 'admin-pcb-case',
         component: () => import('./pages/admin/AdminPcbCase.vue'),

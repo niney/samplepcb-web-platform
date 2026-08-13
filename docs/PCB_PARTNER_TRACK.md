@@ -2758,6 +2758,31 @@ placeholder 를 '검색'으로 가정(여섯 중 다섯이 안 맞아 검증이 
   배지 해제·재요청 잠금 · 무잔재), vitest 89·3패키지 typecheck·ESLint 0건, 브라우저
   실측(선적 줄 왕복 버튼·프롬프트 2필드).
 
+### PCB Case QR — 주문/견적 건 단위 라벨 (2026-08-13)
+
+BOM QR을 그대로 복제하지 않고 PCB의 물리 단위에 맞췄다. BOM은 릴·트레이별 수량 분할과
+LOT/DATE CODE가 원장이지만, PCB는 완성 보드 한 건이므로 **선적 박스 × PO 1개**가 라벨
+단위다. 따라서 합배송 한 박스에 PO가 2건이면 라벨도 2장이고, PO 1건을 수량별로 다시
+쪼개지 않는다.
+
+- **원장**: `sp_pcb_package`(shipmentId+poId 유일, 64자 랜덤 token, 사람이 읽는 labelCode,
+  prepared/received/voided) + append-only `sp_pcb_package_event`(created/printed/received/
+  voided, 행위자·전후 상태·시각). 기존 선적은 라벨 조회·전이 시 현재 구성원을 자동 보강한다.
+- **불변식**: 재인쇄는 token을 바꾸지 않고 printed 이벤트만 누적한다. 준비 박스에서 PO를
+  빼면 해당 QR은 무효화하고, 같은 박스에 재합류하면 같은 token을 되살려 이력을 잇는다.
+  입고는 QR별 별도 버튼을 만들지 않고 기존 **선적 박스 입고 사건과 같은 transaction**에서
+  현재 유효 라벨 전부를 received로 동기화한다.
+- **권한·노출**: QR 목적지는 `/app/admin/pcb/packages/:token` 관리자 화면이며 token 자체를
+  권한으로 쓰지 않는다. 파트너는 자기 발송 박스 라벨만 조회·인쇄할 수 있고, 라벨 계약에는
+  고객명·회원 ID·가격·관리자 계정 식별자를 싣지 않는다. 고객 신원과 추적 이력은 관리자
+  스캔 상세 API에서만 확장한다.
+- **화면**: 협력사 발송 카드와 관리자 선적 큐에서 A4 2열 QR 라벨을 미리보고 일괄 인쇄한다.
+  관리자 스캔 화면은 프로젝트·PO/Q·수량·고객·협력사·선적 상태·이벤트 이력을 보여준다.
+- **검증**: `pcb-package-qr.e2e.test.ts` 5개 시나리오를 3회 연속 통과(합배송 2장·권한/
+  개인정보 경계·재인쇄 token 불변·박스 제외/재합류·입고 동기화), 기존
+  `pcb-ship-board` 6개 시나리오와 API 전체 테스트 870개 통과. 관리자 라벨 2장과 QR
+  스캔 상세를 실제 브라우저로 확인했다.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

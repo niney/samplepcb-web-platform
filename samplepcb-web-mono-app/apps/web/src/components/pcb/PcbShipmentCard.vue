@@ -13,12 +13,14 @@ import {
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
   downloadPartnerPcbShipmentFile,
+  partnerPcbPackageApi,
   partnerPcbInvoiceApi,
   usePartnerPcbShipmentAdvance,
   usePartnerPcbShipmentRevert,
   useUploadPartnerPcbShipmentFile,
 } from '../../partner/usePartnerPcbPos';
 import InvoiceEditorModal from '../smartbom/InvoiceEditorModal.vue';
+import PcbPackageLabelsModal from './PcbPackageLabelsModal.vue';
 import { fmtKstDate as dateOnly } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
@@ -69,6 +71,8 @@ const carrierInput = ref('');
 const trackingInput = ref('');
 const invoiceOpen = ref(false);
 const invoiceApi = computed(() => partnerPcbInvoiceApi(repPoId.value));
+const labelsOpen = ref(false);
+const labelsApi = computed(() => partnerPcbPackageApi(props.shipment.shipmentId));
 
 // ── 발송 방식 갈래(08-13 재편·UX 개편) — 갈림의 실체는 "운송을 누가 계약하나"다.
 // 체크박스는 옵션 하나처럼 읽혀 라디오 2택으로 승격: '직접 발송'(기본 — 현행 무변화)
@@ -335,6 +339,15 @@ const STATUS_CLS: Record<string, string> = {
         </span>
       </li>
     </ul>
+    <div class="mt-2 flex justify-end">
+      <button
+        type="button"
+        class="rounded-md border border-teal-300 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100"
+        @click="labelsOpen = true"
+      >
+        ▦ PCB QR 라벨 {{ shipment.groupPos.length }}장
+      </button>
+    </div>
 
     <!-- ── '선적 요청' 준비 체크리스트(08-13 UX 개편) — 위에서 아래로 따라가면 끝난다:
          ①인보이스(필수) → ②발송 방식(갈래) → ③출고예정일 → [진행](맨 아래).
@@ -532,6 +545,12 @@ const STATUS_CLS: Record<string, string> = {
       :attach-pdf="invoiceApi.attachPdf"
       :attach-xlsx="invoiceApi.attachXlsx"
       @close="invoiceOpen = false"
+    />
+    <PcbPackageLabelsModal
+      :open="labelsOpen"
+      :load="labelsApi.load"
+      :mark-printed="labelsApi.markPrinted"
+      @close="labelsOpen = false"
     />
   </section>
 </template>

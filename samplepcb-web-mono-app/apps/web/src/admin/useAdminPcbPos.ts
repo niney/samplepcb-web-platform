@@ -5,8 +5,10 @@ import {
   AdminPcbPoListResponse,
   AdminPcbPoWorkListResponse,
   AdminPcbShipmentWorkListResponse,
+  AdminPcbPackageResponse,
   PcbInvoiceResponse,
   PcbPoActionResponse,
+  PcbShipmentPackageListResponse,
   apiRoutes,
   type AdminPcbEqReviewCreateBodyType,
   type AdminPcbPoCreateBodyType,
@@ -299,6 +301,34 @@ export function useAdminPcbShipmentWork(filters: Ref<AdminPcbShipmentFilters>) {
     queryKey: ['admin', 'pcbShipment', 'work', filters],
     queryFn: () => apiGet(shipmentWorkPath(filters.value), AdminPcbShipmentWorkListResponse),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** PCB Case QR 라벨 — 박스 단위 일괄 출력. 고객 신원은 라벨 계약에 포함되지 않는다. */
+export const adminPcbPackageApi = (shipmentId: number) => ({
+  load: async () =>
+    (
+      await apiGet(
+        `${apiRoutes.adminPcbShipments}/${String(shipmentId)}/labels`,
+        PcbShipmentPackageListResponse,
+      )
+    ).data,
+  markPrinted: async () =>
+    (
+      await apiSend(
+        'POST',
+        `${apiRoutes.adminPcbShipments}/${String(shipmentId)}/labels/print`,
+        {},
+        PcbShipmentPackageListResponse,
+      )
+    ).data,
+});
+
+export function useAdminPcbPackage(code: Ref<string | null>) {
+  return useQuery({
+    queryKey: ['admin', 'pcbPackage', code],
+    queryFn: () => apiGet(`${apiRoutes.adminPcbPackages}/${String(code.value)}`, AdminPcbPackageResponse),
+    enabled: computed(() => code.value !== null),
   });
 }
 

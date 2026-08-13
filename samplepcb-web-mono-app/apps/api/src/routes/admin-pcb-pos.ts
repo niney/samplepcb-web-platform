@@ -648,7 +648,11 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     async (request, reply) => {
       const po = await loadPoChecked(request.params.id, request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await advancePcbShipment(po, { kind: 'admin' }, request.body);
+      const res = await advancePcbShipment(
+        po,
+        { kind: 'admin', mbId: request.user.mbId },
+        request.body,
+      );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
       // 관리자 전이 → 협력사(보내는측) 통지 — 다음 협력사 차례가 있으면 안내.
@@ -697,7 +701,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     async (request, reply) => {
       const po = await loadPoChecked(request.params.id, request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await ensurePcbShipment(po);
+      const res = await ensurePcbShipment(po, {
+        type: 'ADMIN',
+        mbId: request.user.mbId,
+      });
       if (!res.ok) return reply.status(409).send(shipError(res.error));
       return { result: true as const, data: await loadPanel(request.params.id) };
     },
@@ -798,7 +805,11 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     async (request, reply) => {
       const po = await loadPoChecked(request.params.id, request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await receivePcbShipment(po, { kind: 'admin' }, request.body.note ?? null);
+      const res = await receivePcbShipment(
+        po,
+        { kind: 'admin', mbId: request.user.mbId },
+        request.body.note ?? null,
+      );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
       const [spec, portalCta, shipPoCount] = await Promise.all([

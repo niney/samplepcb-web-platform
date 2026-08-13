@@ -41,6 +41,7 @@ export const apiRoutes = {
   partnerPcbPos: '/api/partner/pcb-pos',
   partnerPcbRemittances: '/api/partner/pcb-remittances',
   adminPcbShipments: '/api/admin/pcb-shipments',
+  adminPcbPackages: '/api/admin/pcb-packages',
   partnerPcbShipments: '/api/partner/pcb-shipments',
   adminPcbOrders: '/api/admin/pcb-orders',
   adminPcbCases: '/api/admin/pcb-cases',

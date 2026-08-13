@@ -5,13 +5,21 @@ import {
   PartnerPcbShipBoxBody,
   PartnerPcbShipDoneQuery,
   PartnerPcbShipDoneResponse,
+  PcbShipmentPackageListResponse,
 } from '@sp/api-contract';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import {
   ensurePcbShipment,
   loadPartnerPcbDoneShipments,
   loadPartnerPcbShipBoard,
 } from '../lib/pcb-shipment';
+import {
+  PcbPackageError,
+  loadPcbShipmentPackageList,
+  markPcbShipmentPackagesPrinted,
+  partnerCanAccessPcbPackages,
+} from '../lib/pcb-packages';
 
 // ── [📦 PCB 보내기] 보드(P3 재구성, requirePartner) — docs/PCB_PARTNER_TRACK.md §9 ──
 // BOM §6.11 두 칸 모델의 PCB 일반화: 받는 곳(관리자/직송/MD)이 갈릴 수 있어 박스는
@@ -24,6 +32,7 @@ const BOX_ERROR_MESSAGES: Record<string, string> = {
   OUTBOUND_BLOCKED: '하위 협력사 입고 확인이 끝나야 출고할 수 있습니다.',
   ORDER_CANCELED: '취소된 주문입니다 — 발송을 시작하지 말고 샘플피씨비 담당자에게 문의해 주세요.',
 };
+const ShipmentParams = z.object({ shipmentId: z.coerce.bigint() });
 
 export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requirePartner);
@@ -41,6 +50,61 @@ export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opt
     async (request) => {
       const ctx = requireCtx(request);
       return { result: true as const, data: await loadPartnerPcbShipBoard(ctx.partnerId) };
+    },
+  );
+
+  // QR 라벨은 발송자 조직만 조회·인쇄한다. QR 목적지는 관리자 화면이지만 라벨 원문에는
+  // 다른 고객의 이름·회원 ID·가격을 싣지 않는다(계약 PcbShipmentPackage가 경계).
+  fastify.get(
+    '/partner/pcb-shipments/:shipmentId/labels',
+    {
+      schema: {
+        params: ShipmentParams,
+        response: { 200: PcbShipmentPackageListResponse },
+      },
+    },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      if (!(await partnerCanAccessPcbPackages(request.params.shipmentId, ctx.partnerId))) {
+        return reply.notFound('PCB 발송을 찾을 수 없습니다');
+      }
+      const data = await loadPcbShipmentPackageList(request.params.shipmentId, {
+        type: 'PARTNER',
+        mbId: request.user.mbId,
+      });
+      if (data === null) return reply.notFound('PCB 발송을 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
+  fastify.post(
+    '/partner/pcb-shipments/:shipmentId/labels/print',
+    {
+      schema: {
+        params: ShipmentParams,
+        response: { 200: PcbShipmentPackageListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      if (!(await partnerCanAccessPcbPackages(request.params.shipmentId, ctx.partnerId))) {
+        return reply.notFound('PCB 발송을 찾을 수 없습니다');
+      }
+      try {
+        const data = await markPcbShipmentPackagesPrinted(request.params.shipmentId, {
+          type: 'PARTNER',
+          mbId: request.user.mbId,
+        });
+        return { result: true as const, data };
+      } catch (error) {
+        if (!(error instanceof PcbPackageError)) throw error;
+        if (error.code === 'PACKAGE_SHIPMENT_NOT_FOUND') {
+          return reply.notFound('PCB 발송을 찾을 수 없습니다');
+        }
+        return reply
+          .status(409)
+          .send({ error: error.code, message: '인쇄할 PCB QR 라벨이 없습니다.' });
+      }
     },
   );
 
@@ -83,7 +147,10 @@ export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opt
       });
       // 담기는 내가 수주한 발주서만 — MD 가 하위에 발주한 건은 하위 수주자가 보낸다.
       if (po?.partnerId !== ctx.partnerId) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await ensurePcbShipment(po);
+      const res = await ensurePcbShipment(po, {
+        type: 'PARTNER',
+        mbId: request.user.mbId,
+      });
       if (!res.ok) {
         return reply.status(409).send({
           error: res.error,

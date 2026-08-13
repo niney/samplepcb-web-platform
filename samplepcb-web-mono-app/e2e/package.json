@@ -101,6 +101,7 @@
     "journey:moneyrace": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-money-race",
     "journey:myturn": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-myturn",
     "journey:customerview": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-customer-view",
+    "pcb:qr": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run pcb-package-qr",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

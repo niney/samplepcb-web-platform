@@ -51,6 +51,7 @@ helpers/
 specs/
   harness.e2e.test.ts        하네스 자가 검증 — 새 시나리오의 복사 시작점
   pcb-ship-board.e2e.test.ts PCB 보내기 보드 §9 스토리(세션 스모크 28케이스 편입판)
+  pcb-package-qr.e2e.test.ts PCB Case QR — 합배송 PO별 라벨·권한·재인쇄·무효화·입고 동기화
   journey-gerber-rfq.e2e.test.ts       여정 1호 — 해외 협력사(USD·국제 선적 6단계)
   journey-domestic-partner.e2e.test.ts 여정 2호 — 국내 협력사(KRW·국내 3단계·EQ 반려 왕복)
   journey-batch-shipment.e2e.test.ts   여정 3호 — 묶음 발송(주문 2건 → 한 박스 → 각자 배송)
@@ -179,6 +180,7 @@ DB 분석 스냅샷 계산을 검증한다. 업로드 카드와 시트 관리 �
 
 | 스크립트 | 대상 |
 | --- | --- |
+| `pnpm -F e2e pcb:qr` | PCB Case QR 5개 시나리오 — 합배송·보안·재인쇄·무효화·입고 동기화 |
 | `pnpm -F e2e journey` | 전 여정 연속(파일 직렬 — journey-*) |
 | `pnpm -F e2e journey:intl` | 1호만 — 해외 협력사 |
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |

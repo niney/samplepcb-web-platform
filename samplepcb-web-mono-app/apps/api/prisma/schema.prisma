@@ -1453,6 +1453,7 @@ model SpPcbPo {
   partner         SpPartner   @relation(fields: [partnerId], references: [id])
   remittances     SpPcbRemittance[]
   eqReviews       SpPcbEqReview[]
+  packages        SpPcbPackage[]
 
   @@unique([specId, partnerId, parentPartnerId, reorderRound])
   @@index([partnerId, status]) // 협력사 포털 워크큐
@@ -1601,6 +1602,7 @@ model SpPcbShipment {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   pos                SpPcbShipmentPo[]
+  packages           SpPcbPackage[]
 
   @@index([specId])
   @@map("sp_pcb_shipment")
@@ -1615,4 +1617,47 @@ model SpPcbShipmentPo {
   shipment   SpPcbShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@map("sp_pcb_shipment_po")
+}
+
+// PCB Case QR — BOM의 부품 포장 QR과 달리 수량 분할·LOT/DATE CODE를 다루지 않는다.
+// 합배송 박스에는 서로 다른 고객의 PO가 함께 들어갈 수 있으므로 추적 단위는
+// `선적 박스 × PO(견적/주문 건)` 1개다. token은 식별자일 뿐 권한이 아니며 조회 API는
+// 관리자 인증을 별도로 강제한다. 같은 건 재인쇄는 token을 유지하고 이벤트만 누적한다.
+model SpPcbPackage {
+  id         BigInt              @id @default(autoincrement())
+  shipmentId BigInt
+  poId       BigInt
+  token      String              @unique @db.Char(64)
+  labelCode  String              @unique @db.VarChar(24)
+  status     String              @default("prepared") @db.VarChar(16) // prepared|received|voided
+  printedAt  DateTime?
+  receivedAt DateTime?
+  voidedAt   DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  shipment   SpPcbShipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  po         SpPcbPo             @relation(fields: [poId], references: [id], onDelete: Cascade)
+  events     SpPcbPackageEvent[]
+
+  @@unique([shipmentId, poId])
+  @@index([poId, status])
+  @@index([shipmentId, status])
+  @@map("sp_pcb_package")
+}
+
+// PCB QR append-only 이력 — QR 생성·인쇄·선적 입고 동기화·박스 제외 무효화를 남긴다.
+model SpPcbPackageEvent {
+  id         BigInt       @id @default(autoincrement())
+  packageId  BigInt
+  eventType  String       @db.VarChar(16) // created|printed|received|voided
+  actorType  String       @db.VarChar(16) // ADMIN|PARTNER|SYSTEM
+  actorMbId  String?      @db.VarChar(191)
+  fromStatus String?      @db.VarChar(16)
+  toStatus   String?      @db.VarChar(16)
+  note       String?      @db.Text
+  occurredAt DateTime     @default(now())
+  package    SpPcbPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId, occurredAt])
+  @@map("sp_pcb_package_event")
 }

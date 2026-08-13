@@ -9,6 +9,7 @@ import {
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
+  adminPcbPackageApi,
   useAdminPcbPoWork,
   useAdminPcbShipmentWork,
   type AdminPcbPoWorkFilters,
@@ -21,6 +22,7 @@ import {
 } from '../../admin/useAdminPcbOrders';
 import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
+import PcbPackageLabelsModal from '../../components/pcb/PcbPackageLabelsModal.vue';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
@@ -63,6 +65,10 @@ const total = computed(() => list.data.value?.data.total ?? 0);
 const poTotal = computed(() => list.data.value?.data.poTotal ?? 0);
 const counts = computed(() => list.data.value?.data.counts ?? null);
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
+const labelShipmentId = ref<number | null>(null);
+const labelsApi = computed(() =>
+  labelShipmentId.value === null ? null : adminPcbPackageApi(labelShipmentId.value),
+);
 
 // 검색 — 두 축(발주서 축 to_ship · 선적 축 나머지 탭) 모두에 같은 검색어를 태운다.
 // 탭을 오가며 같은 건을 찾는 화면이라 입력을 하나만 둔다(제출 시 적용 — 발주 큐와 동형).
@@ -348,6 +354,13 @@ function openCase(specId: number): void {
                     <span v-if="row.trackingNumber !== null" class="mt-0.5 block text-[11px] text-gray-400">
                       {{ row.carrier ?? '' }} {{ row.trackingNumber }}
                     </span>
+                    <button
+                      type="button"
+                      class="mt-2 block rounded-md border border-teal-200 bg-teal-50 px-2 py-1 font-sans text-[11px] font-bold text-teal-700 hover:bg-teal-100"
+                      @click.stop="labelShipmentId = row.shipmentId"
+                    >
+                      ▦ QR 라벨 {{ row.poCount }}장
+                    </button>
                   </td>
                   <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
                     <span class="font-mono text-xs text-gray-400">Q{{ m.specId }}</span>
@@ -605,6 +618,13 @@ function openCase(specId: number): void {
       :customer-label="shipCustomerLabel"
       :project-name="shipProjectName"
       @close="shipOdId = null"
+    />
+    <PcbPackageLabelsModal
+      v-if="labelsApi !== null"
+      :open="labelShipmentId !== null"
+      :load="labelsApi.load"
+      :mark-printed="labelsApi.markPrinted"
+      @close="labelShipmentId = null"
     />
   </div>
 </template>

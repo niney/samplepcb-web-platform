@@ -431,6 +431,108 @@ export const AdminPcbShipmentView = PcbShipmentView.extend({
 });
 export type AdminPcbShipmentViewType = z.infer<typeof AdminPcbShipmentView>;
 
+// ── PCB Case QR — 합배송 박스 × PO(견적/주문 건) 1개 ───────────────────────
+// BOM의 부품 포장 QR처럼 LOT/DATE CODE·수량 분할·창고 출고를 만들지 않는다. PCB는
+// 완성 보드 한 건을 식별하고 기존 선적 입고와 상태를 함께 움직이는 것이 목적이다.
+
+export const PCB_PACKAGE_STATUSES = ['prepared', 'received', 'voided'] as const;
+export const PcbPackageStatus = z.enum(PCB_PACKAGE_STATUSES);
+export type PcbPackageStatusType = z.infer<typeof PcbPackageStatus>;
+
+export const PCB_PACKAGE_STATUS_LABELS = {
+  prepared: '발송 준비',
+  received: '입고 완료',
+  voided: '무효',
+} as const satisfies Record<PcbPackageStatusType, string>;
+
+export const PCB_PACKAGE_EVENT_TYPES = ['created', 'printed', 'received', 'voided'] as const;
+export const PcbPackageEventType = z.enum(PCB_PACKAGE_EVENT_TYPES);
+export type PcbPackageEventTypeType = z.infer<typeof PcbPackageEventType>;
+
+export const PCB_PACKAGE_EVENT_LABELS = {
+  created: 'PCB QR 생성',
+  printed: 'QR 라벨 인쇄',
+  received: '선적 입고 동기화',
+  voided: 'QR 무효 처리',
+} as const satisfies Record<PcbPackageEventTypeType, string>;
+
+export const PcbPackageEvent = z.object({
+  eventId: z.number(),
+  eventType: PcbPackageEventType,
+  actorType: z.enum(['ADMIN', 'PARTNER', 'SYSTEM']),
+  actorMbId: z.string().nullable(),
+  fromStatus: PcbPackageStatus.nullable(),
+  toStatus: PcbPackageStatus.nullable(),
+  note: z.string().nullable(),
+  occurredAt: z.string(),
+});
+export type PcbPackageEventTypeView = z.infer<typeof PcbPackageEvent>;
+
+/** 파트너 라벨에도 안전한 한 건. 고객명·회원 ID·가격은 절대 싣지 않는다. */
+export const PcbShipmentPackage = z.object({
+  packageId: z.number(),
+  token: z.string().regex(/^[a-f0-9]{64}$/),
+  labelCode: z.string().max(24),
+  status: PcbPackageStatus,
+  printedAt: z.string().nullable(),
+  receivedAt: z.string().nullable(),
+  voidedAt: z.string().nullable(),
+  poId: z.number(),
+  specId: z.number(),
+  projectName: z.string(),
+  qty: z.number().int().positive(),
+  reorderRound: z.number().int().nonnegative(),
+  events: z.array(PcbPackageEvent),
+});
+export type PcbShipmentPackageType = z.infer<typeof PcbShipmentPackage>;
+
+export const PcbShipmentPackageList = z.object({
+  shipmentId: z.number(),
+  labelNo: z.string(),
+  mode: BomShipmentMode,
+  shipmentStatus: BomShipmentStatus,
+  senderName: z.string(),
+  receiverName: z.string(),
+  shipDate: z.string().nullable(),
+  carrier: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  totalLabels: z.number().int().nonnegative(),
+  packages: z.array(PcbShipmentPackage).max(100),
+});
+export type PcbShipmentPackageListType = z.infer<typeof PcbShipmentPackageList>;
+
+export const PcbShipmentPackageListResponse = z.object({
+  result: z.literal(true),
+  data: PcbShipmentPackageList,
+});
+export type PcbShipmentPackageListResponseType = z.infer<
+  typeof PcbShipmentPackageListResponse
+>;
+
+/** 관리자 QR 스캔 상세 — 고객 신원은 이 관리자 전용 계약에서만 확장한다. */
+export const AdminPcbPackageDetail = PcbShipmentPackage.extend({
+  mbId: z.string().nullable(),
+  customerName: z.string(),
+  partnerName: z.string(),
+  shipment: z.object({
+    shipmentId: z.number(),
+    mode: BomShipmentMode,
+    status: BomShipmentStatus,
+    receiverName: z.string(),
+    carrier: z.string().nullable(),
+    trackingNumber: z.string().nullable(),
+    shippedAt: z.string().nullable(),
+    receivedAt: z.string().nullable(),
+  }),
+});
+export type AdminPcbPackageDetailType = z.infer<typeof AdminPcbPackageDetail>;
+
+export const AdminPcbPackageResponse = z.object({
+  result: z.literal(true),
+  data: AdminPcbPackageDetail,
+});
+export type AdminPcbPackageResponseType = z.infer<typeof AdminPcbPackageResponse>;
+
 /**
  * 납기 경과 판정(여정 14호 T2) — 화면이 "이 발주가 납기를 넘겼는가"를 같은 규칙으로 말하게
  * 하는 순수 함수. Case 상세와 발주 큐가 각자 날짜를 비교하면 규칙이 갈라지므로 여기 하나에 둔다.

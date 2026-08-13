@@ -8,6 +8,7 @@ import {
   PartnerPcbShipDoneResponse,
   PcbInvoiceResponse,
   PcbPoActionResponse,
+  PcbShipmentPackageListResponse,
   apiRoutes,
   type BomInvoiceDataType,
   type PcbShipmentFileTypeType,
@@ -228,6 +229,26 @@ export function usePartnerPcbShipBoard() {
     queryFn: () => apiGet(apiRoutes.partnerPcbShipments, PartnerPcbShipBoardResponse),
   });
 }
+
+/** PCB Case QR — 한 박스의 PO별 라벨을 일괄 조회·인쇄한다. */
+export const partnerPcbPackageApi = (shipmentId: number) => ({
+  load: async () =>
+    (
+      await apiGet(
+        `${apiRoutes.partnerPcbShipments}/${String(shipmentId)}/labels`,
+        PcbShipmentPackageListResponse,
+      )
+    ).data,
+  markPrinted: async () =>
+    (
+      await apiSend(
+        'POST',
+        `${apiRoutes.partnerPcbShipments}/${String(shipmentId)}/labels/print`,
+        {},
+        PcbShipmentPackageListResponse,
+      )
+    ).data,
+});
 
 // 완료된 발송 아카이브(R2 — BOM done 분리 미러) — 누적 목록, 페이지네이션.
 export function usePartnerPcbDoneShipments(page: Ref<number>, pageSize: number) {

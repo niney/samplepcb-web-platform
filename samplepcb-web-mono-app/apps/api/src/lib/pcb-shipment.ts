@@ -29,6 +29,13 @@ import { loadPcbCustomerNames } from './pcb-customer';
 import { loadHousePartnerName } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { kstDateStr } from './kst';
+import {
+  ensurePcbShipmentPackages,
+  ensurePcbShipmentPackagesInTransaction,
+  receiveAllPcbPackagesInTransaction,
+  voidPcbShipmentPackageForPo,
+  type PcbPackageActor,
+} from './pcb-packages';
 
 // ── PCB 선적 코어(P3) — docs/PCB_PARTNER_TRACK.md §5.2-4 ─────────────────────
 // 상태·핑퐁 주체·필수값은 BOM 선적 계약 코드사전을 공유하고(§8 V6 — lib 은 전용 미러),
@@ -59,6 +66,17 @@ const normalizeCountry = (v: string | null | undefined): string | null => {
 };
 
 type PoWithPartner = SpPcbPo & { partner: SpPartner };
+
+export type PcbShipmentActor =
+  | { kind: 'admin'; mbId?: string }
+  | { kind: 'partner'; partnerId: bigint; mbId?: string };
+
+const toPackageActor = (actor: PcbShipmentActor): PcbPackageActor => ({
+  type: actor.kind === 'admin' ? 'ADMIN' : 'PARTNER',
+  mbId: actor.mbId ?? null,
+});
+
+const SYSTEM_PACKAGE_ACTOR: PcbPackageActor = { type: 'SYSTEM', mbId: null };
 
 // ── 발송 컨텍스트 — 생성 시 박제될 받는측·모드 해석 ──────────────────────────
 export interface PcbShipContext {
@@ -216,9 +234,13 @@ export type EnsurePcbShipmentError =
  *  순간 서로 다른 발송에 소속돼 영영 묶을 수 없었다(§9 재구성 — 실사용 도달 불가 판정). */
 export const ensurePcbShipment = async (
   po: PoWithPartner,
+  packageActor: PcbPackageActor = SYSTEM_PACKAGE_ACTOR,
 ): Promise<{ ok: true; shipment: SpPcbShipment } | { ok: false; error: EnsurePcbShipmentError }> => {
   const existing = await findPcbShipmentByPo(po.id);
-  if (existing !== null) return { ok: true, shipment: existing };
+  if (existing !== null) {
+    await ensurePcbShipmentPackages(existing.id, packageActor);
+    return { ok: true, shipment: existing };
+  }
   if (po.status !== 'produced') return { ok: false, error: 'NOT_PRODUCED' };
   if (await isPcbOrderLineCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
   if (await isPcbOutboundBlocked(po)) return { ok: false, error: 'OUTBOUND_BLOCKED' };
@@ -232,7 +254,9 @@ export const ensurePcbShipment = async (
   // 박스를 재조회해 돌려준다(호출자에겐 순서만 다를 뿐 결과가 같다).
   const joined = async (): Promise<{ ok: true; shipment: SpPcbShipment } | null> => {
     const existing = await findPcbShipmentByPo(po.id);
-    return existing === null ? null : { ok: true, shipment: existing };
+    if (existing === null) return null;
+    await ensurePcbShipmentPackages(existing.id, packageActor);
+    return { ok: true, shipment: existing };
   };
 
   const box = await findPreparingPcbShipment(po, ctx.ctx);
@@ -250,6 +274,7 @@ export const ensurePcbShipment = async (
       where: { id: box.id },
       data: { invoiceData: Prisma.DbNull },
     });
+    await ensurePcbShipmentPackages(box.id, packageActor);
     return { ok: true, shipment: box };
   }
 
@@ -266,6 +291,7 @@ export const ensurePcbShipment = async (
         pos: { create: { poId: po.id } },
       },
     });
+    await ensurePcbShipmentPackages(shipment.id, packageActor);
     return { ok: true, shipment };
   } catch (e) {
     if (!isPcbUniqueViolation(e)) throw e;
@@ -358,8 +384,6 @@ export const getPcbShipmentFileDownload = async (
 };
 
 // ── 액터 해석 — 계약 사전의 ADMIN(받는측)/PARTNER(보내는측)를 실주체로 매핑 ────
-export type PcbShipmentActor = { kind: 'admin' } | { kind: 'partner'; partnerId: bigint };
-
 const senderPartnerIdOf = async (shipment: SpPcbShipment): Promise<bigint | null> => {
   const rep = await prisma.spPcbPo.findUnique({ where: { id: shipment.poId } });
   return rep?.partnerId ?? null;
@@ -411,10 +435,11 @@ export const advancePcbShipment = async (
   // 발송이 없으면 보내는측 첫 전이에서 생성(produced·게이팅 가드 포함).
   let shipment = await findPcbShipmentByPo(po.id);
   if (shipment === null) {
-    const ensured = await ensurePcbShipment(po);
+    const ensured = await ensurePcbShipment(po, toPackageActor(actor));
     if (!ensured.ok) return { ok: false, error: ensured.error };
     shipment = ensured.shipment;
   }
+  await ensurePcbShipmentPackages(shipment.id, toPackageActor(actor));
 
   const mode = asPcbShipmentMode(shipment.mode);
   const current = asPcbShipmentStatus(mode, shipment.status);
@@ -559,13 +584,26 @@ export const receivePcbShipment = async (
   // 뒤에 남아 있어 검수 시각만 남기고 체인은 그대로 둔다 — 조기 입고확인도 그래서 허용된다.
   const closesChain = mode === 'domestic' && current === 'shipping';
   const receivedAt = new Date();
-  await prisma.spPcbShipment.update({
-    where: { id: shipment.id },
-    data: {
+  const packageActor = toPackageActor(actor);
+  await prisma.$transaction(async (tx) => {
+    // 기존 발송을 처음 QR 기능으로 여는 경우에도 created→received 이력이 분리되게
+    // 헤더 receivedAt을 박기 전에 현재 구성원 라벨을 먼저 보강한다.
+    await ensurePcbShipmentPackagesInTransaction(tx, shipment.id, packageActor);
+    await tx.spPcbShipment.update({
+      where: { id: shipment.id },
+      data: {
+        receivedAt,
+        receivedNote: note,
+        ...(closesChain ? { status: 'delivered', completedAt: receivedAt } : {}),
+      },
+    });
+    await receiveAllPcbPackagesInTransaction(
+      tx,
+      shipment.id,
+      packageActor,
+      note,
       receivedAt,
-      receivedNote: note,
-      ...(closesChain ? { status: 'delivered', completedAt: receivedAt } : {}),
-    },
+    );
   });
   return { ok: true };
 };
@@ -690,6 +728,7 @@ export const detachPcbShipmentPo = async (
     return { ok: true };
   }
 
+  await voidPcbShipmentPackageForPo(shipment.id, po.id, toPackageActor(actor));
   await prisma.spPcbShipmentPo.delete({ where: { poId: po.id } });
   // 대표 승계는 내부 참조 정리일 뿐 — 사용자 규칙에 노출하지 않는다. 구성이 바뀌었으니
   // 저장된 상업송장 편집본도 무효(품목 누락 송장 방지).
