@@ -29,7 +29,7 @@ import {
   closeBrowser,
   createJourneyReport,
   disconnectPrisma,
-  getPartner,
+  ensureStagePartner,
   getPrisma,
   monoRoot,
   newPhpSession,
@@ -116,8 +116,19 @@ describe.skipIf(!RUN || !JOURNEY)('여정 4호 — MD 경유 2단(중개상이 �
     await mustReach(GERBER_URL, 'sp-gerber-eye-v3 에서 pnpm dev (8040)');
     const creds = requireCustomerCreds();
 
-    md = await getPartner(MD_NAME);
-    child = await getPartner(CHILD_NAME);
+    // 무대 자기창조(idempotent) — DB 복구로 픽스처가 사라져도 e2e 전용으로 다시 세운다.
+    md = await ensureStagePartner({
+      mbId: 'mdtester2',
+      orgName: MD_NAME,
+      country: 'CN',
+      currency: 'USD',
+    });
+    child = await ensureStagePartner({
+      mbId: 'e2e-mdsub1',
+      orgName: CHILD_NAME,
+      country: 'KR',
+      currency: 'KRW',
+    });
     if (md.mbId === null || child.mbId === null) throw new Error('MD·하위 연결 계정 없음');
     // MD 가 해외라 두 구간 모두 국제가 된다(하위 KR → MD CN → 관리자 KR).
     // 국내 체인은 2호가 지키므로, 여기서는 받는측이 md 인 발송 자체가 새 조합이다.

@@ -984,6 +984,9 @@ export const loadPartnerPcbPos = async (
       !delegation.blocked &&
       forward !== null &&
       forward.actor === 'RECEIVER';
+    // MD 수주의 "하위 발주 대기" — EQ 사전(actor)으로는 안 잡히지만 다음 손은 MD 다.
+    // 이걸 내 차례로 안 세면 발주를 받아 놓고도 홈이 "할 일 없음"으로 침묵한다(실주행 확정).
+    const childRequired = delegation.blocked && asPcbPoStatus(po.status) === 'issued';
     const shipTurn =
       shipment !== null
         ? pcbShipmentSenderTurn(shipment)
@@ -1007,9 +1010,10 @@ export const loadPartnerPcbPos = async (
       remittanceDueOn: iso(po.remittanceDueOn),
       remittedAt: iso(po.remittedAt),
       issuedAt: po.issuedAt.toISOString(),
-      myTurn: eqTurn || shipTurn,
+      myTurn: eqTurn || shipTurn || childRequired,
       // 이력은 행에 이미 있다 — 관리자 워크큐 배지와 같은 사전(추가 조회 없음).
       rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
+      eqBlocked: childRequired,
     });
   }
   for (const po of issued) {
@@ -1040,6 +1044,7 @@ export const loadPartnerPcbPos = async (
       myTurn: inboundTurn,
       // 내가 발주한 축(하위 진행분)의 반려 이력 — 상대가 보완 중임을 MD 도 알아야 한다.
       rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
+      eqBlocked: false,
     });
   }
   items.sort((a, b) => (a.issuedAt < b.issuedAt ? 1 : -1));
@@ -1136,6 +1141,9 @@ export const loadPartnerPcbPoDetail = async (
     status: asPcbPoStatus(po.status),
     direction,
     requesterName,
+    // 상세의 상대 — 수주면 발주처, 하위 발주(MD 관전)면 수주 협력사. 헤더가
+    // requesterName(자기 조직)을 상대처럼 보여 주던 구멍의 교정(MD 실주행 확정).
+    counterpartyName: direction === 'received' ? requesterName : po.partner.name,
     currency: po.currency,
     priceOriginal: Number(po.priceOriginal),
     subCurrency: po.subCurrency,

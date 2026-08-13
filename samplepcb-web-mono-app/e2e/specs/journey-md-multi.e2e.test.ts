@@ -28,7 +28,8 @@ import {
   closeBrowser,
   createJourneyReport,
   disconnectPrisma,
-  getPartner,
+  ensureMdRelation,
+  ensureStagePartner,
   getPrisma,
   newSession,
   num,
@@ -75,9 +76,13 @@ describe.skipIf(!RUN || !JOURNEY)('여정 21호 — MD 다중 상위·단수 제
   beforeAll(async () => {
     await mustReach(`${API_URL}/api/health`, 'pnpm dev:api');
     await mustReach(`${BASE_URL}/app/`, 'nginx + pnpm dev:web');
-    mdA = await getPartner(MD_A);
-    mdB = await getPartner(MD_B);
-    child = await getPartner(CHILD);
+    // 무대 자기창조(idempotent) — 두 MD 와 공통 하위, 그리고 다중 상위 관계 자체가
+    // 이 여정의 전제다. DB 복구로 사라졌으면 e2e 전용으로 다시 세운다.
+    mdA = await ensureStagePartner({ mbId: 'e2e-mdtester', orgName: MD_A, country: 'KR', currency: 'KRW' });
+    mdB = await ensureStagePartner({ mbId: 'mdtester2', orgName: MD_B, country: 'CN', currency: 'USD' });
+    child = await ensureStagePartner({ mbId: 'e2e-mdsub2', orgName: CHILD, country: 'CN', currency: 'USD' });
+    await ensureMdRelation(mdA, child, 'USD');
+    await ensureMdRelation(mdB, child, 'USD');
     A = signJwt({ mbId: 'e2e-admin', isAdmin: true });
     adminView = await newSession({ mbId: 'e2e-admin', isAdmin: true });
     rp.watchHttp(adminView, '관리자');

@@ -3,9 +3,11 @@
 // id 만 정리·잔재 카운트 검증)을 따를 것.
 // ⚠ 협력1 에는 진행 중 실데이터가 있다(HANDOFF §5) — 쓰기 시드는 협력2 또는 신규로.
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { api } from './api';
 import { getPrisma } from './db';
 // 2번 고객 아이디는 requireCustomerCreds(2) 가 SECOND_CUSTOMER_ID 로 폴백해 돌려준다.
 import { requireCustomerCreds } from './env';
+import { signJwt } from './jwt';
 
 /**
  * 다중 사용자 여정용 2번째 고객 — 1번 고객의 **회원 행을 통째로 복제**해 만든다
@@ -39,12 +41,22 @@ export async function cloneG5Member(
   );
   if (found.length > 0) return { mbId, created: false };
 
+  // 복제 소스 — 1번 고객이 기본이지만, DB 복구본에는 그 계정도 없을 수 있다(2026-08-13
+  // 실측). 그때는 dev 상비 계정 tester 로 폴백한다(demo 러너 로컬판과 같은 우회 —
+  // 해시 승계 원칙은 동일하고, JWT 직서명 스펙은 비밀번호를 쓰지 않으므로 무해하다).
+  let source = primary;
   const src: any[] = await prisma.$queryRawUnsafe(
     `SELECT mb_id FROM g5_member WHERE mb_id = ?`,
     primary,
   );
   if (src.length === 0) {
-    throw new Error(`1번 고객(${primary}) 회원이 없어 복제할 수 없습니다 — .env.e2e 확인`);
+    const fallback: any[] = await prisma.$queryRawUnsafe(
+      `SELECT mb_id FROM g5_member WHERE mb_id = 'tester'`,
+    );
+    if (fallback.length === 0) {
+      throw new Error(`복제 소스가 없습니다(${primary}·tester 모두 부재) — dev DB 확인`);
+    }
+    source = 'tester';
   }
   // 컬럼 목록을 스키마에서 읽어 그대로 복사한다(코어가 컬럼을 늘려도 따라간다).
   // mb_no 는 auto_increment 라 제외하고, 신원 4가지만 갈아끼운다.
@@ -64,7 +76,7 @@ export async function cloneG5Member(
   const selectList = names.map((n) => overrides[n] ?? `\`${n}\``).join(', ');
   await prisma.$executeRawUnsafe(
     `INSERT INTO g5_member (${insertList}) SELECT ${selectList} FROM g5_member WHERE mb_id = ?`,
-    primary,
+    source,
   );
   return { mbId, created: true };
 }
@@ -122,6 +134,84 @@ export async function pickFreeSpecs(count: number): Promise<any[]> {
     throw new Error(`여유 스펙 부족: ${String(specs.length)}/${String(count)}`);
   }
   return specs;
+}
+
+// ── MD 무대(계정·조직·연결·관계) 자기창조 — md-* 스펙 공용 ──────────────────
+// DB 복구·초기화로 픽스처가 사라지면 md e2e 전체가 getPartner throw 로 눕고, 그렇다고
+// 실계정(mdtester)에 조직을 **직삽입으로 덧연결**하면 1계정=1조직 운영 가드를 우회해
+// 사용자 무대를 오염시킨다(2026-08-13 실측 — 복구 DB 에서 mdtester 는 이미 다른 조직
+// 소속이었다). 그래서 ① 계정은 e2e 전용(e2e-* 복제)만 쓰고 ② 기존 멤버십이 있으면
+// 그 조직을 무대로 재사용하며(두 번째 연결을 절대 만들지 않는다) ③ 없을 때만 조직을
+// 만들어 연결한다. 관계는 관리자 API 로 걸어 전환 가드 검증을 겸한다. 전부 멱등 —
+// 무대(계정·조직·관계)는 상설 픽스처로 남긴다.
+export interface MdStagePartnerSpec {
+  /** e2e 전용 계정만 쓸 것(e2e-* 접두) — 실계정을 주면 그 계정의 기존 소속을 재사용한다. */
+  mbId: string;
+  orgName: string;
+  country: string;
+  currency: string;
+}
+
+export async function ensureStagePartner(spec: MdStagePartnerSpec): Promise<PartnerFixture> {
+  const prisma = getPrisma();
+  await cloneG5Member(spec.mbId, spec.orgName);
+
+  // 1계정=1조직 — 기존 소속이 있으면 그 조직이 곧 무대다(연결을 늘리지 않는다).
+  const membership = await prisma.spPartnerMember.findFirst({
+    where: { mbId: spec.mbId },
+    include: { partner: true },
+    orderBy: { id: 'asc' },
+  });
+  if (membership !== null) {
+    if (membership.partner.status !== 'approved') {
+      await prisma.spPartner.update({
+        where: { id: membership.partnerId },
+        data: { status: 'approved' },
+      });
+    }
+    return getPartner(membership.partner.name);
+  }
+
+  let org = await prisma.spPartner.findFirst({ where: { name: spec.orgName } });
+  if (org === null) {
+    org = await prisma.spPartner.create({
+      data: {
+        type: 'partner',
+        name: spec.orgName,
+        status: 'approved',
+        country: spec.country,
+        defaultCurrency: spec.currency,
+        capabilities: ['pcb_rfq'],
+        contactName: spec.orgName,
+        contactEmail: `${spec.mbId}@test.local`,
+      },
+    });
+  }
+  await prisma.spPartnerMember.create({
+    data: { partnerId: org.id, mbId: spec.mbId, role: 'owner' },
+  });
+  return getPartner(org.name);
+}
+
+/** MD 관계(parent→child) 멱등 확보 — 없을 때만 관리자 API 로 건다(전환 가드 검증 겸). */
+export async function ensureMdRelation(
+  parent: PartnerFixture,
+  child: PartnerFixture,
+  settlementCurrency: string,
+): Promise<void> {
+  const prisma = getPrisma();
+  const existing = await prisma.spPartnerRelation.findFirst({
+    where: { parentPartnerId: parent.id, childPartnerId: child.id },
+  });
+  if (existing !== null) return;
+  const admin = signJwt({ mbId: 'e2e-admin', isAdmin: true });
+  const res = await api(admin, 'POST', `/api/admin/partners/${String(Number(parent.id))}/relations`, {
+    childPartnerId: Number(child.id),
+    settlementCurrency,
+  });
+  if (res.status !== 200) {
+    throw new Error(`MD 관계 생성 실패(${String(res.status)}): ${JSON.stringify(res.json)}`);
+  }
 }
 
 export interface PcbPoSeed {

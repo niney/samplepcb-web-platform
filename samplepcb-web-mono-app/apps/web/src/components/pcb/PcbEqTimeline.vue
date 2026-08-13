@@ -39,7 +39,7 @@ const showPast = ref(false);
 //   그래서 마지막이 비어 있으면 직전 회차까지 함께 펼친다 — 지금 봐야 할 것이 사유와 첨부다.
 const openFrom = computed(() => {
   const last = rounds.value[lastIndex.value];
-  return last !== undefined && last.items.length === 0 && lastIndex.value > 0
+  return last?.items.length === 0 && lastIndex.value > 0
     ? lastIndex.value - 1
     : lastIndex.value;
 });
@@ -51,6 +51,15 @@ const ROLE_LABEL: Record<string, string> = {
 };
 const roleLabel = (r: string): string => ROLE_LABEL[r] ?? r;
 const isMine = (r: string): boolean => r === props.meRole;
+// 발신자 이름칩 색 — MD 관전처럼 **상대가 둘**(관리자·하위 협력사)이면 전부 왼쪽에 서므로
+// 이름 텍스트만으로는 누가 말했는지 스캔이 안 된다(2026-08-13 사용자 관찰). 말풍선 색은
+// 의미(반려=빨강·내 것=파랑)를 이미 지고 있어 발신자 구분은 채팅 관례대로 이름칩이 진다.
+const ROLE_CHIP: Record<string, string> = {
+  ADMIN: 'bg-violet-100 text-violet-700',
+  PARTNER: 'bg-teal-100 text-teal-700',
+  MASTER_DEALER: 'bg-indigo-100 text-indigo-700',
+};
+const roleChipCls = (r: string): string => ROLE_CHIP[r] ?? 'bg-gray-100 text-gray-500';
 
 // 전이를 사람 말로 — 반려와 요청 취소는 **같은 전이**라 사유 유무로만 갈린다.
 const eventLabel = (item: { fromStatus?: string; toStatus?: string; note?: string | null }): string => {
@@ -111,10 +120,14 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
         >
           <div class="max-w-[85%]">
             <p
-              class="mb-0.5 text-[11px] text-gray-400"
-              :class="isMine(item.byRole) ? 'text-right' : ''"
+              class="mb-0.5 flex items-center gap-1 text-[11px] text-gray-400"
+              :class="isMine(item.byRole) ? 'justify-end' : ''"
             >
-              {{ roleLabel(item.byRole) }} · {{ when(item.at) }}
+              <span
+                class="rounded px-1 py-px text-[10px] font-semibold"
+                :class="roleChipCls(item.byRole)"
+              >{{ roleLabel(item.byRole) }}</span>
+              {{ when(item.at) }}
             </p>
 
             <!-- 전이 — 반려만 붉게(되돌아온 이유가 가장 먼저 읽혀야 한다) -->

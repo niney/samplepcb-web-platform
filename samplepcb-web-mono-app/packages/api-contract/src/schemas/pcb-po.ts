@@ -810,6 +810,9 @@ export const PartnerPcbPoListItem = z.object({
   /** 직전 EQ 반려 시각(없으면 null) — myTurn 만으로는 **왜** 내 차례인지 모른다(첫 EQ 요청과
    *  반려 뒤 보완이 같은 얼굴이 된다). 포털에 들어오자마자 갈리게 하는 배지의 근거. */
   rejectedAt: z.string().nullable().default(null),
+  /** MD 수주 발주의 "하위 발주 대기"(EQ 시작 불가) — 이때가 MD 의 차례인데 EQ 사전으로는
+   *  actor 가 안 잡혀 홈이 "할 일 없음"으로 침묵했다(MD 실주행 교정). 배지·myTurn 의 근거. */
+  eqBlocked: z.boolean().default(false),
 });
 export type PartnerPcbPoListItemType = z.infer<typeof PartnerPcbPoListItem>;
 
@@ -826,6 +829,10 @@ export const PartnerPcbPoDetail = z.object({
   status: PcbPoStatus,
   direction: z.enum(['received', 'issued']),
   requesterName: z.string(),
+  /** 상세의 상대 조직 — received=발주처(requesterName 과 동일), issued=하위 협력사.
+   *  MD 가 하위 발주서를 열었을 때 "누구에게 발주한 건지"가 화면에 없던 구멍의 교정
+   *  (헤더가 requesterName=자기 조직명을 보여 줬다 — MD 실주행 확정). */
+  counterpartyName: z.string().default(''),
   currency: z.string(),
   priceOriginal: z.number(),
   subCurrency: z.string().nullable(),

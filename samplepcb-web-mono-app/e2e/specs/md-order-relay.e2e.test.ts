@@ -22,7 +22,8 @@ import {
   closeBrowser,
   createJourneyReport,
   disconnectPrisma,
-  getPartner,
+  ensureMdRelation,
+  ensureStagePartner,
   getPrisma,
   monoRoot,
   newPhpSession,
@@ -39,9 +40,11 @@ import {
 
 const JOURNEY = process.env.JOURNEY === '1';
 const FIXTURE_ZIP = join(monoRoot, 'e2e', 'fixtures', 'arduino-uno.zip');
-const MD_MB_ID = 'mdtester';
+// 계정은 e2e 전용(e2e-*)만 — 실계정 소속을 직삽입으로 늘리면 1계정=1조직을 오염시킨다.
+const MD_MB_ID = 'e2e-mdtester';
 const MD_ORG_NAME = '마스터딜러상사';
 const CHILD_NAME = '협력2';
+const CHILD_MB_ID = 'e2e-mdsub2';
 const MARGIN_RATE = 15;
 
 describe.skipIf(!RUN || !JOURNEY)('MD 시나리오 2 — 주문 연결 완주(국내 MD·상설 픽스처)', () => {
@@ -103,51 +106,26 @@ describe.skipIf(!RUN || !JOURNEY)('MD 시나리오 2 — 주문 연결 완주(�
     await mustReach(`${BASE_URL}/app/`, 'nginx + pnpm dev:web');
     await mustReach(GERBER_URL, 'sp-gerber-eye-v3 에서 pnpm dev (8040)');
     const creds = requireCustomerCreds();
-    const prisma = getPrisma();
 
-    child = await getPartner(CHILD_NAME);
+    // 무대 자기창조(idempotent) — 계정·조직·연결·관계 전부 e2e 전용으로 확보.
+    const mdOrg = await ensureStagePartner({
+      mbId: MD_MB_ID,
+      orgName: MD_ORG_NAME,
+      country: 'KR',
+      currency: 'KRW',
+    });
+    child = await ensureStagePartner({
+      mbId: CHILD_MB_ID,
+      orgName: CHILD_NAME,
+      country: 'CN',
+      currency: 'USD',
+    });
+    await ensureMdRelation(mdOrg, child, 'USD');
     if (child.mbId === null) throw new Error(`${CHILD_NAME} 연결 계정 없음`);
+    mdPartnerId = mdOrg.id;
     A = signJwt({ mbId: 'e2e-admin', isAdmin: true });
     M = signJwt({ mbId: MD_MB_ID, ttlSec: 3600 });
     C = signJwt({ mbId: child.mbId, ttlSec: 3600 });
-
-    // 상설 픽스처 확보 — 시나리오 1과 같은 idempotent 준비(있으면 그대로 쓴다).
-    let org = await prisma.spPartner.findFirst({ where: { name: MD_ORG_NAME } });
-    if (org === null) {
-      org = await prisma.spPartner.create({
-        data: {
-          type: 'partner',
-          name: MD_ORG_NAME,
-          status: 'approved',
-          country: 'KR',
-          defaultCurrency: 'KRW',
-          capabilities: ['pcb_rfq'],
-          contactName: '마스터딜러',
-          contactEmail: 'mdtester@test.local',
-        },
-      });
-    }
-    mdPartnerId = org.id;
-    const link = await prisma.spPartnerMember.findFirst({
-      where: { partnerId: org.id, mbId: MD_MB_ID },
-    });
-    if (link === null) {
-      await prisma.spPartnerMember.create({
-        data: { partnerId: org.id, mbId: MD_MB_ID, role: 'owner' },
-      });
-    }
-    const relation = await prisma.spPartnerRelation.findFirst({
-      where: { parentPartnerId: org.id, childPartnerId: child.id },
-    });
-    if (relation === null) {
-      const rel = await api(A, 'POST', `/api/admin/partners/${String(num(org.id))}/relations`, {
-        childPartnerId: num(child.id),
-        settlementCurrency: 'USD',
-      });
-      if (rel.status !== 200) {
-        throw new Error(`MD 관계 생성 실패(${String(rel.status)}): ${JSON.stringify(rel.json)}`);
-      }
-    }
 
     customer = await newPhpSession(creds);
     rp.watchHttp(customer, '고객');

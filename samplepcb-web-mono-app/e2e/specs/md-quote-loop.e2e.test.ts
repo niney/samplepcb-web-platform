@@ -19,7 +19,8 @@ import {
   api,
   closeBrowser,
   disconnectPrisma,
-  getPartner,
+  ensureMdRelation,
+  ensureStagePartner,
   getPrisma,
   newSession,
   num,
@@ -29,9 +30,12 @@ import {
   type PartnerFixture,
 } from '../helpers';
 
-const MD_MB_ID = 'mdtester';
+// 계정은 e2e 전용(e2e-*)만 쓴다 — 실계정(mdtester)에 조직을 직삽입으로 덧연결하면
+// 1계정=1조직 가드를 우회해 사용자 무대를 오염시킨다(2026-08-13 복구 DB 실측).
+const MD_MB_ID = 'e2e-mdtester';
 const MD_ORG_NAME = '마스터딜러상사';
 const CHILD_NAME = '협력2'; // CN·USD — "국내 중개상이 해외 제조사에 재위탁" 구도
+const CHILD_MB_ID = 'e2e-mdsub2';
 const MARGIN_RATE = 15;
 
 describe.skipIf(!RUN)('MD 시나리오 1 — 2단 견적 루프(mdtester)', () => {
@@ -48,58 +52,26 @@ describe.skipIf(!RUN)('MD 시나리오 1 — 2단 견적 루프(mdtester)', () =
   const createdRfqIds: bigint[] = [];
 
   beforeAll(async () => {
-    const prisma = getPrisma();
-    child = await getPartner(CHILD_NAME);
+    // ── 무대 자기창조(idempotent) — 계정·조직·연결·관계 전부 e2e 전용으로 확보한다.
+    // DB 복구로 픽스처가 사라져도 다시 세우고, 실계정 소속은 절대 건드리지 않는다.
+    const mdOrg = await ensureStagePartner({
+      mbId: MD_MB_ID,
+      orgName: MD_ORG_NAME,
+      country: 'KR',
+      currency: 'KRW',
+    });
+    child = await ensureStagePartner({
+      mbId: CHILD_MB_ID,
+      orgName: CHILD_NAME,
+      country: 'CN',
+      currency: 'USD',
+    });
+    await ensureMdRelation(mdOrg, child, 'USD');
     if (child.mbId === null) throw new Error(`${CHILD_NAME} 연결 계정 없음`);
+    mdPartnerId = mdOrg.id;
     A = signJwt({ mbId: 'e2e-admin', isAdmin: true });
     M = signJwt({ mbId: MD_MB_ID, ttlSec: 3600 });
     C = signJwt({ mbId: child.mbId, ttlSec: 3600 });
-
-    // ── 사전 준비(idempotent) — mdtester 의 조직·연결·관계를 확보한다 ──────────
-    // g5 회원은 이미 있다(마스터딜러·level 2). 없는 것은 플랫폼 쪽 세 가지였다:
-    // 조직, sp_partner_member 연결, sp_partner_relation. 있으면 재사용한다.
-    let org = await prisma.spPartner.findFirst({ where: { name: MD_ORG_NAME } });
-    if (org === null) {
-      org = await prisma.spPartner.create({
-        data: {
-          type: 'partner',
-          name: MD_ORG_NAME,
-          status: 'approved',
-          country: 'KR',
-          defaultCurrency: 'KRW',
-          capabilities: ['pcb_rfq'],
-          contactName: '마스터딜러',
-          contactEmail: 'mdtester@test.local',
-        },
-      });
-      console.log(`  [setup] 조직 신설: #${String(org.id)} ${MD_ORG_NAME}`);
-    }
-    mdPartnerId = org.id;
-
-    const link = await prisma.spPartnerMember.findFirst({
-      where: { partnerId: org.id, mbId: MD_MB_ID },
-    });
-    if (link === null) {
-      await prisma.spPartnerMember.create({
-        data: { partnerId: org.id, mbId: MD_MB_ID, role: 'owner' },
-      });
-      console.log(`  [setup] ${MD_MB_ID} → ${MD_ORG_NAME} 연결`);
-    }
-
-    const relation = await prisma.spPartnerRelation.findFirst({
-      where: { parentPartnerId: org.id, childPartnerId: child.id },
-    });
-    if (relation === null) {
-      // 관계는 관리자 API 로 — 2단 강제·MD 전환 가드 검증을 겸한다(신규 조직이라 통과).
-      const rel = await api(A, 'POST', `/api/admin/partners/${String(num(org.id))}/relations`, {
-        childPartnerId: num(child.id),
-        settlementCurrency: 'USD',
-      });
-      if (rel.status !== 200) {
-        throw new Error(`MD 관계 생성 실패(${String(rel.status)}): ${JSON.stringify(rel.json)}`);
-      }
-      console.log(`  [setup] 관계 신설: ${MD_ORG_NAME} → ${CHILD_NAME} (USD)`);
-    }
 
     mdView = await newSession({ mbId: MD_MB_ID }, { partnerModule: 'pcb' });
   }, 120_000);

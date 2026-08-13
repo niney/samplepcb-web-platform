@@ -2783,6 +2783,61 @@ LOT/DATE CODE가 원장이지만, PCB는 완성 보드 한 건이므로 **선적
   `pcb-ship-board` 6개 시나리오와 API 전체 테스트 870개 통과. 관리자 라벨 2장과 QR
   스캔 상세를 실제 브라우저로 확인했다.
 
+### MD 관전·대행 실주행 교정 — "다리 역할"의 기본이 화면에 없었다 (2026-08-13)
+
+사용자 보고("MD 가 EQ 를 관전·대행하는 기본이 안 되는 것 같다")를 **실 UI 완주**로 재현했다:
+크롬 실로그인(mdtester) + API 액터(관리자·tester3)로 RFQ 2단 → 발주 → 하위 발주 → EQ
+반려 왕복 → 생산 → 국내 발송 → MD 입고 → 국제 출고 → 관리자 입고 → 고객 배송·완료까지
+한 체인을 실제로 밟으며 결함을 수집·교정했다(무대: 사용자 세팅 #6 마스터딜러→#10 tester3협력).
+
+- **환경 겹 2장부터 벗겼다**(코드 밖 원인 — "기본도 안 된다" 체감의 상당분):
+  ① 복구 DB 의 mdtester 비밀번호 해시가 선언 자격(mdtester/mdtester)과 달라 로그인 자체가
+  실패 — pbkdf2(`sha256:12000:salt:hash`, salt 는 base64 문자열 그대로) 를 로컬 서명해 교정.
+  ② **도메인와이드 스테일 PHPSESSID 재발**([[local-dev-cookie-domain-collision]]) — 로그인이
+  성공해도 `/spcb/api/me` 401 로 포털이 익명으로 굴러떨어진다. 처방은 그 쿠키 삭제.
+- **결함 ① 하위 발주 대기가 '내 차례'가 아니었다**: `loadPartnerPcbPos` 의 eqTurn 은 EQ
+  사전(actor)만 봐서 MD 수주(delegation.blocked)가 myTurn=false — 발주를 받아 놓고도 홈이
+  "할 일 없음 🎉" 으로 침묵했다. → blocked(issued)를 내 차례로 세고, 계약에 `eqBlocked`
+  신호를 실어 홈 행에 **[하위 발주 필요]** 배지.
+- **결함 ② 관전 진입점 부재**: 홈은 myTurn 행만 그려서 위임 중 수주·하위 발주로 가는
+  상시 링크가 아예 없었다(반려가 나도 URL 직행 없이는 못 본다). → 홈에 **'진행 중 발주'**
+  섹션(방향칩 수주/하위 발주·상대·상태 배지·**[반려 — 보완 대기]** 배지) 신설.
+- **결함 ③ 하위 발주 상세의 상대 오표기**: 헤더가 `requesterName`(=MD 자신)을 "하위 발주:
+  마스터딜러" 로 보여 줘 누구에게 발주했는지가 화면에 없었다. → 계약 `counterpartyName`
+  (received=발주처/issued=수주 협력사) 신설, 헤더 "하위 협력사: {이름}".
+- **결함 ④ 관전 화면의 1인칭 오염**: 타임라인 meRole 이 'PARTNER' 고정이라 하위 협력사
+  활동이 MD 화면에서 '내 말'(오른쪽)로 붙고, ✕(삭제)도 하위 파일에 열렸다. → issued 방향은
+  `meRole='MASTER_DEALER'` — 하위·관리자 활동이 상대측으로 가고 삭제는 자기(대행) 업로드에만
+  남는다. nowTodo 도 관전 갈래 신설 — 주어를 명시("하위 협력사(이름)가 …할 차례입니다",
+  대행은 보조 안내)하고 되돌리기 버튼에도 `(MD 대행)` 라벨.
+- **라벨 정확성**: 홈 '보낼 물건' 카드의 "생산 진행 중 N건"은 실제로 produced 전 수주
+  전부(발주접수·EQ 포함)라 "진행 중 N건" 으로 교정.
+- **발신자 이름칩 색(후속 관찰)**: MD 관전은 **상대가 둘**(관리자·하위 협력사)이라 전부
+  왼쪽에 서는 게 맞고, 그 대신 누가 말했는지는 이름칩 색이 가른다 — 타임라인 역할 라벨을
+  칩으로 승격(협력사=teal·관리자=violet·중개 조직=indigo). 말풍선 색은 의미(반려=빨강·
+  내 것=파랑)를 계속 지고, 발신자 구분은 칩이 진다(관리자 Case·일반 협력사 화면도 동일 적용).
+- **대행의 이력 분리(기존 설계 재확인)**: MD 업로드는 `uploadedBy='MASTER_DEALER'`, 전이는
+  `byRole='MASTER_DEALER'` 로 박제 — 관전과 대행이 이력에서 갈린다. EQ 승인 주체는 여전히
+  관리자만(D3 불변). MD 는 RECEIVER-fallback(승인요청·생산 전이·되돌리기·파일)이다.
+- **e2e 재점검(사용자 지적 적중)**: md-* 스펙들의 무대 ensure 가 ① 사라진 픽스처를
+  `getPartner` throw 로 기다리고 ② **실계정(mdtester)에 조직을 prisma 직삽입으로 덧연결**
+  — 1계정=1조직 운영 가드를 우회해 사용자 무대를 오염시킬 수 있었다(복구 DB 에서 mdtester
+  는 이미 #6 소속 — requirePartner 는 asc 첫 행만 보므로 스펙 무대와 어긋난다). →
+  `helpers/seed.ts` 에 **무대 자기창조** `ensureStagePartner`(e2e 전용 계정 e2e-* 만,
+  기존 멤버십 있으면 그 조직 재사용 — 두 번째 연결 금지)·`ensureMdRelation`(관리자 API 경유)
+  신설, md-quote-loop/-rework/-order-relay/-domestic-relay/-cn-relay·journey-md-relay/-multi
+  7본을 전환(계정 e2e-mdtester·e2e-mdsub1·e2e-mdsub2). cloneG5Member 는 1번 고객 부재 시
+  tester 폴백(복구 DB 대비).
+- **신규 회귀 `md-eq-observe` e2e 4/4**: O1 blocked=myTurn+eqBlocked → O2 하위 발주 후
+  counterpartyName 양방향·위임 전환 → O3 반려 시 issued 방향 rejectedAt 신호+fallback 개방
+  → O4 MD 대행 업로드 MASTER_DEALER·전이 byRole 박제+승인 미러. 무잔재 어서션 포함.
+- **검증**: md-eq-observe 4/4 · md-quote-loop 5/5 · md-quote-rework 5/5 ·
+  journey-md-multi 4/4(무대 자기창조 실증) · vitest api 870 · 3패키지 typecheck green ·
+  MDLIVE 실체인 브라우저 재실측(홈 섹션·헤더·타임라인 방향·(MD 대행) 라벨). MDLIVE 표본
+  (spec 20939·PO-53/54·SH-30/31)은 관찰용으로 남김.
+- **이월**: EQ 승인/반려 메일이 하위 협력사에게만 간다 — MD(중계자)에게 사본이 필요한지는
+  정책 판단 대기. MD 수신 박스의 Case ID 는 기존 이월 그대로.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

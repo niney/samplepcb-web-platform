@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { ApiRequestError } from '@sp/shared';
-import { PCB_RFQ_STATUS_LABELS } from '@sp/api-contract';
+import { PCB_PO_STATUS_LABELS, PCB_RFQ_STATUS_LABELS } from '@sp/api-contract';
 import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
 import {
   usePartnerPcbPos,
@@ -54,9 +54,13 @@ const pcbItems = computed(() => pcbQuery.data.value?.data.items ?? []);
 const pendingPcb = computed(() => pcbItems.value.filter((r) => r.status === 'requested'));
 const donePcb = computed(() => pcbItems.value.filter((r) => r.status !== 'requested'));
 
-// 발주·EQ(P2) — 내 차례(수주 방향 RECEIVER 액션·MD 입고 차례)만 홈에 띄운다.
+// 발주·EQ(P2) — 내 차례(수주 방향 RECEIVER 액션·MD 하위 발주 대기·MD 입고 차례)를 홈에 띄운다.
 const pcbPoItems = computed(() => pcbPoQuery.data.value?.data.items ?? []);
 const myTurnPcbPos = computed(() => pcbPoItems.value.filter((po) => po.myTurn));
+// 내 차례가 아닌 진행 중 발주 — MD 관전(하위 진행·수주 위임)과 일반 협력사의 "지금 어디까지
+// 갔나"가 여기 선다. 이 목록이 없으면 발주 상세로 가는 상시 진입점이 홈에 존재하지 않아
+// (내 차례가 아니면 0건 카드뿐) MD 는 하위 반려조차 URL 직행 없이는 볼 수 없었다(실주행 확정).
+const watchingPcbPos = computed(() => pcbPoItems.value.filter((po) => !po.myTurn));
 
 // [📦 PCB 보내기] 보드 요약 — BOM 은 확인 즉시 선반이지만 PCB 는 생산완료가 담기
 // 조건이라, 확인 시점의 가시성은 '생산 진행 중' 보조 표기가 담당한다.
@@ -170,8 +174,10 @@ const rfqStatusCls = (s: string): string =>
           <p v-else-if="shelf.length > 0" class="mt-0.5 text-xs font-semibold text-teal-600">
             받는 곳이 같으면 묶어서 보내기 →
           </p>
+          <!-- producing 은 이름과 달리 "생산완료 전 수주 전부"다(발주접수·EQ 포함) —
+               '생산 진행 중'이라 말하면 발주 직후에도 생산 중이라 읽힌다(MD 실주행 확정). -->
           <p v-else-if="producing.length > 0" class="mt-0.5 text-xs font-semibold text-gray-500">
-            생산 진행 중 {{ producing.length }}건 — 생산완료되면 담을 수 있습니다
+            진행 중 {{ producing.length }}건 — 생산완료되면 담을 수 있습니다
           </p>
         </RouterLink>
         <RouterLink
@@ -242,6 +248,13 @@ const rfqStatusCls = (s: string): string =>
                 >
                   반려됨 — 보완 필요
                 </span>
+                <!-- MD 수주의 하위 발주 대기 — EQ 를 열려면 먼저 하위에 발주해야 한다. -->
+                <span
+                  v-if="po.eqBlocked"
+                  class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-bold text-indigo-700"
+                >
+                  하위 발주 필요
+                </span>
               </p>
               <p class="mt-0.5 text-sm text-gray-500">
                 {{ po.qty }}매 · {{ po.counterpartyName }} ·
@@ -252,6 +265,46 @@ const rfqStatusCls = (s: string): string =>
           </RouterLink>
         </div>
       </section>
+
+      <!-- 보조: 진행 중 발주(내 차례 아님) — 관전 진입점. MD 는 수주(위임)·하위 발주의
+           진행/반려를 여기서 좇는다. 내 차례가 되면 위 '진행할 발주'로 올라간다. -->
+      <details v-if="watchingPcbPos.length > 0" open class="rounded-xl border border-gray-200 bg-surface">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
+          진행 중 발주 ({{ watchingPcbPos.length }})
+        </summary>
+        <div class="grid gap-2 px-4 pb-4">
+          <RouterLink
+            v-for="po in watchingPcbPos"
+            :key="po.poId"
+            :to="{ name: 'partner-pcb-po', params: { id: String(po.poId) } }"
+            class="flex min-w-0 items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
+          >
+            <span
+              class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+              :class="po.direction === 'issued' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'"
+            >
+              {{ po.direction === 'issued' ? '하위 발주' : '수주' }}
+            </span>
+            <span class="min-w-0 flex-1 truncate text-sm text-gray-800">
+              {{ po.projectName }}
+              <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-700">
+                A/S {{ po.reorderRound }}차
+              </span>
+            </span>
+            <!-- 하위가 반려로 돌아온 상태 — 보완은 하위 몫이지만 MD 가 알아야 독촉·대행이 된다. -->
+            <span
+              v-if="po.direction === 'issued' && po.status === 'issued' && po.rejectedAt !== null"
+              class="shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700"
+            >
+              반려 — 보완 대기
+            </span>
+            <span class="shrink-0 text-xs text-gray-400">{{ po.counterpartyName }}</span>
+            <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-gray-600">
+              {{ PCB_PO_STATUS_LABELS[po.status] }}
+            </span>
+          </RouterLink>
+        </div>
+      </details>
 
       <!-- 보조: 회신한 견적 -->
       <details v-if="donePcb.length > 0" class="rounded-xl border border-gray-200 bg-surface">

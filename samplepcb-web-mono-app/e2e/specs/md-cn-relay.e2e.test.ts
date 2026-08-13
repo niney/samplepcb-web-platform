@@ -25,7 +25,7 @@ import {
   closeBrowser,
   createJourneyReport,
   disconnectPrisma,
-  getPartner,
+  ensureStagePartner,
   getPrisma,
   monoRoot,
   newPhpSession,
@@ -134,7 +134,13 @@ describe.skipIf(!RUN || !JOURNEY)('MD 시나리오 5 — CN MD 완주(mdtester2�
     const creds = requireCustomerCreds();
     const prisma = getPrisma();
 
-    child = await getPartner(CHILD_NAME);
+    // 하위 무대 자기창조 — DB 복구로 협력2가 사라져도 e2e 전용 계정으로 다시 세운다.
+    child = await ensureStagePartner({
+      mbId: 'e2e-mdsub2',
+      orgName: CHILD_NAME,
+      country: 'CN',
+      currency: 'USD',
+    });
     if (child.mbId === null) throw new Error(`${CHILD_NAME} 연결 계정 없음`);
     A = signJwt({ mbId: 'e2e-admin', isAdmin: true });
     M2 = signJwt({ mbId: MD2_MB_ID, ttlSec: 3600 });

@@ -18,14 +18,16 @@ import {
   api,
   closeBrowser,
   disconnectPrisma,
-  getPartner,
+  ensureMdRelation,
+  ensureStagePartner,
   getPrisma,
   num,
   signJwt,
   type PartnerFixture,
 } from '../helpers';
 
-const MD_MB_ID = 'mdtester';
+// 계정은 e2e 전용(e2e-*)만 — 실계정 소속을 직삽입으로 늘리면 1계정=1조직을 오염시킨다.
+const MD_MB_ID = 'e2e-mdtester';
 const MD_ORG_NAME = '마스터딜러상사';
 
 describe.skipIf(!RUN)('MD 시나리오 3 — 하위 재선정·배정 회수(mdtester)', () => {
@@ -44,59 +46,34 @@ describe.skipIf(!RUN)('MD 시나리오 3 — 하위 재선정·배정 회수(mdt
   const createdRfqIds: bigint[] = [];
 
   beforeAll(async () => {
-    const prisma = getPrisma();
-    p1 = await getPartner('협력1');
-    p2 = await getPartner('협력2');
+    // 무대 자기창조(idempotent) — 계정·조직·연결·관계 전부 e2e 전용으로 확보.
+    const mdOrg = await ensureStagePartner({
+      mbId: MD_MB_ID,
+      orgName: MD_ORG_NAME,
+      country: 'KR',
+      currency: 'KRW',
+    });
+    p1 = await ensureStagePartner({
+      mbId: 'e2e-mdsub1',
+      orgName: '협력1',
+      country: 'KR',
+      currency: 'KRW',
+    });
+    p2 = await ensureStagePartner({
+      mbId: 'e2e-mdsub2',
+      orgName: '협력2',
+      country: 'CN',
+      currency: 'USD',
+    });
+    // 하위 둘 — 협력2(USD, 시나리오 1)·협력1(KRW, 이번 확장). 각각 idempotent.
+    await ensureMdRelation(mdOrg, p2, 'USD');
+    await ensureMdRelation(mdOrg, p1, 'KRW');
     if (p1.mbId === null || p2.mbId === null) throw new Error('협력1·2 연결 계정 없음');
+    mdPartnerId = mdOrg.id;
     A = signJwt({ mbId: 'e2e-admin', isAdmin: true });
     M = signJwt({ mbId: MD_MB_ID, ttlSec: 3600 });
     P1 = signJwt({ mbId: p1.mbId, ttlSec: 3600 });
     P2 = signJwt({ mbId: p2.mbId, ttlSec: 3600 });
-
-    // 상설 픽스처 — 조직·연결은 시나리오 1이 만든 것을 재사용, 없으면 여기서도 만든다.
-    let org = await prisma.spPartner.findFirst({ where: { name: MD_ORG_NAME } });
-    if (org === null) {
-      org = await prisma.spPartner.create({
-        data: {
-          type: 'partner',
-          name: MD_ORG_NAME,
-          status: 'approved',
-          country: 'KR',
-          defaultCurrency: 'KRW',
-          capabilities: ['pcb_rfq'],
-          contactName: '마스터딜러',
-          contactEmail: 'mdtester@test.local',
-        },
-      });
-    }
-    mdPartnerId = org.id;
-    const link = await prisma.spPartnerMember.findFirst({
-      where: { partnerId: org.id, mbId: MD_MB_ID },
-    });
-    if (link === null) {
-      await prisma.spPartnerMember.create({
-        data: { partnerId: org.id, mbId: MD_MB_ID, role: 'owner' },
-      });
-    }
-    // 하위 둘 — 협력2(USD, 시나리오 1)·협력1(KRW, 이번 확장). 각각 idempotent.
-    for (const [childId, ccy] of [
-      [p2.id, 'USD'],
-      [p1.id, 'KRW'],
-    ] as const) {
-      const exists = await prisma.spPartnerRelation.findFirst({
-        where: { parentPartnerId: org.id, childPartnerId: childId },
-      });
-      if (exists === null) {
-        const rel = await api(A, 'POST', `/api/admin/partners/${String(num(org.id))}/relations`, {
-          childPartnerId: num(childId),
-          settlementCurrency: ccy,
-        });
-        if (rel.status !== 200) {
-          throw new Error(`관계 생성 실패(${String(rel.status)}): ${JSON.stringify(rel.json)}`);
-        }
-        console.log(`  [setup] 관계 신설: ${MD_ORG_NAME} → #${String(childId)} (${ccy})`);
-      }
-    }
   }, 120_000);
 
   afterAll(async () => {

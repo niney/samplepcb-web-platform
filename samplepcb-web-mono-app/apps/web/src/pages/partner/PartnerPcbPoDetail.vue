@@ -120,6 +120,31 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
   if (d.eq.myRole !== 'RECEIVER') {
     return { title: '진행 상황을 확인해 주세요.', hint: '이 발주의 EQ 진행은 수주 조직이 합니다.' };
   }
+  // MD 관전(하위 발주 열람) — 같은 fallback RECEIVER 라도 주어가 다르다. 협력사 문구를
+  // 그대로 내면 "내가 올려야 하나?"로 읽힌다(실주행 확정). 기본은 하위가 진행, 대행은 보조.
+  if (d.direction === 'issued') {
+    // 응답 타입이 z.input 계열로 흐르면 default('') 전이라 undefined 가 섞인다 — 빈값 통일.
+    const counterparty = d.counterpartyName ?? '';
+    const sub = counterparty === '' ? '하위 협력사' : `하위 협력사(${counterparty})`;
+    if (d.status === 'issued') {
+      return eqRejection.value !== null
+        ? {
+            title: `반려된 건입니다 — ${sub}가 보완 후 다시 승인요청해야 합니다.`,
+            hint: '보완이 늦어지면 아래 버튼으로 MD가 파일을 올리고 대행 진행할 수도 있습니다.',
+          }
+        : {
+            title: `${sub}가 EQ 자료를 올리고 승인요청할 차례입니다.`,
+            hint: '필요하면 MD가 파일 업로드·승인요청을 대행할 수 있습니다.',
+          };
+    }
+    if (d.status === 'eq_requested')
+      return { title: '샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.', hint: '' };
+    if (d.status === 'eq_done')
+      return { title: `EQ가 승인됐습니다 — ${sub}가 생산을 시작합니다.`, hint: '필요하면 MD 대행으로 진행할 수 있습니다.' };
+    if (d.status === 'producing')
+      return { title: `${sub}가 생산 중입니다.`, hint: '완료 처리가 늦어지면 MD 대행으로 [생산 완료]를 누를 수 있습니다.' };
+    return { title: `생산이 끝났습니다 — ${sub}가 발송을 시작합니다.`, hint: '물건이 도착하면 아래 발송 카드에서 [입고 확인]을 해주세요.' };
+  }
   if (d.status === 'issued') {
     return eqRejection.value !== null
       ? {
@@ -396,8 +421,10 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="STATUS_CLS[detail.status]">
           {{ PCB_PO_STATUS_LABELS[detail.status] }}
         </span>
+        <!-- 상대는 counterpartyName — issued(하위 발주)에서 requesterName 은 **내 조직**이라
+             "하위 발주: 마스터딜러"처럼 자기 이름이 상대 자리에 서 있었다(MD 실주행 확정). -->
         <span class="text-sm text-gray-500">
-          {{ detail.direction === 'received' ? '발주처' : '하위 발주' }}: {{ detail.requesterName }}
+          {{ detail.direction === 'received' ? '발주처' : '하위 협력사' }}: {{ detail.counterpartyName }}
         </span>
       </div>
 
@@ -503,10 +530,13 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
         <!-- EQ 진행 — 이력과 첨부를 **한 시간축**으로. 예전에는 반려 배너·내 파일 두 칸·받은
              첨부·이력 details 네 곳에 흩어져 있어 협력사가 순서를 스스로 조립해야 했다. -->
         <div v-if="detail.eq.delegatePoId === null && !detail.eq.blocked" class="mt-4">
+          <!-- 관점: 하위 발주 관전(MD)이면 '내 말'은 MASTER_DEALER — 하위 협력사의 활동이
+               내 활동처럼 오른쪽에 붙던 것을 상대측으로 되돌린다. ✕(삭제)도 isMine 을 따르므로
+               MD 는 자기 대행 업로드만 지울 수 있게 된다(받은 자료 보존 원칙과 정합). -->
           <PcbEqTimeline
             :history="detail.eq.history"
             :files="detail.eq.files"
-            me-role="PARTNER"
+            :me-role="detail.direction === 'issued' ? 'MASTER_DEALER' : 'PARTNER'"
             :editable="filesEditable && detail.eq.myRole === 'RECEIVER'"
             @download="downloadEq"
             @delete="(fileId) => void deleteFile(fileId)"
@@ -564,7 +594,7 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             :disabled="busy"
             @click="void runRevert()"
           >
-            ↩ {{ revert.label }}
+            ↩ {{ detail.eq.fallback ? `(MD 대행) ${revert.label}` : revert.label }}
           </button>
         </div>
       </section>
