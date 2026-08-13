@@ -2703,6 +2703,63 @@ placeholder 를 '검색'으로 가정(여섯 중 다섯이 안 맞아 검증이 
   89 green, 실DB 스모크(SH-367 고객 2명 실림·포털 공유 뷰 groupPos 키에 신원 없음·
   q="e2e-customer2" → SH-367 1건), 브라우저 실측(그룹 렌더·검색·카운트 병기·칩 왕복).
 
+### 발송 참조번호(Case ID) 갈래 — 선적 프로세스 재편 (2026-08-13)
+
+배경(사용자 요청, 같은 날 1차 핑퐁 모델을 재편): 갈림의 축은 **운송을 누가 계약하나**.
+협력사가 '선적 요청' 폼에서 **체크**하면 자사 주선 발송 — 이후 서류(Case ID·운송장·AWB)
+는 관리자 몫이고 협력사는 준비된 서류로 라벨링·인계만 한다. 미체크면 현행 그대로
+(협력사 자기 계정 — 인보이스·AWB·원산지증명원을 스스로). 화면 라벨은 중립어
+"발송 참조번호(Case ID)"(이 시스템의 Case=견적 Case 와 혼동 방지).
+
+- **상태 사전(BOM 공유)·전이 주체 §6.5 전부 불변** — 두 갈래 모두 국제 '선적'은 관리자
+  몫이라(1차 모델의 "파트너 shipped 예외"는 회수) 갈림이 전부 **문서·입력 레벨**로
+  흡수된다. `sp_pcb_shipment` 필드 4개(requestedAt·note·caseRef·filledAt) + 차례 신호.
+  자사(admin) 수신 한정(MD 수신 박스는 NOT_ADMIN_RECEIVER). 국내 체인은 체크박스가
+  국제 전용 폼('선적 요청')에만 살아 자연히 갈림 밖.
+- **체크 갈래 흐름**: 협력사 — 인보이스(**엑셀**) 첨부+선적 요청+체크(+메모, advance
+  body `caseRefRequested`) → 관리자 — 인보이스 내려받아 **수동 수정 후 재첨부**(⬆
+  Invoice 교체)·AWB 첨부(⬆ AWB) → [선적 진행] 프롬프트가 **Case ID+운송장을 한 번에**
+  받는다(advance body `caseRef`) → 협력사는 메일(값 동봉)·포털에서 서류 확인 후 국내도착
+  이후 현행 그대로.
+- **게이트(서버)**: 요청된 발송의 실발송 전이는 ①Case ID 없이 `CASE_REF_REQUIRED`
+  ②(국제) AWB 첨부 없이 `MISSING_AWB_FILE` 409. 워크큐 `caseRefPending` 배지+내 차례
+  합산. 사후 요청 라우트(case-ref-request)·단독 입력 라우트(case-ref)는 정정 경로로
+  유지(발송 후 재요청 CASE_REF_LOCKED·입고 후 RECEIVE_LOCKED).
+- **인보이스 생성기 엑셀-온리(공통)**: 관리자 수동 수정 왕복 때문에 PDF(DOM 캡처) 첨부
+  회수 — InvoiceEditorModal 에 `attachXlsx` 옵션 콜백(PCB 만 주입, BOM 은 PDF 불변).
+  관리자 선적 첨부 업로드 UI 신설(P3 때 "다운로드만"으로 남긴 구멍이 정식 경로로).
+- **원산지증명원**: PCB 전용 파일 사전 `PCB_SHIPMENT_FILE_TYPES`(+origin_cert) — 공유
+  BOM 사전 불변. 서버는 갈래 무관 수용, **화면 노출은 '직접 발송' 갈래에서만**(08-13
+  UX 재편으로 "국제 공통 노출" 결정을 좁힘 — AWB 버튼도 체크 갈래에선 숨김, 그 갈래의
+  발송 서류는 관리자 몫이다).
+- **메일**: 체크는 선적 요청 운영자 통지(turn)에 요청 라인으로 합류(별도 요청 메일은
+  사후 요청 라우트만), '선적' 협력사 통지에 **Case ID 값 박스** 동봉.
+- **결정 기록(08-13)**: 미체크 갈래 AWB=옵션(현행 유지 — 부킹이 요청 이후일 수 있음) ·
+  체크 갈래 AWB=필수 · 원산지증명원=국제 공통 옵션 · 협력사 '서류 확인'=열람만(상태
+  불변 원칙) · 생성기 엑셀-온리=두 갈래 공통.
+- **포털 카드 UX(08-13 후속 개편)**: '선적 요청' 준비를 **번호 체크리스트**로 —
+  ①인보이스 준비(생성기 권장 배지+직접 업로드, 첨부 상태 인라인 ✓·내려받기·교체) →
+  ②발송 방식 **라디오 2택**(내 계정 직접[AWB·C/O 이 블록 안] / 샘플피씨비 운송 Case ID
+  [안내+메모]) → ③출고예정일 → **[선적 요청 진행] 전폭 버튼 맨 아래**(미완료면 잠금 +
+  버튼 밑 사유 — 409 왕복으로 배우게 하지 않는다). 명칭 통일: "상업송장 만들기" →
+  **"인보이스 생성기"**(버튼·모달 제목, 모달 title prop — BOM 기본값 불변).
+- **양측 영역 분리(08-13 3차)**: 옵션 서류(C/O)는 **오른쪽 끝**(ml-auto — 필수 동선과
+  시선 분리). 포털 Case ID 갈래는 요청 후 카드가 두 영역 — **"내가 제출한 서류"**
+  (uploadedBy≠ADMIN + 교체·생성기) / **"샘플피씨비 처리·회신"**(대기 amber → 회신 teal:
+  Case ID·운송장·자사(ADMIN) 파일 다운로드 — 라벨링·인계 안내). 관리자가 인보이스를
+  교체하면 파일 주인이 ADMIN 이 되어 자동으로 회신 영역으로 넘어간다. 관리자 선적 줄엔
+  **Case ID 처리 스트립**(실발송 전) — ①협력사 인보이스 ⬇수정 ⬆재첨부(✓수정본 판정
+  =ADMIN invoice 존재) ②AWB ⬆첨부(미첨부 amber 강조) ③[선적 진행]에서 입력(✓값).
+  스트립이 서는 동안 메인 줄 업로드 버튼은 숨겨 중복을 없앴고, 파일 칩 title 에
+  업로더(자사/협력사)를 병기. 라디오 초기값은 caseRefRequestedAt 에서 유도(되돌리기
+  재진입 시 화면-문서 불일치 방지).
+- **검증**: `pcb-caseref` e2e 4/4(미체크 갈래 현행+C/O 업로드 → 체크 박제·큐 신호 →
+  게이트 2종 409+협력사 NOT_YOUR_TURN → 관리자 AWB+Case ID·운송장 한 번에 선적 완주·
+  배지 해제·재요청 잠금 · 무잔재), vitest 89·3패키지 typecheck·ESLint 0건, 브라우저
+  실측(선적 줄 왕복 버튼·프롬프트 2필드).
+
+## 10. 조사 자료 색인
+
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
 - 레거시 프론트 근거: `sp-smartbom-web/src/` — views/Pcb*.vue 11종, `types/pcbEqWorkflow.ts`(EQ 전이표), `views/Shipment.types.ts`(선적 전이·필드·택배사), `services/{shipmentService,asCaseService}.ts`, `utils/currency.ts`, `components/pcb/*`·`components/shipment/*`.
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).

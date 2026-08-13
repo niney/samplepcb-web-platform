@@ -2,12 +2,7 @@ import { z } from 'zod';
 import { DateOnly } from './common';
 import { PcbPoEqReviewSummary } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
-import {
-  BomInvoiceData,
-  BomShipmentFileType,
-  BomShipmentMode,
-  BomShipmentStatus,
-} from './bom-po';
+import { BomInvoiceData, BomShipmentMode, BomShipmentStatus } from './bom-po';
 
 // ── PCB 파트너 트랙 — sp_pcb_po 계약(P2) ─────────────────────────────────────
 // 설계 정본: docs/PCB_PARTNER_TRACK.md §5.2-2·§5.2-3. 발주서 status 가 EQ·생산
@@ -348,11 +343,22 @@ export type PcbEqEventType = z.infer<typeof PcbEqEvent>;
 export const PCB_SHIPMENT_RECEIVER_KINDS = ['admin', 'md'] as const;
 export type PcbShipmentReceiverKindType = (typeof PCB_SHIPMENT_RECEIVER_KINDS)[number];
 
+// PCB 선적 첨부 종류 — BOM 사전(invoice·airwaybill)에 원산지증명원을 더한 PCB 전용
+// 확장(2026-08-13 프로세스 재편). 공유 BOM 사전은 불변 — BOM 화면에 새 종류가 새지 않는다.
+export const PCB_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill', 'origin_cert'] as const;
+export type PcbShipmentFileTypeType = (typeof PCB_SHIPMENT_FILE_TYPES)[number];
+export const PcbShipmentFileType = z.enum(PCB_SHIPMENT_FILE_TYPES);
+export const PCB_SHIPMENT_FILE_LABELS = {
+  invoice: 'Invoice',
+  airwaybill: 'AWB',
+  origin_cert: '원산지증명원',
+} as const satisfies Record<PcbShipmentFileTypeType, string>;
+
 export const PcbShipmentFileView = z.object({
   fileId: z.number(),
   name: z.string(),
   size: z.number(),
-  fileType: BomShipmentFileType, // invoice|airwaybill
+  fileType: PcbShipmentFileType, // invoice|airwaybill|origin_cert
   uploadedBy: z.string().nullable(),
   uploadedAt: z.string(),
 });
@@ -388,6 +394,12 @@ export const PcbShipmentView = z.object({
   trackingNumber: z.string().nullable(),
   trackingUrl: z.string().nullable(),
   shipDate: z.string().nullable(),
+  /** 발송 참조번호(Case ID) 핑퐁 — 요청(보내는측)·입력(관리자)·게이트는 서버가 강제.
+   *  requestedAt non-null = 요청됨, filledAt non-null = 입력됨(협력사 차례 복귀). */
+  caseRefRequestedAt: z.string().nullable(),
+  caseRefNote: z.string().nullable(),
+  caseRef: z.string().nullable(),
+  caseRefFilledAt: z.string().nullable(),
   shippedAt: z.string().nullable(),
   receivedAt: z.string().nullable(),
   receivedNote: z.string().nullable(),
@@ -847,6 +859,12 @@ export const PcbShipmentAdvanceBody = z.object({
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),
+  // ── 발송 참조번호(Case ID) 갈래(2026-08-13 재편) ──
+  /** '선적 요청' 전이에 얹는 체크 — 자사 주선 발송(관리자가 Case ID·운송장·AWB 처리). */
+  caseRefRequested: z.boolean().nullish(),
+  caseRefNote: z.string().trim().max(255).nullish(),
+  /** 관리자 '선적' 전이에서 운송장과 함께 입력하는 참조번호(요청된 발송의 필수값). */
+  caseRef: z.string().trim().max(100).nullish(),
 });
 export type PcbShipmentAdvanceBodyType = z.infer<typeof PcbShipmentAdvanceBody>;
 
@@ -921,6 +939,18 @@ export const PcbShipmentReceiveBody = z.object({
 });
 export type PcbShipmentReceiveBodyType = z.infer<typeof PcbShipmentReceiveBody>;
 
+// ── 발송 참조번호(Case ID) — 협력사 요청 → 관리자 입력 → 협력사 운송장(기존 전이) ──
+export const PcbShipCaseRefRequestBody = z.object({
+  /** 무엇이 필요한지(예: 'DHL 착불 계정번호') — 관리자가 읽고 채운다. */
+  note: z.string().trim().max(255).nullish(),
+});
+export type PcbShipCaseRefRequestBodyType = z.infer<typeof PcbShipCaseRefRequestBody>;
+
+export const AdminPcbShipCaseRefBody = z.object({
+  caseRef: z.string().trim().min(1).max(100),
+});
+export type AdminPcbShipCaseRefBodyType = z.infer<typeof AdminPcbShipCaseRefBody>;
+
 export const PcbInvoiceResponse = z.object({
   result: z.literal(true),
   data: BomInvoiceData,
@@ -966,8 +996,11 @@ export const AdminPcbShipmentWorkItem = z.object({
   destinationCountry: z.string().nullable(),
   /** 대표 발주의 A/S 회차 — 0=원주문, 1..=재생산 회차(큐 배지). */
   reorderRound: z.number().int(),
-  /** 관리자 차례 — 받는측이 관리자이고 다음 전이 주체가 받는측이거나, 최종인데 입고 미확인. */
+  /** 관리자 차례 — 받는측이 관리자이고 다음 전이 주체가 받는측이거나, 최종인데 입고
+   *  미확인이거나, **발송 참조번호(Case ID) 요청이 미입력**(협력사가 기다리는 값). */
   adminTurn: z.boolean(),
+  /** 발송 참조번호 요청됨·미입력 — 행 배지("Case ID 요청")와 검색 축. */
+  caseRefPending: z.boolean(),
   createdAt: z.string(),
 });
 export type AdminPcbShipmentWorkItemType = z.infer<typeof AdminPcbShipmentWorkItem>;

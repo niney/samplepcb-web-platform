@@ -16,10 +16,12 @@ import {
   pcbMarginPercent,
   pcbSellingPrice,
   resolvePcbDirectShipCountry,
+  PCB_SHIPMENT_FILE_LABELS,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
   type AdminPcbShipmentViewType,
   type PcbEqFileTypeType,
+  type PcbShipmentFileTypeType,
   type PcbEqRejection,
   type BomShipmentStatusType,
   type PcbRfqReplyBodyType,
@@ -48,8 +50,10 @@ import {
   useAdminPcbShipmentAdvance,
   useAdminPcbShipmentBox,
   useAdminPcbShipmentCancel,
+  useAdminPcbShipmentCaseRef,
   useAdminPcbShipmentReceive,
   useAdminPcbShipmentRevert,
+  useUploadAdminPcbShipmentFile,
   useAdminRevertPcbEq,
   useApprovePcbEq,
   useCreatePcbPo,
@@ -1119,7 +1123,10 @@ const canAdminReceive = (s: PcbShipmentViewType): boolean => {
 
 // 선적 전이의 필수값은 단계마다 다르다 — 택배사·송장처럼 둘을 받아야 하는 단계는 prompt
 // 로는 창을 두 번 띄워야 했고 두 번째에서 취소하면 첫 입력이 사라졌다. 한 모달에서 받는다.
-const shipPromptFieldsOf = (next: BomShipmentStatusType): PromptField[] => {
+const shipPromptFieldsOf = (
+  next: BomShipmentStatusType,
+  caseRef?: { requested: boolean; value: string | null; note: string | null },
+): PromptField[] => {
   if (next === 'requested') {
     return [
       {
@@ -1138,6 +1145,23 @@ const shipPromptFieldsOf = (next: BomShipmentStatusType): PromptField[] => {
     ];
   }
   if (next === 'shipped') {
+    // Case ID 갈래(08-13) — 요청된 발송의 '선적'은 참조번호를 운송장과 함께 받는다(한 번에).
+    if (caseRef?.requested === true) {
+      return [
+        {
+          name: 'caseRef',
+          label: '발송 참조번호(Case ID)',
+          required: true,
+          maxlength: 100,
+          value: caseRef.value ?? '',
+          hint:
+            caseRef.note !== null && caseRef.note !== ''
+              ? `협력사 요청 메모: ${caseRef.note}`
+              : '협력사가 라벨링·인계에 쓸 값입니다 — 선적 통지 메일에 함께 나갑니다.',
+        },
+        { name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true },
+      ];
+    }
     return [{ name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true }];
   }
   return [];
@@ -1148,6 +1172,10 @@ const shipPrompt = ref<{
   mode: PcbShipmentViewType['mode'];
   /** 직송 국제 체인 — 모달 제목의 상태 라벨 치환('국내도착'→'현지도착'). */
   directShip: boolean;
+  /** Case ID 갈래(08-13) — 요청된 발송의 '선적'은 참조번호를 운송장과 함께 받는다. */
+  caseRefRequested: boolean;
+  caseRefValue: string | null;
+  caseRefNote: string | null;
 } | null>(null);
 
 async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): Promise<void> {
@@ -1173,6 +1201,9 @@ async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<v
     next,
     mode: s.mode,
     directShip: isPcbDirectShipIntl(s.destinationCountry),
+    caseRefRequested: s.caseRefRequestedAt !== null,
+    caseRefValue: s.caseRef,
+    caseRefNote: s.caseRefNote,
   };
 }
 async function submitShipPrompt(values: Record<string, string>): Promise<void> {
@@ -1184,6 +1215,7 @@ async function submitShipPrompt(values: Record<string, string>): Promise<void> {
     ...(values.trackingNumber === undefined || values.trackingNumber === ''
       ? {}
       : { trackingNumber: values.trackingNumber }),
+    ...(values.caseRef === undefined || values.caseRef === '' ? {} : { caseRef: values.caseRef }),
   };
   await runShipAdvance(target.poId, body);
 }
@@ -1210,6 +1242,78 @@ async function adminShipCancel(poId: number, s: PcbShipmentViewType): Promise<vo
     surfaceError(e, '선적 취소에 실패했습니다.');
   }
 }
+// 선적 첨부 업로드(관리자) — Case ID 갈래의 핵심 왕복: 협력사 인보이스(xlsx)를 내려받아
+// 수동 수정 후 **재첨부**(종류별 1건 교체)하고, 부킹한 AWB 를 첨부한다. P3 때 "다운로드만"
+// 으로 남겨 둔 구멍이 이 갈래에서 정식 경로가 됐다(08-13 재편).
+const shipFileUpload = useUploadAdminPcbShipmentFile();
+
+// Case ID 처리 스트립(08-13 UX) — 협력사가 낸 것(수정 대상)과 내 처리(재첨부→AWB→입력)를
+// 순서로 가른다. 파일의 주인은 uploadedBy 가 말한다: 재첨부(교체)하면 자사(ADMIN) 파일이
+// 되므로 ①의 완료 판정이 곧 "수정본이 올라갔다"다. 실발송(선적) 전까지만 선다.
+type AdminShipFileView = AdminPcbShipmentViewType['files'][number];
+const invoiceOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
+  s.files.find((f) => f.fileType === 'invoice') ?? null;
+const adminInvoiceOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
+  s.files.find((f) => f.fileType === 'invoice' && f.uploadedBy === 'ADMIN') ?? null;
+const awbOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
+  s.files.find((f) => f.fileType === 'airwaybill') ?? null;
+/** 스트립 ①·② 밖의 제출 서류(원산지증명원 등) — 스트립 활성 중 메인 줄 칩은 숨기므로
+ *  다운로드 자리가 여기여야 한다(겹침 제거 — 08-13 사용자 지적). */
+const otherShipFilesOf = (s: AdminPcbShipmentViewType): AdminShipFileView[] =>
+  s.files.filter((f) => f.fileType !== 'invoice' && f.fileType !== 'airwaybill');
+const caseRefStrip = (s: AdminPcbShipmentViewType): boolean =>
+  s.caseRefRequestedAt !== null &&
+  s.receivedAt === null &&
+  (s.status === 'preparing' || s.status === 'requested');
+function adminPickShipFile(poId: number, fileType: PcbShipmentFileTypeType): void {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (file === undefined || specId.value === null) return;
+    actionError.value = '';
+    try {
+      await shipFileUpload.mutateAsync({ specId: specId.value, poId, file, fileType });
+    } catch (e) {
+      surfaceError(e, '선적 파일 업로드에 실패했습니다.');
+    }
+  };
+  input.click();
+}
+
+// 발송 참조번호(Case ID) 입력 — 협력사가 이 값을 기다리며 발송을 멈춘 상태(요청 배지)라
+// 입력 즉시 값이 협력사 메일로 나간다. 요청 없어도 기록 가능(관리자 자체 메모 관례).
+const shipCaseRefAdmin = useAdminPcbShipmentCaseRef();
+const caseRefPrompt = ref<{ poId: number; current: string | null; note: string | null } | null>(null);
+const caseRefFields = computed<PromptField[]>(() => [
+  {
+    name: 'caseRef',
+    label: '발송 참조번호(Case ID)',
+    required: true,
+    maxlength: 100,
+    value: caseRefPrompt.value?.current ?? '',
+    hint:
+      caseRefPrompt.value?.note !== null && caseRefPrompt.value?.note !== undefined && caseRefPrompt.value.note !== ''
+        ? `협력사 요청 메모: ${caseRefPrompt.value.note}`
+        : '특송 계정·포워더 부킹·통관 참조 등 협력사가 발송에 쓸 값입니다.',
+  },
+]);
+async function submitCaseRef(values: Record<string, string>): Promise<void> {
+  const target = caseRefPrompt.value;
+  if (specId.value === null || target === null) return;
+  actionError.value = '';
+  try {
+    await shipCaseRefAdmin.mutateAsync({
+      specId: specId.value,
+      poId: target.poId,
+      caseRef: values.caseRef ?? '',
+    });
+    caseRefPrompt.value = null;
+  } catch (e) {
+    surfaceError(e, '발송 참조번호 입력에 실패했습니다.');
+  }
+}
+
 // 입고 확인 — 국내는 이 조작이 상태(입고 완료)까지 닫으므로 무엇이 함께 일어나는지 밝힌다.
 const receivePrompt = ref<{ poId: number; domestic: boolean; mates: number } | null>(null);
 // 묶음 입고는 **한 번 눌러 여러 주문**이 배송 대기로 넘어간다(고객이 서로 달라도 —
@@ -2193,19 +2297,52 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     </template>
                     <span v-if="s.shipDate !== null" class="text-gray-500">출고예정 {{ fmtKstDate(s.shipDate) }}</span>
                     <span v-if="s.trackingNumber !== null" class="tabular-nums text-gray-500">{{ s.carrier ?? '' }} {{ s.trackingNumber }}</span>
+                    <!-- 발송 참조번호(Case ID) — 요청 대기면 협력사가 이 값에 막혀 있다(내 차례) -->
+                    <span
+                      v-if="s.caseRefRequestedAt !== null && (s.caseRef === null || s.caseRef === '')"
+                      class="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700"
+                      :title="s.caseRefNote !== null && s.caseRefNote !== '' ? `요청 메모: ${s.caseRefNote}` : '협력사가 발송 참조번호를 기다리고 있습니다.'"
+                    >Case ID 요청</span>
+                    <span v-else-if="s.caseRef !== null && s.caseRef !== ''" class="text-teal-700">
+                      Case ID <b class="tabular-nums">{{ s.caseRef }}</b>
+                    </span>
                     <span v-if="s.receivedAt !== null" class="font-semibold text-emerald-600">
                       입고완료 {{ dateOnly(s.receivedAt) }}<template v-if="s.receivedNote !== null && s.receivedNote !== ''"> · {{ s.receivedNote }}</template>
                     </span>
-                    <button
-                      v-for="f in s.files"
-                      :key="f.fileId"
-                      type="button"
-                      class="rounded border border-gray-200 px-1.5 py-0.5 font-semibold text-gray-500 hover:bg-gray-50"
-                      :title="f.name"
-                      @click="specId !== null && void downloadAdminPcbShipmentFile(specId, po.poId, f.fileId, f.name)"
-                    >
-                      ⬇ {{ f.fileType }}
-                    </button>
+                    <!-- 파일 칩 — Case ID 처리 스트립이 서 있는 동안엔 서류 상호작용이
+                         전부 스트립으로 모이므로 숨긴다(같은 파일이 두 곳에 겹치던 것 정리). -->
+                    <template v-if="!caseRefStrip(s)">
+                      <button
+                        v-for="f in s.files"
+                        :key="f.fileId"
+                        type="button"
+                        class="rounded border border-gray-200 px-1.5 py-0.5 font-semibold text-gray-500 hover:bg-gray-50"
+                        :title="`${f.name} · ${f.uploadedBy === 'ADMIN' ? '자사' : '협력사'} 업로드`"
+                        @click="specId !== null && void downloadAdminPcbShipmentFile(specId, po.poId, f.fileId, f.name)"
+                      >
+                        ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+                      </button>
+                    </template>
+                    <!-- 관리자 첨부 — Case ID 갈래는 아래 처리 스트립이 담당하므로 여기선
+                         자기 계정 갈래(입고 전 국제)에서만 노출된다. -->
+                    <template v-if="s.mode === 'international' && s.receivedAt === null && !caseRefStrip(s)">
+                      <button
+                        type="button"
+                        class="rounded border border-gray-200 px-1.5 py-0.5 font-semibold text-gray-400 hover:bg-gray-50"
+                        title="수정한 인보이스(xlsx) 재첨부 — 기존 Invoice 를 교체합니다"
+                        @click="adminPickShipFile(po.poId, 'invoice')"
+                      >
+                        ⬆ Invoice
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded border border-gray-200 px-1.5 py-0.5 font-semibold text-gray-400 hover:bg-gray-50"
+                        title="AWB 첨부"
+                        @click="adminPickShipFile(po.poId, 'airwaybill')"
+                      >
+                        ⬆ AWB
+                      </button>
+                    </template>
                     <span class="grow" />
                     <!-- 국내 종점('입고 완료')은 [입고 확인]이 함께 처리한다 — 전이 버튼을 따로
                          두면 눌러도 다음 일이 안 열리는 상태가 만들어진다(서버도 RECEIVE_REQUIRED). -->
@@ -2216,6 +2353,18 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       @click="void adminShipAdvance(po.poId, s)"
                     >
                       {{ adminShipAdvanceLabel(s) }} 진행
+                    </button>
+                    <!-- Case ID 입력 — 요청 대기면 강조(협력사가 이 값에 막혀 있다), 그 외엔 기록·정정 -->
+                    <button
+                      v-if="s.receivedAt === null && s.receiverKind === 'admin'"
+                      type="button"
+                      class="rounded-md px-2 py-1 font-semibold"
+                      :class="s.caseRefRequestedAt !== null && (s.caseRef === null || s.caseRef === '')
+                        ? 'bg-amber-500 text-white hover:bg-amber-600'
+                        : 'border border-gray-200 text-gray-400 hover:bg-gray-50'"
+                      @click="caseRefPrompt = { poId: po.poId, current: s.caseRef, note: s.caseRefNote }"
+                    >
+                      Case ID 입력
                     </button>
                     <button
                       v-if="canAdminReceive(s)"
@@ -2252,6 +2401,89 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     >
                       선적 취소
                     </button>
+                  </div>
+                  <!-- Case ID 처리 순서(08-13 UX) — 협력사 제출물(내려받아 수정)과 내 처리
+                       (재첨부→AWB→입력)를 한 줄 순서로. 완료 판정은 파일 주인(uploadedBy)이
+                       말한다 — 재첨부(교체)하면 자사 파일이 된다. 실발송 전까지만 선다. -->
+                  <div
+                    v-if="caseRefStrip(s)"
+                    class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md bg-amber-50/70 px-2.5 py-1.5 text-xs"
+                  >
+                    <span class="font-bold text-amber-700">Case ID 처리</span>
+                    <span class="flex items-center gap-1.5 text-gray-600">
+                      ① 협력사 인보이스 수정
+                      <button
+                        v-if="invoiceOf(s) !== null"
+                        type="button"
+                        class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-50"
+                        :title="invoiceOf(s)?.name"
+                        @click="specId !== null && invoiceOf(s) !== null && void downloadAdminPcbShipmentFile(specId, po.poId, invoiceOf(s)!.fileId, invoiceOf(s)!.name)"
+                      >
+                        ⬇ 내려받기
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-50"
+                        title="수정한 인보이스(xlsx) 재첨부 — 기존 Invoice 를 교체합니다"
+                        @click="adminPickShipFile(po.poId, 'invoice')"
+                      >
+                        ⬆ 재첨부
+                      </button>
+                      <span v-if="adminInvoiceOf(s) !== null" class="font-semibold text-emerald-600">✓ 수정본</span>
+                    </span>
+                    <span class="flex items-center gap-1.5 text-gray-600">
+                      ② AWB
+                      <template v-if="awbOf(s) === null">
+                        <button
+                          type="button"
+                          class="rounded border border-amber-400 bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800 hover:bg-amber-200"
+                          title="AWB 첨부 — Case ID 발송은 AWB 가 있어야 선적 진행이 열립니다"
+                          @click="adminPickShipFile(po.poId, 'airwaybill')"
+                        >
+                          ⬆ 첨부
+                        </button>
+                      </template>
+                      <template v-else>
+                        <span class="font-semibold text-emerald-600">✓</span>
+                        <button
+                          type="button"
+                          class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-50"
+                          :title="awbOf(s)?.name"
+                          @click="specId !== null && awbOf(s) !== null && void downloadAdminPcbShipmentFile(specId, po.poId, awbOf(s)!.fileId, awbOf(s)!.name)"
+                        >
+                          ⬇
+                        </button>
+                        <button
+                          type="button"
+                          class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 font-semibold text-gray-400 hover:bg-gray-50"
+                          title="AWB 교체"
+                          @click="adminPickShipFile(po.poId, 'airwaybill')"
+                        >
+                          ⬆ 교체
+                        </button>
+                      </template>
+                    </span>
+                    <span class="text-gray-600">
+                      ③ [선적 진행]에서 Case ID·운송장 입력
+                      <span v-if="s.caseRef !== null && s.caseRef !== ''" class="font-semibold text-emerald-600">✓ {{ s.caseRef }}</span>
+                    </span>
+                    <!-- 그 외 제출 서류(원산지증명원 등) — 메인 줄 칩을 숨긴 동안의 다운로드 자리 -->
+                    <span
+                      v-if="otherShipFilesOf(s).length > 0"
+                      class="ml-auto flex items-center gap-1.5 text-gray-500"
+                    >
+                      그 외 서류:
+                      <button
+                        v-for="f in otherShipFilesOf(s)"
+                        :key="f.fileId"
+                        type="button"
+                        class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-50"
+                        :title="`${f.name} · ${f.uploadedBy === 'ADMIN' ? '자사' : '협력사'} 업로드`"
+                        @click="specId !== null && void downloadAdminPcbShipmentFile(specId, po.poId, f.fileId, f.name)"
+                      >
+                        ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+                      </button>
+                    </span>
                   </div>
                 </td>
               </tr>
@@ -2640,10 +2872,12 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <InvoiceEditorModal
       v-if="adminInvoiceApiRef !== null"
       :open="invoicePoId !== null"
+      title="인보이스 생성기"
       :load-draft="adminInvoiceApiRef.loadDraft"
       :save-draft="adminInvoiceApiRef.saveDraft"
       :render-xlsx="adminInvoiceApiRef.renderXlsx"
       :attach-pdf="adminInvoiceApiRef.attachPdf"
+      :attach-xlsx="adminInvoiceApiRef.attachXlsx"
       @close="invoicePoId = null"
     />
 
@@ -2684,7 +2918,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) — 한 화면에서 받고 필수값을 잠근다 -->
     <UiPromptModal
       :title="shipPrompt === null ? null : `${pcbShipmentStatusLabel(shipPrompt.mode, shipPrompt.next, { directShip: shipPrompt.directShip })} 진행`"
-      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next)"
+      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next, { requested: shipPrompt.caseRefRequested, value: shipPrompt.caseRefValue, note: shipPrompt.caseRefNote })"
       confirm-label="진행"
       :busy="shipAdvanceAdmin.isPending.value"
       @close="shipPrompt = null"
@@ -2703,6 +2937,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :busy="shipReceiveAdmin.isPending.value"
       @close="receivePrompt = null"
       @confirm="(v) => void submitReceive(v)"
+    />
+    <UiPromptModal
+      :title="caseRefPrompt === null ? null : '발송 참조번호(Case ID) 입력'"
+      :fields="caseRefFields"
+      description="입력하면 협력사에게 값이 메일로 안내되고 발송(운송장) 진행이 열립니다."
+      confirm-label="입력"
+      :busy="shipCaseRefAdmin.isPending.value"
+      @close="caseRefPrompt = null"
+      @confirm="(v) => void submitCaseRef(v)"
     />
 
     <PcbOrderCancelModal

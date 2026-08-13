@@ -8,9 +8,10 @@ import {
   AdminPcbPoWorkListQuery,
   AdminPcbPoWorkListResponse,
   AdminPcbShipmentWorkListResponse,
+  AdminPcbShipCaseRefBody,
   ApiError,
   BomInvoiceData,
-  BomShipmentFileType,
+  PcbShipmentFileType,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   PcbPoRejectBody,
@@ -50,6 +51,7 @@ import {
   loadAdminPcbShipmentsForPoIds,
   cancelPcbShipment,
   countPcbShipmentPos,
+  fillPcbShipmentCaseRef,
   receivePcbShipment,
   revertPcbShipment,
   savePcbInvoiceData,
@@ -57,6 +59,7 @@ import {
 } from '../lib/pcb-shipment';
 import { renderInvoiceXlsx } from '../lib/bom-invoice';
 import {
+  buildPcbCaseRefFilledEmail,
   buildPcbEqDecisionEmail,
   buildPcbPoIssuedEmail,
   buildPcbShipmentReceivedEmail,
@@ -544,6 +547,11 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     MISSING_SHIP_DATE: '출고예정일이 필요합니다.',
     MISSING_INVOICE_FILE: 'Invoice 첨부가 필요합니다(상업송장 생성기로 만들 수 있습니다).',
     MISSING_TRACKING: '운송장(택배사·송장번호)이 필요합니다.',
+    CASE_REF_REQUIRED:
+      'Case ID 발송입니다 — 선적 진행 시 발송 참조번호(Case ID)를 함께 입력하세요.',
+    CASE_REF_LOCKED: '이미 발송이 시작되어 참조번호 요청 단계가 지났습니다.',
+    MISSING_AWB_FILE: 'Case ID 발송은 AWB 첨부가 필수입니다 — 선적 줄 [⬆ AWB]로 첨부 후 진행하세요.',
+    NOT_ADMIN_RECEIVER: '자사 수신 발송에서만 쓰는 기능입니다(MD 입고 발송 제외).',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
     RECEIVE_REQUIRED: '국내 입고 완료는 [입고 확인]으로 처리해 주세요 — 검수 시각이 함께 남습니다.',
@@ -660,6 +668,8 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           targetUrl: pcbPartnerPortalUrl(),
           targetLabel: '파트너 포털 열기',
           poCount: shipPoCount,
+          // Case ID 갈래 — '선적' 통지에 값 자체를 싣는다(협력사가 라벨링·인계에 쓴다).
+          caseRef: res.to === 'shipped' ? res.shipment.caseRef : null,
           ...portalCta,
         }),
         {
@@ -689,6 +699,54 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await ensurePcbShipment(po);
       if (!res.ok) return reply.status(409).send(shipError(res.error));
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  // 발송 참조번호(Case ID) 입력 — 협력사 요청에 대한 관리자의 응답(요청 없어도 기록 가능).
+  // 입력되면 협력사에게 값 자체를 메일로 안내한다 — 그 값을 기다리며 발송이 멈춰 있다.
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/case-ref',
+    {
+      schema: {
+        params: PoParams,
+        body: AdminPcbShipCaseRefBody,
+        response: { 200: AdminPcbPoListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await fillPcbShipmentCaseRef(po, { kind: 'admin' }, request.body.caseRef);
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+
+      if (res.shipment.caseRefRequestedAt !== null) {
+        const [spec, portalCta, shipPoCount] = await Promise.all([
+          prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
+          resolvePcbPortalCta(po.partnerId),
+          countPcbShipmentPos(po.id),
+        ]);
+        void sendPcbMail(
+          request.log,
+          po.partner.contactEmail,
+          buildPcbCaseRefFilledEmail({
+            recipientName: po.partner.name,
+            projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
+            poCount: shipPoCount,
+            caseRef: request.body.caseRef,
+            targetUrl: pcbPartnerPortalUrl(),
+            targetLabel: '파트너 포털 열기',
+            ...portalCta,
+          }),
+          {
+            kind: 'pcb_ship_caseref',
+            refType: 'pcb_spec',
+            refId: po.specId,
+            sentBy: request.user.mbId,
+            params: { poId: String(po.id), partnerName: po.partner.name },
+          },
+        );
+      }
       return { result: true as const, data: await loadPanel(request.params.id) };
     },
   );
@@ -776,12 +834,12 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     { schema: { params: PoParams, response: { 200: AdminPcbPoListResponse, 400: ApiError, 409: ApiError } } },
     async (request, reply) => {
       const { files, fields } = await collectMultipart(request);
-      const kind = BomShipmentFileType.safeParse(fields.fileType);
+      const kind = PcbShipmentFileType.safeParse(fields.fileType);
       const file = files[0];
       if (!kind.success || file === undefined)
         return reply
           .status(400)
-          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.' });
+          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill|origin_cert)과 파일이 필요합니다.' });
       const po = await loadPoChecked(request.params.id, request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const shipment = await findPcbShipmentByPo(po.id);

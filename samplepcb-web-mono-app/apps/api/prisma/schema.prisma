@@ -1585,6 +1585,13 @@ model SpPcbShipment {
   trackingNumber     String?   @db.VarChar(100)
   trackingUrl        String?   @db.VarChar(500)
   shipDate           DateTime? // 출고예정일(보내는측)
+  // 발송 참조번호(Case ID) 핑퐁 — 협력사가 부치기 전에 수취인 측 참조값(특송 계정·
+  // 포워더 부킹·통관 참조)이 필요한 실무. 요청은 보내는측, 입력은 받는측(관리자).
+  // 요청됐는데 미입력이면 국제 '선적' 전이가 게이트된다(CASE_REF_REQUIRED).
+  caseRefRequestedAt DateTime? // 협력사 요청 시각 — non-null 이 곧 '요청됨'
+  caseRefNote        String?   @db.VarChar(255) // 요청 메모(무엇이 필요한지)
+  caseRef            String?   @db.VarChar(100) // 관리자가 입력한 참조번호
+  caseRefFilledAt    DateTime?
   shippedAt          DateTime? // 최초 발송 전이 박제
   receivedAt         DateTime? // 받는측 입고확인(검수)
   receivedNote       String?   @db.Text

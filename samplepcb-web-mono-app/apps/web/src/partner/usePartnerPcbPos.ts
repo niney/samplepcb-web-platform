@@ -10,7 +10,7 @@ import {
   PcbPoActionResponse,
   apiRoutes,
   type BomInvoiceDataType,
-  type BomShipmentFileTypeType,
+  type PcbShipmentFileTypeType,
   type PartnerPcbChildPoCreateBodyType,
   type PcbEqFileTypeType,
   type PcbShipmentAdvanceBodyType,
@@ -166,6 +166,24 @@ export function usePartnerPcbShipmentAdvance() {
   });
 }
 
+/** 발송 참조번호(Case ID) 요청 — 부치기 전 수취인 측 참조값이 필요할 때(옵션).
+ *  요청되면 관리자 입력까지 실발송(운송장) 전이가 게이트된다. */
+export function usePartnerPcbShipmentCaseRefRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, note }: { poId: number; note: string | null }) =>
+      apiSend(
+        'POST',
+        `${base}/${String(poId)}/shipment/case-ref-request`,
+        { note },
+        PartnerPcbPoDetailResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
 export function usePartnerPcbShipmentRevert() {
   const qc = useQueryClient();
   return useMutation({
@@ -250,7 +268,7 @@ export function useUploadPartnerPcbShipmentFile() {
     }: {
       poId: number;
       file: File;
-      fileType: BomShipmentFileTypeType;
+      fileType: PcbShipmentFileTypeType;
     }) => {
       const form = new FormData();
       form.set('fileType', fileType);
@@ -283,6 +301,14 @@ export const partnerPcbInvoiceApi = (poId: number) => ({
   renderXlsx: (data: BomInvoiceDataType) =>
     apiSendBlob('POST', `${base}/${String(poId)}/shipment/invoice/xlsx`, data),
   attachPdf: (file: File) => {
+    const form = new FormData();
+    form.set('fileType', 'invoice');
+    form.set('file', file);
+    return apiSendForm('POST', `${base}/${String(poId)}/shipment/files`, form, PartnerPcbPoDetailResponse);
+  },
+  // 엑셀 첨부(08-13 재편) — 관리자가 내려받아 수동 수정 후 재첨부하는 왕복이라
+  // 편집 가능한 파일로 첨부한다(PDF 경로는 모달이 attachXlsx 존재 시 미노출).
+  attachXlsx: (file: File) => {
     const form = new FormData();
     form.set('fileType', 'invoice');
     form.set('file', file);

@@ -2,12 +2,12 @@
 import { computed, ref } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import {
-  BOM_SHIPMENT_FILE_LABELS,
   BOM_SHIPMENT_MODE_LABELS,
+  PCB_SHIPMENT_FILE_LABELS,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentStatusesOf,
-  type BomShipmentFileTypeType,
+  type PcbShipmentFileTypeType,
   type PcbShipmentViewType,
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
@@ -70,11 +70,60 @@ const trackingInput = ref('');
 const invoiceOpen = ref(false);
 const invoiceApi = computed(() => partnerPcbInvoiceApi(repPoId.value));
 
+// ── 발송 방식 갈래(08-13 재편·UX 개편) — 갈림의 실체는 "운송을 누가 계약하나"다.
+// 체크박스는 옵션 하나처럼 읽혀 라디오 2택으로 승격: '직접 발송'(기본 — 현행 무변화)
+// vs 'Case ID 요청'(자사 주선 — 이후 Case ID·운송장·AWB 는 샘플피씨비가 처리).
+// 초기값은 문서 상태에서 유도 — 되돌리기로 준비 단계에 다시 온 발송이 "직접 발송"으로
+// 보이면 이미 박힌 요청(caseRefRequestedAt)과 화면이 어긋난다.
+const shipMethod = ref<'self' | 'caseref'>(
+  props.shipment.caseRefRequestedAt !== null ? 'caseref' : 'self',
+);
+const caseRefNoteInput = ref('');
+const canChooseCaseRef = computed(
+  () => shipNext.value === 'requested' && props.shipment.receiverKind === 'admin',
+);
+const caseRefPending = computed(
+  () =>
+    props.shipment.caseRefRequestedAt !== null &&
+    (props.shipment.caseRef === null || props.shipment.caseRef === ''),
+);
+
+// ① 인보이스 첨부 상태 — 서류의 유무를 화면이 먼저 말한다(409 왕복으로 배우게 하지 않는다).
+const invoiceFile = computed(
+  () => props.shipment.files.find((f) => f.fileType === 'invoice') ?? null,
+);
+const awbFile = computed(
+  () => props.shipment.files.find((f) => f.fileType === 'airwaybill') ?? null,
+);
+const coFile = computed(
+  () => props.shipment.files.find((f) => f.fileType === 'origin_cert') ?? null,
+);
+
+// Case ID 갈래의 두 영역(08-13 UX) — "내가 제출한 것"과 "샘플피씨비가 준비해 준 것"을
+// 업로더(uploadedBy)로 가른다: 관리자가 인보이스를 수정 재첨부하면(교체) 그 파일은
+// 자사(ADMIN) 영역으로 넘어간다 — 협력사는 회신 영역만 보면 라벨링·인계 준비가 끝난다.
+const caseRefBranch = computed(() => props.shipment.caseRefRequestedAt !== null);
+const myFiles = computed(() => props.shipment.files.filter((f) => f.uploadedBy !== 'ADMIN'));
+const adminFiles = computed(() => props.shipment.files.filter((f) => f.uploadedBy === 'ADMIN'));
+
+// '선적 요청' 준비 체크리스트 모드 — ①인보이스→②발송 방식→③출고예정일→[진행] 순서로
+// 위에서 아래로 따라가면 끝나게(진행 버튼은 맨 아래, 잠금 사유를 버튼 밑에 쓴다).
+const checklistMode = computed(
+  () => !props.readonly && canAct.value && shipNext.value === 'requested',
+);
+const requestBlockReason = computed<string | null>(() => {
+  if (shipNext.value !== 'requested') return null;
+  if (invoiceFile.value === null) return '① 인보이스를 첨부해야 진행할 수 있습니다.';
+  if (shipDateInput.value.trim() === '') return '③ 출고예정일을 입력해 주세요.';
+  return null;
+});
+
 // 국내 '배송 중' 전이의 택배사·송장번호는 서버 필수값(MISSING_TRACKING) — 왕복 전에 막는다.
 const advanceBlocked = computed(
   () =>
-    shipNext.value === 'shipping' &&
-    (carrierInput.value.trim() === '' || trackingInput.value.trim() === ''),
+    (shipNext.value === 'requested' && requestBlockReason.value !== null) ||
+    (shipNext.value === 'shipping' &&
+      (carrierInput.value.trim() === '' || trackingInput.value.trim() === '')),
 );
 
 const surface = (e: unknown, fallback: string): void => {
@@ -88,7 +137,20 @@ async function runAdvance(): Promise<void> {
     await advance.mutateAsync({
       poId: repPoId.value,
       body: {
-        ...(shipNext.value === 'requested' ? { shipDate: shipDateInput.value } : {}),
+        ...(shipNext.value === 'requested'
+          ? {
+              shipDate: shipDateInput.value,
+              // Case ID 갈래 — 선적 요청과 함께 박제된다(자사 주선 발송 진입).
+              ...(canChooseCaseRef.value && shipMethod.value === 'caseref'
+                ? {
+                    caseRefRequested: true,
+                    ...(caseRefNoteInput.value.trim() === ''
+                      ? {}
+                      : { caseRefNote: caseRefNoteInput.value.trim() }),
+                  }
+                : {}),
+            }
+          : {}),
         ...(shipNext.value === 'shipping'
           ? { carrier: carrierInput.value, trackingNumber: trackingInput.value }
           : {}),
@@ -109,7 +171,7 @@ async function runRevert(): Promise<void> {
   }
 }
 
-function pickFile(fileType: BomShipmentFileTypeType): void {
+function pickFile(fileType: PcbShipmentFileTypeType): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.onchange = async () => {
@@ -178,6 +240,86 @@ const STATUS_CLS: Record<string, string> = {
       운송장: {{ shipment.carrier ?? '' }} {{ shipment.trackingNumber }}
     </p>
 
+    <!-- Case ID 갈래 — '내가 제출한 서류'와 '샘플피씨비 처리·회신'을 영역으로 가른다.
+         협력사의 다음 행동은 회신 영역만 보면 정해진다(대기: 기다림 / 회신: 라벨링·인계).
+         준비 체크리스트 단계에선 숨긴다 — 그 정보(①인보이스·②방식)는 체크리스트 몫. -->
+    <template v-if="caseRefBranch && !checklistMode">
+      <div class="mt-2 rounded-lg border border-gray-200 p-2.5">
+        <p class="text-[11px] font-bold text-gray-500">내가 제출한 서류</p>
+        <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+          <button
+            v-for="f in myFiles"
+            :key="f.fileId"
+            type="button"
+            class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+            :title="f.name"
+            @click="void downloadPartnerPcbShipmentFile(repPoId, f.fileId, f.name)"
+          >
+            ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+          </button>
+          <span v-if="myFiles.length === 0" class="text-gray-300">
+            (관리자 수정본으로 교체되어 회신 영역에 있습니다)
+          </span>
+          <template v-if="canEditDocs && shipment.shippedAt === null && shipment.receivedAt === null">
+            <button
+              type="button"
+              class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
+              @click="invoiceOpen = true"
+            >
+              🧾 인보이스 생성기
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
+              @click="pickFile('invoice')"
+            >
+              ⬆ 인보이스 교체
+            </button>
+          </template>
+        </div>
+      </div>
+      <div v-if="caseRefPending" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <b>샘플피씨비 처리 대기 중</b> — 인보이스 확인 후 Case ID·운송장·AWB 를 준비합니다.
+        완료되면 메일로 안내됩니다.
+        <span v-if="shipment.caseRefNote !== null && shipment.caseRefNote !== ''" class="mt-0.5 block text-amber-600">
+          요청 메모: {{ shipment.caseRefNote }}
+        </span>
+      </div>
+      <div
+        v-else-if="shipment.caseRef !== null && shipment.caseRef !== ''"
+        class="mt-2 rounded-lg border border-teal-200 bg-teal-50 p-2.5 text-xs text-teal-900"
+      >
+        <p class="font-bold">샘플피씨비가 준비한 선적 서류 — 확인 후 라벨링·인계해 주세요</p>
+        <p class="mt-1">
+          발송 참조번호(Case ID): <b class="tracking-wide">{{ shipment.caseRef }}</b>
+          <template v-if="shipment.trackingNumber !== null">
+            · 운송장: {{ shipment.carrier ?? '' }} <span class="tabular-nums">{{ shipment.trackingNumber }}</span>
+          </template>
+        </p>
+        <div v-if="adminFiles.length > 0" class="mt-1.5 flex flex-wrap gap-2">
+          <button
+            v-for="f in adminFiles"
+            :key="f.fileId"
+            type="button"
+            class="rounded-md border border-teal-300 bg-surface px-2 py-1 font-semibold text-teal-700 hover:bg-teal-100"
+            :title="f.name"
+            @click="void downloadPartnerPcbShipmentFile(repPoId, f.fileId, f.name)"
+          >
+            ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+          </button>
+        </div>
+      </div>
+      <div v-if="canRevert" class="mt-2 text-right">
+        <button
+          type="button"
+          class="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-400 hover:bg-gray-50"
+          @click="void runRevert()"
+        >
+          ↩ 되돌리기
+        </button>
+      </div>
+    </template>
+
     <!-- 담긴 발주서 -->
     <ul class="mt-3 space-y-1 rounded-lg border border-gray-100 p-3">
       <li v-for="g in shipment.groupPos" :key="g.poId" class="flex items-center gap-2 text-xs">
@@ -194,14 +336,111 @@ const STATUS_CLS: Record<string, string> = {
       </li>
     </ul>
 
-    <!-- 보내는측 전이 폼 -->
-    <template v-if="!readonly">
+    <!-- ── '선적 요청' 준비 체크리스트(08-13 UX 개편) — 위에서 아래로 따라가면 끝난다:
+         ①인보이스(필수) → ②발송 방식(갈래) → ③출고예정일 → [진행](맨 아래).
+         필수/옵션/갈래별 서류가 자기 자리에 서고, 잠금 사유는 버튼 밑에서 위를 가리킨다. -->
+    <div v-if="checklistMode" class="mt-3 space-y-2.5">
+      <section class="rounded-lg border border-gray-200 p-3">
+        <p class="text-xs font-bold text-gray-700">① 인보이스 준비 <span class="text-red-500">*</span></p>
+        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <button
+            type="button"
+            class="rounded-md bg-teal-600 px-3 py-1.5 font-bold text-white hover:bg-teal-700"
+            @click="invoiceOpen = true"
+          >
+            🧾 인보이스 생성기
+          </button>
+          <span class="rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">권장</span>
+          <button
+            type="button"
+            class="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 hover:bg-gray-50"
+            @click="pickFile('invoice')"
+          >
+            ⬆ 직접 업로드
+          </button>
+        </div>
+        <p v-if="invoiceFile !== null" class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+          <span class="font-semibold text-emerald-600">✓ 첨부됨</span>
+          <span class="max-w-[16rem] truncate text-gray-600" :title="invoiceFile.name">{{ invoiceFile.name }}</span>
+          <button type="button" class="text-teal-700 hover:underline" @click="void downloadPartnerPcbShipmentFile(repPoId, invoiceFile.fileId, invoiceFile.name)">내려받기</button>
+          <span class="text-gray-300">·</span>
+          <button type="button" class="text-gray-500 hover:underline" @click="pickFile('invoice')">교체</button>
+        </p>
+        <p v-else class="mt-2 text-xs text-gray-400">
+          생성기를 쓰면 발주 품목·금액이 자동으로 채워집니다(엑셀로 첨부).
+        </p>
+      </section>
+
+      <section class="rounded-lg border border-gray-200 p-3">
+        <p class="text-xs font-bold text-gray-700">② 발송 방식 선택</p>
+        <label class="mt-2 flex cursor-pointer items-start gap-2 text-xs text-gray-700">
+          <input v-model="shipMethod" type="radio" value="self" class="mt-0.5">
+          <span><b>내 운송 계정으로 직접 발송</b> — AWB 를 직접 첨부합니다.</span>
+        </label>
+        <div v-if="shipMethod === 'self'" class="ml-6 mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <button
+            type="button"
+            class="rounded-md border border-gray-300 px-2.5 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+            @click="pickFile('airwaybill')"
+          >
+            ⬆ AWB 첨부
+          </button>
+          <span v-if="awbFile !== null" class="font-semibold text-emerald-600">✓ {{ awbFile.name }}</span>
+          <!-- 옵션 서류는 오른쪽 끝 — 필수 동선(왼쪽 열)과 시선이 섞이지 않게. -->
+          <span v-if="coFile !== null" class="ml-auto font-semibold text-emerald-600">✓ {{ coFile.name }}</span>
+          <button
+            type="button"
+            :class="coFile === null ? 'ml-auto' : ''"
+            class="rounded-md border border-gray-200 px-2.5 py-1 font-semibold text-gray-400 hover:bg-gray-50"
+            title="원산지증명원(Certificate of Origin) — 통관에 필요한 경우에만"
+            @click="pickFile('origin_cert')"
+          >
+            ⬆ 원산지증명원 <span class="font-normal">(선택)</span>
+          </button>
+        </div>
+        <template v-if="canChooseCaseRef">
+          <label class="mt-2 flex cursor-pointer items-start gap-2 text-xs text-gray-700">
+            <input v-model="shipMethod" type="radio" value="caseref" class="mt-0.5">
+            <span>
+              <b>샘플피씨비 운송으로 발송 — 발송 참조번호(Case ID) 요청</b>
+            </span>
+          </label>
+          <div v-if="shipMethod === 'caseref'" class="ml-6 mt-2 space-y-2">
+            <p class="rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+              Case ID·운송장·AWB 는 샘플피씨비가 처리합니다. 준비되면 메일로 안내되며,
+              그 전까지 발송은 진행되지 않습니다.
+            </p>
+            <input
+              v-model="caseRefNoteInput"
+              type="text"
+              maxlength="255"
+              placeholder="요청 메모(선택) — 예: DHL 착불 계정번호가 필요합니다"
+              class="w-full rounded-md border border-amber-200 bg-surface px-3 py-1.5 text-xs focus:border-amber-400 focus:outline-none"
+            >
+          </div>
+        </template>
+      </section>
+
+      <section class="rounded-lg border border-gray-200 p-3">
+        <p class="text-xs font-bold text-gray-700">③ 출고예정일 <span class="text-red-500">*</span></p>
+        <input v-model="shipDateInput" type="date" class="mt-2 w-48 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
+      </section>
+
+      <button
+        type="button"
+        class="w-full rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-700 disabled:opacity-40"
+        :disabled="advance.isPending.value || advanceBlocked"
+        @click="void runAdvance()"
+      >
+        선적 요청 진행
+      </button>
+      <p v-if="requestBlockReason !== null" class="text-xs text-gray-400">ⓘ {{ requestBlockReason }}</p>
+    </div>
+
+    <!-- 그 외 전이 폼(국내 배송 중 등) — 입력 → 진행 버튼(맨 아래) 순서만 공유 -->
+    <template v-else-if="!readonly">
       <div v-if="canAct && shipNext !== null" class="mt-3 space-y-2">
         <div class="grid gap-2 sm:grid-cols-2">
-          <label v-if="shipNext === 'requested'" class="block">
-            <span class="text-xs font-semibold text-gray-500">출고예정일 *</span>
-            <input v-model="shipDateInput" type="date" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
-          </label>
           <template v-if="shipNext === 'shipping'">
             <label class="block">
               <span class="text-xs font-semibold text-gray-500">택배사 *</span>
@@ -213,12 +452,9 @@ const STATUS_CLS: Record<string, string> = {
             </label>
           </template>
         </div>
-        <p v-if="shipNext === 'requested'" class="text-xs text-gray-400">
-          선적 요청에는 <b>Invoice 첨부</b>가 필요합니다 — [상업송장 만들기]로 PDF를 만들어 자동 첨부하세요.
-        </p>
         <button
           type="button"
-          class="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700 disabled:opacity-40"
+          class="w-full rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-700 disabled:opacity-40"
           :disabled="advance.isPending.value || advanceBlocked"
           @click="void runAdvance()"
         >
@@ -230,22 +466,30 @@ const STATUS_CLS: Record<string, string> = {
       </p>
     </template>
 
-    <!-- 첨부·송장·되돌리기 — readonly 아카이브엔 다운로드만 남는다 -->
-    <div v-if="!readonly || shipment.files.length > 0" class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+    <!-- 첨부·송장·되돌리기(자기 계정 갈래) — 체크리스트 단계에선 서류가 ①·② 자리에,
+         Case ID 갈래에선 위의 두 영역에 있으므로 이 줄은 그 밖에서만 선다. -->
+    <div
+      v-if="!checklistMode && !caseRefBranch && (!readonly || shipment.files.length > 0)"
+      class="mt-3 flex flex-wrap items-center gap-2 text-xs"
+    >
       <template v-for="f in shipment.files" :key="f.fileId">
         <button
           type="button"
           class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
           @click="void downloadPartnerPcbShipmentFile(repPoId, f.fileId, f.name)"
         >
-          ⬇ {{ BOM_SHIPMENT_FILE_LABELS[f.fileType] }}
+          ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
         </button>
       </template>
       <template v-if="canEditDocs">
         <button type="button" class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50" @click="pickFile('invoice')">
           ⬆ Invoice
         </button>
-        <button type="button" class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50" @click="pickFile('airwaybill')">
+        <button
+          type="button"
+          class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50"
+          @click="pickFile('airwaybill')"
+        >
           ⬆ AWB/송장내역
         </button>
         <button
@@ -253,7 +497,16 @@ const STATUS_CLS: Record<string, string> = {
           class="rounded-md border border-teal-300 px-2 py-1 font-semibold text-teal-700 hover:bg-teal-50"
           @click="invoiceOpen = true"
         >
-          🧾 상업송장 만들기
+          🧾 인보이스 생성기
+        </button>
+        <!-- 옵션 서류는 오른쪽 끝 — 필수 동선과 시선이 섞이지 않게. -->
+        <button
+          type="button"
+          class="ml-auto rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
+          title="원산지증명원(Certificate of Origin) — 통관에 필요한 경우 첨부(선택)"
+          @click="pickFile('origin_cert')"
+        >
+          ⬆ 원산지증명원 <span class="font-normal">(선택)</span>
         </button>
       </template>
       <button
@@ -268,13 +521,16 @@ const STATUS_CLS: Record<string, string> = {
 
     <p v-if="error !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ error }}</p>
 
-    <!-- 상업송장 편집 — BOM InvoiceEditorModal 재사용(콜백 주입) -->
+    <!-- 인보이스 생성기 — BOM InvoiceEditorModal 재사용(콜백 주입). PCB 는 엑셀 첨부
+         (관리자가 내려받아 수동 수정 후 재첨부하는 왕복이 있어 PDF 는 안 쓴다 — 08-13). -->
     <InvoiceEditorModal
       :open="invoiceOpen"
+      title="인보이스 생성기"
       :load-draft="invoiceApi.loadDraft"
       :save-draft="invoiceApi.saveDraft"
       :render-xlsx="invoiceApi.renderXlsx"
       :attach-pdf="invoiceApi.attachPdf"
+      :attach-xlsx="invoiceApi.attachXlsx"
       @close="invoiceOpen = false"
     />
   </section>

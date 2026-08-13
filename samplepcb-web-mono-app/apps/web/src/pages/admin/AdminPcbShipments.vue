@@ -378,6 +378,12 @@ function openCase(specId: number): void {
                     <span v-if="row.adminTurn" class="ml-1 rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                       내 차례
                     </span>
+                    <!-- 협력사가 이 값을 기다리며 발송을 멈춘 상태 — Case 선적 줄에서 입력 -->
+                    <span
+                      v-if="row.caseRefPending"
+                      class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700"
+                      title="협력사가 발송 참조번호(Case ID)를 기다리고 있습니다 — Case 선적 줄에서 입력하세요."
+                    >Case ID 요청</span>
                   </td>
                   <td v-if="mi === 0" :rowspan="row.members.length" class="whitespace-nowrap px-4 py-2.5 align-top">
                     <span v-if="row.receivedAt !== null" class="text-xs font-semibold text-emerald-600">{{ fmtDate(row.receivedAt) }}</span>

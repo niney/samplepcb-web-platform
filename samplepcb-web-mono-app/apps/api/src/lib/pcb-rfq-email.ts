@@ -477,6 +477,11 @@ export interface PcbShipmentTurnEmailParams extends PcbPortalCtaParams {
   targetLabel: string;
   /** 묶음 구성 발주서 수(1=단건). 대표 프로젝트명만 적으면 함께 실린 건이 안 보인다. */
   poCount?: number;
+  /** Case ID 갈래 — 선적 요청에 체크가 실려 왔음을 운영자에게 알리는 라인. */
+  caseRefRequested?: boolean;
+  caseRefNote?: string | null;
+  /** Case ID 갈래 — '선적' 통지에 값 자체를 싣는다(협력사가 라벨링·인계에 쓴다). */
+  caseRef?: string | null;
 }
 
 /**
@@ -520,6 +525,20 @@ export function buildPcbShipmentTurnEmail(p: PcbShipmentTurnEmailParams): {
            style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
           ${esc(p.targetLabel)}</a>
       </div>`;
+  const caseRefRequestLine =
+    p.caseRefRequested === true
+      ? `<div style="margin:12px 0;padding:12px 14px;background:#fffbeb;border-left:3px solid #d97706;font-size:13px;color:#92400e;line-height:1.7;">
+          <b>발송 참조번호(Case ID) 요청 포함</b> — 입력 전까지 협력사는 발송을 진행할 수 없습니다.${
+            p.caseRefNote == null || p.caseRefNote === '' ? '' : ` 요청 메모: ${esc(p.caseRefNote)}`
+          }
+        </div>`
+      : '';
+  const caseRefValueBox =
+    p.caseRef == null || p.caseRef === ''
+      ? ''
+      : `<div style="margin:12px 0;padding:14px 16px;background:#f0fdfa;border-left:3px solid #0d9488;font-size:15px;font-weight:700;color:#0f766e;letter-spacing:0.5px;">
+          발송 참조번호(Case ID): ${esc(p.caseRef)}
+        </div>`;
   return {
     subject: `[샘플피씨비] PCB 선적 진행 — ${batchLabel(p.projectName, p.poCount)} · ${p.statusLabel}`,
     html: shell(
@@ -529,7 +548,86 @@ export function buildPcbShipmentTurnEmail(p: PcbShipmentTurnEmailParams): {
         ${esc(p.recipientName)} 담당자님, <b>${esc(batchLabel(p.projectName, p.poCount))}</b> 건의 발송이
         '${esc(p.statusLabel)}' 단계로 진행되었습니다.
         ${nextLine}
-      </p>${batchNoteHtml(p.poCount)}${cta}`,
+      </p>${caseRefRequestLine}${caseRefValueBox}${batchNoteHtml(p.poCount)}${cta}`,
+      '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbCaseRefRequestedEmailParams {
+  partnerName: string; // 요청한 협력사
+  projectName: string;
+  poCount?: number;
+  note: string | null; // 무엇이 필요한지(협력사 메모)
+  targetUrl: string; // 관리자 Case 상세
+}
+
+/** 발송 참조번호(Case ID) 요청 통지 — 운영자 수신. 협력사가 이 값을 기다리며 발송을
+ *  멈춘 상태라, 선적 전이 통지와 같은 수신처로 바로 알린다. */
+export function buildPcbCaseRefRequestedEmail(p: PcbCaseRefRequestedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `[샘플피씨비] 발송 참조번호(Case ID) 요청 — ${batchLabel(p.projectName, p.poCount)}`,
+    html: shell(
+      '협력사가 발송 참조번호(Case ID)를 요청했습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        <b>${esc(p.partnerName)}</b> 가 <b>${esc(batchLabel(p.projectName, p.poCount))}</b> 건 발송에
+        필요한 참조번호를 요청했습니다. 입력 전까지 협력사는 발송(운송장 입력)을 진행할 수 없습니다.
+      </p>
+      ${
+        p.note === null || p.note === ''
+          ? ''
+          : `<div style="margin:12px 0;padding:12px 14px;background:#f8fafc;border-left:3px solid #64748b;font-size:13px;color:#334155;line-height:1.7;">요청 메모: ${esc(p.note)}</div>`
+      }${batchNoteHtml(p.poCount)}
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          Case 상세에서 입력</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbCaseRefFilledEmailParams extends PcbPortalCtaParams {
+  recipientName: string; // 보내는측(요청자) 협력사
+  projectName: string;
+  poCount?: number;
+  caseRef: string;
+  targetUrl: string;
+  targetLabel: string;
+}
+
+/** 발송 참조번호(Case ID) 입력 통지 — 협력사가 이 값을 기다리며 발송을 멈춘 상태라
+ *  값 자체를 본문에 크게 싣는다(포털에 다시 들어가지 않아도 부칠 수 있게). */
+export function buildPcbCaseRefFilledEmail(p: PcbCaseRefFilledEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const noAccount = p.hasPortalAccount === false;
+  const cta = noAccount
+    ? proxyNoticeBox('운송장 번호 회신·문의:', p.inquiryEmail)
+    : `
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          ${esc(p.targetLabel)}</a>
+      </div>`;
+  return {
+    subject: `[샘플피씨비] 발송 참조번호(Case ID) 안내 — ${batchLabel(p.projectName, p.poCount)}`,
+    html: shell(
+      '요청하신 발송 참조번호(Case ID)를 안내드립니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.recipientName)} 담당자님, <b>${esc(batchLabel(p.projectName, p.poCount))}</b> 건의
+        발송 참조번호가 입력되었습니다. 이 번호로 발송을 진행하고 운송장 번호를 입력해 주세요.
+      </p>
+      <div style="margin:12px 0;padding:14px 16px;background:#f0fdfa;border-left:3px solid #0d9488;font-size:16px;font-weight:700;color:#0f766e;letter-spacing:0.5px;">
+        ${esc(p.caseRef)}
+      </div>${batchNoteHtml(p.poCount)}${cta}`,
       '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
     ),
   };

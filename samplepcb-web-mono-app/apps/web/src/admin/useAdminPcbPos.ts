@@ -16,6 +16,7 @@ import {
   type PcbEqFileTypeType,
   type BomInvoiceDataType,
   type PcbShipmentAdvanceBodyType,
+  type PcbShipmentFileTypeType,
 } from '@sp/api-contract';
 import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 
@@ -376,6 +377,24 @@ export function useAdminPcbShipmentCancel() {
   });
 }
 
+/** 발송 참조번호(Case ID) 입력 — 협력사 요청에 대한 응답(요청 없어도 기록 가능).
+ *  입력되면 협력사에게 값이 메일로 안내되고 발송(운송장) 게이트가 열린다. */
+export function useAdminPcbShipmentCaseRef() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ specId, poId, caseRef }: { specId: number; poId: number; caseRef: string }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/case-ref`,
+        { caseRef },
+        AdminPcbPoListResponse,
+      ),
+    onSuccess: () => {
+      shipmentInvalidate(qc);
+    },
+  });
+}
+
 export function useAdminPcbShipmentReceive() {
   const qc = useQueryClient();
   return useMutation({
@@ -435,10 +454,53 @@ export const adminPcbInvoiceApi = (specId: number, poId: number) => ({
       data,
     ),
   attachPdf: async (_file: File) => {
-    // 관리자 PDF 첨부는 파일 업로드 라우트로 — P3 후속(현재 엑셀·저장만).
+    // PDF 경로는 PCB 미사용(08-13 엑셀-온리) — 모달이 attachXlsx 존재 시 미노출.
     await Promise.resolve();
   },
+  attachXlsx: (file: File) => {
+    const form = new FormData();
+    form.set('fileType', 'invoice');
+    form.set('file', file);
+    return apiSendForm(
+      'POST',
+      `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/files`,
+      form,
+      AdminPcbPoListResponse,
+    );
+  },
 });
+
+/** 선적 첨부 업로드(관리자) — Case ID 갈래의 핵심 경로: 수정한 인보이스 재첨부·AWB 첨부.
+ *  종류별 1건 교체(서버 semantics). */
+export function useUploadAdminPcbShipmentFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      specId,
+      poId,
+      file,
+      fileType,
+    }: {
+      specId: number;
+      poId: number;
+      file: File;
+      fileType: PcbShipmentFileTypeType;
+    }) => {
+      const form = new FormData();
+      form.set('fileType', fileType);
+      form.set('file', file);
+      return apiSendForm(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/files`,
+        form,
+        AdminPcbPoListResponse,
+      );
+    },
+    onSuccess: () => {
+      shipmentInvalidate(qc);
+    },
+  });
+}
 
 // ── EQ 고객 확인(P4.1) — docs/PCB_PARTNER_TRACK.md D16 ───────────────────────
 // 협력사 EQ 를 고객에게 물어보는 별도 축. 승인해도 EQ 전이는 관리자 몫이라

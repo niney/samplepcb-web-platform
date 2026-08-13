@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
-  BOM_SHIPMENT_FILE_LABELS,
+  PCB_SHIPMENT_FILE_LABELS,
   PCB_EQ_FORWARD,
   PCB_EQ_REVERT,
   PCB_PO_STATUSES,
@@ -676,7 +676,7 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
                 class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
                 @click="void downloadPartnerPcbShipmentFile(detail.poId, f.fileId, f.name)"
               >
-                ⬇ {{ BOM_SHIPMENT_FILE_LABELS[f.fileType] }}
+                ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
               </button>
             </template>
           </div>

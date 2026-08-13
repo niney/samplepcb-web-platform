@@ -15,6 +15,11 @@ const props = defineProps<{
   saveDraft: (data: BomInvoiceDataType) => Promise<unknown>;
   renderXlsx: (data: BomInvoiceDataType) => Promise<Blob>;
   attachPdf: (file: File) => Promise<unknown>;
+  /** 있으면 PDF 대신 **엑셀을 그대로 첨부**한다(PCB 08-13 재편 — 관리자가 내려받아
+   *  수동 수정 후 재첨부하는 왕복이라 편집 가능한 파일이어야 한다). BOM 은 미전달=PDF. */
+  attachXlsx?: (file: File) => Promise<unknown>;
+  /** 모달 제목 — PCB 는 '인보이스 생성기'(08-13 명칭 통일), BOM 은 기본값 유지. */
+  title?: string;
 }>();
 const emit = defineEmits<{ close: [] }>();
 
@@ -152,6 +157,26 @@ async function genXlsx(): Promise<void> {
   }
 }
 
+// 엑셀 첨부 — 서버 렌더(저장 겸) 결과를 그대로 Invoice 로 첨부(attachXlsx 주입 시).
+async function genAttachXlsx(): Promise<void> {
+  if (busy.value !== '' || props.attachXlsx === undefined) return;
+  busy.value = 'xlsx';
+  error.value = '';
+  try {
+    const blob = await props.renderXlsx(buildPayload());
+    await props.attachXlsx(
+      new File([blob], `${fileBase()}.xlsx`, {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+    );
+    emit('close');
+  } catch (e) {
+    error.value = e instanceof ApiRequestError ? e.message : '엑셀 첨부에 실패했습니다.';
+  } finally {
+    busy.value = '';
+  }
+}
+
 // PDF — 편집본 저장 후 미리보기 DOM 캡처(A4 세로, 초과분 페이지 분할) → Invoice 첨부.
 async function genPdf(): Promise<void> {
   if (busy.value !== '' || previewEl.value === null) return;
@@ -198,7 +223,7 @@ async function genPdf(): Promise<void> {
   >
     <div class="w-full max-w-4xl rounded-2xl bg-surface shadow-2xl">
       <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-5 py-3">
-        <h2 class="text-sm font-bold">상업송장(Commercial Invoice) 생성</h2>
+        <h2 class="text-sm font-bold">{{ title ?? '상업송장(Commercial Invoice) 생성' }}</h2>
         <button
           type="button"
           class="ml-auto rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
@@ -226,6 +251,17 @@ async function genPdf(): Promise<void> {
           {{ busy === 'xlsx' ? '생성 중…' : '엑셀 다운로드' }}
         </button>
         <button
+          v-if="attachXlsx !== undefined"
+          type="button"
+          class="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-40"
+          :disabled="busy !== '' || loading"
+          title="엑셀 파일을 Invoice 로 첨부합니다 — 샘플피씨비가 내려받아 수정 후 재첨부할 수 있습니다."
+          @click="genAttachXlsx"
+        >
+          {{ busy === 'xlsx' ? '생성 중…' : '엑셀 생성·첨부' }}
+        </button>
+        <button
+          v-else
           type="button"
           class="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 disabled:opacity-40"
           :disabled="busy !== '' || loading"

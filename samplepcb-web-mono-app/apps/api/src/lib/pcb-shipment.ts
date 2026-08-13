@@ -4,12 +4,12 @@ import type {
   AdminPcbShipmentViewType,
   AdminPcbShipmentWorkItemType,
   BomInvoiceDataType,
-  BomShipmentFileTypeType,
   BomShipmentModeType,
   BomShipmentStatusType,
   PartnerPcbShipBoxType,
   PartnerPcbShipShelfItemType,
   PcbShipmentAdvanceBodyType,
+  PcbShipmentFileTypeType,
   PcbShipmentFileViewType,
   PcbShipmentViewType,
 } from '@sp/api-contract';
@@ -280,7 +280,8 @@ const toFileView = (f: SpFile): PcbShipmentFileViewType => ({
   fileId: Number(f.id),
   name: f.originFileName,
   size: Number(f.size),
-  fileType: f.fileType === 'airwaybill' ? 'airwaybill' : 'invoice',
+  fileType:
+    f.fileType === 'airwaybill' ? 'airwaybill' : f.fileType === 'origin_cert' ? 'origin_cert' : 'invoice',
   uploadedBy: f.uploadedBy,
   uploadedAt: f.writeDate.toISOString(),
 });
@@ -305,7 +306,7 @@ const loadShipmentFilesMap = async (
 
 export const savePcbShipmentFile = async (
   shipmentId: bigint,
-  kind: BomShipmentFileTypeType,
+  kind: PcbShipmentFileTypeType,
   file: UploadTarget,
   uploadedBy: 'ADMIN' | 'PARTNER' | 'MASTER_DEALER',
 ): Promise<void> => {
@@ -390,6 +391,10 @@ export type PcbShipmentTransitionError =
   | 'MISSING_SHIP_DATE'
   | 'MISSING_INVOICE_FILE'
   | 'MISSING_TRACKING'
+  | 'CASE_REF_REQUIRED'
+  | 'CASE_REF_LOCKED'
+  | 'MISSING_AWB_FILE'
+  | 'NOT_ADMIN_RECEIVER'
   | 'NOTHING_TO_REVERT'
   | 'RECEIVE_LOCKED'
   | 'RECEIVE_REQUIRED'
@@ -418,6 +423,13 @@ export const advancePcbShipment = async (
   const side = bomShipmentActorOf(mode, next);
   if (side === null || !(await isSideActor(shipment, side, actor)))
     return { ok: false, error: 'NOT_YOUR_TURN' };
+
+  // 발송 참조번호(Case ID) 체크(2026-08-13 재편) — '선적 요청' 전이에 얹혀 온다.
+  // 체크 = 자사 주선 발송: 이후 서류(Case ID·운송장·AWB)는 관리자 몫이 된다.
+  // 자사(admin) 수신 발송에서만 성립 — MD 수신 박스의 참조값은 MD 조직 몫이다.
+  const wantsCaseRef = body.caseRefRequested === true && next === 'requested';
+  if (wantsCaseRef && shipment.receiverKind !== 'admin')
+    return { ok: false, error: 'NOT_ADMIN_RECEIVER' };
 
   // 최초 발송 전이 — 담은 뒤 하위 발주가 새로 생겼을 수 있어 **묶음 전체**의 출고
   // 게이팅을 재검한다(MD 상위 출고는 하위 입고 완료 후 — 레거시 규칙. 구 withPoIds
@@ -454,6 +466,26 @@ export const advancePcbShipment = async (
     const tracking = body.trackingNumber ?? shipment.trackingNumber;
     if (tracking === null || tracking === '') return { ok: false, error: 'MISSING_TRACKING' };
   }
+  // 발송 참조번호(Case ID) 게이트 — 요청된 발송의 실발송 전이(운송장 박제)는 참조번호
+  // 없이 넘어갈 수 없다(요청해 놓고 값 없이 부치면 이 기능은 메모장이다). 관리자 '선적'
+  // 프롬프트가 운송장과 함께 caseRef 를 받으므로(body) 한 번에 처리된다.
+  const resolvedCaseRef =
+    body.caseRef != null && body.caseRef !== '' ? body.caseRef : (shipment.caseRef ?? '');
+  if (
+    (next === 'shipped' || next === 'shipping') &&
+    shipment.caseRefRequestedAt !== null &&
+    resolvedCaseRef === ''
+  ) {
+    return { ok: false, error: 'CASE_REF_REQUIRED' };
+  }
+  // 체크 갈래의 국제 '선적'은 AWB 첨부도 필수(사용자 결정 08-13) — 이 갈래의 존재 이유다.
+  // 파트너는 AWB 를 낼 수 없고(자사 운송 계약) 관리자가 부킹 후 첨부한다.
+  if (next === 'shipped' && shipment.caseRefRequestedAt !== null) {
+    const awb = await prisma.spFile.findFirst({
+      where: { refType: SHIPMENT_REF_TYPE, refId: shipment.id, fileType: 'airwaybill' },
+    });
+    if (awb === null) return { ok: false, error: 'MISSING_AWB_FILE' };
+  }
   // 국내 종점('입고 완료')은 입고확인과 같은 사건이다 — 전이만 따로 세우면 상태는 끝났는데
   // receivedAt 이 비어 다음 일(MD 상위 출고 해제·고객 배송 큐·Case 배지)이 하나도 안 열린다.
   // BOM 은 이미 이렇게 묶여 있다(bom-po.ts:690 RECEIVE_REQUIRED) — PCB 만 풀려 있던 것.
@@ -472,6 +504,13 @@ export const advancePcbShipment = async (
       ...(body.carrier === undefined ? {} : { carrier: body.carrier }),
       ...(body.trackingNumber === undefined ? {} : { trackingNumber: body.trackingNumber }),
       ...(body.trackingUrl === undefined ? {} : { trackingUrl: body.trackingUrl }),
+      // Case ID 갈래 박제 — 체크는 '선적 요청'과 함께, 값 입력은 '선적'과 함께 온다.
+      ...(wantsCaseRef
+        ? { caseRefRequestedAt: new Date(), caseRefNote: body.caseRefNote ?? null }
+        : {}),
+      ...(body.caseRef != null && body.caseRef !== ''
+        ? { caseRef: body.caseRef, caseRefFilledAt: new Date() }
+        : {}),
       // 발송 박제 — 국제 '선적'(실선적)·국내 '배송 중' 진입 시 최초 1회.
       ...((next === 'shipped' || next === 'shipping') && shipment.shippedAt === null
         ? { shippedAt: new Date() }
@@ -529,6 +568,51 @@ export const receivePcbShipment = async (
     },
   });
   return { ok: true };
+};
+
+// ── 발송 참조번호(Case ID) 갈래(2026-08-13 재편) ─────────────────────────────
+// 체크(협력사, '선적 요청' 전이 동반) → 서류 처리(관리자: 인보이스 수정·Case ID·운송장·
+// AWB) → 협력사는 서류 확인 후 라벨링·인계. **상태 사전(BOM 공유)은 불변** — 문서 필드
+// + 차례 신호(워크큐 adminTurn)로만. 자사(admin) 수신 발송 한정.
+
+/** 사후 요청 — 주 경로는 '선적 요청' 폼의 체크박스(advance body)다. 이 함수는 전이 밖
+ *  정정·API 경로로 남긴다(예: 체크 없이 요청해 둔 발송의 메모 갱신). 실발송 후엔 잠금. */
+export const requestPcbShipmentCaseRef = async (
+  po: SpPcbPo,
+  actor: PcbShipmentActor,
+  note: string | null,
+): Promise<{ ok: true; shipment: SpPcbShipment } | { ok: false; error: PcbShipmentTransitionError }> => {
+  const shipment = await findPcbShipmentByPo(po.id);
+  if (shipment === null) return { ok: false, error: 'NOT_SHIPPED' };
+  if (shipment.receiverKind !== 'admin') return { ok: false, error: 'NOT_ADMIN_RECEIVER' };
+  if (!(await isSideActor(shipment, 'PARTNER', actor))) return { ok: false, error: 'NOT_YOUR_TURN' };
+  if (shipment.shippedAt !== null || shipment.receivedAt !== null)
+    return { ok: false, error: 'CASE_REF_LOCKED' };
+  // 재요청은 메모 갱신(멱등) — 입력이 이미 됐다면 pending 으로 되돌리지 않는다
+  // (pending 판정은 caseRef 부재 기준이라 값이 있으면 관리자 차례가 다시 서지 않는다).
+  const updated = await prisma.spPcbShipment.update({
+    where: { id: shipment.id },
+    data: { caseRefRequestedAt: new Date(), caseRefNote: note },
+  });
+  return { ok: true, shipment: updated };
+};
+
+/** 입력 — 관리자 전용. 요청 없이도 기록할 수 있다(관리자 자체 메모 관례). 입고 전까지
+ *  정정 허용(오타 교정 실무), 입고확인 뒤엔 원장 잠금. */
+export const fillPcbShipmentCaseRef = async (
+  po: SpPcbPo,
+  actor: PcbShipmentActor,
+  caseRef: string,
+): Promise<{ ok: true; shipment: SpPcbShipment } | { ok: false; error: PcbShipmentTransitionError }> => {
+  const shipment = await findPcbShipmentByPo(po.id);
+  if (shipment === null) return { ok: false, error: 'NOT_SHIPPED' };
+  if (actor.kind !== 'admin') return { ok: false, error: 'NOT_YOUR_TURN' };
+  if (shipment.receivedAt !== null) return { ok: false, error: 'RECEIVE_LOCKED' };
+  const updated = await prisma.spPcbShipment.update({
+    where: { id: shipment.id },
+    data: { caseRef, caseRefFilledAt: new Date() },
+  });
+  return { ok: true, shipment: updated };
 };
 
 /**
@@ -666,6 +750,10 @@ export const toPcbShipmentView = async (
     trackingNumber: shipment.trackingNumber,
     trackingUrl: shipment.trackingUrl,
     shipDate: iso(shipment.shipDate),
+    caseRefRequestedAt: iso(shipment.caseRefRequestedAt),
+    caseRefNote: shipment.caseRefNote,
+    caseRef: shipment.caseRef,
+    caseRefFilledAt: iso(shipment.caseRefFilledAt),
     shippedAt: iso(shipment.shippedAt),
     receivedAt: iso(shipment.receivedAt),
     receivedNote: shipment.receivedNote,
@@ -1018,7 +1106,13 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
       .map((p) => poById.get(p.poId.toString()))
       .filter((p): p is NonNullable<typeof p> => p !== undefined)
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const adminTurn = shipment.receiverKind !== 'md' && pcbShipmentReceiverTurn(shipment);
+    // 발송 참조번호 요청·미입력 — 협력사가 이 값을 기다리며 멈춰 있으므로 관리자 차례다.
+    const caseRefPending =
+      shipment.receiverKind === 'admin' &&
+      shipment.caseRefRequestedAt !== null &&
+      (shipment.caseRef === null || shipment.caseRef === '');
+    const adminTurn =
+      (shipment.receiverKind !== 'md' && pcbShipmentReceiverTurn(shipment)) || caseRefPending;
     const tab: AdminPcbShipmentTab =
       shipment.receivedAt !== null ? 'received' : adminTurn ? 'pending' : 'active';
     out.push({
@@ -1047,6 +1141,7 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
         destinationCountry: shipment.destinationCountry,
         reorderRound: rep?.reorderRound ?? 0,
         adminTurn,
+        caseRefPending,
         createdAt: shipment.createdAt.toISOString(),
       },
       tab,
