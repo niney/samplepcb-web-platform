@@ -2838,6 +2838,34 @@ LOT/DATE CODE가 원장이지만, PCB는 완성 보드 한 건이므로 **선적
 - **이월**: EQ 승인/반려 메일이 하위 협력사에게만 간다 — MD(중계자)에게 사본이 필요한지는
   정책 판단 대기. MD 수신 박스의 Case ID 는 기존 이월 그대로.
 
+### MD 두 구간 선적 — 워크큐의 축 분리와 협력사 구간 토글 (2026-08-14)
+
+MD 경유 건은 한 건이 선적 두 장(하위→MD·MD→자사)으로 갈라진다 — 물리 현실이라 병합·은폐
+대신 **축을 가른다**가 결론. 검토에서 위험 축들은 이미 갈라져 있음을 실측으로 확정했다:
+관리자 차례(`adminTurn = receiverKind!=='md' && …`)·고객 배송 대기(`PCB_SHIP_JOIN` 이
+parent=0 ∧ receiverKind='admin' 입고만)·고객 진행 카드(자사향 선적만) — 남은 문제는
+**리스트의 평면성**(같은 고객·프로젝트가 구간마다 두 줄, 구간 표기가 약함)뿐이었다.
+
+- **구간 칩·톤**: 받는곳=MD 행에 `[협력사 구간]` 인디고 칩 + 행 톤(자사 차례 없음의 관전 줄).
+- **입고의 주어**: 협력사 구간의 받음은 `MD 입고 {날짜}`(인디고)로 — 자사 입고(emerald)와
+  혼동 차단.
+- **교차 표기(`members[].mdLeg`)**: 자사향 행의 구성원에 앞 구간 요약(상태·MD 입고완료)을
+  싣는다 — 스펙·회차 키(A/S 회차가 원회차의 옛 구간과 섞이지 않게), 협력사 구간 행 자신은
+  null. 자사향 박스가 "언제 뜰 수 있나"는 앞 구간에 달렸기 때문(숨김 상태에서도 병목이 읽힘).
+- **토글(`mdLegs=show|hide`)**: 협력사 구간 숨김은 **서버 필터** — 이 목록은
+  전량 로드+메모리 counts 구조라 프론트 필터면 탭 카운트와 어긋난다. 검색 **뒤**에 걸러
+  `hiddenMdCount` 를 응답에 싣고, 화면은 "협력사 구간 N건 숨김 — 표시" 배너로 소실이
+  침묵하지 않게 한다. **화면 기본은 숨김**(사용자 결정 08-14 — 물류의 일상은 자사향 구간;
+  하위 발송~MD 입고 사이엔 자사향 선적이 아직 없는데, 그 공백은 배너와 발주·EQ '생산완료'
+  탭이 보완한다). API 파라미터 생략 시 기본은 show(전량) — 다른 소비자가 모르고 덜 받는
+  일이 없게. 취향은 localStorage(`pcb-ship-md-legs`). ⚠ boolean 쿼리 금지 관례 재확인 —
+  `z.coerce.boolean` 은 'false' 도 truthy(P3 invoice fresh 실결함), `z.enum` 으로.
+- **검증**: 신규 `md-ship-legs` e2e 4/4 — S1 협력사 구간 adminTurn=false·pending 불오염 ·
+  S2 숨김 필터·counts 일관·hiddenMdCount · **S3 MD 입고는 to_ship 을 열지 않는다**(주문
+  시드 포함 실증) · S4 교차 표기+자사 입고 후 to_ship 개방(대조군). 영향권(md-eq-observe·
+  pcb-caseref·pcb-ship-board) 14/14 · vitest api 870 · typecheck/lint green · 관리자 화면
+  스텁 실측 2장(표시/숨김 — 배너·카운트 동기·SH-31 "하위 구간: MD 입고완료" 칩).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

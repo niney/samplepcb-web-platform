@@ -1098,6 +1098,18 @@ export const AdminPcbShipmentWorkItem = z.object({
       mbId: z.string().nullable(),
       /** od_name > mb_name 사전(lib/pcb-customer) — 없으면 ''. */
       customerName: z.string(),
+      /** 이 건의 **앞 구간(하위→MD)** 요약 — MD 경유 건은 한 건이 선적 두 장(하위→MD,
+       *  MD→자사)으로 갈라지는데, 자사향 행만 보면 앞 구간 병목(하위가 아직 안 보냈나,
+       *  MD 에 묶여 있나)이 안 보인다(2026-08-14 검토). 자사향(받는곳=자사) 행의
+       *  구성원에만 싣고, 협력사 구간 행 자신과 MD 무경유 건은 null. */
+      mdLeg: z
+        .object({
+          status: BomShipmentStatus,
+          mode: BomShipmentMode,
+          receivedAt: z.string().nullable(),
+        })
+        .nullable()
+        .default(null),
     }),
   ),
   receivedAt: z.string().nullable(),
@@ -1131,6 +1143,9 @@ export const AdminPcbShipmentWorkListResponse = z.object({
       received: z.number().int(),
       all: z.number().int(),
     }),
+    /** 협력사 구간(받는곳=MD) 숨김 수 — mdLegs=hide 일 때 검색 통과분 중 걸러진 박스 수.
+     *  0 이 아니면 화면이 "협력사 구간 N건 숨김"을 말해 소실이 침묵하지 않게 한다. */
+    hiddenMdCount: z.number().int().default(0),
   }),
 });
 export type AdminPcbShipmentWorkListResponseType = z.infer<typeof AdminPcbShipmentWorkListResponse>;

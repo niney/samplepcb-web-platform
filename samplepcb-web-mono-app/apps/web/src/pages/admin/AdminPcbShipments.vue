@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
   PCB_PO_STATUS_LABELS,
   type AdminPcbOrderItemType,
   type AdminPcbShipmentTabType,
+  type AdminPcbShipmentWorkItemType,
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
@@ -42,8 +43,27 @@ type ShipTabKey = AdminPcbShipmentTabType | 'to_ship';
 
 const router = useRouter();
 const tab = ref<ShipTabKey>('to_ship');
-const filters = ref<AdminPcbShipmentFilters>({ page: 1, pageSize: 20, tab: 'pending', q: '' });
+
+// 협력사 구간(하위→MD) 표시 토글 — MD 경유 건은 한 건이 선적 두 장으로 갈라져 같은
+// 고객·프로젝트가 두 줄로 보인다(2026-08-14 검토). **기본은 숨김**(사용자 결정 08-14):
+// 물류의 일상 화면은 자사향 구간이고, 하위 발송~MD 입고 사이(자사향 선적이 아직 없는
+// 구간)의 소실은 hiddenMdCount 배너가 알린다. 켠 취향은 localStorage 로 기억한다.
+const MD_LEGS_LS = 'pcb-ship-md-legs';
+const showMdLegs = ref(localStorage.getItem(MD_LEGS_LS) === '1');
+const filters = ref<AdminPcbShipmentFilters>({
+  page: 1,
+  pageSize: 20,
+  tab: 'pending',
+  q: '',
+  mdLegs: showMdLegs.value ? 'show' : 'hide',
+});
+watch(showMdLegs, (show) => {
+  localStorage.setItem(MD_LEGS_LS, show ? '1' : '0');
+  filters.value = { ...filters.value, mdLegs: show ? 'show' : 'hide', page: 1 };
+});
 const list = useAdminPcbShipmentWork(filters);
+// 숨김이 침묵하지 않게 — 검색 조건에서 걸러진 협력사 구간 수(서버 계산).
+const hiddenMdCount = computed(() => list.data.value?.data.hiddenMdCount ?? 0);
 
 // 발송 대기 = 발주서 축(produced·미편성) — 선적 문서가 아직 없으니 PO 워크큐에서 가져온다.
 const poFilters = ref<AdminPcbPoWorkFilters>({
@@ -172,6 +192,13 @@ async function completeDirectOrder(item: AdminPcbOrderItemType): Promise<void> {
   }
 }
 
+// 앞 구간(하위→MD) 미니칩 — 자사향 행에서 앞 구간 병목을 읽는다(서버 mdLeg 교차 표기).
+type MdLegSignal = NonNullable<
+  AdminPcbShipmentWorkItemType['members'][number]['mdLeg']
+>;
+const mdLegLabel = (leg: MdLegSignal): string =>
+  leg.receivedAt !== null ? 'MD 입고완료' : pcbShipmentStatusLabel(leg.mode, leg.status);
+
 const STATUS_CLS: Record<string, string> = {
   preparing: 'bg-gray-100 text-gray-600',
   requested: 'bg-blue-100 text-blue-700',
@@ -213,15 +240,25 @@ function openCase(specId: number): void {
             <span v-if="tabCount(entry.key) !== null" class="ml-0.5 text-xs opacity-60">{{ tabCount(entry.key) }}</span>
           </button>
         </div>
-        <!-- 검색 — 묶음의 동반 건(다른 고객)까지 서버가 구성원 필드로 맞춰 준다. -->
-        <form class="pb-1" @submit.prevent="applySearch">
-          <input
-            v-model="searchText"
-            type="search"
-            placeholder="고객·프로젝트·PO·운송장 검색"
-            class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+        <div class="flex items-center gap-3 pb-1">
+          <!-- 협력사 구간(하위→MD) 토글 — 서버 필터라 탭 카운트와 목록이 함께 움직인다. -->
+          <label
+            class="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500"
+            title="MD 경유 건의 하위→MD 구간(협력사끼리의 운송)을 목록에 표시할지 정합니다. 자사 차례 판정에는 영향이 없습니다."
           >
-        </form>
+            <input v-model="showMdLegs" type="checkbox" class="rounded border-gray-300">
+            협력사 구간(하위→MD) 표시
+          </label>
+          <!-- 검색 — 묶음의 동반 건(다른 고객)까지 서버가 구성원 필드로 맞춰 준다. -->
+          <form @submit.prevent="applySearch">
+            <input
+              v-model="searchText"
+              type="search"
+              placeholder="고객·프로젝트·PO·운송장 검색"
+              class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            >
+          </form>
+        </div>
       </div>
 
       <!-- 발송 대기 — 생산완료인데 발송 문서가 아직 없는 발주서(선적 축 밖의 모수) -->
@@ -313,6 +350,15 @@ function openCase(specId: number): void {
       </template>
 
       <template v-else>
+        <!-- 숨김이 침묵하지 않게 — 하위 발송~MD 입고 사이엔 자사향 선적이 아직 없어서,
+             걸러진 줄이 있다는 사실 자체가 정보다. -->
+        <p
+          v-if="!showMdLegs && hiddenMdCount > 0"
+          class="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-xs text-indigo-700"
+        >
+          협력사 구간(하위→MD) {{ hiddenMdCount }}건이 숨겨져 있습니다 —
+          <button type="button" class="font-bold underline" @click="showMdLegs = true">표시</button>
+        </p>
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
@@ -340,7 +386,7 @@ function openCase(specId: number): void {
                   v-for="(m, mi) in row.members"
                   :key="`${String(row.shipmentId)}-${String(m.poId)}`"
                   class="cursor-pointer hover:bg-blue-50/40"
-                  :class="row.adminTurn ? 'bg-amber-50/50' : ''"
+                  :class="row.adminTurn ? 'bg-amber-50/50' : row.receiverKind === 'md' ? 'bg-indigo-50/30' : ''"
                   @click="openCase(m.specId)"
                 >
                   <td
@@ -362,9 +408,20 @@ function openCase(specId: number): void {
                       ▦ QR 라벨 {{ row.poCount }}장
                     </button>
                   </td>
-                  <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
-                    <span class="font-mono text-xs text-gray-400">Q{{ m.specId }}</span>
-                    {{ m.projectName }}
+                  <td class="max-w-xs px-4 py-2.5 font-medium text-gray-900">
+                    <p class="truncate">
+                      <span class="font-mono text-xs text-gray-400">Q{{ m.specId }}</span>
+                      {{ m.projectName }}
+                    </p>
+                    <!-- 앞 구간(하위→MD) 교차 표기 — 자사향 박스가 "언제 뜰 수 있나"는
+                         앞 구간이 끝났는지에 달렸다. 협력사 구간을 숨겨도 여기서 읽힌다. -->
+                    <p v-if="m.mdLeg !== null && m.mdLeg !== undefined" class="mt-0.5">
+                      <span
+                        class="rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                        :class="m.mdLeg.receivedAt !== null ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-600'"
+                        :title="`하위 협력사 → MD 구간 상태 — MD 입고가 끝나야 이 박스가 출고될 수 있습니다.`"
+                      >하위 구간: {{ mdLegLabel(m.mdLeg) }}</span>
+                    </p>
                   </td>
                   <!-- 송장·입고를 다루는 사람이 읽는 열 — 묶음이면 회원이 다른 줄이
                        나란히 선다(주문자명 정본 — 서버 lib/pcb-customer). -->
@@ -373,7 +430,12 @@ function openCase(specId: number): void {
                   </td>
                   <td v-if="mi === 0" :rowspan="row.members.length" class="px-4 py-2.5 align-top text-gray-600">
                     {{ row.senderName }} → {{ row.receiverName }}
-                    <span v-if="row.receiverKind === 'md'" class="ml-1 text-xs text-indigo-500">(MD 입고)</span>
+                    <!-- MD 경유 건의 앞 구간 — 협력사끼리의 운송이라 자사 차례가 아니다(관전 줄). -->
+                    <span
+                      v-if="row.receiverKind === 'md'"
+                      class="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700"
+                      title="하위 협력사 → MD 구간 — 자사 차례 없음. MD 입고가 끝나면 MD→자사 발송이 열립니다."
+                    >협력사 구간</span>
                     <!-- 직송(D5) — 받는 곳이 자사여도 실물은 이 나라의 고객에게 간다 -->
                     <span
                       v-if="row.destinationCountry !== null"
@@ -399,7 +461,12 @@ function openCase(specId: number): void {
                     >Case ID 요청</span>
                   </td>
                   <td v-if="mi === 0" :rowspan="row.members.length" class="whitespace-nowrap px-4 py-2.5 align-top">
-                    <span v-if="row.receivedAt !== null" class="text-xs font-semibold text-emerald-600">{{ fmtDate(row.receivedAt) }}</span>
+                    <!-- 받음의 주어를 명시 — 협력사 구간의 받음은 MD 창고이지 자사 입고가 아니다. -->
+                    <span
+                      v-if="row.receivedAt !== null && row.receiverKind === 'md'"
+                      class="text-xs font-semibold text-indigo-600"
+                    >MD 입고 {{ fmtDate(row.receivedAt) }}</span>
+                    <span v-else-if="row.receivedAt !== null" class="text-xs font-semibold text-emerald-600">{{ fmtDate(row.receivedAt) }}</span>
                     <span v-else class="text-xs text-gray-300">—</span>
                   </td>
                   <td v-if="mi === 0" :rowspan="row.members.length" class="whitespace-nowrap px-4 py-2.5 align-top text-gray-400">

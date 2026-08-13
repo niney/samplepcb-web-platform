@@ -1133,6 +1133,31 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
     pos.map((p) => ({ specId: p.specId, mbId: p.spec.mbId, ctId: p.spec.ctId })),
   );
 
+  // 앞 구간(하위→MD) 사전 — MD 경유 건은 한 건이 선적 두 장으로 갈라지므로, 자사향 행의
+  // 구성원에 "그 건의 협력사 구간이 지금 어디까지 왔나"를 교차로 싣는다(스펙·회차 키 —
+  // A/S 회차는 원회차의 옛 구간과 섞이면 안 된다). 같은 키에 여러 장이면 최신 생성 우선
+  // (shipments 가 createdAt desc 라 첫 등록이 곧 최신).
+  const mdLegByKey = new Map<
+    string,
+    { status: BomShipmentStatusType; mode: BomShipmentModeType; receivedAt: string | null }
+  >();
+  for (const shipment of shipments) {
+    if (shipment.receiverKind !== 'md') continue;
+    const mode = asPcbShipmentMode(shipment.mode);
+    for (const link of shipment.pos) {
+      const po = poById.get(link.poId.toString());
+      if (po === undefined) continue;
+      const key = `${po.specId.toString()}:${String(po.reorderRound)}`;
+      if (!mdLegByKey.has(key)) {
+        mdLegByKey.set(key, {
+          status: asPcbShipmentStatus(mode, shipment.status),
+          mode,
+          receivedAt: iso(shipment.receivedAt),
+        });
+      }
+    }
+  }
+
   const out: { item: AdminPcbShipmentWorkItemType; tab: AdminPcbShipmentTab }[] = [];
   for (const shipment of shipments) {
     const rep = poById.get(shipment.poId.toString()) ?? null;
@@ -1174,6 +1199,11 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
           projectName: p.spec.projectName,
           mbId: p.spec.mbId,
           customerName: customerNames.get(p.specId.toString()) ?? '',
+          // 자사향 행에만 — 협력사 구간 행 자신에 붙이면 자기 상태의 복창이다.
+          mdLeg:
+            shipment.receiverKind === 'md'
+              ? null
+              : (mdLegByKey.get(`${p.specId.toString()}:${String(p.reorderRound)}`) ?? null),
         })),
         receivedAt: iso(shipment.receivedAt),
         // 큐 배지 — 직송(실물이 자사를 안 거침)·A/S 회차(대표 발주 기준)를 행에서 바로 읽게.

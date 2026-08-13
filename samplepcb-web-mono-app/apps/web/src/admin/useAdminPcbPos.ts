@@ -285,6 +285,8 @@ export interface AdminPcbShipmentFilters {
   tab: AdminPcbShipmentTabType;
   /** 검색 — 구성원(다른 고객 포함) 필드까지 서버가 훑는다(고객·프로젝트·PO·운송장). */
   q: string;
+  /** 협력사 구간(하위→MD) 표시 토글 — 서버 필터(counts 일관). 기본 'show'. */
+  mdLegs: 'show' | 'hide';
 }
 
 const shipmentWorkPath = (f: AdminPcbShipmentFilters): string => {
@@ -293,6 +295,7 @@ const shipmentWorkPath = (f: AdminPcbShipmentFilters): string => {
   params.set('pageSize', String(f.pageSize));
   params.set('tab', f.tab);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
+  if (f.mdLegs === 'hide') params.set('mdLegs', 'hide');
   return `${apiRoutes.adminPcbShipments}?${params.toString()}`;
 };
 

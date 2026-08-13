@@ -578,6 +578,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         querystring: z.object({
           tab: z.enum(ADMIN_PCB_SHIPMENT_TABS).default('all'),
           q: z.string().trim().max(100).default(''),
+          // 협력사 구간(받는곳=MD) 표시 토글 — 기본 표시. 숨김은 서버에서 걸러야 탭
+          // counts 와 목록이 어긋나지 않는다. ⚠ boolean 파라미터 금지 관례:
+          // z.coerce.boolean 은 문자열 'false' 도 truthy 다(P3 invoice fresh 실결함).
+          mdLegs: z.enum(['show', 'hide']).default('show'),
           page: z.coerce.number().int().min(1).default(1),
           pageSize: z.coerce.number().int().min(1).max(100).default(20),
         }),
@@ -590,7 +594,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       // 묶음의 **구성원(다른 고객 포함) 필드까지** 훑는다 — 대표만 맞춰 보면 동반 건이
       // 검색으로 영영 안 잡힌다. counts 도 검색을 반영한다(/pcb-pos 워크큐와 같은 규칙).
       const needle = request.query.q.toLowerCase();
-      const filtered =
+      const searched =
         needle === ''
           ? all
           : all.filter(({ item }) =>
@@ -612,6 +616,11 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
                 .toLowerCase()
                 .includes(needle),
             );
+      // 협력사 구간 숨김 — 검색 **뒤**에 걸러 "이 화면 조건에서 안 보이는 수"를 정확히
+      // 센다(소실 안내 문구의 근거). counts 는 필터 뒤 계산이라 목록과 자동 일관.
+      const hideMd = request.query.mdLegs === 'hide';
+      const filtered = hideMd ? searched.filter((r) => r.item.receiverKind !== 'md') : searched;
+      const hiddenMdCount = searched.length - filtered.length;
       const counts = {
         pending: filtered.filter((r) => r.tab === 'pending').length,
         active: filtered.filter((r) => r.tab === 'active').length,
@@ -631,6 +640,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           page: request.query.page,
           pageSize: request.query.pageSize,
           counts,
+          hiddenMdCount,
         },
       };
     },
