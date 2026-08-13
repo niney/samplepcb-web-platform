@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   PCB_PO_STATUS_LABELS,
   isPcbDeliveryOverdue,
@@ -19,6 +19,13 @@ import {
   pcbEqReviewState,
   pcbEqReviewTitle,
 } from '../../lib/pcb-eq-review';
+import {
+  pcbDetailQuery,
+  queryPage,
+  queryString,
+  queryTab,
+  replacePcbListQuery,
+} from '../../admin/pcb-navigation';
 
 // PCB 발주·EQ 워크큐(P2) — 구매 담당의 화면. 큐 흐름:
 //   발주 대기(결제 완료+미발주 — 스펙 축) → EQ 승인 대기 → 생산 진행 → 생산완료.
@@ -29,15 +36,22 @@ import {
 type PosTabKey = AdminPcbPoTabType | 'awaiting';
 type DeliveryFilterMode = 'single' | 'range';
 
+const route = useRoute();
 const router = useRouter();
-const tab = ref<PosTabKey>('awaiting');
+const tab = ref<PosTabKey>(
+  queryTab(
+    route.query.tab,
+    ['awaiting', 'waiting', 'eq_pending', 'producing', 'produced', 'all'] as const,
+    'awaiting',
+  ),
+);
 const filters = ref<AdminPcbPoWorkFilters>({
-  page: 1,
+  page: queryPage(route.query.page),
   pageSize: 20,
-  tab: 'eq_pending',
-  q: '',
-  deliveryFrom: '',
-  deliveryTo: '',
+  tab: tab.value === 'awaiting' ? 'eq_pending' : tab.value,
+  q: queryString(route.query.q),
+  deliveryFrom: queryString(route.query.deliveryFrom),
+  deliveryTo: queryString(route.query.deliveryTo),
 });
 const list = useAdminPcbPoWork(filters);
 const isAdminUser = computed(() => true); // 이 화면 자체가 관리자 전용 라우트
@@ -69,17 +83,25 @@ const setTab = (key: PosTabKey): void => {
   tab.value = key;
   if (key !== 'awaiting') filters.value = { ...filters.value, tab: key, page: 1 };
 };
-const searchText = ref('');
+const searchText = ref(filters.value.q);
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
 };
 
 // 확정 납기 필터 — 단일일도 API에서는 from=to인 범위로 보내 서버 규칙을 한 벌만 둔다.
 // 발주 대기 탭은 아직 PO와 확정 납기가 없으므로 필터 자체를 노출하지 않는다.
-const deliveryMode = ref<DeliveryFilterMode>('single');
-const deliverySingle = ref('');
-const deliveryFrom = ref('');
-const deliveryTo = ref('');
+const hasDeliveryRange =
+  filters.value.deliveryFrom !== '' && filters.value.deliveryTo !== '';
+const deliveryMode = ref<DeliveryFilterMode>(
+  hasDeliveryRange && filters.value.deliveryFrom !== filters.value.deliveryTo ? 'range' : 'single',
+);
+const deliverySingle = ref(
+  hasDeliveryRange && filters.value.deliveryFrom === filters.value.deliveryTo
+    ? filters.value.deliveryFrom
+    : '',
+);
+const deliveryFrom = ref(filters.value.deliveryFrom);
+const deliveryTo = ref(filters.value.deliveryTo);
 const deliveryError = ref('');
 const deliveryFiltered = computed(
   () => filters.value.deliveryFrom !== '' && filters.value.deliveryTo !== '',
@@ -118,6 +140,21 @@ const clearDeliveryFilter = (): void => {
   deliveryError.value = '';
   filters.value = { ...filters.value, deliveryFrom: '', deliveryTo: '', page: 1 };
 };
+watch(
+  [tab, filters],
+  () => {
+    replacePcbListQuery(router, route.query, {
+      tab: tab.value,
+      page: filters.value.page,
+      q: filters.value.q,
+      extra: {
+        deliveryFrom: filters.value.deliveryFrom,
+        deliveryTo: filters.value.deliveryTo,
+      },
+    });
+  },
+  { deep: true, immediate: true },
+);
 
 // EQ 고객 확인 축(D16) — 'EQ 승인 대기' 탭의 행들은 발주 상태가 모두 eq_requested 라
 // 그것만으로는 "지금 승인하면 되는 건"과 "고객 답을 기다리는 건"이 섞인다. 그 갈림을
@@ -137,7 +174,7 @@ function openCase(specId: number): void {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(specId) },
-    query: { from: 'pos' },
+    query: pcbDetailQuery('pos', route.fullPath),
   });
 }
 </script>

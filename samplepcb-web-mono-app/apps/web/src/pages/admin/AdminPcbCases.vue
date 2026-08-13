@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { PCB_STEPS, type AdminPcbCaseTabType } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
@@ -9,21 +9,19 @@ import PcbSelectionBar from '../../components/admin/pcb/PcbSelectionBar.vue';
 import { useRowSelection } from '../../admin/useRowSelection';
 import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../admin/useAdminPcbCases';
 import { fmtPcbAmount } from '../../lib/pcb-money';
+import {
+  pcbDetailQuery,
+  queryPage,
+  queryString,
+  queryTab,
+  replacePcbListQuery,
+} from '../../admin/pcb-navigation';
 
 // PCB 진행현황(P3.5 → 2026-08-05 개편) — 모듈 홈, 총괄의 화면. 견적요청부터 선적·
 // 배송까지를 **순서대로** 조감한다: 행마다 12단계 파생 타임라인(PCB_STEPS)을 칩으로
 // 보이고, 탭은 큰 구간(견적 → 주문·결제 → 발주·생산 → 완료·취소)으로 나눈다.
 // 단계는 저장 상태가 아니라 원장(RFQ·발주·선적·od)에서 서버가 계산한 표시값이다.
 // 조작은 언제나 Case 상세 — 여기서는 조감과 진입만(역할별 대기 큐는 각 워크큐 첫 탭).
-
-const router = useRouter();
-const filters = ref<AdminPcbCaseFilters>({ page: 1, pageSize: 20, tab: 'production', q: '' });
-const list = useAdminPcbCases(filters);
-
-const rows = computed(() => list.data.value?.data.items ?? []);
-const total = computed(() => list.data.value?.data.total ?? 0);
-const counts = computed(() => list.data.value?.data.counts ?? null);
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 
 // 탭 = 흐름 구간. 기본은 '발주·생산'(지금 굴러가는 건) — 완료 2만 건이 모수를 덮지 않게.
 type CaseTab = Extract<AdminPcbCaseTabType, 'quoting' | 'unpaid' | 'production' | 'closed' | 'all'>;
@@ -34,13 +32,28 @@ const TABS: { key: CaseTab; label: string }[] = [
   { key: 'closed', label: '완료·취소' },
   { key: 'all', label: '전체' },
 ];
+const TAB_KEYS = TABS.map((entry) => entry.key);
+const route = useRoute();
+const router = useRouter();
+const filters = ref<AdminPcbCaseFilters>({
+  page: queryPage(route.query.page),
+  pageSize: 20,
+  tab: queryTab(route.query.tab, TAB_KEYS, 'production'),
+  q: queryString(route.query.q),
+});
+const list = useAdminPcbCases(filters);
+
+const rows = computed(() => list.data.value?.data.items ?? []);
+const total = computed(() => list.data.value?.data.total ?? 0);
+const counts = computed(() => list.data.value?.data.counts ?? null);
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 const tabCount = (key: CaseTab): number | null =>
   counts.value === null ? null : counts.value[key];
 const setTab = (tab: CaseTab): void => {
   filters.value = { ...filters.value, tab, page: 1 };
   clearSelection();
 };
-const searchText = ref('');
+const searchText = ref(filters.value.q);
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
   clearSelection();
@@ -49,6 +62,13 @@ const setPage = (page: number): void => {
   filters.value = { ...filters.value, page };
   clearSelection();
 };
+watch(
+  filters,
+  (value) => {
+    replacePcbListQuery(router, route.query, value);
+  },
+  { deep: true, immediate: true },
+);
 
 // 배치 삭제 선택 — 규칙(useRowSelection)·툴바·모달을 전부 공용으로 쓴다. 차단·경고·사유
 // 판정은 서버가 정본이라, 협력 발주·선적이 걸린 건은 여기서도 지워지지 않는다.
@@ -82,7 +102,7 @@ function openCase(specId: number): void {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(specId) },
-    query: { from: 'cases' },
+    query: pcbDetailQuery('cases', route.fullPath),
   });
 }
 </script>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   ADMIN_PCB_REMITTANCE_TAB_LABELS,
   ADMIN_PCB_REMITTANCE_TABS,
@@ -19,6 +19,13 @@ import {
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vue';
+import {
+  pcbDetailQuery,
+  queryPage,
+  queryString,
+  queryTab,
+  replacePcbListQuery,
+} from '../../admin/pcb-navigation';
 
 // PCB 송금 워크큐(P3.11) — 경리·재무 역할 화면. 역할별 워크큐 교리(D12) 그대로
 // 첫 탭이 대기 큐(= 발주됐는데 한 푼도 안 나간 건)이고 배지도 그 수다.
@@ -27,18 +34,26 @@ import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vu
 type View = AdminPcbRemittanceTabType | 'partners';
 type LastRemittedFilterMode = 'single' | 'range';
 type LastRemittedPreset = 'today' | 'thisMonth' | 'lastMonth';
-const view = ref<View>('pending');
+const route = useRoute();
+const initialView = queryTab(
+  route.query.tab,
+  [...ADMIN_PCB_REMITTANCE_TABS, 'partners'] as const,
+  'pending',
+);
+const view = ref<View>(initialView);
 const isPartnerView = computed(() => view.value === 'partners');
 
 const router = useRouter();
-const searchText = ref('');
+const searchText = ref(queryString(route.query.q));
+const partnerIdParam = Number(queryString(route.query.partnerId));
 const filters = ref<AdminPcbRemittanceFilters>({
-  tab: 'pending',
-  q: '',
-  page: 1,
+  tab: initialView === 'partners' ? 'pending' : initialView,
+  q: searchText.value,
+  page: queryPage(route.query.page),
   pageSize: 20,
-  lastRemittedFrom: '',
-  lastRemittedTo: '',
+  lastRemittedFrom: queryString(route.query.lastRemittedFrom),
+  lastRemittedTo: queryString(route.query.lastRemittedTo),
+  ...(Number.isInteger(partnerIdParam) && partnerIdParam > 0 ? { partnerId: partnerIdParam } : {}),
 });
 const list = useAdminPcbRemittances(filters);
 const partners = useAdminPcbRemittancePartners(isPartnerView);
@@ -76,10 +91,19 @@ const dueTiming = (
 
 // 최근 송금 필터 — 목록은 발주서 1행 + 전체 원장 누적이므로, 기간 중 임의 송금이 아니라
 // 표에 표시되는 summary.lastRemittedOn을 검색한다. 송금 전·협력사 집계에는 적용하지 않는다.
-const lastRemittedMode = ref<LastRemittedFilterMode>('single');
-const lastRemittedSingle = ref('');
-const lastRemittedFrom = ref('');
-const lastRemittedTo = ref('');
+const lastRemittedMode = ref<LastRemittedFilterMode>(
+  filters.value.lastRemittedFrom !== '' &&
+    filters.value.lastRemittedFrom !== filters.value.lastRemittedTo
+    ? 'range'
+    : 'single',
+);
+const initialSingleDate =
+  filters.value.lastRemittedFrom === filters.value.lastRemittedTo
+    ? filters.value.lastRemittedFrom
+    : '';
+const lastRemittedSingle = ref(initialSingleDate);
+const lastRemittedFrom = ref(filters.value.lastRemittedFrom);
+const lastRemittedTo = ref(filters.value.lastRemittedTo);
 const lastRemittedPreset = ref<'' | LastRemittedPreset>('');
 const lastRemittedError = ref('');
 const lastRemittedFiltered = computed(
@@ -207,6 +231,22 @@ function selectView(next: View): void {
 function applySearch(): void {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
 }
+watch(
+  [view, filters],
+  () => {
+    replacePcbListQuery(router, route.query, {
+      tab: view.value,
+      page: filters.value.page,
+      q: filters.value.q,
+      extra: {
+        lastRemittedFrom: filters.value.lastRemittedFrom,
+        lastRemittedTo: filters.value.lastRemittedTo,
+        partnerId: filters.value.partnerId,
+      },
+    });
+  },
+  { deep: true, immediate: true },
+);
 
 /** 협력사별 탭에서 행을 누르면 그 협력사의 발주만 추린다 — 조감 → 실행 동선.
  *  검색어도 함께 비운다 — 필터는 지워졌는데 입력창에 옛 검색어가 남아 있으면
@@ -253,7 +293,7 @@ const openCase = (specId: number): void => {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(specId) },
-    query: { from: 'remittances' },
+    query: pcbDetailQuery('remittances', route.fullPath),
   });
 };
 </script>

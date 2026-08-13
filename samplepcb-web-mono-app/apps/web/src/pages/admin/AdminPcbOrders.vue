@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
   ADMIN_PCB_ORDER_TAB_LABELS,
@@ -17,13 +17,30 @@ import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
 import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbOrderCancelModal from '../../components/admin/pcb/PcbOrderCancelModal.vue';
+import {
+  pcbDetailQuery,
+  queryPage,
+  queryString,
+  queryTab,
+  replacePcbListQuery,
+} from '../../admin/pcb-navigation';
 
 // PCB 주문·결제 워크큐(P3.5) — 경리 관점 조감: 입금 대기 → 진행 중 → 완료/취소.
 // 레거시 이관 주문 2만여 건이 이력 모수(서버 페이지네이션). od 상태 변경은 코어
 // 주문 관리의 몫 — 여기서는 열람과 Case 진입만. 발주 시작은 Case 상세 발주 패널.
 
+// 이 화면은 경리 관점 5탭만 — 고객 배송 탭(to_ship/shipping)은 선적·배송 화면 몫(P4.6).
+type ScreenTab = Exclude<AdminPcbOrderTabType, 'to_ship' | 'shipping'>;
+const TABS: ScreenTab[] = ['awaiting', 'active', 'done', 'canceled', 'all'];
+
+const route = useRoute();
 const router = useRouter();
-const filters = ref<AdminPcbOrderFilters>({ page: 1, pageSize: 20, tab: 'awaiting', q: '' });
+const filters = ref<AdminPcbOrderFilters>({
+  page: queryPage(route.query.page),
+  pageSize: 20,
+  tab: queryTab(route.query.tab, TABS, 'awaiting'),
+  q: queryString(route.query.q),
+});
 const list = useAdminPcbOrderWork(filters);
 
 const rows = computed(() => list.data.value?.data.items ?? []);
@@ -51,18 +68,22 @@ const total = computed(() => list.data.value?.data.total ?? 0);
 const counts = computed(() => list.data.value?.data.counts ?? null);
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 
-// 이 화면은 경리 관점 5탭만 — 고객 배송 탭(to_ship/shipping)은 선적·배송 화면 몫(P4.6).
-type ScreenTab = Exclude<AdminPcbOrderTabType, 'to_ship' | 'shipping'>;
-const TABS: ScreenTab[] = ['awaiting', 'active', 'done', 'canceled', 'all'];
 const tabCount = (key: ScreenTab): number | null =>
   counts.value === null ? null : counts.value[key];
 const setTab = (tab: ScreenTab): void => {
   filters.value = { ...filters.value, tab, page: 1 };
 };
-const searchText = ref('');
+const searchText = ref(filters.value.q);
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
 };
+watch(
+  filters,
+  (value) => {
+    replacePcbListQuery(router, route.query, value);
+  },
+  { deep: true, immediate: true },
+);
 
 // od 상태 배지 — 코어 주문 상태 문자열을 그대로 노출(정본은 g5), 색만 구간 매핑.
 const OD_CLS: Record<string, string> = {
@@ -117,7 +138,7 @@ function openCase(specId: number): void {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(specId) },
-    query: { from: 'orders' },
+    query: pcbDetailQuery('orders', route.fullPath),
   });
 }
 

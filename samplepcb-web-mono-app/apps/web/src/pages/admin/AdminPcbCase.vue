@@ -91,6 +91,7 @@ import UiPromptModal, { type PromptField } from '../../components/ui/UiPromptMod
 import PcbOrderCancelModal from '../../components/admin/pcb/PcbOrderCancelModal.vue';
 import MailLogList from '../../components/admin/MailLogList.vue';
 import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
+import { safePcbReturnTo } from '../../admin/pcb-navigation';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
 // 상세 계약 재사용) + 협력사 RFQ 패널(배정 diff·대리 회신·선정/해제·매직링크).
@@ -108,11 +109,15 @@ const BACK_TARGETS: Record<string, { name: string; label: string }> = {
   rfqs: { name: 'admin-pcb-rfqs', label: 'PCB 견적요청' },
   orders: { name: 'admin-pcb-orders', label: 'PCB 주문·결제' },
   pos: { name: 'admin-pcb-pos', label: 'PCB 발주·EQ' },
+  remittances: { name: 'admin-pcb-remittances', label: 'PCB 송금' },
   shipments: { name: 'admin-pcb-shipments', label: 'PCB 선적·배송' },
 };
-const backTarget = computed(
-  () => BACK_TARGETS[String(route.query.from ?? '')] ?? { name: 'admin-quotes', label: '견적 관리' },
-);
+const backTarget = computed(() => {
+  const fallback =
+    BACK_TARGETS[String(route.query.from ?? '')] ?? { name: 'admin-quotes', label: '견적 관리' };
+  const returnTo = safePcbReturnTo(route.query.returnTo);
+  return { ...fallback, to: returnTo ?? { name: fallback.name } };
+});
 
 /** YYYY-MM-DD 달력 날짜 덧셈 — 시각/브라우저 타임존을 끼우지 않아 KST 날짜가 밀리지 않는다. */
 const addDateOnlyDays = (value: string, days: number): string => {
@@ -226,7 +231,7 @@ const deleteOpen = ref(false);
 const mailLogOpen = ref(false);
 async function onDeleted(): Promise<void> {
   deleteOpen.value = false;
-  await router.push({ name: backTarget.value.name });
+  await router.push(backTarget.value.to);
 }
 
 const actionError = ref('');
@@ -963,7 +968,7 @@ function openMateCase(mateSpecId: number): void {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(mateSpecId) },
-    ...(typeof route.query.from === 'string' ? { query: { from: route.query.from } } : {}),
+    query: route.query,
   });
 }
 
@@ -1413,7 +1418,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
   <div class="pcb-readable space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
-        :to="{ name: backTarget.name }"
+        :to="backTarget.to"
         class="text-sm text-gray-400 hover:text-gray-700"
       >
         ← {{ backTarget.label }}

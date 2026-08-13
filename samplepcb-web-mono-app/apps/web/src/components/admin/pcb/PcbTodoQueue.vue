@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import type { AdminPcbCaseTabType } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../../admin/useAdminPcbCases';
@@ -10,6 +10,7 @@ import { useRowSelection } from '../../../admin/useRowSelection';
 import DeleteQuoteModal from '../DeleteQuoteModal.vue';
 import PcbCustomerCell from './PcbCustomerCell.vue';
 import PcbSelectionBar from './PcbSelectionBar.vue';
+import { pcbDetailQuery, type PcbAdminSection } from '../../../admin/pcb-navigation';
 
 // PCB 대기 큐(= 그 역할이 아직 시작하지 않은 일) — 견적요청·발주·EQ 화면의 첫 탭이
 // 공유한다. 조작은 언제나 Case 상세가 전담하므로 여기서는 큐와 진입만 제공한다
@@ -19,12 +20,13 @@ const props = defineProps<{
   /** todo_rfq(요청 대기) | todo_po(발주 대기) */
   kind: Extract<AdminPcbCaseTabType, 'todo_rfq' | 'todo_po'>;
   /** Case 상세 진입 시 붙일 ?from= (활성 메뉴·섹션 접힘 컨텍스트). */
-  from: string;
+  from: PcbAdminSection;
   /** 행 우측 진입 버튼 문구. */
   actionLabel: string;
   emptyText: string;
 }>();
 
+const route = useRoute();
 const router = useRouter();
 const filters = ref<AdminPcbCaseFilters>({ page: 1, pageSize: 20, tab: props.kind, q: '' });
 const list = useAdminPcbCases(filters);
@@ -53,7 +55,7 @@ function openCase(specId: number): void {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(specId) },
-    query: { from: props.from },
+    query: pcbDetailQuery(props.from, route.fullPath),
   });
 }
 </script>

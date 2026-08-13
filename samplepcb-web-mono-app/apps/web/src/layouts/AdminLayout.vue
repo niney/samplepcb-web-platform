@@ -14,6 +14,13 @@ import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
 import { useTheme } from '../bom/useTheme';
+import {
+  pcbAdminEntryTo,
+  pcbAdminSectionTo,
+  readPcbAdminMemory,
+  rememberPcbAdminView,
+  resolvePcbAdminSection,
+} from '../admin/pcb-navigation';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 
@@ -64,6 +71,31 @@ const activeModuleKey = computed(() => resolveAdminModuleKey(currentRouteName.va
 const activeModule = computed(
   () => adminModules.find((m) => m.key === activeModuleKey.value) ?? adminModules[0],
 );
+const pcbMemory = ref(readPcbAdminMemory(auth.me?.mbId));
+watch(
+  () => auth.me?.mbId,
+  (mbId) => {
+    pcbMemory.value = readPcbAdminMemory(mbId);
+  },
+);
+watch(
+  [currentRouteName, () => route.query.tab],
+  ([routeName, rawTab]) => {
+    const section = resolvePcbAdminSection(routeName);
+    if (section === null) return;
+    const tab = typeof rawTab === 'string' ? rawTab : undefined;
+    pcbMemory.value = rememberPcbAdminView(auth.me?.mbId, section, tab);
+  },
+  { immediate: true },
+);
+const moduleTo = (moduleKey: string, fallback: RouteLocationRaw): RouteLocationRaw =>
+  moduleKey === 'pcb' ? pcbAdminEntryTo(pcbMemory.value) : fallback;
+const menuTo = (item: AdminMenuItem): RouteLocationRaw => {
+  if (activeModuleKey.value !== 'pcb') return item.to;
+  const routeName = menuRouteName(item.to);
+  const section = routeName === null ? null : resolvePcbAdminSection(routeName);
+  return section === null ? item.to : pcbAdminSectionTo(pcbMemory.value, section);
+};
 watch(activeModuleKey, (key) => {
   try {
     localStorage.setItem(MODULE_STORAGE_KEY, key);
@@ -162,7 +194,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
         <RouterLink
           v-for="item in activeModule?.menu ?? []"
           :key="item.labelKey"
-          :to="item.to"
+          :to="menuTo(item)"
           class="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
           :class="isMenuActive(item) ? 'bg-blue-50 text-blue-700' : ''"
           exact-active-class="bg-blue-50 text-blue-700"
@@ -200,7 +232,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
           <RouterLink
             v-for="mod in adminModules"
             :key="mod.key"
-            :to="mod.homeTo"
+            :to="moduleTo(mod.key, mod.homeTo)"
             class="rounded-md px-3 py-1.5"
             :class="activeModuleKey === mod.key
               ? 'bg-surface text-blue-700 shadow-sm'

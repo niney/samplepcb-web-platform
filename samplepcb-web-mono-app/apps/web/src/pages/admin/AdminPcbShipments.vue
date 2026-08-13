@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
   PCB_PO_STATUS_LABELS,
@@ -27,6 +27,13 @@ import PcbPackageLabelsModal from '../../components/pcb/PcbPackageLabelsModal.vu
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
+import {
+  pcbDetailQuery,
+  queryPage,
+  queryString,
+  queryTab,
+  replacePcbListQuery,
+} from '../../admin/pcb-navigation';
 
 // PCB 선적·배송 워크큐(P3·P4.6) — 물류 담당의 화면. SmartBOM 물류와 같은 두 섹션 골격
 // (D9 미러 — 흐름이 위→아래로 이어진다):
@@ -41,8 +48,17 @@ import { confirmDialog } from '../../lib/confirmDialog';
 
 type ShipTabKey = AdminPcbShipmentTabType | 'to_ship';
 
+const route = useRoute();
 const router = useRouter();
-const tab = ref<ShipTabKey>('to_ship');
+const tab = ref<ShipTabKey>(
+  queryTab(
+    route.query.tab,
+    ['to_ship', 'pending', 'active', 'received', 'all'] as const,
+    'to_ship',
+  ),
+);
+const initialPage = queryPage(route.query.page);
+const initialSearch = queryString(route.query.q);
 
 // 협력사 구간(하위→MD) 표시 토글 — MD 경유 건은 한 건이 선적 두 장으로 갈라져 같은
 // 고객·프로젝트가 두 줄로 보인다(2026-08-14 검토). **기본은 숨김**(사용자 결정 08-14):
@@ -51,10 +67,10 @@ const tab = ref<ShipTabKey>('to_ship');
 const MD_LEGS_LS = 'pcb-ship-md-legs';
 const showMdLegs = ref(localStorage.getItem(MD_LEGS_LS) === '1');
 const filters = ref<AdminPcbShipmentFilters>({
-  page: 1,
+  page: initialPage,
   pageSize: 20,
-  tab: 'pending',
-  q: '',
+  tab: tab.value === 'to_ship' ? 'pending' : tab.value,
+  q: initialSearch,
   mdLegs: showMdLegs.value ? 'show' : 'hide',
 });
 watch(showMdLegs, (show) => {
@@ -67,10 +83,10 @@ const hiddenMdCount = computed(() => list.data.value?.data.hiddenMdCount ?? 0);
 
 // 발송 대기 = 발주서 축(produced·미편성) — 선적 문서가 아직 없으니 PO 워크큐에서 가져온다.
 const poFilters = ref<AdminPcbPoWorkFilters>({
-  page: 1,
+  page: initialPage,
   pageSize: 20,
   tab: 'to_ship',
-  q: '',
+  q: initialSearch,
   deliveryFrom: '',
   deliveryTo: '',
 });
@@ -92,7 +108,7 @@ const labelsApi = computed(() =>
 
 // 검색 — 두 축(발주서 축 to_ship · 선적 축 나머지 탭) 모두에 같은 검색어를 태운다.
 // 탭을 오가며 같은 건을 찾는 화면이라 입력을 하나만 둔다(제출 시 적용 — 발주 큐와 동형).
-const searchText = ref('');
+const searchText = ref(initialSearch);
 const applySearch = (): void => {
   poFilters.value = { ...poFilters.value, q: searchText.value, page: 1 };
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
@@ -118,7 +134,12 @@ const setTab = (key: ShipTabKey): void => {
 
 // ── ② 고객 배송 — 주문 축(P4.6): 입고확인이 끝났는데 od 가 배송 전(to_ship)·배송 중.
 //    판정·counts 는 서버(/admin/pcb-orders — 협력 축 입고 신호 기반, 이관분 자연 제외).
-const orderFilters = ref<AdminPcbOrderFilters>({ page: 1, pageSize: 20, tab: 'to_ship', q: '' });
+const orderFilters = ref<AdminPcbOrderFilters>({
+  page: queryPage(route.query.customerPage),
+  pageSize: 20,
+  tab: queryTab(route.query.customerTab, ['to_ship', 'shipping'] as const, 'to_ship'),
+  q: initialSearch,
+});
 const orderQuery = useAdminPcbOrderWork(orderFilters);
 const orderRows = computed(() => orderQuery.data.value?.data.items ?? []);
 const orderTotal = computed(() => orderQuery.data.value?.data.total ?? 0);
@@ -140,6 +161,21 @@ const orderTabCount = (key: OrderTabKey): number | null => {
 const setOrderTab = (key: OrderTabKey): void => {
   orderFilters.value = { ...orderFilters.value, tab: key, page: 1 };
 };
+watch(
+  [tab, filters, poFilters, orderFilters],
+  () => {
+    replacePcbListQuery(router, route.query, {
+      tab: tab.value,
+      page: tab.value === 'to_ship' ? poFilters.value.page : filters.value.page,
+      q: filters.value.q,
+      extra: {
+        customerTab: orderFilters.value.tab,
+        customerPage: orderFilters.value.page > 1 ? orderFilters.value.page : undefined,
+      },
+    });
+  },
+  { deep: true, immediate: true },
+);
 
 // 고객 배송 액션 — 배송 처리(공용 모달)·구매확정
 const allReceived = (item: AdminPcbOrderItemType): boolean =>
@@ -214,7 +250,7 @@ function openCase(specId: number): void {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(specId) },
-    query: { from: 'shipments' },
+    query: pcbDetailQuery('shipments', route.fullPath),
   });
 }
 </script>

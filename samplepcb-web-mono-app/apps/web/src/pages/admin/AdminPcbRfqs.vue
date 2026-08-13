@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import type { AdminPcbRfqCaseItemType, AdminPcbRfqTabType } from '@sp/api-contract';
 import { pcbMarginPercent } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
@@ -13,6 +13,13 @@ import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
 import { useRowSelection } from '../../admin/useRowSelection';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix } from '../../lib/pcb-money';
+import {
+  pcbDetailQuery,
+  queryPage,
+  queryString,
+  queryTab,
+  replacePcbListQuery,
+} from '../../admin/pcb-navigation';
 
 // PCB 견적요청(RFQ) 워크큐 — docs/PCB_PARTNER_TRACK.md §5.4. 큐 흐름:
 //   요청 대기(RFQ 미발송 — 스펙 축) → 회신 대기 → 견적 대기(내 차례 = 선정) → 견적 완료.
@@ -20,18 +27,6 @@ import { fmtPcbAmount, pcbKrwSuffix } from '../../lib/pcb-money';
 // 할 건"이 이 화면에 없었다. 배정·비교·선정 조작은 Case 상세(RFQ 패널)가 전담.
 
 type RfqTabKey = AdminPcbRfqTabType | 'todo';
-
-const router = useRouter();
-const tab = ref<RfqTabKey>('todo');
-const filters = ref<AdminPcbRfqCaseFilters>({ page: 1, pageSize: 20, tab: 'pending', q: '' });
-const list = useAdminPcbRfqCases(filters);
-const isAdminUser = computed(() => true); // 이 화면 자체가 관리자 전용 라우트
-const { todoRfq } = useAdminPcbTodoCounts(isAdminUser);
-
-const rows = computed(() => list.data.value?.data.items ?? []);
-const total = computed(() => list.data.value?.data.total ?? 0);
-const counts = computed(() => list.data.value?.data.counts ?? null);
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 
 const TABS: { key: RfqTabKey; label: string }[] = [
   { key: 'todo', label: '요청 대기' },
@@ -44,6 +39,25 @@ const TABS: { key: RfqTabKey; label: string }[] = [
   { key: 'priced', label: '견적 완료' },
   { key: 'all', label: '전체' },
 ];
+const TAB_KEYS = TABS.map((entry) => entry.key);
+const route = useRoute();
+const router = useRouter();
+const initialTab = queryTab(route.query.tab, TAB_KEYS, 'todo');
+const tab = ref<RfqTabKey>(initialTab);
+const filters = ref<AdminPcbRfqCaseFilters>({
+  page: queryPage(route.query.page),
+  pageSize: 20,
+  tab: initialTab === 'todo' ? 'pending' : initialTab,
+  q: queryString(route.query.q),
+});
+const list = useAdminPcbRfqCases(filters);
+const isAdminUser = computed(() => true); // 이 화면 자체가 관리자 전용 라우트
+const { todoRfq } = useAdminPcbTodoCounts(isAdminUser);
+
+const rows = computed(() => list.data.value?.data.items ?? []);
+const total = computed(() => list.data.value?.data.total ?? 0);
+const counts = computed(() => list.data.value?.data.counts ?? null);
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 const tabCount = (key: RfqTabKey): number | null =>
   key === 'todo' ? todoRfq.value : counts.value === null ? null : counts.value[key];
 
@@ -64,11 +78,22 @@ const setTab = (key: RfqTabKey): void => {
   selection.clear();
 };
 
-const searchText = ref('');
+const searchText = ref(filters.value.q);
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
   selection.clear();
 };
+watch(
+  [tab, filters],
+  () => {
+    replacePcbListQuery(router, route.query, {
+      tab: tab.value,
+      page: filters.value.page,
+      q: filters.value.q,
+    });
+  },
+  { deep: true, immediate: true },
+);
 
 const QUOTE_LABEL: Record<string, { label: string; cls: string }> = {
   rfq: { label: '견적 대기', cls: 'bg-amber-100 text-amber-700' },
@@ -98,7 +123,7 @@ function openCase(specId: number): void {
   void router.push({
     name: 'admin-pcb-case',
     params: { id: String(specId) },
-    query: { from: 'rfqs' },
+    query: pcbDetailQuery('rfqs', route.fullPath),
   });
 }
 </script>
