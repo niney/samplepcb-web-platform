@@ -1358,6 +1358,17 @@ const adminInvoiceApiRef = computed(() =>
     ? null
     : adminPcbInvoiceApi(specId.value, invoicePoId.value),
 );
+// [엑셀 생성·첨부] — 업로드 뮤테이션 경유로 캐시를 무효화한다(맨 API 호출을 주입하면
+// 서버엔 붙는데 발송 패널의 첨부 표시가 안 바뀐다).
+async function attachInvoiceXlsx(file: File): Promise<void> {
+  if (invoicePoId.value === null || specId.value === null) return;
+  await shipFileUpload.mutateAsync({
+    specId: specId.value,
+    poId: invoicePoId.value,
+    file,
+    fileType: 'invoice',
+  });
+}
 
 const SHIP_STATUS_CLS: Record<string, string> = {
   preparing: 'bg-gray-100 text-gray-600',
@@ -2881,8 +2892,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :load-draft="adminInvoiceApiRef.loadDraft"
       :save-draft="adminInvoiceApiRef.saveDraft"
       :render-xlsx="adminInvoiceApiRef.renderXlsx"
-      :attach-pdf="adminInvoiceApiRef.attachPdf"
-      :attach-xlsx="adminInvoiceApiRef.attachXlsx"
+      :attach-xlsx="attachInvoiceXlsx"
       @close="invoicePoId = null"
     />
 

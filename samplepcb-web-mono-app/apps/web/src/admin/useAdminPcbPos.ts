@@ -465,6 +465,8 @@ export async function downloadAdminPcbShipmentFile(
 }
 
 // 상업송장 — InvoiceEditorModal 콜백 주입(관리자측).
+// ⚠ 첨부(attachXlsx)는 여기 두지 않는다 — 화면의 첨부 표시를 바꾸는 변이라
+// useUploadAdminPcbShipmentFile(무효화 포함)을 감싸 Case 화면에서 주입한다.
 export const adminPcbInvoiceApi = (specId: number, poId: number) => ({
   loadDraft: async (fresh: boolean) =>
     (
@@ -486,21 +488,6 @@ export const adminPcbInvoiceApi = (specId: number, poId: number) => ({
       `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/invoice/xlsx`,
       data,
     ),
-  attachPdf: async (_file: File) => {
-    // PDF 경로는 PCB 미사용(08-13 엑셀-온리) — 모달이 attachXlsx 존재 시 미노출.
-    await Promise.resolve();
-  },
-  attachXlsx: (file: File) => {
-    const form = new FormData();
-    form.set('fileType', 'invoice');
-    form.set('file', file);
-    return apiSendForm(
-      'POST',
-      `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/files`,
-      form,
-      AdminPcbPoListResponse,
-    );
-  },
 });
 
 /** 선적 첨부 업로드(관리자) — Case ID 갈래의 핵심 경로: 수정한 인보이스 재첨부·AWB 첨부.

@@ -309,6 +309,8 @@ export const downloadPartnerPcbShipmentFile = (
 ): Promise<void> => saveBlob(`${base}/${String(poId)}/shipment/files/${String(fileId)}`, fileName);
 
 // 상업송장 — InvoiceEditorModal 콜백 주입용 API 묶음(BOM 포털과 동형).
+// ⚠ 첨부(attachXlsx)는 여기 두지 않는다 — 화면의 첨부 표시를 바꾸는 변이라
+// useUploadPartnerPcbShipmentFile(무효화 포함)을 감싸 카드에서 주입한다.
 export const partnerPcbInvoiceApi = (poId: number) => ({
   loadDraft: async (fresh: boolean) =>
     (
@@ -321,18 +323,4 @@ export const partnerPcbInvoiceApi = (poId: number) => ({
     apiSend('PUT', `${base}/${String(poId)}/shipment/invoice`, data, PcbPoActionResponse),
   renderXlsx: (data: BomInvoiceDataType) =>
     apiSendBlob('POST', `${base}/${String(poId)}/shipment/invoice/xlsx`, data),
-  attachPdf: (file: File) => {
-    const form = new FormData();
-    form.set('fileType', 'invoice');
-    form.set('file', file);
-    return apiSendForm('POST', `${base}/${String(poId)}/shipment/files`, form, PartnerPcbPoDetailResponse);
-  },
-  // 엑셀 첨부(08-13 재편) — 관리자가 내려받아 수동 수정 후 재첨부하는 왕복이라
-  // 편집 가능한 파일로 첨부한다(PDF 경로는 모달이 attachXlsx 존재 시 미노출).
-  attachXlsx: (file: File) => {
-    const form = new FormData();
-    form.set('fileType', 'invoice');
-    form.set('file', file);
-    return apiSendForm('POST', `${base}/${String(poId)}/shipment/files`, form, PartnerPcbPoDetailResponse);
-  },
 });

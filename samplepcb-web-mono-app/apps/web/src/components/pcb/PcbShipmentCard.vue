@@ -175,6 +175,12 @@ async function runRevert(): Promise<void> {
   }
 }
 
+// 인보이스 생성기의 [엑셀 생성·첨부] — 업로드 뮤테이션을 감싸 넘긴다(BOM 카드와 동형).
+// 맨 API 호출을 주입하면 서버엔 붙는데 쿼리 캐시가 그대로라 '✓ 첨부됨'이 안 뜬다.
+async function attachInvoiceXlsx(file: File): Promise<void> {
+  await upload.mutateAsync({ poId: repPoId.value, file, fileType: 'invoice' });
+}
+
 function pickFile(fileType: PcbShipmentFileTypeType): void {
   const input = document.createElement('input');
   input.type = 'file';
@@ -542,8 +548,7 @@ const STATUS_CLS: Record<string, string> = {
       :load-draft="invoiceApi.loadDraft"
       :save-draft="invoiceApi.saveDraft"
       :render-xlsx="invoiceApi.renderXlsx"
-      :attach-pdf="invoiceApi.attachPdf"
-      :attach-xlsx="invoiceApi.attachXlsx"
+      :attach-xlsx="attachInvoiceXlsx"
       @close="invoiceOpen = false"
     />
     <PcbPackageLabelsModal

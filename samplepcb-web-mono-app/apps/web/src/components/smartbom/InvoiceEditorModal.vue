@@ -14,9 +14,12 @@ const props = defineProps<{
   loadDraft: (fresh: boolean) => Promise<BomInvoiceDataType>;
   saveDraft: (data: BomInvoiceDataType) => Promise<unknown>;
   renderXlsx: (data: BomInvoiceDataType) => Promise<Blob>;
-  attachPdf: (file: File) => Promise<unknown>;
+  /** BOM 경로 — 미리보기 캡처 PDF 를 첨부한다. attachXlsx 를 주는 PCB 는 미전달. */
+  attachPdf?: (file: File) => Promise<unknown>;
   /** 있으면 PDF 대신 **엑셀을 그대로 첨부**한다(PCB 08-13 재편 — 관리자가 내려받아
-   *  수동 수정 후 재첨부하는 왕복이라 편집 가능한 파일이어야 한다). BOM 은 미전달=PDF. */
+   *  수동 수정 후 재첨부하는 왕복이라 편집 가능한 파일이어야 한다). BOM 은 미전달=PDF.
+   *  ⚠ 첨부는 목록 화면의 첨부 표시를 바꾼다 — 주입하는 쪽이 **업로드 뮤테이션을 감싸**
+   *  캐시를 무효화해야 한다(맨 API 호출을 넘기면 첨부는 되는데 화면이 안 바뀐다). */
   attachXlsx?: (file: File) => Promise<unknown>;
   /** 모달 제목 — PCB 는 '인보이스 생성기'(08-13 명칭 통일), BOM 은 기본값 유지. */
   title?: string;
@@ -179,7 +182,8 @@ async function genAttachXlsx(): Promise<void> {
 
 // PDF — 편집본 저장 후 미리보기 DOM 캡처(A4 세로, 초과분 페이지 분할) → Invoice 첨부.
 async function genPdf(): Promise<void> {
-  if (busy.value !== '' || previewEl.value === null) return;
+  if (busy.value !== '' || previewEl.value === null || props.attachPdf === undefined) return;
+  const attachPdf = props.attachPdf;
   busy.value = 'pdf';
   error.value = '';
   try {
@@ -205,7 +209,7 @@ async function genPdf(): Promise<void> {
       heightLeft -= pageH;
     }
     const blob = pdf.output('blob');
-    await props.attachPdf(new File([blob], `${fileBase()}.pdf`, { type: 'application/pdf' }));
+    await attachPdf(new File([blob], `${fileBase()}.pdf`, { type: 'application/pdf' }));
     emit('close');
   } catch (e) {
     error.value = e instanceof ApiRequestError ? e.message : 'PDF 생성에 실패했습니다.';
@@ -261,7 +265,7 @@ async function genPdf(): Promise<void> {
           {{ busy === 'xlsx' ? '생성 중…' : '엑셀 생성·첨부' }}
         </button>
         <button
-          v-else
+          v-else-if="attachPdf !== undefined"
           type="button"
           class="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 disabled:opacity-40"
           :disabled="busy !== '' || loading"
@@ -367,9 +371,16 @@ async function genPdf(): Promise<void> {
           </fieldset>
 
           <p class="text-[11px] text-amber-600">
-            * HS CODE·순중량·총중량은 직접 입력하세요. PDF는 아래 미리보기를 그대로 캡처합니다.
+            * HS CODE·순중량·총중량은 직접 입력하세요.
+            <template v-if="attachXlsx === undefined">PDF는 아래 미리보기를 그대로 캡처합니다.</template>
           </p>
-          <p class="text-[11px] text-gray-400">
+          <!-- 첨부 경로는 갈래마다 다르다 — 안내가 없는 버튼을 가리키면 사용자는
+               "첨부했는데 안 붙었다"로 읽는다(PCB 는 엑셀-온리, BOM 은 PDF). -->
+          <p v-if="attachXlsx !== undefined" class="text-[11px] text-gray-400">
+            [임시 저장]은 편집 내용만 보관합니다 — 선적 서류로 첨부하려면
+            <b class="text-teal-700">[엑셀 생성·첨부]</b>를 눌러 주세요([엑셀 다운로드]는 내려받기만 합니다).
+          </p>
+          <p v-else class="text-[11px] text-gray-400">
             [임시 저장]은 편집 내용만 보관합니다 — 선적 서류로 첨부하려면
             <b class="text-rose-600">[PDF 생성·첨부]</b>를 눌러 주세요(엑셀은 다운로드 전용).
           </p>
