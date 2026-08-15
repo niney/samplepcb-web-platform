@@ -342,27 +342,15 @@ const hasFixAfterReject = computed<boolean>(
 
 const shipAdvance = usePartnerPcbShipmentAdvance(); // 받는측(MD) 전이 전용
 const shipReceive = usePartnerPcbShipmentReceive();
-// 받는측(MD) 전이 — 국제 '선적'(AWB 트래킹) 이후 단계. 값이 필요한 단계는 모달로 받는다
-// (prompt 는 취소·오타 수정이 안 되고 브라우저 설정 하나로 막힌다).
-const trackingPromptOpen = ref(false);
+// 받는측(MD) 전이 — '선적' 포함 전부 무입력 즉시 전이(2026-08-15 정정). MD향 발송은
+// Case ID 갈래가 없어(receiverKind admin 한정) 직접 발송뿐이고, 운송장의 원천은
+// 보내는 하위 협력사다 — 받는 MD 에게 물으면 지어낸 값만 들어온다. 하위가 준비
+// 단계에 적어 둔 값이 있으면 그대로 실린다(서버 판정 body ?? 박제값).
 async function runReceiverAdvance(): Promise<void> {
   if (poId.value === null || ship.value === null || shipNext.value === null) return;
-  if (shipNext.value === 'shipped') {
-    trackingPromptOpen.value = true;
-    return;
-  }
-  await submitReceiverAdvance({});
-}
-async function submitReceiverAdvance(values: Record<string, string>): Promise<void> {
-  if (poId.value === null) return;
-  const tn = values.trackingNumber ?? '';
   actionError.value = '';
   try {
-    await shipAdvance.mutateAsync({
-      poId: poId.value,
-      body: tn === '' ? {} : { trackingNumber: tn },
-    });
-    trackingPromptOpen.value = false;
+    await shipAdvance.mutateAsync({ poId: poId.value, body: {} });
   } catch (e) {
     surfaceError(e, '진행에 실패했습니다.');
   }
@@ -848,15 +836,6 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
     </div>
 
     <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) -->
-    <!-- 트래킹 번호 — 보내는측이 선적준비에 적어 둔 값이 있으면 프리필(재타이핑 방지). -->
-    <UiPromptModal
-      :title="trackingPromptOpen ? '선적 진행' : null"
-      :fields="[{ name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true, value: ship?.trackingNumber ?? '' }]"
-      confirm-label="진행"
-      :busy="shipAdvance.isPending.value"
-      @close="trackingPromptOpen = false"
-      @confirm="(v) => void submitReceiverAdvance(v)"
-    />
     <UiPromptModal
       :title="receivePromptOpen ? '입고 확인(수령)' : null"
       :fields="[{

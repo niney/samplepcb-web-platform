@@ -1157,47 +1157,44 @@ const shipPromptFieldsOf = (
     ];
   }
   if (next === 'shipped') {
-    // 운송회사 — 정식 표기 셀렉트(+직접입력)·선택 입력. 직접 발송 갈래는 협력사가
-    // 선적요청에 적어 둔 값이, 자사 주선 갈래는 부킹한 운송사가 여기서 박제된다.
+    // 직접 발송(Case ID 미체크) — 받는측 입력 없음(2026-08-15 정정): 운송 계약 주체가
+    // 협력사라 운송장·운송회사의 원천이 보내는 쪽이다. 준비 단계에 적어 둔 값이 그대로
+    // 실리고, 없으면 빈 채로 간다(서버 운송장 게이트도 Case ID 갈래 한정으로 좁힘).
+    // 빈 배열 반환 = adminShipAdvance 의 무입력 즉시 전이 관례에 합류.
+    if (ship?.caseRefRequested !== true) return [];
+    // Case ID 갈래(08-13) — 관리자가 부킹 주체라 참조번호·운송회사·운송장을 한 번에 받는다.
     // (⚠ PromptField 주석·satisfies 금지 — .vue 발 타입은 eslint TS 프로그램에서 error
     //  type 이라 변수에 물리면 no-unsafe-* 에 걸린다. 추론 타입으로 두면 반환문에서
     //  vue-tsc 가 PromptField[] 대입을 검증한다.)
-    const carrierField = {
-      name: 'carrier',
-      label: '운송회사',
-      type: 'select' as const,
-      options: PCB_INTL_CARRIERS,
-      maxlength: 50,
-      value: ship?.carrier ?? '',
-      placeholder: '운송회사명',
-    };
-    // 트래킹 번호 — 협력사가 선적준비(직접 발송 갈래)에 적어 둔 값이 프리필된다.
-    const trackingField = {
-      name: 'trackingNumber',
-      label: '트래킹 번호(AWB/BL)',
-      required: true,
-      maxlength: 100,
-      value: ship?.trackingNumber ?? '',
-    };
-    // Case ID 갈래(08-13) — 요청된 발송의 '선적'은 참조번호를 운송장과 함께 받는다(한 번에).
-    if (ship?.caseRefRequested === true) {
-      return [
-        {
-          name: 'caseRef',
-          label: '발송 참조번호(Case ID)',
-          required: true,
-          maxlength: 100,
-          value: ship.caseRef ?? '',
-          hint:
-            ship.caseRefNote !== null && ship.caseRefNote !== ''
-              ? `협력사 요청 메모: ${ship.caseRefNote}`
-              : '협력사가 라벨링·인계에 쓸 값입니다 — 선적 통지 메일에 함께 나갑니다.',
-        },
-        carrierField,
-        trackingField,
-      ];
-    }
-    return [carrierField, trackingField];
+    return [
+      {
+        name: 'caseRef',
+        label: '발송 참조번호(Case ID)',
+        required: true,
+        maxlength: 100,
+        value: ship.caseRef ?? '',
+        hint:
+          ship.caseRefNote !== null && ship.caseRefNote !== ''
+            ? `협력사 요청 메모: ${ship.caseRefNote}`
+            : '협력사가 라벨링·인계에 쓸 값입니다 — 선적 통지 메일에 함께 나갑니다.',
+      },
+      {
+        name: 'carrier',
+        label: '운송회사',
+        type: 'select' as const,
+        options: PCB_INTL_CARRIERS,
+        maxlength: 50,
+        value: ship.carrier ?? '',
+        placeholder: '운송회사명',
+      },
+      {
+        name: 'trackingNumber',
+        label: '트래킹 번호(AWB/BL)',
+        required: true,
+        maxlength: 100,
+        value: ship.trackingNumber ?? '',
+      },
+    ];
   }
   return [];
 };
@@ -1229,8 +1226,17 @@ async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): P
 async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
   const next = bomShipmentNextStatus(s.mode, s.status);
   if (next === null) return;
-  // 입력이 필요 없는 단계(국내도착/현지도착·통관·완료 등)는 그대로 진행한다.
-  if (shipPromptFieldsOf(next).length === 0) {
+  // 필드 판정은 갈래를 알아야 한다 — 직접 발송 '선적'은 빈 배열(무입력)이지만 Case ID
+  // 갈래는 프롬프트가 필수라, 갈래 없이 물으면 후자까지 즉시 전이로 새어 409 만 남는다.
+  const ship = {
+    caseRefRequested: s.caseRefRequestedAt !== null,
+    caseRef: s.caseRef,
+    caseRefNote: s.caseRefNote,
+    carrier: s.carrier,
+    trackingNumber: s.trackingNumber,
+  };
+  // 입력이 필요 없는 단계(직접 발송 '선적'·국내도착/현지도착·통관·완료 등)는 그대로 진행.
+  if (shipPromptFieldsOf(next, ship).length === 0) {
     await runShipAdvance(poId, {});
     return;
   }
@@ -1239,11 +1245,11 @@ async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<v
     next,
     mode: s.mode,
     directShip: isPcbDirectShipIntl(s.destinationCountry),
-    caseRefRequested: s.caseRefRequestedAt !== null,
-    caseRefValue: s.caseRef,
-    caseRefNote: s.caseRefNote,
-    carrier: s.carrier,
-    trackingNumber: s.trackingNumber,
+    caseRefRequested: ship.caseRefRequested,
+    caseRefValue: ship.caseRef,
+    caseRefNote: ship.caseRefNote,
+    carrier: ship.carrier,
+    trackingNumber: ship.trackingNumber,
   };
 }
 async function submitShipPrompt(values: Record<string, string>): Promise<void> {

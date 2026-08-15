@@ -487,7 +487,11 @@ export const advancePcbShipment = async (
     )
       return { ok: false, error: 'MISSING_TRACKING' };
   }
-  if (next === 'shipped') {
+  // 국제 '선적'의 운송장 필수는 **Case ID 갈래 한정**(2026-08-15 정정) — 직접 발송은
+  // 운송 계약 주체가 협력사라 받는측(관리자·MD)이 값을 모른다. 강제하면 지어낸 값이
+  // 들어온다(빈 값보다 나쁘다). 협력사가 준비 단계에 적어 둔 값은 그대로 실린다
+  // (body ?? 박제값). 자사 주선(Case ID)은 관리자가 부킹 주체라 강제가 정당하다.
+  if (next === 'shipped' && shipment.caseRefRequestedAt !== null) {
     const tracking = body.trackingNumber ?? shipment.trackingNumber;
     if (tracking === null || tracking === '') return { ok: false, error: 'MISSING_TRACKING' };
   }
