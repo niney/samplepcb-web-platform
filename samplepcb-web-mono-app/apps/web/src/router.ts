@@ -303,6 +303,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminPcbShipments.vue'),
       },
       {
+        // PCB 고객 클레임(A/S 접수) 워크큐(P5) — SmartBOM 클레임 미러.
+        path: 'pcb/claims',
+        name: 'admin-pcb-claims',
+        component: () => import('./pages/admin/AdminPcbClaims.vue'),
+      },
+      {
         // PCB Case QR 스캔 도착점 — token은 식별자, 접근은 관리자 가드와 API 인증이 담당.
         path: 'pcb/packages/:code',
         name: 'admin-pcb-package',

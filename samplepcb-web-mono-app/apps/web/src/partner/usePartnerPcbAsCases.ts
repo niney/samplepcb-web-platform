@@ -78,3 +78,20 @@ export async function downloadPartnerPcbAsCaseFile(
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** 연결 고객 클레임(P5) 첨부 다운로드 — 케이스 경유 라우트(연결 검증은 서버). */
+export async function downloadPartnerPcbAsClaimFile(
+  caseId: number,
+  fileId: number,
+  name: string,
+): Promise<void> {
+  const blob = await apiGetBlob(
+    `/api/partner/pcb-as-cases/${String(caseId)}/claim-files/${String(fileId)}`,
+  );
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}

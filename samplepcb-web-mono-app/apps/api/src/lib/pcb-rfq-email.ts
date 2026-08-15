@@ -850,3 +850,79 @@ export function buildPcbEqCustomerDecisionEmail(p: PcbEqCustomerDecisionEmailPar
     ),
   };
 }
+
+// ── P5 고객 클레임(A/S 접수) — docs/PCB_PARTNER_TRACK.md §9 A/S ──────────────
+// 고객향 2종: 접수 확인·판정 회신. 링크는 넣지 않는다 — 확인은 주문내역 화면에서
+// 하고, 메일 링크로 상태가 바뀌는 동선을 만들지 않는 EQ 규칙(D16)과 같은 결.
+
+export interface PcbClaimReceivedEmailParams {
+  customerName: string;
+  projectName: string;
+  kindLabel: string;
+  affectedQty: number;
+  orderedQty: number;
+  /** 관리자 대리 접수면 true — 문구가 "접수해 드렸습니다"로 바뀐다. */
+  byAdmin: boolean;
+}
+
+export function buildPcbClaimReceivedEmail(p: PcbClaimReceivedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `[샘플피씨비] A/S 접수 확인 — ${p.projectName}`,
+    html: shell(
+      'A/S 접수가 완료되었습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.customerName)}님, <b>${esc(p.projectName)}</b> 건의 A/S 를
+        ${p.byAdmin ? '담당자가 대신 접수해 드렸습니다.' : '접수했습니다.'}
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 12px;">
+        ${infoRow('유형', esc(p.kindLabel))}
+        ${infoRow('문제 수량', `${String(p.affectedQty)} / ${String(p.orderedQty)}`)}
+      </table>
+      <p style="margin:0;font-size:13px;color:#555;line-height:1.7;">
+        담당자가 내용을 검토한 뒤 처리 방안을 회신드립니다. 접수만으로 주문 취소·환불이
+        자동 진행되지는 않습니다. 진행 상황은 주문내역에서 확인하실 수 있습니다.
+      </p>`,
+      '본 메일은 샘플피씨비 PCB A/S 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbClaimDecidedEmailParams {
+  customerName: string;
+  projectName: string;
+  resolved: boolean; // true=처리 확정, false=처리 불가
+  resolutionLabel: string | null; // resolved 일 때 처리 방식 라벨
+  response: string; // 판정 회신(관리자 작성)
+}
+
+export function buildPcbClaimDecidedEmail(p: PcbClaimDecidedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `[샘플피씨비] A/S ${p.resolved ? '처리 안내' : '검토 결과 안내'} — ${p.projectName}`,
+    html: shell(
+      p.resolved ? 'A/S 처리 방안이 확정되었습니다' : 'A/S 검토 결과를 안내드립니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.customerName)}님, <b>${esc(p.projectName)}</b> 건의 A/S 검토가 끝났습니다.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 12px;">
+        ${p.resolved && p.resolutionLabel !== null ? infoRow('처리 방식', esc(p.resolutionLabel)) : ''}
+        ${infoRow('안내', esc(p.response))}
+      </table>
+      <p style="margin:0;font-size:13px;color:#555;line-height:1.7;">
+        ${
+          p.resolved
+            ? '처리가 진행되면 주문내역의 제작 진행 상황에서 확인하실 수 있습니다.'
+            : '추가로 궁금하신 점은 회신 또는 고객센터로 문의해 주세요.'
+        }
+      </p>`,
+      '본 메일은 샘플피씨비 PCB A/S 알림입니다.',
+    ),
+  };
+}

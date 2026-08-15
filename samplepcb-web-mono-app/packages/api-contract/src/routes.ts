@@ -48,6 +48,9 @@ export const apiRoutes = {
   adminPcbRemittances: '/api/admin/pcb-remittances',
   adminPcbEqReviews: '/api/admin/pcb-eq-reviews',
   pcbEqReviews: '/api/pcb-eq-reviews',
+  // PCB 고객 클레임(A/S 접수, P5) — 고객(주문내역 브리지)·관리자 워크큐
+  pcbClaims: '/api/pcb-claims',
+  adminPcbClaims: '/api/admin/pcb-claims',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',

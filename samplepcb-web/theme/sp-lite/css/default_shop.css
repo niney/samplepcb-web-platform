@@ -2534,6 +2534,25 @@
 #sod_fin .sp_eq_done { margin: 8px 0 0; font-size: 0.917em; color: #6b7280; }
 #sod_fin .sp_eq_done .sp_eq_note { display: block; margin-top: 4px; color: #4b5563; }
 
+/* PCB A/S 접수(P5) — EQ 톤 공유 + 접수 폼 전용 */
+#sod_fin #sp_as_wrap { margin: 20px 0; }
+#sod_fin #sp_as_wrap h2 { font-size: 1.083em; font-weight: 700; margin: 0 0 6px; }
+#sod_fin .sp_as_claim { border-top: 1px dashed #e5e7eb; padding-top: 10px; margin-top: 10px; }
+#sod_fin .sp_as_meta { font-size: 0.875em; color: #6b7280; }
+#sod_fin .sp_as_reply { margin: 8px 0 0; padding: 10px 12px; background: #f0fdf4; border-left: 3px solid #16a34a; font-size: 0.917em; line-height: 1.7; color: #14532d; }
+#sod_fin .sp_as_form_wrap { margin-top: 12px; }
+#sod_fin .sp_as_form_wrap > summary { cursor: pointer; display: inline-block; padding: 8px 16px; border: 1px solid #0284c7; border-radius: 6px; color: #0284c7; font-size: 0.917em; font-weight: 700; background: #fff; list-style: none; }
+#sod_fin .sp_as_form_wrap > summary::-webkit-details-marker { display: none; }
+#sod_fin .sp_as_form_wrap[open] > summary { border-color: #d1d5db; color: #6b7280; }
+#sod_fin .sp_as_form { margin-top: 10px; }
+#sod_fin .sp_as_grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+#sod_fin .sp_as_grid label { display: block; font-size: 0.875em; font-weight: 700; color: #374151; }
+#sod_fin .sp_as_grid select,
+#sod_fin .sp_as_grid input[type=number] { display: block; margin-top: 4px; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.958em; min-width: 130px; background: #fff; }
+#sod_fin .sp_as_form input[type=file] { display: block; margin-top: 4px; font-size: 0.875em; }
+#sod_fin .sp_as_form .sp_eq_note_label { margin-top: 8px; }
+#sod_fin .sp_as_ack { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 0.875em; color: #4b5563; }
+
 @media (max-width: 600px) {
     #sod_fin .sp_eq_btns button { flex: 1; }
 }

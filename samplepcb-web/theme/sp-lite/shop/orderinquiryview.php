@@ -366,6 +366,114 @@ if($od['od_pg'] == 'lg') {
         </script>
         <?php endif; ?>
 
+        <?php
+        // ── PCB A/S 접수(P5, docs/PCB_PARTNER_TRACK.md §9 A/S) ──────────────────
+        // 배송·완료 후 제품 문제 접수. 판정·저장은 sp-node 가 하고 여기서는 화면만
+        // 그린다 — 접수 가능 여부(eligibility)도 서버 판정을 그대로 표시한다.
+        // 접수 폼은 spcb/api/claim-create 브리지로 multipart POST(사진 동반 1회 제출).
+        // ⚠ 협력사명·발주 정보는 노출하지 않는다(EQ 와 같은 규칙).
+        $sp_claim_specs = function_exists('sp_pcb_claims') ? sp_pcb_claims($od_id) : array();
+        // 접수 가능한 스펙도, 이력도 없으면 섹션 자체를 내지 않는다(빈 제목 방지).
+        $sp_claim_visible = false;
+        foreach ($sp_claim_specs as $sp_cs) {
+            if (!empty($sp_cs['eligibility']['canSubmit']) || !empty($sp_cs['claims'])) {
+                $sp_claim_visible = true;
+                break;
+            }
+        }
+        if ($sp_claim_visible):
+            $sp_claim_kinds    = sp_pcb_claim_kinds();
+            $sp_claim_remedies = sp_pcb_claim_remedies();
+        ?>
+        <section id="sp_as_wrap">
+            <h2>PCB A/S</h2>
+            <p class="sp_eq_intro">받으신 제품에 문제가 있으면 접수해 주세요. 담당자가 검토 후 처리 방안을 안내드립니다.</p>
+
+            <?php foreach ($sp_claim_specs as $cs):
+                if (empty($cs['eligibility']['canSubmit']) && empty($cs['claims'])) continue;
+            ?>
+            <div class="sp_eq_item">
+                <div class="sp_eq_head">
+                    <strong class="sp_eq_proj"><?php echo get_text($cs['projectName']); ?></strong>
+                    <span class="sp_eq_due">주문 수량 <?php echo (int) $cs['qty']; ?></span>
+                </div>
+
+                <?php foreach ($cs['claims'] as $cl):
+                    $st = sp_pcb_claim_status_label($cl['status']);
+                ?>
+                <div class="sp_as_claim">
+                    <div class="sp_eq_head">
+                        <span class="sp_eq_badge <?php echo $st['cls']; ?>"><?php echo $st['label']; ?></span>
+                        <span class="sp_as_meta">
+                            <?php echo isset($sp_claim_kinds[$cl['kind']]) ? $sp_claim_kinds[$cl['kind']] : get_text($cl['kind']); ?>
+                            · 문제 수량 <?php echo (int) $cl['affectedQty']; ?>/<?php echo (int) $cl['orderedQty']; ?>
+                            · <?php echo date('Y-m-d', strtotime($cl['submittedAt'])); ?>
+                        </span>
+                    </div>
+                    <div class="sp_eq_msg"><?php echo nl2br(get_text($cl['description'])); ?></div>
+                    <?php if (!empty($cl['adminResponse'])): ?>
+                    <p class="sp_as_reply">
+                        <b>답변<?php
+                            $sp_res_label = sp_pcb_claim_resolution_label(isset($cl['resolutionKind']) ? $cl['resolutionKind'] : '');
+                            if ($sp_res_label !== '') echo ' · ' . $sp_res_label;
+                        ?></b> — <?php echo nl2br(get_text($cl['adminResponse'])); ?>
+                    </p>
+                    <?php elseif ($cl['status'] === 'open' || $cl['status'] === 'reviewing'): ?>
+                    <p class="sp_eq_done">담당자가 확인하고 있습니다 — 결과는 이메일과 이 화면에서 안내됩니다.</p>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+
+                <?php if (!empty($cs['eligibility']['canSubmit'])): ?>
+                <details class="sp_as_form_wrap">
+                    <summary>A/S 접수하기</summary>
+                    <form method="post" action="<?php echo G5_URL; ?>/spcb/api/claim-create" enctype="multipart/form-data" class="sp_as_form">
+                        <!-- get_token() 은 값만 반환한다(hidden 미출력 — EQ 폼과 같은 함정 주의). -->
+                        <input type="hidden" name="token" value="<?php echo get_token(); ?>">
+                        <input type="hidden" name="od_id" value="<?php echo get_text($od_id); ?>">
+                        <input type="hidden" name="spec_id" value="<?php echo (int) $cs['specId']; ?>">
+                        <div class="sp_as_grid">
+                            <label>문제 유형
+                                <select name="kind" required>
+                                    <?php foreach ($sp_claim_kinds as $k => $lb): ?>
+                                    <option value="<?php echo $k; ?>"><?php echo $lb; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>문제 수량
+                                <input type="number" name="affected_qty" min="1" max="<?php echo (int) $cs['qty']; ?>" value="<?php echo (int) $cs['qty']; ?>" required>
+                            </label>
+                            <label>희망 처리
+                                <select name="requested_remedy" required>
+                                    <?php foreach ($sp_claim_remedies as $k => $lb): ?>
+                                    <option value="<?php echo $k; ?>"><?php echo $lb; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                        </div>
+                        <label class="sp_eq_note_label">증상 설명 <span>(어떤 문제인지 구체적으로 적어 주세요)</span>
+                            <textarea name="description" rows="3" maxlength="2000" required placeholder="예) 10장 중 3장이 전원 인가 시 동작하지 않습니다."></textarea>
+                        </label>
+                        <label class="sp_eq_note_label">사진·자료 <span>(불량 부위 사진이 있으면 처리가 빨라집니다)</span>
+                            <input type="file" name="photos[]" multiple accept="image/*,.pdf,.zip">
+                        </label>
+                        <label class="sp_as_ack">
+                            <input type="checkbox" name="acknowledge" value="1" required>
+                            접수만으로 주문 취소·환불이 자동 진행되지 않음을 확인했습니다.
+                        </label>
+                        <div class="sp_eq_btns">
+                            <button type="submit" class="sp_eq_approve">A/S 접수</button>
+                        </div>
+                    </form>
+                </details>
+                <?php elseif (!empty($cs['eligibility']['reason']) && $cs['eligibility']['reason'] === 'ACTIVE_CLAIM'): ?>
+                <p class="sp_eq_done">처리 중인 접수가 있어 새 접수는 잠시 닫혀 있습니다.</p>
+                <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
+        </section>
+        <?php endif; ?>
+
         <div id="sod_sts_wrap">
             <span class="sound_only">상품 상태 설명</span>
             <button type="button" id="sod_sts_explan_open" class="btn_frmline">상태설명보기</button>

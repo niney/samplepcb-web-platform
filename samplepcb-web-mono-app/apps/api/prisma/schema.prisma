@@ -69,6 +69,7 @@ model SpOrderSpec {
   pcbPos        SpPcbPo[]
   pcbShipments  SpPcbShipment[]
   pcbAsCases    SpPcbAsCase[]
+  pcbClaims     SpPcbClaim[]
 
   @@index([mbId, status])
   @@index([quoteId])
@@ -1563,6 +1564,73 @@ model SpPcbAsCase {
   @@index([targetPartnerId, status]) // 협력사 포털 회신 대기
   @@index([parentPartnerId]) // MD 열람 격리
   @@map("sp_pcb_as_case")
+}
+
+// PCB 고객 클레임(A/S 접수, P5) — BOM 클레임(sp_bom_claim, D37)의 PCB 미러.
+// 고객↔자사 축의 접수·검토·판정 원장이다. 처리 실행은 기존 수단으로 갈라진다:
+// 재생산=A/S 케이스 핸드오프(asCaseId), 환불=주문 환불 기록(od_refund_price 가 정본,
+// 여기는 협의 금액 기록만), 안내=회신 종결. 스펙 1건=보드 1종이라 BOM 의 품목 테이블
+// 대신 수량 스칼라(orderedQty/affectedQty)를 쓴다. 첨부는 sp_file
+// refType 'sp_pcb_claim'(고객 CUSTOMER / 관리자 대리 ADMIN — 케이스 첨부 규약 동형).
+model SpPcbClaim {
+  id              BigInt            @id @default(autoincrement())
+  specId          BigInt
+  mbId            String            @db.VarChar(60) // 고객(주문자) — spec.mbId 박제
+  odId            String            @db.VarChar(64)
+  ctId            Int
+  /** 열린 클레임 1건 규칙 — 'pcb:{specId}' UNIQUE, 종결(resolve/reject) 시 null 로 해제. */
+  activeKey       String?           @unique @db.VarChar(96)
+  status          String            @default("open") @db.VarChar(16) // open|reviewing|resolved|rejected
+  kind            String            @db.VarChar(24) // quality|damaged|spec_mismatch|shortage|other
+  description     String            @db.Text // 고객 증상 설명(대리 접수 시 관리자 타이핑)
+  orderedQty      Int // spec.qty 박제(스냅샷)
+  affectedQty     Int // 불량(문제) 수량 — 전량이면 orderedQty 와 동일
+  requestedRemedy String            @db.VarChar(24) // reproduce|refund|consult — 고객 희망(참고값)
+  orderSnapshot   Json
+  version         Int               @default(1)
+  createdByRole   String            @db.VarChar(12) // customer|admin(대리 접수 — 여정 12호 byRole 관례)
+  createdBy       String            @db.VarChar(191) // 작성자 mbId(고객 또는 관리자)
+  adminMbId       String?           @db.VarChar(191)
+  adminResponse   String?           @db.Text // 판정 회신 — 고객 노출·메일 동봉
+  faultType       String?           @db.VarChar(24) // manufacturing|customer_data|shipping_damage|unknown
+  resolutionKind  String?           @db.VarChar(24) // reproduce|refund_coordination|guidance
+  chargeAmount    Int? // 유상 청구 기록(원) — 실청구는 별도(기록만, 08-15 결정)
+  refundAmount    Int? // 환불 협의 기록(원) — 실집행 정본은 od_refund_price
+  returnRequired  Boolean           @default(false) // 불량품 회수 필요(자유 기록 — 역물류 모델 보류)
+  returnNote      String?           @db.VarChar(500) // 회수 운송장 등 메모
+  /** 재생산 핸드오프 — resolve(reproduce)가 만든 A/S 케이스. FK 없는 느슨한 참조
+   *  (케이스 삭제는 draft 뿐이라 고아가 돼도 표시만 비면 된다). */
+  asCaseId        BigInt?
+  submittedAt     DateTime          @default(now())
+  reviewStartedAt DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  spec            SpOrderSpec       @relation(fields: [specId], references: [id], onDelete: Cascade)
+  events          SpPcbClaimEvent[]
+
+  @@index([specId, submittedAt])
+  @@index([mbId, submittedAt]) // 고객 내역
+  @@index([status, submittedAt]) // 관리자 워크큐
+  @@map("sp_pcb_claim")
+}
+
+// 클레임 상태 전이 append-only 감사 이력(BOM sp_bom_claim_event 미러) — 현재 상태의
+// 정본은 claim.status 고, 이 원장은 누가 언제 어떤 회신으로 전이했는지의 근거다.
+model SpPcbClaimEvent {
+  id         BigInt     @id @default(autoincrement())
+  claimId    BigInt
+  action     String     @db.VarChar(24) // submitted|review_started|resolved|rejected
+  actorRole  String     @db.VarChar(12) // customer|admin
+  actorMbId  String     @db.VarChar(191)
+  fromStatus String?    @db.VarChar(16)
+  toStatus   String     @db.VarChar(16)
+  note       String?    @db.Text
+  createdAt  DateTime   @default(now())
+  claim      SpPcbClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId, createdAt])
+  @@map("sp_pcb_claim_event")
 }
 
 // PCB 선적(P3) — 발주서당 1건 생성 + 발송 시점 묶기(sp_pcb_shipment_po, BOM §6.10

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PcbAsCaseClaimBrief } from './pcb-claim';
 
 // ── PCB A/S 케이스 — sp_pcb_as_case 계약(P4) ────────────────────────────────
 // 정본: docs/PCB_PARTNER_TRACK.md §9 A/S. 완료·출고된 발주의 재생산(회차 재발주)
@@ -92,6 +93,8 @@ export const AdminPcbAsCaseView = z.object({
    *  잃던 갭. 직거래=대상 협력사 발주, MD 경유=관리자→MD 발주(A). */
   roundPoId: z.number().nullable(),
   files: z.array(PcbAsCaseFileView),
+  /** 이 케이스를 연 고객 클레임(P5 핸드오프) — 수동 접수 케이스는 null. */
+  claimId: z.string().nullable(),
 });
 export type AdminPcbAsCaseViewType = z.infer<typeof AdminPcbAsCaseView>;
 
@@ -117,6 +120,9 @@ export const PartnerPcbAsCaseView = z.object({
    *  발주(아직 없으면 null — 화면은 문구로 폴백). 관리자 뷰 roundPoId 의 포털 미러. */
   roundPoId: z.number().nullable(),
   files: z.array(PcbAsCaseFileView),
+  /** 연결된 고객 클레임 요약(P5) — 협력사가 증상·문제 수량·고객 사진을 본다.
+   *  사진 다운로드는 케이스 경유 라우트(claim-files)가 연결을 검증해 스트림한다. */
+  claim: PcbAsCaseClaimBrief.nullable(),
 });
 export type PartnerPcbAsCaseViewType = z.infer<typeof PartnerPcbAsCaseView>;
 

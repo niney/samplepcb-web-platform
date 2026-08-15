@@ -87,6 +87,7 @@ import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
 import PcbSpecEditModal from '../../components/admin/pcb/PcbSpecEditModal.vue';
 import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
 import PcbAsCasePanel from '../../components/admin/pcb/PcbAsCasePanel.vue';
+import PcbClaimStrip from '../../components/admin/pcb/PcbClaimStrip.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
 import UiPromptModal, { type PromptField } from '../../components/ui/UiPromptModal.vue';
 import PcbOrderCancelModal from '../../components/admin/pcb/PcbOrderCancelModal.vue';
@@ -2613,6 +2614,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     </section>
 
     <!-- A/S 재발주(P4) — 완료·출고 건 재생산 접수 → 협력사 회신 → 회차 발주서 -->
+    <!-- 고객 클레임(P5) — 판정은 워크큐 단일 창구, 여기선 신호 + 대리 접수만. -->
+    <PcbClaimStrip v-if="detail !== null && specId !== null" :spec-id="specId" />
     <PcbAsCasePanel v-if="detail !== null && specId !== null" :spec-id="specId" />
 
     <!-- 보낸 메일 — 이 Case 컨텍스트의 발송 이력(전 채널 원장 임베드, 기본 접힘) -->

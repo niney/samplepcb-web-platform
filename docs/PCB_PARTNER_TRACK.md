@@ -2873,3 +2873,50 @@ parent=0 ∧ receiverKind='admin' 입고만)·고객 진행 카드(자사향 선
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
+
+### P5 구현 기록 (2026-08-15 — 고객 클레임: A/S 접수의 고객·판정 축 개통)
+
+기존 A/S(P4.12)는 자사↔협력사의 **재생산 합의**였고 고객은 등장하지 않았다(접수는
+전화·메일→관리자 수기). P5 는 그 앞단에 **고객↔자사 축(sp_pcb_claim)** 을 얹는다 —
+BOM 클레임(sp_bom_claim, D37)의 PCB 미러 + PCB 고유 판정 축. 처리 실행은 기존 수단
+재사용: 재생산=A/S 케이스 핸드오프, 환불=주문 환불 기록(od_refund_price 정본), 안내=회신.
+
+- **스키마**: `SpPcbClaim`+`SpPcbClaimEvent`(마이그 20260815150000) — specId 앵커(FK
+  cascade)·od/ct 스냅샷 박제·**activeKey UNIQUE('pcb:{specId}')=스펙당 열린 클레임
+  1건**(종결 시 null 해제, 경합은 P2002→ACTIVE_CLAIM)·version 낙관적 잠금·이벤트
+  append-only 원장. 수량은 스칼라(orderedQty/affectedQty — 보드 1종이라 BOM 품목
+  테이블 불요). 첨부 sp_file refType 'sp_pcb_claim'(CUSTOMER/ADMIN).
+- **어휘(사용자 결정 08-15)**: kind 5종(quality/damaged/spec_mismatch/shortage/other) ·
+  requestedRemedy 3종(고객 희망 — 참고값) · **faultType 4종(manufacturing/customer_data/
+  shipping_damage/unknown — 귀책 판정)** · resolutionKind 3종(reproduce/refund_coordination/
+  guidance). 유상 청구·환불 협의는 **금액 기록만**(chargeAmount/refundAmount — 실집행
+  별도), 회수는 **자유 기록만**(returnRequired/returnNote — 역물류 모델 보류).
+- **게이트**: 배송 후 접수(od·ct '배송/완료')·활성 주문행(LINE_CLOSED)·활성 1건.
+  기한 없음(무기한 접수 + 관리자 판정으로 거름). 수량은 주문 수량 이내(QTY_EXCEEDS_ORDER).
+- **고객 접수**: sp-php 주문내역 상세(orderinquiryview)에 A/S 섹션 — EQ(D16) 브리지
+  동형: 목록은 extend(sp_pcb_claim.extend.php)가 서버사이드 GET, 접수는
+  `spcb/api/claim-create`(POST 전용·CSRF)가 **사진까지 multipart 로 중계**(CURLFile,
+  1회 제출·최대 10장). 폼: 유형·문제 수량·희망 처리·증상·사진·자동환불 아님 확인 체크.
+- **관리자 대리 접수**: Case 상세 클레임 스트립(PcbClaimStrip)의 모달 — byRole=admin
+  박제(여정 12호 관례), 같은 게이트, 고객에겐 "대신 접수" 문구의 확인 메일.
+- **판정(워크큐 단일 창구)**: `/app/admin/pcb/claims`(AdminPcbClaims — SmartBOM 클레임
+  미러 + PCB 판정 폼). open→reviewing→resolved/rejected(버전 잠금 tx·이벤트 기록).
+  **resolve(reproduce)+대상 협력사 지정 = A/S 케이스 초안 생성+연결**(caseType=
+  product_defect 고정, chargeType 은 customer_data 귀책만 유상 기본 — draft 라 패널
+  수정 가능; 케이스 먼저 생성→전이 실패 시 초안 회수로 반쪽 상태 차단). 케이스→클레임
+  역참조는 조회 파생(AdminPcbAsCaseView.claimId).
+- **협력사 노출**: 케이스 상세·회신 카드에 **클레임 요약(claim brief — 증상·문제
+  수량·고객 사진)**. 사진은 실물 복사 없이 참조 노출 — 다운로드는
+  `/partner/pcb-as-cases/:id/claim-files/:fileId` 가 연결 검증 후 스트림(pathToken
+  이중 참조 시 한쪽 삭제가 실파일을 끊는 함정 회피).
+- **메일 2종**: pcb_claim_received(접수 확인 — 고객/대리 문구 분기)·pcb_claim_decided
+  (판정 회신 — 처리 방식 동봉). 수신처 od_email, refType 'pcb_spec'(Case '보낸 메일'
+  합류), MailLogList KNOWN_KINDS 등록(+기존 pcb_as_submitted/replied 누락도 회수).
+- **화면 신호**: 관리자 사이드바 'A/S·클레임' 메뉴+pending 배지, Case 상세 스트립
+  (최근 3건+A/S 연결 배지), 고객 주문내역 이력(상태·답변·처리방식 라벨).
+- **검증**: e2e `pcb-claim.e2e.test.ts` 4/4(고객 multipart 접수·ACTIVE_CLAIM 409·
+  판정→케이스 자동 생성·연결·협력사 brief+사진 다운로드·대리 접수→거절→재접수 개방·
+  메일 원장 2종) · typecheck(contract/api/web)·eslint 0건·PHP lint 3파일 0건.
+- **미결(후속 후보)**: 고객 검토 중 추가 첨부(현재 접수 1회 제출), 관리자 클레임 삭제
+  창구(원장이라 의도적 부재), 환불 실집행과 refundAmount 기록의 한 버튼 연결, 회수
+  정식 역물류.

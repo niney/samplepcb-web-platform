@@ -4,10 +4,12 @@ import type {
   AdminPcbAsCaseViewType,
   PartnerPcbAsCaseViewType,
   PcbAsCandidateViewType,
+  PcbAsCaseClaimBriefType,
   PcbAsCaseFileViewType,
 } from '@sp/api-contract';
 import { defaultPcbAsCharge, PCB_PAYMENT_TERM_NET_7 } from '@sp/api-contract';
 import { prisma } from './prisma';
+import { loadPcbClaimFilesMap } from './pcb-claim';
 import { resolvePcbRemittanceDueOn } from './pcb-payment-terms';
 import { isPcbOrderLineCanceled } from './pcb-shipment';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
@@ -64,6 +66,21 @@ const loadPartnerNames = async (ids: bigint[]): Promise<Map<string, string>> => 
 const topPartnerIdOf = (c: SpPcbAsCase): bigint =>
   c.parentPartnerId === 0n ? c.targetPartnerId : c.parentPartnerId;
 
+/** 케이스를 연 고객 클레임(P5) 역조회 — 클레임이 asCaseId 단방향으로 가리킨다. */
+const loadClaimIdMap = async (caseIds: bigint[]): Promise<Map<string, bigint>> => {
+  if (caseIds.length === 0) return new Map();
+  const rows = await prisma.spPcbClaim.findMany({
+    where: { asCaseId: { in: caseIds } },
+    select: { id: true, asCaseId: true },
+    orderBy: { id: 'asc' },
+  });
+  const map = new Map<string, bigint>();
+  for (const r of rows) {
+    if (r.asCaseId !== null) map.set(r.asCaseId.toString(), r.id);
+  }
+  return map;
+};
+
 export const serializeAdminAsCases = async (
   rows: SpPcbAsCase[],
 ): Promise<AdminPcbAsCaseViewType[]> => {
@@ -71,6 +88,7 @@ export const serializeAdminAsCases = async (
     rows.flatMap((r) => [r.targetPartnerId, r.parentPartnerId]),
   );
   const filesMap = await loadAsCaseFilesMap(rows.map((r) => r.id));
+  const claimIds = await loadClaimIdMap(rows.map((r) => r.id));
   const out: AdminPcbAsCaseViewType[] = [];
   for (const r of rows) {
     let roundPoId: number | null = null;
@@ -109,6 +127,7 @@ export const serializeAdminAsCases = async (
       createdAt: r.createdAt.toISOString(),
       roundPoId,
       files: filesMap.get(r.id.toString()) ?? [],
+      claimId: claimIds.get(r.id.toString())?.toString() ?? null,
     });
   }
   return out;
@@ -160,6 +179,30 @@ export const serializePartnerAsCases = async (
     select: { id: true, projectName: true },
   });
   const specNames = new Map(specs.map((s) => [s.id.toString(), s.projectName]));
+  // 연결 클레임 요약(P5) — 협력사가 고객 증상·문제 수량·사진을 본다(참조 노출).
+  const claims =
+    rows.length === 0
+      ? []
+      : await prisma.spPcbClaim.findMany({
+          where: { asCaseId: { in: rows.map((r) => r.id) } },
+          orderBy: { id: 'asc' },
+        });
+  const claimFiles = await loadPcbClaimFilesMap(claims.map((c) => c.id));
+  const claimByCase = new Map(
+    claims
+      .filter((c) => c.asCaseId !== null)
+      .map((c) => [
+        (c.asCaseId ?? 0n).toString(),
+        {
+          claimId: String(c.id),
+          kind: c.kind as PcbAsCaseClaimBriefType['kind'],
+          description: c.description,
+          orderedQty: c.orderedQty,
+          affectedQty: c.affectedQty,
+          files: claimFiles.get(c.id.toString()) ?? [],
+        } satisfies PcbAsCaseClaimBriefType,
+      ]),
+  );
   const out: PartnerPcbAsCaseViewType[] = [];
   for (const r of rows) {
     out.push({
@@ -181,6 +224,7 @@ export const serializePartnerAsCases = async (
       proceededAt: iso(r.proceededAt),
       roundPoId: await partnerRoundPoIdOf(r, viewerPartnerId),
       files: filesMap.get(r.id.toString()) ?? [],
+      claim: claimByCase.get(r.id.toString()) ?? null,
     });
   }
   return out;

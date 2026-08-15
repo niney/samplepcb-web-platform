@@ -16,6 +16,7 @@ import {
 } from '../lib/pcb-as-case';
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
+import { getPcbClaimFileDownload } from '../lib/pcb-claim';
 import { getShopEstimateProfile } from '../lib/g5-db';
 import { buildPcbAsCaseRepliedEmail, pcbAdminCaseUrl, sendPcbMail } from '../lib/pcb-rfq-email';
 
@@ -281,6 +282,36 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
           `attachment; filename*=UTF-8''${encodeURIComponent(target.originFileName)}`,
         )
         .send(stream);
+    },
+  );
+
+  // ── 연결 클레임 첨부 다운로드(P5) — 고객 불량 사진을 케이스 경유로 본다 ──────
+  // 파일 실물은 클레임 소유(refType 'sp_pcb_claim') — 케이스 열람 격리를 통과하고
+  // 그 케이스를 가리키는 클레임의 파일일 때만 스트림한다(참조 노출, 복사 없음).
+  fastify.get(
+    '/partner/pcb-as-cases/:caseId/claim-files/:fileId',
+    { schema: { params: CaseFileParams } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const c = await loadVisible(request.params.caseId, ctx.partnerId);
+      if (c === null) return reply.notFound('A/S 케이스가 없습니다');
+      const claim = await prisma.spPcbClaim.findFirst({
+        where: { asCaseId: c.id },
+        select: { id: true },
+        orderBy: { id: 'desc' },
+      });
+      if (claim === null) return reply.notFound('연결된 클레임이 없습니다');
+      const target = await getPcbClaimFileDownload(claim.id, request.params.fileId);
+      if (target === null) return reply.notFound('파일이 없습니다');
+      const downloaded = await downloadFromFileServer(target.pathToken);
+      if (downloaded === null) return reply.notFound('파일이 없습니다');
+      return reply
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(target.originFileName)}`,
+        )
+        .header('content-type', downloaded.contentType)
+        .send(downloaded.buffer);
     },
   );
 

@@ -10,6 +10,7 @@ import {
 import { fmtKstDate } from '@sp/utils';
 import {
   downloadPartnerPcbAsCaseFile,
+  downloadPartnerPcbAsClaimFile,
   useDeletePartnerPcbAsCaseFile,
   usePartnerPcbAsCases,
   useReplyPartnerPcbAsCase,
@@ -129,6 +130,23 @@ const STATUS_CLS: Record<string, string> = {
             <p v-if="c.description !== null" class="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700">
               {{ c.description }}
             </p>
+            <!-- 연결 고객 클레임(P5) — 고객이 접수한 원문 증상·문제 수량·불량 사진.
+                 재생산 가부 판단의 1차 근거라 회신 카드 안에서 바로 보이게 한다. -->
+            <div v-if="c.claim !== null" class="mt-2 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2">
+              <p class="text-[11px] font-bold text-rose-700">고객 접수 원문 · 문제 수량 {{ c.claim.affectedQty }}/{{ c.claim.orderedQty }}</p>
+              <p class="mt-1 whitespace-pre-wrap text-sm text-rose-900">{{ c.claim.description }}</p>
+              <div v-if="c.claim.files.length > 0" class="mt-1.5 flex flex-wrap gap-1.5">
+                <button
+                  v-for="cf in c.claim.files"
+                  :key="cf.fileId"
+                  type="button"
+                  class="rounded border border-rose-200 bg-surface px-2 py-0.5 text-xs text-rose-700 hover:bg-rose-100"
+                  @click="downloadPartnerPcbAsClaimFile(c.id, cf.fileId, cf.name)"
+                >
+                  ⬇ {{ cf.name }}
+                </button>
+              </div>
+            </div>
             <div class="mt-2 space-y-0.5">
               <div v-for="f in c.files" :key="f.fileId" class="flex items-center gap-1 text-xs">
                 <button type="button" class="text-blue-600 hover:underline" @click="downloadPartnerPcbAsCaseFile(c.id, f.fileId, f.name)">

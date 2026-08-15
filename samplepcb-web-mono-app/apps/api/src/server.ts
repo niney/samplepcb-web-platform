@@ -48,6 +48,8 @@ import { adminPcbOrderRoutes } from './routes/admin-pcb-orders';
 import { adminPcbCaseRoutes } from './routes/admin-pcb-cases';
 import { adminPcbAsCaseRoutes } from './routes/admin-pcb-as-cases';
 import { partnerPcbAsCaseRoutes } from './routes/partner-pcb-as-cases';
+import { adminPcbClaimRoutes } from './routes/admin-pcb-claims';
+import { pcbClaimRoutes } from './routes/pcb-claims';
 import { partnerPcbPoRoutes } from './routes/partner-pcb-pos';
 import { partnerPcbShipmentRoutes } from './routes/partner-pcb-shipments';
 import { adminPcbPackageRoutes } from './routes/admin-pcb-packages';
@@ -152,6 +154,8 @@ await app.register(pcbEqReviewRoutes, { prefix: '/api' });
 await app.register(adminPcbCaseRoutes, { prefix: '/api/admin' });
 await app.register(adminPcbAsCaseRoutes, { prefix: '/api/admin' });
 await app.register(partnerPcbAsCaseRoutes, { prefix: '/api' });
+await app.register(adminPcbClaimRoutes, { prefix: '/api/admin' });
+await app.register(pcbClaimRoutes, { prefix: '/api' });
 await app.register(partnerPcbPoRoutes, { prefix: '/api' });
 // PCB 보내기 보드(§9 묶음 재구성) — 선반·박스 담기(발송 문서 자체는 발주서 경유 라우트)
 await app.register(partnerPcbShipmentRoutes, { prefix: '/api' });

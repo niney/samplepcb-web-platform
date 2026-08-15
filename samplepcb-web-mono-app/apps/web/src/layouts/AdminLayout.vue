@@ -13,6 +13,7 @@ import { usePcbOrdersAwaitingCount, usePcbOrdersToShipCount } from '../admin/use
 import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
+import { usePcbClaimsPendingCount } from '../admin/useAdminPcbClaims';
 import { useTheme } from '../bom/useTheme';
 import {
   pcbAdminEntryTo,
@@ -49,6 +50,7 @@ const CASE_FROM_MENU: Record<string, Record<string, string>> = {
     pos: 'admin-pcb-pos',
     shipments: 'admin-pcb-shipments',
     remittances: 'admin-pcb-remittances',
+    claims: 'admin-pcb-claims',
   },
 };
 const effectiveRouteName = computed(() => {
@@ -129,6 +131,8 @@ const { data: pcbOrdersAwaiting } = usePcbOrdersAwaitingCount(isAdminUser);
 const { data: pcbCustomerToShip } = usePcbOrdersToShipCount(isAdminUser);
 // 송금 대기 — 발주됐는데 한 푼도 안 나간 건(P3.11).
 const pcbRemittancePending = usePcbRemittancePendingCount(isAdminUser);
+// PCB 클레임(A/S 접수) — 접수+검토 중 관리자 미처리 건수(P5).
+const { data: pcbClaimsPending } = usePcbClaimsPendingCount(isAdminUser);
 // PCB 대기 큐 — 각 역할이 "아직 시작하지 않은" 수(요청 대기·발주 대기).
 const { todoRfq: pcbTodoRfq, todoPo: pcbTodoPo } = useAdminPcbTodoCounts(isAdminUser);
 // PCB 배지는 합산이다 — SmartBOM 과 달리 시작 전(대기 큐)과 진행 중 내 차례가 모두
@@ -154,7 +158,9 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
                   ? pcbOrdersAwaiting.value
                   : badge === 'pcbRemittancePending'
                     ? pcbRemittancePending.value
-                    : bomShipmentPending.value;
+                    : badge === 'pcbClaimsPending'
+                      ? pcbClaimsPending.value
+                      : bomShipmentPending.value;
 </script>
 
 <template>

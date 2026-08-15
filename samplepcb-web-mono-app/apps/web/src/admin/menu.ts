@@ -18,7 +18,8 @@ export interface AdminMenuItem {
     | 'pcbPosPending'
     | 'pcbShipmentPending'
     | 'pcbOrdersAwaiting'
-    | 'pcbRemittancePending';
+    | 'pcbRemittancePending'
+    | 'pcbClaimsPending';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -141,6 +142,12 @@ const pcbMenu: AdminMenuItem[] = [
     to: { name: 'admin-pcb-shipments' },
     labelKey: 'admin.menu.pcbShipments',
     badge: 'pcbShipmentPending',
+  },
+  // 배송 이후 고객 대응(P5 클레임) — 접수+검토 중 건수 배지(SmartBOM 클레임 미러).
+  {
+    to: { name: 'admin-pcb-claims' },
+    labelKey: 'admin.menu.pcbClaims',
+    badge: 'pcbClaimsPending',
   },
 ];
 

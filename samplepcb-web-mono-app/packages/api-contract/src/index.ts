@@ -19,6 +19,7 @@ export * from './schemas/pcb-cases';
 export * from './schemas/pcb-remittance';
 export * from './schemas/pcb-eq-review';
 export * from './schemas/pcb-as-case';
+export * from './schemas/pcb-claim';
 export * from './schemas/bom-orders';
 export * from './schemas/bom-claims';
 export * from './schemas/partner';
