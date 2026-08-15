@@ -11,6 +11,7 @@ import {
   type PcbShipmentViewType,
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
+import { PCB_INTL_CARRIERS, isPcbIntlCarrier } from '../../lib/pcb-carriers';
 import {
   downloadPartnerPcbShipmentFile,
   partnerPcbPackageApi,
@@ -86,6 +87,18 @@ const caseRefNoteInput = ref('');
 const canChooseCaseRef = computed(
   () => shipNext.value === 'requested' && props.shipment.receiverKind === 'admin',
 );
+// 운송회사(직접 발송 갈래·선택 입력) — 정식 표기 셀렉트 + 직접입력. 체크리스트는 국제
+// 전용이라(국내 체인엔 'requested' 가 없다) 모드 게이트가 따로 없다. 초깃값은 박제된
+// 값에서 유도 — 되돌리기로 준비 단계에 온 발송이 빈 셀렉트로 보이면 화면이 어긋난다.
+const CARRIER_CUSTOM = '__custom__';
+const storedCarrier = props.shipment.carrier ?? '';
+const carrierChoice = ref(
+  storedCarrier !== '' && !isPcbIntlCarrier(storedCarrier) ? CARRIER_CUSTOM : storedCarrier,
+);
+const carrierCustomInput = ref(carrierChoice.value === CARRIER_CUSTOM ? storedCarrier : '');
+const selfCarrier = computed(() =>
+  carrierChoice.value === CARRIER_CUSTOM ? carrierCustomInput.value.trim() : carrierChoice.value,
+);
 const caseRefPending = computed(
   () =>
     props.shipment.caseRefRequestedAt !== null &&
@@ -152,6 +165,10 @@ async function runAdvance(): Promise<void> {
                       ? {}
                       : { caseRefNote: caseRefNoteInput.value.trim() }),
                   }
+                : {}),
+              // 운송회사 — 직접 발송 갈래만(자사 주선은 관리자가 부킹하며 '선적'에서 적는다).
+              ...(shipMethod.value === 'self' && selfCarrier.value !== ''
+                ? { carrier: selfCarrier.value }
                 : {}),
             }
           : {}),
@@ -248,6 +265,11 @@ const STATUS_CLS: Record<string, string> = {
     </p>
     <p v-if="shipment.trackingNumber !== null" class="mt-1 text-xs text-gray-500">
       운송장: {{ shipment.carrier ?? '' }} {{ shipment.trackingNumber }}
+    </p>
+    <!-- 운송장 전 단계 — 선적 요청에 적어 둔 운송회사가 대기 화면에서도 보이게(안 보이면
+         "저장됐나?" 를 되돌리기로 확인하게 된다). 운송장이 잡히면 윗줄에 합쳐 나온다. -->
+    <p v-else-if="shipment.carrier !== null && shipment.carrier !== ''" class="mt-1 text-xs text-gray-500">
+      운송회사: {{ shipment.carrier }}
     </p>
 
     <!-- Case ID 갈래 — '내가 제출한 서류'와 '샘플피씨비 처리·회신'을 영역으로 가른다.
@@ -416,6 +438,25 @@ const STATUS_CLS: Record<string, string> = {
           >
             ⬆ 원산지증명원 <span class="font-normal">(선택)</span>
           </button>
+        </div>
+        <div v-if="shipMethod === 'self'" class="ml-6 mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span class="font-semibold text-gray-500">운송회사 <span class="font-normal text-gray-400">(선택)</span></span>
+          <select
+            v-model="carrierChoice"
+            class="h-8 rounded-md border border-gray-300 bg-surface px-2 text-xs focus:border-teal-500 focus:outline-none"
+          >
+            <option value="">선택 안 함</option>
+            <option v-for="c in PCB_INTL_CARRIERS" :key="c" :value="c">{{ c }}</option>
+            <option :value="CARRIER_CUSTOM">직접입력</option>
+          </select>
+          <input
+            v-if="carrierChoice === CARRIER_CUSTOM"
+            v-model="carrierCustomInput"
+            type="text"
+            maxlength="50"
+            placeholder="운송회사명"
+            class="h-8 w-40 rounded-md border border-gray-300 px-2 text-xs focus:border-teal-500 focus:outline-none"
+          >
         </div>
         <template v-if="canChooseCaseRef">
           <label class="mt-2 flex cursor-pointer items-start gap-2 text-xs text-gray-700">

@@ -71,6 +71,7 @@ import { emptyMailLogFilters, useAdminMailLogList } from '../../admin/useAdminMa
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
+import { PCB_INTL_CARRIERS } from '../../lib/pcb-carriers';
 import {
   PCB_EQ_REVIEW_BTN_CLS,
   pcbEqReviewState,
@@ -1130,7 +1131,12 @@ const canAdminReceive = (s: PcbShipmentViewType): boolean => {
 // 로는 창을 두 번 띄워야 했고 두 번째에서 취소하면 첫 입력이 사라졌다. 한 모달에서 받는다.
 const shipPromptFieldsOf = (
   next: BomShipmentStatusType,
-  caseRef?: { requested: boolean; value: string | null; note: string | null },
+  ship?: {
+    caseRefRequested: boolean;
+    caseRef: string | null;
+    caseRefNote: string | null;
+    carrier: string | null;
+  },
 ): PromptField[] => {
   if (next === 'requested') {
     return [
@@ -1150,24 +1156,39 @@ const shipPromptFieldsOf = (
     ];
   }
   if (next === 'shipped') {
+    // 운송회사 — 정식 표기 셀렉트(+직접입력)·선택 입력. 직접 발송 갈래는 협력사가
+    // 선적요청에 적어 둔 값이, 자사 주선 갈래는 부킹한 운송사가 여기서 박제된다.
+    // (⚠ PromptField 주석·satisfies 금지 — .vue 발 타입은 eslint TS 프로그램에서 error
+    //  type 이라 변수에 물리면 no-unsafe-* 에 걸린다. 추론 타입으로 두면 반환문에서
+    //  vue-tsc 가 PromptField[] 대입을 검증한다.)
+    const carrierField = {
+      name: 'carrier',
+      label: '운송회사',
+      type: 'select' as const,
+      options: PCB_INTL_CARRIERS,
+      maxlength: 50,
+      value: ship?.carrier ?? '',
+      placeholder: '운송회사명',
+    };
     // Case ID 갈래(08-13) — 요청된 발송의 '선적'은 참조번호를 운송장과 함께 받는다(한 번에).
-    if (caseRef?.requested === true) {
+    if (ship?.caseRefRequested === true) {
       return [
         {
           name: 'caseRef',
           label: '발송 참조번호(Case ID)',
           required: true,
           maxlength: 100,
-          value: caseRef.value ?? '',
+          value: ship.caseRef ?? '',
           hint:
-            caseRef.note !== null && caseRef.note !== ''
-              ? `협력사 요청 메모: ${caseRef.note}`
+            ship.caseRefNote !== null && ship.caseRefNote !== ''
+              ? `협력사 요청 메모: ${ship.caseRefNote}`
               : '협력사가 라벨링·인계에 쓸 값입니다 — 선적 통지 메일에 함께 나갑니다.',
         },
+        carrierField,
         { name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true },
       ];
     }
-    return [{ name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true }];
+    return [carrierField, { name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true }];
   }
   return [];
 };
@@ -1181,6 +1202,8 @@ const shipPrompt = ref<{
   caseRefRequested: boolean;
   caseRefValue: string | null;
   caseRefNote: string | null;
+  /** 운송회사 프리필 — 직접 발송 갈래는 협력사가 선적요청에 적어 둔 값이 온다. */
+  carrier: string | null;
 } | null>(null);
 
 async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): Promise<void> {
@@ -1209,6 +1232,7 @@ async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<v
     caseRefRequested: s.caseRefRequestedAt !== null,
     caseRefValue: s.caseRef,
     caseRefNote: s.caseRefNote,
+    carrier: s.carrier,
   };
 }
 async function submitShipPrompt(values: Record<string, string>): Promise<void> {
@@ -2933,7 +2957,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) — 한 화면에서 받고 필수값을 잠근다 -->
     <UiPromptModal
       :title="shipPrompt === null ? null : `${pcbShipmentStatusLabel(shipPrompt.mode, shipPrompt.next, { directShip: shipPrompt.directShip })} 진행`"
-      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next, { requested: shipPrompt.caseRefRequested, value: shipPrompt.caseRefValue, note: shipPrompt.caseRefNote })"
+      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next, { caseRefRequested: shipPrompt.caseRefRequested, caseRef: shipPrompt.caseRefValue, caseRefNote: shipPrompt.caseRefNote, carrier: shipPrompt.carrier })"
       confirm-label="진행"
       :busy="shipAdvanceAdmin.isPending.value"
       @close="shipPrompt = null"

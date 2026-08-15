@@ -11,14 +11,17 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 export interface PromptField {
   name: string;
   label: string;
-  /** text=한 줄 · textarea=여러 줄(대외 문구) · date=YYYY-MM-DD */
-  type?: 'text' | 'textarea' | 'date';
+  /** text=한 줄 · textarea=여러 줄(대외 문구) · date=YYYY-MM-DD · select=선택지(+직접입력) */
+  type?: 'text' | 'textarea' | 'date' | 'select';
   required?: boolean;
   placeholder?: string;
   /** 필드 아래 회색 보조 설명 */
   hint?: string;
   value?: string;
   maxlength?: number;
+  /** select 전용 — 선택지 목록. '직접입력' 항목은 자동으로 붙고, 고르면 텍스트 인풋이 열린다.
+   *  초깃값(value)이 목록 밖 문자열이면 직접입력 모드로 열어 값을 보존한다. */
+  options?: readonly string[];
 }
 
 const props = withDefaults(
@@ -37,17 +40,36 @@ const props = withDefaults(
 const emit = defineEmits<{ close: []; confirm: [values: Record<string, string>] }>();
 
 const values = ref<Record<string, string>>({});
-const firstInput = ref<HTMLInputElement | HTMLTextAreaElement | null>(null);
+const firstInput = ref<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null>(null);
+
+// select 의 '직접입력' 갈래 — 셀렉트 자체를 values 에 물리면 센티널이 제출값에 새므로,
+// 선택 상태는 따로 들고 values 에는 최종 문자열만 둔다(제출·필수 검증 경로 무변경).
+const SELECT_CUSTOM = '__custom__';
+const selectChoices = ref<Record<string, string>>({});
 
 watch(
   () => props.title,
   (title) => {
     if (title === null) return;
     values.value = Object.fromEntries(props.fields.map((f) => [f.name, f.value ?? '']));
+    selectChoices.value = Object.fromEntries(
+      props.fields
+        .filter((f) => f.type === 'select')
+        .map((f) => {
+          const v = f.value ?? '';
+          return [f.name, v !== '' && !(f.options ?? []).includes(v) ? SELECT_CUSTOM : v];
+        }),
+    );
     void nextTick(() => firstInput.value?.focus());
   },
   { immediate: true },
 );
+
+const onSelectChange = (f: PromptField, e: Event): void => {
+  const choice = (e.target as HTMLSelectElement).value;
+  selectChoices.value[f.name] = choice;
+  values.value[f.name] = choice === SELECT_CUSTOM ? '' : choice;
+};
 
 const canConfirm = computed(() =>
   props.fields.every((f) => f.required !== true || (values.value[f.name] ?? '').trim() !== ''),
@@ -103,6 +125,26 @@ onBeforeUnmount(() => {
               :placeholder="f.placeholder"
               class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
             />
+            <template v-else-if="f.type === 'select'">
+              <select
+                :ref="i === 0 ? ((el) => { firstInput = el as HTMLSelectElement }) : undefined"
+                :value="selectChoices[f.name]"
+                class="mt-1 h-9 w-full rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
+                @change="onSelectChange(f, $event)"
+              >
+                <option value="">{{ f.required === true ? '선택' : '선택 안 함' }}</option>
+                <option v-for="opt in f.options ?? []" :key="opt" :value="opt">{{ opt }}</option>
+                <option :value="SELECT_CUSTOM">직접입력</option>
+              </select>
+              <input
+                v-if="selectChoices[f.name] === SELECT_CUSTOM"
+                v-model="values[f.name]"
+                type="text"
+                :maxlength="f.maxlength ?? 200"
+                :placeholder="f.placeholder ?? '직접 입력'"
+                class="mt-1.5 h-9 w-full rounded-md border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+              >
+            </template>
             <input
               v-else
               :ref="i === 0 ? ((el) => { firstInput = el as HTMLInputElement }) : undefined"
