@@ -1136,6 +1136,7 @@ const shipPromptFieldsOf = (
     caseRef: string | null;
     caseRefNote: string | null;
     carrier: string | null;
+    trackingNumber: string | null;
   },
 ): PromptField[] => {
   if (next === 'requested') {
@@ -1170,6 +1171,14 @@ const shipPromptFieldsOf = (
       value: ship?.carrier ?? '',
       placeholder: '운송회사명',
     };
+    // 트래킹 번호 — 협력사가 선적준비(직접 발송 갈래)에 적어 둔 값이 프리필된다.
+    const trackingField = {
+      name: 'trackingNumber',
+      label: '트래킹 번호(AWB/BL)',
+      required: true,
+      maxlength: 100,
+      value: ship?.trackingNumber ?? '',
+    };
     // Case ID 갈래(08-13) — 요청된 발송의 '선적'은 참조번호를 운송장과 함께 받는다(한 번에).
     if (ship?.caseRefRequested === true) {
       return [
@@ -1185,10 +1194,10 @@ const shipPromptFieldsOf = (
               : '협력사가 라벨링·인계에 쓸 값입니다 — 선적 통지 메일에 함께 나갑니다.',
         },
         carrierField,
-        { name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true },
+        trackingField,
       ];
     }
-    return [carrierField, { name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true }];
+    return [carrierField, trackingField];
   }
   return [];
 };
@@ -1202,8 +1211,9 @@ const shipPrompt = ref<{
   caseRefRequested: boolean;
   caseRefValue: string | null;
   caseRefNote: string | null;
-  /** 운송회사 프리필 — 직접 발송 갈래는 협력사가 선적요청에 적어 둔 값이 온다. */
+  /** 운송회사·트래킹 프리필 — 직접 발송 갈래는 협력사가 선적준비에 적어 둔 값이 온다. */
   carrier: string | null;
+  trackingNumber: string | null;
 } | null>(null);
 
 async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): Promise<void> {
@@ -1233,6 +1243,7 @@ async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<v
     caseRefValue: s.caseRef,
     caseRefNote: s.caseRefNote,
     carrier: s.carrier,
+    trackingNumber: s.trackingNumber,
   };
 }
 async function submitShipPrompt(values: Record<string, string>): Promise<void> {
@@ -2957,7 +2968,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) — 한 화면에서 받고 필수값을 잠근다 -->
     <UiPromptModal
       :title="shipPrompt === null ? null : `${pcbShipmentStatusLabel(shipPrompt.mode, shipPrompt.next, { directShip: shipPrompt.directShip })} 진행`"
-      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next, { caseRefRequested: shipPrompt.caseRefRequested, caseRef: shipPrompt.caseRefValue, caseRefNote: shipPrompt.caseRefNote, carrier: shipPrompt.carrier })"
+      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next, { caseRefRequested: shipPrompt.caseRefRequested, caseRef: shipPrompt.caseRefValue, caseRefNote: shipPrompt.caseRefNote, carrier: shipPrompt.carrier, trackingNumber: shipPrompt.trackingNumber })"
       confirm-label="진행"
       :busy="shipAdvanceAdmin.isPending.value"
       @close="shipPrompt = null"

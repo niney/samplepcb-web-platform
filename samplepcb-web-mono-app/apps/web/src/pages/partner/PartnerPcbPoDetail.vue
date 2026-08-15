@@ -848,9 +848,10 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
     </div>
 
     <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) -->
+    <!-- 트래킹 번호 — 보내는측이 선적준비에 적어 둔 값이 있으면 프리필(재타이핑 방지). -->
     <UiPromptModal
       :title="trackingPromptOpen ? '선적 진행' : null"
-      :fields="[{ name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true }]"
+      :fields="[{ name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true, value: ship?.trackingNumber ?? '' }]"
       confirm-label="진행"
       :busy="shipAdvance.isPending.value"
       @close="trackingPromptOpen = false"

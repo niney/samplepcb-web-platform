@@ -68,8 +68,10 @@ const upload = useUploadPartnerPcbShipmentFile();
 
 const error = ref('');
 const shipDateInput = ref('');
-const carrierInput = ref('');
-const trackingInput = ref('');
+// 박제 값 복원(되돌리기 대비) — carrierInput 은 국내 '배송 중' 폼, trackingInput 은 그
+// 폼과 국제 준비 체크리스트(직접 발송 갈래)가 같이 쓴다. 모드가 발송마다 고정이라 안 겹친다.
+const carrierInput = ref(props.shipment.carrier ?? '');
+const trackingInput = ref(props.shipment.trackingNumber ?? '');
 const invoiceOpen = ref(false);
 const invoiceApi = computed(() => partnerPcbInvoiceApi(repPoId.value));
 const labelsOpen = ref(false);
@@ -169,9 +171,13 @@ async function runAdvance(): Promise<void> {
                       : { caseRefNote: caseRefNoteInput.value.trim() }),
                   }
                 : {}),
-              // 운송회사 — 직접 발송 갈래만(자사 주선은 관리자가 부킹하며 '선적'에서 적는다).
+              // 운송회사·운송장 번호 — 직접 발송 갈래만(자사 주선은 관리자가 부킹하며
+              // '선적'에서 적는다). 관리자 '선적' 프롬프트에 프리필로 흘러간다.
               ...(shipMethod.value === 'self' && selfCarrier.value !== ''
                 ? { carrier: selfCarrier.value }
+                : {}),
+              ...(shipMethod.value === 'self' && trackingInput.value.trim() !== ''
+                ? { trackingNumber: trackingInput.value.trim() }
                 : {}),
             }
           : {}),
@@ -471,6 +477,13 @@ const STATUS_CLS: Record<string, string> = {
             maxlength="50"
             placeholder="운송회사명"
             class="h-8 w-40 rounded-md border border-gray-300 px-2 text-xs focus:border-teal-500 focus:outline-none"
+          >
+          <span class="font-semibold text-gray-500">운송장 번호 <span class="font-normal text-gray-400">(선택)</span></span>
+          <input
+            v-model="trackingInput"
+            type="text"
+            maxlength="100"
+            class="h-8 w-44 rounded-md border border-gray-300 px-2 text-xs tabular-nums focus:border-teal-500 focus:outline-none"
           >
         </div>
         <template v-if="canChooseCaseRef">
