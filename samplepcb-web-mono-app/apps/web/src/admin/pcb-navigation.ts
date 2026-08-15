@@ -15,6 +15,7 @@ export const PCB_ADMIN_SECTIONS = [
   'pos',
   'remittances',
   'shipments',
+  'claims',
 ] as const;
 
 export type PcbAdminSection = (typeof PCB_ADMIN_SECTIONS)[number];
@@ -32,6 +33,7 @@ const SECTION_ROUTES: Record<PcbAdminSection, string> = {
   pos: 'admin-pcb-pos',
   remittances: 'admin-pcb-remittances',
   shipments: 'admin-pcb-shipments',
+  claims: 'admin-pcb-claims',
 };
 
 const isSection = (value: unknown): value is PcbAdminSection =>
