@@ -783,7 +783,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     },
   );
 
-  // 선적 첨부(invoice/airwaybill — 종류별 1건 교체).
+  // 선적 첨부(invoice·airwaybill·origin_cert·test_report — 종류별 1건 교체).
   fastify.post(
     '/partner/pcb-pos/:poId/shipment/files',
     { schema: { params: PoParams, response: { 200: PartnerPcbPoDetailResponse, 400: ApiError, 409: ApiError } } },
@@ -795,7 +795,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (!kind.success || file === undefined)
         return reply
           .status(400)
-          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill|origin_cert)과 파일이 필요합니다.' });
+          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill|origin_cert|test_report)과 파일이 필요합니다.' });
       const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       // 발송이 없으면 생성 시도(보내는측 첫 준비 — produced·게이팅 가드는 lib).

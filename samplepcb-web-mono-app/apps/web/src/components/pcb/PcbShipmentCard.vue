@@ -115,6 +115,9 @@ const awbFile = computed(
 const coFile = computed(
   () => props.shipment.files.find((f) => f.fileType === 'origin_cert') ?? null,
 );
+const testReportFile = computed(
+  () => props.shipment.files.find((f) => f.fileType === 'test_report') ?? null,
+);
 
 // Case ID 갈래의 두 영역(08-13 UX) — "내가 제출한 것"과 "샘플피씨비가 준비해 준 것"을
 // 업로더(uploadedBy)로 가른다: 관리자가 인보이스를 수정 재첨부하면(교체) 그 파일은
@@ -399,6 +402,18 @@ const STATUS_CLS: Record<string, string> = {
           >
             ⬆ 직접 업로드
           </button>
+          <!-- 검사 성적서는 발송 방식과 무관한 제품 서류라 갈래(②) 밖 — 옵션 서류는
+               오른쪽 끝(필수 동선과 시선이 섞이지 않게). -->
+          <span v-if="testReportFile !== null" class="ml-auto max-w-[12rem] truncate font-semibold text-emerald-600" :title="testReportFile.name">✓ {{ testReportFile.name }}</span>
+          <button
+            type="button"
+            :class="testReportFile === null ? 'ml-auto' : ''"
+            class="rounded-md border border-gray-200 px-2.5 py-1 font-semibold text-gray-400 hover:bg-gray-50"
+            title="검사 성적서(TEST Report) — 있는 경우에만 첨부"
+            @click="pickFile('test_report')"
+          >
+            ⬆ TEST Report <span class="font-normal">(선택)</span>
+          </button>
         </div>
         <p v-if="invoiceFile !== null" class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
           <span class="font-semibold text-emerald-600">✓ 첨부됨</span>
@@ -563,6 +578,14 @@ const STATUS_CLS: Record<string, string> = {
         <button
           type="button"
           class="ml-auto rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
+          title="검사 성적서(TEST Report) — 있는 경우에만 첨부(선택)"
+          @click="pickFile('test_report')"
+        >
+          ⬆ TEST Report <span class="font-normal">(선택)</span>
+        </button>
+        <button
+          type="button"
+          class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
           title="원산지증명원(Certificate of Origin) — 통관에 필요한 경우 첨부(선택)"
           @click="pickFile('origin_cert')"
         >

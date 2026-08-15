@@ -343,22 +343,24 @@ export type PcbEqEventType = z.infer<typeof PcbEqEvent>;
 export const PCB_SHIPMENT_RECEIVER_KINDS = ['admin', 'md'] as const;
 export type PcbShipmentReceiverKindType = (typeof PCB_SHIPMENT_RECEIVER_KINDS)[number];
 
-// PCB 선적 첨부 종류 — BOM 사전(invoice·airwaybill)에 원산지증명원을 더한 PCB 전용
-// 확장(2026-08-13 프로세스 재편). 공유 BOM 사전은 불변 — BOM 화면에 새 종류가 새지 않는다.
-export const PCB_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill', 'origin_cert'] as const;
+// PCB 선적 첨부 종류 — BOM 사전(invoice·airwaybill)에 원산지증명원·검사 성적서를 더한
+// PCB 전용 확장(2026-08-13 프로세스 재편·08-15 test_report). 공유 BOM 사전은 불변 —
+// BOM 화면에 새 종류가 새지 않는다. 필수는 invoice 뿐(요청 게이트) — 나머지는 선택.
+export const PCB_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill', 'origin_cert', 'test_report'] as const;
 export type PcbShipmentFileTypeType = (typeof PCB_SHIPMENT_FILE_TYPES)[number];
 export const PcbShipmentFileType = z.enum(PCB_SHIPMENT_FILE_TYPES);
 export const PCB_SHIPMENT_FILE_LABELS = {
   invoice: 'Invoice',
   airwaybill: 'AWB',
   origin_cert: '원산지증명원',
+  test_report: 'TEST Report',
 } as const satisfies Record<PcbShipmentFileTypeType, string>;
 
 export const PcbShipmentFileView = z.object({
   fileId: z.number(),
   name: z.string(),
   size: z.number(),
-  fileType: PcbShipmentFileType, // invoice|airwaybill|origin_cert
+  fileType: PcbShipmentFileType, // invoice|airwaybill|origin_cert|test_report
   uploadedBy: z.string().nullable(),
   uploadedAt: z.string(),
 });

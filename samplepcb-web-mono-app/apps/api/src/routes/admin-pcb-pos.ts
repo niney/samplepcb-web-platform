@@ -849,7 +849,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
-  // 선적 첨부 — multipart(fileType invoice|airwaybill), 종류별 1건 교체.
+  // 선적 첨부 — multipart(fileType invoice|airwaybill|origin_cert|test_report), 종류별 1건 교체.
   fastify.post(
     '/pcb-projects/:id/pos/:poId/shipment/files',
     { schema: { params: PoParams, response: { 200: AdminPcbPoListResponse, 400: ApiError, 409: ApiError } } },
@@ -860,7 +860,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (!kind.success || file === undefined)
         return reply
           .status(400)
-          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill|origin_cert)과 파일이 필요합니다.' });
+          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill|origin_cert|test_report)과 파일이 필요합니다.' });
       const po = await loadPoChecked(request.params.id, request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const shipment = await findPcbShipmentByPo(po.id);
