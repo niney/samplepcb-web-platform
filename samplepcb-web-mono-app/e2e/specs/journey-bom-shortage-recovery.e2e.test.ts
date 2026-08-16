@@ -677,6 +677,12 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 5호 — 공급 차질 → 잔량 
     await page.getByRole('button', { name: '잔량 대체발주', exact: true }).click();
     const modal = page.getByRole('dialog', { name: '잔량 대체발주' });
     await modal.waitFor({ state: 'visible', timeout: 30_000 });
+    // 후보는 **비동기 쿼리**다 — 모달이 뜬 직후엔 "후보를 확인하는 중…"만 있다.
+    // 여기서 바로 innerText 를 읽으면 원 PO 헤더('원 PO #N · 협력1')에 들어 있는
+    // partnerA 만 우연히 통과하고 partnerB 에서 깨진다(2026-08-16 실측 — 서버는
+    // 두 후보를 정상 반환했고 화면도 로딩을 옳게 표시했다. 성급한 건 이 스펙이었다).
+    const recoveryCandidate = modal.locator('label').filter({ hasText: partnerB.name }).first();
+    await recoveryCandidate.waitFor({ state: 'visible', timeout: 30_000 });
     expect(await modal.innerText()).toContain(partnerA.name);
     expect(await modal.innerText()).toContain(partnerB.name);
     expect(await modal.innerText()).toContain('고객이 이미 확정·결제한 견적 금액');
@@ -685,7 +691,6 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 5호 — 공급 차질 → 잔량 
       name: `부족 ${String(SHORTAGE_QTY)}개 대체발주`,
     });
     expect(await recoverButton.isDisabled(), '후보를 고르기 전 발행 차단').toBe(true);
-    const recoveryCandidate = modal.locator('label').filter({ hasText: partnerB.name }).first();
     const candidateText = await recoveryCandidate.innerText();
     expect(candidateText).toContain(`출발국 ${partnerB.country ?? ''}`);
     expect(candidateText).toContain('국외 발송 · 6단계');
@@ -1089,7 +1094,9 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 5호 — 공급 차질 → 잔량 
     const orderScroll = orderGuide.locator('../..');
     expect(await shipmentScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     expect(await orderScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-    const mobileHeader = page.getByRole('columnheader', { name: '협력사', exact: true }).first();
+    // 조달 선적 표의 첫 열은 '구매처'다 — 외부공급사 조달이 들어오며 '협력사'에서
+    // 바뀌었는데(e9877bd98) 이 스펙만 옛 이름에 머물러 있었다(2026-08-16 규명).
+    const mobileHeader = page.getByRole('columnheader', { name: '구매처', exact: true }).first();
     expect(await mobileHeader.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
     await page.getByRole('button', { name: '조달 선적 표 오른쪽으로 이동' }).click();
     await expect.poll(() => shipmentScroll.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
