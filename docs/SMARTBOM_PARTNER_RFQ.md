@@ -1351,7 +1351,14 @@ PCB 트랙에 먼저 세운 축(docs/PCB_PARTNER_TRACK.md)을 BOM 선적에도 �
   스크립트엔 이미 있다 — 손으로 vitest 를 부를 때 빠뜨리기 쉽다) ②협력1·협력2 의
   `capabilities` 에 `bom_rfq` 가 있어야 한다(PCB 트랙 작업 중 `pcb_rfq` 만 남아 있었다)
   ③고객 계정 `e2e-customer` 가 g5_member 에 실재해야 한다(부재 시 그누보드 로그인 화면에서
-  멈춘다 — 비밀번호는 `.env.e2e` 값으로 `create_hash()`(lib/pbkdf2.compat.php) 해시).
+  멈춘다 — 비밀번호는 `.env.e2e` 값으로 `create_hash()`(lib/pbkdf2.compat.php) 해시)
+  ④`journey-bom-revision` 은 **부품 카탈로그 전제**가 더 있다: 스펙이 이름으로 집는 5개 MPN이
+  `sp_part` 에 색인+유가격 오퍼와 함께 있어야 한다(`catalogFixture`). 카탈로그는 **공급사
+  검색된 부품만 쌓이는 캐시**라 한 번도 검색된 적 없는 MPN은 없다 — 정규 경로
+  `POST /api/bom/parts-search/supplement {q, waitForCatalog:true}`(부품 변경 화면이 쓰는 그
+  API)로 채운다. 직접 INSERT 금지(공급사 원본·가격·스펙이 함께 필요하다). 그리고 ES 유령
+  문서가 있으면 검색은 되는데 구매 조건이 안 열린다 — docs/PARTS_SEARCH.md 운영 절차의
+  'ES 유령 문서' 항 참조(처방: `parts:reindex --recreate`).
 
 ## 7. 레거시 교훈 승계 가드
 

@@ -1153,8 +1153,11 @@ describe.skipIf(!RUN || !JOURNEY)(
         exact: true,
       });
       expect(await completedPoButton.isDisabled(), '완료 주문 추가 발주 차단').toBe(true);
+      // 완료 주문은 **줄 상태도 '완료'**라, 화면의 판정 순서상 주문 헤더 문구
+      // ('완료된 주문에는…')보다 줄 단위 문구가 먼저 걸린다(issueDisabledReason —
+      // 부분 취소 도입으로 줄 축 판정이 앞에 놓였다). 더 구체적인 쪽이라 그대로 둔다.
       expect(await completedPoButton.getAttribute('title')).toBe(
-        '완료된 주문에는 발주서를 추가할 수 없습니다',
+        'BOM 주문 항목 상태가 완료이므로 발주서를 추가할 수 없습니다',
       );
       await rp.assertView(
         partnerView,
