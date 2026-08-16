@@ -544,6 +544,8 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       '발송 참조번호(Case ID) 처리 대기 중입니다 — 샘플피씨비가 Case ID·운송장·AWB 를 처리하면 메일로 안내됩니다.',
     CASE_REF_LOCKED: '이미 발송이 시작되어 참조번호를 요청할 수 없습니다.',
     MISSING_AWB_FILE: 'AWB 첨부가 필요합니다 — Case ID 발송은 샘플피씨비가 AWB 를 첨부한 뒤 선적합니다.',
+    // 해상은 운송서류가 B/L 이다(08-16) — 협력사 화면에도 같은 어휘로 나가야 한다.
+    MISSING_BL_FILE: 'B/L 첨부가 필요합니다 — Case ID 해상 발송은 샘플피씨비가 B/L 을 첨부한 뒤 선적합니다.',
     NOT_ADMIN_RECEIVER: '샘플피씨비 수신 발송에서만 Case ID 를 사용할 수 있습니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
@@ -783,7 +785,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     },
   );
 
-  // 선적 첨부(invoice·airwaybill·origin_cert·test_report — 종류별 1건 교체).
+  // 선적 첨부(invoice·airwaybill·bill_of_lading·origin_cert·test_report — 종류별 1건 교체).
   fastify.post(
     '/partner/pcb-pos/:poId/shipment/files',
     { schema: { params: PoParams, response: { 200: PartnerPcbPoDetailResponse, 400: ApiError, 409: ApiError } } },
@@ -795,7 +797,10 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (!kind.success || file === undefined)
         return reply
           .status(400)
-          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill|origin_cert|test_report)과 파일이 필요합니다.' });
+          .send({
+            error: 'BAD_UPLOAD',
+            message: 'fileType(invoice|airwaybill|bill_of_lading|origin_cert|test_report)과 파일이 필요합니다.',
+          });
       const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       // 발송이 없으면 생성 시도(보내는측 첫 준비 — produced·게이팅 가드는 lib).

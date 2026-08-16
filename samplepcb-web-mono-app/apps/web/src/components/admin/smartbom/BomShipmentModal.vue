@@ -3,9 +3,12 @@ import { computed, ref, watch } from 'vue';
 import {
   BOM_SHIPMENT_DOMESTIC_STATUSES,
   BOM_SHIPMENT_FILE_LABELS,
-  BOM_SHIPMENT_FILE_TYPES,
   BOM_SHIPMENT_INTL_STATUSES,
   BOM_SHIPMENT_MODE_LABELS,
+  SHIPMENT_TRANSPORTS,
+  SHIPMENT_TRANSPORT_LABELS,
+  shipmentTransportDocType,
+  shipmentTransportOf,
   bomShipmentActorOf,
   bomShipmentDocumentsLocked,
   bomShipmentNextStatus,
@@ -15,6 +18,7 @@ import {
   type BomShipmentFileTypeType,
   type BomShipmentModeType,
   type BomShipmentStatusType,
+  type ShipmentTransportType,
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -73,6 +77,9 @@ async function detachGroupPo(poId: number, title: string): Promise<void> {
 
 const mode = computed<BomShipmentModeType | null>(() => props.po?.shipmentMode ?? null);
 const status = ref<BomShipmentStatusType>('preparing');
+// 운송수단(08-16, 협력사 카드와 같은 공용 축) — 관리자는 임의 조작이 원칙이라 언제든
+// 고칠 수 있다(협력사는 되돌리기를 거쳐야 한다). 서류 줄·AWB 경고가 이 값을 따른다.
+const transport = ref<ShipmentTransportType>('air');
 const carrier = ref('');
 const trackingNumber = ref('');
 const trackingUrl = ref('');
@@ -140,6 +147,7 @@ watch(
     if (!open) return;
     const shipment = props.po?.shipment ?? null;
     status.value = shipment?.status ?? 'preparing';
+    transport.value = shipmentTransportOf(shipment?.transport);
     carrier.value = shipment?.carrier ?? '';
     trackingNumber.value = shipment?.trackingNumber ?? '';
     trackingUrl.value = shipment?.trackingUrl ?? '';
@@ -178,10 +186,16 @@ const fileLabel = (kind: BomShipmentFileTypeType): string =>
 const fileOf = (kind: BomShipmentFileTypeType) =>
   existing.value?.files.find((f) => f.fileType === kind) ?? null;
 const fileBusy = computed(() => uploadFile.isPending.value || deleteFile.isPending.value);
-// 레거시 '선적' 전이의 AWB 필수를 관리자에겐 경고로만(임의 조작 원칙 유지)
+/** 이 발송의 운송서류 — 항공 AWB / 해상 B/L(08-16). 서류 줄·경고·확인 문구가 함께 쓴다. */
+const docKind = computed(() => shipmentTransportDocType(transport.value));
+const docLabel = computed(() => BOM_SHIPMENT_FILE_LABELS[docKind.value]);
+/** 첨부 줄 — 사전 전체를 늘어놓으면 해상 발송에도 AWB 줄이 서서 "둘 다 내야 하나"로
+ *  읽힌다. 인보이스(공통) + 수단이 정한 운송서류 1종만. */
+const docKinds = computed<BomShipmentFileTypeType[]>(() => ['invoice', docKind.value]);
+// 레거시 '선적' 전이의 운송서류 필수를 관리자에겐 경고로만(임의 조작 원칙 유지)
 const awbWarning = computed(
   () =>
-    mode.value === 'international' && status.value === 'shipped' && fileOf('airwaybill') === null,
+    mode.value === 'international' && status.value === 'shipped' && fileOf(docKind.value) === null,
 );
 
 async function onFilePicked(kind: BomShipmentFileTypeType, event: Event): Promise<void> {
@@ -266,6 +280,8 @@ async function save(): Promise<void> {
         ...(mode.value === 'domestic' && status.value === 'delivered'
           ? {}
           : { status: status.value }),
+        // 국내에서 보내도 서버가 버리지만(mode 게이트), 화면도 국제에서만 싣는다.
+        ...(mode.value === 'international' ? { transport: transport.value } : {}),
         carrier: toNullable(carrier.value),
         trackingNumber: toNullable(trackingNumber.value),
         trackingUrl: toNullable(trackingUrl.value),
@@ -287,8 +303,8 @@ async function advanceAsAdmin(): Promise<void> {
   }
   if (
     savedNext.value === 'shipped' &&
-    fileOf('airwaybill') === null &&
-    !(await confirmDialog('AWB 파일이 아직 없습니다. 첨부 없이 선적 단계로 진행할까요?'))
+    fileOf(docKind.value) === null &&
+    !(await confirmDialog(`${docLabel.value} 파일이 아직 없습니다. 첨부 없이 선적 단계로 진행할까요?`))
   ) {
     return;
   }
@@ -349,7 +365,7 @@ async function confirmReceive(): Promise<void> {
         <template v-if="savedNextActor === 'ADMIN'">
           <p class="font-bold text-blue-800">
             다음 단계: {{ savedLabel(savedNext) }} — 샘플피씨비 차례입니다.
-            <span v-if="savedNext === 'shipped'" class="font-normal text-blue-700">AWB 첨부와 송장번호를 확인해 주세요.</span>
+            <span v-if="savedNext === 'shipped'" class="font-normal text-blue-700">{{ docLabel }} 첨부와 송장번호를 확인해 주세요.</span>
           </p>
           <button
             type="button"
@@ -387,6 +403,18 @@ async function confirmReceive(): Promise<void> {
           >
             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
+            </option>
+          </select>
+        </label>
+        <!-- 운송수단(08-16) — 국제 전용. 서류(AWB/BL)·경고 문구가 이 값에서 갈리고,
+             바꾸면 서버가 앞서 박힌 운송사·송장을 함께 비운다(남의 수단 값 방지). -->
+        <label v-if="mode === 'international'" class="text-gray-500">운송수단
+          <select
+            v-model="transport"
+            class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+          >
+            <option v-for="t in SHIPMENT_TRANSPORTS" :key="t" :value="t">
+              {{ SHIPMENT_TRANSPORT_LABELS[t] }}{{ t === 'air' ? ' (AWB)' : ' (B/L)' }}
             </option>
           </select>
         </label>
@@ -444,7 +472,7 @@ async function confirmReceive(): Promise<void> {
         v-if="awbWarning"
         class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700"
       >
-        '선적' 단계인데 AWB 파일이 없습니다 — 첨부를 권장합니다(레거시 절차상 필수 서류).
+        '선적' 단계인데 {{ docLabel }} 파일이 없습니다 — 첨부를 권장합니다(레거시 절차상 필수 서류).
       </p>
       <p v-if="existing?.shippedAt != null" class="mt-2 text-[11px] text-gray-400">
         발송 {{ fmtKstDate(existing.shippedAt) }}
@@ -532,10 +560,10 @@ async function confirmReceive(): Promise<void> {
             v-if="documentsLocked"
             class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-gray-600"
           >
-            🔒 완료된 발송 · 문서 잠금 — Invoice와 AWB는 내려받기만 할 수 있습니다.
+            🔒 완료된 발송 · 문서 잠금 — Invoice와 {{ docLabel }}는 내려받기만 할 수 있습니다.
           </p>
           <div
-            v-for="kind in BOM_SHIPMENT_FILE_TYPES"
+            v-for="kind in docKinds"
             :key="kind"
             class="flex flex-wrap items-center gap-2 text-xs"
           >

@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import {
   BOM_SHIPMENT_MODE_LABELS,
   PCB_SHIPMENT_FILE_LABELS,
+  SHIPMENT_TRANSPORTS,
+  SHIPMENT_TRANSPORT_LABELS,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentStatusesOf,
+  shipmentTransportDocType,
+  shipmentTransportOf,
   type PcbShipmentFileTypeType,
   type PcbShipmentViewType,
+  type ShipmentTransportType,
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import { PCB_INTL_CARRIERS, isPcbIntlCarrier } from '../../lib/pcb-carriers';
@@ -89,17 +94,30 @@ const caseRefNoteInput = ref('');
 const canChooseCaseRef = computed(
   () => shipNext.value === 'requested' && props.shipment.receiverKind === 'admin',
 );
-// 운송회사(직접 발송 갈래·선택 입력) — 정식 표기 셀렉트 + 직접입력. 체크리스트는 국제
-// 전용이라(국내 체인엔 'requested' 가 없다) 모드 게이트가 따로 없다. 초깃값은 박제된
+// ── 운송수단(08-16) — 발송 방식(누가 부치나)과 **직교**하는 축(무엇으로 나르나).
+// 국제 준비 단계에서만 고른다(국내 체인엔 'requested' 자체가 없어 별도 모드 게이트가
+// 필요 없다 — 체크리스트가 곧 국제다). 초깃값은 박제값 유도, 없으면 항공(현행 관례).
+// 이 값 하나에서 운송서류(AWB/BL)·운송회사 입력 방식·운송장 라벨이 모두 갈린다.
+const transportInput = ref<ShipmentTransportType>(shipmentTransportOf(props.shipment.transport));
+
+// 운송회사(직접 발송 갈래·선택 입력) — 항공은 정식 표기 셀렉트 + 직접입력, 해상은
+// 선사보다 포워더 이름을 적는 실무라 프리셋 없이 직접입력만 연다. 초깃값은 박제된
 // 값에서 유도 — 되돌리기로 준비 단계에 온 발송이 빈 셀렉트로 보이면 화면이 어긋난다.
 const CARRIER_CUSTOM = '__custom__';
 const storedCarrier = props.shipment.carrier ?? '';
+// 프리셋 판정에 **운송수단을 함께 본다** — 해상 화면엔 셀렉트가 없으므로, 박제값이
+// 항공 프리셋(DHL 등)이어도 해상이면 텍스트 칸에 실어야 한다. 안 그러면 값은 DB 에
+// 살아 있는데 화면엔 없는 상태가 되고, 그대로 저장하면 남의 수단 운송회사가 남는다.
+const storedIsPreset =
+  shipmentTransportOf(props.shipment.transport) === 'air' && isPcbIntlCarrier(storedCarrier);
 const carrierChoice = ref(
-  storedCarrier !== '' && !isPcbIntlCarrier(storedCarrier) ? CARRIER_CUSTOM : storedCarrier,
+  storedIsPreset ? storedCarrier : storedCarrier !== '' ? CARRIER_CUSTOM : '',
 );
-const carrierCustomInput = ref(carrierChoice.value === CARRIER_CUSTOM ? storedCarrier : '');
+const carrierCustomInput = ref(storedIsPreset ? '' : storedCarrier);
 const selfCarrier = computed(() =>
-  carrierChoice.value === CARRIER_CUSTOM ? carrierCustomInput.value.trim() : carrierChoice.value,
+  transportInput.value === 'sea' || carrierChoice.value === CARRIER_CUSTOM
+    ? carrierCustomInput.value.trim()
+    : carrierChoice.value,
 );
 const caseRefPending = computed(
   () =>
@@ -110,9 +128,6 @@ const caseRefPending = computed(
 // ① 인보이스 첨부 상태 — 서류의 유무를 화면이 먼저 말한다(409 왕복으로 배우게 하지 않는다).
 const invoiceFile = computed(
   () => props.shipment.files.find((f) => f.fileType === 'invoice') ?? null,
-);
-const awbFile = computed(
-  () => props.shipment.files.find((f) => f.fileType === 'airwaybill') ?? null,
 );
 const coFile = computed(
   () => props.shipment.files.find((f) => f.fileType === 'origin_cert') ?? null,
@@ -133,10 +148,33 @@ const adminFiles = computed(() => props.shipment.files.filter((f) => f.uploadedB
 const checklistMode = computed(
   () => !props.readonly && canAct.value && shipNext.value === 'requested',
 );
+
+// 화면이 지금 다루는 운송수단 — 준비 체크리스트는 **입력 중인 값**(아직 저장 전이라
+// 서류 버튼·라벨이 라디오를 즉시 따라야 한다), 그 밖(진행 중·Case ID 영역)은 박제값.
+const transportView = computed<ShipmentTransportType>(() =>
+  checklistMode.value ? transportInput.value : shipmentTransportOf(props.shipment.transport),
+);
+/** 이 발송의 운송서류 종류·라벨 — 항공 AWB / 해상 B/L. 서버 게이트와 같은 사전에서 온다. */
+const transportDoc = computed(() => shipmentTransportDocType(transportView.value));
+const transportDocLabel = computed(() => PCB_SHIPMENT_FILE_LABELS[transportDoc.value]);
+const docFile = computed(
+  () => props.shipment.files.find((f) => f.fileType === transportDoc.value) ?? null,
+);
+
+// 운송수단을 바꾸면 앞서 적어 둔 운송회사·운송장은 남의 수단 것이 된다(항공사명 +
+// 해상 B/L 번호 같은 모순). 서버도 같은 정리를 하지만(advancePcbShipment) 화면이
+// 먼저 비워야 사용자가 "왜 안 지워지지"를 겪지 않는다. immediate 없음 — 마운트 시
+// 복원한 박제값을 지우면 되돌리기로 돌아온 화면이 빈칸이 된다.
+watch(transportInput, () => {
+  carrierChoice.value = '';
+  carrierCustomInput.value = '';
+  carrierInput.value = '';
+  trackingInput.value = '';
+});
 const requestBlockReason = computed<string | null>(() => {
   if (shipNext.value !== 'requested') return null;
   if (invoiceFile.value === null) return '① 인보이스를 첨부해야 진행할 수 있습니다.';
-  if (shipDateInput.value.trim() === '') return '③ 출고예정일을 입력해 주세요.';
+  if (shipDateInput.value.trim() === '') return '④ 출고예정일을 입력해 주세요.';
   return null;
 });
 
@@ -162,6 +200,9 @@ async function runAdvance(): Promise<void> {
         ...(shipNext.value === 'requested'
           ? {
               shipDate: shipDateInput.value,
+              // 운송수단은 **갈래와 무관하게** 싣는다 — 자사 주선(Case ID)도 항공이냐
+              // 해상이냐로 부킹·서류가 갈리고, 관리자는 이 값을 보고 준비한다.
+              transport: transportInput.value,
               // Case ID 갈래 — 선적 요청과 함께 박제된다(자사 주선 발송 진입).
               ...(canChooseCaseRef.value && shipMethod.value === 'caseref'
                 ? {
@@ -254,6 +295,12 @@ const STATUS_CLS: Record<string, string> = {
       <span class="ml-1 text-xs font-normal text-gray-400">
         {{ BOM_SHIPMENT_MODE_LABELS[shipment.mode] }}
       </span>
+      <!-- 운송수단 — 박제된 값이 있을 때만. null(이 축 도입 전 발송)을 '항공'으로 그리면
+           고른 적 없는 것이 고른 것으로 굳는다(서버 응답도 같은 이유로 null 을 지킨다). -->
+      <span
+        v-if="shipment.mode === 'international' && shipment.transport !== null"
+        class="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700"
+      >{{ SHIPMENT_TRANSPORT_LABELS[shipment.transport] }}</span>
     </h2>
 
     <!-- 스텝퍼 -->
@@ -272,8 +319,11 @@ const STATUS_CLS: Record<string, string> = {
       입고 확인 완료 {{ dateOnly(shipment.receivedAt) }}
       <template v-if="shipment.receivedNote !== null && shipment.receivedNote !== ''"> — 메모: {{ shipment.receivedNote }}</template>
     </p>
+    <!-- 번호의 이름은 운송수단이 정한다 — 국제는 AWB No./B/L No., 국내 택배는 '운송장'.
+         국내에 서류 라벨을 쓰면 폴백('air')이 새어 택배 송장이 'AWB No.'로 보인다. -->
     <p v-if="shipment.trackingNumber !== null" class="mt-1 text-xs text-gray-500">
-      운송장: {{ shipment.carrier ?? '' }} {{ shipment.trackingNumber }}
+      {{ shipment.mode === 'international' ? `${transportDocLabel} No.` : '운송장' }}:
+      {{ shipment.carrier ?? '' }} {{ shipment.trackingNumber }}
     </p>
     <!-- 운송장 전 단계 — 선적 요청에 적어 둔 운송회사가 대기 화면에서도 보이게(안 보이면
          "저장됐나?" 를 되돌리기로 확인하게 된다). 운송장이 잡히면 윗줄에 합쳐 나온다. -->
@@ -320,7 +370,7 @@ const STATUS_CLS: Record<string, string> = {
         </div>
       </div>
       <div v-if="caseRefPending" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        <b>샘플피씨비 처리 대기 중</b> — 인보이스 확인 후 Case ID·운송장·AWB 를 준비합니다.
+        <b>샘플피씨비 처리 대기 중</b> — 인보이스 확인 후 Case ID·운송장·{{ transportDocLabel }} 를 준비합니다.
         완료되면 메일로 안내됩니다.
         <span v-if="shipment.caseRefNote !== null && shipment.caseRefNote !== ''" class="mt-0.5 block text-amber-600">
           요청 메모: {{ shipment.caseRefNote }}
@@ -334,7 +384,8 @@ const STATUS_CLS: Record<string, string> = {
         <p class="mt-1">
           발송 참조번호(Case ID): <b class="tracking-wide">{{ shipment.caseRef }}</b>
           <template v-if="shipment.trackingNumber !== null">
-            · 운송장: {{ shipment.carrier ?? '' }} <span class="tabular-nums">{{ shipment.trackingNumber }}</span>
+            · {{ transportDocLabel }} No.: {{ shipment.carrier ?? '' }}
+            <span class="tabular-nums">{{ shipment.trackingNumber }}</span>
           </template>
         </p>
         <div v-if="adminFiles.length > 0" class="mt-1.5 flex flex-wrap gap-2">
@@ -433,21 +484,43 @@ const STATUS_CLS: Record<string, string> = {
         </p>
       </section>
 
+      <!-- ② 운송수단 — ③(누가 부치나)과 **직교**하는 축이라 섹션을 따로 세운다.
+           ③보다 먼저 와야 한다: 이 값이 정해져야 아래 서류 버튼이 AWB 인지 B/L 인지
+           정해진다(순서가 곧 의존이다). 국내 체인엔 체크리스트 자체가 없다. -->
       <section class="rounded-lg border border-gray-200 p-3">
-        <p class="text-xs font-bold text-gray-700">② 발송 방식 선택</p>
+        <p class="text-xs font-bold text-gray-700">② 운송수단 <span class="text-red-500">*</span></p>
+        <div class="mt-2 flex flex-wrap gap-5">
+          <label
+            v-for="t in SHIPMENT_TRANSPORTS"
+            :key="t"
+            class="flex cursor-pointer items-center gap-1.5 text-xs text-gray-700"
+          >
+            <input v-model="transportInput" type="radio" :value="t">
+            <b>{{ SHIPMENT_TRANSPORT_LABELS[t] }}</b>
+            <span class="font-normal text-gray-400">{{ t === 'air' ? '(특송·AWB)' : '(선박·B/L)' }}</span>
+          </label>
+        </div>
+        <p class="mt-1.5 text-[11px] text-gray-400">
+          운송서류는 <b class="font-semibold text-gray-500">{{ transportDocLabel }}</b> 입니다 —
+          바꾸면 아래 운송회사·번호 입력이 초기화됩니다.
+        </p>
+      </section>
+
+      <section class="rounded-lg border border-gray-200 p-3">
+        <p class="text-xs font-bold text-gray-700">③ 발송 방식 선택</p>
         <label class="mt-2 flex cursor-pointer items-start gap-2 text-xs text-gray-700">
           <input v-model="shipMethod" type="radio" value="self" class="mt-0.5">
-          <span><b>내 운송 계정으로 직접 발송</b> — AWB 를 직접 첨부합니다.</span>
+          <span><b>내 운송 계정으로 직접 발송</b> — {{ transportDocLabel }} 를 직접 첨부합니다.</span>
         </label>
         <div v-if="shipMethod === 'self'" class="ml-6 mt-2 flex flex-wrap items-center gap-2 text-xs">
           <button
             type="button"
             class="rounded-md border border-gray-300 px-2.5 py-1 font-semibold text-gray-600 hover:bg-gray-50"
-            @click="pickFile('airwaybill')"
+            @click="pickFile(transportDoc)"
           >
-            ⬆ AWB 첨부
+            ⬆ {{ transportDocLabel }} 첨부
           </button>
-          <span v-if="awbFile !== null" class="font-semibold text-emerald-600">✓ {{ awbFile.name }}</span>
+          <span v-if="docFile !== null" class="font-semibold text-emerald-600">✓ {{ docFile.name }}</span>
           <!-- 옵션 서류는 오른쪽 끝 — 필수 동선(왼쪽 열)과 시선이 섞이지 않게. -->
           <span v-if="coFile !== null" class="ml-auto font-semibold text-emerald-600">✓ {{ coFile.name }}</span>
           <button
@@ -460,9 +533,16 @@ const STATUS_CLS: Record<string, string> = {
             ⬆ 원산지증명원 <span class="font-normal">(선택)</span>
           </button>
         </div>
+        <!-- 운송회사·번호 — 항공은 정식 표기 셀렉트(표기 흩어짐 방지), 해상은 선사가
+             아니라 포워더 이름을 적는 실무가 흔해 프리셋 없이 직접입력만 연다. 번호의
+             이름도 수단을 따른다(AWB No. / B/L No.) — 둘은 자릿수·형식이 다르다. -->
         <div v-if="shipMethod === 'self'" class="ml-6 mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span class="font-semibold text-gray-500">운송회사 <span class="font-normal text-gray-400">(선택)</span></span>
+          <span class="font-semibold text-gray-500">
+            {{ transportInput === 'sea' ? '선사·포워더' : '운송회사' }}
+            <span class="font-normal text-gray-400">(선택)</span>
+          </span>
           <select
+            v-if="transportInput === 'air'"
             v-model="carrierChoice"
             class="h-8 rounded-md border border-gray-300 bg-surface px-2 text-xs focus:border-teal-500 focus:outline-none"
           >
@@ -471,14 +551,16 @@ const STATUS_CLS: Record<string, string> = {
             <option :value="CARRIER_CUSTOM">직접입력</option>
           </select>
           <input
-            v-if="carrierChoice === CARRIER_CUSTOM"
+            v-if="transportInput === 'sea' || carrierChoice === CARRIER_CUSTOM"
             v-model="carrierCustomInput"
             type="text"
             maxlength="50"
-            placeholder="운송회사명"
-            class="h-8 w-40 rounded-md border border-gray-300 px-2 text-xs focus:border-teal-500 focus:outline-none"
+            :placeholder="transportInput === 'sea' ? '선사 또는 포워더명' : '운송회사명'"
+            class="h-8 w-44 rounded-md border border-gray-300 px-2 text-xs focus:border-teal-500 focus:outline-none"
           >
-          <span class="font-semibold text-gray-500">운송장 번호 <span class="font-normal text-gray-400">(선택)</span></span>
+          <span class="font-semibold text-gray-500">
+            {{ transportDocLabel }} No. <span class="font-normal text-gray-400">(선택)</span>
+          </span>
           <input
             v-model="trackingInput"
             type="text"
@@ -495,8 +577,8 @@ const STATUS_CLS: Record<string, string> = {
           </label>
           <div v-if="shipMethod === 'caseref'" class="ml-6 mt-2 space-y-2">
             <p class="rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
-              Case ID·운송장·AWB 는 샘플피씨비가 처리합니다. 준비되면 메일로 안내되며,
-              그 전까지 발송은 진행되지 않습니다.
+              Case ID·운송장·{{ transportDocLabel }} 는 샘플피씨비가 처리합니다. 준비되면 메일로
+              안내되며, 그 전까지 발송은 진행되지 않습니다.
             </p>
             <input
               v-model="caseRefNoteInput"
@@ -510,7 +592,7 @@ const STATUS_CLS: Record<string, string> = {
       </section>
 
       <section class="rounded-lg border border-gray-200 p-3">
-        <p class="text-xs font-bold text-gray-700">③ 출고예정일 <span class="text-red-500">*</span></p>
+        <p class="text-xs font-bold text-gray-700">④ 출고예정일 <span class="text-red-500">*</span></p>
         <input v-model="shipDateInput" type="date" class="mt-2 w-48 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
       </section>
 
@@ -576,9 +658,9 @@ const STATUS_CLS: Record<string, string> = {
         <button
           type="button"
           class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50"
-          @click="pickFile('airwaybill')"
+          @click="pickFile(transportDoc)"
         >
-          ⬆ AWB/송장내역
+          ⬆ {{ transportDocLabel }}
         </button>
         <button
           type="button"

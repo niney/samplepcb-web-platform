@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { DateOnly } from './common';
 import { PcbPoEqReviewSummary } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
-import { BomInvoiceData, BomShipmentMode, BomShipmentStatus } from './bom-po';
+import { BomInvoiceData, BomShipmentMode, BomShipmentStatus, ShipmentTransport } from './bom-po';
 
 // ── PCB 파트너 트랙 — sp_pcb_po 계약(P2) ─────────────────────────────────────
 // 설계 정본: docs/PCB_PARTNER_TRACK.md §5.2-2·§5.2-3. 발주서 status 가 EQ·생산
@@ -343,24 +343,36 @@ export type PcbEqEventType = z.infer<typeof PcbEqEvent>;
 export const PCB_SHIPMENT_RECEIVER_KINDS = ['admin', 'md'] as const;
 export type PcbShipmentReceiverKindType = (typeof PCB_SHIPMENT_RECEIVER_KINDS)[number];
 
-// PCB 선적 첨부 종류 — BOM 사전(invoice·airwaybill)에 원산지증명원·검사 성적서를 더한
-// PCB 전용 확장(2026-08-13 프로세스 재편·08-15 test_report). 공유 BOM 사전은 불변 —
-// BOM 화면에 새 종류가 새지 않는다. 필수는 invoice 뿐(요청 게이트) — 나머지는 선택.
-export const PCB_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill', 'origin_cert', 'test_report'] as const;
+// PCB 선적 첨부 종류 — BOM 사전(invoice·airwaybill)에 원산지증명원·검사 성적서·선하증권을
+// 더한 PCB 전용 확장(2026-08-13 프로세스 재편·08-15 test_report·08-16 bill_of_lading).
+// 공유 BOM 사전은 불변 — BOM 화면에 새 종류가 새지 않는다. 필수는 invoice 뿐(요청 게이트)
+// — 나머지는 선택이되, Case ID 갈래의 '선적'만 운송수단별 운송서류 1종을 강제한다.
+export const PCB_SHIPMENT_FILE_TYPES = [
+  'invoice',
+  'airwaybill',
+  'bill_of_lading',
+  'origin_cert',
+  'test_report',
+] as const;
 export type PcbShipmentFileTypeType = (typeof PCB_SHIPMENT_FILE_TYPES)[number];
 export const PcbShipmentFileType = z.enum(PCB_SHIPMENT_FILE_TYPES);
 export const PCB_SHIPMENT_FILE_LABELS = {
   invoice: 'Invoice',
   airwaybill: 'AWB',
+  bill_of_lading: 'B/L',
   origin_cert: '원산지증명원',
   test_report: 'TEST Report',
 } as const satisfies Record<PcbShipmentFileTypeType, string>;
+
+// 운송수단(2026-08-16)은 **BOM 과 공용 사전**이다(bom-po.ts `SHIPMENT_TRANSPORTS`) —
+// 같은 실물 축을 두 트랙이 다른 어휘로 부르면 협력사가 화면마다 다른 말을 듣는다.
+// 여기서는 계약 필드에 쓰기만 하고, 소비처는 공용 이름을 그대로 import 한다.
 
 export const PcbShipmentFileView = z.object({
   fileId: z.number(),
   name: z.string(),
   size: z.number(),
-  fileType: PcbShipmentFileType, // invoice|airwaybill|origin_cert|test_report
+  fileType: PcbShipmentFileType, // invoice|airwaybill|bill_of_lading|origin_cert|test_report
   uploadedBy: z.string().nullable(),
   uploadedAt: z.string(),
 });
@@ -392,6 +404,9 @@ export const PcbShipmentView = z.object({
   senderPartnerId: z.number(),
   senderName: z.string(),
   destinationCountry: z.string().nullable(),
+  /** 운송수단 — 국제 전용. null = 미선택(구 데이터·국내)이며 표시는 pcbTransportOf 로 접는다.
+   *  운송서류(AWB/BL)·운송회사 프리셋·운송장 라벨이 이 값 하나에서 갈린다. */
+  transport: ShipmentTransport.nullable(),
   carrier: z.string().nullable(),
   trackingNumber: z.string().nullable(),
   trackingUrl: z.string().nullable(),
@@ -967,6 +982,9 @@ export type PartnerPcbChildPoCreateBodyType = z.infer<typeof PartnerPcbChildPoCr
 // 확정된다 — 구 withPoIds(전이 순간 일회성 묶기)는 실사용 도달 불가로 폐기(§9 재구성).
 export const PcbShipmentAdvanceBody = z.object({
   shipDate: z.string().trim().max(10).nullish(),
+  /** 운송수단(국제 전용, 2026-08-16) — '선적 요청'에 얹혀 박제된다. 국내 발송에서 오면
+   *  서버가 버린다(mode 게이트). 바꾸려면 되돌리기로 준비 단계에 복귀해 다시 보낸다. */
+  transport: ShipmentTransport.nullish(),
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),
@@ -1085,6 +1103,9 @@ export const AdminPcbShipmentWorkItem = z.object({
   /** 운송장 — '이동 중' 박스를 큐에서 바로 식별(검색 축이기도 하다). */
   carrier: z.string().nullable(),
   trackingNumber: z.string().nullable(),
+  /** 운송수단 — 해상은 리드타임이 항공과 자릿수로 다르다. 큐에서 그걸 못 가르면
+   *  "왜 아직 안 왔나"를 운송장으로 역추론하게 된다(국제 행에만 의미 있다). */
+  transport: ShipmentTransport.nullable(),
   poCount: z.number().int(),
   /**
    * 묶음 구성 전체(대표 포함) — 묶음은 **고객(Case) 경계를 넘어** 합류하므로(박스 키에

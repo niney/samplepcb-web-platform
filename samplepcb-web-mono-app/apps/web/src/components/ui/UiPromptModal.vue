@@ -22,6 +22,9 @@ export interface PromptField {
   /** select 전용 — 선택지 목록. '직접입력' 항목은 자동으로 붙고, 고르면 텍스트 인풋이 열린다.
    *  초깃값(value)이 목록 밖 문자열이면 직접입력 모드로 열어 값을 보존한다. */
   options?: readonly string[];
+  /** select 전용 — false 면 '직접입력'을 막는다(사전이 닫힌 값: 운송수단 같은 enum).
+   *  기본 true — 표기 자유가 필요한 운송회사 등 기존 소비처의 동작은 그대로다. */
+  allowCustom?: boolean;
 }
 
 const props = withDefaults(
@@ -134,7 +137,7 @@ onBeforeUnmount(() => {
               >
                 <option value="">{{ f.required === true ? '선택' : '선택 안 함' }}</option>
                 <option v-for="opt in f.options ?? []" :key="opt" :value="opt">{{ opt }}</option>
-                <option :value="SELECT_CUSTOM">직접입력</option>
+                <option v-if="f.allowCustom !== false" :value="SELECT_CUSTOM">직접입력</option>
               </select>
               <input
                 v-if="selectChoices[f.name] === SELECT_CUSTOM"

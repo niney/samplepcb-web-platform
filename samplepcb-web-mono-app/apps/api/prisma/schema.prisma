@@ -1130,6 +1130,10 @@ model SpBomShipment {
   quoteId            BigInt
   mode           String    @default("international") @db.VarChar(16) // international|domestic
   status         String    @db.VarChar(20) // 모드별 코드 사전(intl 6단계/domestic 3단계)
+  // 운송수단(2026-08-16) — air|sea, **국제 전용**(mode 와 직교: 국경/운반수단). null 은
+  // 미선택(이 축 도입 전 데이터·국내)이며 읽는 쪽이 'air' 로 접는다. PCB 트랙과 같은
+  // 공용 사전(SHIPMENT_TRANSPORTS)을 쓰고, 운송서류가 이 값에서 갈린다(AWB/BL).
+  transport      String?   @db.VarChar(8)
   carrier        String?   @db.VarChar(50)
   trackingNumber String?   @db.VarChar(100)
   trackingUrl    String?   @db.VarChar(500)
@@ -1650,6 +1654,10 @@ model SpPcbShipment {
   receiverKind       String    @default("admin") @db.VarChar(8) // admin|md
   receiverPartnerId  BigInt? // md 입고일 때 MD 조직
   destinationCountry String?   @db.VarChar(2) // 직송 박제(대표 발주서 승계, D5)
+  // 운송수단(2026-08-16) — air|sea, **국제 전용**(mode 와 직교: 국경/운반수단). null 은
+  // 미선택(이 축 도입 전 데이터·국내)이며 읽는 쪽이 'air' 로 접는다. 컬럼 default 를
+  // 안 두는 이유 = "명시적 항공"과 "구 데이터"를 나중에 가를 수 있게.
+  transport          String?   @db.VarChar(8)
   carrier            String?   @db.VarChar(50)
   trackingNumber     String?   @db.VarChar(100)
   trackingUrl        String?   @db.VarChar(500)

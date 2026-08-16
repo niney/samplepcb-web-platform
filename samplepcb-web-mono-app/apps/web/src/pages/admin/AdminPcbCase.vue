@@ -17,6 +17,10 @@ import {
   pcbSellingPrice,
   resolvePcbDirectShipCountry,
   PCB_SHIPMENT_FILE_LABELS,
+  SHIPMENT_TRANSPORTS,
+  SHIPMENT_TRANSPORT_LABELS,
+  shipmentTransportDocType,
+  shipmentTransportOf,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
   type AdminPcbShipmentViewType,
@@ -1130,6 +1134,13 @@ const canAdminReceive = (s: PcbShipmentViewType): boolean => {
 
 // 선적 전이의 필수값은 단계마다 다르다 — 택배사·송장처럼 둘을 받아야 하는 단계는 prompt
 // 로는 창을 두 번 띄워야 했고 두 번째에서 취소하면 첫 입력이 사라졌다. 한 모달에서 받는다.
+// 운송수단 선택지 — 값은 계약 enum('air'|'sea')인데 프롬프트 select 는 라벨=값이라
+// 한국어 라벨로 물어보고 제출에서 되돌린다. allowCustom:false 로 '직접입력'을 막아
+// 사전 밖 문자열이 아예 못 들어오게 한다(역매핑이 실패할 길을 없앤다).
+const TRANSPORT_OPTIONS = SHIPMENT_TRANSPORTS.map((t) => SHIPMENT_TRANSPORT_LABELS[t]);
+const transportFromLabel = (label: string | undefined): 'air' | 'sea' | null =>
+  SHIPMENT_TRANSPORTS.find((t) => SHIPMENT_TRANSPORT_LABELS[t] === label) ?? null;
+
 const shipPromptFieldsOf = (
   next: BomShipmentStatusType,
   ship?: {
@@ -1138,10 +1149,23 @@ const shipPromptFieldsOf = (
     caseRefNote: string | null;
     carrier: string | null;
     trackingNumber: string | null;
+    transport: 'air' | 'sea' | null;
   },
 ): PromptField[] => {
   if (next === 'requested') {
+    // 관리자 대행 '선적 요청'(포털 계정 없는 조직 — 여정 12호) — 운송수단은 협력사가
+    // 고를 자리가 없으니 여기서 받는다. 안 받으면 대행 발송만 기본값으로 굳는다.
     return [
+      {
+        name: 'transport',
+        label: '운송수단',
+        type: 'select' as const,
+        options: TRANSPORT_OPTIONS,
+        allowCustom: false,
+        required: true,
+        value: SHIPMENT_TRANSPORT_LABELS[shipmentTransportOf(ship?.transport)],
+        hint: '해상은 운송서류가 B/L 입니다(항공은 AWB).',
+      },
       {
         name: 'shipDate',
         label: '출고예정일',
@@ -1179,18 +1203,32 @@ const shipPromptFieldsOf = (
             ? `협력사 요청 메모: ${ship.caseRefNote}`
             : '협력사가 라벨링·인계에 쓸 값입니다 — 선적 통지 메일에 함께 나갑니다.',
       },
+      // 자사 주선은 부킹 주체가 관리자다 — 협력사가 요청 때 적어 둔 수단을 그대로
+      // 굳히지 않고 여기서 확정한다(항공으로 요청됐어도 해상으로 부킹할 수 있다).
+      {
+        name: 'transport',
+        label: '운송수단',
+        type: 'select' as const,
+        options: TRANSPORT_OPTIONS,
+        allowCustom: false,
+        required: true,
+        value: SHIPMENT_TRANSPORT_LABELS[shipmentTransportOf(ship.transport)],
+        hint: '바꾸면 필수 첨부도 함께 바뀝니다 — 항공 AWB / 해상 B/L.',
+      },
       {
         name: 'carrier',
-        label: '운송회사',
+        label: shipmentTransportOf(ship.transport) === 'sea' ? '선사·포워더' : '운송회사',
         type: 'select' as const,
-        options: PCB_INTL_CARRIERS,
+        // 해상은 선사보다 포워더 이름을 적는 실무라 특송 프리셋이 방해가 된다 — 빈 목록
+        // (= 직접입력만). 항공은 표기 흩어짐을 막는 정식 표기 셀렉트 그대로.
+        options: shipmentTransportOf(ship.transport) === 'sea' ? [] : PCB_INTL_CARRIERS,
         maxlength: 50,
         value: ship.carrier ?? '',
-        placeholder: '운송회사명',
+        placeholder: shipmentTransportOf(ship.transport) === 'sea' ? '선사 또는 포워더명' : '운송회사명',
       },
       {
         name: 'trackingNumber',
-        label: '트래킹 번호(AWB/BL)',
+        label: `트래킹 번호(${PCB_SHIPMENT_FILE_LABELS[shipmentTransportDocType(ship.transport)]})`,
         required: true,
         maxlength: 100,
         value: ship.trackingNumber ?? '',
@@ -1212,6 +1250,9 @@ const shipPrompt = ref<{
   /** 운송회사·트래킹 프리필 — 직접 발송 갈래는 협력사가 선적준비에 적어 둔 값이 온다. */
   carrier: string | null;
   trackingNumber: string | null;
+  /** 운송수단 — 프리필이자 **필드 모양의 결정자**(해상이면 운송회사 프리셋이 빠지고
+   *  트래킹 라벨이 B/L 로 바뀐다). 협력사가 요청 때 고른 값이 여기로 온다. */
+  transport: 'air' | 'sea' | null;
 } | null>(null);
 
 async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): Promise<void> {
@@ -1235,6 +1276,7 @@ async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<v
     caseRefNote: s.caseRefNote,
     carrier: s.carrier,
     trackingNumber: s.trackingNumber,
+    transport: s.transport,
   };
   // 입력이 필요 없는 단계(직접 발송 '선적'·국내도착/현지도착·통관·완료 등)는 그대로 진행.
   if (shipPromptFieldsOf(next, ship).length === 0) {
@@ -1251,13 +1293,18 @@ async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<v
     caseRefNote: ship.caseRefNote,
     carrier: ship.carrier,
     trackingNumber: ship.trackingNumber,
+    transport: ship.transport,
   };
 }
 async function submitShipPrompt(values: Record<string, string>): Promise<void> {
   const target = shipPrompt.value;
   if (target === null) return;
+  const transport = transportFromLabel(values.transport);
   const body: PcbShipmentAdvanceBodyType = {
     ...(values.shipDate === undefined || values.shipDate === '' ? {} : { shipDate: values.shipDate }),
+    // 운송수단 — 라벨을 계약 값으로 되돌린다. 서버는 수단이 바뀌면 앞서 박힌 운송회사·
+    // 운송장을 비우므로 이 줄이 carrier 보다 앞에 있어야 같은 요청의 새 값이 살아남는다.
+    ...(transport === null ? {} : { transport }),
     ...(values.carrier === undefined || values.carrier === '' ? {} : { carrier: values.carrier }),
     ...(values.trackingNumber === undefined || values.trackingNumber === ''
       ? {}
@@ -1302,12 +1349,19 @@ const invoiceOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
   s.files.find((f) => f.fileType === 'invoice') ?? null;
 const adminInvoiceOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
   s.files.find((f) => f.fileType === 'invoice' && f.uploadedBy === 'ADMIN') ?? null;
+/** 이 발송의 운송서류 — 항공 AWB / 해상 B/L(08-16). 서버 게이트와 **같은 사전**에서
+ *  유도해야 "첨부했는데 409" 가 안 난다(스트립 ②·업로드 버튼·필수 판정이 같이 쓴다). */
+const shipDocTypeOf = (s: AdminPcbShipmentViewType): PcbShipmentFileTypeType =>
+  shipmentTransportDocType(s.transport);
+const shipDocLabelOf = (s: AdminPcbShipmentViewType): string =>
+  PCB_SHIPMENT_FILE_LABELS[shipDocTypeOf(s)];
 const awbOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
-  s.files.find((f) => f.fileType === 'airwaybill') ?? null;
+  s.files.find((f) => f.fileType === shipDocTypeOf(s)) ?? null;
 /** 스트립 ①·② 밖의 제출 서류(원산지증명원 등) — 스트립 활성 중 메인 줄 칩은 숨기므로
- *  다운로드 자리가 여기여야 한다(겹침 제거 — 08-13 사용자 지적). */
+ *  다운로드 자리가 여기여야 한다(겹침 제거 — 08-13 사용자 지적). 운송수단을 바꿔 쓸모가
+ *  없어진 반대편 서류(해상인데 남아 있는 AWB)도 여기로 떨어져 열람은 유지된다. */
 const otherShipFilesOf = (s: AdminPcbShipmentViewType): AdminShipFileView[] =>
-  s.files.filter((f) => f.fileType !== 'invoice' && f.fileType !== 'airwaybill');
+  s.files.filter((f) => f.fileType !== 'invoice' && f.fileType !== shipDocTypeOf(s));
 const caseRefStrip = (s: AdminPcbShipmentViewType): boolean =>
   s.caseRefRequestedAt !== null &&
   s.receivedAt === null &&
@@ -2328,6 +2382,12 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       {{ s.mode === 'domestic' ? '국내(택배)' : '국제' }} · {{ s.senderName }} → {{ s.receiverName }}
                       <template v-if="s.destinationCountry !== null"> · 직송 {{ s.destinationCountry }}</template>
                     </span>
+                    <!-- 운송수단 — 박제된 값이 있을 때만(null 은 이 축 도입 전 발송이다).
+                         해상은 리드타임·서류가 달라 상태만으로는 진행을 못 읽는다. -->
+                    <span
+                      v-if="s.transport !== null"
+                      class="rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-700"
+                    >{{ SHIPMENT_TRANSPORT_LABELS[s.transport] }}</span>
                     <!-- 묶음은 Case(고객) 경계를 넘는다 — 건수만 알려주면 "무엇이 함께
                          움직이는지"를 알 수 없어, 구성원을 열거하고 남의 Case 것은
                          고객까지 밝혀 그 Case 로 바로 연다(관리자 전용 뷰 — 포털 비노출). -->
@@ -2395,10 +2455,10 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       <button
                         type="button"
                         class="rounded border border-gray-200 px-1.5 py-0.5 font-semibold text-gray-400 hover:bg-gray-50"
-                        title="AWB 첨부"
-                        @click="adminPickShipFile(po.poId, 'airwaybill')"
+                        :title="`${shipDocLabelOf(s)} 첨부`"
+                        @click="adminPickShipFile(po.poId, shipDocTypeOf(s))"
                       >
-                        ⬆ AWB
+                        ⬆ {{ shipDocLabelOf(s) }}
                       </button>
                     </template>
                     <span class="grow" />
@@ -2490,13 +2550,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       <span v-if="adminInvoiceOf(s) !== null" class="font-semibold text-emerald-600">✓ 수정본</span>
                     </span>
                     <span class="flex items-center gap-1.5 text-gray-600">
-                      ② AWB
+                      ② {{ shipDocLabelOf(s) }}
                       <template v-if="awbOf(s) === null">
                         <button
                           type="button"
                           class="rounded border border-amber-400 bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800 hover:bg-amber-200"
-                          title="AWB 첨부 — Case ID 발송은 AWB 가 있어야 선적 진행이 열립니다"
-                          @click="adminPickShipFile(po.poId, 'airwaybill')"
+                          :title="`${shipDocLabelOf(s)} 첨부 — Case ID 발송은 ${shipDocLabelOf(s)} 가 있어야 선적 진행이 열립니다`"
+                          @click="adminPickShipFile(po.poId, shipDocTypeOf(s))"
                         >
                           ⬆ 첨부
                         </button>
@@ -2514,8 +2574,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                         <button
                           type="button"
                           class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 font-semibold text-gray-400 hover:bg-gray-50"
-                          title="AWB 교체"
-                          @click="adminPickShipFile(po.poId, 'airwaybill')"
+                          :title="`${shipDocLabelOf(s)} 교체`"
+                          @click="adminPickShipFile(po.poId, shipDocTypeOf(s))"
                         >
                           ⬆ 교체
                         </button>
@@ -2977,7 +3037,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) — 한 화면에서 받고 필수값을 잠근다 -->
     <UiPromptModal
       :title="shipPrompt === null ? null : `${pcbShipmentStatusLabel(shipPrompt.mode, shipPrompt.next, { directShip: shipPrompt.directShip })} 진행`"
-      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next, { caseRefRequested: shipPrompt.caseRefRequested, caseRef: shipPrompt.caseRefValue, caseRefNote: shipPrompt.caseRefNote, carrier: shipPrompt.carrier, trackingNumber: shipPrompt.trackingNumber })"
+      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next, { caseRefRequested: shipPrompt.caseRefRequested, caseRef: shipPrompt.caseRefValue, caseRefNote: shipPrompt.caseRefNote, carrier: shipPrompt.carrier, trackingNumber: shipPrompt.trackingNumber, transport: shipPrompt.transport })"
       confirm-label="진행"
       :busy="shipAdvanceAdmin.isPending.value"
       @close="shipPrompt = null"

@@ -11,10 +11,12 @@ import {
   BOM_SHIPMENT_DOMESTIC_STATUSES,
   BOM_SHIPMENT_INTL_STATUSES,
   BomPoExternalRef,
+  BomShipmentFileType,
   bomShipmentActorOf,
   bomShipmentDocumentsLocked,
   bomShipmentNextStatus,
   bomShipmentPrevStatus,
+  shipmentTransportOf,
 } from '@sp/api-contract';
 import type {
   AdminBomPoCrossItemType,
@@ -27,6 +29,7 @@ import type {
   BomPoStatusType,
   BomShipmentFileMetaType,
   BomShipmentFileTypeType,
+  ShipmentTransportType,
   BomShipmentGroupPoType,
   BomShipmentModeType,
   BomShipmentStatusType,
@@ -186,15 +189,25 @@ export const asShipmentStatus = (mode: BomShipmentModeType, v: string): BomShipm
   return (allowed as readonly string[]).includes(v) ? (v as BomShipmentStatusType) : 'preparing';
 };
 
+/** 응답용 운송수단 — DB 는 자유 문자열이라 사전 밖 값은 null(미선택)로 내보낸다.
+ *  **표시 폴백(shipmentTransportOf)과 다르다**: 여기서 'air' 로 접으면 "고른 적 없음"이
+ *  화면에서 "항공을 골랐음"으로 굳어 라디오가 처음부터 켜진 채 뜬다. */
+const asShipmentTransport = (v: string | null): ShipmentTransportType | null =>
+  v === 'air' || v === 'sea' ? v : null;
+
 // ── 선적 첨부(D22) — sp_file 폴리모픽(refType 'sp_bom_shipment'), 종류별 1건 ──
 const SHIPMENT_FILE_REF_TYPE = 'sp_bom_shipment';
 const SHIPMENT_FILE_SERVICE_TYPE = process.env.BOM_SHIPMENT_FILE_SERVICE_TYPE ?? 'bom_shipment';
 
+// 판정은 **계약 사전 파싱**이다 — 종류를 손으로 나열하면 사전이 늘 때마다 조용히
+// 빠진다(PCB 쪽은 그 방식이라 08-15 신설 종류가 'invoice' 로 접혔다). 모르는 종류는
+// 접지 말고 뺀다 — 남의 종류로 위장하면 화면의 첨부 판정이 거짓이 된다.
 const toShipmentFileMeta = (f: SpFile): BomShipmentFileMetaType | null => {
-  if (f.fileType !== 'invoice' && f.fileType !== 'airwaybill') return null;
+  const kind = BomShipmentFileType.safeParse(f.fileType);
+  if (!kind.success) return null;
   return {
     fileId: Number(f.id),
-    fileType: f.fileType,
+    fileType: kind.data,
     name: f.originFileName,
     size: Number(f.size),
     uploadedBy: f.uploadedBy === 'ADMIN' || f.uploadedBy === 'PARTNER' ? f.uploadedBy : null,
@@ -229,6 +242,7 @@ export const toShipmentView = (
     shipmentId: Number(shipment.id),
     mode,
     status: asShipmentStatus(mode, shipment.status),
+    transport: asShipmentTransport(shipment.transport),
     carrier: shipment.carrier,
     trackingNumber: shipment.trackingNumber,
     trackingUrl: shipment.trackingUrl,
@@ -1300,6 +1314,19 @@ export const upsertShipment = async (
   const isFinal = status === finalStatusOf(mode);
   const data = {
     status,
+    // 운송수단 — **국제 전용** 축이라 국내 발송에서 오면 버린다(바로 아래 shipDate 와
+    // 같은 관례). 수단이 바뀌면 앞서 적어 둔 운송회사·운송장은 남의 수단 것이 되므로
+    // (항공사명 + 해상 B/L 번호 같은 모순) 함께 비운다. PCB 트랙과 같은 규칙이다.
+    // ⚠ 이 스프레드는 carrier·trackingNumber 보다 **앞**이어야 한다: 수단 변경과 새
+    // 운송장 입력이 한 요청에 오면 뒤에 오는 새 값이 이겨야 한다.
+    ...(mode === 'international' && body.transport !== undefined
+      ? {
+          transport: body.transport ?? null,
+          ...(shipmentTransportOf(body.transport) === shipmentTransportOf(existing?.transport)
+            ? {}
+            : { carrier: null, trackingNumber: null, trackingUrl: null }),
+        }
+      : {}),
     ...(body.carrier !== undefined ? { carrier: body.carrier ?? null } : {}),
     ...(body.trackingNumber !== undefined ? { trackingNumber: body.trackingNumber ?? null } : {}),
     ...(body.trackingUrl !== undefined ? { trackingUrl: body.trackingUrl ?? null } : {}),
@@ -1497,6 +1524,8 @@ export const advancePartnerShipment = async (
   const saved = await upsertShipment(poId, {
     status: next,
     ...(body.shipDate !== undefined ? { shipDate: body.shipDate } : {}),
+    // 운송수단은 협력사 '선적 요청'에 얹혀 온다 — 국내 게이트·전환 정리는 upsert 가 한다.
+    ...(body.transport !== undefined ? { transport: body.transport } : {}),
     ...(body.carrier !== undefined ? { carrier: body.carrier } : {}),
     ...(body.trackingNumber !== undefined ? { trackingNumber: body.trackingNumber } : {}),
     ...(body.trackingUrl !== undefined ? { trackingUrl: body.trackingUrl } : {}),

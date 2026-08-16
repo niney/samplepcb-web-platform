@@ -18,10 +18,14 @@ import {
   BOM_SHIPMENT_INTL_STATUSES,
   BomInvoiceData,
   PCB_PO_STATUSES,
+  PcbShipmentFileType,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentPrevStatus,
+  shipmentTransportDocType,
+  shipmentTransportOf,
   type PcbPoStatusType,
+  type ShipmentTransportType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getBusinessInfo, getOrderInfoByCtId, isCanceledCartStatus } from './g5-db';
@@ -48,6 +52,12 @@ const SHIPMENT_UPLOAD_SERVICE_TYPE = 'pcb_shipment';
 
 export const asPcbShipmentMode = (v: string): BomShipmentModeType =>
   v === 'domestic' ? 'domestic' : 'international';
+
+/** 응답용 운송수단 — DB 는 자유 문자열이라 사전 밖 값은 null(미선택)로 내보낸다.
+ *  **표시 폴백(shipmentTransportOf)과 다르다**: 여기서 'air' 로 접으면 "고른 적 없음"이
+ *  화면에서 "항공을 골랐음"으로 굳어 버려 라디오가 처음부터 켜진 채 뜬다. */
+const asPcbTransport = (v: string | null): ShipmentTransportType | null =>
+  v === 'air' || v === 'sea' ? v : null;
 
 export const asPcbShipmentStatus = (
   mode: BomShipmentModeType,
@@ -301,16 +311,24 @@ export const ensurePcbShipment = async (
   }
 };
 
-// ── 첨부(invoice/airwaybill — 종류별 1건 교체, BOM D22 동형) ──────────────────
-const toFileView = (f: SpFile): PcbShipmentFileViewType => ({
-  fileId: Number(f.id),
-  name: f.originFileName,
-  size: Number(f.size),
-  fileType:
-    f.fileType === 'airwaybill' ? 'airwaybill' : f.fileType === 'origin_cert' ? 'origin_cert' : 'invoice',
-  uploadedBy: f.uploadedBy,
-  uploadedAt: f.writeDate.toISOString(),
-});
+// ── 첨부(종류별 1건 교체, BOM D22 동형) ──────────────────────────────────────
+// 판정은 **계약 사전 파싱**이다(BOM toShipmentFileMeta 관례). 구 삼항 폴백은 사전에
+// 종류가 늘 때마다 조용히 틀렸다 — 08-15 test_report 가 'invoice' 로 접혀, 성적서만
+// 올린 발송이 화면에서 "① 인보이스 ✓ 첨부됨"으로 보이고 [선적 요청]이 열린 뒤
+// 서버가 MISSING_INVOICE_FILE 로 막았다(카드가 피하려던 409 왕복 그 자체).
+// 모르는 종류는 **접지 말고 뺀다** — 남의 종류로 위장하면 게이트가 거짓 통과한다.
+const toFileView = (f: SpFile): PcbShipmentFileViewType | null => {
+  const kind = PcbShipmentFileType.safeParse(f.fileType);
+  if (!kind.success) return null;
+  return {
+    fileId: Number(f.id),
+    name: f.originFileName,
+    size: Number(f.size),
+    fileType: kind.data,
+    uploadedBy: f.uploadedBy,
+    uploadedAt: f.writeDate.toISOString(),
+  };
+};
 
 const loadShipmentFilesMap = async (
   shipmentIds: bigint[],
@@ -322,9 +340,11 @@ const loadShipmentFilesMap = async (
   });
   const map = new Map<string, PcbShipmentFileViewType[]>();
   for (const row of rows) {
+    const view = toFileView(row);
+    if (view === null) continue;
     const key = row.refId.toString();
     const list = map.get(key) ?? [];
-    list.push(toFileView(row));
+    list.push(view);
     map.set(key, list);
   }
   return map;
@@ -418,6 +438,7 @@ export type PcbShipmentTransitionError =
   | 'CASE_REF_REQUIRED'
   | 'CASE_REF_LOCKED'
   | 'MISSING_AWB_FILE'
+  | 'MISSING_BL_FILE'
   | 'NOT_ADMIN_RECEIVER'
   | 'NOTHING_TO_REVERT'
   | 'RECEIVE_LOCKED'
@@ -507,13 +528,17 @@ export const advancePcbShipment = async (
   ) {
     return { ok: false, error: 'CASE_REF_REQUIRED' };
   }
-  // 체크 갈래의 국제 '선적'은 AWB 첨부도 필수(사용자 결정 08-13) — 이 갈래의 존재 이유다.
-  // 파트너는 AWB 를 낼 수 없고(자사 운송 계약) 관리자가 부킹 후 첨부한다.
+  // 체크 갈래의 국제 '선적'은 운송서류 첨부도 필수(사용자 결정 08-13) — 이 갈래의 존재
+  // 이유다. 파트너는 서류를 낼 수 없고(자사 운송 계약) 관리자가 부킹 후 첨부한다.
+  // 어느 서류인지는 **운송수단이 정한다**(08-16): 항공 AWB / 해상 B/L. 실효값은
+  // "이 전이에 온 값 ?? 박제값" — 관리자가 부킹하며 수단을 바꿔 적을 수 있어서다.
   if (next === 'shipped' && shipment.caseRefRequestedAt !== null) {
-    const awb = await prisma.spFile.findFirst({
-      where: { refType: SHIPMENT_REF_TYPE, refId: shipment.id, fileType: 'airwaybill' },
+    const needed = shipmentTransportDocType(body.transport ?? shipment.transport);
+    const doc = await prisma.spFile.findFirst({
+      where: { refType: SHIPMENT_REF_TYPE, refId: shipment.id, fileType: needed },
     });
-    if (awb === null) return { ok: false, error: 'MISSING_AWB_FILE' };
+    if (doc === null)
+      return { ok: false, error: needed === 'bill_of_lading' ? 'MISSING_BL_FILE' : 'MISSING_AWB_FILE' };
   }
   // 국내 종점('입고 완료')은 입고확인과 같은 사건이다 — 전이만 따로 세우면 상태는 끝났는데
   // receivedAt 이 비어 다음 일(MD 상위 출고 해제·고객 배송 큐·Case 배지)이 하나도 안 열린다.
@@ -530,6 +555,20 @@ export const advancePcbShipment = async (
       ...(body.shipDate === undefined
         ? {}
         : { shipDate: body.shipDate === null || body.shipDate === '' ? null : parseKstDate(body.shipDate) }),
+      // 운송수단 — **국제 전용** 축이라 국내 발송에서 오면 버린다(BOM upsertShipment 의
+      // shipDate 게이트와 같은 관례). 수단이 바뀌면 앞서 적어 둔 운송회사·운송장은 남의
+      // 수단 것이 되므로(항공사명 + 해상 B/L 같은 모순) 함께 비운다. 화면도 지우지만
+      // 진실은 서버가 정한다 — 관리자 프롬프트·재시도가 화면을 안 거칠 수 있다.
+      // ⚠ 이 스프레드는 carrier·trackingNumber 보다 **앞**이어야 한다: 수단 변경과 새 운송장
+      // 입력이 한 요청에 오면 뒤에 오는 새 값이 이겨야 한다(초기화가 새 입력을 덮으면 안 된다).
+      ...(mode === 'international' && body.transport !== undefined
+        ? {
+            transport: body.transport ?? null,
+            ...(shipmentTransportOf(body.transport) === shipmentTransportOf(shipment.transport)
+              ? {}
+              : { carrier: null, trackingNumber: null, trackingUrl: null }),
+          }
+        : {}),
       ...(body.carrier === undefined ? {} : { carrier: body.carrier }),
       ...(body.trackingNumber === undefined ? {} : { trackingNumber: body.trackingNumber }),
       ...(body.trackingUrl === undefined ? {} : { trackingUrl: body.trackingUrl }),
@@ -789,6 +828,7 @@ export const toPcbShipmentView = async (
     senderPartnerId: Number(rep?.partnerId ?? 0),
     senderName: rep?.partner.name ?? '',
     destinationCountry: shipment.destinationCountry,
+    transport: asPcbTransport(shipment.transport),
     carrier: shipment.carrier,
     trackingNumber: shipment.trackingNumber,
     trackingUrl: shipment.trackingUrl,
@@ -1196,6 +1236,7 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
         status: asPcbShipmentStatus(asPcbShipmentMode(shipment.mode), shipment.status),
         carrier: shipment.carrier,
         trackingNumber: shipment.trackingNumber,
+        transport: asPcbTransport(shipment.transport),
         poCount: shipment.pos.length,
         members: memberPos.map((p) => ({
           poId: Number(p.id),

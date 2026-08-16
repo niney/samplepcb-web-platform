@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
   BOM_SHIPMENT_MODE_LABELS,
+  SHIPMENT_TRANSPORT_LABELS,
   bomShipmentStatusLabel,
   type AdminBomOrderListItemType,
   type AdminBomShipmentCrossItemType,
@@ -327,6 +328,9 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
                 {{ item.mode === 'international' ? fmtDate(item.shipDate) : '—' }}
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
+                <!-- 운송수단 — 해상은 리드타임이 항공과 자릿수로 다르다(08-16). 박제된
+                     값이 있을 때만(null 은 이 축 도입 전 발송이다). -->
+                <template v-if="item.transport !== null">{{ SHIPMENT_TRANSPORT_LABELS[item.transport] }} · </template>
                 <template v-if="item.trackingNumber !== null">{{ item.carrier ?? '' }} {{ item.trackingNumber }}</template>
                 <span v-else class="text-gray-300">—</span>
               </td>

@@ -3,16 +3,20 @@ import { computed, ref } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import {
   BOM_SHIPMENT_FILE_LABELS,
-  BOM_SHIPMENT_FILE_TYPES,
   BOM_SHIPMENT_MODE_LABELS,
+  SHIPMENT_TRANSPORTS,
+  SHIPMENT_TRANSPORT_LABELS,
   bomShipmentActorOf,
   bomShipmentDocumentsLocked,
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
+  shipmentTransportDocType,
+  shipmentTransportOf,
   type BomShipmentFileTypeType,
   type BomShipmentStatusType,
   type PartnerShipmentViewType,
+  type ShipmentTransportType,
 } from '@sp/api-contract';
 import {
   downloadPartnerShipmentFile,
@@ -56,6 +60,11 @@ const trackingNumber = ref('');
 const trackingUrl = ref('');
 const error = ref('');
 
+// ── 운송수단(08-16, PCB 트랙과 같은 공용 축) — 발송을 "무엇으로 나르나".
+// 국제 '선적 요청'에서 고르고, 이 값 하나에서 **첨부해야 할 운송서류가 갈린다**
+// (항공 AWB / 해상 B/L). 초깃값은 박제값 유도, 없으면 항공(현행 관례).
+const transport = ref<ShipmentTransportType>(shipmentTransportOf(props.shipment.transport));
+
 const mode = computed(() => props.shipment.mode);
 const status = computed(() => props.shipment.status);
 const stepChain = computed(() => bomShipmentStatusesOf(mode.value));
@@ -65,6 +74,20 @@ const documentsLocked = computed(() =>
   bomShipmentDocumentsLocked(mode.value, status.value, props.shipment.receivedAt),
 );
 const isMyTurn = computed(() => props.shipment.myTurn);
+/** 화면이 지금 다루는 운송수단 — 요청 폼이 열려 있으면 **입력 중인 값**(서류 줄이
+ *  라디오를 즉시 따라야 한다), 그 밖에는 박제값. */
+const activeTransport = computed<ShipmentTransportType>(() =>
+  nextStatus.value === 'requested' && isMyTurn.value
+    ? transport.value
+    : shipmentTransportOf(props.shipment.transport),
+);
+/** 이 발송에서 다루는 첨부 종류 — 사전 전체를 늘어놓으면 해상 발송에도 AWB 줄이 서서
+ *  "둘 다 내야 하나"로 읽힌다. 인보이스(공통) + 수단이 정한 운송서류 1종만 세운다.
+ *  이미 올라온 반대편 서류는 수단을 되돌리면 다시 보인다(삭제하지 않는다). */
+const docKinds = computed<BomShipmentFileTypeType[]>(() => [
+  'invoice',
+  shipmentTransportDocType(activeTransport.value),
+]);
 const canRevert = computed(
   () =>
     props.shipment.receivedAt === null &&
@@ -152,6 +175,9 @@ async function advance(): Promise<void> {
       poId: poId.value,
       body: {
         ...(shipDate.value !== '' ? { shipDate: shipDate.value } : {}),
+        // 운송수단은 '선적 요청'에서만 실린다(국내엔 그 전이가 없고, 서버도 국제에서만
+        // 저장한다). 뒤 단계에서 보내면 이미 박힌 값을 덮을 뿐이라 보내지 않는다.
+        ...(nextStatus.value === 'requested' ? { transport: transport.value } : {}),
         ...(carrier.value.trim() !== '' ? { carrier: carrier.value.trim() } : {}),
         ...(trackingNumber.value.trim() !== ''
           ? { trackingNumber: trackingNumber.value.trim() }
@@ -277,6 +303,8 @@ async function attachInvoicePdf(file: File): Promise<void> {
       </li>
     </ol>
     <p class="mt-1.5 text-xs text-gray-400">
+      <!-- 운송수단 — 박제된 값이 있을 때만(null 은 이 축 도입 전 발송이다). -->
+      <template v-if="shipment.transport !== null">{{ SHIPMENT_TRANSPORT_LABELS[shipment.transport] }} · </template>
       <template v-if="mode === 'international' && shipment.shipDate !== null">출고예정 {{ shipment.shipDate }} · </template>
       <template v-if="shipment.shippedAt !== null">
         발송 {{ fmtKstDate(shipment.shippedAt) }} ·
@@ -340,10 +368,10 @@ async function attachInvoicePdf(file: File): Promise<void> {
           v-if="documentsLocked"
           class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600"
         >
-          🔒 완료된 발송 · 문서 잠금 — Invoice와 AWB는 내려받기만 할 수 있습니다.
+          🔒 완료된 발송 · 문서 잠금 — Invoice와 {{ fileLabel(docKinds[1]!) }}는 내려받기만 할 수 있습니다.
         </p>
         <div
-          v-for="kind in BOM_SHIPMENT_FILE_TYPES"
+          v-for="kind in docKinds"
           :key="kind"
           class="flex flex-wrap items-center gap-2 text-sm"
         >
@@ -406,20 +434,36 @@ async function attachInvoicePdf(file: File): Promise<void> {
       class="mt-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3"
     >
       <p class="text-sm font-bold text-blue-800">다음 단계: {{ statusLabel(nextStatus) }}</p>
-      <div v-if="nextStatus === 'requested'" class="mt-2 grid gap-2 sm:grid-cols-2">
-        <label class="text-sm text-gray-600">출고예정일 (필수)
-          <input
-            v-model="shipDate"
-            type="date"
-            class="mt-1 h-9 w-full rounded-lg border border-gray-200 px-3 text-sm"
+      <div v-if="nextStatus === 'requested'" class="mt-2 space-y-2">
+        <!-- 운송수단 — 출고예정일보다 **먼저**다: 이 값이 정해져야 위 서류 줄이 AWB 인지
+             B/L 인지 정해진다(순서가 곧 의존이다). PCB 트랙과 같은 사전·같은 문구. -->
+        <div class="flex flex-wrap items-center gap-4">
+          <span class="text-sm font-semibold text-gray-600">운송수단</span>
+          <label
+            v-for="t in SHIPMENT_TRANSPORTS"
+            :key="t"
+            class="flex cursor-pointer items-center gap-1.5 text-sm text-gray-700"
           >
-        </label>
-        <p class="self-end pb-1 text-xs text-gray-500">
-          {{ fileLabel('invoice') }} 첨부가 필요합니다{{
-            fileOf('invoice') === null ? ' — 위에서 먼저 첨부해 주세요.' : ' ✓'
-          }}
-          <br><span class="font-semibold text-emerald-700">선적 리스트·QR 저장도 필수입니다.</span>
-        </p>
+            <input v-model="transport" type="radio" :value="t">
+            <b>{{ SHIPMENT_TRANSPORT_LABELS[t] }}</b>
+            <span class="text-xs font-normal text-gray-400">{{ t === 'air' ? '(특송·AWB)' : '(선박·B/L)' }}</span>
+          </label>
+        </div>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <label class="text-sm text-gray-600">출고예정일 (필수)
+            <input
+              v-model="shipDate"
+              type="date"
+              class="mt-1 h-9 w-full rounded-lg border border-gray-200 px-3 text-sm"
+            >
+          </label>
+          <p class="self-end pb-1 text-xs text-gray-500">
+            {{ fileLabel('invoice') }} 첨부가 필요합니다{{
+              fileOf('invoice') === null ? ' — 위에서 먼저 첨부해 주세요.' : ' ✓'
+            }}
+            <br><span class="font-semibold text-emerald-700">선적 리스트·QR 저장도 필수입니다.</span>
+          </p>
+        </div>
       </div>
       <div v-else-if="nextStatus === 'shipping'" class="mt-2 grid gap-2 sm:grid-cols-3">
         <input

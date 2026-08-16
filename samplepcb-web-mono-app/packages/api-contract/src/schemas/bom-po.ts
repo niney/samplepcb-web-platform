@@ -215,15 +215,45 @@ export const bomShipmentDocumentsLocked = (
 
 // ── 선적 첨부(D22) — sp_file(refType 'sp_bom_shipment'), 종류별 1건(재업로드=교체) ──
 
-export const BOM_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill'] as const;
+export const BOM_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill', 'bill_of_lading'] as const;
 export type BomShipmentFileTypeType = (typeof BOM_SHIPMENT_FILE_TYPES)[number];
 export const BomShipmentFileType = z.enum(BOM_SHIPMENT_FILE_TYPES);
 
-/** 국제 발송 전용 첨부 라벨. 국내 발송은 생성형 견적서·거래명세서를 사용한다. */
+/** 국제 발송 전용 첨부 라벨. 국내 발송은 생성형 견적서·거래명세서를 사용한다.
+ *  운송서류는 수단을 따른다 — 항공 AWB / 해상 B/L(2026-08-16). */
 export const BOM_SHIPMENT_FILE_LABELS = {
   invoice: 'Invoice',
   airwaybill: 'AWB',
+  bill_of_lading: 'B/L',
 } as const satisfies Record<BomShipmentFileTypeType, string>;
+
+// ── 운송수단(2026-08-16) — 국제 발송의 두 번째 축, **BOM·PCB 공용 사전** ─────
+// mode(international|domestic)가 "국경을 넘는가"라면 transport 는 "무엇으로 나르는가"다.
+// 두 축은 직교한다. 해상은 리드타임이 항공과 자릿수로 다르고 **운송서류가 아예 다른
+// 문서**(AWB ↔ B/L)라 carrier 문자열 안에 녹일 수 없다 — "머스크"라고 적어도 시스템은
+// 그게 해상인 줄 모르고, SF Express 처럼 양쪽 다 하는 회사에서 역추론은 깨진다.
+// 국내 체인(택배)엔 이 축이 없다 — 저장은 서버가 국제에서만 한다(mode 게이트).
+export const SHIPMENT_TRANSPORTS = ['air', 'sea'] as const;
+export type ShipmentTransportType = (typeof SHIPMENT_TRANSPORTS)[number];
+export const ShipmentTransport = z.enum(SHIPMENT_TRANSPORTS);
+export const SHIPMENT_TRANSPORT_LABELS = {
+  air: '항공',
+  sea: '해상',
+} as const satisfies Record<ShipmentTransportType, string>;
+
+/** 표시 폴백 — null(사전 도입 전 데이터·미선택)은 항공으로 읽어 화면 분기를 2갈래로 유지.
+ *  ⚠ **응답 직렬화에는 쓰지 않는다**: 거기서 접으면 "고른 적 없음"이 "항공을 골랐음"으로
+ *  굳어 라디오가 처음부터 켜진 채 뜬다(트랙별 asXxxTransport 가 null 을 지킨다). */
+export const shipmentTransportOf = (v: string | null | undefined): ShipmentTransportType =>
+  v === 'sea' ? 'sea' : 'air';
+
+/** 운송수단별 운송서류 — 항공 AWB(Air Waybill) / 해상 B/L(Bill of Lading). 전이 게이트와
+ *  첨부 버튼이 **같은 사전에서** 유도해야 "첨부했는데 409" 가 안 난다. 두 트랙의 파일
+ *  사전이 이 두 값을 공유하므로 반환은 리터럴 유니온이다. */
+export const shipmentTransportDocType = (
+  v: string | null | undefined,
+): 'airwaybill' | 'bill_of_lading' =>
+  shipmentTransportOf(v) === 'sea' ? 'bill_of_lading' : 'airwaybill';
 
 export const BomShipmentFileMeta = z.object({
   fileId: z.number(),
@@ -248,6 +278,9 @@ export const BomShipmentView = z.object({
   shipmentId: z.number(),
   mode: BomShipmentMode,
   status: BomShipmentStatus,
+  /** 운송수단 — 국제 전용. null = 미선택(구 데이터·국내). 운송서류(AWB/BL)·운송회사
+   *  입력 방식·번호 라벨이 이 값 하나에서 갈린다(2026-08-16). */
+  transport: ShipmentTransport.nullable(),
   carrier: z.string().nullable(),
   trackingNumber: z.string().nullable(),
   trackingUrl: z.string().nullable(),
@@ -468,6 +501,9 @@ export type AdminBomPartPackageResponseType = z.infer<typeof AdminBomPartPackage
 // 국내 최종 단계(delivered)는 이 요청이 아니라 입고 확인 전용 API로만 진입한다.
 export const AdminBomShipmentUpsertBody = z.object({
   status: BomShipmentStatus.optional(),
+  /** 운송수단 — 국제 전용(국내에서 오면 서버가 버린다). 바꾸면 앞서 박힌 운송회사·
+   *  운송장이 함께 비워진다(남의 수단 값이 남지 않게). */
+  transport: ShipmentTransport.nullish(),
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),
@@ -484,6 +520,9 @@ export type AdminBomShipmentReceiveBodyType = z.infer<typeof AdminBomShipmentRec
 // requested=출고예정일+Invoice 첨부 / shipping=택배사+송장번호. 나머지 전이는 입력 없음.
 export const PartnerShipmentAdvanceBody = z.object({
   shipDate: z.string().trim().max(10).nullish(), // 'YYYY-MM-DD'
+  /** 운송수단 — '선적 요청'에 얹혀 박제된다(국제 전용). 바꾸려면 되돌리기로 준비
+   *  단계에 복귀해 다시 보낸다. PCB 트랙과 같은 사전·같은 규칙이다. */
+  transport: ShipmentTransport.nullish(),
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),

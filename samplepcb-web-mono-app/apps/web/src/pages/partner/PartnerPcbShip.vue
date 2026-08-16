@@ -13,6 +13,7 @@ import {
 } from '../../partner/usePartnerPcbPos';
 import PcbShipmentCard from '../../components/pcb/PcbShipmentCard.vue';
 import { fmtPcbAmount } from '../../lib/pcb-money';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // [📦 PCB 보내기](§9 묶음 재구성) — BOM §6.11 두 칸 이동 UI 의 PCB 일반화.
 // BOM 과 달리 받는 곳이 갈릴 수 있어(관리자/직송 KR·CN·VN/MD) 박스는 컨텍스트당
@@ -55,7 +56,24 @@ async function putIn(poId: number): Promise<void> {
   }
 }
 
-async function takeOut(poId: number): Promise<void> {
+// 꺼내기 — 마지막 한 건이면 **박스 자체가 사라진다**(서버 detachPcbShipmentPo: 빈 박스는
+// 첨부 실파일까지 지우고 행을 삭제). 그게 "처음부터 다시"의 정식 경로이기도 하지만,
+// 인보이스·운송서류가 되돌릴 수 없이 날아가는 조작이 다른 줄의 [꺼내기]와 생김새가
+// 같으면 사고가 된다. 마지막 한 건일 때만 묻는다(평소 동선은 그대로).
+async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> {
+  if (box.groupPos.length === 1) {
+    const docs = box.files.length;
+    const ok = await confirmDialog({
+      message:
+        `마지막 한 건입니다 — 꺼내면 이 박스가 사라집니다.` +
+        (docs > 0
+          ? ` 첨부한 서류 ${String(docs)}건도 함께 삭제되며 되돌릴 수 없습니다.`
+          : ' 다시 담으면 처음부터 준비하게 됩니다.'),
+      confirmLabel: '꺼내고 박스 없애기',
+      tone: 'danger',
+    });
+    if (!ok) return;
+  }
   error.value = '';
   try {
     await detachMut.mutateAsync({ poId });
@@ -220,7 +238,7 @@ async function takeOut(poId: number): Promise<void> {
                   type="button"
                   class="shrink-0 rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
                   :disabled="busy"
-                  @click="takeOut(po.poId)"
+                  @click="takeOut(box, po.poId)"
                 >
                   ← 꺼내기
                 </button>

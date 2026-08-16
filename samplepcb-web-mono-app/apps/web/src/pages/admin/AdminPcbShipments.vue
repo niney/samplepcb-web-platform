@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
   PCB_PO_STATUS_LABELS,
+  SHIPMENT_TRANSPORT_LABELS,
   type AdminPcbOrderItemType,
   type AdminPcbShipmentTabType,
   type AdminPcbShipmentWorkItemType,
@@ -433,6 +434,12 @@ function openCase(specId: number): void {
                     SH-{{ row.shipmentId }}
                     <span v-if="row.poCount > 1" class="ml-1 rounded bg-indigo-100 px-1 font-sans text-[11px] font-semibold text-indigo-700">묶음 {{ row.poCount }}</span>
                     <span v-if="row.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 font-sans text-[11px] font-semibold text-rose-700">{{ row.reorderRound }}차</span>
+                    <!-- 운송수단 — 해상은 리드타임이 항공과 자릿수로 다르다. 이게 안 보이면
+                         "왜 아직 안 왔나"를 운송장으로 역추론하게 된다(08-16). -->
+                    <span
+                      v-if="row.transport !== null"
+                      class="ml-1 rounded bg-sky-100 px-1 font-sans text-[11px] font-semibold text-sky-700"
+                    >{{ SHIPMENT_TRANSPORT_LABELS[row.transport] }}</span>
                     <span v-if="row.trackingNumber !== null" class="mt-0.5 block text-[11px] text-gray-400">
                       {{ row.carrier ?? '' }} {{ row.trackingNumber }}
                     </span>
