@@ -5,6 +5,7 @@
 > 동적 주문을 구현한 과정의 기록. 설계 결정의 배경은 `HANDOFF.md`, 플랫폼 전반은 `AGENTS.md` 참조.
 >
 > 작성 2026-07-02 · 실브라우저 end-to-end 검증 완료 시점 기준
+> 갱신 2026-08-16 · **PCB Case 주문자 요청 표시** — sp-php 주문서의 `전하실 말씀`(`g5_shop_order.od_memo`)을 `getOrderHeadersLite` read-only 조회와 PCB 상세 계약의 `order.memo`로 전달해 `/app/admin/pcb/cases/:id` 주문·수금 카드에 표시한다. 견적 접수 시의 `sp_order_spec.message`와 별도 정보로 유지하며 DB 마이그레이션·쓰기 경로 변경은 없다.
 > 갱신 2026-07-03 · 가격 엔진 라이브 패리티 체계 + spec 키 differentDesign 통일 반영
 > 갱신 2026-07-03 · 견적관리(/shop/quotes)·지난 견적 보관함(/shop/quotes/archive) — 장바구니와 독립 모델 확립
 > 갱신 2026-07-03 · 장바구니 견적 행 건별 인라인 수량변경 — 담긴 상태에서 서버 재견적+cart 행 동기화(기법 #8 개정)
@@ -198,6 +199,10 @@
 > g5_* 행은 "금지의 예외"가 아니라 sp-node 의 **접근 카탈로그**다 — 필요하면 확장하되,
 > ① `lib/g5-db.ts` 일원화 ② 함수·컬럼 단위 기록 ③ 코어 병행 동작과의 정합성(부수효과) 확인
 > ④ 이 표 + HANDOFF 동시 갱신이 규칙. 민감 컬럼 SELECT 배제·Prisma 의 g5 비편입은 불변.
+>
+> **⑩ 추가(2026-08-16)**: `getOrderHeadersLite`가 PCB Case의 주문자 요청 표시를 위해
+> `g5_shop_order.od_memo`를 read-only로 함께 조회한다. 일반 주문 상세의 `memo`와 같은 값이며,
+> 견적 접수 필드 `sp_order_spec.message`와 합치거나 덮어쓰지 않는다.
 
 | 데이터 | 소유 | 접근 규칙 |
 |---|---|---|

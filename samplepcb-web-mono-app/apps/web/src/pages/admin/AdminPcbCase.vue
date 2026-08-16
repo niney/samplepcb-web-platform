@@ -1835,6 +1835,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
               <dd class="text-gray-600">{{ detail.order.settleCase || '—' }} · {{ fmtKstDate(detail.order.orderedAt) }}</dd>
             </div>
           </dl>
+          <!-- 견적 접수 때의 detail.message(고객 요청)와 다른, sp-php 주문서 od_memo다.
+               제작·출고 실무에서 놓치지 않도록 항상 보인다. -->
+          <div
+            v-if="detail.order.memo.trim() !== ''"
+            class="mt-3 flex w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
+          >
+            <span class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-700">전하실 말씀</span>
+            <p class="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5 text-gray-700">{{ detail.order.memo }}</p>
+          </div>
           <!-- 미입금이면 여기서 바로 처리 — 아래 발주 패널이 결제 게이트(NOT_PAID)로 막히기 때문. -->
           <div v-if="canConfirmReceipt || canReviewOrderCancel" class="mt-3 flex gap-2">
             <button

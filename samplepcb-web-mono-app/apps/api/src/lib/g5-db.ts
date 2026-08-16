@@ -36,6 +36,7 @@
 // od_receipt_point·od_refund_price·od_cart_coupon·od_coupon·od_send_coupon·od_cart_price·
 // od_cancel_price·od_send_cost·od_send_cost2·od_settle_case·od_tno·od_pg·od_misu·od_tax_mny·
 // od_vat_mny·od_free_mny(`getOrderHeadersLite` 주문 세액·결제대상·순결제 표시) +
+// od_memo(`getOrderHeadersLite` PCB Case 주문자 전하실 말씀 표시) +
 // od_name·od_email·od_tel·od_hp·mb_id(`getOrdererContactByOdId` PCB·BOM Case 주문자 표시) +
 // od_b_name·od_b_tel·od_b_hp·od_b_zip1/2·od_b_addr1~3(`getOrderHeadersLite` SmartBOM
 // 고객 배송 워크큐의 주문 시점 수령인·배송지·배송 메일 수신처 표시) +
@@ -586,6 +587,7 @@ export async function getCartOrderAttemptsByIoIds(
 
 export interface OrderHeaderLite {
   odId: string;
+  memo: string;
   mbId: string;
   customerName: string;
   customerEmail: string;
@@ -657,7 +659,7 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
   // od_time 은 DATE_FORMAT 필수 — raw 로 받으면 mysql2 가 JS Date 로 돌려주고
   // String() 결과("Wed Jul 30 …")가 정렬·표시를 모두 깨뜨린다(다른 쿼리 관례 동일).
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
-    `SELECT od_id, mb_id, od_name, od_email, od_tel, od_hp,
+    `SELECT od_id, od_memo, mb_id, od_name, od_email, od_tel, od_hp,
             od_b_name, od_b_tel, od_b_hp, od_b_zip1, od_b_zip2, od_b_addr1, od_b_addr2, od_b_addr3,
             od_status, od_settle_case, od_cart_price, od_cancel_price,
             od_cart_coupon, od_coupon, od_send_coupon, od_send_cost, od_send_cost2,
@@ -678,6 +680,7 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
     const sendCost2 = Number(row.od_send_cost2 ?? 0);
     headers.set(String(row.od_id), {
       odId: String(row.od_id),
+      memo: String(row.od_memo ?? ''),
       mbId: String(row.mb_id ?? ''),
       customerName: String(row.od_name ?? ''),
       customerEmail: String(row.od_email ?? ''),

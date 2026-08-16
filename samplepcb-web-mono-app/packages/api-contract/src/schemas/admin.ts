@@ -157,6 +157,7 @@ export const AdminQuoteDetail = AdminQuoteListItem.extend({
   order: z
     .object({
       odId: z.string(),
+      memo: z.string(), // od_memo — sp-php 주문서의 "전하실 말씀"(읽기 전용)
       odStatus: z.string(), // '주문'(미입금)|'입금'|'준비'|…|'완료'|'취소'
       ctStatus: z.string(), // 이 PCB 스펙의 카트행 상태 — 부분취소면 odStatus와 다를 수 있다.
       isPaid: z.boolean(), // od_status !== '주문'

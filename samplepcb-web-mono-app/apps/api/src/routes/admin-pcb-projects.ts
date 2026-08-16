@@ -415,6 +415,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       // 주문 요약(P3.5) — 주문됨일 때만 od 헤더를 lazy 파생(저장 없음, BOM D10 동형).
       let order: {
         odId: string;
+        memo: string;
         odStatus: string;
         ctStatus: string;
         isPaid: boolean;
@@ -459,6 +460,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             });
             order = {
               odId: header.odId,
+              memo: header.memo,
               odStatus: header.odStatus,
               ctStatus: lineOrderInfo?.rowCtStatus ?? header.odStatus,
               isPaid: header.isPaid,
