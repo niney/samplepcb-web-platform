@@ -513,6 +513,14 @@ Recent file에도 제목이 노출되면 안 된다. 숫자가 아닌 깨진 주
 - 기본 도메인은 nginx 통합(`https://local-web.samplepcb.co.kr`) — nginx(Windows
   서비스)가 꺼져 있으면 beforeAll 에서 중단된다. `E2E_BASE_URL=http://127.0.0.1:5173`
   (vite 직결)로 우회 가능하나 `/bbs`(그누보드 화면) 검증은 불가.
+- **여정을 연속으로 돌리면 502 로 죽는다 — 원인은 앱이 아니라 프록시다**(2026-08-16 규명).
+  Vite dev 는 모듈 하나가 요청 하나라 여정 몇 편이면 수만 건이 나가는데, nginx 가 upstream
+  연결을 재사용하지 않으면 소켓이 TIME_WAIT 으로 쌓여 **Windows 임시 포트(약 14K)가
+  고갈**된다(`error.log` 에 `10048 Only one usage of each socket address`). 그러면 SPA 모듈이
+  502 로 안 내려와 화면이 비고, 테스트는 엉뚱하게 "버튼이 안 보인다"·"hidden body"로 죽는다.
+  **증상이 테스트마다 떠도는 게 특징**(어제는 K03, 오늘은 C06). 처방은 `map $http_upgrade`
+  + `upstream … keepalive` — `ops/nginx/local-web.conf` 에 반영돼 있다. 리포트의
+  `## HTTP ≥400` 에 502 가 무더기면 이걸 의심한다.
 - Mailpit 은 사용자 관찰용이기도 하다 — 시드가 유발한 메일만 `mailpitDelete(ids)`. 같은 제목이
   주행마다 반복되므로(프로젝트명이 픽스처 파일명이다) **발송 전에 기준선(최신 1통 ID)을 잡고**
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
