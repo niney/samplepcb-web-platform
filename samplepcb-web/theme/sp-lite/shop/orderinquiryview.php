@@ -957,14 +957,17 @@ if($od['od_pg'] == 'lg') {
 		        </div>
 		        <div class="sod_fin_bg"></div>
 			</div>
-			<script>	
+			<script>
 			$(function (){
+				// sticky 주문 요약의 stacking context를 벗어나 모달이 페이지 전체를 덮도록 한다.
+				var $cancel_pop = $("#sod_cancel_pop").appendTo(document.body);
+
 				$(".sod_fin_c_btn").on("click", function() {
-			        $("#sod_cancel_pop").show();
-			    });
-			    $(".sod_cls_btn").on("click", function() {
-			        $("#sod_cancel_pop").hide();
-			    });		
+					$cancel_pop.show();
+				});
+				$(".sod_cls_btn").on("click", function() {
+					$cancel_pop.hide();
+				});
 			});
 			</script>
 

@@ -1938,7 +1938,7 @@
 #sod_cancel_pop { display: none; position: fixed; inset: 0; z-index: 1000; }
 #sod_cancel_pop .sod_fin_bg { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
 #sod_cancel_pop #sod_fin_cancelfrm {
-    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    position: absolute; z-index: 1; left: 50%; top: 50%; transform: translate(-50%, -50%);
     width: min(92vw, 420px); padding: 28px 24px;
     background: #fff; border-radius: var(--sp-radius);
     box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
@@ -1951,8 +1951,12 @@
 }
 #sod_cancel_pop .frm_input:focus { border-color: var(--sp-primary); outline: none; }
 #sod_cancel_pop .btn_frmline {
-    width: 100%; min-height: 44px;
-    background: var(--sp-primary); border-color: var(--sp-primary); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 100%; min-height: 44px; padding: 0 16px;
+    border: 1px solid var(--sp-primary); border-radius: var(--sp-radius);
+    background: var(--sp-primary); color: #fff;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: background .15s, border-color .15s;
 }
 #sod_cancel_pop .btn_frmline:hover { background: var(--sp-primary-dark); border-color: var(--sp-primary-dark); color: #fff; }
 #sod_cancel_pop .sod_cls_btn {
