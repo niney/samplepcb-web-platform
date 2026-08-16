@@ -3,18 +3,22 @@ import { z } from 'zod';
 import {
   ApiError,
   BomInvoiceData,
+  PCB_PO_STATUS_LABELS,
+  PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
   PcbShipmentFileType,
   PartnerPcbChildPoCreateBody,
   PartnerPcbPoDetailResponse,
   PartnerPcbPoListResponse,
   PartnerPcbRemittanceListResponse,
   PcbEqFileType,
+  PcbEqRequestBody,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   PcbShipCaseRefRequestBody,
   PcbShipmentAdvanceBody,
   PcbShipmentReceiveBody,
   bomShipmentStatusLabel,
+  resolvePcbPoTrack,
   type PartnerPcbRemittanceTotalType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
@@ -122,7 +126,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const pos = await prisma.spPcbPo.findMany({
         where: { partnerId: ctx.partnerId },
         include: {
-          spec: { select: { projectName: true } },
+          spec: { select: { projectName: true, category: true } }, // category=트랙 파생(라벨)
           remittances: { orderBy: [{ remittedOn: 'asc' }, { id: 'asc' }] },
         },
         orderBy: { issuedAt: 'desc' },
@@ -151,6 +155,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
               ? houseName
               : (parentName.get(po.parentPartnerId.toString()) ?? '중개 조직'),
           poStatus: asPcbPoStatus(po.status),
+          poTrack: resolvePcbPoTrack(po.spec.category),
           issuedAt: po.issuedAt.toISOString(),
           remittanceDueOn:
             po.remittanceDueOn === null ? null : po.remittanceDueOn.toISOString(),
@@ -238,7 +243,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           message:
             kind.success && kind.data === 'reply'
               ? '회신 첨부는 관리자만 올릴 수 있습니다.'
-              : 'fileType(eq|working)과 파일이 필요합니다.',
+              : 'fileType(eq|working|coord)과 파일이 필요합니다.',
         });
       }
       const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
@@ -314,6 +319,8 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     FINAL: '이미 마지막 단계입니다.',
     ORDER_CANCELED: '취소된 주문입니다 — 진행을 멈추고 샘플피씨비 담당자에게 문의해 주세요.',
+    // 스텐실 제출 요건 — 문구는 계약이 정본이라 그대로 편다.
+    ...PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
   };
 
   const transitionMessage = (error: string): string =>
@@ -321,12 +328,25 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
 
   fastify.post(
     '/partner/pcb-pos/:poId/eq-request',
-    { schema: { params: PoParams, response: { 200: PcbPoActionResponse, 409: ApiError } } },
+    {
+      schema: {
+        params: PoParams,
+        body: PcbEqRequestBody,
+        response: { 200: PcbPoActionResponse, 409: ApiError },
+      },
+    },
     async (request, reply) => {
       const ctx = requireCtx(request);
       const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await advancePcbPoEq(po.id, { kind: 'partner', partnerId: ctx.partnerId }, 'issued');
+      // note = 스텐실 트랙의 고객문의사항(EQ 트랙에선 선택 메모). 필수 여부·좌표파일 게이트는
+      // lib 이 트랙을 보고 판정한다 — 라우트가 카테고리를 다시 읽지 않는다.
+      const res = await advancePcbPoEq(
+        po.id,
+        { kind: 'partner', partnerId: ctx.partnerId },
+        'issued',
+        request.body.note ?? null,
+      );
       if (!res.ok)
         return reply.status(409).send({ error: res.error, message: transitionMessage(res.error) });
 
@@ -335,13 +355,14 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         getShopEstimateProfile(),
         prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
       ]);
+      const track = resolvePcbPoTrack(spec?.category);
       void sendPcbMail(
         request.log,
         profile?.managerEmail,
         buildPcbEqRequestedEmail({
           partnerName: ctx.partnerName,
           projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
-          statusLabel: 'EQ 승인요청',
+          statusLabel: PCB_PO_STATUS_LABELS[track].eq_requested,
           targetUrl: pcbAdminCaseUrl(po.specId.toString()),
           targetLabel: 'Case 상세 열기',
         }),
@@ -350,7 +371,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           refType: 'pcb_spec',
           refId: po.specId,
           sentBy: request.user.mbId,
-          params: { poId: String(po.id), partnerName: ctx.partnerName },
+          params: { poId: String(po.id), partnerName: ctx.partnerName, track },
         },
       );
       return { result: true as const };

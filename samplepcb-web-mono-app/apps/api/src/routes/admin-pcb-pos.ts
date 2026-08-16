@@ -11,7 +11,10 @@ import {
   AdminPcbShipCaseRefBody,
   ApiError,
   BomInvoiceData,
+  PCB_PO_STATUS_LABELS,
+  PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
   PcbShipmentFileType,
+  PcbEqRequestBody,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   PcbPoRejectBody,
@@ -35,6 +38,7 @@ import {
   loadAdminPcbPos,
   loadPcbPoWithPartner,
   patchPcbPo,
+  pcbPoTrackOf,
   rejectPcbPoEq,
   revertPcbPoEq,
   uploadPcbEqFile,
@@ -313,6 +317,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const po = await loadPcbPoWithPartner(request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
+      const track = await pcbPoTrackOf(po.specId);
       const res = await advancePcbPoEq(po.id, { kind: 'admin' }, 'eq_requested');
       if (!res.ok)
         return reply.status(409).send({
@@ -320,7 +325,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message:
             res.error === 'ORDER_CANCELED'
               ? '취소된 주문입니다 — 재작업은 A/S 재발주로 진행하세요.'
-              : 'EQ 승인요청 상태에서만 승인할 수 있습니다.',
+              : `${PCB_PO_STATUS_LABELS[track].eq_requested} 상태에서만 ${track === 'stencil' ? '확인 완료로 넘길' : '승인할'} 수 있습니다.`,
         });
 
       const [spec, portalCta] = await Promise.all([
@@ -436,19 +441,35 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   for (const step of SUBSTITUTE_STEPS) {
     fastify.post(
       `/pcb-projects/:id/pos/:poId/${step.path}`,
-      { schema: { params: PoParams, response: { 200: PcbPoActionResponse, 409: ApiError } } },
+      {
+        // 제출 대행(eq-request)은 협력사 라우트와 **같은 바디**를 받는다 — 스텐실 트랙이면
+        // 고객문의사항이 필수이고, 대행이라고 그 요건이 빠지지 않는다(빠지면 좌표 없이 확인
+        // 완료로 넘어간 건이 나중에 고객 화면에서 빈자리가 된다). 나머지 두 단계는 무시된다.
+        schema: {
+          params: PoParams,
+          body: PcbEqRequestBody,
+          response: { 200: PcbPoActionResponse, 409: ApiError },
+        },
+      },
       async (request, reply) => {
         const po = await loadPcbPoWithPartner(request.params.poId);
         if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
         if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
-        const res = await advancePcbPoEq(po.id, { kind: 'admin' }, step.from);
+        const res = await advancePcbPoEq(
+          po.id,
+          { kind: 'admin' },
+          step.from,
+          step.path === 'eq-request' ? (request.body.note ?? null) : null,
+        );
         if (!res.ok)
           return reply.status(409).send({
             error: res.error,
             message:
               res.error === 'ORDER_CANCELED'
                 ? '취소된 주문입니다 — 재작업은 A/S 재발주로 진행하세요.'
-                : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
+                : res.error === 'NOTE_REQUIRED' || res.error === 'COORD_FILE_REQUIRED'
+                  ? PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES[res.error]
+                  : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
           });
         return { result: true as const };
       },

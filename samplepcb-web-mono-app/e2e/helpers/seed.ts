@@ -214,6 +214,117 @@ export async function ensureMdRelation(
   }
 }
 
+// ── g5 주문 픽스처 직삽입 — "열린 주문"이 필요한 주행용 ──────────────────────
+// 고객 주문내역 축(진행 카드·확인 요청·좌표파일)은 **od 가 배송·완료·취소가 아닐 때만**
+// 뜬다. 그런데 실데이터에서 그 조건을 만족하는 건은 제품군에 따라 아예 없을 수 있다
+// (실측 2026-08-16: metalMask 1,275건이 전부 완료·취소 — 협력 트랙 자체가 신규라 당연하다).
+// 실주문의 상태를 잠깐 바꿔 쓰는 건 공유 DB 에서 할 짓이 아니므로, **주문·카트·스펙을
+// 통째로 e2e 소유로 만들어** 쓰고 지운다. 컬럼은 기존 행에서 복사한다(코어가 컬럼을 늘려도
+// 따라가고, NOT NULL 기본값을 하나씩 채울 필요가 없다 — cloneG5Member 와 같은 수법).
+
+export interface G5OrderFixture {
+  odId: string;
+  ctId: number;
+}
+
+/**
+ * 주문 1건 + 카트 행 1줄을 만든다(둘 다 '입금' = 열린 상태). 정리는 [[deleteOrderHard]].
+ *
+ * od_id 는 **14자리 9-접두 합성값**이다 — 코어가 쓰는 YmdHis+2 는 16자리라, 자릿수만으로
+ * 실주문과 갈리고 `ORDER BY od_id DESC` 의 '최신 주문' 조회를 가리지 않는다.
+ */
+export async function createG5OrderFixture(mbId: string, name: string): Promise<G5OrderFixture> {
+  const prisma = getPrisma();
+  const odId = `9${String(Date.now())}`; // 14자리 — 코어 16자리와 자릿수로 갈린다
+
+  const copyRow = async (
+    table: string,
+    pk: string,
+    overrides: Record<string, string>,
+    sourceWhere: string,
+  ): Promise<void> => {
+    const cols: any[] = await prisma.$queryRawUnsafe(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME <> ?`,
+      table,
+      pk,
+    );
+    const names = cols.map((c) => String(c.COLUMN_NAME));
+    const insertList = names.map((n) => `\`${n}\``).join(', ');
+    const selectList = names.map((n) => overrides[n] ?? `\`${n}\``).join(', ');
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO ${table} (${insertList}) SELECT ${selectList} FROM ${table} ${sourceWhere} LIMIT 1`,
+    );
+  };
+
+  // 주문 — od_id 는 PK 라 복사 목록에서 빼고 명시 컬럼으로 따로 싣는다.
+  const orderCols: any[] = await prisma.$queryRawUnsafe(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'g5_shop_order'`,
+  );
+  const oNames = orderCols.map((c) => String(c.COLUMN_NAME));
+  const oOverrides: Record<string, string> = {
+    od_id: odId,
+    mb_id: `'${mbId}'`,
+    od_name: `'${name}'`,
+    od_status: `'입금'`,
+    od_time: 'NOW()',
+  };
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO g5_shop_order (${oNames.map((n) => `\`${n}\``).join(', ')})
+       SELECT ${oNames.map((n) => oOverrides[n] ?? `\`${n}\``).join(', ')}
+         FROM g5_shop_order ORDER BY od_id DESC LIMIT 1`,
+  );
+
+  // 카트 행 — ct_id 는 auto_increment 라 빼고 복사한다.
+  await copyRow(
+    'g5_shop_cart',
+    'ct_id',
+    {
+      od_id: odId,
+      mb_id: `'${mbId}'`,
+      ct_status: `'입금'`,
+      ct_time: 'NOW()',
+    },
+    'ORDER BY ct_id DESC',
+  );
+  const made: any[] = await prisma.$queryRawUnsafe(
+    `SELECT ct_id FROM g5_shop_cart WHERE od_id = ? ORDER BY ct_id DESC LIMIT 1`,
+    odId,
+  );
+  const ctId = Number(made[0]?.ct_id ?? 0);
+  if (ctId === 0) throw new Error('카트 행 픽스처 생성 실패');
+  return { odId, ctId };
+}
+
+export interface OrderSpecSeed {
+  mbId: string;
+  ctId: number;
+  projectName: string;
+  category: string;
+  orderCategory?: string;
+  qty?: number;
+  specJson?: unknown;
+}
+
+/** sp_order_spec 직삽입 — 실데이터에 없는 제품군×상태 조합을 만들 때. 정리는 호출부 몫. */
+export async function createOrderSpec(seed: OrderSpecSeed): Promise<any> {
+  return getPrisma().spOrderSpec.create({
+    data: {
+      mbId: seed.mbId,
+      quoteId: `e2e-${String(Date.now())}`,
+      ctId: seed.ctId,
+      projectName: seed.projectName,
+      category: seed.category,
+      orderCategory: seed.orderCategory ?? 'sample',
+      qty: seed.qty ?? 1,
+      specJson: (seed.specJson ?? {}) as never,
+      status: 'active',
+      quoteStatus: 'quoted',
+    },
+  });
+}
+
 export interface PcbPoSeed {
   specId: bigint;
   partnerId: bigint;

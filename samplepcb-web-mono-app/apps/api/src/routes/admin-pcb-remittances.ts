@@ -8,6 +8,7 @@ import {
   PcbRemittanceCreateBody,
   PcbRemittanceMutationResponse,
   PcbRemittancePatchBody,
+  resolvePcbPoTrack,
   type AdminPcbRemittanceItemType,
   type AdminPcbRemittancePartnerCurrencyType,
   type AdminPcbRemittancePartnerRowType,
@@ -118,7 +119,16 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         ...(filters.partnerId === undefined ? {} : { partnerId: BigInt(filters.partnerId) }),
       },
       include: {
-        spec: { select: { id: true, projectName: true, specJson: true, mbId: true, ctId: true } },
+        spec: {
+          select: {
+            id: true,
+            projectName: true,
+            specJson: true,
+            mbId: true,
+            ctId: true,
+            category: true, // 공정 트랙 파생(라벨) — resolvePcbPoTrack
+          },
+        },
         partner: { select: { id: true, name: true } },
       },
       orderBy: { issuedAt: 'desc' },
@@ -144,6 +154,7 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         partnerId: Number(po.partnerId),
         partnerName: po.partner.name,
         poStatus: asPcbPoStatus(po.status),
+        poTrack: resolvePcbPoTrack(po.spec.category),
         paymentTerms: po.paymentTerms,
         remittanceDueOn:
           po.remittanceDueOn === null ? null : po.remittanceDueOn.toISOString(),

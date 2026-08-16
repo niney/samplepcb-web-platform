@@ -22,9 +22,11 @@ import {
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentPrevStatus,
+  resolvePcbPoTrack,
   shipmentTransportDocType,
   shipmentTransportOf,
   type PcbPoStatusType,
+  type PcbPoTrackType,
   type ShipmentTransportType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
@@ -913,7 +915,13 @@ export const loadPartnerPcbShipBoard = async (
   partnerId: bigint,
 ): Promise<{
   shelf: PartnerPcbShipShelfItemType[];
-  producing: { poId: number; projectName: string; qty: number; status: PcbPoStatusType }[];
+  producing: {
+    poId: number;
+    projectName: string;
+    qty: number;
+    status: PcbPoStatusType;
+    track: PcbPoTrackType;
+  }[];
   boxes: PartnerPcbShipBoxType[];
   active: PcbShipmentViewType[];
   doneCount: number;
@@ -940,6 +948,7 @@ export const loadPartnerPcbShipBoard = async (
       projectName: po.spec.projectName,
       qty: po.spec.qty,
       status: asBoardPoStatus(po.status),
+      track: resolvePcbPoTrack(po.spec.category),
     }));
 
   const mdNames = new Map<string, string>();

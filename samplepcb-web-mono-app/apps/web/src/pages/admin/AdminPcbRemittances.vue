@@ -506,7 +506,7 @@ const openCase = (specId: number): void => {
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.partnerName }}</td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                  {{ PCB_PO_STATUS_LABELS[row.poStatus] }}
+                  {{ PCB_PO_STATUS_LABELS[row.poTrack][row.poStatus] }}
                 </span>
               </td>
               <!-- 결제조건·경과일 — "언제까지 줘야 하나"를 이 화면에서 판단하려면 필요하다 -->

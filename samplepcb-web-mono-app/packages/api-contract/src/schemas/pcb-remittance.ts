@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DateOnly } from './common';
-import { PcbPoStatus } from './pcb-po';
+import { PcbPoStatus, PcbPoTrack } from './pcb-po';
 
 // ── PCB 송금 원장 계약(P3.11) — 설계 정본: docs/PCB_PARTNER_TRACK.md §5.4·D15 ──
 // 발주서 1:N 송금. 상태 한 칸이 아니라 원장인 이유는 **부분·분할 송금이 실재**하기
@@ -92,6 +92,8 @@ export const AdminPcbRemittanceItem = z.object({
   partnerId: z.number(),
   partnerName: z.string(),
   poStatus: PcbPoStatus,
+  /** 공정 트랙(서버 파생) — 상태 배지가 'EQ 완료'/'확인 완료'를 가르는 근거. */
+  poTrack: PcbPoTrack,
   paymentTerms: z.string().nullable(),
   /** 실제 송금일과 분리된 발주 단계의 송금 예정일. */
   remittanceDueOn: z.string().nullable(),
@@ -258,6 +260,8 @@ export const PartnerPcbRemittanceItem = z.object({
   /** 발주처(우리 또는 상위 MD) 이름. */
   ordererName: z.string(),
   poStatus: PcbPoStatus,
+  /** 공정 트랙(서버 파생) — 상태 배지 문구를 가른다. */
+  poTrack: PcbPoTrack,
   issuedAt: z.string(),
   remittanceDueOn: z.string().nullable(),
   /** 0=원발주, 1..=A/S 회차 — 같은 프로젝트가 두 줄로 서므로 회차 표기가 없으면

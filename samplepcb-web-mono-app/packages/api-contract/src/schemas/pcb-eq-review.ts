@@ -122,6 +122,22 @@ export const CustomerPcbProgressItem = z.object({
   reorderRound: z.number().int(), // 0=원주문, 1..=A/S 재생산 회차
   stage: z.enum(PCB_PROGRESS_STAGES),
   label: z.string(), // 예: '제조 확인(EQ) 진행 중' · 'A/S 재생산 — 생산 진행 중'
+  /**
+   * 좌표파일(메탈마스크) — **통보 없는 열람**(사용자 결정 2026-08-16). 메일도 확인 요청도
+   * 만들지 않고, 고객이 주문내역을 열면 여기 있다. 요청하는 고객이 종종 있어서다.
+   *
+   * 세 가지 제약이 붙는다:
+   *  ① **관리자 확인(eq_done) 뒤에만** 뜬다 — 그 전엔 보완 요청으로 파일이 바뀔 수 있고,
+   *     반려된 좌표로 고객이 SMT 설비를 잡는 것이 이 기능의 최악이다. 확인 뒤로는 첨부가
+   *     영구 잠기므로(canEditPcbEqFile) 내려받은 것이 나중에 달라지지 않는다.
+   *  ② **최신 1건만** — 보완 왕복이 있었으면 옛 회차 좌표는 고객이 볼 이유가 없다.
+   *  ③ 이름은 **중립화**해 내려준다 — 협력사가 올린 원본 파일명에 협력사명이 박혀 있을 수
+   *     있고, 고객 화면에 공급망을 드러내지 않는 것이 이 트랙의 관례다(여정 43호).
+   */
+  coordFile: z
+    .object({ fileId: z.number(), name: z.string(), size: z.number() })
+    .nullable()
+    .default(null),
 });
 export type CustomerPcbProgressItemType = z.infer<typeof CustomerPcbProgressItem>;
 

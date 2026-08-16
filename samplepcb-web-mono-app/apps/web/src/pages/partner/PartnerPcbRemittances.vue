@@ -115,7 +115,7 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ it.ordererName }}</td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                  {{ PCB_PO_STATUS_LABELS[it.poStatus] }}
+                  {{ PCB_PO_STATUS_LABELS[it.poTrack][it.poStatus] }}
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">

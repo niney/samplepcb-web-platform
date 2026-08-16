@@ -13,6 +13,8 @@ import type {
   PcbEqRoleType,
   PcbPoEqReviewSummaryType,
   PcbPoStatusType,
+  PcbPoTrackType,
+  PcbStencilSubmitBlockerType,
 } from '@sp/api-contract';
 import {
   PCB_EQ_FORWARD,
@@ -20,6 +22,8 @@ import {
   PCB_PO_STATUSES,
   lastPcbEqRejectedAt,
   orderPcbEqFiles,
+  pcbStencilSubmitBlockers,
+  resolvePcbPoTrack,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getOrderInfoByCtId } from './g5-db';
@@ -62,6 +66,28 @@ const EQ_UPLOAD_SERVICE_TYPE = 'pcb_eq';
 
 export const asPcbPoStatus = (v: string): PcbPoStatusType =>
   (PCB_PO_STATUSES as readonly string[]).includes(v) ? (v as PcbPoStatusType) : 'issued';
+
+// ── 공정 트랙 — spec.category 파생, **판정은 이 파일에서만** ──────────────────
+// 화면·PHP·메일은 서버가 실어 보낸 track 을 읽기만 한다. 카테고리 문자열 비교를 여러 곳에
+// 복제하면 어느 화면 하나가 'metalMask' 를 놓쳐도 타입은 통과한다(조용히 EQ 문구가 뜬다).
+
+/** 발주서 여러 건의 트랙을 한 번에(N+1 회피) — key=specId 문자열. */
+export const loadPcbPoTracks = async (
+  specIds: readonly bigint[],
+): Promise<Map<string, PcbPoTrackType>> => {
+  const map = new Map<string, PcbPoTrackType>();
+  const ids = [...new Set(specIds.map((id) => id.toString()))].map((s) => BigInt(s));
+  if (ids.length === 0) return map;
+  const specs = await prisma.spOrderSpec.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, category: true },
+  });
+  for (const s of specs) map.set(s.id.toString(), resolvePcbPoTrack(s.category));
+  return map;
+};
+
+export const pcbPoTrackOf = async (specId: bigint): Promise<PcbPoTrackType> =>
+  (await loadPcbPoTracks([specId])).get(specId.toString()) ?? 'eq';
 
 const decNum = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
@@ -143,7 +169,7 @@ type EqFileBase = Omit<PcbEqFileViewType, 'isLatest' | 'afterReject'>;
 // DB 컬럼은 문자열 — 계약 유니온으로 총함수 내로잉. ⚠ 새 종류를 여기 안 더하면 그 파일이
 // 조용히 'eq' 로 뭉개져 협력사 질의서 칸에 섞인다(방향을 가르려고 종류를 만든 의미가 사라진다).
 const asEqFileType = (v: string | null): PcbEqFileTypeType =>
-  v === 'working' ? 'working' : v === 'reply' ? 'reply' : 'eq';
+  v === 'working' ? 'working' : v === 'reply' ? 'reply' : v === 'coord' ? 'coord' : 'eq';
 
 const toEqFileView = (f: SpFile): EqFileBase => ({
   fileId: Number(f.id),
@@ -261,6 +287,8 @@ const loadPartnersWithPortal = async (partnerIds: bigint[]): Promise<Set<string>
 
 interface AdminPoExtras {
   parentPartnerName: string | null;
+  /** 공정 트랙(spec.category 파생) — 화면이 라벨 사전을 고르는 근거. */
+  track: PcbPoTrackType;
   /** 연결 계정 유무 — false 면 발주 이후 전 단계가 관리자 대행 몫이다. */
   partnerHasPortal: boolean;
   eqFiles: PcbEqFileViewType[];
@@ -283,6 +311,7 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   reorderRound: po.reorderRound,
   rfqId: po.rfqId === null ? null : Number(po.rfqId),
   status: asPcbPoStatus(po.status),
+  track: extras.track,
   currency: po.currency,
   priceOriginal: Number(po.priceOriginal),
   exchangeRate: decNum(po.exchangeRate),
@@ -321,6 +350,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
   // 송금 요약은 원장(sp_pcb_remittance)이 정본 — 한 번에 모아 온다(행마다 조회하면 N+1).
   const remitMap = await loadRemittanceSummaries(rows);
   const portalSet = await loadPartnersWithPortal(rows.map((r) => r.partnerId));
+  const trackMap = await loadPcbPoTracks(rows.map((r) => r.specId));
   const out: AdminPcbPoViewType[] = [];
   for (const row of rows) {
     const delegation = await resolveEqDelegation(row);
@@ -336,6 +366,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
           row.parentPartnerId === 0n
             ? null
             : (parentNames.get(row.parentPartnerId.toString()) ?? null),
+        track: trackMap.get(row.specId.toString()) ?? 'eq',
         partnerHasPortal: portalSet.has(row.partnerId.toString()),
         eqFiles: filesMap.get(row.id.toString()) ?? [],
         eqDelegatePoId: delegation.delegatePoId,
@@ -825,13 +856,18 @@ export type PcbEqTransitionError =
   | 'NOT_YOUR_TURN'
   | 'INVALID_STATUS'
   | 'NOTHING_TO_REVERT'
-  | 'ORDER_CANCELED';
+  | 'ORDER_CANCELED'
+  // 스텐실 트랙의 제출 요건(계약 pcbStencilSubmitBlockers) — 발주접수 → 확인 요청에서만.
+  | PcbStencilSubmitBlockerType;
 
 export const advancePcbPoEq = async (
   poId: bigint,
   actor: PcbEqActor,
   /** 라우트별 기대 시작 상태 — 불일치 시 다른 전이가 오발되지 않게 409 로 끊는다. */
   expectedFrom: PcbPoStatusType,
+  /** 이 전이에 남길 메모. 스텐실 트랙의 **고객문의사항**이 여기로 온다(새 컬럼 없이
+   *  eqHistory 에 실린다 — 타임라인이 이미 그 자리를 말풍선으로 그린다). */
+  note?: string | null,
 ): Promise<{ ok: true; to: PcbPoStatusType } | { ok: false; error: PcbEqTransitionError }> => {
   const po = await prisma.spPcbPo.findUnique({ where: { id: poId } });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
@@ -850,8 +886,25 @@ export const advancePcbPoEq = async (
   if (role !== action.actor && actor.kind !== 'admin')
     return { ok: false, error: 'NOT_YOUR_TURN' };
 
+  // 스텐실 제출 게이트 — 고객문의사항과 좌표파일이 있어야 넘어간다. **관리자 대행도 예외가
+  // 아니다**: 대행은 "누가 누르는가"의 문제이고, 좌표파일 없이 확인 완료로 넘어간 건은
+  // 나중에 고객이 열었을 때 빈자리가 된다(관리자 대행 D11 과 충돌하지 않는 이유).
+  if (expectedFrom === 'issued' && (await pcbPoTrackOf(po.specId)) === 'stencil') {
+    const files = await prisma.spFile.findMany({
+      where: { refType: EQ_REF_TYPE, refId: po.id },
+      select: { fileType: true },
+    });
+    const blockers = pcbStencilSubmitBlockers(
+      note,
+      files.map((f) => ({ fileType: f.fileType ?? '' })),
+    );
+    const first = blockers[0];
+    if (first !== undefined) return { ok: false, error: first };
+  }
+
   // 전이·미러·고객 확인 종료는 한 덩어리다 — 나뉘면 발주만 넘어가고 고객 화면엔 답할 수
   // 없는 요청이 남는다.
+  const trimmed = (note ?? '').trim();
   await prisma.$transaction([
     prisma.spPcbPo.update({
       where: { id: po.id },
@@ -861,7 +914,7 @@ export const advancePcbPoEq = async (
           byRole,
           fromStatus: po.status,
           toStatus: action.to,
-          note: null,
+          note: trimmed === '' ? null : trimmed,
         }),
       },
     }),
@@ -997,6 +1050,7 @@ export const loadPartnerPcbPos = async (
       qty: po.spec.qty,
       reorderRound: po.reorderRound,
       status: asPcbPoStatus(po.status),
+      track: resolvePcbPoTrack(po.spec.category),
       direction: 'received',
       counterpartyName:
         po.parentPartnerId === 0n
@@ -1030,6 +1084,7 @@ export const loadPartnerPcbPos = async (
       qty: po.spec.qty,
       reorderRound: po.reorderRound,
       status: asPcbPoStatus(po.status),
+      track: resolvePcbPoTrack(po.spec.category),
       direction: 'issued',
       counterpartyName: po.partner.name,
       currency: po.currency,
@@ -1139,6 +1194,7 @@ export const loadPartnerPcbPoDetail = async (
     specId: Number(po.specId),
     reorderRound: po.reorderRound,
     status: asPcbPoStatus(po.status),
+    track: resolvePcbPoTrack(po.spec.category),
     direction,
     requesterName,
     // 상세의 상대 — 수주면 발주처, 하위 발주(MD 관전)면 수주 협력사. 헤더가
@@ -1330,6 +1386,7 @@ export const loadAdminPcbPoWorkItems = async (
             : (parentNames.get(po.parentPartnerId.toString()) ?? null),
         reorderRound: po.reorderRound,
         status,
+        track: resolvePcbPoTrack(po.spec.category),
         currency: po.currency,
         priceOriginal: Number(po.priceOriginal),
         krwAmount: po.krwAmount,

@@ -346,7 +346,7 @@ function openCase(specId: number): void {
               </td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[row.status]">
-                  {{ PCB_PO_STATUS_LABELS[row.status] }}
+                  {{ PCB_PO_STATUS_LABELS[row.track][row.status] }}
                 </span>
                 <span v-if="row.adminTurn" class="ml-1 rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                   내 차례

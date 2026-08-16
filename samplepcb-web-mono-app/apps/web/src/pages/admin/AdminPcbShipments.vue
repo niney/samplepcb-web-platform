@@ -340,7 +340,7 @@ function openCase(specId: number): void {
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5">
                   <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
-                    {{ PCB_PO_STATUS_LABELS[row.status] }}
+                    {{ PCB_PO_STATUS_LABELS[row.track][row.status] }}
                   </span>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ fmtDate(row.deliveryDate) }}</td>

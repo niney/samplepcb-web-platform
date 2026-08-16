@@ -87,6 +87,8 @@ const FILE_LABEL: Record<string, string> = {
   eq: 'EQ 질의서',
   working: 'Working 데이터',
   reply: '수정 지시',
+  // 스텐실 트랙의 필수 산출물 — 확인이 끝나면 고객도 주문내역에서 내려받는다.
+  coord: '좌표파일',
 };
 const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
 </script>

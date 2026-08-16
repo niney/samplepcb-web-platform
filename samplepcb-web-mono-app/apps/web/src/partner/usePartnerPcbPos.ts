@@ -97,8 +97,15 @@ const transition = (
   action: 'eq-request' | 'production-start' | 'production-complete' | 'eq-revert',
 ) =>
   useMutation({
-    mutationFn: ({ poId }: { poId: number }) =>
-      apiSend('POST', `${base}/${String(poId)}/${action}`, {}, PcbPoActionResponse),
+    // note = 스텐실 트랙의 고객문의사항(eq-request 전용). 다른 전이는 안 보내고, EQ 트랙은
+    // 빈 문자열이라 서버가 null 로 접는다 — 종전 호출과 완전히 같다.
+    mutationFn: ({ poId, note }: { poId: number; note?: string }) =>
+      apiSend(
+        'POST',
+        `${base}/${String(poId)}/${action}`,
+        note === undefined ? {} : { note },
+        PcbPoActionResponse,
+      ),
     onSuccess: () => {
       invalidate(qc);
     },

@@ -9,10 +9,14 @@ import {
   PCB_PO_STATUSES,
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
+  PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
+  pcbEqForwardLabel,
+  pcbEqRevertLabel,
+  pcbStencilSubmitBlockers,
   type PcbEqFileTypeType,
 } from '@sp/api-contract';
 import {
@@ -105,6 +109,31 @@ const hasWorkingFile = computed(
 );
 const filesEditable = computed(() => detail.value?.status === 'issued');
 
+// ── 스텐실(메탈마스크) 트랙 ─────────────────────────────────────────────────
+// EQ 질의 왕복이 없는 대신 **고객문의사항 + 좌표파일**을 내고 관리자가 확인한다.
+// 트랙 판정은 서버가 실어 보낸 값을 읽기만 한다(카테고리 비교를 화면에 복제하지 않는다).
+const track = computed(() => detail.value?.track ?? 'eq');
+const isStencil = computed(() => track.value === 'stencil');
+
+/** 고객문의사항 — 제출 시 eqHistory 에 실린다(제출 뒤엔 못 고친다: 첨부와 같은 잠금). */
+const noteDraft = ref('');
+const coordFiles = computed(
+  () => detail.value?.eq.files.filter((f) => f.fileType === 'coord') ?? [],
+);
+/** 제출을 막는 것들 — 서버 게이트와 **같은 계약 함수**를 쓴다(문구도 계약이 정본). */
+const submitBlockers = computed(() =>
+  isStencil.value && detail.value?.status === 'issued'
+    ? pcbStencilSubmitBlockers(noteDraft.value, detail.value.eq.files)
+    : [],
+);
+
+const forwardLabel = computed(() =>
+  detail.value === null ? '' : pcbEqForwardLabel(detail.value.status, track.value),
+);
+const revertLabel = computed(() =>
+  detail.value === null ? '' : pcbEqRevertLabel(detail.value.status, track.value),
+);
+
 /** 타임라인의 파일 클릭 — poId 좁히기를 템플릿에 두지 않는다(콜백 안에서는 안 좁혀진다). */
 const downloadEq = (fileId: number, name: string): void => {
   if (poId.value === null) return;
@@ -126,24 +155,54 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
     // 응답 타입이 z.input 계열로 흐르면 default('') 전이라 undefined 가 섞인다 — 빈값 통일.
     const counterparty = d.counterpartyName ?? '';
     const sub = counterparty === '' ? '하위 협력사' : `하위 협력사(${counterparty})`;
+    // 트랙별 어휘 — 스텐실에는 EQ 왕복이 없어 'EQ 승인'이라는 말 자체가 뜻이 안 통한다.
+    const st = isStencil.value;
+    const askWord = st ? '확인 요청' : '승인요청';
+    const doneWord = st ? '확인이 끝났습니다' : 'EQ가 승인됐습니다';
     if (d.status === 'issued') {
       return eqRejection.value !== null
         ? {
-            title: `반려된 건입니다 — ${sub}가 보완 후 다시 승인요청해야 합니다.`,
+            title: `${st ? '보완 요청을 받은' : '반려된'} 건입니다 — ${sub}가 보완 후 다시 ${askWord}해야 합니다.`,
             hint: '보완이 늦어지면 아래 버튼으로 MD가 파일을 올리고 대행 진행할 수도 있습니다.',
           }
         : {
-            title: `${sub}가 EQ 자료를 올리고 승인요청할 차례입니다.`,
-            hint: '필요하면 MD가 파일 업로드·승인요청을 대행할 수 있습니다.',
+            title: `${sub}가 ${st ? '고객문의사항·좌표파일' : 'EQ 자료'}을 올리고 ${askWord}할 차례입니다.`,
+            hint: `필요하면 MD가 파일 업로드·${askWord}을 대행할 수 있습니다.`,
           };
     }
     if (d.status === 'eq_requested')
-      return { title: '샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.', hint: '' };
+      return { title: `샘플피씨비 관리자의 ${st ? '확인' : 'EQ 승인'}을 기다리고 있습니다.`, hint: '' };
     if (d.status === 'eq_done')
-      return { title: `EQ가 승인됐습니다 — ${sub}가 생산을 시작합니다.`, hint: '필요하면 MD 대행으로 진행할 수 있습니다.' };
+      return { title: `${doneWord} — ${sub}가 생산을 시작합니다.`, hint: '필요하면 MD 대행으로 진행할 수 있습니다.' };
     if (d.status === 'producing')
       return { title: `${sub}가 생산 중입니다.`, hint: '완료 처리가 늦어지면 MD 대행으로 [생산 완료]를 누를 수 있습니다.' };
     return { title: `생산이 끝났습니다 — ${sub}가 발송을 시작합니다.`, hint: '물건이 도착하면 아래 발송 카드에서 [입고 확인]을 해주세요.' };
+  }
+  // 스텐실 트랙 — EQ 왕복이 없다. 낼 것이 정해져 있으므로 문구도 그것만 말한다.
+  if (isStencil.value) {
+    if (d.status === 'issued') {
+      return eqRejection.value !== null
+        ? {
+            title: '보완 요청을 받은 건입니다 — 고쳐서 다시 확인 요청해 주세요.',
+            hint: hasFixAfterReject.value
+              ? '보완 요청 후 새 파일을 올렸습니다 — 확인 요청을 진행해 주세요.'
+              : '아직 보완 요청 후 새로 올린 파일이 없습니다. 같은 파일로 다시 요청하면 같은 사유로 되돌아올 수 있습니다.',
+          }
+        : {
+            title: '고객문의사항을 적고 좌표파일을 올린 뒤 확인 요청해 주세요.',
+            hint: '좌표파일은 확인이 끝난 뒤 고객도 주문내역에서 내려받을 수 있습니다. 확인 요청 후에는 파일과 문의사항을 바꿀 수 없습니다.',
+          };
+    }
+    if (d.status === 'eq_requested') {
+      return {
+        title: '샘플피씨비 관리자의 확인을 기다리고 있습니다.',
+        hint: '확인 요청 중에는 첨부·문의사항을 바꿀 수 없습니다 — 바꾸려면 요청을 취소한 뒤 올려 주세요.',
+      };
+    }
+    if (d.status === 'eq_done') return { title: '확인이 끝났습니다 — 생산을 시작해 주세요.', hint: '' };
+    if (d.status === 'producing')
+      return { title: '생산 중입니다 — 끝나면 [생산 완료]를 눌러 주세요.', hint: '' };
+    return { title: '생산이 끝났습니다 — 발송을 시작해 주세요.', hint: '' };
   }
   if (d.status === 'issued') {
     return eqRejection.value !== null
@@ -218,7 +277,9 @@ async function runForward(): Promise<void> {
   actionError.value = '';
   const status = detail.value.status;
   try {
-    if (status === 'issued') await eqRequest.mutateAsync({ poId: poId.value });
+    // note = 스텐실의 고객문의사항. EQ 트랙에서는 빈 값이라 종전과 같다(서버가 null 로 접는다).
+    if (status === 'issued')
+      await eqRequest.mutateAsync({ poId: poId.value, note: noteDraft.value.trim() });
     else if (status === 'eq_done') await prodStart.mutateAsync({ poId: poId.value });
     else if (status === 'producing') await prodComplete.mutateAsync({ poId: poId.value });
   } catch (e) {
@@ -415,7 +476,7 @@ const specEntries = computed(() => {
           title="A/S 재생산 회차 발주 — EQ부터 다시 진행합니다"
         >A/S {{ detail.reorderRound }}차</span>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="STATUS_CLS[detail.status]">
-          {{ PCB_PO_STATUS_LABELS[detail.status] }}
+          {{ PCB_PO_STATUS_LABELS[detail.track][detail.status] }}
         </span>
         <!-- 상대는 counterpartyName — issued(하위 발주)에서 requesterName 은 **내 조직**이라
              "하위 발주: 마스터딜러"처럼 자기 이름이 상대 자리에 서 있었다(MD 실주행 확정). -->
@@ -437,7 +498,7 @@ const specEntries = computed(() => {
             :to="{ name: 'partner-pcb-po', params: { id: String(r.poId) } }"
             class="font-bold underline hover:text-rose-900"
           >
-            {{ r.reorderRound }}차(PO-{{ r.poId }} · {{ PCB_PO_STATUS_LABELS[r.status] }}) 열기 →
+            {{ r.reorderRound }}차(PO-{{ r.poId }} · {{ PCB_PO_STATUS_LABELS[detail.track][r.status] }}) 열기 →
           </RouterLink>
         </template>
       </p>
@@ -505,7 +566,7 @@ const specEntries = computed(() => {
               class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
               :class="i < stepIndex ? 'bg-emerald-50 text-emerald-700' : i === stepIndex ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'"
             >
-              <span v-if="i < stepIndex">✓</span>{{ PCB_PO_STATUS_LABELS[step] }}
+              <span v-if="i < stepIndex">✓</span>{{ PCB_PO_STATUS_LABELS[detail.track][step] }}
             </li>
             <span v-if="i < steps.length - 1" class="text-gray-300">→</span>
           </template>
@@ -545,8 +606,38 @@ const specEntries = computed(() => {
             <p v-if="nowTodo.hint !== ''" class="mt-1 text-xs leading-5 text-blue-700">
               {{ nowTodo.hint }}
             </p>
+            <!-- 스텐실 — 낼 것이 둘로 정해져 있다. 문의사항은 제출과 한 몸이라 여기 둔다
+                 (제출 뒤엔 첨부와 같이 잠긴다 — 따로 저장 버튼을 두면 잠금이 거짓말이 된다). -->
+            <template v-if="isStencil && filesEditable && detail.eq.myRole === 'RECEIVER'">
+              <label class="mt-3 block text-xs font-bold text-blue-900" for="stencil-note">
+                고객문의사항 <span class="text-red-500">*</span>
+              </label>
+              <textarea
+                id="stencil-note"
+                v-model="noteDraft"
+                rows="3"
+                maxlength="2000"
+                placeholder="고객에게 확인할 사항이나 전달할 내용을 적어 주세요."
+                class="mt-1 w-full rounded-md border border-blue-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+              />
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded-md border px-2.5 py-1.5 text-xs font-semibold hover:bg-blue-50 disabled:opacity-40"
+                  :class="coordFiles.length > 0 ? 'border-blue-300 bg-surface text-blue-700' : 'border-amber-300 bg-amber-50 text-amber-700'"
+                  :disabled="upload.isPending.value"
+                  @click="pickAndUpload('coord')"
+                >
+                  ＋ 좌표파일{{ coordFiles.length > 0 ? ` (${coordFiles.length})` : ' *' }}
+                </button>
+                <span v-if="coordFiles.length === 0" class="text-[11px] text-amber-700">
+                  좌표파일이 있어야 확인 요청을 보낼 수 있습니다.
+                </span>
+              </div>
+            </template>
+
             <div
-              v-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
+              v-else-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
               class="mt-2 flex flex-wrap gap-2"
             >
               <button
@@ -577,11 +668,16 @@ const specEntries = computed(() => {
             type="button"
             class="rounded-lg px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
             :class="detail.eq.fallback ? 'border border-indigo-300 bg-indigo-500 hover:bg-indigo-600' : 'bg-blue-600 hover:bg-blue-700'"
-            :disabled="busy"
+            :disabled="busy || submitBlockers.length > 0"
             @click="void runForward()"
           >
-            {{ detail.eq.fallback ? `(MD 대행) ${forward.label}` : forward.label }}
+            {{ detail.eq.fallback ? `(MD 대행) ${forwardLabel}` : forwardLabel }}
           </button>
+          <!-- 못 보내는 이유는 버튼 옆에 적는다 — 비활성 버튼만 두면 왜 안 눌리는지 모른다.
+               판정은 서버 게이트와 같은 계약 함수라 화면과 서버가 다른 말을 하지 않는다. -->
+          <span v-if="canForward && submitBlockers.length > 0" class="text-xs font-semibold text-amber-700">
+            {{ submitBlockers.map((b) => PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES[b]).join(' · ') }}
+          </span>
           <!-- 안내 문구는 위 '지금 할 일' 한 곳으로 모았다(같은 말을 두 번 하지 않는다). -->
           <button
             v-if="canRevert && revert !== null"
@@ -590,7 +686,7 @@ const specEntries = computed(() => {
             :disabled="busy"
             @click="void runRevert()"
           >
-            ↩ {{ detail.eq.fallback ? `(MD 대행) ${revert.label}` : revert.label }}
+            ↩ {{ detail.eq.fallback ? `(MD 대행) ${revertLabel}` : revertLabel }}
           </button>
         </div>
       </section>
@@ -732,7 +828,7 @@ const specEntries = computed(() => {
                 <td class="px-3 py-2 font-medium text-gray-800">{{ child.partnerName }}</td>
                 <td class="px-3 py-2">
                   <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[child.status]">
-                    {{ PCB_PO_STATUS_LABELS[child.status] }}
+                    {{ PCB_PO_STATUS_LABELS[child.track][child.status] }}
                   </span>
                 </td>
                 <td class="whitespace-nowrap px-3 py-2 tabular-nums">

@@ -16,6 +16,7 @@ import {
   pcbMarginPercent,
   pcbSellingPrice,
   resolvePcbDirectShipCountry,
+  resolvePcbPoTrack,
   PCB_SHIPMENT_FILE_LABELS,
   SHIPMENT_TRANSPORTS,
   SHIPMENT_TRANSPORT_LABELS,
@@ -296,6 +297,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onSpecPanelKey);
 });
+
+/** 이 Case 의 공정 트랙 — 메탈마스크는 EQ 왕복 대신 고객문의사항+좌표파일이다.
+ *  판정 사전은 계약(resolvePcbPoTrack) 하나뿐이라 화면이 'metalMask' 를 다시 안 적는다. */
+const isStencilCase = computed(() => resolvePcbPoTrack(detail.value?.category) === 'stencil');
 
 /** 본문 한 줄에 세우는 값 — 크기·층수·두께·재질·수량(스텐실은 축이 다르다). */
 const specHeadline = computed<{ label: string; value: string; unit?: string }[]>(() => {
@@ -877,15 +882,42 @@ const substituteActionOf = (status: string): AdminPcbEqSubstituteAction | null =
         ? 'production-complete'
         : null;
 
+// 스텐실 제출 대행은 **고객문의사항을 받아야** 서버 게이트를 통과한다(대행이라고 요건이
+// 빠지지 않는다 — 좌표 없이 확인 완료로 넘어간 건은 나중에 고객 화면에서 빈자리가 된다).
+// 그래서 확인 한 번이 아니라 프롬프트를 띄운다.
+const substituteNotePo = ref<AdminPcbPoViewType | null>(null);
+
 async function runSubstitute(po: AdminPcbPoViewType): Promise<void> {
   if (specId.value === null) return;
   const action = substituteActionOf(po.status);
   if (action === null) return;
+  if (action === 'eq-request' && po.track === 'stencil') {
+    substituteNotePo.value = po;
+    return;
+  }
   if (!(await confirmDialog(`${po.partnerName} 대신 [${SUBSTITUTE_LABELS[action]}]을 진행할까요? (이력에 관리자 대행으로 남습니다)`))) return;
   actionError.value = '';
   try {
     await eqSubstitute.mutateAsync({ specId: specId.value, poId: po.poId, action });
   } catch (e) {
+    surfaceError(e, '대행 진행에 실패했습니다.');
+  }
+}
+
+async function submitSubstituteNote(values: Record<string, string>): Promise<void> {
+  const po = substituteNotePo.value;
+  if (specId.value === null || po === null) return;
+  actionError.value = '';
+  try {
+    await eqSubstitute.mutateAsync({
+      specId: specId.value,
+      poId: po.poId,
+      action: 'eq-request',
+      note: values.note ?? '',
+    });
+    substituteNotePo.value = null;
+  } catch (e) {
+    // 좌표파일이 없으면 서버가 COORD_FILE_REQUIRED 로 끊는다 — 그 문구가 그대로 보인다.
     surfaceError(e, '대행 진행에 실패했습니다.');
   }
 }
@@ -2170,7 +2202,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           {{ rfqsQuery.isPending.value ? '협력사 확인 중' : selectedPoRfq === null ? '협력사 선정 필요' : '발주서 발행' }}
         </button>
       </div>
-      <p class="border-b border-gray-50 px-4 py-2 text-xs text-gray-400">
+      <p v-if="isStencilCase" class="border-b border-gray-50 px-4 py-2 text-xs text-gray-400">
+        발행은 고객 결제(입금 확인) 후에만 가능합니다. 메탈마스크는 EQ 왕복이 없습니다 —
+        발주접수(협력사가 <b>고객문의사항 + 좌표파일</b> 등록) → 확인 요청 →
+        <b>확인(관리자)</b> → 생산시작 → 생산완료.
+        확인이 끝나면 <b>좌표파일을 고객도 주문내역에서 내려받을 수 있습니다</b>(별도 통보는 없습니다).
+      </p>
+      <p v-else class="border-b border-gray-50 px-4 py-2 text-xs text-gray-400">
         발행은 고객 결제(입금 확인) 후에만 가능합니다. 진행:
         발주접수(EQ 선택·Working 업로드 권장) → EQ 승인요청 → (필요하면 <b>고객 확인</b>) →
         <b>EQ 승인(관리자)</b> → 생산시작 → 생산완료.
@@ -2215,7 +2253,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 </td>
                 <td class="px-4 py-2.5">
                   <span class="whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold" :class="PO_STATUS_CLS[po.status]">
-                    {{ PCB_PO_STATUS_LABELS[po.status] }}
+                    {{ PCB_PO_STATUS_LABELS[po.track][po.status] }}
                   </span>
                   <!-- 반려하면 상태가 issued 로 돌아가 화면엔 '발주접수'만 남는다 — 방금
                        돌려보낸 건과 발주 직후인 건이 글자까지 같아진다. 워크큐와 **같은 문구**로
@@ -2310,14 +2348,26 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   >
                     {{ eqHistoryOpen.includes(po.poId) ? '이전 숨기기' : `이전 ${eqOlderCount(po)}` }}
                   </button>
-                  <!-- D11 대행 업로드 — 발주접수(잠금 전)에서만, 협력사 대신 첨부 -->
+                  <!-- D11 대행 업로드 — 발주접수(잠금 전)에서만, 협력사 대신 첨부.
+                       스텐실은 낼 것이 좌표파일 하나라 그것만 연다(협력사 화면과 같은 규칙). -->
                   <template v-if="po.status === 'issued'">
-                    <button type="button" class="mr-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50" @click="pickEqFileAdmin(po, 'eq')">
-                      ⬆ eq
+                    <button
+                      v-if="po.track === 'stencil'"
+                      type="button"
+                      class="rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50"
+                      title="좌표파일 대행 첨부 — 확인 후 고객도 내려받게 됩니다."
+                      @click="pickEqFileAdmin(po, 'coord')"
+                    >
+                      ⬆ 좌표파일
                     </button>
-                    <button type="button" class="rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50" @click="pickEqFileAdmin(po, 'working')">
-                      ⬆ working
-                    </button>
+                    <template v-else>
+                      <button type="button" class="mr-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50" @click="pickEqFileAdmin(po, 'eq')">
+                        ⬆ eq
+                      </button>
+                      <button type="button" class="rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50" @click="pickEqFileAdmin(po, 'working')">
+                        ⬆ working
+                      </button>
+                    </template>
                   </template>
                   <span
                     v-else-if="po.eqFiles.length === 0"
@@ -2384,8 +2434,19 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     >
                       반려 후 새 파일 없음
                     </span>
-                    <button type="button" class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(po)">EQ 승인</button>
-                    <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="rejectPoId = po.poId">반려</button>
+                    <button
+                      type="button"
+                      class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700"
+                      :title="po.track === 'stencil' ? '확인하면 좌표파일이 고객 주문내역에서 내려받기 가능해집니다(통보는 없습니다).' : ''"
+                      @click="void approvePo(po)"
+                    >
+                      {{ po.track === 'stencil' ? '확인 완료' : 'EQ 승인' }}
+                    </button>
+                    <!-- 반려는 스텐실에도 남긴다 — 좌표파일이 틀렸을 때 돌려보낼 유일한 문이다
+                         (eq_requested 에서 뒤로 가는 다른 문은 협력사의 '요청 취소'뿐이다). -->
+                    <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="rejectPoId = po.poId">
+                      {{ po.track === 'stencil' ? '보완 요청' : '반려' }}
+                    </button>
                   </template>
                   <!-- EQ 단계가 지나도 고객 확인 결과는 남긴다(승인의 근거) — 클릭하면 이력. -->
                   <button
@@ -2693,7 +2754,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   <div class="mt-1 grid gap-1">
                     <div v-for="child in childPosOf(po)" :key="child.poId" class="flex flex-wrap items-center gap-2 text-xs text-gray-600">
                       <span class="rounded px-1.5 py-0.5 font-semibold" :class="PO_STATUS_CLS[child.status]">
-                        {{ PCB_PO_STATUS_LABELS[child.status] }}
+                        {{ PCB_PO_STATUS_LABELS[child.track][child.status] }}
                       </span>
                       <span class="font-medium">{{ child.partnerName }}</span>
                       <span class="tabular-nums">{{ pcbMoneyWithSub(child.currency, child.priceOriginal, child.subCurrency, child.subPriceOriginal) }}</span>
@@ -3243,6 +3304,21 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :busy="shipCaseRefAdmin.isPending.value"
       @close="caseRefPrompt = null"
       @confirm="(v) => void submitCaseRef(v)"
+    />
+    <UiPromptModal
+      :title="substituteNotePo === null ? null : '확인 요청 대행'"
+      :fields="[{
+        name: 'note',
+        label: '고객문의사항',
+        type: 'textarea',
+        required: true,
+        placeholder: '협력사가 전달한 문의사항을 적어 주세요.',
+      }]"
+      :description="substituteNotePo === null ? '' : `${substituteNotePo.partnerName} 대신 확인 요청을 올립니다(이력에 관리자 대행으로 남습니다). 좌표파일이 먼저 첨부돼 있어야 합니다.`"
+      confirm-label="확인 요청"
+      :busy="eqSubstitute.isPending.value"
+      @close="substituteNotePo = null"
+      @confirm="(v) => void submitSubstituteNote(v)"
     />
 
     <PcbOrderCancelModal

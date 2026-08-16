@@ -19,13 +19,44 @@ export const PCB_PO_STATUSES = [
 export type PcbPoStatusType = (typeof PCB_PO_STATUSES)[number];
 export const PcbPoStatus = z.enum(PCB_PO_STATUSES);
 
+// ── 공정 트랙 — 같은 5단계를 무엇이라 부르고 무엇을 요구하는가 ────────────────
+// 메탈마스크(스텐실)에는 EQ(제조 확인 질의) 왕복이 없다. 대신 협력사가 **고객문의사항을
+// 적고 좌표파일을 올리면 관리자가 확인**하고 지나간다(사용자 결정 2026-08-16).
+//
+// 그래서 status 5단계는 **건드리지 않는다** — 칸의 개수도 주체도 순서도 같기 때문이다.
+// 갈리는 것은 ①그 칸에서 무엇을 반드시 내야 하는가 ②뭐라고 부르는가, 둘뿐이다.
+// 상태를 포크하면 워크큐 탭·파생 12단계·선적 게이팅·MD 미러·메일·e2e 31본이 통째로
+// 두 벌이 된다. 트랙은 그 전부를 하나로 둔 채 라벨과 게이트만 가른다.
+export const PCB_PO_TRACKS = ['eq', 'stencil'] as const;
+export type PcbPoTrackType = (typeof PCB_PO_TRACKS)[number];
+export const PcbPoTrack = z.enum(PCB_PO_TRACKS);
+
+/** 견적 제품군(sp_order_spec.category) → 공정 트랙. 판정은 **서버 한 곳**에서만 하고
+ *  화면에는 파생된 track 을 실어 보낸다(같은 규칙을 두 곳에 두면 반드시 어긋난다). */
+export const resolvePcbPoTrack = (category: string | null | undefined): PcbPoTrackType =>
+  category === 'metalMask' ? 'stencil' : 'eq';
+
+/** 상태 라벨 — **트랙별 2벌**. flat 사전을 남기지 않는 이유: 남기면 새 화면이 그걸 집어
+ *  스텐실 발주에 'EQ 승인요청'을 써도 타입이 통과한다(조용히 틀린다). */
 export const PCB_PO_STATUS_LABELS = {
-  issued: '발주접수',
-  eq_requested: 'EQ 승인요청',
-  eq_done: 'EQ 완료',
-  producing: '생산시작',
-  produced: '생산완료',
-} as const satisfies Record<PcbPoStatusType, string>;
+  eq: {
+    issued: '발주접수',
+    eq_requested: 'EQ 승인요청',
+    eq_done: 'EQ 완료',
+    producing: '생산시작',
+    produced: '생산완료',
+  },
+  stencil: {
+    issued: '발주접수',
+    eq_requested: '확인 요청',
+    eq_done: '확인 완료',
+    producing: '생산시작',
+    produced: '생산완료',
+  },
+} as const satisfies Record<PcbPoTrackType, Record<PcbPoStatusType, string>>;
+
+export const pcbPoStatusLabel = (status: PcbPoStatusType, track: PcbPoTrackType): string =>
+  PCB_PO_STATUS_LABELS[track][status];
 
 // 결제조건은 협력사 문서에 그대로 보이는 문자열이라 기존 자유 입력을 유지한다. 그중
 // 송금 예정일을 자동/직접 결정하는 두 표준값만 계약 상수로 공유해 화면과 서버의 문자열
@@ -81,15 +112,55 @@ export const PCB_EQ_REVERT: Record<PcbPoStatusType, PcbEqRevertAction | null> = 
   produced: { actor: 'RECEIVER', to: 'producing', label: '생산완료 취소' },
 };
 
+// 스텐실 트랙의 버튼 문구 — 전이 사전(PCB_EQ_FORWARD/REVERT)은 **주체·순서의 정본**이라
+// 트랙으로 갈리지 않는다(갈리면 서버 검증이 두 벌이 된다). 갈리는 건 사람이 읽는 문구뿐이라
+// 여기서 덮어쓴다. 없는 키는 EQ 문구 그대로 쓴다(생산시작·생산완료는 두 트랙이 같은 말).
+const STENCIL_FORWARD_LABELS: Partial<Record<PcbPoStatusType, string>> = {
+  issued: '확인 요청',
+  eq_requested: '확인 완료',
+};
+const STENCIL_REVERT_LABELS: Partial<Record<PcbPoStatusType, string>> = {
+  eq_requested: '확인 요청 취소',
+  eq_done: '확인 취소',
+};
+
+export const pcbEqForwardLabel = (from: PcbPoStatusType, track: PcbPoTrackType): string => {
+  const base = PCB_EQ_FORWARD[from];
+  if (base === null) return '';
+  return (track === 'stencil' ? STENCIL_FORWARD_LABELS[from] : undefined) ?? base.label;
+};
+
+export const pcbEqRevertLabel = (from: PcbPoStatusType, track: PcbPoTrackType): string => {
+  const base = PCB_EQ_REVERT[from];
+  if (base === null) return '';
+  return (track === 'stencil' ? STENCIL_REVERT_LABELS[from] : undefined) ?? base.label;
+};
+
 // EQ 첨부 종류 — eq(질의서)·working(작업 파일). 저장은 sp_file(refType 'sp_pcb_po_eq').
 // eq·working 은 **협력사 → 관리자** 산출물(질의서·작업 데이터)이고, reply 는 그 반대
 // 방향 — 관리자가 반려하며 돌려보내는 회신 첨부(수정지시 도면·마크업)다. 방향을 종류로
 // 가르는 이유는 isLatest 가 **종류별**로 계산되기 때문이다: 같은 칸에 섞으면 관리자가 올린
 // 지시서가 협력사의 최신 작업도면을 밀어내고, 다음 승인 때 자기 파일을 '협력사 최신 도면'
 // 으로 보고 승인하게 된다(EQ 는 생산의 근거 서류라 그대로 만들어진다).
-export const PCB_EQ_FILE_TYPES = ['eq', 'working', 'reply'] as const;
+// coord(부품 좌표)는 **스텐실 트랙의 필수 산출물**이다. eq·working 과 같은 방향(협력사 →
+// 관리자)·같은 잠금 규칙이지만 종류를 따로 두는 이유는 셋이다: ①필수 게이트가 이 종류만
+// 센다 ②고객에게 열리는 유일한 종류다(아래 CUSTOMER_VISIBLE) ③isLatest 가 종류별이라
+// 섞으면 좌표파일이 질의서에 밀려 최신 자리를 잃는다.
+export const PCB_EQ_FILE_TYPES = ['eq', 'working', 'reply', 'coord'] as const;
 export type PcbEqFileTypeType = (typeof PCB_EQ_FILE_TYPES)[number];
 export const PcbEqFileType = z.enum(PCB_EQ_FILE_TYPES);
+
+export const PCB_EQ_FILE_LABELS = {
+  eq: 'EQ 질의서',
+  working: 'Working 데이터',
+  reply: '관리자 회신',
+  coord: '좌표파일',
+} as const satisfies Record<PcbEqFileTypeType, string>;
+
+/** 고객이 (통보 없이) 열람할 수 있는 EQ 첨부 종류 — 좌표파일 하나뿐이다.
+ *  eq·working 은 협력사 산출물이라 협력사명·로고가 박혀 있을 수 있고, reply 는 내부
+ *  수정지시다. 공급망 비노출은 이 트랙의 관례다(P4.1 · 여정 43호). */
+export const PCB_EQ_CUSTOMER_VISIBLE_FILE_TYPES: readonly PcbEqFileTypeType[] = ['coord'];
 
 /** multipart 폼 필드(문자열)를 종류로 좁힌다 — 모르는 값은 null(호출부가 400). */
 export const asPcbEqFileType = (v: unknown): PcbEqFileTypeType | null =>
@@ -100,16 +171,38 @@ export const asPcbEqFileType = (v: unknown): PcbEqFileTypeType | null =>
 /**
  * 지금 이 종류의 첨부를 올리거나 지울 수 있는가 — 관리자·협력사 라우트가 같은 사전을 쓴다.
  *
- * 협력사 산출물(eq·working)은 **승인요청 뒤 잠긴다**(EQ_LOCKED): 관리자가 검토하는 동안
- * 근거 서류가 바뀌면 무엇을 보고 승인했는지가 사라진다. 반면 관리자 회신(reply)은 **승인요청
- * 을 받은 상태에서도 붙일 수 있어야 한다** — 받아 보고 "이걸 고쳐 달라"고 말하는 그 순간이
+ * 협력사 산출물(eq·working·coord)은 **승인요청 뒤 잠긴다**(EQ_LOCKED): 관리자가 검토하는
+ * 동안 근거 서류가 바뀌면 무엇을 보고 승인했는지가 사라진다. 반면 관리자 회신(reply)은 **승인
+ * 요청을 받은 상태에서도 붙일 수 있어야 한다** — 받아 보고 "이걸 고쳐 달라"고 말하는 그 순간이
  * 곧 eq_requested 이기 때문이다. 생산이 시작된 뒤(eq_done~)에는 양쪽 다 닫힌다.
+ *
+ * 좌표파일(coord)이 이 잠금을 그대로 따르는 것은 **고객 열람의 전제**이기도 하다: 확인이
+ * 끝난 뒤로는 파일이 영구히 못 바뀌므로, 고객이 내려받은 좌표가 나중에 달라지지 않는다.
  */
 export const canEditPcbEqFile = (
   fileType: PcbEqFileTypeType,
   status: PcbPoStatusType,
 ): boolean =>
   fileType === 'reply' ? status === 'issued' || status === 'eq_requested' : status === 'issued';
+
+/** 스텐실 트랙의 제출(발주접수 → 확인 요청) 필수 요건 — 못 채운 것을 코드로 돌려준다.
+ *  화면과 서버가 같은 함수를 쓴다(서버가 정본, 화면은 버튼을 미리 잠그는 용도). */
+export type PcbStencilSubmitBlockerType = 'NOTE_REQUIRED' | 'COORD_FILE_REQUIRED';
+
+export const PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES = {
+  NOTE_REQUIRED: '고객문의사항을 입력해 주세요.',
+  COORD_FILE_REQUIRED: '좌표파일을 첨부해 주세요.',
+} as const satisfies Record<PcbStencilSubmitBlockerType, string>;
+
+export const pcbStencilSubmitBlockers = (
+  note: string | null | undefined,
+  files: readonly { fileType: string }[],
+): PcbStencilSubmitBlockerType[] => {
+  const out: PcbStencilSubmitBlockerType[] = [];
+  if ((note ?? '').trim().length < 2) out.push('NOTE_REQUIRED');
+  if (!files.some((f) => f.fileType === 'coord')) out.push('COORD_FILE_REQUIRED');
+  return out;
+};
 
 export const PcbEqFileView = z.object({
   fileId: z.number(),
@@ -608,6 +701,9 @@ export const AdminPcbPoView = z.object({
   reorderRound: z.number().int(),
   rfqId: z.number().nullable(),
   status: PcbPoStatus,
+  /** 공정 트랙 — 서버가 spec.category 에서 파생(resolvePcbPoTrack). 화면은 판정하지 않고
+   *  라벨 사전을 고르는 데만 쓴다. 구 클라이언트 대비 기본 'eq'. */
+  track: PcbPoTrack,
   currency: z.string(),
   priceOriginal: z.number(),
   exchangeRate: z.number().nullable(),
@@ -700,6 +796,26 @@ export type PcbPoActionResponseType = z.infer<typeof PcbPoActionResponse>;
 export const PcbPoRejectBody = z.object({ reason: z.string().trim().min(1).max(1000) });
 export type PcbPoRejectBodyType = z.infer<typeof PcbPoRejectBody>;
 
+/** 발주접수 → 승인요청/확인요청 제출 바디.
+ *
+ *  note 는 스텐실 트랙의 **고객문의사항**이고, 저장은 새 컬럼이 아니라 `eqHistory` 의
+ *  note 다 — 그 자리가 이미 있고(전이 이력), 타임라인이 이미 말풍선으로 그린다.
+ *  ⚠ `lastPcbEqRejection` 은 "note 가 있으면 반려"로 판정하지만 그건 `eq_requested →
+ *    issued` 전이만 본다. 여기는 `issued → eq_requested` 라 서로 안 부딪힌다.
+ *  EQ 트랙에서는 선택 입력이다(비우면 종전과 완전히 같다 — 회귀 없음).
+ *
+ *  ⚠ **본문 없는 호출을 계속 받아야 한다** — 이 라우트는 원래 바디가 없었고, 지금도
+ *    EQ 트랙에서는 보낼 것이 없다. 바디를 필수로 두면 본문을 안 싣는 기존 호출이
+ *    `FST_ERR_VALIDATION: Expected object, received null` 로 죽는다(실측). nullish 로 받아
+ *    빈 객체로 접는다. */
+export const PcbEqRequestBody = z
+  .object({
+    note: z.string().trim().max(2000).nullable().optional(),
+  })
+  .nullish()
+  .transform((v) => v ?? {});
+export type PcbEqRequestBodyType = z.infer<typeof PcbEqRequestBody>;
+
 // ── 관리자 횡단 워크큐 (/api/admin/pcb-pos) ──────────────────────────────────
 // to_ship = 생산완료인데 아직 발송에 담기지 않은 발주서 = **선적·배송의 "발송 대기"**.
 // 다른 탭과 달리 배타적이지 않다(produced 의 부분집합) — 물류가 "이제 보낼 것"을 자기
@@ -766,6 +882,8 @@ export const AdminPcbPoWorkItem = z.object({
   parentPartnerName: z.string().nullable(),
   reorderRound: z.number().int(),
   status: PcbPoStatus,
+  /** 공정 트랙(서버 파생) — 목록 배지가 'EQ 승인요청'/'확인 요청'을 가르는 근거. */
+  track: PcbPoTrack,
   currency: z.string(),
   priceOriginal: z.number(),
   krwAmount: z.number().nullable(),
@@ -811,6 +929,8 @@ export const PartnerPcbPoListItem = z.object({
   qty: z.number().int(),
   reorderRound: z.number().int(), // 0=원발주, 1..=A/S 회차(화면 배지)
   status: PcbPoStatus,
+  /** 공정 트랙(서버 파생) — 협력사 목록 배지의 문구를 가른다. */
+  track: PcbPoTrack,
   /** received=내 조직이 수주 / issued=내 조직(MD)이 하위에 발주. */
   direction: z.enum(['received', 'issued']),
   counterpartyName: z.string(), // received=발주처, issued=하위 협력사
@@ -844,6 +964,8 @@ export const PartnerPcbPoDetail = z.object({
   specId: z.number(),
   reorderRound: z.number().int(), // 0=원발주, 1..=A/S 회차
   status: PcbPoStatus,
+  /** 공정 트랙(서버 파생) — 상세의 문구·업로드 칸·제출 요건이 전부 이 값에서 갈린다. */
+  track: PcbPoTrack,
   direction: z.enum(['received', 'issued']),
   requesterName: z.string(),
   /** 상세의 상대 조직 — received=발주처(requesterName 과 동일), issued=하위 협력사.
@@ -1031,6 +1153,7 @@ export const PartnerPcbShipBoardResponse = z.object({
         projectName: z.string(),
         qty: z.number().int(),
         status: PcbPoStatus,
+        track: PcbPoTrack, // 상태 배지 문구(서버 파생)
       }),
     ),
     boxes: z.array(PartnerPcbShipBox), // 준비 중(preparing) 발송 — 컨텍스트당 1개

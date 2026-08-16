@@ -13,7 +13,7 @@ import {
   getEqReviewFile,
   listCustomerEqReviews,
 } from '../lib/pcb-eq-review';
-import { listCustomerPcbProgress } from '../lib/pcb-customer-progress';
+import { getCustomerCoordFile, listCustomerPcbProgress } from '../lib/pcb-customer-progress';
 import { downloadFromFileServer } from '../lib/file-server';
 import { sendPcbMail, buildPcbEqCustomerDecisionEmail } from '../lib/pcb-rfq-email';
 import { prisma } from '../lib/prisma';
@@ -160,6 +160,29 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       const view = reviews.find((r) => r.id === Number(request.params.reviewId));
       if (view === undefined) return reply.notFound('확인 요청을 찾을 수 없습니다');
       return { result: true as const, data: { review: view } };
+    },
+  );
+
+  // ── GET /pcb-progress/coord-files/:fileId — 좌표파일(통보 없는 열람) ────────
+  // D16(확인 요청)과 **다른 축**이다: 요청도 결정도 없고, 관리자가 고른 것도 아니다.
+  // 종류(coord)가 곧 공개 권한이고, 단계·소유권은 lib 이 다시 판정한다 — 목록에 실렸다는
+  // 사실을 신뢰하지 않는다(URL 을 직접 두드릴 수 있다).
+  fastify.get(
+    '/pcb-progress/coord-files/:fileId',
+    { schema: { params: z.object({ fileId: z.coerce.bigint() }) } },
+    async (request, reply) => {
+      const file = await getCustomerCoordFile(request.params.fileId, request.user.mbId);
+      if (file === null) return reply.notFound('파일을 찾을 수 없습니다');
+      const downloaded = await downloadFromFileServer(file.pathToken);
+      if (downloaded === null) return reply.notFound('파일을 찾을 수 없습니다');
+      // 원본 파일명은 쓰지 않는다 — 협력사명이 섞여 있을 수 있다(lib 이 중립 이름을 만든다).
+      return reply
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(file.downloadName)}`,
+        )
+        .header('content-type', downloaded.contentType)
+        .send(downloaded.buffer);
     },
   );
 

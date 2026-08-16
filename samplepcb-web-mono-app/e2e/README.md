@@ -44,6 +44,8 @@ helpers/
   api.ts       api(token, method, path, body?) — 스모크 call 미러(FST empty-json 함정 처리)
   db.ts        getPrisma()/disconnectPrisma()/num() — apps/api 생성 클라이언트 재사용
   seed.ts      getPartner·pickFreeSpecs·createPcbPo·cleanupPcbPos·countPcbResidue·ensureSecondCustomer
+               createG5OrderFixture·createOrderSpec — 실데이터에 없는 제품군×상태 조합을 통째로 만들 때
+               (예: metalMask 는 열린 주문이 0건이라 주문·카트·스펙을 e2e 소유로 세운다)
   browser.ts   newSession(identity, opts) — /spcb/api/me 스텁 로그인·localStorage 프리셋·snap
   mailpit.ts   목록/검색/본문/선택 삭제 (전체 삭제는 의도적으로 미제공)
   php-login.ts newPhpSession(creds) — 그누보드 실로그인(거버·주문서 등 PHP 구간)
@@ -91,6 +93,7 @@ specs/
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
   md-domestic-relay.e2e.test.ts        MD 4편 — 전 구간 국내(KR MD: 받는측 md domestic + 게이팅)
   md-cn-relay.e2e.test.ts              MD 5편 — CN MD(mdtester2상사: 비KR domestic + CN→KR 국제)
+  journey-metal-mask.e2e.test.ts       메탈마스크 트랙 — EQ 대신 고객문의사항+좌표파일(제출 게이트·확인 뒤 통보 없는 고객 열람·이름 중립화·EQ 트랙 무영향)
   pcb-guards.e2e.test.ts               확정 409 가드 박제(PO_ISSUED·EQ_LOCKED·RECEIVE_LOCKED 등 10종)
   rework-probe.e2e.test.ts             재작업 가드 회귀 — 잠김→정리→열림 순환(W2~W9, 스크립트 probe)
   journey-bom-domestic.e2e.test.ts     BOM 여정 1호 — 혼합 BOM→RFQ→주문→국내 배송 완료

@@ -2499,6 +2499,9 @@
 #sod_fin .sp_progress_list { list-style: none; margin: 0; padding: 0; }
 #sod_fin .sp_progress_item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; background: #fff; }
 #sod_fin .sp_progress_proj { font-size: 0.958em; color: #111827; }
+/* 좌표파일(메탈마스크) — 통보 없이 놓아 두는 열람이라 조용한 링크로 둔다(줄 오른쪽 끝). */
+#sod_fin .sp_progress_file { margin-left: auto; display: inline-block; padding: 4px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.875em; color: #374151; text-decoration: none; background: #fff; }
+#sod_fin .sp_progress_file:hover { background: #f9fafb; }
 
 #sod_fin #sp_eq_wrap { margin: 20px 0; }
 #sod_fin #sp_eq_wrap h2 { font-size: 1.083em; font-weight: 700; margin: 0 0 6px; }

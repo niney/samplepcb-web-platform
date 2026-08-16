@@ -300,7 +300,7 @@ const rfqStatusCls = (s: string): string =>
             </span>
             <span class="shrink-0 text-xs text-gray-400">{{ po.counterpartyName }}</span>
             <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-gray-600">
-              {{ PCB_PO_STATUS_LABELS[po.status] }}
+              {{ PCB_PO_STATUS_LABELS[po.track][po.status] }}
             </span>
           </RouterLink>
         </div>

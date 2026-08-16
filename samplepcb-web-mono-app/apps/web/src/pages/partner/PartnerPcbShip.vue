@@ -176,7 +176,7 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                 </RouterLink>
                 <span class="shrink-0 text-gray-400">{{ po.qty.toLocaleString('ko-KR') }}pcs</span>
                 <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500">
-                  {{ PCB_PO_STATUS_LABELS[po.status] }}
+                  {{ PCB_PO_STATUS_LABELS[po.track][po.status] }}
                 </span>
               </li>
             </ul>

@@ -193,15 +193,18 @@ export function useAdminPcbEqSubstitute() {
       specId,
       poId,
       action,
+      note,
     }: {
       specId: number;
       poId: number;
       action: AdminPcbEqSubstituteAction;
+      /** 스텐실 트랙의 고객문의사항(eq-request 대행 전용) — 서버 게이트가 필수로 본다. */
+      note?: string;
     }) =>
       apiSend(
         'POST',
         `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/${action}`,
-        {},
+        note === undefined ? {} : { note },
         PcbPoActionResponse,
       ),
     onSuccess: () => {

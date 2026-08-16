@@ -229,6 +229,16 @@ if($od['od_pg'] == 'lg') {
                         <?php echo get_text($pg['label']); ?>
                     </span>
                     <strong class="sp_progress_proj"><?php echo get_text($pg['projectName']); ?></strong>
+                    <?php
+                    // 좌표파일(메탈마스크) — **통보 없는 열람**. 요청도 결정도 없이 그냥 놓아 둔다
+                    // (요청하는 고객이 있어서다 — 사용자 결정 2026-08-16). 공개 여부·파일명 중립화는
+                    // 전부 sp-node 판정이라 여기서는 있으면 링크만 건다.
+                    if (!empty($pg['coordFile'])):
+                    ?>
+                    <a class="sp_progress_file" href="<?php echo sp_pcb_coord_file_url($pg['coordFile']['fileId']); ?>">
+                        ⬇ <?php echo get_text($pg['coordFile']['name']); ?>
+                    </a>
+                    <?php endif; ?>
                 </li>
                 <?php endforeach; ?>
             </ul>

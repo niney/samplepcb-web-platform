@@ -104,6 +104,14 @@ function sp_pcb_eq_file_url($review_id, $file_id)
     return G5_URL . '/spcb/api/eq-file?review=' . (int) $review_id . '&file=' . (int) $file_id;
 }
 
+/** 좌표파일(메탈마스크) 다운로드 URL — 확인 요청과 **다른 축**이다: 요청도 결정도 없고
+ *  통보도 없다. 고객이 주문내역을 열면 그냥 거기 있다(사용자 결정 2026-08-16).
+ *  소유권·단계·종류 판정은 전부 sp-node 가 다시 한다. */
+function sp_pcb_coord_file_url($file_id)
+{
+    return G5_URL . '/spcb/api/coord-file?file=' . (int) $file_id;
+}
+
 /** 상태 라벨 — 계약(PCB_EQ_REVIEW_STATUS_LABELS)과 같은 말을 쓴다. */
 function sp_pcb_eq_status_label($status)
 {
