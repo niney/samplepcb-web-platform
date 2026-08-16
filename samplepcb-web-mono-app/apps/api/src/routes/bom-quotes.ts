@@ -4,6 +4,7 @@ import type { FastifyBaseLogger, FastifyReply } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  ApiError,
   BomQuoteCandidateSelectionBody,
   BomQuoteBuildBody,
   BomQuoteComparisonResponse,
@@ -156,7 +157,17 @@ const ALLOWED_EXT = new Set(['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'bom']);
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 시안 카피("up to 50 MB")와 정합
 
 const FILE_REF_TYPE = 'sp_bom_quote';
-const BizError = z.object({ result: z.literal(false), error: z.string() });
+// 같은 상태 코드로 **두 형태**가 나간다: 화면이 코드로 분기하는 봉투형
+// `{result:false, error:'INVALID_SHEET_SELECTION'}` 과 @fastify/sensible 표준형
+// `{statusCode, error, message}`(= `reply.conflict('…')`). 한 쪽만 선언하면 다른 쪽이
+// **응답 직렬화에서 막혀 500 으로 뒤바뀐다** — 2026-08-16 실측: 공급사 확인 중 시트를
+// 바꾸면 "공급사 확인이 완료된 후 변경할 수 있습니다"(409) 대신 500 이 나갔다
+// (ResponseSerializationError: expected result=false). 클라이언트
+// (@sp/shared toApiErrorPayload)는 두 형태를 모두 정규화하므로 둘 다 허용한다.
+export const BizError = z.union([
+  z.object({ result: z.literal(false), error: z.string() }),
+  ApiError,
+]);
 
 const EnginePassiveDefaults = z.object({
   version: z.literal('passive-requirement-defaults-v1'),

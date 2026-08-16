@@ -566,6 +566,37 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   건드리지 않았고, 근본 교정은 호출부에서 필요수량을 선반영하는 쪽(드래프트 복원 경로가
   이미 쓰는 방식)이다.
 
+## 오류 응답이 500으로 뒤바뀌던 결함 (2026-08-16)
+
+고객 BOM 라우트는 같은 상태 코드로 **두 형태**의 오류를 낸다.
+
+| 형태 | 예 | 내는 방법 |
+| --- | --- | --- |
+| 봉투형 | `{result:false, error:'INVALID_SHEET_SELECTION'}` | `reply.status(409).send(...)` — 화면이 **코드로 분기**하는 자리 |
+| sensible 표준형 | `{statusCode, error, message}` | `reply.conflict('…')` — 안내 문구를 그대로 전달 |
+
+응답 스키마(`BizError`)가 **봉투형만** 선언하고 있어서, `reply.conflict()`로 내는 409가
+전부 직렬화에서 막혀 **500으로 뒤바뀌었다**.
+
+- **증상**: 고객이 "견적요청 후에는 시트를 변경할 수 없습니다"·"공급사 확인이 완료된 후
+  변경할 수 있습니다" 같은 정상 안내 대신 **500 Internal Server Error** 를 본다.
+  서버 로그에는 `ResponseSerializationError: expected result=false` 또는
+  `FST_ERR_FAILED_ERROR_SERIALIZATION` 이 남는다.
+- **드러난 경위**: BOM 여정 21편을 연속 주행할 때만 재현됐다. 부하가 높으면 공급사 검색이
+  오래 걸려 `enrichStatus === 'searching'` 분기가 열리기 때문이다 — **부하는 트리거였을 뿐
+  결함은 상시 존재**했다(견적요청 후 시트 변경은 언제든 이 경로다).
+- **교정**: `BizError` 를 두 형태의 union 으로 확장했다. 클라이언트
+  (`@sp/shared` `toApiErrorPayload`)가 이미 두 형태를 모두 정규화하므로 화면은 무변경이고,
+  정의 한 곳을 고치면 이 파일의 라우트 10개가 함께 해결된다.
+- **범위 확인**: 봉투형 스키마를 쓰는 다른 라우트 파일(`admin-parts.ts`·`bom.ts`)은
+  `reply.conflict()` 를 쓰지 않아 같은 결함이 없다.
+- **회귀선**: `bom-quotes.biz-error.test.ts` — 두 형태를 모두 받는지 + 아무거나 통과시키지는
+  않는지. 교정 전 상태로 되돌리면 sensible 케이스가 실패한다(양방향 확인 완료).
+
+⚠ **시트 변경은 재계산·재검색을 유발한다**. 그 사이클이 끝나기 전 다음 변경은 서버가
+정당하게 409로 막으므로, 연속 조작하는 쪽(e2e 포함)은 `buildStatus==='ready' &&
+enrichStatus!=='searching'` 를 기다려야 한다.
+
 ## 2차+ 로드맵 (범위 밖 기록)
 
 결제 연계(거버식 `g5_shop_cart` 스냅샷→orderform.php — 확정가 기반) · 관리자 풀 워크벤치
