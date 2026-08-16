@@ -1343,8 +1343,9 @@ PCB 트랙에 먼저 세운 축(docs/PCB_PARTNER_TRACK.md)을 BOM 선적에도 �
 - **검증(08-16 실주행)**: `journey-bom-split` 9/9 · `journey-bom-trade-documents` 7/7 ·
   `journey-bom-claims` 7/7 · `journey-bom-domestic` 11/12 — 선적 쓰기 경로(발송 생성·QR
   포장·Invoice·AWB·선적·도착·통관·입고·고객 배송)를 실제로 태웠고 HTTP ≥400 0건·pageerror
-  0건. 유일한 실패 `B02`는 고객 견적의 세트·예비 수량 반영(`orderQty >= bomQty ×
-  (setQty+spareQty)`)으로 **선적 축과 접점이 없다** — 별건으로 남긴다.
+  0건. 유일한 실패 `B02`(고객 견적의 세트·예비 수량 반영)는 선적 축과 접점이 없는 별건이었고
+  **원인을 규명해 교정했다** — 축퇴 행의 `orderQty` 미갱신(정본 docs/BOM_QUOTE.md 동명 절).
+  교정 후 `journey-bom-domestic` 12/12.
 - ⚠ **BOM 여정 실행 전제**(08-16 실측, 다음 주행자용): ①`NODE_OPTIONS=--use-system-ca`
   없으면 Node fetch 가 mkcert 인증서를 거부해 `local-web 도달 실패`로 죽는다(package.json
   스크립트엔 이미 있다 — 손으로 vitest 를 부를 때 빠뜨리기 쉽다) ②협력1·협력2 의

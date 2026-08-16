@@ -542,6 +542,30 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   결제 연계 시 카탈로그 선택도 동일한 서버 선택 API로 통합해야 한다.
 - 견적요청 접수 관리자 알림(메일)은 미구현 — `spcb/api/order-notify.php` 확장으로 후속.
 
+## 축퇴 행의 필요수량 — 수량 부족 주문 교정 (2026-08-16)
+
+엔진 재평가가 실패한 행은 `degradeStaleRow`로 **stale 유지 축퇴**한다(선정·가격을 소거하지
+않는 fail-safe). 그런데 구 코드는 `selectedOffer`가 있을 때만 `orderQty`를 다시 도장해서,
+**구매 조건을 모르는 축퇴 행은 세트·예비 수량을 올려도 옛 수량이 그대로 남았다.**
+
+- **증상**: 고객이 세트 3·예비 1로 올려도 그 행만 `orderQty=1` — 견적서·발주·입고까지
+  수량 부족인 채로 흘러간다. 나머지 행은 정상이라 화면에서 눈에 띄지 않는다.
+- **원인**: 축퇴는 "구매 조건(MOQ·배수)을 모른다"는 뜻이지 "필요수량을 모른다"가 아니다.
+  필요수량은 `neededQty(bomQty, setQty, spareQty)`로 **엔진 없이 확정**된다.
+- **교정**: 축퇴 시 `selectedOffer`가 없으면 `needed` 그대로, 있으면 기존대로 MOQ·배수를
+  얹는다. 다른 미선정 경로(`orderQty = needed`)와 같은 규칙이 된다.
+- **실측 경로**: 자체 카탈로그(`samplepcb`) 파생 오퍼만 가진 행이 이 조건에 걸렸다 —
+  저장된 `procurementDecision`이 `required_quantity=1, order_quantity=1`로 박제돼 있고
+  엔진이 그 오퍼를 재평가하지 못해 축퇴한다.
+- **회귀선**: `bom-quote-reprice.test.ts` "선정 오퍼가 없는 축퇴 행도 새 필요수량으로
+  orderQty 를 갱신한다" + `journey-bom-domestic` B02. 기존 축퇴 테스트는 `selectedOffer`가
+  **있는** 경우만 덮고 있어 이 구멍이 새어나갔다.
+- **남은 구멍(미교정)**: `repriceCandidateSelections`는 후보 스냅샷이 아예 없는 행
+  (`rowCandidates === undefined`)과 선정 후보를 스냅샷에서 못 찾는 행을 `continue`로
+  건너뛴다 — 그 행들도 `orderQty`가 갱신되지 않는다. 실사용에서 재현되지 않아 이번엔
+  건드리지 않았고, 근본 교정은 호출부에서 필요수량을 선반영하는 쪽(드래프트 복원 경로가
+  이미 쓰는 방식)이다.
+
 ## 2차+ 로드맵 (범위 밖 기록)
 
 결제 연계(거버식 `g5_shop_cart` 스냅샷→orderform.php — 확정가 기반) · 관리자 풀 워크벤치

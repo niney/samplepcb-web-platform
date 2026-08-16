@@ -3535,9 +3535,14 @@ async function batchReevaluateStoredProcurement(
  * 재계산(recalcItems)이 이 orderQty 기준으로 채운다.
  */
 function degradeStaleRow(item: BomQuoteItemInputType, needed: number): void {
-  if (item.selectedOffer !== null) {
-    item.orderQty = stampOrderQty(needed, item.selectedOffer.moq, item.selectedOffer.orderMultiple);
-  }
+  // 축퇴는 **구매 조건을 모른다**는 뜻이지 필요수량을 모른다는 뜻이 아니다 — 필요수량은
+  // 세트·예비의 함수(neededQty)라 엔진 없이도 확정된다. 구 코드는 selectedOffer 가 있을
+  // 때만 갱신해서, 선정 오퍼가 없는 축퇴 행은 세트 수량을 올려도 옛 수량이 그대로 남았다
+  // (BOM 여정 1호 B02 실측: 세트 3+예비 1 인데 그 행만 orderQty=1 → **수량 부족 주문**이
+  // 견적서·발주까지 흘러간다). MOQ·배수는 있을 때만 얹고, 없으면 필요수량 그대로.
+  item.orderQty = item.selectedOffer === null
+    ? needed
+    : stampOrderQty(needed, item.selectedOffer.moq, item.selectedOffer.orderMultiple);
   if (
     item.matchEvidence !== null
     && !item.matchEvidence.decisionReasonCodes.includes('engine-procurement-unavailable')

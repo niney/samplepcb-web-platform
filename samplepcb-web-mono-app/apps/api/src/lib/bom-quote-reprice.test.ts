@@ -696,6 +696,25 @@ describe('repriceCandidateSelections', () => {
     );
   });
 
+  it('선정 오퍼가 없는 축퇴 행도 새 필요수량으로 orderQty 를 갱신한다(수량 부족 주문 방지)', async () => {
+    // 구 코드는 selectedOffer 가 있을 때만 orderQty 를 다시 도장해서, 구매 조건을 모르는
+    // 축퇴 행(자체 카탈로그 오퍼처럼 엔진이 재평가하지 못하는 행)은 세트 수량을 올려도
+    // 옛 수량이 그대로 남았다 — BOM 여정 1호 B02 가 실측한 결함(그 행만 1개 주문).
+    // 축퇴는 "구매 조건을 모른다"이지 "필요수량을 모른다"가 아니다.
+    const decision = buildDecision('component-1', 'MPN-1', 'digikey', 10, 1, 5);
+    const item = autoSelectedItem('1', 0, 'component-1', decision, 10); // neededQty(10,2,0)=20
+    item.selectedOffer = null; // 구매 조건 미상 — MOQ·배수를 얹을 수 없다
+    item.orderQty = 1; // 세트 1 시절의 옛 수량
+    mockStoredCandidates([{ id: '1', candidate: firstSnapshot(decision) }]);
+    engineFetchMock.mockRejectedValue(new Error('ECONNREFUSED — engine down'));
+
+    const log = createLog();
+    await repriceCandidateSelections(1n, [item], 2, 0, null, null, log);
+
+    expect(item.orderQty, '필요수량은 엔진 없이도 확정된다').toBe(20);
+    expect(item.matchEvidence?.decisionReasonCodes).toContain('engine-procurement-unavailable');
+  });
+
   it('청크 요청이 실패하면 서킷브레이커가 열려 잔여 청크는 호출하지 않고 즉시 전부 축퇴한다', async () => {
     const ROW_COUNT = 101; // BATCH_REEVALUATION_CHUNK_SIZE(50) 기준 3청크(50+50+1)로 나뉜다.
     const rows = Array.from({ length: ROW_COUNT }, (_unused, index) => {
