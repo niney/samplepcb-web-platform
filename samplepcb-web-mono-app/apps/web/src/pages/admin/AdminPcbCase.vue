@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -246,13 +246,83 @@ const surfaceError = (e: unknown, fallback: string): void => {
     e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
 };
 
-// ── 스펙 표시 — 명칭·순서는 레거시 정본(lib/pcb-spec.ts, estimate_form_ca10 승계) ──
-const specEntries = computed(() =>
-  pcbSpecEntries((detail.value?.spec ?? {}) as Record<string, unknown>),
-);
+// ── 스펙 표시 — 명칭·순서·선택지는 거버 앱이 정본(lib/pcb-spec.ts). 항목이 카테고리마다
+//    다르므로 category·orderCategory·kindPcb 를 넘겨 그 세트로 그린다(못 고르면 합집합 순서). ──
+const specEntries = computed(() => {
+  const spec = (detail.value?.spec ?? {}) as Record<string, unknown>;
+  return pcbSpecEntries(spec, {
+    category: detail.value?.category,
+    orderCategory: detail.value?.orderCategory,
+    kindPcb: typeof spec.kindPcb === 'string' ? spec.kindPcb : null,
+  });
+});
 const gerberFiles = computed(
   () => (detail.value?.files ?? []).filter((f) => f.fileType !== 'thumbnail'),
 );
+
+/** 주문 줄의 세액·포인트·환불 — 실측상 대부분 0이라 접어 두고 필요할 때 편다. */
+const orderDetailOpen = ref(false);
+
+// ── 제작 사양 패널 ────────────────────────────────────────────────
+// 사양은 늘 보는 것이 아니라 **확인하는 것**이라 우측 패널로 뺀다. 본문에는 협력사와
+// 통화하며 그대로 읽는 값만 한 줄 남긴다. 고정(📌)하면 본문이 자리를 내주고, 그 상태는
+// 브라우저에 기억된다 — 계속 열어 두는 사람과 필요할 때만 여는 사람이 같은 화면을 쓴다.
+const SPEC_PIN_KEY = 'sp-admin-pcb-spec-pin';
+const specPanelOpen = ref(false);
+const specPanelPinned = ref(false);
+
+onMounted(() => {
+  specPanelPinned.value = localStorage.getItem(SPEC_PIN_KEY) === '1';
+  if (specPanelPinned.value) specPanelOpen.value = true;
+});
+const toggleSpecPin = (): void => {
+  specPanelPinned.value = !specPanelPinned.value;
+  localStorage.setItem(SPEC_PIN_KEY, specPanelPinned.value ? '1' : '0');
+  if (specPanelPinned.value) specPanelOpen.value = true;
+};
+/** ✕ 는 고정도 함께 푼다 — 닫아 놓고 다음에 열렸다 놀라지 않게. */
+const closeSpecPanel = (): void => {
+  specPanelPinned.value = false;
+  localStorage.setItem(SPEC_PIN_KEY, '0');
+  specPanelOpen.value = false;
+};
+/** Esc 로 닫는다 — 고정은 사용자가 건 잠금이라 풀지 않는다. */
+const onSpecPanelKey = (e: KeyboardEvent): void => {
+  if (e.key === 'Escape' && !specPanelPinned.value) specPanelOpen.value = false;
+};
+onMounted(() => {
+  window.addEventListener('keydown', onSpecPanelKey);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onSpecPanelKey);
+});
+
+/** 본문 한 줄에 세우는 값 — 크기·층수·두께·재질·수량(스텐실은 축이 다르다). */
+const specHeadline = computed<{ label: string; value: string; unit?: string }[]>(() => {
+  const d = detail.value;
+  if (d === null) return [];
+  const s = d.spec as Record<string, unknown>;
+  const txt = (k: string): string => (typeof s[k] === 'string' || typeof s[k] === 'number' ? String(s[k]).trim() : '');
+  const trim = (v: string): string => (/^-?\d+(\.\d+)?$/.test(v) ? String(Number(v)) : v);
+  const out: { label: string; value: string; unit?: string }[] = [];
+  const w = txt('width');
+  const l = txt('length');
+  if (w !== '' && l !== '') out.push({ label: '크기', value: `${trim(w)} × ${trim(l)}`, unit: 'mm' });
+  if (d.category === 'metalMask') {
+    if (txt('stencilSide') !== '') out.push({ label: '스텐실 면', value: txt('stencilSide') });
+    if (txt('stThickness') !== '') out.push({ label: '스텐실 두께', value: txt('stThickness') });
+  } else {
+    if (txt('layers') !== '') out.push({ label: '층수', value: trim(txt('layers')), unit: '층' });
+    if (txt('pcbThickness') !== '') out.push({ label: '두께', value: txt('pcbThickness'), unit: 'T' });
+    const kind = txt('kindPcb');
+    const mat = txt('material');
+    if (kind !== '' || mat !== '') {
+      out.push({ label: '재질', value: [kind, mat].filter((x) => x !== '').join(' ') });
+    }
+  }
+  out.push({ label: '수량', value: String(d.qty), unit: d.orderCategory === 'mass' ? '매(양산)' : '매' });
+  return out;
+});
 
 const QUOTE_LABEL: Record<string, { label: string; cls: string }> = {
   rfq: { label: '견적 대기', cls: 'bg-amber-100 text-amber-700' },
@@ -1522,7 +1592,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
 </script>
 
 <template>
-  <div class="pcb-readable space-y-4">
+  <!-- 사양 패널을 고정하면 본문이 자리를 내준다(push). 잠깐 열 때는 덮고(overlay), 계속
+       열어 둘 때는 겹치지 않게 — 계속 보는 사람에게 덮개는 방해고, 잠깐 보는 사람에게
+       리플로우는 과하다. ⚠ 미디어쿼리는 뷰포트를 보므로 좁은 화면에서는 열 수가 그대로다. -->
+  <!-- ⚠ 여백은 인라인으로 준다 — Tailwind 임의값에 calc 를 담으면 `+` 양옆 공백이 사라져
+       (`calc(a+b)`) CSS 가 통째로 무효가 된다. 폭 계산은 패널의 w-[clamp(...)] 와 같은 값. -->
+  <div
+    class="pcb-readable space-y-4 transition-[padding] duration-200 motion-reduce:transition-none"
+    :style="specPanelPinned && specPanelOpen ? { paddingRight: 'calc(clamp(22rem, 34vw, 29rem) + 1rem)' } : undefined"
+  >
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
         :to="backTarget.to"
@@ -1610,246 +1688,191 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
 
     <AdminCaseCustomerCard v-if="detail !== null" :customer="detail.customer" />
 
-    <div v-if="detail !== null" class="grid gap-4 lg:grid-cols-3">
-      <!-- 스펙 요약 -->
-      <section class="rounded-xl border border-gray-200 bg-surface p-4 lg:col-span-2">
-        <div class="flex flex-wrap items-start justify-between gap-2">
-          <h2 class="text-sm font-bold text-gray-700">제작 사양</h2>
-          <!-- 사양 수정(P4.2) — 저장하면 서버가 재견적까지 한다. 발주된 건은 서버가 409. -->
-          <button
-            type="button"
-            class="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            @click="specEditOpen = true"
-          >
-            사양 수정
-          </button>
-        </div>
-        <!-- 제품군은 배지로 — 뒤의 샘플/양산과 나란히 회색 텍스트로 흘리면 둘 다 "분류"로
-             읽혀 갈리지 않는다. 두 값은 축이 다르다: 앞은 제품 종류(공정·단가), 뒤는 주문
-             성격(양산은 자동가를 내지 않는다). 사전은 목록(RFQ 워크큐)과 같은 것. -->
-        <p class="mt-1 text-sm text-gray-500">
-          <span
-            class="mr-1 rounded px-1.5 py-0.5 text-xs font-semibold"
-            :class="pcbCategoryBadge(detail.category).cls"
-          >
-            {{ pcbCategoryBadge(detail.category).label }}
-          </span>
-          {{ detail.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.qty }}매
-        </p>
-        <p class="mt-1 text-xs text-gray-400">{{ detail.optionSummary }}</p>
-        <div v-if="gerberFiles.length > 0" class="mt-3 flex flex-wrap gap-2">
-          <button
-            v-for="f in gerberFiles"
-            :key="f.fileId"
-            type="button"
-            class="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            @click="void downloadAdminFile(f.fileId, f.originFileName)"
-          >
-            ⬇ {{ f.originFileName }}
-          </button>
-        </div>
-        <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
-          <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
-            <dt class="text-gray-400">{{ entry.label }}</dt>
-            <dd class="truncate font-medium text-gray-700">{{ entry.value }}</dd>
-          </div>
-        </dl>
-        <p v-if="detail.message !== null && detail.message !== ''" class="mt-3 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
-          {{ detail.message }}
-        </p>
-      </section>
-
-      <!-- 고객 견적(확정가) -->
-      <section class="rounded-xl border border-gray-200 bg-surface p-4">
-        <h2 class="text-sm font-bold text-gray-700">고객 견적</h2>
-        <dl class="mt-2 space-y-1.5 text-sm">
-          <div class="flex justify-between">
-            <dt class="text-gray-500">자동견적 총액 <span class="text-[11px] text-gray-400">(VAT 포함)</span></dt>
-            <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.quote?.autoPrice ?? null) }}</dd>
-          </div>
-          <div class="flex justify-between">
-            <dt class="text-gray-500">확정 총액 <span class="text-[11px] text-gray-400">(VAT 포함)</span></dt>
-            <dd class="font-bold tabular-nums" :class="detail.finalPrice === null ? 'text-gray-300' : 'text-emerald-700'">
-              {{ fmtPcbAmount('KRW', detail.finalPrice) }}
-            </dd>
-          </div>
-          <div v-if="detail.priceAmounts !== null" class="!mt-2 space-y-1 rounded-lg bg-emerald-50 px-3 py-2 text-xs">
-            <div class="flex justify-between">
-              <dt class="text-emerald-700">공급가액</dt>
-              <dd class="font-medium tabular-nums text-emerald-900">{{ fmtPcbAmount('KRW', detail.priceAmounts.supply) }}</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-emerald-700">부가세</dt>
-              <dd class="font-medium tabular-nums text-emerald-900">{{ fmtPcbAmount('KRW', detail.priceAmounts.vat) }}</dd>
-            </div>
-            <p class="pt-0.5 text-[11px] text-emerald-600">
-              {{ detail.finalPrice !== null ? '확정가' : '자동견적가' }} 기준 고객 결제예정액
-            </p>
-          </div>
-          <div v-if="selectedRow !== null" class="flex justify-between">
-            <dt class="text-gray-500">선정 원가</dt>
-            <dd class="tabular-nums text-gray-700">
-              {{ pcbMoneyWithSub(selectedRow.currency, selectedRow.priceOriginal, selectedRow.subCurrency, selectedRow.subPriceOriginal) }}{{ pcbKrwSuffix(selectedRow.currency, selectedRow.krwAmount) }}<span class="text-[11px] text-gray-400">{{ rateNote(selectedRow.currency, selectedRow.krwAmount, selectedRow.exchangeRate, '선정 시점') }}</span>
-            </dd>
-          </div>
-        </dl>
-        <!-- ① 확정 ─▸ ② 발송 — 견적 관리 드로어와 같은 흐름 UI(화면 언어 통일).
-             확정가만 등록하고 끝내면 **고객은 아무것도 모른다**(자동 발송 없음). 두 칸을
-             연결선으로 이어 "확정하고 보낸다"를 한 줄로 만든다. 상태와 행동이 같은 자리에
-             있어야 같은 건을 두 번 보내지도, 보낸 걸 또 찾아보지도 않는다. -->
-        <div class="mt-3 border-t border-gray-100 pt-3">
-          <div class="flex items-center justify-between text-xs font-semibold">
-            <span class="flex items-center gap-1.5 text-gray-500">
-              <span
-                class="inline-flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                :class="detail.finalPrice === null ? 'bg-gray-300' : 'bg-emerald-500'"
-              >1</span>
-              확정가
+    <!-- 사양·견적·주문을 옆으로 세우지 않고 위아래로 쌓는다. 셋은 순차적으로 하는 다른 일이고,
+         나란히 두면 **짧은 쪽이 긴 쪽 높이에 끌려간다**(실측: 사양 3행짜리 건이 옆 주문 카드 때문에
+         724px). 대신 금액 두 줄은 가로 한 줄로 접어, 그만큼 아래 작업 패널이 올라오게 한다. -->
+    <div v-if="detail !== null" class="space-y-4">
+      <!-- 세 줄 모두 같은 문법 — 좌측 이름 · 가운데 값 · 우측 액션. 금액은 흩지 않고 칸으로 나눠
+           각 칸 안에서 tabular-nums 로 자릿수를 세로로 맞춘다. 견적(팔기 전)과 주문·수금
+           (팔린 후)은 다른 사건이라 줄을 가른다 — 주문이 없으면 그 줄은 아예 없다. -->
+      <section class="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-surface">
+        <!-- 제작 사양 — 협력사와 통화하며 그대로 읽는 값만 한 줄로. 21개 전체는 우측 패널로
+             보낸다(늘 보는 것이 아니라 확인하는 것이라). 첨부는 여기 남긴다 — 내려받기는
+             패널을 열 이유가 아니다. -->
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-l-[3px] border-slate-400 py-2.5 pl-3.5 pr-3">
+          <span class="w-[4.6rem] shrink-0 text-[11.5px] font-bold text-gray-500">제작 사양</span>
+          <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            <!-- 제품군은 배지로 — 뒤의 샘플/양산과 나란히 회색 텍스트로 흘리면 둘 다 "분류"로
+                 읽혀 갈리지 않는다. 앞은 제품 종류(공정·단가), 뒤는 주문 성격. -->
+            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="pcbCategoryBadge(detail.category).cls">
+              {{ pcbCategoryBadge(detail.category).label }}
             </span>
-            <span
-              class="flex items-center gap-1.5"
-              :class="estimateEnabled ? 'text-gray-500' : 'text-gray-300'"
+            <template v-for="(k, i) in specHeadline" :key="k.label">
+              <span v-if="i > 0" class="size-[3px] shrink-0 self-center rounded-full bg-gray-300" />
+              <span class="whitespace-nowrap text-[13.5px] font-bold tabular-nums tracking-[-0.01em] text-ink" :title="k.label">
+                {{ k.value }}<i v-if="k.unit" class="ml-0.5 text-[10.5px] font-semibold not-italic text-gray-400">{{ k.unit }}</i>
+              </span>
+            </template>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <button
+              v-for="f in gerberFiles"
+              :key="f.fileId"
+              type="button"
+              class="inline-flex max-w-[13rem] items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              :title="f.originFileName"
+              @click="void downloadAdminFile(f.fileId, f.originFileName)"
             >
+              <span class="shrink-0">⬇</span><span class="truncate">{{ f.originFileName }}</span>
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100"
+              :aria-expanded="specPanelOpen"
+              @click="specPanelOpen = !specPanelOpen"
+            >
+              제작 사양 <span class="font-semibold opacity-70 tabular-nums">{{ specEntries.length }}</span>
+              {{ specPanelOpen ? '◂' : '▸' }}
+            </button>
+          </div>
+          <p v-if="detail.message !== null && detail.message !== ''" class="flex w-full items-baseline gap-2">
+            <span class="shrink-0 text-[11px] font-bold text-gray-400">고객 요청</span>
+            <span class="min-w-0 flex-1 truncate text-[12.5px] text-gray-600">{{ detail.message.replace(/\s*\n+\s*/g, ' ') }}</span>
+            <button type="button" class="shrink-0 text-[11px] font-bold text-blue-600" @click="specPanelOpen = true">전문 보기</button>
+          </p>
+        </div>
+
+        <!-- 고객 견적 -->
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-l-[3px] border-emerald-500 py-2.5 pl-3.5 pr-3">
+          <span class="w-[4.6rem] shrink-0 text-[11.5px] font-bold text-gray-500">고객 견적</span>
+          <dl class="flex min-w-0 flex-1 flex-wrap items-stretch gap-y-1">
+            <div class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">확정 총액 <span class="font-normal">(VAT 포함)</span></dt>
+              <dd class="whitespace-nowrap text-[14.5px] font-bold tabular-nums" :class="detail.finalPrice === null ? 'text-gray-300' : 'text-emerald-700'">
+                {{ fmtPcbAmount('KRW', detail.finalPrice) }}
+              </dd>
+            </div>
+            <div v-if="detail.priceAmounts !== null" class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">공급가액</dt>
+              <dd class="whitespace-nowrap text-[14.5px] font-bold tabular-nums text-gray-800">{{ fmtPcbAmount('KRW', detail.priceAmounts.supply) }}</dd>
+            </div>
+            <div v-if="detail.priceAmounts !== null" class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">부가세</dt>
+              <dd class="whitespace-nowrap text-[14.5px] font-bold tabular-nums text-gray-800">{{ fmtPcbAmount('KRW', detail.priceAmounts.vat) }}</dd>
+            </div>
+            <div v-if="detail.quote?.autoPrice != null" class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">자동견적</dt>
+              <dd class="whitespace-nowrap text-[14.5px] font-medium tabular-nums text-gray-500">{{ fmtPcbAmount('KRW', detail.quote.autoPrice) }}</dd>
+            </div>
+            <!-- 확정가 옆에 원가를 세우는 자리 — 이 둘만은 나란히 봐야 마진이 보인다. -->
+            <div v-if="selectedRow !== null" class="mr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">선정 원가</dt>
+              <dd class="whitespace-nowrap text-[13px] font-semibold tabular-nums text-gray-700">
+                {{ pcbMoneyWithSub(selectedRow.currency, selectedRow.priceOriginal, selectedRow.subCurrency, selectedRow.subPriceOriginal) }}{{ pcbKrwSuffix(selectedRow.currency, selectedRow.krwAmount) }}<span class="text-[10.5px] font-normal text-gray-400">{{ rateNote(selectedRow.currency, selectedRow.krwAmount, selectedRow.exchangeRate, '선정 시점') }}</span>
+              </dd>
+            </div>
+          </dl>
+          <!-- ① 확정 ─▸ ② 발송 — 확정가만 등록하고 끝내면 고객은 아무것도 모른다(자동 발송 없음).
+               상태와 행동이 같은 자리에 있어야 두 번 보내지도, 보낸 걸 또 찾지도 않는다. -->
+          <div class="flex shrink-0 items-center gap-2">
+            <span class="flex items-center gap-1.5 whitespace-nowrap text-[11.5px] font-semibold text-gray-400">
               <span
-                class="inline-flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                class="inline-flex size-[15px] items-center justify-center rounded-full text-[9.5px] font-bold text-white"
+                :class="detail.finalPrice === null ? 'bg-gray-300' : 'bg-emerald-500'"
+              >1</span>확정가
+              <span class="text-gray-300">—</span>
+              <span
+                class="inline-flex size-[15px] items-center justify-center rounded-full text-[9.5px] font-bold text-white"
                 :class="estimateSent ? 'bg-emerald-500' : estimateEnabled ? 'bg-blue-500' : 'bg-gray-300'"
               >2</span>
-              견적서 발송
+              <span :class="estimateSendState.cls" :title="estimateSendState.title">{{ estimateSendState.label }}</span>
             </span>
-          </div>
-          <div class="mt-2 flex items-center gap-2">
-            <!-- ① 확정가(판매가)는 주문 후 불변 — 주문된 건에선 버튼 대신 금액만 남는다(D10). -->
+            <!-- 확정가(판매가)는 주문 후 불변 — 주문된 건에선 버튼이 사라진다(D10). -->
             <button
               v-if="detail.order === null"
               type="button"
-              class="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+              class="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
               :disabled="detail.cartState !== 'none' || detail.status !== 'active'"
               @click="openPriceModal"
             >
               {{ detail.finalPrice === null ? '확정가 등록' : '확정가 수정' }}
             </button>
-            <span v-else class="shrink-0 text-sm font-semibold text-gray-700">
-              {{ fmtPcbAmount('KRW', detail.finalPrice) }}
-            </span>
-            <span class="min-w-3 flex-1 border-t border-dashed border-gray-300" />
-            <!-- ② 발송 — 누르면 견적서가 열리고, 수신자를 확인한 뒤 그 안에서 보낸다.
-                 (클릭 즉시 발송이 아니다 — 받는 사람을 눈으로 보고 보내는 편이 안전하다.) -->
-            <div class="flex shrink-0 items-center gap-1.5">
-              <span class="text-xs font-semibold" :class="estimateSendState.cls" :title="estimateSendState.title">
-                {{ estimateSendState.label }}
-              </span>
-              <button
-                type="button"
-                class="rounded-md border border-blue-300 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
-                :disabled="!estimateEnabled"
-                :title="estimateEnabled ? '견적서를 열어 수신자를 확인하고 발송합니다' : estimateBlockedReason"
-                @click="estimateProjectId = specId"
-              >
-                {{ estimateSent ? '다시 보내기' : '보내기' }}
-              </button>
-            </div>
+            <!-- 누르면 견적서가 열리고, 수신자를 확인한 뒤 그 안에서 보낸다(클릭 즉시 발송 아님). -->
+            <button
+              type="button"
+              class="rounded-md border border-blue-300 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
+              :disabled="!estimateEnabled"
+              :title="estimateEnabled ? '견적서를 열어 수신자를 확인하고 발송합니다' : estimateBlockedReason"
+              @click="estimateProjectId = specId"
+            >
+              {{ estimateSent ? '다시 보내기' : '보내기' }}
+            </button>
           </div>
+          <p v-if="detail.order === null && detail.finalPrice === null" class="w-full text-[11px] leading-4 text-gray-400">
+            확정가를 등록해야 고객이 주문할 수 있습니다(견적 확정). 협력사 [선정] 모달에서
+            마진을 더해 함께 등록할 수 있고, 여기서는 등록된 확정가를 수정합니다.
+          </p>
         </div>
-        <p v-if="detail.order === null" class="mt-1.5 text-[11px] leading-4 text-gray-400">
-          확정가를 등록해야 고객이 주문할 수 있습니다(견적 확정). 협력사 [선정] 모달에서
-          마진을 더해 함께 등록할 수 있고, 여기서는 등록된 확정가를 수정합니다.
-        </p>
-        <p v-else class="mt-1.5 text-[11px] leading-4 text-gray-400">
-          주문이 성립된 건 — 판매가(확정가)는 변경하지 않습니다. 협력사 선정은 원가 회계에만
-          반영됩니다.
-        </p>
 
-        <!-- 주문 정보(P3.5) — od read-only 파생. 레거시 이관 주문 이력 열람의 정위치. -->
-        <div v-if="detail.order !== null" class="mt-4 border-t border-gray-100 pt-3">
-          <h3 class="text-xs font-bold uppercase text-gray-400">주문 정보</h3>
-          <dl class="mt-2 space-y-1.5 text-sm">
-            <div class="flex justify-between">
-              <dt class="text-gray-500">주문번호</dt>
-              <dd class="text-right">
-                <span class="block font-mono text-xs text-gray-600">{{ detail.order.odId }}</span>
-                <span class="text-[11px] font-semibold text-blue-600">PCB {{ detail.order.orderPcbCount }}건 포함</span>
+        <!-- 주문 · 수금(P3.5) — od read-only 파생. 레거시 이관 주문 이력 열람의 정위치. -->
+        <div
+          v-if="detail.order !== null"
+          class="flex flex-wrap items-center gap-x-3 gap-y-2 border-l-[3px] py-2.5 pl-3.5 pr-3"
+          :class="detail.order.misu > 0 ? 'border-red-500' : 'border-blue-500'"
+        >
+          <span class="w-[4.6rem] shrink-0 text-[11.5px] font-bold text-gray-500">주문 · 수금</span>
+          <dl class="flex min-w-0 flex-1 flex-wrap items-stretch gap-y-1">
+            <div class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">주문번호</dt>
+              <dd class="whitespace-nowrap font-mono text-xs font-semibold text-gray-600">
+                {{ detail.order.odId }}
+                <span class="font-sans text-[10.5px] font-semibold text-blue-600">PCB {{ detail.order.orderPcbCount }}건</span>
               </dd>
             </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-500">상태</dt>
+            <div class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">상태</dt>
               <dd
-                class="font-semibold"
+                class="whitespace-nowrap text-[14.5px] font-bold"
                 :class="CANCELED_ORDER_ITEM_STATUSES.has(detail.order.ctStatus) || detail.order.odStatus === '취소'
                   ? 'text-gray-500'
                   : detail.order.isPaid ? 'text-emerald-700' : 'text-amber-600'"
               >
-                {{ orderDisplayStatus }}<span v-if="orderDisplayStatus === '주문'"> (입금 대기)</span>
+                {{ orderDisplayStatus }}<span v-if="orderDisplayStatus === '주문'" class="text-[11px] font-semibold"> (입금 대기)</span>
               </dd>
             </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-500">이 PCB 주문금액</dt>
-              <dd class="tabular-nums font-semibold text-gray-900">{{ fmtPcbAmount('KRW', detail.order.lineAmount) }}</dd>
+            <div class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">이 PCB 금액</dt>
+              <dd class="whitespace-nowrap text-[14.5px] font-bold tabular-nums text-gray-900">{{ fmtPcbAmount('KRW', detail.order.lineAmount) }}</dd>
             </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-500">주문 전체 결제대상</dt>
-              <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.order.orderPrice) }}</dd>
+            <div class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">주문 전체 결제대상</dt>
+              <dd class="whitespace-nowrap text-[14.5px] font-medium tabular-nums text-gray-600">{{ fmtPcbAmount('KRW', detail.order.orderPrice) }}</dd>
             </div>
-            <div class="!mt-2 space-y-1 rounded-lg bg-gray-50 px-3 py-2 text-xs">
-              <div class="flex justify-between">
-                <dt class="text-gray-500">공급가액</dt>
-                <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.supply) }}</dd>
-              </div>
-              <div class="flex justify-between">
-                <dt class="text-gray-500">부가세</dt>
-                <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.vat) }}</dd>
-              </div>
-              <div v-if="detail.order.taxAmounts.taxFree > 0" class="flex justify-between">
-                <dt class="text-gray-500">비과세액</dt>
-                <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.taxFree) }}</dd>
-              </div>
-              <p class="pt-0.5 text-[11px] text-gray-400">주문 전체에 저장된 영카트 실제 세액 기준</p>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-500">주문 전체 현금수납</dt>
-              <dd class="tabular-nums" :class="detail.order.receiptPrice > 0 ? 'text-emerald-700' : 'text-gray-400'">
+            <div class="mr-3.5 border-r border-gray-100 pr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">현금수납</dt>
+              <dd class="whitespace-nowrap text-[14.5px] font-bold tabular-nums" :class="detail.order.receiptPrice > 0 ? 'text-emerald-700' : 'text-gray-300'">
                 {{ fmtPcbAmount('KRW', detail.order.receiptPrice) }}
               </dd>
             </div>
-            <div v-if="detail.order.receiptPoint !== 0" class="flex justify-between">
-              <dt class="text-gray-500">사용 포인트</dt>
-              <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.order.receiptPoint) }}</dd>
-            </div>
-            <div v-if="detail.order.refundPrice !== 0" class="flex justify-between">
-              <dt class="text-gray-500">환불 누계</dt>
-              <dd class="tabular-nums text-red-600">-{{ fmtPcbAmount('KRW', detail.order.refundPrice) }}</dd>
-            </div>
-            <div v-if="detail.order.receiptPoint !== 0 || detail.order.refundPrice !== 0" class="flex justify-between border-t border-gray-100 pt-1">
-              <dt class="font-semibold text-gray-600">순결제액</dt>
-              <dd class="tabular-nums font-semibold text-emerald-700">{{ fmtPcbAmount('KRW', detail.order.netReceipt) }}</dd>
-            </div>
-            <div v-if="detail.order.misu !== 0" class="flex justify-between">
-              <dt class="font-semibold" :class="detail.order.misu > 0 ? 'text-red-600' : 'text-amber-600'">
-                {{ detail.order.misu > 0 ? '미수금' : '과입금' }}
-              </dt>
-              <dd class="tabular-nums font-semibold" :class="detail.order.misu > 0 ? 'text-red-600' : 'text-amber-600'">
-                {{ fmtPcbAmount('KRW', Math.abs(detail.order.misu)) }}
-              </dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-500">결제수단 / 주문일</dt>
-              <dd class="text-gray-600">{{ detail.order.settleCase || '—' }} · {{ fmtKstDate(detail.order.orderedAt) }}</dd>
+            <div class="mr-3.5">
+              <dt class="whitespace-nowrap text-[10.5px] font-semibold text-gray-400">결제수단 · 주문일</dt>
+              <dd class="whitespace-nowrap text-xs font-semibold text-gray-600">{{ detail.order.settleCase || '—' }} · {{ fmtKstDate(detail.order.orderedAt) }}</dd>
             </div>
           </dl>
-          <!-- 견적 접수 때의 detail.message(고객 요청)와 다른, sp-php 주문서 od_memo다.
-               제작·출고 실무에서 놓치지 않도록 항상 보인다. -->
-          <div
-            v-if="detail.order.memo.trim() !== ''"
-            class="mt-3 flex w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
-          >
-            <span class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-700">전하실 말씀</span>
-            <p class="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5 text-gray-700">{{ detail.order.memo }}</p>
-          </div>
-          <!-- 미입금이면 여기서 바로 처리 — 아래 발주 패널이 결제 게이트(NOT_PAID)로 막히기 때문. -->
-          <div v-if="canConfirmReceipt || canReviewOrderCancel" class="mt-3 flex gap-2">
+          <div class="flex shrink-0 items-center gap-2">
+            <!-- 미수·과입금은 금액 칸에 섞지 않는다 — 다른 숫자와 같은 무게로 읽혀 놓친다. -->
+            <span
+              v-if="detail.order.misu !== 0"
+              class="inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11.5px] font-bold"
+              :class="detail.order.misu > 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-300 bg-amber-50 text-amber-700'"
+            >
+              ⚠ {{ detail.order.misu > 0 ? '미수금' : '과입금' }} {{ fmtPcbAmount('KRW', Math.abs(detail.order.misu)) }}
+            </span>
+            <!-- 미입금이면 여기서 바로 처리 — 아래 발주 패널이 결제 게이트(NOT_PAID)로 막히기 때문. -->
             <button
               v-if="canConfirmReceipt"
               type="button"
-              class="min-w-0 flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+              class="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
               :disabled="receipt.isPending.value"
               @click="void confirmReceipt()"
             >
@@ -1858,16 +1881,65 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             <button
               v-if="canReviewOrderCancel"
               type="button"
-              class="min-w-0 flex-1 rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600 hover:bg-red-50"
+              class="rounded-md border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
               @click="cancelOrderOpen = true"
             >
               주문 취소
             </button>
+            <!-- 세액·포인트·환불은 줄에 다 못 담는다. 실측상 대부분 0이라 접고, 값이 있으면 여기서 편다. -->
+            <button
+              type="button"
+              class="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-50"
+              :aria-expanded="orderDetailOpen"
+              @click="orderDetailOpen = !orderDetailOpen"
+            >
+              세부 {{ orderDetailOpen ? '▴' : '▾' }}
+            </button>
           </div>
-          <p v-else-if="!detail.order.isPaid" class="mt-2 text-[11px] leading-4 text-amber-600">
+          <!-- 견적 접수 때의 detail.message(고객 요청)와 다른, sp-php 주문서 od_memo다.
+               제작·출고 실무에서 놓치지 않도록 세부 접기 밖에 항상 보인다. -->
+          <div
+            v-if="detail.order.memo.trim() !== ''"
+            class="flex w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
+          >
+            <span class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-700">전하실 말씀</span>
+            <p class="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5 text-gray-700">{{ detail.order.memo }}</p>
+          </div>
+          <p v-if="!detail.order.isPaid && !canConfirmReceipt" class="w-full text-[11px] leading-4 text-amber-600">
             미입금 주문입니다 — 무통장 외 결제수단은 통합 관리 주문내역에서 처리하세요.
           </p>
         </div>
+
+        <dl
+          v-if="detail.order !== null && orderDetailOpen"
+          class="grid grid-cols-2 gap-x-6 gap-y-1 bg-gray-50 px-4 py-2.5 text-xs sm:grid-cols-4"
+        >
+          <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">공급가액</dt>
+            <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.supply) }}</dd>
+          </div>
+          <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">부가세</dt>
+            <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.vat) }}</dd>
+          </div>
+          <div v-if="detail.order.taxAmounts.taxFree > 0" class="flex justify-between gap-2">
+            <dt class="text-gray-500">비과세액</dt>
+            <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.taxFree) }}</dd>
+          </div>
+          <div v-if="detail.order.receiptPoint !== 0" class="flex justify-between gap-2">
+            <dt class="text-gray-500">사용 포인트</dt>
+            <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.receiptPoint) }}</dd>
+          </div>
+          <div v-if="detail.order.refundPrice !== 0" class="flex justify-between gap-2">
+            <dt class="text-gray-500">환불 누계</dt>
+            <dd class="tabular-nums text-red-600">-{{ fmtPcbAmount('KRW', detail.order.refundPrice) }}</dd>
+          </div>
+          <div v-if="detail.order.receiptPoint !== 0 || detail.order.refundPrice !== 0" class="flex justify-between gap-2">
+            <dt class="font-semibold text-gray-600">순결제액</dt>
+            <dd class="tabular-nums font-semibold text-emerald-700">{{ fmtPcbAmount('KRW', detail.order.netReceipt) }}</dd>
+          </div>
+          <p class="col-span-full pt-0.5 text-[11px] text-gray-400">세액은 주문 전체에 저장된 영카트 실제 값 기준입니다.</p>
+        </dl>
       </section>
     </div>
 
@@ -2793,6 +2865,102 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       </div>
     </div>
 
+    <!-- 제작 사양 패널 — 덮개가 아니라 곁판이다(모달 아님). 뒤 조작을 막지 않아, 사양을
+         보면서 협력사를 고르고 발주서를 쓸 수 있다. 항목은 **접지 않고 전부** 세운다
+         (요약은 여기서 하지 않는다 — 사양은 협력사에 그대로 넘어가는 값이다). -->
+    <aside
+      v-if="detail !== null"
+      class="fixed right-0 top-0 z-40 flex h-dvh w-[clamp(22rem,34vw,29rem)] flex-col border-l border-gray-200 bg-surface shadow-[-14px_0_34px_rgba(20,30,48,0.13)] transition-transform duration-200 motion-reduce:transition-none"
+      :class="specPanelOpen ? 'translate-x-0' : 'translate-x-[102%]'"
+      role="complementary"
+      aria-label="제작 사양"
+    >
+      <div class="flex shrink-0 items-center gap-2 border-b border-gray-200 px-3.5 py-3">
+        <h2 class="text-[13px] font-extrabold text-gray-700">제작 사양</h2>
+        <span class="min-w-0 flex-1 truncate text-[11.5px] text-gray-400" :title="detail.projectName">
+          {{ detail.projectName }}
+        </span>
+        <button
+          type="button"
+          class="grid size-[26px] place-items-center rounded-md border text-[13px]"
+          :class="specPanelPinned ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'"
+          :aria-pressed="specPanelPinned"
+          title="열어 둔 채 고정 — 본문이 자리를 내줍니다"
+          @click="toggleSpecPin"
+        >
+          📌
+        </button>
+        <button
+          type="button"
+          class="grid size-[26px] place-items-center rounded-md border border-gray-200 text-[13px] text-gray-500 hover:bg-gray-50"
+          title="닫기 (Esc)"
+          @click="closeSpecPanel"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-y-auto px-3.5 py-3">
+        <p class="flex items-center gap-1.5 text-xs text-gray-500">
+          <span class="rounded px-1.5 py-0.5 text-[11px] font-semibold" :class="pcbCategoryBadge(detail.category).cls">
+            {{ pcbCategoryBadge(detail.category).label }}
+          </span>
+          {{ detail.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.qty }}매
+        </p>
+        <!-- 값은 거버 화면의 선택지 표시명, 저장 원문은 title 로 남긴다(협력사에 넘어가는 값). -->
+        <dl v-if="specEntries.length > 0" class="mt-2.5 gap-x-3.5 text-xs [column-width:9.5rem]">
+          <div
+            v-for="entry in specEntries"
+            :key="entry.key"
+            class="flex items-baseline gap-1.5 break-inside-avoid border-b border-gray-50 py-1"
+          >
+            <dt class="w-[5.2rem] shrink-0 truncate text-gray-400" :title="entry.label">{{ entry.label }}</dt>
+            <dd class="min-w-0 flex-1 font-semibold tabular-nums text-gray-700" :title="`저장값 ${entry.value}`">
+              {{ entry.display }}
+            </dd>
+          </div>
+        </dl>
+        <div v-else class="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-3.5">
+          <b class="block text-[13px] text-gray-600">사양 항목이 없는 견적입니다</b>
+          <p class="mt-1 text-xs text-gray-500">수동으로 접수된 건입니다. 아래 요청 내용과 첨부 파일로 검토하세요.</p>
+        </div>
+
+        <div v-if="detail.message !== null && detail.message !== ''" class="mt-3.5 border-t border-gray-100 pt-2.5">
+          <p class="text-[11px] font-bold text-gray-400">고객 요청</p>
+          <p class="mt-1 whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-[12.5px] text-gray-600">
+            {{ detail.message }}
+          </p>
+        </div>
+
+        <div v-if="gerberFiles.length > 0" class="mt-3.5 border-t border-gray-100 pt-2.5">
+          <p class="text-[11px] font-bold text-gray-400">첨부</p>
+          <div class="mt-1 flex flex-wrap gap-1.5">
+            <button
+              v-for="f in gerberFiles"
+              :key="f.fileId"
+              type="button"
+              class="inline-flex max-w-full items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              :title="f.originFileName"
+              @click="void downloadAdminFile(f.fileId, f.originFileName)"
+            >
+              <span class="shrink-0">⬇</span><span class="truncate">{{ f.originFileName }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 사양 수정(P4.2) — 저장하면 서버가 재견적까지 한다. 발주된 건은 서버가 409. -->
+      <div class="shrink-0 border-t border-gray-200 bg-gray-50 px-3.5 py-2.5">
+        <button
+          type="button"
+          class="w-full rounded-lg bg-blue-600 py-2 text-[12.5px] font-bold text-white hover:bg-blue-700"
+          @click="specEditOpen = true"
+        >
+          사양 수정
+        </button>
+      </div>
+    </aside>
+
     <!-- 제작 사양 수정(P4.2) — 전 필드 편집 + 변경 요약 + 재견적 결과 -->
     <PcbSpecEditModal
       v-if="specEditOpen && detail !== null"
@@ -2800,6 +2968,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :spec="editableSpec"
       :qty="detail.qty"
       :category="detail.category"
+      :order-category="detail.orderCategory"
       :final-price="detail.finalPrice"
       :auto-price="detail.quote?.autoPrice ?? null"
       @close="specEditOpen = false"

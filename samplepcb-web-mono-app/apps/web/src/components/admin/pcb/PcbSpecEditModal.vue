@@ -8,7 +8,8 @@ import {
   type PcbPricingPreviewResult,
 } from '../../../admin/useAdminQuotes';
 import { fmtPcbAmount } from '../../../lib/pcb-money';
-import { SPEC_ROWS } from '../../../lib/pcb-spec';
+import { PCB_SPEC_LABELS, pcbSpecFormFields } from '../../../lib/pcb-spec';
+import UiComboInput from '../../ui/UiComboInput.vue';
 
 // 제작 사양 수정(P4.2, D17) — 관리자가 전 필드를 고친다(사용자 결정 2026-08-07).
 //
@@ -23,6 +24,7 @@ const props = defineProps<{
   spec: Record<string, string | number>;
   qty: number;
   category: string;
+  orderCategory?: string | null | undefined;
   finalPrice: number | null;
   autoPrice: number | null;
 }>();
@@ -31,16 +33,24 @@ const emit = defineEmits<{ close: []; saved: [] }>();
 /** 거버 업로드에서 뽑힌 값 — 손으로 고치면 실제 파일과 어긋난 채 제조로 넘어간다. */
 const GERBER_DERIVED = new Set(['width', 'length', 'layers', 'differentDesign']);
 
+// 항목 이름·순서·선택지는 거버 앱이 정본 — **이 유형에서 거버가 물어본 것만** 고객이 본
+// 순서 그대로 세운다. 유형이 안 잡히면(이관분) 합집합을 낸다 — 그때는 좁힐 근거가 없다.
+const fields = pcbSpecFormFields({
+  category: props.category,
+  orderCategory: props.orderCategory,
+  kindPcb: typeof props.spec.kindPcb === 'string' ? props.spec.kindPcb : null,
+});
+
 const draft = ref<Record<string, string>>(
-  Object.fromEntries(
-    SPEC_ROWS.map((r) => [r.key, String(props.spec[r.key] ?? '')]),
-  ),
+  Object.fromEntries(fields.map((f) => [f.key, String(props.spec[f.key] ?? '')])),
 );
-// 사전에 없는 키(레거시·확장)도 그대로 실어 보낸다 — 여기서 조용히 버리면 사양이 손실된다.
+// 유형 밖 키(이관분·수기 입력)도 draft 에 싣는다 — save() 는 draft 만 보내므로 여기서
+// 빠뜨리면 **저장하는 순간 그 값이 지워진다**. 값이 있는 것만 화면에도 낸다.
 const extraKeys = Object.keys(props.spec).filter(
-  (k) => !k.startsWith('_') && !SPEC_ROWS.some((r) => r.key === k),
+  (k) => !k.startsWith('_') && !fields.some((f) => f.key === k),
 );
 for (const k of extraKeys) draft.value[k] = String(props.spec[k] ?? '');
+const offTypeKeys = extraKeys.filter((k) => String(props.spec[k] ?? '').trim() !== '');
 
 const qtyDraft = ref(String(props.qty));
 const reason = ref('');
@@ -105,8 +115,8 @@ onBeforeUnmount(() => {
 });
 
 const rows = computed(() => [
-  ...SPEC_ROWS.map((r) => ({ key: r.key, label: r.label })),
-  ...extraKeys.map((k) => ({ key: k, label: k })),
+  ...fields.map((f) => ({ key: f.key, label: f.label })),
+  ...extraKeys.map((k) => ({ key: k, label: PCB_SPEC_LABELS[k] ?? k })),
 ]);
 
 /** 지금 무엇이 달라졌나 — 저장 전에 보여준다(사양은 값이 많아 놓치기 쉽다). */
@@ -219,26 +229,35 @@ async function save(): Promise<void> {
             <input v-model="qtyDraft" type="number" min="1" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm tabular-nums focus:border-blue-500 focus:outline-none">
           </label>
 
-          <div class="mt-4 grid gap-x-3.5 gap-y-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            <label
-              v-for="row in rows"
-              :key="row.key"
-              class="block"
-            >
-              <span class="text-[11px] font-semibold" :class="GERBER_DERIVED.has(row.key) ? 'text-amber-700' : 'text-gray-500'">
-                {{ row.label }}
-                <span v-if="GERBER_DERIVED.has(row.key)" title="거버 파일에서 뽑은 값입니다">⚠</span>
+          <!-- 이 유형에서 거버가 물어보는 칸만, 거버가 물어본 순서로. 선택지가 있으면 콤보로
+               유도하되 직접 입력을 막지 않는다(협의 사양은 선택지에 없다). -->
+          <div class="mt-4 grid gap-x-3.5 gap-y-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            <div v-for="f in fields" :key="f.key">
+              <span class="text-[11px] font-semibold" :class="GERBER_DERIVED.has(f.key) ? 'text-amber-700' : 'text-gray-500'">
+                {{ f.label }}
+                <span v-if="GERBER_DERIVED.has(f.key)" title="거버 파일에서 뽑은 값입니다">⚠</span>
+                <span v-if="String(spec[f.key] ?? '') !== draft[f.key]" class="ml-0.5 text-blue-600" title="수정됨">•</span>
               </span>
-              <input
-                v-model="draft[row.key]"
-                type="text"
-                class="mt-1 w-full rounded-md border px-2 py-1.5 text-sm focus:outline-none"
-                :class="String(spec[row.key] ?? '') !== draft[row.key]
-                  ? 'border-blue-400 bg-blue-50/50 focus:border-blue-500'
-                  : 'border-gray-300 focus:border-blue-500'"
-              >
-            </label>
+              <UiComboInput
+                v-model="draft[f.key]"
+                class="mt-1"
+                :options="f.options"
+              />
+            </div>
           </div>
+
+          <!-- 이 유형에 없는데 값이 들어 있는 칸 — 이관분·수기 입력. 숨기면 고칠 수도 없다. -->
+          <details v-if="offTypeKeys.length > 0" class="mt-4">
+            <summary class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-50">
+              이 유형에 없는 항목 {{ offTypeKeys.length }}개
+            </summary>
+            <div class="mt-2.5 grid gap-x-3.5 gap-y-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              <div v-for="k in offTypeKeys" :key="k">
+                <span class="text-[11px] font-semibold text-gray-400">{{ PCB_SPEC_LABELS[k] ?? k }}</span>
+                <UiComboInput v-model="draft[k]" class="mt-1" :options="[]" />
+              </div>
+            </div>
+          </details>
         </div>
 
         <div class="max-h-[60dvh] shrink-0 overflow-y-auto overscroll-contain border-t border-gray-200 px-5 py-4">

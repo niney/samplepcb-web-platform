@@ -203,7 +203,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 36호 — 입력 경계', () => {
     await adminView.page.getByRole('button', { name: /^전체/ }).first().click();
     await adminView.page.waitForTimeout(600);
     // ⚠ Case 큐의 placeholder 에는 '검색'이라는 낱말이 없다(35호에서 확인) — 실제 문구로 찾는다.
-    await adminView.page.getByPlaceholder('프로젝트·회원ID·주문번호').first().fill('D36-');
+    //   문구가 '회원ID'에서 '고객명·아이디'로 바뀐 뒤 이 줄이 옛 문구를 찾고 있었다(2026-08-16 교정).
+    //   전체 일치 대신 앞머리로 찾아, 뒤쪽 열거가 늘어도 다시 깨지지 않게 한다.
+    await adminView.page.getByPlaceholder(/^프로젝트·/).first().fill('D36-');
     await adminView.page.keyboard.press('Enter');
     await adminView.page.waitForTimeout(2_000);
     const m = await measureOverflow(adminView, 'admin/pcb/cases');

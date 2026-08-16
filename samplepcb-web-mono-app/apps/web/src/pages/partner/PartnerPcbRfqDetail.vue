@@ -39,7 +39,15 @@ const readOnly = computed(
 );
 
 // 명칭·순서는 레거시 정본(lib/pcb-spec.ts, estimate_form_ca10 승계).
-const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?? {})));
+// 항목 이름·순서는 거버 앱이 정본 — 카테고리 세트를 골라야 맞는다(lib/pcb-spec.ts).
+const specEntries = computed(() => {
+  const json = detail.value?.spec.specJson ?? {};
+  return pcbSpecEntries(json, {
+    category: detail.value?.spec.category,
+    orderCategory: detail.value?.spec.orderCategory,
+    kindPcb: typeof json.kindPcb === 'string' ? json.kindPcb : null,
+  });
+});
 
 // ── 회신 ─────────────────────────────────────────────────────────────────────
 const reply = usePartnerPcbRfqReply();
@@ -189,7 +197,7 @@ const STATUS_CLS: Record<string, string> = {
         <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
           <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
             <dt class="text-gray-400">{{ entry.label }}</dt>
-            <dd class="truncate font-medium text-gray-700">{{ entry.value }}</dd>
+            <dd class="truncate font-medium text-gray-700" :title="`저장값 ${entry.value}`">{{ entry.display }}</dd>
           </div>
         </dl>
         <p v-if="detail.spec.message !== null && detail.spec.message !== ''" class="mt-3 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
