@@ -30,6 +30,7 @@ import {
   num,
   placeOrderFromBomQuote,
   requireCustomerCreds,
+  resetSupplierSearchQuota,
   signJwt,
   type E2eSession,
   type PartnerFixture,
@@ -334,6 +335,9 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 1호 — 다양한 BOM → 국내 
     await mailpitList(1);
 
     const creds = requireCustomerCreds();
+    // 반복 주행이 한도(20/일)를 소진하면 검색이 429 라 후보가 0건이 되고, 수량·선정이
+    // 비어 B02 같은 무관한 어서션이 깨진다(2026-08-16 실측) — 오늘치만 되돌린다.
+    await resetSupplierSearchQuota(['e2e-admin', creds.id]);
     partner = await getPartner(PARTNER_NAME);
     if (partner.mbId === null) throw new Error(`${PARTNER_NAME} 연결 계정이 없습니다`);
     expect(partner.country, `${PARTNER_NAME} 국내 선적 전제`).toBe('KR');

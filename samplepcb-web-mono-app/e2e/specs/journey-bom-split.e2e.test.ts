@@ -31,6 +31,7 @@ import {
   num,
   placeOrderFromBomQuote,
   requireCustomerCreds,
+  resetSupplierSearchQuota,
   signJwt,
   type E2eSession,
   type PartnerFixture,
@@ -354,6 +355,9 @@ describe.skipIf(!RUN || !JOURNEY)(
       expect(capabilityList(partnerB.capabilities)).toContain('bom_rfq');
 
       const creds = requireCustomerCreds();
+      // 반복 주행이 한도(20/일)를 소진하면 단일검색이 429 라 후보가 비고, 관찰 화면
+      // HTTP 오류(C09)로 죽는다(2026-08-16 실측) — 오늘치만 되돌린다.
+      await resetSupplierSearchQuota(['e2e-admin', creds.id]);
       customer = await newPhpSession(creds);
       rp.watchHttp(customer, '고객');
       adminView = await newSession({ mbId: 'e2e-admin', isAdmin: true });

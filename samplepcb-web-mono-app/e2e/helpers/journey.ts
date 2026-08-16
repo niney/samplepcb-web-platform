@@ -9,6 +9,23 @@ import { snap } from './browser';
 import { findLatestOrder } from './g5';
 import { getPrisma } from './db';
 
+/**
+ * 공급사 검색 일일 한도(회원당 20회)를 e2e 전용 계정에 한해 오늘치만 되돌린다.
+ *
+ * 소진되면 검색이 **429** 라 후보 스냅샷이 0건이 되고, 그 뒤로 수량·선정·가격이
+ * 통째로 비어 **엉뚱한 어서션이 깨진다** — 2026-08-16 실측에서 여정 1호 B02(세트·예비
+ * 수량 미반영)와 2호 C09(관찰 화면 HTTP 오류)가 그렇게 죽었다. 원인이 화면·계산처럼
+ * 보여 한참 헤매게 되므로, 반복 주행하는 여정은 beforeAll 에서 이걸 부른다.
+ * **로컬 e2e 계정만** 대상이다(운영 정책을 우회하지 않는다).
+ */
+export async function resetSupplierSearchQuota(mbIds: readonly string[]): Promise<void> {
+  const kstDayKey = new Date(Date.now() + 9 * 60 * 60 * 1_000).toISOString().slice(0, 10);
+  await getPrisma().spBomSupplierDailyUsage.updateMany({
+    where: { mbId: { in: [...mbIds] }, dayKey: kstDayKey },
+    data: { searchCount: 0 },
+  });
+}
+
 export interface JourneyFinding {
   step: string;
   /** bug=제품 결함 후보 · ux=마찰 · obs=관찰 기록 · blocker=진행 불가 */
