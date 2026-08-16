@@ -434,6 +434,16 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 14호 — 다중 시트 분석 영
       '실패 시 DB 선택 불변',
     ).toBe(2);
 
+    // 첫 클릭은 route.fulfill 로 가로채 서버에 닿지 않았다 — **재시도가 서버의 첫
+    // 요청**이다. 그 시점에 공급사 확인이 아직 돌고 있으면 서버가 정당하게
+    // 409("공급사 확인이 완료된 후 변경할 수 있습니다")로 막고 모달이 안 닫힌다
+    // (2026-08-16 실측 — 느린 환경에서만 그 창이 열렸다).
+    await waitForQuoteState(
+      quoteId,
+      '시트 변경 재시도 전 공급사 확인 종료',
+      (state) => state.buildStatus === 'ready' && state.enrichStatus !== 'searching',
+      600_000,
+    );
     await dialog.getByRole('button', { name: '시트 구성 적용', exact: true }).click();
     await dialog.waitFor({ state: 'hidden', timeout: 60_000 });
     await page.unroute(updatePattern, updateHandler);
@@ -459,6 +469,16 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 14호 — 다중 시트 분석 영
     if (multiQuoteId === null) return ctx.skip();
     const quoteId = multiQuoteId;
     const page = customer.page;
+    // 앞 단계(N03)의 시트 제외가 재계산·재검색을 유발한다 — 그게 끝나기 전에 다시
+    // 바꾸면 서버가 **정당하게** 409("공급사 확인이 완료된 후 변경할 수 있습니다")로
+    // 막고, 모달이 안 닫혀 60초 타임아웃으로 죽는다. 앞 단계가 이미 쓰는 대기를 여기도
+    // 건다(2026-08-16 실측 — 21편 연속 주행처럼 느린 환경에서만 그 창이 열렸다).
+    await waitForQuoteState(
+      quoteId,
+      '시트 복원 전 공급사 확인 종료',
+      (state) => state.buildStatus === 'ready' && state.enrichStatus !== 'searching',
+      600_000,
+    );
     const trigger = page.getByRole('button', { name: '시트 1/2', exact: true });
     await trigger.click();
     const dialog = page.getByRole('dialog', { name: '견적 시트 관리', exact: true });
