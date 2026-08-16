@@ -333,9 +333,18 @@ describe.skipIf(!RUN || !JOURNEY)('여정 15호 — 되돌리기 전 구간 순�
     expect(await statusOf(), '재진행 도달').toBe('produced');
 
     // 이력은 **왕복이 다 남아야** 한다 — 되돌린 사실이 지워지면 "왜 두 번 만들었나"를
-    // 나중에 설명할 수 없다. 되돌림은 note='되돌리기' 로 구별된다(revertPcbPoEq).
+    // 나중에 설명할 수 없다.
+    //
+    // ⚠ 되돌림을 note='되돌리기' 로 세던 것을 **전이 방향**으로 바꿨다(2026-08-16 교정).
+    //   그 표식이 사유 자리를 차지하는 바람에 협력사의 '요청 취소'가 반려로 읽혔다
+    //   (journey-eq-reply E1b). 되돌림의 정의는 애초에 "뒤로 간 전이"이지 특정 문자열이
+    //   아니다 — 상태 순서로 세면 표식 없이도 정확하다.
+    // 진행 순서(계약 PCB_PO_STATUSES 와 같은 사전 — e2e 는 계약을 의존하지 않아 인라인).
+    const order = ['issued', 'eq_requested', 'eq_done', 'producing', 'produced'];
     const h = await eqHistory();
-    const backwards = h.filter((e: any) => String(e.note ?? '') === '되돌리기');
+    const backwards = h.filter(
+      (e: any) => order.indexOf(String(e.toStatus)) < order.indexOf(String(e.fromStatus)),
+    );
     expect(backwards.length, '되돌린 사실이 이력에 남는다').toBeGreaterThan(0);
     // 앞으로 민 칸도 그대로 남아야 한다(덮어쓰기가 아니라 누적).
     expect(h.length, '왕복이 누적된다(앞 4칸 + 되돌림 4칸 + 재진행 4칸)').toBe(12);
@@ -343,7 +352,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 15호 — 되돌리기 전 구간 순�
       'R4',
       'obs',
       `재진행 완주 — produced 재도달. eqHistory ${String(h.length)}칸 누적(되돌림 ` +
-        `${String(backwards.length)}칸 note='되돌리기'로 구별) — 왕복이 통째로 감사에 남는다.`,
+        `${String(backwards.length)}칸을 전이 방향으로 식별) — 왕복이 통째로 감사에 남는다.`,
     );
   }, 300_000);
 

@@ -982,7 +982,11 @@ export const revertPcbPoEq = async (
           byRole,
           fromStatus: po.status,
           toStatus: revert.to,
-          note: '되돌리기',
+          // ⚠ 여기 '되돌리기' 를 넣던 것이 반려 판정을 깨뜨렸다(2026-08-16 교정) — 반려는
+          // "사유가 있는 eq_requested→issued" 인데, 되돌리기가 사유 자리를 채워 버려서
+          // 협력사의 '요청 취소'가 반려로 읽혔다. 되돌리기에는 남길 사유가 없다.
+          // 라벨은 전이(from→to)에서 나온다(PcbEqTimeline eventLabel).
+          note: null,
         }),
       },
     }),

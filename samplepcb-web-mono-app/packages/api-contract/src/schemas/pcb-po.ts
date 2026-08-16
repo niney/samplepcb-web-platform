@@ -261,18 +261,50 @@ export const orderPcbEqFiles = <
  * 가장 최근 EQ **반려** 시각(ISO) — 없으면 null.
  *
  * 반려와 '요청 취소'는 둘 다 `eq_requested → issued` 로 같은 모양이다. 가르는 것은
- * **사유(note)** 다 — 전진·되돌리기는 note 를 남기지 않고 반려만 남긴다. 역할로는 갈리지
+ * **사유(note)** 다 — 전진·되돌리기는 사유를 남기지 않고 반려만 남긴다. 역할로는 갈리지
  * 않는다: 관리자 대행(D11)이 협력사 몫의 요청 취소를 하면 byRole 도 ADMIN 이다.
  *
  * 쓰임 — "반려했는데 **새 파일이 올라오긴 했나**". EQ 첨부는 승인요청 뒤 잠기므로(EQ_LOCKED)
  * 보완 파일은 반드시 반려와 재요청 **사이**에 올라온다. 그 구간에 아무것도 없으면 협력사가
  * 같은 도면으로 다시 승인을 요청한 것이고, 관리자는 그것을 모른 채 승인하게 된다.
  */
+
+/**
+ * 되돌리기가 이력에 남기던 표식(레거시).
+ *
+ * ⚠ **이 값이 위 규칙을 깨뜨렸다**(2026-08-16 교정). `revertPcbPoEq` 가 되돌리기마다
+ * note 에 이 문자열을 넣고 있었는데, 반려 판정은 "note 가 있으면 반려"였다. 그래서 협력사가
+ * **자기 EQ 요청을 취소**하면 포털이 "반려된 건입니다 — 보완 파일을 올리고 다시 승인요청해
+ * 주세요"로 뜨고, 관리자 워크큐의 `rejectedAt` 과 Case 의 '반려 후 새 파일 없음' 경고까지
+ * 켜졌다. 아무도 반려하지 않았는데 넷이 동시에 거짓말을 했다. 반대로 화면의 '요청 취소'
+ * 분기는 **한 번도 도달할 수 없는 죽은 코드**였다.
+ *
+ * 지금은 되돌리기가 note 를 안 남긴다. 이 상수는 **그 전에 쌓인 이력을 걸러내기 위해서만**
+ * 남아 있다 — 판정은 반드시 [[isPcbEqRejectionEvent]] 하나를 거칠 것.
+ */
+export const PCB_EQ_REVERT_NOTE = '되돌리기';
+
 export interface PcbEqRejection {
   at: string;
   /** 관리자가 쓴 반려 사유 — 협력사에게 메일로 나간 그 문장이다. */
   note: string;
 }
+
+/**
+ * 이 전이가 **반려**인가 — 반려·요청취소·회차 분할·말풍선 색이 전부 이 하나를 쓴다.
+ * 규칙을 네 곳에 복제해 뒀던 것이 위 결함의 조건이었다(고칠 때 한 곳만 고쳐졌다).
+ */
+export const isPcbEqRejectionEvent = (e: {
+  fromStatus?: string;
+  toStatus?: string;
+  note?: string | null;
+}): boolean =>
+  e.fromStatus === 'eq_requested' &&
+  e.toStatus === 'issued' &&
+  e.note !== null &&
+  e.note !== undefined &&
+  e.note !== '' &&
+  e.note !== PCB_EQ_REVERT_NOTE;
 
 /**
  * 가장 최근 EQ 반려(시각 + 사유) — 없으면 null. 판정 규칙은 위 설명과 같다.
@@ -287,15 +319,7 @@ export const lastPcbEqRejection = (
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const e = history[i];
     if (e === undefined) continue;
-    if (
-      e.fromStatus === 'eq_requested' &&
-      e.toStatus === 'issued' &&
-      e.note !== null &&
-      e.note !== '' &&
-      e.at !== ''
-    ) {
-      return { at: e.at, note: e.note };
-    }
+    if (isPcbEqRejectionEvent(e) && e.at !== '') return { at: e.at, note: e.note ?? '' };
   }
   return null;
 };
@@ -402,16 +426,10 @@ export const buildPcbEqTimeline = <
       continue;
     }
     cur.items.push(row.item);
-    // 반려(사유 있는 eq_requested→issued)가 회차를 닫는다 — lastPcbEqRejection 과 같은 사전.
-    if (
-      row.item.kind === 'event' &&
-      row.item.fromStatus === 'eq_requested' &&
-      row.item.toStatus === 'issued' &&
-      row.item.note !== null &&
-      row.item.note !== undefined &&
-      row.item.note !== ''
-    ) {
-      cur.closedByNote = row.item.note;
+    // 반려가 회차를 닫는다 — 판정은 isPcbEqRejectionEvent 하나뿐이다(요청 취소는 안 닫는다:
+    // 같은 회차를 협력사가 잠깐 물렸다 다시 올리는 것이라 대화가 끊기지 않는다).
+    if (row.item.kind === 'event' && isPcbEqRejectionEvent(row.item)) {
+      cur.closedByNote = row.item.note ?? '';
       rounds.push({ index: cur.index + 1, items: [], closedByNote: null });
     }
   }

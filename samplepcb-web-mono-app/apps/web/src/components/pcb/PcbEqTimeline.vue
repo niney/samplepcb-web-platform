@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import {
+  PCB_EQ_REVERT_NOTE,
   buildPcbEqTimeline,
+  isPcbEqRejectionEvent,
   type PcbEqEventType,
   type PcbEqFileViewType,
 } from '@sp/api-contract';
@@ -62,12 +64,15 @@ const ROLE_CHIP: Record<string, string> = {
 const roleChipCls = (r: string): string => ROLE_CHIP[r] ?? 'bg-gray-100 text-gray-500';
 
 // 전이를 사람 말로 — 반려와 요청 취소는 **같은 전이**라 사유 유무로만 갈린다.
+// 판정은 계약의 isPcbEqRejectionEvent 하나를 쓴다(같은 규칙을 여기 복제해 뒀던 것이
+// 되돌리기를 반려로 읽던 결함의 조건이었다 — 2026-08-16 교정).
 const eventLabel = (item: { fromStatus?: string; toStatus?: string; note?: string | null }): string => {
   const from = item.fromStatus ?? '';
   const to = item.toStatus ?? '';
-  const hasNote = item.note !== null && item.note !== undefined && item.note !== '';
   if (from === 'issued' && to === 'eq_requested') return 'EQ 승인요청';
-  if (from === 'eq_requested' && to === 'issued') return hasNote ? 'EQ 반려' : 'EQ 요청 취소';
+  if (from === 'eq_requested' && to === 'issued') {
+    return isPcbEqRejectionEvent(item) ? 'EQ 반려' : 'EQ 요청 취소';
+  }
   if (from === 'eq_requested' && to === 'eq_done') return 'EQ 승인';
   if (from === 'eq_done' && to === 'eq_requested') return '승인 취소';
   if (from === 'eq_done' && to === 'producing') return '생산 시작';
@@ -76,12 +81,11 @@ const eventLabel = (item: { fromStatus?: string; toStatus?: string; note?: strin
   if (from === 'produced' && to === 'producing') return '생산완료 취소';
   return `${from} → ${to}`;
 };
-const isReject = (item: { fromStatus?: string; toStatus?: string; note?: string | null }): boolean =>
-  item.fromStatus === 'eq_requested' &&
-  item.toStatus === 'issued' &&
-  item.note !== null &&
-  item.note !== undefined &&
-  item.note !== '';
+const isReject = isPcbEqRejectionEvent;
+
+/** 되돌리기가 남긴 레거시 표식은 사유가 아니다 — 말풍선에 '되돌리기'만 뜨면 안 읽힌다. */
+const shownNote = (note?: string | null): string =>
+  note === PCB_EQ_REVERT_NOTE ? '' : (note ?? '');
 
 const FILE_LABEL: Record<string, string> = {
   eq: 'EQ 질의서',
@@ -145,11 +149,8 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
               "
             >
               <p class="font-semibold">{{ eventLabel(item) }}</p>
-              <p
-                v-if="item.note !== null && item.note !== undefined && item.note !== ''"
-                class="mt-1 whitespace-pre-wrap"
-              >
-                {{ item.note }}
+              <p v-if="shownNote(item.note) !== ''" class="mt-1 whitespace-pre-wrap">
+                {{ shownNote(item.note) }}
               </p>
             </div>
 

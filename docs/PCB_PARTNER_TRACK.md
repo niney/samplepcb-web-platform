@@ -3022,9 +3022,33 @@ BOM 클레임(sp_bom_claim, D37)의 PCB 미러 + PCB 고유 판정 축. 처리 �
 - **검증** — 단위 `pcb-stencil-track.test.ts` 12/12(트랙 판정 전수·라벨 경계·게이트·파일명
   중립화) · e2e `journey-metal-mask.e2e.test.ts` 9/9 · 회귀 배치 37/37(pcb-guards 10·
   eq-reply 7·md-eq-observe·harness) · api 891 · typecheck·eslint 0.
-- **미결(별건 — 이 작업과 무관한 선행 결함)**: `revertPcbPoEq` 가 `note: '되돌리기'` 를
-  남겨서, "반려와 요청취소는 note 유무로만 갈린다"는 `lastPcbEqRejection` 의 전제가
-  깨진다. 협력사가 **자기 EQ 요청을 취소**하면 포털이 "반려된 건입니다 — 보완 파일을
-  올리고 다시 승인요청해 주세요"로 뜨고, 워크큐 `rejectedAt`·Case 의 '반려 후 새 파일
-  없음' 경고도 함께 켜진다(아무도 반려하지 않았는데). 타임라인이 그 note 를 '되돌리기'
-  라벨로 쓰고 있어 한 줄 수정으로는 안 되고 별도 판별 축이 필요하다.
+### 반려 판정 교정 (2026-08-16 — 요청 취소가 반려로 읽히던 결함)
+
+메탈마스크 작업 중 발견한 **선행 결함**(그 작업과는 무관). 반려와 '요청 취소'는 같은
+전이(`eq_requested → issued`)라 **사유(note) 유무**로 갈리기로 돼 있었는데,
+`revertPcbPoEq` 가 되돌리기마다 note 에 `'되돌리기'` 를 넣고 있었다. 그래서 협력사가
+**자기 EQ 요청을 물리기만 해도** 넷이 동시에 거짓말을 했다:
+
+1. 포털이 "반려된 건입니다 — 보완 파일을 올리고 다시 승인요청해 주세요"
+2. 관리자 워크큐 `rejectedAt`(= '반려 뒤 보완 대기' 배지)
+3. Case 상세의 '반려 후 새 파일 없음' 경고
+4. 타임라인이 회차를 닫아 없던 '2차 요청' 을 열었다
+
+반대로 화면의 `'EQ 요청 취소'` 분기와 비반려 말풍선 스타일은 **한 번도 도달할 수 없는
+죽은 코드**였다.
+
+**원인은 규칙의 복제다.** 같은 판정이 다섯 곳에 손으로 적혀 있었고(계약
+`lastPcbEqRejection`·`buildPcbEqTimeline`, `PcbEqTimeline.vue` 의 `eventLabel`·
+`isReject`, `PartnerPcbPoDetail.vue` 의 `eqRejection`), 그중 하나는 note 를 아예 안 보고
+전이 모양만 봤다 — 그 화면은 note 를 고쳐도 안 나았을 것이다.
+
+- **판정은 계약의 `isPcbEqRejectionEvent` 하나뿐**으로 모았다. 다섯 곳이 그것만 부른다.
+- **되돌리기는 note 를 남기지 않는다**(`note: null`). 라벨은 전이(from→to)에서 나온다.
+- `PCB_EQ_REVERT_NOTE` 상수는 **교정 전에 쌓인 이력을 걸러내기 위해서만** 남는다 —
+  판정이 그 값을 반려에서 제외하므로 마이그레이션 없이 옛 행도 바로 잡힌다.
+- ⚠ e2e `journey-rewind` R4 가 **결함을 어서션으로 박제**하고 있었다(되돌림을
+  `note==='되돌리기'` 로 셌다). 되돌림의 정의는 애초에 "뒤로 간 전이"라 상태 순서로
+  세도록 바꿨다 — 표식 없이도 정확하다.
+- **검증**: 단위 `pcb-eq-rejection.test.ts` 10/10(옛 표식 포함) · e2e `journey-eq-reply`
+  E1b 신설(요청 취소 후 워크큐 `rejectedAt`=null · 타임라인 'EQ 요청 취소' · '반려된
+  건입니다' 미노출 · 없던 회차 미생성) · 회귀 38/38 · api 901.

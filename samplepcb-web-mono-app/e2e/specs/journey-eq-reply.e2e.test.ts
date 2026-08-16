@@ -138,6 +138,38 @@ describe.skipIf(!RUN)('EQ 회신 첨부 — 관리자 → 협력사 역방향', 
     expect(po?.status, '승인요청 상태').toBe('eq_requested');
   });
 
+  test('E1b. 내 요청을 취소하는 것은 반려가 아니다 — 화면·워크큐가 그렇게 말하면 안 된다', async () => {
+    // 2026-08-16 교정 회귀. 반려와 요청 취소는 **같은 전이**(eq_requested → issued)이고
+    // 되돌리기가 note 에 '되돌리기' 를 넣고 있어서, 협력사가 자기 요청을 물리기만 해도
+    // 포털이 "반려된 건입니다 — 보완 파일을 올리고 다시 승인요청해 주세요"로 뜨고
+    // 관리자 워크큐엔 '반려 뒤 보완 대기' 배지가 켜졌다. 아무도 반려하지 않았는데.
+    const cancel = await api(P, 'POST', `/api/partner/pcb-pos/${String(poId)}/eq-revert`);
+    expect(cancel.status, `요청 취소: ${JSON.stringify(cancel.json)}`).toBe(200);
+
+    const work = await api(A, 'GET', '/api/admin/pcb-pos?tab=all&pageSize=100');
+    const row = (work.json?.data?.items ?? []).find((i: any) => i.poId === poId);
+    expect(row, '워크큐 행').toBeTruthy();
+    expect(row.rejectedAt, '취소는 반려 이력을 만들지 않는다').toBeNull();
+
+    const session = await newSession({ mbId: owner.mbId ?? '', ttlSec: 3600 });
+    try {
+      await gotoApp(session.page, `/partner/pcb/pos/${String(poId)}`);
+      await session.page.waitForLoadState('networkidle');
+      const body = await session.page.locator('body').innerText();
+      expect(body, '타임라인이 취소를 취소라고 부른다').toContain('EQ 요청 취소');
+      expect(body, '반려로 읽히지 않는다').not.toContain('반려된 건입니다');
+      expect(body, '없던 회차를 열지 않는다').not.toContain('2차 요청');
+      // 취소했으니 첨부가 다시 열리고, 할 일은 "올리고 요청하라"로 돌아간다.
+      expect(body, '첫 요청 문구로 돌아간다').toContain('EQ 질의서·Working 데이터를 올리고');
+    } finally {
+      await session.context.close();
+    }
+
+    // 무대 복구 — 뒤 케이스들은 승인요청 상태를 전제로 한다.
+    const again = await api(P, 'POST', `/api/partner/pcb-pos/${String(poId)}/eq-request`);
+    expect(again.status, `재요청: ${JSON.stringify(again.json)}`).toBe(200);
+  });
+
   test('E2. 승인요청 중 — 협력사 산출물은 잠기고 관리자 회신은 열린다', async () => {
     // 협력사 산출물은 이 구간에서 바뀌면 안 된다(무엇을 보고 승인했는지가 사라진다).
     const locked = await upload(A, adminEqPath(), 'working', 'working-v2.zip');

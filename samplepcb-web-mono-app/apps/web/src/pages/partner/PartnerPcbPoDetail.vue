@@ -14,6 +14,7 @@ import {
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
+  isPcbEqRejectionEvent,
   pcbEqForwardLabel,
   pcbEqRevertLabel,
   pcbStencilSubmitBlockers,
@@ -387,12 +388,16 @@ const receiverCanReceive = computed(
     ship.value.receivedAt === null,
 );
 // 지금 이 발주서가 "반려로 되돌아온 상태"인가 — issued 로 내려와 있고 마지막 이력이
-// 승인요청→발주접수(관리자 반려)면 그렇다. 재요청하면 이력이 덧붙어 자연히 사라진다.
+// 관리자 반려면 그렇다. 재요청하면 이력이 덧붙어 자연히 사라진다.
+//
+// ⚠ 전이 모양(eq_requested→issued)만 보던 것을 계약 판정으로 바꿨다(2026-08-16 교정).
+//    협력사가 **자기 요청을 취소**한 것도 같은 전이라, 모양만 보면 "반려된 건입니다 —
+//    보완 파일을 올리고 다시 승인요청해 주세요"가 떴다(아무도 반려하지 않았는데).
 const eqRejection = computed<{ note: string | null; at: string } | null>(() => {
   const d = detail.value;
   if (d?.status !== 'issued') return null;
   const last = d.eq.history.at(-1);
-  if (last?.fromStatus !== 'eq_requested' || last.toStatus !== 'issued') return null;
+  if (last === undefined || !isPcbEqRejectionEvent(last)) return null;
   return { note: last.note, at: last.at };
 });
 // 반려 뒤 보완 파일을 실제로 올렸는가 — 서버가 파일마다 afterReject 를 찍어 준다.
