@@ -77,17 +77,21 @@ const STATUS_CLS: Record<PcbEqReviewStatusType, string> = {
   rejected: 'bg-red-100 text-red-700',
   canceled: 'bg-gray-100 text-gray-500',
 };
+// 트랙별 어휘 — 스텐실 발주에서도 이 축(고객 확인)은 그대로 쓰이지만 EQ 라는 말이 없다.
+const stencil = computed(() => props.po.track === 'stencil');
 </script>
 
 <template>
   <div class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="emit('close')">
     <div class="w-full max-w-xl overflow-hidden rounded-xl bg-surface shadow-xl">
       <header class="border-b border-gray-200 px-5 py-4">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-sky-600">EQ 고객 확인</p>
+        <p class="text-[11px] font-bold uppercase tracking-wider text-sky-600">
+          {{ stencil ? '고객 확인' : 'EQ 고객 확인' }}
+        </p>
         <h3 class="mt-0.5 text-base font-bold text-gray-900">{{ po.partnerName }} 발주 건</h3>
         <p class="mt-1 text-xs text-gray-500">
-          고객이 승인해도 EQ 상태는 그대로입니다 — 확인 결과를 보고 <b class="text-gray-700">[EQ 승인]</b>은
-          직접 누르세요.
+          고객이 승인해도 발주 상태는 그대로입니다 — 확인 결과를 보고
+          <b class="text-gray-700">[{{ stencil ? '확인 완료' : 'EQ 승인' }}]</b>은 직접 누르세요.
         </p>
       </header>
 
@@ -126,7 +130,7 @@ const STATUS_CLS: Record<PcbEqReviewStatusType, string> = {
           v-else-if="po.status !== 'eq_requested'"
           class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500"
         >
-          새 확인 요청은 발주서가 <b>EQ 승인요청</b> 단계일 때만 보낼 수 있습니다.
+          새 확인 요청은 발주서가 <b>{{ stencil ? '확인 요청' : 'EQ 승인요청' }}</b> 단계일 때만 보낼 수 있습니다.
         </p>
         <div v-else class="rounded-lg border border-sky-200 bg-sky-50/40 p-3">
           <p class="text-xs font-bold text-sky-800">고객에게 확인 요청</p>
@@ -185,7 +189,7 @@ const STATUS_CLS: Record<PcbEqReviewStatusType, string> = {
               </label>
             </div>
           </div>
-          <p v-else class="mt-3 text-[11px] text-gray-400">협력사가 올린 EQ 첨부가 없습니다.</p>
+          <p v-else class="mt-3 text-[11px] text-gray-400">협력사가 올린 첨부가 없습니다.</p>
 
           <div class="mt-3 flex justify-end">
             <button

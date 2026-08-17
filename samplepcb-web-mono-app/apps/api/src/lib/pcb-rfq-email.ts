@@ -245,6 +245,8 @@ export interface PcbPoIssuedEmailParams extends PcbPortalCtaParams {
   qty: number;
   priceText: string;
   deliveryText: string | null;
+  /** 공정 트랙 — 스텐실은 낼 것이 다르다(좌표파일 필수·고객문의사항 선택). 기본 'eq'. */
+  track?: 'eq' | 'stencil';
 }
 
 /** 발주서 발행 → 수주 협력사 통지(확인·EQ 진행은 포털 — 무계정이면 대행 안내). */
@@ -259,9 +261,14 @@ export function buildPcbPoIssuedEmail(p: PcbPoIssuedEmailParams): {
     infoRow('발주가', `<b>${esc(p.priceText)}</b>`),
     ...(p.deliveryText === null ? [] : [infoRow('납기', esc(p.deliveryText))]),
   ].join('');
-  const guide = noAccount
-    ? '내용 확인 후 생산용 <b>Working 파일이 있으면</b> 샘플피씨비 담당자에게 전달해 주세요. EQ 자료는 필요한 경우 함께 전달하면 됩니다 — EQ 승인요청 등 포털 진행은 담당자가 대행합니다.'
-    : '포털에서 내용을 확인하고 생산용 <b>Working 파일이 있으면 업로드를 권장</b>합니다. EQ 파일은 선택이며, 파일 없이도 EQ 승인요청을 진행할 수 있습니다.';
+  const guide =
+    p.track === 'stencil'
+      ? noAccount
+        ? '내용 확인 후 <b>좌표파일(필수)</b>을 샘플피씨비 담당자에게 전달해 주세요. 고객에게 확인할 사항이 있으면 문의사항·사진도 함께 전달하면 됩니다 — 확인 요청 등 포털 진행은 담당자가 대행합니다.'
+        : '포털에서 내용을 확인하고 <b>좌표파일(필수)</b>을 올린 뒤 확인 요청해 주세요. 고객에게 확인할 사항이 있으면 고객문의사항과 사진을 함께 남길 수 있습니다(선택).'
+      : noAccount
+        ? '내용 확인 후 생산용 <b>Working 파일이 있으면</b> 샘플피씨비 담당자에게 전달해 주세요. EQ 자료는 필요한 경우 함께 전달하면 됩니다 — EQ 승인요청 등 포털 진행은 담당자가 대행합니다.'
+        : '포털에서 내용을 확인하고 생산용 <b>Working 파일이 있으면 업로드를 권장</b>합니다. EQ 파일은 선택이며, 파일 없이도 EQ 승인요청을 진행할 수 있습니다.';
   const cta = noAccount
     ? proxyNoticeBox(
         '포털 진행(EQ·생산 상태 처리)은 샘플피씨비 담당자가 대행합니다 — 파일 전달·문의:',
@@ -349,26 +356,42 @@ export interface PcbEqTurnEmailParams {
   targetLabel: string;
 }
 
-/** EQ 승인요청 도착 → 관리자(또는 MD) 통지 — 다음 차례 안내. */
-export function buildPcbEqRequestedEmail(p: PcbEqTurnEmailParams): {
+/** EQ/확인 요청 도착 → 관리자(또는 MD) 통지 — 다음 차례 안내.
+ *  스텐실(track 'stencil')은 EQ 어휘 대신 **고객문의사항 + 좌표파일 확인**의 말을 쓰고,
+ *  문의 본문(note)이 있으면 메일에 그대로 싣는다 — 확인하러 들어가기 전에 무엇을 봐 달라는
+ *  건인지부터 읽혀야 한다. */
+export function buildPcbEqRequestedEmail(
+  p: PcbEqTurnEmailParams & { track?: 'eq' | 'stencil'; note?: string | null },
+): {
   subject: string;
   html: string;
 } {
+  const stencil = p.track === 'stencil';
+  const noteBlock =
+    p.note === null || p.note === undefined || p.note === ''
+      ? ''
+      : `
+      <p style="margin:0 0 12px;padding:10px 12px;background:#f4f6fb;border-radius:8px;font-size:13px;color:#333;line-height:1.6;white-space:pre-wrap;"><b>고객문의사항</b><br/>${esc(p.note)}</p>`;
   return {
-    subject: `[샘플피씨비] PCB EQ 승인요청 — ${p.projectName} · ${p.partnerName}`,
+    subject: `[샘플피씨비] PCB ${stencil ? '확인 요청' : 'EQ 승인요청'} — ${p.projectName} · ${p.partnerName}`,
     html: shell(
-      'EQ 승인요청이 도착했습니다',
+      stencil ? '확인 요청이 도착했습니다' : 'EQ 승인요청이 도착했습니다',
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
-        ${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건의 EQ 승인을 요청했습니다.
-        첨부된 EQ·Working 파일이 있으면 함께 확인한 뒤 승인 또는 반려해 주세요.
-      </p>
+        ${
+          stencil
+            ? `${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건의 확인을 요청했습니다.
+        고객문의사항과 좌표파일을 확인한 뒤 확인 완료 또는 보완 요청해 주세요.`
+            : `${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건의 EQ 승인을 요청했습니다.
+        첨부된 EQ·Working 파일이 있으면 함께 확인한 뒤 승인 또는 반려해 주세요.`
+        }
+      </p>${noteBlock}
       <div style="padding-top:16px;">
         <a href="${esc(p.targetUrl)}"
            style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
           ${esc(p.targetLabel)}</a>
       </div>`,
-      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+      `본 메일은 샘플피씨비 PCB ${stencil ? '확인' : 'EQ'} 알림입니다.`,
     ),
   };
 }
@@ -381,37 +404,55 @@ export interface PcbEqDecisionEmailParams extends PcbPortalCtaParams {
   partnerName: string; // 수주 협력사
   projectName: string;
   approved: boolean;
-  reason: string | null; // 반려 사유
+  reason: string | null; // 반려(보완 요청) 사유
   /** 대상 발주 — 있으면 버튼이 발주 상세로 간다(없으면 포털 홈 폴백). */
   poId?: string;
   /** 관리자 회신 첨부 수 — 파일 자체는 붙이지 않는다(포털에서 받는다). 0=언급 없음.
    *  사유만 오는 메일과 "첨부를 봐야 하는" 메일은 다른 행동을 부른다. */
   replyFileCount?: number;
+  /** 공정 트랙 — 스텐실은 EQ 어휘 대신 확인 완료/보완 요청의 말을 쓴다(기본 'eq'). */
+  track?: 'eq' | 'stencil';
 }
 
-/** EQ 승인/반려 → 수주 협력사 통지. */
+/** EQ 승인/반려(스텐실: 확인 완료/보완 요청) → 수주 협력사 통지. */
 export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
   subject: string;
   html: string;
 } {
   const noAccount = p.hasPortalAccount === false;
+  const stencil = p.track === 'stencil';
   const title = p.approved
-    ? noAccount
-      ? 'EQ가 승인되었습니다 — 생산을 진행해 주세요'
-      : 'EQ가 승인되었습니다 — 생산을 시작해 주세요'
-    : 'EQ가 반려되었습니다';
-  const lines = p.approved
-    ? `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
-        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 EQ가 승인되었습니다.
-        ${noAccount ? '생산을 진행해 주세요.' : '포털에서 [생산 시작]을 진행해 주세요.'}</p>`
-    : `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
-        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 EQ가 반려되었습니다.
+    ? stencil
+      ? '확인이 완료되었습니다 — 생산을 시작해 주세요'
+      : noAccount
+        ? 'EQ가 승인되었습니다 — 생산을 진행해 주세요'
+        : 'EQ가 승인되었습니다 — 생산을 시작해 주세요'
+    : stencil
+      ? '보완 요청이 도착했습니다'
+      : 'EQ가 반려되었습니다';
+  const approvedLead = stencil
+    ? `<b>${esc(p.projectName)}</b> 건의 고객문의사항·좌표파일 확인이 완료되었습니다.`
+    : `<b>${esc(p.projectName)}</b> 건의 EQ가 승인되었습니다.`;
+  const rejectedLead = stencil
+    ? `<b>${esc(p.projectName)}</b> 건에 보완 요청이 도착했습니다.
+        ${
+          noAccount
+            ? '사유 확인 후 보완 파일을 샘플피씨비 담당자에게 전달해 주세요 — 재요청은 담당자가 대행합니다.'
+            : '사유 확인 후 좌표파일·문의사항을 보완해 다시 확인 요청해 주세요.'
+        }`
+    : `<b>${esc(p.projectName)}</b> 건의 EQ가 반려되었습니다.
         ${
           noAccount
             ? '사유 확인 후 보완 파일을 샘플피씨비 담당자에게 전달해 주세요 — 재승인요청은 담당자가 대행합니다.'
             : '사유 확인 후 파일 보완 → 다시 승인요청해 주세요.'
-        }</p>
-      ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">반려 사유: <b>${esc(p.reason)}</b></p>`}
+        }`;
+  const lines = p.approved
+    ? `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, ${approvedLead}
+        ${noAccount ? '생산을 진행해 주세요.' : '포털에서 [생산 시작]을 진행해 주세요.'}</p>`
+    : `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, ${rejectedLead}</p>
+      ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">${stencil ? '보완 요청' : '반려'} 사유: <b>${esc(p.reason)}</b></p>`}
       ${
         (p.replyFileCount ?? 0) === 0
           ? ''
@@ -433,11 +474,13 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
           ${p.poId === undefined ? '파트너 포털 열기' : '발주서 바로 열기'}</a>
       </div>`;
   return {
-    subject: `[샘플피씨비] PCB EQ ${p.approved ? '승인' : '반려'} — ${p.projectName}`,
+    subject: `[샘플피씨비] PCB ${
+      stencil ? (p.approved ? '확인 완료' : '보완 요청') : `EQ ${p.approved ? '승인' : '반려'}`
+    } — ${p.projectName}`,
     html: shell(
       title,
       `${lines}${cta}`,
-      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+      `본 메일은 샘플피씨비 PCB ${stencil ? '확인' : 'EQ'} 알림입니다.`,
     ),
   };
 }

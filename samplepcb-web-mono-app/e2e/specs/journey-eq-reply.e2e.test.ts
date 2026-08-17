@@ -218,6 +218,18 @@ describe.skipIf(!RUN)('EQ 회신 첨부 — 관리자 → 협력사 역방향', 
     // 주행마다 달라야 **이번** 메일을 집는다(고정 문구로 찾으면 과거 메일이 통과시킨다).
     const token = `e2e-eqreply-${String(Date.now())}`;
     const reason = `실크 위치를 좌측으로 옮겨 주세요 (${token})`;
+
+    // 사유가 예약어('되돌리기')와 정확히 같으면 거절된다 — 저장되면 반려 판정
+    // (isPcbEqRejectionEvent)이 레거시 되돌리기 표식으로 오인해 요청 취소로 읽는다.
+    const reserved = await api(
+      A,
+      'POST',
+      `/api/admin/pcb-projects/${specId.toString()}/pos/${String(poId)}/eq-reject`,
+      { reason: '되돌리기' },
+    );
+    expect(reserved.status, `예약어 사유: ${JSON.stringify(reserved.json)}`).toBe(409);
+    expect(reserved.json?.error).toBe('RESERVED_REASON');
+
     const rejected = await api(
       A,
       'POST',

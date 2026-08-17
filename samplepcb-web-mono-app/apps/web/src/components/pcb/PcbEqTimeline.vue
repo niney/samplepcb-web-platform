@@ -4,8 +4,10 @@ import {
   PCB_EQ_REVERT_NOTE,
   buildPcbEqTimeline,
   isPcbEqRejectionEvent,
+  pcbEqEventLabel,
   type PcbEqEventType,
   type PcbEqFileViewType,
+  type PcbPoTrackType,
 } from '@sp/api-contract';
 import { formatBytes } from '../../lib/format';
 
@@ -23,6 +25,10 @@ const props = defineProps<{
   files: readonly PcbEqFileViewType[];
   /** 이 역할이 '내 말'(오른쪽)이 된다 — 협력사 포털이면 PARTNER, 관리자 화면이면 ADMIN. */
   meRole: string;
+  /** 공정 트랙 — 전이를 부르는 말이 갈린다(스텐실: 확인 요청/보완 요청/확인 완료).
+   *  기본 'eq'. 라벨 사전은 계약(pcbEqEventLabel) 하나 — 여기 하드코딩했다가 스텐실
+   *  대화가 'EQ 승인요청/EQ 반려'로 그려졌다(2026-08-17 교정). */
+  track?: PcbPoTrackType;
   /** 지금 첨부를 바꿀 수 있는가(EQ_LOCKED 판정은 부모가) — **내가 올린 것에만** ✕ 가 뜬다.
    *  받은 자료(관리자 회신)를 받는 쪽이 지우면 반려 근거가 사라진다. */
   editable?: boolean;
@@ -63,29 +69,23 @@ const ROLE_CHIP: Record<string, string> = {
 };
 const roleChipCls = (r: string): string => ROLE_CHIP[r] ?? 'bg-gray-100 text-gray-500';
 
-// 전이를 사람 말로 — 반려와 요청 취소는 **같은 전이**라 사유 유무로만 갈린다.
-// 판정은 계약의 isPcbEqRejectionEvent 하나를 쓴다(같은 규칙을 여기 복제해 뒀던 것이
-// 되돌리기를 반려로 읽던 결함의 조건이었다 — 2026-08-16 교정).
-const eventLabel = (item: { fromStatus?: string; toStatus?: string; note?: string | null }): string => {
-  const from = item.fromStatus ?? '';
-  const to = item.toStatus ?? '';
-  if (from === 'issued' && to === 'eq_requested') return 'EQ 승인요청';
-  if (from === 'eq_requested' && to === 'issued') {
-    return isPcbEqRejectionEvent(item) ? 'EQ 반려' : 'EQ 요청 취소';
-  }
-  if (from === 'eq_requested' && to === 'eq_done') return 'EQ 승인';
-  if (from === 'eq_done' && to === 'eq_requested') return '승인 취소';
-  if (from === 'eq_done' && to === 'producing') return '생산 시작';
-  if (from === 'producing' && to === 'eq_done') return '생산시작 취소';
-  if (from === 'producing' && to === 'produced') return '생산 완료';
-  if (from === 'produced' && to === 'producing') return '생산완료 취소';
-  return `${from} → ${to}`;
-};
+// 전이를 사람 말로 — 반려와 요청 취소는 **같은 전이**라 note 로만 갈린다.
+// 문구 사전은 계약(pcbEqEventLabel — 트랙별)이 정본이고, 반려 판정도 그 안에서
+// isPcbEqRejectionEvent 하나를 쓴다(같은 규칙을 여기 복제해 뒀던 것이 되돌리기를 반려로
+// 읽던 결함의 조건이었다 — 2026-08-16 교정 · 트랙 어휘는 2026-08-17).
+const eventLabel = (item: { fromStatus?: string; toStatus?: string; note?: string | null }): string =>
+  pcbEqEventLabel(item, props.track ?? 'eq');
 const isReject = isPcbEqRejectionEvent;
 
 /** 되돌리기가 남긴 레거시 표식은 사유가 아니다 — 말풍선에 '되돌리기'만 뜨면 안 읽힌다. */
 const shownNote = (note?: string | null): string =>
   note === PCB_EQ_REVERT_NOTE ? '' : (note ?? '');
+// 스텐실의 확인 요청 note 는 반려 사유가 아니라 **고객문의사항**이다 — 캡션으로 갈라 준다
+// (안 가르면 요청 말풍선의 본문이 무슨 글인지 관리자·MD 가 문맥을 조립해야 한다).
+const isStencilInquiry = (item: { fromStatus?: string; toStatus?: string }): boolean =>
+  (props.track ?? 'eq') === 'stencil' &&
+  item.fromStatus === 'issued' &&
+  item.toStatus === 'eq_requested';
 
 const FILE_LABEL: Record<string, string> = {
   eq: 'EQ 질의서',
@@ -93,6 +93,8 @@ const FILE_LABEL: Record<string, string> = {
   reply: '수정 지시',
   // 스텐실 트랙의 필수 산출물 — 확인이 끝나면 고객도 주문내역에서 내려받는다.
   coord: '좌표파일',
+  // 고객문의사항에 곁들이는 사진(선택·누적) — 스텐실 트랙.
+  inquiry: '문의 사진',
 };
 const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
 </script>
@@ -149,9 +151,14 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
               "
             >
               <p class="font-semibold">{{ eventLabel(item) }}</p>
-              <p v-if="shownNote(item.note) !== ''" class="mt-1 whitespace-pre-wrap">
-                {{ shownNote(item.note) }}
-              </p>
+              <template v-if="shownNote(item.note) !== ''">
+                <p v-if="isStencilInquiry(item)" class="mt-1 text-[11px] font-semibold opacity-70">
+                  고객문의사항
+                </p>
+                <p class="mt-1 whitespace-pre-wrap">
+                  {{ shownNote(item.note) }}
+                </p>
+              </template>
             </div>
 
             <!-- 첨부 묶음 — 받은 것(수정 지시)은 파랗게 세워 "지금 볼 파일"이 눈에 걸리게 -->

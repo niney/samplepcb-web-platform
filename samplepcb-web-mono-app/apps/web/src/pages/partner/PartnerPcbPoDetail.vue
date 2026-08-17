@@ -116,15 +116,20 @@ const filesEditable = computed(() => detail.value?.status === 'issued');
 const track = computed(() => detail.value?.track ?? 'eq');
 const isStencil = computed(() => track.value === 'stencil');
 
-/** 고객문의사항 — 제출 시 eqHistory 에 실린다(제출 뒤엔 못 고친다: 첨부와 같은 잠금). */
+/** 고객문의사항(선택) — 제출 시 eqHistory 에 실린다(제출 뒤엔 못 고친다: 첨부와 같은 잠금). */
 const noteDraft = ref('');
 const coordFiles = computed(
   () => detail.value?.eq.files.filter((f) => f.fileType === 'coord') ?? [],
 );
-/** 제출을 막는 것들 — 서버 게이트와 **같은 계약 함수**를 쓴다(문구도 계약이 정본). */
+/** 문의 사진(선택·누적) — 문의사항이 말로 다 못 하는 "이 부분이요"를 사진이 잇는다. */
+const inquiryFiles = computed(
+  () => detail.value?.eq.files.filter((f) => f.fileType === 'inquiry') ?? [],
+);
+/** 제출을 막는 것들 — 서버 게이트와 **같은 계약 함수**를 쓴다(문구도 계약이 정본).
+ *  필수는 좌표파일 하나 — 고객문의사항은 선택이다(2026-08-17 필수 해제). */
 const submitBlockers = computed(() =>
   isStencil.value && detail.value?.status === 'issued'
-    ? pcbStencilSubmitBlockers(noteDraft.value, detail.value.eq.files)
+    ? pcbStencilSubmitBlockers(detail.value.eq.files)
     : [],
 );
 
@@ -148,7 +153,10 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
   const d = detail.value;
   if (d === null) return { title: '', hint: '' };
   if (d.eq.myRole !== 'RECEIVER') {
-    return { title: '진행 상황을 확인해 주세요.', hint: '이 발주의 EQ 진행은 수주 조직이 합니다.' };
+    return {
+      title: '진행 상황을 확인해 주세요.',
+      hint: `이 발주의 ${isStencil.value ? '확인·생산' : 'EQ'} 진행은 수주 조직이 합니다.`,
+    };
   }
   // MD 관전(하위 발주 열람) — 같은 fallback RECEIVER 라도 주어가 다르다. 협력사 문구를
   // 그대로 내면 "내가 올려야 하나?"로 읽힌다(실주행 확정). 기본은 하위가 진행, 대행은 보조.
@@ -167,7 +175,7 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
             hint: '보완이 늦어지면 아래 버튼으로 MD가 파일을 올리고 대행 진행할 수도 있습니다.',
           }
         : {
-            title: `${sub}가 ${st ? '고객문의사항·좌표파일' : 'EQ 자료'}을 올리고 ${askWord}할 차례입니다.`,
+            title: `${sub}가 ${st ? '좌표파일' : 'EQ 자료'}을 올리고 ${askWord}할 차례입니다.`,
             hint: `필요하면 MD가 파일 업로드·${askWord}을 대행할 수 있습니다.`,
           };
     }
@@ -190,8 +198,8 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
               : '아직 보완 요청 후 새로 올린 파일이 없습니다. 같은 파일로 다시 요청하면 같은 사유로 되돌아올 수 있습니다.',
           }
         : {
-            title: '고객문의사항을 적고 좌표파일을 올린 뒤 확인 요청해 주세요.',
-            hint: '좌표파일은 확인이 끝난 뒤 고객도 주문내역에서 내려받을 수 있습니다. 확인 요청 후에는 파일과 문의사항을 바꿀 수 없습니다.',
+            title: '좌표파일을 올린 뒤 확인 요청해 주세요.',
+            hint: '고객에게 확인할 사항이 있으면 고객문의사항과 사진을 함께 남길 수 있습니다(선택). 좌표파일은 확인이 끝난 뒤 고객도 주문내역에서 내려받을 수 있으며, 확인 요청 후에는 파일과 문의사항을 바꿀 수 없습니다.',
           };
     }
     if (d.status === 'eq_requested') {
@@ -235,18 +243,37 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
 // ── 파일 업로드 ──────────────────────────────────────────────────────────────
 const upload = useUploadPartnerPcbEqFile();
 const removeFile = useDeletePartnerPcbEqFile();
-function pickAndUpload(fileType: PcbEqFileTypeType): void {
+// 문의 사진(inquiry)은 여러 장이 자연스럽다 — multiple 로 받아 순서대로 올린다(업로드
+// API 는 1건씩). accept 는 안내일 뿐 서버 제약이 아니다(파일 종류 검증은 기존 규칙 그대로).
+// ⚠ 한 장이 실패해도 **나머지는 계속 올린다** — 중간에 끊고 한 줄짜리 실패 문구만 내면
+//   협력사는 몇 장이 붙었는지 모른 채 확인 요청을 눌러 첨부가 잠긴다. 실패한 파일명을 적는다.
+function pickAndUpload(
+  fileType: PcbEqFileTypeType,
+  opts?: { accept?: string; multiple?: boolean },
+): void {
   if (poId.value === null) return;
   const input = document.createElement('input');
   input.type = 'file';
+  if (opts?.accept !== undefined) input.accept = opts.accept;
+  if (opts?.multiple === true) input.multiple = true;
   input.onchange = async () => {
-    const file = input.files?.[0];
-    if (file === undefined) return;
+    const files = [...(input.files ?? [])];
+    if (files.length === 0) return;
     actionError.value = '';
-    try {
-      await upload.mutateAsync({ poId: poId.value ?? 0, file, fileType });
-    } catch (e) {
-      surfaceError(e, '파일 업로드에 실패했습니다.');
+    const failed: string[] = [];
+    let lastMessage = '';
+    for (const file of files) {
+      try {
+        await upload.mutateAsync({ poId: poId.value ?? 0, file, fileType });
+      } catch (e) {
+        failed.push(file.name);
+        if (e instanceof ApiRequestError && e.message !== '') lastMessage = e.message;
+      }
+    }
+    if (failed.length > 0) {
+      actionError.value =
+        `파일 ${String(failed.length)}건 업로드 실패: ${failed.join(', ')}` +
+        (lastMessage === '' ? ' — 다시 올려 주세요.' : ` — ${lastMessage}`);
     }
   };
   input.click();
@@ -478,7 +505,7 @@ const specEntries = computed(() => {
         <span
           v-if="detail.reorderRound > 0"
           class="rounded bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700"
-          title="A/S 재생산 회차 발주 — EQ부터 다시 진행합니다"
+          :title="`A/S 재생산 회차 발주 — ${isStencil ? '확인 절차부터' : 'EQ부터'} 다시 진행합니다`"
         >A/S {{ detail.reorderRound }}차</span>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="STATUS_CLS[detail.status]">
           {{ PCB_PO_STATUS_LABELS[detail.track][detail.status] }}
@@ -560,9 +587,11 @@ const specEntries = computed(() => {
         </div>
       </section>
 
-      <!-- EQ 진행 -->
+      <!-- EQ(스텐실: 고객문의사항·좌표파일 확인) 진행 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4">
-        <h2 class="text-sm font-bold text-gray-700">EQ · 생산 진행</h2>
+        <h2 class="text-sm font-bold text-gray-700">
+          {{ isStencil ? '고객문의사항 · 생산 진행' : 'EQ · 생산 진행' }}
+        </h2>
 
         <!-- 스텝퍼 -->
         <ol class="mt-3 flex flex-wrap items-center gap-1">
@@ -579,13 +608,13 @@ const specEntries = computed(() => {
 
         <!-- 경유/차단 안내 -->
         <p v-if="detail.eq.delegatePoId !== null" class="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
-          MD 경유 발주 건입니다 — EQ·생산 진행은
+          MD 경유 발주 건입니다 — {{ isStencil ? '확인·생산' : 'EQ·생산' }} 진행은
           <RouterLink :to="{ name: 'partner-pcb-po', params: { id: String(detail.eq.delegatePoId) } }" class="font-bold underline">
             하위 발주서
           </RouterLink>에서 진행됩니다(이 문서는 자동 반영).
         </p>
         <p v-else-if="detail.eq.blocked" class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          하위 협력사에 발주하면 EQ가 시작됩니다 — 아래 [하위 발주]를 진행해 주세요.
+          하위 협력사에 발주하면 {{ isStencil ? '확인 절차가' : 'EQ가' }} 시작됩니다 — 아래 [하위 발주]를 진행해 주세요.
         </p>
 
 
@@ -599,6 +628,7 @@ const specEntries = computed(() => {
             :history="detail.eq.history"
             :files="detail.eq.files"
             :me-role="detail.direction === 'issued' ? 'MASTER_DEALER' : 'PARTNER'"
+            :track="track"
             :editable="filesEditable && detail.eq.myRole === 'RECEIVER'"
             @download="downloadEq"
             @delete="(fileId) => void deleteFile(fileId)"
@@ -611,18 +641,19 @@ const specEntries = computed(() => {
             <p v-if="nowTodo.hint !== ''" class="mt-1 text-xs leading-5 text-blue-700">
               {{ nowTodo.hint }}
             </p>
-            <!-- 스텐실 — 낼 것이 둘로 정해져 있다. 문의사항은 제출과 한 몸이라 여기 둔다
-                 (제출 뒤엔 첨부와 같이 잠긴다 — 따로 저장 버튼을 두면 잠금이 거짓말이 된다). -->
+            <!-- 스텐실 — 필수는 좌표파일 하나, 문의사항·사진은 선택이다. 문의사항은 제출과
+                 한 몸이라 여기 둔다(제출 뒤엔 첨부와 같이 잠긴다 — 따로 저장 버튼을 두면
+                 잠금이 거짓말이 된다). -->
             <template v-if="isStencil && filesEditable && detail.eq.myRole === 'RECEIVER'">
               <label class="mt-3 block text-xs font-bold text-blue-900" for="stencil-note">
-                고객문의사항 <span class="text-red-500">*</span>
+                고객문의사항 <span class="font-normal text-blue-400">(선택)</span>
               </label>
               <textarea
                 id="stencil-note"
                 v-model="noteDraft"
                 rows="3"
                 maxlength="2000"
-                placeholder="고객에게 확인할 사항이나 전달할 내용을 적어 주세요."
+                placeholder="고객에게 확인할 사항이나 전달할 내용이 있으면 적어 주세요."
                 class="mt-1 w-full rounded-md border border-blue-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
               />
               <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -634,6 +665,15 @@ const specEntries = computed(() => {
                   @click="pickAndUpload('coord')"
                 >
                   ＋ 좌표파일{{ coordFiles.length > 0 ? ` (${coordFiles.length})` : ' *' }}
+                </button>
+                <!-- 문의 사진 — 문의사항이 말로 다 못 하는 부분을 사진이 잇는다(여러 장 가능) -->
+                <button
+                  type="button"
+                  class="rounded-md border border-blue-300 bg-surface px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+                  :disabled="upload.isPending.value"
+                  @click="pickAndUpload('inquiry', { accept: 'image/*', multiple: true })"
+                >
+                  ＋ 문의 사진{{ inquiryFiles.length > 0 ? ` (${inquiryFiles.length})` : '' }}
                 </button>
                 <span v-if="coordFiles.length === 0" class="text-[11px] text-amber-700">
                   좌표파일이 있어야 확인 요청을 보낼 수 있습니다.
@@ -841,13 +881,13 @@ const specEntries = computed(() => {
                 </td>
                 <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ dateOnly(child.deliveryDate) }}</td>
                 <td class="whitespace-nowrap px-3 py-2 text-right">
-                  <!-- 라벨은 하위 상태를 입는다(재점검 #17) — 생산완료 뒤에도 'EQ 진행'이면
-                       아직 할 일이 남은 듯 읽힌다. -->
+                  <!-- 라벨은 하위 상태를 입는다(재점검 #17) — 생산완료 뒤에도 '진행'이면
+                       아직 할 일이 남은 듯 읽힌다. 어휘는 하위 발주의 트랙을 따른다. -->
                   <RouterLink
                     :to="{ name: 'partner-pcb-po', params: { id: String(child.poId) } }"
                     class="rounded-md border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
                   >
-                    {{ child.status === 'produced' ? '생산 완료 — 보기' : 'EQ 진행 →' }}
+                    {{ child.status === 'produced' ? '생산 완료 — 보기' : child.track === 'stencil' ? '확인 진행 →' : 'EQ 진행 →' }}
                   </RouterLink>
                 </td>
               </tr>
@@ -871,7 +911,7 @@ const specEntries = computed(() => {
           >
             하위 발주
           </button>
-          <span class="text-xs text-gray-400">선정(selected) 회신이 기본 후보입니다 — 발주 시 EQ가 하위에서 시작됩니다.</span>
+          <span class="text-xs text-gray-400">선정(selected) 회신이 기본 후보입니다 — 발주 시 {{ isStencil ? '확인 절차가' : 'EQ가' }} 하위에서 시작됩니다.</span>
         </div>
 
         <!-- A/S 회차(A′) — 회차 하위 RFQ 가 없어도 원회차(round 0) 하위 발주 조건을 복사해
@@ -899,7 +939,7 @@ const specEntries = computed(() => {
           </div>
           <p class="text-xs text-gray-400">
             A/S {{ detail.reorderRound }}차 — 원주문(round 0) 하위 발주 조건을 복사해 발주합니다.
-            납기는 비워지니 협력사와 협의 후 입력하세요. 발주하면 EQ가 하위에서 다시 시작됩니다.
+            납기는 비워지니 협력사와 협의 후 입력하세요. 발주하면 {{ isStencil ? '확인 절차가' : 'EQ가' }} 하위에서 다시 시작됩니다.
           </p>
         </div>
       </section>

@@ -9,7 +9,8 @@
 // 것도 그 경계다: 갈려야 할 것이 갈리는가, **안 갈려야 할 것이 안 갈리는가**.
 //
 // 표적:
-//   ① **제출 게이트** — 좌표파일·문의사항 없이는 못 넘어간다(둘 다 서버가 판정).
+//   ① **제출 게이트** — 좌표파일 없이는 못 넘어간다(서버가 판정). 고객문의사항은
+//      **선택**이다(2026-08-17 필수 해제) — 없이도 넘어가고, 적으면 이력에 실린다.
 //   ② **문의사항은 새 컬럼이 아니다** — eqHistory 의 note 에 실려 타임라인에 그대로 선다.
 //   ③ **고객 열람은 확인 뒤에만** — 그 전엔 보완 요청으로 파일이 바뀔 수 있고, 반려된
 //      좌표로 고객이 설비를 잡는 것이 이 기능의 최악이다.
@@ -187,30 +188,38 @@ describe.skipIf(!RUN)('메탈마스크 — 고객문의사항 + 좌표파일로 
     await disconnectPrisma();
   });
 
-  test('M1. 빈손으로는 확인 요청이 안 된다 — 문의사항부터 막는다', async () => {
+  test('M1. 빈손으로는 확인 요청이 안 된다 — 좌표파일이 필수다(문의사항은 이제 안 막는다)', async () => {
     const res = await submit();
     expect(res.status, `빈 제출: ${JSON.stringify(res.json)}`).toBe(409);
-    expect(res.json?.error).toBe('NOTE_REQUIRED');
-    expect(String(res.json?.message)).toContain('고객문의사항');
+    expect(res.json?.error).toBe('COORD_FILE_REQUIRED');
+    expect(String(res.json?.message)).toContain('좌표파일');
 
     const po = await getPrisma().spPcbPo.findUnique({ where: { id: BigInt(poId) } });
     expect(po?.status, '막혔으면 상태가 안 움직인다').toBe('issued');
   });
 
-  test('M2. 문의사항만으로도 안 된다 — 좌표파일이 필수다', async () => {
+  test('M2. 문의사항을 적어도 좌표파일 없인 안 된다 — 다른 종류로는 대신 못 채운다', async () => {
     const res = await submit(NOTE);
     expect(res.status, `좌표 없는 제출: ${JSON.stringify(res.json)}`).toBe(409);
     expect(res.json?.error).toBe('COORD_FILE_REQUIRED');
 
     // **다른 종류로는 대신 못 채운다** — 종류를 만든 이유가 이 게이트다.
+    // inquiry(문의 사진)도 마찬가지 — 문의에 곁들이는 사진이지 좌표가 아니다.
     const eqFile = await upload(P, `/api/partner/pcb-pos/${String(poId)}/eq-files`, 'eq', 'q.zip');
     expect(eqFile.status, 'eq 첨부 자체는 올라간다').toBe(200);
+    const photo = await upload(
+      P,
+      `/api/partner/pcb-pos/${String(poId)}/eq-files`,
+      'inquiry',
+      'photo1.png',
+    );
+    expect(photo.status, '문의 사진 첨부 자체는 올라간다').toBe(200);
     const again = await submit(NOTE);
-    expect(again.status, 'eq 첨부는 좌표파일을 대신하지 못한다').toBe(409);
+    expect(again.status, 'eq·inquiry 첨부는 좌표파일을 대신하지 못한다').toBe(409);
     expect(again.json?.error).toBe('COORD_FILE_REQUIRED');
   });
 
-  test('M3. 협력사 화면 — 낼 것이 둘로 못박혀 보인다', async () => {
+  test('M3. 협력사 화면 — 필수(좌표파일)와 선택(문의사항·사진)이 갈려 보인다', async () => {
     const up = await upload(
       P,
       `/api/partner/pcb-pos/${String(poId)}/eq-files`,
@@ -226,17 +235,16 @@ describe.skipIf(!RUN)('메탈마스크 — 고객문의사항 + 좌표파일로 
       await session.page.waitForLoadState('networkidle');
       const body = await session.page.locator('body').innerText();
 
-      expect(body, '할 일이 한 문장으로 못박힌다').toContain('고객문의사항을 적고 좌표파일');
+      expect(body, '할 일이 한 문장으로 못박힌다').toContain('좌표파일을 올린 뒤 확인 요청');
       expect(body, '고객이 본다는 사실을 미리 알린다').toContain('고객도 주문내역에서');
       expect(body, '좌표파일이 붙은 것이 보인다').toContain('＋ 좌표파일 (1)');
-      expect(body, '문의사항이 비어 못 보낸다는 이유를 밝힌다').toContain(
-        '고객문의사항을 입력해 주세요',
-      );
+      expect(body, '문의사항은 선택임을 밝힌다').toContain('고객문의사항 (선택)');
+      expect(body, '문의 사진 칸이 열려 있다(M2 에서 1장 첨부)').toContain('＋ 문의 사진 (1)');
       // 스텐실에는 EQ 어휘가 안 나온다 — 스텝퍼 라벨까지.
       expect(body, '확인 요청 칸').toContain('확인 요청');
       expect(body, '확인 완료 칸').toContain('확인 완료');
       expect(body, 'EQ 승인요청 라벨은 없다').not.toContain('EQ 승인요청');
-      // 업로드 버튼은 좌표파일 하나뿐이다(EQ 질의서·Working 칸을 열지 않는다).
+      // 업로드 버튼은 좌표파일·문의 사진뿐이다(EQ 질의서·Working 칸을 열지 않는다).
       expect(body, 'Working 업로드 칸은 없다').not.toContain('＋ Working 데이터');
       await snap(session.page, 'metal-mask-partner-submit');
     } finally {
@@ -244,7 +252,15 @@ describe.skipIf(!RUN)('메탈마스크 — 고객문의사항 + 좌표파일로 
     }
   });
 
-  test('M4. 좌표파일 + 문의사항 → 확인 요청. 문의사항은 이력에 남는다', async () => {
+  test('M4. 좌표파일만으로 확인 요청이 넘어간다 — 문의사항은 선택이고, 적으면 이력에 남는다', async () => {
+    // ① 무메모 제출이 통과한다(필수 해제의 서버 증명) — 취소 후 문의를 실어 다시 보낸다.
+    //    취소(요청 취소)는 note 를 안 남기므로 반려 판정과 안 섞인다(15호 명세).
+    const bare = await submit();
+    expect(bare.status, `무메모 제출: ${JSON.stringify(bare.json)}`).toBe(200);
+    const revert = await api(P, 'POST', `/api/partner/pcb-pos/${String(poId)}/eq-revert`);
+    expect(revert.status, `요청 취소: ${JSON.stringify(revert.json)}`).toBe(200);
+
+    // ② 문의사항을 실은 제출 — 이력의 note 로 실린다.
     const res = await submit(NOTE);
     expect(res.status, `확인 요청: ${JSON.stringify(res.json)}`).toBe(200);
 
@@ -265,6 +281,28 @@ describe.skipIf(!RUN)('메탈마스크 — 고객문의사항 + 좌표파일로 
     );
     expect(locked.status, '확인 요청 뒤에는 좌표파일도 잠긴다').toBe(409);
     expect(locked.json?.error).toBe('EQ_LOCKED');
+  });
+
+  test('M4.5 관리자 Case — 고객문의사항 본문이 행에서 읽히고, 버튼이 확인의 말을 쓴다', async () => {
+    // 확인 완료를 결정하는 화면이 문의 본문을 안 보여 주면 이 트랙의 핑퐁은 빈 껍데기다
+    // (2026-08-17 교정 — 종전엔 eqHistory 를 반려 판정에만 쓰고 본문은 버렸다).
+    const session = await newSession({ mbId: 'e2e-admin', isAdmin: true, ttlSec: 3600 });
+    try {
+      await gotoApp(session.page, `/admin/pcb/cases/${mm.specId.toString()}`);
+      await session.page.waitForLoadState('networkidle');
+      const body = await session.page.locator('body').innerText();
+
+      expect(body, '패널 이름이 트랙을 입는다').toContain('발주서 · 고객문의사항');
+      expect(body, '문의 본문이 행에 선다').toContain('앞면만 도포합니다');
+      expect(body, '확인 완료 버튼').toContain('확인 완료');
+      expect(body, '보완 요청 버튼(반려 아님)').toContain('보완 요청');
+      // 사이드바 메뉴명(PCB 발주·EQ)은 전역이라 'EQ' 전면 부재는 못 재고, 행동 어휘만 잰다.
+      expect(body, '스텐실 Case 에 EQ 승인 버튼은 없다').not.toContain('EQ 승인');
+      expect(body, 'EQ 첨부 칸 이름도 트랙을 입는다').not.toContain('EQ 첨부');
+      await snap(session.page, 'metal-mask-admin-case');
+    } finally {
+      await session.context.close();
+    }
   });
 
   test('M5. 확인 전에는 고객에게 좌표파일이 안 보인다', async () => {

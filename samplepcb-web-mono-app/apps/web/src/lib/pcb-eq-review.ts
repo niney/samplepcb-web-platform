@@ -49,7 +49,8 @@ export const pcbEqReviewBadgeLabel = (r: PcbPoEqReviewSummaryType | null): strin
 
 /** 툴팁 — 짧은 배지·버튼이 못 담는 것(요청일·기한·고객 의견 원문). */
 export const pcbEqReviewTitle = (r: PcbPoEqReviewSummaryType | null): string => {
-  if (r === null) return '고객에게 EQ 확인을 요청합니다';
+  // 트랙 중립 문구 — 스텐실 발주에도 이 축(고객 확인)은 그대로 쓰인다(EQ 라는 말만 뺀다).
+  if (r === null) return '고객에게 제작 확인을 요청합니다';
   const parts = [`요청 ${fmtKstDate(r.requestedAt)}`];
   if (r.dueOn !== null) parts.push(`기한 ${fmtKstDate(r.dueOn)}`);
   if (r.decisionNote !== null && r.decisionNote !== '') parts.push(`고객 의견: ${r.decisionNote}`);

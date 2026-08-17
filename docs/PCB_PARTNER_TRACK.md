@@ -3052,3 +3052,48 @@ BOM 클레임(sp_bom_claim, D37)의 PCB 미러 + PCB 고유 판정 축. 처리 �
 - **검증**: 단위 `pcb-eq-rejection.test.ts` 10/10(옛 표식 포함) · e2e `journey-eq-reply`
   E1b 신설(요청 취소 후 워크큐 `rejectedAt`=null · 타임라인 'EQ 요청 취소' · '반려된
   건입니다' 미노출 · 없던 회차 미생성) · 회귀 38/38 · api 901.
+
+### 스텐실 트랙 후속 교정 (2026-08-17 — 문의 선택화 · 문의 사진 · 핑퐁 어휘 정리)
+
+시장 반응 반영 3건(사용자 결정 2026-08-17). 트랙 구조(status 5단계 공용·track 파생)는
+그대로이고, 갈리는 것만 더 갈랐다.
+
+- **고객문의사항 = 선택 입력** — `pcbStencilSubmitBlockers` 에서 `NOTE_REQUIRED` 를
+  제거했다(타입 유니온째 삭제 — 참조가 남으면 컴파일이 잡는다). 필수는 좌표파일 하나다:
+  물어볼 것이 없는 주문이 더 많고, 필수로 두면 '없음' 같은 무의미한 두 글자만 쌓인다.
+  좌표파일 게이트·관리자 대행 무예외 원칙은 불변. 협력사 라벨 '(선택)'·대행 프롬프트도 동일.
+- **문의 사진(inquiry)** — `PCB_EQ_FILE_TYPES` 에 다섯째 종류. 고객문의사항에 곁들이는
+  선택 첨부(협력사 화면 `＋ 문의 사진`, image accept·여러 장, 관리자 대행 업로드 동일).
+  잠금은 협력사 산출물과 같다(issued 에서만). ⚠ **isLatest 버전 관례의 예외** — 사진
+  석 장은 석 장이 다 문의의 일부라, `orderPcbEqFiles` 가 inquiry 는 전부 최신으로 남긴다
+  (종류별 최신 1건 규칙을 그대로 적용하면 두 장이 '이전 업로드'로 접혀 관리자가 못 본다).
+  고객 비노출(`PCB_EQ_CUSTOMER_VISIBLE_FILE_TYPES` 는 여전히 coord 뿐).
+- **핑퐁이 트랙의 말을 쓴다** — 전이 라벨 사전을 계약 `pcbEqEventLabel(event, track)` 로
+  모았다(타임라인이 EQ 문구를 하드코딩해 스텐실 대화가 'EQ 승인요청/EQ 반려'로 그려졌다).
+  반려/취소 분기는 그 안에서 `isPcbEqRejectionEvent` 하나만 쓴다(위 교정과 같은 축 —
+  판정 복제 금지). 스텐실 어휘: 확인 요청·보완 요청·확인 요청 취소·확인 완료·확인 취소.
+  같은 축으로 관리자 Case(패널명 '발주서 · 고객문의사항'·확인/보완 버튼·대행 라벨·다이얼로그)·
+  반려 모달(제목 '보완 요청')·협력사 상세(섹션명 '고객문의사항 · 생산 진행'·MD 안내)·
+  메일 3종(`buildPcbPoIssuedEmail`/`EqRequested`/`EqDecision` — track 파라미터)·서버 409
+  문구(트랙 라벨 치환)를 정리했다.
+- **관리자가 문의 본문을 읽는다** — 종전엔 `eqHistory` 를 반려 판정에만 쓰고 제출 note 는
+  버려서, 확인 완료를 누르는 관리자 Case 에 문의 본문이 **어디에도 안 보였다**(핑퐁의 빈
+  껍데기). 계약 `lastPcbStencilInquiry`(마지막 `issued → eq_requested` 의 note — 보완 뒤
+  재요청이면 새 note, 현행이 무메모면 null)를 신설해 Case 행(💬 박스)에 세우고, 확인 요청
+  도착 메일에도 본문을 실었다.
+- **리뷰 후속(같은 날)** — ①반려 사유가 예약어('되돌리기')와 정확히 같으면 서버가 409
+  `RESERVED_REASON` 으로 거절한다(저장되면 반려 판정이 요청 취소로 오인 — 쓰기 시점 가드
+  + 읽기 시점 레거시 필터의 이중화) ②`lastPcbStencilInquiry` 는 **요청 취소를 철회로**
+  본다(취소를 먼저 만나면 null — 물린 글을 현행처럼 세우지 않는다; 보완 요청은 철회가
+  아니다) ③문의 사진 다중 업로드는 한 장 실패에 중단하지 않고 실패 파일명을 적는다(첨부는
+  제출 뒤 잠기므로 조용한 누락이 위험) ④어휘 단어 사전 공용화 — `pcbEqRejectActionLabel`
+  (반려/보완 요청)·`pcbEqForwardLabel`/`pcbEqRevertLabel` 를 Case 본행·MD 하위행·모달·409
+  가 함께 쓰고, 타임라인↔버튼 라벨의 의도된 차이 2곳은 드리프트 감시 테스트로 박제
+  ⑤`asEqFileType` 은 계약 `asPcbEqFileType` 위임(종류 사전 복제 제거) · EQ_LOCKED 문구
+  4곳 공용(`pcbEqLockedMessage`) · eq-approve/reject 의 스펙 중복 조회 제거 ⑥메일의
+  '고객문의사항' 인용 블록은 스텐실 트랙에서만 싣는다(EQ 메일에 남의 트랙 어휘 금지).
+- **검증** — 단위 `pcb-stencil-track` 확장(이벤트 라벨·inquiry 누적·lastPcbStencilInquiry
+  철회 경계·라벨 드리프트 감시) + `pcb-rfq-email` 스텐실 어휘 5케이스 · e2e
+  `journey-metal-mask` 10/10(M4 무메모 제출 통과→취소→문의 실어 재제출 · M4.5 관리자
+  Case 화면 신설) · `journey-eq-reply` 9/9(E5 예약어 사유 409 추가) · 회귀(rewind 8·
+  guards 10·md-eq-observe 4·harness 7) · api 916 · lint·typecheck 0.

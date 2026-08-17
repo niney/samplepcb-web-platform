@@ -136,6 +136,12 @@ export const pcbEqRevertLabel = (from: PcbPoStatusType, track: PcbPoTrackType): 
   return (track === 'stencil' ? STENCIL_REVERT_LABELS[from] : undefined) ?? base.label;
 };
 
+/** 반려 액션의 이름 — 스텐실은 '보완 요청'이다(잘못 온 좌표를 돌려보내는 유일한 문이라
+ *  반려라는 말이 과하다). Case 버튼(본행·MD 하위행)·반려 모달·서버 409 가 같은 말을 쓴다
+ *  (같은 단어를 화면마다 손으로 적으면 하나만 고쳐진다 — isPcbEqRejectionEvent 교훈). */
+export const pcbEqRejectActionLabel = (track: PcbPoTrackType): string =>
+  track === 'stencil' ? '보완 요청' : '반려';
+
 // EQ 첨부 종류 — eq(질의서)·working(작업 파일). 저장은 sp_file(refType 'sp_pcb_po_eq').
 // eq·working 은 **협력사 → 관리자** 산출물(질의서·작업 데이터)이고, reply 는 그 반대
 // 방향 — 관리자가 반려하며 돌려보내는 회신 첨부(수정지시 도면·마크업)다. 방향을 종류로
@@ -146,7 +152,10 @@ export const pcbEqRevertLabel = (from: PcbPoStatusType, track: PcbPoTrackType): 
 // 관리자)·같은 잠금 규칙이지만 종류를 따로 두는 이유는 셋이다: ①필수 게이트가 이 종류만
 // 센다 ②고객에게 열리는 유일한 종류다(아래 CUSTOMER_VISIBLE) ③isLatest 가 종류별이라
 // 섞으면 좌표파일이 질의서에 밀려 최신 자리를 잃는다.
-export const PCB_EQ_FILE_TYPES = ['eq', 'working', 'reply', 'coord'] as const;
+// inquiry(문의 사진)는 **고객문의사항에 곁들이는 선택 첨부**다(스텐실 트랙, 2026-08-17).
+// 문의가 "이 부분이요"를 말로 다 못 하니 사진이 붙는다 — 여러 장이 전부 유효한 **누적**
+// 종류라, 최신 1건만 남기는 버전 관례(isLatest)에서 예외다(orderPcbEqFiles 참조).
+export const PCB_EQ_FILE_TYPES = ['eq', 'working', 'reply', 'coord', 'inquiry'] as const;
 export type PcbEqFileTypeType = (typeof PCB_EQ_FILE_TYPES)[number];
 export const PcbEqFileType = z.enum(PCB_EQ_FILE_TYPES);
 
@@ -155,6 +164,7 @@ export const PCB_EQ_FILE_LABELS = {
   working: 'Working 데이터',
   reply: '관리자 회신',
   coord: '좌표파일',
+  inquiry: '문의 사진',
 } as const satisfies Record<PcbEqFileTypeType, string>;
 
 /** 고객이 (통보 없이) 열람할 수 있는 EQ 첨부 종류 — 좌표파일 하나뿐이다.
@@ -171,7 +181,7 @@ export const asPcbEqFileType = (v: unknown): PcbEqFileTypeType | null =>
 /**
  * 지금 이 종류의 첨부를 올리거나 지울 수 있는가 — 관리자·협력사 라우트가 같은 사전을 쓴다.
  *
- * 협력사 산출물(eq·working·coord)은 **승인요청 뒤 잠긴다**(EQ_LOCKED): 관리자가 검토하는
+ * 협력사 산출물(eq·working·coord·inquiry)은 **승인요청 뒤 잠긴다**(EQ_LOCKED): 관리자가 검토하는
  * 동안 근거 서류가 바뀌면 무엇을 보고 승인했는지가 사라진다. 반면 관리자 회신(reply)은 **승인
  * 요청을 받은 상태에서도 붙일 수 있어야 한다** — 받아 보고 "이걸 고쳐 달라"고 말하는 그 순간이
  * 곧 eq_requested 이기 때문이다. 생산이 시작된 뒤(eq_done~)에는 양쪽 다 닫힌다.
@@ -186,23 +196,19 @@ export const canEditPcbEqFile = (
   fileType === 'reply' ? status === 'issued' || status === 'eq_requested' : status === 'issued';
 
 /** 스텐실 트랙의 제출(발주접수 → 확인 요청) 필수 요건 — 못 채운 것을 코드로 돌려준다.
- *  화면과 서버가 같은 함수를 쓴다(서버가 정본, 화면은 버튼을 미리 잠그는 용도). */
-export type PcbStencilSubmitBlockerType = 'NOTE_REQUIRED' | 'COORD_FILE_REQUIRED';
+ *  화면과 서버가 같은 함수를 쓴다(서버가 정본, 화면은 버튼을 미리 잠그는 용도).
+ *  고객문의사항(note)은 **선택**이다(사용자 결정 2026-08-17 — 물어볼 것이 없는 주문이
+ *  더 많다). 필수는 좌표파일 하나 — 이것이 없으면 고객 화면이 빈자리가 된다. */
+export type PcbStencilSubmitBlockerType = 'COORD_FILE_REQUIRED';
 
 export const PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES = {
-  NOTE_REQUIRED: '고객문의사항을 입력해 주세요.',
   COORD_FILE_REQUIRED: '좌표파일을 첨부해 주세요.',
 } as const satisfies Record<PcbStencilSubmitBlockerType, string>;
 
 export const pcbStencilSubmitBlockers = (
-  note: string | null | undefined,
   files: readonly { fileType: string }[],
-): PcbStencilSubmitBlockerType[] => {
-  const out: PcbStencilSubmitBlockerType[] = [];
-  if ((note ?? '').trim().length < 2) out.push('NOTE_REQUIRED');
-  if (!files.some((f) => f.fileType === 'coord')) out.push('COORD_FILE_REQUIRED');
-  return out;
-};
+): PcbStencilSubmitBlockerType[] =>
+  files.some((f) => f.fileType === 'coord') ? [] : ['COORD_FILE_REQUIRED'];
 
 export const PcbEqFileView = z.object({
   fileId: z.number(),
@@ -228,6 +234,10 @@ export type PcbEqFileViewType = z.infer<typeof PcbEqFileView>;
  * 옛 도면을 보고 승인한다 — EQ 는 생산의 근거 서류라 그대로 만들어진다.
  *
  * '가장 나중'은 fileId 로 정한다 — writeDate 는 같은 초에 두 건이 들어오면 갈리지 않는다.
+ *
+ * ⚠ inquiry(문의 사진)는 **버전이 아니라 누적**이다 — 석 장을 올렸으면 석 장이 다 문의의
+ *   일부다. 종류별 최신 1건 규칙을 그대로 적용하면 두 장이 '이전 업로드'로 접혀 관리자가
+ *   못 보므로, inquiry 는 전부 isLatest 로 남긴다.
  */
 export const orderPcbEqFiles = <
   T extends { fileId: number; fileType: string; uploadedAt: string },
@@ -244,7 +254,7 @@ export const orderPcbEqFiles = <
   return files
     .map((f) => ({
       ...f,
-      isLatest: latestId.get(f.fileType) === f.fileId,
+      isLatest: f.fileType === 'inquiry' || latestId.get(f.fileType) === f.fileId,
       // 둘 다 toISOString() 이라 사전식 비교가 곧 시각 비교다.
       afterReject: rejectedAt !== null && f.uploadedAt > rejectedAt,
     }))
@@ -327,6 +337,66 @@ export const lastPcbEqRejection = (
 export const lastPcbEqRejectedAt = (
   history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
 ): string | null => lastPcbEqRejection(history)?.at ?? null;
+
+/** 타임라인 전이 이벤트의 사람 말 — **트랙이 정본**이다(화면이 EQ 문구를 하드코딩하면
+ *  스텐실 발주의 대화가 'EQ 승인요청/EQ 반려'로 그려진다 — 2026-08-17 확정 결함).
+ *  반려와 '요청 취소'는 같은 전이(eq_requested → issued)라 [[isPcbEqRejectionEvent]]
+ *  하나로만 가른다(레거시 '되돌리기' 표식 제외 포함 — 판정 복제 금지, 2026-08-16 교정과
+ *  같은 축). 이력의 상태는 raw 문자열이라 이벤트 객체를 그대로 받는다. */
+export const pcbEqEventLabel = (
+  e: { fromStatus?: string; toStatus?: string; note?: string | null },
+  track: PcbPoTrackType,
+): string => {
+  const st = track === 'stencil';
+  const from = e.fromStatus ?? '';
+  const to = e.toStatus ?? '';
+  if (from === 'issued' && to === 'eq_requested') return st ? '확인 요청' : 'EQ 승인요청';
+  if (from === 'eq_requested' && to === 'issued') {
+    if (isPcbEqRejectionEvent(e)) return st ? '보완 요청' : 'EQ 반려';
+    return st ? '확인 요청 취소' : 'EQ 요청 취소';
+  }
+  if (from === 'eq_requested' && to === 'eq_done') return st ? '확인 완료' : 'EQ 승인';
+  if (from === 'eq_done' && to === 'eq_requested') return st ? '확인 취소' : '승인 취소';
+  if (from === 'eq_done' && to === 'producing') return '생산 시작';
+  if (from === 'producing' && to === 'eq_done') return '생산시작 취소';
+  if (from === 'producing' && to === 'produced') return '생산 완료';
+  if (from === 'produced' && to === 'producing') return '생산완료 취소';
+  return `${from} → ${to}`;
+};
+
+/**
+ * 스텐실 트랙 — 협력사가 확인 요청에 실어 보낸 **고객문의사항**(현재 유효한 것) — 없으면 null.
+ *
+ * 문의사항은 새 컬럼이 아니라 `issued → eq_requested` 전이의 note 다. 뒤에서부터 훑되:
+ * - **요청 취소**(사유 없는 eq_requested → issued)를 먼저 만나면 **철회된 것**이다 — 협력사가
+ *   다시 쓰려고 물린 글을 관리자 화면에 현행처럼 세우면 안 된다 → null.
+ * - **보완 요청**(반려)은 문의를 철회시키지 않는다 — 돌려보낸 건 파일이지 질문이 아니고,
+ *   재요청 전까지는 그 글이 여전히 협력사가 물은 내용이다 → 계속 거슬러 제출 note 를 찾는다.
+ * - 제출을 만나면 그 note(무메모면 null — 옛 회차의 메모를 끌어오면 안 된다).
+ * 취소/반려 구분은 [[isPcbEqRejectionEvent]] 하나다(판정 복제 금지).
+ *
+ * 쓰임 — 관리자 Case 가 "무엇을 확인해 달라는 건지"를 행에서 바로 읽게 한다. 확인 완료를
+ * 눌러야 하는 관리자에게 문의 본문이 안 보이면 이 트랙의 핑퐁은 빈 껍데기다.
+ */
+export const lastPcbStencilInquiry = (
+  history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
+): { at: string; note: string } | null => {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const e = history[i];
+    if (e === undefined) continue;
+    if (
+      e.fromStatus === 'eq_requested' &&
+      e.toStatus === 'issued' &&
+      !isPcbEqRejectionEvent(e)
+    ) {
+      return null; // 요청 취소 — 마지막 제출은 철회됐다.
+    }
+    if (e.fromStatus === 'issued' && e.toStatus === 'eq_requested') {
+      return e.note === null || e.note === '' ? null : { at: e.at, note: e.note };
+    }
+  }
+  return null;
+};
 
 // ── EQ 타임라인 — 이력과 첨부를 한 시간축으로 ────────────────────────────────
 // EQ 왕복은 구조적으로 **대화**다: "이거 봐주세요(파일)" → "여기 고쳐주세요(사유+파일)" →
@@ -820,7 +890,8 @@ export type PcbPoRejectBodyType = z.infer<typeof PcbPoRejectBody>;
  *  note 다 — 그 자리가 이미 있고(전이 이력), 타임라인이 이미 말풍선으로 그린다.
  *  ⚠ `lastPcbEqRejection` 은 "note 가 있으면 반려"로 판정하지만 그건 `eq_requested →
  *    issued` 전이만 본다. 여기는 `issued → eq_requested` 라 서로 안 부딪힌다.
- *  EQ 트랙에서는 선택 입력이다(비우면 종전과 완전히 같다 — 회귀 없음).
+ *  **두 트랙 모두 선택 입력**이다(스텐실 필수 해제 — 사용자 결정 2026-08-17. 물어볼 것이
+ *  없는 주문이 더 많고, 필수로 두면 '없음' 같은 무의미한 두 글자만 쌓인다).
  *
  *  ⚠ **본문 없는 호출을 계속 받아야 한다** — 이 라우트는 원래 바디가 없었고, 지금도
  *    EQ 트랙에서는 보낼 것이 없다. 바디를 필수로 두면 본문을 안 싣는 기존 호출이

@@ -113,6 +113,88 @@ describe('buildPcbEqRequestedEmail — 선택 첨부 안내', () => {
   });
 });
 
+// ── 스텐실 트랙 어휘(2026-08-17) — 핑퐁 메일 3종이 EQ 대신 확인/보완의 말을 쓴다 ──
+describe('스텐실 트랙 메일 어휘 — EQ 라는 말이 안 나온다', () => {
+  it('확인 요청 도착 — 고객문의사항 본문이 메일에 실린다', () => {
+    const mail = buildPcbEqRequestedEmail({
+      partnerName: '협력2',
+      projectName: 'stencil.zip',
+      statusLabel: '확인 요청',
+      targetUrl: 'https://example.com/app/admin/pcb/cases/1',
+      targetLabel: 'Case 상세 열기',
+      track: 'stencil',
+      note: '앞면만 도포합니다 — 스텐실 면 확인 부탁드립니다.',
+    });
+    expect(mail.subject).toContain('확인 요청');
+    expect(mail.html).toContain('확인 요청이 도착했습니다');
+    expect(mail.html).toContain('고객문의사항');
+    expect(mail.html).toContain('앞면만 도포합니다');
+    expect(mail.subject).not.toContain('EQ');
+    expect(mail.html).not.toContain('EQ');
+  });
+
+  it('확인 요청 도착 — 문의가 비면 문의 인용 블록이 없다(안내 문장의 언급만 남는다)', () => {
+    const mail = buildPcbEqRequestedEmail({
+      partnerName: '협력2',
+      projectName: 'stencil.zip',
+      statusLabel: '확인 요청',
+      targetUrl: 'https://example.com/x',
+      targetLabel: 'Case 상세 열기',
+      track: 'stencil',
+      note: null,
+    });
+    expect(mail.html).not.toContain('<b>고객문의사항</b><br/>');
+  });
+
+  it('확인 완료 — 승인이 아니라 확인의 말', () => {
+    const mail = buildPcbEqDecisionEmail({
+      partnerName: '협력2',
+      projectName: 'stencil.zip',
+      approved: true,
+      reason: null,
+      poId: '77',
+      track: 'stencil',
+    });
+    expect(mail.subject).toContain('확인 완료');
+    expect(mail.html).toContain('확인이 완료되었습니다');
+    expect(mail.html).toContain('포털에서 [생산 시작]');
+    expect(mail.subject).not.toContain('EQ');
+    expect(mail.html).not.toContain('EQ가 승인');
+  });
+
+  it('보완 요청 — 반려가 아니라 보완의 말 + 사유 라벨', () => {
+    const mail = buildPcbEqDecisionEmail({
+      partnerName: '협력2',
+      projectName: 'stencil.zip',
+      approved: false,
+      reason: '좌표파일이 최신 도면과 다릅니다',
+      poId: '77',
+      track: 'stencil',
+    });
+    expect(mail.subject).toContain('보완 요청');
+    expect(mail.html).toContain('보완 요청이 도착했습니다');
+    expect(mail.html).toContain('보완 요청 사유');
+    expect(mail.html).toContain('좌표파일이 최신 도면과 다릅니다');
+    expect(mail.html).not.toContain('EQ가 반려');
+  });
+
+  it('발주서 도착 — 안내가 좌표파일(필수)·문의(선택)로 갈린다', () => {
+    const mail = buildPcbPoIssuedEmail({
+      partnerName: '협력2',
+      requesterName: '샘플피씨비',
+      projectName: 'stencil.zip',
+      qty: 5,
+      priceText: '₩50,000',
+      deliveryText: null,
+      track: 'stencil',
+    });
+    expect(mail.html).toContain('좌표파일(필수)');
+    expect(mail.html).toContain('고객문의사항과 사진');
+    expect(mail.html).not.toContain('EQ');
+    expect(mail.html).not.toContain('Working');
+  });
+});
+
 describe('buildPcbShipmentTurnEmail — 선적 차례', () => {
   const base = {
     recipientName: 'e2e한국협력',

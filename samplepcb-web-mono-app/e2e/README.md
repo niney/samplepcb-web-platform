@@ -93,7 +93,7 @@ specs/
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
   md-domestic-relay.e2e.test.ts        MD 4편 — 전 구간 국내(KR MD: 받는측 md domestic + 게이팅)
   md-cn-relay.e2e.test.ts              MD 5편 — CN MD(mdtester2상사: 비KR domestic + CN→KR 국제)
-  journey-metal-mask.e2e.test.ts       메탈마스크 트랙 — EQ 대신 고객문의사항+좌표파일(제출 게이트·확인 뒤 통보 없는 고객 열람·이름 중립화·EQ 트랙 무영향)
+  journey-metal-mask.e2e.test.ts       메탈마스크 트랙 — EQ 대신 고객문의사항(선택)+좌표파일(필수 게이트·문의 사진·확인 뒤 통보 없는 고객 열람·이름 중립화·EQ 트랙 무영향)
   pcb-guards.e2e.test.ts               확정 409 가드 박제(PO_ISSUED·EQ_LOCKED·RECEIVE_LOCKED 등 10종)
   rework-probe.e2e.test.ts             재작업 가드 회귀 — 잠김→정리→열림 순환(W2~W9, 스크립트 probe)
   journey-bom-domestic.e2e.test.ts     BOM 여정 1호 — 혼합 BOM→RFQ→주문→국내 배송 완료

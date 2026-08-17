@@ -264,8 +264,10 @@ describe.skipIf(!RUN || !JOURNEY)('여정 16호 — 동시 조작 경합', () =>
 
     const po = await getPrisma().spPcbPo.findUnique({ where: { id: BigInt(poId) } });
     const history: any[] = Array.isArray(po?.eqHistory) ? po.eqHistory : [];
+    // 전진만 센다 — 되돌리기(eq_done→eq_requested)는 **전이 방향**으로 거른다.
+    // (note==='되돌리기' 표식은 2026-08-16 교정으로 더는 안 쓰인다 — journey-rewind R4 동형)
     const forwardCount = history.filter(
-      (e: any) => String(e.toStatus) === 'eq_requested' && String(e.note ?? '') !== '되돌리기',
+      (e: any) => String(e.fromStatus) === 'issued' && String(e.toStatus) === 'eq_requested',
     ).length;
     // 이력이 두 줄이면 상태는 하나인데 기록만 겹친 것 — 그것도 사실과 다르다.
     expect(forwardCount, '전이 이력도 한 줄').toBe(1);

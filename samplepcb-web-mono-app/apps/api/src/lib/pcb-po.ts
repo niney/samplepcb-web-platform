@@ -19,7 +19,10 @@ import type {
 import {
   PCB_EQ_FORWARD,
   PCB_EQ_REVERT,
+  PCB_EQ_REVERT_NOTE,
   PCB_PO_STATUSES,
+  PCB_PO_STATUS_LABELS,
+  asPcbEqFileType,
   lastPcbEqRejectedAt,
   orderPcbEqFiles,
   pcbStencilSubmitBlockers,
@@ -166,10 +169,10 @@ const resolveEqDelegation = async (po: SpPcbPo): Promise<EqDelegation> => {
 // (orderPcbEqFiles 몫).
 type EqFileBase = Omit<PcbEqFileViewType, 'isLatest' | 'afterReject'>;
 
-// DB 컬럼은 문자열 — 계약 유니온으로 총함수 내로잉. ⚠ 새 종류를 여기 안 더하면 그 파일이
-// 조용히 'eq' 로 뭉개져 협력사 질의서 칸에 섞인다(방향을 가르려고 종류를 만든 의미가 사라진다).
-const asEqFileType = (v: string | null): PcbEqFileTypeType =>
-  v === 'working' ? 'working' : v === 'reply' ? 'reply' : v === 'coord' ? 'coord' : 'eq';
+// DB 컬럼은 문자열 — 계약 유니온으로 총함수 내로잉. 사전은 계약(asPcbEqFileType)이 정본이라
+// 새 종류가 늘어도 여기는 손댈 것이 없다(종류 사전을 여기 복제해 뒀다가 잊으면 그 파일이
+// 조용히 'eq' 로 뭉개져 협력사 질의서 칸에 섞인다 — 실제로 밟을 뻔한 함정).
+const asEqFileType = (v: string | null): PcbEqFileTypeType => asPcbEqFileType(v) ?? 'eq';
 
 const toEqFileView = (f: SpFile): EqFileBase => ({
   fileId: Number(f.id),
@@ -857,8 +860,15 @@ export type PcbEqTransitionError =
   | 'INVALID_STATUS'
   | 'NOTHING_TO_REVERT'
   | 'ORDER_CANCELED'
+  // 반려 사유가 시스템 예약어('되돌리기')와 정확히 같다 — 저장하면 반려 판정
+  // (isPcbEqRejectionEvent)이 레거시 표식으로 오인해 요청 취소로 읽는다.
+  | 'RESERVED_REASON'
   // 스텐실 트랙의 제출 요건(계약 pcbStencilSubmitBlockers) — 발주접수 → 확인 요청에서만.
   | PcbStencilSubmitBlockerType;
+
+/** EQ_LOCKED 409 문구 — 협력사·관리자 업로드/삭제 네 곳이 같은 문장을 쓴다(트랙 라벨만 갈림). */
+export const pcbEqLockedMessage = (track: PcbPoTrackType): string =>
+  `${PCB_PO_STATUS_LABELS[track].eq_requested} 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.`;
 
 export const advancePcbPoEq = async (
   poId: bigint,
@@ -886,18 +896,16 @@ export const advancePcbPoEq = async (
   if (role !== action.actor && actor.kind !== 'admin')
     return { ok: false, error: 'NOT_YOUR_TURN' };
 
-  // 스텐실 제출 게이트 — 고객문의사항과 좌표파일이 있어야 넘어간다. **관리자 대행도 예외가
-  // 아니다**: 대행은 "누가 누르는가"의 문제이고, 좌표파일 없이 확인 완료로 넘어간 건은
-  // 나중에 고객이 열었을 때 빈자리가 된다(관리자 대행 D11 과 충돌하지 않는 이유).
+  // 스텐실 제출 게이트 — 좌표파일이 있어야 넘어간다(고객문의사항은 **선택** — 2026-08-17
+  // 필수 해제). **관리자 대행도 예외가 아니다**: 대행은 "누가 누르는가"의 문제이고,
+  // 좌표파일 없이 확인 완료로 넘어간 건은 나중에 고객이 열었을 때 빈자리가 된다
+  // (관리자 대행 D11 과 충돌하지 않는 이유).
   if (expectedFrom === 'issued' && (await pcbPoTrackOf(po.specId)) === 'stencil') {
     const files = await prisma.spFile.findMany({
       where: { refType: EQ_REF_TYPE, refId: po.id },
       select: { fileType: true },
     });
-    const blockers = pcbStencilSubmitBlockers(
-      note,
-      files.map((f) => ({ fileType: f.fileType ?? '' })),
-    );
+    const blockers = pcbStencilSubmitBlockers(files.map((f) => ({ fileType: f.fileType ?? '' })));
     const first = blockers[0];
     if (first !== undefined) return { ok: false, error: first };
   }
@@ -928,6 +936,10 @@ export const rejectPcbPoEq = async (
   poId: bigint,
   reason: string,
 ): Promise<{ ok: true } | { ok: false; error: PcbEqTransitionError }> => {
+  // 사유가 예약어와 정확히 같으면 거절한다 — 그대로 저장하면 판정(isPcbEqRejectionEvent)이
+  // 레거시 되돌리기 표식으로 오인해, 메일은 반려라 말하고 화면은 전부 취소로 읽는다
+  // (반려 배너·rejectedAt·회차 분할·afterReject 가 조용히 꺼진다).
+  if (reason.trim() === PCB_EQ_REVERT_NOTE) return { ok: false, error: 'RESERVED_REASON' };
   const po = await prisma.spPcbPo.findUnique({ where: { id: poId } });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
   const delegation = await resolveEqDelegation(po);

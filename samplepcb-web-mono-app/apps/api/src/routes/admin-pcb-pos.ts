@@ -23,6 +23,8 @@ import {
   asPcbEqFileType,
   bomShipmentStatusLabel,
   canEditPcbEqFile,
+  pcbEqRejectActionLabel,
+  resolvePcbPoTrack,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
@@ -38,6 +40,7 @@ import {
   loadAdminPcbPos,
   loadPcbPoWithPartner,
   patchPcbPo,
+  pcbEqLockedMessage,
   pcbPoTrackOf,
   rejectPcbPoEq,
   revertPcbPoEq,
@@ -229,6 +232,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               created.po.subPriceOriginal === null ? null : Number(created.po.subPriceOriginal),
             ),
             deliveryText: created.po.deliveryDate === null ? null : kstDateStr(created.po.deliveryDate),
+            track: resolvePcbPoTrack(spec.category),
             ...portalCta,
           }),
           {
@@ -317,7 +321,9 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const po = await loadPcbPoWithPartner(request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
-      const track = await pcbPoTrackOf(po.specId);
+      // 스펙은 한 번만 읽는다 — 트랙(category)과 메일 제목(projectName)이 같은 행이다.
+      const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
+      const track = resolvePcbPoTrack(spec?.category);
       const res = await advancePcbPoEq(po.id, { kind: 'admin' }, 'eq_requested');
       if (!res.ok)
         return reply.status(409).send({
@@ -328,10 +334,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               : `${PCB_PO_STATUS_LABELS[track].eq_requested} 상태에서만 ${track === 'stencil' ? '확인 완료로 넘길' : '승인할'} 수 있습니다.`,
         });
 
-      const [spec, portalCta] = await Promise.all([
-        prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
-        resolvePcbPortalCta(po.partnerId),
-      ]);
+      const portalCta = await resolvePcbPortalCta(po.partnerId);
       void sendPcbMail(
         request.log,
         po.partner.contactEmail,
@@ -341,6 +344,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           approved: true,
           reason: null,
           poId: String(po.id),
+          track,
           ...portalCta,
         }),
         {
@@ -368,14 +372,21 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const po = await loadPcbPoWithPartner(request.params.poId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
+      // 스펙은 한 번만 읽는다 — 트랙(category)과 메일 제목(projectName)이 같은 행이다.
+      const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
+      const track = resolvePcbPoTrack(spec?.category);
+      const actWord = pcbEqRejectActionLabel(track);
       const res = await rejectPcbPoEq(po.id, request.body.reason);
       if (!res.ok)
-        return reply
-          .status(409)
-          .send({ error: res.error, message: 'EQ 승인요청 상태에서만 반려할 수 있습니다.' });
+        return reply.status(409).send({
+          error: res.error,
+          message:
+            res.error === 'RESERVED_REASON'
+              ? `'되돌리기'는 시스템 예약어라 사유로 쓸 수 없습니다 — 다른 문장으로 적어 주세요.`
+              : `${PCB_PO_STATUS_LABELS[track].eq_requested} 상태에서만 ${actWord}할 수 있습니다.`,
+        });
 
-      const [spec, portalCta, replyFileCount] = await Promise.all([
-        prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
+      const [portalCta, replyFileCount] = await Promise.all([
         resolvePcbPortalCta(po.partnerId),
         // 회신 첨부는 메일에 붙이지 않는다(포털에서 받는다) — 대신 **있다는 사실**을 알린다.
         // 사유만 오는 반려와 "도면을 봐야 하는" 반려는 협력사가 할 일이 다르다.
@@ -391,6 +402,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           reason: request.body.reason,
           poId: String(po.id),
           replyFileCount,
+          track,
           ...portalCta,
         }),
         {
@@ -419,7 +431,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         // 일어날 수 없는 이유였고, 진짜 원인(되돌릴 단계 없음 · MD 위임 중)을 가렸다.
         const REVERT_ERROR: Record<string, string> = {
           NOTHING_TO_REVERT: '되돌릴 단계가 없습니다 — 이미 첫 단계(발주접수)입니다.',
-          DELEGATED: 'MD 경유 발주입니다 — EQ 진행·되돌리기는 하위 발주에서 합니다.',
+          DELEGATED: 'MD 경유 발주입니다 — 진행·되돌리기는 하위 발주에서 합니다.',
           PO_NOT_FOUND: '발주서를 찾을 수 없습니다.',
         };
         return reply.status(409).send({
@@ -443,8 +455,9 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       `/pcb-projects/:id/pos/:poId/${step.path}`,
       {
         // 제출 대행(eq-request)은 협력사 라우트와 **같은 바디**를 받는다 — 스텐실 트랙이면
-        // 고객문의사항이 필수이고, 대행이라고 그 요건이 빠지지 않는다(빠지면 좌표 없이 확인
-        // 완료로 넘어간 건이 나중에 고객 화면에서 빈자리가 된다). 나머지 두 단계는 무시된다.
+        // 좌표파일이 필수이고, 대행이라고 그 요건이 빠지지 않는다(빠지면 좌표 없이 확인
+        // 완료로 넘어간 건이 나중에 고객 화면에서 빈자리가 된다). 고객문의사항(note)은
+        // 선택이다(2026-08-17 필수 해제). 나머지 두 단계에서 바디는 무시된다.
         schema: {
           params: PoParams,
           body: PcbEqRequestBody,
@@ -461,16 +474,22 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           step.from,
           step.path === 'eq-request' ? (request.body.note ?? null) : null,
         );
-        if (!res.ok)
+        if (!res.ok) {
+          // 제출 대행의 이름은 트랙을 입는다 — 스텐실에 'EQ 승인요청'이라는 단계는 없다.
+          const stepLabel =
+            step.path === 'eq-request'
+              ? PCB_PO_STATUS_LABELS[await pcbPoTrackOf(po.specId)].eq_requested
+              : step.label;
           return reply.status(409).send({
             error: res.error,
             message:
               res.error === 'ORDER_CANCELED'
                 ? '취소된 주문입니다 — 재작업은 A/S 재발주로 진행하세요.'
-                : res.error === 'NOTE_REQUIRED' || res.error === 'COORD_FILE_REQUIRED'
+                : res.error === 'COORD_FILE_REQUIRED'
                   ? PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES[res.error]
-                  : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
+                  : `${stepLabel} 대행을 진행할 수 없는 상태입니다.`,
           });
+        }
         return { result: true as const };
       },
     );
@@ -490,7 +509,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (kind === null || file === undefined) {
         return reply.status(400).send({
           error: 'BAD_UPLOAD',
-          message: 'fileType(eq|working|reply)과 파일이 필요합니다.',
+          message: 'fileType(eq|working|reply|coord|inquiry)과 파일이 필요합니다.',
         });
       }
       const po = await loadPcbPoWithPartner(request.params.poId);
@@ -502,7 +521,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message:
             kind === 'reply'
               ? '생산이 시작된 뒤에는 회신 첨부를 올릴 수 없습니다.'
-              : 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+              : pcbEqLockedMessage(await pcbPoTrackOf(po.specId)),
         });
       }
       await uploadPcbEqFile(po.id, file, kind, 'ADMIN');
@@ -526,7 +545,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message:
             kind === 'reply'
               ? '생산이 시작된 뒤에는 회신 첨부를 지울 수 없습니다.'
-              : 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+              : pcbEqLockedMessage(await pcbPoTrackOf(po.specId)),
         });
       }
       const removed = await deletePcbEqFile(po.id, request.params.fileId);

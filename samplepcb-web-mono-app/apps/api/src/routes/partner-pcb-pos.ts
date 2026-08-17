@@ -35,6 +35,8 @@ import {
   loadPartnerPcbPoSpecFile,
   loadPartnerPcbPos,
   partnerCanTouchPo,
+  pcbEqLockedMessage,
+  pcbPoTrackOf,
   revertPcbPoEq,
   uploadPcbEqFile,
 } from '../lib/pcb-po';
@@ -243,15 +245,16 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           message:
             kind.success && kind.data === 'reply'
               ? '회신 첨부는 관리자만 올릴 수 있습니다.'
-              : 'fileType(eq|working|coord)과 파일이 필요합니다.',
+              : 'fileType(eq|working|coord|inquiry)과 파일이 필요합니다.',
         });
       }
       const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.status !== 'issued') {
+        // 잠금 안내는 트랙의 말로 — 스텐실 협력사에게 'EQ 승인요청'은 없는 단계다.
         return reply.status(409).send({
           error: 'EQ_LOCKED',
-          message: 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+          message: pcbEqLockedMessage(await pcbPoTrackOf(po.specId)),
         });
       }
       const uploadedBy = po.partnerId === ctx.partnerId ? 'PARTNER' : 'MASTER_DEALER';
@@ -279,7 +282,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po.status !== 'issued') {
         return reply.status(409).send({
           error: 'EQ_LOCKED',
-          message: 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+          message: pcbEqLockedMessage(await pcbPoTrackOf(po.specId)),
         });
       }
       const removed = await deletePcbEqFile(po.id, request.params.fileId);
@@ -313,7 +316,8 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
 
   // ── EQ 전이(RECEIVER — MD fallback 포함, 순서는 expectedFrom 으로 고정) ──────
   const TRANSITION_MESSAGES: Record<string, string> = {
-    DELEGATED: 'MD 경유 발주서입니다 — EQ 는 하위 발주서에서 진행됩니다.',
+    // 두 트랙이 같이 받는 문구라 트랙 어휘(EQ/확인)를 넣지 않는다.
+    DELEGATED: 'MD 경유 발주서입니다 — 진행은 하위 발주서에서 합니다.',
     NOT_YOUR_TURN: '지금은 상대 차례입니다.',
     INVALID_STATUS: '현재 단계에서 실행할 수 없는 전이입니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
@@ -365,6 +369,11 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           statusLabel: PCB_PO_STATUS_LABELS[track].eq_requested,
           targetUrl: pcbAdminCaseUrl(po.specId.toString()),
           targetLabel: 'Case 상세 열기',
+          track,
+          // 스텐실의 고객문의사항 — 관리자가 열어 보기 전에 무엇을 봐 달라는 건지 메일에서
+          // 읽힌다. EQ 트랙은 싣지 않는다('고객문의사항' 블록은 스텐실 어휘다 — 직접 API
+          // 호출이 note 를 실어도 EQ 승인요청 메일에 남의 트랙 말이 섞이면 안 된다).
+          note: track === 'stencil' ? (request.body.note ?? null) : null,
         }),
         {
           kind: 'pcb_eq_requested',
@@ -529,6 +538,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
               created.po.subPriceOriginal === null ? null : Number(created.po.subPriceOriginal),
             ),
             deliveryText: created.po.deliveryDate === null ? null : kstDateStr(created.po.deliveryDate),
+            track: resolvePcbPoTrack(spec.category),
             ...portalCta,
           }),
           {

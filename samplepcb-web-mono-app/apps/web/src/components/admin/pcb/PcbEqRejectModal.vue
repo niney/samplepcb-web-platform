@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AdminPcbPoViewType } from '@sp/api-contract';
+import { pcbEqRejectActionLabel, type AdminPcbPoViewType } from '@sp/api-contract';
 import {
   useDeleteAdminPcbEqFile,
   useUploadAdminPcbEqFile,
@@ -45,6 +45,9 @@ watch(
 
 const replyFiles = computed(() => props.po?.eqFiles.filter((f) => f.fileType === 'reply') ?? []);
 const canSubmit = computed(() => reason.value.trim() !== '' && !props.busy);
+// 트랙별 어휘 — 스텐실의 되돌리기는 반려가 아니라 **보완 요청**이다(단어는 계약 사전 하나).
+const stencil = computed(() => props.po?.track === 'stencil');
+const actWord = computed(() => pcbEqRejectActionLabel(props.po?.track ?? 'eq'));
 
 function pickFile(): void {
   if (props.po === null || props.specId === null) return;
@@ -87,18 +90,18 @@ async function removeFile(fileId: number): Promise<void> {
       @click.self="emit('close')"
     >
       <div class="w-full max-w-lg rounded-xl bg-surface p-5 shadow-2xl">
-        <h3 class="text-sm font-bold text-gray-800">EQ 반려 — {{ po.partnerName }}</h3>
+        <h3 class="text-sm font-bold text-gray-800">{{ stencil ? '보완 요청' : 'EQ 반려' }} — {{ po.partnerName }}</h3>
         <p class="mt-1 text-xs text-gray-500">
           협력사에게 메일로 전달되고, 발주는 '발주접수'로 되돌아갑니다.
         </p>
 
         <label class="mt-4 block">
-          <span class="text-xs font-semibold text-gray-600">반려 사유 <span class="text-red-500">*</span></span>
+          <span class="text-xs font-semibold text-gray-600">{{ actWord }} 사유 <span class="text-red-500">*</span></span>
           <textarea
             v-model="reason"
             rows="3"
             class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
-            placeholder="예) 실크 위치를 좌측으로 옮겨 주세요."
+            :placeholder="stencil ? '예) 좌표파일이 최신 도면과 다릅니다 — 다시 확인해 주세요.' : '예) 실크 위치를 좌측으로 옮겨 주세요.'"
           />
           <span class="text-[11px] text-gray-400">
             {{ prefillReason === ''
@@ -137,7 +140,7 @@ async function removeFile(fileId: number): Promise<void> {
           </ul>
           <p class="mt-1.5 text-[11px] text-blue-600">
             {{ replyFiles.length === 0
-              ? '없어도 반려할 수 있습니다 — 도면·마크업이 있으면 붙여 주세요.'
+              ? `없어도 ${actWord}할 수 있습니다 — 도면·마크업이 있으면 붙여 주세요.`
               : '협력사가 포털 발주 상세에서 내려받습니다. 메일에도 첨부 사실이 안내됩니다.' }}
           </p>
         </div>
@@ -158,7 +161,7 @@ async function removeFile(fileId: number): Promise<void> {
             :disabled="!canSubmit"
             @click="emit('confirm', reason.trim())"
           >
-            {{ busy ? '보내는 중…' : `반려하고 알리기${replyFiles.length > 0 ? ` (첨부 ${replyFiles.length})` : ''}` }}
+            {{ busy ? '보내는 중…' : `${stencil ? '보완 요청 보내기' : '반려하고 알리기'}${replyFiles.length > 0 ? ` (첨부 ${replyFiles.length})` : ''}` }}
           </button>
         </div>
       </div>

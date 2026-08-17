@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   PCB_PO_STATUS_LABELS,
   canEditPcbEqFile,
+  lastPcbStencilInquiry,
+  orderPcbEqFiles,
+  pcbEqEventLabel,
   pcbEqForwardLabel,
+  pcbEqRejectActionLabel,
   pcbEqRevertLabel,
   pcbStencilSubmitBlockers,
   resolvePcbPoTrack,
@@ -58,30 +62,150 @@ describe('트랙별 라벨', () => {
   });
 });
 
-describe('pcbStencilSubmitBlockers', () => {
-  const coord = [{ fileType: 'coord' }];
-
-  it('둘 다 있어야 통과한다', () => {
-    expect(pcbStencilSubmitBlockers('앞면만 도포합니다', coord)).toEqual([]);
-  });
-
-  it('문의사항이 비었거나 한 글자면 막는다', () => {
-    expect(pcbStencilSubmitBlockers('', coord)).toEqual(['NOTE_REQUIRED']);
-    expect(pcbStencilSubmitBlockers('   ', coord)).toEqual(['NOTE_REQUIRED']);
-    expect(pcbStencilSubmitBlockers('네', coord)).toEqual(['NOTE_REQUIRED']); // 1자
-    expect(pcbStencilSubmitBlockers('없음', coord)).toEqual([]); // 2자면 통과(D16 과 같은 하한)
-    expect(pcbStencilSubmitBlockers(null, coord)).toEqual(['NOTE_REQUIRED']);
+describe('pcbStencilSubmitBlockers — 필수는 좌표파일 하나(문의사항은 선택, 2026-08-17)', () => {
+  it('좌표파일만 있으면 통과한다 — 고객문의사항 없이도', () => {
+    expect(pcbStencilSubmitBlockers([{ fileType: 'coord' }])).toEqual([]);
   });
 
   it('좌표파일이 없으면 막는다 — **다른 종류로는 대신 못 채운다**', () => {
-    expect(pcbStencilSubmitBlockers('확인 부탁드립니다', [])).toEqual(['COORD_FILE_REQUIRED']);
+    expect(pcbStencilSubmitBlockers([])).toEqual(['COORD_FILE_REQUIRED']);
     expect(
-      pcbStencilSubmitBlockers('확인 부탁드립니다', [{ fileType: 'eq' }, { fileType: 'working' }]),
+      pcbStencilSubmitBlockers([{ fileType: 'eq' }, { fileType: 'working' }, { fileType: 'inquiry' }]),
     ).toEqual(['COORD_FILE_REQUIRED']);
   });
+});
 
-  it('둘 다 없으면 둘 다 알린다(하나 고치고 또 막히지 않게)', () => {
-    expect(pcbStencilSubmitBlockers('', [])).toEqual(['NOTE_REQUIRED', 'COORD_FILE_REQUIRED']);
+describe('타임라인 전이 라벨(pcbEqEventLabel) — 대화가 트랙의 말로 그려진다', () => {
+  const ev = (fromStatus: string, toStatus: string, note: string | null = null) => ({
+    fromStatus,
+    toStatus,
+    note,
+  });
+
+  it('스텐실 — 요청/보완/취소/완료가 전부 확인 어휘다', () => {
+    expect(pcbEqEventLabel(ev('issued', 'eq_requested', '문의'), 'stencil')).toBe('확인 요청');
+    expect(pcbEqEventLabel(ev('eq_requested', 'issued', '좌표 보완'), 'stencil')).toBe('보완 요청');
+    expect(pcbEqEventLabel(ev('eq_requested', 'issued'), 'stencil')).toBe('확인 요청 취소');
+    expect(pcbEqEventLabel(ev('eq_requested', 'eq_done'), 'stencil')).toBe('확인 완료');
+    expect(pcbEqEventLabel(ev('eq_done', 'eq_requested'), 'stencil')).toBe('확인 취소');
+  });
+
+  it('EQ 트랙은 종전 문구 그대로(회귀 방어) — 생산 구간은 두 트랙이 같은 말', () => {
+    expect(pcbEqEventLabel(ev('issued', 'eq_requested'), 'eq')).toBe('EQ 승인요청');
+    expect(pcbEqEventLabel(ev('eq_requested', 'issued', '드릴 누락'), 'eq')).toBe('EQ 반려');
+    expect(pcbEqEventLabel(ev('eq_requested', 'issued'), 'eq')).toBe('EQ 요청 취소');
+    expect(pcbEqEventLabel(ev('eq_requested', 'eq_done'), 'eq')).toBe('EQ 승인');
+    for (const track of ['eq', 'stencil'] as const) {
+      expect(pcbEqEventLabel(ev('eq_done', 'producing'), track)).toBe('생산 시작');
+      expect(pcbEqEventLabel(ev('producing', 'produced'), track)).toBe('생산 완료');
+    }
+  });
+
+  it("옛 이력의 '되돌리기' 표식은 두 트랙 모두 취소로 읽는다 — 판정은 isPcbEqRejectionEvent 하나", () => {
+    expect(pcbEqEventLabel(ev('eq_requested', 'issued', '되돌리기'), 'eq')).toBe('EQ 요청 취소');
+    expect(pcbEqEventLabel(ev('eq_requested', 'issued', '되돌리기'), 'stencil')).toBe('확인 요청 취소');
+  });
+
+  it('버튼 라벨 사전과 어긋나지 않는다 — 어긋나는 두 곳은 의도된 것만(드리프트 감시)', () => {
+    // 타임라인 라벨과 버튼 라벨(pcbEqForwardLabel/pcbEqRevertLabel)은 별도 사전이다.
+    // 같아야 하는 칸이 조용히 갈라지면 여기가 빨개진다. 의도된 차이는 둘뿐:
+    // ① eq 트랙 요청 취소(버튼 '승인요청 취소' vs 말풍선 'EQ 요청 취소' — 대화에는 EQ 맥락을 남긴다)
+    // ② 반려(버튼은 짧게 '반려/보완 요청', 말풍선은 'EQ 반려/보완 요청').
+    for (const track of ['eq', 'stencil'] as const) {
+      expect(pcbEqEventLabel(ev('issued', 'eq_requested'), track)).toBe(
+        pcbEqForwardLabel('issued', track),
+      );
+      expect(pcbEqEventLabel(ev('eq_requested', 'eq_done'), track)).toBe(
+        pcbEqForwardLabel('eq_requested', track),
+      );
+      expect(pcbEqEventLabel(ev('eq_done', 'producing'), track)).toBe('생산 시작');
+      expect(pcbEqEventLabel(ev('producing', 'produced'), track)).toBe('생산 완료');
+      expect(pcbEqEventLabel(ev('eq_done', 'eq_requested'), track)).toBe(
+        pcbEqRevertLabel('eq_done', track),
+      );
+    }
+    // 스텐실 요청 취소는 버튼과도 같은 말이다(확인 요청 취소).
+    expect(pcbEqEventLabel(ev('eq_requested', 'issued'), 'stencil')).toBe(
+      pcbEqRevertLabel('eq_requested', 'stencil'),
+    );
+  });
+});
+
+describe('pcbEqRejectActionLabel — 반려 액션의 단어(버튼·모달·409 공용)', () => {
+  it('스텐실은 보완 요청, EQ 는 반려', () => {
+    expect(pcbEqRejectActionLabel('stencil')).toBe('보완 요청');
+    expect(pcbEqRejectActionLabel('eq')).toBe('반려');
+  });
+});
+
+describe('lastPcbStencilInquiry — 현행 제출분의 고객문의사항', () => {
+  const ev = (fromStatus: string, toStatus: string, note: string | null, at: string) => ({
+    at,
+    fromStatus,
+    toStatus,
+    note,
+  });
+
+  it('마지막 확인 요청의 note 를 돌려준다 — 보완 뒤 재요청이면 새 note 로 갈아탄다', () => {
+    const history = [
+      ev('issued', 'eq_requested', '첫 문의', '2026-08-17T01:00:00.000Z'),
+      ev('eq_requested', 'issued', '좌표가 다릅니다', '2026-08-17T02:00:00.000Z'), // 보완 요청
+      ev('issued', 'eq_requested', '수정했습니다 — 재확인 부탁', '2026-08-17T03:00:00.000Z'),
+    ];
+    expect(lastPcbStencilInquiry(history)).toEqual({
+      at: '2026-08-17T03:00:00.000Z',
+      note: '수정했습니다 — 재확인 부탁',
+    });
+  });
+
+  it('현행 제출이 무메모면 null — 옛 회차의 메모를 끌어오지 않는다', () => {
+    const history = [
+      ev('issued', 'eq_requested', '첫 문의', '2026-08-17T01:00:00.000Z'),
+      ev('eq_requested', 'issued', null, '2026-08-17T02:00:00.000Z'), // 요청 취소
+      ev('issued', 'eq_requested', null, '2026-08-17T03:00:00.000Z'), // 무메모 재요청
+    ];
+    expect(lastPcbStencilInquiry(history)).toBeNull();
+    expect(lastPcbStencilInquiry([])).toBeNull();
+  });
+
+  it('요청 취소는 문의를 **철회**한다 — 물린 글을 관리자 화면에 현행처럼 세우지 않는다', () => {
+    const history = [
+      ev('issued', 'eq_requested', '다시 쓰려고 물린 문의', '2026-08-17T01:00:00.000Z'),
+      ev('eq_requested', 'issued', null, '2026-08-17T02:00:00.000Z'), // 자기 취소
+    ];
+    expect(lastPcbStencilInquiry(history)).toBeNull();
+  });
+
+  it('보완 요청(반려)은 문의를 철회시키지 않는다 — 돌려보낸 건 파일이지 질문이 아니다', () => {
+    const history = [
+      ev('issued', 'eq_requested', '스텐실 면 확인 부탁', '2026-08-17T01:00:00.000Z'),
+      ev('eq_requested', 'issued', '좌표가 다릅니다', '2026-08-17T02:00:00.000Z'), // 보완 요청
+    ];
+    expect(lastPcbStencilInquiry(history)).toEqual({
+      at: '2026-08-17T01:00:00.000Z',
+      note: '스텐실 면 확인 부탁',
+    });
+  });
+});
+
+describe('문의 사진(inquiry) — 선택·누적 첨부', () => {
+  it('협력사 산출물과 같은 잠금 — 확인 요청 뒤엔 못 바꾼다', () => {
+    expect(canEditPcbEqFile('inquiry', 'issued')).toBe(true);
+    expect(canEditPcbEqFile('inquiry', 'eq_requested')).toBe(false);
+  });
+
+  it('여러 장이 전부 최신이다 — 버전 관례(isLatest)의 예외', () => {
+    const files = orderPcbEqFiles([
+      { fileId: 1, fileType: 'inquiry', uploadedAt: '2026-08-17T01:00:00.000Z' },
+      { fileId: 2, fileType: 'inquiry', uploadedAt: '2026-08-17T02:00:00.000Z' },
+      { fileId: 3, fileType: 'coord', uploadedAt: '2026-08-17T03:00:00.000Z' },
+      { fileId: 4, fileType: 'coord', uploadedAt: '2026-08-17T04:00:00.000Z' },
+    ]);
+    const latest = (id: number): boolean => files.find((f) => f.fileId === id)?.isLatest ?? false;
+    expect(latest(1)).toBe(true); // 사진은 누적 — 둘 다 유효
+    expect(latest(2)).toBe(true);
+    expect(latest(3)).toBe(false); // 좌표는 버전 — 최신 1건만
+    expect(latest(4)).toBe(true);
   });
 });
 

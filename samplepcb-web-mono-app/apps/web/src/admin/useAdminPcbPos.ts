@@ -198,7 +198,7 @@ export function useAdminPcbEqSubstitute() {
       specId: number;
       poId: number;
       action: AdminPcbEqSubstituteAction;
-      /** 스텐실 트랙의 고객문의사항(eq-request 대행 전용) — 서버 게이트가 필수로 본다. */
+      /** 스텐실 트랙의 고객문의사항(eq-request 대행 전용) — 선택 입력(2026-08-17 필수 해제). */
       note?: string;
     }) =>
       apiSend(
