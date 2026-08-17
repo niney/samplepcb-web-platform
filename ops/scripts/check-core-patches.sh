@@ -46,6 +46,39 @@ assert_contains \
   '0-9a-z_@' \
   "get_member() 의 mb_id 필터를 [^0-9a-z_] → [^0-9a-z_@.\\-] 로 재적용 (docs/LEGACY_DB_MIGRATION.md §8). 근처에 '[samplepcb 코어 최소 수정]' 주석."
 
+# ② 주문서 전 기기 pc 폼 통일: orderform.php 의 raw is_mobile() → G5_IS_MOBILE
+#    sp-lite 테마가 전 기기 pc 를 강제하므로, 원본대로면 실제 폰이 mobile 주문폼으로
+#    갈라져 반응형 재디자인(d65e8c689)이 무력화된다.
+assert_contains \
+  "orderform 전 기기 pc 폼 (is_mobile→G5_IS_MOBILE)" \
+  "samplepcb-web/shop/orderform.php" \
+  '$is_mobile_order = G5_IS_MOBILE;' \
+  "shop/orderform.php 의 \$is_mobile_order 를 is_mobile() → G5_IS_MOBILE 로 재적용 (커밋 d65e8c689 참고)."
+
+# ③ 주문서 본문 sp 커스텀: orderform.sub.php 의 거버 견적·마켓·스마트BOM 건별 렌더
+#    (sp_custom_row_it_ids_in seam). 사라지면 견적 주문서가 일반 상품 GROUP BY 로 뭉개져
+#    금액·품목 표시가 전부 어긋난다. 상세: extend/sp_quote_cart.extend.php.
+assert_contains \
+  "orderform.sub sp 커스텀 행 렌더 (sp_custom_row_it_ids_in)" \
+  "samplepcb-web/shop/orderform.sub.php" \
+  'sp_custom_row_it_ids_in' \
+  "shop/orderform.sub.php 의 sp 커스텀 블록(sp_custom_row_it_ids_in 분기 렌더)을 재적용 — git log -p 로 이전 버전 복원."
+
+# ④ 주문 저장 금액 검증 seam: orderformupdate.php 의 sp_order_cart_count_sql
+#    (다중 PCB 주문 결제 금액 일치 — 커밋 de6c73599). 사라지면 다중 견적 주문이
+#    "주문금액이 상이함" 으로 전부 결제 실패한다. pc·mobile 두 파일 모두.
+assert_contains \
+  "orderformupdate 금액 검증 seam (sp_order_cart_count_sql, pc)" \
+  "samplepcb-web/shop/orderformupdate.php" \
+  'sp_order_cart_count_sql' \
+  "shop/orderformupdate.php 의 sp_order_cart_count_sql seam 을 재적용 (커밋 de6c73599 참고)."
+
+assert_contains \
+  "orderformupdate 금액 검증 seam (sp_order_cart_count_sql, mobile)" \
+  "samplepcb-web/mobile/shop/orderformupdate.php" \
+  'sp_order_cart_count_sql' \
+  "mobile/shop/orderformupdate.php 의 sp_order_cart_count_sql seam 을 재적용 (커밋 de6c73599 참고)."
+
 # (앞으로 다른 코어 최소 수정이 생기면 위 형식으로 assert_contains 를 추가한다.)
 
 if [ "$FAIL" -ne 0 ]; then
