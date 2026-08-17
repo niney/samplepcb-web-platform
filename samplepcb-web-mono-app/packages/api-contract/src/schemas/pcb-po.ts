@@ -19,6 +19,16 @@ export const PCB_PO_STATUSES = [
 export type PcbPoStatusType = (typeof PCB_PO_STATUSES)[number];
 export const PcbPoStatus = z.enum(PCB_PO_STATUSES);
 
+// 발주 이행 방식 — 조직 역할이 아니라 **발주 건별 박제값**이다. 같은 MD 조직도 어떤 건은
+// 직접 제작(self), 다른 건은 하위 협력사 위임(delegated)으로 처리할 수 있다.
+export const PCB_PO_FULFILLMENT_MODES = ['self', 'delegated'] as const;
+export type PcbPoFulfillmentModeType = (typeof PCB_PO_FULFILLMENT_MODES)[number];
+export const PcbPoFulfillmentMode = z.enum(PCB_PO_FULFILLMENT_MODES);
+export const PCB_PO_FULFILLMENT_MODE_LABELS = {
+  self: '직접 제작',
+  delegated: '하위 협력사 위임',
+} as const satisfies Record<PcbPoFulfillmentModeType, string>;
+
 // ── 공정 트랙 — 같은 5단계를 무엇이라 부르고 무엇을 요구하는가 ────────────────
 // 메탈마스크(스텐실)에는 EQ(제조 확인 질의) 왕복이 없다. 대신 협력사가 **고객문의사항을
 // 적고 좌표파일을 올리면 관리자가 확인**하고 지나간다(사용자 결정 2026-08-16).
@@ -788,6 +798,8 @@ export const AdminPcbPoView = z.object({
   parentPartnerName: z.string().nullable(),
   reorderRound: z.number().int(),
   rfqId: z.number().nullable(),
+  /** 발주 시점에 박제한 이행 방식. 관계 유무로 다시 추론하지 않는다. */
+  fulfillmentMode: PcbPoFulfillmentMode,
   status: PcbPoStatus,
   /** 공정 트랙 — 서버가 spec.category 에서 파생(resolvePcbPoTrack). 화면은 판정하지 않고
    *  라벨 사전을 고르는 데만 쓴다. 구 클라이언트 대비 기본 'eq'. */
@@ -818,9 +830,9 @@ export const AdminPcbPoView = z.object({
   issuedAt: z.string(),
   eqHistory: z.array(PcbEqEvent),
   eqFiles: z.array(PcbEqFileView),
-  /** MD 경유 상위 발주서의 EQ 위임 대상(하위 po). null=자체 진행. */
+  /** delegated 상위 발주서의 EQ 위임 대상(하위 po). null=자체 진행 또는 위임 대기. */
   eqDelegatePoId: z.number().nullable(),
-  /** MD 조직 수주 발주서인데 하위 발주가 아직 없어 EQ 를 시작할 수 없음. */
+  /** delegated 발주인데 하위 발주가 아직 없어 EQ 를 시작할 수 없음. */
   eqBlocked: z.boolean(),
   /** MD 경유 표시용 — 하위 발주 수. */
   childCount: z.number().int(),
@@ -842,6 +854,8 @@ export type AdminPcbPoListResponseType = z.infer<typeof AdminPcbPoListResponse>;
 export const AdminPcbPoCreateBody = z.object({
   partnerId: z.number().int().positive(),
   rfqId: z.number().int().positive().nullable().optional(),
+  /** RFQ 없는 수동 발주에서만 선택값으로 사용. RFQ가 있으면 서버가 직접/하위 선정에서 유도한다. */
+  fulfillmentMode: PcbPoFulfillmentMode.optional(),
   /** 결제통화 기준 발주가 — rfq 생략 시 필수. */
   priceOriginal: z.number().positive().optional(),
   /** 외화 관리자 발주의 KRW 회계 환율 — 생략 시 rfq 선정 박제값 승계. */
@@ -869,6 +883,7 @@ export type AdminPcbPoCreateBodyType = z.infer<typeof AdminPcbPoCreateBody>;
 export const AdminPcbPoPatchBody = AdminPcbPoCreateBody.omit({
   partnerId: true,
   rfqId: true,
+  fulfillmentMode: true,
 }).partial();
 export type AdminPcbPoPatchBodyType = z.infer<typeof AdminPcbPoPatchBody>;
 
@@ -970,6 +985,7 @@ export const AdminPcbPoWorkItem = z.object({
   partnerHasPortal: z.boolean(),
   parentPartnerName: z.string().nullable(),
   reorderRound: z.number().int(),
+  fulfillmentMode: PcbPoFulfillmentMode,
   status: PcbPoStatus,
   /** 공정 트랙(서버 파생) — 목록 배지가 'EQ 승인요청'/'확인 요청'을 가르는 근거. */
   track: PcbPoTrack,
@@ -1017,6 +1033,7 @@ export const PartnerPcbPoListItem = z.object({
   projectName: z.string(),
   qty: z.number().int(),
   reorderRound: z.number().int(), // 0=원발주, 1..=A/S 회차(화면 배지)
+  fulfillmentMode: PcbPoFulfillmentMode,
   status: PcbPoStatus,
   /** 공정 트랙(서버 파생) — 협력사 목록 배지의 문구를 가른다. */
   track: PcbPoTrack,
@@ -1036,7 +1053,7 @@ export const PartnerPcbPoListItem = z.object({
   /** 직전 EQ 반려 시각(없으면 null) — myTurn 만으로는 **왜** 내 차례인지 모른다(첫 EQ 요청과
    *  반려 뒤 보완이 같은 얼굴이 된다). 포털에 들어오자마자 갈리게 하는 배지의 근거. */
   rejectedAt: z.string().nullable().default(null),
-  /** MD 수주 발주의 "하위 발주 대기"(EQ 시작 불가) — 이때가 MD 의 차례인데 EQ 사전으로는
+  /** delegated 수주 발주의 "하위 발주 대기"(EQ 시작 불가) — 이때가 MD 의 차례인데 EQ 사전으로는
    *  actor 가 안 잡혀 홈이 "할 일 없음"으로 침묵했다(MD 실주행 교정). 배지·myTurn 의 근거. */
   eqBlocked: z.boolean().default(false),
 });
@@ -1052,6 +1069,7 @@ export const PartnerPcbPoDetail = z.object({
   poId: z.number(),
   specId: z.number(),
   reorderRound: z.number().int(), // 0=원발주, 1..=A/S 회차
+  fulfillmentMode: PcbPoFulfillmentMode,
   status: PcbPoStatus,
   /** 공정 트랙(서버 파생) — 상세의 문구·업로드 칸·제출 요건이 전부 이 값에서 갈린다. */
   track: PcbPoTrack,
@@ -1107,9 +1125,9 @@ export const PartnerPcbPoDetail = z.object({
     myRole: z.enum(PCB_EQ_ROLES).nullable(),
     /** true=MD 가 하위 수주자 대신 진행(보조 스타일 표시). */
     fallback: z.boolean(),
-    /** MD 경유 상위 — EQ 는 하위 발주서에서 진행(delegatePoId). */
+    /** delegated 상위 — EQ 는 하위 발주서에서 진행(delegatePoId). */
     delegatePoId: z.number().nullable(),
-    /** MD 수주인데 하위 발주 전 — "하위에 발주하면 EQ 가 시작됩니다". */
+    /** delegated 수주인데 하위 발주 전 — "하위에 발주하면 EQ 가 시작됩니다". */
     blocked: z.boolean(),
   }),
   spec: z.object({

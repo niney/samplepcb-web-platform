@@ -62,6 +62,7 @@
     "journey:bom:21": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-admin-workbook-recovery.e2e.test.ts",
     "journey:bom:21:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-admin-workbook-recovery.e2e.test.ts",
     "probe": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run rework-probe",
+    "md:direct": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run md-direct-self",
     "md": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-order-relay",
     "md:domestic": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-domestic-relay",
     "md:cn": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-cn-relay",

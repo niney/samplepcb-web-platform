@@ -6,6 +6,7 @@ import {
   PCB_PAYMENT_TERM_CUSTOM_DATE,
   PCB_PAYMENT_TERM_NET_7,
   PCB_PAYMENT_TERM_OPTIONS,
+  PCB_PO_FULFILLMENT_MODE_LABELS,
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
   bomShipmentNextStatus,
@@ -2266,6 +2267,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   <p v-else-if="po.eqBlocked" class="text-[11px] text-amber-600">
                     MD 하위 발주 대기 — 발주되면 {{ po.track === 'stencil' ? '확인 절차' : 'EQ' }} 시작
                   </p>
+                  <p v-else-if="po.fulfillmentMode === 'self'" class="text-[11px] text-teal-600">
+                    직접 제작 — 이 발주서에서 {{ po.track === 'stencil' ? '확인·생산' : 'EQ·생산' }} 진행
+                  </p>
                   <!-- 계정 없는 조직 — 기다려도 오지 않는다. 대행이 필요하다는 신호를
                        버튼 옆이 아니라 이름 밑에 둔다(어느 줄이 대행 몫인지부터 읽혀야 한다). -->
                   <p
@@ -2920,6 +2924,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           <span v-if="poTargetRfq !== null" class="mt-1 block text-[11px] text-emerald-600">
             회신 승계: {{ pcbMoneyWithSub(poTargetRfq.currency, poTargetRfq.priceOriginal, poTargetRfq.subCurrency, poTargetRfq.subPriceOriginal) }}
             <template v-if="poTargetRfq.quotedDeliveryDate !== null"> · 납기 {{ fmtKstDate(poTargetRfq.quotedDeliveryDate) }}</template>
+          </span>
+          <span v-if="poTargetRfq !== null" class="mt-1 block text-[11px] font-semibold text-teal-700">
+            진행 방식: {{ PCB_PO_FULFILLMENT_MODE_LABELS[poTargetRfq.selectedChildRfqId === null ? 'self' : 'delegated'] }}
           </span>
         </div>
         <div class="mt-2 grid gap-2 sm:grid-cols-2">

@@ -458,6 +458,7 @@ export const proceedPcbAsCase = async (
         parentPartnerId: 0n,
         reorderRound: round,
         rfqId: origin.rfqId,
+        fulfillmentMode: origin.fulfillmentMode, // 원발주의 직접 제작/하위 위임 계약을 회차에도 승계
         status: 'issued',
         currency: origin.currency,
         priceOriginal: origin.priceOriginal,

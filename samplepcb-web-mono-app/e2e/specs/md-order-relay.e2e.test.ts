@@ -225,13 +225,17 @@ describe.skipIf(!RUN || !JOURNEY)('MD 시나리오 2 — 주문 연결 완주(�
       (issue.json?.data?.pos ?? []).find((p: any) => p.partnerId === num(mdPartnerId ?? 0n))
         ?.poId ?? null;
     expect(topPoId, 'MD 발주서').not.toBeNull();
+    const topPo = (issue.json?.data?.pos ?? []).find(
+      (p: any) => p.partnerId === num(mdPartnerId ?? 0n),
+    );
+    expect(topPo?.fulfillmentMode, '하위 선정 근거는 delegated 박제').toBe('delegated');
     ledger.push(`sp_pcb_po #${String(topPoId)} (관리자→MD)`);
   }, 480_000);
 
   test('D3. EQ 위임 → 하위 발주 → 하위 EQ 완주(생산완료)', async (ctx) => {
     if (topPoId === null || childRfqId === null) return ctx.skip();
     const before = await api(M, 'GET', `/api/partner/pcb-pos/${String(topPoId)}`);
-    expect(before.json?.data?.eq?.blocked, '하위 발주 전 EQ 시작 불가').toBe(true);
+    expect(before.json?.data?.eq?.blocked, 'delegated 하위 발주 전 EQ 시작 불가').toBe(true);
 
     const create = await api(M, 'POST', `/api/partner/pcb-pos/${String(topPoId)}/children`, {
       childRfqId,

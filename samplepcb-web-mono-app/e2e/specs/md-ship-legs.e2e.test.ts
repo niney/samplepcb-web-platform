@@ -48,7 +48,6 @@ describe.skipIf(!RUN)('MD 두 구간 선적 — 협력사 구간의 축 분리',
   let topPoId: number | null = null;
   let childPoId: number | null = null;
   let leg1Id: number | null = null;
-  let leg2Id: number | null = null;
   const poIds: bigint[] = [];
 
   /** g5 회원·결제(입금) 주문 시드 — demo 러너 로컬판 패턴(행 복제·금액만 교체). */
@@ -194,6 +193,7 @@ describe.skipIf(!RUN)('MD 두 구간 선적 — 협력사 구간의 축 분리',
       status: 'produced',
       currency: 'KRW',
       priceOriginal: 500000,
+      fulfillmentMode: 'delegated',
     });
     poIds.push(top.id);
     topPoId = Number(top.id);
@@ -304,7 +304,6 @@ describe.skipIf(!RUN)('MD 두 구간 선적 — 협력사 구간의 축 분리',
     const rows: any[] = all.json?.data?.items ?? [];
     const leg2 = rows.find((r: any) => r.receiverKind === 'admin');
     expect(leg2, '자사향 구간 행').toBeTruthy();
-    leg2Id = Number(leg2.shipmentId);
     const member = leg2.members.find((m: any) => Number(m.poId) === topPoId);
     expect(member?.mdLeg, '④ 앞 구간 교차 표기').toBeTruthy();
     expect(member?.mdLeg?.receivedAt, '④ MD 입고완료 신호').not.toBeNull();

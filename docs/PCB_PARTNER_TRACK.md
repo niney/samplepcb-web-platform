@@ -45,7 +45,7 @@
 | 역할 | 레거시 식별 | 하는 일 |
 |---|---|---|
 | 관리자 | `mb_level=10` | 검토·배정·**선정**(판매가)·발주·**EQ 승인/반려**·통관/완료·A/S 접수·환율/통화 설정 |
-| 마스터딜러(MD) | `g5_member.mb_1='MASTER_DEALER'` | 양면: 위로는 협력사처럼 수주, 아래로는 관리자처럼 발주. 하위 선정+마진 박제. EQ에선 다리(fallback), A/S에선 읽기전용 중계 |
+| 마스터딜러(MD) | `g5_member.mb_1='MASTER_DEALER'` | 양면: 위로는 협력사처럼 수주, 아래로는 관리자처럼 발주. 건별 `self` 직접 제작 또는 `delegated` 하위 선정+마진. 위임 EQ에선 다리(fallback), 직접 건은 수주자 |
 | 협력사 | 그 외(`mb_partner_auth`) | 견적 회신(가격+**예상 배송일 필수**)·EQ 올림·생산·발송·송장 생성·A/S 회신 |
 
 ### 1.2 도메인 모델 (테이블 — 실 DDL은 docs/legacy-smartbom/legacy-pcb-ddl.sql)
@@ -339,9 +339,9 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 
 §5.5 P2 범위 전부 구현·검증(MD 위임·미러·fallback 포함).
 
-- **스키마**: `SpPcbPo`(sp_pcb_po — UK specId+partnerId+parentPartnerId+reorderRound, 통화 7컬럼+destinationCountry 선반영+paymentTerms/remittedAt/deliveryDate+`eqHistory` Json). 마이그레이션 `20260804170000_add_pcb_po`.
+- **스키마**: `SpPcbPo`(sp_pcb_po — UK specId+partnerId+parentPartnerId+reorderRound, 통화 7컬럼+destinationCountry 선반영+paymentTerms/remittedAt/deliveryDate+`fulfillmentMode`+`eqHistory` Json). 최초 마이그레이션 `20260804170000_add_pcb_po`, 건별 이행 방식 `20260818100000_add_pcb_po_fulfillment_mode`.
 - **계약**: `schemas/pcb-po.ts` — 상태 5종(issued→eq_requested→eq_done→producing→produced) + **정방향/역방향 전이 사전(PCB_EQ_FORWARD/REVERT)이 FE 라벨과 서버 검증의 단일 정본**(레거시 pcbEqWorkflow.ts 대응). EQ 파일 2종(eq=선택/working=권장, 둘 다 전이 비필수)·이벤트·관리자/포털 뷰·워크큐.
-- **lib `pcb-po.ts`**: 발주 생성(paid 게이트=`getOrderInfoByCtId.isPaid`, 선정 견적행 스냅샷 프리필, 외화 관리자 발주 환율 필수→krwAmount 박제, **MD 하위 발주는 KRW 회계 없음** — 레거시 승계), PATCH(금액은 issued에서만)·삭제(issued+하위 잔존 거부, 첨부 leaf-first 정리), **EQ 전이 서버 강제**(expectedFrom 고정 — 오발 방지, 주체 검증, 파일 유무는 전이와 무관(D19), 반려 사유·되돌리기=직전 주체 1칸, eqHistory 누적), **MD 위임**(관계 보유 조직 수주 상위=자체 EQ 차단→blocked/delegatePoId, 하위 전이 시 상위 상태 미러, MD가 하위 RECEIVER를 fallback 대행 — byRole MASTER_DEALER), EQ 첨부(sp_file refType `sp_pcb_po_eq`, 업로드 대행·issued에서만 편집·프록시 다운로드).
+- **lib `pcb-po.ts`**: 발주 생성(paid 게이트=`getOrderInfoByCtId.isPaid`, 선정 견적행 스냅샷 프리필, 외화 관리자 발주 환율 필수→krwAmount 박제, **건별 `fulfillmentMode` 박제**, **MD 하위 발주는 KRW 회계 없음** — 레거시 승계), PATCH(금액은 issued에서만)·삭제(issued+하위 잔존 거부, 첨부 leaf-first 정리), **EQ 전이 서버 강제**(expectedFrom 고정 — 오발 방지, 주체 검증, 파일 유무는 전이와 무관(D19), 반려 사유·되돌리기=직전 주체 1칸, eqHistory 누적), **MD 위임**(`delegated`만 하위 발주 전 blocked→발주 후 delegatePoId, 하위 전이 시 상위 상태 미러, MD가 하위 RECEIVER를 fallback 대행 — byRole MASTER_DEALER; `self`는 상위 발주서에서 직접 진행), EQ 첨부(sp_file refType `sp_pcb_po_eq`, 업로드 대행·issued에서만 편집·프록시 다운로드).
 - **라우트**: `admin-pcb-pos.ts`(횡단 워크큐 /admin/pcb-pos — 경유 상위 제외 실작업 단위, 발행/수정/삭제, eq-approve/reject/revert — **승인은 관리자만(D3)**, 첨부 열람) / `partner-pcb-pos.ts`(목록 수주·발주 양방향+myTurn, 상세, 스펙·EQ 파일 프록시, multipart 업로드, 전이 4종, MD 하위 발주). 메일 4종(발행/EQ요청→관리자/승인·반려→수주자/생산완료→발주 주체).
 - **웹**: AdminPcbCase에 **발주 패널**(발행 모달=선정 회신 승계 프리필+조건, PO 표=EQ 승인/반려/승인취소/발주취소+첨부+MD 하위 블록) · `AdminPcbPos.vue` 워크큐(메뉴 '발주·EQ'+배지=EQ 승인 대기) · 포털 `PartnerPcbPoDetail.vue`(5단계 스텝퍼+EQ 선택/Working 권장 파일 업로드(잠금 규칙)+전이/되돌리기+MD 하위 발주+위임 안내·fallback 보조 스타일) · 홈 '진행할 PCB 발주' 카드.
 - **검증**: **풀 E2E 44 ALL PASS**(실서버 — 결제 완료 실주문 스펙 Q20584: paid 게이트 409, 금액/환율 필수 400, 파일 없이 요청 409(**D19 이전 정책**, 현재는 허용), 요청 후 파일 잠금, 순서 위반 409, 반려(사유 이력)→재요청→승인→승인취소→재승인, 생산 완주, 워크큐, 이력 8이벤트, MD blocked→하위 발주→위임/미러/fallback(byRole 검증), 타 조직 404, **다단 revert로 원상복구 후 삭제**(HAS_CHILDREN 가드 포함), Mailpit 11통). vitest 635·`pnpm -r typecheck`·ESLint 신규분 0건.
@@ -875,7 +875,7 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 
 ### MD 소속 관리 UI 구현 기록 (2026-08-09)
 
-그간 `sp_partner_relation` 은 읽기 4곳(RFQ 배정 검증·링크 통화·EQ 위임 판정·하위 목록)뿐,
+그간 `sp_partner_relation` 은 읽기 4곳(RFQ 배정 검증·링크 통화·당시 EQ 위임 판정·하위 목록)뿐,
 생성·관리 경로가 시드/DB 직삽입밖에 없었다(레거시 설정 3종 중 'MD 소속'의 플랫폼 대응 공백).
 
 - **계약**: `partner.ts` 에 `AdminPartnerRelation*`(뷰 링크·후보·추가/통화 바디) — 링크
@@ -884,8 +884,9 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
   - 연결 규칙: 사람 협력사(type partner)·승인 상태끼리만. **2단 강제** — 하위가 이미 MD 면
     `CHILD_IS_MD`, 부모가 이미 다른 MD 의 하위면 `PARENT_IS_CHILD`(사슬·순환 동시 차단).
     다중 상위(한 하위가 여러 MD 소속)는 스키마·소비 코드가 모두 수용하므로 허용.
-  - **첫 하위 연결 가드**: 연결 순간 조직이 MD 로 전환돼 진행 중 수주 발주의 EQ 주체가
-    자체→위임으로 뒤집힌다(`resolveEqDelegation`) — 관리자 직속 미종결 발주가 있으면 409.
+  - **첫 하위 연결 가드**: 관리자 직속 미종결 발주가 있으면 409. 2026-08-18 이후 EQ 방식은
+    발주서 `fulfillmentMode`에 박제돼 연결로 뒤집히지 않지만, 진행 중 거래 도중 조직 역할을
+    바꾸지 않는 보수적 가드는 유지한다.
   - **해제 가드**: 진행 중 문서(RFQ requested|quoted · selected 인데 같은 회차 발주 없음 ·
     발주 ≠produced)가 있으면 409. 선적은 행에 받는측이 박제돼 링크와 무관하므로 세지 않는다.
   - 통화 변경(PUT)은 자유 — 배정 시점에 견적행으로 박제되므로 이후 배정부터만 적용된다.
@@ -1204,9 +1205,10 @@ HTTP≥400·pageerror 0, 생성물 정리 CLEAN(선적 1건에 링크 2건이 �
   계산한다**(하위가 × 환율 × (1+마진%)). 변환점(`selectedChildRfqId`·`marginRate`·`source*`)이
   행에 박제되는지까지 확인한다. 관리자↔MD 는 조직 기본 통화, MD↔하위는 **관계에 박제된 링크
   통화**라는 구분도 함께 지킨다.
-- **EQ 위임**: 관계를 가진 조직이 수주한 상위 발주는 자체 EQ 를 못 한다 — 하위 발주 전에는
-  `eq.blocked`, 하위 발주가 생기면 `eqDelegatePoId` 로 트랙이 넘어간다. EQ 승인 주체는
-  그래도 관리자다(D3).
+- **EQ 위임**: 이 여정의 상위 발주는 하위 회신 선정으로 `fulfillmentMode=delegated`가
+  박제된다 — 하위 발주 전에는 `eq.blocked`, 하위 발주가 생기면 `eqDelegatePoId` 로 트랙이
+  넘어간다. EQ 승인 주체는 그래도 관리자다(D3). 관계 보유만으로 모든 건을 위임하는 규칙은
+  2026-08-18 직접 제작 도입으로 폐기됐다(문서 말미).
 - **출고 게이팅**(이 여정의 핵심): 하위가 아직 MD 에 도착하지 않았으면 MD 는 상위로 내보낼 수
   없다(`OUTBOUND_BLOCKED`). **그 차단이 풀리는 순간이 하위 입고확인**이라는 것을 전후 대비로
   확인한다 — 막힘 → 입고확인 → 담기 성공.
@@ -3097,3 +3099,32 @@ BOM 클레임(sp_bom_claim, D37)의 PCB 미러 + PCB 고유 판정 축. 처리 �
   `journey-metal-mask` 10/10(M4 무메모 제출 통과→취소→문의 실어 재제출 · M4.5 관리자
   Case 화면 신설) · `journey-eq-reply` 9/9(E5 예약어 사유 409 추가) · 회귀(rewind 8·
   guards 10·md-eq-observe 4·harness 7) · api 916 · lint·typecheck 0.
+
+### MD 건별 직접 제작 (2026-08-18 — `self|delegated` 발주 박제)
+
+기존 판정은 `sp_partner_relation` 하위 관계가 하나라도 있으면 그 조직의 **모든** 상위 발주를
+위임 건으로 보았다. 그래서 MD가 하위 RFQ 없이 자기 가격으로 직접 회신하는 것은 가능했지만,
+그 회신으로 받은 발주가 `eq.blocked=true`가 되어 하위 견적·하위 발주 없이는 시작조차 못 했다.
+더 나쁘게는 화면이 "아래 [하위 발주]"를 안내하면서 하위 회신이 0건이면 버튼도 렌더하지 않아
+막다른 상태였다.
+
+- `sp_pcb_po.fulfillmentMode`(`self|delegated`)를 추가해 **발주 건별로 박제**한다.
+  - 직접 회신(`selectedChildRfqId=null`)을 근거로 한 발주 → `self`
+  - 하위 회신 선정+마진을 근거로 한 발주 → `delegated`
+  - RFQ 없는 수동 발주는 요청의 명시값 우선, 생략한 레거시 클라이언트만 관계 보유 MD를
+    `delegated`로 접어 종전 동작을 보존한다.
+  - 하위 발주서는 실제 수주 조직의 작업 단위라 항상 `self`, A/S 회차는 원발주 값을 승계한다.
+- 조회 시 관계를 다시 세지 않는다. `self`는 관리자→MD 상위 발주서 자체에서 EQ·생산·발송,
+  `delegated`만 하위 발주 전 `blocked`·발주 후 `delegatePoId`와 상위 상태 미러를 쓴다.
+- `self` 발주에 하위 발주를 뒤늦게 붙이면 `409 SELF_FULFILLMENT`로 막는다. 진행 주체가 EQ·첨부·
+  선적 도중 바뀌는 것을 허용하지 않으며, 방식을 바꾸려면 발주 전 견적 단계에서 직접 회신 또는
+  하위 선정을 확정해야 한다.
+- 하위 선정 뒤 직접 회신으로 바꾸면 상위의 `selectedChildRfqId/source*`뿐 아니라 하위 행의
+  `selected|unselected` 표시도 모두 `quoted`로 되돌린다. 화면과 박제 방식이 모순되지 않는다.
+- 마이그레이션 backfill 우선순위: 연결 RFQ의 하위 선정 → RFQ 없는 관계 보유 MD(레거시 보존) →
+  실제 하위 PO 존재(최우선 `delegated`). 기존 하위 발주가 있는 건의 의미는 바뀌지 않는다.
+- 화면은 포털 상세·홈과 관리자 Case/발주 모달에 `직접 제작` 또는 `하위 협력사 위임`을 표시한다.
+
+검증: 신규 `md-direct-self.e2e.test.ts` 3/3(직접 회신→관리자 선정→`self` 발주→직접 EQ·
+생산완료→관리자행 발송, 하위 발주 409, Vue 버튼·안내 육안) · 기존 `md-eq-observe` 4/4와
+`md-quote-loop` 5/5(위임 회귀) · `md-quote-rework` 6/6(하위 선정→직접 회신 전환 포함).

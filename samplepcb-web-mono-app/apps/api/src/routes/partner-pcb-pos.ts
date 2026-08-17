@@ -498,6 +498,12 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             error: created.error,
             message: '취소된 주문입니다 — 하위 발주를 시작하지 말고 샘플피씨비 담당자에게 문의해 주세요.',
           });
+        if (created.error === 'SELF_FULFILLMENT')
+          return reply.status(409).send({
+            error: created.error,
+            message:
+              '직접 제작으로 발행된 발주입니다 — 이 발주서에서 확인·생산을 진행해 주세요.',
+          });
         // 회차 조건 복사 경로 — 원회차에 대상 하위 발주가 없으면 복사할 원본이 없다(409).
         if (created.error === 'NO_ORIGIN_CHILD_PO')
           return reply.status(409).send({

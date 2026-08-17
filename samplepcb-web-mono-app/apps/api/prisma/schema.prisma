@@ -1426,6 +1426,7 @@ model SpPcbPo {
   parentPartnerId BigInt      @default(0) // 0=관리자 발주(센티넬), 그 외=MD 조직 id(하위 재발주)
   reorderRound    Int         @default(0) // 0=원발주, 1..=A/S 회차(P4)
   rfqId           BigInt? // 근거 견적행(FK 없음 — 직접 발주는 null)
+  fulfillmentMode String      @default("self") @db.VarChar(16) // self=수주 조직 직접 제작, delegated=하위 발주 위임(발주 시점 박제)
   status          String      @default("issued") @db.VarChar(16) // issued|eq_requested|eq_done|producing|produced
   // 발주가 — RFQ 와 같은 통화 체계(결제통화 정본 + KRW 회계 보조 + 입력 원본 3종).
   // krwAmount 는 관리자 직접 발주 외화 건의 회계 박제(MD→하위 발주는 null — 레거시 승계).

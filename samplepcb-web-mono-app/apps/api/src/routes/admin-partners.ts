@@ -78,7 +78,8 @@ interface PairDoc {
 
 // 진행 중(미종결) 문서 수 — RFQ 왕복 중(requested|quoted)·선정 후 발주 대기(selected 인데
 // 같은 회차 발주 없음)·미종결 발주(≠produced). 이 수가 0일 때만 링크 해제를 허용한다 —
-// 도중 해제는 EQ 위임(resolveEqDelegation)·재배정(NOT_MY_CHILD) 축을 흔든다. 선적은
+// 도중 해제는 위임 발주의 하위 재배정·발주 권한(NOT_MY_CHILD) 축을 흔든다. EQ 방식 자체는
+// 발주서 fulfillmentMode 에 박제돼 관계 변경으로 뒤집히지 않는다. 선적은
 // 행에 받는측이 박제돼 링크와 무관하므로 세지 않는다.
 const activePairDocCount = (rfqs: PairDoc[], pos: PairDoc[]): number => {
   const poRounds = new Set(pos.map((p) => p.reorderRound));
@@ -632,8 +633,8 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           message: '다른 마스터딜러의 하위 조직은 마스터딜러가 될 수 없습니다(2단 제한).',
         });
       }
-      // 첫 하위 연결은 조직을 MD 로 전환한다 — 진행 중 수주 발주(관리자 직속)가 있으면
-      // EQ 진행 주체가 자체→위임으로 뒤집히므로(resolveEqDelegation) 종결 후에만 허용.
+      // 첫 하위 연결은 조직을 MD 로 전환한다. 발주 방식은 fulfillmentMode 박제라 기존 건이
+      // 자체→위임으로 뒤집히진 않지만, 진행 중 거래 도중 조직 역할을 바꾸지 않는 보수적 가드는 유지.
       const existingChildren = await prisma.spPartnerRelation.count({
         where: { parentPartnerId: id },
       });

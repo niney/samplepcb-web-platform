@@ -12,6 +12,7 @@ import type {
   PcbEqFileViewType,
   PcbEqRoleType,
   PcbPoEqReviewSummaryType,
+  PcbPoFulfillmentModeType,
   PcbPoStatusType,
   PcbPoTrackType,
   PcbStencilSubmitBlockerType,
@@ -20,6 +21,7 @@ import {
   PCB_EQ_FORWARD,
   PCB_EQ_REVERT,
   PCB_EQ_REVERT_NOTE,
+  PCB_PO_FULFILLMENT_MODES,
   PCB_PO_STATUSES,
   PCB_PO_STATUS_LABELS,
   asPcbEqFileType,
@@ -61,14 +63,19 @@ import {
 // ── PCB 발주서·EQ 코어(P2) — docs/PCB_PARTNER_TRACK.md §5.2-2·§5.2-3 ─────────
 // 발주는 결제 확인(od isPaid) 후에만(§5.2-2, BOM D18 동형). status 가 EQ·생산
 // 5단계 진행 머신을 겸하며 **서버가 순서(expectedFrom)와 주체를 강제**한다(레거시가
-// 이미 지키던 유일한 축 — 승계 가치 최상). MD 경유 상위 발주서는 자체 EQ 를 진행하지
-// 않고 하위 발주서에 위임·미러한다(레거시 EQ 단일화 승계).
+// 이미 지키던 유일한 축 — 승계 가치 최상). MD 발주는 건별 fulfillmentMode 를 박제한다:
+// self 는 상위 발주서에서 직접 진행하고 delegated 만 하위 발주서에 위임·미러한다.
 
 const EQ_REF_TYPE = 'sp_pcb_po_eq';
 const EQ_UPLOAD_SERVICE_TYPE = 'pcb_eq';
 
 export const asPcbPoStatus = (v: string): PcbPoStatusType =>
   (PCB_PO_STATUSES as readonly string[]).includes(v) ? (v as PcbPoStatusType) : 'issued';
+
+export const asPcbPoFulfillmentMode = (v: string): PcbPoFulfillmentModeType =>
+  (PCB_PO_FULFILLMENT_MODES as readonly string[]).includes(v)
+    ? (v as PcbPoFulfillmentModeType)
+    : 'self';
 
 // ── 공정 트랙 — spec.category 파생, **판정은 이 파일에서만** ──────────────────
 // 화면·PHP·메일은 서버가 실어 보낸 track 을 읽기만 한다. 카테고리 문자열 비교를 여러 곳에
@@ -141,20 +148,22 @@ const eqRoundStartOf = (po: SpPcbPo): Date | null => {
 const eqRoundStartMap = (rows: readonly SpPcbPo[]): Map<string, Date | null> =>
   new Map(rows.map((r) => [r.id.toString(), eqRoundStartOf(r)]));
 
-// ── MD 경유 판정 — 관계 보유 조직이 수주한 상위 발주서는 자체 EQ 금지(위임) ────
-const isMdOrganization = async (partnerId: bigint): Promise<boolean> =>
+// RFQ 없는 수동 발주의 레거시 기본값에만 쓴다. 진행 중 판정은 관계가 아니라 발주서의
+// fulfillmentMode 박제값을 읽는다 — 같은 MD도 건별로 직접 제작할 수 있어야 한다.
+const hasChildPartnerRelations = async (partnerId: bigint): Promise<boolean> =>
   (await prisma.spPartnerRelation.count({ where: { parentPartnerId: partnerId } })) > 0;
 
 interface EqDelegation {
   /** 위임 대상 하위 발주서(같은 스펙·회차, 첫 건 — 레거시 승계). null=자체 진행. */
   delegatePoId: bigint | null;
-  /** MD 수주인데 하위 발주 전 — EQ 시작 불가. */
+  /** delegated 발주인데 하위 발주 전 — EQ 시작 불가. */
   blocked: boolean;
 }
 
 const resolveEqDelegation = async (po: SpPcbPo): Promise<EqDelegation> => {
   if (po.parentPartnerId !== 0n) return { delegatePoId: null, blocked: false };
-  if (!(await isMdOrganization(po.partnerId))) return { delegatePoId: null, blocked: false };
+  if (asPcbPoFulfillmentMode(po.fulfillmentMode) === 'self')
+    return { delegatePoId: null, blocked: false };
   const child = await prisma.spPcbPo.findFirst({
     where: { specId: po.specId, parentPartnerId: po.partnerId, reorderRound: po.reorderRound },
     orderBy: { id: 'asc' },
@@ -313,6 +322,7 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   parentPartnerName: extras.parentPartnerName,
   reorderRound: po.reorderRound,
   rfqId: po.rfqId === null ? null : Number(po.rfqId),
+  fulfillmentMode: asPcbPoFulfillmentMode(po.fulfillmentMode),
   status: asPcbPoStatus(po.status),
   track: extras.track,
   currency: po.currency,
@@ -462,6 +472,22 @@ export const createAdminPcbPo = async (
     if (rfq.status !== 'selected') return { ok: false, error: 'RFQ_NOT_SELECTED' };
   }
 
+  // RFQ 경로는 견적에서 이미 선택된 실행 방식을 그대로 박제한다. 수동 발주는 명시값이
+  // 우선이고, 생략한 레거시 클라이언트만 관계 보유 조직=위임 기본값을 유지한다.
+  const manualCanDelegate = rfq === null && (await hasChildPartnerRelations(partner.id));
+  if (rfq === null && body.fulfillmentMode === 'delegated' && !manualCanDelegate)
+    return {
+      ok: false,
+      error: 'PARTNER_INVALID',
+      detail: '하위 협력사 관계가 없는 조직은 위임 발주를 받을 수 없습니다.',
+    };
+  const fulfillmentMode: PcbPoFulfillmentModeType =
+    rfq !== null
+      ? rfq.selectedChildRfqId === null
+        ? 'self'
+        : 'delegated'
+      : (body.fulfillmentMode ?? (manualCanDelegate ? 'delegated' : 'self'));
+
   const currency = rfq !== null ? asPcbCurrency(rfq.currency) : await resolveLinkCurrency(0n, partner);
   const priceOriginal = body.priceOriginal ?? decNum(rfq?.priceOriginal) ?? null;
   if (priceOriginal === null) return { ok: false, error: 'PRICE_REQUIRED' };
@@ -500,6 +526,7 @@ export const createAdminPcbPo = async (
       parentPartnerId: 0n,
       reorderRound: 0,
       rfqId: rfq?.id ?? null,
+      fulfillmentMode,
       status: 'issued',
       currency,
       priceOriginal: price,
@@ -538,6 +565,7 @@ export type CreateChildPcbPoError =
   | 'NO_ORIGIN_CHILD_PO'
   | 'CHILD_RFQ_MISMATCH'
   | 'CHILD_NOT_QUOTED'
+  | 'SELF_FULFILLMENT'
   | 'ALREADY_ISSUED'
   | 'ORDER_CANCELED';
 
@@ -554,6 +582,10 @@ export const createChildPcbPo = async (
     return { ok: false, error: 'NOT_YOUR_PO' };
   // 취소된 주문에 새 하위 발주를 열지 않는다(EQ 전진 차단과 같은 원칙).
   if (await isPcbOrderLineCanceled(parentPo.specId)) return { ok: false, error: 'ORDER_CANCELED' };
+  // 이행 방식은 발주 시점 계약이다. 직접 제작 건에 뒤늦게 하위 발주를 붙이면 이미 열린
+  // EQ·첨부·선적의 주체가 중간에 바뀌므로, 변경이 아니라 새 발주가 필요하다.
+  if (asPcbPoFulfillmentMode(parentPo.fulfillmentMode) === 'self')
+    return { ok: false, error: 'SELF_FULFILLMENT' };
 
   // ── A/S 회차(round>0) 하위 발주 — childRfqId 없이 원회차 조건 복사(여정 7호 교정) ──
   // 회차 하위 RFQ 를 만들 경로가 없어 MD 경유 회차가 여기서 dead-end 였다. 레거시가
@@ -601,6 +633,7 @@ export const createChildPcbPo = async (
         parentPartnerId: actorPartnerId,
         reorderRound: parentPo.reorderRound, // 회차 상속(기존 경로와 동일)
         rfqId: origin.rfqId, // 근거 회신 참조 승계(proceed 의 A′ 복사와 대칭)
+        fulfillmentMode: 'self', // 하위 발주서는 실제 수주 조직의 직접 작업 단위
         status: 'issued',
         currency: originCurrency,
         priceOriginal: copiedPrice,
@@ -659,6 +692,7 @@ export const createChildPcbPo = async (
       parentPartnerId: actorPartnerId,
       reorderRound: parentPo.reorderRound,
       rfqId: childRfq.id,
+      fulfillmentMode: 'self', // 하위 발주서는 실제 수주 조직의 직접 작업 단위
       status: 'issued',
       currency,
       priceOriginal: price,
@@ -1065,6 +1099,7 @@ export const loadPartnerPcbPos = async (
       projectName: po.spec.projectName,
       qty: po.spec.qty,
       reorderRound: po.reorderRound,
+      fulfillmentMode: asPcbPoFulfillmentMode(po.fulfillmentMode),
       status: asPcbPoStatus(po.status),
       track: resolvePcbPoTrack(po.spec.category),
       direction: 'received',
@@ -1099,6 +1134,7 @@ export const loadPartnerPcbPos = async (
       projectName: po.spec.projectName,
       qty: po.spec.qty,
       reorderRound: po.reorderRound,
+      fulfillmentMode: asPcbPoFulfillmentMode(po.fulfillmentMode),
       status: asPcbPoStatus(po.status),
       track: resolvePcbPoTrack(po.spec.category),
       direction: 'issued',
@@ -1209,6 +1245,7 @@ export const loadPartnerPcbPoDetail = async (
     poId: Number(po.id),
     specId: Number(po.specId),
     reorderRound: po.reorderRound,
+    fulfillmentMode: asPcbPoFulfillmentMode(po.fulfillmentMode),
     status: asPcbPoStatus(po.status),
     track: resolvePcbPoTrack(po.spec.category),
     direction,
@@ -1401,6 +1438,7 @@ export const loadAdminPcbPoWorkItems = async (
             ? null
             : (parentNames.get(po.parentPartnerId.toString()) ?? null),
         reorderRound: po.reorderRound,
+        fulfillmentMode: asPcbPoFulfillmentMode(po.fulfillmentMode),
         status,
         track: resolvePcbPoTrack(po.spec.category),
         currency: po.currency,

@@ -6,6 +6,7 @@ import {
   PCB_SHIPMENT_FILE_LABELS,
   PCB_EQ_FORWARD,
   PCB_EQ_REVERT,
+  PCB_PO_FULFILLMENT_MODE_LABELS,
   PCB_PO_STATUSES,
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
@@ -510,6 +511,13 @@ const specEntries = computed(() => {
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="STATUS_CLS[detail.status]">
           {{ PCB_PO_STATUS_LABELS[detail.track][detail.status] }}
         </span>
+        <span
+          v-if="detail.direction === 'received'"
+          class="rounded px-2 py-0.5 text-xs font-semibold"
+          :class="detail.fulfillmentMode === 'self' ? 'bg-teal-100 text-teal-700' : 'bg-indigo-100 text-indigo-700'"
+        >
+          {{ PCB_PO_FULFILLMENT_MODE_LABELS[detail.fulfillmentMode] }}
+        </span>
         <!-- 상대는 counterpartyName — issued(하위 발주)에서 requesterName 은 **내 조직**이라
              "하위 발주: 마스터딜러"처럼 자기 이름이 상대 자리에 서 있었다(MD 실주행 확정). -->
         <span class="text-sm text-gray-500">
@@ -615,6 +623,12 @@ const specEntries = computed(() => {
         </p>
         <p v-else-if="detail.eq.blocked" class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
           하위 협력사에 발주하면 {{ isStencil ? '확인 절차가' : 'EQ가' }} 시작됩니다 — 아래 [하위 발주]를 진행해 주세요.
+        </p>
+        <p
+          v-else-if="detail.direction === 'received' && detail.fulfillmentMode === 'self' && detail.status === 'issued'"
+          class="mt-3 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-800"
+        >
+          직접 제작 발주입니다 — 이 발주서에서 {{ isStencil ? '확인 요청' : 'EQ 승인요청' }}과 생산을 진행해 주세요.
         </p>
 
 
@@ -852,7 +866,7 @@ const specEntries = computed(() => {
 
       <!-- MD — 하위 발주 -->
       <section
-        v-if="detail.direction === 'received' && (detail.children.length > 0 || selectableChildRfqs.length > 0 || originChildTargets.length > 0)"
+        v-if="detail.direction === 'received' && detail.fulfillmentMode === 'delegated' && (detail.children.length > 0 || selectableChildRfqs.length > 0 || originChildTargets.length > 0)"
         class="rounded-xl border border-indigo-200 bg-surface p-4"
       >
         <h2 class="text-sm font-bold text-indigo-700">하위 협력사 발주 (마스터딜러)</h2>

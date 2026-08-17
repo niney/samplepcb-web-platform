@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { ApiRequestError } from '@sp/shared';
-import { PCB_PO_STATUS_LABELS, PCB_RFQ_STATUS_LABELS } from '@sp/api-contract';
+import {
+  PCB_PO_FULFILLMENT_MODE_LABELS,
+  PCB_PO_STATUS_LABELS,
+  PCB_RFQ_STATUS_LABELS,
+} from '@sp/api-contract';
 import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
 import {
   usePartnerPcbPos,
@@ -254,6 +258,12 @@ const rfqStatusCls = (s: string): string =>
                   class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-bold text-indigo-700"
                 >
                   하위 발주 필요
+                </span>
+                <span
+                  v-else-if="po.direction === 'received' && po.fulfillmentMode === 'self'"
+                  class="ml-1 rounded bg-teal-100 px-1 text-[11px] font-bold text-teal-700"
+                >
+                  {{ PCB_PO_FULFILLMENT_MODE_LABELS.self }}
                 </span>
               </p>
               <p class="mt-0.5 text-sm text-gray-500">

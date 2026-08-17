@@ -331,7 +331,7 @@ describe.skipIf(!RUN || !JOURNEY)('MD 시나리오 5 — CN MD 완주(mdtester2�
   test('N3. EQ 위임 → 하위 발주 → 하위 EQ 완주(생산완료)', async (ctx) => {
     if (topPoId === null || childRfqId === null) return ctx.skip();
     const before = await api(M2, 'GET', `/api/partner/pcb-pos/${String(topPoId)}`);
-    expect(before.json?.data?.eq?.blocked, '하위 발주 전 EQ 시작 불가').toBe(true);
+    expect(before.json?.data?.eq?.blocked, 'delegated 하위 발주 전 EQ 시작 불가').toBe(true);
 
     // 회귀 — 원발주(round 0)의 하위 발주는 childRfqId 필수 규율 유지. 회차 조건 복사
     // 경로(여정 7호 교정)가 계약을 optional 로 완화했지만 round 0 은 서버가 끊는다

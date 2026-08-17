@@ -4,7 +4,7 @@
 // 1~3호가 모두 관리자 직수주라 MD 축은 시드 발주로만 부분 검증돼 있었다. 여기서만 되는 것:
 //   ① **2단 견적**: MD 가 하위에 배정 → 하위 회신 → MD 가 마진%를 얹으면 상위 회신가가
 //      서버에서 자동 산출된다(하위가 × 환율 × (1+마진%)).
-//   ② **EQ 위임**: 관계를 가진 조직이 수주한 상위 발주는 자체 EQ 를 못 한다 — 하위 발주로
+//   ② **EQ 위임**: 하위 회신을 선정한 상위 발주는 delegated 로 박제돼 자체 EQ 를 못 한다 — 하위 발주로
 //      트랙이 넘어간다(eqDelegatePoId).
 //   ③ **출고 게이팅**: 하위 입고확인 전에는 MD 가 상위로 출고할 수 없다(OUTBOUND_BLOCKED).
 //      그 차단이 풀리는 순간이 하위 입고확인이라는 것까지 확인한다.
@@ -331,10 +331,10 @@ describe.skipIf(!RUN || !JOURNEY)('여정 4호 — MD 경유 2단(중개상이 �
 
   test('R5. MD: 자체 EQ 는 위임되고, 하위 발주로 트랙이 넘어간다', async (ctx) => {
     if (topPoId === null) return ctx.skip();
-    // MD 는 제조를 직접 하지 않는다 — 상위 발주의 EQ 는 하위 발주로 위임된다.
+    // 이 건은 하위 회신을 선정한 delegated 발주 — 상위 EQ 는 하위 발주로 위임된다.
     const before = await api(M, 'GET', `/api/partner/pcb-pos/${String(topPoId)}`);
     expect(before.status, JSON.stringify(before.json)).toBe(200);
-    expect(before.json?.data?.eq?.blocked, '하위 발주 전 EQ 시작 불가').toBe(true);
+    expect(before.json?.data?.eq?.blocked, 'delegated 하위 발주 전 EQ 시작 불가').toBe(true);
 
     const create = await api(M, 'POST', `/api/partner/pcb-pos/${String(topPoId)}/children`, {
       childRfqId,

@@ -90,6 +90,7 @@ specs/
   journey-notify-gate.e2e.test.ts      여정 31호 — 알림 게이트(요청 스위치·설정 우선·노출-발송 정합, 전역 설정 원복 필수)
   journey-screens.e2e.test.ts          여정 32호 — 화면 렌더 회귀(세 역할 16화면 pageerror·5xx·빈 껍데기 전수)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
+  md-direct-self.e2e.test.ts           MD 직접 제작 — 하위 견적·발주 없이 직접 회신→self 발주→EQ·생산·발송
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
   md-domestic-relay.e2e.test.ts        MD 4편 — 전 구간 국내(KR MD: 받는측 md domestic + 게이팅)

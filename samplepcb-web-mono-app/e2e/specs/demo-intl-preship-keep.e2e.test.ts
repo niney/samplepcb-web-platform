@@ -72,19 +72,22 @@ describe.skipIf(!RUN || !DEMO)('데모 — 국제 발송 시작 전(남김)', ()
 
   const wipeDemo = async (): Promise<void> => {
     const prisma = getPrisma();
-    const specs = await prisma.spOrderSpec.findMany({
+    const specs = (await prisma.spOrderSpec.findMany({
       where: { projectName: { startsWith: 'DEMO-INTL-' } },
       select: { id: true, quoteId: true, ctId: true },
-    });
+    })) as { id: bigint; quoteId: string; ctId: number | null }[];
     if (specs.length === 0) return;
     const ids = specs.map((s) => s.id);
-    const pos = await prisma.spPcbPo.findMany({ where: { specId: { in: ids } }, select: { id: true } });
+    const pos: { id: bigint }[] = await prisma.spPcbPo.findMany({
+      where: { specId: { in: ids } },
+      select: { id: true },
+    });
     await prisma.spPcbShipment.deleteMany({ where: { poId: { in: pos.map((p) => p.id) } } });
     await prisma.spPcbShipmentPo.deleteMany({ where: { poId: { in: pos.map((p) => p.id) } } });
     await prisma.spPcbPo.deleteMany({ where: { specId: { in: ids } } });
     const ctIds = specs.map((s) => s.ctId).filter((v): v is number => v !== null);
     if (ctIds.length > 0) {
-      const carts: any[] = await prisma.$queryRawUnsafe(
+      const carts: { ct_id: number; od_id: string }[] = await prisma.$queryRawUnsafe(
         `SELECT ct_id, od_id FROM g5_shop_cart WHERE ct_id IN (${ctIds.map(() => '?').join(',')})`,
         ...ctIds,
       );

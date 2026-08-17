@@ -348,25 +348,38 @@ export const savePcbRfqReply = async (
     };
   }
 
-  await prisma.spPcbRfq.update({
-    where: { id: rfq.id },
-    data: {
-      status: 'quoted',
-      priceOriginal,
-      krwAmount: settlement === 'KRW' ? priceOriginal : null,
-      exchangeRate: null, // 결제통화→KRW 박제는 관리자 선정 시점
-      ...sub,
-      // 직접 회신은 MD 하위 선정 산출물을 대체한다 — 변환점 박제 초기화.
-      selectedChildRfqId: null,
-      marginRate: null,
-      sourceCurrency: null,
-      sourceAmount: null,
-      sourceRate: null,
-      quotedDeliveryDate: parseKstDate(body.quotedDeliveryDate),
-      memo: body.memo ?? null,
-      respondedAt: new Date(),
-    },
-  });
+  await prisma.$transaction([
+    // MD가 하위 선정 뒤 직접 회신으로 바꾸는 경우, 상위 포인터만 비우면 하위 행에는
+    // selected/unselected 표시가 남는다. 직접 제작 선택과 표가 모순되지 않게 모두 quoted 복귀.
+    prisma.spPcbRfq.updateMany({
+      where: {
+        specId: rfq.specId,
+        parentPartnerId: rfq.partnerId,
+        reorderRound: rfq.reorderRound,
+        status: { in: ['selected', 'unselected'] },
+      },
+      data: { status: 'quoted', selectedAt: null },
+    }),
+    prisma.spPcbRfq.update({
+      where: { id: rfq.id },
+      data: {
+        status: 'quoted',
+        priceOriginal,
+        krwAmount: settlement === 'KRW' ? priceOriginal : null,
+        exchangeRate: null, // 결제통화→KRW 박제는 관리자 선정 시점
+        ...sub,
+        // 직접 회신은 MD 하위 선정 산출물을 대체한다 — 변환점 박제 초기화.
+        selectedChildRfqId: null,
+        marginRate: null,
+        sourceCurrency: null,
+        sourceAmount: null,
+        sourceRate: null,
+        quotedDeliveryDate: parseKstDate(body.quotedDeliveryDate),
+        memo: body.memo ?? null,
+        respondedAt: new Date(),
+      },
+    }),
+  ]);
   return { ok: true };
 };
 

@@ -337,6 +337,8 @@ export interface PcbPoSeed {
   currency?: string;
   priceOriginal?: number;
   reorderRound?: number;
+  /** 건별 이행 방식. 기본 self, MD 위임 시드는 delegated 를 명시한다. */
+  fulfillmentMode?: 'self' | 'delegated';
 }
 
 /** PCB 발주서 직삽입 — 반환된 행의 id 는 반드시 정리 레지스트리에 등록할 것. */

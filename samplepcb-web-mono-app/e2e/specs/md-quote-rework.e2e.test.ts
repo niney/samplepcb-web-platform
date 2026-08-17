@@ -181,7 +181,31 @@ describe.skipIf(!RUN)('MD 시나리오 3 — 하위 재선정·배정 회수(mdt
     expect(Number(top?.priceOriginal ?? 0), '교체 후 회신가').toBe(Math.round(300_000 * 1.2));
   });
 
-  test('N4. 선정 해제 — 상위 회신이 전면 소거되고 다시 회신 대기로', async (ctx) => {
+  test('N4. 하위 선정 뒤 직접 회신 — 상위는 self 근거가 되고 하위 선정 표시는 모두 열린다', async (ctx) => {
+    if (topRfqId === null || specId === null) return ctx.skip();
+    const direct = await api(M, 'PUT', `/api/partner/pcb-rfqs/${String(topRfqId)}`, {
+      price: 440_000,
+      quotedDeliveryDate: '2026-08-23',
+      memo: '[재선정] MD 직접 회신으로 전환',
+    });
+    expect(direct.status, `직접 회신 전환: ${JSON.stringify(direct.json)}`).toBe(200);
+
+    const prisma = getPrisma();
+    const top = await prisma.spPcbRfq.findUnique({ where: { id: BigInt(topRfqId) } });
+    expect(top?.status).toBe('quoted');
+    expect(Number(top?.priceOriginal ?? 0)).toBe(440_000);
+    expect(top?.selectedChildRfqId, '직접 제작 근거').toBeNull();
+    expect(top?.sourceAmount, '하위 원가 흔적 소거').toBeNull();
+    const children = await prisma.spPcbRfq.findMany({
+      where: { specId: BigInt(specId), parentPartnerId: mdPartnerId ?? 0n },
+    });
+    expect(
+      children.every((row: { status: string }) => row.status === 'quoted'),
+      '하위 선정 표시 회수',
+    ).toBe(true);
+  });
+
+  test('N5. 선정 해제 — 상위 회신이 전면 소거되고 다시 회신 대기로', async (ctx) => {
     if (topRfqId === null) return ctx.skip();
     const clear = await api(M, 'POST', `/api/partner/pcb-rfqs/${String(topRfqId)}/child-selection`, {
       childRfqId: null,
@@ -197,7 +221,7 @@ describe.skipIf(!RUN)('MD 시나리오 3 — 하위 재선정·배정 회수(mdt
     expect(top?.sourceCurrency, '원가 흔적 소거').toBeNull();
   });
 
-  test('N5. 배정 회수 — 미회신 행만 지워지고 회신 행은 보존된다', async (ctx) => {
+  test('N6. 배정 회수 — 미회신 행만 지워지고 회신 행은 보존된다', async (ctx) => {
     if (specId === null || topRfqId === null) return ctx.skip();
     const prisma = getPrisma();
     // 협력1 행을 미회신 상태로 되돌릴 수는 없으니(회신 완료), 이 검증은 반대로 —

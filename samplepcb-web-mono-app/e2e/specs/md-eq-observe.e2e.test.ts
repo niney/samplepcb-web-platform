@@ -89,6 +89,7 @@ describe.skipIf(!RUN)('MD 관전·대행 — 하위 EQ 를 보고, 필요하면 
       status: 'issued',
       currency: 'KRW',
       priceOriginal: 700000,
+      fulfillmentMode: 'delegated',
     });
     poIds.push(top.id);
     topPoId = Number(top.id);
