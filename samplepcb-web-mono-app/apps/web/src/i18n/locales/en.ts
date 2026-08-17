@@ -667,7 +667,7 @@ export const en = {
         clear: 'Clear',
         selectHint: 'Select orders to process.',
         excel: 'Excel delivery',
-        noInvoice: 'Enter at least one invoice.',
+        noInvoice: 'No order has delivery info — parcel needs carrier·invoice·time, other methods need time only.',
       },
       reason: {
         NOT_FOUND: 'Order not found',
@@ -706,13 +706,14 @@ export const en = {
       process: {
         title: 'Process',
         none: 'No next step available from this status.',
-        noInvoice: 'Enter invoice info (carrier, number, time).',
+        noInvoice: 'Enter delivery info — parcel: carrier·number·time; other methods: time only.',
+        nonParcelHint: 'Non-parcel methods ship without an invoice; the method name is recorded instead.',
       },
       force: {
         toggle: 'Force status change',
         warn: 'Forces the status only, with no payment/notification (reverse allowed, any payment method).',
         target: 'Change to',
-        deliveryOptionalHint: 'Invoice optional — fill all three to also record it, leave blank for status only.',
+        deliveryOptionalHint: 'Delivery info optional — fill it to also record (parcel: 3 fields, others: time only), leave blank for status only.',
         apply: 'Apply',
         confirmTitle: 'Force change to {target}',
         confirmWarn: 'Force this order to {target}. Status only, no payment/notification (reverse allowed, any payment method).',
@@ -735,7 +736,7 @@ export const en = {
         title: 'Excel delivery',
         close: 'Close',
         downloadTitle: 'Download template',
-        downloadHint: 'Download preparing orders as Excel and fill in the invoice info.',
+        downloadHint: 'Download production-done (parcel) orders as Excel and fill in the invoice info.',
         download: 'Download',
         downloading: 'Downloading…',
         downloadFailed: 'Download failed. Try again shortly.',
@@ -762,6 +763,14 @@ export const en = {
         cancelled: 'Cancelled',
         partialCancel: 'Partial cancel',
       },
+      // Delivery method (od_delivery_method) — '' (unset, legacy orders) renders nothing.
+      deliveryMethod: {
+        parcel: 'Parcel',
+        quick_cod: 'Quick service (COD)',
+        quick_prepaid: 'Quick service (prepaid)',
+        pickup: 'Pickup',
+        direct: 'Direct delivery',
+      },
       stepper: {
         offPipeline: 'Current: {status} (off the pipeline)',
       },
@@ -779,6 +788,7 @@ export const en = {
         depositName: 'Depositor',
         receiver: 'Receiver',
         delivery: 'Delivery',
+        deliveryMethod: 'Method',
         invoiceNo: 'Invoice no.',
         deliveryCompany: 'Carrier',
         invoiceTime: 'Shipped at',

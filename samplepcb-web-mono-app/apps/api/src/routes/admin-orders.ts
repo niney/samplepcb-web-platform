@@ -136,6 +136,7 @@ const toOrderCore = (row: OrderListRow): AdminOrderCoreType => ({
   couponPrice: row.couponPrice,
   misu: row.misu,
   cartCount: row.cartCount,
+  deliveryMethod: row.deliveryMethod,
   deliveryCompany: row.deliveryCompany,
   invoiceNo: row.invoiceNo,
   invoiceTime: row.invoiceTime,
@@ -431,8 +432,8 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   );
 
   // ── GET /api/admin/orders/delivery-excel — 배송처리용 엑셀 다운로드 ─────────
-  // 레거시 orderdeliveryexcel.php 이식. od_status='준비' AND od_misu=0 주문 전체(페이지네이션
-  // 없음)를 xlsx 로. od_id 는 문자열 셀(빅넘버 깨짐 방지). 응답은 바이너리라 스키마 없음.
+  // 레거시 orderdeliveryexcel.php 이식. od_status='생산완료' AND od_misu=0(택배 방법만) 주문
+  // 전체(페이지네이션 없음)를 xlsx 로. od_id 는 문자열 셀(빅넘버 깨짐 방지). 바이너리라 스키마 없음.
   // 레거시(.xls/Excel5) 대비 **.xlsx(exceljs)** 로 포맷 상향 — 업로드 파서도 xlsx 를 읽는다.
   // ── GET /api/admin/orders/notify-config — 메일/SMS 발송 설정(체크박스 노출 게이트) ──
   // 코어 orderform.php 의 설정 게이트를 목록·상세 공통으로 이식. SMS 는 실발송(order-notify.php)과
@@ -504,8 +505,10 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const parsed = extractDeliveryRowsFromMatrix(matrix);
       const invoiceTime = kstDateTimeStr(new Date());
       const odIds = parsed.map((p) => p.odId);
+      // 엑셀 왕복은 택배 전제(방법 열 없음) — method 는 parcel 고정.
       const delivery = parsed.map((p) => ({
         odId: p.odId,
+        method: 'parcel' as const,
         deliveryCompany: p.deliveryCompany,
         invoiceNo: p.invoiceNo,
         invoiceTime,

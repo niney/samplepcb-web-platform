@@ -124,6 +124,7 @@ export const AdminOrderCore = z.object({
   couponPrice: z.number(), // od_cart_coupon+od_coupon+od_send_coupon (SQL 계산)
   misu: z.number(), // od_misu
   cartCount: z.number(), // od_cart_count
+  deliveryMethod: z.string(), // od_delivery_method 패스스루('' = 미지정 → 택배 간주)
   deliveryCompany: z.string().nullable(), // od_delivery_company, ''→null
   invoiceNo: z.string().nullable(), // od_invoice, ''→null
   invoiceTime: z.string().nullable(), // od_invoice_time, zero-date→null
@@ -246,14 +247,67 @@ export type AdminOrderDetailResponseType = z.infer<typeof AdminOrderDetailRespon
 // 주문 메일 템플릿(ordermail.mail.php, 견적 건별 표시)의 드리프트를 막기 위한 아키텍처 결정.
 // 전이는 od 단위 독립 처리(하나 실패해도 나머지 진행) — 성공은 processed, 가드 위반은 skipped(reason).
 
+// ── 배송방법 (P1, 2026-08-17 결정) ────────────────────────────────────────────
+// 코어 영카트에는 배송방법 개념이 없다 — od_delivery_company 자유 텍스트뿐이고, 운영 실무는
+// 수년째 퀵·방문수령·직배송을 그 칸에 수기로 적어 왔다(이관 실측: 퀵 계열 284·방문/내방 163·
+// 직배 140건, 송장은 공란). od_delivery_method 는 플랫폼 신설 컬럼(varchar(20) NOT NULL
+// DEFAULT '' — 코어 자신의 od_other_pay_type 런타임 ALTER 전례와 동형)이고, od_delivery_company
+// 는 폐기하지 않고 **한글 라벨을 병용 기록**한다 — /adm 주문상세·배송 메일 {택배회사} 치환
+// (spcb/api/order-notify.php)·고객 주문조회가 0줄 수정으로 호환된다. 정본 docs/DELIVERY_METHOD.md.
+// quick_prepaid(퀵 선불)는 거리별 요금이라 금액 확정이 불가해 1차 제외 — 값만 예약(선택지 미노출).
+export const DeliveryMethod = z.enum(['parcel', 'quick_cod', 'quick_prepaid', 'pickup', 'direct']);
+export type DeliveryMethodType = z.infer<typeof DeliveryMethod>;
+
+// 배송 처리 화면이 노출하는 선택지(예약값 제외) — FE 셀렉트 공용.
+export const SELECTABLE_DELIVERY_METHODS = ['parcel', 'quick_cod', 'pickup', 'direct'] as const;
+
+// ''(미지정 — 구주문·P2 전 주문서)·parcel = 택배(운송장 3필드 필수). 그 외 = 비택배.
+export const isParcelDeliveryMethod = (method: string): boolean =>
+  method === '' || method === 'parcel';
+
+// 비택배 방법의 od_delivery_company 표준 라벨 — 배송 처리 시 서버가 강제 기록(어휘 계약화).
+// 운영 수기 관행('퀵배송'/'방문수령'/'직배송')과 정렬하되 퀵은 요금 방식을 라벨에 박는다.
+export const DELIVERY_METHOD_COMPANY_LABEL: Record<
+  Exclude<DeliveryMethodType, 'parcel'>,
+  string
+> = {
+  quick_cod: '퀵배송(착불)',
+  quick_prepaid: '퀵배송(선불)',
+  pickup: '방문수령',
+  direct: '직배송',
+};
+
+// 방법 → 저장할 od_delivery_company. 택배는 입력한 택배사명, 비택배는 표준 라벨(입력 무시).
+export const deliveryCompanyForMethod = (method: DeliveryMethodType, company: string): string =>
+  method === 'parcel' ? company : DELIVERY_METHOD_COMPANY_LABEL[method];
+
 // 배송 처리 입력 행 — target='배송'일 때 od 별 운송장 정보(코어 order_update_delivery 미러).
 // invoiceTime 은 g5 관례상 'YYYY-MM-DD HH:MM:SS' KST native 문자열.
-export const AdminOrderDeliveryRow = z.object({
-  odId: z.string().min(1).max(20),
-  deliveryCompany: z.string().min(1), // od_delivery_company
-  invoiceNo: z.string().min(1), // od_invoice
+// method 기본 parcel(기존 호출 하위호환 — method 없이 3필드를 보내던 계약이 그대로 통과).
+// 택배만 회사·송장 필수(refine) — 비택배는 일시만 받고, 회사는 서버가 표준 라벨로,
+// od_invoice 는 '' 로 기록한다(운영 관행 미러: 퀵·방문수령은 송장이 존재하지 않는다).
+const deliveryFieldsBase = z.object({
+  method: DeliveryMethod.default('parcel'), // od_delivery_method
+  deliveryCompany: z.string().default(''), // od_delivery_company(택배만 필수)
+  invoiceNo: z.string().default(''), // od_invoice(택배만 필수)
   invoiceTime: z.string().min(1), // od_invoice_time
 });
+const parcelNeedsInvoice = (v: {
+  method: DeliveryMethodType;
+  deliveryCompany: string;
+  invoiceNo: string;
+}): boolean => v.method !== 'parcel' || (v.deliveryCompany.trim() !== '' && v.invoiceNo.trim() !== '');
+const PARCEL_INVOICE_MSG = 'method=parcel 이면 deliveryCompany·invoiceNo 가 필요합니다';
+
+// odId 없는 형태 — force-status(단건 경로)의 delivery 가 재사용.
+export const AdminOrderDeliveryFields = deliveryFieldsBase.refine(parcelNeedsInvoice, {
+  message: PARCEL_INVOICE_MSG,
+});
+export type AdminOrderDeliveryFieldsType = z.infer<typeof AdminOrderDeliveryFields>;
+
+export const AdminOrderDeliveryRow = deliveryFieldsBase
+  .extend({ odId: z.string().min(1).max(20) })
+  .refine(parcelNeedsInvoice, { message: PARCEL_INVOICE_MSG });
 export type AdminOrderDeliveryRowType = z.infer<typeof AdminOrderDeliveryRow>;
 
 // 상태 전이 요청 — target(전이 후 상태)·odIds(선택)·알림 플래그. 배송이면 delivery 필수(refine).
@@ -455,7 +509,8 @@ export type AdminOrderItemActionResponseType = z.infer<typeof AdminOrderItemActi
 // =target 동기. 스톡 실동작이 앵커: target 배송/완료 진입 시 재고 차감(ct_stock_use=0 행), target
 // 주문(역방향) 시 재고 복원(ct_stock_use=1 행). 코어 정상 분기엔 **결제수단 가드 없음**(임의 변경
 // 허용). 운송장은 스톡이 요구하지 않아 **optional(refine 없음)** — target='배송'에 delivery 제공 시
-// 만 od_delivery_company/od_invoice/od_invoice_time 반영(contract 필드 존중). 응답은 { odId }(FE refetch).
+// 만 od_delivery_method/od_delivery_company/od_invoice/od_invoice_time 반영(contract 필드 존중,
+// AdminOrderDeliveryFields 재사용 — 비택배는 송장 없이 허용). 응답은 { odId }(FE refetch).
 export const AdminOrderForceStatusRequest = z.object({
   // 제작 8단계(가격확인~A/S) 포함 — g5-db OrderForceStatusTarget 과 동기. 전환 허용의 게이트.
   target: z.enum([
@@ -473,13 +528,7 @@ export const AdminOrderForceStatusRequest = z.object({
     '배송',
     '완료',
   ]),
-  delivery: z
-    .object({
-      deliveryCompany: z.string().min(1),
-      invoiceNo: z.string().min(1),
-      invoiceTime: z.string().min(1),
-    })
-    .optional(),
+  delivery: AdminOrderDeliveryFields.optional(),
   /** 배송 진입 시 영카트 주문 메일 템플릿으로 안내한다. 기존 호출은 기본 미발송. */
   sendMail: z.boolean().optional(),
   /** 부분취소 주문의 이행 화면에서 취소·반품·품절 행을 되살리지 않고 활성 행만 전이한다. */

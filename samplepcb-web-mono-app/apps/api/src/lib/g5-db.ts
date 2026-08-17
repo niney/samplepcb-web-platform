@@ -195,6 +195,8 @@
 
 import { createPool } from 'mysql2/promise';
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { deliveryCompanyForMethod, isParcelDeliveryMethod } from '@sp/api-contract';
+import type { DeliveryMethodType } from '@sp/api-contract';
 import { kstDateStr, kstDateTimeStr } from './kst';
 
 let pool: Pool | null = null;
@@ -2243,6 +2245,7 @@ export interface OrderListRow {
   couponPrice: number;
   misu: number;
   cartCount: number;
+  deliveryMethod: string; // od_delivery_method 패스스루('' = 미지정 → 택배 간주)
   deliveryCompany: string | null;
   invoiceNo: string | null;
   invoiceTime: string | null;
@@ -2275,7 +2278,7 @@ const ORDER_LIST_COLUMNS = `od_id, od_name, mb_id, od_tel, od_hp, od_b_name, od_
     COALESCE((SELECT COUNT(DISTINCT IF(c.it_id NOT IN (${CUSTOM_CART_ROW_IT_IDS_SQL}), c.it_id, NULL))
                        + SUM(IF(c.it_id IN (${CUSTOM_CART_ROW_IT_IDS_SQL}), 1, 0))
                 FROM g5_shop_cart c WHERE c.od_id = g5_shop_order.od_id), od_cart_count) AS cart_count,
-    od_delivery_company, od_invoice,
+    od_delivery_method, od_delivery_company, od_invoice,
     DATE_FORMAT(NULLIF(od_invoice_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS invoice_time,
     DATE_FORMAT(NULLIF(od_receipt_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS receipt_time,
     DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time,
@@ -2319,6 +2322,7 @@ function mapOrderListRow(row: RowDataPacket): OrderListRow {
     couponPrice: Number(row.coupon_price ?? 0),
     misu: Number(row.od_misu ?? 0),
     cartCount: Number(row.cart_count ?? 0),
+    deliveryMethod: String(row.od_delivery_method ?? ''),
     deliveryCompany: emptyToNull(String(row.od_delivery_company ?? '')),
     invoiceNo: emptyToNull(String(row.od_invoice ?? '')),
     invoiceTime: row.invoice_time == null ? null : String(row.invoice_time),
@@ -2385,7 +2389,7 @@ const ORDER_DETAIL_COLUMNS = `od_id, od_name, mb_id, od_email, od_tel, od_hp, od
     (od_cart_price + od_send_cost + od_send_cost2) AS order_price,
     od_receipt_price, od_cancel_price,
     (od_cart_coupon + od_coupon + od_send_coupon) AS coupon_price,
-    od_misu, od_cart_count, od_delivery_company, od_invoice,
+    od_misu, od_cart_count, od_delivery_method, od_delivery_company, od_invoice,
     od_send_cost, od_send_cost2, od_send_coupon, od_cart_coupon, od_coupon,
     od_refund_price, od_receipt_point, od_tax_mny, od_vat_mny, od_free_mny,
     od_pg, od_tno, od_app_no, od_ip,
@@ -2550,12 +2554,16 @@ export interface DeliveryExcelRow {
 }
 
 export async function getDeliveryExcelRows(): Promise<DeliveryExcelRow[]> {
+  // 배송방법 조건 — 엑셀 왕복은 택배(송장) 전용이라 비택배(퀵/방문수령/직배송)를 제외한다.
+  // 열 추가는 금지(업로드 파서가 A/I/J 인덱스 고정 — delivery-excel.ts extractDeliveryRowsFromMatrix).
+  // ''(미지정)는 택배 간주라 포함 — P1 에선 방법이 배송 처리 시점에 정해지므로 사실상 전 건이다.
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
     `SELECT od_id, od_name, od_tel, od_hp, od_b_name, od_b_tel, od_b_hp,
             od_b_addr1, od_b_addr2, od_b_addr3, od_b_addr_jibeon,
             od_delivery_company, od_invoice
        FROM g5_shop_order
       WHERE od_status = '생산완료' AND od_misu = 0
+        AND od_delivery_method IN ('', 'parcel')
       ORDER BY od_id DESC`,
   );
   return rows.map((r) => ({
@@ -2647,11 +2655,15 @@ export function orderTransitionGuard(
   return { ok: true };
 }
 
-// 배송 rows 매칭(순수) — 선택 odIds 를 운송장 입력 행과 짝짓는다. 행이 없거나 3필드 중 하나라도
+// 배송 rows 매칭(순수) — 선택 odIds 를 운송장 입력 행과 짝짓는다. 행이 없거나 필수 필드가
 // 비면 MISSING_INVOICE 로 skip. 코어 orderlistupdate.php 는 od_id 별 od_invoice/od_invoice_time/
 // od_delivery_company 를 폼에서 받으므로, 선택은 odIds·데이터는 delivery 행이 담당한다.
+// 필수 필드는 방법별로 갈린다(P1): 택배(''/parcel)=3필드 전부 · 비택배(퀵/방문수령/직배송)=
+// 일시만 — 퀵·방문수령은 송장이 존재하지 않는 게 정상이라(운영 실측: 송장 전량 공란) 택배
+// 기준을 강요하면 force-status 우회로 몰아낸다. 계약 refine 과 동일 규칙의 서버측 이중 방어.
 export interface DeliveryInput {
   odId: string;
+  method: DeliveryMethodType; // 계약 default 적용 후 값(구 호출 경로는 'parcel')
   deliveryCompany: string;
   invoiceNo: string;
   invoiceTime: string;
@@ -2667,12 +2679,12 @@ export function matchDeliveryRows(
   const skipped: { odId: string; reason: 'MISSING_INVOICE' }[] = [];
   for (const odId of odIds) {
     const d = byId.get(odId);
-    if (
+    const missing =
       d === undefined ||
-      d.deliveryCompany.trim() === '' ||
-      d.invoiceNo.trim() === '' ||
-      d.invoiceTime.trim() === ''
-    ) {
+      d.invoiceTime.trim() === '' ||
+      (isParcelDeliveryMethod(d.method) &&
+        (d.deliveryCompany.trim() === '' || d.invoiceNo.trim() === ''));
+    if (missing) {
       skipped.push({ odId, reason: 'MISSING_INVOICE' });
       continue;
     }
@@ -2881,7 +2893,10 @@ export async function setOrdersStage(
 }
 
 // 생산완료→배송 — order_update_delivery(운송장 UPDATE + 카트 재고차감 loop) + change_status + 재계산.
-// rows 는 matchDeliveryRows 로 이미 3필드 검증된 것만. 상태 가드는 여기서 재확인(원자 WHERE).
+// rows 는 matchDeliveryRows 로 이미 방법별 필수 검증된 것만. 상태 가드는 여기서 재확인(원자 WHERE).
+// 배송방법(P1): od_delivery_method 를 함께 기록하고, od_delivery_company 는 병용 규칙 —
+// 택배=입력 택배사명 · 비택배=표준 한글 라벨(deliveryCompanyForMethod, 입력 무시). 비택배는
+// od_invoice='' 로 강제한다(퀵·방문수령에 송장은 존재하지 않는다 — 운영 관행 미러).
 export async function setOrdersDelivery(rows: DeliveryInput[]): Promise<OrderActionResult> {
   const result: OrderActionResult = { processed: [], skipped: [] };
   const pool = getG5Pool();
@@ -2896,12 +2911,19 @@ export async function setOrdersDelivery(rows: DeliveryInput[]): Promise<OrderAct
       result.skipped.push({ odId: d.odId, reason: guard.reason });
       continue;
     }
-    // order_update_delivery(admin.shop.lib.php:107-135) — 운송장 3필드 UPDATE(원자 가드 생산완료).
+    const isParcel = isParcelDeliveryMethod(d.method);
+    // order_update_delivery(admin.shop.lib.php:107-135) — 운송장 UPDATE(원자 가드 생산완료).
     const [upd] = await pool.query<ResultSetHeader>(
       `UPDATE g5_shop_order
-          SET od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
+          SET od_delivery_method = ?, od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
         WHERE od_id = ? AND od_status = '생산완료'`,
-      [d.deliveryCompany, d.invoiceNo, d.invoiceTime, d.odId],
+      [
+        d.method,
+        deliveryCompanyForMethod(d.method, d.deliveryCompany),
+        isParcel ? d.invoiceNo : '',
+        d.invoiceTime,
+        d.odId,
+      ],
     );
     if (upd.affectedRows === 0) {
       result.skipped.push({ odId: d.odId, reason: 'NOT_PREV_STAGE' }); // 레이스
@@ -3484,6 +3506,7 @@ export function resolveForceStatusStock(
 }
 
 export interface ForceStatusDelivery {
+  method: DeliveryMethodType; // 계약 default 적용 후 값(구 호출 경로는 'parcel')
   deliveryCompany: string;
   invoiceNo: string;
   invoiceTime: string;
@@ -3588,11 +3611,19 @@ export async function setOrderForceStatus(
   await recomputeOrderMoneyOnItemChange(odId);
 
   // target='배송' + delivery 제공 시에만 운송장 반영(계약 필드 존중 — 코어 정상 분기엔 없는 확장).
+  // 배송방법 병용 규칙은 setOrdersDelivery 와 동일: method 기록 + 비택배는 표준 라벨·송장 ''.
   if (target === '배송' && delivery !== undefined) {
     await pool.query(
-      `UPDATE g5_shop_order SET od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
+      `UPDATE g5_shop_order
+          SET od_delivery_method = ?, od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
         WHERE od_id = ?`,
-      [delivery.deliveryCompany, delivery.invoiceNo, delivery.invoiceTime, odId],
+      [
+        delivery.method,
+        deliveryCompanyForMethod(delivery.method, delivery.deliveryCompany),
+        isParcelDeliveryMethod(delivery.method) ? delivery.invoiceNo : '',
+        delivery.invoiceTime,
+        odId,
+      ],
     );
   }
 

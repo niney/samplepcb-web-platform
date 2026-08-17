@@ -674,7 +674,7 @@ export const ko = {
         clear: '선택 해제',
         selectHint: '처리할 주문을 선택하세요.',
         excel: '엑셀배송',
-        noInvoice: '운송장 정보를 하나 이상 입력하세요.',
+        noInvoice: '배송 정보를 입력한 주문이 없습니다 — 택배는 배송회사·운송장번호·일시, 그 외 방법은 일시를 채우세요.',
       },
       reason: {
         NOT_FOUND: '주문 없음',
@@ -713,13 +713,14 @@ export const ko = {
       process: {
         title: '처리',
         none: '이 상태에서 진행할 다음 단계가 없습니다.',
-        noInvoice: '운송장 정보(배송회사·번호·일시)를 입력하세요.',
+        noInvoice: '배송 정보를 입력하세요 — 택배는 배송회사·운송장번호·일시, 그 외 방법은 일시.',
+        nonParcelHint: '택배 외 방법은 송장 없이 처리되며, 배송 정보에는 방법명이 기록됩니다.',
       },
       force: {
         toggle: '상태 직접 변경',
         warn: '수납·알림 없이 상태만 강제로 변경합니다(역방향 가능, 결제수단 무관).',
         target: '변경할 상태',
-        deliveryOptionalHint: '운송장은 선택 — 3필드 모두 채우면 함께 반영, 비우면 상태만 변경합니다.',
+        deliveryOptionalHint: '배송 정보는 선택 — 채우면 함께 반영(택배는 3필드, 그 외 방법은 일시만), 비우면 상태만 변경합니다.',
         apply: '적용',
         confirmTitle: '{target}(으)로 강제 변경',
         confirmWarn: '이 주문을 {target} 상태로 강제 변경합니다. 수납·알림 없이 상태만 바뀝니다(역방향 가능, 결제수단 무관).',
@@ -742,7 +743,7 @@ export const ko = {
         title: '엑셀 배송처리',
         close: '닫기',
         downloadTitle: '양식 다운로드',
-        downloadHint: '준비 상태 주문을 엑셀로 내려받아 운송장 정보를 입력하세요.',
+        downloadHint: '생산완료 상태(택배)의 주문을 엑셀로 내려받아 운송장 정보를 입력하세요.',
         download: '다운로드',
         downloading: '다운로드 중…',
         downloadFailed: '다운로드에 실패했습니다. 잠시 후 다시 시도하세요.',
@@ -769,6 +770,14 @@ export const ko = {
         cancelled: '취소',
         partialCancel: '부분취소',
       },
+      // 배송방법(od_delivery_method) — ''(미지정, 구주문)은 표기 생략. quick_prepaid 는 예약값.
+      deliveryMethod: {
+        parcel: '택배',
+        quick_cod: '퀵서비스(착불)',
+        quick_prepaid: '퀵서비스(선불)',
+        pickup: '방문수령',
+        direct: '직배송',
+      },
       stepper: {
         offPipeline: '현재 상태: {status} (진행 단계 밖)',
       },
@@ -786,6 +795,7 @@ export const ko = {
         depositName: '입금자명',
         receiver: '받는분',
         delivery: '배송',
+        deliveryMethod: '배송방법',
         invoiceNo: '운송장번호',
         deliveryCompany: '배송회사',
         invoiceTime: '배송일시',

@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AdminOrderStatusRequestType, AdminOrderTabType } from '@sp/api-contract';
 import {
+  isDeliveryInputComplete,
+  isParcelDeliveryMethod,
   smsAvailableForTarget,
   toG5DateTime,
   useAdminNotifyConfig,
@@ -81,21 +83,22 @@ const submit = (): void => {
   if (props.selectedIds.length === 0) return;
 
   if (a.target === '배송') {
-    // 선택 행의 운송장 입력을 delivery[] 로 수집 — 3필드 모두 채운 행만. 미입력 행은 odIds 에는
-    // 남겨 서버가 MISSING_INVOICE 로 돌려주게 한다(계약 refine: delivery 는 최소 1건 필요).
+    // 선택 행의 운송장 입력을 delivery[] 로 수집 — 방법별 필수(택배=3필드, 비택배=일시만)를 채운
+    // 행만. 미입력 행은 odIds 에는 남겨 서버가 MISSING_INVOICE 로 돌려주게 한다(계약 refine:
+    // delivery 는 최소 1건 필요). 비택배는 회사·송장을 비워 보낸다(서버가 표준 라벨·'' 기록).
     const delivery = props.selectedIds
       .map((odId) => ({ odId, input: props.deliveryInputs[odId] }))
       .filter(
         (r): r is { odId: string; input: DeliveryInput } =>
-          r.input !== undefined &&
-          r.input.deliveryCompany.trim() !== '' &&
-          r.input.invoiceNo.trim() !== '' &&
-          r.input.invoiceTime !== '',
+          r.input !== undefined && isDeliveryInputComplete(r.input),
       )
       .map((r) => ({
         odId: r.odId,
-        deliveryCompany: r.input.deliveryCompany.trim(),
-        invoiceNo: r.input.invoiceNo.trim(),
+        method: r.input.method,
+        deliveryCompany: isParcelDeliveryMethod(r.input.method)
+          ? r.input.deliveryCompany.trim()
+          : '',
+        invoiceNo: isParcelDeliveryMethod(r.input.method) ? r.input.invoiceNo.trim() : '',
         invoiceTime: toG5DateTime(r.input.invoiceTime),
       }));
     if (delivery.length === 0) {

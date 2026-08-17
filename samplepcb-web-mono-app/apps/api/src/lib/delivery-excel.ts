@@ -1,7 +1,8 @@
 // ── 엑셀 배송처리 (레거시 orderdeliveryexcel.php·orderdeliveryupdate.php 이식) ──
-// 다운로드: od_status='준비' AND od_misu=0 주문을 xlsx 로. 업로드: xlsx 를 파싱해 운송장 정보를
-// 추출 → 기존 matchDeliveryRows+setOrdersDelivery(⑬) 재사용. 순수 헬퍼(csvSafeCell·printAddress·
-// deliveryRowToCells·extractDeliveryRowsFromMatrix)는 DB/파일 없이 테스트한다.
+// 다운로드: od_status='생산완료' AND od_misu=0(택배 방법만 — 비택배는 송장 왕복이 무의미) 주문을
+// xlsx 로. 업로드: xlsx 를 파싱해 운송장 정보를 추출 → 기존 matchDeliveryRows+setOrdersDelivery(⑬)
+// 재사용(방법 열은 없다 — 업로드 경로는 택배 전제, method='parcel'). 순수 헬퍼(csvSafeCell·
+// printAddress·deliveryRowToCells·extractDeliveryRowsFromMatrix)는 DB/파일 없이 테스트한다.
 import ExcelJS from 'exceljs';
 import type { DeliveryExcelRow } from './g5-db';
 

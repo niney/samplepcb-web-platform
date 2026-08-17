@@ -3,8 +3,11 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AdminOrderListItemType, AdminOrderTabType } from '@sp/api-contract';
 import {
+  SELECTABLE_DELIVERY_METHODS,
+  deliveryMethodSlug,
   displayCompany,
   formatOdId,
+  isParcelDeliveryMethod,
   orderStatusSlug,
   orderStatusVariant,
   type DeliveryInput,
@@ -35,10 +38,17 @@ const someSelected = computed<boolean>(
 );
 const isSelected = (odId: string): boolean => props.selectedIds.includes(odId);
 
-// 준비 탭 운송장 인라인 입력값(부모 소유 deliveryInputs 에서 조회, 없으면 빈값).
+// 생산완료 탭 운송장 인라인 입력값(부모 소유 deliveryInputs 에서 조회, 없으면 빈값).
+const methodOf = (odId: string): string => props.deliveryInputs[odId]?.method ?? 'parcel';
 const companyOf = (odId: string): string => props.deliveryInputs[odId]?.deliveryCompany ?? '';
 const invoiceNoOf = (odId: string): string => props.deliveryInputs[odId]?.invoiceNo ?? '';
 const invoiceTimeOf = (odId: string): string => props.deliveryInputs[odId]?.invoiceTime ?? '';
+
+// 배송방법 라벨 — 미등록/''(미지정)은 null(택배 기본이라 표기 생략, 소음 감소).
+const methodLabel = (method: string): string | null => {
+  const slug = deliveryMethodSlug(method);
+  return slug !== null ? t(`admin.orders.deliveryMethod.${slug}`) : null;
+};
 
 // 금액 표기 — 라벨은 헤더에 있으므로 셀은 순수 숫자(천단위)만.
 const won = (n: number): string => n.toLocaleString('ko-KR');
@@ -162,23 +172,35 @@ const totals = computed(() =>
           <td class="px-3 py-2 text-gray-600">
             {{ item.settleCase !== '' ? item.settleCase : '-' }}
           </td>
-          <!-- 운송장 — 생산완료 탭은 인라인 입력(배송회사/운송장번호/배송일시), 그 외는 읽기 -->
+          <!-- 운송장 — 생산완료 탭은 인라인 입력(방법/배송회사/운송장번호/배송일시), 그 외는 읽기.
+               방법이 비택배(퀵/방문수령/직배송)면 회사·송장 입력을 접는다(송장이 존재하지 않는 방법). -->
           <td class="px-3 py-2" @click.stop>
             <div v-if="props.tab === '생산완료'" class="flex flex-col gap-1">
-              <input
-                type="text"
-                :value="companyOf(item.odId)"
-                :placeholder="t('admin.orders.table.companyPh')"
-                class="w-32 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-blue-500 focus:outline-none"
-                @input="emit('updateDelivery', item.odId, 'deliveryCompany', ($event.target as HTMLInputElement).value)"
+              <select
+                :value="methodOf(item.odId)"
+                class="w-32 rounded border border-gray-300 px-1 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                @change="emit('updateDelivery', item.odId, 'method', ($event.target as HTMLSelectElement).value)"
               >
-              <input
-                type="text"
-                :value="invoiceNoOf(item.odId)"
-                :placeholder="t('admin.orders.table.invoicePh')"
-                class="w-32 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-blue-500 focus:outline-none"
-                @input="emit('updateDelivery', item.odId, 'invoiceNo', ($event.target as HTMLInputElement).value)"
-              >
+                <option v-for="m in SELECTABLE_DELIVERY_METHODS" :key="m" :value="m">
+                  {{ t(`admin.orders.deliveryMethod.${m}`) }}
+                </option>
+              </select>
+              <template v-if="isParcelDeliveryMethod(methodOf(item.odId))">
+                <input
+                  type="text"
+                  :value="companyOf(item.odId)"
+                  :placeholder="t('admin.orders.table.companyPh')"
+                  class="w-32 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                  @input="emit('updateDelivery', item.odId, 'deliveryCompany', ($event.target as HTMLInputElement).value)"
+                >
+                <input
+                  type="text"
+                  :value="invoiceNoOf(item.odId)"
+                  :placeholder="t('admin.orders.table.invoicePh')"
+                  class="w-32 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                  @input="emit('updateDelivery', item.odId, 'invoiceNo', ($event.target as HTMLInputElement).value)"
+                >
+              </template>
               <input
                 type="datetime-local"
                 :value="invoiceTimeOf(item.odId)"
@@ -186,6 +208,13 @@ const totals = computed(() =>
                 @input="emit('updateDelivery', item.odId, 'invoiceTime', ($event.target as HTMLInputElement).value)"
               >
             </div>
+            <!-- 비택배 처리 건 — 송장 대신 방법 라벨이 1열(운영 관행: 퀵·방문수령은 송장 공란) -->
+            <template v-else-if="item.invoiceNo === null && methodLabel(item.deliveryMethod) !== null && !isParcelDeliveryMethod(item.deliveryMethod)">
+              <p class="font-medium text-gray-700">{{ methodLabel(item.deliveryMethod) }}</p>
+              <p v-if="item.invoiceTime !== null" class="text-xs text-gray-400">
+                {{ shortTime(item.invoiceTime) }}
+              </p>
+            </template>
             <template v-else-if="item.invoiceNo !== null">
               <p class="text-gray-700">{{ item.invoiceNo }}</p>
               <p class="text-xs text-gray-400">

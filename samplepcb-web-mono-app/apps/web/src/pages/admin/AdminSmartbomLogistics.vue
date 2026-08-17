@@ -20,7 +20,13 @@ import {
   useAdminBomShipmentCross,
   type AdminBomShipmentCrossFilters,
 } from '../../admin/useAdminBomPos';
-import { nowLocalDateTime, toG5DateTime } from '../../admin/useAdminOrders';
+import {
+  SELECTABLE_DELIVERY_METHODS,
+  isParcelDeliveryMethod,
+  nowLocalDateTime,
+  toG5DateTime,
+  type DeliveryMethodType,
+} from '../../admin/useAdminOrders';
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
 import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.vue';
@@ -152,10 +158,18 @@ const openShortageCount = (item: AdminBomOrderListItemType): number =>
 
 const actionError = ref('');
 
-// 배송 처리(D21-3) — 운송장 입력 → force-status '배송'(부품 주문은 제작 단계 생략)
+// 배송 처리(D21-3) — 방법+운송장 입력 → force-status '배송'(부품 주문은 제작 단계 생략).
+// 비택배(퀵/방문수령/직배송)는 송장 없이 처리(서버가 od_delivery_company 표준 라벨 기록).
+const SHIP_METHOD_LABELS: Record<string, string> = {
+  parcel: '택배',
+  quick_cod: '퀵서비스(착불)',
+  pickup: '방문수령',
+  direct: '직배송',
+};
 const shipMut = useShipBomOrder();
 const completeMut = useCompleteBomOrder();
 const shipTarget = ref<AdminBomOrderListItemType | null>(null);
+const shipMethod = ref<DeliveryMethodType>('parcel');
 const shipCompany = ref('');
 const shipInvoiceNo = ref('');
 const shipInvoiceTime = ref('');
@@ -165,6 +179,7 @@ const actionFeedback = ref<{ tone: 'success' | 'warning'; text: string } | null>
 
 function openShip(item: AdminBomOrderListItemType): void {
   shipTarget.value = item;
+  shipMethod.value = 'parcel';
   shipCompany.value = '';
   shipInvoiceNo.value = '';
   shipInvoiceTime.value = nowLocalDateTime();
@@ -177,7 +192,8 @@ async function submitShip(): Promise<void> {
   const item = shipTarget.value;
   if (item === null) return;
   shipError.value = '';
-  if (shipCompany.value.trim() === '' || shipInvoiceNo.value.trim() === '') {
+  const isParcel = isParcelDeliveryMethod(shipMethod.value);
+  if (isParcel && (shipCompany.value.trim() === '' || shipInvoiceNo.value.trim() === '')) {
     shipError.value = '택배사와 송장번호를 입력해 주세요.';
     return;
   }
@@ -189,8 +205,9 @@ async function submitShip(): Promise<void> {
     const response = await shipMut.mutateAsync({
       odId: item.odId,
       delivery: {
-        deliveryCompany: shipCompany.value.trim(),
-        invoiceNo: shipInvoiceNo.value.trim(),
+        method: shipMethod.value,
+        deliveryCompany: isParcel ? shipCompany.value.trim() : '',
+        invoiceNo: isParcel ? shipInvoiceNo.value.trim() : '',
         invoiceTime: toG5DateTime(shipInvoiceTime.value),
       },
       sendMail: shipSendMail.value,
@@ -514,15 +531,23 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           <p class="mt-1 border-t border-gray-200 pt-1 text-gray-500">배송 안내 이메일 · <b class="text-gray-800">{{ shipTarget.customerEmail || '없음' }}</b></p>
         </div>
         <div class="mt-3 grid gap-2 text-xs">
-          <label class="text-gray-500">택배사
+          <label class="text-gray-500">배송방법
+            <select v-model="shipMethod" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+              <option v-for="m in SELECTABLE_DELIVERY_METHODS" :key="m" :value="m">{{ SHIP_METHOD_LABELS[m] }}</option>
+            </select>
+          </label>
+          <label v-if="isParcelDeliveryMethod(shipMethod)" class="text-gray-500">택배사
             <input v-model="shipCompany" type="text" maxlength="50" placeholder="예: CJ대한통운" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
           </label>
-          <label class="text-gray-500">송장번호
+          <label v-if="isParcelDeliveryMethod(shipMethod)" class="text-gray-500">송장번호
             <input v-model="shipInvoiceNo" type="text" maxlength="100" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono">
           </label>
           <label class="text-gray-500">발송일시
             <input v-model="shipInvoiceTime" type="datetime-local" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
           </label>
+          <p v-if="!isParcelDeliveryMethod(shipMethod)" class="text-[11px] text-gray-400">
+            택배 외 방법은 송장 없이 처리되며, 배송 정보에는 방법명이 기록됩니다.
+          </p>
           <label class="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] leading-5 text-blue-800" :class="shipTarget.customerEmail === '' ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'">
             <input v-model="shipSendMail" type="checkbox" class="mt-0.5 size-4" :disabled="shipTarget.customerEmail === ''">
             <span>

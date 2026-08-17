@@ -355,8 +355,9 @@ describe('resolveOrderSort — 정렬 컬럼 화이트리스트', () => {
   });
 });
 
-describe('matchDeliveryRows — 배송 rows 매칭(운송장 필드 검증)', () => {
+describe('matchDeliveryRows — 배송 rows 매칭(방법별 필수 필드 검증)', () => {
   const row = (over: Partial<DeliveryInput> & { odId: string }): DeliveryInput => ({
+    method: 'parcel',
     deliveryCompany: 'CJ',
     invoiceNo: '1234',
     invoiceTime: '2026-07-05 10:00:00',
@@ -369,7 +370,7 @@ describe('matchDeliveryRows — 배송 rows 매칭(운송장 필드 검증)', ()
     expect(r.skipped).toEqual([{ odId: 'B', reason: 'MISSING_INVOICE' }]);
   });
 
-  it('3필드 중 하나라도 비면 MISSING_INVOICE', () => {
+  it('택배: 3필드 중 하나라도 비면 MISSING_INVOICE', () => {
     const r = matchDeliveryRows(
       ['A', 'B', 'C'],
       [row({ odId: 'A', invoiceNo: '' }), row({ odId: 'B', deliveryCompany: '  ' }), row({ odId: 'C' })],
@@ -379,6 +380,20 @@ describe('matchDeliveryRows — 배송 rows 매칭(운송장 필드 검증)', ()
       { odId: 'A', reason: 'MISSING_INVOICE' },
       { odId: 'B', reason: 'MISSING_INVOICE' },
     ]);
+  });
+
+  it('비택배(퀵/방문수령/직배송): 회사·송장 없이도 통과 — 일시만 필수', () => {
+    const r = matchDeliveryRows(
+      ['A', 'B', 'C', 'D'],
+      [
+        row({ odId: 'A', method: 'pickup', deliveryCompany: '', invoiceNo: '' }),
+        row({ odId: 'B', method: 'quick_cod', deliveryCompany: '', invoiceNo: '' }),
+        row({ odId: 'C', method: 'direct', deliveryCompany: '', invoiceNo: '' }),
+        row({ odId: 'D', method: 'pickup', deliveryCompany: '', invoiceNo: '', invoiceTime: ' ' }),
+      ],
+    );
+    expect(r.rows.map((d) => d.odId)).toEqual(['A', 'B', 'C']);
+    expect(r.skipped).toEqual([{ odId: 'D', reason: 'MISSING_INVOICE' }]);
   });
 
   it('odIds 순서 보존 + odIds 밖 delivery 행 무시', () => {

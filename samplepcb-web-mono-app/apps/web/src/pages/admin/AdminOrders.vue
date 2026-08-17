@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
+  deliveryMethodSlug,
   displayCompany,
   g5ToLocal,
   nowLocalDateTime,
@@ -70,12 +71,17 @@ const toggleAll = (checked: boolean): void => {
 
 const updateDelivery = (odId: string, field: keyof DeliveryInput, value: string): void => {
   const cur = deliveryInputs.value[odId] ?? {
+    method: 'parcel' as const,
     deliveryCompany: '',
     invoiceNo: '',
     invoiceTime: nowLocalDateTime(),
   };
   const next: DeliveryInput = { ...cur };
-  next[field] = value;
+  if (field === 'method') {
+    next.method = deliveryMethodSlug(value) !== null ? (value as DeliveryInput['method']) : 'parcel';
+  } else {
+    next[field] = value;
+  }
   deliveryInputs.value = { ...deliveryInputs.value, [odId]: next };
   if (field === 'deliveryCompany' && value.trim() !== '') lastCompany.value = value;
 };
@@ -89,7 +95,9 @@ watch(
     for (const it of items) {
       if (next[it.odId] === undefined) {
         const existingCompany = displayCompany(it.deliveryCompany);
+        const method = deliveryMethodSlug(it.deliveryMethod);
         next[it.odId] = {
+          method: method !== null ? (method as DeliveryInput['method']) : 'parcel',
           deliveryCompany: existingCompany !== '-' ? existingCompany : lastCompany.value,
           invoiceNo: it.invoiceNo ?? '',
           invoiceTime: it.invoiceTime !== null ? g5ToLocal(it.invoiceTime) : nowLocalDateTime(),

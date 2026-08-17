@@ -8,7 +8,9 @@ import {
   AdminOrderItemActionResponse,
   AdminOrderListResponse,
   AdminOrderPrintResponse,
+  SELECTABLE_DELIVERY_METHODS,
   apiRoutes,
+  isParcelDeliveryMethod,
 } from '@sp/api-contract';
 import type {
   AdminNotifyConfigResponseType,
@@ -19,6 +21,7 @@ import type {
   AdminOrderRefundBodyType,
   AdminOrderStatusRequestType,
   AdminOrderTabType,
+  DeliveryMethodType,
 } from '@sp/api-contract';
 import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
 
@@ -154,12 +157,36 @@ export const ORDER_PIPELINE = [
   '완료',
 ] as const;
 
-// 준비 탭 운송장 인라인 입력 행(로컬 상태). invoiceTime 은 datetime-local 문자열('YYYY-MM-DDThh:mm').
+// 생산완료 탭 운송장 인라인 입력 행(로컬 상태). invoiceTime 은 datetime-local 문자열('YYYY-MM-DDThh:mm').
+// method(배송방법)는 셀렉트 — 택배만 회사·송장을 받고, 비택배(퀵/방문수령/직배송)는 일시만.
 export interface DeliveryInput {
+  method: DeliveryMethodType;
   deliveryCompany: string;
   invoiceNo: string;
   invoiceTime: string;
 }
+
+// 배송방법 셀렉트 선택지·택배 판정 — 계약(@sp/api-contract) 어휘 재노출(FE 공용).
+export { SELECTABLE_DELIVERY_METHODS, isParcelDeliveryMethod };
+export type { DeliveryMethodType };
+
+// od_delivery_method → i18n slug. ''(미지정 — 구주문·P2 전 주문서)·미등록 값은 null →
+// 컴포넌트가 방법 표기를 생략한다(택배가 기본이라 소음을 줄인다).
+const DELIVERY_METHOD_SLUGS = new Set<string>([
+  'parcel',
+  'quick_cod',
+  'quick_prepaid',
+  'pickup',
+  'direct',
+]);
+export const deliveryMethodSlug = (method: string): string | null =>
+  DELIVERY_METHOD_SLUGS.has(method) ? method : null;
+
+// 배송방법별 입력 검증(FE) — 계약 refine 과 동일 규칙. 통과 못 하면 delivery 로 보내지 않는다.
+export const isDeliveryInputComplete = (input: DeliveryInput): boolean =>
+  input.invoiceTime !== '' &&
+  (!isParcelDeliveryMethod(input.method) ||
+    (input.deliveryCompany.trim() !== '' && input.invoiceNo.trim() !== ''));
 
 // KST 벽시계 기준 datetime-local 기본값('YYYY-MM-DDThh:mm'). datetime-local 은 TZ 무변환이라
 // 브라우저 TZ 와 무관하게 이 문자열을 그대로 표시한다.

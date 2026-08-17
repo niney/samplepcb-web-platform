@@ -12,11 +12,15 @@ import { ApiRequestError } from '@sp/shared';
 import {
   CANCEL_ITEM_TARGETS,
   FORCE_STATUS_TARGETS,
+  SELECTABLE_DELIVERY_METHODS,
+  deliveryMethodSlug,
   displayCompany,
   formatOdId,
   g5ToLocal,
   isCancelledItemStatus,
+  isDeliveryInputComplete,
   isForceTarget,
+  isParcelDeliveryMethod,
   nowLocalDateTime,
   orderStatusSlug,
   orderStatusVariant,
@@ -161,13 +165,29 @@ const itemAction = ref<{ ctId: number; target: CancelItemTarget; label: string }
 const sendMail = ref(false);
 const sendSms = ref(false);
 const processError = ref<string | null>(null);
-const deliveryInput = ref<DeliveryInput>({ deliveryCompany: '', invoiceNo: '', invoiceTime: '' });
+const deliveryInput = ref<DeliveryInput>({
+  method: 'parcel',
+  deliveryCompany: '',
+  invoiceNo: '',
+  invoiceTime: '',
+});
+
+// 배송방법 라벨 — 미등록/''(미지정)은 null(표기 생략).
+const deliveryMethodLabel = (method: string): string | null => {
+  const slug = deliveryMethodSlug(method);
+  return slug !== null ? t(`admin.orders.deliveryMethod.${slug}`) : null;
+};
 
 // 임의 상태 변경(고급) — 접힘 토글 + target select + (배송이면 선택 운송장) + 확인 모달.
 type ForceDelivery = NonNullable<AdminOrderForceStatusRequestType['delivery']>;
 const forceOpen = ref(false);
 const forceTarget = ref<OrderForceTarget>('주문');
-const forceDelivery = ref<DeliveryInput>({ deliveryCompany: '', invoiceNo: '', invoiceTime: '' });
+const forceDelivery = ref<DeliveryInput>({
+  method: 'parcel',
+  deliveryCompany: '',
+  invoiceNo: '',
+  invoiceTime: '',
+});
 const forceConfirm = ref<{ target: OrderForceTarget; delivery: ForceDelivery | null } | null>(null);
 
 const { mutate: saveInfo, isPending: infoPending, error: infoErr, reset: resetInfo } =
@@ -191,17 +211,19 @@ const {
 } = useOrderStatusMutation();
 const statusResult = computed(() => statusData.value?.data ?? null);
 
-// 생산완료(배송 직전) 상태면 운송장 입력 기본값(배송일시=현재, 배송회사=기존값), 그 외는 비운다.
+// 생산완료(배송 직전) 상태면 운송장 입력 기본값(배송일시=현재, 배송회사·방법=기존값), 그 외는 비운다.
 const initDelivery = (o: AdminOrderDetailOrderType): void => {
   if (o.status === '생산완료') {
     const existing = displayCompany(o.deliveryCompany);
+    const method = deliveryMethodSlug(o.deliveryMethod);
     deliveryInput.value = {
+      method: method !== null ? (method as DeliveryInput['method']) : 'parcel',
       deliveryCompany: existing !== '-' ? existing : '',
       invoiceNo: o.invoiceNo ?? '',
       invoiceTime: o.invoiceTime !== null ? g5ToLocal(o.invoiceTime) : nowLocalDateTime(),
     };
   } else {
-    deliveryInput.value = { deliveryCompany: '', invoiceNo: '', invoiceTime: '' };
+    deliveryInput.value = { method: 'parcel', deliveryCompany: '', invoiceNo: '', invoiceTime: '' };
   }
 };
 
@@ -220,7 +242,12 @@ watch(order, (o) => {
     initDelivery(o);
     forceOpen.value = false;
     forceTarget.value = isForceTarget(o.status) ? o.status : '주문';
-    forceDelivery.value = { deliveryCompany: '', invoiceNo: '', invoiceTime: nowLocalDateTime() };
+    forceDelivery.value = {
+      method: 'parcel',
+      deliveryCompany: '',
+      invoiceNo: '',
+      invoiceTime: nowLocalDateTime(),
+    };
     forceConfirm.value = null;
     resetInfo();
     resetMemo();
@@ -541,10 +568,12 @@ const submitNextStep = (): void => {
   processError.value = null;
   if (a.needsDelivery) {
     const di = deliveryInput.value;
-    if (di.deliveryCompany.trim() === '' || di.invoiceNo.trim() === '' || di.invoiceTime === '') {
+    // 방법별 필수 — 택배=3필드 · 비택배(퀵/방문수령/직배송)=일시만(회사는 서버가 표준 라벨 기록).
+    if (!isDeliveryInputComplete(di)) {
       processError.value = t('admin.orders.process.noInvoice');
       return;
     }
+    const isParcel = isParcelDeliveryMethod(di.method);
     processStatus({
       target: a.target,
       odIds: [o.odId],
@@ -553,8 +582,9 @@ const submitNextStep = (): void => {
       delivery: [
         {
           odId: o.odId,
-          deliveryCompany: di.deliveryCompany.trim(),
-          invoiceNo: di.invoiceNo.trim(),
+          method: di.method,
+          deliveryCompany: isParcel ? di.deliveryCompany.trim() : '',
+          invoiceNo: isParcel ? di.invoiceNo.trim() : '',
           invoiceTime: toG5DateTime(di.invoiceTime),
         },
       ],
@@ -569,17 +599,19 @@ const submitNextStep = (): void => {
   });
 };
 
-// 임의 상태 변경 — [적용] 시 확인 모달로. 배송이면 3필드 모두 채웠을 때만 delivery 동봉(계약 min1),
-// 비우면 상태만 강제 변경. 확인 모달이 실제 뮤테이션을 실행한다.
+// 임의 상태 변경 — [적용] 시 확인 모달로. 배송이면 방법별 필수(택배=3필드·비택배=일시만)를 채웠을
+// 때만 delivery 동봉, 비우면 상태만 강제 변경. 확인 모달이 실제 뮤테이션을 실행한다.
 const openForceConfirm = (): void => {
   const target = forceTarget.value;
   let delivery: ForceDelivery | null = null;
   if (target === '배송') {
     const d = forceDelivery.value;
-    if (d.deliveryCompany.trim() !== '' && d.invoiceNo.trim() !== '' && d.invoiceTime !== '') {
+    if (isDeliveryInputComplete(d)) {
+      const isParcel = isParcelDeliveryMethod(d.method);
       delivery = {
-        deliveryCompany: d.deliveryCompany.trim(),
-        invoiceNo: d.invoiceNo.trim(),
+        method: d.method,
+        deliveryCompany: isParcel ? d.deliveryCompany.trim() : '',
+        invoiceNo: isParcel ? d.invoiceNo.trim() : '',
         invoiceTime: toG5DateTime(d.invoiceTime),
       };
     }
@@ -993,12 +1025,16 @@ const inputClass =
                   </h3>
                   <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                     <div>
-                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</dt>
-                      <dd class="text-gray-800">{{ order.invoiceNo ?? '-' }}</dd>
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryMethod') }}</dt>
+                      <dd class="text-gray-800">{{ deliveryMethodLabel(order.deliveryMethod) ?? '-' }}</dd>
                     </div>
                     <div>
                       <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</dt>
                       <dd class="text-gray-800">{{ displayCompany(order.deliveryCompany) }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</dt>
+                      <dd class="text-gray-800">{{ order.invoiceNo ?? '-' }}</dd>
                     </div>
                     <div>
                       <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceTime') }}</dt>
@@ -1072,14 +1108,23 @@ const inputClass =
                         {{ t('admin.orders.action.sendSms') }}
                       </label>
                     </div>
-                    <!-- 배송 전이면 운송장 3필드를 [배송 처리] 바로 위에서 입력(입력과 실행 한자리) -->
+                    <!-- 배송 전이면 방법+운송장을 [배송 처리] 바로 위에서 입력(입력과 실행 한자리).
+                         비택배(퀵/방문수령/직배송)는 회사·송장 입력을 접는다(서버가 표준 라벨 기록). -->
                     <div v-if="nextAction.needsDelivery" class="space-y-2">
                       <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryMethod') }}</span>
+                        <select v-model="deliveryInput.method" :class="inputClass">
+                          <option v-for="m in SELECTABLE_DELIVERY_METHODS" :key="m" :value="m">
+                            {{ t(`admin.orders.deliveryMethod.${m}`) }}
+                          </option>
+                        </select>
+                      </label>
+                      <label v-if="isParcelDeliveryMethod(deliveryInput.method)" class="block">
                         <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</span>
                         <input v-model="deliveryInput.deliveryCompany" type="text" :class="inputClass">
                       </label>
                       <div class="grid grid-cols-2 gap-2">
-                        <label class="block">
+                        <label v-if="isParcelDeliveryMethod(deliveryInput.method)" class="block">
                           <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</span>
                           <input v-model="deliveryInput.invoiceNo" type="text" :class="inputClass">
                         </label>
@@ -1088,6 +1133,9 @@ const inputClass =
                           <input v-model="deliveryInput.invoiceTime" type="datetime-local" :class="inputClass">
                         </label>
                       </div>
+                      <p v-if="!isParcelDeliveryMethod(deliveryInput.method)" class="text-xs text-gray-400">
+                        {{ t('admin.orders.process.nonParcelHint') }}
+                      </p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                       <button
@@ -1126,7 +1174,13 @@ const inputClass =
                       </label>
                       <div v-if="forceTarget === '배송'" class="space-y-2">
                         <p class="text-xs text-gray-400">{{ t('admin.orders.force.deliveryOptionalHint') }}</p>
+                        <select v-model="forceDelivery.method" :class="inputClass">
+                          <option v-for="m in SELECTABLE_DELIVERY_METHODS" :key="m" :value="m">
+                            {{ t(`admin.orders.deliveryMethod.${m}`) }}
+                          </option>
+                        </select>
                         <input
+                          v-if="isParcelDeliveryMethod(forceDelivery.method)"
                           v-model="forceDelivery.deliveryCompany"
                           type="text"
                           :placeholder="t('admin.orders.drawer.deliveryCompany')"
@@ -1134,6 +1188,7 @@ const inputClass =
                         >
                         <div class="grid grid-cols-2 gap-2">
                           <input
+                            v-if="isParcelDeliveryMethod(forceDelivery.method)"
                             v-model="forceDelivery.invoiceNo"
                             type="text"
                             :placeholder="t('admin.orders.drawer.invoiceNo')"

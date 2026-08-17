@@ -2,12 +2,26 @@
 import { ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import { usePcbShipCustomerOrder } from '../../../admin/useAdminPcbOrders';
-import { nowLocalDateTime, toG5DateTime } from '../../../admin/useAdminOrders';
+import {
+  SELECTABLE_DELIVERY_METHODS,
+  isParcelDeliveryMethod,
+  nowLocalDateTime,
+  toG5DateTime,
+  type DeliveryMethodType,
+} from '../../../admin/useAdminOrders';
 import { confirmDialog } from '../../../lib/confirmDialog';
 
 // 고객 배송 처리 모달(P4.6) — 입고확인 끝난 PCB 주문을 고객에게 발송한다.
-// 운송장 입력 → 코어 force-status '배송'(운송장 반영+재고 앵커, 조작 경로 단일).
+// 방법+운송장 입력 → 코어 force-status '배송'(운송장 반영+재고 앵커, 조작 경로 단일).
+// 비택배(퀵/방문수령/직배송)는 송장 없이 처리(서버가 od_delivery_company 표준 라벨 기록).
 // 선적·배송 워크큐(고객 배송 대기 탭)와 Case 상세('배송 처리 대기' 배지)가 공용.
+
+const METHOD_LABELS: Record<string, string> = {
+  parcel: '택배',
+  quick_cod: '퀵서비스(착불)',
+  pickup: '방문수령',
+  direct: '직배송',
+};
 
 const props = defineProps<{
   /** null 이면 닫힘. 열 때마다 입력을 초기화한다. */
@@ -25,6 +39,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>();
 
 const shipMut = usePcbShipCustomerOrder();
+const method = ref<DeliveryMethodType>('parcel');
 const company = ref('');
 const invoiceNo = ref('');
 const invoiceTime = ref('');
@@ -34,6 +49,7 @@ watch(
   () => props.odId,
   (odId) => {
     if (odId === null) return;
+    method.value = 'parcel';
     company.value = '';
     invoiceNo.value = '';
     invoiceTime.value = nowLocalDateTime();
@@ -44,7 +60,8 @@ watch(
 async function submit(): Promise<void> {
   if (props.odId === null) return;
   error.value = '';
-  if (company.value.trim() === '' || invoiceNo.value.trim() === '') {
+  const isParcel = isParcelDeliveryMethod(method.value);
+  if (isParcel && (company.value.trim() === '' || invoiceNo.value.trim() === '')) {
     error.value = '택배사와 송장번호를 입력해 주세요.';
     return;
   }
@@ -58,8 +75,9 @@ async function submit(): Promise<void> {
     await shipMut.mutateAsync({
       odId: props.odId,
       delivery: {
-        deliveryCompany: company.value.trim(),
-        invoiceNo: invoiceNo.value.trim(),
+        method: method.value,
+        deliveryCompany: isParcel ? company.value.trim() : '',
+        invoiceNo: isParcel ? invoiceNo.value.trim() : '',
         invoiceTime: toG5DateTime(invoiceTime.value),
       },
     });
@@ -92,15 +110,23 @@ async function submit(): Promise<void> {
         입고 확인이 끝나지 않은 발주가 있습니다 — 검수 후 발송을 권장합니다.
       </p>
       <div class="mt-3 grid gap-2 text-xs">
-        <label class="text-gray-500">택배사
+        <label class="text-gray-500">배송방법
+          <select v-model="method" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+            <option v-for="m in SELECTABLE_DELIVERY_METHODS" :key="m" :value="m">{{ METHOD_LABELS[m] }}</option>
+          </select>
+        </label>
+        <label v-if="isParcelDeliveryMethod(method)" class="text-gray-500">택배사
           <input v-model="company" type="text" maxlength="50" placeholder="예: CJ대한통운" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
         </label>
-        <label class="text-gray-500">송장번호
+        <label v-if="isParcelDeliveryMethod(method)" class="text-gray-500">송장번호
           <input v-model="invoiceNo" type="text" maxlength="100" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono">
         </label>
         <label class="text-gray-500">발송일시
           <input v-model="invoiceTime" type="datetime-local" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
         </label>
+        <p v-if="!isParcelDeliveryMethod(method)" class="text-[11px] text-gray-400">
+          택배 외 방법은 송장 없이 처리되며, 배송 정보에는 방법명이 기록됩니다.
+        </p>
         <p class="text-[11px] text-gray-400">
           알림 메일은 발송되지 않습니다 — 배송 안내가 필요하면
           <RouterLink
