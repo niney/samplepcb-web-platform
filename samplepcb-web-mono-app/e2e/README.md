@@ -56,6 +56,7 @@ specs/
   pcb-package-qr.e2e.test.ts PCB Case QR — 합배송 PO별 라벨·권한·재인쇄·무효화·입고 동기화
   pcb-transport.e2e.test.ts  운송수단(항공/해상) — 수단 박제·첨부 종류 접힘 회귀·해상 B/L 게이트·전환 정리·국내 배제
   bom-transport-contract.e2e.test.ts BOM 선적 운송수단 계약·서버 정합(read-only — 실데이터 위 직렬화·첨부 사전 오염 확인)
+  delivery-method.e2e.test.ts        배송방법 P1 — 비택배(퀵·방문수령·직배송)는 송장 없이 배송 전이·한글 라벨 병용·택배 3필드 가드(docs/DELIVERY_METHOD.md)
   journey-gerber-rfq.e2e.test.ts       여정 1호 — 해외 협력사(USD·국제 선적 6단계)
   journey-domestic-partner.e2e.test.ts 여정 2호 — 국내 협력사(KRW·국내 3단계·EQ 반려 왕복)
   journey-batch-shipment.e2e.test.ts   여정 3호 — 묶음 발송(주문 2건 → 한 박스 → 각자 배송)
