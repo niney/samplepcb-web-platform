@@ -817,10 +817,12 @@ class SearchService:
                 recommendation_block_reason=recommendation_block_reason,
             )
         )
-        stock_shortage_detected = self._stock_replacement_required(
+        procurement_replacement_kind = self._procurement_replacement_kind(
             query,
+            candidates,
             procurement_decision,
         )
+        stock_shortage_detected = procurement_replacement_kind == "stock"
         if stock_shortage_detected:
             enriched_digikey = await self._enrich_digikey_stock_substitutions(
                 query,
@@ -893,14 +895,14 @@ class SearchService:
         identity_resolved = any(
             candidate.identity_confidence >= 0.9 for candidate in primary.candidates
         )
-        stock_replacement_fallback = bool(
-            stock_shortage_detected
+        procurement_replacement_fallback = bool(
+            procurement_replacement_kind is not None
             and primary.procurement_decision is not None
             and primary.procurement_decision.status == "no_recommendation"
         )
         fallback_query = self.planner.parametric_fallback(query)
         mpn_family_fallback = False
-        if fallback_query is None and stock_replacement_fallback:
+        if fallback_query is None and procurement_replacement_fallback:
             fallback_query = self.planner.mpn_family_fallback(
                 query,
                 manufacturer=self._replacement_manufacturer(query, primary),
@@ -909,13 +911,13 @@ class SearchService:
         if (
             fallback_query is None
             or primary.status == MatchStatus.SUPPLIER_ERROR
-            or (identity_resolved and not stock_replacement_fallback)
+            or (identity_resolved and not procurement_replacement_fallback)
         ):
             return primary
 
         fallback_block_reason = None
         if (
-            not stock_replacement_fallback
+            not procurement_replacement_fallback
             and fallback_query.part_type is None
             and {
                 name
@@ -931,25 +933,47 @@ class SearchService:
             job_budget=budget,
             recommendation_block_reason=fallback_block_reason,
         )
-        if stock_replacement_fallback:
+        if procurement_replacement_fallback:
             if mpn_family_fallback:
-                return self._merge_stock_replacement_fallback(
+                procurement_triggered = procurement_replacement_kind == "procurement"
+                return self._merge_procurement_replacement_fallback(
                     query,
                     primary,
                     fallback_query,
                     fallback,
                     procurement_policy,
                     replacement_source=ReplacementSource.ENGINE_MPN_FALLBACK,
-                    replacement_type="MpnFamilyStockFallback",
+                    replacement_type=(
+                        "MpnFamilyProcurementFallback"
+                        if procurement_triggered
+                        else "MpnFamilyStockFallback"
+                    ),
                     warning=(
-                        "검증 스펙이 부족해 원품번 계열에서 관리자 검토용 "
+                        "원품번에 구매 가능한 조건이 없고 검증 스펙도 부족해 "
+                        "원품번 계열에서 관리자 검토용 대체 후보를 검색했습니다."
+                        if procurement_triggered
+                        else "검증 스펙이 부족해 원품번 계열에서 관리자 검토용 "
                         "대체 후보를 검색했습니다."
                     ),
                     fallback_stage="stock_alternative",
                     family_prefix=fallback_query.part_number,
                     manufacturer=fallback_query.manufacturer,
                 )
-            return self._merge_stock_replacement_fallback(
+            if procurement_replacement_kind == "procurement":
+                return self._merge_procurement_replacement_fallback(
+                    query,
+                    primary,
+                    fallback_query,
+                    fallback,
+                    procurement_policy,
+                    replacement_source=ReplacementSource.ENGINE_PROCUREMENT_FALLBACK,
+                    replacement_type="ParametricProcurementFallback",
+                    warning=(
+                        "원품번에 구매 가능한 가격·재고·주문수량 조건이 없어 "
+                        "확정 스펙으로 대체 후보를 다시 검색했습니다."
+                    ),
+                )
+            return self._merge_procurement_replacement_fallback(
                 query,
                 primary,
                 fallback_query,
@@ -1036,21 +1060,38 @@ class SearchService:
         return candidates, procurement_decision, pool_omitted_candidate_count
 
     @staticmethod
-    def _stock_replacement_required(
+    def _procurement_replacement_kind(
         query: PlannedQuery,
+        candidates: list[CandidateMatch],
         procurement_decision: ComponentProcurementDecision | None,
-    ) -> bool:
-        return bool(
-            query.mode in {SearchMode.IDENTITY, SearchMode.HYBRID}
-            and query.part_number
-            and query.quantity is not None
-            and procurement_decision is not None
-            and procurement_decision.primary_unavailability_reason
-            in {
-                ProcurementUnavailabilityReason.OUT_OF_STOCK,
-                ProcurementUnavailabilityReason.INSUFFICIENT_STOCK,
-            }
-        )
+    ) -> Literal["stock", "procurement"] | None:
+        if (
+            query.mode not in {SearchMode.IDENTITY, SearchMode.HYBRID}
+            or not query.part_number
+            or query.quantity is None
+            or procurement_decision is None
+            or procurement_decision.status != "no_recommendation"
+            or not any(
+                candidate.identity_confidence >= 0.9
+                and candidate.decision.selection_eligibility
+                != SelectionEligibility.BLOCKED
+                for candidate in candidates
+            )
+        ):
+            return None
+        reason = procurement_decision.primary_unavailability_reason
+        if reason in {
+            ProcurementUnavailabilityReason.OUT_OF_STOCK,
+            ProcurementUnavailabilityReason.INSUFFICIENT_STOCK,
+        }:
+            return "stock"
+        if reason in {
+            ProcurementUnavailabilityReason.PRICE_UNAVAILABLE,
+            ProcurementUnavailabilityReason.NO_OFFER,
+            ProcurementUnavailabilityReason.OTHER,
+        }:
+            return "procurement"
+        return None
 
     async def _enrich_digikey_stock_substitutions(
         self,
@@ -1221,7 +1262,7 @@ class SearchService:
             deep=True,
         )
 
-    def _merge_stock_replacement_fallback(
+    def _merge_procurement_replacement_fallback(
         self,
         query: PlannedQuery,
         primary: ComponentSearchResult,

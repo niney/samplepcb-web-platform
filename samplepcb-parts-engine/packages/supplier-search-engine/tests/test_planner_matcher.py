@@ -693,6 +693,58 @@ def test_user_resistor_power_is_required_only_when_selected():
     assert match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
 
 
+def test_user_resistor_voltage_blocks_lower_rating_and_requires_supplier_evidence():
+    item = component(part_type="resistor")
+    item.user_requirements = UserSearchRequirements(
+        component_type="resistor",
+        resistance="82R",
+        package="0402",
+        tolerance="5%",
+        voltage="50V",
+    )
+
+    query = QueryPlanner().plan(item)
+
+    def resistor(mpn: str, voltage: float | None) -> SupplierProduct:
+        specs: dict[str, float | str] = {
+            "resistance_ohm": 82.0,
+            "tolerance_percent": 5.0,
+            "package": "0402",
+        }
+        if voltage is not None:
+            specs["voltage_v"] = voltage
+        return SupplierProduct(
+            supplier=Supplier.DIGIKEY,
+            manufacturer_part_number=mpn,
+            category="Chip Resistors",
+            package="0402",
+            normalized_specs=specs,
+        )
+
+    candidates = finalize_candidate_decisions(
+        query,
+        [
+            CandidateMatcher().evaluate(query, resistor("RES-82R-50V", 50.0)),
+            CandidateMatcher().evaluate(query, resistor("RES-82R-25V", 25.0)),
+            CandidateMatcher().evaluate(query, resistor("RES-82R-UNKNOWN", None)),
+        ],
+    )
+    by_mpn = {
+        candidate.product.manufacturer_part_number: candidate
+        for candidate in candidates
+    }
+    safe = by_mpn["RES-82R-50V"]
+    low = by_mpn["RES-82R-25V"]
+    missing = by_mpn["RES-82R-UNKNOWN"]
+
+    assert query.requirements["voltage_v"].normalized_value == 50.0
+    assert safe.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert "voltage_v_mismatch" in low.conflicts
+    assert low.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert "voltage_v" in missing.missing_requirements
+    assert missing.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+
+
 def test_user_ceramic_capacitor_requirements_control_automatic_selection():
     complete = component(part_type="capacitor")
     complete.user_requirements = UserSearchRequirements(

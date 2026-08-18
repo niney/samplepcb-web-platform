@@ -302,6 +302,7 @@ export const BomQuoteReplacementSource = z.enum([
   'digikey_substitution',
   'mouser_suggested',
   'engine_stock_fallback',
+  'engine_procurement_fallback',
   'engine_mpn_fallback',
 ]);
 export type BomQuoteReplacementSourceType = z.infer<typeof BomQuoteReplacementSource>;
@@ -452,6 +453,7 @@ const BomQuoteSearchRequirementsPassiveBase = BomQuoteSearchRequirementsPackaged
 const BomQuoteResistorSearchRequirements = BomQuoteSearchRequirementsPassiveBase.extend({
   componentType: z.literal('resistor'),
   resistance: z.string().trim().min(1).max(64),
+  voltage: z.string().trim().min(1).max(64).nullable().optional(),
   power: z.string().trim().min(1).max(64).nullable(),
 }).strict();
 

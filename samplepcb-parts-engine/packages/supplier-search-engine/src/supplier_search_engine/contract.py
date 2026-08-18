@@ -127,7 +127,7 @@ _SEARCH_REQUIREMENT_TYPE_FIELDS = {
 }
 
 _SEARCH_REQUIREMENT_ALLOWED: dict[SearchRequirementComponentType, set[str]] = {
-    "resistor": {"resistance", "tolerance", "power"},
+    "resistor": {"resistance", "tolerance", "voltage", "power"},
     "capacitor": {
         "capacitor_type",
         "capacitance",

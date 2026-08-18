@@ -286,8 +286,11 @@ const reasonSummary = computed(() => {
   if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
   if (alternativeSelectionPending.value) {
     const replacementSources = evidence.selectedReplacementSources ?? [];
+    if (replacementSources.includes('engine_procurement_fallback')) {
+      return '원품번에 구매 가능한 조건이 없어 찾은 스펙 대체 후보 · 관리자 확인 필요';
+    }
     if (replacementSources.includes('engine_mpn_fallback')) {
-      return '재고 부족으로 찾은 동일 제조사·MPN 계열 대체 후보 · 관리자 확인 필요';
+      return '원품번에 구매 가능한 조건이 없어 찾은 동일 제조사·MPN 계열 대체 후보 · 관리자 확인 필요';
     }
     return '재고 부족으로 찾은 대체 후보 · 관리자 확인 필요';
   }

@@ -167,6 +167,7 @@ class ReplacementSource(StrEnum):
     DIGIKEY_SUBSTITUTION = "digikey_substitution"
     MOUSER_SUGGESTED = "mouser_suggested"
     ENGINE_STOCK_FALLBACK = "engine_stock_fallback"
+    ENGINE_PROCUREMENT_FALLBACK = "engine_procurement_fallback"
     ENGINE_MPN_FALLBACK = "engine_mpn_fallback"
 
 

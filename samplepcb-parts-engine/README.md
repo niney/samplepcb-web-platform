@@ -143,14 +143,18 @@ BOM MPN은 CAD library reference보다 우선하며 서로 다른 유효값은 `
 `manufacturer_spec`, `any_vendor_spec`, `not_searchable`로 구분한다. 특히 제조사와 MPN을
 제한하지 않은 스펙 검색은 `any_vendor_spec`으로 명시하므로 응용 계층이 매칭 점수나 문구로
 검색 방식을 다시 추측하지 않는다. 품절 원품번과 스펙 대체 후보를 함께 반환하는 경우에는 주 질의의
-`part_number` 범위를 유지하고, 선정 후보의 `engine_stock_fallback` 출처로 Any Vendor 경로를 구분한다.
+`part_number` 범위를 유지하고, 선정 후보의 `engine_stock_fallback` 또는
+`engine_procurement_fallback` 출처로 Any Vendor 경로를 구분한다.
 
 정확 품번의 전체 공급사 구매 조건이 `out_of_stock` 또는 `insufficient_stock`이면 엔진은 DigiKey의
 Substitutions API를 조건부로 한 번 더 조회한다. 여기서 구매 가능한 대체품을 확보하지 못하고 BOM에
 검증 가능한 핵심 스펙이 있으면, 기존 파라메트릭 공급사 검색을 2차로 실행해
 `engine_stock_fallback` 후보로 합친다. 다른 공급사가 필요수량을 충족하거나 재고가 단지
-`stock_unverified`인 경우에는 이 2차 검색을 실행하지 않는다. 두 경로의 대체 후보는 원품번과
-구분해 엄격한 스펙 검증을 거치며 확정 자동 교체하지 않고 수동 확인 대상으로만 추천한다.
+`stock_unverified`인 경우에는 이 2차 검색을 실행하지 않는다. 정확/변형 품번은 확인됐지만 가격 없음,
+가격·재고 혼합 실패, 환율 누락 또는 과다 MOQ/주문배수로 추천 가능한 조건이 없으면 DigiKey
+Substitutions를 건너뛰고 같은 파라메트릭 검색을 실행해 `engine_procurement_fallback`으로 구분한다.
+`catalog_inquiry`·입력 불완전·기술 차단·허용 공급사 없음은 이 경로에서도 제외한다. 두 경로의 대체
+후보는 원품번과 구분해 엄격한 스펙 검증을 거치며 확정 자동 교체하지 않고 수동 확인 대상으로만 추천한다.
 검증 스펙이 부족해 파라메트릭 검색을 만들 수 없으면 명시적 구분자 앞의 제한된 MPN 계열
 토큰으로 한 번 더 검색한다. 이 경로는 원품번과 다른 MPN이면서 같은 계열·같은 제조사인 결과만
 `engine_mpn_fallback`으로 남기고, 검색 trace에 `stock_alternative`로 기록한다. 계열 유사성만으로

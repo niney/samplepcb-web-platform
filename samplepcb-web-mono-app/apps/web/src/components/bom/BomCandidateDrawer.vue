@@ -13,7 +13,12 @@ import type {
   BomQuoteSelectionSourceType,
   PartHitType,
 } from '@sp/api-contract';
-import { isSevereOrderSurplus, type OfferPick } from '@sp/utils';
+import {
+  hasBomQuotePurchasableOffer,
+  isSevereOrderSurplus,
+  summarizeBomQuoteCandidateOfferIssues,
+  type OfferPick,
+} from '@sp/utils';
 import {
   extractionAlerts,
   extractionDisplayFields,
@@ -26,6 +31,9 @@ import {
   lifecycleBadgeClass,
   lifecycleLabel,
   lifecycleSummaryTitle,
+  replacementSourceBadgeLabel,
+  replacementSourceNoticeDescription,
+  replacementSourceNoticeLabel,
   replacementSourcesTitle,
 } from '../../bom/lifecycle-presentation';
 import BomPartSearchPanel from './BomPartSearchPanel.vue';
@@ -86,7 +94,7 @@ const i18n = useI18n();
 const { t } = i18n;
 
 type SelectionView = 'candidates' | 'search';
-type CandidateTab = 'selectable' | 'all' | 'review';
+type CandidateTab = 'selectable' | 'purchasable' | 'all' | 'review';
 type LocalCatalogDecisionSummary = NonNullable<
   BomQuoteLocalCatalogTraceType['decisionSummary']
 >;
@@ -901,6 +909,8 @@ function resetSearchRequirementsForm(): void {
       case 'resistor':
         resistance.value = stored.resistance;
         tolerance.value = stored.tolerance ?? '';
+        voltage.value = stored.voltage
+          ?? (guidanceTextValue('voltage') || originalFieldValue('voltage'));
         power.value = stored.power ?? '';
         break;
       case 'capacitor':
@@ -973,7 +983,7 @@ function resetSearchRequirementsForm(): void {
   tolerance.value = ['resistor', 'capacitor', 'inductor', 'crystal'].includes(componentType ?? '')
     ? (guidanceTextValue('tolerance') || originalFieldValue('tolerance'))
     : '';
-  voltage.value = ['capacitor', 'diode', 'transistor', 'led', 'switch'].includes(componentType ?? '')
+  voltage.value = ['resistor', 'capacitor', 'diode', 'transistor', 'led', 'switch'].includes(componentType ?? '')
     ? (guidanceTextValue('voltage') || originalFieldValue('voltage'))
     : '';
   current.value = ['inductor', 'diode', 'transistor', 'led', 'switch'].includes(componentType ?? '')
@@ -1184,6 +1194,7 @@ function submitSearchRequirements(): void {
         componentType,
         resistance: resistance.value.trim(),
         tolerance: nullableRequirement(tolerance.value),
+        voltage: nullableRequirement(voltage.value),
         power: nullableRequirement(power.value),
       });
       break;
@@ -1358,6 +1369,9 @@ const candidates = computed(() => {
   const source = props.context?.candidates ?? [];
   const filtered = source.filter((candidate) => {
     if (tab.value === 'selectable') return candidate.manualSelectable;
+    if (tab.value === 'purchasable') {
+      return candidate.manualSelectable && hasBomQuotePurchasableOffer(candidate.offers);
+    }
     if (tab.value === 'review') return candidate.selectionEligibility !== 'automatic';
     return true;
   });
@@ -1366,6 +1380,10 @@ const candidates = computed(() => {
 
 const selectableCount = computed(() =>
   props.context?.candidates.filter((candidate) => candidate.manualSelectable).length ?? 0,
+);
+const purchasableCount = computed(() =>
+  props.context?.candidates.filter((candidate) =>
+    candidate.manualSelectable && hasBomQuotePurchasableOffer(candidate.offers)).length ?? 0,
 );
 const reviewCount = computed(() =>
   props.context?.candidates.filter((candidate) => candidate.selectionEligibility !== 'automatic').length ?? 0,
@@ -1675,7 +1693,7 @@ function candidateTotalLabel(candidate: BomQuoteCandidateType): string {
   if (props.context?.procurementUnavailabilityReason === 'input_incomplete') {
     return '수량 확인 후 계산';
   }
-  return candidate.offers.length > 0 ? '적용 가능한 구매 조건 없음' : '가격 확인 필요';
+  return candidate.offers.length > 0 ? '구매 가능한 조건 없음' : '가격 확인 필요';
 }
 
 function severeOfferSurplus(offer: BomQuoteCandidateOfferType): boolean {
@@ -1736,6 +1754,19 @@ function offerStockState(offer: BomQuoteCandidateOfferType): OfferStockState | n
   ) return 'insufficient_stock';
   if (offer.stock === null) return 'stock_unverified';
   return null;
+}
+
+function candidateOfferIssueSummary(candidate: BomQuoteCandidateType): string | null {
+  const needed = props.context?.neededQty ?? props.needed;
+  const counts = summarizeBomQuoteCandidateOfferIssues(candidate.offers, needed);
+  const labels: string[] = [];
+  if (counts.priceUnavailable > 0) labels.push(`가격/환율 없음 ${String(counts.priceUnavailable)}`);
+  if (counts.outOfStock > 0) labels.push(`재고 없음 ${String(counts.outOfStock)}`);
+  if (counts.insufficientStock > 0) labels.push(`재고 부족 ${String(counts.insufficientStock)}`);
+  if (counts.stockUnverified > 0) labels.push(`재고 미확인 ${String(counts.stockUnverified)}`);
+  if (counts.excessiveOrder > 0) labels.push(`주문수량 과다 ${String(counts.excessiveOrder)}`);
+  if (counts.other > 0) labels.push(`기타 조건 ${String(counts.other)}`);
+  return labels.length === 0 ? null : labels.join(' · ');
 }
 
 function offerPresentationRank(offer: BomQuoteCandidateOfferType): number {
@@ -1843,7 +1874,7 @@ function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
     case 'no_offer':
       return '구매 조건 없음';
     case 'other':
-      return '구매 조건 확인 필요';
+      return '구매 조건 선택 불가';
     case null:
     case undefined:
       break;
@@ -1880,7 +1911,7 @@ function procurementBlockingReason(): string | null {
     case 'no_offer':
       return '적용 가능한 공급사 구매 조건을 찾지 못했습니다.';
     case 'other':
-      return '엔진 판정을 통과한 구매 조건이 없습니다.';
+      return '가격·재고·주문수량 중 충족하지 못한 구매 조건이 있습니다.';
     case 'out_of_stock':
     case 'insufficient_stock':
     case 'stock_unverified':
@@ -1905,7 +1936,7 @@ function procurementBlockingActionLabel(): string | null {
     case 'no_offer':
       return '구매 조건 없음';
     case 'other':
-      return '구매 조건 확인 필요';
+      return '구매 조건 선택 불가';
     case 'out_of_stock':
     case 'insufficient_stock':
     case 'stock_unverified':
@@ -1952,8 +1983,6 @@ function offerUnavailableReason(
   ) {
     return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매 조건을 적용할 수 있습니다.';
   }
-  const procurementReason = procurementBlockingReason();
-  if (procurementReason !== null) return procurementReason;
   if (reasons.has('stock_short') || reasons.has('stock_shortage_not_allowed')) {
     return offerStockLabel(offer) || '필요수량보다 재고가 부족합니다.';
   }
@@ -1974,6 +2003,8 @@ function offerUnavailableReason(
     return '공급사 구매 조건 식별 정보를 확인할 수 없습니다.';
   }
   if (reasons.has('procurement_excluded')) return '조달 대상에서 제외된 행입니다.';
+  const procurementReason = procurementBlockingReason();
+  if (procurementReason !== null) return procurementReason;
   return '가격·재고 구매 조건을 충족하지 못했습니다.';
 }
 
@@ -2015,6 +2046,10 @@ function candidateActionDisabledReason(candidate: BomQuoteCandidateType): string
   }
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
   if (candidate.bestOfferKey === null) {
+    const issueSummary = candidateOfferIssueSummary(candidate);
+    if (issueSummary !== null) {
+      return `공급사별 차단 사유: ${issueSummary}`;
+    }
     return procurementBlockingReason() ?? `구매 불가: ${candidateUnavailableLabel(candidate)}`;
   }
   return null;
@@ -2651,7 +2686,7 @@ onBeforeUnmount(() => {
                       <input v-model.trim="power" type="text" maxlength="64" placeholder="조건 없음 또는 예: 0.1W" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
-                    <label v-if="['capacitor', 'diode', 'transistor', 'led', 'switch'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
+                    <label v-if="['resistor', 'capacitor', 'diode', 'transistor', 'led', 'switch'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
                       정격전압 <b v-if="requirementComponentType === 'diode' && ['zener', 'tvs'].includes(diodeType)" class="text-rose-600">*</b>
                       <input v-model.trim="voltage" type="text" maxlength="64" placeholder="모름 또는 예: 25V" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
@@ -3021,9 +3056,10 @@ onBeforeUnmount(() => {
                   <span v-if="recommendedCandidate.technicalReviewRank !== null" class="rounded-full bg-amber-200 px-2 py-0.5 font-bold">검토 {{ recommendedCandidate.technicalReviewRank }}순위</span>
                 </div>
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-100 px-3 pt-2">
-                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'selectable' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'selectable'">선택 가능 {{ selectableCount }}</button>
+                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'selectable' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'selectable'">기술 후보 {{ selectableCount }}</button>
+                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'purchasable' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'purchasable'">구매 가능 {{ purchasableCount }}</button>
                   <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'all'">전체 {{ context.candidates.length }}</button>
-                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'review' ? 'bg-amber-50 text-amber-800' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'review'">검토 필요 {{ reviewCount }}</button>
+                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'review' ? 'bg-amber-50 text-amber-800' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'review'">검토 후보 {{ reviewCount }}</button>
                 </div>
 
                 <div v-if="candidates.length > 0" class="space-y-2 p-3">
@@ -3057,7 +3093,7 @@ onBeforeUnmount(() => {
                                 v-if="candidate.replacementSources.length > 0"
                                 class="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-bold text-violet-800"
                                 :title="candidateReplacementTitle(candidate)"
-                              >공급사 제안 대체품</span>
+                              >{{ replacementSourceBadgeLabel(candidate.replacementSources) }}</span>
                               <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
                               <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
                             </div>
@@ -3089,7 +3125,7 @@ onBeforeUnmount(() => {
                           <strong class="mt-0.5 block text-lg tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
                           <p v-if="candidateBestOfferUnitLabel(candidate) !== null" class="mt-0.5 text-xs tabular-nums text-slate-500">단가 {{ candidateBestOfferUnitLabel(candidate) }}</p>
                           <p v-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
-                          <p v-else class="mt-1 text-xs font-bold" :class="candidateUnavailableLabel(candidate) === '재고 없음' ? 'text-red-700' : 'text-amber-700'">{{ candidateUnavailableLabel(candidate) }}</p>
+                          <p v-else class="mt-1 text-xs font-bold" :class="candidateUnavailableLabel(candidate) === '재고 없음' ? 'text-red-700' : 'text-amber-700'">{{ candidateOfferIssueSummary(candidate) ?? candidateUnavailableLabel(candidate) }}</p>
                           <p
                             v-if="candidateHasSevereBestOffer(candidate)"
                             class="mt-1 rounded bg-orange-100 px-2 py-1 text-[11px] font-bold leading-4 text-orange-800"
@@ -3133,7 +3169,7 @@ onBeforeUnmount(() => {
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
                       </div>
                       <div v-if="candidate.replacementSources.length > 0" class="mt-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs leading-5 text-violet-900">
-                        <b>공급사 제안 대체품:</b> 공급사 API가 <template v-if="candidate.replacementForMpn !== null">원품번 {{ candidate.replacementForMpn }}의 </template>대체 후보로 제공했습니다. 자동 호환을 의미하지 않으므로 사양·패키지·인증 조건을 확인한 뒤 선택해야 합니다.
+                        <b>{{ replacementSourceNoticeLabel(candidate.replacementSources) }}:</b> {{ replacementSourceNoticeDescription(candidate.replacementSources, candidate.replacementForMpn) }}
                       </div>
                       <div v-if="candidate.missingRequirements.length > 0" class="mt-1.5 rounded-md bg-amber-100/70 px-2.5 py-1.5 text-xs text-amber-800"><b>{{ missingNoticePrefix(candidate) }}:</b> {{ missingText(candidate) }}</div>
 

@@ -1,13 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import type { BomQuoteItemType } from '@sp/api-contract';
+import type { BomQuoteCandidateOfferType, BomQuoteItemType } from '@sp/api-contract';
 import {
   bomQuoteAdminAttention,
   bomQuoteItemMatchGroup,
+  hasBomQuotePurchasableOffer,
   isBomQuoteAlternativePendingReview,
   isBomQuotePendingReview,
   isBomQuoteStockShort,
+  summarizeBomQuoteCandidateOfferIssues,
   summarizeBomQuoteItems,
 } from './bom-quote-presentation';
+
+function offer(
+  overrides: Partial<BomQuoteCandidateOfferType> = {},
+): BomQuoteCandidateOfferType {
+  return {
+    offerKey: 'offer-1',
+    supplier: 'digikey',
+    offerKind: 'supplier_offer',
+    supplierSku: 'SKU-1',
+    packaging: 'Cut Tape',
+    stock: 100,
+    moq: 1,
+    orderMultiple: 1,
+    productUrl: null,
+    fetchedAt: '2026-08-18T00:00:00.000Z',
+    priceBreaks: [{ qty: 1, price: 100, currency: 'KRW' }],
+    priceRank: null,
+    purchaseFitRank: null,
+    purchasable: false,
+    recommendation: 'none',
+    decisionReasonCodes: [],
+    applied: {
+      orderQty: 2,
+      breakQty: 1,
+      unitPrice: 100,
+      currency: 'KRW',
+      unitPriceKrw: 100,
+      lineTotalKrw: 200,
+      stockShort: false,
+    },
+    ...overrides,
+  };
+}
 
 function item(overrides: Partial<BomQuoteItemType> = {}): BomQuoteItemType {
   return {
@@ -40,6 +75,85 @@ function item(overrides: Partial<BomQuoteItemType> = {}): BomQuoteItemType {
 }
 
 describe('BOM 견적 화면 표시 집계', () => {
+  it('서버 구매 가능 판정과 적용 결과가 모두 있는 구매 조건만 선택 가능으로 센다', () => {
+    expect(hasBomQuotePurchasableOffer([
+      offer({ purchasable: true }),
+    ])).toBe(true);
+    expect(hasBomQuotePurchasableOffer([
+      offer({ purchasable: true, applied: null }),
+      offer({ purchasable: false }),
+    ])).toBe(false);
+  });
+
+  it('혼합 구매 불가 사유를 공급사 조건별 표시 건수로 집계한다', () => {
+    const issues = summarizeBomQuoteCandidateOfferIssues([
+      offer({
+        offerKey: 'unikey-no-price',
+        supplier: 'unikeyic',
+        stock: 362,
+        moq: 100,
+        priceBreaks: [],
+        decisionReasonCodes: ['price_unavailable', 'price_break_unavailable_for_quantity'],
+        applied: null,
+      }),
+      offer({
+        offerKey: 'mouser-no-stock',
+        supplier: 'mouser',
+        stock: 0,
+        decisionReasonCodes: ['stock_short', 'stock_shortage_not_allowed'],
+        applied: {
+          orderQty: 2,
+          breakQty: 1,
+          unitPrice: 156,
+          currency: 'KRW',
+          unitPriceKrw: 156,
+          lineTotalKrw: 312,
+          stockShort: true,
+        },
+      }),
+      offer({
+        offerKey: 'digikey-excessive',
+        stock: 0,
+        moq: 10_000,
+        decisionReasonCodes: [
+          'stock_short',
+          'stock_shortage_not_allowed',
+          'automatic_selection_excessive',
+        ],
+        applied: {
+          orderQty: 10_000,
+          breakQty: 1,
+          unitPrice: 2,
+          currency: 'KRW',
+          unitPriceKrw: 2,
+          lineTotalKrw: 20_000,
+          stockShort: true,
+        },
+      }),
+    ], 2);
+
+    expect(issues).toEqual({
+      priceUnavailable: 1,
+      outOfStock: 2,
+      insufficientStock: 0,
+      stockUnverified: 0,
+      excessiveOrder: 1,
+      other: 0,
+    });
+  });
+
+  it('판정 근거가 없는 구버전 구매 조건과 제조사 문의 조건을 구분한다', () => {
+    expect(summarizeBomQuoteCandidateOfferIssues([
+      offer({ applied: null, priceBreaks: [{ qty: 1, price: 100, currency: 'KRW' }] }),
+      offer({
+        offerKey: 'catalog-inquiry',
+        offerKind: 'manufacturer_catalog',
+        applied: null,
+        priceBreaks: [],
+      }),
+    ], 2)).toMatchObject({ other: 1, priceUnavailable: 0 });
+  });
+
   it('엔진 제외, 재고, 선정, 검토, 미선정을 화면과 같은 우선순위로 분류한다', () => {
     expect(bomQuoteItemMatchGroup(item({
       matchEvidence: {
@@ -98,6 +212,7 @@ describe('BOM 견적 화면 표시 집계', () => {
     'digikey_substitution',
     'mouser_suggested',
     'engine_stock_fallback',
+    'engine_procurement_fallback',
     'engine_mpn_fallback',
   ] as const)('%s 대체품 임시 선정만 재고 상태보다 Review를 우선한다', (source) => {
     const alternative = item({

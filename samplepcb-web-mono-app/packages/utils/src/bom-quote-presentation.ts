@@ -1,4 +1,5 @@
-import type { BomQuoteItemType } from '@sp/api-contract';
+import type { BomQuoteCandidateOfferType, BomQuoteItemType } from '@sp/api-contract';
+import { isSevereOrderSurplus } from './bom-pricing';
 
 export type BomQuoteItemMatchGroup = 'matched' | 'review' | 'unmatched' | 'nostock' | 'excluded';
 
@@ -53,6 +54,92 @@ export interface BomQuotePresentationStats {
   uncosted: number;
   pendingReview: number;
   itemsTotal: number;
+}
+
+/**
+ * 후보 카드가 서버의 구매 조건 판정을 다시 만들지 않고, 공급사별 차단 근거를
+ * 사용자에게 설명할 수 있도록 저장된 offer 판정 사유를 표시용 건수로 집계한다.
+ * 한 구매 조건에 가격·재고·과다수량 문제가 함께 있으면 각 항목에 모두 집계한다.
+ */
+export interface BomQuoteCandidateOfferIssueCounts {
+  priceUnavailable: number;
+  outOfStock: number;
+  insufficientStock: number;
+  stockUnverified: number;
+  excessiveOrder: number;
+  other: number;
+}
+
+/** 서버가 구매 가능으로 판정했고 현재 필요수량에 적용 결과까지 있는 조건만 센다. */
+export function hasBomQuotePurchasableOffer(
+  offers: readonly BomQuoteCandidateOfferType[],
+): boolean {
+  return offers.some((offer) => offer.purchasable && offer.applied !== null);
+}
+
+export function summarizeBomQuoteCandidateOfferIssues(
+  offers: readonly BomQuoteCandidateOfferType[],
+  neededQty: number,
+): BomQuoteCandidateOfferIssueCounts {
+  const counts: BomQuoteCandidateOfferIssueCounts = {
+    priceUnavailable: 0,
+    outOfStock: 0,
+    insufficientStock: 0,
+    stockUnverified: 0,
+    excessiveOrder: 0,
+    other: 0,
+  };
+
+  for (const offer of offers) {
+    if (offer.offerKind === 'manufacturer_catalog') continue;
+    const reasons = new Set(offer.decisionReasonCodes);
+    let recognized = false;
+
+    if (
+      reasons.has('price_unavailable')
+      || reasons.has('price_break_unavailable_for_quantity')
+      || reasons.has('currency_rate_missing')
+      || offer.priceBreaks.length === 0
+      || offer.applied?.unitPriceKrw === null
+    ) {
+      counts.priceUnavailable += 1;
+      recognized = true;
+    }
+
+    if (offer.stock === 0) {
+      counts.outOfStock += 1;
+      recognized = true;
+    } else if (
+      offer.applied?.stockShort === true
+      || reasons.has('stock_short')
+      || reasons.has('stock_shortage_not_allowed')
+    ) {
+      counts.insufficientStock += 1;
+      recognized = true;
+    } else if (
+      offer.stock === null
+      || reasons.has('stock_unverified')
+      || reasons.has('stock_unverified_not_allowed')
+    ) {
+      counts.stockUnverified += 1;
+      recognized = true;
+    }
+
+    if (
+      reasons.has('automatic_selection_excessive')
+      || (
+        offer.applied !== null
+        && isSevereOrderSurplus(neededQty, offer.applied.orderQty)
+      )
+    ) {
+      counts.excessiveOrder += 1;
+      recognized = true;
+    }
+
+    if (!offer.purchasable && !recognized) counts.other += 1;
+  }
+
+  return counts;
 }
 
 export function hasBomQuoteEngineStockConstraint(item: BomQuoteItemType): boolean {

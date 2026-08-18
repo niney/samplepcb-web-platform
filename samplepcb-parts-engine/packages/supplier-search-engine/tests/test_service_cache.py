@@ -140,10 +140,14 @@ class ModeAwareStockClient(FakeSupplierClient):
         *,
         exact_stock: int | None,
         replacement_stock: int = 100,
+        exact_has_price: bool = True,
+        exact_moq: int = 1,
     ) -> None:
         super().__init__(supplier)
         self.exact_stock = exact_stock
         self.replacement_stock = replacement_stock
+        self.exact_has_price = exact_has_price
+        self.exact_moq = exact_moq
 
     def normalize(
         self,
@@ -153,6 +157,11 @@ class ModeAwareStockClient(FakeSupplierClient):
         is_parametric = query.mode == SearchMode.PARAMETRIC
         mpn = "ABC-ALT" if is_parametric else "ABC-123"
         stock = self.replacement_stock if is_parametric else self.exact_stock
+        price_breaks = (
+            [{"quantity": 1, "unit_price": 100, "currency": "KRW"}]
+            if is_parametric or self.exact_has_price
+            else []
+        )
         return [
             SupplierProduct(
                 supplier=self.supplier,
@@ -173,11 +182,9 @@ class ModeAwareStockClient(FakeSupplierClient):
                         supplier_sku=f"{mpn}-{self.supplier.value}",
                         packaging="Cut Tape",
                         stock=stock,
-                        moq=1,
+                        moq=1 if is_parametric else self.exact_moq,
                         order_multiple=1,
-                        price_breaks=[
-                            {"quantity": 1, "unit_price": 100, "currency": "KRW"}
-                        ],
+                        price_breaks=price_breaks,
                     )
                 ],
             )
@@ -826,6 +833,92 @@ async def test_insufficient_exact_stock_also_triggers_stock_replacement_search(
     assert any(
         candidate.product.replacement_source
         == ReplacementSource.ENGINE_STOCK_FALLBACK
+        for candidate in result.candidates
+    )
+
+
+async def test_mixed_price_and_stock_failure_triggers_procurement_replacement_search(
+    tmp_path,
+):
+    no_price = ModeAwareStockClient(
+        Supplier.UNIKEYIC,
+        exact_stock=100,
+        exact_has_price=False,
+    )
+    no_stock = ModeAwareStockClient(Supplier.MOUSER, exact_stock=0)
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[no_price, no_stock],
+        allowed_suppliers={Supplier.UNIKEYIC, Supplier.MOUSER},
+    )
+
+    result = await service.search_component(stock_replacement_query(quantity=10))
+
+    assert no_price.calls == 2
+    assert no_stock.calls == 2
+    replacements = [
+        candidate
+        for candidate in result.candidates
+        if candidate.product.replacement_source
+        == ReplacementSource.ENGINE_PROCUREMENT_FALLBACK
+    ]
+    assert replacements
+    assert all(
+        candidate.decision.selection_eligibility.value == "manual_review"
+        for candidate in replacements
+    )
+    assert result.procurement_decision is not None
+    assert result.procurement_decision.status == "review_recommended"
+    assert result.procurement_decision.confirmation_required is True
+    assert result.search_trace is not None
+    assert result.search_trace.fallback_used is True
+    assert any(
+        "가격·재고·주문수량 조건" in warning for warning in result.warnings
+    )
+
+
+async def test_price_unavailable_exact_offer_triggers_procurement_replacement_search(
+    tmp_path,
+):
+    client = ModeAwareStockClient(
+        Supplier.MOUSER,
+        exact_stock=100,
+        exact_has_price=False,
+    )
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[client],
+        allowed_suppliers={Supplier.MOUSER},
+    )
+
+    result = await service.search_component(stock_replacement_query())
+
+    assert client.calls == 2
+    assert any(
+        candidate.product.replacement_source
+        == ReplacementSource.ENGINE_PROCUREMENT_FALLBACK
+        for candidate in result.candidates
+    )
+
+
+async def test_excessive_exact_moq_triggers_procurement_replacement_search(tmp_path):
+    client = ModeAwareStockClient(
+        Supplier.MOUSER,
+        exact_stock=20_000,
+        exact_moq=10_000,
+    )
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[client],
+        allowed_suppliers={Supplier.MOUSER},
+    )
+
+    result = await service.search_component(stock_replacement_query(quantity=2))
+
+    assert client.calls == 2
+    assert any(
+        candidate.product.replacement_source
+        == ReplacementSource.ENGINE_PROCUREMENT_FALLBACK
         for candidate in result.candidates
     )
 

@@ -132,10 +132,12 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   불일치 후보는 계속 차단한다. 계보가 없는 일반 MPN 행의 다른 MPN 자동선정도 기존대로 금지한다.
 - **검색 범위 provenance(2026-08-04)**: sp-engine 1.10은 실제 최종 질의를 `search_scope`로
   구분한다. MPN과 제조사를 제한하지 않은 스펙 검색은 `any_vendor_spec`이다. 품절 원품번 결과와
-  스펙 대체 후보가 합쳐진 경우에는 선정 후보의 `engine_stock_fallback` 출처까지 함께 사용해 sp-node가
-  `matchEvidence.anyVendorSpecSearch`로 스냅샷에 보존한다. sp-vue는 선정된 행의 실제 MPN·제조사와
-  기존 상태 표시를 유지하면서 MPN 위에 `Any Vendor` 배지와 스펙 검색 툴팁을 추가한다. 과거 견적이나
-  엔진 필드가 없는 결과를 매칭 점수만으로 Any Vendor라고 추측하지 않는다.
+  스펙 대체 후보가 합쳐진 경우에는 선정 후보의 `engine_stock_fallback` 또는
+  `engine_procurement_fallback` 출처까지 함께 사용해 sp-node가 `matchEvidence.anyVendorSpecSearch`로
+  스냅샷에 보존한다. 전자는 재고 부족, 후자는 가격 없음·혼합 조달 실패·과다 주문수량 때문에 실행한
+  스펙 검색이다. sp-vue는 선정된 행의 실제 MPN·제조사와 기존 상태 표시를 유지하면서 MPN 위에
+  `Any Vendor` 배지와 스펙 검색 툴팁을 추가한다. 과거 견적이나 엔진 필드가 없는 결과를 매칭 점수만으로
+  Any Vendor라고 추측하지 않는다.
 - **실제 검색 과정 provenance(2026-07-21)**: sp-engine 1.5는 component마다 최초 검색어와
   조건부 스펙 fallback 검색어, 공급사별 논리 시도 순서·전략·API/캐시 출처·결과 수·HTTP 재시도 수·
   소요시간·fallback 사유를 구조화한다. API 키·헤더·원본 요청 body·URL은 기록하지 않는다.
@@ -250,17 +252,20 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
     `out_of_stock`·`insufficient_stock`만 독립 NOSTOCK 집계에도 포함한다.
     항목별 필수조건 불일치와 기대값·실제값은 후보 비교 근거에 계속 표시한다. 이 필드가 없는 기존
     저장 결과는 종전 상태 표시를 유지하며, 버전과 값 중 하나만 온 결과는 fail-closed 처리한다.
-  - **재고 부족 대체품 2차 검색(2026-08-04)**: 정확 품번의 전체 공급사 결과를 조달 판정한 뒤
-    `out_of_stock|insufficient_stock`이고 필요수량을 충족하는 구매 조건이 하나도 없을 때만 DigiKey
-    Substitutions를 추가 호출한다. 공급사 대체품으로도 구매 가능한 검토 후보가 생기지 않으면 검증된
-    BOM 스펙으로 DigiKey·Mouser·UniKeyIC 파라메트릭 검색을 실행하고 결과를
-    `engine_stock_fallback`으로 표시한다. 원품번 후보는 보존하고 대체 후보는 엄격 스펙 검증과
-    관리자 확인을 요구하며 자동 교체하지 않는다. 다른 공급사가 수량을 충족하거나
-    `stock_unverified`·`catalog_inquiry`인 경우에는 호출하지 않는다. 호출은 기존 잡/공급사 예산,
-    single-flight, raw cache를 그대로 적용한다. 검증 스펙이 부족해 파라메트릭 검색을 만들 수 없는
-    경우에는 명시적 구분자 앞의 제한된 영숫자 MPN 계열로 검색하며, 같은 계열·같은 제조사의 다른
-    품번만 `engine_mpn_fallback` 관리자 검토 후보로 남긴다. 이 단계는 trace의
-    `stock_alternative`로 구분한다. 구매 가능한 후보는 가견적 계산을 위한
+  - **구매 불가 대체품 2차 검색(재고 2026-08-04, 혼합 조달 2026-08-19)**: 정확/변형 품번 후보가
+    존재하지만 추천 가능한 구매조건이 하나도 없을 때만 실행한다. 대표 사유가
+    `out_of_stock|insufficient_stock`이면 DigiKey Substitutions를 먼저 추가 호출하고, 그래도 구매 가능한
+    검토 후보가 없으면 검증된 BOM 스펙으로 DigiKey·Mouser·UniKeyIC 파라메트릭 검색을 실행해
+    `engine_stock_fallback`으로 표시한다. 대표 사유가 `price_unavailable|other|no_offer`이면 공급사
+    대체품 API를 거치지 않고 같은 스펙 검색을 실행해 `engine_procurement_fallback`으로 분리한다. 이
+    경로는 재고 있는 조건의 가격 없음, 가격 있는 조건의 재고 부족, 환율 누락, 과다 MOQ/주문배수가
+    섞여 최종 구매조건을 고르지 못한 경우를 포함한다. `stock_unverified`·`catalog_inquiry`·입력 불완전·
+    기술 차단·허용 공급사 없음은 계속 제외한다. 원품번 후보는 보존하고 대체 후보는 엄격 스펙 검증과
+    관리자 확인을 요구하며 자동 교체하지 않는다. 호출은 기존 잡/공급사 예산, single-flight, raw cache를
+    그대로 적용한다. 검증 스펙이 부족해 파라메트릭 검색을 만들 수 없는 경우에는 명시적 구분자 앞의
+    제한된 영숫자 MPN 계열로 검색하며, 같은 계열·같은 제조사의 다른 품번만 `engine_mpn_fallback`
+    관리자 검토 후보로 남긴다. 이 단계는 trace의 `stock_alternative`로 구분한다. 구매 가능한 후보는
+    가견적 계산을 위한
     `provisional_selected`가 될 수 있지만 반드시 `confirmation_required=true`로 저장하며, 관리자
     확인 전에는 확정 선택으로 취급하지 않는다. 화면의 `Review` 경계는 명시적 수동 확정 행을 제외하고,
     이 두 필드 중 하나가 검토 상태이면서 `selectedReplacementSources`가 비어 있지 않거나
@@ -432,7 +437,14 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   sp-vue가 다시 판정하지 않는다. 구매 조건별 배지는 엔진 `stock_short` 근거와 원본 재고 0/미확인 사실만
   구체적인 문구로 표현한다.
   적용 가능한 최적 구매 조건이 없는 후보는 후보 단위 선택 버튼도 비활성화하고 같은 사유를 버튼에 표시해,
-  구매 조건별 `선택 불가` 판정과 후보 선택 동작이 어긋나지 않게 한다.
+  구매 조건별 `선택 불가` 판정과 후보 선택 동작이 어긋나지 않게 한다. 대표 사유가 혼합형 `other`이면
+  포괄적인 "구매 조건 확인 필요" 대신 저장된 구매 조건 판정 코드를 가격/환율 없음·재고 없음/부족/미확인·
+  주문수량 과다 건수로 집계해 보여주며, 펼친 공급사 조건에서는 각 조건의 구체 사유를 우선 표시한다.
+  후보 필터는 기술상 직접 선택 가능한 `기술 후보`, 서버가 `purchasable`이고 필요수량 적용 결과도 있는
+  `구매 가능`, 전체, `검토 후보`를 분리해 기술 후보 수를 실제 구매 가능 수로 오해하지 않게 한다.
+  저항 검색조건은 저항값·패키지·허용오차·전력뿐 아니라 원본에 정격전압이 있으면 이를 이상(≥) 조건으로
+  보존한다. 구형 저장 조건에 전압 필드가 없으면 원본 추출값을 다시 채워 스펙 재검색이 50V 같은 BOM
+  요구조건을 조용히 버리지 않게 한다.
   후보 카드의 검증 수·비율은 단일 배지로 압축하고, 마우스오버·키보드 포커스·터치 시 지연 없이
   항목/BOM 요구값/후보값/판정을 보여주는 커스텀 툴팁을 연다(닫힘만 100ms 유예).
   패널 상단의 **원본 BOM**은 영속 ComponentRecord가 있으면 일부 고정 필드가 아니라 실제로 값이

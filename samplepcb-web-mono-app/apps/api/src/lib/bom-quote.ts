@@ -391,6 +391,7 @@ const EngineSupplierCandidate = z
           'digikey_substitution',
           'mouser_suggested',
           'engine_stock_fallback',
+          'engine_procurement_fallback',
           'engine_mpn_fallback',
         ]).nullish(),
         replacement_type: z.string().nullish(),
@@ -1193,6 +1194,7 @@ const StoredCandidate = z.object({
     'digikey_substitution',
     'mouser_suggested',
     'engine_stock_fallback',
+    'engine_procurement_fallback',
     'engine_mpn_fallback',
   ])).catch([]),
   replacementForMpn: z.string().nullable().catch(null),
@@ -2515,7 +2517,8 @@ function evidenceFromDecision(
     identityFallback,
     anyVendorSpecSearch:
       component.search_scope === 'any_vendor_spec'
-      || selected?.snapshot.replacementSources.includes('engine_stock_fallback') === true,
+      || selected?.snapshot.replacementSources.includes('engine_stock_fallback') === true
+      || selected?.snapshot.replacementSources.includes('engine_procurement_fallback') === true,
     searchRequirementGuidance: publicSearchRequirementGuidance(
       component.requirement_guidance,
     ),

@@ -1288,7 +1288,7 @@ interface CandidateOptions {
   lifecycleCode?: 'active' | 'nrnd' | 'eol' | 'discontinued' | 'obsolete' | 'inactive' | 'unknown';
   lifecycleStatus?: string;
   lastBuyDate?: string;
-  replacementSource?: 'digikey_substitution' | 'mouser_suggested' | 'engine_stock_fallback' | 'engine_mpn_fallback';
+  replacementSource?: 'digikey_substitution' | 'mouser_suggested' | 'engine_stock_fallback' | 'engine_procurement_fallback' | 'engine_mpn_fallback';
   replacementForMpn?: string;
   replacementType?: string;
   manufacturer?: string | null;
@@ -2130,12 +2130,14 @@ describe('BOM 엔진 후보 결정 투영', () => {
   });
 
   it.each([
-    ['스펙 검색', 'engine_stock_fallback', 'ParametricStockFallback'],
-    ['MPN 계열 검색', 'engine_mpn_fallback', 'MpnFamilyStockFallback'],
-  ] as const)('재고 부족 %s 대체품 출처를 검토 후보로 저장한다', (
+    ['재고 부족 스펙 검색', 'engine_stock_fallback', 'ParametricStockFallback', true],
+    ['조달조건 스펙 검색', 'engine_procurement_fallback', 'ParametricProcurementFallback', true],
+    ['MPN 계열 검색', 'engine_mpn_fallback', 'MpnFamilyStockFallback', false],
+  ] as const)('%s 대체품 출처를 검토 후보로 저장한다', (
     _label,
     replacementSource,
     replacementType,
+    anyVendorSpecSearch,
   ) => {
     const original = candidate('verified_exact', 'OUT-OF-STOCK-PART', 'mouser', 100, 1, {
       currentDecisionContract: true,
@@ -2198,7 +2200,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
       confirmationRequired: true,
       selectedReplacementSources: [replacementSource],
       selectedReplacementForMpn: 'OUT-OF-STOCK-PART',
-      anyVendorSpecSearch: replacementSource === 'engine_stock_fallback',
+      anyVendorSpecSearch,
     });
   });
 

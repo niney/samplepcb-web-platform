@@ -23,6 +23,19 @@ const storedConnectorRequirements = {
   updatedBy: 'tester',
 };
 
+const storedResistorRequirements = {
+  version: 'bom-user-search-requirements-v2' as const,
+  componentType: 'resistor' as const,
+  packageCode: '0402',
+  mountStyle: 'smd' as const,
+  resistance: '82R',
+  tolerance: '5%',
+  voltage: '50V',
+  power: null,
+  updatedAt: '2026-08-19T00:00:00.000Z',
+  updatedBy: 'tester',
+};
+
 describe('sp-engine 검색 조건 정책 어댑터', () => {
   beforeEach(() => {
     engineFetchMock.mockReset();
@@ -39,6 +52,16 @@ describe('sp-engine 검색 조건 정책 어댑터', () => {
       row_count: 2,
       gender: 'male',
       orientation: 'right-angle',
+    });
+    expect(toEngineSearchRequirements(storedResistorRequirements)).toEqual({
+      version: 'bom-user-search-requirements-v2',
+      component_type: 'resistor',
+      package: '0402',
+      mount_style: 'smd',
+      resistance: '82R',
+      tolerance: '5%',
+      voltage: '50V',
+      power: null,
     });
   });
 
