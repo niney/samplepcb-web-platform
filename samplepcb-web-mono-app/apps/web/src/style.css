@@ -242,9 +242,10 @@
   --color-bom-mode-border: #2d3a4d;
   --color-bom-mode-active: #0e6efd;
   --color-bom-mode-inactive: #b2b4c3;
-  --color-bom-landing-toggle: #252a31;
-  --color-bom-landing-toggle-active: #061023;
-  --color-bom-landing-toggle-inactive: #e1e4e8;
+  /* 랜딩 토글 다크(2456:853) — 활성 탭이 라이트(검정)와 달리 파랑이다. */
+  --color-bom-landing-toggle: #2d3a4d;
+  --color-bom-landing-toggle-active: #0e6efd;
+  --color-bom-landing-toggle-inactive: #fdfdff;
   --color-bom-landing-card-shadow: #16181c;
   --color-bom-chrome: #0d0d11;
   --color-bom-chrome-border: #2f3949;
