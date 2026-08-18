@@ -11,16 +11,27 @@ import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 import { isPositiveBigIntId } from '../lib/route-ids';
 import logoPartseyes from '../assets/bom/logo-partseyes.svg';
 import icFold from '../assets/bom/ic-fold.svg';
+import icFoldDark from '../assets/bom/ic-fold-dark.svg';
 import icMenuBomActive from '../assets/bom/ic-menu-bom.svg';
+import icMenuBomActiveDark from '../assets/bom/ic-menu-bom-dark.svg';
 import icMenuBomInactive from '../assets/bom/ic-menu-bom-inactive.svg';
+import icMenuBomInactiveDark from '../assets/bom/ic-menu-bom-inactive-dark.svg';
 import icMenuSearchActive from '../assets/bom/ic-menu-search-active.svg';
+import icMenuSearchActiveDark from '../assets/bom/ic-menu-search-active-dark.svg';
 import icMenuSearchInactive from '../assets/bom/ic-menu-search.svg';
+import icMenuSearchInactiveDark from '../assets/bom/ic-menu-search-dark.svg';
 import icMenuUploadActive from '../assets/bom/ic-menu-upload.svg';
+import icMenuUploadActiveDark from '../assets/bom/ic-menu-upload-dark.svg';
 import icMenuUploadInactive from '../assets/bom/ic-menu-upload-inactive.svg';
+import icMenuUploadInactiveDark from '../assets/bom/ic-menu-upload-inactive-dark.svg';
 import icTrailSearchActive from '../assets/bom/ic-trail-search-active.svg';
+import icTrailSearchActiveDark from '../assets/bom/ic-trail-search-active-dark.svg';
 import icTrailSearchInactive from '../assets/bom/ic-trail-search.svg';
+import icTrailSearchInactiveDark from '../assets/bom/ic-trail-search-dark.svg';
 import icFile from '../assets/bom/ic-file.svg';
+import icFileDark from '../assets/bom/ic-file-dark.svg';
 import icRecentSearch from '../assets/bom/ic-recent-search.svg';
+import icRecentSearchDark from '../assets/bom/ic-recent-search-dark.svg';
 import promoZip from '../assets/bom/promo-zip.png';
 import promoVideo from '../assets/bom/promo-video.png';
 
@@ -35,6 +46,37 @@ const auth = useAuthStore();
 // (AI 분석결과·주문 정보·예상 견적)도 같은 rightOpen 을 공유한다(usePanels 싱글턴).
 const { leftOpen, rightOpen, compactLeftOpen, compactRightOpen } = useBomPanels();
 const { isDark, toggleTheme } = useTheme();
+
+// 좌측 탐색 아이콘 — 색이 베이크된 SVG 라 CSS 변수로는 못 갈아입어 테마로 스왑한다.
+// 다크(2282:53603)는 활성 #4DAAFF·비활성 흰색이고 글리프가 배경색으로 뚫린다.
+const navIcons = computed(() =>
+  isDark.value
+    ? {
+        fold: icFoldDark,
+        bomActive: icMenuBomActiveDark,
+        bomInactive: icMenuBomInactiveDark,
+        searchActive: icMenuSearchActiveDark,
+        searchInactive: icMenuSearchInactiveDark,
+        uploadActive: icMenuUploadActiveDark,
+        uploadInactive: icMenuUploadInactiveDark,
+        trailSearchActive: icTrailSearchActiveDark,
+        trailSearchInactive: icTrailSearchInactiveDark,
+        file: icFileDark,
+        recentSearch: icRecentSearchDark,
+      }
+    : {
+        fold: icFold,
+        bomActive: icMenuBomActive,
+        bomInactive: icMenuBomInactive,
+        searchActive: icMenuSearchActive,
+        searchInactive: icMenuSearchInactive,
+        uploadActive: icMenuUploadActive,
+        uploadInactive: icMenuUploadInactive,
+        trailSearchActive: icTrailSearchActive,
+        trailSearchInactive: icTrailSearchInactive,
+        file: icFile,
+        recentSearch: icRecentSearch,
+      });
 
 // 1600px 미만에서는 좌측 탐색을 먼저 드로어로 전환해 표와 우측 분석 패널에 공간을 준다.
 // 우측 정보 패널은 1280px까지 본문에 유지하고, 그 미만에서만 드로어/바텀시트가 된다.
@@ -195,13 +237,13 @@ watch(() => route.fullPath, () => {
       <div class="h-[30px] w-px bg-bom-chrome-border" />
       <button
         type="button"
-        class="ml-[11px] grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
+        class="ml-[11px] grid size-[26px] place-items-center rounded-md hover:bg-surface-raised"
         :title="effectiveLeftOpen ? '사이드바 접기' : '사이드바 펼치기'"
         :aria-expanded="effectiveLeftOpen"
         aria-controls="bom-left-navigation"
         @click="toggleLeftPanel"
       >
-        <img :src="icFold" alt="" class="size-[18px] transition-transform" :class="effectiveLeftOpen ? '' : '-scale-x-100'">
+        <img :src="navIcons.fold" alt="" class="size-[18px] transition-transform" :class="effectiveLeftOpen ? '' : '-scale-x-100'">
       </button>
       <AppSiteHomeButton variant="bom" class="ml-[12px] shrink-0" />
       <!-- 견적별 조달 모드 — 기술 적합성은 동일하고 양산에서만 안전한 Reel 구매 조건을 우선한다. -->
@@ -241,7 +283,7 @@ watch(() => route.fullPath, () => {
         <!-- 테마 전환 — 고르기 전까지는 OS 설정을 따르고, 한 번 고르면 그 선택이 유지된다 -->
         <button
           type="button"
-          class="hidden size-[32px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand sm:grid"
+          class="hidden size-[32px] place-items-center rounded-md text-bom-chrome-icon hover:bg-surface-raised hover:text-brand sm:grid"
           :aria-label="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
           :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
           @click="toggleTheme"
@@ -257,12 +299,12 @@ watch(() => route.fullPath, () => {
         <AppProfileMenu :show-admin="auth.me?.isAdmin === true" />
         <button
           type="button"
-          class="hidden size-[26px] place-items-center rounded-md hover:bg-gray-100 min-[1280px]:grid"
+          class="hidden size-[26px] place-items-center rounded-md hover:bg-surface-raised min-[1280px]:grid"
           :title="effectiveRightOpen ? '패널 접기' : '패널 펼치기'"
           :aria-expanded="effectiveRightOpen"
           @click="toggleRightPanel"
         >
-          <img :src="icFold" alt="" class="size-[18px] transition-transform" :class="effectiveRightOpen ? '-scale-x-100' : ''">
+          <img :src="navIcons.fold" alt="" class="size-[18px] transition-transform" :class="effectiveRightOpen ? '-scale-x-100' : ''">
         </button>
       </div>
     </header>
@@ -310,18 +352,18 @@ watch(() => route.fullPath, () => {
         </button>
         <RouterLink :to="{ name: 'bom' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onBomPrimary ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
           <span class="relative size-[18px] shrink-0" aria-hidden="true">
-            <img :src="onBomPrimary ? icMenuBomActive : icMenuBomInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
+            <img :src="onBomPrimary ? navIcons.bomActive : navIcons.bomInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
           </span>
           <span class="ml-[6px] font-sans text-[16px] font-medium leading-[19px]" :class="onBomPrimary ? 'text-bom-nav-active' : 'text-bom-nav-inactive'">BOM 분석</span>
-          <img :src="onBomPrimary ? icMenuUploadActive : icMenuUploadInactive" alt="" class="absolute right-[16px] top-[16px] size-[14px]">
+          <img :src="onBomPrimary ? navIcons.uploadActive : navIcons.uploadInactive" alt="" class="absolute right-[16px] top-[16px] size-[14px]">
         </RouterLink>
         <RouterLink :to="{ name: 'bom-search' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onSearch ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
           <span class="relative size-[18px] shrink-0" aria-hidden="true">
-            <img :src="onSearch ? icMenuSearchActive : icMenuSearchInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
+            <img :src="onSearch ? navIcons.searchActive : navIcons.searchInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
           </span>
           <span class="ml-[6px] font-sans text-[16px] font-medium leading-[19px]" :class="onSearch ? 'text-bom-nav-active' : 'text-bom-nav-inactive'">단일 검색</span>
           <span class="absolute right-[16px] top-[15px] size-[14px] overflow-hidden" aria-hidden="true">
-            <img :src="onSearch ? icTrailSearchActive : icTrailSearchInactive" alt="" class="absolute left-[0.4px] top-[0.4px] h-[13.2001px] w-[13.2002px] max-w-none">
+            <img :src="onSearch ? navIcons.trailSearchActive : navIcons.trailSearchInactive" alt="" class="absolute left-[0.4px] top-[0.4px] h-[13.2001px] w-[13.2002px] max-w-none">
           </span>
         </RouterLink>
 
@@ -338,11 +380,11 @@ watch(() => route.fullPath, () => {
               <span class="relative size-[15px] shrink-0 opacity-60" aria-hidden="true">
                 <img
                   v-if="q.sourceKind === 'single_search'"
-                  :src="icRecentSearch"
+                  :src="navIcons.recentSearch"
                   alt=""
                   class="absolute left-[2.25px] top-[2.25px] size-[10.5px] max-w-none"
                 >
-                <img v-else :src="icFile" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
+                <img v-else :src="navIcons.file" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
               </span>
               <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-recent-text">{{ q.fileName ?? q.title }}</span>
             </RouterLink>

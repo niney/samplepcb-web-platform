@@ -79,6 +79,8 @@
   --color-bom-landing-card-shadow: #d8e4f5;
   --color-bom-chrome: #fdfdff;
   --color-bom-chrome-border: #e1e6ef;
+  /* 상단바 아이콘(폴드·홈·테마 토글) — 라이트 #727680, 다크 시안(2584:1920)은 #B6B6B8. */
+  --color-bom-chrome-icon: #727680;
   --color-bom-workbench: #fdfdff;
   --color-bom-table-row: #fdfdff;
   --color-bom-table-head: #f8fafc;
@@ -249,6 +251,7 @@
   --color-bom-landing-card-shadow: #16181c;
   --color-bom-chrome: #0d0d11;
   --color-bom-chrome-border: #2f3949;
+  --color-bom-chrome-icon: #b6b6b8;
   --color-bom-workbench: #191b20;
   --color-bom-table-row: #131519;
   --color-bom-table-head: rgb(37 42 49 / 0.3);
