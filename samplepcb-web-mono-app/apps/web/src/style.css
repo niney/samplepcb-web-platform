@@ -59,7 +59,7 @@
      다른 화면을 바꾸지 않고 사이드바 원본 색을 그대로 유지한다. */
   --color-bom-sidebar: #ffffff;
   --color-bom-sidebar-border: #eaeaea;
-  --color-bom-canvas: #f1f4f8;
+  --color-bom-canvas: #f6f9fd;
   --color-bom-nav-active-bg: #eff4fb;
   --color-bom-nav-active: #0e6efd;
   --color-bom-nav-inactive: #5e626e;
@@ -227,7 +227,7 @@
   /* BOM 좌측 탐색 — 다크 모드에서도 같은 역할과 대비를 유지한다. */
   --color-bom-sidebar: #0d0d11;
   --color-bom-sidebar-border: #2f3949;
-  --color-bom-canvas: #191b20;
+  --color-bom-canvas: #252a31;
   --color-bom-nav-active-bg: #172437;
   --color-bom-nav-active: #4daaff;
   --color-bom-nav-inactive: #ffffff;

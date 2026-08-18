@@ -195,19 +195,20 @@ watch(() => route.fullPath, () => {
       <div class="h-[30px] w-px bg-bom-chrome-border" />
       <button
         type="button"
-        class="ml-[12px] grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
+        class="ml-[11px] grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
         :title="effectiveLeftOpen ? '사이드바 접기' : '사이드바 펼치기'"
         :aria-expanded="effectiveLeftOpen"
         aria-controls="bom-left-navigation"
         @click="toggleLeftPanel"
       >
-        <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="effectiveLeftOpen ? '' : '-scale-x-100'">
+        <img :src="icFold" alt="" class="size-[18px] transition-transform" :class="effectiveLeftOpen ? '' : '-scale-x-100'">
       </button>
+      <AppSiteHomeButton variant="bom" class="ml-[12px] shrink-0" />
       <!-- 견적별 조달 모드 — 기술 적합성은 동일하고 양산에서만 안전한 Reel 구매 조건을 우선한다. -->
       <button
         type="button"
         role="switch"
-        class="relative ml-[26px] hidden h-[36px] w-[111px] shrink-0 rounded-[48px] border border-bom-mode-border bg-bom-mode-bg font-noto disabled:cursor-not-allowed disabled:opacity-50 sm:block"
+        class="relative ml-[24px] hidden h-[36px] w-[111px] shrink-0 rounded-[48px] border border-bom-mode-border bg-bom-mode-bg font-noto disabled:cursor-not-allowed disabled:opacity-50 sm:block"
         :aria-label="procurementMode === 'sample' ? '샘플' : '양산'"
         :aria-checked="procurementMode === 'mass'"
         :disabled="procurementModeDisabled"
@@ -253,7 +254,6 @@ watch(() => route.fullPath, () => {
             <path d="M20 13.5A8 8 0 0 1 10.5 4a8.5 8.5 0 1 0 9.5 9.5Z" stroke-linejoin="round" />
           </svg>
         </button>
-        <AppSiteHomeButton />
         <AppProfileMenu :show-admin="auth.me?.isAdmin === true" />
         <button
           type="button"
@@ -262,7 +262,7 @@ watch(() => route.fullPath, () => {
           :aria-expanded="effectiveRightOpen"
           @click="toggleRightPanel"
         >
-          <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="effectiveRightOpen ? '-scale-x-100' : ''">
+          <img :src="icFold" alt="" class="size-[18px] transition-transform" :class="effectiveRightOpen ? '-scale-x-100' : ''">
         </button>
       </div>
     </header>
