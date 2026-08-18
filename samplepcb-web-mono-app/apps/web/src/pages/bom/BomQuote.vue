@@ -35,7 +35,6 @@ import {
   useBuildBomQuote,
   useApplyBomQuotePassiveDefaults,
   useCancelBomQuote,
-  useDeleteBomQuote,
   useOrderBomQuote,
   usePatchBomQuote,
   usePrepareBomPartData,
@@ -199,9 +198,6 @@ watch(
   { immediate: true },
 );
 const isDraft = computed(() => detail.value?.status === 'draft');
-const canDeleteQuote = computed(() => (
-  detail.value?.status === 'draft' || detail.value?.status === 'canceled'
-));
 
 // ── 전체 시트 파싱 → 고객 시트 선택 → 선택 시트만 계산 ───────────────────────
 const isParsing = computed(() => detail.value?.status === 'draft' && detail.value.buildStatus === 'parsing');
@@ -2189,26 +2185,6 @@ async function onCancel(): Promise<void> {
   }
 }
 
-// 작성 중·취소 견적 삭제 — 하드 삭제(항목·원본 파일 정리).
-// 되돌릴 수 없어 같은 버튼이 확정으로 변전하는 2단계 확인.
-const del = useDeleteBomQuote();
-const deleteArm = ref(false);
-
-function armDelete(): void {
-  deleteArm.value = true;
-  setTimeout(() => (deleteArm.value = false), 5_000); // 5초 내 미확정 시 해제
-}
-
-async function onDelete(): Promise<void> {
-  deleteArm.value = false;
-  try {
-    await del.mutateAsync(quoteId.value);
-    await router.push({ name: 'bom' });
-  } catch {
-    // 삭제 가능 상태가 아님 등 — 화면 갱신으로 확인
-  }
-}
-
 const downloadPending = ref(false);
 const downloadError = ref('');
 
@@ -3306,28 +3282,9 @@ function fmtAmount(v: number | null): string {
               <img :src="icFile" alt="" class="size-[14px] brightness-0 invert">
               {{ updateSheets.isPending.value ? '시트 반영 중…' : editingLocked ? '가격 확인 중…' : '견적요청' }}
             </button>
-            <!-- 작성 중·취소=하드 삭제(2단계 확인) · 요청됨=요청 취소 -->
-            <template v-if="canDeleteQuote">
-              <button
-                v-if="!deleteArm"
-                type="button"
-                class="w-full rounded-[7px] border border-line bg-surface px-4 py-2 text-[12px] text-ink-subtle transition hover:border-red-300 hover:bg-red-50 hover:text-red-600"
-                :disabled="del.isPending.value"
-                @click="armDelete"
-              >
-                {{ del.isPending.value ? '삭제 중…' : '견적 삭제' }}
-              </button>
-              <button
-                v-else
-                type="button"
-                class="w-full rounded-[7px] bg-red-600 px-4 py-2 text-[12px] font-semibold text-white hover:bg-red-700"
-                @click="onDelete"
-              >
-                정말 삭제 — 되돌릴 수 없습니다
-              </button>
-            </template>
+            <!-- 삭제는 Recent file·BOM 이력에서 확인창을 거쳐 처리한다. -->
             <button
-              v-else-if="detail.status === 'requested'"
+              v-if="detail.status === 'requested'"
               type="button"
               class="w-full rounded-[7px] border border-line bg-surface px-4 py-2 text-[12px] text-ink-subtle transition hover:bg-gray-50 hover:text-ink"
               @click="onCancel"

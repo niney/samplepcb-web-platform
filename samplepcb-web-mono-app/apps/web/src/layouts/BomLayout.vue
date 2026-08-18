@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
-import { useAuthStore } from '@sp/shared';
-import { useBomQuote, useMyBomQuotes, usePatchBomQuote } from '../bom/useBom';
+import { useRoute, useRouter } from 'vue-router';
+import type { BomQuoteSummaryType } from '@sp/api-contract';
+import { ApiRequestError, useAuthStore } from '@sp/shared';
+import { useBomQuote, useDeleteBomQuote, useMyBomQuotes, usePatchBomQuote } from '../bom/useBom';
 import { useBomProcurementMode } from '../bom/useProcurementMode';
 import { useBomPanels } from '../bom/usePanels';
 import { useTheme } from '../bom/useTheme';
@@ -40,6 +41,7 @@ import promoVideo from '../assets/bom/promo-video.png';
 // 미구현(표시만): 프로모 카드 링크.
 
 const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 
 // 사이드바 접기 — 좌(메뉴)/우(페이지별 우측 패널) 토글. 상세 페이지의 정보 패널
@@ -104,6 +106,76 @@ let recentResizeObserver: ResizeObserver | null = null;
 
 const recent = computed(() => (list.data.value?.data.items ?? []).slice(0, recentCapacity.value));
 const recentTotal = computed(() => list.data.value?.data.total ?? 0);
+const deleteRecentQuote = useDeleteBomQuote();
+const recentDeleteTarget = ref<BomQuoteSummaryType | null>(null);
+const recentDeleteError = ref('');
+const recentDeleteDialog = ref<HTMLElement | null>(null);
+let recentDeleteOpener: HTMLElement | null = null;
+let recentDeleteBodyOverflow = '';
+
+const RECENT_DELETE_FOCUSABLE = [
+  'button:not([disabled])',
+  '[href]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function recentDisplayName(quote: BomQuoteSummaryType): string {
+  return quote.fileName ?? quote.title;
+}
+
+function canDeleteRecent(quote: BomQuoteSummaryType): boolean {
+  return quote.status === 'draft' || quote.status === 'canceled';
+}
+
+function recentDeleteFocusableElements(): HTMLElement[] {
+  const dialog = recentDeleteDialog.value;
+  if (dialog === null) return [];
+  return Array.from(dialog.querySelectorAll<HTMLElement>(RECENT_DELETE_FOCUSABLE)).filter(
+    (element) => element.getClientRects().length > 0,
+  );
+}
+
+async function openRecentDelete(quote: BomQuoteSummaryType, event: MouseEvent): Promise<void> {
+  if (!canDeleteRecent(quote)) return;
+  recentDeleteOpener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  recentDeleteBodyOverflow = document.body.style.overflow;
+  recentDeleteError.value = '';
+  deleteRecentQuote.reset();
+  recentDeleteTarget.value = quote;
+  document.body.style.overflow = 'hidden';
+  await nextTick();
+  recentDeleteDialog.value?.focus();
+}
+
+async function closeRecentDelete(restoreFocus = true, force = false): Promise<void> {
+  if (deleteRecentQuote.isPending.value && !force) return;
+  recentDeleteTarget.value = null;
+  recentDeleteError.value = '';
+  document.body.style.overflow = recentDeleteBodyOverflow;
+  const opener = recentDeleteOpener;
+  recentDeleteOpener = null;
+  if (!restoreFocus) return;
+  await nextTick();
+  opener?.focus();
+}
+
+async function confirmRecentDelete(): Promise<void> {
+  const target = recentDeleteTarget.value;
+  if (target === null) return;
+  recentDeleteError.value = '';
+  try {
+    await deleteRecentQuote.mutateAsync(target.id);
+    await closeRecentDelete(false, true);
+    if (currentQuoteId.value === target.id) {
+      await router.push({ name: 'bom' });
+    }
+    await list.refetch();
+  } catch (reason) {
+    recentDeleteError.value = reason instanceof ApiRequestError
+      ? reason.message
+      : '삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+}
 
 onMounted(() => {
   leftPanelWideMedia.addEventListener('change', onLeftPanelWideChange);
@@ -124,6 +196,7 @@ onBeforeUnmount(() => {
   rightPanelWideMedia.removeEventListener('change', onRightPanelWideChange);
   window.removeEventListener('keydown', onShellPanelKeydown);
   recentResizeObserver?.disconnect();
+  if (recentDeleteTarget.value !== null) document.body.style.overflow = recentDeleteBodyOverflow;
 });
 
 const currentQuoteId = computed(() => (
@@ -206,6 +279,33 @@ function toggleRightPanel(): void {
 }
 
 function onShellPanelKeydown(event: KeyboardEvent): void {
+  if (recentDeleteTarget.value !== null) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (!deleteRecentQuote.isPending.value) void closeRecentDelete();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const dialog = recentDeleteDialog.value;
+    if (dialog === null) return;
+    const focusable = recentDeleteFocusableElements();
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (first === undefined || last === undefined) {
+      event.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === dialog || !dialog.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || active === dialog || !dialog.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+    return;
+  }
   if (event.key !== 'Escape' || !compactLeftOpen.value) return;
   event.preventDefault();
   closeCompactLeftPanel();
@@ -370,24 +470,41 @@ watch(() => route.fullPath, () => {
         <section class="mt-[30px] flex min-h-0 flex-1 flex-col pb-4">
           <p class="h-[16px] pl-[21px] font-noto text-[13px] font-bold leading-[16px] text-bom-nav-heading">Recent file</p>
           <div ref="recentViewport" class="mt-[16px] flex min-h-0 w-[179px] flex-1 flex-col gap-[2px] self-start overflow-hidden" style="margin-left: 21px">
-            <RouterLink
+            <div
               v-for="q in recent"
               :key="q.id"
-              :to="{ name: 'bom-quote', params: { id: q.id } }"
-              class="flex h-[27px] shrink-0 items-center gap-[4px] rounded-[4px] border px-[8px]"
-              :class="currentQuoteId === q.id ? 'border-bom-recent-active-border bg-bom-recent-active-bg' : 'border-transparent hover:bg-surface-raised'"
+              class="group relative h-[27px] shrink-0"
             >
-              <span class="relative size-[15px] shrink-0 opacity-60" aria-hidden="true">
-                <img
-                  v-if="q.sourceKind === 'single_search'"
-                  :src="navIcons.recentSearch"
-                  alt=""
-                  class="absolute left-[2.25px] top-[2.25px] size-[10.5px] max-w-none"
-                >
-                <img v-else :src="navIcons.file" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
-              </span>
-              <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-recent-text">{{ q.fileName ?? q.title }}</span>
-            </RouterLink>
+              <RouterLink
+                :to="{ name: 'bom-quote', params: { id: q.id } }"
+                class="flex h-full items-center gap-[4px] rounded-[4px] border pl-[8px] pr-[32px]"
+                :class="currentQuoteId === q.id ? 'border-bom-recent-active-border bg-bom-recent-active-bg' : 'border-transparent hover:bg-surface-raised'"
+              >
+                <span class="relative size-[15px] shrink-0 opacity-60" aria-hidden="true">
+                  <img
+                    v-if="q.sourceKind === 'single_search'"
+                    :src="navIcons.recentSearch"
+                    alt=""
+                    class="absolute left-[2.25px] top-[2.25px] size-[10.5px] max-w-none"
+                  >
+                  <img v-else :src="navIcons.file" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
+                </span>
+                <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-recent-text">{{ recentDisplayName(q) }}</span>
+              </RouterLink>
+              <button
+                v-if="canDeleteRecent(q)"
+                type="button"
+                class="absolute right-[2px] top-[2px] z-10 grid size-[23px] place-items-center rounded-[4px] text-ink-faint transition hover:bg-rose-50 hover:text-rose-600 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-rose-400"
+                :class="leftPanelWide ? 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100' : 'opacity-70'"
+                :aria-label="`${recentDisplayName(q)} 삭제`"
+                title="Recent file 삭제"
+                @click.stop.prevent="openRecentDelete(q, $event)"
+              >
+                <svg viewBox="0 0 20 20" class="size-[16px]" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                  <path d="M4.75 6.25h10.5M8 3.75h4M6.25 6.25l.5 9h6.5l.5-9M8.25 8.5v4.5M11.75 8.5v4.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </div>
             <p v-if="recent.length === 0" class="px-[8px] py-[6px] text-[12px] text-gray-400">아직 업로드한 BOM이 없습니다</p>
           </div>
           <div class="mt-1 h-[30px] w-[179px] shrink-0" style="margin-left: 21px">
@@ -454,6 +571,38 @@ watch(() => route.fullPath, () => {
       </aside>
     </div>
   </div>
+  <Teleport to="body">
+    <div v-if="recentDeleteTarget !== null" class="fixed inset-0 z-[100] grid place-items-center bg-slate-950/50 p-4" @mousedown.self="closeRecentDelete()">
+      <section
+        ref="recentDeleteDialog"
+        class="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-2xl outline-none focus:ring-2 focus:ring-rose-200"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="recent-delete-title"
+        aria-describedby="recent-delete-description"
+        tabindex="-1"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-500">Delete recent BOM</p>
+            <h2 id="recent-delete-title" class="mt-1 truncate text-[18px] font-bold text-ink-strong" :title="recentDisplayName(recentDeleteTarget)">{{ recentDisplayName(recentDeleteTarget) }} 삭제</h2>
+          </div>
+          <button type="button" class="grid size-8 shrink-0 place-items-center rounded-lg text-gray-400 hover:bg-gray-100" aria-label="삭제 확인 닫기" :disabled="deleteRecentQuote.isPending.value" @click="closeRecentDelete()">×</button>
+        </div>
+        <p id="recent-delete-description" class="mt-4 text-[13px] leading-6 text-ink-muted">이 작업은 되돌릴 수 없으며 업로드한 원본 파일과 분석 결과가 함께 삭제됩니다.</p>
+        <div v-if="recentDeleteError !== ''" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-5 text-red-800" role="alert">
+          <p class="font-bold">삭제를 완료하지 못했습니다.</p>
+          <p>{{ recentDeleteError }}</p>
+        </div>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" class="h-9 rounded-lg border border-gray-300 px-4 text-[13px] font-semibold text-gray-600 hover:bg-gray-50" :disabled="deleteRecentQuote.isPending.value" @click="closeRecentDelete()">취소</button>
+          <button type="button" class="h-9 rounded-lg bg-rose-600 px-4 text-[13px] font-semibold text-white hover:bg-rose-700 disabled:opacity-50" :disabled="deleteRecentQuote.isPending.value" @click="confirmRecentDelete">
+            {{ deleteRecentQuote.isPending.value ? '삭제 중…' : recentDeleteError !== '' ? '다시 삭제 시도' : '삭제 확인' }}
+          </button>
+        </div>
+      </section>
+    </div>
+  </Teleport>
   <!-- 시안 대비 미구현 기능(리스트업): 프로모 카드 링크(튜토리얼/Gerber Eyes) —
        사이드바/패널 접기·단일 검색·프로필 메뉴는 구현됨 -->
 </template>
