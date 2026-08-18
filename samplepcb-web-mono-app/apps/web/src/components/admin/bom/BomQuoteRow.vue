@@ -236,7 +236,6 @@ const rowClass = computed(() => {
   if (!item.included) return 'opacity-45';
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
   if (alternativeSelectionPending.value) return 'bg-amber-50/70';
-  if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
   if (catalogInquiry.value) return 'bg-blue-50/50';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
@@ -578,11 +577,6 @@ function onQtyInput(event: Event): void {
         <span v-else-if="stockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">{{ stockStatusLabel }}</span>
         <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-state-matched/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched" :title="evidenceTitle">매칭</span>
         <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="evidenceTitle">가격 확인 필요</span>
-        <span
-          v-if="exactIdentityWarning !== null"
-          class="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-800"
-          :title="exactIdentityWarning"
-        >품번 우선 · 정보 확인</span>
         <span
           v-if="jobCallLimitReached"
           class="rounded border border-orange-400 bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-800"

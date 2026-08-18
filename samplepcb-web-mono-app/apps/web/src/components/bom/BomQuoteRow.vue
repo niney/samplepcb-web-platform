@@ -236,7 +236,6 @@ const rowBackgroundClass = computed(() => {
   if (!item.included) return 'bg-bom-table-row';
   if (severeOrderSurplus.value) return 'bg-bom-row-review';
   if (alternativeSelectionPending.value) return 'bg-bom-row-review';
-  if (exactIdentityWarning.value !== null) return 'bg-bom-row-review';
   if (catalogInquiry.value) return 'bg-bom-row-inquiry';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
@@ -721,11 +720,6 @@ function onQtyInput(event: Event): void {
           <span v-if="totalStatusPresentation.pulse" class="size-1.5 animate-pulse rounded-full bg-blue-500" />
           {{ totalStatusPresentation.label }}
         </span>
-        <span
-          v-if="exactIdentityWarning !== null"
-          class="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-800"
-          :title="exactIdentityWarning"
-        >품번 우선 · 정보 확인</span>
         <span
           v-if="jobCallLimitReached"
           class="rounded border border-orange-400 bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-800"
