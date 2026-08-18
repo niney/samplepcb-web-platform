@@ -74,6 +74,9 @@
   --color-bom-landing-toggle: #ffffff;
   --color-bom-landing-toggle-active: #061023;
   --color-bom-landing-toggle-inactive: #27292e;
+  /* 랜딩 카드 그림자 — 카드는 다크에서도 라이트 그대로이고 그림자 색만 갈린다
+     (라이트 2593:7911 #d8e4f5 · 다크 2595:9754 #16181c). */
+  --color-bom-landing-card-shadow: #d8e4f5;
   --color-bom-chrome: #fdfdff;
   --color-bom-chrome-border: #e1e6ef;
   --color-bom-workbench: #fdfdff;
@@ -242,6 +245,7 @@
   --color-bom-landing-toggle: #252a31;
   --color-bom-landing-toggle-active: #061023;
   --color-bom-landing-toggle-inactive: #e1e4e8;
+  --color-bom-landing-card-shadow: #16181c;
   --color-bom-chrome: #0d0d11;
   --color-bom-chrome-border: #2f3949;
   --color-bom-workbench: #191b20;

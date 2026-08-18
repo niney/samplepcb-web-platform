@@ -130,7 +130,7 @@ async function waitForBodyText(page: Page, text: string, timeout = 60_000): Prom
 }
 
 async function cardFitsViewport(page: Page): Promise<boolean> {
-  const title = page.getByText('Drag & drop Bom File', { exact: true });
+  const title = page.getByText('Drag & drop Bom File (XLSX, XLS, CSV)', { exact: true });
   await title.waitFor({ state: 'visible', timeout: 30_000 });
   const card = title.locator('xpath=../..');
   const box = await card.boundingBox();

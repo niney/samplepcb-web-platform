@@ -18,6 +18,7 @@ import BomLandingToggle from '../../components/bom/BomLandingToggle.vue';
 import BomPartSearchWorkspace from '../../components/bom/BomPartSearchWorkspace.vue';
 import BomSearchCartPanel from '../../components/bom/BomSearchCartPanel.vue';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
+import cardIllust from '../../assets/bom/bom-card-illust-search.png';
 
 const route = useRoute();
 const router = useRouter();
@@ -138,16 +139,21 @@ async function requestCartQuote(): Promise<void> {
 
     <BomLandingToggle active="search" />
 
-    <!-- search card (2282:61416) — 배경은 텍스트 없는 공용 베이크, 로고·타이틀은 실 DOM
-         (BomLandingCard 참조). BOM 분석 탭과 텍스트 위치를 공유하고 검색 폼만 겹친다. -->
-    <section class="relative mt-[32px] h-[524px] w-full max-w-[640px] shrink-0 overflow-hidden rounded-[8px] sm:mt-[50px]" aria-label="부품 단일 검색">
-      <BomLandingCard title="Search for parts" subtitle="Enter the MPN or part name, and you can start right away" />
-      <form class="absolute left-[16px] right-[16px] top-[226px] z-10 flex h-[48px] sm:left-1/2 sm:right-auto sm:w-[426px] sm:-translate-x-1/2" role="search" @submit.prevent="submitLanding">
+    <!-- search card (2595:10378) — 카드 프레임·글로우·텍스트는 BomLandingCard, 탭별
+         일러스트는 슬롯으로 겹친다. BOM 분석 탭과 텍스트 위치를 공유하고 검색 폼만 다르다. -->
+    <!-- mt 는 BOM 분석 탭과 동일한 50px 고정 — 탭 전환 때 카드·타이틀 위치가 흔들리면 안 된다. -->
+    <section class="relative mt-[50px] h-[524px] w-full max-w-[640px] shrink-0 overflow-hidden rounded-[8px] border border-[#d1e9f9] shadow-[0px_10px_30px_0px_var(--color-bom-landing-card-shadow)]" aria-label="부품 단일 검색">
+      <BomLandingCard subtitle="Enter the MPN or part name, and you can start right away">
+        <!-- 부품 카드 일러스트(2595:10414 — 1024x683 원본을 시안 프레임에 비율 무시
+             스트레치, Figma fill 과 동일) -->
+        <img :src="cardIllust" alt="" class="pointer-events-none absolute left-1/2 top-[286px] h-[214px] w-[595px] max-w-none -translate-x-1/2">
+      </BomLandingCard>
+      <form class="absolute left-[16px] right-[16px] top-[165px] z-10 flex h-[48px] sm:left-1/2 sm:right-auto sm:w-[426px] sm:-translate-x-1/2" role="search" @submit.prevent="submitLanding">
         <label class="flex min-w-0 flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[12px] pr-[10px] sm:w-[340px] sm:pl-[20px] sm:pr-[16px]">
           <img :src="searchIcon" alt="" class="size-[20px] shrink-0">
           <input v-model="landingInput" type="search" aria-label="부품 검색어" placeholder="예: GRM155R71C104KA88, 100nF..." class="min-w-0 flex-1 bg-transparent text-[14px] font-normal leading-[24px] text-[#061023] outline-none placeholder:text-[#5b6a7e]">
         </label>
-        <button type="submit" class="flex h-[48px] w-[72px] shrink-0 items-center justify-center rounded-r-[8px] bg-[#1e64fd] text-[15px] font-bold leading-[24px] text-white transition hover:bg-blue-700 sm:w-[86px] sm:text-[16px]">검색</button>
+        <button type="submit" class="flex h-[48px] w-[72px] shrink-0 items-center justify-center rounded-r-[8px] bg-[#1e64fd] text-[15px] font-bold leading-[24px] text-white transition hover:bg-blue-700 sm:w-[86px] sm:text-[16px]">Search</button>
       </form>
     </section>
 
