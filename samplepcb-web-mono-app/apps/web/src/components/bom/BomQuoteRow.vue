@@ -18,8 +18,6 @@ import {
   lifecycleRequiresAttention,
   lifecycleSummaryTitle,
   replacementReviewLabel,
-  replacementSourceBadgeLabel,
-  replacementSourcesTitle,
 } from '../../bom/lifecycle-presentation';
 
 // 매칭 결과 테이블의 한 행 — 컴포넌트 경계로 재렌더를 행 단위로 격리한다.
@@ -507,14 +505,9 @@ const requestedLifecycleWarning = computed(() => {
   return lifecycle !== null && lifecycleRequiresAttention(lifecycle.code) ? lifecycle : null;
 });
 
-const selectedReplacementSources = computed(() =>
-  props.item.matchEvidence?.selectedReplacementSources ?? [],
-);
-
 const selectedLifecycleForDisplay = computed(() => {
   const lifecycle = props.item.matchEvidence?.selectedLifecycle ?? null;
-  if (lifecycle === null || lifecycle.code === 'unknown') return null;
-  if (selectedReplacementSources.value.length > 0) return lifecycle;
+  if (lifecycle === null || lifecycle.code === 'unknown' || lifecycle.code === 'active') return null;
   if (
     requestedLifecycleWarning.value !== null
     && requestedLifecycleWarning.value.code !== lifecycle.code
@@ -522,12 +515,6 @@ const selectedLifecycleForDisplay = computed(() => {
   return requestedLifecycleWarning.value === null && lifecycleRequiresAttention(lifecycle.code)
     ? lifecycle
     : null;
-});
-
-const selectedReplacementTitle = computed(() => {
-  const title = replacementSourcesTitle(selectedReplacementSources.value);
-  const originalMpn = props.item.matchEvidence?.selectedReplacementForMpn?.trim() ?? '';
-  return originalMpn === '' ? title : `원품번: ${originalMpn}\n${title}`;
 });
 
 function onQtyInput(event: Event): void {
@@ -604,7 +591,7 @@ function onQtyInput(event: Event): void {
           <p class="truncate font-noto text-[11px] font-normal leading-[16px] text-bom-row-muted" :title="displayManufacturerName ?? ''">{{ displayManufacturerName ?? '—' }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <div
-            v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
+            v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null"
             class="mt-1 flex flex-wrap gap-1"
           >
             <span
@@ -619,11 +606,6 @@ function onQtyInput(event: Event): void {
               :class="lifecycleBadgeClass(selectedLifecycleForDisplay.code)"
               :title="lifecycleSummaryTitle(selectedLifecycleForDisplay, '선정품')"
             >선정품 {{ lifecycleLabel(selectedLifecycleForDisplay.code) }}</span>
-            <span
-              v-if="selectedReplacementSources.length > 0"
-              class="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold leading-4 text-violet-800"
-              :title="selectedReplacementTitle"
-            >{{ replacementSourceBadgeLabel(selectedReplacementSources) }}</span>
           </div>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
           <a

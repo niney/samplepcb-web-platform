@@ -17,8 +17,6 @@ import {
   lifecycleRequiresAttention,
   lifecycleSummaryTitle,
   replacementReviewLabel,
-  replacementSourceBadgeLabel,
-  replacementSourcesTitle,
 } from '../../../bom/lifecycle-presentation';
 
 // 매칭 결과 테이블의 한 행 — 컴포넌트 경계로 재렌더를 행 단위로 격리한다.
@@ -377,14 +375,9 @@ const requestedLifecycleWarning = computed(() => {
   return lifecycle !== null && lifecycleRequiresAttention(lifecycle.code) ? lifecycle : null;
 });
 
-const selectedReplacementSources = computed(() =>
-  props.item.matchEvidence?.selectedReplacementSources ?? [],
-);
-
 const selectedLifecycleForDisplay = computed(() => {
   const lifecycle = props.item.matchEvidence?.selectedLifecycle ?? null;
-  if (lifecycle === null || lifecycle.code === 'unknown') return null;
-  if (selectedReplacementSources.value.length > 0) return lifecycle;
+  if (lifecycle === null || lifecycle.code === 'unknown' || lifecycle.code === 'active') return null;
   if (
     requestedLifecycleWarning.value !== null
     && requestedLifecycleWarning.value.code !== lifecycle.code
@@ -392,12 +385,6 @@ const selectedLifecycleForDisplay = computed(() => {
   return requestedLifecycleWarning.value === null && lifecycleRequiresAttention(lifecycle.code)
     ? lifecycle
     : null;
-});
-
-const selectedReplacementTitle = computed(() => {
-  const title = replacementSourcesTitle(selectedReplacementSources.value);
-  const originalMpn = props.item.matchEvidence?.selectedReplacementForMpn?.trim() ?? '';
-  return originalMpn === '' ? title : `원품번: ${originalMpn}\n${title}`;
 });
 
 function fmtWon(v: number | null): string {
@@ -467,7 +454,7 @@ function onQtyInput(event: Event): void {
           <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <div
-            v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
+            v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null"
             class="mt-1 flex flex-wrap gap-1"
           >
             <span
@@ -482,11 +469,6 @@ function onQtyInput(event: Event): void {
               :class="lifecycleBadgeClass(selectedLifecycleForDisplay.code)"
               :title="lifecycleSummaryTitle(selectedLifecycleForDisplay, '선정품')"
             >선정품 {{ lifecycleLabel(selectedLifecycleForDisplay.code) }}</span>
-            <span
-              v-if="selectedReplacementSources.length > 0"
-              class="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold leading-4 text-violet-800"
-              :title="selectedReplacementTitle"
-            >{{ replacementSourceBadgeLabel(selectedReplacementSources) }}</span>
           </div>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
           <a
@@ -571,7 +553,7 @@ function onQtyInput(event: Event): void {
         <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
         </span>
-        <span v-else-if="alternativeSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">검토 필요 · {{ replacementReviewLabel(selectedReplacementSources) }}</span>
+        <span v-else-if="alternativeSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">검토 필요 · {{ replacementReviewLabel(item.matchEvidence?.selectedReplacementSources ?? []) }}</span>
         <span v-else-if="provisionalSelectionPending" class="rounded-full bg-state-matched/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched" :title="evidenceTitle">매칭 · 검토 권장</span>
         <span v-else-if="catalogInquiry" class="whitespace-nowrap rounded-full border border-blue-200 bg-blue-100 px-2.5 py-0.5 text-[12px] font-bold text-blue-700" :title="evidenceTitle">{{ catalogSelectionApplied ? '선정됨 · 재고/가격 문의' : '취급 가능 · 검토 필요' }}</span>
         <span v-else-if="item.matchStatus === 'none' && engineStockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">{{ engineStockStatusLabel }}</span>
