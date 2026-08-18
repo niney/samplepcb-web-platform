@@ -3089,6 +3089,10 @@ function fmtAmount(v: number | null): string {
               AI 분석결과
               <span v-if="showResultSheetTabs" class="ml-auto max-w-[120px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-600" :title="activeResultSheetLabel">{{ activeResultSheetLabel }}</span>
             </h2>
+            <!-- 켜진 칩의 배경 = 그 상태 행의 틴트다. 시안의 on 예시(2282:79749)가 쓰는
+                 rgba(255,88,115,0.1) 이 미매칭 행 바탕(2282:80371)과 같은 값이라, 칩과 행이
+                 어긋나지 않게 bom-row-* 토큰을 그대로 쓴다. 행 틴트가 없는 matched·excluded
+                 만 강조색 10% 로 남긴다. 아이콘칩(28px)은 시안 그대로 별도 값이다. -->
             <div class="mt-[10px] grid grid-cols-2 gap-[8px]">
               <button
                 type="button"
@@ -3126,7 +3130,7 @@ function fmtAmount(v: number | null): string {
               <button
                 type="button"
                 class="relative flex h-[51px] w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#f06300] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6900] focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultMatchFilter === 'review' ? 'cursor-pointer border-[#ff6900] bg-[rgba(255,105,0,0.1)]' : !enriching && stats.review > 0 ? 'cursor-pointer border-[rgba(255,105,0,0.4)] bg-bom-status-card hover:bg-[rgba(255,105,0,0.06)]' : 'border-[rgba(255,105,0,0.4)] bg-bom-status-card'"
+                :class="resultMatchFilter === 'review' ? 'cursor-pointer border-[#ff6900] bg-bom-row-review' : !enriching && stats.review > 0 ? 'cursor-pointer border-[rgba(255,105,0,0.4)] bg-bom-status-card hover:bg-[rgba(255,105,0,0.06)]' : 'border-[rgba(255,105,0,0.4)] bg-bom-status-card'"
                 :disabled="enriching || stats.review === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'review'"
                 :aria-label="`검토 필요 ${String(stats.review)}개 행 필터`"
@@ -3148,7 +3152,7 @@ function fmtAmount(v: number | null): string {
                   enriching
                     ? 'cursor-wait border-[rgba(66,116,207,0.4)] bg-bom-status-card after:from-[#2359bb] focus-visible:ring-[#4274cf]'
                     : resultMatchFilter === 'unmatched'
-                      ? 'cursor-pointer border-[#ff5873] bg-[rgba(255,88,115,0.1)] after:from-[#ff5873] focus-visible:ring-[#ff5873]'
+                      ? 'cursor-pointer border-[#ff5873] bg-bom-row-unmatched after:from-[#ff5873] focus-visible:ring-[#ff5873]'
                       : stats.unmatched > 0
                         ? 'cursor-pointer border-[rgba(255,88,115,0.4)] bg-bom-status-card after:from-[#ff5873] hover:bg-[rgba(255,88,115,0.06)] focus-visible:ring-[#ff5873]'
                         : 'border-[rgba(255,88,115,0.4)] bg-bom-status-card after:from-[#ff5873] focus-visible:ring-[#ff5873]',
@@ -3172,7 +3176,7 @@ function fmtAmount(v: number | null): string {
               <button
                 type="button"
                 class="relative flex h-[51px] w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#b8a900] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d2c000] focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultMatchFilter === 'nostock' ? 'cursor-pointer border-[#d2c000] bg-[rgba(226,207,0,0.15)]' : stats.nostock > 0 ? 'cursor-pointer border-[rgba(190,175,12,0.4)] bg-bom-status-card hover:bg-[rgba(226,207,0,0.08)]' : 'border-[rgba(190,175,12,0.4)] bg-bom-status-card'"
+                :class="resultMatchFilter === 'nostock' ? 'cursor-pointer border-[#d2c000] bg-bom-row-nostock' : stats.nostock > 0 ? 'cursor-pointer border-[rgba(190,175,12,0.4)] bg-bom-status-card hover:bg-[rgba(226,207,0,0.08)]' : 'border-[rgba(190,175,12,0.4)] bg-bom-status-card'"
                 :disabled="stats.nostock === 0"
                 :aria-pressed="resultMatchFilter === 'nostock'"
                 :aria-label="`재고 확인 필요 ${String(stats.nostock)}개 행 필터`"

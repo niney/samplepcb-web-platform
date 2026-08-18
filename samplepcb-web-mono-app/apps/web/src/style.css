@@ -89,9 +89,14 @@
   --color-bom-table-heading: #828282;
   --color-bom-row-primary: #061023;
   --color-bom-row-muted: #5f6777;
-  --color-bom-row-review: rgb(255 251 235 / 0.6);
-  --color-bom-row-unmatched: #fff7f9;
-  --color-bom-row-nostock: #fdf8e7;
+  /* 행 판정 틴트(시안 2282:79645 실측) — 우측 AI 분석결과 필터칩과 한 색 체계다:
+     선택된 칩의 배경이 그 상태 행의 배경과 같은 값이다(unmatched 칩 = #ffeef1).
+     review·unmatched 는 state-* 강조색을 흰 바탕에 10% 로 깐 값이고, 종전 review 는
+     거의 흰 노랑이라 nostock 과 구분이 안 돼 주황 쪽으로 옮겼다. 행 바탕이 순백이
+     아니어서(bom-table-row #fdfdff) 알파 대신 시안 렌더값을 그대로 박는다. */
+  --color-bom-row-review: #fff0e6;
+  --color-bom-row-unmatched: #ffeef1;
+  --color-bom-row-nostock: #fefce9;
   --color-bom-row-inquiry: rgb(239 246 255 / 0.5);
   --color-bom-state-excluded: #777777;
   --color-bom-control: #f4f8ff;
@@ -182,7 +187,10 @@
   --color-state-review: #ff6900;
   --color-state-unmatched: #ff5873;
   --color-state-danger: #e73362;
-  --color-state-nostock: #c8aa00;
+  /* nostock 만 시안과 어긋나 있어 맞췄다 — No Stock 배지 글자·행 금액이 모두 #d2c000
+     이다(2282:80458·80460). 시안은 배지 배경만 원색이 살짝 다른 #d5c724 를 15% 로
+     깔지만, 상태색은 한 토큰으로 유지하고 그 차이(파랑 5/255)는 감수한다. */
+  --color-state-nostock: #d2c000;
 
   /* 상태 틴트 — 매칭 결과를 배경·테두리로 옅게 깔 때. 글자용 state-* 와 짝이다. */
   --color-surface-matched: #f6fcf9;
