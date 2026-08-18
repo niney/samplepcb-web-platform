@@ -82,6 +82,8 @@
   /* 상단바 아이콘(폴드·홈·테마 토글) — 라이트 #727680, 다크 시안(2584:1920)은 #B6B6B8. */
   --color-bom-chrome-icon: #727680;
   --color-bom-workbench: #fdfdff;
+  /* 이미지 없는 부품 타일(2282:80418) — 시안은 다크에서도 같은 밝은 타일이라 오버라이드가 없다. */
+  --color-bom-thumb-empty: #fbfbfb;
   --color-bom-table-row: #fdfdff;
   --color-bom-table-head: #f8fafc;
   --color-bom-table-line: #e5e8ed;
