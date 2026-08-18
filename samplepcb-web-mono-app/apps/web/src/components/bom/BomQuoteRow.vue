@@ -757,7 +757,7 @@ function onQtyInput(event: Event): void {
       <div v-if="isDraft" class="flex flex-col gap-[6px]">
         <button
           type="button"
-          class="h-[24px] w-[70px] rounded-[4px] bg-action-primary text-[13px] font-medium text-white transition hover:bg-action-primary-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-action-primary"
+          class="h-[24px] w-[70px] rounded-[4px] bg-bom-row-action text-[13px] font-medium text-white transition hover:bg-bom-row-action-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-bom-row-action"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
           @click="emit('open-candidates')"

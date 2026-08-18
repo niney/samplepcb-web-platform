@@ -200,11 +200,14 @@
   --color-line-danger: #f2dce3;
   --color-line-warn: #f1e8b9;
 
-  /* 행 액션 버튼 — 시안 2177:14905 는 "후보 비교"만 채워진 파랑(주 액션)이고 나머지는
-     테두리형이다. 시안 값(#283f71)은 어두운 화면 기준이라 라이트에서는 탁해 보여,
-     라이트는 한 단 밝은 톤으로 잡고 어두운 값은 다크 팔레트에서 준다. */
+  /* 모바일 플로팅 CTA(견적 바구니) — 시안에 없는 모바일 전용이라 값은 우리가 잡는다. */
   --color-action-primary: #315f9f;
   --color-action-primary-hover: #274e85;
+  /* 표 행 액션 — 시안은 "후보 비교"만 채워진 버튼이고 나머지는 테두리형이다. 채움색은
+     테마마다 아예 다른 계열이다: 라이트 슬레이트 #5f6777(2282:80106) · 다크 남색
+     #283f71(2282:63639). hover 는 시안에 없어 한 단 어둡게 잡는다. */
+  --color-bom-row-action: #5f6777;
+  --color-bom-row-action-hover: #515865;
   --color-action-quiet: #f4f4f4;
 }
 
@@ -376,9 +379,12 @@
   --color-line-danger: #4a2530;
   --color-line-warn: #46401f;
 
-  /* 행 액션 버튼 — 시안 값 그대로(2177:14907 면 #283f71, 2177:14908 면 #252a31) */
+  /* 행 액션 버튼 — 시안 값 그대로(다크는 "후보 비교" #283f71 · "제외" 면 #252a31,
+     2282:63639·63640 에서 재확인) */
   --color-action-primary: #283f71;
   --color-action-primary-hover: #33508e;
+  --color-bom-row-action: #283f71;
+  --color-bom-row-action-hover: #33508e;
   --color-action-quiet: #252a31;
 
   /* Tailwind 팔레트는 명도 축을 뒤집는다(50↔950, 100↔900 …). 그래야 bg-slate-100 처럼
