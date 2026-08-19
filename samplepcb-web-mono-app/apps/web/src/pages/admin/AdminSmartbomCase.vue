@@ -1994,6 +1994,7 @@ async function downloadOriginal(): Promise<void> {
       <BomRfqPanel
         v-else
         :rfqs="rfqs"
+        :scope-items="scopeItems"
         :loading="rfqQuery.isLoading.value"
         :can-send="detail.status === 'reviewing'"
         :busy="reissueLink.isPending.value"
