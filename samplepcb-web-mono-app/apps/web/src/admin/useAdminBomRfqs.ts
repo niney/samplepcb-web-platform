@@ -6,6 +6,7 @@ import {
   AdminBomRfqReplyResponse,
   AdminBomRfqSelectionResponse,
   AdminBomRfqSendResponse,
+  AdminBomSupplierRefreshResponse,
   apiRoutes,
   type AdminBomRfqSelectionBodyType,
   type AdminBomRfqSendBodyType,
@@ -26,6 +27,42 @@ export function useAdminBomRfqs(quoteId: Ref<string | null>) {
   });
 }
 
+/** 회신 비교 진입 시 시작한 정확 MPN 3사 최신조회 상태·결과. */
+export function useAdminSupplierOfferRefresh(
+  quoteId: Ref<string | null>,
+  enabled: Ref<boolean>,
+) {
+  return useQuery({
+    queryKey: computed(() => ['admin', 'bom-rfqs', quoteId.value, 'supplier-offers']),
+    queryFn: () => apiGet(
+      `${base}/${quoteId.value ?? ''}/supplier-offer-refresh`,
+      AdminBomSupplierRefreshResponse,
+    ),
+    enabled: computed(() => enabled.value && quoteId.value !== null),
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.data.status === 'running' ? 2_000 : false,
+  });
+}
+
+export function useStartAdminSupplierOfferRefresh() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId }: { quoteId: string }) => apiSend(
+      'POST',
+      `${base}/${quoteId}/supplier-offer-refresh`,
+      undefined,
+      AdminBomSupplierRefreshResponse,
+    ),
+    onSuccess: (response, { quoteId }) => {
+      qc.setQueryData(
+        ['admin', 'bom-rfqs', quoteId, 'supplier-offers'],
+        response,
+      );
+    },
+  });
+}
+
 export function useSendBomRfqs() {
   const qc = useQueryClient();
   return useMutation({
@@ -37,7 +74,7 @@ export function useSendBomRfqs() {
   });
 }
 
-// 행별 협력사 회신 선정/해제 — 서버가 스냅샷 박제+재계산하므로 견적 상세도 무효화한다.
+// 행별 협력사 회신/정확 MPN 공급사 통합 선정 — 서버가 스냅샷 박제+재계산.
 export function useSelectRfqReply() {
   const qc = useQueryClient();
   return useMutation({

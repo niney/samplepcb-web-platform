@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BomQuoteCandidateOffer } from './bom-quote';
 
 // ── 스마트 BOM 협력사 RFQ — sp_bom_rfq* 계약 ────────────────────────────────
 // 설계 정본: docs/SMARTBOM_PARTNER_RFQ.md §2. quote.status(굵은 단계)와 별개의
@@ -119,16 +120,110 @@ export const AdminBomRfqReplyResponse = z.object({
 });
 export type AdminBomRfqReplyResponseType = z.infer<typeof AdminBomRfqReplyResponse>;
 
-// 행별 협력사 회신 선정 — selectionSource='partner' + selectedOffer 스냅샷 박제 +
-// 서버 재계산(snapshot-freeze). rfqItemId=null 은 선정 해제(미선정 복귀).
-export const AdminBomRfqSelectionBody = z.object({
+// 행별 조달처 선정 — 사람 협력사 회신과 정확 MPN API 공급사 구매조건을
+// 같은 비교 표에서 선정한다. 가격·합계는 클라이언트 값을 받지 않고 서버 스냅샷으로
+// 재계산한다(snapshot-freeze). partner의 rfqItemId=null 은 기존 선정 해제 호환.
+export const AdminBomRfqPartnerSelection = z.object({
+  kind: z.literal('partner'),
   itemId: z.string().regex(/^\d+$/),
   rfqItemId: z.number().int().positive().nullable(),
 });
+
+export const AdminBomRfqSupplierSelection = z.object({
+  kind: z.literal('supplier'),
+  itemId: z.string().regex(/^\d+$/),
+  candidateKey: z.string().min(1).max(64),
+  offerKey: z.string().min(1).max(64),
+});
+
+export const AdminBomRfqSelectionBody = z.discriminatedUnion('kind', [
+  AdminBomRfqPartnerSelection,
+  AdminBomRfqSupplierSelection,
+]);
 export type AdminBomRfqSelectionBodyType = z.infer<typeof AdminBomRfqSelectionBody>;
 
 export const AdminBomRfqSelectionResponse = z.object({ result: z.literal(true) });
 export type AdminBomRfqSelectionResponseType = z.infer<typeof AdminBomRfqSelectionResponse>;
+
+// ── 관리자 회신 비교용 정확 MPN 공급사 강제 최신조회 ─────────────
+
+export const ADMIN_BOM_LIVE_SUPPLIERS = ['digikey', 'mouser', 'unikeyic'] as const;
+export const AdminBomLiveSupplier = z.enum(ADMIN_BOM_LIVE_SUPPLIERS);
+export type AdminBomLiveSupplierType = z.infer<typeof AdminBomLiveSupplier>;
+
+export const AdminBomSupplierRefreshStatus = z.enum([
+  'idle',
+  'running',
+  'completed',
+  'failed',
+]);
+export type AdminBomSupplierRefreshStatusType = z.infer<
+  typeof AdminBomSupplierRefreshStatus
+>;
+
+export const AdminBomSupplierAttemptOutcome = z.enum([
+  'pending',
+  'results',
+  'partial_error',
+  'empty',
+  'error',
+  'skipped',
+]);
+export type AdminBomSupplierAttemptOutcomeType = z.infer<
+  typeof AdminBomSupplierAttemptOutcome
+>;
+
+export const AdminBomSupplierAttemptSummary = z.object({
+  supplier: AdminBomLiveSupplier,
+  outcome: AdminBomSupplierAttemptOutcome,
+  apiCalls: z.number().int().nonnegative(),
+  resultCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
+});
+export type AdminBomSupplierAttemptSummaryType = z.infer<
+  typeof AdminBomSupplierAttemptSummary
+>;
+
+export const AdminBomSupplierComparisonOffer = z.object({
+  candidateKey: z.string(),
+  candidateMpn: z.string(),
+  candidateManufacturerName: z.string().nullable(),
+  candidateManualSelectable: z.boolean(),
+  offer: BomQuoteCandidateOffer,
+});
+export type AdminBomSupplierComparisonOfferType = z.infer<
+  typeof AdminBomSupplierComparisonOffer
+>;
+
+export const AdminBomSupplierComparisonRow = z.object({
+  itemId: z.string().regex(/^\d+$/),
+  offers: z.array(AdminBomSupplierComparisonOffer),
+});
+export type AdminBomSupplierComparisonRowType = z.infer<
+  typeof AdminBomSupplierComparisonRow
+>;
+
+export const AdminBomSupplierRefreshView = z.object({
+  runId: z.string().regex(/^\d+$/).nullable(),
+  status: AdminBomSupplierRefreshStatus,
+  progress: z.number().int().min(0).max(100),
+  message: z.string(),
+  error: z.string().nullable(),
+  exactItemCount: z.number().int().nonnegative(),
+  suppliers: z.array(AdminBomSupplierAttemptSummary),
+  rows: z.array(AdminBomSupplierComparisonRow),
+});
+export type AdminBomSupplierRefreshViewType = z.infer<
+  typeof AdminBomSupplierRefreshView
+>;
+
+export const AdminBomSupplierRefreshResponse = z.object({
+  result: z.literal(true),
+  data: AdminBomSupplierRefreshView,
+});
+export type AdminBomSupplierRefreshResponseType = z.infer<
+  typeof AdminBomSupplierRefreshResponse
+>;
 
 // ── 협력사 포털 (/api/partner/rfqs, requirePartner) ─────────────────────────
 // 노출 범위: 부품행(MPN·제조사·설명·필요수량)과 자신의 회신뿐 — 고객 식별정보·목표

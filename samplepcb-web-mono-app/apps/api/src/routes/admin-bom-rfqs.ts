@@ -1,14 +1,18 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  ADMIN_BOM_LIVE_SUPPLIERS,
   AdminBomRfqListResponse,
   AdminBomRfqReplyResponse,
   AdminBomRfqSelectionBody,
   AdminBomRfqSelectionResponse,
   AdminBomRfqSendBody,
   AdminBomRfqSendResponse,
+  AdminBomSupplierRefreshResponse,
   ApiError,
   BomRfqReplyBody,
+  BomSupplierView,
+  type AdminBomSupplierRefreshViewType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
@@ -22,6 +26,16 @@ import {
   validateRfqPartners,
 } from '../lib/bom-rfq';
 import { buildBomRfqRequestEmail, magicReplyUrl, sendBomRfqMail } from '../lib/rfq-email';
+import { engineFetch } from '../lib/engine-client';
+import {
+  applyQuoteCandidateSelection,
+  filterActiveQuoteItems,
+  getAdminBomSupplierAttemptSummaries,
+  getAdminBomSupplierComparisonRows,
+  toItemDto,
+} from '../lib/bom-quote';
+import { supplierSearchRunPolicyFromOptions } from '../lib/bom-supplier-search-policy';
+import { autoEnrichQuote, healEnrichment } from './bom-quotes';
 
 // ── /api/admin/bom-quotes/:id/rfqs — 협력사 RFQ 발송·현황·대리 입력 ──────────
 // 설계 docs/SMARTBOM_PARTNER_RFQ.md §2.4·§2.5. 발송은 diff(유지분 보존·신규만 메일),
@@ -30,6 +44,61 @@ import { buildBomRfqRequestEmail, magicReplyUrl, sendBomRfqMail } from '../lib/r
 
 const IdParams = z.object({ id: z.coerce.bigint() });
 const RfqParams = z.object({ id: z.coerce.bigint(), rfqId: z.coerce.bigint() });
+
+async function adminSupplierRefreshView(
+  quoteId: bigint,
+): Promise<AdminBomSupplierRefreshViewType | null> {
+  const quote = await prisma.spBomQuote.findUnique({
+    where: { id: quoteId },
+    select: { activeSupplierSearchRun: true },
+  });
+  if (quote === null) return null;
+  const activeRun = quote.activeSupplierSearchRun;
+  const runPolicy = supplierSearchRunPolicyFromOptions(activeRun?.options);
+  const run = runPolicy.purpose === 'admin_rfq_compare' ? activeRun : null;
+  const status: AdminBomSupplierRefreshViewType['status'] = run === null
+    ? 'idle'
+    : run.status === 'completed'
+      ? 'completed'
+      : run.status === 'failed'
+        ? 'failed'
+        : 'running';
+  let progress = status === 'completed' ? 100 : status === 'running' ? 5 : 0;
+  let message = status === 'completed'
+    ? '공급사 최신 시세 확인 완료'
+    : status === 'failed'
+      ? '공급사 최신 시세 확인 실패'
+      : status === 'running'
+        ? '공급사 최신 시세를 확인하고 있습니다'
+        : '최신 시세 조회 전';
+  if (status === 'running' && run?.engineJobId !== null && run?.engineJobId !== undefined) {
+    try {
+      const response = await engineFetch(
+        `/jobs/${encodeURIComponent(run.engineJobId)}/supplier-search`,
+      );
+      if (response.ok) {
+        const parsed = BomSupplierView.safeParse(await response.json());
+        if (parsed.success) {
+          progress = Math.min(95, parsed.data.progress);
+          message = parsed.data.message;
+        }
+      }
+    } catch {
+      // DB 원장 상태로 축퇴. 후속 poll의 heal 경로가 수렴시킨다.
+    }
+  }
+  const rows = await getAdminBomSupplierComparisonRows(quoteId) ?? [];
+  return {
+    runId: run === null ? null : String(run.id),
+    status,
+    progress,
+    message,
+    error: run?.error ?? null,
+    exactItemCount: rows.length,
+    suppliers: await getAdminBomSupplierAttemptSummaries(run?.id ?? null, status, rows),
+    rows,
+  };
+}
 
 export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
@@ -46,6 +115,142 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
   );
 
   // ── POST — diff 발송 ────────────────────────────────────────────────────────
+  fastify.post(
+    '/bom-quotes/:id/supplier-offer-refresh',
+    {
+      schema: {
+        params: IdParams,
+        response: {
+          200: AdminBomSupplierRefreshResponse,
+          409: ApiError,
+          502: ApiError,
+        },
+      },
+    },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({
+        where: { id: request.params.id },
+        include: { items: true, sheets: true, activeSupplierSearchRun: true },
+      });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      if (quote.status !== 'requested' && quote.status !== 'reviewing') {
+        return reply.status(409).send({
+          error: 'INVALID_QUOTE_STATUS',
+          message: '회신 확정 전 검토 중 상태에서만 최신 시세를 조회할 수 있습니다.',
+        });
+      }
+      if (quote.buildStatus !== 'ready') {
+        return reply.status(409).send({
+          error: 'QUOTE_NOT_READY',
+          message: 'BOM 계산이 완료된 뒤 최신 시세를 조회해 주세요.',
+        });
+      }
+      const activePolicy = supplierSearchRunPolicyFromOptions(
+        quote.activeSupplierSearchRun?.options,
+      );
+      if (
+        quote.activeSupplierSearchRun !== null
+        && activePolicy.purpose === 'admin_rfq_compare'
+        && ['preparing', 'running'].includes(quote.activeSupplierSearchRun.status)
+      ) {
+        const data = await adminSupplierRefreshView(quote.id);
+        if (data === null) return reply.notFound('견적을 찾을 수 없습니다');
+        return { result: true as const, data };
+      }
+      if (quote.enrichStatus === 'searching') {
+        return reply.status(409).send({
+          error: 'SUPPLIER_SEARCH_RUNNING',
+          message: '진행 중인 공급사 확인이 완료된 뒤 다시 시도해 주세요.',
+        });
+      }
+      const componentIds = [...new Set(
+        filterActiveQuoteItems(quote.items, quote.sheets).flatMap((row) => {
+          if (!row.included) return [];
+          const item = toItemDto(row);
+          const componentId = item.sourceRow?.componentId;
+          return item.matchEvidence?.selectionMode === 'exact'
+            && typeof componentId === 'string'
+            && componentId !== ''
+            ? [componentId]
+            : [];
+        }),
+      )];
+      if (componentIds.length === 0) {
+        const current = await adminSupplierRefreshView(quote.id);
+        if (current === null) return reply.notFound('견적을 찾을 수 없습니다');
+        return {
+          result: true as const,
+          data: {
+            ...current,
+            runId: null,
+            status: 'completed' as const,
+            progress: 100,
+            message: '최신 시세를 조회할 정확 품번 일치 품목이 없습니다.',
+            error: null,
+            exactItemCount: 0,
+          },
+        };
+      }
+      const runId = await autoEnrichQuote(quote.id, quote.mbId, request.log, {
+        force: true,
+        componentIds,
+        bypassLocalCatalog: true,
+        forceLive: true,
+        purpose: 'admin_rfq_compare',
+        allowedStatuses: ['requested', 'reviewing'],
+        enforceMemberDailyLimit: false,
+      });
+      if (runId === null) {
+        return reply.status(502).send({
+          error: 'SUPPLIER_REFRESH_NOT_STARTED',
+          message: '공급사 최신 시세 조회를 시작하지 못했습니다.',
+        });
+      }
+      const data = await adminSupplierRefreshView(quote.id);
+      if (data === null) return reply.notFound('견적을 찾을 수 없습니다');
+      return {
+        result: true as const,
+        data: { ...data, runId: String(runId), exactItemCount: componentIds.length },
+      };
+    },
+  );
+
+  fastify.get(
+    '/bom-quotes/:id/supplier-offer-refresh',
+    {
+      schema: {
+        params: IdParams,
+        response: { 200: AdminBomSupplierRefreshResponse },
+      },
+    },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, mbId: true, activeSupplierSearchRun: true },
+      });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      const policy = supplierSearchRunPolicyFromOptions(
+        quote.activeSupplierSearchRun?.options,
+      );
+      if (
+        quote.activeSupplierSearchRun !== null
+        && policy.purpose === 'admin_rfq_compare'
+        && ['preparing', 'running'].includes(quote.activeSupplierSearchRun.status)
+      ) {
+        void healEnrichment(quote.id, quote.mbId, request.log).catch((error: unknown) => {
+          request.log.warn(
+            { quoteId: String(quote.id), err: String(error) },
+            '관리자 공급사 최신조회 치유 실패',
+          );
+        });
+      }
+      const data = await adminSupplierRefreshView(quote.id);
+      if (data === null) return reply.notFound('견적을 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
+  // ── 정확 MPN 3사 강제 최신조회 + 비교 읽기 모델 ─────────────────────
   fastify.post(
     '/bom-quotes/:id/rfqs',
     {
@@ -196,16 +401,54 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           message: '회신 확정 전(검토 중)에만 선정을 변경할 수 있습니다.',
         });
       }
-      const result = await applyPartnerRfqSelection(
-        quote.id,
-        BigInt(request.body.itemId),
-        request.body.rfqItemId === null ? null : BigInt(request.body.rfqItemId),
-        request.user.mbId,
-      );
-      if (result !== 'ok') {
+      if (request.body.kind === 'supplier' && quote.enrichStatus === 'searching') {
         return reply.status(409).send({
-          error: result.toUpperCase().replaceAll('-', '_'),
-          message: '선정에 실패했습니다 — 회신 상태를 새로고침해 주세요.',
+          error: 'SUPPLIER_REFRESH_RUNNING',
+          message: '공급사 최신 시세 확인이 완료된 뒤 선정해 주세요.',
+        });
+      }
+      if (request.body.kind === 'partner') {
+        const partnerResult = await applyPartnerRfqSelection(
+          quote.id,
+          BigInt(request.body.itemId),
+          request.body.rfqItemId === null ? null : BigInt(request.body.rfqItemId),
+          request.user.mbId,
+        );
+        if (partnerResult !== 'ok') {
+          return reply.status(409).send({
+            error: partnerResult.toUpperCase().replaceAll('-', '_'),
+            message: '선정에 실패했습니다 — 회신과 공급사 시세를 새로고침해 주세요.',
+          });
+        }
+        return { result: true as const };
+      }
+      const supplierBody = request.body;
+      const supplierResult = await prisma.$transaction(async (tx) => {
+        const selectionResult = await applyQuoteCandidateSelection(
+          quote.id,
+          BigInt(supplierBody.itemId),
+          supplierBody.candidateKey,
+          supplierBody.offerKey,
+          request.user.mbId,
+          {
+            source: 'admin',
+            requireExactMatch: true,
+            allowedSuppliers: ADMIN_BOM_LIVE_SUPPLIERS,
+            transaction: tx,
+          },
+        );
+        if (selectionResult === 'ok') {
+          await tx.spBomQuoteItem.updateMany({
+            where: { id: BigInt(supplierBody.itemId), quoteId: quote.id },
+            data: { selectedRfqItemId: null },
+          });
+        }
+        return selectionResult;
+      }, { maxWait: 10_000, timeout: 60_000 });
+      if (supplierResult !== 'ok') {
+        return reply.status(409).send({
+          error: supplierResult.toUpperCase().replaceAll('-', '_'),
+          message: '선정에 실패했습니다 — 회신과 공급사 시세를 새로고침해 주세요.',
         });
       }
       return { result: true as const };

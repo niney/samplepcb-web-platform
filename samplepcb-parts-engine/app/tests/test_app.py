@@ -13,7 +13,13 @@ import time
 from fastapi.testclient import TestClient
 
 from parts_engine_app.config import Config
-from parts_engine_app.jobs import Job, JobError, JobService, SupplierSearchOptions
+from parts_engine_app.jobs import (
+    Job,
+    JobError,
+    JobService,
+    SupplierSearchOptions,
+    _LiveReadCache,
+)
 from parts_engine_app.main import create_app
 from supplier_search_engine.contract import build_batch_from_result
 from supplier_search_engine.matcher import (
@@ -505,6 +511,14 @@ def test_supplier_preflight_requires_completed_analysis_and_does_not_call_api(tm
     assert body["plan"]["component_count"] >= 3
     assert body["plan"]["cache_only"] is True
     assert body["plan"]["estimated_api_calls"] == 0
+
+    live_response = client.post(
+        f"/jobs/{job_id}/supplier-search/preflight",
+        json={"max_calls": 5, "force_live": True},
+    )
+    assert live_response.status_code == 200, live_response.text
+    assert live_response.json()["force_live"] is True
+    assert live_response.json()["plan"]["cache_only"] is False
 
 
 def test_supplier_job_accepts_persisted_analysis_without_parse_job_dependency(tmp_path):
@@ -1018,6 +1032,27 @@ def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
         json={"max_calls": 10, "cache_only": True, "reset_cache": True},
     )
     assert response.status_code == 422
+
+    force_live_conflict = client.post(
+        "/jobs/missing/supplier-search/preflight",
+        json={"max_calls": 10, "cache_only": True, "force_live": True},
+    )
+    assert force_live_conflict.status_code == 422
+
+
+def test_supplier_search_force_live_is_valid_and_reads_cache_as_miss(tmp_path):
+    client = _client(tmp_path)
+    response = client.post(
+        "/jobs/missing/supplier-search/preflight",
+        json={"max_calls": 10, "force_live": True},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "job_not_found: missing"
+
+    cache = _LiveReadCache(tmp_path / "supplier-cache.sqlite3")
+    lookup = cache.get("supplier", "cached-key", allow_stale=True)
+    assert lookup.state == "miss"
+    assert lookup.payload is None
 
 
 def test_supplier_search_accepts_three_thousand_and_rejects_above_limit(tmp_path):

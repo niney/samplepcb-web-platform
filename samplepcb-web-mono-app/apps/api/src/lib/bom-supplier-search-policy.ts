@@ -13,6 +13,8 @@ export interface AutomaticSupplierSearchDecision {
 export interface SupplierSearchRunPolicySnapshot {
   localCatalogBypass: boolean;
   storedPartPrioritySearchEnabled: boolean | null;
+  forceLive: boolean;
+  purpose: 'admin_rfq_compare' | null;
 }
 
 /** DB에만 저장하는 실행 정책을 안전하게 읽는다. 구형 실행의 미기록 값은 null이다. */
@@ -27,6 +29,8 @@ export function supplierSearchRunPolicyFromOptions(
     return {
       localCatalogBypass: false,
       storedPartPrioritySearchEnabled: null,
+      forceLive: false,
+      purpose: null,
     };
   }
   const stored = options as Record<string, unknown>;
@@ -36,6 +40,8 @@ export function supplierSearchRunPolicyFromOptions(
       typeof stored.stored_part_priority_search_enabled === 'boolean'
         ? stored.stored_part_priority_search_enabled
         : null,
+    forceLive: stored.force_live === true,
+    purpose: stored.purpose === 'admin_rfq_compare' ? 'admin_rfq_compare' : null,
   };
 }
 

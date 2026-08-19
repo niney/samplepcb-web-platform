@@ -19,7 +19,7 @@
 | D3 | 1차 범위 | **견적 성립까지**: 관리자 검토 → 협력사 RFQ → 비교·선정 → 고객 회신(answered). 2차=주문·결제·발주, 3차=물류 |
 | D4 | 파트너 모델 | **`sp_partner` 조직 단일 테이블**(type: partner\|supplier\|house) + `sp_partner_member` 계정 연결(스키마 1:N, 1차 구현은 owner 1계정) + `sp_partner_relation`(마스터딜러 — **스키마만 선반영, 구현 후속**) |
 | D5 | partnerAuth | 레거시 등급(A/B/C/부품판매)은 **capabilities**(bom_rfq·pcb_rfq·part_sale)로 재해석 |
-| D6 | 공급사 참여 | **RFQ 행으로 물질화하지 않는다.** 공급사 시세는 기존 후보(SpBomQuoteCandidate)·구매 조건 원장(SpPartOffer)에서 파생 표시. 갱신은 stale-while-revalidate 백그라운드 잡(sp-engine). `source='manual'` 행은 자동 동기화가 건드리지 않음 |
+| D6 | 공급사 참여 | **RFQ 행으로 물질화하지 않는다.** 공급사 시세는 기존 후보(SpBomQuoteCandidate)·구매 조건 원장(SpPartOffer)에서 파생 표시. **[회신 비교·선정] 클릭 시 정확 MPN 품목을 DigiKey·Mouser·UniKeyIC에 강제 라이브 재조회**하고 결과를 백그라운드 스냅샷으로 갱신한다. `source='manual'` 회신은 자동 동기화가 건드리지 않음 |
 | D7 | 통화 | 1차 **KRW 단일**. RFQ 스키마에 currency 컬럼만 선반영(외화 회신은 후속) |
 | D8 | 정보 노출 | 협력사에게 **목표단가(현재 선정 단가) 미노출** — 부품행(MPN·제조사·수량)만 |
 | D9 | 고객 회신가 | 기존 `confirmed*` **관리자 수동 확정 유지** + 행별 선정가 합계 참고 표시. 마진 자동 계산은 후속 |
@@ -196,10 +196,14 @@ BOM_RFQ_STATUS: requested ─(협력사 회신 저장)→ quoted ─(quote answe
   → confirmed* 수동 확정(선정가 합계 참고 표시, D9) + answerNote → answered (기존)
 ```
 
-공급사 열(파생)의 갱신: 검토 진입 시 TTL(기본 24h, `SpConfig` 설정화) 지난 부품이 있으면
-**백그라운드 동기화 잡 자동 킥**(sp-engine, 기존 `SpBomSupplierSearchRun` 원장·trace·
-`SpBomSupplierDailyUsage` 캡 재사용) — 화면은 즉시 렌더 + 신선도 배지. 수량 변경은
-프라이스브레이크 원장 보유로 **로컬 재계산**(외부 재호출 없음 — 레거시 대비 핵심 개선).
+공급사 열(파생)의 갱신: **[회신 비교·선정] 클릭을 명시적 최신조회 트리거로 삼는다.**
+sp-node가 현재 scope의 엔진 `selectionMode='exact'` component만 고르고, sp-engine은 전역 캐시를
+지우지 않은 채 읽기만 miss로 취급하는 `force_live` 잡으로 3사를 모두 시도한다.
+화면은 이전 스냅샷을 즉시 보이고 공급사별 진행·결과·실패를 폴링한다. 재조회는 현재
+선정 값을 자동 교체하지 않고 후보·trace만 갱신하며, 관리자가 [선정 적용]할 때만 박제한다.
+동일 MPN 반복 행의 API 요청은 엔진 배치/single-flight가 재사용하고, 행별 실효가는 각
+`orderQty`와 저장된 price break로 계산한다. 수량만 변경하는 경로는 기존처럼 외부 재호출 없이
+로컬 재계산한다.
 
 ### 2.5 API 표면 (sp-node — 경로는 구현 시 apiRoutes 관례 확정)
 
@@ -207,7 +211,8 @@ BOM_RFQ_STATUS: requested ─(협력사 회신 저장)→ quoted ─(quote answe
 POST /api/admin/bom-quotes/:id/rfqs            RFQ diff 발송 (+메일)
 GET  /api/admin/bom-quotes/:id/rfqs            회신 현황(문서+행)
 POST /api/admin/bom-quotes/:id/select-partner  행별 선정/해제 (+스냅샷·재계산)
-POST /api/admin/bom-quotes/:id/refresh-offers  공급사 시세 백그라운드 갱신 킥
+POST /api/admin/bom-quotes/:id/supplier-offer-refresh  정확 MPN 3사 강제 라이브 갱신 킥
+GET  /api/admin/bom-quotes/:id/supplier-offer-refresh  진행률·공급사별 결과·비교 구매조건
 
 GET  /api/partner/rfqs                         포털 워크큐 (requirePartner)
 GET  /api/partner/rfqs/:id                     상세(부품행 — 목표단가 미노출 D8)
@@ -1360,6 +1365,34 @@ PCB 트랙에 먼저 세운 축(docs/PCB_PARTNER_TRACK.md)을 BOM 선적에도 �
   문서가 있으면 검색은 되는데 구매 조건이 안 열린다 — docs/PARTS_SEARCH.md 운영 절차의
   'ES 유령 문서' 항 참조(처방: `parts:reindex --recreate`).
 
+### 6.32 회신 비교 진입 시 3사 최신 시세 재조회 (2026-08-19)
+
+[회신 비교·선정]이 사람 협력사 회신만 비교하던 공백을 닫았다. 진입 클릭 한 번이
+관리자의 명시적 최신 확인 의사이며, 정확 품번 품목은 DigiKey·Mouser·UniKeyIC에
+모두 강제 라이브 조회한 뒤 사람 회신과 같은 행에서 선정한다.
+
+- **판단 경계**: 대상 행은 sp-engine이 이미 박제한 `selectionMode='exact'`로만 고른다.
+  sp-node/sp-vue의 문자열 비교로 exact를 새로 만들지 않는다.
+- **캐시 안전**: 새 `force_live` 옵션은 SQLite 캐시를 전역 삭제하지 않고 이 잡의 읽기만
+  miss로 보며, 성공 응답은 실캐시에 다시 쓴다. `cache_only`·`reset_cache`·`force_live`는
+  서로 배타적이다.
+- **스냅샷 보호**: 재조회 완료는 후보·trace만 갱신하고 현재 `selectedOffer`·협력사
+  `SpBomRfqItem`을 덮지 않는다. 공급사 선정은 exact + `manualSelectable` + 구매가능
+  엔진 조건을 서버가 다시 확인하고 `selectedRfqItemId` 포인터만 해제한다.
+- **비교 기준**: 열은 현재 선정 / DigiKey / Mouser / UniKeyIC / 사람 협력사 순.
+  [품목별 최저가 일괄 선정]은 단가가 아니라 MOQ·주문배수·수량 price break를 반영한
+  실효 행합계를 비교한다.
+- **재진입 복원**: 모달을 다시 열면 저장된 `selectedOffer.offerKey`로 협력사 `rfq:*`
+  회신을 즉시 체크하고, API 공급사는 최신조회 후 동일 offerKey(없으면
+  supplier+SKU+packaging 동일성)를 찾아 해당 공급사 체크박스를 복원한다. 사용자가
+  새로 고른 행은 후속 폴링이 덮지 않고, 최신 결과에서 조건이 사라진 행은 `현재 선택
+  유지`로 축퇴하며 경고한다. 적용하지 않고 닫은 모달 로컬 선택은 복원하지 않는다.
+- **부분 실패**: 어느 한 공급사가 실패해도 나머지 가격과 협력사 회신은 계속 선정할 수
+  있고, 헤더와 빈 셀은 `조회 실패` / `해당 품번 결과 없음` / `미실행`을 구분한다.
+- **실증(08-19)**: 로컬 관리자 Case #1070의 정확 품번 30행으로 실행해
+  DigiKey 33·Mouser 38·UniKeyIC 27 API 호출, 3사 완료 배지, 재고·MOQ·포장·KRW
+  실효가 렌더, 빈 품번 셀 71개 구분, 브라우저 error/warn 0건을 확인했다.
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).
@@ -1376,6 +1409,6 @@ PCB 트랙에 먼저 세운 축(docs/PCB_PARTNER_TRACK.md)을 BOM 선적에도 �
 연결 문서 레지스트리 / RFQ 응답률 지표(후속) / Case 표시 채번.
 
 **조정**: ① 12단계는 고정 상태머신이 아니라 **파생 표시 타임라인**(상태 계층에서 계산 — 경직 회피)
-② 공급사 "회신 등록"은 수동이 아니라 **구매 조건 원장 자동 파생 + [전체 회신 업데이트]=백그라운드 잡**
+② 공급사 "회신 등록"은 수동이 아니라 **구매 조건 원장 자동 파생 + [회신 비교·선정] 진입=정확 MPN 3사 백그라운드 최신조회**
 ③ 모듈 스위처는 **2모듈(통합 관리·스마트 BOM)로 시작**, 4영역(PCB·PCBA·기술개발)은 자리만 —
 기존 메뉴 재배치는 각 모듈이 실제로 생길 때.

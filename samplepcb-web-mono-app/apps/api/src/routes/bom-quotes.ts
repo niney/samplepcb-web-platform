@@ -226,11 +226,13 @@ function persistedSearchOptions(
   engineOptions: Prisma.InputJsonObject,
   bypassLocalCatalog: boolean,
   storedPartPrioritySearchEnabled: boolean,
+  purpose: 'admin_rfq_compare' | null = null,
 ): Prisma.InputJsonObject {
   return {
     ...engineOptions,
     stored_part_priority_search_enabled: storedPartPrioritySearchEnabled,
     ...(bypassLocalCatalog ? { local_catalog_bypass: true } : {}),
+    ...(purpose === null ? {} : { purpose }),
   };
 }
 
@@ -352,13 +354,23 @@ async function applyCompletedSupplierResult(
     where: { id: searchRunId },
     select: { startedAt: true, options: true },
   });
+  const runPolicy = supplierSearchRunPolicyFromOptions(run?.options);
+  const adminComparison = runPolicy.purpose === 'admin_rfq_compare';
   const applyStartedAt = performance.now();
   const applied = await refreshQuoteFromSupplierResult(
     quoteId,
     envelope,
     searchRunId,
     log,
-    { targeted: run !== null && supplierRunIsTargeted(run.options) },
+    {
+      targeted: run !== null && supplierRunIsTargeted(run.options),
+      ...(adminComparison
+        ? {
+            allowedStatuses: ['requested', 'reviewing'],
+            preserveCurrentSelections: true,
+          }
+        : {}),
+    },
   );
   const completedAt = new Date();
   const baseSummary = supplierRunSummarySnapshot(envelope);
@@ -393,7 +405,11 @@ async function applyCompletedSupplierResult(
         },
       }),
       prisma.spBomQuote.updateMany({
-        where: { id: quoteId, status: 'draft', enrichStatus: 'searching' },
+        where: {
+          id: quoteId,
+          status: adminComparison ? { in: ['requested', 'reviewing'] } : 'draft',
+          enrichStatus: 'searching',
+        },
         data: { enrichStatus: 'failed' },
       }),
     ]);
@@ -401,7 +417,7 @@ async function applyCompletedSupplierResult(
   return applied;
 }
 
-async function autoEnrichQuote(
+export async function autoEnrichQuote(
   quoteId: bigint,
   mbId: string,
   log: Parameters<typeof startIngestPoller>[1],
@@ -412,8 +428,12 @@ async function autoEnrichQuote(
     bypassLocalCatalog?: boolean;
     storedPartPrioritySearchEnabled?: boolean;
     procurementMode?: BomQuoteProcurementModeType;
+    forceLive?: boolean;
+    purpose?: 'admin_rfq_compare';
+    allowedStatuses?: readonly ('draft' | 'requested' | 'reviewing')[];
+    enforceMemberDailyLimit?: boolean;
   } = {},
-): Promise<boolean> {
+): Promise<bigint | null> {
   const quote = await prisma.spBomQuote.findUnique({
     where: { id: quoteId },
     include: {
@@ -422,10 +442,15 @@ async function autoEnrichQuote(
       activeSupplierSearchRun: { select: { options: true } },
     },
   });
-  if (quote?.status !== 'draft' || quote.activeAnalysisRunId === null) return false;
+  const allowedStatuses = options.allowedStatuses ?? ['draft'];
+  if (
+    quote === null
+    || !allowedStatuses.includes(quote.status as 'draft' | 'requested' | 'reviewing')
+    || quote.activeAnalysisRunId === null
+  ) return null;
   const config = await getBomQuoteRuntimeConfig();
   const sheetIndexes = quote.sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetIndex);
-  if (sheetIndexes.length === 0) return false;
+  if (sheetIndexes.length === 0) return null;
   const procurement = buildEngineProcurementPolicy(
     config.usdKrwRate,
     config.exchangeRateSnapshot,
@@ -444,6 +469,7 @@ async function autoEnrichQuote(
     max_calls: config.supplierSearchMaxCalls,
     cache_only: false,
     reset_cache: false,
+    force_live: options.forceLive === true,
     sheet_indexes: sheetIndexes,
     component_ids: [...(options.componentIds ?? [])],
     ...(passiveDefaultsPayload === null
@@ -463,7 +489,7 @@ async function autoEnrichQuote(
     if (quote.enrichStatus === 'searching') {
       await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'idle' } }).catch(() => undefined);
     }
-    return false;
+    return null;
   }
 
   const searchRun = await prisma.spBomSupplierSearchRun.create({
@@ -475,16 +501,17 @@ async function autoEnrichQuote(
         searchOptions,
         bypassLocalCatalog,
         storedPartPrioritySearchEnabled,
+        options.purpose ?? null,
       ),
     },
   });
-  const markFailed = async (error: string): Promise<false> => {
+  const markFailed = async (error: string): Promise<null> => {
     await prisma.spBomSupplierSearchRun.update({
       where: { id: searchRun.id },
       data: { status: 'failed', error: error.slice(0, 500), completedAt: new Date() },
     }).catch(() => undefined);
     await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'failed' } }).catch(() => undefined);
-    return false;
+    return null;
   };
 
   const analysis = await loadActiveBomAnalysisResult(quoteId, sheetIndexes);
@@ -626,6 +653,7 @@ async function autoEnrichQuote(
             baseSearchOptions,
             bypassLocalCatalog,
             storedPartPrioritySearchEnabled,
+            options.purpose ?? null,
           ),
           preflight: {
             ...fullPreflight,
@@ -669,7 +697,7 @@ async function autoEnrichQuote(
       jobId,
       localCatalogResolved: localResolved.length,
     }, '부품 유형별 로컬 카탈로그만으로 자동 보강 완료');
-    return true;
+    return searchRun.id;
   }
 
   let pf: Prisma.JsonObject = fullPreflight;
@@ -704,6 +732,7 @@ async function autoEnrichQuote(
         searchOptions,
         bypassLocalCatalog,
         storedPartPrioritySearchEnabled,
+        options.purpose ?? null,
       ),
       preflight: {
         ...pf,
@@ -720,7 +749,7 @@ async function autoEnrichQuote(
       ? plan.estimated_api_calls
       : 0;
     const liveCalls = estimated > 0;
-    const dailySlotAvailable = !liveCalls
+    const dailySlotAvailable = options.enforceMemberDailyLimit === false || !liveCalls
       || await reserveDailySupplierSearch(mbId, config.memberDailySearchLimit);
     const decision = decideAutomaticSupplierSearch(plan ?? undefined, dailySlotAvailable);
     estimatedApiCalls = decision.estimatedApiCalls;
@@ -760,6 +789,7 @@ async function autoEnrichQuote(
           searchOptions,
           bypassLocalCatalog,
           storedPartPrioritySearchEnabled,
+          options.purpose ?? null,
         ),
         startedAt: new Date(),
       },
@@ -796,7 +826,7 @@ async function autoEnrichQuote(
       await markCatalogPreparation(quoteId, searchRun.id, scheduled ? 'preparing' : 'failed', error);
     },
   });
-  return true;
+  return searchRun.id;
 }
 
 // ── 게으른 치유 — searching 견적 조회 시 상태를 수렴시킨다(재시작·폴러 유실 내성) ──
@@ -805,7 +835,7 @@ async function autoEnrichQuote(
 const healInFlight = new Set<string>();
 const catalogHealInFlight = new Set<string>();
 
-async function healEnrichment(
+export async function healEnrichment(
   quoteId: bigint,
   mbId: string,
   log: Parameters<typeof startIngestPoller>[1],
@@ -884,6 +914,14 @@ async function healEnrichment(
               storedPartPrioritySearchEnabled:
                 runPolicy.storedPartPrioritySearchEnabled,
             }),
+        ...(runPolicy.forceLive ? { forceLive: true } : {}),
+        ...(runPolicy.purpose === 'admin_rfq_compare'
+          ? {
+              purpose: 'admin_rfq_compare' as const,
+              allowedStatuses: ['requested', 'reviewing'] as const,
+              enforceMemberDailyLimit: false,
+            }
+          : {}),
       });
       return;
     }

@@ -43,6 +43,7 @@ class SupplierSearchOptionsBody(BaseModel):
     max_calls: int = Field(default=3_000, ge=1, le=3_000)
     cache_only: bool = False
     reset_cache: bool = False
+    force_live: bool = False
     sheet_indexes: list[int] = Field(default_factory=list, max_length=100)
     # 로컬 SamplePCB 카탈로그가 해결하지 못한 대형 BOM의 부분집합을 그대로
     # 외부 검색에 넘긴다. 추출 엔진의 기본 component 상한(5,000)과 맞춘다.
@@ -52,8 +53,10 @@ class SupplierSearchOptionsBody(BaseModel):
 
     @model_validator(mode="after")
     def validate_cache_mode(self) -> "SupplierSearchOptionsBody":
-        if self.cache_only and self.reset_cache:
-            raise ValueError("cache_only and reset_cache cannot be enabled together")
+        if sum([self.cache_only, self.reset_cache, self.force_live]) > 1:
+            raise ValueError(
+                "cache_only, reset_cache and force_live cannot be enabled together"
+            )
         if any(index < 0 for index in self.sheet_indexes):
             raise ValueError("sheet_indexes must be zero-based non-negative integers")
         if len(set(self.sheet_indexes)) != len(self.sheet_indexes):
@@ -69,6 +72,7 @@ class SupplierSearchOptionsBody(BaseModel):
             max_calls=self.max_calls,
             cache_only=self.cache_only,
             reset_cache=self.reset_cache,
+            force_live=self.force_live,
             sheet_indexes=tuple(self.sheet_indexes),
             component_ids=tuple(self.component_ids),
             procurement_policy=self.procurement,

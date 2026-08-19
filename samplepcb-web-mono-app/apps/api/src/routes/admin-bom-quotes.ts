@@ -545,6 +545,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           error: 'CANDIDATE_BLOCKED',
           message: '기술 검토에서 차단된 후보는 선택할 수 없습니다.',
         },
+        'candidate-not-exact': {
+          error: 'CANDIDATE_NOT_EXACT',
+          message: '정확 품번 일치 후보가 아니어서 선택할 수 없습니다.',
+        },
         'offer-not-found': {
           error: 'OFFER_NOT_FOUND',
           message: '선택한 공급사 구매 조건이 후보 스냅샷에 없습니다.',
@@ -552,6 +556,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         'offer-not-priced': {
           error: 'OFFER_NOT_PRICED',
           message: '가격을 계산할 수 없는 공급사 구매 조건은 선택할 수 없습니다.',
+        },
+        'supplier-not-allowed': {
+          error: 'SUPPLIER_NOT_ALLOWED',
+          message: '현재 실시간 비교 대상이 아닌 공급사입니다.',
         },
         'part-not-found': {
           error: 'PART_NOT_FOUND',

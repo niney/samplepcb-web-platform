@@ -48,6 +48,20 @@ describe('BOM 공급사 검색 실행 정책 스냅샷', () => {
     })).toEqual({
       localCatalogBypass: true,
       storedPartPrioritySearchEnabled: false,
+      forceLive: false,
+      purpose: null,
+    });
+  });
+
+  it('관리자 RFQ 비교 강제 라이브 재시작 의미를 보존한다', () => {
+    expect(supplierSearchRunPolicyFromOptions({
+      force_live: true,
+      purpose: 'admin_rfq_compare',
+    })).toEqual({
+      localCatalogBypass: false,
+      storedPartPrioritySearchEnabled: null,
+      forceLive: true,
+      purpose: 'admin_rfq_compare',
     });
   });
 
@@ -55,6 +69,8 @@ describe('BOM 공급사 검색 실행 정책 스냅샷', () => {
     expect(supplierSearchRunPolicyFromOptions({ max_calls: 300 })).toEqual({
       localCatalogBypass: false,
       storedPartPrioritySearchEnabled: null,
+      forceLive: false,
+      purpose: null,
     });
   });
 });

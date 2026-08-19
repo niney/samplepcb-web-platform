@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 import {
+  ADMIN_BOM_LIVE_SUPPLIERS,
   BomQuoteDecisionReason,
   BomQuoteExchangeRateSnapshot,
   BomQuoteMatchEvidence,
@@ -15,6 +16,8 @@ import {
   type AdminBomQuoteItemRemoveBodyType,
   type AdminBomQuoteItemSelectionBodyType,
   type AdminBomQuoteSummaryType,
+  type AdminBomSupplierAttemptSummaryType,
+  type AdminBomSupplierComparisonRowType,
   type BomQuoteDetailType,
   type BomQuoteCandidateOfferType,
   type BomQuoteCandidateSafetyType,
@@ -4090,18 +4093,150 @@ export async function getQuoteItemCandidates(
   };
 }
 
+const ADMIN_LIVE_SUPPLIER_ORDER = new Map<string, number>(
+  ADMIN_BOM_LIVE_SUPPLIERS.map((supplier, index) => [supplier, index] as const),
+);
+
+/**
+ * RFQ 비교 모달용 정확 MPN 공급사 구매조건 읽기 모델.
+ * 공급사 재조회 결과는 기존 후보 스냅샷에 박제되므로 엔진 잡의 수명과
+ * 무관하게 재현한다. 선정 가능 여부·수량 적용가는 저장된 엔진 판정을 그대로
+ * 투영하고 Node에서 재판정하지 않는다.
+ */
+export async function getAdminBomSupplierComparisonRows(
+  quoteId: bigint,
+): Promise<AdminBomSupplierComparisonRowType[] | null> {
+  const quote = await prisma.spBomQuote.findUnique({
+    where: { id: quoteId },
+    select: {
+      setQty: true,
+      spareQty: true,
+      usdKrwRateUsed: true,
+      sheets: { select: { sheetIndex: true, selected: true } },
+      items: {
+        orderBy: { rowIdx: 'asc' },
+        select: {
+          id: true,
+          included: true,
+          sourceSheetIndex: true,
+          bomQty: true,
+          matchEvidence: true,
+          candidates: {
+            orderBy: { technicalRank: 'asc' },
+            select: { payload: true },
+          },
+        },
+      },
+    },
+  });
+  if (quote === null) return null;
+  const rate = quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed);
+  const activeItems = filterActiveQuoteItems(quote.items, quote.sheets)
+    .filter((item) => item.included);
+
+  return activeItems.flatMap((item) => {
+    const candidates = item.candidates.flatMap((row) => {
+      const parsed = StoredCandidate.safeParse(row.payload);
+      return parsed.success && parsed.data.selectionMode === 'exact'
+        ? [parsed.data]
+        : [];
+    });
+    const evidence = BomQuoteMatchEvidence.safeParse(item.matchEvidence);
+    const exactMatch = evidence.success && evidence.data.selectionMode === 'exact';
+    if (!exactMatch && candidates.length === 0) return [];
+    const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
+    const offers = candidates.flatMap((candidate) => candidate.offers.flatMap((offer) => {
+      const supplier = offer.supplier.toLocaleLowerCase();
+      if (!ADMIN_LIVE_SUPPLIER_ORDER.has(supplier) || offer.offerKind !== 'supplier_offer') {
+        return [];
+      }
+      return [{
+        candidateKey: candidate.candidateKey,
+        candidateMpn: candidate.mpn,
+        candidateManufacturerName: candidate.manufacturerName,
+        candidateManualSelectable: candidate.manualSelectable,
+        offer: candidateOfferView(offer, needed, rate),
+      }];
+    })).sort((left, right) =>
+      (ADMIN_LIVE_SUPPLIER_ORDER.get(left.offer.supplier.toLocaleLowerCase()) ?? 99)
+        - (ADMIN_LIVE_SUPPLIER_ORDER.get(right.offer.supplier.toLocaleLowerCase()) ?? 99)
+      || (left.offer.applied?.lineTotalKrw ?? Number.MAX_SAFE_INTEGER)
+        - (right.offer.applied?.lineTotalKrw ?? Number.MAX_SAFE_INTEGER)
+      || left.offer.offerKey.localeCompare(right.offer.offerKey));
+    return [{ itemId: String(item.id), offers }];
+  });
+}
+
+/** 강제 최신조회 trace를 3개 공급사 헤더 상태로 요약한다. */
+export async function getAdminBomSupplierAttemptSummaries(
+  supplierSearchRunId: bigint | null,
+  runStatus: 'idle' | 'running' | 'completed' | 'failed',
+  rows: readonly AdminBomSupplierComparisonRowType[],
+): Promise<AdminBomSupplierAttemptSummaryType[]> {
+  const traces = supplierSearchRunId === null
+    ? []
+    : await prisma.spBomSupplierSearchTrace.findMany({
+        where: { supplierSearchRunId },
+        select: { payload: true },
+      });
+  const attempts = traces.flatMap((row) => {
+    const parsed = EngineSupplierSearchTrace.safeParse(row.payload);
+    return parsed.success ? parsed.data.attempts : [];
+  });
+  return ADMIN_BOM_LIVE_SUPPLIERS.map((supplier) => {
+    const supplierAttempts = attempts.filter(
+      (attempt) => attempt.supplier.toLocaleLowerCase() === supplier,
+    );
+    const offerCount = rows.reduce(
+      (count, row) => count + row.offers.filter(
+        (entry) => entry.offer.supplier.toLocaleLowerCase() === supplier,
+      ).length,
+      0,
+    );
+    const apiCalls = supplierAttempts.reduce((sum, attempt) => sum + attempt.api_calls, 0);
+    const resultCount = supplierAttempts.reduce(
+      (sum, attempt) => sum + attempt.result_count,
+      0,
+    );
+    const errorCount = supplierAttempts.filter((attempt) => attempt.outcome === 'error').length;
+    const nonExecuted = supplierAttempts.length > 0 && supplierAttempts.every(
+      (attempt) => attempt.outcome === 'skipped' || attempt.outcome === 'budget_exhausted',
+    );
+    const outcome: AdminBomSupplierAttemptSummaryType['outcome'] = runStatus === 'running'
+      ? 'pending'
+      : runStatus === 'failed'
+        ? 'error'
+        : runStatus === 'idle'
+          ? 'skipped'
+          : (offerCount > 0 || resultCount > 0) && errorCount > 0
+            ? 'partial_error'
+            : offerCount > 0 || resultCount > 0
+              ? 'results'
+              : errorCount > 0
+                ? 'error'
+                : nonExecuted || supplierAttempts.length === 0
+                  ? 'skipped'
+                  : 'empty';
+    return { supplier, outcome, apiCalls, resultCount, errorCount };
+  });
+}
+
 export type QuoteCandidateSelectionResult =
   | 'ok'
   | 'quote-not-found'
   | 'item-not-found'
   | 'candidate-not-found'
   | 'candidate-blocked'
+  | 'candidate-not-exact'
   | 'offer-not-found'
+  | 'supplier-not-allowed'
   | 'offer-not-priced';
 
 interface QuoteCandidateSelectionOptions {
   source?: 'customer' | 'admin';
   force?: boolean;
+  requireExactMatch?: boolean;
+  allowedSuppliers?: readonly string[];
   transaction?: Prisma.TransactionClient;
   runtimeConfig?: Awaited<ReturnType<typeof getBomQuoteRuntimeConfig>>;
 }
@@ -4131,9 +4266,23 @@ export async function applyQuoteCandidateSelection(
   if (!parsed.success) return 'candidate-not-found';
   const candidate = parsed.data;
   if (!candidate.manualSelectable) return 'candidate-blocked';
-  if (requestedOfferKey !== null && !candidate.offers.some((offer) => offer.offerKey === requestedOfferKey)) {
+  if (options?.requireExactMatch === true && candidate.selectionMode !== 'exact') {
+    return 'candidate-not-exact';
+  }
+  const requestedOffer = requestedOfferKey === null
+    ? null
+    : candidate.offers.find((offer) => offer.offerKey === requestedOfferKey);
+  if (requestedOfferKey !== null && requestedOffer === undefined) {
     return 'offer-not-found';
   }
+  if (
+    requestedOffer !== null
+    && requestedOffer !== undefined
+    && options?.allowedSuppliers !== undefined
+    && !options.allowedSuppliers.some(
+      (supplier) => supplier.toLocaleLowerCase() === requestedOffer.supplier.toLocaleLowerCase(),
+    )
+  ) return 'supplier-not-allowed';
   const config = options?.runtimeConfig ?? await getBomQuoteRuntimeConfig();
   const items = activeRows.map((row) => toItemDto(row));
   const item = items.find((entry) => entry.id === String(itemId));
@@ -5398,19 +5547,26 @@ export async function refreshQuoteFromSupplierResult(
   envelope: unknown,
   supplierSearchRunId?: bigint,
   log?: Pick<FastifyBaseLogger, 'warn'>,
-  options: { targeted?: boolean } = {},
+  options: {
+    targeted?: boolean;
+    allowedStatuses?: readonly string[];
+    preserveCurrentSelections?: boolean;
+  } = {},
 ): Promise<boolean> {
   const key = `${String(quoteId)}:${supplierSearchRunId === undefined ? 'legacy' : String(supplierSearchRunId)}`;
   const inFlight = engineRefreshInFlight.get(key);
   if (inFlight !== undefined) return inFlight;
   const run = (async (): Promise<boolean> => {
     const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
-    if (quote?.status !== 'draft') return false;
+    const allowedStatuses = options.allowedStatuses ?? ['draft'];
+    if (quote === null || !allowedStatuses.includes(quote.status)) return false;
     const config = await getBomQuoteRuntimeConfig();
-    const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    const currentItems = activeRows.map((row) => toItemDto(row));
+    const evaluatedItems = activeRows.map((row) => toItemDto(row));
     const resolvedEnvelope = await applyLocalCatalogFallback(envelope, log);
     const applied = await applyEngineSupplierResult(
-      items,
+      evaluatedItems,
       resolvedEnvelope,
       quote.setQty,
       quote.spareQty,
@@ -5419,9 +5575,20 @@ export async function refreshQuoteFromSupplierResult(
       options.targeted !== true,
     );
     if (!applied.applied) return false;
-    const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-    await persistQuoteComputed(quoteId, result, config.usdKrwRate, {
-      exchangeRateSnapshot: config.exchangeRateSnapshot,
+    const preserveCurrentSelections = options.preserveCurrentSelections === true;
+    const appliedRate = preserveCurrentSelections
+      ? (quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed))
+      : config.usdKrwRate;
+    const result = computeQuote(
+      preserveCurrentSelections ? currentItems : evaluatedItems,
+      appliedRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quoteId, result, appliedRate, {
+      ...(preserveCurrentSelections
+        ? {}
+        : { exchangeRateSnapshot: config.exchangeRateSnapshot }),
       enrichStatus: 'done',
       enrichedAt: new Date(),
       candidateSnapshots: applied.candidateSnapshots,

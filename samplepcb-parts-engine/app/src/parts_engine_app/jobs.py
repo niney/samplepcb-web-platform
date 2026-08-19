@@ -44,12 +44,15 @@ class SupplierSearchOptions:
     """공급사 검색 실행 전에 확정하는 안전 옵션.
 
     브라우저가 보내는 값이지만 실제 상한은 JobService가 Config 값으로 한 번 더
-    강제한다. cache_only와 reset_cache는 동시에 성립하지 않는다.
+    강제한다. cache_only·reset_cache·force_live는 서로 동시에 성립하지
+    않는다. force_live는 캐시를 지우지 않고 읽기만 miss로 취급해
+    관리자의 명시적 최신 시세 확인에 사용한다.
     """
 
     max_calls: int
     cache_only: bool = False
     reset_cache: bool = False
+    force_live: bool = False
     sheet_indexes: tuple[int, ...] = ()
     component_ids: tuple[str, ...] = ()
     procurement_policy: ProcurementPolicyInput = field(
@@ -59,6 +62,21 @@ class SupplierSearchOptions:
 
 class _EmptyPreflightCache:
     """캐시를 지우지 않고 '초기화 후 실행'의 호출 수를 계산하는 읽기 전용 뷰."""
+
+    def get(
+        self,
+        namespace: str,
+        key: str,
+        *,
+        allow_stale: bool = False,
+        now: float | None = None,
+    ) -> CacheLookup:
+        del namespace, key, allow_stale, now
+        return CacheLookup("miss", None, None)
+
+
+class _LiveReadCache(SQLiteCache):
+    """캐시 읽기는 항상 miss, 쓰기는 실캐시에 보존하는 강제 라이브 뷰."""
 
     def get(
         self,
@@ -267,7 +285,11 @@ class JobService:
         started = time.perf_counter()
         batch = self._supplier_batch(job, options)
         settings = self._supplier_settings(options)
-        cache = _EmptyPreflightCache() if options.reset_cache else None
+        cache = (
+            _EmptyPreflightCache()
+            if options.reset_cache or options.force_live
+            else None
+        )
 
         async def build_plan() -> dict[str, Any]:
             async with SearchService(settings, cache=cache) as service:
@@ -279,6 +301,7 @@ class JobService:
             "analysis_elapsed_ms": self._analysis_elapsed_ms(job),
             "preflight_elapsed_ms": (time.perf_counter() - started) * 1_000,
             "reset_cache": options.reset_cache,
+            "force_live": options.force_live,
             "plan": plan,
         }
 
@@ -336,10 +359,16 @@ class JobService:
             job.supplier_message = (
                 "캐시된 공급사 응답만 검증 중"
                 if options.cache_only
-                else "Mouser·DigiKey·UniKeyIC 병렬 검색 중"
+                else (
+                    "Mouser·DigiKey·UniKeyIC 최신 시세 확인 중"
+                    if options.force_live
+                    else "Mouser·DigiKey·UniKeyIC 병렬 검색 중"
+                )
             )
             search_started = time.perf_counter()
-            result = asyncio.run(self._search(settings, batch))
+            result = asyncio.run(
+                self._search(settings, batch, force_live=options.force_live)
+            )
             search_elapsed_ms = (time.perf_counter() - search_started) * 1_000
             job.supplier_result = self._supplier_envelope(
                 job,
@@ -367,8 +396,14 @@ class JobService:
                     self._cache_reset_running = False
 
     @staticmethod
-    async def _search(settings: SearchSettings, batch: Any) -> Any:
-        async with SearchService(settings) as service:
+    async def _search(
+        settings: SearchSettings,
+        batch: Any,
+        *,
+        force_live: bool = False,
+    ) -> Any:
+        cache = _LiveReadCache(settings.cache_path) if force_live else None
+        async with SearchService(settings, cache=cache) as service:
             return await service.search_batch(batch)
 
     @staticmethod
@@ -429,7 +464,10 @@ class JobService:
             raise JobError(
                 f"supplier_max_calls_exceeded: maximum {self.config.supplier_max_calls}"
             )
-        if options.cache_only and options.reset_cache:
+        cache_mode_count = sum(
+            [options.cache_only, options.reset_cache, options.force_live]
+        )
+        if cache_mode_count > 1:
             raise JobError("supplier_cache_modes_conflict")
         if any(index < 0 for index in options.sheet_indexes):
             raise JobError("supplier_sheet_index_invalid")
