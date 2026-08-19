@@ -2178,7 +2178,7 @@ async function downloadOriginal(): Promise<void> {
             <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="품목표 오른쪽으로 이동" @click="moveAdminItemsTable(1)">→</button>
           </div>
           <div ref="adminItemsTableScroll" class="overflow-x-auto [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
-            <table class="min-w-[1040px] divide-y divide-gray-100 text-xs">
+            <table class="w-full min-w-[1040px] divide-y divide-gray-100 text-xs">
               <thead class="bg-gray-50 text-left text-gray-500">
                 <tr>
                   <th class="px-2 py-2 text-center text-[10px] font-semibold" title="다음 협력사 RFQ에 포함할 품목 선택">
