@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useAdminEstimate } from '../../admin/useAdminQuotes';
 import EstimateSheet from './EstimateSheet.vue';
 import EstimateSendControl from './EstimateSendControl.vue';
+import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 // 견적서 레이어 팝업 — body 로 Teleport 한다. 부모가 v-if 로 마운트를 제어하므로
 // (견적서 열릴 때만 마운트) 인쇄 전역 스타일 주입/제거가 이 모달의 수명과 정확히 맞는다.
@@ -55,17 +56,12 @@ const PRINT_CSS = `
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
-  if (document.getElementById(PRINT_STYLE_ID) === null) {
-    const style = document.createElement('style');
-    style.id = PRINT_STYLE_ID;
-    style.textContent = PRINT_CSS;
-    document.head.appendChild(style);
-  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
-  document.getElementById(PRINT_STYLE_ID)?.remove();
 });
+// 부모가 v-if 로 마운트를 제어하므로 마운트 수명 = 열림 수명이다(isOpen 생략).
+usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS);
 </script>
 
 <template>

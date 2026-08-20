@@ -12,6 +12,7 @@ import {
   type BomShipmentPackingPackageType,
 } from '@sp/api-contract';
 import { fmtKstDate } from '@sp/utils';
+import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 // 선적 리스트·QR 라벨(D24) — 파트너/관리자 공용. 상업송장과 분리된 Packing List이며
 // 릴·트레이·튜브·봉투·박스 같은 실물 관리 단위마다 QR 1개를 생성한다. 저장된 token은
@@ -237,6 +238,61 @@ watch(
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
 });
+
+// 인쇄 격리 — 열려 있는 동안만 문서에 둔다(상주하면 같은 화면의 다른 인쇄를 백지로
+// 만든다: body > :not(.sp-packing-host) 가 남의 호스트까지 지운다). lib/usePrintIsolation 참조.
+const PRINT_CSS = `
+@media print {
+  body > :not(.sp-packing-host) {
+    display: none !important;
+  }
+
+  .sp-packing-host {
+    position: static !important;
+    overflow: visible !important;
+    background: none !important;
+    display: block !important;
+  }
+
+  .sp-packing-scroll {
+    position: static !important;
+    overflow: visible !important;
+    max-height: none !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+
+  .sp-packing-host .no-print,
+  .sp-packing-host .packing-editor {
+    display: none !important;
+  }
+
+  .sp-packing-host .packing-print {
+    display: block !important;
+  }
+
+  .sp-packing-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  .sp-packing-labels {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .sp-packing-label {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+}
+`;
+usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
 </script>
 
 <template>
@@ -590,55 +646,3 @@ onBeforeUnmount(() => {
     </div>
   </Teleport>
 </template>
-
-<style>
-@media print {
-  body > :not(.sp-packing-host) {
-    display: none !important;
-  }
-
-  .sp-packing-host {
-    position: static !important;
-    overflow: visible !important;
-    background: none !important;
-    display: block !important;
-  }
-
-  .sp-packing-scroll {
-    position: static !important;
-    overflow: visible !important;
-    max-height: none !important;
-    padding: 0 !important;
-    display: block !important;
-  }
-
-  .sp-packing-host .no-print,
-  .sp-packing-host .packing-editor {
-    display: none !important;
-  }
-
-  .sp-packing-host .packing-print {
-    display: block !important;
-  }
-
-  .sp-packing-sheet {
-    box-shadow: none !important;
-    margin: 0 !important;
-  }
-
-  .sp-packing-labels {
-    break-before: page;
-    page-break-before: always;
-  }
-
-  .sp-packing-label {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  @page {
-    size: A4 portrait;
-    margin: 8mm;
-  }
-}
-</style>

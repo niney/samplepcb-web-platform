@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAdminOrderPrint } from '../../admin/useAdminOrders';
 import OrderPrintSheet from './OrderPrintSheet.vue';
+import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 // 주문서 인쇄 레이어 — 견적서 모달(EstimateModal)과 동일 구조. 부모가 v-if 로 마운트 제어라
 // 인쇄 전역 스타일 주입/제거가 이 모달 수명과 맞는다.
@@ -48,17 +49,12 @@ const PRINT_CSS = `
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
-  if (document.getElementById(PRINT_STYLE_ID) === null) {
-    const style = document.createElement('style');
-    style.id = PRINT_STYLE_ID;
-    style.textContent = PRINT_CSS;
-    document.head.appendChild(style);
-  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
-  document.getElementById(PRINT_STYLE_ID)?.remove();
 });
+// 부모가 v-if 로 마운트를 제어하므로 마운트 수명 = 열림 수명이다(isOpen 생략).
+usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS);
 </script>
 
 <template>

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ApiRequestError } from '@sp/shared';
 import type { BomQuotePrintType } from '@sp/api-contract';
 import BomEstimateSheet from './BomEstimateSheet.vue';
+import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 // BOM 견적서 레이어 팝업(§6.8) — 거버 EstimateModal 동형(body Teleport + window.print
 // + 인쇄 전역 스타일 주입/제거). 데이터는 콜백 주입 — 관리자·고객이 각자 API 를 연결한다.
@@ -79,7 +80,8 @@ const onKeydown = (e: KeyboardEvent): void => {
 };
 
 // 인쇄 전역 스타일 — EstimateModal 관례: body 자식 전부 숨기고 시트 호스트만 남긴다.
-// SFC <style> 은 언마운트 후에도 남으므로 head 직접 주입/제거(수명 = 모달 마운트).
+// SFC <style> 은 언마운트 후에도 남으므로 head 직접 주입/제거 — 수명은 "열려 있는 동안"이다
+// (닫힌 채 상주하면 같은 화면의 다른 인쇄를 백지로 만든다). lib/usePrintIsolation 참조.
 const PRINT_STYLE_ID = 'sp-bom-estimate-print-style';
 const PRINT_CSS = `
 @media print {
@@ -109,17 +111,11 @@ const PRINT_CSS = `
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
-  if (document.getElementById(PRINT_STYLE_ID) === null) {
-    const style = document.createElement('style');
-    style.id = PRINT_STYLE_ID;
-    style.textContent = PRINT_CSS;
-    document.head.appendChild(style);
-  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
-  document.getElementById(PRINT_STYLE_ID)?.remove();
 });
+usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
 </script>
 
 <template>

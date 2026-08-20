@@ -9,6 +9,7 @@ import {
   type PcbShipmentPackageListType,
 } from '@sp/api-contract';
 import { fmtKstDate } from '@sp/utils';
+import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 // PCB Case QR — BOM 포장 편집기를 복제하지 않는다. 합배송 박스의 현재 PO마다 서버가
 // 라벨 1개를 자동 보장하고, 이 모달은 안전한 표시 정보만 미리보기·일괄 인쇄한다.
@@ -109,6 +110,50 @@ watch(
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
 });
+
+// 인쇄 격리 — 열려 있는 동안만 문서에 둔다(상주하면 같은 화면의 다른 인쇄를 백지로
+// 만든다: body > :not(.sp-pcb-label-host) 가 남의 호스트까지 지운다). lib/usePrintIsolation 참조.
+const PRINT_CSS = `
+@media print {
+  body > :not(.sp-pcb-label-host) {
+    display: none !important;
+  }
+
+  .sp-pcb-label-host,
+  .sp-pcb-label-scroll {
+    position: static !important;
+    overflow: visible !important;
+    max-height: none !important;
+    padding: 0 !important;
+    background: none !important;
+    display: block !important;
+  }
+
+  .sp-pcb-label-host .no-print {
+    display: none !important;
+  }
+
+  .pcb-label-print {
+    display: block !important;
+  }
+
+  .sp-pcb-label-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  .sp-pcb-label {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+}
+`;
+usePrintIsolation('sp-pcb-label-print-style', PRINT_CSS, () => props.open);
 </script>
 
 <template>
@@ -215,44 +260,3 @@ onBeforeUnmount(() => {
     </div>
   </Teleport>
 </template>
-
-<style>
-@media print {
-  body > :not(.sp-pcb-label-host) {
-    display: none !important;
-  }
-
-  .sp-pcb-label-host,
-  .sp-pcb-label-scroll {
-    position: static !important;
-    overflow: visible !important;
-    max-height: none !important;
-    padding: 0 !important;
-    background: none !important;
-    display: block !important;
-  }
-
-  .sp-pcb-label-host .no-print {
-    display: none !important;
-  }
-
-  .pcb-label-print {
-    display: block !important;
-  }
-
-  .sp-pcb-label-sheet {
-    box-shadow: none !important;
-    margin: 0 !important;
-  }
-
-  .sp-pcb-label {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  @page {
-    size: A4 portrait;
-    margin: 8mm;
-  }
-}
-</style>

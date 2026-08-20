@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { BomTradeDocumentType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import TradeDocumentSheet from './TradeDocumentSheet.vue';
+import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 const props = defineProps<{
   open: boolean;
@@ -114,7 +115,6 @@ const moveDocument = (direction: -1 | 1): void => {
   scrollEl.value?.scrollBy({ left: direction * 280, behavior: 'smooth' });
 };
 const PRINT_STYLE_ID = 'sp-bom-trade-document-print-style';
-const PRINT_STYLE_USERS = 'tradeDocumentUsers';
 const PRINT_CSS = `
 @media print {
   body > :not(.sp-bom-trade-document-host) { display: none !important; }
@@ -127,28 +127,13 @@ const PRINT_CSS = `
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
-  const existingStyle = document.getElementById(PRINT_STYLE_ID);
-  if (existingStyle === null) {
-    const style = document.createElement('style');
-    style.id = PRINT_STYLE_ID;
-    style.textContent = PRINT_CSS;
-    style.dataset[PRINT_STYLE_USERS] = '1';
-    document.head.appendChild(style);
-  } else {
-    const users = Number(existingStyle.dataset[PRINT_STYLE_USERS] ?? '0');
-    existingStyle.dataset[PRINT_STYLE_USERS] = String(users + 1);
-  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   loadVersion += 1;
   if (previousFocus !== null) restorePageFocus();
-  const style = document.getElementById(PRINT_STYLE_ID);
-  if (style === null) return;
-  const users = Math.max(0, Number(style.dataset[PRINT_STYLE_USERS] ?? '1') - 1);
-  if (users === 0) style.remove();
-  else style.dataset[PRINT_STYLE_USERS] = String(users);
 });
+usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
 </script>
 
 <template>
