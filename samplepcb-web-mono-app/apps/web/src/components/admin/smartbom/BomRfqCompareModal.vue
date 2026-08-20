@@ -18,7 +18,7 @@ import {
 } from '../../../admin/useAdminBomRfqs';
 import BomRfqChoiceCheckbox from './BomRfqChoiceCheckbox.vue';
 
-// 품목 × 조달처 매트릭스 비교·선정. 행=부품행, 열=[현재 선정]+
+// 품목 × 공급사 매트릭스 비교·선정. 행=부품행, 열=[현재 선정]+
 // [선정 부품 MPN의 DigiKey·Mouser·UniKeyIC 강제 최신조회]+[사람 협력사 회신].
 // 적용은 행별 선정 API 순차 호출 — 서버가 스냅샷 박제+재계산(감사 이벤트 포함)한다.
 
@@ -481,7 +481,7 @@ const fmtFetchedAt = (value: string): string => new Date(value).toLocaleString('
   <div v-if="open" class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="emit('close')">
     <div class="flex max-h-[92vh] w-full max-w-[96vw] flex-col rounded-2xl bg-surface p-6 shadow-2xl">
       <div class="flex flex-wrap items-center gap-3">
-        <h2 class="text-lg font-bold">협력사 회신·공급사 시세 비교·선정</h2>
+        <h2 class="text-lg font-bold">공급사 비교·선정</h2>
         <span class="text-xs text-gray-500">회신 협력사 {{ quotedRfqs.length }}곳 · 선정 부품 {{ refreshData?.selectedItemCount ?? 0 }}행 · 전체 {{ scopeItems.length }}행</span>
         <button
           type="button"

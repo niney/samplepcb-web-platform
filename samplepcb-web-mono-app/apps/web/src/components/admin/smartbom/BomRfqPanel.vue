@@ -18,6 +18,7 @@ import BomSelectedProcurementModal from './BomSelectedProcurementModal.vue';
 const props = defineProps<{
   rfqs: AdminBomRfqViewType[];
   scopeItems: BomQuoteItemType[];
+  supplierComparisonTargetCount: number;
   loading: boolean;
   canSend: boolean; // reviewing 에서만 발송·선정 가능
   busy?: boolean;
@@ -61,6 +62,9 @@ async function reissue(rfq: AdminBomRfqViewType): Promise<void> {
 }
 
 const activeQuotedCount = computed(() => props.rfqs.filter((r) => r.status === 'quoted').length);
+const comparisonAvailable = computed(() =>
+  activeQuotedCount.value > 0 || props.supplierComparisonTargetCount > 0,
+);
 const repliedCount = computed(() => props.rfqs.filter((r) => r.respondedAt !== null).length);
 const pendingCount = computed(() => props.rfqs.filter((r) => r.status === 'requested').length);
 
@@ -191,14 +195,14 @@ function moveTable(direction: -1 | 1): void {
       </p>
       <div class="ml-auto flex gap-2">
         <button
-          v-if="activeQuotedCount > 0"
+          v-if="comparisonAvailable"
           type="button"
           class="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
           :disabled="!canSend"
           :title="canSend ? '' : '검토 중 상태에서만 선정을 변경할 수 있습니다'"
           @click="emit('compare')"
         >
-          회신 비교·선정
+          공급사 비교·선정
         </button>
         <button
           type="button"
@@ -229,12 +233,12 @@ function moveTable(direction: -1 | 1): void {
 
     <section class="border-b border-gray-100 bg-gray-50/70 px-4 py-3">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <p class="text-xs font-bold text-gray-800">선정 조달처</p>
+        <p class="text-xs font-bold text-gray-800">선정 공급사</p>
         <p class="text-[11px] text-gray-500">
           선정 <b class="text-blue-700">{{ selectedProcurementItemCount }}개</b>
           · 합계 <b class="text-gray-700">{{ fmtWon(selectedProcurementTotal) }}</b>
         </p>
-        <span class="text-[10px] text-gray-400">조달처를 누르면 선정 품목을 확인할 수 있습니다.</span>
+        <span class="text-[10px] text-gray-400">공급사를 누르면 선정 품목을 확인할 수 있습니다.</span>
       </div>
       <div class="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
         <button

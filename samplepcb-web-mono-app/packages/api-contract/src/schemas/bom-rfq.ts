@@ -88,7 +88,11 @@ export type AdminBomRfqViewType = z.infer<typeof AdminBomRfqView>;
 
 export const AdminBomRfqListResponse = z.object({
   result: z.literal(true),
-  data: z.object({ rfqs: z.array(AdminBomRfqView) }),
+  data: z.object({
+    rfqs: z.array(AdminBomRfqView),
+    /** 협력사 회신이 없어도 3사 시세 비교를 시작할 수 있는 선정 부품 수. */
+    supplierComparisonTargetCount: z.number().int().nonnegative(),
+  }),
 });
 export type AdminBomRfqListResponseType = z.infer<typeof AdminBomRfqListResponse>;
 
@@ -120,7 +124,7 @@ export const AdminBomRfqReplyResponse = z.object({
 });
 export type AdminBomRfqReplyResponseType = z.infer<typeof AdminBomRfqReplyResponse>;
 
-// 행별 조달처 선정 — 사람 협력사 회신과 정확 MPN API 공급사 구매조건을
+// 행별 공급사 선정 — 사람 협력사 회신과 선정 MPN API 공급사 구매조건을
 // 같은 비교 표에서 선정한다. 가격·합계는 클라이언트 값을 받지 않고 서버 스냅샷으로
 // 재계산한다(snapshot-freeze). partner의 rfqItemId=null 은 기존 선정 해제 호환.
 export const AdminBomRfqPartnerSelection = z.object({

@@ -176,6 +176,9 @@ const itemReview = useReviewAdminBomQuoteItems();
 // RFQ 반영 파생 단계 — reviewing 에서 RFQ 가 있으면 ③(발송)·④(회신 도착)로 세분화(§3.3).
 const rfqQuery = useAdminBomRfqs(detailId);
 const rfqs = computed(() => rfqQuery.data.value?.data.rfqs ?? []);
+const supplierComparisonTargetCount = computed(
+  () => rfqQuery.data.value?.data.supplierComparisonTargetCount ?? 0,
+);
 const poQuery = useAdminBomPos(detailId);
 const pos = computed(() => poQuery.data.value?.data.pos ?? []);
 const currentStep = computed(() => {
@@ -1995,6 +1998,7 @@ async function downloadOriginal(): Promise<void> {
         v-else
         :rfqs="rfqs"
         :scope-items="scopeItems"
+        :supplier-comparison-target-count="supplierComparisonTargetCount"
         :loading="rfqQuery.isLoading.value"
         :can-send="detail.status === 'reviewing'"
         :busy="reissueLink.isPending.value"

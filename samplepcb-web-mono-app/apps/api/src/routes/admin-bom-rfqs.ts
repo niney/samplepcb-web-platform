@@ -44,6 +44,17 @@ import { autoEnrichQuote, healEnrichment } from './bom-quotes';
 const IdParams = z.object({ id: z.coerce.bigint() });
 const RfqParams = z.object({ id: z.coerce.bigint(), rfqId: z.coerce.bigint() });
 
+async function adminRfqListData(quoteId: bigint) {
+  const [rfqs, supplierTargets] = await Promise.all([
+    loadAdminRfqs(quoteId),
+    getAdminBomSupplierRefreshTargets(quoteId),
+  ]);
+  return {
+    rfqs,
+    supplierComparisonTargetCount: supplierTargets?.length ?? 0,
+  };
+}
+
 async function adminSupplierRefreshView(
   quoteId: bigint,
 ): Promise<AdminBomSupplierRefreshViewType | null> {
@@ -109,7 +120,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     async (request, reply) => {
       const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
       if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
-      return { result: true as const, data: { rfqs: await loadAdminRfqs(quote.id) } };
+      return { result: true as const, data: await adminRfqListData(quote.id) };
     },
   );
 
@@ -372,7 +383,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         return reply.notFound('RFQ 를 찾을 수 없습니다');
       }
       await reissueMagicToken(rfq.id);
-      return { result: true as const, data: { rfqs: await loadAdminRfqs(rfq.quoteId) } };
+      return { result: true as const, data: await adminRfqListData(rfq.quoteId) };
     },
   );
 
