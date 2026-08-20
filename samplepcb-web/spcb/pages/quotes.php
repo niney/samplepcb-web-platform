@@ -240,8 +240,8 @@ foreach (array(
             '<span class="sp-cart-thumb">' + (it.thumbnailUrl
                 ? '<img src="' + it.thumbnailUrl + '" alt="">'
                 : (THUMBS[String(it.category).toLowerCase()] || '')) + '</span>' +
+            '<span class="prd_name"><b class="sp-quotes__name"></b></span>' +
             '<div class="sp-cart-info">' +
-                '<span class="prd_name"><b class="sp-quotes__name"></b></span>' +
                 // cart 의 sod_opt(ct_option)와 같은 사양 요약 — 서버 optionSummary 그대로
                 '<div class="sod_opt"><ul><li class="sp-quotes__opt"></li></ul></div>' +
                 '<div class="sp-cart-meta">' +
@@ -295,8 +295,8 @@ foreach (array(
                 '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
             '</span>' +
             '<span class="sp-cart-thumb">' + (THUMBS.bom || '') + '</span>' +
+            '<span class="prd_name"><a class="sp-bom__name" href="<?php echo G5_URL; ?>/app/bom/' + q.id + '"><b></b></a></span>' +
             '<div class="sp-cart-info">' +
-                '<span class="prd_name"><a class="sp-bom__name" href="<?php echo G5_URL; ?>/app/bom/' + q.id + '"><b></b></a></span>' +
                 '<div class="sp-cart-meta">' +
                     '<span>부품 BOM</span>' +
                     '<span>품목 ' + q.includedCount + '/' + q.itemCount + '종</span>' +
