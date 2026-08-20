@@ -50,7 +50,7 @@ import {
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
 import { bomQuoteItemSelection, bomQuoteItemSelectionKey } from '../../bom/search-selection';
-import { appPath, loginUrl } from '../../lib/auth-urls';
+import { appPath, loginUrl, quotesUrl } from '../../lib/auth-urls';
 import { isPositiveBigIntId } from '../../lib/route-ids';
 import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
@@ -2067,8 +2067,14 @@ const requestModal = ref(false);
 const requestTitle = ref('');
 const requestError = ref('');
 const requestSubmitting = ref(false);
+// 요청 성공 후 같은 모달을 완료 패널로 바꾼다 — 접수 사실과 다음 행선지를 한 자리에서
+// 매듭짓기 위함이다. 자동 이동은 하지 않는다: 요청 직후 사용자가 확인하려는 것은 목록이
+// 아니라 "무엇을 보냈고 접수됐는가"이고, 상태 전이(요청 접수→검토 중→회신 완료)도
+// 이 상세에서 관찰된다. 견적관리로 나가는 선택지는 주 버튼으로 제공한다.
+const requestDone = ref(false);
 const requestDialog = ref<HTMLElement | null>(null);
 const requestTitleInput = ref<HTMLInputElement | null>(null);
+const requestDonePanel = ref<HTMLElement | null>(null);
 const requestErrorPanel = ref<HTMLParagraphElement | null>(null);
 let requestModalTriggerElement: HTMLElement | null = null;
 let requestModalBodyOverflow: string | null = null;
@@ -2077,6 +2083,7 @@ async function openRequestModal(): Promise<void> {
   if (editingLocked.value) return;
   requestTitle.value = detail.value?.title ?? '';
   requestError.value = '';
+  requestDone.value = false;
   requestModalTriggerElement =
     document.activeElement instanceof HTMLElement ? document.activeElement : null;
   requestModalBodyOverflow = document.body.style.overflow;
@@ -2089,6 +2096,7 @@ async function openRequestModal(): Promise<void> {
 
 function finishRequestModalClose(restoreFocus: boolean): void {
   requestModal.value = false;
+  requestDone.value = false;
   if (requestModalBodyOverflow !== null) {
     document.body.style.overflow = requestModalBodyOverflow;
   }
@@ -2168,7 +2176,9 @@ async function submitRequest(): Promise<void> {
       return;
     }
     await request.mutateAsync({ quoteId: quoteId.value, title: requestTitle.value.trim() });
-    finishRequestModalClose(false);
+    // 닫지 않고 완료 패널로 전환 — 접수 사실을 보여주고 다음 행선지를 고르게 한다.
+    requestDone.value = true;
+    void nextTick(() => requestDonePanel.value?.focus());
   } catch {
     requestError.value = '견적요청에 실패했습니다. 포함된 라인이 있는지 확인해 주세요.';
     void nextTick(() => requestErrorPanel.value?.focus());
@@ -3473,27 +3483,43 @@ function fmtAmount(v: number | null): string {
       </div>
     </div>
 
-    <!-- 견적명 모달 -->
-    <div v-if="requestModal && !editingLocked" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="closeRequestModal">
+    <!-- 견적명 모달 — 요청 성공 시 같은 자리에서 완료 패널로 바뀐다(requestDone) -->
+    <div v-if="requestModal && (!editingLocked || requestDone)" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="closeRequestModal">
       <div
         ref="requestDialog"
         class="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl outline-none"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="bom-request-title"
+        :aria-labelledby="requestDone ? 'bom-request-done-title' : 'bom-request-title'"
         tabindex="-1"
         @keydown="onRequestModalKeydown"
       >
-        <h3 id="bom-request-title" class="text-base font-semibold text-gray-900">견적요청</h3>
-        <p class="mt-1 text-xs text-gray-500">요청 후에는 내용이 동결되고 담당자가 확정 견적으로 회신합니다.</p>
-        <input ref="requestTitleInput" v-model="requestTitle" type="text" placeholder="견적명" aria-label="견적명" class="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" @input="requestError = ''">
-        <p v-if="requestError !== ''" ref="requestErrorPanel" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 outline-none" role="alert" tabindex="-1">{{ requestError }}</p>
-        <div class="mt-4 flex justify-end gap-2">
-          <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="closeRequestModal">취소</button>
-          <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="submitRequest">
-            {{ requestSubmitting ? '요청 중…' : '견적요청 보내기' }}
-          </button>
-        </div>
+        <template v-if="requestDone">
+          <div ref="requestDonePanel" class="outline-none" role="status" tabindex="-1">
+            <h3 id="bom-request-done-title" class="text-base font-semibold text-gray-900">견적요청이 접수되었습니다</h3>
+            <p class="mt-1 text-xs leading-5 text-gray-500">
+              담당자가 검토 후 확정 견적으로 회신합니다. 진행 상태는 이 견적에서 확인할 수 있고,
+              회신이 오면 견적관리에서 주문으로 넘길 수 있습니다.
+            </p>
+          </div>
+          <div class="mt-4 flex justify-end gap-2">
+            <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50" @click="closeRequestModal">이 견적 계속 보기</button>
+            <!-- 견적관리는 sp-php 화면이라 라우터가 아닌 전체 이동이다 -->
+            <a :href="quotesUrl()" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">견적관리에서 보기</a>
+          </div>
+        </template>
+        <template v-else>
+          <h3 id="bom-request-title" class="text-base font-semibold text-gray-900">견적요청</h3>
+          <p class="mt-1 text-xs text-gray-500">요청 후에는 내용이 동결되고 담당자가 확정 견적으로 회신합니다.</p>
+          <input ref="requestTitleInput" v-model="requestTitle" type="text" placeholder="견적명" aria-label="견적명" class="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" @input="requestError = ''">
+          <p v-if="requestError !== ''" ref="requestErrorPanel" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 outline-none" role="alert" tabindex="-1">{{ requestError }}</p>
+          <div class="mt-4 flex justify-end gap-2">
+            <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="closeRequestModal">취소</button>
+            <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="submitRequest">
+              {{ requestSubmitting ? '요청 중…' : '견적요청 보내기' }}
+            </button>
+          </div>
+        </template>
       </div>
     </div>
 

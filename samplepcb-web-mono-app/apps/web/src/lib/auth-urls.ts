@@ -19,6 +19,12 @@ export function memberInfoUrl(): string {
   return `/bbs/member_confirm.php?url=${encodeURIComponent('/bbs/register_form.php')}`;
 }
 
+// 견적관리(/shop/quotes) — PCB(거버)·부품 BOM 을 한 목록으로 묶는 고객 견적 정본이자
+// 주문 종점이다. sp-php 화면이라 SPA 라우터가 아닌 전체 이동으로만 갈 수 있다.
+export function quotesUrl(): string {
+  return '/shop/quotes';
+}
+
 // 시스템 관리자(그누보드/영카트 관리자) — sp-php 프로젝트의 /adm/. 같은 오리진(nginx catch-all→sp-php)
 // 이라 공유 PHPSESSID 관리자 세션 그대로 진입한다. 슈퍼관리자(cf_admin=me.isAdmin) 에게만 노출.
 export function systemAdminUrl(): string {
