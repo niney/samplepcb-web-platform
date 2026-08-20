@@ -47,6 +47,8 @@ MIN_NONEMPTY = 3
 CONTEXT_K = 6
 MAX_ROWS = 4000        # 대형 시트 스캔 상한
 MAX_COLS = 120
+MAX_HEADER_BLOCK_ROWS = 3
+HEADER_CONTINUATION_COVERAGE = 0.60
 
 _RE_PN = re.compile(r"^(?=.{3,40}$)(?=.*[a-z])(?=.*\d)[a-z0-9][a-z0-9 ._/#()+\-]*$")
 _RE_COMPONENT_TYPE = re.compile(
@@ -191,6 +193,130 @@ class FusionProber:
 
     def detect(self, df: pd.DataFrame, match_th: float = None) -> ProbeResult:
         return self.decide(self.prepare(df), match_th=match_th)
+
+    def expand_header_block(self, df: pd.DataFrame, result: ProbeResult, *,
+                            anchor_row: int | None = None) -> List[int]:
+        """기준 헤더 바로 아래의 보완형 하위 헤더를 연속 블록으로 확장한다.
+
+        기준 행은 MPN/reference/quantity 앵커가 있어야 하지만, ``PACKAGE``나
+        ``VALUE``처럼 상위 그룹을 세분하는 하위 행에는 앵커가 없는 것이
+        자연스럽다. 대신 인접성, 높은 사전 매칭 비율, KEY 필드 2종 이상,
+        실제 데이터 부재, 아래 행의 타입 증거를 모두 요구해 데이터 행을
+        헤더로 흡수하지 않는다.
+        """
+        if not result.found or result.header_row is None:
+            return []
+
+        prep = self.prepare(df)
+        anchor = result.header_row if anchor_row is None else anchor_row
+        if anchor < 0 or anchor >= len(prep):
+            return []
+
+        def lex_scorer(lab):
+            hit = _lex_raw(lab)
+            return hit if hit and hit[2] >= self.match_th else None
+
+        anchor_evaluation = self._eval_row(prep, anchor, lex_scorer)
+        if anchor_evaluation is not None:
+            _, anchor_matches, anchor_fields, _, _, _ = anchor_evaluation
+            known_fields = set(anchor_fields)
+            known_columns = set(anchor_matches)
+        else:
+            known_fields = {
+                str(mapping.get("field"))
+                for mapping in result.column_map.values()
+                if mapping.get("field")
+            }
+            known_columns = set(result.column_map)
+
+        block = [anchor]
+        while len(block) < MAX_HEADER_BLOCK_ROWS:
+            row_index = block[-1] + 1
+            if row_index >= len(prep):
+                break
+            cells, labelish = prep[row_index]
+            if not cells or any(data for _, _, _, data in cells):
+                break
+            if labelish / len(cells) < HEADER_CONTINUATION_COVERAGE:
+                break
+
+            evaluated = self._eval_row(
+                prep, row_index, lex_scorer,
+                min_nonempty=1, min_matches=1,
+            )
+            if evaluated is not None:
+                score, matches, fields, key_fields, _, data_rows = evaluated
+                coverage = len(matches) / len(cells)
+                regular = (
+                    key_fields >= 2
+                    and data_rows >= 1
+                    and coverage >= HEADER_CONTINUATION_COVERAGE
+                )
+                single_exact = (
+                    len(cells) == 1
+                    and len(matches) == 1
+                    and key_fields == 1
+                    and data_rows >= 2
+                    and next(iter(matches.values()))[2] >= 0.99
+                    and (
+                        bool(re.fullmatch(r"[\(\[].+[\)\]]", cells[0][1]))
+                        or next(iter(matches)) not in known_columns
+                    )
+                )
+                matched_fields = set(fields)
+                matched_columns = set(matches)
+                adds_evidence = bool(
+                    matched_fields - known_fields
+                    or matched_columns - known_columns
+                )
+                if score >= ROW_TH and (regular or single_exact) and adds_evidence:
+                    block.append(row_index)
+                    known_fields.update(matched_fields)
+                    known_columns.update(matched_columns)
+                    continue
+
+            # 상위 공급사 그룹(Mouser/Digi-Key/LCSC)처럼 사전 필드가 아닌
+            # 라벨 행 뒤에 실제 세부 헤더가 이어지는 3단 구조를 복구한다.
+            # 중간 행은 라벨 전용 2셀 이상, 세부 행은 높은 매칭 커버리지와
+            # 아래 데이터 타입 증거를 가져야 하므로 섹션 제목은 흡수하지 않는다.
+            detail_index = row_index + 1
+            if (len(block) + 2 <= MAX_HEADER_BLOCK_ROWS
+                    and len(cells) >= 2
+                    and labelish / len(cells) >= 0.8
+                    and detail_index < len(prep)):
+                detail_cells, detail_labelish = prep[detail_index]
+                if (detail_cells
+                        and not any(data for _, _, _, data in detail_cells)
+                        and detail_labelish / len(detail_cells)
+                        >= HEADER_CONTINUATION_COVERAGE):
+                    detail = self._eval_row(
+                        prep, detail_index, lex_scorer,
+                        min_nonempty=2, min_matches=1,
+                    )
+                    if detail is not None:
+                        (detail_score, detail_matches, detail_fields,
+                         detail_key_fields, _, detail_data_rows) = detail
+                        detail_coverage = len(detail_matches) / len(detail_cells)
+                        detail_field_set = set(detail_fields)
+                        detail_column_set = set(detail_matches)
+                        adds_detail = bool(
+                            detail_field_set - known_fields
+                            or detail_column_set - known_columns
+                        )
+                        if (detail_score >= ROW_TH
+                                and len(detail_matches) >= 3
+                                and len(detail_fields) >= 2
+                                and detail_key_fields >= 1
+                                and detail_data_rows >= 2
+                                and detail_coverage
+                                >= HEADER_CONTINUATION_COVERAGE
+                                and adds_detail):
+                            block.extend([row_index, detail_index])
+                            known_fields.update(detail_field_set)
+                            known_columns.update(detail_column_set)
+                            continue
+            break
+        return block
 
     def decide(self, prep: List[tuple], match_th: float = None) -> ProbeResult:
         th = self.match_th if match_th is None else match_th
@@ -372,9 +498,10 @@ class FusionProber:
             reason="참조번호-수량 데이터 관계 복구",
         )
 
-    def _eval_row(self, prep, i, scorer):
+    def _eval_row(self, prep, i, scorer, *, min_nonempty=MIN_NONEMPTY,
+                  min_matches=2):
         cells, labelish = prep[i]
-        if len(cells) < MIN_NONEMPTY:
+        if len(cells) < min_nonempty:
             return None
         matches = {}
         for c, norm, lab, data in cells:
@@ -383,7 +510,7 @@ class FusionProber:
             hit = scorer(lab)
             if hit:
                 matches[c] = hit
-        if len(matches) < 2:
+        if len(matches) < min_matches:
             return None
 
         fields: Dict[str, float] = {}

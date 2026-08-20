@@ -23,7 +23,7 @@ from .workbook import HeaderNotFound, build_case, get_sheet_names
 
 logger = logging.getLogger(__name__)
 
-PARSER_VERSION = "smartbom-rules/1.10 (magnetic and fuse taxonomy)"
+PARSER_VERSION = "smartbom-rules/1.12 (hierarchical headers and helper sheets)"
 SCHEMA_VERSION = "1.4"
 
 ProgressCallback = Callable[[str, int, str], None]

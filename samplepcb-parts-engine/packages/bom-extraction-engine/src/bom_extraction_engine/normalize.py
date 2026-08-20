@@ -10,6 +10,7 @@ _QUOTES = re.compile(r"[`'’‘\"]")
 _PARENS = re.compile(r"[\(\[][^)\]]*[\)\]]")
 _SEPS = re.compile(r"[._/\\\-]+")
 _WS = re.compile(r"\s+")
+_HANGUL_GAP = re.compile(r"(?<=[가-힣])\s+(?=[가-힣])")
 
 
 def cell_to_str(value) -> str:
@@ -60,10 +61,22 @@ def label_form(value) -> str:
     예: 'ITEM_NUMBER' -> 'item number', '필요수량(52대)' -> '필요수량',
         'Ref-Des.' -> 'ref des'
     """
-    s = normalize_cell(value)
-    if not s:
+    normalized = normalize_cell(value)
+    if not normalized:
         return ""
-    s = _PARENS.sub(" ", s)
+    s = _PARENS.sub(" ", normalized)
     s = _SEPS.sub(" ", s)
     s = _WS.sub(" ", s).strip(" :.,;")
+    if not s:
+        # ``(Package)``처럼 셀 전체가 괄호형 하위 헤더인 경우에는 주석
+        # 제거 결과가 비어 버린다. 문자 라벨일 때만 괄호 안 본문을 복구해
+        # ``(1005)`` 같은 데이터 토큰을 헤더로 승격하지 않는다.
+        fallback = normalized.strip("()[]{}")
+        fallback = _SEPS.sub(" ", fallback)
+        fallback = _WS.sub(" ", fallback).strip(" :.,;")
+        if re.search(r"[a-z가-힣#]", fallback):
+            s = fallback
+    # 레거시 양식의 시각적 자간("도 면 번 호", "품 명")은 의미상 한
+    # 단어다. 영문 단어 사이 공백은 그대로 유지한다.
+    s = _HANGUL_GAP.sub("", s)
     return s

@@ -19,7 +19,7 @@ FIELDS = {
     "reference": (KEY, [
         "reference", "references", "designator", "designators",
         "reference designator", "ref", "ref des", "refdes", "location",
-        "components", "위치기호", "레퍼런스", "부호", "위치",
+        "components", "위치기호", "레퍼런스", "부호", "위치", "도면번호",
     ]),
     "part_name": (KEY, [
         "name", "part name", "partname", "part type", "parttype", "type",
@@ -31,7 +31,7 @@ FIELDS = {
         "값", "사양", "규격", "정격", "스펙",
     ]),
     "description": (KEY, [
-        "description", "desc", "설명", "상세", "내역",
+        "description", "desc", "설명", "상세", "내역", "참고내역",
     ]),
     "package": (KEY, [
         "package", "footprint", "pattern", "geometry", "case",

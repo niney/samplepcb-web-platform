@@ -8,8 +8,8 @@
 - build_case가 column_indices(케이스 열 → 원본 df 열, 0-based)를 보존 —
   Evidence의 A1 셀 좌표 구성에 필요 (원본은 열 좌표를 버렸다)
 
-반복 헤더/푸터/PCB 사양 행 제거 로직은 원본과 동일 — 정확도가 존재
-이유이므로 규칙 본문은 바꾸지 않는다.
+반복 헤더/푸터/PCB 사양 행 제거 로직을 유지하며, 상·하위 라벨이 서로
+다른 보완형 다중 행 헤더는 fusion의 증거 기반 블록 확장을 사용한다.
 """
 import re
 import threading
@@ -45,13 +45,16 @@ _fusion_lock = threading.Lock()
 _fusion_prober = None
 
 
-def detect_header(df) -> ProbeResult:
+def _get_fusion_prober() -> FusionProber:
     global _fusion_prober
     with _fusion_lock:
         if _fusion_prober is None:
             _fusion_prober = FusionProber()
-        prober = _fusion_prober
-    return prober.detect(df)
+        return _fusion_prober
+
+
+def detect_header(df) -> ProbeResult:
+    return _get_fusion_prober().detect(df)
 
 
 def _header_key(value) -> str:
@@ -82,6 +85,18 @@ def non_bom_sheet_reason(df, header_row: int) -> str | None:
             for pattern in patterns
         )
 
+    preamble = {
+        _header_key(df.iat[row, column])
+        for row in range(max(0, header_row - 15), header_row)
+        for column in range(df.shape[1])
+        if clean_cell(df.iat[row, column])
+    }
+    if any(
+        re.search(r"(?:^|bom)(?:namingrule|명명규칙|작성규칙)$", value)
+        for value in preamble
+    ):
+        return "bom_naming_guide"
+
     has_x = has(
         r"^(?:position|pos|center|coordinate)x$",
         r"^x(?:position|pos|coordinate)$",
@@ -100,6 +115,12 @@ def non_bom_sheet_reason(df, header_row: int) -> str | None:
         r"회전각",
     )
     bom_quantity = has(r"^q(?:ty|nty)$", r"quantity", r"수량", r"개수")
+    generic_numbered_columns = sum(
+        bool(re.fullmatch(r"(?:열|column)\d+", header))
+        for header in headers
+    )
+    if generic_numbered_columns >= 10:
+        return "derived_duplicate_matrix"
     if has_x and has_y and placement_context and not bom_quantity:
         return "coordinate_table"
 
@@ -332,20 +353,27 @@ def build_case(path: Path, sheet_idx: int, display_name: str = "",
     if non_bom_reason is not None:
         raise HeaderNotFound(non_bom_reason)
     row_shapes = _recover_ragged_delimited_rows(df, res.header_row)
-    header_rows: List[int] = [res.header_row]
+    prober = _get_fusion_prober()
+    anchor_rows = {res.header_row}
+    anchor_rows.update(row for row, _ in res.candidates)
+    anchor_rows.update(_similar_header_rows(df, res.header_row))
+    header_blocks: List[List[int]] = []
+    for anchor_row in sorted(anchor_rows):
+        if any(anchor_row in existing for existing in header_blocks):
+            continue
+        expanded = prober.expand_header_block(
+            df, res, anchor_row=anchor_row,
+        )
+        header_blocks.append(expanded or [anchor_row])
+
+    block = header_blocks[0]
+    header_rows = sorted({row for rows in header_blocks for row in rows})
     # 반복 헤더(다중 BOM 구간) 지원 — 같은 라벨의 헤더가 여러 번 나오면
     # ① 가장 이른 구간부터 시작(탐지가 뒤 구간을 찍어도 앞 구간 회수),
     # ② 반복 헤더 행 자체는 데이터에서 제외하되 header_rows에는 기록.
-    # 탐지 결과와 유사 행 스캔을 합친 뒤, anchor에 연속한 행들만 라벨
-    # 병합 블록(다중 행 헤더)이고 나머지는 전부 반복 헤더다.
-    all_hdr = sorted(set(header_rows)
-                     | set(_similar_header_rows(df, header_rows[-1])))
-    block = [all_hdr[0]]
-    for r in all_hdr[1:]:
-        if r != block[-1] + 1:
-            break
-        block.append(r)
-    header_rows = all_hdr
+    # 각 anchor를 먼저 찾고 그 자리에서 보완형 하위 헤더를 확장해야, 앞쪽의
+    # 고립된 하위 라벨 행이 대표 블록으로 승격되는 일을 막을 수 있다.
+    all_hdr = header_rows
     labels = merge_header_labels(df, block)
     data_rows = [r for r in nonempty_data_rows(df, block)
                  if r not in set(all_hdr) and not _is_footer_row(df, r)]

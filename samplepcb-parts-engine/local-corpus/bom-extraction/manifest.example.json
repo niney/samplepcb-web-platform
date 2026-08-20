@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "corpus_kind": "bom-extraction",
+  "files": [
+    {
+      "sha256": "replace-with-lowercase-sha256",
+      "stored_path": "workbooks/example-board.xlsx",
+      "original_paths": [
+        "sp-smartbom-eye/example.xlsx"
+      ],
+      "tags": [
+        "format:xlsx"
+      ],
+      "sheets": [
+        {
+          "name": "BOM",
+          "classification": "bom",
+          "tags": [
+            "single-row-header"
+          ],
+          "header": {
+            "primary_anchor_row_1based": 1,
+            "allowed_anchor_rows_1based": [
+              1
+            ],
+            "blocks_1based": [
+              [1]
+            ]
+          },
+          "extraction": {
+            "first_component_row_1based": 2,
+            "forbidden_component_rows_1based": [
+              1
+            ],
+            "expected_columns": {
+              "part_number": "A",
+              "quantity": "B"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
