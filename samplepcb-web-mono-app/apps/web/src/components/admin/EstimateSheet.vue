@@ -22,8 +22,9 @@ const recipientPhone = ref(props.estimate.applicant?.phone ?? '');
 const recipientEmail = ref(props.estimate.applicant?.email ?? '');
 const note = ref('');
 
-// public/img/stamp.jpg — base('/app/') 를 붙여 dev/prod 양쪽에서 맞는 절대경로를 만든다.
+// public/img/* — base('/app/') 를 붙여 dev/prod 양쪽에서 맞는 절대경로를 만든다.
 const stampSrc = `${import.meta.env.BASE_URL}img/stamp.jpg`;
+const logoSrc = `${import.meta.env.BASE_URL}img/logo.png`;
 
 const itemName = computed(() =>
   props.estimate.projectName !== ''
@@ -57,7 +58,10 @@ const specEntries = computed<[string, string][]>(() =>
 
 <template>
   <div class="sheet">
-    <h1 class="title">{{ t('admin.quotes.estimate.title') }}</h1>
+    <div class="head">
+      <img :src="logoSrc" alt="SAMPLEPCB" class="logo">
+      <h1 class="title">{{ t('admin.quotes.estimate.title') }}</h1>
+    </div>
 
     <div class="meta">
       <div>
@@ -242,8 +246,23 @@ const specEntries = computed<[string, string][]>(() =>
   font-size: 10pt;
   line-height: 1.5;
 }
+/* 제목은 시트 중앙 유지 — 로고는 흐름에서 빼 좌상단에 겹쳐 둔다 */
+.head {
+  position: relative;
+  margin-bottom: 6mm;
+}
+.logo {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 11mm;
+  width: auto;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
 .title {
-  margin: 0 0 6mm;
+  margin: 0;
   text-align: center;
   font-size: 26pt;
   font-weight: 700;

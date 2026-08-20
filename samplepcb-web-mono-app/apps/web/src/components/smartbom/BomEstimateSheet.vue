@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
 });
 
 const stampSrc = `${import.meta.env.BASE_URL}img/stamp.jpg`;
+const logoSrc = `${import.meta.env.BASE_URL}img/logo.png`;
 
 // 수기 필드(인쇄 전 일회성 보정, 저장 없음) — 수신처는 고객명으로 초기화.
 const recipientCompany = ref('');
@@ -61,7 +62,10 @@ function markImageFailed(imageUrl: string | null): void {
 
 <template>
   <div class="sheet">
-    <h1 class="title">견 적 서</h1>
+    <div class="head">
+      <img :src="logoSrc" alt="SAMPLEPCB" class="logo">
+      <h1 class="title">견 적 서</h1>
+    </div>
     <p v-if="isDraft" class="draft-badge">가안 — 확정가 등록 전(예상 금액)</p>
 
     <div class="meta">
@@ -216,8 +220,23 @@ function markImageFailed(imageUrl: string | null): void {
   font-size: 10pt;
   line-height: 1.5;
 }
+/* 제목은 시트 중앙 유지 — 로고는 흐름에서 빼 좌상단에 겹쳐 둔다 */
+.head {
+  position: relative;
+  margin-bottom: 4mm;
+}
+.logo {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 11mm;
+  width: auto;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
 .title {
-  margin: 0 0 4mm;
+  margin: 0;
   text-align: center;
   font-size: 26pt;
   font-weight: 700;
