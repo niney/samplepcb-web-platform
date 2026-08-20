@@ -529,7 +529,7 @@ actorForStatus)·`ShipmentPanel.vue`·doc/shipment*.md.
 | D22-2 | **서버 인가 신설**(레거시 취약점 교정 — 레거시는 프론트만 검증, 자기 doc에 "우회 취약점" 명기): 협력사 advance=다음 단계 주체 PARTNER 검증+단계별 필수(MISSING_SHIP_DATE/MISSING_INVOICE_FILE/MISSING_TRACKING), revert=현 단계 진입 주체 PARTNER(직전에 자기가 진행)만 1단계(입력값·첨부 유지). 관리자는 upsert 로 전 단계 임의 조작 유지(레거시도 사실상 동일) — AWB 필수는 관리자에겐 모달 경고로만 | 절차는 승계, 결함은 교정 |
 | D22-3 | **첨부 = 기존 sp_file 폴리모픽 재사용**: refType='sp_bom_shipment'·fileType invoice/airwaybill·uploadedBy ADMIN/PARTNER(예약 컬럼 첫 사용)·종류별 1건(재업로드=교체, 새 실파일 성공 후 구 파일 정리)·파일서버 serviceType 'bom_shipment'(env BOM_SHIPMENT_FILE_SERVICE_TYPE, 레거시 버킷명 승계). 다운로드=권한 프록시 스트림(관리자·소유 협력사만 — 레거시 익명 pathToken 노출 교정). **D28에서 Invoice/AWB는 국외 전용으로 정정** | 인프라 관례 재사용 |
 | D22-4 | **알림 메일 양방향 신설**(레거시엔 없음 — 폴링 배지뿐이라 멈춤): 협력사 전이→관리자(de_admin_info_email, Case CTA), 관리자 전이로 협력사 차례 도래→협력사(contactEmail, 포털 CTA), 입고 확인→협력사 통지(편차 메모 동봉). rfq-email.ts 셸 재사용, 비차단 | 핑퐁은 상대가 알아야 흐른다 |
-| D22-5 | Case ID 미승계(선적이 Case 강결합이라 구조적 불필요), 상업송장 생성기(자동 초안+PDF/엑셀)·파일 교체 이력·국내 거점주소 안내는 후속 | 범위 통제 |
+| D22-5 | 당시 Case ID는 미승계했으나, **2026-08-19 D40에서 PCB형 샘플피씨비 운송 분기를 BOM에도 승계**했다. 상업송장 생성기(자동 초안+PDF/엑셀)는 D23에서 구현. | 후속 사용자 결정으로 대체(D40) |
 | D22-6 | sp_bom_shipment += `shipDate`(출고예정일, UTC 자정 저장 — KST 자정 저장 시 ISO 직렬화에서 하루 밀리는 함정 실측) — migration `20260731090000` | 최소 스키마 |
 | D22-7 | 국제 발송이 입고 확인됐거나 최종 `done`에 도달하면 Invoice/AWB 첨부·삭제·교체와 Commercial Invoice 저장·엑셀 생성을 잠근다. 화면은 다운로드만 제공하고 서버도 `SHIPMENT_DOCUMENTS_LOCKED` 409로 재검증한다. | 완료 거래 증빙의 사후 변조 방지 |
 
@@ -1398,6 +1398,33 @@ PCB 트랙에 먼저 세운 축(docs/PCB_PARTNER_TRACK.md)을 BOM 선적에도 �
 - **실증(08-19)**: 로컬 관리자 Case #1070의 정확 품번 30행으로 실행해
   DigiKey 33·Mouser 38·UniKeyIC 27 API 호출, 3사 완료 배지, 재고·MOQ·포장·KRW
   실효가 렌더, 빈 품번 셀 71개 구분, 브라우저 error/warn 0건을 확인했다.
+
+### 6.33 BOM 국제 선적의 샘플피씨비 운송(Case ID) — D40 (2026-08-19)
+
+PCB 국제 선적을 기준으로 BOM 국제 선적에도 **누가 운송을 계약하는가**를 분리했다.
+협력사는 선적 요청 체크리스트에서 `내 운송 계정으로 직접 발송` 또는
+`샘플피씨비 운송 → 발송 참조번호(Case ID) 요청`을 고른다.
+
+- **원장**: `sp_bom_shipment`에 `caseRefRequestedAt`·`caseRefNote`·`caseRef`·
+  `caseRefFilledAt`을 추가한다. 상태 사전과 전이 주체는 바꾸지 않는다.
+- **게이트**: Case ID 갈래의 국제 실선적은 Case ID, 운송장 번호, 운송수단별 서류
+  (항공 AWB / 해상 B/L)를 서버가 모두 강제한다. 직접 발송 갈래는 기존처럼 운송서류와
+  운송장 입력이 선택이며, 국내 발송은 갈래 밖이다.
+- **화면**: 협력사 카드는 BOM 고유 `선적 리스트·QR`을 첫 단계로 유지하고 Invoice →
+  운송수단 → 발송 방식 → 출고예정일 순의 번호 체크리스트를 제공한다. 요청 뒤에는
+  `내가 제출한 서류`와 `샘플피씨비 처리·회신`을 분리한다. 관리자 모달에는
+  Invoice 확인·수정 → AWB/B/L → Case ID·운송장 처리 스트립을 둔다. Case 상세 발주 패널과
+  물류 워크큐는 `Case ID 요청` 배지를 같은 원장에서 파생한다.
+- **BOM 고유 불변식**: 부품별 포장 수량·LOT·Date Code·QR 원장, PDF Invoice 자동 첨부와
+  XLSX 다운로드, 완료·입고 이후 문서 잠금을 유지한다. PCB 전용 MD 2구간·직송·박스 QR은
+  옮기지 않는다.
+- **문서 종류**: BOM은 `Invoice`·`AWB`·`B/L`만 허용한다. PCB의 `TEST Report`와
+  `원산지증명원`은 계약·API·화면 어느 곳에도 추가하지 않는다.
+- **알림**: 요청은 관리자 메일에 Case ID 요청·메모를 싣고, 관리자가 실선적하면 협력사
+  메일에 Case ID 값을 동봉한다. 사후 요청·단독 입력 경로도 정정용으로 유지한다.
+- **실증(08-19)**: additive migration 적용 후 `bom-caseref.e2e.test.ts` 4/4 통과 — 해상
+  요청 박제·관리자 큐 신호·`CASE_REF_REQUIRED`·`MISSING_BL_FILE` 게이트·B/L+Case ID+
+  운송장 동시 실선적·배지 해제를 확인했고, 픽스처 잔재는 quote/file 모두 0건이다.
 
 ## 7. 레거시 교훈 승계 가드
 

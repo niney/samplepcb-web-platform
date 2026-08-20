@@ -46,4 +46,10 @@ describe('shipmentTransportDocType', () => {
       expect(PCB_SHIPMENT_FILE_TYPES, `PCB 사전에 ${doc}`).toContain(doc);
     }
   });
+
+  it('BOM 사전에는 PCB 전용 TEST Report·원산지증명원이 포함되지 않는다', () => {
+    expect(BOM_SHIPMENT_FILE_TYPES).toEqual(['invoice', 'airwaybill', 'bill_of_lading']);
+    expect(BOM_SHIPMENT_FILE_TYPES).not.toContain('test_report');
+    expect(BOM_SHIPMENT_FILE_TYPES).not.toContain('origin_cert');
+  });
 });

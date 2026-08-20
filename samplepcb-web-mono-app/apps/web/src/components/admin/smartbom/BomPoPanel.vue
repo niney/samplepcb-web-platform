@@ -63,8 +63,20 @@ function shipmentNextLabel(po: AdminBomPoViewType): string {
   const next = bomShipmentNextStatus(shipment.mode, shipment.status);
   return next === null ? '' : bomShipmentStatusLabel(shipment.mode, next);
 }
+function shipmentCaseRefPending(po: AdminBomPoViewType): boolean {
+  const shipment = po.shipment;
+  return (
+    shipment !== null &&
+    shipment.receivedAt === null &&
+    shipment.caseRefRequestedAt !== null &&
+    (shipment.caseRef === null || shipment.caseRef === '')
+  );
+}
+function shipmentAdminPending(po: AdminBomPoViewType): boolean {
+  return shipmentCaseRefPending(po) || shipmentNextActor(po) === 'ADMIN';
+}
 const adminPendingCount = computed(
-  () => props.pos.filter((po) => shipmentNextActor(po) === 'ADMIN').length,
+  () => props.pos.filter(shipmentAdminPending).length,
 );
 const openShortageCount = computed(() =>
   props.pos.reduce(
@@ -253,9 +265,14 @@ function moveTable(direction: -1 | 1): void {
             </td>
             <!-- 선적(D21·D22) — 모드·상태·송장 + 차례 표시 + 입고 확인 -->
             <td class="whitespace-nowrap px-3 py-2">
-              <span :class="po.shipment === null ? 'text-gray-300' : shipmentNextActor(po) === 'ADMIN' ? 'font-bold text-blue-700' : 'text-gray-700'">{{ shipmentLabel(po) }}</span>
+              <span :class="po.shipment === null ? 'text-gray-300' : shipmentAdminPending(po) ? 'font-bold text-blue-700' : 'text-gray-700'">{{ shipmentLabel(po) }}</span>
               <span
-                v-if="shipmentNextActor(po) === 'ADMIN'"
+                v-if="shipmentCaseRefPending(po)"
+                class="ml-1 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700"
+                title="협력사가 샘플피씨비 운송의 발송 참조번호(Case ID)를 기다리고 있습니다."
+              >Case ID 요청</span>
+              <span
+                v-else-if="shipmentNextActor(po) === 'ADMIN'"
                 class="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700"
                 :title="`협력사가 단계를 넘겼습니다 — [선적 관리]에서 '${shipmentNextLabel(po)}' 처리를 진행해 주세요`"
               >
@@ -291,7 +308,7 @@ function moveTable(direction: -1 | 1): void {
               <button
                 type="button"
                 class="rounded px-2 py-1 font-semibold disabled:opacity-40"
-                :class="shipmentNextActor(po) === 'ADMIN' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-blue-200 text-blue-700 hover:bg-blue-50'"
+                :class="shipmentAdminPending(po) ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-blue-200 text-blue-700 hover:bg-blue-50'"
                 :disabled="busy || po.status === 'issued'"
                 :title="po.status === 'issued'
                   ? po.supplierCode !== null

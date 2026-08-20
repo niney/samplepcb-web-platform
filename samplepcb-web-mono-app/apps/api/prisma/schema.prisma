@@ -1138,6 +1138,12 @@ model SpBomShipment {
   trackingNumber String?   @db.VarChar(100)
   trackingUrl    String?   @db.VarChar(500)
   shipDate           DateTime? // 출고예정일 — 협력사 '선적 요청' 진입 시 입력(D22)
+  // 샘플피씨비 운송(Case ID) 갈래 — 협력사가 요청하면 관리자가 부킹·운송서류·
+  // 운송장을 준비한다. 상태 사전은 PCB와 마찬가지로 그대로 두고 문서 차례만 기록한다.
+  caseRefRequestedAt DateTime?
+  caseRefNote        String?   @db.VarChar(255)
+  caseRef            String?   @db.VarChar(100)
+  caseRefFilledAt    DateTime?
   shippedAt          DateTime? // 발송(shipped/shipping 진입) 시점 박제
   receivedAt         DateTime? // 입고 확인(검수) — 타임라인 ⑩ 파생 근거
   receivedNote   String?   @db.Text // 편차 메모(수량 부족·불량 등)

@@ -13,6 +13,7 @@ import {
   AdminBomPartPackageResponse,
   AdminBomShipmentCrossListQuery,
   AdminBomShipmentCrossListResponse,
+  AdminBomShipmentCaseRefBody,
   AdminBomShipmentReceiveBody,
   AdminBomShipmentUpsertBody,
   ApiError,
@@ -37,6 +38,7 @@ import {
   deleteShipmentFile,
   detachShipmentPo,
   executeExternalPo,
+  fillBomShipmentCaseRef,
   getShipmentFileDownload,
   loadAdminPoCrossList,
   loadAdminPos,
@@ -61,6 +63,7 @@ import {
 import {
   buildBomPoIssuedEmail,
   buildShipmentReceivedEmail,
+  buildShipmentCaseRefFilledEmail,
   buildShipmentTurnPartnerEmail,
   sendBomRfqMail,
 } from '../lib/rfq-email';
@@ -112,7 +115,7 @@ const RECOVERY_ERROR_MESSAGE: Record<string, string> = {
 
 const DOCUMENT_ERROR_MESSAGE = {
   SHIPMENT_NOT_FOUND: '발송을 찾을 수 없습니다.',
-  INTERNATIONAL_DOCUMENT_ONLY: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+  INTERNATIONAL_DOCUMENT_ONLY: 'Invoice와 AWB/B/L은 국외 발송에서만 사용합니다.',
   SHIPMENT_DOCUMENTS_LOCKED: '입고·완료된 발송 문서는 수정하거나 삭제할 수 없습니다.',
 } as const;
 
@@ -439,6 +442,9 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           PARTNER_COUNTRY_REQUIRED: '협력사 관리에서 국가를 먼저 등록해 주세요.',
           MISSING_PACKING_LIST: '선적 리스트와 QR 라벨을 먼저 저장해 주세요.',
           MISSING_TRACKING: '국내 발송은 택배사와 송장번호가 필요합니다.',
+          CASE_REF_REQUIRED: '샘플피씨비 운송 건은 발송 참조번호(Case ID)가 필요합니다.',
+          MISSING_AWB_FILE: '항공 Case ID 운송은 AWB 첨부가 필요합니다.',
+          MISSING_BL_FILE: '해상 Case ID 운송은 B/L 첨부가 필요합니다.',
           RECEIVE_REQUIRED: '국내 입고 완료는 입고 확인 버튼으로 처리해 주세요.',
         };
         return reply.status(409).send({
@@ -455,7 +461,9 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         const mode = asShipmentMode(fresh.mode);
         const status = asShipmentStatus(mode, fresh.status);
         const next = bomShipmentNextStatus(mode, status);
-        if (next !== null && bomShipmentActorOf(mode, next) === 'PARTNER') {
+        const partnerTurn = next !== null && bomShipmentActorOf(mode, next) === 'PARTNER';
+        const caseRefShipped = status === 'shipped' && fresh.caseRefRequestedAt !== null;
+        if (partnerTurn || caseRefShipped) {
           void sendBomRfqMail(
             request.log,
             po.partner.contactEmail,
@@ -463,7 +471,8 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               partnerName: po.partner.name,
               quoteTitle: po.quote.title,
               statusLabel: bomShipmentStatusLabel(mode, status),
-              nextLabel: bomShipmentStatusLabel(mode, next),
+              nextLabel: partnerTurn ? bomShipmentStatusLabel(mode, next) : null,
+              caseRef: caseRefShipped ? fresh.caseRef : null,
             }),
             {
               kind: 'bom_shipment_turn_partner',
@@ -474,6 +483,61 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             },
           );
         }
+      }
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // Case ID 단독 입력·정정 — 주 동선은 '선적' 저장과 함께 입력하는 것이며, 이 경로는
+  // 부킹 번호를 먼저 회신하거나 오타를 고치는 운영 보조 경로다.
+  fastify.post(
+    '/bom-quotes/:id/pos/:poId/shipment/case-ref',
+    {
+      schema: {
+        params: PoParams,
+        body: AdminBomShipmentCaseRefBody,
+        response: { 200: AdminBomPoMutationResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: {
+          shipmentLink: { include: { shipment: true } },
+          partner: true,
+          quote: { select: { title: true } },
+        },
+      });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const result = await fillBomShipmentCaseRef(po.id, request.body.caseRef);
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message:
+            result.error === 'CASE_REF_LOCKED'
+              ? '입고 확인된 발송의 Case ID는 수정할 수 없습니다.'
+              : '발송을 찾을 수 없습니다.',
+        });
+      }
+      if (po.shipmentLink?.shipment.caseRefRequestedAt !== null) {
+        void sendBomRfqMail(
+          request.log,
+          po.partner.contactEmail,
+          buildShipmentCaseRefFilledEmail({
+            partnerName: po.partner.name,
+            quoteTitle: po.quote.title,
+            caseRef: request.body.caseRef,
+          }),
+          {
+            kind: 'bom_shipment_case_ref',
+            refType: 'bom_quote',
+            refId: po.quoteId,
+            sentBy: request.user.mbId,
+            params: { poId: String(po.id), partnerName: po.partner.name },
+          },
+        );
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
     },
@@ -553,7 +617,7 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (!kind.success || file === undefined) {
         return reply.status(400).send({
           error: 'BAD_UPLOAD',
-          message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.',
+          message: 'fileType(invoice|airwaybill|bill_of_lading)과 파일이 필요합니다.',
         });
       }
       // 선적 문서가 없으면 preparing 으로 생성해 파일부터 받는다(협력사 흐름과 동일).

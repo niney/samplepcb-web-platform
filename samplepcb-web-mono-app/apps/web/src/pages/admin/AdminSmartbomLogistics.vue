@@ -340,6 +340,11 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
                   {{ item.receivedAt !== null ? '입고 완료' : bomShipmentStatusLabel(item.mode, item.status) }}
                 </span>
                 <span v-if="item.adminPending" class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">처리 필요</span>
+                <span
+                  v-if="item.caseRefPending"
+                  class="ml-1 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700"
+                  title="협력사가 샘플피씨비 운송의 발송 참조번호(Case ID)를 기다리고 있습니다."
+                >Case ID 요청</span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">
                 {{ item.mode === 'international' ? fmtDate(item.shipDate) : '—' }}

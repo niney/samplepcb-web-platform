@@ -41,7 +41,7 @@ import { fmtKstDate, kstDateInput } from '@sp/utils';
 
 // 선적 관리 모달(D21·D22) — 발주서당 1건. 모드는 협력사 국가에서 서버가 결정해 생성 시
 // 박제하고 화면은 읽기만 한다. 상태는 모드별 사전(국제 6단계/국내 3단계). 관리자는 전 단계 임의 조작(핑퐁 인가는
-// 협력사 쪽만). 첨부 = Invoice/AWB 종류별 1건(교체), 입고 확인 = 검수(⑩) + 편차 메모.
+// 협력사 쪽만). 첨부 = Invoice와 운송수단별 AWB/B/L 종류별 1건(교체), 입고 확인 = 검수(⑩) + 편차 메모.
 
 const props = defineProps<{
   open: boolean;
@@ -84,10 +84,20 @@ const carrier = ref('');
 const trackingNumber = ref('');
 const trackingUrl = ref('');
 const shipDate = ref('');
+const caseRef = ref('');
 const receiveNote = ref('');
 const error = ref('');
 
 const existing = computed(() => props.po?.shipment ?? null);
+const caseRefBranch = computed(
+  () => existing.value?.mode === 'international' && existing.value.caseRefRequestedAt !== null,
+);
+const caseRefPending = computed(
+  () => caseRefBranch.value && (existing.value?.caseRef === null || existing.value?.caseRef === ''),
+);
+const caseRefChanged = computed(
+  () => caseRefBranch.value && caseRef.value.trim() !== (existing.value?.caseRef ?? ''),
+);
 const documentsLocked = computed(() => {
   const shipment = existing.value;
   return shipment === null
@@ -153,6 +163,7 @@ watch(
     trackingUrl.value = shipment?.trackingUrl ?? '';
     // ISO 원문을 그대로 넣으면 date input 이 파싱하지 못해 값이 비어 보인다 — KST 날짜로.
     shipDate.value = kstDateInput(shipment?.shipDate);
+    caseRef.value = shipment?.caseRef ?? '';
     receiveNote.value = shipment?.receivedNote ?? '';
     packingOpen.value = false;
     quotationPoId.value = null;
@@ -180,7 +191,7 @@ function statusLabel(m: BomShipmentModeType, s: BomShipmentStatusType): string {
 
 const toNullable = (v: string): string | null => (v.trim() === '' ? null : v.trim());
 
-// 첨부(D22) — Invoice/AWB 종류별 1건, 국외 발송 전용.
+// 첨부(D22) — Invoice와 운송수단별 AWB/B/L 종류별 1건, 국외 발송 전용.
 const fileLabel = (kind: BomShipmentFileTypeType): string =>
   BOM_SHIPMENT_FILE_LABELS[kind];
 const fileOf = (kind: BomShipmentFileTypeType) =>
@@ -192,10 +203,14 @@ const docLabel = computed(() => BOM_SHIPMENT_FILE_LABELS[docKind.value]);
 /** 첨부 줄 — 사전 전체를 늘어놓으면 해상 발송에도 AWB 줄이 서서 "둘 다 내야 하나"로
  *  읽힌다. 인보이스(공통) + 수단이 정한 운송서류 1종만. */
 const docKinds = computed<BomShipmentFileTypeType[]>(() => ['invoice', docKind.value]);
-// 레거시 '선적' 전이의 운송서류 필수를 관리자에겐 경고로만(임의 조작 원칙 유지)
+// 직접 발송은 기존처럼 선택 서류라 경고만 한다. Case ID 운송은 아래 처리 스트립과
+// 서버 게이트가 Case ID·운송장·운송서류를 모두 필수로 강제한다.
 const awbWarning = computed(
   () =>
-    mode.value === 'international' && status.value === 'shipped' && fileOf(docKind.value) === null,
+    mode.value === 'international' &&
+    !caseRefBranch.value &&
+    status.value === 'shipped' &&
+    fileOf(docKind.value) === null,
 );
 
 async function onFilePicked(kind: BomShipmentFileTypeType, event: Event): Promise<void> {
@@ -286,6 +301,7 @@ async function save(): Promise<void> {
         trackingNumber: toNullable(trackingNumber.value),
         trackingUrl: toNullable(trackingUrl.value),
         shipDate: toNullable(shipDate.value),
+        ...(caseRefChanged.value ? { caseRef: toNullable(caseRef.value) } : {}),
       },
     });
     emit('close');
@@ -300,6 +316,20 @@ async function advanceAsAdmin(): Promise<void> {
   if (existing.value?.mode === 'domestic' && savedNext.value === 'delivered') {
     await confirmReceive();
     return;
+  }
+  if (savedNext.value === 'shipped' && caseRefBranch.value) {
+    if (caseRef.value.trim() === '') {
+      error.value = '발송 참조번호(Case ID)를 입력해 주세요.';
+      return;
+    }
+    if (trackingNumber.value.trim() === '') {
+      error.value = `${docLabel.value} No.를 입력해 주세요.`;
+      return;
+    }
+    if (fileOf(docKind.value) === null) {
+      error.value = `${docLabel.value} 파일을 첨부해 주세요.`;
+      return;
+    }
   }
   if (
     savedNext.value === 'shipped' &&
@@ -348,7 +378,7 @@ async function confirmReceive(): Promise<void> {
     class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4"
     @click.self="emit('close')"
   >
-    <div class="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl">
+    <div class="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface p-6 shadow-2xl">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-bold">선적 관리 — {{ po.partnerName }}</h2>
         <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">
@@ -365,7 +395,10 @@ async function confirmReceive(): Promise<void> {
         <template v-if="savedNextActor === 'ADMIN'">
           <p class="font-bold text-blue-800">
             다음 단계: {{ savedLabel(savedNext) }} — 샘플피씨비 차례입니다.
-            <span v-if="savedNext === 'shipped'" class="font-normal text-blue-700">{{ docLabel }} 첨부와 송장번호를 확인해 주세요.</span>
+            <span v-if="savedNext === 'shipped'" class="font-normal text-blue-700">
+              <template v-if="caseRefBranch">Case ID·{{ docLabel }}·운송장을 확인해 주세요.</template>
+              <template v-else>{{ docLabel }} 첨부와 송장번호를 확인해 주세요.</template>
+            </span>
           </p>
           <button
             type="button"
@@ -383,6 +416,85 @@ async function confirmReceive(): Promise<void> {
           관리자가 대신 진행할 수 있습니다.
         </p>
       </div>
+      <p v-if="error !== ''" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+        {{ error }}
+      </p>
+
+      <!-- PCB와 같은 Case ID 처리 스트립 — 협력사 제출본 확인 → 운송서류 → Case ID·번호. -->
+      <section
+        v-if="caseRefBranch"
+        class="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <p class="text-xs font-bold text-amber-900">샘플피씨비 운송 · Case ID 처리</p>
+          <span
+            class="rounded px-1.5 py-0.5 text-[10px] font-bold"
+            :class="caseRefPending ? 'bg-amber-200 text-amber-900' : 'bg-teal-100 text-teal-700'"
+          >{{ caseRefPending ? 'Case ID 요청' : 'Case ID 입력됨' }}</span>
+          <span v-if="existing?.caseRefNote" class="text-[11px] text-amber-700">
+            요청 메모: {{ existing.caseRefNote }}
+          </span>
+        </div>
+        <div class="mt-2 grid gap-2 sm:grid-cols-3">
+          <div class="rounded-lg border border-amber-100 bg-surface p-2 text-[11px]">
+            <p class="font-bold text-gray-700">① 협력사 Invoice 확인·수정</p>
+            <p class="mt-1 truncate text-gray-500" :title="fileOf('invoice')?.name">
+              {{ fileOf('invoice') === null ? '첨부 없음' : `✓ ${fileOf('invoice')?.name}` }}
+            </p>
+            <div class="mt-1.5 flex flex-wrap gap-1.5">
+              <button
+                v-if="fileOf('invoice') !== null"
+                type="button"
+                class="rounded border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+                @click="downloadFile('invoice')"
+              >
+                내려받기
+              </button>
+              <button
+                v-if="!documentsLocked"
+                type="button"
+                class="rounded border border-indigo-200 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-50"
+                @click="invoiceOpen = true"
+              >
+                인보이스 생성기
+              </button>
+              <label
+                v-if="!documentsLocked"
+                class="cursor-pointer rounded border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+              >교체<input type="file" class="hidden" :disabled="fileBusy" @change="(e) => onFilePicked('invoice', e)"></label>
+            </div>
+          </div>
+          <div class="rounded-lg border border-amber-100 bg-surface p-2 text-[11px]">
+            <p class="font-bold text-gray-700">② {{ docLabel }} 준비</p>
+            <p class="mt-1 truncate text-gray-500" :title="fileOf(docKind)?.name">
+              {{ fileOf(docKind) === null ? '첨부 필요' : `✓ ${fileOf(docKind)?.name}` }}
+            </p>
+            <div class="mt-1.5 flex gap-1.5">
+              <button
+                v-if="fileOf(docKind) !== null"
+                type="button"
+                class="rounded border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+                @click="downloadFile(docKind)"
+              >
+                내려받기
+              </button>
+              <label
+                v-if="!documentsLocked"
+                class="cursor-pointer rounded border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+              >{{ fileOf(docKind) === null ? '첨부' : '교체' }}<input type="file" class="hidden" :disabled="fileBusy" @change="(e) => onFilePicked(docKind, e)"></label>
+            </div>
+          </div>
+          <div class="rounded-lg border border-amber-100 bg-surface p-2 text-[11px]">
+            <p class="font-bold text-gray-700">③ Case ID·운송장 입력</p>
+            <p class="mt-1 text-gray-500">
+              {{ caseRef.trim() === '' ? 'Case ID 입력 필요' : `✓ ${caseRef}` }}
+            </p>
+            <p class="mt-0.5 text-gray-500">
+              {{ trackingNumber.trim() === '' ? `${docLabel} No. 입력 필요` : `✓ ${trackingNumber}` }}
+            </p>
+          </div>
+        </div>
+      </section>
 
       <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
         <div class="text-gray-500">
@@ -426,12 +538,20 @@ async function confirmReceive(): Promise<void> {
             class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
           >
         </label>
-        <label class="text-gray-500">송장번호
+        <label class="text-gray-500">{{ mode === 'international' ? `${docLabel} No.` : '송장번호' }}
           <input
             v-model="trackingNumber"
             type="text"
             maxlength="100"
             class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono"
+          >
+        </label>
+        <label v-if="caseRefBranch" class="text-gray-500">발송 참조번호(Case ID)
+          <input
+            v-model="caseRef"
+            type="text"
+            maxlength="100"
+            class="mt-1 h-8 w-full rounded-md border border-amber-300 px-2 font-mono"
           >
         </label>
         <label v-if="mode === 'international'" class="text-gray-500">출고예정일
@@ -513,7 +633,7 @@ async function confirmReceive(): Promise<void> {
         </p>
       </div>
 
-      <!-- 발송 문서 — Packing List는 공통, 거래 문서는 국내 선택, Invoice/AWB는 국외 전용 -->
+      <!-- 발송 문서 — Packing List는 공통, 거래 문서는 국내 선택, Invoice/AWB/B/L은 국외 전용 -->
       <div class="mt-3 space-y-1.5 rounded-xl border border-gray-200 p-3">
         <p class="text-xs font-bold text-gray-700">발송 문서</p>
         <div
@@ -555,7 +675,7 @@ async function confirmReceive(): Promise<void> {
             거래명세서
           </button>
         </div>
-        <template v-if="mode === 'international'">
+        <template v-if="mode === 'international' && !caseRefBranch">
           <p
             v-if="documentsLocked"
             class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-gray-600"
@@ -704,8 +824,6 @@ async function confirmReceive(): Promise<void> {
           {{ existing?.receivedAt != null ? '입고 확인 갱신' : '입고 확인' }}
         </button>
       </div>
-
-      <p v-if="error !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ error }}</p>
     </div>
   </div>
 </template>

@@ -16,7 +16,7 @@ import {
   type ShipmentTransportType,
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
-import { PCB_INTL_CARRIERS, isPcbIntlCarrier } from '../../lib/pcb-carriers';
+import { INTL_CARRIERS, isIntlCarrier } from '../../lib/shipment-carriers';
 import {
   downloadPartnerPcbShipmentFile,
   partnerPcbPackageApi,
@@ -109,7 +109,7 @@ const storedCarrier = props.shipment.carrier ?? '';
 // 항공 프리셋(DHL 등)이어도 해상이면 텍스트 칸에 실어야 한다. 안 그러면 값은 DB 에
 // 살아 있는데 화면엔 없는 상태가 되고, 그대로 저장하면 남의 수단 운송회사가 남는다.
 const storedIsPreset =
-  shipmentTransportOf(props.shipment.transport) === 'air' && isPcbIntlCarrier(storedCarrier);
+  shipmentTransportOf(props.shipment.transport) === 'air' && isIntlCarrier(storedCarrier);
 const carrierChoice = ref(
   storedIsPreset ? storedCarrier : storedCarrier !== '' ? CARRIER_CUSTOM : '',
 );
@@ -547,7 +547,7 @@ const STATUS_CLS: Record<string, string> = {
             class="h-8 rounded-md border border-gray-300 bg-surface px-2 text-xs focus:border-teal-500 focus:outline-none"
           >
             <option value="">선택 안 함</option>
-            <option v-for="c in PCB_INTL_CARRIERS" :key="c" :value="c">{{ c }}</option>
+            <option v-for="c in INTL_CARRIERS" :key="c" :value="c">{{ c }}</option>
             <option :value="CARRIER_CUSTOM">직접입력</option>
           </select>
           <input

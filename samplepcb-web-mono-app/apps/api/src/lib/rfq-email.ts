@@ -162,6 +162,8 @@ export interface ShipmentTurnAdminEmailParams {
   quoteTitle: string;
   partnerName: string;
   statusLabel: string; // 협력사가 진입시킨 단계 라벨
+  caseRefRequested?: boolean;
+  caseRefNote?: string | null;
 }
 
 /** 협력사 전이 → 관리자 알림(다음 차례가 관리자). */
@@ -170,14 +172,24 @@ export function buildShipmentTurnAdminEmail(p: ShipmentTurnAdminEmailParams): {
   html: string;
 } {
   const caseUrl = `${WEB_BASE_URL}/app/admin/smartbom/cases/${p.quoteId}`;
+  const lines = [
+    `${esc(p.partnerName)} 협력사가 <b>${esc(p.quoteTitle)}</b> 발주 건의 선적을 '${esc(p.statusLabel)}' 단계로 진행했습니다.`,
+    `다음 단계 처리는 샘플피씨비 차례입니다 — Case 상세의 [선적 관리]에서 진행해 주세요.`,
+  ];
+  if (p.caseRefRequested === true) {
+    lines.push(
+      `<b>샘플피씨비 운송(Case ID)이 요청되었습니다.</b> Invoice를 확인하고 Case ID·운송장·운송서류를 준비해 주세요.${
+        p.caseRefNote == null || p.caseRefNote === ''
+          ? ''
+          : ` 요청 메모: ${esc(p.caseRefNote)}`
+      }`,
+    );
+  }
   return {
     subject: `[샘플피씨비] 선적 진행 — ${p.quoteTitle} · ${p.partnerName} → ${p.statusLabel}`,
     html: shipmentShell(
       `선적이 '${esc(p.statusLabel)}' 단계로 진행되었습니다`,
-      [
-        `${esc(p.partnerName)} 협력사가 <b>${esc(p.quoteTitle)}</b> 발주 건의 선적을 '${esc(p.statusLabel)}' 단계로 진행했습니다.`,
-        `다음 단계 처리는 샘플피씨비 차례입니다 — Case 상세의 [선적 관리]에서 진행해 주세요.`,
-      ],
+      lines,
       'Case 상세 열기',
       caseUrl,
     ),
@@ -188,7 +200,8 @@ export interface ShipmentTurnPartnerEmailParams {
   partnerName: string;
   quoteTitle: string;
   statusLabel: string; // 현재(관리자가 진입시킨) 단계 라벨
-  nextLabel: string; // 협력사에게 요청하는 다음 단계 라벨
+  nextLabel: string | null; // null=Case ID·선적서류 확인만
+  caseRef?: string | null;
 }
 
 /** 관리자 전이 → 협력사 알림(다음 차례가 협력사). */
@@ -197,13 +210,77 @@ export function buildShipmentTurnPartnerEmail(p: ShipmentTurnPartnerEmailParams)
   html: string;
 } {
   const portalUrl = `${WEB_BASE_URL}/app/partner`;
+  const caseRefLine =
+    p.caseRef == null || p.caseRef === ''
+      ? null
+      : `발송 참조번호(Case ID): <b style="font-size:15px;color:#0f766e;letter-spacing:0.5px;">${esc(p.caseRef)}</b>`;
+  const actionLine =
+    p.nextLabel === null
+      ? `샘플피씨비가 준비한 Case ID·운송장·운송서류를 확인하고 라벨링·인계해 주세요.`
+      : `다음 단계인 '${esc(p.nextLabel)}' 처리를 파트너 포털에서 진행해 주세요.`;
   return {
-    subject: `[샘플피씨비] 선적 진행 요청 — ${p.quoteTitle} · ${p.nextLabel}`,
+    subject: `[샘플피씨비] 선적 진행${p.nextLabel === null ? ' 안내' : ' 요청'} — ${p.quoteTitle}${p.nextLabel === null ? '' : ` · ${p.nextLabel}`}`,
     html: shipmentShell(
-      `'${esc(p.nextLabel)}' 처리를 부탁드립니다`,
+      p.nextLabel === null
+        ? '샘플피씨비 운송 서류가 준비되었습니다'
+        : `'${esc(p.nextLabel)}' 처리를 부탁드립니다`,
       [
         `${esc(p.partnerName)} 담당자님, <b>${esc(p.quoteTitle)}</b> 발주 건의 선적이 '${esc(p.statusLabel)}' 단계가 되었습니다.`,
-        `다음 단계인 '${esc(p.nextLabel)}' 처리를 파트너 포털에서 진행해 주세요.`,
+        ...(caseRefLine === null ? [] : [caseRefLine]),
+        actionLine,
+      ],
+      '파트너 포털 열기',
+      portalUrl,
+    ),
+  };
+}
+
+export interface ShipmentCaseRefRequestedEmailParams {
+  quoteId: string;
+  quoteTitle: string;
+  partnerName: string;
+  note: string | null;
+}
+
+/** 상태 전이 뒤 사후 요청·메모 정정 경로의 관리자 통지. */
+export function buildShipmentCaseRefRequestedEmail(p: ShipmentCaseRefRequestedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const caseUrl = `${WEB_BASE_URL}/app/admin/smartbom/cases/${p.quoteId}`;
+  return {
+    subject: `[샘플피씨비] 발송 참조번호(Case ID) 요청 — ${p.quoteTitle}`,
+    html: shipmentShell(
+      '협력사가 발송 참조번호(Case ID)를 요청했습니다',
+      [
+        `<b>${esc(p.partnerName)}</b> 협력사가 <b>${esc(p.quoteTitle)}</b> 발송의 샘플피씨비 운송을 요청했습니다.`,
+        p.note === null || p.note === '' ? '요청 메모는 없습니다.' : `요청 메모: ${esc(p.note)}`,
+      ],
+      'Case 상세에서 처리',
+      caseUrl,
+    ),
+  };
+}
+
+export interface ShipmentCaseRefFilledEmailParams {
+  partnerName: string;
+  quoteTitle: string;
+  caseRef: string;
+}
+
+/** Case ID 단독 입력·정정 경로의 협력사 통지. */
+export function buildShipmentCaseRefFilledEmail(p: ShipmentCaseRefFilledEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const portalUrl = `${WEB_BASE_URL}/app/partner`;
+  return {
+    subject: `[샘플피씨비] 발송 참조번호(Case ID) 안내 — ${p.quoteTitle}`,
+    html: shipmentShell(
+      '요청하신 발송 참조번호(Case ID)를 안내드립니다',
+      [
+        `${esc(p.partnerName)} 담당자님, <b>${esc(p.quoteTitle)}</b> 발송의 참조번호가 준비되었습니다.`,
+        `발송 참조번호(Case ID): <b style="font-size:15px;color:#0f766e;letter-spacing:0.5px;">${esc(p.caseRef)}</b>`,
       ],
       '파트너 포털 열기',
       portalUrl,

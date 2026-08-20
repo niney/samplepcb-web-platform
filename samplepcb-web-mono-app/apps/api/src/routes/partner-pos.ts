@@ -14,6 +14,7 @@ import {
   PartnerPoDetailResponse,
   PartnerPoListResponse,
   PartnerShipmentAdvanceBody,
+  PartnerShipmentCaseRefRequestBody,
   PartnerShipmentCreateBody,
   PartnerShipmentCreateResponse,
   PartnerShipmentListQuery,
@@ -46,6 +47,7 @@ import {
   loadShipmentFilesMap,
   loadShipmentGroupMap,
   reportPoShortage,
+  requestBomShipmentCaseRef,
   updatePoShortage,
   type PartnerShipmentError,
 } from '../lib/bom-po';
@@ -60,7 +62,11 @@ import {
   loadPartnerQuotationDocument,
   loadShipmentStatementDocument,
 } from '../lib/bom-trade-documents';
-import { buildShipmentTurnAdminEmail, sendBomRfqMail } from '../lib/rfq-email';
+import {
+  buildShipmentCaseRefRequestedEmail,
+  buildShipmentTurnAdminEmail,
+  sendBomRfqMail,
+} from '../lib/rfq-email';
 import { getShopEstimateProfile } from '../lib/g5-db';
 import {
   BomPackingError,
@@ -92,6 +98,10 @@ const ADVANCE_ERROR_MESSAGE: Record<PartnerShipmentError, string> = {
   MISSING_INVOICE_FILE: 'Invoice 파일을 먼저 첨부해 주세요.',
   MISSING_PACKING_LIST: '선적 리스트와 QR 라벨을 먼저 생성해 주세요.',
   MISSING_TRACKING: '택배사와 송장번호를 입력해 주세요.',
+  CASE_REF_REQUIRED: '샘플피씨비 운송의 발송 참조번호(Case ID) 처리를 기다리고 있습니다.',
+  CASE_REF_LOCKED: '이미 발송이 시작되어 Case ID를 요청하거나 변경할 수 없습니다.',
+  MISSING_AWB_FILE: '샘플피씨비 운송의 AWB 첨부를 기다리고 있습니다.',
+  MISSING_BL_FILE: '샘플피씨비 운송의 B/L 첨부를 기다리고 있습니다.',
   INVALID_GROUP_PO: '담을 수 없는 발주서입니다 — 목록을 새로고침해 주세요.',
   NOT_PREPARING: '발송 준비 단계에서만 박스를 변경할 수 있습니다.',
   PARTNER_COUNTRY_REQUIRED: '협력사 국가 정보가 없습니다. 샘플피씨비 담당자에게 문의해 주세요.',
@@ -111,7 +121,7 @@ const SHORTAGE_ERROR_MESSAGE: Record<string, string> = {
 
 const DOCUMENT_ERROR_MESSAGE = {
   SHIPMENT_NOT_FOUND: '발송을 찾을 수 없습니다.',
-  INTERNATIONAL_DOCUMENT_ONLY: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+  INTERNATIONAL_DOCUMENT_ONLY: 'Invoice와 AWB/B/L은 국외 발송에서만 사용합니다.',
   SHIPMENT_DOCUMENTS_LOCKED: '입고·완료된 발송 문서는 수정하거나 삭제할 수 없습니다.',
 } as const;
 
@@ -177,6 +187,9 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         quoteTitle: po.quote.title,
         partnerName,
         statusLabel: bomShipmentStatusLabel(mode, asShipmentStatus(mode, shipment.status)),
+        caseRefRequested:
+          shipment.status === 'requested' && shipment.caseRefRequestedAt !== null,
+        caseRefNote: shipment.caseRefNote,
       }),
       {
         kind: 'bom_shipment_turn_admin',
@@ -363,6 +376,61 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         return reply
           .status(409)
           .send({ error: result.error, message: ADVANCE_ERROR_MESSAGE[result.error] });
+      }
+      const detail = await loadDetail(request.params.poId, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  // Case ID 사후 요청·메모 정정 — 기본 동선은 선적 요청 체크리스트의 발송 방식 선택이다.
+  fastify.post(
+    '/partner/pos/:poId/shipment/case-ref-request',
+    {
+      schema: {
+        params: PoIdParams,
+        body: PartnerShipmentCaseRefRequestBody,
+        response: { 200: PartnerPoDetailResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const result = await requestBomShipmentCaseRef(
+        request.params.poId,
+        ctx.partnerId,
+        request.body.note ?? null,
+      );
+      if (!result.ok) {
+        if (result.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
+        return reply.status(409).send({
+          error: result.error,
+          message: ADVANCE_ERROR_MESSAGE[result.error],
+        });
+      }
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { quote: { select: { title: true } } },
+      });
+      if (po !== null) {
+        const profile = await getShopEstimateProfile();
+        void sendBomRfqMail(
+          request.log,
+          profile?.managerEmail,
+          buildShipmentCaseRefRequestedEmail({
+            quoteId: String(po.quoteId),
+            quoteTitle: po.quote.title,
+            partnerName: ctx.partnerName,
+            note: request.body.note ?? null,
+          }),
+          {
+            kind: 'bom_shipment_case_ref_request',
+            refType: 'bom_quote',
+            refId: po.quoteId,
+            sentBy: request.user.mbId,
+            params: { poId: String(po.id), partnerName: ctx.partnerName },
+          },
+        );
       }
       const detail = await loadDetail(request.params.poId, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
@@ -616,7 +684,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       if (!kind.success || file === undefined) {
         return reply.status(400).send({
           error: 'BAD_UPLOAD',
-          message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.',
+          message: 'fileType(invoice|airwaybill|bill_of_lading)과 파일이 필요합니다.',
         });
       }
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);

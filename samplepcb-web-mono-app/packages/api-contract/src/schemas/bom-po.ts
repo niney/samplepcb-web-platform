@@ -285,6 +285,12 @@ export const BomShipmentView = z.object({
   trackingNumber: z.string().nullable(),
   trackingUrl: z.string().nullable(),
   shipDate: z.string().nullable(), // 출고예정일(협력사 '선적 요청' 입력, D22)
+  /** 샘플피씨비 운송(Case ID) 갈래. requestedAt non-null이면 관리자가 부킹·운송장·
+   *  운송서류를 준비하며, filledAt non-null이면 회신이 완료된 상태다. */
+  caseRefRequestedAt: z.string().nullable(),
+  caseRefNote: z.string().nullable(),
+  caseRef: z.string().nullable(),
+  caseRefFilledAt: z.string().nullable(),
   shippedAt: z.string().nullable(),
   receivedAt: z.string().nullable(), // 입고 확인(검수 ⑩)
   receivedNote: z.string().nullable(),
@@ -508,6 +514,8 @@ export const AdminBomShipmentUpsertBody = z.object({
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),
   shipDate: z.string().trim().max(10).nullish(), // 'YYYY-MM-DD'
+  /** Case ID 운송의 관리자 회신값. 실선적 전이 때 운송장과 함께 박제한다. */
+  caseRef: z.string().trim().max(100).nullish(),
 });
 export type AdminBomShipmentUpsertBodyType = z.infer<typeof AdminBomShipmentUpsertBody>;
 
@@ -526,11 +534,28 @@ export const PartnerShipmentAdvanceBody = z.object({
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),
+  /** 샘플피씨비 운송을 선택하면 선적 요청과 함께 박제된다. */
+  caseRefRequested: z.boolean().nullish(),
+  caseRefNote: z.string().trim().max(255).nullish(),
   /** 함께 발송할 발주서(§6.10 — 같은 박스). 최초 발송 전이에서만 유효, 같은 협력사·
    * 미소속 발주서만(서버 검증). */
   withPoIds: z.array(z.number().int().positive()).max(50).optional(),
 });
 export type PartnerShipmentAdvanceBodyType = z.infer<typeof PartnerShipmentAdvanceBody>;
+
+/** 선적 요청 뒤 운송 방식을 정정하는 보조 경로. 주 동선은 advance body의 체크다. */
+export const PartnerShipmentCaseRefRequestBody = z.object({
+  note: z.string().trim().max(255).nullish(),
+});
+export type PartnerShipmentCaseRefRequestBodyType = z.infer<
+  typeof PartnerShipmentCaseRefRequestBody
+>;
+
+/** 관리자 Case ID 단독 입력·정정. 실선적 전에는 advance body의 caseRef와 같은 원장이다. */
+export const AdminBomShipmentCaseRefBody = z.object({
+  caseRef: z.string().trim().min(1).max(100),
+});
+export type AdminBomShipmentCaseRefBodyType = z.infer<typeof AdminBomShipmentCaseRefBody>;
 
 // ── 상업송장 생성기(D23) — 레거시 InvoiceEditorModal 필드 승계 ───────────────
 // 자동 초안(발주 스냅샷·사업자정보)을 편집해 PDF(프론트 캡처)/엑셀(서버 렌더)로
@@ -858,6 +883,8 @@ export const AdminBomShipmentCrossItem = BomShipmentView.extend({
   quoteTitle: z.string(),
   /** 다음 단계가 관리자 차례(D22) — 큐 강조. */
   adminPending: z.boolean(),
+  /** 샘플피씨비 운송 요청 후 Case ID가 아직 입력되지 않은 상태. */
+  caseRefPending: z.boolean(),
 });
 export type AdminBomShipmentCrossItemType = z.infer<typeof AdminBomShipmentCrossItem>;
 
@@ -940,6 +967,11 @@ export const PartnerPoDetail = z.object({
     trackingNumber: true,
     trackingUrl: true,
     shipDate: true,
+    transport: true,
+    caseRefRequestedAt: true,
+    caseRefNote: true,
+    caseRef: true,
+    caseRefFilledAt: true,
     shippedAt: true,
     receivedAt: true,
     receivedNote: true,

@@ -81,7 +81,7 @@ import { emptyMailLogFilters, useAdminMailLogList } from '../../admin/useAdminMa
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
-import { PCB_INTL_CARRIERS } from '../../lib/pcb-carriers';
+import { INTL_CARRIERS } from '../../lib/shipment-carriers';
 import {
   PCB_EQ_REVIEW_BTN_CLS,
   pcbEqReviewState,
@@ -1345,7 +1345,7 @@ const shipPromptFieldsOf = (
         type: 'select' as const,
         // 해상은 선사보다 포워더 이름을 적는 실무라 특송 프리셋이 방해가 된다 — 빈 목록
         // (= 직접입력만). 항공은 표기 흩어짐을 막는 정식 표기 셀렉트 그대로.
-        options: shipmentTransportOf(ship.transport) === 'sea' ? [] : PCB_INTL_CARRIERS,
+        options: shipmentTransportOf(ship.transport) === 'sea' ? [] : INTL_CARRIERS,
         maxlength: 50,
         value: ship.carrier ?? '',
         placeholder: shipmentTransportOf(ship.transport) === 'sea' ? '선사 또는 포워더명' : '운송회사명',

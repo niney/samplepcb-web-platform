@@ -16,6 +16,7 @@ import {
   bomShipmentDocumentsLocked,
   bomShipmentNextStatus,
   bomShipmentPrevStatus,
+  shipmentTransportDocType,
   shipmentTransportOf,
 } from '@sp/api-contract';
 import type {
@@ -247,6 +248,10 @@ export const toShipmentView = (
     trackingNumber: shipment.trackingNumber,
     trackingUrl: shipment.trackingUrl,
     shipDate: shipment.shipDate?.toISOString().slice(0, 10) ?? null,
+    caseRefRequestedAt: shipment.caseRefRequestedAt?.toISOString() ?? null,
+    caseRefNote: shipment.caseRefNote,
+    caseRef: shipment.caseRef,
+    caseRefFilledAt: shipment.caseRefFilledAt?.toISOString() ?? null,
     shippedAt: shipment.shippedAt?.toISOString() ?? null,
     receivedAt: shipment.receivedAt?.toISOString() ?? null,
     receivedNote: shipment.receivedNote,
@@ -414,6 +419,7 @@ export const loadAdminShipmentCrossList = async (): Promise<AdminBomShipmentCros
   ]);
   return shipments.map((s) => {
     const key = s.id.toString();
+    const caseRefPending = shipmentCaseRefPending(s);
     return {
       ...toShipmentView(s, filesMap.get(key) ?? [], groupMap.get(key) ?? []),
       partnerId: Number(s.po.partnerId),
@@ -421,6 +427,7 @@ export const loadAdminShipmentCrossList = async (): Promise<AdminBomShipmentCros
       quoteId: String(s.quoteId),
       quoteTitle: s.po.quote.title,
       adminPending: isShipmentAdminPending(s),
+      caseRefPending,
     };
   });
 };
@@ -1249,6 +1256,9 @@ export type ShipmentUpsertResult =
         | 'PARTNER_COUNTRY_REQUIRED'
         | 'MISSING_PACKING_LIST'
         | 'MISSING_TRACKING'
+        | 'CASE_REF_REQUIRED'
+        | 'MISSING_AWB_FILE'
+        | 'MISSING_BL_FILE'
         | 'RECEIVE_REQUIRED';
     };
 
@@ -1262,6 +1272,7 @@ const shippedStatusOf = (mode: BomShipmentModeType): BomShipmentStatusType =>
 export const upsertShipment = async (
   poId: bigint,
   body: AdminBomShipmentUpsertBodyType,
+  options: { caseRefRequested?: boolean; caseRefNote?: string | null } = {},
 ): Promise<ShipmentUpsertResult> => {
   const po = await prisma.spBomPo.findUnique({
     where: { id: poId },
@@ -1311,6 +1322,26 @@ export const upsertShipment = async (
 
   const shippedIdx = allowed.indexOf(shippedStatusOf(mode));
   const isShippedOrLater = allowed.indexOf(status) >= shippedIdx;
+  const caseRefBranch = mode === 'international' && existing?.caseRefRequestedAt != null;
+  if (caseRefBranch && isShippedOrLater) {
+    const effectiveCaseRef = body.caseRef === undefined ? existing.caseRef : body.caseRef;
+    if (effectiveCaseRef == null || effectiveCaseRef === '') {
+      return { ok: false, error: 'CASE_REF_REQUIRED' };
+    }
+    if (effectiveTracking === null || effectiveTracking === '') {
+      return { ok: false, error: 'MISSING_TRACKING' };
+    }
+    const needed = shipmentTransportDocType(body.transport ?? existing.transport);
+    const document = await prisma.spFile.findFirst({
+      where: { refType: SHIPMENT_FILE_REF_TYPE, refId: existing.id, fileType: needed },
+    });
+    if (document === null) {
+      return {
+        ok: false,
+        error: needed === 'bill_of_lading' ? 'MISSING_BL_FILE' : 'MISSING_AWB_FILE',
+      };
+    }
+  }
   const isFinal = status === finalStatusOf(mode);
   const data = {
     status,
@@ -1333,6 +1364,12 @@ export const upsertShipment = async (
     // 출고예정일은 국외 통관 흐름에만 존재한다. 과거 국내 값은 지우지 않되 새로 저장하지 않는다.
     ...(mode === 'international' && body.shipDate !== undefined
       ? { shipDate: parseShipDate(body.shipDate) }
+      : {}),
+    ...(options.caseRefRequested === true && status === 'requested'
+      ? { caseRefRequestedAt: new Date(), caseRefNote: options.caseRefNote ?? null }
+      : {}),
+    ...(body.caseRef != null && body.caseRef !== ''
+      ? { caseRef: body.caseRef, caseRefFilledAt: new Date() }
       : {}),
     // 발송 시점은 최초 진입에 박제(되돌려도 유지), 최종완료는 이탈 시 해제(레거시 관례)
     shippedAt: existing?.shippedAt ?? (isShippedOrLater ? new Date() : null),
@@ -1447,6 +1484,10 @@ export type PartnerShipmentError =
   | 'MISSING_INVOICE_FILE'
   | 'MISSING_PACKING_LIST'
   | 'MISSING_TRACKING'
+  | 'CASE_REF_REQUIRED'
+  | 'CASE_REF_LOCKED'
+  | 'MISSING_AWB_FILE'
+  | 'MISSING_BL_FILE'
   | 'INVALID_GROUP_PO'
   | 'NOT_PREPARING'
   | 'PARTNER_COUNTRY_REQUIRED';
@@ -1521,16 +1562,35 @@ export const advancePartnerShipment = async (
     }
   }
 
-  const saved = await upsertShipment(poId, {
-    status: next,
-    ...(body.shipDate !== undefined ? { shipDate: body.shipDate } : {}),
-    // 운송수단은 협력사 '선적 요청'에 얹혀 온다 — 국내 게이트·전환 정리는 upsert 가 한다.
-    ...(body.transport !== undefined ? { transport: body.transport } : {}),
-    ...(body.carrier !== undefined ? { carrier: body.carrier } : {}),
-    ...(body.trackingNumber !== undefined ? { trackingNumber: body.trackingNumber } : {}),
-    ...(body.trackingUrl !== undefined ? { trackingUrl: body.trackingUrl } : {}),
-  });
-  if (!saved.ok) return { ok: false, error: 'PO_NOT_FOUND' };
+  const saved = await upsertShipment(
+    poId,
+    {
+      status: next,
+      ...(body.shipDate !== undefined ? { shipDate: body.shipDate } : {}),
+      // 운송수단은 협력사 '선적 요청'에 얹혀 온다 — 국내 게이트·전환 정리는 upsert 가 한다.
+      ...(body.transport !== undefined ? { transport: body.transport } : {}),
+      ...(body.carrier !== undefined ? { carrier: body.carrier } : {}),
+      ...(body.trackingNumber !== undefined ? { trackingNumber: body.trackingNumber } : {}),
+      ...(body.trackingUrl !== undefined ? { trackingUrl: body.trackingUrl } : {}),
+    },
+    {
+      caseRefRequested: body.caseRefRequested === true,
+      caseRefNote: body.caseRefNote ?? null,
+    },
+  );
+  if (!saved.ok) {
+    if (
+      saved.error === 'PARTNER_COUNTRY_REQUIRED' ||
+      saved.error === 'MISSING_PACKING_LIST' ||
+      saved.error === 'MISSING_TRACKING' ||
+      saved.error === 'CASE_REF_REQUIRED' ||
+      saved.error === 'MISSING_AWB_FILE' ||
+      saved.error === 'MISSING_BL_FILE'
+    ) {
+      return { ok: false, error: saved.error };
+    }
+    return { ok: false, error: 'PO_NOT_FOUND' };
+  }
   return { ok: true, advancedTo: next };
 };
 
@@ -1550,6 +1610,48 @@ export const revertPartnerShipment = async (
   if (bomShipmentActorOf(mode, current) !== 'PARTNER') return { ok: false, error: 'NOT_YOUR_TURN' };
   const saved = await upsertShipment(poId, { status: prev });
   if (!saved.ok) return { ok: false, error: 'PO_NOT_FOUND' };
+  return { ok: true };
+};
+
+/** Case ID 사후 요청 — 주 동선은 선적 요청 폼의 발송 방식 선택이다. 실선적 전에는
+ *  메모 정정용으로 허용하고, 발송·입고 뒤에는 원장을 잠근다. */
+export const requestBomShipmentCaseRef = async (
+  poId: bigint,
+  partnerId: bigint,
+  note: string | null,
+): Promise<PartnerShipmentResult> => {
+  const po = await loadPartnerPo(poId, partnerId);
+  if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  const shipment = linkedShipment(po);
+  if (shipment === null) return { ok: false, error: 'NOTHING_TO_REVERT' };
+  if (asShipmentMode(shipment.mode) !== 'international') {
+    return { ok: false, error: 'NOT_YOUR_TURN' };
+  }
+  if (shipment.shippedAt !== null || shipment.receivedAt !== null) {
+    return { ok: false, error: 'CASE_REF_LOCKED' };
+  }
+  await prisma.spBomShipment.update({
+    where: { id: shipment.id },
+    data: { caseRefRequestedAt: new Date(), caseRefNote: note },
+  });
+  return { ok: true };
+};
+
+/** 관리자 Case ID 단독 입력·정정 — 입고 전까지 오타 교정을 허용한다. */
+export const fillBomShipmentCaseRef = async (
+  poId: bigint,
+  caseRef: string,
+): Promise<PartnerShipmentResult> => {
+  const link = await prisma.spBomShipmentPo.findUnique({
+    where: { poId },
+    include: { shipment: true },
+  });
+  if (link === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  if (link.shipment.receivedAt !== null) return { ok: false, error: 'CASE_REF_LOCKED' };
+  await prisma.spBomShipment.update({
+    where: { id: link.shipment.id },
+    data: { caseRef, caseRefFilledAt: new Date() },
+  });
   return { ok: true };
 };
 
@@ -1857,12 +1959,24 @@ export const isShipmentAdminPending = (row: {
   mode: string;
   status: string;
   receivedAt: Date | null;
+  caseRefRequestedAt: Date | null;
+  caseRef: string | null;
 }): boolean => {
   if (row.receivedAt !== null) return false;
+  if (shipmentCaseRefPending(row)) return true;
   const mode = asShipmentMode(row.mode);
   const next = bomShipmentNextStatus(mode, asShipmentStatus(mode, row.status));
   return next !== null && bomShipmentActorOf(mode, next) === 'ADMIN';
 };
+
+const shipmentCaseRefPending = (row: {
+  receivedAt: Date | null;
+  caseRefRequestedAt: Date | null;
+  caseRef: string | null;
+}): boolean =>
+  row.receivedAt === null &&
+  row.caseRefRequestedAt !== null &&
+  (row.caseRef === null || row.caseRef === '');
 
 /** 전역 파생 1회 로드 — byQuote(칩)·total(배지). §6.10: 묶음이 여러 Case 를 걸칠 수
  * 있어 byQuote 는 조인 소속 발주서들의 quoteId 전부에 찍는다. total 은 선적 단위. */
@@ -1876,6 +1990,8 @@ export const loadShipmentAdminPending = async (): Promise<{
       mode: true,
       status: true,
       receivedAt: true,
+      caseRefRequestedAt: true,
+      caseRef: true,
       pos: { select: { po: { select: { quoteId: true } } } },
     },
   });
@@ -2021,6 +2137,11 @@ export const toPartnerPoDetail = (
             trackingNumber: shipment.trackingNumber,
             trackingUrl: shipment.trackingUrl,
             shipDate: shipment.shipDate,
+            transport: shipment.transport,
+            caseRefRequestedAt: shipment.caseRefRequestedAt,
+            caseRefNote: shipment.caseRefNote,
+            caseRef: shipment.caseRef,
+            caseRefFilledAt: shipment.caseRefFilledAt,
             shippedAt: shipment.shippedAt,
             receivedAt: shipment.receivedAt,
             receivedNote: shipment.receivedNote,
