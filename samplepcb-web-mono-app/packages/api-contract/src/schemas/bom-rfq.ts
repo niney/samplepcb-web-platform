@@ -145,7 +145,7 @@ export type AdminBomRfqSelectionBodyType = z.infer<typeof AdminBomRfqSelectionBo
 export const AdminBomRfqSelectionResponse = z.object({ result: z.literal(true) });
 export type AdminBomRfqSelectionResponseType = z.infer<typeof AdminBomRfqSelectionResponse>;
 
-// ── 관리자 회신 비교용 정확 MPN 공급사 강제 최신조회 ─────────────
+// ── 관리자 회신 비교용 선정 부품 MPN 공급사 강제 최신조회 ──────────
 
 export const ADMIN_BOM_LIVE_SUPPLIERS = ['digikey', 'mouser', 'unikeyic'] as const;
 export const AdminBomLiveSupplier = z.enum(ADMIN_BOM_LIVE_SUPPLIERS);
@@ -209,7 +209,7 @@ export const AdminBomSupplierRefreshView = z.object({
   progress: z.number().int().min(0).max(100),
   message: z.string(),
   error: z.string().nullable(),
-  exactItemCount: z.number().int().nonnegative(),
+  selectedItemCount: z.number().int().nonnegative(),
   suppliers: z.array(AdminBomSupplierAttemptSummary),
   rows: z.array(AdminBomSupplierComparisonRow),
 });

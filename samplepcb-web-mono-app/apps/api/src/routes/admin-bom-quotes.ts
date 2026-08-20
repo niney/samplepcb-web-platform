@@ -549,6 +549,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           error: 'CANDIDATE_NOT_EXACT',
           message: '정확 품번 일치 후보가 아니어서 선택할 수 없습니다.',
         },
+        'candidate-not-current': {
+          error: 'CANDIDATE_NOT_CURRENT',
+          message: '현재 선정된 부품 후보가 아닙니다. 최신 내용을 확인해 주세요.',
+        },
         'offer-not-found': {
           error: 'OFFER_NOT_FOUND',
           message: '선택한 공급사 구매 조건이 후보 스냅샷에 없습니다.',

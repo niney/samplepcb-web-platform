@@ -177,6 +177,17 @@ const EnginePassiveDefaults = z.object({
   capacitor_dielectric_policy: z.literal('capacitance-aware-conservative'),
 }).strict();
 
+const EngineSupplierIdentityOverride = z.object({
+  part_number: z.string().min(1).max(191),
+  manufacturer: z.string().max(191).nullable(),
+}).strict();
+
+export interface BomSupplierIdentityOverrideInput {
+  componentId: string;
+  partNumber: string;
+  manufacturer: string | null;
+}
+
 function enginePassiveDefaults(
   defaults: BomQuotePassiveDefaultsBodyType,
 ): z.infer<typeof EnginePassiveDefaults> {
@@ -220,6 +231,30 @@ function componentIdsFromSearchOptions(
     (componentId): componentId is string =>
       typeof componentId === 'string' && componentId !== '',
   );
+}
+
+function identityOverridesFromSearchOptions(
+  options: Prisma.JsonValue | undefined,
+): BomSupplierIdentityOverrideInput[] {
+  if (
+    options === undefined
+    || options === null
+    || typeof options !== 'object'
+    || Array.isArray(options)
+    || options.identity_overrides === null
+    || typeof options.identity_overrides !== 'object'
+    || Array.isArray(options.identity_overrides)
+  ) return [];
+  return Object.entries(options.identity_overrides).flatMap(([componentId, value]) => {
+    const parsed = EngineSupplierIdentityOverride.safeParse(value);
+    return componentId !== '' && parsed.success
+      ? [{
+          componentId,
+          partNumber: parsed.data.part_number,
+          manufacturer: parsed.data.manufacturer,
+        }]
+      : [];
+  });
 }
 
 function persistedSearchOptions(
@@ -368,6 +403,7 @@ async function applyCompletedSupplierResult(
         ? {
             allowedStatuses: ['requested', 'reviewing'],
             preserveCurrentSelections: true,
+            selectedIdentityOfferRefresh: true,
           }
         : {}),
     },
@@ -429,6 +465,7 @@ export async function autoEnrichQuote(
     storedPartPrioritySearchEnabled?: boolean;
     procurementMode?: BomQuoteProcurementModeType;
     forceLive?: boolean;
+    identityOverrides?: readonly BomSupplierIdentityOverrideInput[];
     purpose?: 'admin_rfq_compare';
     allowedStatuses?: readonly ('draft' | 'requested' | 'reviewing')[];
     enforceMemberDailyLimit?: boolean;
@@ -465,6 +502,15 @@ export async function autoEnrichQuote(
   const storedPartPrioritySearchEnabled =
     options.storedPartPrioritySearchEnabled
     ?? config.storedPartPrioritySearchEnabled;
+  const identityOverrides = Object.fromEntries(
+    (options.identityOverrides ?? []).map((identity) => [
+      identity.componentId,
+      {
+        part_number: identity.partNumber,
+        manufacturer: identity.manufacturer,
+      } satisfies Prisma.InputJsonObject,
+    ]),
+  ) satisfies Prisma.InputJsonObject;
   const baseSearchOptions = {
     max_calls: config.supplierSearchMaxCalls,
     cache_only: false,
@@ -472,6 +518,9 @@ export async function autoEnrichQuote(
     force_live: options.forceLive === true,
     sheet_indexes: sheetIndexes,
     component_ids: [...(options.componentIds ?? [])],
+    ...(Object.keys(identityOverrides).length === 0
+      ? {}
+      : { identity_overrides: identityOverrides }),
     ...(passiveDefaultsPayload === null
       ? {}
       : { passive_defaults: passiveDefaultsPayload }),
@@ -901,9 +950,13 @@ export async function healEnrichment(
       log.warn({ quoteId: key, searchRunId: String(run.id), jobId }, '엔진 잡 소멸 — 영속 분석으로 공급사 검색 재시작');
       const passiveDefaults = passiveDefaultsFromSearchOptions(run.options);
       const runPolicy = supplierSearchRunPolicyFromOptions(run.options);
+      const identityOverrides = identityOverridesFromSearchOptions(run.options);
       await autoEnrichQuote(quoteId, mbId, log, {
         force: true,
         componentIds: componentIdsFromSearchOptions(run.options),
+        ...(identityOverrides.length === 0
+          ? {}
+          : { identityOverrides }),
         ...(passiveDefaults === null ? {} : { passiveDefaults }),
         ...(runPolicy.localCatalogBypass
           ? { bypassLocalCatalog: true }

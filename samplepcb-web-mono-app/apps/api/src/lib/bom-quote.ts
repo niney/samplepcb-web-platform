@@ -121,6 +121,22 @@ export function filterActiveQuoteItems<
 }
 
 /**
+ * 현재 행의 기술 identity 후보 키. 협력사 구매조건을 선택하면 DB 포인터는 null이 되지만
+ * 기술 판정 스냅샷은 유지되므로 matchEvidence의 선정 키를 안전한 폴백으로 사용한다.
+ */
+export function selectedTechnicalCandidateKey(item: {
+  selectedCandidateKey: string | null;
+  matchEvidence: unknown;
+}): string | null {
+  if (item.selectedCandidateKey !== null && item.selectedCandidateKey !== '') {
+    return item.selectedCandidateKey;
+  }
+  const evidence = BomQuoteMatchEvidence.safeParse(item.matchEvidence);
+  const key = evidence.success ? evidence.data.selectedCandidateKey : null;
+  return key === null || key === '' ? null : key;
+}
+
+/**
  * 자체·외부 카탈로그 보강이 필요한지 판정한다.
  *
  * 수량 미입력 행은 견적 합계에서는 제외하지만, 기술 후보를 미리 선정하려면 최초 검색은
@@ -2937,6 +2953,132 @@ export async function applyEngineSupplierResult(
   };
 }
 
+/**
+ * 관리자 회신 비교의 선정 부품 MPN 최신조회 결과를 기존 기술 후보에 병합한다.
+ *
+ * 엔진은 선정 MPN을 exact 질의로 조회해 구매 조건의 재고·MOQ·가격·추천을 판정한다.
+ * 그러나 그 exact는 "선정 identity에 대한 조회 관계"이지 원본 BOM과의 기술 관계가
+ * 아니다. 따라서 기존 후보의 spec-compatible/exact 판정과 candidateKey는 보존하고,
+ * 같은 엔진 identityKey의 3사 supplier_offer만 교체한다.
+ */
+export function applyEngineSelectedIdentityOfferResult(
+  items: readonly BomQuoteItemInputType[],
+  existingCandidateSnapshots: readonly QuoteCandidateSnapshotInput[],
+  envelopeValue: unknown,
+  log?: Pick<FastifyBaseLogger, 'warn'>,
+): ApplyEngineSupplierResult {
+  const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
+  if (
+    !parsed.success
+    || parsed.data.procurement_decision_contract_status !== 'current'
+    || parsed.data.search.components.some((component) =>
+      component.procurement_decision === null
+      || component.procurement_decision === undefined)
+  ) {
+    return {
+      applied: false,
+      candidateSnapshots: [],
+      searchTraceSnapshots: [],
+      processedRowIndexes: [],
+    };
+  }
+
+  const components = new Map(
+    parsed.data.search.components.map((component) => [component.component_id, component]),
+  );
+  const candidatesByRowIdx = new Map<number, StoredCandidateType[]>();
+  for (const snapshot of existingCandidateSnapshots) {
+    const candidates = candidatesByRowIdx.get(snapshot.rowIdx) ?? [];
+    candidates.push(snapshot.candidate);
+    candidatesByRowIdx.set(snapshot.rowIdx, candidates);
+  }
+  const liveSuppliers = new Set<string>(ADMIN_BOM_LIVE_SUPPLIERS);
+  const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
+  const searchTraceSnapshots: QuoteSearchTraceSnapshotInput[] = [];
+  const processedRowIndexes: number[] = [];
+  const searchTraceParseFailures: { componentId: string; issues: ParsedEngineSearchTrace['issues'] }[] = [];
+
+  for (const item of items) {
+    const componentId = item.sourceRow?.componentId;
+    if (typeof componentId !== 'string' || componentId === '') continue;
+    const component = components.get(componentId);
+    if (component === undefined) continue;
+    const selectedKey = selectedTechnicalCandidateKey(item);
+    if (selectedKey === null) continue;
+    const currentCandidates = candidatesByRowIdx.get(item.rowIdx) ?? [];
+    const current = currentCandidates.find((candidate) => candidate.candidateKey === selectedKey);
+    if (
+      current === undefined
+      || !current.manualSelectable
+      || current.identityKey === ''
+      || current.mpn.trim() === ''
+      || normalizeMpn(current.mpn) !== normalizeMpn(item.mpn)
+    ) continue;
+
+    const parsedTrace = parseEngineSearchTrace(component.search_trace);
+    if (parsedTrace.issues.length > 0) {
+      searchTraceParseFailures.push({ componentId, issues: parsedTrace.issues });
+    }
+    if (parsedTrace.trace !== null) {
+      searchTraceSnapshots.push({
+        rowIdx: item.rowIdx,
+        componentId,
+        trace: parsedTrace.trace,
+      });
+    }
+
+    const refreshedOffers = new Map<string, StoredCandidateOfferType>();
+    for (const group of buildCandidateGroups(component, true)) {
+      if (
+        group.snapshot.identityKey !== current.identityKey
+        || group.snapshot.selectionMode !== 'exact'
+        || !group.snapshot.manualSelectable
+      ) continue;
+      for (const offer of group.snapshot.offers) {
+        if (
+          offer.offerKind === 'supplier_offer'
+          && liveSuppliers.has(offer.supplier.toLocaleLowerCase())
+        ) refreshedOffers.set(offer.offerKey, offer);
+      }
+    }
+
+    const retainedOffers = current.offers.filter((offer) =>
+      offer.offerKind !== 'supplier_offer'
+      || !liveSuppliers.has(offer.supplier.toLocaleLowerCase()));
+    const refreshedCurrent: StoredCandidateType = {
+      ...current,
+      offers: [
+        ...retainedOffers,
+        ...[...refreshedOffers.values()].sort((left, right) =>
+          left.supplier.localeCompare(right.supplier)
+          || left.offerKey.localeCompare(right.offerKey)),
+      ],
+    };
+    candidateSnapshots.push(...currentCandidates.map((candidate) => ({
+      rowIdx: item.rowIdx,
+      candidate: candidate.candidateKey === selectedKey ? refreshedCurrent : candidate,
+    })));
+    processedRowIndexes.push(item.rowIdx);
+  }
+
+  if (searchTraceParseFailures.length > 0) {
+    log?.warn(
+      {
+        traceFailureCount: searchTraceParseFailures.length,
+        traceFailures: searchTraceParseFailures.slice(0, 20),
+        omittedTraceFailureCount: Math.max(0, searchTraceParseFailures.length - 20),
+      },
+      '선정 부품 공급사 최신조회 trace 계약 불일치 — 구매 조건만 생략합니다',
+    );
+  }
+  return {
+    applied: true,
+    candidateSnapshots,
+    searchTraceSnapshots,
+    processedRowIndexes,
+  };
+}
+
 function storedOfferInput(offer: StoredCandidateOfferType): BomOfferInput {
   return {
     supplier: offer.supplier,
@@ -4097,8 +4239,88 @@ const ADMIN_LIVE_SUPPLIER_ORDER = new Map<string, number>(
   ADMIN_BOM_LIVE_SUPPLIERS.map((supplier, index) => [supplier, index] as const),
 );
 
+function selectedCandidateForSupplierRefresh(
+  item: { selectedCandidateKey: string | null; matchEvidence: unknown; mpn: string },
+  candidates: readonly StoredCandidateType[],
+): StoredCandidateType | null {
+  const selectedKey = selectedTechnicalCandidateKey(item);
+  if (selectedKey === null) return null;
+  const candidate = candidates.find((entry) => entry.candidateKey === selectedKey) ?? null;
+  return candidate !== null
+    && candidate.manualSelectable
+    && candidate.identityKey !== ''
+    && candidate.mpn.trim() !== ''
+    && normalizeMpn(candidate.mpn) === normalizeMpn(item.mpn)
+    ? candidate
+    : null;
+}
+
+export interface AdminBomSupplierRefreshTarget {
+  itemId: string;
+  componentId: string;
+  candidateKey: string;
+  identityKey: string;
+  partNumber: string;
+  manufacturer: string | null;
+}
+
+/** 선정된 기술 후보가 있고 MPN identity를 엔진 키로 검증할 수 있는 활성 행만 조회한다. */
+export async function getAdminBomSupplierRefreshTargets(
+  quoteId: bigint,
+): Promise<AdminBomSupplierRefreshTarget[] | null> {
+  const quote = await prisma.spBomQuote.findUnique({
+    where: { id: quoteId },
+    select: {
+      sheets: { select: { sheetIndex: true, selected: true } },
+      items: {
+        orderBy: { rowIdx: 'asc' },
+        select: {
+          id: true,
+          included: true,
+          sourceSheetIndex: true,
+          sourceRow: true,
+          mpn: true,
+          selectedCandidateKey: true,
+          matchEvidence: true,
+          candidates: {
+            orderBy: { technicalRank: 'asc' },
+            select: { payload: true },
+          },
+        },
+      },
+    },
+  });
+  if (quote === null) return null;
+  const targets = filterActiveQuoteItems(quote.items, quote.sheets).flatMap((item) => {
+    if (!item.included) return [];
+    const sourceRow = item.sourceRow !== null
+      && typeof item.sourceRow === 'object'
+      && !Array.isArray(item.sourceRow)
+      ? item.sourceRow
+      : null;
+    const componentId = sourceRow?.componentId;
+    if (typeof componentId !== 'string' || componentId === '') return [];
+    const candidates = item.candidates.flatMap((row) => {
+      const parsed = StoredCandidate.safeParse(row.payload);
+      return parsed.success ? [parsed.data] : [];
+    });
+    const selected = selectedCandidateForSupplierRefresh(item, candidates);
+    return selected === null
+      ? []
+      : [{
+          itemId: String(item.id),
+          componentId,
+          candidateKey: selected.candidateKey,
+          identityKey: selected.identityKey,
+          partNumber: selected.mpn,
+          manufacturer: selected.manufacturerName,
+        }];
+  });
+  return [...new Map(targets.map((target) => [target.componentId, target] as const)).values()];
+}
+
 /**
- * RFQ 비교 모달용 정확 MPN 공급사 구매조건 읽기 모델.
+ * RFQ 비교 모달용 선정 부품 공급사 구매조건 읽기 모델.
  * 공급사 재조회 결과는 기존 후보 스냅샷에 박제되므로 엔진 잡의 수명과
  * 무관하게 재현한다. 선정 가능 여부·수량 적용가는 저장된 엔진 판정을 그대로
  * 투영하고 Node에서 재판정하지 않는다.
@@ -4120,6 +4342,8 @@ export async function getAdminBomSupplierComparisonRows(
           included: true,
           sourceSheetIndex: true,
           bomQty: true,
+          mpn: true,
+          selectedCandidateKey: true,
           matchEvidence: true,
           candidates: {
             orderBy: { technicalRank: 'asc' },
@@ -4137,27 +4361,24 @@ export async function getAdminBomSupplierComparisonRows(
   return activeItems.flatMap((item) => {
     const candidates = item.candidates.flatMap((row) => {
       const parsed = StoredCandidate.safeParse(row.payload);
-      return parsed.success && parsed.data.selectionMode === 'exact'
-        ? [parsed.data]
-        : [];
+      return parsed.success ? [parsed.data] : [];
     });
-    const evidence = BomQuoteMatchEvidence.safeParse(item.matchEvidence);
-    const exactMatch = evidence.success && evidence.data.selectionMode === 'exact';
-    if (!exactMatch && candidates.length === 0) return [];
+    const selected = selectedCandidateForSupplierRefresh(item, candidates);
+    if (selected === null) return [];
     const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
-    const offers = candidates.flatMap((candidate) => candidate.offers.flatMap((offer) => {
+    const offers = selected.offers.flatMap((offer) => {
       const supplier = offer.supplier.toLocaleLowerCase();
       if (!ADMIN_LIVE_SUPPLIER_ORDER.has(supplier) || offer.offerKind !== 'supplier_offer') {
         return [];
       }
       return [{
-        candidateKey: candidate.candidateKey,
-        candidateMpn: candidate.mpn,
-        candidateManufacturerName: candidate.manufacturerName,
-        candidateManualSelectable: candidate.manualSelectable,
+        candidateKey: selected.candidateKey,
+        candidateMpn: selected.mpn,
+        candidateManufacturerName: selected.manufacturerName,
+        candidateManualSelectable: selected.manualSelectable,
         offer: candidateOfferView(offer, needed, rate),
       }];
-    })).sort((left, right) =>
+    }).sort((left, right) =>
       (ADMIN_LIVE_SUPPLIER_ORDER.get(left.offer.supplier.toLocaleLowerCase()) ?? 99)
         - (ADMIN_LIVE_SUPPLIER_ORDER.get(right.offer.supplier.toLocaleLowerCase()) ?? 99)
       || (left.offer.applied?.lineTotalKrw ?? Number.MAX_SAFE_INTEGER)
@@ -4228,6 +4449,7 @@ export type QuoteCandidateSelectionResult =
   | 'candidate-not-found'
   | 'candidate-blocked'
   | 'candidate-not-exact'
+  | 'candidate-not-current'
   | 'offer-not-found'
   | 'supplier-not-allowed'
   | 'offer-not-priced';
@@ -4236,6 +4458,7 @@ interface QuoteCandidateSelectionOptions {
   source?: 'customer' | 'admin';
   force?: boolean;
   requireExactMatch?: boolean;
+  requireCurrentSelection?: boolean;
   allowedSuppliers?: readonly string[];
   transaction?: Prisma.TransactionClient;
   runtimeConfig?: Awaited<ReturnType<typeof getBomQuoteRuntimeConfig>>;
@@ -4258,6 +4481,10 @@ export async function applyQuoteCandidateSelection(
   const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
   const itemRow = activeRows.find((row) => row.id === itemId);
   if (itemRow === undefined) return 'item-not-found';
+  if (
+    options?.requireCurrentSelection === true
+    && selectedTechnicalCandidateKey(itemRow) !== candidateKeyValue
+  ) return 'candidate-not-current';
   const candidateRow = await db.spBomQuoteCandidate.findUnique({
     where: { quoteItemId_candidateKey: { quoteItemId: itemId, candidateKey: candidateKeyValue } },
   });
@@ -5551,13 +5778,22 @@ export async function refreshQuoteFromSupplierResult(
     targeted?: boolean;
     allowedStatuses?: readonly string[];
     preserveCurrentSelections?: boolean;
+    selectedIdentityOfferRefresh?: boolean;
   } = {},
 ): Promise<boolean> {
   const key = `${String(quoteId)}:${supplierSearchRunId === undefined ? 'legacy' : String(supplierSearchRunId)}`;
   const inFlight = engineRefreshInFlight.get(key);
   if (inFlight !== undefined) return inFlight;
   const run = (async (): Promise<boolean> => {
-    const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
+    const quote = await prisma.spBomQuote.findUnique({
+      where: { id: quoteId },
+      include: {
+        items: {
+          include: { candidates: { orderBy: { technicalRank: 'asc' } } },
+        },
+        sheets: true,
+      },
+    });
     const allowedStatuses = options.allowedStatuses ?? ['draft'];
     if (quote === null || !allowedStatuses.includes(quote.status)) return false;
     const config = await getBomQuoteRuntimeConfig();
@@ -5565,15 +5801,27 @@ export async function refreshQuoteFromSupplierResult(
     const currentItems = activeRows.map((row) => toItemDto(row));
     const evaluatedItems = activeRows.map((row) => toItemDto(row));
     const resolvedEnvelope = await applyLocalCatalogFallback(envelope, log);
-    const applied = await applyEngineSupplierResult(
-      evaluatedItems,
-      resolvedEnvelope,
-      quote.setQty,
-      quote.spareQty,
-      config.usdKrwRate,
-      log,
-      options.targeted !== true,
-    );
+    const existingCandidateSnapshots = activeRows.flatMap((row) =>
+      row.candidates.flatMap((candidateRow) => {
+        const candidate = StoredCandidate.safeParse(candidateRow.payload);
+        return candidate.success ? [{ rowIdx: row.rowIdx, candidate: candidate.data }] : [];
+      }));
+    const applied = options.selectedIdentityOfferRefresh === true
+      ? applyEngineSelectedIdentityOfferResult(
+          currentItems,
+          existingCandidateSnapshots,
+          resolvedEnvelope,
+          log,
+        )
+      : await applyEngineSupplierResult(
+          evaluatedItems,
+          resolvedEnvelope,
+          quote.setQty,
+          quote.spareQty,
+          config.usdKrwRate,
+          log,
+          options.targeted !== true,
+        );
     if (!applied.applied) return false;
     const preserveCurrentSelections = options.preserveCurrentSelections === true;
     const appliedRate = preserveCurrentSelections

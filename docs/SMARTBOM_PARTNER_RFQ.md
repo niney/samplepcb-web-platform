@@ -197,8 +197,11 @@ BOM_RFQ_STATUS: requested ─(협력사 회신 저장)→ quoted ─(quote answe
 ```
 
 공급사 열(파생)의 갱신: **[회신 비교·선정] 클릭을 명시적 최신조회 트리거로 삼는다.**
-sp-node가 현재 scope의 엔진 `selectionMode='exact'` component만 고르고, sp-engine은 전역 캐시를
-지우지 않은 채 읽기만 miss로 취급하는 `force_live` 잡으로 3사를 모두 시도한다.
+sp-node가 현재 scope에서 엔진 후보가 선정되어 제조사·MPN identity를 특정할 수 있는 component를
+고르고, sp-engine은 그 선정 identity를 exact 질의로 사용한다. 전역 캐시는 지우지 않고 읽기만
+miss로 취급하는 `force_live` 잡으로 3사를 모두 시도한다. 원본 BOM과의 기술 관계
+(`exact`·`spec-compatible` 등)와 현재 후보 키는 보존하고, 엔진 identityKey가 같은 후보의
+구매 조건만 갱신한다.
 화면은 이전 스냅샷을 즉시 보이고 공급사별 진행·결과·실패를 폴링한다. 재조회는 현재
 선정 값을 자동 교체하지 않고 후보·trace만 갱신하며, 관리자가 [선정 적용]할 때만 박제한다.
 동일 MPN 반복 행의 API 요청은 엔진 배치/single-flight가 재사용하고, 행별 실효가는 각
@@ -211,7 +214,7 @@ sp-node가 현재 scope의 엔진 `selectionMode='exact'` component만 고르고
 POST /api/admin/bom-quotes/:id/rfqs            RFQ diff 발송 (+메일)
 GET  /api/admin/bom-quotes/:id/rfqs            회신 현황(문서+행)
 POST /api/admin/bom-quotes/:id/select-partner  행별 선정/해제 (+스냅샷·재계산)
-POST /api/admin/bom-quotes/:id/supplier-offer-refresh  정확 MPN 3사 강제 라이브 갱신 킥
+POST /api/admin/bom-quotes/:id/supplier-offer-refresh  선정 부품 MPN 3사 강제 라이브 갱신 킥
 GET  /api/admin/bom-quotes/:id/supplier-offer-refresh  진행률·공급사별 결과·비교 구매조건
 
 GET  /api/partner/rfqs                         포털 워크큐 (requirePartner)
@@ -1442,6 +1445,6 @@ PCB 국제 선적을 기준으로 BOM 국제 선적에도 **누가 운송을 계
 연결 문서 레지스트리 / RFQ 응답률 지표(후속) / Case 표시 채번.
 
 **조정**: ① 12단계는 고정 상태머신이 아니라 **파생 표시 타임라인**(상태 계층에서 계산 — 경직 회피)
-② 공급사 "회신 등록"은 수동이 아니라 **구매 조건 원장 자동 파생 + [회신 비교·선정] 진입=정확 MPN 3사 백그라운드 최신조회**
+② 공급사 "회신 등록"은 수동이 아니라 **구매 조건 원장 자동 파생 + [회신 비교·선정] 진입=선정 부품 MPN 3사 백그라운드 최신조회**
 ③ 모듈 스위처는 **2모듈(통합 관리·스마트 BOM)로 시작**, 4영역(PCB·PCBA·기술개발)은 자리만 —
 기존 메뉴 재배치는 각 모듈이 실제로 생길 때.

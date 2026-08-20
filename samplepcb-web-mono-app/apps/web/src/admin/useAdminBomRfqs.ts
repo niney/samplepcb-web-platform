@@ -27,7 +27,7 @@ export function useAdminBomRfqs(quoteId: Ref<string | null>) {
   });
 }
 
-/** 회신 비교 진입 시 시작한 정확 MPN 3사 최신조회 상태·결과. */
+/** 회신 비교 진입 시 시작한 선정 부품 MPN 3사 최신조회 상태·결과. */
 export function useAdminSupplierOfferRefresh(
   quoteId: Ref<string | null>,
   enabled: Ref<boolean>,
@@ -74,7 +74,7 @@ export function useSendBomRfqs() {
   });
 }
 
-// 행별 협력사 회신/정확 MPN 공급사 통합 선정 — 서버가 스냅샷 박제+재계산.
+// 행별 협력사 회신/선정 부품 공급사 통합 선정 — 서버가 스냅샷 박제+재계산.
 export function useSelectRfqReply() {
   const qc = useQueryClient();
   return useMutation({

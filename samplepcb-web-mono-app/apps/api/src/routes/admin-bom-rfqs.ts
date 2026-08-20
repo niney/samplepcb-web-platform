@@ -29,10 +29,9 @@ import { buildBomRfqRequestEmail, magicReplyUrl, sendBomRfqMail } from '../lib/r
 import { engineFetch } from '../lib/engine-client';
 import {
   applyQuoteCandidateSelection,
-  filterActiveQuoteItems,
   getAdminBomSupplierAttemptSummaries,
   getAdminBomSupplierComparisonRows,
-  toItemDto,
+  getAdminBomSupplierRefreshTargets,
 } from '../lib/bom-quote';
 import { supplierSearchRunPolicyFromOptions } from '../lib/bom-supplier-search-policy';
 import { autoEnrichQuote, healEnrichment } from './bom-quotes';
@@ -94,7 +93,7 @@ async function adminSupplierRefreshView(
     progress,
     message,
     error: run?.error ?? null,
-    exactItemCount: rows.length,
+    selectedItemCount: rows.length,
     suppliers: await getAdminBomSupplierAttemptSummaries(run?.id ?? null, status, rows),
     rows,
   };
@@ -114,7 +113,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     },
   );
 
-  // ── POST — diff 발송 ────────────────────────────────────────────────────────
+  // ── 선정 부품 MPN 3사 강제 최신조회 + 비교 읽기 모델 ────────────────
   fastify.post(
     '/bom-quotes/:id/supplier-offer-refresh',
     {
@@ -163,19 +162,9 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           message: '진행 중인 공급사 확인이 완료된 뒤 다시 시도해 주세요.',
         });
       }
-      const componentIds = [...new Set(
-        filterActiveQuoteItems(quote.items, quote.sheets).flatMap((row) => {
-          if (!row.included) return [];
-          const item = toItemDto(row);
-          const componentId = item.sourceRow?.componentId;
-          return item.matchEvidence?.selectionMode === 'exact'
-            && typeof componentId === 'string'
-            && componentId !== ''
-            ? [componentId]
-            : [];
-        }),
-      )];
-      if (componentIds.length === 0) {
+      const targets = await getAdminBomSupplierRefreshTargets(quote.id) ?? [];
+      const componentIds = targets.map((target) => target.componentId);
+      if (targets.length === 0) {
         const current = await adminSupplierRefreshView(quote.id);
         if (current === null) return reply.notFound('견적을 찾을 수 없습니다');
         return {
@@ -185,15 +174,20 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
             runId: null,
             status: 'completed' as const,
             progress: 100,
-            message: '최신 시세를 조회할 정확 품번 일치 품목이 없습니다.',
+            message: '최신 시세를 조회할 선정 부품 품번이 없습니다.',
             error: null,
-            exactItemCount: 0,
+            selectedItemCount: 0,
           },
         };
       }
       const runId = await autoEnrichQuote(quote.id, quote.mbId, request.log, {
         force: true,
         componentIds,
+        identityOverrides: targets.map((target) => ({
+          componentId: target.componentId,
+          partNumber: target.partNumber,
+          manufacturer: target.manufacturer,
+        })),
         bypassLocalCatalog: true,
         forceLive: true,
         purpose: 'admin_rfq_compare',
@@ -210,7 +204,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       if (data === null) return reply.notFound('견적을 찾을 수 없습니다');
       return {
         result: true as const,
-        data: { ...data, runId: String(runId), exactItemCount: componentIds.length },
+        data: { ...data, runId: String(runId), selectedItemCount: targets.length },
       };
     },
   );
@@ -250,7 +244,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     },
   );
 
-  // ── 정확 MPN 3사 강제 최신조회 + 비교 읽기 모델 ─────────────────────
+  // ── POST — RFQ diff 발송 ─────────────────────────────────────────────
   fastify.post(
     '/bom-quotes/:id/rfqs',
     {
@@ -432,7 +426,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           request.user.mbId,
           {
             source: 'admin',
-            requireExactMatch: true,
+            requireCurrentSelection: true,
             allowedSuppliers: ADMIN_BOM_LIVE_SUPPLIERS,
             transaction: tx,
           },

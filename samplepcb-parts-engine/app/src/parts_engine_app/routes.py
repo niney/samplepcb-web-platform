@@ -31,10 +31,25 @@ from supplier_search_engine.procurement import (
 )
 
 from .capabilities import supplier_search_capabilities
-from .jobs import Job, JobError, JobService, SupplierSearchOptions
+from .jobs import (
+    Job,
+    JobError,
+    JobService,
+    SupplierIdentityOverride,
+    SupplierSearchOptions,
+)
 from .refresh import refresh_part, refresh_parts, search_catalog
 
 router = APIRouter()
+
+
+class SupplierIdentityOverrideBody(BaseModel):
+    """sp-node가 선정 후보 스냅샷에서 확정한 조회 identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    part_number: str = Field(min_length=1, max_length=191)
+    manufacturer: str | None = Field(default=None, max_length=191)
 
 
 class SupplierSearchOptionsBody(BaseModel):
@@ -48,6 +63,10 @@ class SupplierSearchOptionsBody(BaseModel):
     # 로컬 SamplePCB 카탈로그가 해결하지 못한 대형 BOM의 부분집합을 그대로
     # 외부 검색에 넘긴다. 추출 엔진의 기본 component 상한(5,000)과 맞춘다.
     component_ids: list[str] = Field(default_factory=list, max_length=5_000)
+    identity_overrides: dict[str, SupplierIdentityOverrideBody] = Field(
+        default_factory=dict,
+        max_length=5_000,
+    )
     passive_defaults: PassiveRequirementDefaults | None = None
     procurement: ProcurementPolicyInput = Field(default_factory=ProcurementPolicyInput)
 
@@ -65,6 +84,12 @@ class SupplierSearchOptionsBody(BaseModel):
             raise ValueError("component_ids cannot contain blanks")
         if len(set(self.component_ids)) != len(self.component_ids):
             raise ValueError("component_ids cannot contain duplicates")
+        if any(not component_id.strip() for component_id in self.identity_overrides):
+            raise ValueError("identity_overrides cannot contain blank component ids")
+        if self.identity_overrides and not self.component_ids:
+            raise ValueError("identity_overrides require component_ids")
+        if set(self.identity_overrides) - set(self.component_ids):
+            raise ValueError("identity_overrides must be a subset of component_ids")
         return self
 
     def to_options(self) -> SupplierSearchOptions:
@@ -75,6 +100,13 @@ class SupplierSearchOptionsBody(BaseModel):
             force_live=self.force_live,
             sheet_indexes=tuple(self.sheet_indexes),
             component_ids=tuple(self.component_ids),
+            identity_overrides={
+                component_id: SupplierIdentityOverride(
+                    part_number=identity.part_number,
+                    manufacturer=identity.manufacturer,
+                )
+                for component_id, identity in self.identity_overrides.items()
+            },
             procurement_policy=self.procurement,
         )
 

@@ -15,6 +15,7 @@ import {
   analysisComponentLookupWhere,
   adminQuoteSelectionBlockReason,
   applyEngineSupplierResult,
+  applyEngineSelectedIdentityOfferResult,
   buildItemsFromEngineResult,
   canTransition,
   catalogIngestRunReady,
@@ -1522,6 +1523,123 @@ function componentProcurementDecision(
 }
 
 describe('BOM 엔진 후보 결정 투영', () => {
+  it('선정 MPN 최신조회는 기존 기술 관계를 유지하고 같은 identity의 3사 구매조건만 교체한다', () => {
+    const items = buildItemsFromEngineResult(ENGINE_RESULT, [1]);
+    const item = items[0];
+    const componentId = item?.sourceRow?.componentId;
+    if (item === undefined || typeof componentId !== 'string') {
+      throw new Error('테스트 견적 행의 componentId가 없습니다');
+    }
+
+    const original = candidate('spec_compatible', 'KGM05AR71E104KH', 'mouser', 90, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      selectionRecommendation: 'preselect',
+      verificationComplete: true,
+      strictCategoryCoverage: true,
+      manufacturer: 'KYOCERA AVX',
+    });
+    attachProcurementDecision(original, 'ok2:stale-mouser', 'automatic', 1, 'supplier-offer-key-v2');
+    const originalDecision = selectEngineMatch({
+      component_id: componentId,
+      status: 'spec_compatible',
+      procurement_decision: componentProcurementDecision(
+        'automatic_recommended',
+        'ok2:stale-mouser',
+        1,
+      ),
+      candidates: [original],
+    }, 1, null);
+    const originalSnapshot = originalDecision?.snapshots[0];
+    if (originalSnapshot === undefined) throw new Error('기존 후보 스냅샷이 없습니다');
+    item.mpn = originalSnapshot.mpn;
+    item.manufacturerName = originalSnapshot.manufacturerName;
+    item.selectedCandidateKey = originalSnapshot.candidateKey;
+    item.selectionSource = 'auto';
+
+    const refreshedDigiKey = candidate(
+      'verified_exact',
+      'KGM05AR71E104KH',
+      'digikey',
+      70,
+      1,
+      {
+        currentDecisionContract: true,
+        decisionPolicyVersion: 'supplier-candidate-decision-v3',
+        identityKey: 'ik1:engine-choice',
+        technicalEvidenceKey: 'ek1:selected-identity-refresh',
+        selectionRecommendation: 'preselect',
+        manufacturer: 'KYOCERA AVX',
+      },
+    );
+    attachProcurementDecision(
+      refreshedDigiKey,
+      'ok2:fresh-digikey',
+      'automatic',
+      1,
+      'supplier-offer-key-v2',
+    );
+    const differentIdentity = candidate('verified_exact', 'KGM05AR71E104KH', 'unikeyic', 60, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      identityKey: 'ik1:different-manufacturer',
+      technicalEvidenceKey: 'ek1:selected-identity-refresh',
+      selectionRecommendation: 'preselect',
+      manufacturer: 'Different Manufacturer',
+    });
+    attachProcurementDecision(
+      differentIdentity,
+      'ok2:different-identity',
+      'automatic',
+      1,
+      'supplier-offer-key-v2',
+    );
+
+    const result = applyEngineSelectedIdentityOfferResult(
+      items,
+      [{ rowIdx: item.rowIdx, candidate: originalSnapshot }],
+      {
+        supplier_search_schema_version: '1.7',
+        procurement_decision_contract_status: 'current',
+        search: {
+          search_schema_version: '1.7',
+          components: [{
+            component_id: componentId,
+            status: 'verified_exact',
+            procurement_decision: componentProcurementDecision(
+              'automatic_recommended',
+              'ok2:fresh-digikey',
+              1,
+              {
+                applicationEvidenceKey: 'ek1:selected-identity-refresh',
+              },
+            ),
+            candidates: [refreshedDigiKey, differentIdentity],
+          }],
+        },
+      },
+    );
+
+    expect(result.applied).toBe(true);
+    expect(result.processedRowIndexes).toEqual([item.rowIdx]);
+    expect(result.candidateSnapshots).toHaveLength(1);
+    expect(result.candidateSnapshots[0]?.candidate).toMatchObject({
+      candidateKey: originalSnapshot.candidateKey,
+      identityKey: 'ik1:engine-choice',
+      selectionMode: 'spec-compatible',
+      technicalEvidenceKey: 'ek1:engine-choice',
+    });
+    expect(result.candidateSnapshots[0]?.candidate.offers.map((offer) => offer.offerKey))
+      .toEqual(['ok2:fresh-digikey']);
+    expect(item).toMatchObject({
+      selectedCandidateKey: originalSnapshot.candidateKey,
+      selectionSource: 'auto',
+      mpn: 'KGM05AR71E104KH',
+    });
+  });
+
   it('수량 누락이어도 엔진의 안전 기술 1순위를 견적 제외 상태로 선정한다', () => {
     const technical = candidate('spec_compatible', 'WR04X1001FTL', 'samplepcb', 1, 1, {
       currentDecisionContract: true,

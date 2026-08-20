@@ -16,6 +16,7 @@ from bom_extraction_engine import SmartbomConfig, build_smartbom_result
 from supplier_search_engine.contract import (
     PassiveRequirementDefaults,
     SearchBatchInput,
+    SearchField,
     UserSearchRequirements,
     build_batch_from_result,
 )
@@ -40,6 +41,14 @@ class JobError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class SupplierIdentityOverride:
+    """선정된 부품 identity를 같은 분석 component의 exact 질의로 사용한다."""
+
+    part_number: str
+    manufacturer: str | None = None
+
+
+@dataclass(frozen=True)
 class SupplierSearchOptions:
     """공급사 검색 실행 전에 확정하는 안전 옵션.
 
@@ -55,6 +64,7 @@ class SupplierSearchOptions:
     force_live: bool = False
     sheet_indexes: tuple[int, ...] = ()
     component_ids: tuple[str, ...] = ()
+    identity_overrides: dict[str, SupplierIdentityOverride] = field(default_factory=dict)
     procurement_policy: ProcurementPolicyInput = field(
         default_factory=ProcurementPolicyInput
     )
@@ -416,29 +426,65 @@ class JobService:
             job.result,
             sheet_indexes=set(options.sheet_indexes) if options.sheet_indexes else None,
         )
-        components = [
-            component.model_copy(
-                update={
-                    "required_quantity": (
-                        job.supplier_required_quantities.get(
-                            component.component_id,
-                            component.required_quantity,
-                        )
-                        if component.procurement_disposition
-                        == ProcurementDisposition.ELIGIBLE
-                        and component.quantity_resolution == QuantityResolution.VERIFIED
-                        else component.required_quantity
-                    ),
-                    "user_requirements": job.supplier_requirement_overrides.get(
-                        component.component_id
-                    ),
-                    "requirement_defaults": job.supplier_requirement_defaults,
-                }
+        requested_component_ids = set(options.component_ids)
+        components = []
+        for component in batch.components:
+            if requested_component_ids and component.component_id not in requested_component_ids:
+                continue
+            identity = options.identity_overrides.get(component.component_id)
+            fields = component.fields
+            input_alternatives = component.input_alternatives
+            user_requirements = job.supplier_requirement_overrides.get(
+                component.component_id
             )
-            for component in batch.components
-            if not options.component_ids
-            or component.component_id in set(options.component_ids)
-        ]
+            if identity is not None:
+                # 원본 추출 provenance는 job.result에 그대로 둔다. 실행 배치에서만 선정된
+                # identity를 명시 MPN 질의로 덮어써, 원본 품번이 없던 spec 후보도 같은
+                # 부품의 3사 구매 조건을 exact 경로로 갱신한다. 이 경우 사용자가 입력한
+                # 파라메트릭 보완조건보다 선정 identity가 우선한다.
+                fields = dict(component.fields)
+                fields["part_number"] = SearchField(
+                    value=identity.part_number.strip(),
+                    status="review",
+                )
+                manufacturer = (
+                    identity.manufacturer.strip()
+                    if identity.manufacturer is not None
+                    and identity.manufacturer.strip()
+                    else None
+                )
+                fields["manufacturer"] = SearchField(
+                    value=manufacturer,
+                    status="review" if manufacturer is not None else "not_found",
+                )
+                input_alternatives = {
+                    key: alternatives
+                    for key, alternatives in component.input_alternatives.items()
+                    if key not in {"part_number", "manufacturer"}
+                }
+                user_requirements = None
+            components.append(
+                component.model_copy(
+                    update={
+                        "required_quantity": (
+                            job.supplier_required_quantities.get(
+                                component.component_id,
+                                component.required_quantity,
+                            )
+                            if component.procurement_disposition
+                            == ProcurementDisposition.ELIGIBLE
+                            and component.quantity_resolution
+                            == QuantityResolution.VERIFIED
+                            else component.required_quantity
+                        ),
+                        "user_requirements": user_requirements,
+                        "requirement_defaults": job.supplier_requirement_defaults,
+                        "fields": fields,
+                        "input_alternatives": input_alternatives,
+                    },
+                    deep=True,
+                )
+            )
         if options.component_ids and {
             component.component_id for component in components
         } != set(options.component_ids):
@@ -477,6 +523,15 @@ class JobService:
             raise JobError("supplier_component_id_invalid")
         if len(set(options.component_ids)) != len(options.component_ids):
             raise JobError("supplier_component_id_duplicate")
+        if any(
+            not component_id.strip() or not identity.part_number.strip()
+            for component_id, identity in options.identity_overrides.items()
+        ):
+            raise JobError("supplier_identity_override_invalid")
+        if options.identity_overrides and not options.component_ids:
+            raise JobError("supplier_identity_override_requires_components")
+        if set(options.identity_overrides) - set(options.component_ids):
+            raise JobError("supplier_identity_override_component_mismatch")
 
     @staticmethod
     def _analysis_elapsed_ms(job: Job) -> float | None:

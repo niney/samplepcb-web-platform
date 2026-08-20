@@ -17,6 +17,7 @@ from parts_engine_app.jobs import (
     Job,
     JobError,
     JobService,
+    SupplierIdentityOverride,
     SupplierSearchOptions,
     _LiveReadCache,
 )
@@ -626,6 +627,74 @@ def test_persisted_user_requirements_and_component_filter_reach_search_batch(tmp
     query = QueryPlanner().plan(batch.components[0])
     assert query.mode == SearchMode.PARAMETRIC
     assert query.requirements["package"].status == "user"
+
+
+def test_supplier_job_selected_identity_override_plans_exact_mpn_without_mutating_analysis(
+    tmp_path,
+):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    original_batch = build_batch_from_result(analysis)
+    component_id = original_batch.components[0].component_id
+    original_part_number = original_batch.components[0].fields["part_number"].value
+
+    created = client.post("/supplier-jobs", json={"analysis": analysis})
+    assert created.status_code == 201, created.text
+    supplier_job = client.app.state.jobs.get(created.json()["job_id"])
+    batch = client.app.state.jobs._supplier_batch(
+        supplier_job,
+        SupplierSearchOptions(
+            max_calls=5,
+            component_ids=(component_id,),
+            identity_overrides={
+                component_id: SupplierIdentityOverride(
+                    part_number="KGM05AR71E104KH",
+                    manufacturer="KYOCERA AVX",
+                )
+            },
+        ),
+    )
+
+    query = QueryPlanner().plan(batch.components[0])
+    assert query.part_number == "KGM05AR71E104KH"
+    assert query.manufacturer == "KYOCERA AVX"
+    assert query.mode in {SearchMode.IDENTITY, SearchMode.HYBRID}
+    assert batch.components[0].user_requirements is None
+    persisted_batch = build_batch_from_result(supplier_job.result)
+    assert persisted_batch.components[0].fields["part_number"].value == original_part_number
+
+
+def test_supplier_identity_override_requires_matching_component_scope(tmp_path):
+    client = _client(tmp_path)
+    missing_scope = client.post(
+        "/jobs/missing/supplier-search/preflight",
+        json={
+            "max_calls": 5,
+            "identity_overrides": {
+                "component-a": {"part_number": "KGM05AR71E104KH"}
+            },
+        },
+    )
+    assert missing_scope.status_code == 422
+
+    mismatched_scope = client.post(
+        "/jobs/missing/supplier-search/preflight",
+        json={
+            "max_calls": 5,
+            "component_ids": ["component-b"],
+            "identity_overrides": {
+                "component-a": {"part_number": "KGM05AR71E104KH"}
+            },
+        },
+    )
+    assert mismatched_scope.status_code == 422
 
 
 def test_v2_connector_requirements_reach_preflight_batch(tmp_path):

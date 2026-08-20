@@ -19,7 +19,7 @@ import {
 import BomRfqChoiceCheckbox from './BomRfqChoiceCheckbox.vue';
 
 // 품목 × 조달처 매트릭스 비교·선정. 행=부품행, 열=[현재 선정]+
-// [DigiKey·Mouser·UniKeyIC 강제 최신조회]+[사람 협력사 회신].
+// [선정 부품 MPN의 DigiKey·Mouser·UniKeyIC 강제 최신조회]+[사람 협력사 회신].
 // 적용은 행별 선정 API 순차 호출 — 서버가 스냅샷 박제+재계산(감사 이벤트 포함)한다.
 
 const props = defineProps<{
@@ -482,7 +482,7 @@ const fmtFetchedAt = (value: string): string => new Date(value).toLocaleString('
     <div class="flex max-h-[92vh] w-full max-w-[96vw] flex-col rounded-2xl bg-surface p-6 shadow-2xl">
       <div class="flex flex-wrap items-center gap-3">
         <h2 class="text-lg font-bold">협력사 회신·공급사 시세 비교·선정</h2>
-        <span class="text-xs text-gray-500">회신 협력사 {{ quotedRfqs.length }}곳 · 정확 품번 {{ refreshData?.exactItemCount ?? 0 }}행 · 전체 {{ scopeItems.length }}행</span>
+        <span class="text-xs text-gray-500">회신 협력사 {{ quotedRfqs.length }}곳 · 선정 부품 {{ refreshData?.selectedItemCount ?? 0 }}행 · 전체 {{ scopeItems.length }}행</span>
         <button
           type="button"
           class="ml-auto rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-wait disabled:opacity-40"
@@ -575,7 +575,7 @@ const fmtFetchedAt = (value: string): string => new Date(value).toLocaleString('
                   </span>
                 </BomRfqChoiceCheckbox>
               </td>
-              <!-- API 공급사 정확 MPN 강제 최신조회 셀 -->
+              <!-- API 공급사 선정 부품 MPN 강제 최신조회 셀 -->
               <td
                 v-for="supplier in ADMIN_BOM_LIVE_SUPPLIERS"
                 :key="supplier"
