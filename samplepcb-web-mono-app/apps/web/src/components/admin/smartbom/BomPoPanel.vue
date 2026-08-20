@@ -139,7 +139,7 @@ function moveTable(direction: -1 | 1): void {
         <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-emerald-200 bg-white text-sm hover:bg-emerald-100" aria-label="발주 표 왼쪽으로 이동" @click="moveTable(-1)">←</button>
         <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-emerald-200 bg-white text-sm hover:bg-emerald-100" aria-label="발주 표 오른쪽으로 이동" @click="moveTable(1)">→</button>
       </div>
-      <table class="min-w-[960px] divide-y divide-gray-100 text-xs">
+      <table class="w-full min-w-[960px] divide-y divide-gray-100 text-xs">
         <thead class="bg-gray-50 text-left text-gray-500">
           <tr>
             <th class="whitespace-nowrap px-3 py-2">구매처</th>
