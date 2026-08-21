@@ -981,6 +981,58 @@ def test_non_orderable_rows_are_excluded_only_with_structural_evidence():
     assert "customer_supplied" in supplied["disposition_reason_codes"]
 
 
+def test_rigid_flex_fabrication_row_with_board_revision_identity_is_excluded():
+    case = _case(
+        [
+            "NO",
+            "DESC/REMARK",
+            "PACKAGE",
+            "VALUE",
+            "MAKER PART NO",
+            "Maker",
+            "Q'ty",
+            "TOP/BOT Reference",
+        ],
+        [
+            {
+                "row_id": 11,
+                "cells": [
+                    "1",
+                    "PCB_4LAYER MLB+FPCB 2L",
+                    "",
+                    "RIGID : 4L/0.8T FPCB : 2L/0.2T",
+                    "GLUCOSE RING_REV01",
+                    "",
+                    "1",
+                    "GLUCOSE RING_REV01_B'd",
+                ],
+            },
+            {
+                "row_id": 12,
+                "cells": [
+                    "2",
+                    "CHARGE CONTROLLER",
+                    "SOT23-5",
+                    "4.2V",
+                    "MCP73831T-2ACI_OT",
+                    "MICROCHIP",
+                    "1",
+                    "U101",
+                ],
+            },
+        ],
+    )
+
+    board, controller = _adapt(case)[0]
+
+    assert board["part_number"] == "RING_REV01"
+    assert board["search_disposition"] == "excluded"
+    assert board["procurement_disposition"] == "excluded"
+    assert board["disposition_reason_codes"] == ["pcb_feature"]
+    assert controller["search_disposition"] == "search"
+    assert "pcb_feature" not in controller["quality_flags"]
+
+
 def test_led_color_abbreviations_are_contextual_and_conflicts_remain_reviewable():
     case = _case(
         ["Type", "Value", "Description", "Package", "Q'ty", "Reference"],

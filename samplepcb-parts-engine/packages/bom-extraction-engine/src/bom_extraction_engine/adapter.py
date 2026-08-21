@@ -194,7 +194,8 @@ _PCB_FEATURE_TEXT = re.compile(
 _PCB_FABRICATION = re.compile(
     r"\b(?:FR-?4|ENIG|HASL|\d+\s*layers?|\d+(?:\.\d+)?\s*oz|"
     r"copper\s+weight|board\s+thickness|pcb\s+fabrication)\b"
-    r"|PCB\s*(?:두께|층수)|\d+\s*층",
+    r"|PCB\s*(?:두께|층수)|\d+\s*층"
+    r"|(?:^|[^A-Z0-9])\d+\s*L(?:AYERS?)?(?![A-Z0-9])",
     re.I,
 )
 _PASSIVE_FOOTPRINT_PREFIX = re.compile(
@@ -1313,18 +1314,21 @@ class _SheetAdapter:
         feature_expression = " ".join(
             item for item in (type_context, value_raw, footprint, description) if item
         )
+        strong_pcb_fabrication = bool(
+            re.search(r"\bF?PCB\b", feature_expression, re.I)
+            and _PCB_FABRICATION.search(feature_expression)
+        )
         pcb_feature = bool(
-            not has_genuine_identity
-            and (
-                any(
-                    _GENERIC_PCB_FEATURE.fullmatch(item.strip())
-                    for item in (type_context, value_raw, footprint, description)
-                    if item
-                )
-                or bool(_PCB_FEATURE_TEXT.search(feature_expression))
-                or bool(
-                    re.search(r"\bF?PCB\b", feature_expression, re.I)
-                    and _PCB_FABRICATION.search(feature_expression)
+            strong_pcb_fabrication
+            or (
+                not has_genuine_identity
+                and (
+                    any(
+                        _GENERIC_PCB_FEATURE.fullmatch(item.strip())
+                        for item in (type_context, value_raw, footprint, description)
+                        if item
+                    )
+                    or bool(_PCB_FEATURE_TEXT.search(feature_expression))
                 )
             )
         )

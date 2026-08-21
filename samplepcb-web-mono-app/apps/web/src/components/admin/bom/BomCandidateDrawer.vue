@@ -1578,8 +1578,15 @@ function candidateHasCatalogInquiry(candidate: BomQuoteCandidateType): boolean {
     && candidate.offers.every((offer) => offer.offerKind === 'manufacturer_catalog');
 }
 
+function candidateDisplayLineTotal(candidate: BomQuoteCandidateType): number | null {
+  return candidateSelectedOffer(candidate) !== null && candidate.selected
+    ? props.context?.currentLineTotalKrw ?? candidate.bestLineTotalKrw
+    : candidate.bestLineTotalKrw;
+}
+
 function candidateTotalLabel(candidate: BomQuoteCandidateType): string {
-  if (candidate.bestLineTotalKrw !== null) return fmtWon(candidate.bestLineTotalKrw);
+  const lineTotal = candidateDisplayLineTotal(candidate);
+  if (lineTotal !== null) return fmtWon(lineTotal);
   if (candidateHasCatalogInquiry(candidate)) return '문의 견적';
   if (props.context?.procurementUnavailabilityReason === 'input_incomplete') {
     return '수량 확인 후 계산';
@@ -1609,8 +1616,18 @@ function candidateBestOffer(candidate: BomQuoteCandidateType): BomQuoteCandidate
   return candidate.offers.find((offer) => offer.offerKey === candidate.bestOfferKey) ?? null;
 }
 
-function candidateBestOfferUnitLabel(candidate: BomQuoteCandidateType): string | null {
-  const offer = candidateBestOffer(candidate);
+function candidateSelectedOffer(candidate: BomQuoteCandidateType): BomQuoteCandidateOfferType | null {
+  const selectedOfferKey = props.context?.selectedOfferKey;
+  if (!candidate.selected || selectedOfferKey === null || selectedOfferKey === undefined) return null;
+  return candidate.offers.find((offer) => offer.offerKey === selectedOfferKey) ?? null;
+}
+
+function candidateDisplayOffer(candidate: BomQuoteCandidateType): BomQuoteCandidateOfferType | null {
+  return candidateSelectedOffer(candidate) ?? candidateBestOffer(candidate);
+}
+
+function candidateDisplayOfferUnitLabel(candidate: BomQuoteCandidateType): string | null {
+  const offer = candidateDisplayOffer(candidate);
   const applied = offer?.applied;
   if (offer === null || applied === null || applied === undefined) return null;
   if (applied.unitPriceKrw === null) return `${fmtUnit(offer)}/개`;
@@ -1620,13 +1637,21 @@ function candidateBestOfferUnitLabel(candidate: BomQuoteCandidateType): string |
   return `${applied.currency === 'KRW' ? '' : '약 '}${unitPrice}원/개`;
 }
 
-function candidateHasSevereBestOffer(candidate: BomQuoteCandidateType): boolean {
-  const offer = candidateBestOffer(candidate);
+function candidateDisplayOfferCaption(candidate: BomQuoteCandidateType): string | null {
+  const offer = candidateSelectedOffer(candidate);
+  if (offer === null) return null;
+  const packaging = offer.packaging ?? '포장 미상';
+  const moq = offer.moq === null ? 'MOQ 미확인' : `MOQ ${offer.moq.toLocaleString('ko-KR')}`;
+  return `사용 중 · ${offer.supplier} · ${packaging} · ${moq}`;
+}
+
+function candidateHasSevereDisplayOffer(candidate: BomQuoteCandidateType): boolean {
+  const offer = candidateDisplayOffer(candidate);
   return offer !== null && severeOfferSurplus(offer);
 }
 
-function candidateBestOfferSurplusLabel(candidate: BomQuoteCandidateType): string {
-  const offer = candidateBestOffer(candidate);
+function candidateDisplayOfferSurplusLabel(candidate: BomQuoteCandidateType): string {
+  const offer = candidateDisplayOffer(candidate);
   return offer === null ? '' : offerSurplusLabel(offer);
 }
 
@@ -1651,12 +1676,12 @@ function candidateOfferIssueSummary(candidate: BomQuoteCandidateType): string | 
   const needed = props.context?.neededQty ?? props.needed;
   const counts = summarizeBomQuoteCandidateOfferIssues(candidate.offers, needed);
   const labels: string[] = [];
-  if (counts.priceUnavailable > 0) labels.push(`가격/환율 없음 ${String(counts.priceUnavailable)}`);
-  if (counts.outOfStock > 0) labels.push(`재고 없음 ${String(counts.outOfStock)}`);
-  if (counts.insufficientStock > 0) labels.push(`재고 부족 ${String(counts.insufficientStock)}`);
-  if (counts.stockUnverified > 0) labels.push(`재고 미확인 ${String(counts.stockUnverified)}`);
-  if (counts.excessiveOrder > 0) labels.push(`주문수량 과다 ${String(counts.excessiveOrder)}`);
-  if (counts.other > 0) labels.push(`기타 조건 ${String(counts.other)}`);
+  if (counts.priceUnavailable > 0) labels.push(`가격/환율 없음 ${String(counts.priceUnavailable)}건`);
+  if (counts.outOfStock > 0) labels.push(`재고 없음 ${String(counts.outOfStock)}건`);
+  if (counts.insufficientStock > 0) labels.push(`재고 부족 ${String(counts.insufficientStock)}건`);
+  if (counts.stockUnverified > 0) labels.push(`재고 미확인 ${String(counts.stockUnverified)}건`);
+  if (counts.excessiveOrder > 0) labels.push(`과다 주문 조건 ${String(counts.excessiveOrder)}건`);
+  if (counts.other > 0) labels.push(`기타 조건 ${String(counts.other)}건`);
   return labels.length === 0 ? null : labels.join(' · ');
 }
 
@@ -1915,6 +1940,9 @@ function candidateActionLabel(candidate: BomQuoteCandidateType): string {
   if (candidate.bestOfferKey === null && candidateHasCatalogInquiry(candidate)) {
     return candidate.selected ? '선정됨 · 문의 진행' : '문의 견적';
   }
+  if (candidate.bestOfferKey === null && candidateSelectedOffer(candidate) !== null) {
+    return '현재 구매 조건';
+  }
   if (!candidate.manualSelectable) return '선택 불가';
   if (candidate.bestOfferKey === null) return candidateUnavailableLabel(candidate);
   if (provisionalSelectionPending.value && candidate.selected) return '검토 완료';
@@ -1935,6 +1963,7 @@ function candidateActionDisabledReason(candidate: BomQuoteCandidateType): string
       ? '부품은 선정됐습니다. 실제 재고 확인과 가격 문의 후 구매 조건을 확정합니다.'
       : '제조사 카탈로그 취급 부품입니다. 실제 재고 확인과 가격 문의가 필요합니다.';
   }
+  if (candidate.bestOfferKey === null && candidateSelectedOffer(candidate) !== null) return null;
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
   if (candidate.bestOfferKey === null) {
     const issueSummary = candidateOfferIssueSummary(candidate);
@@ -3008,17 +3037,18 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
                         <div class="w-full shrink-0 rounded-lg border border-slate-200 bg-surface p-3 md:w-52">
-                          <p class="text-xs text-slate-400">필요수량 기준 최적 구매 조건</p>
+                          <p class="text-xs text-slate-400">{{ candidateSelectedOffer(candidate) !== null ? '현재 선정 구매 조건' : '필요수량 기준 최적 구매 조건' }}</p>
                           <strong class="mt-0.5 block text-lg tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
-                          <p v-if="candidateBestOfferUnitLabel(candidate) !== null" class="mt-0.5 text-xs tabular-nums text-slate-500">단가 {{ candidateBestOfferUnitLabel(candidate) }}</p>
-                          <p v-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
+                          <p v-if="candidateDisplayOfferUnitLabel(candidate) !== null" class="mt-0.5 text-xs tabular-nums text-slate-500">단가 {{ candidateDisplayOfferUnitLabel(candidate) }}</p>
+                          <p v-if="candidateDisplayOfferCaption(candidate) !== null" class="mt-1 text-[11px] font-semibold text-blue-700">{{ candidateDisplayOfferCaption(candidate) }}</p>
+                          <p v-else-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
                           <p v-else class="mt-1 text-xs font-bold" :class="candidateUnavailableLabel(candidate) === '재고 없음' ? 'text-red-700' : 'text-amber-700'">{{ candidateOfferIssueSummary(candidate) ?? candidateUnavailableLabel(candidate) }}</p>
                           <p
-                            v-if="candidateHasSevereBestOffer(candidate)"
+                            v-if="candidateHasSevereDisplayOffer(candidate)"
                             class="mt-1 rounded bg-orange-100 px-2 py-1 text-[11px] font-bold leading-4 text-orange-800"
-                            :title="candidateBestOfferSurplusLabel(candidate)"
+                            :title="candidateDisplayOfferSurplusLabel(candidate)"
                           >
-                            과다 주문수량 · 자동추천 제외
+                            주문수량 과다 · 자동추천 제외
                           </p>
                           <p v-if="candidate.savingsVsTechnicalKrw !== null && candidate.savingsVsTechnicalKrw > 0" class="mt-1 text-[11px] text-slate-500">기술 1위 대비 {{ fmtWon(candidate.savingsVsTechnicalKrw) }} 절감 {{ fmtRate(candidate.savingsVsTechnicalRate) }}</p>
                           <button
@@ -3074,7 +3104,7 @@ onBeforeUnmount(() => {
                               <span class="text-xs text-slate-500">{{ offer.supplierSku || 'SKU 미확인' }}</span>
                               <span v-if="offer.packaging" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">{{ offer.packaging }}</span>
                               <span v-if="offerStockState(offer) !== null" class="rounded px-1.5 py-0.5 text-[11px] font-bold" :class="offerStockBadgeClass(offer)">{{ offerStockLabel(offer) }}</span>
-                              <span v-if="severeOfferSurplus(offer)" class="rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-bold text-orange-800" :title="offerSurplusLabel(offer)">과다수량 · 자동추천 제외</span>
+                              <span v-if="severeOfferSurplus(offer)" class="rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-bold text-orange-800" :title="offerSurplusLabel(offer)">주문수량 과다 · 자동추천 제외</span>
                               <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 구매 조건</span>
                               <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 구매 조건</span>
                               <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매 조건 1위</span>

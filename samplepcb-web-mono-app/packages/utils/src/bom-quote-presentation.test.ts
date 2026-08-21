@@ -197,7 +197,7 @@ describe('BOM 견적 화면 표시 집계', () => {
   it.each([
     ['confirmationRequired', { confirmationRequired: true }],
     ['provisional_selected', { selectionApplicationState: 'provisional_selected' }],
-  ] as const)('%s 플래그만 있는 일반 스펙 선정은 기존처럼 Matched로 유지한다', (_label, evidence) => {
+  ] as const)('%s 플래그가 남은 자동 선정은 명시 확인 전 Review로 표시한다', (_label, evidence) => {
     const pending = item({
       matchStatus: 'auto',
       matchEvidence: evidence as BomQuoteItemType['matchEvidence'],
@@ -205,7 +205,7 @@ describe('BOM 견적 화면 표시 집계', () => {
 
     expect(isBomQuotePendingReview(pending)).toBe(true);
     expect(isBomQuoteAlternativePendingReview(pending)).toBe(false);
-    expect(bomQuoteItemMatchGroup(pending)).toBe('matched');
+    expect(bomQuoteItemMatchGroup(pending)).toBe('review');
   });
 
   it.each([
@@ -245,7 +245,7 @@ describe('BOM 견적 화면 표시 집계', () => {
     expect(bomQuoteItemMatchGroup(alternative)).toBe('review');
   });
 
-  it('빈 대체 원품번은 일반 스펙 선정으로 유지한다', () => {
+  it('빈 대체 원품번이어도 일반 검토 플래그는 명시 확인 전 Review로 유지한다', () => {
     const pending = item({
       matchStatus: 'auto',
       matchEvidence: {
@@ -256,7 +256,7 @@ describe('BOM 견적 화면 표시 집계', () => {
     });
 
     expect(isBomQuoteAlternativePendingReview(pending)).toBe(false);
-    expect(bomQuoteItemMatchGroup(pending)).toBe('matched');
+    expect(bomQuoteItemMatchGroup(pending)).toBe('review');
   });
 
   it('명시적 수동 선택은 구버전 검토 플래그가 남아도 확정 매칭으로 본다', () => {
@@ -320,14 +320,14 @@ describe('BOM 견적 화면 표시 집계', () => {
 
     expect(stats).toEqual({
       total: 3,
-      matched: 1,
-      matchedPct: 33,
+      matched: 0,
+      matchedPct: 0,
       nostock: 0,
       nostockPct: 0,
-      review: 1,
+      review: 2,
       unmatched: 0,
       excluded: 1,
-      unresolved: 1,
+      unresolved: 2,
       included: 2,
       uncosted: 1,
       pendingReview: 1,
@@ -368,19 +368,62 @@ describe('BOM 견적 화면 표시 집계', () => {
     })).kind).toBe('technical');
   });
 
-  it('엔진이 검토 모드로 선정한 관리자 부품은 수동 선택 후에도 확인 대상으로 유지한다', () => {
+  it('엔진 review 후보도 고객·관리자가 명시 선택하면 기술 확인 완료로 본다', () => {
     expect(bomQuoteAdminAttention(item({
       matchStatus: 'manual',
       lineTotalKrw: 100,
       selectionSource: 'admin',
+      selectedCandidateKey: 'candidate-1',
+      selectedOffer: { supplier: 'digikey' } as BomQuoteItemType['selectedOffer'],
       matchEvidence: {
         selectionMode: 'review',
+        missingRequirements: ['package'],
+        technicalFallbackUsed: true,
       } as BomQuoteItemType['matchEvidence'],
-    }))).toMatchObject({
-      kind: 'technical',
-      reasons: ['engine_review'],
-      reviewRequired: true,
+    }))).toEqual({
+      kind: 'ready',
+      reasons: ['engine_review', 'requirement_missing', 'technical_fallback'],
+      reviewRequired: false,
     });
+  });
+
+  it('엔진 자동 확정·가격 산출 품목의 보조 스펙 누락과 불일치는 정보로만 유지한다', () => {
+    const attention = bomQuoteAdminAttention(item({
+      matchStatus: 'auto',
+      lineTotalKrw: 100,
+      selectedCandidateKey: 'candidate-1',
+      selectedOffer: { supplier: 'digikey' } as BomQuoteItemType['selectedOffer'],
+      matchEvidence: {
+        selectionMode: 'exact',
+        selectionApplicationState: 'automatic_selected',
+        confirmationRequired: false,
+        technicalFallbackUsed: true,
+        conflicts: ['package_mismatch'],
+        missingRequirements: ['voltage_v'],
+      } as BomQuoteItemType['matchEvidence'],
+    }));
+
+    expect(attention).toEqual({
+      kind: 'ready',
+      reasons: ['requirement_conflict', 'requirement_missing', 'technical_fallback'],
+      reviewRequired: false,
+    });
+  });
+
+  it.each([
+    ['임시 선정', { selectionApplicationState: 'provisional_selected', confirmationRequired: true }],
+    ['엔진 review', { selectionMode: 'review', selectionApplicationState: 'not_selected' }],
+  ] as const)('%s의 누락 근거는 계속 관리자 확인 대상으로 유지한다', (_label, evidence) => {
+    expect(bomQuoteAdminAttention(item({
+      matchStatus: 'auto',
+      lineTotalKrw: 100,
+      selectedCandidateKey: 'candidate-1',
+      selectedOffer: { supplier: 'digikey' } as BomQuoteItemType['selectedOffer'],
+      matchEvidence: {
+        ...evidence,
+        missingRequirements: ['package'],
+      } as BomQuoteItemType['matchEvidence'],
+    }))).toMatchObject({ kind: 'technical', reviewRequired: true });
   });
 
   it('정상 산출 품목과 제외 품목은 관리자 확인 대상이 아니다', () => {

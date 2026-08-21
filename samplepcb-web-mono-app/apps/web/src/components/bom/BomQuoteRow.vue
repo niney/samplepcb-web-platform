@@ -233,7 +233,7 @@ const rowBackgroundClass = computed(() => {
   if (quantityMissing.value) return 'bg-bom-row-review';
   if (!item.included) return 'bg-bom-table-row';
   if (severeOrderSurplus.value) return 'bg-bom-row-review';
-  if (alternativeSelectionPending.value) return 'bg-bom-row-review';
+  if (provisionalSelectionPending.value) return 'bg-bom-row-review';
   if (catalogInquiry.value) return 'bg-bom-row-inquiry';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
@@ -415,10 +415,10 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
   }
   if (provisionalSelectionPending.value) {
     return {
-      label: 'Matched',
-      helperLabel: '검토 권장',
-      toneClass: 'bg-state-matched/15 text-state-matched',
-      priceClass: 'text-state-matched',
+      label: 'Review',
+      helperLabel: '선정 확인 필요',
+      toneClass: 'bg-state-review/15 text-state-review',
+      priceClass: 'text-state-review',
       title: evidenceTitle.value,
       pulse: false,
     };

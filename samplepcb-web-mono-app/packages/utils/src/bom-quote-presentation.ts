@@ -185,8 +185,9 @@ export function isBomQuotePendingReview(item: BomQuoteItemType): boolean {
 }
 
 /**
- * 재고 부족 이후 찾은 대체품 중 아직 명시 확정되지 않은 선택만 메인 결과의 Review로 올린다.
- * 일반 스펙 검색의 안전 후보는 검토 권장 상태를 보존하되 기존처럼 Matched로 집계한다.
+ * 재고 부족 이후 찾은 대체품 중 아직 명시 확정되지 않은 선택인지 구분한다.
+ * 일반 임시 선정도 isBomQuotePendingReview에서 Review로 처리하고, 이 함수는 대체품
+ * 전용 사유와 화면 안내가 필요한 경우를 식별하는 데 사용한다.
  */
 export function isBomQuoteAlternativeReviewPending(
   matchStatus: string,
@@ -208,6 +209,7 @@ export function bomQuoteItemMatchGroup(item: BomQuoteItemType): BomQuoteItemMatc
   if (isBomQuoteEngineSearchExcluded(item)) return 'excluded';
   if (isBomQuoteAlternativePendingReview(item)) return 'review';
   if (hasBomQuoteEngineStockConstraint(item) || isBomQuoteStockShort(item)) return 'nostock';
+  if (isBomQuotePendingReview(item)) return 'review';
   if (item.matchStatus !== 'none') return 'matched';
   if (item.matchEvidence?.selectionMode === 'review') return 'review';
   return 'unmatched';
@@ -238,6 +240,23 @@ export function bomQuoteAdminAttention(item: BomQuoteItemType): BomQuoteAdminAtt
   const missingRequirementCount = Array.isArray(evidence?.missingRequirements)
     ? evidence.missingRequirements.length
     : 0;
+  // 엔진이 현재 후보를 자동·확정 적용했고 실제 구매 조건과 금액까지 산출했다면,
+  // exact MPN의 보조 스펙 누락/불일치는 정보 근거로만 남긴다. 응용 계층이 엔진의
+  // automatic_selected 판정을 다시 수동검토로 뒤집지 않는다. 임시 선정·review 관계·
+  // 차순위 적용·미산출은 아래 독립 게이트가 계속 확인 대상으로 유지한다.
+  const trustedAutomaticSelection = evidence?.selectionApplicationState === 'automatic_selected'
+    && evidence.confirmationRequired !== true
+    && item.selectedCandidateKey !== null
+    && item.selectedOffer !== null
+    && item.lineTotalKrw !== null;
+  // 고객·관리자가 후보를 명시 선택해 matchStatus=manual 이 된 행은 그 선택 자체가
+  // 기술 검토의 완료 행위다. 엔진의 과거 review/누락/차순위 근거는 감사 정보로
+  // 보존하되 관리자 대기열에서 같은 결정을 다시 요구하지 않는다.
+  const explicitTechnicalSelection = item.matchStatus === 'manual';
+  const technicalDecisionAccepted = trustedAutomaticSelection || explicitTechnicalSelection;
+  const unresolvedRequirementEvidence = (
+    conflictCount > 0 || missingRequirementCount > 0
+  ) && !technicalDecisionAccepted;
 
   if (item.quantityState === 'missing') reasons.push('quantity_missing');
   if (group === 'unmatched') reasons.push('unmatched');
@@ -277,12 +296,10 @@ export function bomQuoteAdminAttention(item: BomQuoteItemType): BomQuoteAdminAtt
   }
   if (
     group === 'review'
-    || isBomQuotePendingReview(item)
-    || evidence?.selectionMode === 'review'
+    || (evidence?.selectionMode === 'review' && !technicalDecisionAccepted)
     || lifecycleNeedsAdminAttention(item)
-    || conflictCount > 0
-    || missingRequirementCount > 0
-    || evidence?.technicalFallbackUsed === true
+    || unresolvedRequirementEvidence
+    || (evidence?.technicalFallbackUsed === true && !technicalDecisionAccepted)
     || (evidence?.searchTraceSummary?.limitReasons?.length ?? 0) > 0
   ) {
     return { kind: 'technical', reasons, reviewRequired: true };

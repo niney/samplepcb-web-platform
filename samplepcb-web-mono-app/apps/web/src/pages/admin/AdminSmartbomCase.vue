@@ -1339,7 +1339,8 @@ function adminAttentionReasonSummary(view: AdminItemView): string {
   const suffix = view.attention.reasons.length > 2
     ? ` 외 ${String(view.attention.reasons.length - 2)}`
     : '';
-  return `${labels.join(' · ')}${suffix}`;
+  const prefix = !view.pending && labels.length > 0 ? '참고 · ' : '';
+  return `${prefix}${labels.join(' · ')}${suffix}`;
 }
 
 function adminAttentionRowClass(view: AdminItemView): string {
@@ -1347,6 +1348,28 @@ function adminAttentionRowClass(view: AdminItemView): string {
     return 'border-l-4 border-l-transparent bg-surface';
   }
   return ADMIN_ATTENTION_META[view.attention.kind].rowClass;
+}
+
+function itemReviewActionLabel(view: AdminItemView): string {
+  if (view.item.adminReview.completed) return '재검토';
+  return view.attention.reasons.includes('unmatched') ? '미매칭 상태 확인' : '확인 완료';
+}
+
+async function completeItemReviews(itemIds: readonly string[]): Promise<void> {
+  const targetIds = new Set(itemIds);
+  const unmatchedCount = adminItemViews.value.filter((view) =>
+    targetIds.has(view.item.id)
+    && view.pending
+    && view.attention.reasons.includes('unmatched')).length;
+  if (
+    unmatchedCount > 0
+    && !(await confirmDialog({
+      title: '미매칭 상태 확인',
+      message: `선택한 품목 중 미매칭 ${String(unmatchedCount)}건을 현재 상태로 확인할까요?\n\n부품 선정과 가격은 생성되지 않고 금액 미산출 상태로 남습니다. 이 처리는 미매칭 해결이 아니라 관리자의 예외 수용이며, 모든 품목 확인이 끝나면 고객 회신 확정이 가능해집니다.`,
+      confirmLabel: '미매칭 상태 확인',
+    }))
+  ) return;
+  await updateItemReviews(itemIds, true);
 }
 
 async function updateItemReviews(itemIds: readonly string[], completed: boolean): Promise<void> {
@@ -2069,7 +2092,7 @@ async function downloadOriginal(): Promise<void> {
                 class="ml-auto rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
                 :disabled="itemReview.isPending.value"
                 title="현재 검색·필터에 표시된 확인 대상만 완료 처리합니다"
-                @click="updateItemReviews(visiblePendingReviewIds, true)"
+                @click="completeItemReviews(visiblePendingReviewIds)"
               >
                 표시된 {{ visiblePendingReviewIds.length }}건 확인 완료
               </button>
@@ -2230,7 +2253,9 @@ async function downloadOriginal(): Promise<void> {
                         : ADMIN_ATTENTION_META[view.attention.kind].badgeClass"
                       :title="adminAttentionTitle(view)"
                     >
-                      <template v-if="view.attention.reviewRequired && view.item.adminReview.completed">✓ 확인 완료</template>
+                      <template v-if="view.attention.reviewRequired && view.item.adminReview.completed">
+                        {{ view.attention.reasons.includes('unmatched') ? '✓ 미매칭 확인' : '✓ 확인 완료' }}
+                      </template>
                       <template v-else-if="view.item.adminReview.stale">재확인 필요</template>
                       <template v-else>{{ ADMIN_ATTENTION_META[view.attention.kind].label }}</template>
                     </span>
@@ -2297,10 +2322,16 @@ async function downloadOriginal(): Promise<void> {
                           ? 'border-gray-200 bg-surface text-gray-500 hover:bg-gray-50'
                           : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
                         :disabled="!canUpdateItemReview || reviewingItemIds.has(view.item.id)"
-                        :title="view.item.adminReview.completed ? '품목을 다시 확인 대상으로 돌립니다' : adminAttentionTitle(view)"
-                        @click="updateItemReviews([view.item.id], !view.item.adminReview.completed)"
+                        :title="view.item.adminReview.completed
+                          ? '품목을 다시 확인 대상으로 돌립니다'
+                          : view.attention.reasons.includes('unmatched')
+                            ? '부품·가격을 생성하지 않고 미매칭 상태를 예외로 확인합니다'
+                            : adminAttentionTitle(view)"
+                        @click="view.item.adminReview.completed
+                          ? updateItemReviews([view.item.id], false)
+                          : completeItemReviews([view.item.id])"
                       >
-                        {{ view.item.adminReview.completed ? '재검토' : '확인 완료' }}
+                        {{ itemReviewActionLabel(view) }}
                       </button>
                       <button
                         type="button"
