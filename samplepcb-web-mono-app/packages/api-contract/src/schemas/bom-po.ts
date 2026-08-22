@@ -100,8 +100,23 @@ export const BomPoExternalRef = z.object({
   currencyCode: z.string().nullable().optional(),
   errors: z.array(z.string()).optional(), // 공급사 행 단위 거부(품절·SKU 오류)
   error: z.string().optional(),
+  // ── D41 — Mouser 카트 실시간 상태(실행 직후·[카트 상태 확인]마다 갱신). API 카트는 웹의
+  //    '현재 장바구니'가 아니고 시간이 지나면 비워질 수 있어, "담았다"와 "지금도 담겨 있다"를 가른다.
+  checkedAt: z.string().optional(), // 마지막 확인 시각(ISO)
+  liveLineCount: z.number().int().optional(), // 확인 시점 카트 행 수(0 = 비어 있음/사라짐)
+  liveMerchandiseTotal: z.number().nullable().optional(),
+  liveCurrencyCode: z.string().nullable().optional(),
+  liveMatches: z.boolean().optional(), // 카트 내용 = 발주 품목(품번·수량) 인가
+  liveDiff: z.array(z.string()).optional(), // 불일치 요약("SKU 없음"·"수량 3→1"·"발주 외")
+  checkError: z.string().optional(), // 마지막 확인 실패 사유(네트워크·키)
+  refilledCount: z.number().int().optional(), // [다시 담기] 횟수 — 같은 CartKey 전체 교체
 });
 export type BomPoExternalRefType = z.infer<typeof BomPoExternalRef>;
+
+/** 카트 상태 확인의 신선도 창 — 이보다 오래됐으면 Case 진입 시 자동 재확인(D41). */
+export const BOM_PO_EXTERNAL_CHECK_STALE_MS = 10 * 60_000;
+export const bomPoExternalCheckStale = (checkedAt: string | undefined, now = Date.now()): boolean =>
+  checkedAt === undefined || now - new Date(checkedAt).getTime() > BOM_PO_EXTERNAL_CHECK_STALE_MS;
 
 // ── 선적(D21) — 경량 모델: 1차는 발주서당 1건 ───────────────────────────────
 // 모드는 생성 시 박제. 상태는 영문 코드 + 한글 라벨(D21-5 — 레거시 한글 리터럴 승계 안 함).

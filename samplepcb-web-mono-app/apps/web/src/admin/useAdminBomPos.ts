@@ -402,7 +402,43 @@ export function useAdminBomPackageAction() {
   });
 }
 
-// 외부 실행 재시도/재발급(D20) — Mouser 카트 담기·DigiKey single-use 리스트.
+// 외부 카트 상태 확인(D41) — Mouser 카트가 지금도 발주 품목대로 담겨 있는지 대조해 live* 로 박제.
+// 다른 워크큐 파생값과 무관하므로 발주서 목록만 갱신한다.
+export function useCheckExternalPo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, poId }: { quoteId: string; poId: number }) =>
+      apiSend(
+        'POST',
+        `${base}/${quoteId}/pos/${String(poId)}/external/check`,
+        undefined,
+        AdminBomPoMutationResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'] });
+    },
+  });
+}
+
+/** 공급사 장바구니 가져오기 파일(D41) — Bearer 필요라 <a href> 불가, blob → objectURL 저장(관례). */
+export async function downloadBomPoImportFile(
+  quoteId: string,
+  poId: number,
+  name: string,
+): Promise<void> {
+  const blob = await apiGetBlob(`${base}/${quoteId}/pos/${String(poId)}/external/import-file`);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// 외부 실행 재시도/재발급/다시 담기(D20·D41) — Mouser 는 같은 CartKey 전체 교체, DigiKey 는 새 single-use 리스트.
 export function useExecuteExternalPo() {
   const qc = useQueryClient();
   return useMutation({

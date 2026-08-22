@@ -28,6 +28,7 @@ import type {
   BomPoItemViewType,
   BomRfqReplyBodyType,
 } from '@sp/api-contract';
+import { bomPoExternalCheckStale } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
   useAddAdminBomQuoteItem,
@@ -46,7 +47,9 @@ import {
   useReissueRfqMagicLink,
 } from '../../admin/useAdminBomRfqs';
 import {
+  downloadBomPoImportFile,
   useAdminBomPos,
+  useCheckExternalPo,
   useCloseBomPo,
   useConfirmSupplierBomPo,
   useCreateBomPos,
@@ -861,6 +864,7 @@ const deletePo = useDeleteBomPo();
 const closePo = useCloseBomPo();
 const confirmSupplierPo = useConfirmSupplierBomPo();
 const executeExternal = useExecuteExternalPo();
+const checkExternal = useCheckExternalPo();
 const poBusy = computed(
   () =>
     createPos.isPending.value ||
@@ -869,9 +873,23 @@ const poBusy = computed(
     confirmSupplierPo.isPending.value ||
     executeExternal.isPending.value,
 );
+// 카트 상태 확인(D41)은 가벼운 조회라 다른 버튼을 잠그지 않고 확인 버튼만 잠근다.
+const checkingPoId = computed(() =>
+  checkExternal.isPending.value ? (checkExternal.variables.value?.poId ?? null) : null,
+);
 
-async function retryExternalPo(po: { poId: number; partnerName: string }): Promise<void> {
+// 외부 실행 재시도(실패 PO)·다시 담기(Mouser ok PO — 같은 CartKey 전체 교체, D41)
+async function retryExternalPo(po: AdminBomPoViewType): Promise<void> {
   if (detailId.value === null) return;
+  const ref = po.externalRef;
+  if (ref?.state === 'ok' && ref.cartKey !== undefined) {
+    const ok = await confirmDialog({
+      title: 'Mouser 카트 다시 담기',
+      message: `같은 CartKey(${ref.cartKey.slice(0, 8)}…) 카트의 내용을 발주 품목 ${String(po.itemCount)}행으로 다시 채웁니다(카트 내용은 발주 품목으로 교체).\n\n담은 뒤에는 바로 Mouser 에서 주문을 완료해 주세요 — API 카트는 시간이 지나면 비워질 수 있습니다.`,
+      confirmLabel: '다시 담기',
+    });
+    if (!ok) return;
+  }
   poError.value = '';
   try {
     await executeExternal.mutateAsync({ quoteId: detailId.value, poId: po.poId });
@@ -879,6 +897,52 @@ async function retryExternalPo(po: { poId: number; partnerName: string }): Promi
     poError.value = e instanceof ApiRequestError ? e.message : '외부 실행에 실패했습니다.';
   }
 }
+
+async function checkExternalPo(po: AdminBomPoViewType): Promise<void> {
+  if (detailId.value === null) return;
+  poError.value = '';
+  try {
+    await checkExternal.mutateAsync({ quoteId: detailId.value, poId: po.poId });
+  } catch (e) {
+    poError.value = e instanceof ApiRequestError ? e.message : '카트 상태 확인에 실패했습니다.';
+  }
+}
+
+async function downloadPoImportFile(po: AdminBomPoViewType): Promise<void> {
+  if (detailId.value === null) return;
+  poError.value = '';
+  try {
+    await downloadBomPoImportFile(
+      detailId.value,
+      po.poId,
+      `${po.supplierCode ?? 'supplier'}-po-${String(po.poId)}-import.csv`,
+    );
+  } catch (e) {
+    poError.value =
+      e instanceof ApiRequestError ? e.message : '가져오기 파일 다운로드에 실패했습니다.';
+  }
+}
+
+// Case 진입 시 Mouser 카트 상태 자동 확인(D41) — 확인이 없거나 오래된(10분) 미확인 PO 만, 세션당 1회.
+const autoCheckedPoIds = new Set<number>();
+watch(
+  pos,
+  (list) => {
+    const quoteId = detailId.value;
+    if (quoteId === null) return;
+    for (const po of list) {
+      if (po.supplierCode !== 'mouser' || po.status !== 'issued') continue;
+      const ref = po.externalRef;
+      if (ref?.state !== 'ok' || ref.cartKey === undefined) continue;
+      if (autoCheckedPoIds.has(po.poId) || !bomPoExternalCheckStale(ref.checkedAt)) continue;
+      autoCheckedPoIds.add(po.poId);
+      checkExternal.mutateAsync({ quoteId, poId: po.poId }).catch(() => {
+        /* 실패는 checkError 로 박제되거나 [카트 상태 확인]으로 다시 — 진입을 막지 않는다 */
+      });
+    }
+  },
+  { immediate: true },
+);
 
 async function confirmSupplierPurchase(po: AdminBomPoViewType): Promise<void> {
   if (detailId.value === null) return;
@@ -2050,11 +2114,14 @@ async function downloadOriginal(): Promise<void> {
         :can-issue="canIssuePo"
         :issue-disabled-reason="issueDisabledReason"
         :busy="poBusy"
+        :checking-po-id="checkingPoId"
         @create="poCreateOpen = true; poError = '';"
         @remove="removePo"
         @confirm-supplier="confirmSupplierPurchase"
         @close="closePoRow"
         @external="retryExternalPo"
+        @check="checkExternalPo"
+        @import-file="downloadPoImportFile"
         @shipment="(po) => { shipmentPo = po; }"
         @recover="(po, item) => { shortageRecoveryTarget = { po, item }; }"
       />

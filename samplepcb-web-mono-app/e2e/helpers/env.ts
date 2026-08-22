@@ -103,3 +103,13 @@ export function requireDatabaseUrl(): string {
   }
   return v;
 }
+
+/** Mouser 주문 API 키(apps/api/.env MOUSER_ORDER_API_KEY) — Mouser 카트 인계 e2e(D41,
+ *  MOUSER_E2E=1)가 "사라짐·변조"를 실카트에 직접 일으킬 때만 쓴다. 값은 로그·리포트에 남기지 않는다. */
+export function requireMouserOrderKey(): string {
+  const v = process.env.MOUSER_ORDER_API_KEY ?? apiEnv['MOUSER_ORDER_API_KEY'];
+  if (v === undefined || v === '') {
+    throw new Error('MOUSER_ORDER_API_KEY 를 찾지 못했습니다 — apps/api/.env 를 확인하세요');
+  }
+  return v;
+}

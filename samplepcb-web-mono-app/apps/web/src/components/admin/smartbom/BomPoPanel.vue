@@ -6,6 +6,7 @@ import {
   BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL,
   BOM_SHIPMENT_MODE_LABELS,
   BOM_SHIPMENT_STATUS_LABELS,
+  bomPoExternalCheckStale,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
@@ -23,13 +24,16 @@ const props = defineProps<{
   canIssue: boolean; // 결제 확인(isPaid) 후에만 발행 가능(D18-4)
   issueDisabledReason: string;
   busy: boolean;
+  checkingPoId: number | null; // 카트 상태 확인 중인 발주서(D41) — 확인 버튼만 잠근다
 }>();
 const emit = defineEmits<{
   create: [];
   remove: [po: AdminBomPoViewType];
   confirmSupplier: [po: AdminBomPoViewType];
   close: [po: AdminBomPoViewType];
-  external: [po: AdminBomPoViewType]; // 외부 실행 재시도/재발급(D20)
+  external: [po: AdminBomPoViewType]; // 외부 실행 재시도/재발급/다시 담기(D20·D41)
+  check: [po: AdminBomPoViewType]; // Mouser 카트 상태 확인(D41)
+  importFile: [po: AdminBomPoViewType]; // 공급사 장바구니 가져오기 파일(D41)
   shipment: [po: AdminBomPoViewType]; // 선적 관리(D21)
   recover: [po: AdminBomPoViewType, item: BomPoItemViewType]; // 부족분 대체발주(D31)
 }>();
@@ -37,6 +41,67 @@ const emit = defineEmits<{
 function openExternal(url: string): void {
   window.open(url, '_blank', 'noopener');
 }
+
+// ── Mouser 카트 인계(D41) — API 카트는 웹 '현재 장바구니'가 아니고 시간이 지나면 비워질 수 있다.
+//    그래서 CartKey·담은 시각·실시간 상태를 보여 주고, [다시 담기]·가져오기 파일로 길을 둔다.
+type MouserCartHealth = 'unknown' | 'ok' | 'empty' | 'mismatch' | 'error';
+function mouserCartHealth(po: AdminBomPoViewType): MouserCartHealth {
+  const ref = po.externalRef;
+  if (ref?.checkedAt === undefined) return 'unknown';
+  if (ref.checkError !== undefined) return 'error';
+  if ((ref.liveLineCount ?? 0) === 0) return 'empty';
+  if (ref.liveMatches === false) return 'mismatch';
+  return 'ok';
+}
+const mouserCartToneCls = (po: AdminBomPoViewType): string => {
+  const health = mouserCartHealth(po);
+  if (health === 'ok') {
+    return bomPoExternalCheckStale(po.externalRef?.checkedAt)
+      ? 'border-gray-200 bg-gray-50 text-gray-700'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-800';
+  }
+  if (health === 'unknown') return 'border-gray-200 bg-gray-50 text-gray-700';
+  return 'border-amber-300 bg-amber-50 text-amber-800';
+};
+// 한눈 줄용 짧은 상태 라벨 — 상세(확인 시각·불일치 목록·실패 사유)는 [자세히] 안에서.
+function mouserCartHealthLabel(po: AdminBomPoViewType): string {
+  const ref = po.externalRef;
+  switch (mouserCartHealth(po)) {
+    case 'unknown':
+      return '상태 미확인';
+    case 'error':
+      return '⚠ 확인 실패';
+    case 'empty':
+      return '⚠ 카트 비어 있음';
+    case 'mismatch':
+      return `⚠ 내용 다름(${String(ref?.liveLineCount ?? 0)}행)`;
+    default:
+      return `✓ 일치${bomPoExternalCheckStale(ref?.checkedAt) ? '(오래됨)' : ''}`;
+  }
+}
+// 외부 박스 [자세히] 토글 — 기본은 접힘(한눈 줄 + 버튼 줄만).
+const externalDetailOpen = ref(new Set<number>());
+function toggleExternalDetail(poId: number): void {
+  if (externalDetailOpen.value.has(poId)) externalDetailOpen.value.delete(poId);
+  else externalDetailOpen.value.add(poId);
+}
+const shortCartKey = (key: string): string => `${key.slice(0, 8)}…`;
+const copiedKey = ref<string | null>(null);
+async function copyCartKey(key: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(key);
+    copiedKey.value = key;
+    window.setTimeout(() => {
+      if (copiedKey.value === key) copiedKey.value = null;
+    }, 1500);
+  } catch {
+    /* 클립보드 거부 — 키는 title 로도 노출돼 있다 */
+  }
+}
+const fmtMoney = (amount: number | null | undefined, currency: string | null | undefined): string =>
+  amount === null || amount === undefined
+    ? ''
+    : `${amount.toLocaleString('ko-KR')} ${currency ?? ''}`.trim();
 
 // 선적 요약 라벨 — 국내 preparing 은 '배송 준비'
 function shipmentLabel(po: AdminBomPoViewType): string {
@@ -203,21 +268,85 @@ function moveTable(direction: -1 | 1): void {
               <!-- 외부 실행 결과(D20) — 카트/리스트까지, 실결제는 공급사 사이트에서 -->
               <div v-if="po.externalRef !== null" class="mt-1 text-[11px] font-normal">
                 <template v-if="po.externalRef.state === 'ok' && po.externalRef.cartKey !== undefined">
-                  <span class="text-emerald-700">카트 담김 · {{ po.externalRef.lineCount ?? 0 }}행</span>
-                  <span v-if="po.externalRef.merchandiseTotal !== null && po.externalRef.merchandiseTotal !== undefined" class="text-gray-500">
-                    · {{ po.externalRef.merchandiseTotal }} {{ po.externalRef.currencyCode ?? '' }}
-                  </span>
-                  <button v-if="po.externalRef.cartWebUrl !== undefined" type="button" class="ml-1 text-blue-600 underline" @click="openExternal(po.externalRef.cartWebUrl)">
-                    Mouser 카트 확인
-                  </button>
-                  <span v-if="(po.externalRef.errors?.length ?? 0) > 0" class="ml-1 text-amber-700" :title="po.externalRef.errors?.join('\n')">행 오류 {{ po.externalRef.errors?.length }}</span>
+                  <!-- Mouser 카트(D41) — 한눈 줄(사실·상태) + 버튼 줄, 식별자·상세·안내는 [자세히] -->
+                  <div class="mt-1 rounded border px-2 py-1 leading-4" :class="mouserCartToneCls(po)" data-testid="mouser-cart-box">
+                    <p class="flex flex-wrap items-center gap-x-1.5">
+                      <b>Mouser 카트 담김 · {{ po.externalRef.lineCount ?? 0 }}행</b>
+                      <span class="text-gray-500">{{ fmtMoney(po.externalRef.merchandiseTotal, po.externalRef.currencyCode) }} · {{ smartbomFmtDate(po.externalRef.executedAt) }}</span>
+                      <span class="font-semibold" data-testid="mouser-cart-health" :title="po.externalRef.checkError ?? (po.externalRef.liveDiff ?? []).join('\n')">{{ mouserCartHealthLabel(po) }}</span>
+                      <span v-if="(po.externalRef.errors?.length ?? 0) > 0" class="text-amber-700" :title="po.externalRef.errors?.join('\n')">행 오류 {{ po.externalRef.errors?.length }}</span>
+                    </p>
+                    <p class="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                      <button v-if="po.status === 'issued'" type="button" class="font-semibold text-blue-700 underline disabled:opacity-40" :disabled="busy || checkingPoId === po.poId" @click="emit('check', po)">
+                        {{ checkingPoId === po.poId ? '확인 중…' : '카트 상태 확인' }}
+                      </button>
+                      <button v-if="po.status === 'issued'" type="button" class="font-semibold text-blue-700 underline disabled:opacity-40" :disabled="busy" title="같은 CartKey 카트를 발주 품목으로 다시 채웁니다(전체 교체)" @click="emit('external', po)">
+                        다시 담기
+                      </button>
+                      <button v-if="po.externalRef.cartWebUrl !== undefined" type="button" class="text-blue-600 underline" @click="openExternal(po.externalRef.cartWebUrl)">
+                        Mouser 열기
+                      </button>
+                      <button type="button" class="text-gray-500 underline" :aria-expanded="externalDetailOpen.has(po.poId)" @click="toggleExternalDetail(po.poId)">
+                        {{ externalDetailOpen.has(po.poId) ? '접기' : '자세히' }}
+                      </button>
+                    </p>
+                    <div v-if="externalDetailOpen.has(po.poId)" class="mt-1 border-t border-black/5 pt-1 text-[10px]" data-testid="mouser-cart-detail">
+                      <p class="font-mono text-gray-600" :title="po.externalRef.cartKey">
+                        CartKey {{ shortCartKey(po.externalRef.cartKey) }}
+                        <button type="button" class="ml-1 font-sans underline" @click="copyCartKey(po.externalRef.cartKey)">
+                          {{ copiedKey === po.externalRef.cartKey ? '복사됨' : '복사' }}
+                        </button>
+                        <span v-if="(po.externalRef.refilledCount ?? 0) > 0" class="font-sans"> · 다시 담기 {{ po.externalRef.refilledCount }}회</span>
+                      </p>
+                      <p v-if="po.externalRef.checkedAt !== undefined" class="mt-0.5">
+                        <template v-if="po.externalRef.checkError !== undefined">확인 실패 · {{ po.externalRef.checkError }}</template>
+                        <template v-else-if="(po.externalRef.liveLineCount ?? 0) === 0">카트가 비어 있습니다(만료·삭제됨) — [다시 담기] 뒤 바로 주문하세요.</template>
+                        <template v-else-if="po.externalRef.liveMatches === false">발주와 다름 · {{ (po.externalRef.liveDiff ?? []).join(', ') }}</template>
+                        <template v-else>카트 {{ po.externalRef.liveLineCount }}행 일치 · {{ smartbomFmtDate(po.externalRef.checkedAt) }} 확인</template>
+                      </p>
+                      <p v-else class="mt-0.5 text-gray-500">아직 확인 전 — API 카트는 시간이 지나면 비워질 수 있습니다.</p>
+                      <p v-if="po.status === 'issued'" class="mt-0.5">
+                        <button type="button" class="text-blue-600 underline disabled:opacity-40" :disabled="busy" title="API 카트와 무관하게 Mouser 장바구니 '스프레드시트 업로드'에 올리는 .csv" @click="emit('importFile', po)">
+                          가져오기 파일(.csv)
+                        </button>
+                        <span class="text-gray-500"> · SamplePCB 계정 로그인 → '저장한 장바구니'에서 이 CartKey 카트 선택. 비어 있으면 [다시 담기] 또는 .csv 업로드.</span>
+                      </p>
+                    </div>
+                  </div>
                 </template>
                 <template v-else-if="po.externalRef.state === 'ok' && po.externalRef.singleUseUrl !== undefined">
-                  <span class="text-emerald-700">리스트 생성됨 · {{ po.externalRef.lineCount ?? 0 }}행</span>
-                  <button type="button" class="ml-1 text-blue-600 underline" title="1회용 URL — 열면 소진되며 [재발급]으로 다시 만들 수 있습니다" @click="openExternal(po.externalRef.singleUseUrl)">
-                    DigiKey 리스트 열기(1회용)
-                  </button>
-                  <button type="button" class="ml-1 text-gray-500 underline" :disabled="busy" @click="emit('external', po)">재발급</button>
+                  <!-- DigiKey 리스트(D20·D41) — Mouser 카트 박스와 같은 틀: 한눈 줄 + 버튼 줄, 식별자·안내는 [자세히] -->
+                  <div class="mt-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 leading-4 text-emerald-800" data-testid="digikey-list-box">
+                    <p class="flex flex-wrap items-center gap-x-1.5">
+                      <b>DigiKey 리스트 생성됨 · {{ po.externalRef.lineCount ?? 0 }}행</b>
+                      <span class="text-gray-500">{{ smartbomFmtDate(po.externalRef.executedAt) }}</span>
+                      <span class="font-semibold" data-testid="digikey-list-health" title="열면 담당자 본인 DigiKey 계정 myLists 에 담기며 URL 은 소진됩니다">1회용 URL</span>
+                    </p>
+                    <p class="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                      <button type="button" class="font-semibold text-blue-700 underline" title="1회용 URL — 열면 소진되며 [재발급]으로 다시 만들 수 있습니다" @click="openExternal(po.externalRef.singleUseUrl)">
+                        DigiKey 리스트 열기(1회용)
+                      </button>
+                      <button v-if="po.status === 'issued'" type="button" class="font-semibold text-blue-700 underline disabled:opacity-40" :disabled="busy" title="새 single-use URL 을 발급합니다(이전 URL 은 그대로 소진)" @click="emit('external', po)">
+                        재발급
+                      </button>
+                      <button type="button" class="text-gray-500 underline" :aria-expanded="externalDetailOpen.has(po.poId)" @click="toggleExternalDetail(po.poId)">
+                        {{ externalDetailOpen.has(po.poId) ? '접기' : '자세히' }}
+                      </button>
+                    </p>
+                    <div v-if="externalDetailOpen.has(po.poId)" class="mt-1 border-t border-black/5 pt-1 text-[10px]" data-testid="digikey-list-detail">
+                      <p class="font-mono text-gray-600" :title="po.externalRef.listName ?? ''">
+                        리스트 {{ po.externalRef.listName ?? '—' }}
+                        <span v-if="(po.externalRef.refilledCount ?? 0) > 0" class="font-sans"> · 재발급 {{ po.externalRef.refilledCount }}회</span>
+                      </p>
+                      <p class="mt-0.5">열면 담당자 본인 DigiKey 계정 myLists 에 담기며 URL 은 소진됩니다. 소진됐으면 [재발급]으로 새 URL 을 만듭니다.</p>
+                      <p v-if="po.status === 'issued'" class="mt-0.5">
+                        <button type="button" class="text-blue-600 underline disabled:opacity-40" :disabled="busy" title="리스트와 무관하게 DigiKey 장바구니 업로드에 쓰는 .csv" @click="emit('importFile', po)">
+                          가져오기 파일(.csv)
+                        </button>
+                        <span class="text-gray-500"> · 리스트와 무관하게 DigiKey 장바구니 업로드에 쓰는 .csv</span>
+                      </p>
+                    </div>
+                  </div>
                 </template>
                 <template v-else>
                   <div

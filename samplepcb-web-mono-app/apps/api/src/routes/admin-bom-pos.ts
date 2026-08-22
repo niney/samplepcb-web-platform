@@ -34,6 +34,7 @@ import {
   EXTERNAL_AUTOMATED_SUPPLIERS,
   asShipmentMode,
   asShipmentStatus,
+  checkExternalPo,
   createBomPos,
   deleteShipmentFile,
   detachShipmentPo,
@@ -43,6 +44,7 @@ import {
   loadAdminPoCrossList,
   loadAdminPos,
   loadAdminShipmentCrossList,
+  loadPoImportFile,
   loadShortageRecoveryCandidates,
   receiveShipment,
   recoverPoShortage,
@@ -347,6 +349,50 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         });
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // ── POST — 외부 카트 상태 확인(D41) — Mouser 카트가 지금도 발주 품목대로 담겨 있는지 대조 ──
+  // 박제(live*)가 따르므로 POST. CHECK_FAILED 는 externalRef.checkError 로 화면이 보여준다.
+  fastify.post(
+    '/bom-quotes/:id/pos/:poId/external/check',
+    {
+      schema: { params: PoParams, response: { 200: AdminBomPoMutationResponse, 409: ApiError } },
+    },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({ where: { id: request.params.poId } });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const result = await checkExternalPo(po.id);
+      if (!result.ok && result.error === 'NOT_CHECKABLE') {
+        return reply.status(409).send({
+          error: result.error,
+          message: 'Mouser 카트가 담긴 발주서만 카트 상태를 확인할 수 있습니다.',
+        });
+      }
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // ── GET — 공급사 장바구니 가져오기 파일(D41) — API 카트가 비어도 웹 '스프레드시트 업로드'로 담는 우회로 ──
+  fastify.get(
+    '/bom-quotes/:id/pos/:poId/external/import-file',
+    { schema: { params: PoParams } },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({ where: { id: request.params.poId } });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const file = await loadPoImportFile(po.id);
+      if (file === null) return reply.notFound('공급사 발주서가 아닙니다');
+      return reply
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+        )
+        .type('text/csv; charset=utf-8')
+        .send(file.csv);
     },
   );
 

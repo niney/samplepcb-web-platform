@@ -46,7 +46,22 @@ import { filterActiveQuoteItems, toItemDto } from './bom-quote';
 import { getBusinessInfo, getOrderInfoByCtId } from './g5-db';
 import { isBomOrderFulfillmentClosed, isBomOrderLinePaid } from './bom-order-cancel';
 import { buildPartnerQuotationDocument } from './bom-trade-documents';
-import { digikeyThirdPartyList, mouserCartInsert } from './supplier-order';
+import {
+  MOUSER_CART_WEB_URL,
+  digikeyThirdPartyList,
+  mouserCartGet,
+  mouserCartInsert,
+  mouserCartReplace,
+  type ExternalExecuteResult,
+  type ExternalOrderLine,
+  type MouserCartSnapshot,
+} from './supplier-order';
+import {
+  buildSupplierImportCsv,
+  compareMouserCart,
+  describeMouserCartDiff,
+  supplierImportFileName,
+} from './bom-po-external';
 import {
   deleteFromFileServer,
   downloadFromFileServer,
@@ -1168,13 +1183,49 @@ export const recoverPoShortage = async (
   }
 };
 
-// ── 외부공급사 실행(D20) — 카트/리스트까지, 실결제는 구매담당이 공급사 사이트에서 ──
-// 발주서 생성과 분리: 실패해도 발주서는 유효하고 externalRef 에 실패를 박제, [재시도] 가능.
+// ── 외부공급사 실행(D20 · D41 보강) — 카트/리스트까지, 실결제는 구매담당이 공급사 사이트에서 ──
+// 발주서 생성과 분리: 실패해도 발주서는 유효하고 externalRef 에 실패를 박제, [재시도]·[다시 담기] 가능.
+// D41: Mouser 는 발주서당 CartKey 를 고정한다 — 재실행은 같은 키에 전체 교체(POST /cart)라
+// 구매담당의 '저장한 장바구니'에 카트가 쌓이지 않고, 사라진 키도 같은 키로 되살아난다(실측 08-22).
 export const EXTERNAL_AUTOMATED_SUPPLIERS = ['mouser', 'digikey'] as const;
 
 export type ExecuteExternalResult =
   | { ok: true }
   | { ok: false; error: 'PO_NOT_FOUND' | 'NOT_AUTOMATED' | 'NO_SKU_LINES' | 'EXECUTE_FAILED' };
+
+const poExternalLines = (
+  items: readonly { supplierSku: string | null; qty: number }[],
+): ExternalOrderLine[] =>
+  items.flatMap((item) =>
+    item.supplierSku === null || item.supplierSku === ''
+      ? []
+      : [{ sku: item.supplierSku, qty: item.qty }],
+  );
+
+const externalRefObject = (value: Prisma.JsonValue | null): Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value
+    : {};
+
+const externalCartKeyOf = (ref: Record<string, unknown>): string | null =>
+  typeof ref.cartKey === 'string' && ref.cartKey !== '' ? ref.cartKey : null;
+
+/** 실행·확인 응답은 그 순간의 카트 상태라 live* 필드로 같이 박제한다(확인 1회 절약). */
+const mouserLiveFields = (
+  lines: readonly ExternalOrderLine[],
+  cart: Pick<MouserCartSnapshot, 'lineCount' | 'merchandiseTotal' | 'currencyCode' | 'items'>,
+  now: string,
+): Record<string, unknown> => {
+  const diff = compareMouserCart(lines, cart.items);
+  return {
+    checkedAt: now,
+    liveLineCount: cart.lineCount,
+    liveMerchandiseTotal: cart.merchandiseTotal,
+    liveCurrencyCode: cart.currencyCode,
+    liveMatches: diff.matches,
+    ...(diff.matches ? {} : { liveDiff: describeMouserCartDiff(diff) }),
+  };
+};
 
 export const executeExternalPo = async (poId: bigint): Promise<ExecuteExternalResult> => {
   const po = await prisma.spBomPo.findUnique({
@@ -1190,11 +1241,7 @@ export const executeExternalPo = async (poId: bigint): Promise<ExecuteExternalRe
     return { ok: false, error: 'NOT_AUTOMATED' };
   }
 
-  const lines = po.items.flatMap((item) =>
-    item.supplierSku === null || item.supplierSku === ''
-      ? []
-      : [{ sku: item.supplierSku, qty: item.qty }],
-  );
+  const lines = poExternalLines(po.items);
   if (lines.length === 0) {
     await prisma.spBomPo.update({
       where: { id: po.id },
@@ -1211,16 +1258,29 @@ export const executeExternalPo = async (poId: bigint): Promise<ExecuteExternalRe
     return { ok: false, error: 'NO_SKU_LINES' };
   }
 
-  const result =
-    supplierCode === 'mouser' ? await mouserCartInsert(lines) : await digikeyThirdPartyList(lines);
+  const previous = externalRefObject(po.externalRef);
+  const previousCartKey = supplierCode === 'mouser' ? externalCartKeyOf(previous) : null;
+  let result: ExternalExecuteResult;
+  if (supplierCode === 'mouser') {
+    result =
+      previousCartKey === null
+        ? await mouserCartInsert(lines)
+        : await mouserCartReplace(previousCartKey, lines);
+    // 같은 키 재충전이 막히면(키 거부 등) 새 카트로 한 번 더 — 실패를 키 탓으로 굳히지 않는다.
+    if (!result.ok && previousCartKey !== null) result = await mouserCartInsert(lines);
+  } else {
+    result = await digikeyThirdPartyList(lines);
+  }
   const skippedNoSku = po.items.length - lines.length;
+  const now = new Date().toISOString();
+  const refilledCount = typeof previous.refilledCount === 'number' ? previous.refilledCount : 0;
   await prisma.spBomPo.update({
     where: { id: po.id },
     data: {
       externalRef: {
         state: result.ok ? 'ok' : 'failed',
         supplier: supplierCode,
-        executedAt: new Date().toISOString(),
+        executedAt: now,
         ...(skippedNoSku > 0 ? { skippedNoSku } : {}),
         ...(result.ok
           ? result.supplier === 'mouser'
@@ -1231,17 +1291,99 @@ export const executeExternalPo = async (poId: bigint): Promise<ExecuteExternalRe
                 merchandiseTotal: result.merchandiseTotal,
                 currencyCode: result.currencyCode,
                 ...(result.errors.length > 0 ? { errors: result.errors } : {}),
+                ...(previousCartKey !== null && result.cartKey === previousCartKey
+                  ? { refilledCount: refilledCount + 1 }
+                  : {}),
+                ...mouserLiveFields(lines, result, now),
               }
             : {
                 listName: result.listName,
                 singleUseUrl: result.singleUseUrl,
                 lineCount: result.lineCount,
+                // 재발급 횟수 — Mouser 의 다시 담기와 같은 칸(화면 "재발급 n회")
+                ...(typeof previous.singleUseUrl === 'string'
+                  ? { refilledCount: refilledCount + 1 }
+                  : {}),
               }
-          : { error: result.error }),
+          : {
+              error: result.error,
+              // 재충전 실패여도 기존 카트 키는 남긴다 — 웹에서 찾아볼 단서.
+              ...(previousCartKey !== null
+                ? { cartKey: previousCartKey, cartWebUrl: MOUSER_CART_WEB_URL }
+                : {}),
+            }),
       },
     },
   });
   return result.ok ? { ok: true } : { ok: false, error: 'EXECUTE_FAILED' };
+};
+
+export type CheckExternalResult =
+  | { ok: true }
+  | { ok: false; error: 'PO_NOT_FOUND' | 'NOT_CHECKABLE' | 'CHECK_FAILED' };
+
+/** 외부 카트 상태 확인(D41) — Mouser 카트 내용을 발주 품목과 대조해 live* 로 박제한다.
+ *  GET 은 없는 키도 빈 카트로 답하므로 "0행"도 그대로 사실(=사라짐)로 적는다. 박제가 따르므로
+ *  POST 라우트에서만 부른다(§7 "조회 무부작용" 가드). */
+export const checkExternalPo = async (poId: bigint): Promise<CheckExternalResult> => {
+  const po = await prisma.spBomPo.findUnique({
+    where: { id: poId },
+    include: { partner: true, items: { orderBy: { id: 'asc' } } },
+  });
+  if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  const previous = externalRefObject(po.externalRef);
+  const cartKey = externalCartKeyOf(previous);
+  if (po.partner.supplierCode !== 'mouser' || cartKey === null) {
+    return { ok: false, error: 'NOT_CHECKABLE' };
+  }
+  const now = new Date().toISOString();
+  const result = await mouserCartGet(cartKey);
+  const next: Record<string, unknown> = { ...previous };
+  delete next.checkError;
+  delete next.liveDiff;
+  if (!result.ok) {
+    Object.assign(next, { checkedAt: now, checkError: result.error });
+    await prisma.spBomPo.update({
+      where: { id: po.id },
+      data: { externalRef: next as Prisma.InputJsonObject },
+    });
+    return { ok: false, error: 'CHECK_FAILED' };
+  }
+  Object.assign(next, mouserLiveFields(poExternalLines(po.items), result.cart, now));
+  await prisma.spBomPo.update({
+    where: { id: po.id },
+    data: { externalRef: next as Prisma.InputJsonObject },
+  });
+  return { ok: true };
+};
+
+export interface PoImportFile {
+  fileName: string;
+  csv: string;
+}
+
+/** 공급사 장바구니 가져오기 파일(D41) — API 카트와 무관한 우회로(웹 '스프레드시트 업로드').
+ *  공급사 발주서(supplierCode 보유)에만 — 사람 협력사 발주는 null. */
+export const loadPoImportFile = async (poId: bigint): Promise<PoImportFile | null> => {
+  const po = await prisma.spBomPo.findUnique({
+    where: { id: poId },
+    include: { partner: true, items: { orderBy: { id: 'asc' } } },
+  });
+  if (po === null) return null;
+  if (po.partner.supplierCode === null) return null;
+  return {
+    fileName: supplierImportFileName(po.partner.supplierCode, po.id),
+    csv: buildSupplierImportCsv(
+      po.partner.supplierCode,
+      po.items.map((item) => ({
+        supplierSku: item.supplierSku,
+        mpn: item.mpn,
+        manufacturerName: item.manufacturerName,
+        description: item.description,
+        qty: item.qty,
+      })),
+    ),
+  };
 };
 
 // ── 선적 관리(D21) — 경량: 발주서당 1건, mode 는 생성 시 박제 ─────────────────

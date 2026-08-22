@@ -30,6 +30,7 @@ pnpm -F e2e test         # 게이트 없이 실행 → 전부 skip (turbo test/C
 | `E2E_BOM_ENGINE_URL` | `http://127.0.0.1:8400`             | Smart BOM 추출·공급사 검색 엔진(BOM 여정 사전 점검)                                                                                           |
 | `E2E_MAILPIT_URL`    | `http://127.0.0.1:8025`             | Mailpit REST                                                                                                                                  |
 | `E2E_HEADED`         | (없음)                              | `1` 이면 창 표시                                                                                                                              |
+| `MOUSER_E2E`         | (없음)                              | `1` 일 때만 Mouser 카트 인계 e2e(bom-mouser-cart-handoff) 실행 — **실 Mouser Cart API**, SamplePCB 계정에 e2e 카트 1개가 생겼다 비워진다 |
 
 `JWT_SECRET`·`DATABASE_URL` 은 `apps/api/.env` 에서 자동으로 읽는다(별도 설정 불요).
 https 인증서는 mkcert — 브라우저는 시스템 신뢰로 통과하고, Node 측 fetch 는 e2e
@@ -56,6 +57,7 @@ specs/
   pcb-package-qr.e2e.test.ts PCB Case QR — 합배송 PO별 라벨·권한·재인쇄·무효화·입고 동기화
   pcb-transport.e2e.test.ts  운송수단(항공/해상) — 수단 박제·첨부 종류 접힘 회귀·해상 B/L 게이트·전환 정리·국내 배제
   bom-transport-contract.e2e.test.ts BOM 선적 운송수단 계약·서버 정합(read-only — 실데이터 위 직렬화·첨부 사전 오염 확인)
+  bom-mouser-cart-handoff.e2e.test.ts Mouser 카트 인계(D41) — 발주서당 CartKey 고정·전체 교체 [다시 담기]·실카트 대조 [카트 상태 확인]·가져오기 .csv·Case 화면 왕복(MOUSER_E2E=1 옵트인, 실 API)
   delivery-method.e2e.test.ts        배송방법 P1 — 비택배(퀵·방문수령·직배송)는 송장 없이 배송 전이·한글 라벨 병용·택배 3필드 가드(docs/DELIVERY_METHOD.md)
   journey-gerber-rfq.e2e.test.ts       여정 1호 — 해외 협력사(USD·국제 선적 6단계)
   journey-domestic-partner.e2e.test.ts 여정 2호 — 국내 협력사(KRW·국내 3단계·EQ 반려 왕복)

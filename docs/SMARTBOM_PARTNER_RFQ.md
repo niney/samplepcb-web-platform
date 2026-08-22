@@ -1435,6 +1435,57 @@ PCB 국제 선적을 기준으로 BOM 국제 선적에도 **누가 운송을 계
   요청 박제·관리자 큐 신호·`CASE_REF_REQUIRED`·`MISSING_BL_FILE` 게이트·B/L+Case ID+
   운송장 동시 실선적·배지 해제를 확인했고, 픽스처 잔재는 quote/file 모두 0건이다.
 
+### 6.34 Mouser 카트 인계 보강 — D41 (2026-08-22)
+
+**증상**: 관리자 BOM 발주에서 Mouser 발주가 "카트 담김 · N행"으로 성공 표시되는데, 구매담당이 Mouser 에서
+보면 아무것도 없다 — "처음엔 되는 것처럼 보였지만 안 된다".
+
+**원인 규명(실측)** — 플랫폼 코드가 아니라 Mouser 카트 모델 + 인계 UI 의 조합:
+- `POST /api/v1/cart/items/insert` 는 정상(PO 154·165 의 externalRef 에 CartKey·행·합계가 정확히 박제, 1행
+  테스트 insert→GET 즉시·14분 유지). 주문 키는 `order/options/query` 로 **SAMPLEPCB CO., LTD(KR/KRW) 계정**임을 확인.
+- 그러나 **API 카트는 웹의 '현재 장바구니'가 아니라 계정의 별도 카트**(로그인 후 '저장한 장바구니' 영역)이고,
+  **하루쯤 지나면 비어 있었다**(08-19·08-21 운영 카트·6월 레거시 카트 4건 모두 0행, 계정 주문 이력엔 해당 품목 없음 =
+  주문으로 소진된 것 아님). TTL 인지 웹 로그인 병합/정리인지는 Mouser 내부라 미확정(테스트 카트 `0bbf99c4…` 로 추적).
+- `GET /api/v1/cart?cartKey=` 는 **존재하지 않는 임의 키에도 200+빈 카트를 에코** → "빈 카트"는 존재 증명이 아니다.
+- `POST /api/v1/cart`(전체 교체)는 **임의·소멸 키에도 그 키로 카트를 (되)살린다** → 발주서당 CartKey 고정이 가능.
+- 기존 UI 는 `mouser.kr/Cart/`(현재 장바구니) 링크만 열고 CartKey 를 안 보여줬다(레거시는 토스트에 CartKey 표시).
+
+**결정 — 카트 방식은 유지(D20 범위 불변: 실결제는 구매담당이 Mouser 에서)하고 인계를 4갈래로 보강**:
+1. **발주서당 CartKey 고정 + [다시 담기] = 같은 키 전체 교체**(`mouserCartReplace`, POST /cart). 저장한 장바구니에
+   카트가 쌓이지 않고, 사라진 키도 같은 키로 되살아난다. 교체가 거부되면 새 카트로 1회 폴백. `refilledCount` 박제.
+2. **[카트 상태 확인]** `POST …/pos/:poId/external/check` — Mouser GET 으로 카트 내용을 **발주 품목과 행 단위 대조**
+   (`compareMouserCart`: 없음·수량 n→m·발주 외)해 `checkedAt/liveLineCount/liveMerchandiseTotal/liveCurrencyCode/
+   liveMatches/liveDiff/checkError` 로 박제. 실행 응답도 그 순간의 카트라 실행 직후 live* 를 함께 채운다. 박제가 따르니
+   POST(§7 "조회 무부작용"). Case 진입 시 마지막 확인이 **10분**(`BOM_PO_EXTERNAL_CHECK_STALE_MS`)을 넘긴
+   issued Mouser PO 는 자동 재확인(세션당 1회). "담았다(state)"와 "지금도 담겨 있다(live)"를 가른다.
+3. **CartKey·담은 시각·안내 노출(접힘 기본)** — 패널 카트 박스는 **한눈 줄**(담김 n행 · 합계 · 시각 · 상태 라벨
+   `상태 미확인`/`✓ 일치(오래됨)`/`⚠ 카트 비어 있음`/`⚠ 내용 다름(n행)`/`⚠ 확인 실패`) + **버튼 줄**([카트 상태 확인]·
+   [다시 담기]·[Mouser 열기]·[자세히]) 두 줄이 기본이고, [자세히]를 펼치면 CartKey(앞 8자+복사)·다시 담기 횟수·
+   확인 시각/불일치 목록/실패 사유·[가져오기 파일(.csv)]·안내("SamplePCB 계정 로그인 → '저장한 장바구니'에서 이
+   CartKey 카트 선택")가 나온다 — 내용을 늘리지 않고 필요할 때만 보이게(사용자 요청).
+   **DigiKey 리스트 블록도 같은 틀**(한눈 줄 `리스트 생성됨 n행 · 시각 · 1회용 URL` + 버튼 줄 [열기]·[재발급]·[자세히],
+   펼치면 listName·재발급 횟수·설명·[가져오기 파일], `digikey-list-box`)로 맞추고 재발급 횟수를 같은 칸(`refilledCount`,
+   "재발급 n회")에 박제한다 — 두 공급사 박스가 한 문법으로 읽힌다(e2e 가 골격 클래스·줄 수 동형을 기계 대조).
+4. **가져오기 파일** `GET …/pos/:poId/external/import-file` — API 카트와 무관한 우회로. UTF-8 BOM·CRLF csv,
+   열 = 공급사 품번(Mouser/Digi-Key/Supplier Part Number)·수량·MPN·제조사·설명, SKU 없는 행은 품번 칸을 비워
+   MPN 으로 찾게 한다 → Mouser 장바구니 '스프레드시트 업로드'에 올린다. 공급사 발주서(supplierCode) 전부에 제공.
+- 대안으로 검토·보류: Mouser Order API 실주문(`SubmitOrder=true`, 레거시 `placeOrder` 보존) — 회사 카드로 실결제가
+  나가는 금전 행위라 사용자 결정 없이는 켜지 않는다. 미리보기(`SubmitOrder=false`)도 호출마다 카트가 쌓여 레거시가 이미 접었다.
+
+**✅ 구현(2026-08-22)**: `lib/supplier-order.ts`(`mouserCartInsert/Replace/Get` + `MouserCartSnapshot`, 0행은 실패로),
+`lib/bom-po-external.ts`(순수: `compareMouserCart`·`describeMouserCartDiff`·`buildSupplierImportCsv`),
+`lib/bom-po.ts`(`executeExternalPo` 고정 키 재충전·`checkExternalPo`·`loadPoImportFile`), 라우트 2개, 계약
+`BomPoExternalRef` live* 확장 + `bomPoExternalCheckStale`, 웹 `useCheckExternalPo`·`downloadBomPoImportFile`·
+`BomPoPanel` 카트 박스·Case 페이지 자동 확인/다시 담기 확인창. **검증**: vitest 15(클라이언트 fetch 모킹·순수 함수) +
+**e2e `bom-mouser-cart-handoff` 11/11 실 Mouser·DigiKey API**(담기→확인→Mouser 직접 비움→0행 감지→같은 키 재충전→
+변조(수량·품번) 감지·복구→csv BOM/헤더/escape→409 경계→Case 화면 박스·[카트 상태 확인] 왕복·비어 있음 경고→
+다시 담기 확인창→진입 자동 확인→DigiKey 리스트 박스 동형·재발급), vue-tsc·tsc·eslint green. 옵트인 `MOUSER_E2E=1`(`pnpm -F e2e e2e:mouser`) —
+SamplePCB Mouser 계정에 e2e 카트가 하나 생겼다 끝에 비워진다.
+
+**남은 확인(사용자)**: ① Mouser 웹 로그인 후 '저장한 장바구니'에 API 카트가 어떤 이름/키로 보이는지 — 안내 문구를 그
+실제 화면에 맞춰 다듬는다. ② 장바구니 '스프레드시트 업로드'가 이 .csv 를 열 매핑 없이 받는지. ③ 테스트 카트
+`0bbf99c4-2e4a-490c-b59c-b2ade3e09a99`(08-22 08:16 KST, 1행) 가 다음 날 비면 "API 카트 하루 내 소멸" 확정.
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).
