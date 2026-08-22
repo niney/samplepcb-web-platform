@@ -2,6 +2,7 @@ import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiSend } from '@sp/shared';
 import {
+  AdminBomReceivingCompleteResponse,
   AdminBomReceivingProgressResponse,
   AdminBomReceivingRecentResponse,
   AdminBomReceivingRecordResponse,
@@ -57,6 +58,21 @@ export function useRecentReceivingScans(limit: Ref<number>, includeVoided: Ref<b
         `${base}/scans?limit=${String(limit.value)}&includeVoided=${includeVoided.value ? '1' : '0'}`,
         AdminBomReceivingRecentResponse,
       ),
+  });
+}
+
+/** 입고 스캔으로 입고 완료(2단계) — 선적·패킹 리스트·QR 포장을 스캔으로 채우고 닫는다. 워크큐·Case 집계 갱신. */
+export function useCompleteReceiving() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (poId: number) =>
+      apiSend('POST', `${base}/pos/${String(poId)}/complete`, undefined, AdminBomReceivingCompleteResponse),
+    onSuccess: () => {
+      invalidate(qc);
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-shipments'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
+    },
   });
 }
 

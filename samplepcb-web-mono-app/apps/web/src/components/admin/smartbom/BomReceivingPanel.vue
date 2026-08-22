@@ -10,6 +10,7 @@ import type {
   DigikeyBarcodeLookupType,
 } from '@sp/api-contract';
 import {
+  useCompleteReceiving,
   useRecentReceivingScans,
   useRecordReceivingScan,
   useScanReceivingBarcode,
@@ -52,6 +53,39 @@ const digikeyLookup = ref<DigikeyBarcodeLookupType | null>(null);
 const scan = useScanReceivingBarcode();
 const record = useRecordReceivingScan();
 const voidScan = useVoidReceivingScan();
+const completeReceiving = useCompleteReceiving();
+const completedInfo = ref<{ poId: number; shipmentId: number; packages: number; scans: number; poConfirmedNow: boolean } | null>(null);
+const canComplete = computed(
+  () =>
+    lastProgress.value !== null &&
+    lastProgress.value.complete &&
+    !lastProgress.value.overReceived &&
+    lastProgress.value.poStatus !== 'closed' &&
+    lastProgress.value.supplierCode !== null &&
+    completedInfo.value?.poId !== lastProgress.value.poId,
+);
+
+/** 전량·정확 스캔된 공급사 PO 를 선적 단계 없이 입고 완료 — 선적·패킹 리스트·QR 포장은 스캔으로 자동. */
+async function doComplete(): Promise<void> {
+  const progress = lastProgress.value;
+  if (progress === null || completeReceiving.isPending.value) return;
+  const confirmNote = progress.poStatus === 'issued' ? "\n\n발주서가 '구매 확인 대기'라 구매 완료 처리도 함께 됩니다." : '';
+  const ok = await confirmDialog({
+    title: '입고 완료 처리',
+    message: `선적 단계를 건너뛰고 PO #${String(progress.poId)} 를 입고 완료할까요?\n선적·패킹 리스트는 스캔 내용(${String(progress.scannedTotal)}개)으로 자동 생성되고 QR 포장이 만들어집니다.${confirmNote}`,
+    confirmLabel: '입고 완료',
+  });
+  if (!ok) return;
+  error.value = '';
+  try {
+    const res = await completeReceiving.mutateAsync(progress.poId);
+    completedInfo.value = res.data;
+  } catch (cause) {
+    error.value = cause instanceof ApiRequestError ? cause.message : '입고 완료 처리에 실패했습니다.';
+  } finally {
+    emit('settled');
+  }
+}
 const recent = useRecentReceivingScans(recentLimit, includeVoided);
 const recentScans = computed(() => recent.data.value?.data.scans ?? []);
 const digikeyStatus = useDigikeyStatus();
@@ -322,7 +356,22 @@ const progressTone = (item: { orderedQty: number; scannedQty: number }): string 
           {{ lastProgress.overReceived ? '초과 입고' : lastProgress.complete ? '전량 입고' : `입고 ${lastProgress.scannedTotal}/${lastProgress.orderedTotal}` }}
         </span>
         <RouterLink :to="{ name: 'admin-smartbom-case', params: { id: lastProgress.quoteId }, query: { from: 'logistics' } }" class="ml-auto text-xs font-semibold text-blue-700 underline">Case 열기</RouterLink>
+        <button
+          v-if="canComplete"
+          type="button"
+          class="rounded-lg bg-blue-600 px-3 py-1 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+          :disabled="completeReceiving.isPending.value"
+          title="선적 단계를 건너뛰고 스캔 내용으로 선적·패킹 리스트·QR 포장을 만들어 입고 완료"
+          data-testid="receiving-complete"
+          @click="doComplete"
+        >
+          {{ completeReceiving.isPending.value ? '처리 중…' : '입고 완료 처리' }}
+        </button>
+        <span v-else-if="lastProgress.overReceived" class="text-[10px] text-red-700">초과분을 취소하면 입고 완료 처리할 수 있습니다</span>
       </div>
+      <p v-if="completedInfo !== null && completedInfo.poId === lastProgress.poId" class="mt-1 rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800" data-testid="receiving-completed">
+        입고 완료 — 선적 #{{ completedInfo.shipmentId }} · QR 포장 {{ completedInfo.packages }}개(스캔 {{ completedInfo.scans }}건){{ completedInfo.poConfirmedNow ? ' · 구매 완료 처리 포함' : '' }}. 선적·배송 "입고 완료" 탭과 Case 에 반영됐습니다.
+      </p>
       <table class="mt-2 w-full text-xs">
         <thead class="text-left text-gray-500"><tr><th class="py-1 pr-3">MPN</th><th class="py-1 pr-3">공급사 품번</th><th class="py-1 pr-3 text-right">발주</th><th class="py-1 pr-3 text-right">입고</th><th class="py-1 text-right">스캔</th></tr></thead>
         <tbody>

@@ -169,3 +169,17 @@ export const AdminBomReceivingProgressResponse = z.object({
   data: BomReceivingPoProgress,
 });
 export type AdminBomReceivingProgressResponseType = z.infer<typeof AdminBomReceivingProgressResponse>;
+
+/** 입고 스캔으로 입고 완료(2단계) — 스캔이 발주 수량을 정확히 채운 공급사 PO 를 선적 단계 없이 닫는다. */
+export const AdminBomReceivingCompleteResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    poId: z.number(),
+    shipmentId: z.number(),
+    packages: z.number().int(), // 스캔으로 만든 QR 포장 수(사람이 이미 저장한 패킹 리스트가 있으면 0)
+    scans: z.number().int(),
+    poConfirmedNow: z.boolean(), // 구매 확인 대기였다면 함께 구매 완료 처리됨
+    receivedAt: z.string(),
+  }),
+});
+export type AdminBomReceivingCompleteResponseType = z.infer<typeof AdminBomReceivingCompleteResponse>;

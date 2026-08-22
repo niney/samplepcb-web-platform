@@ -93,6 +93,17 @@ async function seed(digikeyPartnerId: bigint, mouserPartnerId: bigint): Promise<
 
 async function cleanup(seeded: Seed | null): Promise<void> {
   const prisma = getPrisma();
+  if (seeded !== null) {
+    // R08 이 만든 선적·포장(QR)·선적 품목 — 발주서 삭제 전에 걷는다
+    const shipments = await prisma.spBomShipment.findMany({ where: { poId: { in: [seeded.digikeyPoId, seeded.mouserPoId] } }, select: { id: true } });
+    const shipmentIds = shipments.map((row: { id: bigint }) => row.id);
+    if (shipmentIds.length > 0) {
+      await prisma.spBomPartPackage.deleteMany({ where: { shipmentItem: { shipmentId: { in: shipmentIds } } } });
+      await prisma.spBomShipmentItem.deleteMany({ where: { shipmentId: { in: shipmentIds } } });
+      await prisma.spBomShipmentPo.deleteMany({ where: { shipmentId: { in: shipmentIds } } });
+      await prisma.spBomShipment.deleteMany({ where: { id: { in: shipmentIds } } });
+    }
+  }
   await prisma.spBomReceivingScan.deleteMany({ where: { OR: [{ mpn: { contains: RUN_KEY } }, ...(seeded === null ? [] : [{ poId: { in: [seeded.digikeyPoId, seeded.mouserPoId] } }])] } });
   if (seeded === null) return;
   await prisma.spBomPoItem.deleteMany({ where: { poId: { in: [seeded.digikeyPoId, seeded.mouserPoId] } } });
@@ -279,12 +290,64 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
       expect((await voidWait).status()).toBe(200);
       await expect.poll(() => recent.locator('tbody tr').count()).toBe(before - 1);
       await expect.poll(() => progress.textContent()).toContain('전량 입고');
+      // 전량·정확 → [입고 완료 처리] 버튼이 뜬다(실행은 R08 에서 API 로)
+      expect(await progress.getByTestId('receiving-complete').count()).toBe(1);
       await snap(page, 'bom-receiving-R06');
       expect(s.pageErrors, s.pageErrors.join('\n')).toEqual([]);
     } finally {
       await s.close();
     }
   }, 120_000);
+
+  test('R08. 입고 완료 처리 — 전량·정확 스캔 PO 는 선적 단계 없이 닫힌다(선적·QR 포장 자동, ALREADY/NOT_COMPLETE/OVER 가드)', async () => {
+    if (seeded === null) throw new Error('seed');
+    // DigiKey PO: R02~R06 을 거쳐 20/20(스캔 2건) — 완료
+    const done = await api(A, 'POST', `/api/admin/bom-receiving/pos/${String(seeded.digikeyPoId)}/complete`);
+    expect(done.status, JSON.stringify(done.json)).toBe(200);
+    expect(done.json.data).toMatchObject({ poId: num(seeded.digikeyPoId), packages: 2, scans: 2, poConfirmedNow: false });
+    const shipmentId = done.json.data.shipmentId as number;
+    const shipment = await getPrisma().spBomShipment.findUnique({ where: { id: BigInt(shipmentId) } });
+    expect(shipment?.mode, 'DigiKey(US) → 국제').toBe('international');
+    expect(shipment?.status, '국제 최종 상태').toBe('done');
+    expect(shipment?.receivedAt).not.toBeNull();
+    expect(shipment?.packingFinalizedAt).not.toBeNull();
+    const packing = await api(A, 'GET', `/api/admin/bom-shipments/${String(shipmentId)}/packing-list`);
+    expect(packing.status, JSON.stringify(packing.json)).toBe(200);
+    const items = packing.json.data.items as { poItemId: number; packages: { packageId: number | null; quantity: number; status: string }[] }[];
+    expect(items).toHaveLength(1);
+    expect(items[0]?.packages.map((p) => p.quantity)).toEqual([10, 10]);
+    expect(items[0]?.packages.every((p) => p.packageId !== null && p.status === 'received'), 'QR 포장 발급·입고 상태').toBe(true);
+    const again = await api(A, 'POST', `/api/admin/bom-receiving/pos/${String(seeded.digikeyPoId)}/complete`);
+    expect(again.status).toBe(409);
+    expect(again.json?.error).toBe('ALREADY_RECEIVED');
+
+    // Mouser PO: 3/6 → NOT_COMPLETE; 5개 더 찍어 8/6 → OVER_RECEIVED; 취소 후 다시 3/6
+    const short = await api(A, 'POST', `/api/admin/bom-receiving/pos/${String(seeded.mouserPoId)}/complete`);
+    expect(short.status).toBe(409);
+    expect(short.json?.error).toBe('NOT_COMPLETE');
+    const extra = await api(A, 'POST', '/api/admin/bom-receiving/scans', { barcode: MOUSER_LABEL, poItemId: num(seeded.mouserItemId), quantity: 5, note: null });
+    expect(extra.status).toBe(200);
+    const over = await api(A, 'POST', `/api/admin/bom-receiving/pos/${String(seeded.mouserPoId)}/complete`);
+    expect(over.status).toBe(409);
+    expect(over.json?.error).toBe('OVER_RECEIVED');
+    expect((await api(A, 'DELETE', `/api/admin/bom-receiving/scans/${String(extra.json.data.scan.scanId)}`)).status).toBe(200);
+    // 정확히 채우면(3 더) 구매 확인 대기 PO 도 구매 완료 처리와 함께 닫힌다
+    const fill = await api(A, 'POST', '/api/admin/bom-receiving/scans', { barcode: MOUSER_LABEL, poItemId: num(seeded.mouserItemId), quantity: 3, note: null });
+    expect(fill.status).toBe(200);
+    const mouserDone = await api(A, 'POST', `/api/admin/bom-receiving/pos/${String(seeded.mouserPoId)}/complete`);
+    expect(mouserDone.status, JSON.stringify(mouserDone.json)).toBe(200);
+    expect(mouserDone.json.data).toMatchObject({ poConfirmedNow: true, packages: 2, scans: 2 });
+    const mouserPo = await getPrisma().spBomPo.findUnique({ where: { id: seeded.mouserPoId } });
+    expect(mouserPo?.status).toBe('confirmed');
+
+    // 워크큐 — 입고 완료 탭에 두 선적이 "입고 스캔 n/n"(전량) 배지로
+    const queue = await api(A, 'GET', '/api/admin/bom-shipments?tab=received&page=1&pageSize=100');
+    expect(queue.status).toBe(200);
+    const rows = queue.json.data.items as { shipmentId: number; receiving: { scannedQty: number; orderedQty: number } | null; receivedAt: string | null }[];
+    const mine = rows.find((r) => r.shipmentId === shipmentId);
+    expect(mine?.receiving).toEqual({ scannedQty: 20, orderedQty: 20 });
+    expect(mine?.receivedAt).not.toBeNull();
+  }, 60_000);
 
   test('R07. DigiKey 3-legged 연결 — 상태·시작 URL·콜백 state 가드·미연결 조회 409·화면 칩(실 로그인은 사람 몫)', async () => {
     const status = await api(A, 'GET', '/api/admin/digikey/status');

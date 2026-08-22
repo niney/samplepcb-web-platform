@@ -1533,7 +1533,17 @@ DigiKey 앱은 Redirect URI 를 **하나만** 받으므로 로컬/운영은 환�
 로컬용 앱을 하나 더). 검증: vitest `digikey-oauth.test` 4(state·교환·갱신·만료·2D 인코딩) + e2e R07(상태·시작 URL·콜백 state 가드·미연결
 조회 409·화면 칩). 실 로그인·승인은 사람 몫 — 연결 뒤 `DIGIKEY_E2E=1` 로 실조회를 건드린다.
 
-후속 후보: ① 전량 입고 시 패킹 리스트(D24)로 포장 자동 생성 ② Case 상세 PO 패널에 입고 n/총 표시 ③ DigiKey Barcoding 권한 확보 시
+**2단계(같은 날) — 입고 스캔으로 입고 완료**(`POST bom-receiving/pos/:poId/complete`, `lib/bom-receiving-complete.ts`): 사용자 결정
+"스캔으로 입고했으면 선적 단계는 물어보고 생략" → 생략이 아니라 **스캔으로 자동 채워 닫는다**: 품목별 스캔 수량 = 발주 수량(shortage 제외)
+일 때만(부족 409 NOT_COMPLETE·초과 409 OVER_RECEIVED — 초과분 취소 뒤) → 구매 확인 대기면 구매 완료 → 선적 보장(preparing, 국가로 모드) →
+패킹 리스트가 비어 있으면(revision 0·단독 선적) 스캔 행 그대로 포장(수량·lot·date code, `packagesFromScans` — 봉투 1=포장 1, 20 초과는
+lot/dc 합산·꼬리 합치기)으로 저장·확정 → `receiveShipment`(최종 상태+receivedAt+포장 received, 메모 "입고 스캔 n건으로 완료").
+공급사 PO 만(사람 협력사는 핑퐁 유지), 이미 입고면 409 ALREADY_RECEIVED, 국제 Invoice/AWB 문서 게이트는 이 경로에서 요구하지 않는다.
+화면: 진행 카드 `전량 입고`일 때 [입고 완료 처리](확인창: 선적 단계 생략·스캔으로 자동 생성·구매 완료 포함 안내) → 결과 줄(선적 #·QR 포장 n개).
+검증: vitest `bom-receiving-complete.test` 3 + e2e R08(DigiKey 20/20 → 선적 international·done·receivedAt·패킹 확정·QR 포장 2 received·재완료 409,
+Mouser 3/6 NOT_COMPLETE → 8/6 OVER_RECEIVED → 취소·정확 충전 → 구매 완료 포함 완료, 워크큐 입고 완료 탭 배지 20/20).
+
+후속 후보: ① ~~전량 입고 시 패킹 리스트(D24)로 포장 자동 생성~~(2단계로 종결) ② Case 상세 PO 패널에 입고 n/총 표시 ③ DigiKey Barcoding 권한 확보 시
 1D 구형 라벨·패킹리스트 일괄 대사 ④ 발주서에 공급사 주문번호 칸(라벨 K/1K 로 PO 특정).
 
 ## 7. 레거시 교훈 승계 가드
