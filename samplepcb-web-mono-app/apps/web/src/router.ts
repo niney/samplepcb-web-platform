@@ -258,6 +258,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminSmartbomClaims.vue'),
       },
       {
+        // 입고 스캔(D42)은 선적·배송의 통합 스캔 박스로 합쳤다 — 옛 링크·OAuth 복귀는 그대로 보낸다.
+        path: 'smartbom/receiving',
+        name: 'admin-smartbom-receiving',
+        redirect: (to) => ({ name: 'admin-smartbom-logistics', query: to.query }),
+      },
+      {
         // 선적 리스트 QR 스캔 도착점(D24) — token은 식별자, 실제 접근은 관리자 가드.
         path: 'smartbom/packages/:code',
         name: 'admin-smartbom-package',

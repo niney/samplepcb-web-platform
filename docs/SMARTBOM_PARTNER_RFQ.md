@@ -1486,6 +1486,56 @@ SamplePCB Mouser 계정에 e2e 카트가 하나 생겼다 끝에 비워진다.
 실제 화면에 맞춰 다듬는다. ② 장바구니 '스프레드시트 업로드'가 이 .csv 를 열 매핑 없이 받는지. ③ 테스트 카트
 `0bbf99c4-2e4a-490c-b59c-b2ade3e09a99`(08-22 08:16 KST, 1행) 가 다음 날 비면 "API 카트 하루 내 소멸" 확정.
 
+### 6.35 공급사 봉투 라벨 바코드 입고 스캔 — D42 (2026-08-22)
+
+**요구**: DigiKey·Mouser 에서 물건을 받았을 때 봉투 바코드를 찍어 어느 발주 품목이 몇 개 왔는지 추적하고 싶다.
+
+**조사 결과(실측)**:
+- **DigiKey** — 공식 Barcoding API v3 있음(`api.digikey.com/Barcoding/v3`): `ProductBarcodes/{1D}`·`Product2DBarcodes/{2D}`
+  (DigiKeyPartNumber·MPN·Quantity + 2D 는 SalesorderId·InvoiceId·PurchaseOrder·CountryOfOrigin·LotCode·DateCode)·
+  `PackListBarcodes`/`PackList2DBarcodes`(패킹리스트 → 주문 라인 전체). OAuth2 + `X-DIGIKEY-Client-Id`, 2D 의 RS/GS 는
+  `\u241E`/`\u241D` 로 인코딩. 우리 파츠엔진의 client_credentials 앱으로 토큰은 나오고 Product Information v4 는 200 이지만 Barcoding 은 **401** —
+  공식 페이지 명시 **"Only 3-legged OAuth"**(Product Information 은 "Both 2 and 3-legged"). 즉 앱 권한 문제가 아니라 관리자가
+  DigiKey 로그인으로 authorization code 를 한 번 주고 refresh token(90일)을 보관하는 3-legged 연결이 있어야 쓸 수 있다. 당장은 쓰지 않는다.
+- **Mouser** — 바코드 API **없음**(스웨거 전수: Search·Cart·Order·Order History). 주문 대조는 `GET /api/v1/order/{orderNumber}`
+  (OrderLines 의 MouserPartNumber·Quantity)로 가능.
+- **두 곳 봉투 라벨의 2D(Data Matrix/QR)는 ECIA 라벨 규격(EIGP-114, ISO/IEC 15434 Format 06)** — 헤더 `[)>␞06␝`, 구분 ␝,
+  식별자 P/30P 공급사 품번·1P MPN·Q 수량·K 고객 주문번호·1K 공급사 주문번호·10K 송장·11K 패킹리스트·4K/14K 주문 행·1T lot·
+  9D/10D date code·4L 원산지·1V 제조사(구형 Mouser 는 `>[)>06␝` 헤더, Mouser 는 K 에 자기 주문번호). InvenTree 가 같은 방식으로
+  두 공급사 라벨을 **API 없이 로컬 파싱**한다 → 우리도 그렇게 한다.
+
+**결정 — 로컬 파싱 + 별도 입고 원장**:
+- `lib/supplier-barcode.ts`(순수): 스캐너 출력 정규화(제어문자 그대로·␞␝␄ 가시 치환·`<RS>`/`<GS>` 토큰·`\x1e` 이스케이프·끝 CR/LF) →
+  ECIA 필드 → 공급사 판정(30P/…Z → digikey, `-ND` → digikey, 1V/14K → mouser, 그 외 unknown). 비ECIA(LCSC JSON·TME 텍스트)는 null.
+- **원장 `sp_bom_receiving_scan`**(additive migration `20260822120000_add_bom_receiving_scan`): 스캔 1건 = 1행, 매칭된
+  발주 품목이 없어도 남기고(미매칭 추적) 잘못 찍은 건 `voidedAt` 로 취소(삭제 아님). **패킹 리스트(D24)에 바로 쓰지 않는 이유** =
+  D24-1 이 "포장 수량 합계 = 발주 수량" 을 저장 조건으로 두어 부분 입고를 담을 수 없다. 전량 입고 뒤 패킹 리스트로 옮기는 건 후속.
+- 라우트 `/api/admin/bom-receiving`(requireAdmin): `POST scan`(대조만·무부작용 — 열린 공급사 발주 품목과 SKU(우선)/MPN 정규화
+  대조, 라벨 공급사와 같은 공급사 발주로 좁힘) · `POST scans`(박제 — 수량은 수기 > 라벨 Q, 없으면 409 QUANTITY_REQUIRED; 마감 PO
+  409 PO_CLOSED; 사람 협력사 PO 409 NOT_SUPPLIER_PO) · `GET scans?poId&includeVoided` · `DELETE scans/:id`(void, 재취소 409) ·
+  `GET pos/:poId`(품목별 발주/입고/스캔 수, complete·overReceived).
+- 화면 = **선적·배송 페이지의 통합 스캔 박스**(별도 메뉴 없음 — 사용자 결정 "수동으로 선적 처리하니 선적·배송에 같이"): 입력 하나가
+  우리 포장 QR/라벨(`PKG-…`·64자 토큰·QR URL → 부품 QR 추적 화면)과 공급사 봉투 라벨(`[)>…` ECIA·1D → 같은 페이지의 입고 패널
+  `BomReceivingPanel`)을 가른다. 패널 = 라벨 필드·후보 → [입고 기록]/[미매칭으로 기록], "후보가 하나면 바로 기록" 자동 모드(기본 on),
+  방금 기록한 발주서 진행 카드(전량/초과 배지·Case 열기), 최근 입고 스캔(접힘·취소 포함 토글·취소), DigiKey 연결 칩. 옛 주소
+  `/smartbom/receiving` 은 선적·배송으로 리다이렉트(쿼리 보존 — OAuth 복귀도 선적·배송). 조달 선적 워크큐 행에 **"입고 스캔 n/총"**
+  배지(`AdminBomShipmentCrossItem.receiving`, 묶음 전체 공급사 PO 합). 2단계 후보 = 전량 스캔 → 패킹 리스트(D24) 자동 초안 → QR.
+
+**✅ 구현·검증(2026-08-22)**: vitest `supplier-barcode.test` 8(골든 = InvenTree DigiKey/Mouser 라벨 승계) + e2e
+`bom-receiving-scan` 6/6(대조 무부작용·Q 박제·complete/overReceived·void·취소 포함 목록·Mouser MPN 대조+lot/dc·미매칭·
+QUANTITY_REQUIRED·PO_CLOSED·비ECIA·401·화면: 메뉴·가시 치환 입력·자동 기록·진행 카드·취소), tsc·vue-tsc·eslint green.
+**DigiKey 3-legged 연결(같은 날 추가)**: `lib/digikey-oauth.ts` + `/api/admin/digikey`(status·oauth/start·connection 삭제, requireAdmin) +
+무인증 콜백 `/api/admin/digikey/oauth/callback`(관리자가 만든 단일 대기 state 10분·일치할 때만 code 교환; 실패는 `?digikey=error&reason=`
+로 입고 스캔 화면 복귀) → access·refresh 토큰을 `sp_config(digikey_oauth)` 에 보관, 호출 전 1분 여유로 자동 refresh(회전 반영),
+`refresh` 만료 90일. 입고 스캔 화면 상단 칩 [연결]/[해제] + [DigiKey 조회](`POST bom-receiving/digikey-lookup` — 2D 는 RS/GS 를
+U+241E/U+241D 로 인코딩해 `Product2DBarcodes`, 1D 는 `ProductBarcodes`; 결과로 후보·수량·lot·dc 채우고 기록 시 `override` 로 박제).
+DigiKey 앱은 Redirect URI 를 **하나만** 받으므로 로컬/운영은 환경별로 연결(로컬 콜백 등록 상태에서 개발, 배포 시 운영 콜백으로 교체하거나
+로컬용 앱을 하나 더). 검증: vitest `digikey-oauth.test` 4(state·교환·갱신·만료·2D 인코딩) + e2e R07(상태·시작 URL·콜백 state 가드·미연결
+조회 409·화면 칩). 실 로그인·승인은 사람 몫 — 연결 뒤 `DIGIKEY_E2E=1` 로 실조회를 건드린다.
+
+후속 후보: ① 전량 입고 시 패킹 리스트(D24)로 포장 자동 생성 ② Case 상세 PO 패널에 입고 n/총 표시 ③ DigiKey Barcoding 권한 확보 시
+1D 구형 라벨·패킹리스트 일괄 대사 ④ 발주서에 공급사 주문번호 칸(라벨 K/1K 로 PO 특정).
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

@@ -26,6 +26,8 @@ export const apiRoutes = {
   // 발주·선적 횡단 워크큐(관리자 메뉴 재편 — 발주/선적·배송 메뉴)
   adminBomPos: '/api/admin/bom-pos',
   adminBomShipments: '/api/admin/bom-shipments',
+  adminBomReceiving: '/api/admin/bom-receiving', // 입고 스캔(D42)
+  adminDigikey: '/api/admin/digikey', // DigiKey 3-legged 연결(D42)
   adminBomPackages: '/api/admin/bom-packages',
   // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인(D18)
   partnerAccess: '/api/partner/access',

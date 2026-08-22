@@ -62,6 +62,7 @@ import {
   describeMouserCartDiff,
   supplierImportFileName,
 } from './bom-po-external';
+import { loadReceivingTotalsByPo } from './bom-receiving';
 import {
   deleteFromFileServer,
   downloadFromFileServer,
@@ -432,17 +433,32 @@ export const loadAdminShipmentCrossList = async (): Promise<AdminBomShipmentCros
     loadShipmentFilesMap(shipmentIds),
     loadShipmentGroupMap(shipmentIds),
   ]);
+  // 입고 스캔 배지(D42) — 묶음 전체 발주서의 공급사 스캔 누적/발주 수량(공급사 PO 만)
+  const allPoIds = [...new Set([...groupMap.values()].flat().map((entry) => BigInt(entry.poId)))];
+  const receivingByPo = await loadReceivingTotalsByPo(allPoIds);
   return shipments.map((s) => {
     const key = s.id.toString();
     const caseRefPending = shipmentCaseRefPending(s);
+    const groupPos = groupMap.get(key) ?? [];
+    const totals = groupPos.flatMap((entry) => {
+      const t = receivingByPo.get(String(entry.poId));
+      return t === undefined ? [] : [t];
+    });
     return {
-      ...toShipmentView(s, filesMap.get(key) ?? [], groupMap.get(key) ?? []),
+      ...toShipmentView(s, filesMap.get(key) ?? [], groupPos),
       partnerId: Number(s.po.partnerId),
       partnerName: s.po.partner.name,
       quoteId: String(s.quoteId),
       quoteTitle: s.po.quote.title,
       adminPending: isShipmentAdminPending(s),
       caseRefPending,
+      receiving:
+        totals.length === 0
+          ? null
+          : {
+              scannedQty: totals.reduce((sum, t) => sum + t.scannedQty, 0),
+              orderedQty: totals.reduce((sum, t) => sum + t.orderedQty, 0),
+            },
     };
   });
 };

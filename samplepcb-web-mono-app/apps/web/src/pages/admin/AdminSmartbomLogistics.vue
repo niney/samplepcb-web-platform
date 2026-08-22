@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -30,6 +30,7 @@ import {
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
 import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.vue';
+import BomReceivingPanel from '../../components/admin/smartbom/BomReceivingPanel.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
 import { fmtKstDate } from '@sp/utils';
 
@@ -56,14 +57,42 @@ function normalizePackageCode(raw: string): string {
   }
 }
 
+// 통합 스캔 박스(D42) — 한 입력으로 둘을 받는다: 우리 포장 QR/라벨(PKG-…·64자 토큰·QR URL)은
+// 추적 화면으로, 공급사 봉투 라벨(ECIA [)>… ·1D)은 아래 입고 패널로.
+const scanInput = ref<HTMLInputElement | null>(null);
+const receivingPanel = ref<InstanceType<typeof BomReceivingPanel> | null>(null);
+const receivingOpen = ref(false);
+
+function isPackageCode(raw: string): boolean {
+  const value = raw.trim();
+  if (/^SPB1:/i.test(value) || /^PKG-/i.test(value) || /^[a-f0-9]{64}$/i.test(value)) return true;
+  try {
+    return new URL(value).pathname.includes('/smartbom/packages/');
+  } catch {
+    return false;
+  }
+}
+
+function focusScanInput(): void {
+  void nextTick(() => scanInput.value?.focus());
+}
+
 function openPackageScan(): void {
-  const code = normalizePackageCode(packageScan.value);
-  if (code === '') {
-    packageScanError.value = 'QR 또는 라벨 코드를 입력해 주세요.';
+  const raw = packageScan.value;
+  if (raw.trim() === '') {
+    packageScanError.value = 'QR·라벨 코드 또는 공급사 봉투 바코드를 입력해 주세요.';
     return;
   }
   packageScanError.value = '';
-  void router.push({ name: 'admin-smartbom-package', params: { code } });
+  if (isPackageCode(raw)) {
+    const code = normalizePackageCode(raw);
+    void router.push({ name: 'admin-smartbom-package', params: { code } });
+    return;
+  }
+  // 공급사 봉투 라벨 → 입고 패널(대조·기록). 입력은 비우고 포커스는 패널이 끝나면 되돌린다.
+  packageScan.value = '';
+  receivingOpen.value = true;
+  void receivingPanel.value?.scan(raw);
 }
 
 // ── ① 조달 선적 — 횡단 목록 + BomShipmentModal(대표 발주서 경유) ─────────────
@@ -249,15 +278,18 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
   <div class="space-y-6">
     <h1 class="text-xl font-bold">선적·배송</h1>
 
-    <section class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+    <section class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4" data-testid="logistics-scan-box">
       <div class="flex flex-wrap items-end gap-2">
-        <label class="min-w-64 flex-1 text-xs font-bold text-emerald-900">부품 QR·라벨 조회
+        <label class="min-w-64 flex-1 text-xs font-bold text-emerald-900">스캔 — 부품 QR·라벨 조회 / 공급사 봉투 입고
           <input
+            ref="scanInput"
             v-model="packageScan"
             type="text"
             autocomplete="off"
+            spellcheck="false"
+            data-testid="receiving-scan-input"
             class="mt-1 h-10 w-full rounded-lg border border-emerald-300 bg-white px-3 font-mono text-sm"
-            placeholder="QR 스캔 또는 PKG-... 입력"
+            placeholder="우리 QR(PKG-…)은 추적 화면으로, DigiKey·Mouser 봉투 2D 바코드는 입고 기록으로 (Enter)"
             @keyup.enter="openPackageScan"
           >
         </label>
@@ -266,15 +298,27 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           class="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800"
           @click="openPackageScan"
         >
-          추적 조회
+          스캔 처리
+        </button>
+        <button
+          type="button"
+          class="h-10 rounded-lg border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+          :aria-expanded="receivingOpen"
+          data-testid="receiving-toggle"
+          @click="receivingOpen = !receivingOpen"
+        >
+          {{ receivingOpen ? '입고 패널 접기' : '입고 패널' }}
         </button>
       </div>
       <p class="mt-1 text-[11px] text-emerald-700">
-        휴대폰 카메라로 인쇄된 QR을 읽으면 추적 화면이 바로 열립니다.
+        휴대폰 카메라로 인쇄된 QR을 읽으면 추적 화면이 바로 열립니다. 공급사 봉투 라벨(ECIA 2D)은 API 없이 읽어 발주 품목 입고로 남깁니다.
       </p>
       <p v-if="packageScanError !== ''" class="mt-1 text-xs font-semibold text-red-600">
         {{ packageScanError }}
       </p>
+      <div v-show="receivingOpen" class="mt-3">
+        <BomReceivingPanel ref="receivingPanel" @settled="focusScanInput" />
+      </div>
     </section>
 
     <!-- ① 조달 선적 -->
@@ -345,6 +389,14 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
                   class="ml-1 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700"
                   title="협력사가 샘플피씨비 운송의 발송 참조번호(Case ID)를 기다리고 있습니다."
                 >Case ID 요청</span>
+                <!-- 공급사 봉투 스캔 누적(D42) — 공급사 발주서만. 전량이면 초록, 초과면 빨강 -->
+                <span
+                  v-if="item.receiving !== null"
+                  class="ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                  :class="item.receiving.scannedQty === 0 ? 'bg-gray-100 text-gray-500' : item.receiving.scannedQty < item.receiving.orderedQty ? 'bg-amber-100 text-amber-700' : item.receiving.scannedQty === item.receiving.orderedQty ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'"
+                  :title="'공급사 봉투 라벨 스캔 누적 / 발주 수량'"
+                  data-testid="receiving-badge"
+                >입고 스캔 {{ item.receiving.scannedQty }}/{{ item.receiving.orderedQty }}</span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">
                 {{ item.mode === 'international' ? fmtDate(item.shipDate) : '—' }}

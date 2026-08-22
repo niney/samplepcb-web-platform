@@ -1201,9 +1201,40 @@ model SpBomPoItem {
   shipmentItems    SpBomShipmentItem[]
   shortage         SpBomPoShortage?     @relation("BomPoShortageSource")
   recoverySource   SpBomPoShortage?     @relation("BomPoShortageRecovery")
+  receivingScans   SpBomReceivingScan[] // 입고 스캔 원장(D42)
 
   @@index([poId])
   @@map("sp_bom_po_item")
+}
+
+// ── 입고 스캔 원장(D42, docs/SMARTBOM_PARTNER_RFQ.md §6.35) ──────────────────────────────
+// 공급사 봉투 라벨(ECIA 2D) 스캔 1건 = 1행. 매칭된 발주 품목이 없어도 남긴다(미매칭 추적).
+// 패킹 리스트(D24)는 전량 합계 일치가 저장 조건이라 부분 입고를 담을 수 없어 별도 원장으로 둔다.
+model SpBomReceivingScan {
+  id              BigInt       @id @default(autoincrement())
+  poItemId        BigInt? // 매칭된 발주 품목(삭제되면 null 로 남김)
+  poId            BigInt? // 조회 편의(매칭 시점 박제)
+  supplierCode    String?      @db.VarChar(32) // 라벨로 판정한 공급사(digikey|mouser) — 미판정 null
+  barcode         String       @db.Text // 정규화 원문(제어문자 포함)
+  supplierSku     String?      @db.VarChar(191) // 라벨 P/30P
+  mpn             String?      @db.VarChar(191) // 라벨 1P
+  quantity        Int // 입고 수량(라벨 Q, 수기 정정 가능)
+  lotCode         String?      @db.VarChar(100)
+  dateCode        String?      @db.VarChar(100)
+  countryOfOrigin String?      @db.VarChar(16)
+  supplierOrderNo String?      @db.VarChar(64)
+  customerOrderNo String?      @db.VarChar(64)
+  invoiceNo       String?      @db.VarChar(64)
+  note            String?      @db.VarChar(500)
+  scannedBy       String       @db.VarChar(64) // 관리자 mb_id
+  scannedAt       DateTime     @default(now())
+  voidedAt        DateTime? // 잘못 찍은 건 취소(삭제 아님)
+  poItem          SpBomPoItem? @relation(fields: [poItemId], references: [id], onDelete: SetNull)
+
+  @@index([poItemId])
+  @@index([poId])
+  @@index([scannedAt])
+  @@map("sp_bom_receiving_scan")
 }
 
 // 조달 차질·잔량 대체발주(D31) — 원 PO 품목의 수량·금액은 불변으로 두고, 협력사가

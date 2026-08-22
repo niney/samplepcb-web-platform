@@ -9,6 +9,7 @@
     "e2e:headed": "cross-env PORTAL_E2E=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run",
     "e2e:mouser": "cross-env PORTAL_E2E=1 MOUSER_E2E=1 NODE_OPTIONS=--use-system-ca vitest run bom-mouser-cart-handoff",
     "e2e:mouser:headed": "cross-env PORTAL_E2E=1 MOUSER_E2E=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run bom-mouser-cart-handoff",
+    "e2e:receiving": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run bom-receiving-scan",
     "journey": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run --no-file-parallelism journey",
     "journey:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run --no-file-parallelism journey",
     "journey:intl": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-gerber",

@@ -58,6 +58,7 @@ specs/
   pcb-transport.e2e.test.ts  운송수단(항공/해상) — 수단 박제·첨부 종류 접힘 회귀·해상 B/L 게이트·전환 정리·국내 배제
   bom-transport-contract.e2e.test.ts BOM 선적 운송수단 계약·서버 정합(read-only — 실데이터 위 직렬화·첨부 사전 오염 확인)
   bom-mouser-cart-handoff.e2e.test.ts Mouser 카트 인계(D41) — 발주서당 CartKey 고정·전체 교체 [다시 담기]·실카트 대조 [카트 상태 확인]·가져오기 .csv·Case 화면 왕복(MOUSER_E2E=1 옵트인, 실 API)
+  bom-receiving-scan.e2e.test.ts     입고 스캔(D42) — 공급사 봉투 ECIA 2D 라벨 파싱·발주 품목 대조·원장(기록/취소/진행)·선적·배송 통합 스캔 박스 화면·DigiKey 3-legged 연결 가드(RUN 게이트만, 실 로그인 제외)
   delivery-method.e2e.test.ts        배송방법 P1 — 비택배(퀵·방문수령·직배송)는 송장 없이 배송 전이·한글 라벨 병용·택배 3필드 가드(docs/DELIVERY_METHOD.md)
   journey-gerber-rfq.e2e.test.ts       여정 1호 — 해외 협력사(USD·국제 선적 6단계)
   journey-domestic-partner.e2e.test.ts 여정 2호 — 국내 협력사(KRW·국내 3단계·EQ 반려 왕복)

@@ -28,6 +28,8 @@ import { adminPartsRoutes } from './routes/admin-parts';
 import { adminBomQuoteRoutes } from './routes/admin-bom-quotes';
 import { adminBomRfqRoutes } from './routes/admin-bom-rfqs';
 import { adminBomPoRoutes } from './routes/admin-bom-pos';
+import { adminBomReceivingRoutes } from './routes/admin-bom-receiving';
+import { adminDigikeyRoutes, digikeyOauthCallbackRoutes } from './routes/admin-digikey';
 import { adminBomOrderRoutes } from './routes/admin-bom-orders';
 import { bomClaimRoutes } from './routes/bom-claims';
 import { adminBomClaimRoutes } from './routes/admin-bom-claims';
@@ -124,6 +126,12 @@ await app.register(adminBomQuoteRoutes, { prefix: '/api/admin' });
 await app.register(adminBomRfqRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 협력사 발주서(D18)
 await app.register(adminBomPoRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 입고 스캔(D42): 공급사 봉투 라벨 2D 바코드 → 발주 품목 입고 원장
+await app.register(adminBomReceivingRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — DigiKey 3-legged OAuth 연결 상태·시작·해제(D42)
+await app.register(adminDigikeyRoutes, { prefix: '/api/admin' });
+// 무인증 — DigiKey OAuth 콜백(앱에 등록한 Redirect URI). state 가 맞을 때만 code 교환.
+await app.register(digikeyOauthCallbackRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 스마트 BOM 주문·결제(주문 축 파생, D19)
 await app.register(adminBomOrderRoutes, { prefix: '/api/admin' });
 // 배송·완료 후 고객 문제 접수와 관리자 완료·클레임 워크큐(D37)

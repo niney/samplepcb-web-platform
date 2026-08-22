@@ -900,6 +900,8 @@ export const AdminBomShipmentCrossItem = BomShipmentView.extend({
   adminPending: z.boolean(),
   /** 샘플피씨비 운송 요청 후 Case ID가 아직 입력되지 않은 상태. */
   caseRefPending: z.boolean(),
+  /** 공급사 봉투 라벨 입고 스캔 누적(D42) — 묶음 전체 발주 품목 합. 공급사 발주서가 아니면 null. */
+  receiving: z.object({ scannedQty: z.number().int(), orderedQty: z.number().int() }).nullable(),
 });
 export type AdminBomShipmentCrossItemType = z.infer<typeof AdminBomShipmentCrossItem>;
 
