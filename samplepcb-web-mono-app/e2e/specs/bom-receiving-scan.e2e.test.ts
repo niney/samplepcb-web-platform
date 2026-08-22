@@ -18,14 +18,20 @@ import {
 } from '../helpers';
 
 const RUN_KEY = String(Date.now());
+// RECEIVING_E2E_KEEP=1 — 주행이 만든 견적·발주·스캔·선적을 지우지 않고 남긴다(사람이 화면에서 결과를 볼 때). 기본은 정리.
+const KEEP = process.env.RECEIVING_E2E_KEEP === '1';
+// RECEIVING_E2E_SEED_ONLY=1 — 검사는 돌리지 않고 DigiKey·Mouser 발주서(둘 다 issued = 발주한 상태)만 만들어 남긴다(KEEP 함의). 사람이 화면에서 스캔부터 해 볼 무대.
+const SEED_ONLY = process.env.RECEIVING_E2E_SEED_ONLY === '1';
 const RS = String.fromCharCode(0x1e);
 const GS = String.fromCharCode(0x1d);
 const ecia = (...fields: string[]): string => `[)>${RS}06${GS}${fields.join(GS)}`;
 
 // DigiKey 봉투(P 공급사 품번 + 1P MPN + Q 10) / Mouser 봉투(1P MPN + Q 3, K 주문번호, 1V 제조사)
-const DIGIKEY_SKU = '296-LM358BIDDFRCT-ND';
-const DIGIKEY_MPN = 'LM358BIDDFR';
-const MOUSER_MPN = 'MC34063ADR';
+// 기본 주행은 품번에 RUN_KEY 꼬리를 붙여 남겨 둔 무대(KEEP/SEED_ONLY)와 후보가 섞이지 않게 한다. SEED_ONLY 는 사람이 칠 라벨이라 실제 품번 그대로.
+const TAIL = SEED_ONLY ? '' : `-E2E${RUN_KEY.slice(-6)}`;
+const DIGIKEY_SKU = `296-LM358BIDDFRCT${TAIL}-ND`;
+const DIGIKEY_MPN = `LM358BIDDFR${TAIL}`;
+const MOUSER_MPN = `MC34063ADR${TAIL}`;
 const DIGIKEY_LABEL = ecia(`P${DIGIKEY_SKU}`, `1P${DIGIKEY_MPN}`, 'K', '1K72991337', '10K85781337', '11K1', '4LPH', 'Q10', '11ZPICK');
 const MOUSER_LABEL = ecia('KP0-1337', '14K011', `1P${MOUSER_MPN}`, 'Q3', '11K073121337', '4LMX', '1VTI', '1TLOT-A1', '9D2534');
 const UNMATCHED_LABEL = ecia(`1PE2E-NOPE-${RUN_KEY}`, 'Q7', '1VACME');
@@ -81,7 +87,7 @@ async function seed(digikeyPartnerId: bigint, mouserPartnerId: bigint): Promise<
           selectedOffer: { offerKey: `rcv:${String(index)}`, supplier: index === 0 ? 'digikey' : 'mouser', supplierSku: line.sku ?? '', packaging: null, breakQty: line.qty, unitPrice: 0.1, currency: 'USD', unitPriceKrw: 140, moq: 1, orderMultiple: 1, stock: 100, priceBreaks: [{ qty: 1, price: 0.1 }], fetchedAt: now.toISOString(), pinned: true },
         },
       });
-      const po = await tx.spBomPo.create({ data: { quoteId: quote.id, partnerId: line.partnerId, status: index === 0 ? 'confirmed' : 'issued', totalAmount: 0, currency: 'KRW', confirmedAt: index === 0 ? now : null } });
+      const po = await tx.spBomPo.create({ data: { quoteId: quote.id, partnerId: line.partnerId, status: index === 0 && !SEED_ONLY ? 'confirmed' : 'issued', totalAmount: 0, currency: 'KRW', confirmedAt: index === 0 && !SEED_ONLY ? now : null } });
       const poItem = await tx.spBomPoItem.create({
         data: { poId: po.id, quoteItemId: item.id, rfqItemId: null, mpn: line.mpn, manufacturerName: line.manufacturerName, description: 'e2e', supplierSku: line.sku, qty: line.qty, unitPrice: 140, lineTotal: 140 * line.qty },
       });
@@ -127,9 +133,20 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
 
   afterAll(async () => {
     await closeBrowser();
-    await cleanup(seeded);
+    if (KEEP || SEED_ONLY) {
+      console.log(`[receiving e2e] KEEP — quote #${String(seeded?.quoteId)} · DigiKey PO #${String(seeded?.digikeyPoId)} · Mouser PO #${String(seeded?.mouserPoId)} 를 남겼습니다(제목 '[입고 스캔 e2e] ${RUN_KEY}')`);
+    } else {
+      await cleanup(seeded);
+    }
     await disconnectPrisma();
   }, 60_000);
+
+  test.runIf(SEED_ONLY)('R00. 무대만 — 발주한 상태(issued)의 DigiKey 20개·Mouser 6개 발주서를 만들어 남긴다', async () => {
+    if (seeded === null) throw new Error('seed');
+    const pos = await getPrisma().spBomPo.findMany({ where: { id: { in: [seeded.digikeyPoId, seeded.mouserPoId] } } });
+    expect(pos.map((p: { status: string }) => p.status)).toEqual(['issued', 'issued']);
+    console.log(`[receiving e2e] 라벨 예시 — DigiKey: ${DIGIKEY_LABEL.replace(//g, '<RS>').replace(//g, '<GS>')} / Mouser: ${MOUSER_LABEL.replace(//g, '<RS>').replace(//g, '<GS>')}`);
+  });
 
   const progressOf = async (poId: bigint): Promise<Progress> => {
     const r = await api(A, 'GET', `/api/admin/bom-receiving/pos/${String(poId)}`);
@@ -137,7 +154,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     return r.json.data as Progress;
   };
 
-  test('R01. 대조 — DigiKey 라벨을 읽어 공급사 품번으로 발주 품목 1건을 찾는다(무부작용)', async () => {
+  test.skipIf(SEED_ONLY)('R01. 대조 — DigiKey 라벨을 읽어 공급사 품번으로 발주 품목 1건을 찾는다(무부작용)', async () => {
     if (seeded === null) throw new Error('seed');
     const r = await api(A, 'POST', '/api/admin/bom-receiving/scan', { barcode: DIGIKEY_LABEL });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
@@ -149,7 +166,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     expect(count, '대조는 원장을 만들지 않는다').toBe(0);
   });
 
-  test('R02. 기록 — 라벨 수량(Q)으로 입고 박제, 누적이 발주 수량에 닿으면 complete, 넘으면 overReceived', async () => {
+  test.skipIf(SEED_ONLY)('R02. 기록 — 라벨 수량(Q)으로 입고 박제, 누적이 발주 수량에 닿으면 complete, 넘으면 overReceived', async () => {
     if (seeded === null) throw new Error('seed');
     const body = { barcode: DIGIKEY_LABEL, poItemId: num(seeded.digikeyItemId), quantity: null, note: null };
     const first = await api(A, 'POST', '/api/admin/bom-receiving/scans', body);
@@ -173,7 +190,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     expect(progress.items[0]).toMatchObject({ scannedQty: 25, orderedQty: 20, scanCount: 3 });
   });
 
-  test('R03. 취소 — 잘못 찍은 건 void(원장 유지), 두 번 취소는 409, 진행은 되돌아간다', async () => {
+  test.skipIf(SEED_ONLY)('R03. 취소 — 잘못 찍은 건 void(원장 유지), 두 번 취소는 409, 진행은 되돌아간다', async () => {
     if (seeded === null) throw new Error('seed');
     const last = scanIds[scanIds.length - 1];
     const voided = await api(A, 'DELETE', `/api/admin/bom-receiving/scans/${String(last)}`);
@@ -191,7 +208,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     expect((withVoided.json.data.scans as ScanRecord[]).length).toBe(3);
   });
 
-  test('R04. Mouser 라벨 — MPN 으로 대조, lot·date code·주문번호(K) 박제', async () => {
+  test.skipIf(SEED_ONLY)('R04. Mouser 라벨 — MPN 으로 대조, lot·date code·주문번호(K) 박제', async () => {
     if (seeded === null) throw new Error('seed');
     const scan = await api(A, 'POST', '/api/admin/bom-receiving/scan', { barcode: MOUSER_LABEL });
     expect(scan.status).toBe(200);
@@ -206,7 +223,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     expect(rec.json.data.progress).toMatchObject({ scannedTotal: 3, orderedTotal: 6, complete: false });
   });
 
-  test('R05. 경계 — 미매칭 기록(poItemId null)·수량 없는 라벨 409·마감 PO 409·비ECIA 는 parsed null', async () => {
+  test.skipIf(SEED_ONLY)('R05. 경계 — 미매칭 기록(poItemId null)·수량 없는 라벨 409·마감 PO 409·비ECIA 는 parsed null', async () => {
     if (seeded === null) throw new Error('seed');
     const none = await api(A, 'POST', '/api/admin/bom-receiving/scan', { barcode: UNMATCHED_LABEL });
     expect(none.status).toBe(200);
@@ -239,7 +256,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     expect(anon.status).toBe(401);
   });
 
-  test('R06. 화면 — 선적·배송 통합 스캔 박스(PKG 는 추적 화면·봉투 라벨은 입고 패널)·자동 기록·진행 카드·최근 목록·취소', async () => {
+  test.skipIf(SEED_ONLY)('R06. 화면 — 선적·배송 통합 스캔 박스(PKG 는 추적 화면·봉투 라벨은 입고 패널)·자동 기록·진행 카드·최근 목록·취소', async () => {
     if (seeded === null) throw new Error('seed');
     const s = await newSession({ mbId: 'e2e-admin', isAdmin: true });
     try {
@@ -299,7 +316,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     }
   }, 120_000);
 
-  test('R08. 입고 완료 처리 — 전량·정확 스캔 PO 는 선적 단계 없이 닫힌다(선적·QR 포장 자동, ALREADY/NOT_COMPLETE/OVER 가드)', async () => {
+  test.skipIf(SEED_ONLY)('R08. 입고 완료 처리 — 전량·정확 스캔 PO 는 선적 단계 없이 닫힌다(선적·QR 포장 자동, ALREADY/NOT_COMPLETE/OVER 가드)', async () => {
     if (seeded === null) throw new Error('seed');
     // DigiKey PO: R02~R06 을 거쳐 20/20(스캔 2건) — 완료
     const done = await api(A, 'POST', `/api/admin/bom-receiving/pos/${String(seeded.digikeyPoId)}/complete`);
@@ -349,7 +366,7 @@ describe.skipIf(!RUN)('입고 스캔(D42) — ECIA 라벨 파싱·발주 품목 
     expect(mine?.receivedAt).not.toBeNull();
   }, 60_000);
 
-  test('R07. DigiKey 3-legged 연결 — 상태·시작 URL·콜백 state 가드·미연결 조회 409·화면 칩(실 로그인은 사람 몫)', async () => {
+  test.skipIf(SEED_ONLY)('R07. DigiKey 3-legged 연결 — 상태·시작 URL·콜백 state 가드·미연결 조회 409·화면 칩(실 로그인은 사람 몫)', async () => {
     const status = await api(A, 'GET', '/api/admin/digikey/status');
     expect(status.status, JSON.stringify(status.json)).toBe(200);
     const before = status.json.data as { configured: boolean; connected: boolean; redirectUri: string };

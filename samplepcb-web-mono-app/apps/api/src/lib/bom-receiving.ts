@@ -25,6 +25,11 @@ export interface ReceivingMatchInput {
   fields: Pick<SupplierBarcodeFields, 'supplierSku' | 'mpn'>;
 }
 
+/** 입고 완료된 선적에 묶인 발주서 제외(선적 없음 또는 receivedAt null). */
+const NOT_RECEIVED_PO: Prisma.SpBomPoWhereInput = {
+  OR: [{ shipmentLink: null }, { shipmentLink: { shipment: { receivedAt: null } } }],
+};
+
 /** 발주서 상태 — 마감(closed) 전까지 입고 대상. */
 const OPEN_PO_STATUSES = ['issued', 'confirmed'] as const;
 
@@ -97,10 +102,11 @@ export const findReceivingCandidates = async (
   const skuKey = parsed.fields.supplierSku === null ? null : normalizePartKey(parsed.fields.supplierSku);
   const mpnKey = parsed.fields.mpn === null ? null : normalizePartKey(parsed.fields.mpn);
   if (skuKey === null && mpnKey === null) return [];
-  // 후보 폭 = 열린 공급사 발주 품목(규모 작음) → 메모리에서 정규화 대조(공백·대소문자 차이 흡수)
+  // 후보 폭 = 열린 공급사 발주 품목(규모 작음) → 메모리에서 정규화 대조(공백·대소문자 차이 흡수).
+  // 입고가 끝난 선적의 발주서(receivedAt)는 상태가 confirmed 여도 더 받을 것이 없으니 후보에서 뺀다.
   const items = await prisma.spBomPoItem.findMany({
     where: {
-      po: { status: { in: [...OPEN_PO_STATUSES] }, partner: { supplierCode: { not: null } } },
+      po: { status: { in: [...OPEN_PO_STATUSES] }, partner: { supplierCode: { not: null } }, ...NOT_RECEIVED_PO },
     },
     include: { po: { include: { partner: true, quote: { select: { title: true } } } } },
     orderBy: { id: 'desc' },
@@ -269,11 +275,14 @@ export const recordReceivingScan = async (input: {
   if (input.poItemId !== null) {
     const item = await prisma.spBomPoItem.findUnique({
       where: { id: input.poItemId },
-      include: { po: { include: { partner: true } } },
+      include: { po: { include: { partner: true, shipmentLink: { include: { shipment: { select: { receivedAt: true } } } } } } },
     });
     if (item === null) return { ok: false, error: 'PO_ITEM_NOT_FOUND' };
     if (item.po.partner.supplierCode === null) return { ok: false, error: 'NOT_SUPPLIER_PO' };
-    if (!(OPEN_PO_STATUSES as readonly string[]).includes(item.po.status)) {
+    if (
+      !(OPEN_PO_STATUSES as readonly string[]).includes(item.po.status) ||
+      item.po.shipmentLink?.shipment.receivedAt != null
+    ) {
       return { ok: false, error: 'PO_CLOSED' };
     }
     poId = item.poId;
