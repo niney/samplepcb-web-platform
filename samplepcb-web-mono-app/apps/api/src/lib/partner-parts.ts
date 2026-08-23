@@ -738,6 +738,119 @@ export async function syncPartnerPartOfferToCatalog(ledgerPartId: bigint): Promi
 }
 
 /**
+ * 한 청크를 **일괄로** 투영한다 — 행마다 두 질의(부품 확보 + 구매 조건 upsert)를 돌면
+ * 12,000행 반영이 70초였다. 식별자 일괄 조회 → `createMany` → 구매 조건 일괄 조회 →
+ * 신규만 `createMany` · 값이 바뀐 것만 개별 update 로 줄인다(재실행은 대개 0건 update).
+ */
+async function projectChunk(
+  partnerId: bigint,
+  rows: CatalogProjectionRow[],
+  kept: Set<string>,
+  touched: Set<string>,
+): Promise<number> {
+  const identityKey = (row: { mpnNorm: string; manufacturerNorm: string }): string =>
+    `${row.mpnNorm} ${row.manufacturerNorm}`;
+
+  // ① 부품 확보 — 있는 것을 한 번에 읽고, 없는 것만 한 번에 만든다.
+  const mpnNorms = [...new Set(rows.map((row) => row.mpnNorm))];
+  const partIdByIdentity = new Map<string, bigint>();
+  const readParts = async (): Promise<void> => {
+    const found = await prisma.spPart.findMany({
+      where: { mpnNorm: { in: mpnNorms } },
+      select: { id: true, mpnNorm: true, manufacturerNorm: true },
+    });
+    for (const part of found) partIdByIdentity.set(identityKey(part), part.id);
+  };
+  await readParts();
+
+  const missing = new Map<string, CatalogProjectionRow>();
+  for (const row of rows) {
+    const key = identityKey(row);
+    if (!partIdByIdentity.has(key) && !missing.has(key)) missing.set(key, row);
+  }
+  if (missing.size > 0) {
+    // 제조사를 못 읽은 행은 `manufacturerNorm='unknown'` 으로 앉는다(§1.5).
+    await prisma.spPart.createMany({
+      data: [...missing.values()].map((row) => ({
+        mpn: row.mpn.slice(0, 191),
+        mpnNorm: row.mpnNorm,
+        manufacturerNorm: row.manufacturerNorm,
+        manufacturerName: (row.manufacturer ?? '').slice(0, 191),
+        specsJson: {},
+        specsSi: {},
+      })),
+      skipDuplicates: true,
+    });
+    // MySQL 은 createMany 가 id 를 안 돌려준다 — 같은 조건으로 다시 읽는다.
+    await readParts();
+  }
+
+  // ② 구매 조건 — 이 청크가 닿는 부품의 협력사 분만 한 번에 읽는다(partId 가 유일 키 앞자리).
+  const partIds = [...new Set([...partIdByIdentity.values()].map(String))].map((id) => BigInt(id));
+  const existing = await prisma.spPartOffer.findMany({
+    where: { supplier: PARTNER_SUPPLIER, partId: { in: partIds } },
+    select: { id: true, partId: true, supplierSku: true, stock: true, moq: true, leadTime: true, fetchedAt: true },
+  });
+  const existingBySku = new Map(existing.map((offer) => [offer.supplierSku, offer]));
+
+  const creates: { partId: bigint; supplier: string; supplierSku: string }[] = [];
+  const updates: { id: bigint; data: PartnerOfferData; partId: bigint }[] = [];
+  const createData = new Map<string, PartnerOfferData>();
+  let projected = 0;
+  for (const row of rows) {
+    const catalogPartId = partIdByIdentity.get(identityKey(row));
+    if (catalogPartId === undefined) continue; // 방금 만든 것이 안 읽히면 다음 회차가 잡는다
+    const sku = partnerOfferSku(partnerId, row.id);
+    kept.add(sku);
+    touched.add(String(catalogPartId));
+    const data = partnerOfferData(partnerId, row);
+    const prior = existingBySku.get(sku);
+    if (prior === undefined) {
+      creates.push({ partId: catalogPartId, supplier: PARTNER_SUPPLIER, supplierSku: sku });
+      createData.set(sku, data);
+    } else if (
+      prior.partId !== catalogPartId
+      || prior.stock !== data.stock
+      || prior.moq !== data.moq
+      || prior.leadTime !== data.leadTime
+      || prior.fetchedAt.getTime() !== data.fetchedAt.getTime()
+    ) {
+      // 품번을 고쳐 다른 부품으로 옮겨 갔으면 자리도 함께 옮긴다(옛 부품도 문서가 바뀐다).
+      if (prior.partId !== catalogPartId) touched.add(String(prior.partId));
+      updates.push({ id: prior.id, data, partId: catalogPartId });
+    }
+    projected += 1;
+  }
+
+  if (creates.length > 0) {
+    await prisma.spPartOffer.createMany({
+      data: creates.flatMap((offer) => {
+        const data = createData.get(offer.supplierSku);
+        return data === undefined ? [] : [{
+          partId: offer.partId,
+          supplier: offer.supplier,
+          supplierSku: offer.supplierSku,
+          stock: data.stock,
+          moq: data.moq,
+          leadTime: data.leadTime,
+          rawJson: data.rawJson,
+          fetchedAt: data.fetchedAt,
+        }];
+      }),
+      skipDuplicates: true,
+    });
+  }
+  for (const update of updates) {
+    await prisma.spPartOffer.update({
+      where: { id: update.id },
+      data: { ...update.data, partId: update.partId },
+    });
+  }
+  return projected;
+}
+
+
+/**
  * 협력사 원장 전체를 카탈로그에 다시 투영한다(반영·비우기·일괄 토글용). 멱등하다.
  *
  * 전체 교체 업로드는 원장을 통째로 갈아 끼우므로 여기서도 "지금 활성인 행"으로 맞추고
@@ -765,14 +878,7 @@ export async function projectPartnerPartsToCatalog(
     const last = rows[rows.length - 1];
     if (last === undefined) break;
     cursor = last.id;
-    for (const row of rows) {
-      const catalogPartId = await ensureCatalogPart(row);
-      const sku = partnerOfferSku(partnerId, row.id);
-      kept.add(sku);
-      touched.add(String(catalogPartId));
-      await upsertPartnerOffer(catalogPartId, sku, partnerOfferData(partnerId, row));
-      offers += 1;
-    }
+    offers += await projectChunk(partnerId, rows, kept, touched);
   }
   // 이 협력사 몫만 정리한다 — SKU 접두가 곧 소유권이다.
   let removed = 0;

@@ -14,6 +14,8 @@ import {
   PartnerPartUploadCommitBody,
   PartnerPartUploadDetailResponse,
   PartnerPartUploadListResponse,
+  PartnerPartConfig,
+  PartnerPartConfigResponse,
 } from '@sp/api-contract';
 import { collectMultipart } from '../lib/market';
 import { uploadToFileServer } from '../lib/file-server';
@@ -22,7 +24,6 @@ import {
   PARTNER_PART_FILE_REF_TYPE,
   PARTNER_PART_MAX_FILE_BYTES,
   PARTNER_PART_PREVIEW_ROW_LIMIT,
-  PARTNER_PART_STALE_AFTER_DAYS,
   PartnerPartEditError,
   PartnerPartEngineError,
   ageDaysFrom,
@@ -41,6 +42,7 @@ import {
   syncPartnerPartOfferToCatalog,
   updatePartnerPart,
 } from '../lib/partner-parts';
+import { getPartnerPartConfig, setPartnerPartConfig } from '../lib/sp-config';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/partner-parts — 관리자 뒤처리 도구 + 대행 업로드 ───────────────
@@ -68,11 +70,31 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
     return partner;
   };
 
+  // ── GET/PUT /partner-parts/config — 낡음 기준일 ───────────────────────────
+  // 만료를 두지 않는 대신 '낡음'이 유일한 신호라, 협력사·품목군마다 다른 갱신 주기를
+  // 운영에서 맞출 수 있어야 한다(P4).
+  fastify.get(
+    '/partner-parts/config',
+    { schema: { response: { 200: PartnerPartConfigResponse } } },
+    async () => ({ result: true as const, data: await getPartnerPartConfig() }),
+  );
+
+  fastify.put(
+    '/partner-parts/config',
+    { schema: { body: PartnerPartConfig, response: { 200: PartnerPartConfigResponse } } },
+    async (request) => {
+      await setPartnerPartConfig(request.body);
+      return { result: true as const, data: await getPartnerPartConfig() };
+    },
+  );
+
   // ── GET /partner-parts/summary — 원장을 가진 협력사 전부 ────────────────────
   fastify.get(
     '/partner-parts/summary',
     { schema: { response: { 200: AdminPartnerPartSummaryListResponse } } },
     async () => {
+      // 낡음 기준은 운영 설정이 정본이다(env 는 기본값) — docs/PARTNER_PARTS.md
+      const { staleAfterDays } = await getPartnerPartConfig();
       const [grouped, inactiveGrouped] = await Promise.all([
         prisma.spPartnerPart.groupBy({
           by: ['partnerId'],
@@ -91,7 +113,7 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
       if (partnerIds.length === 0) {
         return {
           result: true as const,
-          data: { items: [], staleAfterDays: PARTNER_PART_STALE_AFTER_DAYS, totalActiveParts: 0 },
+          data: { items: [], staleAfterDays, totalActiveParts: 0 },
         };
       }
       const [partners, uploads] = await Promise.all([
@@ -132,7 +154,7 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
             lastUploadedAt: last?.at.toISOString() ?? null,
             lastUploadFileName: last?.fileName ?? null,
             ageDays,
-            stale: ageDays !== null && ageDays > PARTNER_PART_STALE_AFTER_DAYS,
+            stale: ageDays !== null && ageDays > staleAfterDays,
           };
         })
         // 낡은 것부터 위로 — 뒤처리 대상이 먼저 보여야 한다.
@@ -141,7 +163,7 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
         result: true as const,
         data: {
           items,
-          staleAfterDays: PARTNER_PART_STALE_AFTER_DAYS,
+          staleAfterDays,
           totalActiveParts: items.reduce((sum, item) => sum + item.activeCount, 0),
         },
       };

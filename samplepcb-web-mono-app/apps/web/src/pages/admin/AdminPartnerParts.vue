@@ -9,7 +9,9 @@ import {
 import {
   useAdminCommitPartnerPartUpload,
   useAdminPartnerPartList,
+  useAdminPartnerPartConfig,
   useAdminPartnerPartSummary,
+  useUpdateAdminPartnerPartConfig,
   useAdminPartnerPartUpload,
   useAdminPartnerPartUploads,
   useBulkToggleAdminPartnerParts,
@@ -34,6 +36,23 @@ import { confirmDialog } from '../../lib/confirmDialog';
 const PAGE_SIZE = 50;
 
 const summaryQuery = useAdminPartnerPartSummary();
+const configQuery = useAdminPartnerPartConfig();
+const updateConfig = useUpdateAdminPartnerPartConfig();
+
+// 낡음 기준일 — 삭제 기준이 아니라 **표시 기준**이다(만료를 두지 않기로 했으므로).
+// 협력사·품목군마다 재고표 갱신 주기가 달라 운영에서 맞춘다.
+const staleEditing = ref(false);
+const staleDraft = ref('');
+function openStaleEdit(): void {
+  staleDraft.value = String(staleAfterDays.value);
+  staleEditing.value = true;
+}
+async function saveStale(): Promise<void> {
+  const days = Number(staleDraft.value.trim());
+  if (!Number.isInteger(days) || days < 1 || days > 3650) return;
+  await updateConfig.mutateAsync({ staleAfterDays: days });
+  staleEditing.value = false;
+}
 const selectedPartnerId = ref<number | null>(null);
 const q = ref('');
 const page = ref(1);
@@ -82,7 +101,8 @@ const saveEdit = async (partId: number, body: PartnerPartUpdateBodyType): Promis
 };
 
 const summaries = computed(() => summaryQuery.data.value?.data.items ?? []);
-const staleAfterDays = computed(() => summaryQuery.data.value?.data.staleAfterDays ?? 90);
+const staleAfterDays = computed(() =>
+  configQuery.data.value?.data.staleAfterDays ?? summaryQuery.data.value?.data.staleAfterDays ?? 90);
 const totalActive = computed(() => summaryQuery.data.value?.data.totalActiveParts ?? 0);
 const staleCount = computed(() => summaries.value.filter((s) => s.stale).length);
 const items = computed(() => listQuery.data.value?.data.items ?? []);
@@ -211,8 +231,30 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
           class="rounded-lg border px-3 py-2"
           :class="staleCount > 0 ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-surface'"
         >
-          <p class="text-xs" :class="staleCount > 0 ? 'text-amber-700' : 'text-gray-500'">
-            {{ staleAfterDays }}일 경과
+          <p class="flex items-center gap-1 text-xs" :class="staleCount > 0 ? 'text-amber-700' : 'text-gray-500'">
+            <template v-if="staleEditing">
+              <input
+                v-model="staleDraft"
+                type="text"
+                inputmode="numeric"
+                class="w-12 rounded border border-gray-300 px-1 py-0.5 text-right text-xs tabular-nums"
+                aria-label="낡음 기준일"
+                @keyup.enter="void saveStale()"
+              >일 경과
+              <button type="button" class="font-semibold text-blue-600 hover:underline" @click="void saveStale()">저장</button>
+              <button type="button" class="text-gray-400 hover:underline" @click="staleEditing = false">취소</button>
+            </template>
+            <template v-else>
+              {{ staleAfterDays }}일 경과
+              <button
+                type="button"
+                class="text-gray-400 hover:text-blue-600 hover:underline"
+                title="낡음으로 볼 기준일을 바꿉니다 — 표시 기준일 뿐 원장을 지우지 않습니다"
+                @click="openStaleEdit"
+              >
+                기준 변경
+              </button>
+            </template>
           </p>
           <p class="text-lg font-bold tabular-nums" :class="staleCount > 0 ? 'text-amber-800' : ''">
             {{ staleCount }}곳

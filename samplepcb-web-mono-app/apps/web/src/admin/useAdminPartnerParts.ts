@@ -4,11 +4,13 @@ import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 import {
   AdminPartnerPartSummaryListResponse,
   PartnerPartListResponse,
+  PartnerPartConfigResponse,
   PartnerPartMutationResponse,
   PartnerPartUpdateResponse,
   PartnerPartUploadDetailResponse,
   PartnerPartUploadListResponse,
   apiRoutes,
+  type PartnerPartConfigType,
   type PartnerPartUpdateBodyType,
   type PartnerPartUploadModeType,
 } from '@sp/api-contract';
@@ -148,6 +150,25 @@ export function useAdminCommitPartnerPartUpload() {
         { mode: vars.mode },
         PartnerPartMutationResponse,
       ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+/** 낡음 기준일 — 만료를 안 두는 대신 '낡음'이 유일한 신호라 운영에서 조정한다(P4). */
+export function useAdminPartnerPartConfig() {
+  return useQuery({
+    queryKey: ['admin', 'partner-parts', 'config'],
+    queryFn: () => apiGet(`${base}/config`, PartnerPartConfigResponse),
+  });
+}
+
+export function useUpdateAdminPartnerPartConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PartnerPartConfigType) =>
+      apiSend('PUT', `${base}/config`, body, PartnerPartConfigResponse),
     onSuccess: () => {
       invalidate(qc);
     },

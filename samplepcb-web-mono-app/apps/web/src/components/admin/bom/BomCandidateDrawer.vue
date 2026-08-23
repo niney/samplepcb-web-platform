@@ -2024,6 +2024,18 @@ function offerActionReasonId(offer: BomQuoteCandidateOfferType): string {
   return `offer-action-reason-${offer.offerKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
+/**
+ * 협력사 보유 후보(docs/PARTNER_PARTS.md) — 구매 조건이 없어 카드가 밋밋하다.
+ * 가격 없는 후보를 '구매 조건 없음'으로만 보여 주면 담당자가 왜 떴는지 모른다.
+ * 값은 협력사의 주장이라 여기서 약속하지 않고 다음 행동(견적요청)만 가리킨다.
+ */
+function isPartnerCandidate(candidate: {
+  corroboratingSuppliers: readonly string[];
+  offers: readonly unknown[];
+}): boolean {
+  return candidate.offers.length === 0 && candidate.corroboratingSuppliers.includes('partner');
+}
+
 function fmtDelta(value: number | null): string {
   if (value === null || value === 0) return '현재와 동일';
   return `${value > 0 ? '+' : '−'}${Math.abs(Math.round(value)).toLocaleString('ko-KR')}원`;
@@ -3033,15 +3045,17 @@ onBeforeUnmount(() => {
                               </button>
                               <span v-if="context.originalMpn !== null" class="rounded bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">품번 {{ Math.round(candidate.identityConfidence * 100) }}%</span>
                               <span class="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">공급사 {{ candidate.corroboratingSuppliers.length }}</span>
+                              <span v-if="isPartnerCandidate(candidate)" class="rounded bg-amber-100 px-2 py-0.5 font-semibold text-amber-800" title="협력사가 보유를 알린 부품입니다 — 가격·납기는 견적요청 회신이 정본입니다">협력사 보유</span>
                             </div>
                           </div>
                         </div>
                         <div class="w-full shrink-0 rounded-lg border border-slate-200 bg-surface p-3 md:w-52">
-                          <p class="text-xs text-slate-400">{{ candidateSelectedOffer(candidate) !== null ? '현재 선정 구매 조건' : '필요수량 기준 최적 구매 조건' }}</p>
+                          <p class="text-xs text-slate-400">{{ isPartnerCandidate(candidate) ? '협력사 보유' : candidateSelectedOffer(candidate) !== null ? '현재 선정 구매 조건' : '필요수량 기준 최적 구매 조건' }}</p>
                           <strong class="mt-0.5 block text-lg tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
                           <p v-if="candidateDisplayOfferUnitLabel(candidate) !== null" class="mt-0.5 text-xs tabular-nums text-slate-500">단가 {{ candidateDisplayOfferUnitLabel(candidate) }}</p>
                           <p v-if="candidateDisplayOfferCaption(candidate) !== null" class="mt-1 text-[11px] font-semibold text-blue-700">{{ candidateDisplayOfferCaption(candidate) }}</p>
                           <p v-else-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
+                          <p v-else-if="isPartnerCandidate(candidate)" class="mt-1 text-xs font-bold text-amber-700">견적요청 후 확정</p>
                           <p v-else class="mt-1 text-xs font-bold" :class="candidateUnavailableLabel(candidate) === '재고 없음' ? 'text-red-700' : 'text-amber-700'">{{ candidateOfferIssueSummary(candidate) ?? candidateUnavailableLabel(candidate) }}</p>
                           <p
                             v-if="candidateHasSevereDisplayOffer(candidate)"

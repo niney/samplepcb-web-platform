@@ -280,6 +280,31 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 업로드·원장·뒤처리'
     expect(orphan).toBe(0);
   }, 120_000);
 
+  test('낡음 기준일 — 운영 설정이 정본이고 요약이 그대로 따른다', async () => {
+    const token = admin();
+    const before = await api(token, 'GET', '/api/admin/partner-parts/config');
+    expect(before.status, JSON.stringify(before.json)).toBe(200);
+    const original = before.json.data.staleAfterDays as number;
+
+    // 만료를 두지 않으므로(P4) 이 값은 **삭제 기준이 아니라 표시 기준**이다.
+    const saved = await api(token, 'PUT', '/api/admin/partner-parts/config', {
+      staleAfterDays: 1,
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    expect(saved.json.data.staleAfterDays).toBe(1);
+
+    const summary = await api(token, 'GET', '/api/admin/partner-parts/summary');
+    expect(summary.json.data.staleAfterDays, '요약이 설정값을 그대로 쓴다').toBe(1);
+
+    // 범위를 벗어난 값은 막는다(0일이면 모든 원장이 늘 낡음이 된다).
+    const rejected = await api(token, 'PUT', '/api/admin/partner-parts/config', {
+      staleAfterDays: 0,
+    });
+    expect(rejected.status).toBe(400);
+
+    await api(token, 'PUT', '/api/admin/partner-parts/config', { staleAfterDays: original });
+  }, 60_000);
+
   test('관리자 뒤처리 — 요약·끄기·켜기·행 삭제', async () => {
     const token = admin();
     const summary = await api(token, 'GET', '/api/admin/partner-parts/summary');

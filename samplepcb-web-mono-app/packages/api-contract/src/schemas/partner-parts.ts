@@ -91,6 +91,19 @@ export function partnerPartVisibleFlags(flags: readonly string[]): string[] {
   return flags.filter((flag) => !PARTNER_PART_SILENT_FLAGS.has(flag));
 }
 
+// ── 운영 설정 ──────────────────────────────────────────────────────────────
+// 만료를 두지 않기로 했으므로(P4) '낡음'은 삭제 기준이 아니라 **표시 기준**이다.
+// 협력사·품목군마다 재고표 갱신 주기가 달라 운영에서 조정할 수 있어야 한다.
+export const PartnerPartConfig = z.object({
+  staleAfterDays: z.number().int().min(1).max(3650),
+});
+export type PartnerPartConfigType = z.infer<typeof PartnerPartConfig>;
+
+export const PartnerPartConfigResponse = z.object({
+  result: z.literal(true),
+  data: PartnerPartConfig,
+});
+
 // ── 미리보기(커밋 전) ──────────────────────────────────────────────────────
 export const PartnerPartPreviewColumn = z.object({
   column1Based: z.number().int().positive(),

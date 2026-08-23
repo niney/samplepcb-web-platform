@@ -257,9 +257,15 @@ def _parse_int(text: str) -> int | None:
     if match is None:
         return None
     try:
-        return int(match.group(0).replace(",", ""))
+        value = int(match.group(0).replace(",", ""))
     except ValueError:
         return None
+    # `1k`·`10K` — 브로커가 즐겨 쓰는 천 단위 축약. 숫자만 읽으면 1,000 이 **1 이 된다**
+    # (합성 코퍼스가 잡은 결함: 조용히 틀린 값이라 에러도 안 난다).
+    tail = text[match.end():].lstrip()
+    if tail[:1] in ("k", "K") and not tail[1:2].isalnum():
+        return value * 1_000
+    return value
 
 
 def _parse_price(text: str) -> tuple[float | None, str | None]:
@@ -331,6 +337,13 @@ def _clean_part_number(raw: str) -> tuple[str, list[str], list[str], str | None]
 
     if " " in canonical:
         flags.append("mpn_needs_review")
+
+    # 영숫자가 하나도 없으면 조회 키를 만들 수 없다 = BOM 에 매칭될 길이 없는 값이다.
+    # 소계·합계 행, 구역 제목, 시트 중간에 다시 나온 머리글이 여기 걸린다. 버리지는
+    # 않는다(무유실) — 사람이 지우거나 고칠 수 있게 검토 표시만 남긴다.
+    if canonical != "" and re.sub(r"[^0-9A-Za-z]", "", canonical) == "":
+        if "mpn_needs_review" not in flags:
+            flags.append("mpn_needs_review")
 
     seen = {canonical.casefold()}
     unique: list[str] = []

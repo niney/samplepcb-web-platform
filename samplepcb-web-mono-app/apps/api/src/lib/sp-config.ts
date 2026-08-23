@@ -1,12 +1,15 @@
 import {
   BomEstimateContactUpdate,
+  PartnerPartConfig,
   BomQuoteConfig,
   type BomEstimateContactType,
   type BomEstimateContactUpdateType,
   type BomQuoteConfigType,
   type GerberPriceModeType,
+  type PartnerPartConfigType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
+import { PARTNER_PART_STALE_AFTER_DAYS } from './partner-parts';
 
 // sp_config 싱글 키 스토어 접근 — 코어 g5_config/g5_shop_default 를 건드리지 않는 sp 소유
 // 설정(schema.prisma SpConfig). gerber_price_mode(거버 가격 해석: order|supply),
@@ -115,4 +118,34 @@ export function resolveBomEstimateContact(
   return configured.managerName !== '' && configured.managerEmail !== ''
     ? { ...configured }
     : { ...fallback };
+}
+
+// ── 협력사 보유 부품 운영 설정(docs/PARTNER_PARTS.md) ──────────────────────
+// 만료를 안 두는 대신 '낡음'을 표시로만 쓴다(P4). 기본값은 env 로 두되 **정본은 여기**다 —
+// 재고표 갱신 주기가 협력사마다 달라 운영 중 조정이 필요하다.
+
+const PARTNER_PART_CONFIG_KEY = 'partner_parts';
+
+export const PARTNER_PART_CONFIG_DEFAULTS: PartnerPartConfigType = {
+  staleAfterDays: PARTNER_PART_STALE_AFTER_DAYS,
+};
+
+export async function getPartnerPartConfig(): Promise<PartnerPartConfigType> {
+  const row = await prisma.spConfig.findUnique({ where: { key: PARTNER_PART_CONFIG_KEY } });
+  if (row === null) return PARTNER_PART_CONFIG_DEFAULTS;
+  try {
+    const parsed = PartnerPartConfig.safeParse(JSON.parse(row.value));
+    return parsed.success ? parsed.data : PARTNER_PART_CONFIG_DEFAULTS;
+  } catch {
+    return PARTNER_PART_CONFIG_DEFAULTS; // 손상 값 — 기본값 폴백(다음 저장이 복구)
+  }
+}
+
+export async function setPartnerPartConfig(config: PartnerPartConfigType): Promise<void> {
+  const value = JSON.stringify(config);
+  await prisma.spConfig.upsert({
+    where: { key: PARTNER_PART_CONFIG_KEY },
+    create: { key: PARTNER_PART_CONFIG_KEY, value },
+    update: { value },
+  });
 }
