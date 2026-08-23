@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   API_URL,
   RUN,
+  cleanupPartnerCatalog,
   closeBrowser,
   disconnectPrisma,
   getPrisma,
@@ -47,6 +48,8 @@ const cleanup = async (): Promise<void> => {
       where: { partId: { in: parts.map((p: { id: bigint }) => p.id) } },
     });
   }
+  // 카탈로그 투영 흔적부터 치운다 — 라우트를 안 타므로 자동 동기화가 없다.
+  await cleanupPartnerCatalog(existing.id);
   await prisma.spPartnerPart.deleteMany({ where: { partnerId: existing.id } });
   await prisma.spPartnerPartUpload.deleteMany({ where: { partnerId: existing.id } });
   await prisma.spPartnerMember.deleteMany({ where: { partnerId: existing.id } });
@@ -256,6 +259,62 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 화면 관찰', () => {
       await prisma.spBomQuoteItem.deleteMany({ where: { quoteId: quote.id } });
       await prisma.spBomQuote.delete({ where: { id: quote.id } });
     }
+  }, 180_000);
+
+  test('단일검색 — 협력사 보유 줄이 서고 견적 담기까지 간다', async () => {
+    const prisma = getPrisma();
+    // 이 스펙 원장의 부품 하나를 고른다(다른 협력사도 같은 품번을 가질 수 있다).
+    const mine = await prisma.spPartOffer.findFirstOrThrow({
+      where: { supplier: 'partner', supplierSku: { startsWith: `${String(partnerId)}:` } },
+      select: { partId: true },
+    });
+    const part = await prisma.spPart.findUniqueOrThrow({
+      where: { id: mine.partId },
+      select: { mpn: true },
+    });
+    await prisma.spBomQuoteItem.deleteMany({
+      where: { quote: { mbId: 'e2e-admin', sourceKind: 'single_search' } },
+    });
+
+    const session = await newSession({ mbId: 'e2e-admin', isAdmin: true });
+    try {
+      await session.page.goto('/app/bom/search', { waitUntil: 'networkidle' });
+      const input = session.page.locator('input[type=search], input[type=text]').first();
+      await input.waitFor({ state: 'visible', timeout: 20_000 });
+      await input.fill(part.mpn);
+      await input.press('Enter');
+      await session.page.waitForTimeout(3_000);
+
+      // 구매 조건 표는 비어 있어도(협력사는 가격을 안 만든다) **협력사 보유 표**가 서야 한다.
+      // 이 줄이 없으면 사용자 눈에는 "검색이 안 된다"로 보인다 — 실제로 그렇게 신고됐다.
+      const section = session.page.locator('section', { hasText: '협력사 보유' }).first();
+      expect(await section.isVisible(), '협력사 보유 표가 보여야 한다').toBe(true);
+      expect(
+        await session.page.locator('text=견적요청 후 확정').first().isVisible(),
+        '가격은 약속하지 않는다',
+      ).toBe(true);
+      await snap(session.page, 'search-partner-stock-row');
+
+      await session.page.locator('button', { hasText: '견적담기' }).first().click();
+      await session.page.waitForTimeout(2_500);
+      await snap(session.page, 'search-partner-stock-added');
+      expect(session.pageErrors, session.pageErrors.join('\n')).toEqual([]);
+    } finally {
+      await session.close();
+    }
+
+    // 담긴 행은 **가격 없는 문의 행**이다 — 구매 조건을 만들지 않는 원칙이 여기까지 온다.
+    const cart = await prisma.spBomQuoteItem.findMany({
+      where: { quote: { mbId: 'e2e-admin', sourceKind: 'single_search' } },
+      select: { mpn: true, selectionSource: true, selectedOffer: true, lineTotalKrw: true },
+    });
+    expect(cart.length, '협력사 부품이 카트에 담겨야 한다').toBe(1);
+    expect(cart[0]?.selectionSource).toBe('partner');
+    expect(cart[0]?.selectedOffer, '구매 조건을 만들지 않는다').toBeNull();
+    expect(cart[0]?.lineTotalKrw, '금액을 만들지 않는다').toBeNull();
+    await prisma.spBomQuoteItem.deleteMany({
+      where: { quote: { mbId: 'e2e-admin', sourceKind: 'single_search' } },
+    });
   }, 180_000);
 
   test('원장 요약이 화면·API 에서 같은 수를 본다', async () => {

@@ -37,6 +37,7 @@ import {
   previewRowsFrom,
   toPreviewRows,
   toUploadView,
+  syncPartnerPartOfferToCatalog,
   updatePartnerPart,
   type EngineInventoryResultType,
   type PartnerPartUploadOverrides,
@@ -454,6 +455,7 @@ export const partnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       if (part === null) throw fastify.httpErrors.notFound('부품을 찾을 수 없습니다');
       await prisma.spPartnerPartKey.deleteMany({ where: { partId: part.id } });
       await prisma.spPartnerPart.delete({ where: { id: part.id } });
+      await syncPartnerPartOfferToCatalog(part.id);
       return { result: true as const, data: { affected: 1 } };
     },
   );

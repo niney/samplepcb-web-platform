@@ -36,6 +36,7 @@
     "bom:verify": "node --use-system-ca --env-file=.env --import tsx src/scripts/verify-bom-upload.ts",
     "parts:reindex": "tsx --env-file=.env src/scripts/parts-reindex.ts",
     "parts:refacts": "tsx --env-file=.env src/scripts/parts-refacts.ts",
+    "backfill:partner-catalog": "tsx --env-file=.env src/scripts/backfill-partner-catalog.ts",
     "parts:merge-mfr": "tsx --env-file=.env src/scripts/merge-manufacturer-keys.ts"
   },
   "dependencies": {

@@ -37,6 +37,8 @@ import {
   toPartnerPartRow,
   toPreviewRows,
   toUploadView,
+  projectPartnerPartsToCatalog,
+  syncPartnerPartOfferToCatalog,
   updatePartnerPart,
 } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
@@ -241,6 +243,8 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
           data: { isActive: request.body.isActive },
         }),
       ]);
+      // 끈 원장은 카탈로그에서도 빠져야 한다 — 검색에 남으면 안 된다.
+      await projectPartnerPartsToCatalog(request.params.partnerId);
       return { result: true as const, data: { affected: parts.count } };
     },
   );
@@ -263,6 +267,7 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
           data: { isActive: request.body.isActive },
         }),
       ]);
+      for (const id of ids) await syncPartnerPartOfferToCatalog(id);
       return { result: true as const, data: { affected: parts.count } };
     },
   );
@@ -309,6 +314,7 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
       if (part === null) throw fastify.httpErrors.notFound('부품을 찾을 수 없습니다');
       await prisma.spPartnerPartKey.deleteMany({ where: { partId: part.id } });
       await prisma.spPartnerPart.delete({ where: { id: part.id } });
+      await syncPartnerPartOfferToCatalog(part.id);
       return { result: true as const, data: { affected: 1 } };
     },
   );
@@ -337,6 +343,7 @@ export const adminPartnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts,
         where: { partnerId: request.params.partnerId, status: 'applied' },
         data: { status: 'superseded' },
       });
+      await projectPartnerPartsToCatalog(request.params.partnerId);
       return { result: true as const, data: { affected } };
     },
   );

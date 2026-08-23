@@ -3614,6 +3614,7 @@ function fmtAmount(v: number | null): string {
       :action-error="manualSearchError"
       :panel-action-error="manualPanelError"
       @add="(body, key) => upsertManualItem(body, key)"
+      @add-partner="(body, key) => upsertManualItem(body, key)"
       @remove-selection="removeManualSelection"
       @remove-item="removeManualItem"
       @quantity="updateManualItemQuantity"

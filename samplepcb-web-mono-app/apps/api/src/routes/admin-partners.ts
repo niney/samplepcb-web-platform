@@ -33,6 +33,7 @@ import {
   validateSupplierCode,
 } from '../lib/partner';
 import { normalizePartnerCountry } from '../lib/bom-shipment-policy';
+import { purgeOrphanPartnerOffers } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/partners — 공용 파트너(조직) 관리 ────────────────────────────
@@ -554,6 +555,8 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       }
       try {
         await prisma.spPartner.delete({ where: { id } });
+        // 원장은 cascade 로 딸려 가지만 카탈로그 구매 조건에는 FK 가 없다 — 직접 치운다.
+        await purgeOrphanPartnerOffers(id);
       } catch (e) {
         if (isForeignKeyViolation(e)) {
           return reply.status(409).send({

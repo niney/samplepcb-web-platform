@@ -9,3 +9,4 @@ export * from './mailpit';
 export * from './php-login';
 export * from './g5';
 export * from './journey';
+export * from './partner-catalog';

@@ -19,6 +19,8 @@ import { engineFetch } from './engine-client';
 import { downloadFromFileServer } from './file-server';
 import { resolveManufacturer } from './manufacturer-alias';
 import { toCapabilities } from './partner';
+import { PARTNER_SUPPLIER } from './parts-facts';
+import { indexChangedParts } from './parts-ingest';
 import { prisma } from './prisma';
 
 // ── 협력사 보유 부품 원장 — 정본 docs/PARTNER_PARTS.md ──────────────────────
@@ -573,7 +575,278 @@ export async function commitPartnerPartUpload(
       previewJson: Prisma.DbNull, // 반영 후에는 스냅샷을 비운다(용량)
     },
   });
+  // 카탈로그 투영 — 단일검색·[부품 추가]가 카탈로그를 보므로 반영 시점에 함께 맞춘다.
+  await projectPartnerPartsToCatalog(partnerId);
   return inserted;
+}
+
+// ── 카탈로그 투영(docs/PARTNER_PARTS.md) ────────────────────────────────────
+//
+// 원장이 정본, 카탈로그는 파생이다 — `samplepcb` 파생 구매 조건과 같은 관계.
+// 투영하는 이유는 하나: 단일검색·[부품 추가]가 카탈로그를 보기 때문이다(P7).
+// BOM 후보는 여전히 주입(`local_products`)이 만든다 — 로컬-우선 검색은 `samplepcb`
+// 파생 구매 조건이 있는 부품만 후보로 삼으므로 협력사 부품은 그 경로에 안 걸린다.
+//
+// 세 가지를 지킨다:
+//  ① 정본 오염 금지 — 협력사는 `resolvePartFacts` 의 실공급사 집합에서 빠진다.
+//  ② 색인 오염 금지 — `buildPartDoc` 이 협력사 구매 조건을 뺀다. 그래서 협력사 offer 를
+//     넣고 빼도 **ES 문서가 안 바뀌고**, 전체 교체 업로드가 재색인을 유발하지 않는다.
+//  ③ 그 둘 덕에 투영은 facts·색인을 아예 건드릴 필요가 없다.
+
+/** 협력사 구매 조건의 SKU — `{partnerId}:{원장 행 id}`. 접두가 곧 소유권이다. */
+const partnerOfferSku = (partnerId: bigint, ledgerPartId: bigint): string =>
+  `${String(partnerId)}:${String(ledgerPartId)}`;
+
+interface CatalogProjectionRow {
+  id: bigint;
+  mpn: string;
+  mpnRaw: string;
+  mpnNorm: string;
+  manufacturer: string | null;
+  manufacturerNorm: string;
+  description: string | null;
+  packageCode: string | null;
+  stockQty: number | null;
+  dateCode: string | null;
+  leadTime: string | null;
+  moq: number | null;
+  createdAt: Date;
+}
+
+const PROJECTION_SELECT = {
+  id: true,
+  mpn: true,
+  mpnRaw: true,
+  mpnNorm: true,
+  manufacturer: true,
+  manufacturerNorm: true,
+  description: true,
+  packageCode: true,
+  stockQty: true,
+  dateCode: true,
+  leadTime: true,
+  moq: true,
+  createdAt: true,
+} as const;
+
+/** 카탈로그 부품을 찾거나 만든다. 기존 부품의 정본 필드는 절대 덮지 않는다. */
+async function ensureCatalogPart(row: CatalogProjectionRow): Promise<bigint> {
+  const identity = { mpnNorm: row.mpnNorm, manufacturerNorm: row.manufacturerNorm };
+  const existing = await prisma.spPart.findUnique({
+    where: { mpnNorm_manufacturerNorm: identity },
+    select: { id: true },
+  });
+  if (existing !== null) return existing.id;
+  // 제조사를 못 읽은 행은 `manufacturerNorm='unknown'` 으로 앉는다(실측 57%). 같은 품번의
+  // 진짜 부품과 별개 레코드가 되지만, 실공급사 구매 조건이 없어 **색인되지 않으므로**
+  // 검색 품질을 해치지 않는다. 나중에 공급사 결과가 붙으면 그 레코드가 정상 색인된다.
+  const created = await prisma.spPart.create({
+    data: {
+      mpn: row.mpn.slice(0, 191),
+      ...identity,
+      manufacturerName: (row.manufacturer ?? '').slice(0, 191),
+      specsJson: {},
+      specsSi: {},
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+interface PartnerOfferData {
+  stock: number | null;
+  moq: number | null;
+  leadTime: string | null;
+  rawJson: Prisma.InputJsonValue;
+  fetchedAt: Date;
+}
+
+const partnerOfferData = (partnerId: bigint, row: CatalogProjectionRow): PartnerOfferData => ({
+  stock: row.stockQty,
+  moq: row.moq,
+  leadTime: row.leadTime === null ? null : row.leadTime.slice(0, 64),
+  // 가격은 담지 않는다 — 재고표 단가는 견적가가 아니고, 구매 조건을 만드는 순간
+  // 자동 선정·합계로 새는 길이 열린다(값의 정본은 RFQ 회신이다).
+  rawJson: {
+    supplier: PARTNER_SUPPLIER,
+    partnerId: Number(partnerId),
+    ledgerPartId: Number(row.id),
+    manufacturer_part_number: row.mpn,
+    mpnRaw: row.mpnRaw,
+    manufacturer: row.manufacturer,
+    description: row.description,
+    package: row.packageCode,
+    partnerStockQty: row.stockQty,
+    partnerDateCode: row.dateCode,
+    partnerLeadTime: row.leadTime,
+    offers: [],
+  },
+  fetchedAt: row.createdAt,
+});
+
+async function upsertPartnerOffer(
+  catalogPartId: bigint,
+  sku: string,
+  data: PartnerOfferData,
+): Promise<void> {
+  await prisma.spPartOffer.upsert({
+    where: {
+      partId_supplier_supplierSku: {
+        partId: catalogPartId,
+        supplier: PARTNER_SUPPLIER,
+        supplierSku: sku,
+      },
+    },
+    create: { partId: catalogPartId, supplier: PARTNER_SUPPLIER, supplierSku: sku, ...data },
+    update: data,
+  });
+}
+
+/** 원장 행 하나를 카탈로그에 반영한다(행 수정·삭제 같은 낱개 변경용). */
+export async function syncPartnerPartOfferToCatalog(ledgerPartId: bigint): Promise<void> {
+  const row = await prisma.spPartnerPart.findUnique({
+    where: { id: ledgerPartId },
+    select: { ...PROJECTION_SELECT, partnerId: true, isActive: true },
+  });
+  if (row?.isActive !== true) {
+    // 꺼졌거나 사라진 행은 카탈로그에서도 빠진다 — 관리자가 끈 원장이 검색에 남으면 안 된다.
+    const gone = await prisma.spPartOffer.findMany({
+      where: {
+        supplier: PARTNER_SUPPLIER,
+        supplierSku: { endsWith: `:${String(ledgerPartId)}` },
+      },
+      select: { id: true, partId: true },
+    });
+    if (gone.length === 0) return;
+    await prisma.spPartOffer.deleteMany({ where: { id: { in: gone.map((o) => o.id) } } });
+    await indexChangedParts([...new Set(gone.map((o) => o.partId))]);
+    return;
+  }
+  const catalogPartId = await ensureCatalogPart(row);
+  const sku = partnerOfferSku(row.partnerId, row.id);
+  // 품번을 고치면 다른 카탈로그 부품으로 옮겨 가므로 옛 자리의 구매 조건을 먼저 지운다.
+  const moved = await prisma.spPartOffer.findMany({
+    where: { supplier: PARTNER_SUPPLIER, supplierSku: sku, partId: { not: catalogPartId } },
+    select: { id: true, partId: true },
+  });
+  if (moved.length > 0) {
+    await prisma.spPartOffer.deleteMany({ where: { id: { in: moved.map((o) => o.id) } } });
+  }
+  await upsertPartnerOffer(catalogPartId, sku, partnerOfferData(row.partnerId, row));
+  // 옮겨 온 자리와 떠난 자리 모두 문서가 바뀐다.
+  await indexChangedParts([...new Set([catalogPartId, ...moved.map((o) => o.partId)])]);
+}
+
+/**
+ * 협력사 원장 전체를 카탈로그에 다시 투영한다(반영·비우기·일괄 토글용). 멱등하다.
+ *
+ * 전체 교체 업로드는 원장을 통째로 갈아 끼우므로 여기서도 "지금 활성인 행"으로 맞추고
+ * 남은 구매 조건을 지운다. 지워도 `sp_part` 는 남긴다 — 견적 행이 `partId` 로 참조하고
+ * 있고(FK 없는 느슨한 참조라 DB 가 막아 주지 않는다) 같은 품번이 다시 올라오면 그 행을
+ * 재사용하기 때문이다. 남은 껍데기는 색인 밖이라 검색을 해치지 않는다.
+ */
+export async function projectPartnerPartsToCatalog(
+  partnerId: bigint,
+): Promise<{ offers: number; removed: number; indexed: number }> {
+  // 문서가 바뀐 부품만 모아 마지막에 한 번 색인한다. 협력사 전용 부품은 **색인돼야**
+  // 단일검색이 품번으로 찾을 수 있고, 공존 부품은 `hasPartnerStock` 이 바뀌므로 갱신이 필요하다.
+  const touched = new Set<string>();
+  const kept = new Set<string>();
+  let offers = 0;
+  let cursor: bigint | null = null;
+  for (;;) {
+    const rows: (CatalogProjectionRow & { partnerId: bigint })[] =
+      await prisma.spPartnerPart.findMany({
+        where: { partnerId, isActive: true, ...(cursor === null ? {} : { id: { gt: cursor } }) },
+        select: { ...PROJECTION_SELECT, partnerId: true },
+        orderBy: { id: 'asc' },
+        take: CHUNK,
+      });
+    const last = rows[rows.length - 1];
+    if (last === undefined) break;
+    cursor = last.id;
+    for (const row of rows) {
+      const catalogPartId = await ensureCatalogPart(row);
+      const sku = partnerOfferSku(partnerId, row.id);
+      kept.add(sku);
+      touched.add(String(catalogPartId));
+      await upsertPartnerOffer(catalogPartId, sku, partnerOfferData(partnerId, row));
+      offers += 1;
+    }
+  }
+  // 이 협력사 몫만 정리한다 — SKU 접두가 곧 소유권이다.
+  let removed = 0;
+  let scanned = 0;
+  for (;;) {
+    const stale: { id: bigint; supplierSku: string; partId: bigint }[] = await prisma.spPartOffer.findMany({
+      where: {
+        supplier: PARTNER_SUPPLIER,
+        supplierSku: { startsWith: `${String(partnerId)}:` },
+      },
+      select: { id: true, supplierSku: true, partId: true },
+      orderBy: { id: 'asc' },
+      skip: scanned,
+      take: CHUNK,
+    });
+    if (stale.length === 0) break;
+    const dropped = stale.filter((offer) => !kept.has(offer.supplierSku));
+    // 구매 조건이 빠지는 부품도 문서가 바뀐다 — 마지막 하나가 빠지면 색인에서 통째로 내려간다.
+    for (const offer of dropped) touched.add(String(offer.partId));
+    const drop = dropped.map((offer) => offer.id);
+    if (drop.length > 0) {
+      await prisma.spPartOffer.deleteMany({ where: { id: { in: drop } } });
+      removed += drop.length;
+    }
+    // 지운 만큼은 다음 페이지에서 자리가 당겨지므로 남긴 개수만 건너뛴다.
+    scanned += stale.length - drop.length;
+  }
+  const { indexed } = await indexChangedParts([...touched].map((id) => BigInt(id)));
+  return { offers, removed, indexed };
+}
+
+/**
+ * 원장이 사라진 협력사 구매 조건 청소 — 조직 삭제처럼 **원장을 우회해 지워지는 경로**의
+ * 뒤처리다. `sp_partner_part` 는 조직 삭제에 cascade 로 딸려 가지만 카탈로그 쪽 구매
+ * 조건에는 FK 가 없어(대량 교체를 청크로 돌기 위해 일부러 안 걸었다) 그대로 남는다.
+ *
+ * SKU 가 `{partnerId}:{원장 행 id}` 라 원장 행 존재만 보면 고아를 판별할 수 있다.
+ * `sp_part` 는 지우지 않는다 — 견적 행이 partId 로 참조하고, 색인 밖이라 해롭지 않다.
+ */
+export async function purgeOrphanPartnerOffers(partnerId?: bigint): Promise<number> {
+  let removed = 0;
+  let scanned = 0;
+  for (;;) {
+    const offers: { id: bigint; supplierSku: string }[] = await prisma.spPartOffer.findMany({
+      where: {
+        supplier: PARTNER_SUPPLIER,
+        ...(partnerId === undefined ? {} : { supplierSku: { startsWith: `${String(partnerId)}:` } }),
+      },
+      select: { id: true, supplierSku: true },
+      orderBy: { id: 'asc' },
+      skip: scanned,
+      take: CHUNK,
+    });
+    if (offers.length === 0) break;
+    const ledgerIds = offers.flatMap((offer) => {
+      const raw = offer.supplierSku.split(':')[1];
+      return raw === undefined || !/^\d+$/.test(raw) ? [] : [BigInt(raw)];
+    });
+    const alive = new Set(
+      (await prisma.spPartnerPart.findMany({
+        where: { id: { in: ledgerIds } },
+        select: { id: true },
+      })).map((row) => String(row.id)),
+    );
+    const drop = offers
+      .filter((offer) => !alive.has(offer.supplierSku.split(':')[1] ?? ''))
+      .map((offer) => offer.id);
+    if (drop.length > 0) {
+      await prisma.spPartOffer.deleteMany({ where: { id: { in: drop } } });
+      removed += drop.length;
+    }
+    scanned += offers.length - drop.length;
+  }
+  return removed;
 }
 
 // ── 조회 DTO ────────────────────────────────────────────────────────────────
@@ -701,6 +974,8 @@ export async function updatePartnerPart(
       },
     });
   }
+  // 원장이 정본이므로 카탈로그 쪽 구매 조건도 같은 값으로 맞춘다(품번을 고치면 자리도 옮긴다).
+  await syncPartnerPartOfferToCatalog(updated.id);
   return toPartnerPartRow(updated);
 }
 

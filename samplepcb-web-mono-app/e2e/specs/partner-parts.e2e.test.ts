@@ -18,6 +18,7 @@ import {
   BOM_ENGINE_URL,
   RUN,
   api,
+  cleanupPartnerCatalog,
   disconnectPrisma,
   getPrisma,
   num,
@@ -87,6 +88,8 @@ const cleanup = async (): Promise<void> => {
       where: { partId: { in: parts.map((p: { id: bigint }) => p.id) } },
     });
   }
+  // 카탈로그 투영 흔적부터 치운다 — 라우트를 안 타므로 자동 동기화가 없다.
+  await cleanupPartnerCatalog(existing.id);
   await prisma.spPartnerPart.deleteMany({ where: { partnerId: existing.id } });
   await prisma.spPartnerPartUpload.deleteMany({ where: { partnerId: existing.id } });
   await prisma.spPartnerMember.deleteMany({ where: { partnerId: existing.id } });
@@ -372,7 +375,7 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 업로드·원장·뒤처리'
       where: { partId: target.id },
       select: { mpnNorm: true, kind: true },
     });
-    expect(keys.map((k) => k.mpnNorm)).toEqual(['ADUC7020BCPZ62I']);
+    expect(keys.map((k: { mpnNorm: string }) => k.mpnNorm)).toEqual(['ADUC7020BCPZ62I']);
     expect(keys[0]?.kind).toBe('canonical');
     // 옛 키는 남지 않는다(유령 키 금지).
     expect(
@@ -422,7 +425,7 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 업로드·원장·뒤처리'
       where: { partId: target.id },
       select: { mpnNorm: true },
     });
-    expect(keys.map((k) => k.mpnNorm)).toEqual(['LM358D']);
+    expect(keys.map((k: { mpnNorm: string }) => k.mpnNorm)).toEqual(['LM358D']);
   }, 120_000);
 
   test('견적 품목 × 보유 협력사 — 관리자만 이름을 본다', async () => {

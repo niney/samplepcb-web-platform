@@ -155,7 +155,9 @@ function partRow(id: bigint) {
     factsFingerprint: `facts-${String(id)}`,
     indexFingerprint: null,
     indexedAt: null,
-    offers: [],
+    // 실공급사 구매 조건이 하나는 있어야 색인 대상이다 — 협력사 구매 조건만 남은(또는
+    // 아무것도 없는) 부품은 색인에서 빠진다(docs/PARTNER_PARTS.md).
+    offers: [{ supplier: 'mouser', supplierSku: 'RACE-SKU', rawJson: {}, priceBreaks: [] }],
   };
 }
 

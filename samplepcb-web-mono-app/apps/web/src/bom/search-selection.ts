@@ -8,9 +8,10 @@ export function bomSearchSelectionKey(
   partId: string,
   selection: BomSearchCartSelectionType,
 ): string {
-  return selection.kind === 'manufacturer_catalog'
-    ? `${partId}\u001fmanufacturer_catalog`
-    : `${partId}\u001fsupplier_offer\u001f${selection.supplier}\u001f${selection.supplierSku}`;
+  if (selection.kind === 'manufacturer_catalog') return `${partId}\u001fmanufacturer_catalog`;
+  // 협력사 보유는 부품당 한 줄이다 — 공급사·SKU 로 갈리지 않는다(docs/PARTNER_PARTS.md).
+  if (selection.kind === 'partner_stock') return `${partId}\u001fpartner_stock`;
+  return `${partId}\u001fsupplier_offer\u001f${selection.supplier}\u001f${selection.supplierSku}`;
 }
 
 export function bomOfferSelection(offer: BomPartOfferOptionType): BomSearchCartSelectionType {
@@ -26,6 +27,8 @@ export function bomOfferSelection(offer: BomPartOfferOptionType): BomSearchCartS
 export function bomQuoteItemSelection(item: BomQuoteItemType): BomSearchCartSelectionType | null {
   if (item.partId === null) return null;
   if (item.selectedOffer === null) {
+    // 협력사 보유로 담은 행은 구매 조건이 없다 — 출처로 구분한다.
+    if (item.selectionSource === 'partner') return { kind: 'partner_stock' };
     return item.catalogInquiry ? { kind: 'manufacturer_catalog' } : null;
   }
   return {

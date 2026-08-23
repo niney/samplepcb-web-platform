@@ -11,6 +11,13 @@ import { roundSig } from '@sp/utils';
 // 최저가 공급사의 오타 스펙이 정본을 오염시키는 경로를 차단한다.
 
 export const SAMPLEPCB_SUPPLIER = 'samplepcb';
+/**
+ * 협력사 보유 부품이 카탈로그에 얹힐 때 쓰는 공급사 코드(docs/PARTNER_PARTS.md).
+ * 조직마다 코드를 부여하지 않는다 — `validateSupplierCode` 가 협력사 조직의
+ * supplierCode 를 금지하고, 발주·정산이 그 코드를 보기 때문이다. 어느 협력사인지는
+ * `supplierSku`(원장 행 id)에 담는다.
+ */
+export const PARTNER_SUPPLIER = 'partner';
 export const SAMPLEPCB_POLICY_VERSION = 1;
 
 /** 데이터 품질 신뢰 순위(스펙 판정용) — 목록에 없는 공급사는 그 뒤 순위. */
@@ -147,7 +154,11 @@ function pickScalar(sources: FactsSource[], get: (s: FactsSource) => string | nu
 
 /** 부품 정본 사실 = f(전체 실공급사 구매 조건). samplepcb 파생 구매 조건은 입력에서 제외할 것. */
 export function resolvePartFacts(sources: FactsSource[]): PartFacts {
-  const real = sources.filter((s) => s.supplier !== SAMPLEPCB_SUPPLIER);
+  // 협력사 재고표는 '최신이 아니고 안 맞아도 된다'가 전제다(P4). 스펙·제조사 다수결에
+  // 참여시키면 카탈로그 정본이 오염된다 — 자체 파생 구매 조건과 같은 이유로 제외한다.
+  const real = sources.filter(
+    (s) => s.supplier !== SAMPLEPCB_SUPPLIER && s.supplier !== PARTNER_SUPPLIER,
+  );
 
   // field 별 투표 수집
   const votesByField = new Map<string, Vote[]>();

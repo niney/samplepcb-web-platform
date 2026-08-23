@@ -7,6 +7,7 @@ import { resolveManufacturer } from './manufacturer-alias';
 import {
   bulkIndexPartDocs,
   buildPartDoc,
+  deletePartDoc,
   indexPartDoc,
   refreshPartsIndex,
   type PartWithOffers,
@@ -768,9 +769,29 @@ async function loadPartWithOffers(partId: bigint): Promise<PartWithOffers | null
   });
 }
 
+/**
+ * 구매 조건이 하나도 없는 껍데기는 색인에서 뺀다(docs/PARTNER_PARTS.md §1.5).
+ *
+ * 협력사 전체 교체 업로드로 그 부품의 유일한 구매 조건이 사라지면 `sp_part` 만 남는다.
+ * 행은 남긴다 — 견적 행이 partId 로 참조하고 같은 품번이 다시 올라오면 재사용한다 —
+ * 대신 검색에서는 빠져야 하므로 문서를 지우고 색인 상태도 비운다.
+ */
+async function dropEmptyPartFromIndex(part: PartWithOffers): Promise<void> {
+  if (part.indexedAt === null) return;
+  await deletePartDoc(part.id);
+  await prisma.spPart.updateMany({
+    where: { id: part.id },
+    data: { indexedAt: null, indexFingerprint: null },
+  });
+}
+
 export async function tryIndexPart(partId: bigint, options: { force?: boolean } = {}): Promise<boolean> {
   const part = await loadPartWithOffers(partId);
   if (part === null) return false;
+  if (part.offers.length === 0) {
+    await dropEmptyPartFromIndex(part);
+    return true;
+  }
   const doc = buildPartDoc(part);
   const indexFingerprint = fingerprint({ policyVersion: PART_INDEX_FINGERPRINT_VERSION, doc });
   if (options.force !== true && part.indexFingerprint === indexFingerprint && part.indexedAt !== null) return true;
@@ -819,6 +840,8 @@ interface PendingPartIndex {
 export async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestStats, 'indexed' | 'queued'>> {
   let indexed = 0;
   let queued = 0;
+  // 삭제만 일어난 회차도 refresh 가 필요하다 — 안 하면 지운 문서가 잠깐 더 검색된다.
+  let dropped = 0;
   const successfulItems: PendingPartIndex[] = [];
   const uniquePartIds = [...new Set(partIds)];
   for (let offset = 0; offset < uniquePartIds.length; offset += INDEX_BATCH_SIZE) {
@@ -827,7 +850,11 @@ export async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestS
       where: { id: { in: batchIds } },
       include: { offers: { include: { priceBreaks: true } } },
     });
-    const pending = parts.flatMap((part) => {
+    for (const part of parts.filter((row) => row.offers.length === 0)) {
+      if (part.indexedAt !== null) dropped += 1;
+      await dropEmptyPartFromIndex(part);
+    }
+    const pending = parts.filter((part) => part.offers.length > 0).flatMap((part) => {
       const doc = buildPartDoc(part);
       const indexFingerprint = fingerprint({ policyVersion: PART_INDEX_FINGERPRINT_VERSION, doc });
       if (part.indexFingerprint === indexFingerprint && part.indexedAt !== null) return [];
@@ -845,6 +872,13 @@ export async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestS
     }
   }
 
+  if (successfulItems.length === 0 && dropped > 0) {
+    try {
+      await refreshPartsIndex();
+    } catch {
+      /* 다음 색인·드레인이 다시 refresh 한다 */
+    }
+  }
   if (successfulItems.length > 0) {
     try {
       await refreshPartsIndex();

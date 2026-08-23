@@ -23,14 +23,14 @@ describe('buildSearchQuery', () => {
 
   it('알려진 패키지 0402는 구조화 필터로 승격한다', () => {
     const query = serializedQuery({ q: '4k7 0402' });
-    expect(query).toContain('"filter":[{"terms":{"packageVariants":["0402"]}}]');
+    expect(query).toContain('{"terms":{"packageVariants":["0402"]}}');
     expect(query).toContain('"packageVariants":["0402"],"boost":6');
     expect(query).toContain('"minimum_should_match":1');
   });
 
   it('메트릭 패키지 1005를 0402로 정규화하고 단독 검색 의도로 인정한다', () => {
     const query = serializedQuery({ q: '1005' });
-    expect(query).toContain('"filter":[{"terms":{"packageVariants":["0402"]}}]');
+    expect(query).toContain('{"terms":{"packageVariants":["0402"]}}');
     expect(query).toContain('"packageVariants":["0402"],"boost":6');
   });
 
@@ -53,9 +53,27 @@ describe('buildSearchQuery', () => {
     expect(query).toContain('voltageV');
   });
 
+  it('협력사 보유뿐인 부품은 품번 절로만 통과한다', () => {
+    // 브랜드·스펙 질의: 통과 조건이 '협력사 전용이 아님' 하나뿐이라 아예 빠진다.
+    const brand = serializedQuery({ q: '' });
+    expect(brand).toContain('{"bool":{"must_not":{"term":{"partnerOnly":true}}}}');
+    expect(brand).not.toContain('mpnNorm');
+    // 품번 질의: '협력사 전용이 아님 OR 품번 절 일치' 로 열려 접두·인픽스 검색이 산다.
+    const mpn = serializedQuery({ q: '88PW886' });
+    expect(mpn).toContain('{"bool":{"must_not":{"term":{"partnerOnly":true}}}}');
+    expect(mpn).toContain('"minimum_should_match":1');
+    expect(mpn).toContain('mpnNorm');
+  });
+
   it('빈 검색어는 should 최소 매칭을 만들지 않아 필터 전용 검색이 가능하다', () => {
     expect(buildSearchQuery(PartSearchQuery.parse({ q: '', inStockOnly: true }))).toEqual({
-      bool: { filter: [{ range: { totalStock: { gt: 0 } } }] },
+      bool: {
+        filter: [
+          { range: { totalStock: { gt: 0 } } },
+          // 품번 절이 하나도 없는 질의라 협력사 전용은 통째로 빠진다(docs/PARTNER_PARTS.md §1.5).
+          { bool: { must_not: { term: { partnerOnly: true } } } },
+        ],
+      },
     });
   });
 
@@ -63,9 +81,11 @@ describe('buildSearchQuery', () => {
     const params = PartSearchQuery.parse({ q: '560nF 16V' });
     const intent = buildExactSearchIntent(params);
     expect(intent?.interpretedSpecCount).toBe(2);
-    expect(JSON.stringify(intent?.query)).toContain('"filter":[{"range":{"capacitanceF"');
+    expect(JSON.stringify(intent?.query)).toContain('{"range":{"capacitanceF"');
     expect(JSON.stringify(intent?.query)).toContain('{"range":{"voltageV"');
-    expect(JSON.stringify(intent?.query)).not.toContain('"minimum_should_match"');
+    // 최상위에서만 없어야 한다 — 협력사 통과 조건이 filter 안쪽에 자체 bool 을 하나 둔다.
+    expect((intent?.query as { bool?: { minimum_should_match?: number } }).bool?.minimum_should_match)
+      .toBeUndefined();
   });
 
   it('MPN 텍스트 검색은 exact 규격 의도로 오인하지 않는다', () => {

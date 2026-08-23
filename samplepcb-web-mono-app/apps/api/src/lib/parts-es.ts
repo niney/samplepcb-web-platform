@@ -9,7 +9,7 @@ import {
 } from '@sp/utils';
 import { esClient } from '../es/client';
 import { SP_PARTS_WRITE, type SpPartDoc } from '../es/sp-parts-index';
-import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { PARTNER_SUPPLIER, SAMPLEPCB_SUPPLIER } from './parts-facts';
 import {
   isCatalogInquiryOffer,
   partOffersForDisplay,
@@ -68,7 +68,14 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
   // 구매 조건 요약 — 대표 단가는 각 구매 조건의 최소수량 구간 단가 중 최저(통화 병기).
   // 제조사 카탈로그 원천은 DB 사실·출처 추적용이며 구매 공급사가 아니다. 같은
   // 카탈로그의 SamplePCB 문의 견적 채널만 공급사로 노출한다.
-  const visibleOffers = partOffersForDisplay(part.offers);
+  // 협력사 구매 조건은 색인 문서에 넣지 않는다. ① 스펙·가격이 없어 검색 품질에 기여하지
+  // 않고 ② 넣으면 전체 교체 업로드마다 문서가 바뀌어 실공급사 부품까지 대량 재색인된다.
+  // 협력사 구매 조건은 집계·패싯에서 뺀다 — 검증되지 않은 주장이 재고 필터를 통과하거나
+  // 고객 화면에 공급사로 뜨면 안 된다(P5). 존재 사실만 아래 두 불리언으로 남긴다.
+  const partnerOffers = part.offers.filter((offer) => offer.supplier === PARTNER_SUPPLIER);
+  const visibleOffers = partOffersForDisplay(part.offers).filter(
+    (offer) => offer.supplier !== PARTNER_SUPPLIER,
+  );
   const suppliers = [...new Set(visibleOffers.map((offer) => offer.supplier))];
   // 집계(재고·최저가)는 실공급사만 — samplepcb 파생/문의 견적 채널을 넣으면 원천과
   // 이중 계산된다.
@@ -129,8 +136,27 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
       typeof part.specConflicts === 'object' &&
       Object.keys(part.specConflicts).length > 0,
     hasCatalogInquiryOffer: visibleOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
+    hasPartnerStock: partnerOffers.length > 0,
+    // 협력사뿐인 부품은 스펙·설명이 없다. 색인은 하되(품번으로는 찾혀야 한다)
+    // broad·파라메트릭 질의에서는 제외한다 — 안 그러면 제조사명 한 단어에 수천 건이 쏟아진다.
+    partnerOnly: partnerOffers.length > 0 && partnerOffers.length === part.offers.length,
+    // 곳 수·합계·기준일까지만 — 조직 이름은 색인에도 넣지 않는다(P5: 고객 화면 미노출).
+    partnerStockQty: partnerOffers.length === 0
+      ? null
+      : partnerOffers.reduce((sum, offer) => sum + Math.max(0, offer.stock ?? 0), 0),
+    partnerCount: new Set(partnerOffers.map((offer) => offer.supplierSku.split(':')[0])).size,
+    partnerStockUpdatedAt: partnerOffers.length === 0
+      ? null
+      : new Date(Math.max(...partnerOffers.map((offer) => offer.fetchedAt.getTime()))).toISOString(),
     updatedAt: part.lastSeenAt.toISOString(),
   };
+}
+
+export async function deletePartDoc(partId: bigint): Promise<void> {
+  await esClient().delete(
+    { index: SP_PARTS_WRITE, id: String(partId) },
+    { ignore: [404] },
+  );
 }
 
 export async function indexPartDoc(doc: SpPartDoc): Promise<void> {

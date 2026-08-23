@@ -84,7 +84,7 @@ import {
 } from './admin-case-customer';
 import { buildEngineProcurementPolicy } from './bom-procurement-policy';
 import { resolveManufacturer } from './manufacturer-alias';
-import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { PARTNER_SUPPLIER, SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { isCatalogInquiryOffer, partOffersForDisplay } from './parts-offer-kind';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
 import { normalizeSupplierPackaging } from './supplier-packaging';
@@ -2448,6 +2448,9 @@ export function projectEnginePartSearchResult(
       hasCatalogInquiryOffer: inlineOffers.some(
         (offer) => offer.offerKind === 'manufacturer_catalog',
       ),
+      // 공급사 즉시 결과에는 협력사 보유가 실리지 않는다 — 그 사실은 카탈로그 색인 경로만 안다.
+      hasPartnerStock: false,
+      partnerStock: null,
       score: snapshot.specificationConfidence,
       source: 'supplier' as const,
       inlineOffers,
@@ -5129,6 +5132,11 @@ export async function addBomSearchCartItem(
       const inquiryExists = partOffersForDisplay(part.offers).some((offer) =>
         offer.supplier === SAMPLEPCB_SUPPLIER && isCatalogInquiryOffer(offer.rawJson));
       if (!inquiryExists) return 'catalog-inquiry-not-found';
+    } else if (selection.kind === 'partner_stock') {
+      // 협력사 보유는 가격을 만들지 않는다 — pick 을 비운 채 담고 `문의`로 세운다.
+      if (!part.offers.some((offer) => offer.supplier === PARTNER_SUPPLIER)) {
+        return 'catalog-offer-not-found';
+      }
     } else {
       const selectedInput = toOfferInputs(part).find((offer) =>
         offer.supplier === selection.supplier
@@ -5155,7 +5163,7 @@ export async function addBomSearchCartItem(
       matchEvidence: null,
       recommendedCandidateKey: null,
       selectedCandidateKey: null,
-      selectionSource: 'catalog',
+      selectionSource: selection.kind === 'partner_stock' ? 'partner' : 'catalog',
       partId: String(part.id),
       selectedOffer: pick === null ? null : snapshotFromPick(pick, true, null),
       sourceRow: {
@@ -5391,6 +5399,11 @@ export async function upsertBomQuoteManualItem(
       const inquiryExists = partOffersForDisplay(part.offers).some((offer) =>
         offer.supplier === SAMPLEPCB_SUPPLIER && isCatalogInquiryOffer(offer.rawJson));
       if (!inquiryExists) return 'catalog-inquiry-not-found';
+    } else if (selection.kind === 'partner_stock') {
+      // 협력사 보유는 가격을 만들지 않는다 — pick 을 비운 채 담고 `문의`로 세운다.
+      if (!part.offers.some((offer) => offer.supplier === PARTNER_SUPPLIER)) {
+        return 'catalog-offer-not-found';
+      }
     } else {
       const selectedInput = toOfferInputs(part).find((offer) =>
         offer.supplier === selection.supplier
@@ -5417,7 +5430,7 @@ export async function upsertBomQuoteManualItem(
       matchEvidence: null,
       recommendedCandidateKey: null,
       selectedCandidateKey: null,
-      selectionSource: 'catalog',
+      selectionSource: selection.kind === 'partner_stock' ? 'partner' : 'catalog',
       partId: String(part.id),
       selectedOffer: pick === null ? null : snapshotFromPick(pick, true, null),
       sourceRow: manualSourceRow(existing, mbId, now),

@@ -29,6 +29,8 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
+  /** 협력사 보유 담기 — 구매 조건이 없어 offer 인자를 주지 않는다. */
+  addPartner: [body: BomSearchCartAddBodyType, key: string, part: BomPartHitType];
   add: [
     body: BomSearchCartAddBodyType,
     key: string,
@@ -188,6 +190,86 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
   if (props.actionContext === 'quote') return 'BOM 추가';
   return inquiry ? '견적담기' : '담기';
 }
+
+// ── 협력사 보유(docs/PARTNER_PARTS.md) ────────────────────────────────────────
+// 구매 조건이 아니라 **부품 단위** 한 줄이다 — 협력사 부품은 가격을 만들지 않아
+// offerOptions 에 실리지 않고, 그래서 위 두 표에는 그릴 줄이 없다.
+const partnerRows = computed(() => props.items.filter((part) => part.hasPartnerStock));
+
+const PARTNER_SELECTION = { kind: 'partner_stock' } as const;
+
+function partnerKey(part: BomPartHitType): string {
+  return bomSearchSelectionKey(part.id, PARTNER_SELECTION);
+}
+
+function partnerQuantity(part: BomPartHitType): number {
+  return quantities.value[partnerKey(part)] ?? props.initialQuantity;
+}
+
+function setPartnerQuantity(part: BomPartHitType, value: string): void {
+  const numeric = Number(value);
+  quantities.value[partnerKey(part)] = Number.isFinite(numeric)
+    ? Math.min(1_000_000, Math.max(1, Math.floor(numeric)))
+    : 1;
+}
+
+function setPartnerTextQuantity(part: BomPartHitType, event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const numericText = input.value.replace(/\D/g, '');
+  if (input.value !== numericText) input.value = numericText;
+  if (numericText === '') return;
+  setPartnerQuantity(part, numericText);
+}
+
+function restorePartnerQuantity(part: BomPartHitType, event: Event): void {
+  const input = event.target as HTMLInputElement;
+  if (input.value === '') input.value = partnerQuantity(part).toString();
+}
+
+function partnerCountText(part: BomPartHitType): string {
+  const count = part.partnerStock?.partnerCount ?? 0;
+  return count > 1 ? `${String(count)}곳` : '';
+}
+
+function partnerStockText(part: BomPartHitType): string {
+  const qty = part.partnerStock?.totalStockQty ?? null;
+  return qty === null ? '수량 미표기' : `${qty.toLocaleString('ko-KR')}개`;
+}
+
+function partnerAgeText(part: BomPartHitType): string {
+  const at = part.partnerStock?.updatedAt ?? null;
+  if (at === null) return '협력사 재고표 · 견적요청으로 확인';
+  const days = Math.max(0, Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000));
+  return `협력사 재고표 · ${days === 0 ? '오늘' : `${String(days)}일 전`} 기준`;
+}
+
+function isPartnerSelected(part: BomPartHitType): boolean {
+  return props.cartSelectionKeys.has(partnerKey(part));
+}
+
+function addPartner(part: BomPartHitType): void {
+  emit('addPartner', {
+    partId: part.id,
+    bomQty: partnerQuantity(part),
+    selection: PARTNER_SELECTION,
+  }, partnerKey(part), part);
+}
+
+function togglePartnerSelection(part: BomPartHitType): void {
+  if (isPartnerSelected(part)) {
+    emit('remove', part.id, partnerKey(part));
+    return;
+  }
+  addPartner(part);
+}
+
+function partnerActionLabel(part: BomPartHitType): string {
+  if (props.pendingKey === partnerKey(part)) return '처리 중…';
+  if (isPartnerSelected(part)) return props.actionContext === 'quote' ? '추가됨' : '적용';
+  if (props.actionContext === 'quote') return 'BOM 추가';
+  return '견적담기';
+}
+
 </script>
 
 <template>
@@ -373,6 +455,91 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <td class="sticky right-0 z-[1] bg-search-row px-[8px] text-center shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.45)] lg:static lg:shadow-none">
                 <button type="button" class="h-[24px] min-w-[70px] rounded-[4px] border border-line-strong bg-search-row px-[7px] font-sans text-[12px] font-medium text-ink-neutral hover:border-brand-soft hover:text-brand-soft disabled:cursor-wait disabled:opacity-50" :disabled="pendingKey !== null || cartBusy" @click="add(row)">
                   {{ actionLabel(row, true) }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <!--
+      협력사 보유(docs/PARTNER_PARTS.md) — 위 두 표는 **구매 조건 한 줄씩**을 그린다. 협력사
+      부품은 설계상 가격을 만들지 않아 그릴 줄이 없고, 그래서 검색에는 잡히는데 화면은 비어
+      보였다(사용자 신고). 부품 단위로 한 줄을 세워 "있다"는 사실과 담기 버튼만 준다.
+      가격·납기는 견적요청 회신이 정본이라 여기서 약속하지 않는다.
+    -->
+    <section v-if="partnerRows.length > 0" class="overflow-hidden rounded-[10px] border border-line-search-strong bg-search-row">
+      <div class="flex h-[40px] items-center border-b border-line-search-strong bg-search-section px-[14px]">
+        <h3 class="text-[13px] font-medium leading-[16px] text-ink-neutral">
+          협력사 보유
+          <strong class="font-bold text-brand-soft">({{ partnerRows.length.toLocaleString('ko-KR') }})</strong>
+        </h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[900px] table-fixed border-collapse 2xl:min-w-[1140px]">
+          <colgroup>
+            <col class="w-[3%]">
+            <col class="w-[24%]">
+            <col class="w-[31%]">
+            <col class="w-[14%]">
+            <col class="w-[11%]">
+            <col class="w-[96px]">
+            <col class="w-[80px]">
+          </colgroup>
+          <thead>
+            <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[10px] font-normal uppercase leading-[24px] text-ink-subtle">
+              <th class="px-[14px] text-center"><span class="sr-only">선택</span></th>
+              <th class="px-[8px]">MPN</th>
+              <th class="px-[8px]">Distributor</th>
+              <th class="px-[8px]">Stock</th>
+              <th class="px-[8px]">Unit price</th>
+              <th class="px-[8px] text-center"><span class="sr-only">{{ actionContext === 'quote' ? 'BOM 수량' : '견적 수량' }}</span></th>
+              <th class="sticky right-0 z-[2] bg-search-head px-[8px] text-center shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.45)] lg:static lg:shadow-none"><span class="sr-only">견적 담기</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="part in partnerRows" :key="partnerKey(part)" class="h-[94px] border-b border-line-soft bg-search-row align-middle last:border-b-0">
+              <td class="px-[14px] text-center">
+                <BomSearchCheckbox
+                  :checked="isPartnerSelected(part)"
+                  :disabled="pendingKey !== null || cartBusy"
+                  :label="`${part.mpn} 협력사 보유 선택`"
+                  @change="togglePartnerSelection(part)"
+                />
+              </td>
+              <td class="px-[8px] py-[9px]">
+                <div class="flex min-w-0 items-center gap-[24px]">
+                  <PartImage :src="part.imageUrl" class="size-[64px] shrink-0 rounded-[8px] bg-surface-neutral" />
+                  <div class="min-w-0">
+                    <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="part.mpn">{{ part.mpn }}</p>
+                    <p class="truncate text-[12px] font-normal leading-[16px] text-ink-subtle">{{ part.manufacturerName }}</p>
+                  </div>
+                </div>
+              </td>
+              <td class="px-[8px]">
+                <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong">협력사 보유 {{ partnerCountText(part) }}</p>
+                <!-- 협력사가 스스로 올린 재고표다. 나이를 늘 함께 보여 그대로 믿지 않게 한다. -->
+                <p class="mt-[2px] truncate text-[11px] leading-[16px] text-ink-muted">{{ partnerAgeText(part) }}</p>
+              </td>
+              <td class="px-[8px] text-[14px] font-normal leading-[20px] text-ink-muted">{{ partnerStockText(part) }}</td>
+              <td class="px-[8px] text-[12px] leading-[16px] text-ink-muted">견적요청 후 확정</td>
+              <td class="px-[8px]">
+                <input
+                  :value="partnerQuantity(part)"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="off"
+                  spellcheck="false"
+                  class="mx-auto block h-[38px] w-[90px] rounded-[6px] border border-line-strong bg-search-input text-center font-sans text-[16px] font-bold tabular-nums text-ink-strong outline-none focus:border-brand-soft"
+                  :aria-label="actionContext === 'quote' ? 'BOM 수량' : '견적 수량'"
+                  @input="setPartnerTextQuantity(part, $event)"
+                  @blur="restorePartnerQuantity(part, $event)"
+                >
+              </td>
+              <td class="sticky right-0 z-[1] bg-search-row px-[8px] text-center shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.45)] lg:static lg:shadow-none">
+                <button type="button" class="h-[24px] min-w-[70px] rounded-[4px] border border-line-strong bg-search-row px-[7px] font-sans text-[12px] font-medium text-ink-neutral hover:border-brand-soft hover:text-brand-soft disabled:cursor-wait disabled:opacity-50" :disabled="pendingKey !== null || cartBusy" @click="addPartner(part)">
+                  {{ partnerActionLabel(part) }}
                 </button>
               </td>
             </tr>

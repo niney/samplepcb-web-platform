@@ -23,6 +23,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  /** 협력사 보유 담기 — 구매 조건이 없어 offer 인자가 없다(docs/PARTNER_PARTS.md). */
+  addPartner: [body: BomSearchCartAddBodyType, key: string, part: BomPartHitType];
   add: [
     body: BomSearchCartAddBodyType,
     key: string,
@@ -139,6 +141,7 @@ onBeforeUnmount(() => {
         :action-error="actionError"
         action-context="quote"
         @add="(body, key, part, offer) => emit('add', body, key, part, offer)"
+        @add-partner="(body, key, part) => emit('addPartner', body, key, part)"
         @remove="(partId, key) => emit('removeSelection', partId, key)"
       >
         <template #title-actions>

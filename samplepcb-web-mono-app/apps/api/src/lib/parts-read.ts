@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { PartDetailType } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { specsSiRecord } from './parts-es';
-import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { PARTNER_SUPPLIER, SAMPLEPCB_SUPPLIER } from './parts-facts';
 import {
   isCatalogInquiryOffer,
   partOfferDerivedFrom,
@@ -25,6 +25,7 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
     include: { offers: { include: { priceBreaks: true } } },
   });
   if (part === null) return null;
+  const partnerOffers = part.offers.filter((offer) => offer.supplier === PARTNER_SUPPLIER);
   const visibleOffers = partOffersForDisplay(part.offers);
   const realOffers = visibleOffers.filter((offer) => offer.supplier !== SAMPLEPCB_SUPPLIER);
   const ownCatalogOffers = visibleOffers.filter(
@@ -61,6 +62,16 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
         : new Date(Math.max(...freshnessOffers.map((offer) => offer.fetchedAt.getTime()))).toISOString(),
     score: null,
     hasCatalogInquiryOffer: visibleOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
+    hasPartnerStock: partnerOffers.length > 0,
+    partnerStock: partnerOffers.length === 0
+      ? null
+      : {
+          partnerCount: new Set(partnerOffers.map((offer) => offer.supplierSku.split(':')[0])).size,
+          totalStockQty: partnerOffers.reduce((sum, offer) => sum + Math.max(0, offer.stock ?? 0), 0),
+          updatedAt: new Date(
+            Math.max(...partnerOffers.map((offer) => offer.fetchedAt.getTime())),
+          ).toISOString(),
+        },
     firstSeenAt: part.firstSeenAt.toISOString(),
     lastSeenAt: part.lastSeenAt.toISOString(),
     offers: visibleOffers.map((o) => {

@@ -32,6 +32,10 @@ export const F = {
   minPrice: 'minPrice',
   totalStock: 'totalStock',
   hasCatalogInquiryOffer: 'hasCatalogInquiryOffer',
+  hasPartnerStock: 'hasPartnerStock',
+  partnerOnly: 'partnerOnly',
+  partnerStockQty: 'partnerStockQty',
+  partnerCount: 'partnerCount',
   updatedAt: 'updatedAt',
 } as const;
 
@@ -74,6 +78,14 @@ export interface SpPartDoc {
   hasSpecConflict: boolean | undefined;
   /** 제조사 카탈로그의 재고 확인·가격 문의 견적 채널 존재 여부. 구 색인 문서는 undefined. */
   hasCatalogInquiryOffer?: boolean;
+  /** 협력사가 보유를 알린 부품(docs/PARTNER_PARTS.md). 표시·배지용. */
+  hasPartnerStock?: boolean;
+  /** 근거가 협력사 보유뿐인 부품 — 스펙이 없어 broad·파라메트릭 검색에서 뺀다. */
+  partnerOnly?: boolean;
+  /** 협력사들이 알린 재고 합계·곳 수·최신 기준일. **이름은 담지 않는다**(P5). */
+  partnerStockQty?: number | null;
+  partnerCount?: number;
+  partnerStockUpdatedAt?: string | null;
   updatedAt: string;
 }
 
@@ -146,6 +158,11 @@ const mappings = {
     totalStock: { type: 'long' },
     hasSpecConflict: { type: 'boolean' },
     hasCatalogInquiryOffer: { type: 'boolean' },
+    hasPartnerStock: { type: 'boolean' },
+    partnerOnly: { type: 'boolean' },
+    partnerStockQty: { type: 'long' },
+    partnerCount: { type: 'integer' },
+    partnerStockUpdatedAt: { type: 'date' },
     updatedAt: { type: 'date' },
   },
 } satisfies estypes.MappingTypeMapping;

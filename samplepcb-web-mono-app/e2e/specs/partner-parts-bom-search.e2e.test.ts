@@ -31,6 +31,7 @@ import {
   BOM_ENGINE_URL,
   RUN,
   api,
+  cleanupPartnerCatalog,
   disconnectPrisma,
   getPrisma,
   monoRoot,
@@ -111,6 +112,8 @@ const cleanupPartner = async (): Promise<void> => {
       where: { partId: { in: parts.map((p: { id: bigint }) => p.id) } },
     });
   }
+  // 카탈로그 투영 흔적부터 치운다 — 라우트를 안 타므로 자동 동기화가 없다.
+  await cleanupPartnerCatalog(existing.id);
   await prisma.spPartnerPart.deleteMany({ where: { partnerId: existing.id } });
   await prisma.spPartnerPartUpload.deleteMany({ where: { partnerId: existing.id } });
   await prisma.spPartnerMember.deleteMany({ where: { partnerId: existing.id } });
@@ -149,6 +152,9 @@ describe.skipIf(!RUN)('협력사 보유 부품 × 고객 BOM 실검색', () => {
     await cleanupQuotes();
     await cleanupPartner();
     const prisma = getPrisma();
+    // 이 스펙은 실제 공급사 검색을 태우므로 회원 일일 한도를 먹는다. 하루에 여러 번 돌리면
+    // `member_daily_search_limit_exceeded` 로 검색이 시작조차 안 된다 — 자기 몫만 비운다.
+    await prisma.spBomSupplierDailyUsage.deleteMany({ where: { mbId: CUSTOMER_MB_ID } });
     const created = await prisma.spPartner.create({
       data: {
         type: 'partner',
@@ -197,6 +203,132 @@ describe.skipIf(!RUN)('협력사 보유 부품 × 고객 BOM 실검색', () => {
     expect(alt, '포장 코드를 뗀 대체 키가 있어야 BOM 품번이 걸린다').not.toBeNull();
     expect(alt?.kind).toBe('alternative');
   }, 180_000);
+
+  test('카탈로그 투영 — 품번으로는 찾히고, 판단에 쓰이는 자리에는 안 들어간다', async () => {
+    const prisma = getPrisma();
+
+    // ① 원장 행마다 카탈로그 구매 조건이 선다. SKU 접두가 곧 소유권이다.
+    const rows: { id: bigint; mpn: string; manufacturerNorm: string }[] =
+      await prisma.spPartnerPart.findMany({
+        where: { partnerId, isActive: true },
+        select: { id: true, mpn: true, manufacturerNorm: true },
+      });
+    expect(rows.length).toBe(7);
+    const offers: { partId: bigint; priceBreaks: unknown[] }[] = await prisma.spPartOffer.findMany({
+      where: { supplier: 'partner', supplierSku: { startsWith: `${String(partnerId)}:` } },
+      select: { partId: true, priceBreaks: true },
+    });
+    expect(offers.length, '활성 원장 행 수만큼 구매 조건이 선다').toBe(rows.length);
+    // 가격은 만들지 않는다 — 값의 정본은 RFQ 회신이다.
+    for (const offer of offers) expect(offer.priceBreaks).toEqual([]);
+
+    // ② 협력사 전용 부품은 **색인된다** — 안 그러면 품번으로도 못 찾는다.
+    //    (정확 품번 조회도 ES term 질의라서, 색인을 빼면 exact 까지 막힌다.)
+    const partIds = [...new Set(offers.map((offer) => offer.partId))];
+    const parts: { id: bigint; indexedAt: Date | null; specsJson: unknown }[] =
+      await prisma.spPart.findMany({
+        where: { id: { in: partIds } },
+        select: { id: true, indexedAt: true, specsJson: true },
+      });
+    for (const part of parts) {
+      expect(part.indexedAt, `part ${String(part.id)} 는 색인돼 있어야 한다`).not.toBeNull();
+    }
+
+    // ③ 정본은 오염되지 않는다 — 실공급사 투표가 없으니 스펙이 빈다.
+    const rare = await prisma.spPart.findFirstOrThrow({
+      where: { mpnNorm: '88PW886B1NFHIC000T' },
+      select: { specsJson: true, manufacturerName: true },
+    });
+    expect(rare.specsJson).toEqual({});
+
+    // ⚠ 같은 품번을 다른 협력사도 가질 수 있다(개발 DB 에 실제로 그렇다) — 품번 문자열이
+    // 아니라 **이 스펙이 세운 부품 id** 로 판정해야 옆 원장에 속지 않는다.
+    const rarePart = await prisma.spPart.findFirstOrThrow({
+      where: {
+        mpnNorm: '88PW886B1NFHIC000T',
+        offers: { some: { supplierSku: { startsWith: `${String(partnerId)}:` } } },
+      },
+      select: { id: true },
+    });
+
+    // ④ 단일검색이 품번으로 찾는다. 협력사 근거는 `hasPartnerStock` 로만 드러나고
+    //    공급사·재고 집계에는 안 들어간다(P5 — 고객 화면에 조직 이름 미노출).
+    const exact = await api(
+      admin(),
+      'GET',
+      '/api/bom/parts-search?q=88PW886-B1-NFHIC000-T&needed=1',
+    );
+    expect(exact.status, JSON.stringify(exact.json)).toBe(200);
+    const hit = (exact.json.data.items as any[]).find(
+      (item) => item.id === String(rarePart.id),
+    );
+    expect(hit, '협력사만 가진 품번도 단일검색에 잡혀야 한다').toBeDefined();
+    expect(hit.hasPartnerStock).toBe(true);
+    expect(hit.suppliers, '협력사는 공급사 패싯에 들어가지 않는다').toEqual([]);
+    expect(hit.totalStock, '검증되지 않은 주장이 재고 집계에 섞이면 안 된다').toBe(0);
+
+    // ⑤ 반대로 **브랜드 한 단어** 검색에는 안 뜬다 — 스펙 없는 문서가 수백 건 쏟아지는 걸 막는다.
+    const broad = await api(admin(), 'GET', '/api/bom/parts-search?q=Marvell&needed=1');
+    expect(broad.status).toBe(200);
+    expect(
+      (broad.json.data.items as any[]).some((item) => item.id === String(rarePart.id)),
+      'broad 검색은 협력사 전용 부품을 빼야 한다',
+    ).toBe(false);
+
+    // 여기서 실패해도 원장을 반드시 다시 켠다 — 뒤 케이스들이 이 원장을 본다.
+    try {
+      // ⑥ **접두 품번**으로도 찾힌다 — 사람이 품번 전체를 외워 치는 일은 드물다.
+    //    (broad 질의에서 협력사 전용을 통째로 빼 버리면 여기서 0건이 된다. 실제로 그랬다.)
+    const prefix = await api(admin(), 'GET', '/api/bom/parts-search?q=88PW886&needed=1');
+    expect(prefix.status).toBe(200);
+    expect(
+      (prefix.json.data.items as any[]).some((item) => item.id === String(rarePart.id)),
+      '접두 품번 검색에도 협력사 부품이 잡혀야 한다',
+    ).toBe(true);
+
+    // ⑦ 원장을 끄면 카탈로그에서도 빠진다 — 검색에 남으면 안 된다.
+      await api(admin(), 'PATCH', `/api/admin/partner-parts/${String(partnerId)}/active`, {
+        isActive: false,
+      });
+      expect(
+        await prisma.spPartOffer.count({
+          where: { supplier: 'partner', supplierSku: { startsWith: `${String(partnerId)}:` } },
+        }),
+        '끈 원장의 구매 조건은 남지 않는다',
+      ).toBe(0);
+      const offExact = await api(
+        admin(),
+        'GET',
+        '/api/bom/parts-search?q=88PW886-B1-NFHIC000-T&needed=1',
+      );
+      expect(
+        (offExact.json.data.items as any[]).some((item) => item.id === String(rarePart.id)),
+        '끈 뒤에는 검색에서도 사라진다',
+      ).toBe(false);
+      // 껍데기 sp_part 는 남긴다 — 견적 행이 partId 로 참조하고, 같은 품번이 다시 올라오면 재사용한다.
+      expect(await prisma.spPart.count({ where: { id: { in: partIds } } })).toBe(parts.length);
+
+    } finally {
+      await api(admin(), 'PATCH', `/api/admin/partner-parts/${String(partnerId)}/active`, {
+        isActive: true,
+      });
+    }
+    // ⑧ 다시 켜면 그대로 돌아온다(멱등).
+    expect(
+      await prisma.spPartOffer.count({
+        where: { supplier: 'partner', supplierSku: { startsWith: `${String(partnerId)}:` } },
+      }),
+    ).toBe(rows.length);
+    const backExact = await api(
+      admin(),
+      'GET',
+      '/api/bom/parts-search?q=88PW886-B1-NFHIC000-T&needed=1',
+    );
+    expect(
+      (backExact.json.data.items as any[]).some((item) => item.id === String(rarePart.id)),
+      '다시 켜면 검색에도 돌아온다',
+    ).toBe(true);
+  }, 300_000);
 
   test('고객 BOM 업로드 → 공급사 검색 완주', async () => {
     const created = await uploadFile(
@@ -301,7 +433,7 @@ describe.skipIf(!RUN)('협력사 보유 부품 × 고객 BOM 실검색', () => {
     for (const itemId of heldItemIds) {
       expect(holders[itemId], `관리자에게는 보유 협력사가 보여야 한다 (item ${itemId})`).toBeDefined();
       expect(
-        holders[itemId].map((holder: any) => holder.partnerName),
+        (holders[itemId] ?? []).map((holder: any) => holder.partnerName),
         `${itemId}: 이 스펙이 세운 협력사가 이름으로 잡혀야 한다`,
       ).toContain(PARTNER_NAME);
     }

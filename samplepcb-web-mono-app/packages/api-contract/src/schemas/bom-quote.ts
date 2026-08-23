@@ -1046,6 +1046,11 @@ export const BomSearchCartSelection = z.discriminatedUnion('kind', [
     supplierSku: z.string().max(191),
   }),
   z.object({ kind: z.literal('manufacturer_catalog') }),
+  /**
+   * 협력사 보유(docs/PARTNER_PARTS.md) — 가격이 없는 행으로 담는다. 값의 정본은 RFQ 회신이라
+   * 여기서 구매 조건을 만들지 않고, 담긴 행은 `문의` 상태로 선다(lineTotalKrw=null).
+   */
+  z.object({ kind: z.literal('partner_stock') }),
 ]);
 export type BomSearchCartSelectionType = z.infer<typeof BomSearchCartSelection>;
 

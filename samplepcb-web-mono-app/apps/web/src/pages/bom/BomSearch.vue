@@ -171,6 +171,7 @@ async function requestCartQuote(): Promise<void> {
       :action-error="actionError"
       @query-change="updateWorkspaceQuery"
       @add="(body, key) => addToCart(body, key)"
+      @add-partner="(body, key) => addToCart(body, key)"
       @remove="(partId) => removePartFromCart(partId)"
     >
       <template #title-actions>

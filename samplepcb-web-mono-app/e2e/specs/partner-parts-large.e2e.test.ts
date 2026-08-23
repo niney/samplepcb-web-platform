@@ -14,6 +14,7 @@ import {
   BOM_ENGINE_URL,
   RUN,
   api,
+  cleanupPartnerCatalog,
   disconnectPrisma,
   getPrisma,
   signJwt,
@@ -46,6 +47,8 @@ const cleanup = async (): Promise<void> => {
   const existing = await prisma.spPartner.findFirst({ where: { name: PARTNER_NAME } });
   if (existing === null) return;
   // 만 단위 행 — 청크로 지운다(견적 삭제에서 배운 P2028 함정).
+  // 카탈로그 투영 흔적부터 치운다 — 라우트를 안 타므로 자동 동기화가 없다.
+  await cleanupPartnerCatalog(existing.id);
   for (;;) {
     const batch = await prisma.spPartnerPart.findMany({
       where: { partnerId: existing.id },

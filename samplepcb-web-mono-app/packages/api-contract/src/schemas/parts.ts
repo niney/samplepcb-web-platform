@@ -54,6 +54,18 @@ export const PartHit = z.object({
   hasSpecConflict: z.boolean(),
   /** 가격·실재고 없이 취급 가능성만 확인된 제조사 카탈로그 정보가 존재한다. */
   hasCatalogInquiryOffer: z.boolean(),
+  /**
+   * 협력사 보유(docs/PARTNER_PARTS.md) — 곳 수·재고 합계·기준일까지만. **조직 이름은 없다**(P5).
+   * 값은 협력사의 주장이라 `totalStock`·`minPrice` 집계에는 섞지 않는다.
+   */
+  hasPartnerStock: z.boolean(),
+  partnerStock: z
+    .object({
+      partnerCount: z.number().int().nonnegative(),
+      totalStockQty: z.number().int().nonnegative().nullable(),
+      updatedAt: z.string().nullable(),
+    })
+    .nullable(),
   score: z.number().nullable(),
 });
 export type PartHitType = z.infer<typeof PartHit>;

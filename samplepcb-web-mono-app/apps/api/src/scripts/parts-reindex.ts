@@ -31,8 +31,11 @@ async function main(): Promise<void> {
       include: { offers: { include: { priceBreaks: true } } },
     });
     if (parts.length === 0) break;
-    failed += await bulkIndexPartDocs(parts.map(buildPartDoc));
-    total += parts.length;
+    // 구매 조건이 하나도 없는 껍데기는 색인하지 않는다(docs/PARTNER_PARTS.md §1.5) —
+    // 협력사 전체 교체로 유일한 구매 조건이 사라진 부품이 여기 남는다.
+    const indexable = parts.filter((part) => part.offers.length > 0);
+    failed += await bulkIndexPartDocs(indexable.map(buildPartDoc));
+    total += indexable.length;
     cursor = parts.at(-1)?.id;
     log.info(`... ${String(total)}건 색인`);
   }

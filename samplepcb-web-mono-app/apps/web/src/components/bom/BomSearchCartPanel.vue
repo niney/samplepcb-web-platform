@@ -53,6 +53,9 @@ watch(
 );
 
 function supplierName(item: BomQuoteItemType): string {
+  // 협력사 보유로 담은 행은 우리 재고가 아니라 협력사 재고다 — SamplePCB 로 표기하면
+  // 담당자가 어디에 물어야 할지 모른다(docs/PARTNER_PARTS.md).
+  if (item.selectedOffer === null && item.selectionSource === 'partner') return '협력사 보유';
   const supplier = item.selectedOffer?.supplier ?? 'samplepcb';
   return SUPPLIER_META[supplier]?.name ?? supplier;
 }
@@ -81,7 +84,11 @@ function linePrice(item: BomQuoteItemType): CartLinePrice {
     return { amount: moneyAmount(item.lineTotalKrw), unit: '원', priced: true };
   }
   const offer = item.selectedOffer;
-  if (offer === null) return { amount: '재고 확인 필요', unit: null, priced: false };
+  if (offer === null) {
+    return item.selectionSource === 'partner'
+      ? { amount: '견적요청 후 확정', unit: null, priced: false }
+      : { amount: '재고 확인 필요', unit: null, priced: false };
+  }
   const prefix = offer.currency === 'USD' ? '$' : `${offer.currency} `;
   return {
     amount: `${prefix}${offer.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`,

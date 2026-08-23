@@ -56,18 +56,31 @@ interface ExactSearchIntent {
 function buildSearchQueryInternal(params: PartSearchQueryType, options: SearchQueryOptions): Query {
   const parsed = parseQuery(params.q);
   const should: Query[] = [];
+  // 협력사 보유뿐인 부품(스펙·설명이 없다)은 **품번으로 찾을 때만** 결과에 낀다.
+  // 제조사명 한 단어(term manufacturerName.norm)에도 걸리게 두면 "ti" 한 번에 수백 건이
+  // 쏟아지고, 반대로 아예 빼면 접두·인픽스 품번 검색에서 사라진다 — 실제로 그렇게 새서
+  // `88PW886` 이 0건이었다. 그래서 MPN 절만 따로 모아 통과 조건으로 쓴다.
+  const mpnShould: Query[] = [];
   const filter: Query[] = [];
 
   // 텍스트 토큰 → MPN(정확·프리픽스·인픽스)·제조사·설명
   for (const tok of parsed.texts) {
     const norm = normalizeMpn(tok);
     if (norm.length >= 2) {
-      should.push({ term: { [F.mpnNormKeyword]: { value: norm, boost: BOOST.mpnExact } } });
-      should.push({ match: { [F.mpnNorm]: { query: norm, boost: BOOST.mpnPrefix } } });
-      if (norm.length >= 4) {
+      const mpnClauses: Query[] = [
+        { term: { [F.mpnNormKeyword]: { value: norm, boost: BOOST.mpnExact } } },
+        { match: { [F.mpnNorm]: { query: norm, boost: BOOST.mpnPrefix } } },
         // ngram 인덱스 + AND = 인픽스 포함 의미("155R71C" 가 MPN 중간이어도 히트)
-        should.push({ match: { [F.mpnNormNgram]: { query: norm, operator: 'and', boost: BOOST.mpnNgram } } });
-      }
+        ...(norm.length >= 4
+          ? [{
+              match: {
+                [F.mpnNormNgram]: { query: norm, operator: 'and' as const, boost: BOOST.mpnNgram },
+              },
+            } satisfies Query]
+          : []),
+      ];
+      should.push(...mpnClauses);
+      mpnShould.push(...mpnClauses);
     }
     const lower = tok.toLowerCase();
     should.push({ term: { 'manufacturerName.norm': { value: lower, boost: BOOST.specHigh } } });
@@ -111,6 +124,19 @@ function buildSearchQueryInternal(params: PartSearchQueryType, options: SearchQu
     if (min === undefined && max === undefined) continue;
     filter.push({ range: { [field]: { ...(min === undefined ? {} : { gte: min }), ...(max === undefined ? {} : { lte: max }) } } });
   }
+
+  // 일반 부품은 그대로 통과하고, 협력사 전용 부품은 **품번 절에 걸릴 때만** 통과한다.
+  filter.push(mpnShould.length === 0
+    ? { bool: { must_not: { term: { [F.partnerOnly]: true } } } }
+    : {
+        bool: {
+          should: [
+            { bool: { must_not: { term: { [F.partnerOnly]: true } } } },
+            { bool: { should: mpnShould, minimum_should_match: 1 } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
 
   const bool: estypes.QueryDslBoolQuery = { filter };
   if (should.length > 0) {
@@ -173,6 +199,14 @@ export function toHit(doc: SpPartDoc, score: number | null | undefined): PartHit
     offersFetchedAt: doc.offersFetchedAt ?? null,
     hasSpecConflict: doc.hasSpecConflict ?? false, // 구 문서 호환
     hasCatalogInquiryOffer: doc.hasCatalogInquiryOffer ?? false, // 구 문서 호환
+    hasPartnerStock: doc.hasPartnerStock ?? false, // 구 문서 호환
+    partnerStock: doc.hasPartnerStock === true
+      ? {
+          partnerCount: doc.partnerCount ?? 0,
+          totalStockQty: doc.partnerStockQty ?? null,
+          updatedAt: doc.partnerStockUpdatedAt ?? null,
+        }
+      : null,
     score: score ?? null,
   };
 }
