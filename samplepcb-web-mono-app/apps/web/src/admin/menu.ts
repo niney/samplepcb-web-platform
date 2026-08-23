@@ -42,6 +42,7 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-orders' }, labelKey: 'admin.menu.orders' },
   { to: { name: 'admin-members' }, labelKey: 'admin.menu.members' },
   { to: { name: 'admin-partners' }, labelKey: 'admin.menu.partners' },
+  { to: { name: 'admin-partner-parts' }, labelKey: 'admin.menu.partnerParts' },
   // 재능마켓(/market, sp-market) 관리
   { to: { name: 'admin-market-experts' }, labelKey: 'admin.menu.marketExperts' },
   { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },

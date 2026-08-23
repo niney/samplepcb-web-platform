@@ -17,6 +17,8 @@ class Config:
     component_limit: int
     max_upload_bytes: int
     supplier_max_calls: int
+    # 협력사 재고표 행 상한 — BOM 컴포넌트 상한과 별개(재고표는 만 단위가 정상).
+    inventory_row_limit: int = 50_000
 
     @property
     def uploads_dir(self) -> Path:
@@ -33,7 +35,8 @@ class Config:
             data_dir=data_dir,
             m2v_path=os.getenv("BOM_M2V_PATH", ""),
             component_limit=int(os.getenv("BOM_COMPONENT_LIMIT", "5000")),
-            max_upload_bytes=int(os.getenv("MAX_UPLOAD_BYTES", str(30 * _MB))),
+            inventory_row_limit=int(os.getenv("INVENTORY_ROW_LIMIT", "50000")),
+            max_upload_bytes=int(os.getenv("MAX_UPLOAD_BYTES", str(60 * _MB))),
             supplier_max_calls=int(os.getenv("SUPPLIER_MAX_CALLS", "3000")),
         )
         cfg.uploads_dir.mkdir(parents=True, exist_ok=True)

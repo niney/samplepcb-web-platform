@@ -27,13 +27,57 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # 시트당 ~3초가 걸린다. 이런 파일만 스타일을 읽지 않는 calamine으로 우회.
 _STYLES_BLOAT_BYTES = 2 * 1024 * 1024
 
+# 서식만 남은 빈 열(엑셀이 16,384열까지 <c> 요소를 남기는 파일)은 시트 XML 자체가
+# 수백 MB로 부푼다 — openpyxl 은 max_col 을 줘도 행마다 전 셀을 파싱하므로
+# 사실상 끝나지 않는다(실측: 12,176행 × 16,384열, 시트 XML 279MB → 17분 CPU·1.7GB
+# 후에도 미완). calamine 은 같은 파일을 1.8초에 (12176, 7) 로 읽는다.
+_SHEET_BLOAT_BYTES = 50 * 1024 * 1024
 
-def _styles_bloated(path: str) -> bool:
+
+def _needs_calamine(path: str) -> bool:
+    """openpyxl 이 실용적으로 못 읽는 파일을 미리 가른다.
+
+    styles.xml 비대(서식 오염)와 시트 XML 비대(빈 열 잔재)는 원인이 다르지만
+    처방이 같다 — 스타일을 읽지 않고 사용 범위만 보는 calamine 으로 우회한다.
+    """
     try:
         with zipfile.ZipFile(path) as z:
-            return z.getinfo("xl/styles.xml").file_size > _STYLES_BLOAT_BYTES
+            if z.getinfo("xl/styles.xml").file_size > _STYLES_BLOAT_BYTES:
+                return True
     except (KeyError, zipfile.BadZipFile, OSError):
         return False
+    try:
+        with zipfile.ZipFile(path) as z:
+            return any(
+                info.file_size > _SHEET_BLOAT_BYTES
+                for info in z.infolist()
+                if info.filename.startswith("xl/worksheets/")
+                and info.filename.endswith(".xml")
+            )
+    except (zipfile.BadZipFile, OSError):
+        return False
+
+
+def _styles_bloated(path: str) -> bool:
+    """구 이름 보존 — 호출부 호환용 별칭."""
+    return _needs_calamine(path)
+
+
+class _SharedRowWidths(list):
+    """`attrs` 에 실어도 pandas 연산을 느리게 만들지 않는 행 폭 목록.
+
+    pandas 는 거의 모든 연산에서 `__finalize__` 로 `attrs` 를 **deepcopy** 한다. 행 수만큼
+    긴 리스트를 그대로 담으면 셀 접근 한 번이 리스트 전체 복사가 된다 — 실측: 12,000행
+    CSV 에서 `iat` 18,246회가 deepcopy 5,480만 회를 유발해 **84초**(같은 크기 xlsx 는
+    attrs 가 없어 2.3초). 값은 로드 시점에 확정돼 이후 변하지 않으므로 공유해도 안전하다.
+    `list` 를 상속해 기존 소비자(`isinstance(widths, list)`)와 계약이 같다.
+    """
+
+    def __deepcopy__(self, _memo: dict) -> "_SharedRowWidths":
+        return self
+
+    def __copy__(self) -> "_SharedRowWidths":
+        return self
 
 
 def _load_csv(path: str) -> pd.DataFrame:
@@ -62,7 +106,7 @@ def _load_csv(path: str) -> pd.DataFrame:
     rows = list(_csv.reader(io.StringIO(text), delimiter=delimiter))
     if not rows:
         return pd.DataFrame()
-    source_row_widths = [len(row) for row in rows]
+    source_row_widths = _SharedRowWidths(len(row) for row in rows)
     width = max(len(r) for r in rows)
     data = [[(c if c != "" else None) for c in r] + [None] * (width - len(r))
             for r in rows]

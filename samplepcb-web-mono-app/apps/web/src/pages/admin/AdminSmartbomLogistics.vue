@@ -344,7 +344,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="조달 선적 표 왼쪽으로 이동" @click="moveTable('shipment', -1)">←</button>
           <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="조달 선적 표 오른쪽으로 이동" @click="moveTable('shipment', 1)">→</button>
         </div>
-        <table class="min-w-[900px] divide-y divide-gray-200 text-sm">
+        <table class="w-full min-w-[900px] divide-y divide-gray-200 text-sm">
           <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">구매처</th>
@@ -471,7 +471,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="고객 배송 표 왼쪽으로 이동" @click="moveTable('order', -1)">←</button>
           <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="고객 배송 표 오른쪽으로 이동" @click="moveTable('order', 1)">→</button>
         </div>
-        <table class="min-w-[1120px] divide-y divide-gray-200 text-sm">
+        <table class="w-full min-w-[1120px] divide-y divide-gray-200 text-sm">
           <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">주문번호</th>

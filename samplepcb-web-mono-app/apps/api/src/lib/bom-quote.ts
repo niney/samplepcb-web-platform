@@ -2490,6 +2490,48 @@ function publicSearchRequirementGuidance(
   };
 }
 
+/**
+ * 협력사 보유 부품 요약(docs/PARTNER_PARTS.md) — 후보 목록에서 파생한다.
+ *
+ * 이 행에 "가진 협력사가 있다"는 사실만 만든다. 가격을 만들지 않고 선정에도 관여하지
+ * 않는다(엔진이 뒤순위 후보로만 둔다) — 관리자가 견적요청을 걸기 쉽도록 하는 표시다.
+ * 재고 합계는 협력사의 주장이므로 판단이 아니라 참고로만 쓴다.
+ */
+function partnerStockEvidence(
+  candidates: EngineSupplierComponentType['candidates'],
+): BomQuoteMatchEvidenceType['partnerStock'] {
+  const partnerIds = new Set<number>();
+  let totalStockQty: number | null = null;
+  let latestUploadedAt: string | null = null;
+  for (const candidate of candidates) {
+    const product = candidate.product as unknown as {
+      supplier?: unknown;
+      catalog_metadata?: Record<string, unknown> | null;
+    };
+    if (product.supplier !== 'partner') continue;
+    const meta = product.catalog_metadata ?? {};
+    const partnerId = meta.partnerId;
+    if (typeof partnerId === 'number' && Number.isInteger(partnerId) && partnerId > 0) {
+      partnerIds.add(partnerId);
+    }
+    const stock = meta.partnerStockQty;
+    if (typeof stock === 'number' && Number.isFinite(stock) && stock >= 0) {
+      totalStockQty = (totalStockQty ?? 0) + Math.trunc(stock);
+    }
+    const uploadedAt = meta.partnerUploadedAt;
+    if (typeof uploadedAt === 'string' && (latestUploadedAt === null || uploadedAt > latestUploadedAt)) {
+      latestUploadedAt = uploadedAt;
+    }
+  }
+  if (partnerIds.size === 0) return null;
+  return {
+    partnerCount: partnerIds.size,
+    totalStockQty,
+    latestUploadedAt,
+    partnerIds: [...partnerIds].sort((a, b) => a - b),
+  };
+}
+
 function evidenceFromDecision(
   component: EngineSupplierComponentType,
   identityFallback: boolean,
@@ -2538,6 +2580,7 @@ function evidenceFromDecision(
       component.search_scope === 'any_vendor_spec'
       || selected?.snapshot.replacementSources.includes('engine_stock_fallback') === true
       || selected?.snapshot.replacementSources.includes('engine_procurement_fallback') === true,
+    partnerStock: partnerStockEvidence(component.candidates),
     searchRequirementGuidance: publicSearchRequirementGuidance(
       component.requirement_guidance,
     ),
@@ -6336,6 +6379,18 @@ function legacyCompatibleEvidence(value: Prisma.JsonValue | null): Prisma.JsonVa
   };
 }
 
+/**
+ * 협력사 신원 가림(docs/PARTNER_PARTS.md) — 견적 행 DTO 는 고객·관리자가 공유하므로
+ * **기본을 안전한 쪽으로** 둔다: 곳 수·재고 합계·기준일은 남기고 조직 식별자는 지운다.
+ * 관리자가 "어느 협력사인지"를 알아야 할 때는 관리자 전용 화면(협력사 보유 부품 검색)에서
+ * 품번으로 찾는다 — 고객 화면에 공급망을 노출하지 않는 원칙(PCB 여정 43호)과 같은 결.
+ */
+function maskPartnerIdentity(evidence: BomQuoteMatchEvidenceType): BomQuoteMatchEvidenceType {
+  const partnerStock = evidence.partnerStock;
+  if (partnerStock === null || partnerStock === undefined) return evidence;
+  return { ...evidence, partnerStock: { ...partnerStock, partnerIds: [] } };
+}
+
 export function toItemDto(
   row: QuoteItemRow,
   partImageUrl: string | null = null,
@@ -6370,7 +6425,7 @@ export function toItemDto(
     bomQty: row.bomQty,
     orderQty: row.orderQty,
     matchStatus: row.matchStatus as BomQuoteItemType['matchStatus'],
-    matchEvidence: evidence.success ? evidence.data : null,
+    matchEvidence: evidence.success ? maskPartnerIdentity(evidence.data) : null,
     recommendedCandidateKey: row.recommendedCandidateKey,
     selectedCandidateKey: row.selectedCandidateKey,
     selectionSource: row.selectionSource as BomQuoteSelectionSourceType,

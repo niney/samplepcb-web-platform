@@ -80,6 +80,33 @@ const catalogSelectionApplied = computed(() =>
 );
 const quantityMissing = computed(() => props.item.quantityState === 'missing');
 
+// 협력사 보유 부품(docs/PARTNER_PARTS.md) — "이 품번을 가진 협력사가 있다"는 표시.
+// 가격은 없다(견적요청 회신이 정본)이라 상태 pill 을 바꾸지 않고 **보조 배지**로만 붙인다.
+// 고객에게 조직 이름은 주지 않는다 — 곳 수와 기준일까지가 노출 범위(서버가 이미 가린다).
+const partnerStock = computed(() => props.item.matchEvidence?.partnerStock ?? null);
+const partnerStockLabel = computed(() => {
+  const stock = partnerStock.value;
+  if (stock === null) return null;
+  return stock.partnerCount > 1 ? `협력사 ${String(stock.partnerCount)}곳 보유` : '협력사 보유';
+});
+const partnerStockTitle = computed(() => {
+  const stock = partnerStock.value;
+  if (stock === null) return undefined;
+  const parts = [`협력사 ${String(stock.partnerCount)}곳이 이 품번을 보유한다고 알렸습니다.`];
+  if (stock.totalStockQty !== null) {
+    parts.push(`알린 재고 합계 ${stock.totalStockQty.toLocaleString('ko-KR')}`);
+  }
+  if (stock.latestUploadedAt !== null) {
+    const days = Math.max(
+      0,
+      Math.floor((Date.now() - new Date(stock.latestUploadedAt).getTime()) / 86_400_000),
+    );
+    parts.push(`기준 ${String(days)}일 전`);
+  }
+  parts.push('가격·재고는 견적요청 회신으로 확인합니다.');
+  return parts.join(' · ');
+});
+
 const engineSearchExcluded = computed(() =>
   props.item.matchEvidence?.componentStatus === 'excluded'
   || props.item.matchEvidence?.searchRequirementGuidance?.readiness === 'excluded',
@@ -705,6 +732,11 @@ function onQtyInput(event: Event): void {
           <span v-if="totalStatusPresentation.pulse" class="size-1.5 animate-pulse rounded-full bg-blue-500" />
           {{ totalStatusPresentation.label }}
         </span>
+        <span
+          v-if="partnerStockLabel !== null"
+          class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
+          :title="partnerStockTitle"
+        >{{ partnerStockLabel }}</span>
         <span
           v-if="jobCallLimitReached"
           class="rounded border border-orange-400 bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-800"

@@ -4,7 +4,7 @@ import type { FastifyBaseLogger, FastifyReply } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
-  ApiError,
+  BizError,
   BomQuoteCandidateSelectionBody,
   BomQuoteBuildBody,
   BomQuoteComparisonResponse,
@@ -61,6 +61,7 @@ import {
   mergeLocalCatalogResults,
   type PreferredLocalCatalogResult,
 } from '../lib/bom-local-catalog';
+import { loadPartnerLocalProductsForPreflight } from '../lib/partner-parts';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
 import {
@@ -164,10 +165,9 @@ const FILE_REF_TYPE = 'sp_bom_quote';
 // 바꾸면 "공급사 확인이 완료된 후 변경할 수 있습니다"(409) 대신 500 이 나갔다
 // (ResponseSerializationError: expected result=false). 클라이언트
 // (@sp/shared toApiErrorPayload)는 두 형태를 모두 정규화하므로 둘 다 허용한다.
-export const BizError = z.union([
-  z.object({ result: z.literal(false), error: z.string() }),
-  ApiError,
-]);
+// 정의는 @sp/api-contract 로 승격(협력사 부품 라우트 등도 같은 형태를 쓴다) — 여기서는
+// 기존 임포트 경로 호환을 위해 재수출만 한다.
+export { BizError };
 
 const EnginePassiveDefaults = z.object({
   version: z.literal('passive-requirement-defaults-v1'),
@@ -530,7 +530,9 @@ export async function autoEnrichQuote(
       allowed_suppliers: [...procurement.allowed_suppliers],
     },
   } satisfies Prisma.InputJsonObject;
-  let searchOptions = baseSearchOptions;
+  // 협력사 보유 부품 주입(docs/PARTNER_PARTS.md)은 preflight 뒤에 붙으므로 옵션 타입이
+  // 그 자리를 미리 열어 둔다(있을 때만 실린다).
+  let searchOptions: Prisma.InputJsonObject = baseSearchOptions;
 
   const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
   if (options.force !== true && !quoteNeedsEnrichment(items, config.freshnessHours)) {
@@ -769,6 +771,17 @@ export async function autoEnrichQuote(
       return await markFailed('supplier_preflight_unreachable');
     }
   }
+  // 협력사 보유 부품(docs/PARTNER_PARTS.md) — 별도 폴백 티어가 아니라 **같은 판정에
+  // 함께 태우는 로컬 소스**다. 외부 API 를 부르지 않으므로 예산·캐시·trace 에 섞이지
+  // 않고, 순서는 엔진 소스 순위가 뒤로 민다("기존 공급사와 같은 개념, 다만 뒤순위").
+  const partnerLocal = await loadPartnerLocalProductsForPreflight(pf, log);
+  if (partnerLocal.matchedKeyCount > 0) {
+    searchOptions = {
+      ...searchOptions,
+      local_products: partnerLocal.products as unknown as Prisma.InputJsonObject,
+    };
+  }
+
   const localCatalogPreflight = preferredLocalCatalogPreflight(
     localCatalog,
     localResolved,

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from supplier_search_engine.models import (
+    SupplierProduct,
     CatalogCandidateEvaluationBatchRequest,
     CatalogCandidateEvaluationBatchResult,
     ProcurementPolicyInput,
@@ -32,6 +34,7 @@ from supplier_search_engine.procurement import (
 
 from .capabilities import supplier_search_capabilities
 from .jobs import (
+    InventoryOptions,
     Job,
     JobError,
     JobService,
@@ -69,6 +72,13 @@ class SupplierSearchOptionsBody(BaseModel):
     )
     passive_defaults: PassiveRequirementDefaults | None = None
     procurement: ProcurementPolicyInput = Field(default_factory=ProcurementPolicyInput)
+    # 협력사 보유 부품(docs/PARTNER_PARTS.md) — sp-node 가 정규 품번으로 미리 조회해
+    # 넣어 주는 로컬 후보. 외부 API 를 호출하지 않으므로 예산·캐시·trace 에 섞이지 않고,
+    # 매처·후보 판정·조달 정책만 외부 후보와 똑같이 탄다(순서는 소스 순위가 뒤로 민다).
+    local_products: dict[str, list[SupplierProduct]] = Field(
+        default_factory=dict,
+        max_length=5_000,
+    )
 
     @model_validator(mode="after")
     def validate_cache_mode(self) -> "SupplierSearchOptionsBody":
@@ -108,6 +118,9 @@ class SupplierSearchOptionsBody(BaseModel):
                 for component_id, identity in self.identity_overrides.items()
             },
             procurement_policy=self.procurement,
+            local_products={
+                key: list(products) for key, products in self.local_products.items()
+            },
         )
 
 
@@ -227,13 +240,63 @@ async def create_job(
     request: Request,
     file: UploadFile = File(...),
     engine: str = Form("smartbom"),
+    inventory_options: str = Form(""),
 ) -> dict[str, Any]:
+    """추출 잡 생성. `engine=inventory` 는 협력사 재고표 프로필이다.
+
+    `inventory_options` 는 미리보기에서 사람이 고친 열 역할·헤더 행을 다시 태울 때만
+    쓰는 JSON 문자열이다(`{"role_overrides":{"0":{"3":"stock_qty"}},
+    "header_row_overrides":{"0":1}}`). 응용 계층이 셀을 재해석하지 않고 엔진을
+    같은 입력으로 다시 돌리기 위한 통로다.
+    """
     data = await file.read()
+    options = None
+    if engine == "inventory" and inventory_options.strip() != "":
+        try:
+            options = _parse_inventory_options(inventory_options)
+        except (ValueError, TypeError) as error:
+            raise HTTPException(
+                status_code=400, detail=f"invalid_inventory_options: {error}"
+            ) from error
     try:
-        job = _svc(request).submit_parse(data, file.filename or "upload", engine=engine)
+        job = _svc(request).submit_parse(
+            data,
+            file.filename or "upload",
+            engine=engine,
+            inventory_options=options,
+        )
     except JobError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return _job_view(job)
+
+
+_INVENTORY_ROLES = {
+    "part_number", "manufacturer", "stock_qty", "date_code", "lead_time",
+    "unit_price", "currency", "moq", "packaging", "description", "no", "ignore",
+}
+
+
+def _parse_inventory_options(raw: str) -> InventoryOptions:
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("object expected")
+    roles: dict[int, dict[int, str]] = {}
+    for sheet_key, columns in (payload.get("role_overrides") or {}).items():
+        if not isinstance(columns, dict):
+            raise ValueError("role_overrides[sheet] must be an object")
+        entries: dict[int, str] = {}
+        for column_key, role in columns.items():
+            if role not in _INVENTORY_ROLES:
+                raise ValueError(f"unknown role: {role}")
+            entries[int(column_key)] = str(role)
+        roles[int(sheet_key)] = entries
+    headers = {
+        int(sheet_key): int(row)
+        for sheet_key, row in (payload.get("header_row_overrides") or {}).items()
+    }
+    if any(row < 1 for row in headers.values()):
+        raise ValueError("header_row_overrides must be 1-based")
+    return InventoryOptions(role_overrides=roles, header_row_overrides=headers)
 
 
 @router.get("/jobs/{job_id}")

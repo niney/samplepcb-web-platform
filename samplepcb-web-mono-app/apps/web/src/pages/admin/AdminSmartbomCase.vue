@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { apiGet, apiGetBlob } from '@sp/shared';
 import { AdminBomQuoteRecipientEmail, BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
 import type {
+  AdminBomQuoteItemPartnerHolderType,
   AdminBomQuoteItemType,
   AdminBomQuoteEmailDeliveryType,
   AdminBomQuoteItemAddBodyType,
@@ -42,6 +43,7 @@ import {
   useSelectAdminBomQuoteItem,
 } from '../../admin/useAdminBomQuotes';
 import {
+  useAdminBomQuotePartnerStock,
   useAdminBomRfqs,
   useAdminRfqReply,
   useReissueRfqMagicLink,
@@ -331,6 +333,38 @@ function useFullRfqScope(): void {
 function selectUnofferedRfqRows(): void {
   applyRfqQuickSelection(rfqQuickSelectionGroups.value.unofferedIds);
 }
+
+// ── 협력사 보유 부품(docs/PARTNER_PARTS.md) — 견적요청 대상 고르기 ──────────
+// "이 행을 누가 갖고 있나"는 발송 판단의 근거다. 제한은 두지 않으므로(사용자 결정)
+// 강제하지 않고 **고르기 쉽게만** 한다: 행 칩으로 보여 주고, 퀵 액션으로 한 번에 담는다.
+const partnerStockQuery = useAdminBomQuotePartnerStock(detailId);
+const partnerHoldersByItem = computed(
+  () => partnerStockQuery.data.value?.data.itemHolders ?? {},
+);
+const partnerItemsByPartner = computed(
+  () => partnerStockQuery.data.value?.data.partnerItems ?? {},
+);
+const itemPartnerHolders = (itemId: string): AdminBomQuoteItemPartnerHolderType[] =>
+  partnerHoldersByItem.value[itemId] ?? [];
+const partnerStockItemIds = computed(() =>
+  scopeItems.value.filter((item) => itemPartnerHolders(item.id).length > 0).map((item) => item.id),
+);
+function selectPartnerStockRows(): void {
+  applyRfqQuickSelection(partnerStockItemIds.value);
+}
+const partnerHolderTitle = (itemId: string): string => {
+  const holders = itemPartnerHolders(itemId);
+  if (holders.length === 0) return '';
+  return holders
+    .map((holder) => {
+      const parts = [holder.partnerName];
+      if (holder.stockQty !== null) parts.push(`재고 ${holder.stockQty.toLocaleString('ko-KR')}`);
+      if (holder.dateCode !== null) parts.push(holder.dateCode);
+      if (!holder.rfqEligible) parts.push('BOM 견적 트랙 없음');
+      return parts.join(' · ');
+    })
+    .join('\n');
+};
 
 // 품목 관점 RFQ 현황 — RFQ 패널(협력사 관점)의 역방향 인덱스. 현재 유효 scope 안에서
 // 이 행을 요청한 협력사와 행별 회신 상태를 한눈에 보여준다. 문서가 quoted 여도 특정
@@ -2245,6 +2279,15 @@ async function downloadOriginal(): Promise<void> {
               >
                 구매 조건 없음 {{ rfqQuickSelectionGroups.unofferedIds.length }}
               </button>
+              <button
+                type="button"
+                class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-300"
+                :disabled="partnerStockItemIds.length === 0"
+                title="협력사가 보유하고 있다고 알린 행만 선택합니다 (docs/PARTNER_PARTS.md)"
+                @click="selectPartnerStockRows"
+              >
+                협력사 보유 {{ partnerStockItemIds.length }}
+              </button>
               <span
                 v-if="rfqQuickSelectionGroups.unclassifiedCount > 0"
                 class="text-gray-400"
@@ -2356,6 +2399,15 @@ async function downloadOriginal(): Promise<void> {
                       {{ view.item.selectedOffer.supplier }} · {{ view.item.selectedOffer.unitPrice }} {{ view.item.selectedOffer.currency }} @{{ view.item.selectedOffer.breakQty }}+
                     </template>
                     <span v-else class="text-amber-600">{{ view.item.matchStatus === 'none' ? '미매칭' : '구매 조건 없음' }}</span>
+                    <!-- 협력사 보유(docs/PARTNER_PARTS.md) — 누구에게 견적요청을 걸지 판단 -->
+                    <div
+                      v-if="itemPartnerHolders(view.item.id).length > 0"
+                      class="mt-0.5 truncate text-[10px] font-semibold text-amber-700"
+                      :title="partnerHolderTitle(view.item.id)"
+                    >
+                      협력사 보유 ·
+                      {{ itemPartnerHolders(view.item.id).map((h) => h.partnerName).join(', ') }}
+                    </div>
                   </td>
                   <td class="min-w-52 px-3 py-2">
                     <div v-if="rfqBadgesFor(view.item.id).length > 0" class="flex flex-wrap gap-1">
@@ -2881,6 +2933,7 @@ async function downloadOriginal(): Promise<void> {
       :scope-items="scopeItems"
       :selected-item-ids="[...rfqItemSelection]"
       :rfqs="rfqs"
+      :partner-items="partnerItemsByPartner"
       @close="sendOpen = false"
       @sent="useFullRfqScope"
     />

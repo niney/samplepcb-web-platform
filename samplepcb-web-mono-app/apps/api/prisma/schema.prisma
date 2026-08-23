@@ -46,25 +46,25 @@ model SpQuote {
 // 주문의 실체(= PCB 프로젝트). 영카트 상품/카트에는 스냅샷만 가고 사양은 여기 산다.
 // cart 와의 관계(담김/주문됨)는 저장하지 않고 ct_id 조인으로 파생(HANDOFF 3장).
 model SpOrderSpec {
-  id            BigInt    @id @default(autoincrement()) // = projectId
+  id            BigInt          @id @default(autoincrement()) // = projectId
   // mb_id 는 레거시가 이메일 아이디를 쓰며 255 로 확폭 운영 — sp 측은 utf8mb4 인덱스 한도(191) 채택 (2026-07-07)
-  mbId          String?   @db.VarChar(191) // 비회원 null (목록 미노출)
+  mbId          String?         @db.VarChar(191) // 비회원 null (목록 미노출)
   quoteId       String // sp_quote 연결
   ctId          Int? // g5_shop_cart 연결 (파생 조회 키)
   projectName   String
   category      String
   orderCategory String
   qty           Int
-  message       String?   @db.MediumText // 레거시 it_basic 최대 ~1MB 실측 — TEXT(64KB) 절단 방지 (2026-07-07)
-  companyName   String?   @db.VarChar(255) // 수신처 회사명 스냅샷(견적서 문서에 박제, 2층 구조의 문서층)
+  message       String?         @db.MediumText // 레거시 it_basic 최대 ~1MB 실측 — TEXT(64KB) 절단 방지 (2026-07-07)
+  companyName   String?         @db.VarChar(255) // 수신처 회사명 스냅샷(견적서 문서에 박제, 2층 구조의 문서층)
   specJson      Json
-  status        String    @default("active") // active|deleted|archived
+  status        String          @default("active") // active|deleted|archived
   quoteStatus   String // priced|rfq|quoted
   finalPrice    Int? // 관리자 확정가 (quoted)
-  pricedBy      String?   @db.VarChar(191) // mb_id 계열(이메일 아이디 수용) — 2026-07-07 확폭
+  pricedBy      String?         @db.VarChar(191) // mb_id 계열(이메일 아이디 수용) — 2026-07-07 확폭
   pricedAt      DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
   pcbRfqs       SpPcbRfq[] // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 스펙 삭제 시 cascade
   pcbPos        SpPcbPo[]
   pcbShipments  SpPcbShipment[]
@@ -700,23 +700,23 @@ model SpBomAnalysisRun {
 // 공급사 검색 실행 — 영속 분석 입력에서 만든 독립 계산 잡의 수명·옵션·오류를 추적한다.
 // engineJobId가 소멸해도 같은 analysisRun으로 새 실행을 만들 수 있다.
 model SpBomSupplierSearchRun {
-  id                 BigInt           @id @default(autoincrement())
+  id                 BigInt                       @id @default(autoincrement())
   quoteId            BigInt
   analysisRunId      BigInt
-  engineJobId        String?          @db.VarChar(64)
-  status             String           @db.VarChar(16) // preparing|running|completed|failed
+  engineJobId        String?                      @db.VarChar(64)
+  status             String                       @db.VarChar(16) // preparing|running|completed|failed
   options            Json
   preflight          Json?
-  resultSummary      Json?            @map("result_summary") // 실제 호출·캐시·시간·한도 소진 행의 compact 운영 지표
+  resultSummary      Json?                        @map("result_summary") // 실제 호출·캐시·시간·한도 소진 행의 compact 운영 지표
   catalogIngestRunId BigInt?
-  error              String?          @db.VarChar(500)
-  createdAt          DateTime         @default(now())
+  error              String?                      @db.VarChar(500)
+  createdAt          DateTime                     @default(now())
   startedAt          DateTime?
   completedAt        DateTime?
-  quote              SpBomQuote       @relation("BomQuoteSupplierSearchRuns", fields: [quoteId], references: [id], onDelete: Cascade)
-  activeForQuote     SpBomQuote?      @relation("BomQuoteActiveSupplierSearch")
-  analysisRun        SpBomAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
-  catalogIngestRun   SpPartIngestRun? @relation(fields: [catalogIngestRunId], references: [id], onDelete: SetNull)
+  quote              SpBomQuote                   @relation("BomQuoteSupplierSearchRuns", fields: [quoteId], references: [id], onDelete: Cascade)
+  activeForQuote     SpBomQuote?                  @relation("BomQuoteActiveSupplierSearch")
+  analysisRun        SpBomAnalysisRun             @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  catalogIngestRun   SpPartIngestRun?             @relation(fields: [catalogIngestRunId], references: [id], onDelete: SetNull)
   resultArtifact     SpBomSupplierResultArtifact?
   searchTraces       SpBomSupplierSearchTrace[]
 
@@ -756,15 +756,15 @@ model SpBomSupplierSearchTrace {
   id                  BigInt                 @id @default(autoincrement())
   supplierSearchRunId BigInt                 @map("supplier_search_run_id")
   engineComponentId   String                 @map("engine_component_id") @db.VarChar(24)
-  rowIdx               Int                    @map("row_idx")
-  traceVersion         String                 @map("trace_version") @db.VarChar(64)
-  primaryQuery         String                 @map("primary_query") @db.VarChar(500)
-  fallbackQuery        String?                @map("fallback_query") @db.VarChar(500)
-  fallbackUsed         Boolean                @map("fallback_used")
-  attemptCount         Int                    @map("attempt_count")
-  payload              Json
-  createdAt            DateTime               @default(now()) @map("created_at")
-  supplierSearchRun    SpBomSupplierSearchRun @relation(fields: [supplierSearchRunId], references: [id], onDelete: Cascade, map: "fk_bom_supplier_trace_run")
+  rowIdx              Int                    @map("row_idx")
+  traceVersion        String                 @map("trace_version") @db.VarChar(64)
+  primaryQuery        String                 @map("primary_query") @db.VarChar(500)
+  fallbackQuery       String?                @map("fallback_query") @db.VarChar(500)
+  fallbackUsed        Boolean                @map("fallback_used")
+  attemptCount        Int                    @map("attempt_count")
+  payload             Json
+  createdAt           DateTime               @default(now()) @map("created_at")
+  supplierSearchRun   SpBomSupplierSearchRun @relation(fields: [supplierSearchRunId], references: [id], onDelete: Cascade, map: "fk_bom_supplier_trace_run")
 
   @@unique([supplierSearchRunId, engineComponentId], map: "uq_bom_supplier_trace_run_component")
   @@index([supplierSearchRunId, rowIdx], map: "idx_bom_supplier_trace_run_row")
@@ -978,43 +978,45 @@ model SpBomQuoteItemReview {
 // type: partner(사람 협력사)|supplier(API 공급사)|house(자사). 로그인 능력은 멤버 연결
 // 존재로, 자동화 능력은 supplierCode 존재로 판정한다(하이브리드 = 둘 다).
 model SpPartner {
-  id              BigInt              @id @default(autoincrement())
-  type            String              @db.VarChar(12) // partner|supplier|house
-  name            String              @db.VarChar(191) // 회사명
+  id              BigInt                @id @default(autoincrement())
+  type            String                @db.VarChar(12) // partner|supplier|house
+  name            String                @db.VarChar(191) // 회사명
   // supplier·house 만 보유 — SpPartOffer.supplier 와 같은 어휘(공급사 추가 = 행 추가, 코드 무배포)
-  supplierCode    String?             @unique @db.VarChar(32)
-  country         String?             @db.VarChar(2) // ISO alpha-2
-  defaultCurrency String              @default("KRW") @db.VarChar(8)
+  supplierCode    String?               @unique @db.VarChar(32)
+  country         String?               @db.VarChar(2) // ISO alpha-2
+  defaultCurrency String                @default("KRW") @db.VarChar(8)
   // 입력/표시 통화 — 결제통화(defaultCurrency)와 다를 때만 의미(위안화 입력 관행,
   // 레거시 mb_sub_currency 대응). PCB 트랙 P1(docs/PCB_PARTNER_TRACK.md D2).
-  inputCurrency   String?             @db.VarChar(8)
+  inputCurrency   String?               @db.VarChar(8)
   capabilities    Json // ["bom_rfq","pcb_rfq","part_sale"] — 레거시 partnerAuth 등급 재해석
-  status          String              @default("pending") @db.VarChar(20) // pending|approved|suspended
-  contactName     String?             @db.VarChar(100)
-  contactPhone    String?             @db.VarChar(50)
-  contactEmail    String?             @db.VarChar(255) // RFQ 알림 수신처
-  businessNo      String?             @db.VarChar(30) // 견적서·거래명세서 발행자 사업자번호
-  ownerName       String?             @db.VarChar(100)
-  businessZip     String?             @db.VarChar(10)
-  businessAddress String?             @db.VarChar(500)
-  businessType    String?             @db.VarChar(100) // 업태
-  businessItem    String?             @db.VarChar(100) // 종목
-  fax             String?             @db.VarChar(50)
-  memo            String?             @db.Text // 내부 메모 — 협력사 비노출
-  statusReason    String?             @db.VarChar(255) // 정지/반려 사유(SpMarketExpert 관례)
-  decidedBy       String?             @db.VarChar(191) // 처리 관리자 mbId
+  status          String                @default("pending") @db.VarChar(20) // pending|approved|suspended
+  contactName     String?               @db.VarChar(100)
+  contactPhone    String?               @db.VarChar(50)
+  contactEmail    String?               @db.VarChar(255) // RFQ 알림 수신처
+  businessNo      String?               @db.VarChar(30) // 견적서·거래명세서 발행자 사업자번호
+  ownerName       String?               @db.VarChar(100)
+  businessZip     String?               @db.VarChar(10)
+  businessAddress String?               @db.VarChar(500)
+  businessType    String?               @db.VarChar(100) // 업태
+  businessItem    String?               @db.VarChar(100) // 종목
+  fax             String?               @db.VarChar(50)
+  memo            String?               @db.Text // 내부 메모 — 협력사 비노출
+  statusReason    String?               @db.VarChar(255) // 정지/반려 사유(SpMarketExpert 관례)
+  decidedBy       String?               @db.VarChar(191) // 처리 관리자 mbId
   decidedAt       DateTime?
   legacyJson      Json? // partnerAuth 승격 이관 원본 보존(SpMemberProfile 관례)
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
   members         SpPartnerMember[]
+  partUploads     SpPartnerPartUpload[]
+  parts           SpPartnerPart[]
   rfqs            SpBomRfq[]
   pos             SpBomPo[]
   pcbRfqs         SpPcbRfq[]
   pcbPos          SpPcbPo[]
   pcbAsCases      SpPcbAsCase[] // 재생산 대상(target)으로서
-  childRelations  SpPartnerRelation[] @relation("PartnerRelationParent")
-  parentRelations SpPartnerRelation[] @relation("PartnerRelationChild")
+  childRelations  SpPartnerRelation[]   @relation("PartnerRelationParent")
+  parentRelations SpPartnerRelation[]   @relation("PartnerRelationChild")
 
   @@index([type, status]) // 관리자 목록 탭×유형 필터
   @@map("sp_partner")
@@ -1036,6 +1038,102 @@ model SpPartnerMember {
   @@map("sp_partner_member")
 }
 
+// 협력사 보유 부품 업로드 실행(회차) — 재고표 파일 1개 = 1행.
+// 원본 파일은 파일서버(sp_file refType='sp_partner_part_upload'), 엔진 추출 결과는
+// 커밋 전까지 previewJson 스냅샷으로만 존재한다(BOM 분석 스냅샷 관례).
+// docs/PARTNER_PARTS.md
+model SpPartnerPartUpload {
+  id           BigInt          @id @default(autoincrement())
+  partnerId    BigInt
+  fileId       BigInt? // → sp_file (느슨한 참조, FK 없음 — 폴리모픽 테이블)
+  fileName     String          @db.VarChar(255)
+  fileSize     BigInt          @default(0)
+  engineJobId  String?         @db.VarChar(64)
+  // parsing → preview → applied | failed | superseded(다음 회차가 대체)
+  status       String          @default("parsing") @db.VarChar(16)
+  // 전체 교체(replace) 기본 — 협력사가 올린 표가 그 시점 보유 전량이라는 실무 의미.
+  mode         String          @default("replace") @db.VarChar(12)
+  // 사람이 미리보기에서 고친 열 역할·헤더 행 — 엔진 재실행 입력(응용 계층은 셀 미해석)
+  mappingJson  Json?
+  // 시트·열 역할·행 수·플래그 집계 — 미리보기와 이력 화면이 같은 값을 본다
+  statsJson    Json?
+  // 커밋 전 엔진 추출 원문(행 목록). applied 이후에는 용량을 위해 비운다.
+  previewJson  Json?
+  error        String?         @db.VarChar(500)
+  uploadedBy   String          @default("PARTNER") @db.VarChar(20) // PARTNER|ADMIN(대행)
+  uploadedById String?         @db.VarChar(191) // 실행자 mbId(대행 추적)
+  appliedAt    DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  partner      SpPartner       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  parts        SpPartnerPart[]
+
+  @@index([partnerId, createdAt]) // 협력사 업로드 이력(최신순)
+  @@index([status])
+  @@map("sp_partner_part_upload")
+}
+
+// 협력사 보유 부품 원장 1행 = 재고표 1행. **부품 카탈로그(sp_part)와 분리**한다 —
+// 카탈로그에 편입하면 로컬-우선 검색·ES 패싯·고객 단일검색·기본 구매 조건 선정 등
+// 다섯 갈래로 새고, type='partner' 조직에 supplierCode 를 금지한 규칙(lib/partner.ts)과도
+// 충돌한다. 여기 있는 값은 협력사의 주장이며 가격 판단에 쓰지 않는다(견적은 RFQ 회신이 정본).
+model SpPartnerPart {
+  id               BigInt              @id @default(autoincrement())
+  partnerId        BigInt
+  uploadId         BigInt
+  // 엔진이 정리한 정본 품번과 원문 — 원문은 언제나 보존한다(무유실 원칙)
+  mpn              String              @db.VarChar(191)
+  mpnRaw           String              @db.VarChar(255)
+  mpnNorm          String              @db.VarChar(191) // 조회 키(normalizeMpn)
+  manufacturer     String?             @db.VarChar(191)
+  manufacturerNorm String              @default("unknown") @db.VarChar(191)
+  description      String?             @db.VarChar(500)
+  packageCode      String?             @db.VarChar(100)
+  stockQty         Int?
+  dateCode         String?             @db.VarChar(100)
+  leadTime         String?             @db.VarChar(100)
+  unitPrice        Decimal?            @db.Decimal(14, 4)
+  currency         String?             @db.VarChar(8)
+  moq              Int?
+  sourceRow        Int? // 원본 시트 행 번호(1-based)
+  sourceSheetName  String?             @db.VarChar(191)
+  // 미분류 열 원문 + 엔진 플래그 — 어떤 셀도 버리지 않는다
+  rawFields        Json?
+  flags            Json?
+  isActive         Boolean             @default(true) // 관리자 수동 비활성(만료는 두지 않음)
+  // 행 수정 추적 — 원장 값이 파일 원문(mpnRaw)과 달라지는 유일한 경로다.
+  editedAt         DateTime?
+  editedBy         String?             @db.VarChar(191) // 협력사 mbId 또는 관리자 mbId
+  createdAt        DateTime            @default(now())
+  partner          SpPartner           @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  upload           SpPartnerPartUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  // BOM 검색 주입의 유일한 조회 경로 — 행별 exact mpnNorm 배치 조회
+  @@index([mpnNorm, isActive])
+  @@index([partnerId, mpnNorm])
+  @@index([uploadId])
+  @@map("sp_partner_part")
+}
+
+// 한 재고표 행이 만드는 조회 키 — 엔진이 준 대체 후보(브랜드·수량·포장 접미를 뗀 형태)를
+// 모두 색인한다. "진짜 품번" 하나를 고르면 반드시 틀리기 때문에(`PCA9575PW2, 118` 의 118 은
+// 수량이 아니라 NXP 포장 코드) 고르지 않고 전부 건다.
+model SpPartnerPartKey {
+  id        BigInt   @id @default(autoincrement())
+  partId    BigInt
+  partnerId BigInt
+  mpnNorm   String   @db.VarChar(191)
+  // canonical(원문 정리본) | alternative(잡음 제거 후보)
+  kind      String   @default("canonical") @db.VarChar(16)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([partId, mpnNorm])
+  @@index([mpnNorm, isActive]) // 주입 조회 진입점
+  @@index([partnerId])
+  @@map("sp_partner_part_key")
+}
+
 // 마스터딜러 2단 중개 링크 — 스키마만 선반영(D4), 구현은 후속. settlementCurrency 는
 // 레거시 최종형(링크별 결제통화 KRW/USD/CNY)의 자리.
 model SpPartnerRelation {
@@ -1055,29 +1153,29 @@ model SpPartnerRelation {
 // 재발송 시 유지분은 보존한다. **사람 협력사 전용** — 공급사 시세는 후보/구매 조건 원장 파생(D6),
 // RFQ 행으로 물질화하지 않는다.
 model SpBomRfq {
-  id              BigInt         @id @default(autoincrement())
-  quoteId         BigInt
-  partnerId       BigInt
-  parentPartnerId BigInt         @default(0) // 0=관리자 직접(센티넬 — FK 없음). MD 중개는 후속
-  status          String         @default("requested") @db.VarChar(16) // requested|quoted|closed
-  totalAmount     Int? // 회신 합계(KRW 정수) — 회신 저장 시 박제
-  currency        String         @default("KRW") @db.VarChar(8) // 1차 KRW 단일(D7) — 외화 회신 자리
-  deliveryDate    DateTime? // 협력사 회신 납기
-  memo            String?        @db.Text // 협력사 회신 메모
-  requestedAt     DateTime       @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
-  respondedAt     DateTime?
+  id               BigInt         @id @default(autoincrement())
+  quoteId          BigInt
+  partnerId        BigInt
+  parentPartnerId  BigInt         @default(0) // 0=관리자 직접(센티넬 — FK 없음). MD 중개는 후속
+  status           String         @default("requested") @db.VarChar(16) // requested|quoted|closed
+  totalAmount      Int? // 회신 합계(KRW 정수) — 회신 저장 시 박제
+  currency         String         @default("KRW") @db.VarChar(8) // 1차 KRW 단일(D7) — 외화 회신 자리
+  deliveryDate     DateTime? // 협력사 회신 납기
+  memo             String?        @db.Text // 협력사 회신 메모
+  requestedAt      DateTime       @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
+  respondedAt      DateTime?
   // 매직링크 무로그인 회신(§6.9) — 랜덤 64hex, 재발급 시 회전(구 토큰 즉시 무효).
   // 무효 조건: 불일치 · RFQ closed(PUT만) · 발급 30일 경과(magicTokenAt 기준).
-  magicToken      String?        @unique @db.VarChar(64)
-  magicTokenAt    DateTime?
+  magicToken       String?        @unique @db.VarChar(64)
+  magicTokenAt     DateTime?
   // 부분 행 선택(§6.13, 레거시 승계) — 요청 부품행 id 문자열 배열. null=전체(기존
   // RFQ 하위호환). 표시·검증 범위 = scope 파생 ∩ 이 집합(행 삭제 자연 방어).
   requestedItemIds Json?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  quote           SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  partner         SpPartner      @relation(fields: [partnerId], references: [id])
-  items           SpBomRfqItem[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  quote            SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  partner          SpPartner      @relation(fields: [partnerId], references: [id])
+  items            SpBomRfqItem[]
 
   @@unique([quoteId, partnerId, parentPartnerId])
   @@index([partnerId, status]) // 협력사 포털 워크큐
@@ -1088,30 +1186,30 @@ model SpBomRfq {
 // 변경과 무관·불변 — snapshot-freeze). 결제 확인(od isPaid) 후에만 발행하며,
 // issued(미확인)만 삭제 가능. 선적 참조는 두지 않는다(D13 선행 제약 준수).
 model SpBomPo {
-  id          BigInt         @id @default(autoincrement())
-  quoteId     BigInt
-  partnerId   BigInt
-  status      String         @default("issued") @db.VarChar(16) // issued|confirmed|closed
-  totalAmount Int // 발주 합계(KRW 정수, VAT 별도) — 생성 시 박제
-  currency    String         @default("KRW") @db.VarChar(8)
-  memo        String?        @db.Text // 관리자 발주 메모(협력사 노출)
+  id                    BigInt           @id @default(autoincrement())
+  quoteId               BigInt
+  partnerId             BigInt
+  status                String           @default("issued") @db.VarChar(16) // issued|confirmed|closed
+  totalAmount           Int // 발주 합계(KRW 정수, VAT 별도) — 생성 시 박제
+  currency              String           @default("KRW") @db.VarChar(8)
+  memo                  String?          @db.Text // 관리자 발주 메모(협력사 노출)
   // 외부공급사 실행 결과 박제(D20) — Mouser {cartKey…}/DigiKey {singleUseUrl…}/실패 {error}.
   // 사람 협력사 발주는 null. 재시도 시 덮어쓴다.
-  externalRef Json?
+  externalRef           Json?
   // 협력사 견적서 발행 시점 스냅샷. 기존 PO는 최초 조회 시 불변 발주 데이터로 보강한다.
-  quotationData Json?
+  quotationData         Json?
   quotationDeliveryDate DateTime?
-  quotationMemo String? @db.Text
-  issuedAt    DateTime       @default(now())
-  confirmedAt DateTime?
-  closedAt    DateTime?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  quote       SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  partner     SpPartner      @relation(fields: [partnerId], references: [id])
-  items       SpBomPoItem[]
-  shipment    SpBomShipment? // 대표(생성) 관계 — 소속 판정은 shipmentLink 가 진실(§6.10)
-  shipmentLink SpBomShipmentPo?
+  quotationMemo         String?          @db.Text
+  issuedAt              DateTime         @default(now())
+  confirmedAt           DateTime?
+  closedAt              DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  quote                 SpBomQuote       @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  partner               SpPartner        @relation(fields: [partnerId], references: [id])
+  items                 SpBomPoItem[]
+  shipment              SpBomShipment? // 대표(생성) 관계 — 소속 판정은 shipmentLink 가 진실(§6.10)
+  shipmentLink          SpBomShipmentPo?
 
   @@unique([quoteId, partnerId])
   @@index([partnerId, status]) // 협력사 포털 워크큐
@@ -1123,38 +1221,38 @@ model SpBomPo {
 // mode 는 생성 시 박제(레거시 관례): international=6단계, domestic=3단계 — 코드 사전
 // @sp/api-contract BOM_SHIPMENT_* 정본. 입고 확인(검수 ⑩)=receivedAt+편차 메모.
 model SpBomShipment {
-  id             BigInt    @id @default(autoincrement())
+  id                 BigInt              @id @default(autoincrement())
   // §6.10 그룹 도입 후 poId = 생성(대표) 발주서, quoteId = 대표의 Case. 소속의 진실은
   // 조인(SpBomShipmentPo) — 파생 집계는 조인 기반으로 계산한다(다중 Case 묶음 가능).
-  poId           BigInt    @unique
+  poId               BigInt              @unique
   quoteId            BigInt
-  mode           String    @default("international") @db.VarChar(16) // international|domestic
-  status         String    @db.VarChar(20) // 모드별 코드 사전(intl 6단계/domestic 3단계)
+  mode               String              @default("international") @db.VarChar(16) // international|domestic
+  status             String              @db.VarChar(20) // 모드별 코드 사전(intl 6단계/domestic 3단계)
   // 운송수단(2026-08-16) — air|sea, **국제 전용**(mode 와 직교: 국경/운반수단). null 은
   // 미선택(이 축 도입 전 데이터·국내)이며 읽는 쪽이 'air' 로 접는다. PCB 트랙과 같은
   // 공용 사전(SHIPMENT_TRANSPORTS)을 쓰고, 운송서류가 이 값에서 갈린다(AWB/BL).
-  transport      String?   @db.VarChar(8)
-  carrier        String?   @db.VarChar(50)
-  trackingNumber String?   @db.VarChar(100)
-  trackingUrl    String?   @db.VarChar(500)
+  transport          String?             @db.VarChar(8)
+  carrier            String?             @db.VarChar(50)
+  trackingNumber     String?             @db.VarChar(100)
+  trackingUrl        String?             @db.VarChar(500)
   shipDate           DateTime? // 출고예정일 — 협력사 '선적 요청' 진입 시 입력(D22)
   // 샘플피씨비 운송(Case ID) 갈래 — 협력사가 요청하면 관리자가 부킹·운송서류·
   // 운송장을 준비한다. 상태 사전은 PCB와 마찬가지로 그대로 두고 문서 차례만 기록한다.
   caseRefRequestedAt DateTime?
-  caseRefNote        String?   @db.VarChar(255)
-  caseRef            String?   @db.VarChar(100)
+  caseRefNote        String?             @db.VarChar(255)
+  caseRef            String?             @db.VarChar(100)
   caseRefFilledAt    DateTime?
   shippedAt          DateTime? // 발송(shipped/shipping 진입) 시점 박제
   receivedAt         DateTime? // 입고 확인(검수) — 타임라인 ⑩ 파생 근거
-  receivedNote   String?   @db.Text // 편차 메모(수량 부족·불량 등)
+  receivedNote       String?             @db.Text // 편차 메모(수량 부족·불량 등)
   completedAt        DateTime? // 최종 단계(done/delivered) 진입 시점 박제
   invoiceData        Json? // 상업송장 편집본(D23) — 생성기 프리필용, 레거시 invoice_data 미러
   packingRevision    Int                 @default(0) // 선적 리스트 저장 리비전(재인쇄는 증가시키지 않음)
   packingUpdatedAt   DateTime? // 마지막 선적 리스트 저장 시각
   packingFinalizedAt DateTime? // preparing 이탈 시 현재 리비전 확정, 되돌리면 해제
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  po             SpBomPo   @relation(fields: [poId], references: [id], onDelete: Cascade)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  po                 SpBomPo             @relation(fields: [poId], references: [id], onDelete: Cascade)
   pos                SpBomShipmentPo[]
   packingItems       SpBomShipmentItem[]
 
@@ -1180,24 +1278,24 @@ model SpBomShipmentPo {
 // 발주 행 — 생성 시점의 부품·수량·단가 스냅샷(견적 행이 이후 바뀌어도 불변).
 // quoteItemId·rfqItemId 는 근거 추적용 참조(FK 없음 — 박제 문서의 독립성 유지).
 model SpBomPoItem {
-  id               BigInt              @id @default(autoincrement())
+  id               BigInt               @id @default(autoincrement())
   poId             BigInt
   quoteItemId      BigInt // 근거 견적 행(참조만)
   rfqItemId        BigInt? // 근거 회신 행(참조만)
-  mpn              String              @db.VarChar(191)
-  manufacturerName String?             @db.VarChar(191)
-  description      String?             @db.VarChar(1000)
-  supplierSku      String?             @db.VarChar(191) // 공급사 발주(D20) 실행용 SKU 박제 — 협력사 발주는 null
+  mpn              String               @db.VarChar(191)
+  manufacturerName String?              @db.VarChar(191)
+  description      String?              @db.VarChar(1000)
+  supplierSku      String?              @db.VarChar(191) // 공급사 발주(D20) 실행용 SKU 박제 — 협력사 발주는 null
   qty              Int // 발주 수량(= 생성 시점 orderQty 박제)
-  unitPrice        Decimal             @db.Decimal(14, 4) // 선정 단가 박제(VAT 별도)
+  unitPrice        Decimal              @db.Decimal(14, 4) // 선정 단가 박제(VAT 별도)
   lineTotal        Int // round(unitPrice × qty) KRW 정수
   moq              Int?
   stock            Int?
-  dateCode         String?             @db.VarChar(100)
-  leadTime         String?             @db.VarChar(64)
-  quotationMemo    String?             @db.VarChar(500)
-  createdAt        DateTime            @default(now())
-  po               SpBomPo             @relation(fields: [poId], references: [id], onDelete: Cascade)
+  dateCode         String?              @db.VarChar(100)
+  leadTime         String?              @db.VarChar(64)
+  quotationMemo    String?              @db.VarChar(500)
+  createdAt        DateTime             @default(now())
+  po               SpBomPo              @relation(fields: [poId], references: [id], onDelete: Cascade)
   shipmentItems    SpBomShipmentItem[]
   shortage         SpBomPoShortage?     @relation("BomPoShortageSource")
   recoverySource   SpBomPoShortage?     @relation("BomPoShortageRecovery")
@@ -1406,44 +1504,44 @@ model SpMailLog {
 // 계층이 없는 단일가 문서(레거시 sp_pcb_partner_order 대응). RFQ 시작 조건 = 담기지
 // 않은 active 스펙(§5.2-1 — 확정가 등록의 IN_CART/ORDERED 409 가드와 짝).
 model SpPcbRfq {
-  id              BigInt      @id @default(autoincrement())
-  specId          BigInt // sp_order_spec.id — 스펙 삭제 시 RFQ 도 소멸(레거시 cascade 승계)
-  partnerId       BigInt
-  parentPartnerId BigInt      @default(0) // 0=관리자 직접(센티넬 — FK 없음), 그 외=MD partnerId
-  reorderRound    Int         @default(0) // 0=원견적, 1..=A/S 회차(P4)
-  status          String      @default("requested") @db.VarChar(16) // requested|quoted|selected|unselected
+  id                    BigInt      @id @default(autoincrement())
+  specId                BigInt // sp_order_spec.id — 스펙 삭제 시 RFQ 도 소멸(레거시 cascade 승계)
+  partnerId             BigInt
+  parentPartnerId       BigInt      @default(0) // 0=관리자 직접(센티넬 — FK 없음), 그 외=MD partnerId
+  reorderRound          Int         @default(0) // 0=원견적, 1..=A/S 회차(P4)
+  status                String      @default("requested") @db.VarChar(16) // requested|quoted|selected|unselected
   // 금액 정본 = 결제통화(priceOriginal, 링크별 KRW|USD|CNY — D2). krwAmount 는 선정 시
   // 환산 박제(외화 선정 전 null — 표시는 main(통화,원본,KRW)+sub 3값 로직, §7-5).
-  currency        String      @default("KRW") @db.VarChar(8)
-  priceOriginal   Decimal?    @db.Decimal(15, 2)
-  exchangeRate    Decimal?    @db.Decimal(12, 6) // 선정 시 결제통화→KRW 박제(KRW 면 null)
-  krwAmount       Int?
+  currency              String      @default("KRW") @db.VarChar(8)
+  priceOriginal         Decimal?    @db.Decimal(15, 2)
+  exchangeRate          Decimal?    @db.Decimal(12, 6) // 선정 시 결제통화→KRW 박제(KRW 면 null)
+  krwAmount             Int?
   // 입력통화 레이어 — 입력≠결제일 때만 3종 박제(위안화 입력 관행), 같으면 명시적 null 클리어.
-  subCurrency      String?    @db.VarChar(8)
-  subPriceOriginal Decimal?   @db.Decimal(15, 2)
-  subExchangeRate  Decimal?   @db.Decimal(12, 6)
+  subCurrency           String?     @db.VarChar(8)
+  subPriceOriginal      Decimal?    @db.Decimal(15, 2)
+  subExchangeRate       Decimal?    @db.Decimal(12, 6)
   // MD 변환점 박제(D1) — priceOriginal = sourceAmount × sourceRate × (1+marginRate/100),
   // 중간 반올림 없이 최종 1회 HALF_UP(KRW 0자리·외화 2자리). 하위 견적가가 나중에 바뀌어도
   // 이 행의 회신가는 불변(감사 복원 근거 — 레거시 source_* 승계).
-  selectedChildRfqId BigInt? // MD 가 선정한 하위 견적행 id(자기참조 — FK 없음)
-  marginRate      Int?
-  sourceCurrency  String?     @db.VarChar(8)
-  sourceAmount    Decimal?    @db.Decimal(15, 2)
-  sourceRate      Decimal?    @db.Decimal(12, 6)
+  selectedChildRfqId    BigInt? // MD 가 선정한 하위 견적행 id(자기참조 — FK 없음)
+  marginRate            Int?
+  sourceCurrency        String?     @db.VarChar(8)
+  sourceAmount          Decimal?    @db.Decimal(15, 2)
+  sourceRate            Decimal?    @db.Decimal(12, 6)
   // 납기 신호 — 제시(관리자/MD, 하향 상속 prefill) vs 회신(협력사 필수). 불일치='변경됨' 배지.
   suggestedDeliveryDate DateTime?
   quotedDeliveryDate    DateTime?
-  memo            String?     @db.Text // 협력사 회신 메모
-  requestedAt     DateTime    @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
-  respondedAt     DateTime?
-  selectedAt      DateTime?
+  memo                  String?     @db.Text // 협력사 회신 메모
+  requestedAt           DateTime    @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
+  respondedAt           DateTime?
+  selectedAt            DateTime?
   // 매직링크 무로그인 회신 — BOM §6.9 동형(64hex 회전, 발급 30일 경과 무효).
-  magicToken      String?     @unique @db.VarChar(64)
-  magicTokenAt    DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  spec            SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
-  partner         SpPartner   @relation(fields: [partnerId], references: [id])
+  magicToken            String?     @unique @db.VarChar(64)
+  magicTokenAt          DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  spec                  SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  partner               SpPartner   @relation(fields: [partnerId], references: [id])
 
   @@unique([specId, partnerId, parentPartnerId, reorderRound])
   @@index([partnerId, status]) // 협력사 포털 워크큐
@@ -1457,46 +1555,46 @@ model SpPcbRfq {
 // 5단계 진행 머신을 겸한다(별도 컬럼 없음 — 레거시 재해석 승계, 서버가 순서·주체 검증).
 // paid 게이트: 고객 주문 결제 확인(od isPaid) 후에만 발행(§5.2-2, BOM D18 동형).
 model SpPcbPo {
-  id              BigInt      @id @default(autoincrement())
-  specId          BigInt
-  partnerId       BigInt // 수주 조직
-  parentPartnerId BigInt      @default(0) // 0=관리자 발주(센티넬), 그 외=MD 조직 id(하위 재발주)
-  reorderRound    Int         @default(0) // 0=원발주, 1..=A/S 회차(P4)
-  rfqId           BigInt? // 근거 견적행(FK 없음 — 직접 발주는 null)
-  fulfillmentMode String      @default("self") @db.VarChar(16) // self=수주 조직 직접 제작, delegated=하위 발주 위임(발주 시점 박제)
-  status          String      @default("issued") @db.VarChar(16) // issued|eq_requested|eq_done|producing|produced
+  id                 BigInt            @id @default(autoincrement())
+  specId             BigInt
+  partnerId          BigInt // 수주 조직
+  parentPartnerId    BigInt            @default(0) // 0=관리자 발주(센티넬), 그 외=MD 조직 id(하위 재발주)
+  reorderRound       Int               @default(0) // 0=원발주, 1..=A/S 회차(P4)
+  rfqId              BigInt? // 근거 견적행(FK 없음 — 직접 발주는 null)
+  fulfillmentMode    String            @default("self") @db.VarChar(16) // self=수주 조직 직접 제작, delegated=하위 발주 위임(발주 시점 박제)
+  status             String            @default("issued") @db.VarChar(16) // issued|eq_requested|eq_done|producing|produced
   // 발주가 — RFQ 와 같은 통화 체계(결제통화 정본 + KRW 회계 보조 + 입력 원본 3종).
   // krwAmount 는 관리자 직접 발주 외화 건의 회계 박제(MD→하위 발주는 null — 레거시 승계).
-  currency        String      @default("KRW") @db.VarChar(8)
-  priceOriginal   Decimal     @db.Decimal(15, 2)
-  exchangeRate    Decimal?    @db.Decimal(12, 6)
-  krwAmount       Int?
-  subCurrency      String?    @db.VarChar(8)
-  subPriceOriginal Decimal?   @db.Decimal(15, 2)
-  subExchangeRate  Decimal?   @db.Decimal(12, 6)
+  currency           String            @default("KRW") @db.VarChar(8)
+  priceOriginal      Decimal           @db.Decimal(15, 2)
+  exchangeRate       Decimal?          @db.Decimal(12, 6)
+  krwAmount          Int?
+  subCurrency        String?           @db.VarChar(8)
+  subPriceOriginal   Decimal?          @db.Decimal(15, 2)
+  subExchangeRate    Decimal?          @db.Decimal(12, 6)
   // 배송 목적지(KR/CN/VN) — 직송 스위치는 P3 범위, 컬럼만 선반영(D5).
-  destinationCountry String?  @db.VarChar(2)
-  paymentTerms    String?     @db.VarChar(50) // 'T/T in Advance' 등
+  destinationCountry String?           @db.VarChar(2)
+  paymentTerms       String?           @db.VarChar(50) // 'T/T in Advance' 등
   // 발주 단계의 송금 예정일. 실제 송금일은 sp_pcb_remittance.remittedOn 이 정본이며,
   // 이 값은 지급 일정·지연 표시만 담당한다.
-  remittanceDueOn DateTime?
+  remittanceDueOn    DateTime?
   // ⚠ 송금의 정본은 sp_pcb_remittance(원장)다. 이 컬럼은 **파생 캐시** — 마지막 송금일을
   // 서버가 원장 변경마다 다시 계산해 넣는다(목록·협력사 포털의 기존 표시가 쓰는 값).
   // 직접 쓰지 말 것: 원장을 거치지 않으면 금액·잔액과 어긋난다.
-  remittedAt      DateTime?
-  deliveryDate    DateTime? // 발주 납기
+  remittedAt         DateTime?
+  deliveryDate       DateTime? // 발주 납기
   // EQ·생산 전이 이력 — [{at, byRole, fromStatus, toStatus, note}] 누적(정본은 하위
   // 발주서 — MD 경유 상위는 상태만 미러). 첨부는 sp_file(refType 'sp_pcb_po_eq').
-  eqHistory       Json?
-  memo            String?     @db.Text
-  issuedAt        DateTime    @default(now())
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  spec            SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
-  partner         SpPartner   @relation(fields: [partnerId], references: [id])
-  remittances     SpPcbRemittance[]
-  eqReviews       SpPcbEqReview[]
-  packages        SpPcbPackage[]
+  eqHistory          Json?
+  memo               String?           @db.Text
+  issuedAt           DateTime          @default(now())
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  spec               SpOrderSpec       @relation(fields: [specId], references: [id], onDelete: Cascade)
+  partner            SpPartner         @relation(fields: [partnerId], references: [id])
+  remittances        SpPcbRemittance[]
+  eqReviews          SpPcbEqReview[]
+  packages           SpPcbPackage[]
 
   @@unique([specId, partnerId, parentPartnerId, reorderRound])
   @@index([partnerId, status]) // 협력사 포털 워크큐
@@ -1515,15 +1613,21 @@ model SpPcbPo {
 model SpPcbEqReview {
   id            BigInt    @id @default(autoincrement())
   poId          BigInt
-  /** 조회 키 비정규화 — 고객 화면은 주문→cart→spec 으로 찾아 들어온다(발주서를 모른다).
-   *  발주서의 specId 는 불변이라 어긋날 여지가 없다. */
+  /**
+   * 조회 키 비정규화 — 고객 화면은 주문→cart→spec 으로 찾아 들어온다(발주서를 모른다).
+   * 발주서의 specId 는 불변이라 어긋날 여지가 없다.
+   */
   specId        BigInt
   status        String    @default("requested") @db.VarChar(16) // requested|approved|rejected|canceled
-  /** 관리자가 쓴 확인 문구 — 협력사 EQ 원문을 그대로 넘기지 않는다(맥락이 다르다). */
+  /**
+   * 관리자가 쓴 확인 문구 — 협력사 EQ 원문을 그대로 넘기지 않는다(맥락이 다르다).
+   */
   message       String    @db.Text
   dueOn         DateTime? // 회신 기한(KST 날짜 앵커)
-  /** 고객에게 공개한 EQ 첨부 id 목록(sp_file.id). 협력사 정보가 든 파일을 거르기 위해
-   *  관리자가 **고른 것만** 담는다 — 다운로드도 이 목록으로 검증한다(사용자 결정). */
+  /**
+   * 고객에게 공개한 EQ 첨부 id 목록(sp_file.id). 협력사 정보가 든 파일을 거르기 위해
+   * 관리자가 **고른 것만** 담는다 — 다운로드도 이 목록으로 검증한다(사용자 결정).
+   */
   sharedFileIds Json
   requestedBy   String    @db.VarChar(191)
   requestedAt   DateTime  @default(now())
@@ -1550,12 +1654,18 @@ model SpPcbEqReview {
 model SpPcbRemittance {
   id           BigInt   @id @default(autoincrement())
   poId         BigInt
-  /** 송금일(KST 날짜) — parseKstDate 앵커. 시각은 의미 없다(§7-8). */
+  /**
+   * 송금일(KST 날짜) — parseKstDate 앵커. 시각은 의미 없다(§7-8).
+   */
   remittedOn   DateTime
-  /** 송금 통화 = 발주 통화(서버 검증). 잔액을 같은 통화로만 빼기 위해. */
+  /**
+   * 송금 통화 = 발주 통화(서버 검증). 잔액을 같은 통화로만 빼기 위해.
+   */
   currency     String   @db.VarChar(8)
   amount       Decimal  @db.Decimal(15, 2)
-  /** 외화 송금의 **실제 적용 환율** — 발주 시점 환율과 다르다(환차손익 근거). KRW 면 null. */
+  /**
+   * 외화 송금의 **실제 적용 환율** — 발주 시점 환율과 다르다(환차손익 근거). KRW 면 null.
+   */
   exchangeRate Decimal? @db.Decimal(12, 6)
   krwAmount    Int? // 회계 환산 박제(외화만)
   memo         String?  @db.VarChar(500)
@@ -1580,16 +1690,22 @@ model SpPcbRemittance {
 model SpPcbAsCase {
   id              BigInt      @id @default(autoincrement())
   specId          BigInt
-  /** proceed 시 채번(같은 스펙 케이스 MAX+1, 1부터). null=미진행. */
+  /**
+   * proceed 시 채번(같은 스펙 케이스 MAX+1, 1부터). null=미진행.
+   */
   reorderRound    Int?
   caseType        String      @db.VarChar(16) // admin_fault|product_defect
-  /** 기본 규칙: admin_fault=paid / product_defect=free(관리자 변경 가능). 협력사
-   *  회신(수락/거절)이 곧 이 조건의 승인/반려다. 금액 컬럼은 두지 않는다 — 유상
-   *  금액은 회차 발주서의 발주 조건 수정(P3.10)으로 다룬다(레거시 동형). */
+  /**
+   * 기본 규칙: admin_fault=paid / product_defect=free(관리자 변경 가능). 협력사
+   * 회신(수락/거절)이 곧 이 조건의 승인/반려다. 금액 컬럼은 두지 않는다 — 유상
+   * 금액은 회차 발주서의 발주 조건 수정(P3.10)으로 다룬다(레거시 동형).
+   */
   chargeType      String      @db.VarChar(8) // paid|free
   description     String?     @db.Text // 관리자 접수 사유(불량 내용·잘못 보낸 정보)
   status          String      @default("draft") @db.VarChar(16) // draft|submitted|accepted|rejected|proceeded
-  /** 재생산 협력사(회신 주체). 트랙은 이 협력사의 원주문(round 0) 발주에서 도출. */
+  /**
+   * 재생산 협력사(회신 주체). 트랙은 이 협력사의 원주문(round 0) 발주에서 도출.
+   */
   targetPartnerId BigInt
   parentPartnerId BigInt      @default(0) // 0=직거래, 그 외=MD 조직 id
   replyReason     String?     @db.Text // 협력사 회신 사유(거절 시 권장)
@@ -1620,7 +1736,9 @@ model SpPcbClaim {
   mbId            String            @db.VarChar(60) // 고객(주문자) — spec.mbId 박제
   odId            String            @db.VarChar(64)
   ctId            Int
-  /** 열린 클레임 1건 규칙 — 'pcb:{specId}' UNIQUE, 종결(resolve/reject) 시 null 로 해제. */
+  /**
+   * 열린 클레임 1건 규칙 — 'pcb:{specId}' UNIQUE, 종결(resolve/reject) 시 null 로 해제.
+   */
   activeKey       String?           @unique @db.VarChar(96)
   status          String            @default("open") @db.VarChar(16) // open|reviewing|resolved|rejected
   kind            String            @db.VarChar(24) // quality|damaged|spec_mismatch|shortage|other
@@ -1640,8 +1758,10 @@ model SpPcbClaim {
   refundAmount    Int? // 환불 협의 기록(원) — 실집행 정본은 od_refund_price
   returnRequired  Boolean           @default(false) // 불량품 회수 필요(자유 기록 — 역물류 모델 보류)
   returnNote      String?           @db.VarChar(500) // 회수 운송장 등 메모
-  /** 재생산 핸드오프 — resolve(reproduce)가 만든 A/S 케이스. FK 없는 느슨한 참조
-   *  (케이스 삭제는 draft 뿐이라 고아가 돼도 표시만 비면 된다). */
+  /**
+   * 재생산 핸드오프 — resolve(reproduce)가 만든 A/S 케이스. FK 없는 느슨한 참조
+   * (케이스 삭제는 draft 뿐이라 고아가 돼도 표시만 비면 된다).
+   */
   asCaseId        BigInt?
   submittedAt     DateTime          @default(now())
   reviewStartedAt DateTime?
@@ -1680,41 +1800,41 @@ model SpPcbClaimEvent {
 // 교정. 모드·받는측은 **생성 시 박제**: receiverKind admin(관리자/직송)|md(MD 입고).
 // 상태 코드사전·핑퐁 주체는 BOM 선적 계약(BOM_SHIPMENT_*)을 그대로 공유한다(§8 V6).
 model SpPcbShipment {
-  id                 BigInt    @id @default(autoincrement())
-  poId               BigInt    @unique // 대표(생성) 발주서
+  id                 BigInt            @id @default(autoincrement())
+  poId               BigInt            @unique // 대표(생성) 발주서
   // 대표의 스펙(워크큐 조회 편의) + **삭제 cascade 앵커**. 관계가 없던 동안 스펙을
   // 영구 삭제하면 RFQ·발주는 cascade 로 사라지는데 선적만 남아, 선적 워크큐에
   // 조작 불가능한 유령 행으로 영구히 떴다(2026-08-06 실측 → 관계 신설).
   specId             BigInt
-  spec               SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
-  mode               String    @default("international") @db.VarChar(16) // international|domestic
-  status             String    @db.VarChar(20) // BOM 코드사전(preparing|requested|…|delivered)
-  receiverKind       String    @default("admin") @db.VarChar(8) // admin|md
+  spec               SpOrderSpec       @relation(fields: [specId], references: [id], onDelete: Cascade)
+  mode               String            @default("international") @db.VarChar(16) // international|domestic
+  status             String            @db.VarChar(20) // BOM 코드사전(preparing|requested|…|delivered)
+  receiverKind       String            @default("admin") @db.VarChar(8) // admin|md
   receiverPartnerId  BigInt? // md 입고일 때 MD 조직
-  destinationCountry String?   @db.VarChar(2) // 직송 박제(대표 발주서 승계, D5)
+  destinationCountry String?           @db.VarChar(2) // 직송 박제(대표 발주서 승계, D5)
   // 운송수단(2026-08-16) — air|sea, **국제 전용**(mode 와 직교: 국경/운반수단). null 은
   // 미선택(이 축 도입 전 데이터·국내)이며 읽는 쪽이 'air' 로 접는다. 컬럼 default 를
   // 안 두는 이유 = "명시적 항공"과 "구 데이터"를 나중에 가를 수 있게.
-  transport          String?   @db.VarChar(8)
-  carrier            String?   @db.VarChar(50)
-  trackingNumber     String?   @db.VarChar(100)
-  trackingUrl        String?   @db.VarChar(500)
+  transport          String?           @db.VarChar(8)
+  carrier            String?           @db.VarChar(50)
+  trackingNumber     String?           @db.VarChar(100)
+  trackingUrl        String?           @db.VarChar(500)
   shipDate           DateTime? // 출고예정일(보내는측)
   // 발송 참조번호(Case ID) 핑퐁 — 협력사가 부치기 전에 수취인 측 참조값(특송 계정·
   // 포워더 부킹·통관 참조)이 필요한 실무. 요청은 보내는측, 입력은 받는측(관리자).
   // 요청됐는데 미입력이면 국제 '선적' 전이가 게이트된다(CASE_REF_REQUIRED).
   caseRefRequestedAt DateTime? // 협력사 요청 시각 — non-null 이 곧 '요청됨'
-  caseRefNote        String?   @db.VarChar(255) // 요청 메모(무엇이 필요한지)
-  caseRef            String?   @db.VarChar(100) // 관리자가 입력한 참조번호
+  caseRefNote        String?           @db.VarChar(255) // 요청 메모(무엇이 필요한지)
+  caseRef            String?           @db.VarChar(100) // 관리자가 입력한 참조번호
   caseRefFilledAt    DateTime?
   shippedAt          DateTime? // 최초 발송 전이 박제
   receivedAt         DateTime? // 받는측 입고확인(검수)
-  receivedNote       String?   @db.Text
+  receivedNote       String?           @db.Text
   completedAt        DateTime? // 최종 단계 진입 박제(revert 이탈 시 해제)
   shipQty            Int? // 발송 수량 기록(레거시 ship_qty — UI 후속)
   invoiceData        Json? // 상업송장 편집본(BomInvoiceData — D23 동형)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
   pos                SpPcbShipmentPo[]
   packages           SpPcbPackage[]
 

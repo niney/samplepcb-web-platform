@@ -31,11 +31,13 @@ import {
 const base = apiRoutes.partnerRfqs;
 const poBase = apiRoutes.partnerPos;
 
-export function usePartnerRfqs() {
+export function usePartnerRfqs(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'rfqs', 'list'],
     queryFn: () => apiGet(base, PartnerRfqListResponse),
     retry: false,
+    // 셸 배지가 트랙별로 켠다(R3 usePartnerWork) — 인자 없으면 기존처럼 항상 조회.
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 
@@ -61,11 +63,12 @@ export function usePartnerRfqReply() {
 
 // ── 받은 발주(D18) ───────────────────────────────────────────────────────────
 
-export function usePartnerPos() {
+export function usePartnerPos(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'pos', 'list'],
     queryFn: () => apiGet(poBase, PartnerPoListResponse),
     retry: false,
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 
@@ -148,11 +151,12 @@ export function usePartnerPoShortageCancel() {
 // ── 발송 1급(§6.11) — 담기(생성)·목록. 조작은 대표 poId 로 기존 훅 재사용 ────
 
 // 진행 중(active) 발송 — 홈·보내기 공용(협력사 관점 완료는 제외, counts.done 로 안내).
-export function usePartnerShipments() {
+export function usePartnerShipments(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'shipments', 'active'],
     queryFn: () => apiGet('/api/partner/shipments?tab=active', PartnerShipmentListResponse),
     retry: false,
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 

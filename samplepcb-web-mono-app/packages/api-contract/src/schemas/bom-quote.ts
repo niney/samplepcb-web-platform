@@ -347,6 +347,23 @@ export const BomQuoteMatchEvidence = z.object({
   identityFallback: z.boolean(),
   /** MPN·제조사 제한 없이 스펙으로 검색한 결과인지 여부. 구 견적에는 없을 수 있다. */
   anyVendorSpecSearch: z.boolean().optional(),
+  /**
+   * 협력사 보유 부품 요약(docs/PARTNER_PARTS.md) — "이 품번을 가진 협력사가 있다"는
+   * 사실만. 가격은 없다(견적요청 회신이 정본). **고객에게는 협력사 이름을 주지 않는다** —
+   * 곳 수와 기준일만 노출하고, 이름은 관리자 화면에서만 조인해 붙인다.
+   */
+  partnerStock: z
+    .object({
+      partnerCount: z.number().int().nonnegative(),
+      /** 협력사들이 알린 재고 합계. 검증되지 않은 주장이라 판단에 쓰지 않는다. */
+      totalStockQty: z.number().int().nonnegative().nullable(),
+      /** 가장 최근 업로드 시각 — 만료를 두지 않는 대신 나이를 늘 보인다. */
+      latestUploadedAt: z.string().nullable(),
+      /** 관리자 화면 전용 — 고객 DTO 는 이 배열을 비워 내보낸다. */
+      partnerIds: z.array(z.number().int().positive()),
+    })
+    .nullable()
+    .optional(),
   /** 검색 조건의 기술 준비 상태 — Node/화면은 재판정하지 않고 엔진 결과를 표시한다. */
   searchRequirementGuidance: BomQuoteSearchRequirementGuidance.nullable().optional(),
   /** 전체 이력은 후보 API에서 지연 조회하고 목록에는 엔진 trace의 compact 요약만 둔다. */

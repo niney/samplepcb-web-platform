@@ -18,6 +18,8 @@ const props = defineProps<{
   scopeItems: BomQuoteItemType[]; // 요청 가능 부품행(included·활성 시트)
   selectedItemIds: string[]; // 품목 테이블 체크 — 빈 배열=전체 발송
   rfqs: AdminBomRfqViewType[];
+  /** partnerId → 보유 중인 quoteItemId (docs/PARTNER_PARTS.md). 없으면 표시만 생략. */
+  partnerItems?: Record<string, string[]>;
 }>();
 const emit = defineEmits<{ close: []; sent: [] }>();
 
@@ -30,9 +32,35 @@ const partnerFilters = ref<AdminPartnerFilters>({
   q: '',
 });
 const { data: partnerData, isFetching } = useAdminPartnerList(partnerFilters);
-const candidates = computed(() =>
-  (partnerData.value?.data.items ?? []).filter((p) => p.capabilities.includes('bom_rfq')),
+// 협력사 보유 부품(docs/PARTNER_PARTS.md) — "이 발송 범위를 몇 행이나 갖고 있나".
+// 제한이 아니라 **고르기 쉽게** 하는 표시다: 보유한 곳을 위로 올리고 건수를 배지로 단다.
+const scopedItemIds = computed(
+  () =>
+    new Set(
+      props.selectedItemIds.length > 0
+        ? props.selectedItemIds
+        : props.scopeItems.map((item) => item.id),
+    ),
 );
+const holdingCount = (partnerId: number): number => {
+  const owned = props.partnerItems?.[String(partnerId)];
+  if (owned === undefined) return 0;
+  return owned.filter((itemId) => scopedItemIds.value.has(itemId)).length;
+};
+
+const candidates = computed(() => {
+  const list = (partnerData.value?.data.items ?? []).filter((p) =>
+    p.capabilities.includes('bom_rfq'),
+  );
+  // 보유 건수 많은 곳 → 이름순. 보유 정보가 없으면 기존 순서를 그대로 둔다.
+  return props.partnerItems === undefined
+    ? list
+    : [...list].sort(
+        (a, b) =>
+          holdingCount(b.partnerId) - holdingCount(a.partnerId)
+          || a.name.localeCompare(b.name, 'ko'),
+      );
+});
 
 const selected = ref<Set<number>>(new Set());
 const quotedPartnerIds = computed(
@@ -155,6 +183,11 @@ async function submit(): Promise<void> {
             @change="toggle(p.partnerId)"
           >
           <span class="min-w-0 flex-1 truncate font-medium">{{ p.name }}</span>
+          <span
+            v-if="holdingCount(p.partnerId) > 0"
+            class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+            title="이번 발송 범위 중 이 협력사가 보유하고 있다고 알린 행 수입니다"
+          >보유 {{ holdingCount(p.partnerId) }}행</span>
           <span v-if="p.contactEmail === null" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">메일 없음</span>
           <span v-if="quotedPartnerIds.has(p.partnerId)" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700">회신됨</span>
           <span v-else-if="rfqs.some((r) => r.partnerId === p.partnerId)" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">발송됨</span>

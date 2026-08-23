@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { BOM_RFQ_STATUS_LABELS, type BomRfqReplyBodyType } from '@sp/api-contract';
 import { usePartnerRfqDetail, usePartnerRfqReply } from '../../partner/usePartnerRfqs';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
 import { fmtKstDate } from '@sp/utils';
 
@@ -30,6 +31,8 @@ const rows = computed<RfqReplyFormRow[]>(() =>
     description: item.description,
     orderQty: item.orderQty,
     reply: item.reply,
+    // 내가 올려 둔 보유 부품 값 — 미회신 행에만 제안으로 채워진다(docs/PARTNER_PARTS.md).
+    myStock: item.myStock ?? null,
   })),
 );
 
@@ -55,20 +58,16 @@ const statusCls = (s: string): string =>
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
-      <RouterLink
-        :to="{ name: 'partner-bom' }"
-        class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-      >
-        ← 목록
-      </RouterLink>
-      <template v-if="detail !== null">
-        <h1 class="text-xl font-bold">{{ detail.quoteTitle }}</h1>
+    <PartnerPageHeader
+      :title="detail?.quoteTitle ?? null"
+      :back="{ to: { name: 'partner-bom-rfqs' }, label: '견적요청' }"
+    >
+      <template v-if="detail !== null" #badges>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(detail.status)">
           {{ BOM_RFQ_STATUS_LABELS[detail.status] }}
         </span>
       </template>
-    </div>
+    </PartnerPageHeader>
 
     <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
     <p v-else-if="detail === null" class="text-sm text-gray-400">견적요청을 찾을 수 없습니다.</p>

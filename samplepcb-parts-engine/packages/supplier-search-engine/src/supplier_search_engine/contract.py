@@ -35,6 +35,7 @@ from .models import (
     SearchMode,
     SearchRequirementGuidance,
     SearchDisposition,
+    SupplierProduct,
 )
 from .normalizer import (
     parse_capacitance_f,
@@ -939,6 +940,11 @@ class SearchBatchInput(BaseModel):
     procurement_policy: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )
+    # 호출자가 넣어 주는 로컬 소스(협력사 보유 부품, docs/PARTNER_PARTS.md).
+    # 키 = 정규화 품번(`normalize_local_product_key`) — 같은 품번을 쓰는 component 들이
+    # 캐시 키로 한 그룹이 되므로 component_id 가 아니라 검색 정체성으로 건다.
+    # 외부 응답이 아니므로 호출 수·캐시·trace 에 섞이지 않고, 후보 판정만 함께 탄다.
+    local_products: dict[str, list[SupplierProduct]] = Field(default_factory=dict)
 
 
 def _component_id(source_file: str, sheet_index: int, rows: list[int]) -> str:

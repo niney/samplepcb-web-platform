@@ -10,6 +10,31 @@ export const ko = {
     smartBom: '스마트 BOM',
     partnerPortal: '파트너 포탈',
   },
+  // 협력사 포털 셸(사이드바·스위처 — 포털 재설계 R3). 본문 화면 문구는 아직 하드코딩(ko).
+  partner: {
+    title: '파트너 포털',
+    common: '공통',
+    modules: {
+      bom: 'BOM 부품',
+      pcb: 'PCB 제작',
+    },
+    menu: {
+      home: '홈 · 오늘 할 일',
+      rfqs: '견적요청',
+      pos: '발주서',
+      ship: '📦 보내기',
+      pcbShip: '📦 PCB 보내기',
+      shipmentsDone: '완료된 발송',
+      as: 'A/S',
+      remittances: '수금 현황',
+      parts: '보유 부품',
+    },
+    shell: {
+      openMenu: '메뉴 열기',
+      closeMenu: '메뉴 닫기',
+      modules: '모듈',
+    },
+  },
   auth: {
     greeting: '{nick}님',
     notLoggedIn: '로그인하지 않음',
@@ -83,6 +108,7 @@ export const ko = {
       orders: '주문내역',
       members: '회원 관리',
       partners: '파트너 관리',
+      partnerParts: '협력사 보유 부품',
       marketExperts: '마켓 전문가',
       marketProjects: '마켓 프로젝트',
       marketContracts: '마켓 계약·정산',

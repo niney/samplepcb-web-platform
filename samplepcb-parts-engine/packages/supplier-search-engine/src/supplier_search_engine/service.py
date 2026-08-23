@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
@@ -46,6 +46,7 @@ from .models import (
     SearchTraceSource,
     SelectionEligibility,
     SelectionRecommendation,
+    CatalogSupplier,
     Supplier,
     SupplierIdentity,
     SupplierProduct,
@@ -69,6 +70,42 @@ from .suppliers import DigiKeyClient, MouserClient, SupplierClient, UniKeyICClie
 # operators can distinguish API payload size from the final candidate groups.
 _CANDIDATE_GROUP_LIMIT_PER_SUPPLIER = 3
 _PRICE_GROUP_LIMIT_PER_SUPPLIER = 2
+
+# 후보 정렬의 소스 성향 — 기술 판정·조달 판정이 **완전히 같을 때만** 순서를 가른다.
+# 실공급사(가격·재고가 확인된 응답) 0, 로컬 카탈로그 1, 협력사 보유 부품 2.
+# 협력사 값은 "갖고 있다"는 주장일 뿐이라 동률이면 뒤에 세운다. 공급사 문자열 알파벳순에
+# 맡기면 'partner' 가 'unikeyic' 보다 앞서므로 명시 키가 필요하다.
+_SOURCE_RANK_OTHER = 1
+
+
+def _source_rank(supplier: SupplierIdentity) -> int:
+    if isinstance(supplier, Supplier):
+        return 0
+    if supplier == CatalogSupplier.PARTNER:
+        return 2
+    return _SOURCE_RANK_OTHER
+
+
+def normalize_local_product_key(value: object) -> str:
+    """로컬 소스 주입 키 — sp-node `normalizeMpn`(NFKC·대문자·영숫자)과 같은 규칙."""
+    return compact_mpn(value)
+
+
+def _local_products_for(
+    local_products: Mapping[str, list[SupplierProduct]],
+    query: PlannedQuery,
+) -> tuple[SupplierProduct, ...]:
+    """이 질의의 검색 정체성에 걸린 로컬 후보를 고른다.
+
+    품번이 없는(파라메트릭) 질의에는 주입하지 않는다 — 협력사 원장은 exact 품번
+    조회로만 매칭한다(스펙 호환 판정을 협력사 주장에 기대지 않는다).
+    """
+    if not local_products or query.part_number is None:
+        return ()
+    key = normalize_local_product_key(query.part_number)
+    if key == "":
+        return ()
+    return tuple(local_products.get(key, ()))
 
 
 class JobBudgetExceeded(SupplierCallBudgetExceeded):
@@ -326,6 +363,8 @@ class SearchService:
                         if mouser_barrier is not None
                         else None
                     ),
+                    # 그룹은 검색 정체성이 같은 component 묶음이므로 로컬 소스도 같다.
+                    local_products=_local_products_for(batch.local_products, query),
                 )
             )
         all_tasks = set(tasks.values()) | {mouser_prefetch}
@@ -736,6 +775,7 @@ class SearchService:
         procurement_policy: ProcurementPolicyInput | None = None,
         job_budget: _JobCallBudget | None = None,
         supplier_barriers: dict[Supplier, Awaitable[object]] | None = None,
+        local_products: Sequence[SupplierProduct] = (),
     ) -> ComponentSearchResult:
         started = time.perf_counter()
         result = await self._search_component_impl(
@@ -743,6 +783,7 @@ class SearchService:
             procurement_policy=procurement_policy or ProcurementPolicyInput(),
             job_budget=job_budget,
             supplier_barriers=supplier_barriers,
+            local_products=local_products,
         )
         return result.model_copy(
             update={"elapsed_ms": (time.perf_counter() - started) * 1_000},
@@ -757,6 +798,7 @@ class SearchService:
         job_budget: _JobCallBudget | None = None,
         supplier_barriers: dict[Supplier, Awaitable[object]] | None = None,
         recommendation_block_reason: str | None = None,
+        local_products: Sequence[SupplierProduct] = (),
     ) -> ComponentSearchResult:
         if query.mode in {SearchMode.INSUFFICIENT, SearchMode.EXCLUDED}:
             _, procurement_decision = apply_procurement_decisions(
@@ -815,6 +857,7 @@ class SearchService:
                 supplier_results,
                 procurement_policy,
                 recommendation_block_reason=recommendation_block_reason,
+                extra_products=local_products,
             )
         )
         procurement_replacement_kind = self._procurement_replacement_kind(
@@ -845,6 +888,7 @@ class SearchService:
                     supplier_results,
                     procurement_policy,
                     recommendation_block_reason=recommendation_block_reason,
+                    extra_products=local_products,
                 )
         candidates, omitted_candidate_count = self._retain_supplier_candidate_groups(
             query,
@@ -1031,11 +1075,17 @@ class SearchService:
         procurement_policy: ProcurementPolicyInput,
         *,
         recommendation_block_reason: str | None = None,
+        extra_products: Sequence[SupplierProduct] = (),
     ) -> tuple[list[CandidateMatch], ComponentProcurementDecision, int]:
+        # extra_products = 호출자가 넣어 준 로컬 소스(협력사 보유 부품). 외부 응답이 아니라
+        # supplier_results 에 섞지 않는다 — 호출 수·캐시 상태·trace 를 오염시키지 않기 위해서.
+        # 매처·후보 판정·조달 정책은 외부 후보와 **완전히 같은 것을 탄다**(뒤순위는 정렬 키가 낸다).
         candidates = [
             self.matcher.evaluate(query, product)
-            for result in supplier_results
-            for product in result.products
+            for product in (
+                *(product for result in supplier_results for product in result.products),
+                *extra_products,
+            )
         ]
         candidates = finalize_candidate_decisions(query, candidates)
         if query.mode == SearchMode.PARAMETRIC:
@@ -2114,6 +2164,11 @@ class SearchService:
             -candidate.identity_confidence,
             -candidate.specification_confidence,
             lifecycle_order[decision.lifecycle_state],
+            # 소스 순위 — 기술 판정이 완전히 같을 때만 발동하는 마지막 성향.
+            # 협력사 보유 부품은 "있다"는 주장일 뿐 가격·재고가 확인되지 않았으므로
+            # 같은 등급이면 실공급사 뒤에 선다. 공급사 문자열 알파벳순(아래 supplier.value)에
+            # 기대면 'partner' 가 'unikeyic' 보다 앞서 버린다 — 명시 키가 필요한 이유.
+            _source_rank(candidate.product.supplier),
             (
                 candidate.product.catalog_metadata.samplepcb_preference_rank
                 if candidate.product.catalog_metadata is not None

@@ -12,7 +12,12 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
-from bom_extraction_engine import SmartbomConfig, build_smartbom_result
+from bom_extraction_engine import (
+    InventoryConfig,
+    SmartbomConfig,
+    build_inventory_result,
+    build_smartbom_result,
+)
 from supplier_search_engine.contract import (
     PassiveRequirementDefaults,
     SearchBatchInput,
@@ -25,6 +30,7 @@ from supplier_search_engine.models import (
     ProcurementDisposition,
     ProcurementPolicyInput,
     QuantityResolution,
+    SupplierProduct,
 )
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
@@ -35,9 +41,21 @@ logger = logging.getLogger(__name__)
 
 _ALLOWED_EXTS = {".xlsx", ".xlsm", ".xls", ".csv", ".tsv", ".bom"}
 
+# 추출 프로필 — `smartbom`은 고객 BOM(보드당 소요), `inventory`는 협력사 재고표
+# (재고·단가가 정보). 의미가 반대라 파이프라인이 다르다.
+_PARSE_ENGINES = {"smartbom", "inventory"}
+
 
 class JobError(RuntimeError):
     """호출부에서 4xx로 매핑하기 위한 도메인 예외."""
+
+
+@dataclass(frozen=True)
+class InventoryOptions:
+    """재고표 추출 교정 옵션 — 사람이 미리보기에서 고친 열 역할·헤더 행."""
+
+    role_overrides: dict[int, dict[int, str]] = field(default_factory=dict)
+    header_row_overrides: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -68,6 +86,8 @@ class SupplierSearchOptions:
     procurement_policy: ProcurementPolicyInput = field(
         default_factory=ProcurementPolicyInput
     )
+    # 협력사 보유 부품 — 키는 정규 품번(sp-node `normalizeMpn` == engine `compact_mpn`).
+    local_products: dict[str, list[SupplierProduct]] = field(default_factory=dict)
 
 
 class _EmptyPreflightCache:
@@ -125,6 +145,8 @@ class Job:
         default_factory=dict
     )
     supplier_requirement_defaults: PassiveRequirementDefaults | None = None
+    # 재고표(inventory) 프로필 전용 교정 옵션
+    inventory_options: InventoryOptions | None = None
     deleted: bool = False
 
 
@@ -177,16 +199,30 @@ class JobService:
             self._jobs.pop(job_id, None)
 
     # ── 파싱(추출) ────────────────────────────────────────
-    def submit_parse(self, data: bytes, filename: str, engine: str = "smartbom") -> Job:
+    def submit_parse(
+        self,
+        data: bytes,
+        filename: str,
+        engine: str = "smartbom",
+        inventory_options: InventoryOptions | None = None,
+    ) -> Job:
         ext = Path(filename).suffix.lower()
         if ext not in _ALLOWED_EXTS:
             raise JobError(f"unsupported_extension: {ext or '(none)'}")
         if len(data) > self.config.max_upload_bytes:
             raise JobError("file_too_large")
+        if engine not in _PARSE_ENGINES:
+            raise JobError(f"unsupported_engine: {engine}")
         job_id = uuid4().hex
         upload_path = self.config.uploads_dir / f"{job_id}{ext}"
         upload_path.write_bytes(data)
-        job = Job(id=job_id, engine=engine, filename=filename, upload_path=upload_path)
+        job = Job(
+            id=job_id,
+            engine=engine,
+            filename=filename,
+            upload_path=upload_path,
+            inventory_options=inventory_options,
+        )
         self._jobs[job_id] = job
         self._executor.submit(self._run_parse, job)
         return job
@@ -262,21 +298,33 @@ class JobService:
             job.message = message
 
         try:
-            config = SmartbomConfig(
-                m2v_path=self.config.m2v_path,
-                component_limit=self.config.component_limit,
-            )
-            job.result = build_smartbom_result(
-                input_path=job.upload_path,
-                original_filename=job.filename,
-                progress=progress,
-                config=config,
-            )
+            if job.engine == "inventory":
+                options = job.inventory_options or InventoryOptions()
+                job.result = build_inventory_result(
+                    input_path=job.upload_path,
+                    original_filename=job.filename,
+                    progress=progress,
+                    config=InventoryConfig(
+                        row_limit=self.config.inventory_row_limit,
+                        role_overrides=options.role_overrides,
+                        header_row_overrides=options.header_row_overrides,
+                    ),
+                )
+            else:
+                job.result = build_smartbom_result(
+                    input_path=job.upload_path,
+                    original_filename=job.filename,
+                    progress=progress,
+                    config=SmartbomConfig(
+                        m2v_path=self.config.m2v_path,
+                        component_limit=self.config.component_limit,
+                    ),
+                )
             job.status = "completed"
             job.progress = 100
             job.message = "추출 완료"
         except Exception as error:  # 백그라운드 잡은 안전한 실패 상태를 남긴다
-            logger.exception("BOM 추출 실패: %s", job.id)
+            logger.exception("추출 실패(%s): %s", job.engine, job.id)
             job.status = "failed"
             job.error = f"{type(error).__name__}: {str(error)[:500]}"
 
@@ -493,6 +541,12 @@ class JobService:
             update={
                 "components": components,
                 "procurement_policy": options.procurement_policy.model_copy(deep=True),
+                # 협력사 보유 부품(docs/PARTNER_PARTS.md) — sp-node 가 정규 품번으로 조회해
+                # 넣어 준 로컬 후보. 외부 호출·캐시·trace 에 섞이지 않고 후보 판정만 함께 탄다.
+                "local_products": {
+                    key: [product.model_copy(deep=True) for product in products]
+                    for key, products in options.local_products.items()
+                },
             }
         )
 

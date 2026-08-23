@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ApiError, BomRfqReplyBody, MagicRfqResponse } from '@sp/api-contract';
+import { loadOwnStockForItems } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
 import {
   filterScopeForRfq,
@@ -27,7 +28,7 @@ export const rfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       const scope = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
       return {
         result: true as const,
-        data: { partnerName: rfq.partner.name, rfq: toPartnerDetail(rfq, scope) },
+        data: { partnerName: rfq.partner.name, rfq: toPartnerDetail(rfq, scope, await loadOwnStockForItems(rfq.partnerId, scope)) },
       };
     },
   );
@@ -68,7 +69,7 @@ export const rfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       const scope = filterScopeForRfq(await loadRfqScopeItems(fresh.quoteId), fresh);
       return {
         result: true as const,
-        data: { partnerName: fresh.partner.name, rfq: toPartnerDetail(fresh, scope) },
+        data: { partnerName: fresh.partner.name, rfq: toPartnerDetail(fresh, scope, await loadOwnStockForItems(fresh.partnerId, scope)) },
       };
     },
   );

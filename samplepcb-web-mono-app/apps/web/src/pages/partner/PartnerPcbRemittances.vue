@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { PCB_PO_STATUS_LABELS, PCB_REMITTANCE_STATUS_LABELS, type PcbRemittanceStatusType } from '@sp/api-contract';
 import { fmtKstDate as dateOnly } from '@sp/utils';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import { usePartnerPcbRemittances } from '../../partner/usePartnerPcbPos';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
@@ -43,16 +44,10 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
 
 <template>
   <div class="pcb-readable space-y-5">
-    <RouterLink :to="{ name: 'partner' }" class="text-sm text-gray-400 hover:text-gray-700">
-      ← 파트너 홈
-    </RouterLink>
-
-    <header>
-      <h1 class="text-xl font-bold">수금 현황</h1>
-      <p class="mt-1 text-sm text-gray-500">
-        받은 발주서별 입금 내역입니다. 금액이 다르면 발주처에 문의해 주세요.
-      </p>
-    </header>
+    <PartnerPageHeader
+      title="수금 현황"
+      subtitle="받은 발주서별 입금 내역입니다. 금액이 다르면 발주처에 문의해 주세요."
+    />
 
     <!-- 통화별 미수금 총계 — 이 화면의 결론 -->
     <p v-if="totals.length > 0" class="text-xs text-gray-500">

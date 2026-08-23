@@ -6,6 +6,7 @@ import {
   PartnerRfqDetailResponse,
   PartnerRfqListResponse,
 } from '@sp/api-contract';
+import { loadOwnStockForItems } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
 import {
   filterScopeForRfq,
@@ -64,7 +65,7 @@ export const partnerRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         return reply.notFound('견적요청을 찾을 수 없습니다');
       }
       const scope = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
-      return { result: true as const, data: toPartnerDetail(rfq, scope) };
+      return { result: true as const, data: toPartnerDetail(rfq, scope, await loadOwnStockForItems(rfq.partnerId, scope)) };
     },
   );
 
@@ -103,7 +104,7 @@ export const partnerRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       });
       if (updated === null) return reply.notFound('견적요청을 찾을 수 없습니다');
       const scope = filterScopeForRfq(await loadRfqScopeItems(updated.quoteId), updated);
-      return { result: true as const, data: toPartnerDetail(updated, scope) };
+      return { result: true as const, data: toPartnerDetail(updated, scope, await loadOwnStockForItems(updated.partnerId, scope)) };
     },
   );
 

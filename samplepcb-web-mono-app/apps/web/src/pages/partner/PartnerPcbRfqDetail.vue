@@ -14,6 +14,7 @@ import { fmtKstDate as dateOnly } from '@sp/utils';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
 
 // PCB 견적요청 상세(협력사 포털) — 사양 확인 → 견적가+예상 배송일 회신.
@@ -149,9 +150,7 @@ const STATUS_CLS: Record<string, string> = {
 
 <template>
   <div class="pcb-readable space-y-5">
-    <RouterLink :to="{ name: 'partner-pcb' }" class="text-sm text-gray-400 hover:text-gray-700">
-      ← 파트너 홈
-    </RouterLink>
+    <PartnerPageHeader :back="{ to: { name: 'partner-pcb-rfqs' }, label: '견적요청' }" />
 
     <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
 

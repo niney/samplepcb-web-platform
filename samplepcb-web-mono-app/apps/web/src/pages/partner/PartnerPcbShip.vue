@@ -11,6 +11,7 @@ import {
   usePartnerPcbShipBox,
   usePartnerPcbShipmentDetach,
 } from '../../partner/usePartnerPcbPos';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbShipmentCard from '../../components/pcb/PcbShipmentCard.vue';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
@@ -85,18 +86,10 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
 
 <template>
   <div class="space-y-5">
-    <div class="flex flex-wrap items-center gap-3">
-      <RouterLink
-        :to="{ name: 'partner-pcb' }"
-        class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-      >
-        ← 홈
-      </RouterLink>
-      <h1 class="text-xl font-bold">📦 PCB 보내기</h1>
-      <p class="text-sm text-gray-400">
-        생산완료된 발주서를 박스로 옮기고, 다 담았으면 발송을 진행하세요. 받는 곳이 같은 것끼리 묶입니다.
-      </p>
-    </div>
+    <PartnerPageHeader
+      title="📦 PCB 보내기"
+      subtitle="생산완료된 발주서를 박스로 옮기고, 다 담았으면 발송을 진행하세요. 받는 곳이 같은 것끼리 묶입니다."
+    />
 
     <p v-if="error !== ''" class="text-sm font-semibold text-red-600">{{ error }}</p>
 

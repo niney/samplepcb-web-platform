@@ -1,25 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { ApiRequestError } from '@sp/shared';
-import { BOM_RFQ_STATUS_LABELS, type PartnerPoListItemType } from '@sp/api-contract';
-import {
-  usePartnerPos,
-  usePartnerRfqs,
-  usePartnerShipments,
-} from '../../partner/usePartnerRfqs';
+import { usePartnerBomWork } from '../../partner/usePartnerWork';
 import { usePartnerAccess } from '../../partner/usePartnerAccess';
 import { rememberPartnerModule } from '../../partner/partnerModule';
-import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
-import { fmtKstDate } from '@sp/utils';
+import PartnerBomRfqRow from '../../components/partner/PartnerBomRfqRow.vue';
+import PartnerBomPoRow from '../../components/partner/PartnerBomPoRow.vue';
+import PartnerEmpty from '../../components/partner/PartnerEmpty.vue';
 
-// BOM 부품 모듈 홈(포털 재설계 R1) — "오늘 할 일" 중심: ① 회신할 견적 ② 확인할 발주
+// BOM 부품 모듈 홈(포털 재설계 R1·R3) — "오늘 할 일" 중심: ① 회신할 견적 ② 확인할 발주
 // ③ 보낼 물건([📦 보내기]) ④ 진행 중 발송(핑퐁). BOM 트랙 어휘만 쓴다 — PCB 는
 // 별도 모듈(관리자 D9 미러: 모듈 간 화면 공유 금지). 서버가 소속을 판정(403=파트너 아님).
+// R3: 회신한 견적·모든 발주서 아카이브는 사이드바의 견적요청·발주서 워크큐로 옮겼다 —
+// 홈엔 지금 움직여야 하는 것만 남는다. 파생은 usePartnerWork(사이드바 배지와 같은 숫자).
 
-const { data, error, isLoading } = usePartnerRfqs();
-const poQuery = usePartnerPos();
-const shipmentsQuery = usePartnerShipments();
+const work = usePartnerBomWork();
 const accessQuery = usePartnerAccess();
 
 onMounted(() => {
@@ -27,67 +24,40 @@ onMounted(() => {
 });
 
 const notPartner = computed(
-  () => error.value instanceof ApiRequestError && error.value.status === 403,
+  () =>
+    work.rfqsQuery.error.value instanceof ApiRequestError &&
+    work.rfqsQuery.error.value.status === 403,
 );
 // 트랙 가드 — capability 없는 모듈 URL 직접 진입 시 안내(데이터는 서버가 어차피 안 준다).
 const noTrack = computed(() => accessQuery.data.value?.data.tracks.bom === false);
 const hasPcbTrack = computed(() => accessQuery.data.value?.data.tracks.pcb === true);
+const partnerName = computed(() => work.rfqsQuery.data.value?.data.partnerName ?? null);
+const isLoading = computed(() => work.rfqsQuery.isLoading.value);
 
-// ── 할 일 파생 ───────────────────────────────────────────────────────────────
-const rfqItems = computed(() => data.value?.data.items ?? []);
-const pendingRfqs = computed(() => rfqItems.value.filter((r) => r.status === 'requested'));
-const doneRfqs = computed(() => rfqItems.value.filter((r) => r.status !== 'requested'));
-
-const poItems = computed(() => poQuery.data.value?.data.items ?? []);
-const toConfirm = computed(() => poItems.value.filter((po) => po.status === 'issued'));
-const toShip = computed(
-  () => poItems.value.filter((po) => po.status !== 'issued' && !po.shipmentAttached),
+const {
+  pendingRfqs,
+  toConfirm,
+  toShip,
+  countryBlockedCount,
+  preparingCount,
+  activeShipments,
+  myTurnCount,
+} = work;
+const nothingTodo = computed(
+  () =>
+    pendingRfqs.value.length === 0 &&
+    toConfirm.value.length === 0 &&
+    toShip.value.length === 0 &&
+    activeShipments.value.length === 0,
 );
-const countryBlockedCount = computed(
-  () => toShip.value.filter((po) => !po.shipmentCountryReady).length,
-);
-
-// 서버 tab=active — 협력사 관점 완료(최종 상태·입고 확인)는 제외돼 온다(§6.11 분리).
-const shipments = computed(() => shipmentsQuery.data.value?.data.items ?? []);
-// 준비 중 박스는 홈에 카드로 두지 않는다 — 편집·발송은 [📦 보내기] 화면이 전담(바로 유도).
-const preparingCount = computed(
-  () => shipments.value.filter((s) => s.status === 'preparing').length,
-);
-const activeShipments = computed(() => shipments.value.filter((s) => s.status !== 'preparing'));
-const myTurnCount = computed(() => activeShipments.value.filter((s) => s.myTurn).length);
-// 완료된 발송은 양이 누적되므로 별도 페이지 — 홈엔 건수 링크만.
-const doneCount = computed(() => shipmentsQuery.data.value?.data.counts.done ?? 0);
-
-// 발주서 배지 = 협력사 관점 상태(관리자 문서 상태 '마감' 등은 노출하지 않음)
-const poBadge = (po: PartnerPoListItemType): { label: string; cls: string } =>
-  partnerPoDisplayStatus({
-    poStatus: po.status,
-    attached: po.shipmentAttached,
-    shipmentMode: po.shipmentMode,
-    shipmentStatus: po.shipmentStatus,
-    received: po.shipmentReceived,
-  });
-
-const fmtDate = fmtKstDate;
-const fmtWon = (v: number | null, currency: string): string =>
-  v === null ? '—' : `${v.toLocaleString('ko-KR')} ${currency}`;
-
-const rfqStatusCls = (s: string): string =>
-  s === 'quoted'
-    ? 'bg-emerald-100 text-emerald-700'
-    : s === 'requested'
-      ? 'bg-blue-100 text-blue-700'
-      : 'bg-gray-200 text-gray-600';
 </script>
 
 <template>
   <div class="space-y-6">
-    <div>
-      <h1 class="text-xl font-bold">BOM 부품</h1>
-      <p v-if="data !== undefined" class="mt-0.5 text-sm text-gray-500">
-        {{ data.data.partnerName }} 님, 오늘 처리할 일입니다.
-      </p>
-    </div>
+    <PartnerPageHeader
+      title="BOM 부품"
+      :subtitle="partnerName !== null ? `${partnerName} 님, 오늘 처리할 일입니다.` : null"
+    />
 
     <div v-if="notPartner" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
       승인된 파트너 계정이 아닙니다. 파트너 등록·계정 연결은 샘플피씨비 담당자에게 문의해 주세요.
@@ -101,11 +71,11 @@ const rfqStatusCls = (s: string): string =>
     <p v-else-if="isLoading" class="text-sm text-gray-400">불러오는 중…</p>
 
     <template v-else>
-      <!-- 오늘 할 일 — 카드 4개 -->
+      <!-- 오늘 할 일 — 카드 4개(이 화면의 섹션 또는 보내기 화면으로) -->
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <a
           href="#reply"
-          class="rounded-xl border bg-surface p-4 hover:border-blue-300"
+          class="min-w-0 rounded-xl border bg-surface p-4 hover:border-blue-300"
           :class="pendingRfqs.length > 0 ? 'border-blue-200' : 'border-gray-200'"
         >
           <p class="text-sm text-gray-500">회신할 견적</p>
@@ -115,7 +85,7 @@ const rfqStatusCls = (s: string): string =>
         </a>
         <a
           href="#confirm"
-          class="rounded-xl border bg-surface p-4 hover:border-emerald-300"
+          class="min-w-0 rounded-xl border bg-surface p-4 hover:border-emerald-300"
           :class="toConfirm.length > 0 ? 'border-emerald-200' : 'border-gray-200'"
         >
           <p class="text-sm text-gray-500">확인할 발주</p>
@@ -125,7 +95,7 @@ const rfqStatusCls = (s: string): string =>
         </a>
         <RouterLink
           :to="{ name: 'partner-bom-ship' }"
-          class="rounded-xl border bg-surface p-4 hover:border-indigo-300"
+          class="min-w-0 rounded-xl border bg-surface p-4 hover:border-indigo-300"
           :class="toShip.length > 0 || preparingCount > 0 ? 'border-indigo-200' : 'border-gray-200'"
         >
           <p class="text-sm text-gray-500">📦 보낼 물건</p>
@@ -142,7 +112,7 @@ const rfqStatusCls = (s: string): string =>
         </RouterLink>
         <a
           href="#shipments"
-          class="rounded-xl border bg-surface p-4 hover:border-blue-300"
+          class="min-w-0 rounded-xl border bg-surface p-4 hover:border-blue-300"
           :class="myTurnCount > 0 ? 'border-blue-300' : 'border-gray-200'"
         >
           <p class="text-sm text-gray-500">진행 중 발송</p>
@@ -155,43 +125,33 @@ const rfqStatusCls = (s: string): string =>
 
       <!-- ① 회신할 견적 -->
       <section v-if="pendingRfqs.length > 0" id="reply">
-        <h2 class="text-sm font-bold text-gray-700">회신할 견적 ({{ pendingRfqs.length }})</h2>
-        <div class="mt-2 grid gap-2">
+        <div class="flex items-baseline justify-between gap-3">
+          <h2 class="text-sm font-bold text-gray-700">회신할 견적 ({{ pendingRfqs.length }})</h2>
           <RouterLink
-            v-for="rfq in pendingRfqs"
-            :key="rfq.rfqId"
-            :to="{ name: 'partner-bom-rfq', params: { id: String(rfq.rfqId) } }"
-            class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 bg-surface px-4 py-3 hover:border-blue-300 hover:bg-blue-50/40"
+            :to="{ name: 'partner-bom-rfqs', query: { tab: 'all' } }"
+            class="text-xs font-semibold text-gray-400 hover:text-gray-700"
           >
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.quoteTitle }}</p>
-              <p class="mt-0.5 text-sm text-gray-500">
-                {{ rfq.itemCount }}개 품목 · 요청일 {{ fmtDate(rfq.requestedAt) }}
-              </p>
-            </div>
-            <span class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">회신하기</span>
+            모든 견적요청 →
           </RouterLink>
+        </div>
+        <div class="mt-2 grid gap-2">
+          <PartnerBomRfqRow v-for="rfq in pendingRfqs" :key="rfq.rfqId" :rfq="rfq" />
         </div>
       </section>
 
       <!-- ② 확인할 발주 -->
       <section v-if="toConfirm.length > 0" id="confirm">
-        <h2 class="text-sm font-bold text-gray-700">확인할 발주 ({{ toConfirm.length }})</h2>
-        <div class="mt-2 grid gap-2">
+        <div class="flex items-baseline justify-between gap-3">
+          <h2 class="text-sm font-bold text-gray-700">확인할 발주 ({{ toConfirm.length }})</h2>
           <RouterLink
-            v-for="po in toConfirm"
-            :key="po.poId"
-            :to="{ name: 'partner-bom-po', params: { id: String(po.poId) } }"
-            class="flex min-w-0 items-center gap-3 rounded-xl border border-emerald-200 bg-surface px-4 py-3 hover:bg-emerald-50/40"
+            :to="{ name: 'partner-bom-pos', query: { tab: 'all' } }"
+            class="text-xs font-semibold text-gray-400 hover:text-gray-700"
           >
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-gray-900">{{ po.quoteTitle }}</p>
-              <p class="mt-0.5 text-sm text-gray-500">
-                {{ po.itemCount }}개 품목 · {{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }} (VAT 별도)
-              </p>
-            </div>
-            <span class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">확인하기</span>
+            모든 발주서 →
           </RouterLink>
+        </div>
+        <div class="mt-2 grid gap-2">
+          <PartnerBomPoRow v-for="po in toConfirm" :key="po.poId" :po="po" />
         </div>
       </section>
 
@@ -203,65 +163,7 @@ const rfqStatusCls = (s: string): string =>
         </div>
       </section>
 
-      <!-- 보조: 모든 발주서(문서 열람) -->
-      <details v-if="poItems.length > 0" class="rounded-xl border border-gray-200 bg-surface">
-        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
-          모든 발주서 ({{ poItems.length }})
-        </summary>
-        <div class="grid gap-2 px-4 pb-4">
-          <RouterLink
-            v-for="po in poItems"
-            :key="po.poId"
-            :to="{ name: 'partner-bom-po', params: { id: String(po.poId) } }"
-            class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
-          >
-            <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ po.quoteTitle }}</span>
-            <span class="text-xs text-gray-400">{{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }}</span>
-            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="poBadge(po).cls">
-              {{ poBadge(po).label }}
-            </span>
-          </RouterLink>
-        </div>
-      </details>
-
-      <!-- 보조: 회신한 견적 -->
-      <details v-if="doneRfqs.length > 0" class="rounded-xl border border-gray-200 bg-surface">
-        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
-          회신한 견적 ({{ doneRfqs.length }})
-        </summary>
-        <div class="grid gap-2 px-4 pb-4">
-          <RouterLink
-            v-for="rfq in doneRfqs"
-            :key="rfq.rfqId"
-            :to="{ name: 'partner-bom-rfq', params: { id: String(rfq.rfqId) } }"
-            class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
-          >
-            <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ rfq.quoteTitle }}</span>
-            <span class="text-xs text-gray-400">
-              회신 {{ rfq.repliedItemCount }}/{{ rfq.itemCount }}행 · {{ fmtWon(rfq.totalAmount, rfq.currency) }}
-            </span>
-            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="rfqStatusCls(rfq.status)">
-              {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
-            </span>
-          </RouterLink>
-        </div>
-      </details>
-
-      <!-- 보조: 완료된 발송 — 누적 목록은 별도 페이지(§6.11 분리) -->
-      <RouterLink
-        v-if="doneCount > 0"
-        :to="{ name: 'partner-bom-shipments-done' }"
-        class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
-      >
-        완료된 발송 {{ doneCount }}건 보기 →
-      </RouterLink>
-
-      <p
-        v-if="pendingRfqs.length === 0 && toConfirm.length === 0 && toShip.length === 0 && activeShipments.length === 0"
-        class="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400"
-      >
-        지금 처리할 일이 없습니다 🎉
-      </p>
+      <PartnerEmpty v-if="nothingTodo">지금 처리할 일이 없습니다 🎉</PartnerEmpty>
     </template>
   </div>
 </template>

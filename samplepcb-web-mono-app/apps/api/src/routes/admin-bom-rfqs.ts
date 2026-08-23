@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ADMIN_BOM_LIVE_SUPPLIERS,
   AdminBomRfqListResponse,
+  AdminBomQuotePartnerStockResponse,
   AdminBomRfqReplyResponse,
   AdminBomRfqSelectionBody,
   AdminBomRfqSelectionResponse,
@@ -14,6 +15,7 @@ import {
   BomSupplierView,
   type AdminBomSupplierRefreshViewType,
 } from '@sp/api-contract';
+import { loadQuoteItemPartnerHolders } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
 import {
   applyPartnerRfqSelection,
@@ -112,6 +114,26 @@ async function adminSupplierRefreshView(
 
 export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
+
+  // ── GET /bom-quotes/:id/partner-stock — 품목 × 보유 협력사 ────────────────
+  // "이 행을 누가 갖고 있나" — 견적요청을 누구에게 보낼지 정하는 근거(docs/PARTNER_PARTS.md).
+  // 조직 이름이 들어가므로 관리자 전용이다(고객 DTO 는 곳 수·기준일까지만 본다).
+  fastify.get(
+    '/bom-quotes/:id/partner-stock',
+    { schema: { params: IdParams, response: { 200: AdminBomQuotePartnerStockResponse } } },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      const items = await prisma.spBomQuoteItem.findMany({
+        where: { quoteId: quote.id, included: true },
+        select: { id: true, mpn: true },
+      });
+      return { result: true as const, data: await loadQuoteItemPartnerHolders(items) };
+    },
+  );
 
   // ── GET — RFQ 현황(문서+회신 행) ────────────────────────────────────────────
   fastify.get(

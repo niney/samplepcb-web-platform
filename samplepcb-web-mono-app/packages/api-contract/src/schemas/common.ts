@@ -3,6 +3,18 @@ import { z } from 'zod';
 export const ApiError = z.object({ error: z.string(), message: z.string() });
 export type ApiErrorType = z.infer<typeof ApiError>;
 
+// 업무 오류 응답 — **두 형태를 모두** 허용해야 한다.
+//  · 봉투형 `{result:false, error:'CODE'}` — 화면이 코드로 분기하는 자리
+//  · sensible 표준형 `{statusCode, error, message}` — `reply.conflict('…')` 등
+// 한쪽만 선언하면 나머지가 응답 직렬화에서 막혀 409/502 가 **500 으로 뒤바뀐다**
+// (docs/BOM_QUOTE.md 2026-08-16 실측 결함). 클라이언트(@sp/shared toApiErrorPayload)는
+// 두 형태를 모두 정규화한다.
+export const BizError = z.union([
+  z.object({ result: z.literal(false), error: z.string() }),
+  ApiError,
+]);
+export type BizErrorType = z.infer<typeof BizError>;
+
 const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const isValidDateOnly = (value: string): boolean => {
   const match = DATE_ONLY_RE.exec(value);

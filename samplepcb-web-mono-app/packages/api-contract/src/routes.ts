@@ -34,6 +34,9 @@ export const apiRoutes = {
   partnerRfqs: '/api/partner/rfqs',
   partnerPos: '/api/partner/pos',
   partnerShipments: '/api/partner/shipments',
+  // 협력사 보유 부품(재고표 업로드·원장, docs/PARTNER_PARTS.md) — 포털 공통 영역
+  partnerParts: '/api/partner/parts',
+  adminPartnerParts: '/api/admin/partner-parts',
   // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 견적행 RFQ(P1)·발주 EQ(P2)
   adminPcbRfqs: '/api/admin/pcb-rfqs',
   adminPcbExchangeRate: '/api/admin/pcb-exchange-rate',

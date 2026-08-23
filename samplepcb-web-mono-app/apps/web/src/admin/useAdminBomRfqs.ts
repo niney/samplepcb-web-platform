@@ -2,6 +2,7 @@ import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiSend } from '@sp/shared';
 import {
+  AdminBomQuotePartnerStockResponse,
   AdminBomRfqListResponse,
   AdminBomRfqReplyResponse,
   AdminBomRfqSelectionResponse,
@@ -17,6 +18,21 @@ import {
 // 설계 docs/SMARTBOM_PARTNER_RFQ.md §2.4·§3.4.
 
 const base = apiRoutes.adminBomQuotes;
+
+// 품목 × 보유 협력사(docs/PARTNER_PARTS.md) — "이 행을 누가 갖고 있나".
+// 견적요청 대상을 고르는 근거라 품목 테이블과 발송 모달이 **같은 캐시**를 본다.
+export function useAdminBomQuotePartnerStock(quoteId: Ref<string | null>) {
+  return useQuery({
+    queryKey: computed(() => ['admin', 'bom-quotes', quoteId.value, 'partner-stock'] as const),
+    queryFn: () =>
+      apiGet(
+        `${base}/${quoteId.value ?? ''}/partner-stock`,
+        AdminBomQuotePartnerStockResponse,
+      ),
+    enabled: computed(() => quoteId.value !== null),
+    retry: false,
+  });
+}
 
 export function useAdminBomRfqs(quoteId: Ref<string | null>) {
   return useQuery({

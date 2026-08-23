@@ -17,10 +17,12 @@ import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
 
 const base = apiRoutes.partnerPcbRfqs;
 
-export function usePartnerPcbRfqs() {
+export function usePartnerPcbRfqs(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'pcbRfqs', 'list'],
     queryFn: () => apiGet(base, PartnerPcbRfqListResponse),
+    // 셸 배지가 트랙별로 켠다(R3 usePartnerWork) — 인자 없으면 기존처럼 항상 조회.
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 

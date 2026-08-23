@@ -22,10 +22,12 @@ import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/share
 
 const base = apiRoutes.partnerPcbPos;
 
-export function usePartnerPcbPos() {
+export function usePartnerPcbPos(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'pcbPos', 'list'],
     queryFn: () => apiGet(base, PartnerPcbPoListResponse),
+    // 셸 배지가 트랙별로 켠다(R3 usePartnerWork) — 인자 없으면 기존처럼 항상 조회.
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 
@@ -230,10 +232,11 @@ export function usePartnerPcbShipmentDetach() {
 
 // ═══ [📦 PCB 보내기] 보드(§9 묶음 재구성) — 선반·박스·진행·완료 ═══════════════
 
-export function usePartnerPcbShipBoard() {
+export function usePartnerPcbShipBoard(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'pcbShip', 'board'],
     queryFn: () => apiGet(apiRoutes.partnerPcbShipments, PartnerPcbShipBoardResponse),
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 

@@ -267,6 +267,23 @@ export const PartnerRfqLineItem = z.object({
     leadTime: true,
     memo: true,
   }).nullable(),
+  /**
+   * 이 협력사가 올려 둔 보유 부품과 같은 품번일 때의 자기 원장 값(docs/PARTNER_PARTS.md).
+   * 회신 폼 프리필 **제안**일 뿐 저장값이 아니다 — 회신은 사람이 확정한다.
+   * 포털·매직링크 공용이며 다른 협력사의 값은 절대 들어가지 않는다.
+   */
+  myStock: z
+    .object({
+      stockQty: z.number().int().nullable(),
+      dateCode: z.string().nullable(),
+      leadTime: z.string().nullable(),
+      unitPrice: z.number().nullable(),
+      currency: z.string().nullable(),
+      moq: z.number().int().nullable(),
+      uploadedAt: z.string(),
+    })
+    .nullable()
+    .optional(),
 });
 export type PartnerRfqLineItemType = z.infer<typeof PartnerRfqLineItem>;
 

@@ -1,3 +1,4 @@
+import type { Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   PartnerPcbAsCaseDetailResponse,
@@ -7,10 +8,12 @@ import { apiGet, apiGetBlob, apiSend, apiSendForm } from '@sp/shared';
 
 // PCB A/S 케이스 포털 훅(P4) — 회신 주체(target=나) + MD 중계 열람(parent=나).
 
-export function usePartnerPcbAsCases() {
+export function usePartnerPcbAsCases(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'pcbAs', 'list'],
     queryFn: () => apiGet('/api/partner/pcb-as-cases', PartnerPcbAsCaseListResponse),
+    // 셸 배지가 트랙별로 켠다(R3 usePartnerWork) — 인자 없으면 기존처럼 항상 조회.
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 

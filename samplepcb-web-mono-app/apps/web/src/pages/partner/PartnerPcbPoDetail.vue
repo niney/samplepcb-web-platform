@@ -40,6 +40,7 @@ import { fmtKstDate as dateOnly } from '@sp/utils';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbEqTimeline from '../../components/pcb/PcbEqTimeline.vue';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
@@ -494,9 +495,7 @@ const specEntries = computed(() => {
 
 <template>
   <div class="pcb-readable space-y-5">
-    <RouterLink :to="{ name: 'partner-pcb' }" class="text-sm text-gray-400 hover:text-gray-700">
-      ← 파트너 홈
-    </RouterLink>
+    <PartnerPageHeader :back="{ to: { name: 'partner-pcb-pos' }, label: '발주서' }" />
 
     <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
 

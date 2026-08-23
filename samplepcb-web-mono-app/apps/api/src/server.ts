@@ -35,9 +35,11 @@ import { bomClaimRoutes } from './routes/bom-claims';
 import { adminBomClaimRoutes } from './routes/admin-bom-claims';
 import { adminMailRoutes } from './routes/admin-mail';
 import { adminPartnerRoutes } from './routes/admin-partners';
+import { adminPartnerPartRoutes } from './routes/admin-partner-parts';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { partnerPoRoutes } from './routes/partner-pos';
 import { partnerAccessRoutes } from './routes/partner-access';
+import { partnerPartRoutes } from './routes/partner-parts';
 import { rfqReplyRoutes } from './routes/rfq-reply';
 import { adminPcbRfqRoutes } from './routes/admin-pcb-rfqs';
 import { partnerPcbRfqRoutes } from './routes/partner-pcb-rfqs';
@@ -140,8 +142,12 @@ await app.register(adminBomClaimRoutes, { prefix: '/api/admin' });
 await app.register(adminMailRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 공용 파트너(조직) 관리
 await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
+// 협력사 보유 부품 원장(docs/PARTNER_PARTS.md) — 관리자 뒤처리 도구·대행 업로드
+await app.register(adminPartnerPartRoutes, { prefix: '/api/admin' });
 // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인
 await app.register(partnerAccessRoutes, { prefix: '/api' });
+// 협력사 보유 부품 — 포털 공통 영역(part_sale capability 는 라우트가 매 요청 재확인)
+await app.register(partnerPartRoutes, { prefix: '/api' });
 await app.register(partnerRfqRoutes, { prefix: '/api' });
 await app.register(partnerPoRoutes, { prefix: '/api' });
 // 매직링크 무로그인 회신(§6.9) — 인증 = 토큰(메일함 소유), 권한은 RFQ 1건 스코프

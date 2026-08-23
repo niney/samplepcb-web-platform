@@ -9,6 +9,7 @@ import {
   usePartnerShipmentDetach,
   usePartnerShipments,
 } from '../../partner/usePartnerRfqs';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
 
 // [📦 보내기](§6.11 개정 — 두 칸 이동 UI) — 왼쪽 선반(보낼 물건)에서 오른쪽 박스로
@@ -34,6 +35,13 @@ const box = computed(
 const boxTotal = computed(() =>
   (box.value?.groupPos ?? []).reduce((sum, g) => sum + g.totalAmount, 0),
 );
+
+// 진행 중 발송(R3) — PCB 보드와 동형으로 발송 조작의 단일 창구가 되도록 이 화면에도 둔다
+// (홈은 같은 카드를 '오늘 할 일' 요약으로 보여 준다). 준비 중 박스는 위 두 칸이 담당.
+const activeShipments = computed(() =>
+  (shipmentsQuery.data.value?.data.items ?? []).filter((s) => s.status !== 'preparing'),
+);
+const myTurnCount = computed(() => activeShipments.value.filter((s) => s.myTurn).length);
 
 // 선반 = 발주 확인 완료 + 어느 발송에도 안 담긴 발주서
 const shelf = computed(() =>
@@ -71,16 +79,10 @@ async function takeOut(poId: number): Promise<void> {
 
 <template>
   <div class="space-y-5">
-    <div class="flex flex-wrap items-center gap-3">
-      <RouterLink
-        :to="{ name: 'partner-bom' }"
-        class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-      >
-        ← 홈
-      </RouterLink>
-      <h1 class="text-xl font-bold">📦 보내기</h1>
-      <p class="text-sm text-gray-400">보낼 발주서를 박스로 옮기고, 다 담았으면 발송을 준비하세요.</p>
-    </div>
+    <PartnerPageHeader
+      title="📦 보내기"
+      subtitle="보낼 발주서를 박스로 옮기고, 다 담았으면 발송을 준비하세요. 발송 중인 박스의 서류·전이도 여기서 처리합니다."
+    />
 
     <p v-if="error !== ''" class="text-sm font-semibold text-red-600">{{ error }}</p>
 
@@ -182,5 +184,18 @@ async function takeOut(poId: number): Promise<void> {
         </div>
       </section>
     </div>
+
+    <!-- 진행 중 발송 — 서류·전이·되돌리기는 카드에서(핑퐁) -->
+    <section v-if="activeShipments.length > 0">
+      <h2 class="text-sm font-bold text-gray-700">
+        진행 중 발송 ({{ activeShipments.length }})
+        <span v-if="myTurnCount > 0" class="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">
+          내 차례 {{ myTurnCount }}건
+        </span>
+      </h2>
+      <div class="mt-2 space-y-3">
+        <PartnerShipmentCard v-for="s in activeShipments" :key="s.shipmentId" :shipment="s" :show-box-link="false" />
+      </div>
+    </section>
   </div>
 </template>

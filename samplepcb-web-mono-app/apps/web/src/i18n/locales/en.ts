@@ -10,6 +10,30 @@ export const en = {
     smartBom: 'Smart BOM',
     partnerPortal: 'Partner portal',
   },
+  partner: {
+    title: 'Partner portal',
+    common: 'Common',
+    modules: {
+      bom: 'BOM parts',
+      pcb: 'PCB fabrication',
+    },
+    menu: {
+      home: 'Home · Today',
+      rfqs: 'RFQs',
+      pos: 'Purchase orders',
+      ship: '📦 Ship',
+      pcbShip: '📦 Ship PCB',
+      shipmentsDone: 'Completed shipments',
+      as: 'A/S',
+      remittances: 'Payments',
+      parts: 'My parts',
+    },
+    shell: {
+      openMenu: 'Open menu',
+      closeMenu: 'Close menu',
+      modules: 'Modules',
+    },
+  },
   auth: {
     greeting: '{nick}',
     notLoggedIn: 'Not signed in',
@@ -83,6 +107,7 @@ export const en = {
       orders: 'Orders',
       members: 'Members',
       partners: 'Partner management',
+      partnerParts: 'Partner parts',
       marketExperts: 'Market experts',
       marketProjects: 'Market projects',
       marketContracts: 'Market contracts',

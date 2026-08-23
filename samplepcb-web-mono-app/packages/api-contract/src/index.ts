@@ -25,6 +25,7 @@ export * from './schemas/pcb-claim';
 export * from './schemas/bom-orders';
 export * from './schemas/bom-claims';
 export * from './schemas/partner';
+export * from './schemas/partner-parts';
 export * from './schemas/market';
 export * from './schemas/ai';
 export * from './schemas/ai-interview-questions';

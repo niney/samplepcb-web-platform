@@ -16,6 +16,7 @@ import {
   useReplyPartnerPcbAsCase,
   useUploadPartnerPcbAsCaseFile,
 } from '../../partner/usePartnerPcbAsCases';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import UiPromptModal, { type PromptField } from '../../components/ui/UiPromptModal.vue';
 
 // PCB A/S(P4) — 관리자가 접수한 재생산 검토 요청에 회신한다(재생산 가능/불가+사유).
@@ -96,12 +97,11 @@ const STATUS_CLS: Record<string, string> = {
 
 <template>
   <div class="space-y-6">
-    <div>
-      <h1 class="text-xl font-bold">PCB A/S</h1>
+    <PartnerPageHeader title="PCB A/S">
       <p class="mt-0.5 text-sm text-gray-500">
         재생산(A/S) 검토 요청 — 비용 조건을 확인하고 <b>재생산 가능/불가</b>를 회신해 주세요.
       </p>
-    </div>
+    </PartnerPageHeader>
 
     <p v-if="error !== ''" class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700">
       {{ error }}

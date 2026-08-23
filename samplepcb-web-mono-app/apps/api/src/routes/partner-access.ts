@@ -32,6 +32,8 @@ export const partnerAccessRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           tracks: {
             bom: capabilities.includes('bom_rfq'),
             pcb: capabilities.includes('pcb_rfq'),
+            // parts 는 모듈이 아니라 공통 영역(수금과 같은 자리) — 스위처에 뜨지 않는다.
+            parts: capabilities.includes('part_sale'),
           },
         },
       };

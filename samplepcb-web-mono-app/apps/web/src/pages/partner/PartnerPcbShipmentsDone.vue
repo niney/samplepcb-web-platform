@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { usePartnerPcbDoneShipments } from '../../partner/usePartnerPcbPos';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbShipmentCard from '../../components/pcb/PcbShipmentCard.vue';
 import UiPagination from '../../components/ui/UiPagination.vue';
 
@@ -17,16 +18,7 @@ const total = computed(() => query.data.value?.data.total ?? 0);
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
-      <RouterLink
-        :to="{ name: 'partner-pcb' }"
-        class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-      >
-        ← 홈
-      </RouterLink>
-      <h1 class="text-xl font-bold">완료된 발송</h1>
-      <p class="text-sm text-gray-400">발송이 끝났거나 입고 확인된 기록입니다.</p>
-    </div>
+    <PartnerPageHeader title="완료된 발송" subtitle="발송이 끝났거나 입고 확인된 기록입니다." />
 
     <p v-if="query.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
     <p

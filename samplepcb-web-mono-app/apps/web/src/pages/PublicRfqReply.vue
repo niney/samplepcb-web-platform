@@ -57,6 +57,8 @@ const rows = computed<RfqReplyFormRow[]>(() =>
     description: item.description,
     orderQty: item.orderQty,
     reply: item.reply,
+    // 매직링크도 토큰이 조직을 특정하므로 자기 보유 부품 값을 제안할 수 있다.
+    myStock: item.myStock ?? null,
   })),
 );
 

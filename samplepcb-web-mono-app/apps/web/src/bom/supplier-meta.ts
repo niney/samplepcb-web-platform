@@ -10,6 +10,9 @@ export const SUPPLIER_META: Record<string, { name: string; icon: string }> = {
   mouser: { name: 'Mouser', icon: favMouser },
   unikeyic: { name: 'UniKeyIC', icon: favUnikeyic },
   samplepcb: { name: 'SamplePCB', icon: favSamplepcb },
+  // 협력사 보유 부품(docs/PARTNER_PARTS.md) — 고객에게 조직 이름을 주지 않으므로
+  // 배지도 중립 표기다(어느 협력사인지는 관리자 화면에서만 본다).
+  partner: { name: '협력사', icon: favSamplepcb },
 };
 
 export const SUPPLIER_FALLBACK_ICON = favSamplepcb;

@@ -37,6 +37,9 @@ class CatalogSupplier(StrEnum):
     KOA = "koa"
     ELEPARTS = "eleparts"
     ICBANQ = "icbanq"
+    # 협력사 보유 부품(docs/PARTNER_PARTS.md) — sp-node 가 주입하는 로컬 원장 소스.
+    # 외부 클라이언트가 없으므로 routing.suppliers_for_query 는 이 값을 반환하지 않는다.
+    PARTNER = "partner"
 
 
 SupplierIdentity = Supplier | CatalogSupplier
@@ -643,6 +646,15 @@ class CatalogProductMetadata(BaseModel):
     ingested_rc_minimum: bool | None = Field(
         default=None, alias="ingestedRcMinimum"
     )
+    # 협력사 보유 부품 출처(docs/PARTNER_PARTS.md). 조직 이름은 담지 않는다 —
+    # 고객 화면에 공급망을 노출하지 않는 원칙이라 표시명은 sp-node 가 붙인다.
+    partner_id: int | None = Field(default=None, ge=1, alias="partnerId")
+    # 협력사가 알린 재고·데이트코드·납기. **판단에 쓰지 않는 표시용 사실**이며
+    # 구매 조건(offer)으로 승격되지 않는다(가격은 견적요청 회신이 정본).
+    partner_stock_qty: int | None = Field(default=None, ge=0, alias="partnerStockQty")
+    partner_date_code: str | None = Field(default=None, alias="partnerDateCode")
+    partner_lead_time: str | None = Field(default=None, alias="partnerLeadTime")
+    partner_uploaded_at: str | None = Field(default=None, alias="partnerUploadedAt")
 
 
 class SupplierProduct(BaseModel):

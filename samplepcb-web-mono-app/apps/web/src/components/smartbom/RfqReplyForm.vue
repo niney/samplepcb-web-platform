@@ -26,6 +26,20 @@ export interface RfqReplyFormRow {
     leadTime: string | null;
     memo: string | null;
   } | null;
+  /**
+   * 내가 올려 둔 보유 부품의 같은 품번 값(docs/PARTNER_PARTS.md) — **제안**이다.
+   * 아직 회신하지 않은 행에만 프리필하고, 이미 쓴 값은 절대 덮지 않는다.
+   * 관리자 대리 입력 화면에는 넘기지 않는다(협력사 자신의 원장이므로).
+   */
+  myStock?: {
+    stockQty: number | null;
+    dateCode: string | null;
+    leadTime: string | null;
+    unitPrice: number | null;
+    currency: string | null;
+    moq: number | null;
+    uploadedAt: string;
+  } | null;
 }
 
 const props = defineProps<{
@@ -52,6 +66,8 @@ interface EditRow {
   dateCode: string;
   leadTime: string;
   memo: string;
+  /** 보유 부품에서 값을 채워 넣은 행 — 사람이 확인하도록 표시만 한다. */
+  prefilled: boolean;
 }
 
 const editRows = ref<EditRow[]>([]);
@@ -60,20 +76,28 @@ const memoInput = ref('');
 const validationIssue = ref<{ key: string; message: string } | null>(null);
 
 const initRows = (): void => {
-  editRows.value = props.rows.map((row) => ({
-    quoteItemId: row.quoteItemId,
-    mpn: row.mpn,
-    manufacturerName: row.manufacturerName,
-    description: row.description,
-    orderQty: row.orderQty,
-    unitPrice: row.reply?.unitPrice ?? null,
-    replyQty: row.reply?.replyQty ?? null,
-    moq: row.reply?.moq ?? null,
-    stock: row.reply?.stock ?? null,
-    dateCode: row.reply?.dateCode ?? '',
-    leadTime: row.reply?.leadTime ?? '',
-    memo: row.reply?.memo ?? '',
-  }));
+  editRows.value = props.rows.map((row) => {
+    // 보유 부품 프리필(docs/PARTNER_PARTS.md) — **아직 회신하지 않은 행에만** 제안한다.
+    // 이미 쓴 회신은 절대 덮지 않는다(값은 사람이 확정한 것이 정본).
+    const suggest = row.reply === null ? (row.myStock ?? null) : null;
+    return {
+      quoteItemId: row.quoteItemId,
+      mpn: row.mpn,
+      manufacturerName: row.manufacturerName,
+      description: row.description,
+      orderQty: row.orderQty,
+      // 단가는 제안하지 않는다 — 재고표 단가는 견적가가 아니고, 프리필이 곧 제시가로
+      // 굳어지면 협력사가 손해를 본다(수량·환율·시점이 다르다).
+      unitPrice: row.reply?.unitPrice ?? null,
+      replyQty: row.reply?.replyQty ?? null,
+      moq: row.reply?.moq ?? suggest?.moq ?? null,
+      stock: row.reply?.stock ?? suggest?.stockQty ?? null,
+      dateCode: row.reply?.dateCode ?? suggest?.dateCode ?? '',
+      leadTime: row.reply?.leadTime ?? suggest?.leadTime ?? '',
+      memo: row.reply?.memo ?? '',
+      prefilled: suggest !== null,
+    };
+  });
   deliveryDateInput.value = kstDateInput(props.deliveryDate);
   memoInput.value = props.memo ?? '';
 };
@@ -270,6 +294,14 @@ function submit(): void {
             <td class="max-w-56 px-2 py-1.5">
               <div class="truncate font-medium">{{ row.mpn === '' ? '품번 미기재' : row.mpn }}</div>
               <div class="truncate text-gray-400">{{ row.manufacturerName ?? row.description ?? '' }}</div>
+              <!-- 보유 부품에서 채운 행 — 값은 제안이므로 확인하고 고칠 수 있게 알린다 -->
+              <div
+                v-if="row.prefilled"
+                class="mt-0.5 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                title="올려 두신 보유 부품 목록에서 재고·D/C·납기를 채웠습니다. 확인하고 고쳐 주세요 (단가는 채우지 않습니다)."
+              >
+                보유 목록에서 채움
+              </div>
             </td>
             <td class="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
               {{ row.orderQty.toLocaleString('ko-KR') }}

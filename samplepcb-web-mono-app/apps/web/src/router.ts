@@ -84,6 +84,20 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresMember: true },
       },
       {
+        // 견적요청 워크큐(포털 재설계 R3) — 회신할/회신함/전체 탭(?tab=)
+        path: 'bom/rfqs',
+        name: 'partner-bom-rfqs',
+        component: () => import('./pages/partner/PartnerBomRfqs.vue'),
+        meta: { requiresMember: true },
+      },
+      {
+        // 발주서 워크큐(R3) — 확인할/진행 중/완료/전체 탭
+        path: 'bom/pos',
+        name: 'partner-bom-pos',
+        component: () => import('./pages/partner/PartnerBomPos.vue'),
+        meta: { requiresMember: true },
+      },
+      {
         path: 'bom/rfqs/:id',
         name: 'partner-bom-rfq',
         component: () => import('./pages/partner/PartnerRfqDetail.vue'),
@@ -114,6 +128,20 @@ const routes: RouteRecordRaw[] = [
         path: 'pcb',
         name: 'partner-pcb',
         component: () => import('./pages/partner/PartnerPcbHome.vue'),
+        meta: { requiresMember: true },
+      },
+      {
+        // 견적요청 워크큐(R3) — 회신할/회신함/전체 탭
+        path: 'pcb/rfqs',
+        name: 'partner-pcb-rfqs',
+        component: () => import('./pages/partner/PartnerPcbRfqs.vue'),
+        meta: { requiresMember: true },
+      },
+      {
+        // 발주서 워크큐(R3) — 내 차례/진행 중/전체 탭(MD 관전 포함)
+        path: 'pcb/pos',
+        name: 'partner-pcb-pos',
+        component: () => import('./pages/partner/PartnerPcbPos.vue'),
         meta: { requiresMember: true },
       },
       {
@@ -159,6 +187,20 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/partner/PartnerPcbRemittances.vue'),
         meta: { requiresMember: true },
       },
+      {
+        // 보유 부품(docs/PARTNER_PARTS.md) — 재고표 업로드·원장. 모듈이 아니라 공통 영역
+        // (part_sale capability). 서버가 매 요청 트랙을 다시 판정한다.
+        path: 'parts',
+        name: 'partner-parts',
+        component: () => import('./pages/partner/PartnerParts.vue'),
+        meta: { requiresMember: true },
+      },
+      {
+        path: 'parts/uploads/:uploadId',
+        name: 'partner-parts-upload',
+        component: () => import('./pages/partner/PartnerPartUpload.vue'),
+        meta: { requiresMember: true },
+      },
     ],
   },
   // 매직링크 무로그인 회신(§6.9) — 공개 라우트(가드 없음). 인증은 URL 토큰이 담당하며
@@ -187,6 +229,13 @@ const routes: RouteRecordRaw[] = [
         path: 'partners',
         name: 'admin-partners',
         component: () => import('./pages/admin/AdminPartners.vue'),
+      },
+      {
+        // 협력사 보유 부품 뒤처리(docs/PARTNER_PARTS.md) — 만료·제한을 두지 않는 대신
+        // 관리자가 낡은 원장을 끄고·비우고·대행 업로드하는 운영 창구.
+        path: 'partner-parts',
+        name: 'admin-partner-parts',
+        component: () => import('./pages/admin/AdminPartnerParts.vue'),
       },
       // 재능마켓(/market) 관리 — 전문가 심사·프로젝트 모니터·설정
       { path: 'market/experts', name: 'admin-market-experts', component: AdminMarketExperts },

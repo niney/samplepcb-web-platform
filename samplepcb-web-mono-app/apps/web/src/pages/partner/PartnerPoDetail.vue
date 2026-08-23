@@ -17,6 +17,7 @@ import {
   usePartnerPoShortageReport,
   usePartnerPoShortageUpdate,
 } from '../../partner/usePartnerRfqs';
+import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
 import { fmtKstDate } from '@sp/utils';
 import { confirmDialog } from '../../lib/confirmDialog';
@@ -158,20 +159,16 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
-      <RouterLink
-        :to="{ name: 'partner-bom' }"
-        class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-      >
-        ← 홈
-      </RouterLink>
-      <template v-if="detail !== null">
-        <h1 class="text-xl font-bold">발주서 — {{ detail.quoteTitle }}</h1>
-        <span v-if="badge !== null" class="rounded px-2 py-0.5 text-xs font-semibold" :class="badge.cls">
+    <PartnerPageHeader
+      :title="detail === null ? null : `발주서 — ${detail.quoteTitle}`"
+      :back="{ to: { name: 'partner-bom-pos' }, label: '발주서' }"
+    >
+      <template v-if="detail !== null && badge !== null" #badges>
+        <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="badge.cls">
           {{ badge.label }}
         </span>
       </template>
-    </div>
+    </PartnerPageHeader>
 
     <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
     <p v-else-if="detail === null" class="text-sm text-gray-400">발주서를 찾을 수 없습니다.</p>
@@ -347,8 +344,8 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
         <template v-if="shipment.groupPos.length > 1">
           · 발주서 {{ shipment.groupPos.length }}건 묶음
         </template>
-        <RouterLink :to="{ name: 'partner-bom' }" class="ml-1 font-semibold underline">
-          홈의 진행 중 발송에서 처리 →
+        <RouterLink :to="{ name: 'partner-bom-ship' }" class="ml-1 font-semibold underline">
+          📦 보내기의 진행 중 발송에서 처리 →
         </RouterLink>
       </div>
       <div

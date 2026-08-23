@@ -271,12 +271,22 @@ export function canonicalPriceBreaks(priceBreaks: EngineOfferT['price_breaks']):
   return [...byQuantity.values()].sort((a, b) => a.quantity - b.quantity);
 }
 
+/**
+ * 협력사 보유 부품(docs/PARTNER_PARTS.md)은 **카탈로그에 들이지 않는다**.
+ *
+ * 검색 결과 봉투에는 후보로 함께 실려 오지만(뒤순위 후보), 그대로 인제스트하면
+ * `sp_part`·ES 에 편입돼 로컬-우선 검색·패싯·고객 단일검색·기본 구매 조건 선정까지
+ * 새어 나간다 — 원장을 카탈로그와 분리한 이유가 통째로 무너지는 뒷문이다.
+ * 그래서 여기서 한 번 걸러 낸다(fingerprint 계산에서도 같이 빠진다).
+ */
+const PARTNER_SUPPLIER = 'partner';
+
 function parsedGroups(envelope: unknown): ProductGroup[] | null {
   const parsed = EngineEnvelope.safeParse(envelope);
   if (!parsed.success) return null;
-  const products = parsed.data.search.components.flatMap((component) =>
-    component.candidates.map((candidate) => candidate.product),
-  );
+  const products = parsed.data.search.components
+    .flatMap((component) => component.candidates.map((candidate) => candidate.product))
+    .filter((product) => product.supplier !== PARTNER_SUPPLIER);
   return groupProducts(products);
 }
 

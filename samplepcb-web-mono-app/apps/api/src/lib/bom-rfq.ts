@@ -317,6 +317,8 @@ export const toPartnerListItem = (
 export const toPartnerDetail = (
   rfq: RfqWithItems & { quote: { title: string } },
   scopeItems: readonly SpBomQuoteItem[],
+  /** 이 협력사 자기 원장의 같은 품번 값 — 회신 폼 프리필 제안(docs/PARTNER_PARTS.md). */
+  myStockByItem: ReadonlyMap<string, PartnerRfqLineItemType['myStock']> = new Map(),
 ): PartnerRfqDetailType => {
   const replyByItem = new Map(rfq.items.map((item) => [String(item.quoteItemId), item]));
   const items: PartnerRfqLineItemType[] = scopeItems.map((item) => {
@@ -327,6 +329,7 @@ export const toPartnerDetail = (
       manufacturerName: item.manufacturerName,
       description: item.description,
       orderQty: item.orderQty,
+      myStock: myStockByItem.get(String(item.id)) ?? null,
       reply:
         reply?.unitPrice == null
           ? null
