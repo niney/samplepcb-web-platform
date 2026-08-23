@@ -144,6 +144,53 @@ async def test_partner_candidate_never_creates_a_purchasable_offer(tmp_path):
     assert decision.review_offer_key is None
 
 
+@pytest.mark.asyncio
+async def test_replacement_fallback_keeps_the_partner_candidate(tmp_path):
+    """대체 폴백이 협력사 후보를 지우면 안 된다 (2026-08-23 실검색에서 잡힌 결함).
+
+    협력사 보유 부품은 **가격을 만들지 않는다**. 그래서 조달 판정이 늘 `no_offer` 가 되고,
+    그 순간 "구매 가능한 조건이 없다"며 대체 폴백이 켜진다. 폴백 병합은 후보를
+    `supplier_results` 로 다시 계산하는데 로컬 소스는 그 바깥에 살기 때문에, 넘겨주지 않으면
+    **1차에서 분명히 잡혔던 협력사 후보가 통째로 사라진다** — 아무도 안 가진 희귀 품번,
+    즉 협력사 원장이 유일한 근거인 자리에서 정확히 그렇게 됐다.
+    """
+    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[])
+    # 수량이 있어야 조달 판정이 '구매 조건 없음'까지 간다 — 실제 BOM 행은 늘 수량이 있다.
+    query = _query().model_copy(update={"quantity": 10})
+    primary_only_partner, decision, _omitted = service._evaluate_supplier_candidates(
+        query,
+        [],
+        procurement_policy=_policy(),
+        extra_products=[_partner_product()],
+    )
+    # 전제 — 1차에서는 잡힌다. 그리고 가격이 없어 폴백 조건(no_offer)이 성립한다.
+    assert len(primary_only_partner) == 1
+    assert decision.status == "no_recommendation"
+
+    merged = service._merge_procurement_replacement_fallback(
+        query,
+        _empty_result(query),
+        query,
+        _empty_result(query),
+        _policy(),
+        local_products=[_partner_product()],
+    )
+    assert [c.product.supplier for c in merged.candidates] == [CatalogSupplier.PARTNER]
+
+
+def _empty_result(query: PlannedQuery):
+    from supplier_search_engine.models import ComponentSearchResult, MatchStatus
+
+    return ComponentSearchResult(
+        component_id=query.component_id,
+        mode=query.mode,
+        status=MatchStatus.NOT_FOUND,
+        query=query,
+        candidates=[],
+        supplier_results=[],
+    )
+
+
 def _policy():
     from supplier_search_engine.models import ProcurementPolicyInput
 

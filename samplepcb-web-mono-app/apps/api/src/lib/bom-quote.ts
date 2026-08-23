@@ -2509,16 +2509,19 @@ function partnerStockEvidence(
       catalog_metadata?: Record<string, unknown> | null;
     };
     if (product.supplier !== 'partner') continue;
+    // ⚠ 보낼 때는 camelCase 로 보냈어도 **돌아올 때는 snake_case** 다 — 엔진 pydantic
+    // 모델이 별칭을 입력에서만 받고 직렬화는 필드명으로 하기 때문(로컬 카탈로그 메타와 같다).
+    // 여기서 camelCase 로 읽으면 협력사 후보가 붙어 있는데도 근거가 조용히 null 이 된다.
     const meta = product.catalog_metadata ?? {};
-    const partnerId = meta.partnerId;
+    const partnerId = meta.partner_id;
     if (typeof partnerId === 'number' && Number.isInteger(partnerId) && partnerId > 0) {
       partnerIds.add(partnerId);
     }
-    const stock = meta.partnerStockQty;
+    const stock = meta.partner_stock_qty;
     if (typeof stock === 'number' && Number.isFinite(stock) && stock >= 0) {
       totalStockQty = (totalStockQty ?? 0) + Math.trunc(stock);
     }
-    const uploadedAt = meta.partnerUploadedAt;
+    const uploadedAt = meta.partner_uploaded_at;
     if (typeof uploadedAt === 'string' && (latestUploadedAt === null || uploadedAt > latestUploadedAt)) {
       latestUploadedAt = uploadedAt;
     }

@@ -225,12 +225,30 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 화면 관찰', () => {
       ).toBe(true);
       await snap(session.page, 'admin-case-partner-stock');
 
-      // 발송 모달 — 보유 배지
+      // 발송 모달 — 보유 배지 + 펼치면 어느 행을 얼마나 갖고 있는지
       const send = session.page.locator('button', { hasText: '협력사 견적요청' }).first();
       if (await send.count()) {
         await send.click();
         await session.page.waitForTimeout(700);
         await snap(session.page, 'admin-case-rfq-send-modal');
+
+        const badge = session.page.locator('button[aria-expanded]', { hasText: '보유' }).first(); // 배경 페이지의 '협력사 보유 N' 퀵액션과 구분
+        await badge.waitFor({ state: 'visible', timeout: 10_000 });
+        await badge.click();
+        await session.page.waitForTimeout(300);
+        // 펼친 목록에는 품번·재고·기준일이 함께 선다 — '가졌다'와 '쓸 만큼 가졌다'는 다르다.
+        expect(
+          await session.page.locator('text=STM32F030F4P6').last().isVisible(),
+          '펼친 목록에 보유 품번이 보여야 한다',
+        ).toBe(true);
+        expect(
+          await session.page.locator('text=재고').first().isVisible(),
+          '수량이 함께 보여야 헛발질을 막는다',
+        ).toBe(true);
+        // 펼치기는 체크 토글을 건드리면 안 된다(label 안의 버튼이라 기본 동작을 막았다).
+        const checked = await session.page.locator('div.z-40 input[type=checkbox]:checked').count();
+        expect(checked, '배지를 눌렀다고 협력사가 선택되면 안 된다').toBe(0);
+        await snap(session.page, 'admin-case-rfq-send-modal-expanded');
       }
       expect(session.pageErrors, session.pageErrors.join('\n')).toEqual([]);
     } finally {

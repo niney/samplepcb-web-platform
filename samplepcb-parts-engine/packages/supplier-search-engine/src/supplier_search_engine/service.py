@@ -976,6 +976,11 @@ class SearchService:
             procurement_policy=procurement_policy,
             job_budget=budget,
             recommendation_block_reason=fallback_block_reason,
+            # 로컬 소스는 폴백에도 함께 넘긴다. 협력사 보유 부품은 **가격이 없어서**
+            # 조달 판정이 no_offer 가 되고, 그 순간 대체 폴백이 켜지면서 1차 결과를
+            # 덮어쓴다 — 아무도 안 가진 품번일수록 협력사만 남는데, 넘기지 않으면
+            # 바로 그 자리에서 사라진다(폴백 질의는 품번이 달라 재조회로는 못 찾는다).
+            local_products=local_products,
         )
         if procurement_replacement_fallback:
             if mpn_family_fallback:
@@ -1002,6 +1007,7 @@ class SearchService:
                     fallback_stage="stock_alternative",
                     family_prefix=fallback_query.part_number,
                     manufacturer=fallback_query.manufacturer,
+                    local_products=local_products,
                 )
             if procurement_replacement_kind == "procurement":
                 return self._merge_procurement_replacement_fallback(
@@ -1016,6 +1022,7 @@ class SearchService:
                         "원품번에 구매 가능한 가격·재고·주문수량 조건이 없어 "
                         "확정 스펙으로 대체 후보를 다시 검색했습니다."
                     ),
+                    local_products=local_products,
                 )
             return self._merge_procurement_replacement_fallback(
                 query,
@@ -1023,6 +1030,7 @@ class SearchService:
                 fallback_query,
                 fallback,
                 procurement_policy,
+                local_products=local_products,
             )
         return fallback.model_copy(
             update={
@@ -1331,6 +1339,7 @@ class SearchService:
         ),
         family_prefix: str | None = None,
         manufacturer: str | None = None,
+        local_products: Sequence[SupplierProduct] = (),
     ) -> ComponentSearchResult:
         original_mpn = compact_mpn(query.part_number or "")
         compact_family = compact_mpn(family_prefix or "")
@@ -1375,6 +1384,11 @@ class SearchService:
                 query,
                 supplier_results,
                 procurement_policy,
+                # 로컬 소스는 supplier_results 밖에 산다. 여기서 다시 안 태우면 1차에서
+                # 잡혔던 협력사 보유 후보가 대체 검색을 거치며 통째로 사라진다 —
+                # 그리고 대체 검색은 **구매 조건이 없을 때** 켜지므로, 가격을 만들지 않는
+                # 협력사 후보는 늘 이 경로를 지난다(즉 항상 사라진다).
+                extra_products=local_products,
             )
         )
         candidates, omitted_candidate_count = self._retain_supplier_candidate_groups(

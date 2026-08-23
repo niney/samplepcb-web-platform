@@ -1,0 +1,9 @@
+Type,Description,Value,Footprint,Quantity,Population,Reference,Manufacturer,Manufacturer Part Number
+LDO,Voltage regulator,,SOT-23-3,2,Fitted,"U1, U2",Microchip,MCP1700T-3302E/TT
+MCU,Microcontroller,,SOIC-14,1,Fitted,U3,Microchip,PIC16F1825T-I/SL
+MCU,Microcontroller,,TSSOP-20,1,Fitted,U4,STMicroelectronics,STM32F030F4P6
+MCU,Microcontroller,,LFCSP-40,1,Fitted,U5,Analog Devices,ADUC7020BCPZ62I-R7
+MCU,Microcontroller,,LQFP-100,1,Fitted,U6,NXP,LPC2387FBD100
+IC,Ethernet transceiver,,BGA,1,Fitted,U7,Marvell,88PW886-B1-NFHIC000-T
+ADC,Analog to digital converter,,SSOP-24,1,Fitted,U8,Cirrus Logic,CS5532-ASZR
+IC,Deliberately unsourceable part number,,SOIC-8,1,Fitted,U9,,ZZ9-NOSUCHPART-0001

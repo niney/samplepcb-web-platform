@@ -7,6 +7,15 @@
   인덕터·LED·커넥터·MOSFET·테스트포인트를 한 파일에서 검증한다. 시나리오는 이 파일의
   행 수를 후속 API에 하드코딩하지 않고, 엔진이 활성화한 품목 전체를 동적으로 RFQ·선정·
   발주·포장한다.
+- `partner-stock-eureka-sample.csv` + `bom-partner-stock-match.csv` — **짝으로 쓰는 두 본**
+  (`partner-parts-bom-search.e2e.test.ts`). 앞은 협력사가 올리는 브로커 재고표 서식, 뒤는
+  고객이 올리는 BOM 이고 품번이 **일부러 겹친다**. 품번은 실물 `EUREKA-stock parts 8.6.xlsx`
+  에서 뽑은 진짜 값이라, 흔한 것(MCP1700T·PIC16F1825T)은 DigiKey·Mouser 가 함께 잡히고
+  단종·희귀(ADUC7020BCPZ62I-R7·88PW886-B1-NFHIC000-T)는 협력사만 남는 자리를 만든다.
+  `LPC2387FBD100` 은 재고표에 `LPC2387FBD100,551`(NXP 포장 코드)로 적혀 있어 **대체 조회 키**
+  를 검증한다. ⚠ 수량과 Reference 개수를 어긋나게 쓰면 그 행이 `included=false` 로 빠져
+  관리자 보유 조회에서 사라진다 — 픽스처를 고칠 때 함께 맞출 것.
+
 - BOM 4호는 엔진 입력 픽스처가 아니라 `journey-bom-reorder.e2e.test.ts` 안의 확정 거래
   스냅샷을 쓴다. 저항·MLCC와 MCU·커넥터 두 Case를 코드로 명시해 묶음 주문 이후의
   부분취소·재주문·감사 이력만 독립적으로 반복 검증한다.

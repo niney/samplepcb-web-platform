@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AdminBomRfqViewType, BomQuoteItemType } from '@sp/api-contract';
+import type {
+  AdminBomQuoteItemPartnerHolderType,
+  AdminBomRfqViewType,
+  BomQuoteItemType,
+} from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import { useAdminPartnerList, type AdminPartnerFilters } from '../../../admin/useAdminPartners';
 import { useSendBomRfqs } from '../../../admin/useAdminBomRfqs';
+import { useAdminPartnerPartSummary } from '../../../admin/useAdminPartnerParts';
 
 // 협력사 견적요청 발송 모달 — 승인 협력사(BOM 견적 트랙) 선택 → diff 발송.
 // 유지분은 보존, 빠진 미회신 문서만 삭제, 신규만 메일(docs/SMARTBOM_PARTNER_RFQ.md §2.4).
@@ -20,6 +25,8 @@ const props = defineProps<{
   rfqs: AdminBomRfqViewType[];
   /** partnerId → 보유 중인 quoteItemId (docs/PARTNER_PARTS.md). 없으면 표시만 생략. */
   partnerItems?: Record<string, string[]>;
+  /** quoteItemId → 보유 협력사 상세(재고·D/C·기준일). 펼친 목록이 이걸 읽는다. */
+  itemHolders?: Record<string, AdminBomQuoteItemPartnerHolderType[]>;
 }>();
 const emit = defineEmits<{ close: []; sent: [] }>();
 
@@ -47,6 +54,68 @@ const holdingCount = (partnerId: number): number => {
   if (owned === undefined) return 0;
   return owned.filter((itemId) => scopedItemIds.value.has(itemId)).length;
 };
+
+// 배지를 눌러 펼친다 — '몇 행'만으로는 헛발질을 못 막는다. 5개 필요한데 2개 보유인 곳에
+// 견적요청을 거는 일을 막으려면 **어느 행을, 얼마나** 갖고 있는지가 보여야 한다.
+// 기본 접힘: 승인 협력사는 수십 곳이고 대부분 보유 0행이다.
+const expanded = ref<Set<number>>(new Set());
+function toggleExpanded(partnerId: number): void {
+  const next = new Set(expanded.value);
+  if (next.has(partnerId)) next.delete(partnerId);
+  else next.add(partnerId);
+  expanded.value = next;
+}
+
+// 낡음 기준일은 서버 설정(sp_config)이 정본이라 화면에 상수로 박지 않는다.
+// 요약 조회는 캐시를 타므로 모달을 열 때 추가 왕복이 사실상 없다.
+const partnerPartSummary = useAdminPartnerPartSummary();
+const staleAfterDays = computed(
+  () => partnerPartSummary.data.value?.data.staleAfterDays ?? null,
+);
+
+interface HeldRow {
+  itemId: string;
+  mpn: string;
+  stockQty: number | null;
+  dateCode: string | null;
+  ageDays: number | null;
+  stale: boolean;
+}
+
+const ageDaysFrom = (iso: string): number | null => {
+  const at = new Date(iso).getTime();
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, Math.floor((Date.now() - at) / 86_400_000));
+};
+
+/** 이 협력사가 **이번 발송 범위 안에서** 가진 행 — 순서는 품목 표와 같게 둔다. */
+const heldRows = (partnerId: number): HeldRow[] => {
+  const owned = new Set(props.partnerItems?.[String(partnerId)] ?? []);
+  if (owned.size === 0) return [];
+  return props.scopeItems
+    .filter((item) => owned.has(item.id) && scopedItemIds.value.has(item.id))
+    .map((item) => {
+      const holder = (props.itemHolders?.[item.id] ?? []).find(
+        (row) => row.partnerId === partnerId,
+      );
+      const ageDays = holder === undefined ? null : ageDaysFrom(holder.uploadedAt);
+      return {
+        itemId: item.id,
+        mpn: item.mpn === '' ? '(품번 없음)' : item.mpn,
+        stockQty: holder?.stockQty ?? null,
+        dateCode: holder?.dateCode ?? null,
+        ageDays,
+        stale:
+          ageDays !== null && staleAfterDays.value !== null && ageDays > staleAfterDays.value,
+      };
+    });
+};
+
+/** 나이는 '오늘 올린 것'과 '한참 된 것'을 가르는 정보다 — 0 을 '0일 전'으로 쓰면 잡음이 된다. */
+const fmtAge = (days: number): string => (days === 0 ? '오늘' : `${String(days)}일 전`);
+
+const fmtQty = (value: number | null): string =>
+  value === null ? '—' : value.toLocaleString('ko-KR');
 
 const candidates = computed(() => {
   const list = (partnerData.value?.data.items ?? []).filter((p) =>
@@ -169,29 +238,61 @@ async function submit(): Promise<void> {
             파트너 관리
           </RouterLink>에서 등록하세요.
         </p>
-        <label
+        <div
           v-for="p in candidates"
           :key="p.partnerId"
-          class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm hover:bg-gray-50"
+          class="rounded-lg border border-gray-100"
           :class="quotedPartnerIds.has(p.partnerId) ? 'opacity-70' : ''"
         >
-          <input
-            type="checkbox"
-            class="size-4"
-            :checked="selected.has(p.partnerId)"
-            :disabled="quotedPartnerIds.has(p.partnerId)"
-            @change="toggle(p.partnerId)"
+          <label class="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
+            <input
+              type="checkbox"
+              class="size-4"
+              :checked="selected.has(p.partnerId)"
+              :disabled="quotedPartnerIds.has(p.partnerId)"
+              @change="toggle(p.partnerId)"
+            >
+            <span class="min-w-0 flex-1 truncate font-medium">{{ p.name }}</span>
+            <!-- 배지는 체크 토글이 아니라 펼치기다 — label 안이라 기본 동작을 막아야 한다 -->
+            <button
+              v-if="holdingCount(p.partnerId) > 0"
+              type="button"
+              class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
+              :aria-expanded="expanded.has(p.partnerId)"
+              title="눌러서 어느 행을 얼마나 보유하고 있는지 펼쳐 봅니다"
+              @click.prevent.stop="toggleExpanded(p.partnerId)"
+            >보유 {{ holdingCount(p.partnerId) }}행 {{ expanded.has(p.partnerId) ? '▴' : '▾' }}</button>
+            <span v-if="p.contactEmail === null" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">메일 없음</span>
+            <span v-if="quotedPartnerIds.has(p.partnerId)" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700">회신됨</span>
+            <span v-else-if="rfqs.some((r) => r.partnerId === p.partnerId)" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">발송됨</span>
+          </label>
+
+          <div
+            v-if="expanded.has(p.partnerId)"
+            class="border-t border-gray-100 bg-gray-50/60 px-3 py-2"
           >
-          <span class="min-w-0 flex-1 truncate font-medium">{{ p.name }}</span>
-          <span
-            v-if="holdingCount(p.partnerId) > 0"
-            class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-            title="이번 발송 범위 중 이 협력사가 보유하고 있다고 알린 행 수입니다"
-          >보유 {{ holdingCount(p.partnerId) }}행</span>
-          <span v-if="p.contactEmail === null" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">메일 없음</span>
-          <span v-if="quotedPartnerIds.has(p.partnerId)" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700">회신됨</span>
-          <span v-else-if="rfqs.some((r) => r.partnerId === p.partnerId)" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">발송됨</span>
-        </label>
+            <ul class="space-y-1">
+              <li
+                v-for="row in heldRows(p.partnerId)"
+                :key="row.itemId"
+                class="flex items-center gap-2 text-[11px]"
+              >
+                <span class="min-w-0 flex-1 truncate font-mono text-gray-800">{{ row.mpn }}</span>
+                <span class="tabular-nums text-gray-600">재고 {{ fmtQty(row.stockQty) }}</span>
+                <span v-if="row.dateCode !== null" class="text-gray-500">D/C {{ row.dateCode }}</span>
+                <!-- 재고는 협력사의 주장이고 만료를 두지 않는다 — 나이를 늘 함께 보인다 -->
+                <span
+                  v-if="row.ageDays !== null"
+                  :class="row.stale ? 'font-semibold text-amber-700' : 'text-gray-400'"
+                  :title="row.stale ? '오래된 재고표입니다 — 수량을 그대로 믿지 마세요' : '재고표 업로드 이후 지난 날수'"
+                >{{ fmtAge(row.ageDays) }}</span>
+              </li>
+            </ul>
+            <p class="mt-1.5 text-[10px] leading-4 text-gray-400">
+              협력사가 스스로 올린 재고표입니다 — 수량·납기는 견적 회신이 정본입니다.
+            </p>
+          </div>
+        </div>
       </div>
 
       <p v-if="selectedWithoutEmailCount > 0" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">

@@ -2934,6 +2934,7 @@ async function downloadOriginal(): Promise<void> {
       :selected-item-ids="[...rfqItemSelection]"
       :rfqs="rfqs"
       :partner-items="partnerItemsByPartner"
+      :item-holders="partnerHoldersByItem"
       @close="sendOpen = false"
       @sent="useFullRfqScope"
     />
