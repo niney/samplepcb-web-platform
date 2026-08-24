@@ -640,17 +640,28 @@ async function ensureCatalogPart(row: CatalogProjectionRow): Promise<bigint> {
   // 제조사를 못 읽은 행은 `manufacturerNorm='unknown'` 으로 앉는다(실측 57%). 같은 품번의
   // 진짜 부품과 별개 레코드가 되지만, 실공급사 구매 조건이 없어 **색인되지 않으므로**
   // 검색 품질을 해치지 않는다. 나중에 공급사 결과가 붙으면 그 레코드가 정상 색인된다.
-  const created = await prisma.spPart.create({
-    data: {
-      mpn: row.mpn.slice(0, 191),
-      ...identity,
-      manufacturerName: (row.manufacturer ?? '').slice(0, 191),
-      specsJson: {},
-      specsSi: {},
-    },
-    select: { id: true },
-  });
-  return created.id;
+  // 두 협력사가 같은 신규 품번을 동시에 올릴 수 있다 — 유니크 충돌은 실패가 아니라
+  // '남이 먼저 만들었다'는 뜻이므로 다시 읽어 그 행을 쓴다(인제스트 `upsertWithRaceRecovery` 와 같은 결).
+  try {
+    const created = await prisma.spPart.create({
+      data: {
+        mpn: row.mpn.slice(0, 191),
+        ...identity,
+        manufacturerName: (row.manufacturer ?? '').slice(0, 191),
+        specsJson: {},
+        specsSi: {},
+      },
+      select: { id: true },
+    });
+    return created.id;
+  } catch (error) {
+    const raced = await prisma.spPart.findUnique({
+      where: { mpnNorm_manufacturerNorm: identity },
+      select: { id: true },
+    });
+    if (raced !== null) return raced.id;
+    throw error;
+  }
 }
 
 interface PartnerOfferData {
@@ -798,8 +809,10 @@ async function projectChunk(
   const createData = new Map<string, PartnerOfferData>();
   let projected = 0;
   for (const row of rows) {
-    const catalogPartId = partIdByIdentity.get(identityKey(row));
-    if (catalogPartId === undefined) continue; // 방금 만든 것이 안 읽히면 다음 회차가 잡는다
+    // 동시에 도는 다른 협력사의 미커밋 생성 때문에 재조회가 놓칠 수 있다. 조용히 건너뛰면
+    // 그 행의 구매 조건이 **소리 없이 빠진다** — 개별 확보로 반드시 자리를 만든다.
+    const catalogPartId = partIdByIdentity.get(identityKey(row)) ?? (await ensureCatalogPart(row));
+    partIdByIdentity.set(identityKey(row), catalogPartId);
     const sku = partnerOfferSku(partnerId, row.id);
     kept.add(sku);
     touched.add(String(catalogPartId));
