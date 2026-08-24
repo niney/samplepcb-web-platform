@@ -20,7 +20,7 @@ import { downloadFromFileServer } from './file-server';
 import { resolveManufacturer } from './manufacturer-alias';
 import { toCapabilities } from './partner';
 import { PARTNER_SUPPLIER } from './parts-facts';
-import { indexChangedParts } from './parts-ingest';
+import { indexChangedParts, isTransientPartIngestError } from './parts-ingest';
 import { prisma } from './prisma';
 
 // ── 협력사 보유 부품 원장 — 정본 docs/PARTNER_PARTS.md ──────────────────────
@@ -593,6 +593,30 @@ export async function commitPartnerPartUpload(
 //     넣고 빼도 **ES 문서가 안 바뀌고**, 전체 교체 업로드가 재색인을 유발하지 않는다.
 //  ③ 그 둘 덕에 투영은 facts·색인을 아예 건드릴 필요가 없다.
 
+/**
+ * 쓰기 경합 재시도 — 두 협력사가 **겹치는 신규 품번**을 동시에 반영하면 유니크 인덱스
+ * (`mpnNorm, manufacturerNorm`) 갭 락에서 교착이 난다(P2034). 유니크 충돌(P2002)은
+ * `ensureCatalogPart` 가 '남이 먼저 만들었다'로 흡수하지만 교착은 흡수할 수 없다 —
+ * 트랜잭션 자체가 죽으므로 **다시 시도하는 것만이 답**이다.
+ *
+ * ⚠ 실측: 여정 스펙을 단독으로 돌리면 안 나고 **전체 스위트를 함께 돌릴 때** 터졌다.
+ * 한 번 통과했다고 경합이 없는 게 아니다.
+ */
+async function withWriteRetry<T>(run: () => Promise<T>): Promise<T> {
+  let lastError: unknown = new Error('partner catalog write retry exhausted');
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientPartIngestError(error)) throw error;
+      const backoffMs = 25 * 2 ** attempt + Math.floor(Math.random() * 25);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+  throw lastError;
+}
+
 /** 협력사 구매 조건의 SKU — `{partnerId}:{원장 행 id}`. 접두가 곧 소유권이다. */
 const partnerOfferSku = (partnerId: bigint, ledgerPartId: bigint): string =>
   `${String(partnerId)}:${String(ledgerPartId)}`;
@@ -643,7 +667,7 @@ async function ensureCatalogPart(row: CatalogProjectionRow): Promise<bigint> {
   // 두 협력사가 같은 신규 품번을 동시에 올릴 수 있다 — 유니크 충돌은 실패가 아니라
   // '남이 먼저 만들었다'는 뜻이므로 다시 읽어 그 행을 쓴다(인제스트 `upsertWithRaceRecovery` 와 같은 결).
   try {
-    const created = await prisma.spPart.create({
+    const created = await withWriteRetry(() => prisma.spPart.create({
       data: {
         mpn: row.mpn.slice(0, 191),
         ...identity,
@@ -652,7 +676,7 @@ async function ensureCatalogPart(row: CatalogProjectionRow): Promise<bigint> {
         specsSi: {},
       },
       select: { id: true },
-    });
+    }));
     return created.id;
   } catch (error) {
     const raced = await prisma.spPart.findUnique({
@@ -781,7 +805,7 @@ async function projectChunk(
   }
   if (missing.size > 0) {
     // 제조사를 못 읽은 행은 `manufacturerNorm='unknown'` 으로 앉는다(§1.5).
-    await prisma.spPart.createMany({
+    await withWriteRetry(() => prisma.spPart.createMany({
       data: [...missing.values()].map((row) => ({
         mpn: row.mpn.slice(0, 191),
         mpnNorm: row.mpnNorm,
@@ -791,7 +815,7 @@ async function projectChunk(
         specsSi: {},
       })),
       skipDuplicates: true,
-    });
+    }));
     // MySQL 은 createMany 가 id 를 안 돌려준다 — 같은 조건으로 다시 읽는다.
     await readParts();
   }
@@ -836,7 +860,7 @@ async function projectChunk(
   }
 
   if (creates.length > 0) {
-    await prisma.spPartOffer.createMany({
+    await withWriteRetry(() => prisma.spPartOffer.createMany({
       data: creates.flatMap((offer) => {
         const data = createData.get(offer.supplierSku);
         return data === undefined ? [] : [{
@@ -851,13 +875,13 @@ async function projectChunk(
         }];
       }),
       skipDuplicates: true,
-    });
+    }));
   }
   for (const update of updates) {
-    await prisma.spPartOffer.update({
+    await withWriteRetry(() => prisma.spPartOffer.update({
       where: { id: update.id },
       data: { ...update.data, partId: update.partId },
-    });
+    }));
   }
   return projected;
 }
