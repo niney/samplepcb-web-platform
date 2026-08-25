@@ -240,7 +240,7 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — BOM 전 구간(견적요�
           const lines = [...(table?.querySelector('tbody')?.rows ?? [])].map((tr) =>
             ((tr.querySelector('td[headers="th_itst"]') as HTMLElement | null)?.textContent ?? '').trim(),
           );
-          const progress = [...document.querySelectorAll('#sp_progress_wrap .sp_eq_badge')].map((b) => (b.textContent ?? '').trim());
+          const progress = [...document.querySelectorAll('#sp_progress_wrap:not(.is-quiet) .sp_eq_badge')].map((b) => (b.textContent ?? '').trim());
           const text = document.body.innerText;
           const delivery = /배송정보[\s\S]{0,120}/.exec(text)?.[0].replace(/\s+/g, ' ').slice(0, 90) ?? '';
           // 스텝퍼(08-25 신설) — 현재 칸 텍스트(취소면 취소 배지).

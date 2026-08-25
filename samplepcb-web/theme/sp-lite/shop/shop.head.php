@@ -129,6 +129,10 @@ $sp_account_active = (!empty($member['mb_id']) && isset($sp_account_pages[$sp_cu
             if ($sp_cur_script === 'orderinquiry.php') {
                 $sp_title_cls  = ' sp-title-lg';
                 $sp_title_html = '<img class="sp-title-ico" src="'.G5_THEME_URL.'/img/account/ico-title-orders.svg" alt="">주문내역';
+            } else if ($sp_cur_script === 'orderinquiryview.php') {
+                // 주문 상세(Figma 103:4561) — '상세주문내역' 36px, 아이콘 없음.
+                $sp_title_cls  = ' sp-title-lg';
+                $sp_title_html = '상세주문내역';
             }
             ?>
             <?php if ((!$bo_table || $w == 's' ) && !defined('_INDEX_')) { ?><div id="wrapper_title" class="<?php echo trim($sp_title_cls); ?>"><?php echo $sp_title_html ?></div><?php } ?>

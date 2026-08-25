@@ -1616,6 +1616,9 @@ PCB P4.13/P4.14 의 배관을 BOM 까지 넓혔다. od 는 여전히 안 바꾼�
 ⚠ 계약 드리프트: `POST /rfq-selection` 이 `kind: 'partner'|'supplier'` 판별 union 이 된 뒤에도
 `journey-bom-domestic`·`journey-bom-revision` 은 kind 없이 호출하고 있었다(400) — 08-25 교정.
 
+> 후속(2026-08-26): 고객 주문 상세 페이지 자체를 Figma 103:4561 단일 컬럼으로 재편 — BOM 7칸 스텝퍼·트랙별 단계 설명·
+> 배송지/결제정보 2열 격자·주문금액 박스. 기록은 `docs/PCB_PARTNER_TRACK.md` P4.16(트랙 공용 페이지라 한 곳에만 적는다).
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

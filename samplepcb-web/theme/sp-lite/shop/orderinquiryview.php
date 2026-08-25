@@ -1,7 +1,7 @@
 <?php
 if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
 
-$g5['title'] = '주문상세내역';
+$g5['title'] = '상세주문내역';
 include_once('./_head.php');
 
 // LG 현금영수증 JS
@@ -15,8 +15,16 @@ if($od['od_pg'] == 'lg') {
 ?>
 
 <!-- 주문상세내역 시작 { -->
-<div id="sod_fin">
-    <div id="sod_fin_no">주문번호 <strong><?php echo $od_id; ?></strong></div>
+<div id="sod_fin" class="sp-od">
+    <?php
+    // ── 머리줄(Figma 103:4561) — 제목 아래 '주문일자 : YYYY.MM.DD  주문번호 : …'. 시안의 '2026.0801' 은
+    // 오타로 보고 Y.m.d 로 찍는다(사용자 결정 08-25). 주문번호 파랑은 링크가 아니라 강조색.
+    $sp_od_date = ($od['od_time'] && $od['od_time'] !== '0000-00-00 00:00:00') ? date('Y.m.d', strtotime($od['od_time'])) : '';
+    ?>
+    <div id="sod_fin_no" class="sp-od__meta">
+        <?php if ($sp_od_date !== ''): ?><span class="sp-od__meta-item"><span class="sp-od__meta-k">주문일자 :</span> <span class="sp-od__meta-v"><?php echo $sp_od_date; ?></span></span><?php endif; ?>
+        <span class="sp-od__meta-item"><span class="sp-od__meta-k">주문번호 :</span> <strong class="sp-od__meta-no"><?php echo $od_id; ?></strong></span>
+    </div>
 
     <?php
     // 무통장 입금 안내 — 주문 직후 고객이 도착하는 화면이 여기다(orderformupdate.php 가 전용
@@ -89,7 +97,6 @@ if($od['od_pg'] == 'lg') {
     }
     </script>
     <?php endif; ?>
-
     <?php
     // ── 주문 진행(트랙 공용, od 무접촉) — 줄 배지·진행 카드·스텝퍼가 **같은 응답**을 쓴다(한 번만 부른다).
     // 결제 뒤·배송 전 구간의 줄은 od 라벨 대신 이 진행이 배지다(08-25 교정 — 그전엔 카드만 움직이고
@@ -97,15 +104,26 @@ if($od['od_pg'] == 'lg') {
     $sp_progress = function_exists('sp_pcb_progress') ? sp_pcb_progress($od_id) : array();
     $sp_progress_by_ct = array();
     $sp_progress_has_bom = false;
+    $sp_progress_has_file = false;
     foreach ($sp_progress as $sp_pg) {
         if (isset($sp_pg['ctId']) && $sp_pg['ctId'] !== null) $sp_progress_by_ct[(int) $sp_pg['ctId']] = $sp_pg;
         if (isset($sp_pg['track']) && $sp_pg['track'] === 'bom') $sp_progress_has_bom = true;
+        if (!empty($sp_pg['coordFile'])) $sp_progress_has_file = true;
     }
-    // 스텝퍼(Figma 103:4561 골격) — 트랙별 칸 세트 + od 축 + 가장 느린 진행.
+    // 진행 카드 표시 규칙(08-25 보류 결정 ⑩ — 두 변형을 보고 고른다) — 줄 배지·스텝퍼가 같은 진행을 보이므로
+    // 카드는 **더 말할 게 있을 때만**: 좌표파일 링크가 있거나, 줄이 둘 이상이라 줄마다 단계가 다를 수 있을 때.
+    // 'always' 로 바꾸면 예전처럼 진행이 있으면 항상 보인다.
+    $sp_progress_card_mode = 'auto';
+    $sp_progress_card = $sp_progress && ($sp_progress_card_mode === 'always' || $sp_progress_has_file || count($sp_progress) >= 2);
+    // 스텝퍼(Figma 103:4561) — 트랙별 칸 세트 + od 축 + 가장 느린 진행. 지난 칸·앞 칸은 같은 회색, 현재 칸만 검정(시안대로).
     if (function_exists('sp_order_customer_steps')):
         $sp_track = sp_order_track($od_id);
         $sp_slowest = sp_order_slowest_progress($sp_progress);
         $sp_steps = sp_order_customer_steps($od['od_status'], $sp_track, $sp_slowest ? $sp_slowest['stage'] : null);
+        // 단계 설명(옛 '상태설명보기' 재배치 — 기능은 남기고 자리만 옮겼다) — 트랙별 문구(PCB/부품이 다르다).
+        // 취소 주문은 칸이 없으니 트랙의 전체 칸을 빌려 설명만 보인다.
+        $sp_step_notes = function_exists('sp_order_customer_step_notes') ? sp_order_customer_step_notes($sp_track) : array();
+        $sp_step_labels = $sp_steps['mode'] === 'steps' ? $sp_steps['steps'] : sp_order_customer_steps('입금', $sp_track, null)['steps'];
     ?>
     <section class="sp-steps-wrap" aria-label="주문 진행 단계" data-track="<?php echo $sp_track; ?>">
         <?php if ($sp_steps['mode'] === 'cancel'): ?>
@@ -120,11 +138,34 @@ if($od['od_pg'] == 'lg') {
         </ol>
         <?php if ($sp_steps['note'] !== ''): ?><p class="sp-steps__note"><?php echo $sp_steps['note']; ?></p><?php endif; ?>
         <?php endif; ?>
+        <?php if ($sp_step_notes): ?>
+        <div id="sod_sts_wrap">
+            <span class="sound_only">주문 단계 설명</span>
+            <button type="button" id="sod_sts_explan_open" class="sp-steps__help">단계 설명 보기</button>
+            <div id="sod_sts_explan">
+                <dl id="sod_fin_legend">
+                    <?php foreach ($sp_step_labels as $sp_lb): if (!isset($sp_step_notes[$sp_lb])) continue; ?>
+                    <dt><?php echo $sp_lb; ?></dt>
+                    <dd><?php echo $sp_step_notes[$sp_lb]; ?></dd>
+                    <?php endforeach; ?>
+                    <?php foreach ($sp_step_notes as $sp_lb => $sp_desc): if (in_array($sp_lb, $sp_step_labels, true)) continue; ?>
+                    <dt><?php echo $sp_lb; ?></dt>
+                    <dd><?php echo $sp_desc; ?></dd>
+                    <?php endforeach; ?>
+                </dl>
+                <button type="button" id="sod_sts_explan_close" class="sp-steps__help">설명 닫기</button>
+            </div>
+        </div>
+        <?php endif; ?>
     </section>
     <?php endif; ?>
 
+    <?php
+    // 줄 수(옵션 줄 포함) — 시안 '주문 상품 N개'. 아래 표 루프가 세기 전에 제목이 먼저 나오므로 따로 센다.
+    $sp_line_sum = function_exists('sp_order_line_status_summary') ? sp_order_line_status_summary($od_id) : array('total' => 0);
+    ?>
     <section id="sod_fin_list">
-        <h2>주문하신 상품</h2>
+        <h2>주문 상품 <b><?php echo number_format((int) $sp_line_sum['total']); ?></b>개</h2>
 
         <?php
         $st_count1 = $st_count2 = 0;
@@ -154,7 +195,7 @@ if($od['od_pg'] == 'lg') {
 	            <tbody>
 	            <?php
 	            for($i=0; $row=sql_fetch_array($result); $i++) {
-	                $image = get_it_image($row['it_id'], 55, 55);
+	                $image = get_it_image($row['it_id'], 74, 74);
 	
 	                $sql = " select ct_id, it_name, ct_option, ct_qty, ct_price, ct_point, ct_status, io_type, io_price
 	                            from {$g5['g5_shop_cart_table']}
@@ -214,7 +255,7 @@ if($od['od_pg'] == 'lg') {
                     $opt_it_name = isset($opt['it_name']) ? $opt['it_name'] : $row['it_name'];
                     $thumb = function_exists('sp_quote_thumb_url') ? sp_quote_thumb_url($opt['ct_id']) : '';
                     $row_image = $thumb !== ''
-                        ? '<img src="'.$thumb.'" alt="'.get_text($opt_it_name).'" width="55" height="55">'
+                        ? '<img src="'.$thumb.'" alt="'.get_text($opt_it_name).'" width="74" height="74">'
                         : $image;
 	
 	                    if($k == 0) {
@@ -229,10 +270,10 @@ if($od['od_pg'] == 'lg') {
 	                	</div>
 	                </td>
 	                <td headers="th_itqty" class="td_mngsmall"><?php echo number_format($opt['ct_qty']); ?></td>
-	                <td headers="th_itprice" class="td_numbig text_right"><?php echo number_format($opt_price); ?></td>
+	                <td headers="th_itprice" class="td_numbig text_right"><?php echo display_price($opt_price); ?></td>
 	                <td headers="th_itpt" class="td_numbig text_right"><?php echo number_format($point); ?></td>
 	                <td headers="th_itsd" class="td_dvr"><?php echo $ct_send_cost; ?></td>
-	                <td headers="th_itsum" class="td_numbig text_right"><?php echo number_format($sell_price); ?></td>
+	                <td headers="th_itsum" class="td_numbig text_right"><?php echo display_price($sell_price); ?></td>
 	                <td headers="th_itst" class="td_mngsmall"><?php
 	                    if (function_exists('sp_order_status_customer')) {
 	                        $sp_sc = sp_order_status_customer(
@@ -266,9 +307,10 @@ if($od['od_pg'] == 'lg') {
         // ── PCB 제작 진행 단계(P4.13) — od 상태('입금' 등)와 별개로 실제 제작이
         // 어디까지 왔는지 보여준다(sp 축 파생, od 무접촉 — D6 수동 유지). 발주 전이면
         // 항목이 없어 섹션 자체가 나오지 않는다. 응답은 위(상품 표 앞)에서 한 번 받았다.
+        // 카드는 항상 렌더하고 auto 규칙으로 숨길 땐 is-quiet — 두 변형(⑩)을 CSS 한 줄로 오갈 수 있게.
         if ($sp_progress):
         ?>
-        <section id="sp_progress_wrap">
+        <section id="sp_progress_wrap"<?php echo $sp_progress_card ? '' : ' class="is-quiet"'; ?>>
             <h2><?php echo $sp_progress_has_bom ? '진행 상황' : '제작 진행 상황'; ?></h2>
             <ul class="sp_progress_list">
                 <?php foreach ($sp_progress as $pg): ?>
@@ -538,334 +580,144 @@ if($od['od_pg'] == 'lg') {
         </section>
         <?php endif; ?>
 
-        <div id="sod_sts_wrap">
-            <span class="sound_only">상품 상태 설명</span>
-            <button type="button" id="sod_sts_explan_open" class="btn_frmline">상태설명보기</button>
-            <div id="sod_sts_explan">
-                <dl id="sod_fin_legend">
-                    <dt>주문</dt>
-                    <dd>주문이 접수되었습니다.
-                    <dt>입금</dt>
-                    <dd>입금(결제)이 완료 되었습니다.
-                    <dt>준비</dt>
-                    <dd>상품 준비 중입니다.
-                    <dt>파일검사 · 제조 확인(EQ)</dt>
-                    <dd>제작 전 데이터를 검토하고 제조 확인 사항을 정리하는 단계입니다. 확인이 필요하면 '제조 확인 요청'으로 안내드립니다.
-                    <dt>생산 · 품질시험 · 생산완료</dt>
-                    <dd>보드를 제작하고 검사한 뒤 발송을 준비합니다. 진행은 '제작 진행 상황'에서 볼 수 있습니다.
-                    <dt>A/S</dt>
-                    <dd>접수된 A/S 를 처리(재생산·재배송)하는 중입니다.
-                    <dt>배송</dt>
-                    <dd>상품 배송 중입니다.
-                    <dt>완료</dt>
-                    <dd>상품 배송이 완료 되었습니다.
-                </dl>
-                <button type="button" id="sod_sts_explan_close" class="btn_frmline">상태설명닫기</button>
-            </div>
-        </div>
     </section>
-    <div class="sod_left">
-        <h2>결제/배송 정보</h2>
-        <?php
-        // 총계 = 주문상품금액합계 + 배송비 - 상품할인 - 결제할인 - 배송비할인
-        $tot_price = $od['od_cart_price'] + $od['od_send_cost'] + $od['od_send_cost2']
-                        - $od['od_cart_coupon'] - $od['od_coupon'] - $od['od_send_coupon']
-                        - $od['od_cancel_price'];
 
-        $receipt_price  = $od['od_receipt_price']
-                        + $od['od_receipt_point'];
-        $cancel_price   = $od['od_cancel_price'];
+    <?php
+    // 총계 = 주문상품금액합계 + 배송비 - 상품할인 - 결제할인 - 배송비할인
+    $tot_price = $od['od_cart_price'] + $od['od_send_cost'] + $od['od_send_cost2']
+                    - $od['od_cart_coupon'] - $od['od_coupon'] - $od['od_send_coupon']
+                    - $od['od_cancel_price'];
 
-        $misu = true;
-        // 결제·부분취소·환불 이후의 정본은 주문 상태 변경 경로가 재계산해 저장한 od_misu다.
-        // 화면에서 총액-수납액만 다시 계산하면 od_refund_price가 빠져, 환불 완료 주문도
-        // 음수 미수로 남고 완불·현금영수증 판정이 DB와 어긋난다.
-        $misu_price = (int) $od['od_misu'];
+    $receipt_price  = $od['od_receipt_price']
+                    + $od['od_receipt_point'];
+    $cancel_price   = $od['od_cancel_price'];
 
-        if ($misu_price == 0 && ($od['od_cart_price'] > $od['od_cancel_price'])) {
-            $wanbul = " (완불)";
-            $misu = false; // 미수금 없음
-        }
-        else
-        {
-            $wanbul = display_price($receipt_price);
-        }
+    $misu = true;
+    // 결제·부분취소·환불 이후의 정본은 주문 상태 변경 경로가 재계산해 저장한 od_misu다.
+    // 화면에서 총액-수납액만 다시 계산하면 od_refund_price가 빠져, 환불 완료 주문도
+    // 음수 미수로 남고 완불·현금영수증 판정이 DB와 어긋난다.
+    $misu_price = (int) $od['od_misu'];
 
-        // 결제정보처리
-        if($od['od_receipt_price'] > 0)
-            $od_receipt_price = display_price($od['od_receipt_price']);
-        else
-            $od_receipt_price = '아직 입금되지 않았거나 입금정보를 입력하지 못하였습니다.';
+    if ($misu_price == 0 && ($od['od_cart_price'] > $od['od_cancel_price'])) {
+        $wanbul = " (완불)";
+        $misu = false; // 미수금 없음
+    }
+    else
+    {
+        $wanbul = display_price($receipt_price);
+    }
 
-        $app_no_subj = '';
-        $disp_bank = true;
-        $disp_receipt = false;
-        if($od['od_settle_case'] == '신용카드' || $od['od_settle_case'] == 'KAKAOPAY' || is_inicis_order_pay($od['od_settle_case']) ) {
-            $app_no_subj = '승인번호';
-            $app_no = $od['od_app_no'];
-            $disp_bank = false;
-            $disp_receipt = true;
-        } else if($od['od_settle_case'] == '간편결제') {
-            $app_no_subj = '승인번호';
-            $app_no = $od['od_app_no'];
-            $disp_bank = false;
-            $disp_receipt = true;
-        } else if($od['od_settle_case'] == '휴대폰') {
-            $app_no_subj = '휴대폰번호';
-            $app_no = $od['od_bank_account'];
-            $disp_bank = false;
-            $disp_receipt = true;
-        } else if($od['od_settle_case'] == '가상계좌' || $od['od_settle_case'] == '계좌이체') {
-            $app_no_subj = '거래번호';
-            $app_no = $od['od_tno'];
+    // 결제정보처리
+    if($od['od_receipt_price'] > 0)
+        $od_receipt_price = display_price($od['od_receipt_price']);
+    else
+        $od_receipt_price = '아직 입금되지 않았거나 입금정보를 입력하지 못하였습니다.';
+
+    $app_no_subj = '';
+    $disp_bank = true;
+    $disp_receipt = false;
+    if($od['od_settle_case'] == '신용카드' || $od['od_settle_case'] == 'KAKAOPAY' || is_inicis_order_pay($od['od_settle_case']) ) {
+        $app_no_subj = '승인번호';
+        $app_no = $od['od_app_no'];
+        $disp_bank = false;
+        $disp_receipt = true;
+    } else if($od['od_settle_case'] == '간편결제') {
+        $app_no_subj = '승인번호';
+        $app_no = $od['od_app_no'];
+        $disp_bank = false;
+        $disp_receipt = true;
+    } else if($od['od_settle_case'] == '휴대폰') {
+        $app_no_subj = '휴대폰번호';
+        $app_no = $od['od_bank_account'];
+        $disp_bank = false;
+        $disp_receipt = true;
+    } else if($od['od_settle_case'] == '가상계좌' || $od['od_settle_case'] == '계좌이체') {
+        $app_no_subj = '거래번호';
+        $app_no = $od['od_tno'];
 
 			if( function_exists('shop_is_taxsave') && $misu_price == 0 && shop_is_taxsave($od, true) === 2 ){
 				$disp_receipt = true;
 			}
-        }
-        ?>
+    }
+    ?>
 
-        <section id="sod_fin_orderer">
-            <h3>주문하신 분</h3>
-
-            <div class="tbl_head01 tbl_wrap">
-                <table>
-
-                <tbody>
-                <tr>
-                    <th scope="row">이 름</th>
-                    <td><?php echo get_text($od['od_name']); ?></td>
-                </tr>
-                <tr>
-                    <th scope="row">전화번호</th>
-                    <td><?php echo get_text($od['od_tel']); ?></td>
-                </tr>
-                <tr>
-                    <th scope="row">핸드폰</th>
-                    <td><?php echo get_text($od['od_hp']); ?></td>
-                </tr>
-                <tr>
-                    <th scope="row">주 소</th>
-                    <td><?php echo get_text(sprintf("(%s%s)", $od['od_zip1'], $od['od_zip2']).' '.print_address($od['od_addr1'], $od['od_addr2'], $od['od_addr3'], $od['od_addr_jibeon'])); ?></td>
-                </tr>
-                <tr>
-                    <th scope="row">E-mail</th>
-                    <td><?php echo get_text($od['od_email']); ?></td>
-                </tr>
-                </tbody>
-                </table>
-            </div>
-        </section>
-
-        <section id="sod_fin_receiver">
-            <h3>받으시는 분</h3>
-
-            <div class="tbl_head01 tbl_wrap">
-                <table>
-          
-                <tbody>
-                <tr>
-                    <th scope="row">이 름</th>
-                    <td><?php echo get_text($od['od_b_name']); ?></td>
-                </tr>
-                <tr>
-                    <th scope="row">전화번호</th>
-                    <td><?php echo get_text($od['od_b_tel']); ?></td>
-                </tr>
-                <tr>
-                    <th scope="row">핸드폰</th>
-                    <td><?php echo get_text($od['od_b_hp']); ?></td>
-                </tr>
-                <tr>
-                    <th scope="row">주 소</th>
-                    <td><?php echo get_text(sprintf("(%s%s)", $od['od_b_zip1'], $od['od_b_zip2']).' '.print_address($od['od_b_addr1'], $od['od_b_addr2'], $od['od_b_addr3'], $od['od_b_addr_jibeon'])); ?></td>
-                </tr>
-                <?php
-                // 희망배송일을 사용한다면
-                if ($default['de_hope_date_use'])
-                {
-                ?>
-                <tr>
-                    <th scope="row">희망배송일</th>
-                    <td><?php echo substr($od['od_hope_date'],0,10).' ('.get_yoil($od['od_hope_date']).')' ;?></td>
-                </tr>
-                <?php }
-                if ($od['od_memo'])
-                {
-                ?>
-                <tr>
-                    <th scope="row">전하실 말씀</th>
-                    <td><?php echo conv_content($od['od_memo'], 0); ?></td>
-                </tr>
-                <?php } ?>
-                </tbody>
-                </table>
-            </div>
-        </section>
-
-        <section id="sod_fin_dvr">
-            <h3>배송정보</h3>
-
-            <div class="tbl_head01 tbl_wrap">
-                <table>
-	                <tbody>
-	                <?php if ($od['od_invoice'] && $od['od_delivery_company']) { ?>
-	                <tr>
-	                    <th scope="row">배송회사</th>
-	                    <td><?php echo $od['od_delivery_company']; ?> <?php echo get_delivery_inquiry($od['od_delivery_company'], $od['od_invoice'], 'dvr_link'); ?></td>
-	                </tr>
-	                <tr>
-	                    <th scope="row">운송장번호</th>
-	                    <td><?php echo $od['od_invoice']; ?></td>
-	                </tr>
-	                <tr>
-	                    <th scope="row">배송일시</th>
-	                    <td><?php echo $od['od_invoice_time']; ?></td>
-	                </tr>
-	                <?php } else { ?>
-	                <tr>
-	                    <td class="empty_table">아직 배송하지 않았거나 배송정보를 입력하지 못하였습니다.</td>
-	                </tr>
-	                <?php } ?>
-	                </tbody>
-                </table>
-            </div>
-        </section>
-    </div>
-
-    <div class="sod_right">
-        <ul id="sod_bsk_tot2">
-            <li class="sod_bsk_dvr">
-                <span>주문총액</span>
-                <strong><?php echo number_format($od['od_cart_price']); ?> 원</strong>
+    <?php
+    // ── 배송지정보(Figma 103:4561) — 주문하신 분 | 받으시는 분 2열 격자. 수령자 E-mail 은 영카트 주문에 필드가
+    // 없어(od_b_* 에 email 없음) 행을 두지 않는다(사용자 결정 08-25); 라벨은 시안의 '전화번호/전화번호' 대신
+    // 실제 값대로 '전화번호/휴대폰'. 시안에 없는 희망배송일·전하실 말씀·배송정보(택배사·운송장)는 기능이라
+    // 빼지 않고 격자 아래 전폭 행으로(운송장은 배송 시작 뒤에만 — 그 전 상태는 스텝퍼가 말한다).
+    $sp_addr_o = get_text(sprintf("(%s%s)", $od['od_zip1'], $od['od_zip2']).' '.print_address($od['od_addr1'], $od['od_addr2'], $od['od_addr3'], $od['od_addr_jibeon']));
+    $sp_addr_b = get_text(sprintf("(%s%s)", $od['od_b_zip1'], $od['od_b_zip2']).' '.print_address($od['od_b_addr1'], $od['od_b_addr2'], $od['od_b_addr3'], $od['od_b_addr_jibeon']));
+    $sp_hope = ($default['de_hope_date_use'] && $od['od_hope_date'] && $od['od_hope_date'] !== '0000-00-00')
+        ? substr($od['od_hope_date'], 0, 10).' ('.get_yoil($od['od_hope_date']).')' : '';
+    ?>
+    <section id="sod_fin_addr">
+        <h2>배송지정보</h2>
+        <ul class="sp-od-grid">
+            <li class="sp-od-cell sp-od-cell--l"><span class="sp-od-k">주문하신 분</span><span class="sp-od-v"><?php echo get_text($od['od_name']); ?></span></li>
+            <li class="sp-od-cell sp-od-cell--r"><span class="sp-od-k">받으시는 분</span><span class="sp-od-v"><?php echo get_text($od['od_b_name']); ?></span></li>
+            <li class="sp-od-cell sp-od-cell--l sp-od-cell--pair">
+                <span class="sp-od-half"><span class="sp-od-k">전화번호</span><span class="sp-od-v"><?php echo get_text($od['od_tel']); ?></span></span>
+                <span class="sp-od-half"><span class="sp-od-k">휴대폰</span><span class="sp-od-v"><?php echo get_text($od['od_hp']); ?></span></span>
             </li>
-            <?php if($od['od_cart_coupon'] > 0) { ?>
-            <li class="sod_bsk_dvr">
-                <span>개별상품 쿠폰할인</span>
-                <strong><?php echo number_format($od['od_cart_coupon']); ?> 원</strong>
+            <li class="sp-od-cell sp-od-cell--r sp-od-cell--pair">
+                <span class="sp-od-half"><span class="sp-od-k">전화번호</span><span class="sp-od-v"><?php echo get_text($od['od_b_tel']); ?></span></span>
+                <span class="sp-od-half"><span class="sp-od-k">휴대폰</span><span class="sp-od-v"><?php echo get_text($od['od_b_hp']); ?></span></span>
             </li>
-            <?php } ?>
-            <?php if($od['od_coupon'] > 0) { ?>
-            <li class="sod_bsk_dvr">
-                <span>주문금액 쿠폰할인</span>
-                <strong><?php echo number_format($od['od_coupon']); ?> 원</strong>
+            <li class="sp-od-cell sp-od-cell--l"><span class="sp-od-k">주소</span><span class="sp-od-v"><?php echo $sp_addr_o; ?></span></li>
+            <li class="sp-od-cell sp-od-cell--r"><span class="sp-od-k">주소</span><span class="sp-od-v"><?php echo $sp_addr_b; ?></span></li>
+            <li class="sp-od-cell sp-od-cell--l"><span class="sp-od-k">E-mail</span><span class="sp-od-v"><?php echo get_text($od['od_email']); ?></span></li>
+            <?php if ($sp_hope !== ''): ?>
+            <li class="sp-od-cell sp-od-cell--r"><span class="sp-od-k">희망배송일</span><span class="sp-od-v"><?php echo $sp_hope; ?></span></li>
+            <?php else: ?>
+            <li class="sp-od-cell sp-od-cell--r sp-od-cell--blank" aria-hidden="true"></li>
+            <?php endif; ?>
+            <?php if ($od['od_memo']): ?>
+            <li class="sp-od-cell sp-od-cell--full"><span class="sp-od-k">전하실 말씀</span><span class="sp-od-v"><?php echo conv_content($od['od_memo'], 0); ?></span></li>
+            <?php endif; ?>
+            <?php if ($od['od_invoice'] && $od['od_delivery_company']): ?>
+            <li class="sp-od-cell sp-od-cell--full" id="sod_fin_dvr">
+                <span class="sp-od-k">배송정보</span>
+                <span class="sp-od-v"><?php echo get_text($od['od_delivery_company']); ?> <b><?php echo get_text($od['od_invoice']); ?></b>
+                    <?php echo get_delivery_inquiry($od['od_delivery_company'], $od['od_invoice'], 'dvr_link'); ?>
+                    <?php if ($od['od_invoice_time'] && $od['od_invoice_time'] !== '0000-00-00 00:00:00'): ?><em class="sp-od-dim">· <?php echo $od['od_invoice_time']; ?> 발송</em><?php endif; ?>
+                </span>
             </li>
-            <?php } ?>
-            <?php if ($od['od_send_cost'] > 0) { ?>
-            <li class="sod_bsk_dvr">
-                <span>배송비</span>
-                <strong><?php echo number_format($od['od_send_cost']); ?> 원</strong>
-            </li>
-            <?php } ?>
-            <?php if($od['od_send_coupon'] > 0) { ?>
-            <li class="sod_bsk_dvr">
-                <span>배송비 쿠폰할인</span>
-                <strong><?php echo number_format($od['od_send_coupon']); ?> 원</strong>
-            </li>
-            <?php } ?>
-            <?php if ($od['od_send_cost2'] > 0) { ?>
-            <li class="sod_bsk_dvr">
-                <span>추가배송비</span>
-                <strong><?php echo number_format($od['od_send_cost2']); ?> 원</strong>
-            </li>
-            <?php } ?>
-            <?php if ($od['od_cancel_price'] > 0) { ?>
-            <li class="sod_bsk_dvr">
-                <span>취소금액</span>
-                <strong><?php echo number_format($od['od_cancel_price']); ?> 원</strong> 
-            </li>
-            <?php } ?>
-            <li class="sod_bsk_cnt">
-                <span>총계</span>
-                <strong><?php echo number_format($tot_price); ?> 원</strong>
-            </li>
-            <li class="sod_bsk_point">
-                <span>적립포인트</span>
-                <strong><?php echo number_format($tot_point); ?> 점</strong>
-            </li>
-            
-            <li class="sod_fin_tot"><span>총 구매액</span><strong><?php echo display_price($tot_price); ?></strong></li>
-            <?php
-            if ($misu_price > 0) {
-            echo '<li class="sod_fin_tot">';
-            echo '<span>미결제액</span>'.PHP_EOL;
-            echo '<strong>'.display_price($misu_price).'</strong>';
-            echo '</li>';
-            }
-            ?>
-            <li id="alrdy" class="sod_fin_tot">
-            	<span>결제액</span>
-                <strong><?php echo $wanbul; ?></strong>
-                <?php if( $od['od_receipt_point'] ){    //포인트로 결제한 내용이 있으면 ?>
-                <div>
-                    <p><span class="title">포인트 결제</span><?php echo number_format($od['od_receipt_point']); ?>점</p>
-                    <p><span class="title">실결제</span><?php echo number_format($od['od_receipt_price']); ?>원</p>
-                </div>
-                <?php } ?>
-            </li>
+            <?php endif; ?>
         </ul>
-        
-        <section id="sod_fin_pay">
-            <h3>결제정보</h3>
-            <ul>
-	            <li>
-	                <strong>주문번호</strong>
-	                <span><?php echo $od_id; ?></span>
-	            </li>
-	            <li>
-	                <strong>주문일시</strong>
-	                <span><?php echo $od['od_time']; ?></span>
-	            </li>
-	            <li>
-	                <strong>결제방식</strong>
-	                <span><?php echo check_pay_name_replace($od['od_settle_case'], $od, 1); ?></span>
-	            </li>
-	            <li>
-	                <strong>결제금액</strong>
-	                <span><?php echo $od_receipt_price; ?></span>
-	            </li>
-	            <?php
-	            if($od['od_receipt_price'] > 0)
-	            {
-	            ?>
-	            <li>
-	                <strong>결제일시</strong>
-	                <span><?php echo $od['od_receipt_time']; ?></span>
-	            </li>
-	            <?php
-	            }
-	
-	            // 승인번호, 휴대폰번호, 거래번호
-	            if($app_no_subj && $app_no)
-	            {
-	            ?>
-	            <li>
-	                <strong><?php echo $app_no_subj; ?></strong>
-	                <span><?php echo $app_no; ?></span>
-	            </li>
-	            <?php
-	            }
-	
-	            // 계좌정보
-	            if($disp_bank)
-	            {
-	            ?>
-	            <li>
-	                <strong>입금자명</strong>
-	                <span><?php echo get_text($od['od_deposit_name']); ?></span>
-	            </li>
-	            <li>
-	                <strong>입금계좌</strong>
-	                <span><?php echo get_text($od['od_bank_account']); ?></span>
-	            </li>
-	            <?php
-	            }
-	
+    </section>
+
+    <?php
+    // ── 결제정보(Figma 103:4561) — 2열 격자: 주문번호|주문일시 · 결제방식|결제일시 · 결제금액 · 입금자명|입금계좌.
+    // 시안에 없는 승인번호·영수증·현금영수증·포인트사용·환불 금액은 같은 격자에 이어 붙인다(기능은 빼지 않는다).
+    // 결제일시는 코어가 미입금이면 행을 숨기지만 격자라 구멍이 생겨 '—' 로 채운다. 짝수 칸(--r)에 세로 구분선.
+    $sp_pay_extra = array();
+    if ($od['od_receipt_point'] > 0) $sp_pay_extra[] = array('포인트사용', display_point($od['od_receipt_point']));
+    if ($od['od_refund_price'] > 0) $sp_pay_extra[] = array('환불 금액', display_price($od['od_refund_price']));
+    $sp_receipt_time = ($od['od_receipt_price'] > 0 && $od['od_receipt_time'] && $od['od_receipt_time'] !== '0000-00-00 00:00:00') ? $od['od_receipt_time'] : '—';
+    ?>
+    <section id="sod_fin_pay">
+        <h2>결제정보</h2>
+        <ul class="sp-od-grid">
+            <li class="sp-od-cell sp-od-cell--l"><span class="sp-od-k">주문번호</span><span class="sp-od-v"><?php echo $od_id; ?></span></li>
+            <li class="sp-od-cell sp-od-cell--r"><span class="sp-od-k">주문일시</span><span class="sp-od-v"><?php echo $od['od_time']; ?></span></li>
+            <li class="sp-od-cell sp-od-cell--l"><span class="sp-od-k">결제방식</span><span class="sp-od-v"><?php echo check_pay_name_replace($od['od_settle_case'], $od, 1); ?></span></li>
+            <li class="sp-od-cell sp-od-cell--r"><span class="sp-od-k">결제일시</span><span class="sp-od-v"><?php echo $sp_receipt_time; ?></span></li>
+            <li class="sp-od-cell sp-od-cell--full"><span class="sp-od-k">결제금액</span><span class="sp-od-v sp-od-v--strong"><?php echo $od_receipt_price; ?></span></li>
+            <?php if($app_no_subj && $app_no) { ?>
+            <li class="sp-od-cell sp-od-cell--full"><span class="sp-od-k"><?php echo $app_no_subj; ?></span><span class="sp-od-v"><?php echo $app_no; ?></span></li>
+            <?php } ?>
+            <?php if($disp_bank) { ?>
+            <li class="sp-od-cell sp-od-cell--l"><span class="sp-od-k">입금자명</span><span class="sp-od-v"><?php echo get_text($od['od_deposit_name']); ?></span></li>
+            <li class="sp-od-cell sp-od-cell--r"><span class="sp-od-k">입금계좌</span><span class="sp-od-v"><?php echo get_text($od['od_bank_account']); ?></span></li>
+            <?php } ?>
+            <?php
+            // 영수증 출력(코어 로직 그대로 — PG 별 창 열기)
 	            if($disp_receipt) {
 	            ?>
-	            <li>
-	                <strong>영수증</strong>
-	                <span>
+	            <li class="sp-od-cell sp-od-cell--full">
+	                <span class="sp-od-k">영수증</span>
+	                <span class="sp-od-v">
 	                    <?php
 	                    if($od['od_settle_case'] == '휴대폰')
 	                    {
@@ -927,35 +779,19 @@ if($od['od_pg'] == 'lg') {
 	            <?php
 	            }
 	
-	            if ($od['od_receipt_point'] > 0)
-	            {
-	            ?>
-	            <li>
-	                <strong>포인트사용</strong>
-	                <span><?php echo display_point($od['od_receipt_point']); ?></span>
-	            </li>
-	
-	            <?php
-	            }
-	
-	            if ($od['od_refund_price'] > 0)
-	            {
-	            ?>
-	            <li>
-	                <strong>환불 금액</strong>
-	                <span><?php echo display_price($od['od_refund_price']); ?></span>
-	            </li>
-	            <?php
-	            }
-	
+            ?>
+            <?php foreach ($sp_pay_extra as $sp_i => $sp_x): ?>
+            <li class="sp-od-cell <?php echo $sp_i % 2 ? 'sp-od-cell--r' : 'sp-od-cell--l'; ?>"><span class="sp-od-k"><?php echo $sp_x[0]; ?></span><span class="sp-od-v"><?php echo $sp_x[1]; ?></span></li>
+            <?php endforeach; ?>
+            <?php
                 // 현금영수증 발급을 사용하는 경우 또는 현금영수증 발급을 한 주문건이면
 	            if ((function_exists('shop_is_taxsave') && shop_is_taxsave($od)) || (function_exists('is_order_cashreceipt') && is_order_cashreceipt($od))) {
 	                // 미수금이 없고 현금일 경우에만 현금영수증을 발급 할 수 있습니다.
 	                if ($misu_price == 0) {
 	            ?>
-	            <li>
-	                <strong class="letter-2px">현금영수증</strong>
-	                <span>
+	            <li class="sp-od-cell sp-od-cell--full">
+	                <span class="sp-od-k">현금영수증</span>
+	                <span class="sp-od-v">
 	                <?php
 	                if ($od['od_cash'] && is_order_cashreceipt($od))
 	                {
@@ -1002,10 +838,48 @@ if($od['od_pg'] == 'lg') {
                 }
             }
             ?>
-            </ul>
-        </section>
+        </ul>
+    </section>
 
-        <section id="sod_fin_cancel">
+    <section id="sod_fin_total">
+        <h2>주문금액</h2>
+        <?php
+        // ── 주문금액 박스(Figma 103:4561 — 검정 테두리 522px): 주문총액 → [들여쓰기] 총계·적립포인트 → 총 구매액 → 결제액.
+        // 시안에 없는 배송비·쿠폰·취소금액 행은 계산이 읽히도록 주문총액과 총계 사이(들여쓰기 블록)에 둔다.
+        // 결제액은 코어 로직대로 — 완불이면 '(완불)', 아니면 수납액; 미수가 있으면 '미결제액' 행(사용자 결정 08-25).
+        ?>
+        <div class="sp-od-total">
+        <ul id="sod_bsk_tot2">
+            <li class="sod_bsk_sum"><span>주문총액</span><strong><?php echo display_price($od['od_cart_price']); ?></strong></li>
+            <li class="sod_bsk_sub">
+                <ul>
+                    <?php if($od['od_cart_coupon'] > 0) { ?><li class="sod_bsk_dvr"><span>개별상품 쿠폰할인</span><strong>-<?php echo display_price($od['od_cart_coupon']); ?></strong></li><?php } ?>
+                    <?php if($od['od_coupon'] > 0) { ?><li class="sod_bsk_dvr"><span>주문금액 쿠폰할인</span><strong>-<?php echo display_price($od['od_coupon']); ?></strong></li><?php } ?>
+                    <?php if ($od['od_send_cost'] > 0) { ?><li class="sod_bsk_dvr"><span>배송비</span><strong><?php echo display_price($od['od_send_cost']); ?></strong></li><?php } ?>
+                    <?php if($od['od_send_coupon'] > 0) { ?><li class="sod_bsk_dvr"><span>배송비 쿠폰할인</span><strong>-<?php echo display_price($od['od_send_coupon']); ?></strong></li><?php } ?>
+                    <?php if ($od['od_send_cost2'] > 0) { ?><li class="sod_bsk_dvr"><span>추가배송비</span><strong><?php echo display_price($od['od_send_cost2']); ?></strong></li><?php } ?>
+                    <?php if ($od['od_cancel_price'] > 0) { ?><li class="sod_bsk_dvr"><span>취소금액</span><strong>-<?php echo display_price($od['od_cancel_price']); ?></strong></li><?php } ?>
+                    <li class="sod_bsk_cnt"><span>총계</span><strong><?php echo display_price($tot_price); ?></strong></li>
+                    <li class="sod_bsk_point"><span>적립포인트</span><strong><?php echo number_format($tot_point); ?>P</strong></li>
+                </ul>
+            </li>
+            <li class="sod_fin_tot"><span>총 구매액</span><strong><?php echo display_price($tot_price); ?></strong></li>
+            <?php if ($misu_price > 0) { ?>
+            <li class="sod_fin_tot sod_fin_misu"><span>미결제액</span><strong><?php echo display_price($misu_price); ?></strong></li>
+            <?php } ?>
+            <li id="alrdy" class="sod_fin_tot">
+                <span>결제액</span>
+                <strong><?php echo $wanbul; ?></strong>
+                <?php if( $od['od_receipt_point'] ){    //포인트로 결제한 내용이 있으면 ?>
+                <div>
+                    <p><span class="title">포인트 결제</span><?php echo number_format($od['od_receipt_point']); ?>점</p>
+                    <p><span class="title">실결제</span><?php echo number_format($od['od_receipt_price']); ?>원</p>
+                </div>
+                <?php } ?>
+            </li>
+        </ul>
+        </div>
+        <div id="sod_fin_cancel">
             <?php
             // 취소한 내역이 없다면
             if ($cancel_price == 0) {
@@ -1047,8 +921,8 @@ if($od['od_pg'] == 'lg') {
             ?>
             <p>주문 취소, 반품, 품절된 내역이 있습니다.</p>
             <?php } ?>
-        </section>
-    </div>
+        </div>
+    </section>
 
     <?php if ($od['od_settle_case'] == '가상계좌' && $od['od_misu'] > 0 && $default['de_card_test'] && $is_admin && $od['od_pg'] == 'kcp') {
     preg_match("/\s{1}([^\s]+)\s?/", $od['od_bank_account'], $matchs);
@@ -1101,10 +975,10 @@ $(function() {
 
         if($explan.is(":visible")) {
             $explan.slideUp(200);
-            $("#sod_sts_explan_open").text("상태설명보기");
+            $("#sod_sts_explan_open").text("단계 설명 보기");
         } else {
             $explan.slideDown(200);
-            $("#sod_sts_explan_open").text("상태설명닫기");
+            $("#sod_sts_explan_open").text("단계 설명 닫기");
         }
     });
 
@@ -1114,7 +988,7 @@ $(function() {
             return false;
 
         $explan.slideUp(200);
-        $("#sod_sts_explan_open").text("상태설명보기");
+        $("#sod_sts_explan_open").text("단계 설명 보기");
     });
 });
 

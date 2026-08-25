@@ -1840,238 +1840,164 @@
 }
 
 /* ==========================================================================
-   주문상세내역 (theme/sp-lite/shop/orderinquiryview.php)
-   장바구니·주문서와 같은 시각 문법: 상품표 전폭 + 좌(정보)·우(합계/결제 sticky)
-   #sod_frm 문법을 #sod_fin 로 이식.
+   주문상세내역 (#sod_fin) — Figma 103:4561 (2026-08-25 재편)
+   단일 컬럼 · 카드 없음 · 섹션 = 19px 제목 + 검정 1px 룰 · 행 구분 #d8d8d8 · 색은 계정 셸 토큰(--acc-*).
+   시안에 없는 기능 블록(입금 안내·진행 카드·EQ·A/S·운송장·주문 취소·단계 설명)은 **빼지 않고 자리만 정했다**
+   (사용자 결정 08-25). 옛 2열(좌 정보 / 우 sticky 요약) 레이아웃은 폐기.
    ========================================================================== */
-/* 상품표는 #sod_frm 과 같이 **전폭**이다(prd prd). 좁은 좌측 열(1fr − 340) 안에 두면 7열 표가
-   컨테이너를 넘겨 마지막 '상태' 칸이 가로 스크롤 밖으로 밀렸다 — 부분 취소를 알리는 유일한 줄
-   단위 표기('주문취소')가 화면에서 사라지는 결함(여정 10호 X7 실측: 상태 칸 right 1028 > 표 971). */
-#sod_fin {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
-    grid-template-areas:
-        "no     no"
-        "notice notice"
-        "prd    prd"
-        "left   right";
-    gap: 24px;
-    align-items: start;
-    margin: 0 0 48px;
-}
+#sod_fin { display: flex; flex-direction: column; gap: 40px; margin: 0 0 56px; min-width: 0; --od-rule: #d8d8d8; }
+#sod_fin > * { min-width: 0; }
+.shop-content:has(#sod_fin) > #wrapper_title { margin: 0 0 12px; }
 
-#sod_fin > #sod_fin_no   { grid-area: no; }
-#sod_fin > .sp-deposit-notice { grid-area: notice; }
-#sod_fin > #sod_fin_list { grid-area: prd; min-width: 0; }
-#sod_fin > .sod_left     { grid-area: left; min-width: 0; }
-#sod_fin > .sod_right    { grid-area: right; }
-#sod_fin > p,
-#sod_fin > .tbl_frm01    { grid-column: 1 / -1; }  /* 관리자 가상계좌 테스트 블록(희귀) */
-
-/* 주문번호 헤더 */
+/* 머리줄 — 제목 아래 검정 룰 / 아래 옅은 룰. 주문번호는 링크가 아닌 강조색. */
 #sod_fin_no {
-    padding: 18px 24px;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg-soft);
-    font-size: 15px;
-    color: var(--sp-muted);
+    display: flex; flex-wrap: wrap; gap: 6px 30px;
+    padding: 16px 10px;
+    border-top: 1px solid var(--acc-ink, #0a151e);
+    border-bottom: 1px solid var(--od-rule);
+    font-size: 14px; color: var(--acc-text, #141e34);
 }
-#sod_fin_no strong {
-    margin-left: 8px;
-    font-size: 18px;
-    font-weight: 800;
-    color: var(--sp-ink);
-    letter-spacing: -.01em;
-}
+#sod_fin_no .sp-od__meta-item { display: inline-flex; gap: 8px; align-items: baseline; }
+#sod_fin_no .sp-od__meta-v { font-weight: 500; }
+#sod_fin_no .sp-od__meta-no { font-size: 14px; font-weight: 600; color: var(--acc-primary, #1e64fd); letter-spacing: 0; }
 
-/* 우측 sticky */
-#sod_fin .sod_right {
-    position: sticky;
-    top: calc(var(--sp-header-h) + 24px);
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+/* 섹션 공통 — 카드 크롬 없이 제목 + 검정 룰 */
+#sod_fin section { padding: 0; border: 0; border-radius: 0; background: none; }
+#sod_fin section > h2 {
+    margin: 0; padding: 0 0 16px;
+    border-bottom: 1px solid var(--acc-ink, #0a151e);
+    font-size: 19px; font-weight: 600; color: var(--acc-ink, #0a151e);
 }
+#sod_fin section > h2 b { font-weight: 700; }
 
-/* 섹션 카드 공통 */
-#sod_fin section {
-    padding: 24px;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg);
+/* ==== 스텝퍼(Figma 103:4561) — 90px 원 + 꺾쇠. 지난 칸·앞 칸 같은 회색, 현재 칸만 검정(시안대로, 08-25).
+   칸 수가 트랙마다 다르다(PCB 8·부품 7·일반 5) — 남는 폭은 균등 분배(space-between). ==== */
+#sod_fin .sp-steps-wrap { margin: 0; }
+#sod_fin .sp-steps { display: flex; align-items: center; justify-content: space-between; gap: 6px; list-style: none; margin: 0; padding: 0; }
+#sod_fin .sp-steps__item { flex: 1 1 0; min-width: 0; max-width: 90px; }
+#sod_fin .sp-steps__dot {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; aspect-ratio: 1 / 1; box-sizing: border-box; padding: 0 6px;
+    border-radius: 50%; background: #f4f4f4; color: var(--acc-text, #141e34);
+    font-size: 13px; font-weight: 500; line-height: 1.3; text-align: center; word-break: keep-all;
 }
-#sod_fin #sod_fin_list > h2,
-#sod_fin .sod_left > h2 {
-    margin: 0 0 16px;
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--sp-ink);
+#sod_fin .sp-steps__item.is-done .sp-steps__dot { background: #f4f4f4; color: var(--acc-text, #141e34); } /* 시안: 지난 칸도 같은 회색 */
+#sod_fin .sp-steps__item.is-current .sp-steps__dot { background: var(--acc-ink, #0a151e); color: #fff; }
+#sod_fin .sp-steps__sep { flex: 0 0 auto; color: #c9c9c9; font-size: 28px; font-weight: 300; line-height: 1; }
+#sod_fin .sp-steps__note { margin: 10px 0 0; font-size: 13px; color: var(--acc-muted, #666); }
+#sod_fin .sp-steps__cancel { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 6px 0; }
+/* 단계 설명(옛 '상태설명보기' 재배치 — 스텝퍼 아래 조용한 토글) */
+#sod_fin #sod_sts_wrap { margin-top: 12px; }
+#sod_fin .sp-steps__help {
+    padding: 0; border: 0; background: none; cursor: pointer;
+    font-size: 13px; color: var(--acc-muted, #666); text-decoration: underline; text-underline-offset: 3px;
 }
-#sod_fin .sod_left > h2 { margin-top: 4px; }
-#sod_fin .sod_left section + section { margin-top: 16px; }
-#sod_fin section > h3 {
-    margin: 0 0 14px;
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--sp-ink);
+#sod_fin .sp-steps__help:hover { color: var(--acc-primary, #1e64fd); }
+#sod_fin #sod_sts_explan {
+    display: none; margin-top: 10px; padding: 16px 18px;
+    border: 1px solid var(--acc-line, #d9d9d9); border-radius: 10px; background: var(--acc-band, #f0f4fa);
 }
+#sod_fin #sod_fin_legend { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0 0 12px; }
+#sod_fin #sod_fin_legend dt { font-size: 13px; font-weight: 700; color: var(--acc-ink, #0a151e); }
+#sod_fin #sod_fin_legend dd { margin: 0; font-size: 13px; color: var(--acc-muted, #666); }
 
-/* ==== 주문상품 표 (.tbl_head03) ==== */
+/* ==== 주문 상품 표 (.tbl_head03) — 헤더 무배경 15px Regular #666, 행 구분 #d8d8d8, 썸네일 74 ==== */
 #sod_fin .tbl_head03 { overflow-x: auto; }
 #sod_fin .tbl_head03 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 #sod_fin .tbl_head03 thead th {
-    padding: 12px 10px;
-    background: var(--sp-bg-soft);
-    border-top: 1px solid var(--sp-line);
-    border-bottom: 1px solid var(--sp-line);
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--sp-muted);
-    white-space: nowrap;
-    text-align: center;
+    padding: 16px 8px; background: none; border: 0; border-bottom: 1px solid var(--od-rule);
+    font-size: 15px; font-weight: 400; color: var(--acc-muted, #666); white-space: nowrap; text-align: center;
 }
-#sod_fin .tbl_head03 thead th:first-child { text-align: left; }
 #sod_fin .tbl_head03 tbody td {
-    padding: 14px 10px;
-    border-bottom: 1px solid var(--sp-line);
-    text-align: center;
-    vertical-align: middle;
-    color: var(--sp-ink);
-    white-space: nowrap;
+    padding: 20px 8px; border-bottom: 1px solid var(--od-rule);
+    text-align: center; vertical-align: middle; color: var(--acc-text, #141e34); white-space: nowrap;
 }
-#sod_fin .tbl_head03 tbody tr:last-child td { border-bottom: 0; }
-/* 상품명 칸이 표의 최소 폭을 좌우한다 — 나머지 6열은 nowrap 이라 못 줄어드므로, 여기서 남는
-   폭을 확보해야 '상태' 칸이 표 안에 들어온다. 사양 요약의 긴 토큰(68.580x53.340mm)은 끊어 쓴다. */
-#sod_fin .tbl_head03 .td_prd { text-align: left; white-space: normal; min-width: 200px; }
+#sod_fin .tbl_head03 .td_prd { text-align: left; white-space: normal; min-width: 240px; }
 #sod_fin .tbl_head03 .td_prd::after { content: ""; display: block; clear: both; }
 #sod_fin .tbl_head03 tbody td.td_numbig,
-#sod_fin .tbl_head03 tbody td.text_right { text-align: right; font-variant-numeric: tabular-nums; }
-
-/* 좁은 2열 레이아웃에서도 최종 주문 상태가 가로 스크롤 밖으로 숨지 않게 고정한다. */
-#sod_fin .tbl_head03 thead th:last-child,
-#sod_fin .tbl_head03 tbody td:last-child {
-    position: sticky;
-    right: 0;
-    z-index: 2;
-    box-shadow: -10px 0 12px -12px rgba(15, 23, 42, .5);
-}
-#sod_fin .tbl_head03 thead th:last-child { z-index: 3; background: var(--sp-bg-soft); }
-#sod_fin .tbl_head03 tbody td:last-child { background: var(--sp-bg); }
-
-#sod_fin .sod_img { float: left; width: 56px; margin-right: 12px; }
-#sod_fin .sod_img img {
-    display: block; width: 56px; height: 56px; object-fit: cover;
-    border: 1px solid var(--sp-line); border-radius: 6px; background: var(--sp-bg-soft);
-}
-#sod_fin .sod_name { overflow: hidden; overflow-wrap: anywhere; padding-top: 2px; font-weight: 600; line-height: 1.5; color: var(--sp-ink); }
+#sod_fin .tbl_head03 tbody td.text_right { text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+#sod_fin .sod_img { float: left; width: 74px; margin-right: 20px; }
+#sod_fin .sod_img img { display: block; width: 74px; height: 74px; object-fit: cover; border-radius: 4px; background: #f4f4f4; }
+#sod_fin .sod_name { overflow: hidden; overflow-wrap: anywhere; padding-top: 12px; font-weight: 500; line-height: 1.3; color: var(--acc-text, #141e34); }
 #sod_fin .sod_name a { color: inherit; }
-#sod_fin .sod_name .sod_opt { margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--sp-muted); }
-#sod_fin .td_dvr { color: var(--sp-muted); }
+#sod_fin .sod_name .sod_opt { margin-top: 10px; font-size: 14px; font-weight: 400; color: #484c52; }
+#sod_fin .td_dvr { color: var(--acc-text, #141e34); }
+/* 상품 표 상태 칸 — 시안 알약 모양(11px·4/8·둥근 37), 색은 단계별(사용자 결정 ⑤) */
+#sod_fin .sp_line_status { padding: 4px 8px; border-radius: 37px; font-size: 11px; font-weight: 500; line-height: 1.3; }
 
-/* 상태설명 토글 */
-#sod_fin #sod_sts_wrap { margin-top: 16px; }
-#sod_fin #sod_sts_explan {
-    display: none;
-    margin-top: 12px;
-    padding: 16px 18px;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg-soft);
+/* 주문 상품 아래 이어지는 기능 블록(진행 카드·제조 확인·A/S) — 같은 제목 양식(19px + 검정 룰) */
+#sod_fin #sod_fin_list #sp_progress_wrap,
+#sod_fin #sod_fin_list #sp_eq_wrap,
+#sod_fin #sod_fin_list #sp_as_wrap { margin: 40px 0 0; }
+#sod_fin #sod_fin_list #sp_progress_wrap.is-quiet { display: none; } /* auto 규칙으로 숨긴 진행 카드(⑩) */
+#sod_fin #sod_fin_list #sp_progress_wrap > h2,
+#sod_fin #sod_fin_list #sp_eq_wrap > h2,
+#sod_fin #sod_fin_list #sp_as_wrap > h2 {
+    margin: 0 0 16px; padding: 0 0 16px;
+    border-bottom: 1px solid var(--acc-ink, #0a151e);
+    font-size: 19px; font-weight: 600; color: var(--acc-ink, #0a151e);
 }
-#sod_fin #sod_fin_legend { margin: 0; }
-#sod_fin #sod_fin_legend dt { margin-top: 10px; font-weight: 700; color: var(--sp-ink); }
-#sod_fin #sod_fin_legend dt:first-child { margin-top: 0; }
-#sod_fin #sod_fin_legend dd { margin: 2px 0 0; font-size: 13px; color: var(--sp-muted); }
 
-/* ==== 좌측 정보 테이블 (.tbl_head01 — 주문자·받는분·배송) ==== */
-#sod_fin .tbl_head01 table { width: 100%; border-collapse: collapse; }
-#sod_fin .tbl_head01 tr { border-bottom: 1px solid var(--sp-line); }
-#sod_fin .tbl_head01 tr:last-child { border-bottom: 0; }
-#sod_fin .tbl_head01 th {
-    width: 96px;
-    padding: 11px 0;
-    text-align: left;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--sp-muted);
-    vertical-align: top;
-    white-space: nowrap;
+/* ==== 정보 격자(배송지정보·결제정보) — 2열, 라벨 90px #666 15px / 값 14px Medium #141e34, 행 52px ==== */
+#sod_fin .sp-od-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+#sod_fin .sp-od-cell {
+    display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 0 8px;
+    min-height: 52px; padding: 12px 10px; border-bottom: 1px solid var(--od-rule); font-size: 14px;
 }
-#sod_fin .tbl_head01 td { padding: 11px 0; font-size: 14px; color: var(--sp-ink); word-break: break-all; }
-#sod_fin .tbl_head01 .empty_table { color: var(--sp-muted); }
+#sod_fin .sp-od-cell--r { border-left: 1px solid var(--od-rule); }
+#sod_fin .sp-od-cell--full { grid-column: 1 / -1; border-left: 0; }
+#sod_fin .sp-od-cell--pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; padding: 0 10px; }
+#sod_fin .sp-od-half { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 0 8px; align-self: stretch; padding: 12px 0; }
+#sod_fin .sp-od-half + .sp-od-half { border-left: 1px solid var(--od-rule); padding-left: 10px; }
+#sod_fin .sp-od-k { font-size: 15px; color: var(--acc-muted, #666); white-space: nowrap; }
+#sod_fin .sp-od-v { font-weight: 500; color: var(--acc-text, #141e34); overflow-wrap: anywhere; }
+#sod_fin .sp-od-v--strong { font-weight: 700; }
+#sod_fin .sp-od-v a { color: var(--acc-primary, #1e64fd); }
+#sod_fin .sp-od-v .btn_frmline { margin-left: 6px; }
+#sod_fin .sp-od-dim { margin-left: 6px; font-style: normal; font-weight: 400; color: var(--acc-muted, #666); }
+#sod_fin .sp-od-cell--blank { min-height: 52px; }
 
-/* ==== 우측: 합계 요약 (#sod_bsk_tot2) ==== */
-#sod_fin #sod_bsk_tot2 {
-    margin: 0;
-    padding: 20px 24px;
-    list-style: none;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg);
-}
-#sod_fin #sod_bsk_tot2 li {
-    display: flex; align-items: baseline; margin: 0 0 10px;
-    font-size: 14px; color: var(--sp-ink);
-}
-#sod_fin #sod_bsk_tot2 li span { flex: 1 1 auto; color: var(--sp-muted); }
-#sod_fin #sod_bsk_tot2 li strong { font-weight: 600; font-variant-numeric: tabular-nums; }
-#sod_fin #sod_bsk_tot2 .sod_bsk_cnt {
-    margin: 12px 0 0; padding-top: 14px;
-    border-top: 1px solid var(--sp-line); font-size: 15px;
-}
-#sod_fin #sod_bsk_tot2 .sod_bsk_cnt span { color: var(--sp-ink); font-weight: 600; }
-#sod_fin #sod_bsk_tot2 .sod_bsk_cnt strong { font-weight: 700; }
-#sod_fin #sod_bsk_tot2 .sod_fin_tot {
-    margin-top: 10px; padding-top: 12px;
-    border-top: 1px dashed var(--sp-line);
-}
-#sod_fin #sod_bsk_tot2 .sod_fin_tot span { color: var(--sp-ink); font-weight: 600; }
-#sod_fin #sod_bsk_tot2 .sod_fin_tot strong {
-    font-size: 17px; font-weight: 800; color: var(--sp-primary);
-    letter-spacing: -.02em;
-}
-#sod_fin #sod_bsk_tot2 #alrdy { flex-wrap: wrap; }
-#sod_fin #sod_bsk_tot2 #alrdy > div { flex: 1 1 100%; margin-top: 6px; }
-#sod_fin #sod_bsk_tot2 #alrdy > div p {
-    display: flex; justify-content: space-between; margin: 3px 0;
-    font-size: 12px; color: var(--sp-muted);
-}
+/* ==== 주문금액 박스(검정 테두리 522px) ==== */
+#sod_fin .sp-od-total { max-width: 522px; margin-top: 16px; padding: 24px 20px; border: 1px solid var(--acc-ink, #0a151e); border-radius: 10px; }
+#sod_fin #sod_bsk_tot2 { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 15px; }
+#sod_fin #sod_bsk_tot2 li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0; color: var(--acc-text, #141e34); }
+#sod_fin #sod_bsk_tot2 li > span { flex: 1 1 auto; font-size: 18px; font-weight: 600; color: var(--acc-text, #141e34); }
+#sod_fin #sod_bsk_tot2 li > strong { font-size: 20px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#sod_fin #sod_bsk_tot2 .sod_bsk_sub { display: block; padding-bottom: 16px; border-bottom: 1px solid var(--od-rule); }
+#sod_fin #sod_bsk_tot2 .sod_bsk_sub > ul { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--od-rule); display: flex; flex-direction: column; gap: 2px; }
+#sod_fin #sod_bsk_tot2 .sod_bsk_sub li > span { font-size: 15px; font-weight: 500; }
+#sod_fin #sod_bsk_tot2 .sod_bsk_sub li > strong { font-size: 18px; }
+#sod_fin #sod_bsk_tot2 .sod_bsk_sub .sod_bsk_dvr > span { font-weight: 400; color: var(--acc-muted, #666); }
+#sod_fin #sod_bsk_tot2 .sod_bsk_sub .sod_bsk_dvr > strong { font-size: 15px; font-weight: 600; color: var(--acc-muted, #666); }
+#sod_fin #sod_bsk_tot2 .sod_fin_tot { padding-bottom: 14px; border-bottom: 1px solid var(--od-rule); }
+#sod_fin #sod_bsk_tot2 .sod_fin_tot > strong { font-weight: 800; color: var(--acc-primary, #1e64fd); }
+#sod_fin #sod_bsk_tot2 .sod_fin_misu > strong { color: #d64545; }
+#sod_fin #sod_bsk_tot2 #alrdy { flex-wrap: wrap; padding-bottom: 0; border-bottom: 0; }
+#sod_fin #sod_bsk_tot2 #alrdy > div { flex: 1 1 100%; margin-top: 4px; }
+#sod_fin #sod_bsk_tot2 #alrdy > div p { display: flex; justify-content: space-between; margin: 2px 0; font-size: 13px; color: var(--acc-muted, #666); }
 #sod_fin #sod_bsk_tot2 #alrdy > div p .title { font-weight: 500; }
 
-/* ==== 우측: 결제정보 (#sod_fin_pay) ==== */
-#sod_fin #sod_fin_pay ul { margin: 0; padding: 0; list-style: none; }
-#sod_fin #sod_fin_pay li {
-    display: flex; gap: 12px; padding: 9px 0;
-    border-bottom: 1px solid var(--sp-line); font-size: 13px;
+/* 주문 취소 — 박스 아래 텍스트 버튼(시안에 없는 기능, 자리만 정함) */
+#sod_fin #sod_fin_cancel { max-width: 522px; margin-top: 14px; }
+#sod_fin #sod_fin_cancel .sod_fin_c_btn {
+    padding: 0; border: 0; background: none; cursor: pointer;
+    font-size: 13px; color: var(--acc-muted, #666); text-decoration: underline; text-underline-offset: 3px;
 }
-#sod_fin #sod_fin_pay li:last-child { border-bottom: 0; }
-#sod_fin #sod_fin_pay li strong { flex: 0 0 76px; font-weight: 500; color: var(--sp-muted); }
-#sod_fin #sod_fin_pay li span { flex: 1 1 auto; text-align: right; color: var(--sp-ink); word-break: break-all; }
-#sod_fin #sod_fin_pay li span a { color: var(--sp-primary); }
+#sod_fin #sod_fin_cancel .sod_fin_c_btn:hover { color: #d64545; }
+#sod_fin #sod_fin_cancel > p { margin: 0; font-size: 13px; color: var(--acc-muted, #666); }
 
-/* ==== 공용 버튼 (.btn_frmline) ==== */
+/* ==== 공용 버튼 (.btn_frmline — 현금영수증 링크 등) ==== */
 #sod_fin .btn_frmline {
     display: inline-flex; align-items: center; justify-content: center;
-    min-height: 36px; padding: 0 16px;
-    border: 1px solid var(--sp-line); border-radius: var(--sp-radius);
-    background: #fff; color: var(--sp-ink);
-    font-size: 13px; font-weight: 600; cursor: pointer;
+    min-height: 30px; padding: 0 12px;
+    border: 1px solid var(--acc-line, #d9d9d9); border-radius: 6px;
+    background: #fff; color: var(--acc-text, #141e34);
+    font-size: 12px; font-weight: 500; cursor: pointer; text-decoration: none;
     transition: border-color .15s, color .15s;
 }
-#sod_fin .btn_frmline:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
+#sod_fin .btn_frmline:hover { border-color: var(--acc-primary, #1e64fd); color: var(--acc-primary, #1e64fd); }
 
-/* ==== 우측: 주문취소 (#sod_fin_cancel + 모달) ==== */
-#sod_fin #sod_fin_cancel .sod_fin_c_btn {
-    width: 100%; min-height: 44px;
-    border: 1px solid var(--sp-line); border-radius: var(--sp-radius);
-    background: #fff; color: var(--sp-muted);
-    font-size: 14px; font-weight: 600; cursor: pointer;
-    transition: border-color .15s, color .15s;
-}
-#sod_fin #sod_fin_cancel .sod_fin_c_btn:hover { border-color: #dc2626; color: #dc2626; }
-#sod_fin #sod_fin_cancel > p { margin: 0; font-size: 13px; color: var(--sp-muted); }
-
+/* ==== 주문취소 모달(#sod_cancel_pop — body 로 옮겨지므로 #sod_fin 밖) ==== */
 #sod_cancel_pop { display: none; position: fixed; inset: 0; z-index: 1000; }
 #sod_cancel_pop .sod_fin_bg { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
 #sod_cancel_pop #sod_fin_cancelfrm {
@@ -2102,11 +2028,11 @@
     color: var(--sp-muted); font-size: 16px; cursor: pointer;
 }
 
-/* --- 무통장 입금 안내(주문 직후 도착 화면 상단) --- */
+/* --- 무통장 입금 안내(주문 직후 도착 화면 — 머리줄 아래·스텝퍼 위) --- */
 .sp-deposit-notice {
     padding: 18px 24px;
     border: 1px solid #fbbf24;
-    border-radius: var(--sp-radius);
+    border-radius: 10px;
     background: #fffbeb;
 }
 .sp-deposit-notice__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
@@ -2127,37 +2053,41 @@
 }
 .sp-deposit-notice__copy:hover { background: #fef3c7; }
 .sp-deposit-notice__note { margin: 12px 0 0; font-size: 13px; color: #a16207; }
+/* 입금 안내가 머리줄 바로 아래 오면 40px 간격이 과하다 */
+#sod_fin > #sod_fin_no + .sp-deposit-notice { margin-top: -16px; }
 
-/* --- 상세 반응형 --- */
+/* --- 상세 반응형 — 시안은 1920 한 장이라 아래 규칙은 이쪽 판단(08-25) --- */
 @media (max-width: 960px) {
-    #sod_fin {
-        grid-template-columns: minmax(0, 1fr);
-        grid-template-areas:
-            "no"
-            "notice"
-            "prd"
-            "left"
-            "right";
-    }
-    #sod_fin .sod_right { position: static; }
+    #sod_fin .sp-od-total, #sod_fin #sod_fin_cancel { max-width: none; }
 }
-
 @media (max-width: 640px) {
-    #sod_fin { gap: 16px; }
-    #sod_fin section { padding: 18px 16px; }
-    #sod_fin_no { padding: 16px; }
-
-    #sod_fin .tbl_head01 table,
-    #sod_fin .tbl_head01 tbody,
-    #sod_fin .tbl_head01 tr,
-    #sod_fin .tbl_head01 th,
-    #sod_fin .tbl_head01 td { display: block; width: auto; }
-    #sod_fin .tbl_head01 tr { padding: 10px 0; }
-    #sod_fin .tbl_head01 th { padding: 0 0 4px; }
-    #sod_fin .tbl_head01 td { padding: 0; }
-
-    #sod_fin .tbl_head03 table { min-width: 560px; }
+    #sod_fin { gap: 28px; }
+    #sod_fin_no { padding: 12px 4px; gap: 4px 18px; }
+    #sod_fin section > h2 { padding-bottom: 12px; font-size: 17px; }
+    /* 스텝퍼: 8칸×90 은 375px 에 안 들어간다 — 가로 스크롤(사용자 결정 ④) */
+    #sod_fin .sp-steps { overflow-x: auto; justify-content: flex-start; padding-bottom: 4px; }
+    #sod_fin .sp-steps__item { flex: 0 0 auto; width: 64px; }
+    #sod_fin .sp-steps__dot { font-size: 11px; }
+    #sod_fin #sod_fin_legend { grid-template-columns: 1fr; gap: 2px 0; }
+    #sod_fin #sod_fin_legend dd { margin-bottom: 6px; }
+    /* 격자 → 1열 */
+    #sod_fin .sp-od-grid { grid-template-columns: minmax(0, 1fr); }
+    #sod_fin .sp-od-cell--r { border-left: 0; }
+    #sod_fin .sp-od-cell--blank { display: none; }
+    #sod_fin .sp-od-cell--pair { grid-template-columns: minmax(0, 1fr); }
+    #sod_fin .sp-od-half + .sp-od-half { border-left: 0; padding-left: 0; border-top: 1px dashed var(--od-rule); }
+    #sod_fin .sp-od-cell, #sod_fin .sp-od-cell--pair { padding-left: 4px; padding-right: 4px; }
+    /* 상품 표는 가로 스크롤 */
+    #sod_fin .tbl_head03 table { min-width: 620px; }
+    #sod_fin .tbl_head03 thead th, #sod_fin .tbl_head03 tbody td { padding: 12px 6px; }
+    #sod_fin .sod_img { width: 56px; margin-right: 12px; }
+    #sod_fin .sod_img img { width: 56px; height: 56px; }
+    #sod_fin .sod_name { padding-top: 4px; }
+    #sod_fin .sp-od-total { padding: 18px 16px; }
+    #sod_fin #sod_bsk_tot2 li > span { font-size: 16px; }
+    #sod_fin #sod_bsk_tot2 li > strong { font-size: 18px; }
 }
+
 
 /* ==========================================================================
    계정 사이드바 + 대시보드 (좌: 공용 사이드바 .smb_nav / 우: 페이지 콘텐츠)
@@ -2751,24 +2681,6 @@
 #sod_fin .sp_stage_packing  { background: #d1fae5; color: #047857; }
 #sod_fin .sp_stage_inbound  { background: #e0f2fe; color: #0369a1; }
 
-/* 주문 진행 스텝퍼(Figma 103:4561 골격) — 원형 칸 + 꺾쇠, 현재 칸은 짙은 색 */
-#sod_fin .sp-steps-wrap { margin: 16px 0 22px; }
-/* 칸은 가용 폭에 맞춰 줄어든다(8칸이 한 줄에 들어가야 한다) — aspect-ratio 로 원형 유지 */
-#sod_fin .sp-steps { display: flex; align-items: center; gap: 4px; list-style: none; margin: 0; padding: 4px 0; }
-#sod_fin .sp-steps__item { flex: 1 1 0; min-width: 0; max-width: 84px; }
-#sod_fin .sp-steps__dot { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1 / 1; box-sizing: border-box; border-radius: 50%; background: #f3f4f6; color: #9ca3af; font-size: 12px; font-weight: 600; text-align: center; line-height: 1.25; padding: 0 4px; word-break: keep-all; }
-#sod_fin .sp-steps__item.is-done .sp-steps__dot { background: #e5e7eb; color: #374151; }
-#sod_fin .sp-steps__item.is-current .sp-steps__dot { background: #111827; color: #fff; font-weight: 700; box-shadow: 0 0 0 3px #e5e7eb; }
-#sod_fin .sp-steps__sep { flex: 0 0 auto; color: #d1d5db; font-size: 22px; line-height: 1; }
-#sod_fin .sp-steps__note { margin: 6px 0 0; font-size: 0.875em; color: #6b7280; }
-#sod_fin .sp-steps__cancel { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
-@media (max-width: 640px) {
-    #sod_fin .sp-steps { overflow-x: auto; }
-    #sod_fin .sp-steps__item { flex: 0 0 auto; width: 60px; }
-    #sod_fin .sp-steps__dot { font-size: 11px; }
-}
-/* 상품 표 상태 칸 — 목록과 같은 배지(폭이 좁아 여백만 줄인다) */
-#sod_fin .sp_line_status { padding: 2px 8px; font-size: 0.833em; }
 #sod_fin .sp_eq_no   { background: #fee2e2; color: #b91c1c; }
 #sod_fin .sp_eq_off  { background: #f3f4f6; color: #6b7280; }
 

@@ -42,6 +42,8 @@ const FORCE_TARGETS = [
   '주문', '입금', '준비', '가격확인', '파일검사', 'EQ', '생산시작', '생산중', '품질시험', '생산완료', 'A/S', '배송', '완료',
 ] as const;
 const CANCEL_TARGETS = ['취소', '반품', '품절'] as const;
+/** 모바일 폭 사진을 남길 관측점 — 미입금(입금 안내)·제작 중(카드)·부분 취소·BOM 입금. */
+const MOBILE_SHOT_TAGS = new Set(['pcb-od-1-주문', 'pcb-po-producing', 'pcb-od-cancel-partial', 'bom-od-2-입금']);
 const PCB_QUEUE_TABS = ['awaiting', 'active', 'done', 'canceled', 'all', 'to_ship', 'shipping'] as const;
 /** 계약 PCB_PO_STATUS_LABELS.eq 사본(관리자 Case 화면이 찍는 라벨) — 화면 텍스트 매칭용. */
 const PO_LABELS: Record<string, string> = {
@@ -260,7 +262,7 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — 관리자 상태 ↔ 고�
         name: ((tr.querySelector('.sod_name') as HTMLElement | null)?.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40),
         status: ((tr.querySelector('td[headers="th_itst"]') as HTMLElement | null)?.textContent ?? '').trim(),
       }));
-      const badges = [...document.querySelectorAll('#sp_progress_wrap .sp_eq_badge')] as HTMLElement[];
+      const badges = [...document.querySelectorAll('#sp_progress_wrap:not(.is-quiet) .sp_eq_badge')] as HTMLElement[];
       const text = document.body.innerText;
       // 스텝퍼(08-25 신설) — 현재 칸(취소면 취소 배지) + 위치.
       const cur = document.querySelector('.sp-steps__item.is-current .sp-steps__dot')?.textContent?.trim()
@@ -279,6 +281,26 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — 관리자 상태 ↔ 고�
       };
     });
     await shot(page, `${tag}-customer-detail`);
+    // 단계 설명(옛 상태설명 재배치) 펼친 화면 — 아래 ⑩ 변형의 주입 CSS 가 섞이지 않게 먼저 찍는다.
+    const help = MOBILE_SHOT_TAGS.has(tag) ? await page.$('#sod_sts_explan_open') : null;
+    if (help !== null) {
+      await help.click();
+      await page.waitForTimeout(400);
+      await shot(page, `${tag}-customer-detail-legend`);
+    }
+    // ⑩ 비교용(08-25) — 카드가 auto 규칙으로 숨은 화면이면 '항상 표시' 변형도 한 장.
+    if ((await page.$('#sp_progress_wrap.is-quiet')) !== null) {
+      await page.addStyleTag({ content: '#sod_fin #sp_progress_wrap.is-quiet{display:block !important}' });
+      await shot(page, `${tag}-customer-detail-card-always`);
+    }
+    // 모바일 폭(시안은 1920 한 장 — 좁은 폭 규칙은 이쪽 판단이라 사진으로 남긴다)
+    if (MOBILE_SHOT_TAGS.has(tag)) {
+      const vp = page.viewportSize();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await shot(page, `${tag}-customer-detail-mobile`);
+      if (vp !== null) await page.setViewportSize(vp);
+    }
     return { ...list, ...detail };
   };
 
