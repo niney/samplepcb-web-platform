@@ -35,7 +35,12 @@ function onChange(event: Event): void {
     <img
       :src="checkedIcon"
       alt=""
-      class="pointer-events-none absolute inset-0 size-full rounded-[2px] opacity-0 transition-opacity peer-checked:opacity-100 peer-disabled:opacity-50"
+      class="pointer-events-none absolute inset-0 size-full rounded-[2px] transition-opacity"
+      :class="{
+        'opacity-0': !checked,
+        'opacity-50': checked && disabled,
+        'opacity-100': checked && !disabled,
+      }"
     >
   </label>
 </template>

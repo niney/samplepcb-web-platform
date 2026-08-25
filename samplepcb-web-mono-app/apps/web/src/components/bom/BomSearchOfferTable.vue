@@ -56,12 +56,15 @@ function rowKey(part: BomPartHitType, offer: BomPartOfferOptionType): string {
 
 const allRows = computed<SearchOfferRow[]>(() => props.items.flatMap((part) =>
   part.offerOptions.map((offer) => ({ key: rowKey(part, offer), part, offer }))));
-const pricedRows = computed(() => allRows.value.filter((row) =>
-  row.offer.offerKind === 'supplier_offer' && pickFor(row) !== null));
+// 공급사 검색 결과와 지금 바로 계산·선택 가능한 구매 조건은 같은 개념이 아니다.
+// 가격이 없는 단종·재고 없음 결과도 검색 사실을 숨기지 않고 행으로 보여주되,
+// applyQtyToOffer 를 통과한 구매 조건만 선택할 수 있게 한다.
+const supplierRows = computed(() => allRows.value.filter((row) =>
+  row.offer.offerKind === 'supplier_offer' && row.offer.supplier !== 'partner'));
 const inquiryRows = computed(() => allRows.value.filter((row) =>
   row.offer.offerKind === 'manufacturer_catalog'));
-const pricedSupplierCount = computed(() => new Set(
-  pricedRows.value.map((row) => row.offer.supplier),
+const supplierCount = computed(() => new Set(
+  supplierRows.value.map((row) => row.offer.supplier),
 ).size);
 
 const quantities = ref<Record<string, number>>({});
@@ -120,6 +123,10 @@ function pickFor(row: SearchOfferRow): OfferPick | null {
   return applyQtyToOffer(toOfferInput(row.offer), requiredQuantityFor(row), props.usdKrwRate);
 }
 
+function canSelect(row: SearchOfferRow): boolean {
+  return row.offer.offerKind === 'manufacturer_catalog' || pickFor(row) !== null;
+}
+
 function displayPrice(row: SearchOfferRow): { amount: string; unit: string; title: string } | null {
   const pick = pickFor(row);
   if (pick === null) return null;
@@ -146,18 +153,21 @@ function supplierDetail(row: SearchOfferRow): string {
 }
 
 function stockText(row: SearchOfferRow): string {
-  return row.offer.stock === null
-    ? '재고 확인 필요'
-    : `재고 ${row.offer.stock.toLocaleString('ko-KR')}개`;
+  if (row.offer.stock === null) return '재고 확인 필요';
+  if (row.offer.stock === 0) return '재고 없음';
+  return `재고 ${row.offer.stock.toLocaleString('ko-KR')}개`;
 }
 
 function stockClass(row: SearchOfferRow): string {
   if (row.offer.stock === null) return 'text-ink-muted';
+  if (row.offer.stock === 0) return 'text-state-danger';
   return pickFor(row)?.stockShort === true ? 'text-state-review' : 'text-state-matched';
 }
 
 function orderCondition(row: SearchOfferRow, inquiry = false): string {
-  const moq = row.offer.moq === null ? '—' : row.offer.moq.toLocaleString('ko-KR');
+  const moq = row.offer.moq === null || row.offer.moq <= 0
+    ? '확인 필요'
+    : row.offer.moq.toLocaleString('ko-KR');
   const leadTime = row.offer.leadTime?.trim();
   return `MOQ ${moq}, ${leadTime === undefined || leadTime === '' ? (inquiry ? '납기 협의' : '납기 확인') : leadTime}`;
 }
@@ -167,6 +177,7 @@ function isSelected(row: SearchOfferRow): boolean {
 }
 
 function add(row: SearchOfferRow): void {
+  if (!canSelect(row)) return;
   const selection = bomOfferSelection(row.offer);
   emit('add', {
     partId: row.part.id,
@@ -176,6 +187,7 @@ function add(row: SearchOfferRow): void {
 }
 
 function toggleSelection(row: SearchOfferRow): void {
+  if (!canSelect(row)) return;
   if (isSelected(row)) {
     emit('remove', row.part.id, selectionKey(row.part, row.offer));
     return;
@@ -185,6 +197,7 @@ function toggleSelection(row: SearchOfferRow): void {
 
 function actionLabel(row: SearchOfferRow, inquiry = false): string {
   if (props.pendingKey === row.key) return '처리 중…';
+  if (!inquiry && !canSelect(row)) return props.actionContext === 'quote' ? '추가 불가' : '담기 불가';
   if (isSelected(row)) return props.actionContext === 'quote' ? '추가됨' : '적용';
   if (props.cartPartIds.has(row.part.id)) return '변경';
   if (props.actionContext === 'quote') return 'BOM 추가';
@@ -277,8 +290,8 @@ function partnerActionLabel(part: BomPartHitType): string {
     <section class="overflow-hidden rounded-[10px] border border-line-search-strong bg-search-row">
       <div class="flex h-[40px] items-center border-b border-line-search-strong bg-search-section px-[14px]">
         <h3 class="text-[13px] font-medium leading-[16px] text-ink-neutral">
-          가격 재고 확인됨
-          <strong class="font-bold text-brand-soft">({{ pricedSupplierCount.toLocaleString('ko-KR') }}업체)</strong>
+          공급사 검색 결과
+          <strong class="font-bold text-brand-soft">({{ supplierCount.toLocaleString('ko-KR') }}업체)</strong>
         </h3>
       </div>
       <div class="overflow-x-auto">
@@ -307,15 +320,15 @@ function partnerActionLabel(part: BomPartHitType): string {
           </thead>
           <tbody>
             <tr
-              v-for="row in pricedRows"
+              v-for="row in supplierRows"
               :key="row.key"
               class="h-[94px] border-b border-line-soft bg-search-row align-middle last:border-b-0"
             >
               <td class="px-[14px] text-center">
                 <BomSearchCheckbox
                   :checked="isSelected(row)"
-                  :disabled="pendingKey !== null || cartBusy"
-                  :label="`${row.part.mpn} ${supplierName(row.offer.supplier)} 구매 조건 선택`"
+                  :disabled="pendingKey !== null || cartBusy || !canSelect(row)"
+                  :label="canSelect(row) ? `${row.part.mpn} ${supplierName(row.offer.supplier)} 구매 조건 선택` : `${row.part.mpn} ${supplierName(row.offer.supplier)} 가격 확인 필요`"
                   @change="toggleSelection(row)"
                 />
               </td>
@@ -340,7 +353,7 @@ function partnerActionLabel(part: BomPartHitType): string {
                   <strong class="text-[20px] font-bold leading-[16px] tabular-nums">{{ displayPrice(row)?.amount }}</strong>
                   <span class="ml-[3px] text-[14px] font-normal leading-[16px]">{{ displayPrice(row)?.unit }}</span>
                 </p>
-                <span v-else class="text-[12px] text-ink-subtle">—</span>
+                <span v-else class="text-[12px] font-medium text-state-review">가격 확인 필요</span>
               </td>
               <td class="px-[8px] text-[14px] font-normal leading-[20px]" :class="stockClass(row)">
                 {{ stockText(row) }}
@@ -356,7 +369,8 @@ function partnerActionLabel(part: BomPartHitType): string {
                   pattern="[0-9]*"
                   autocomplete="off"
                   spellcheck="false"
-                  class="mx-auto block h-[38px] w-[90px] rounded-[6px] border border-line-strong bg-search-input text-center font-sans text-[16px] font-bold tabular-nums text-ink-strong outline-none focus:border-brand-soft"
+                  :disabled="!canSelect(row)"
+                  class="mx-auto block h-[38px] w-[90px] rounded-[6px] border border-line-strong bg-search-input text-center font-sans text-[16px] font-bold tabular-nums text-ink-strong outline-none focus:border-brand-soft disabled:cursor-not-allowed disabled:opacity-45"
                   :aria-label="actionContext === 'quote' ? 'BOM 수량' : '담을 수량'"
                   @input="setTextQuantity(row, $event)"
                   @blur="restoreQuantity(row, $event)"
@@ -366,17 +380,18 @@ function partnerActionLabel(part: BomPartHitType): string {
                 <button
                   type="button"
                   class="h-[24px] min-w-[70px] rounded-[4px] bg-search-apply px-[8px] font-sans text-[13px] font-medium text-white transition hover:opacity-85 disabled:cursor-wait disabled:opacity-50"
-                  :disabled="pendingKey !== null || cartBusy"
+                  :disabled="pendingKey !== null || cartBusy || !canSelect(row)"
+                  :title="canSelect(row) ? undefined : '가격이 확인되지 않아 견적 바구니에 담을 수 없습니다.'"
                   @click="add(row)"
                 >
                   {{ actionLabel(row) }}
                 </button>
               </td>
             </tr>
-            <tr v-if="pricedRows.length === 0 && supplierSearchState === 'complete'">
-              <td colspan="8" class="h-[94px] px-4 text-center text-[12px] text-ink-subtle">가격과 재고가 확인된 공급사 구매 조건이 없습니다.</td>
+            <tr v-if="supplierRows.length === 0 && supplierSearchState === 'complete'">
+              <td colspan="8" class="h-[94px] px-4 text-center text-[12px] text-ink-subtle">검색된 공급사 구매 조건이 없습니다.</td>
             </tr>
-            <tr v-else-if="pricedRows.length === 0 && supplierSearchState === 'failed'">
+            <tr v-else-if="supplierRows.length === 0 && supplierSearchState === 'failed'">
               <td colspan="8" class="h-[94px] px-4 text-center text-[12px] text-state-danger">공급사 검색을 완료하지 못했습니다. 상단에서 다시 검색해 주세요.</td>
             </tr>
           </tbody>

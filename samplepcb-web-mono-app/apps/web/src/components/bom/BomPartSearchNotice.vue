@@ -84,7 +84,7 @@ function requestSupplement(automatic = false): void {
       공급사 검색 중…
     </span>
     <span v-else-if="supplement.isError.value" class="max-w-[300px] truncate text-state-danger" :title="errorMessage">{{ errorMessage }}</span>
-    <span v-else-if="supplement.isSuccess.value" class="whitespace-nowrap text-ink-subtle">공급사 {{ supplement.data.value?.data.total ?? 0 }}개 확인</span>
+    <span v-else-if="supplement.isSuccess.value" class="whitespace-nowrap text-ink-subtle">공급사 후보 {{ supplement.data.value?.data.total ?? 0 }}개 확인</span>
     <button
       v-if="canSupplement && (!auto || supplement.isSuccess.value || supplement.isError.value)"
       type="button"
