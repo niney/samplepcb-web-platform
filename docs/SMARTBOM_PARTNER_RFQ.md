@@ -1307,6 +1307,11 @@ D35의 단일 Case 삭제 규칙을 진행현황 목록의 혼합 선택으로 �
   `GET|POST /bom/quotes/:quoteId/claims`, 관리자 `/app/admin/smartbom/claims` 및
   `GET /admin/bom-claims`, `GET|PATCH /admin/bom-claims/:id`를 추가한다. 사이드바 `완료·클레임`
   배지는 새 접수+검토 중 합계이며 Case로 왕복할 수 있다.
+- **마이페이지 진입점(2026-08-25)**: sp-php `/shop/as`(문의 > A/S 접수)의 **부품 BOM 탭**이
+  `GET /api/bom/claims/mine?scope=open|all`(접수할 주문 = 최근 50 배송·완료 주문행 중 견적
+  있고 진행 중 접수 없는 것 + 내 접수 내역 + openCount)을 소비한다. 접수 폼은 여전히
+  `/app/bom/:id` 한 곳이라 행은 그리로 보낸다. PCB 탭과 사전을 공유하지 않는다(브리지
+  `extend/sp_bom_claim.extend.php` 별도). 정본: docs/PCB_PARTNER_TRACK.md P5-b.
 - **DB**: add-only migration `20260811110000_add_bom_claim_workflow`이 `sp_bom_claim`,
   `sp_bom_claim_item`, `sp_bom_claim_event`를 추가한다. 영카트 `g5_*` 변경은 없고 기존
   `getOrderInfoByCtId` 접근 카탈로그만 재사용한다.

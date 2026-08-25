@@ -200,6 +200,40 @@ export const CustomerPcbClaimListResponse = z.object({
 });
 export type CustomerPcbClaimListResponseType = z.infer<typeof CustomerPcbClaimListResponse>;
 
+// ── 고객: 주문을 가로지르는 "내 A/S"(마이페이지 /shop/as) ───────────────────
+// 위 목록은 주문 하나(odId)의 스펙별 뷰다. 이쪽은 **회원 전체**를 본다 — 접수할 수 있는
+// 배송 완료 주문과 이미 낸 접수 내역을 한 화면에 세워, 고객이 주문을 하나씩 열어보지
+// 않고도 "낼 수 있는 것·낸 것"을 알게 한다. 접수 폼은 여기 없다(주문 상세 한 곳).
+export const CustomerPcbClaimMineQuery = z.object({
+  /** open=진행 중(open|reviewing)만(기본) · all=종결 포함. openCount 는 언제나 진행 중. */
+  scope: z.enum(['open', 'all']).default('open'),
+});
+export type CustomerPcbClaimMineQueryType = z.infer<typeof CustomerPcbClaimMineQuery>;
+
+/** 접수할 주문 — 배송·완료 주문행 중 스펙이 있고 진행 중 접수가 없는 것. */
+export const CustomerPcbClaimableRow = z.object({
+  specId: z.string(),
+  ctId: z.number().int(),
+  odId: z.string(),
+  projectName: z.string(),
+  qty: z.number().int(),
+  /** 주문 시각(od_time) — 목록 정렬·표기용. */
+  orderedAt: z.string(),
+});
+export type CustomerPcbClaimableRowType = z.infer<typeof CustomerPcbClaimableRow>;
+
+export const CustomerPcbClaimMineResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    claimable: z.array(CustomerPcbClaimableRow),
+    /** 후보를 최근 주문행 N건에서만 골랐다 — 그보다 오래된 주문은 주문내역에서 찾게 안내. */
+    claimableTruncated: z.boolean(),
+    claims: z.array(PcbClaimView),
+    openCount: z.number().int(),
+  }),
+});
+export type CustomerPcbClaimMineResponseType = z.infer<typeof CustomerPcbClaimMineResponse>;
+
 /** 고객 접수 — multipart(사진 동반 1회 제출)라 필드는 서버가 문자열로 받아 검증한다. */
 export const PcbClaimCreateFields = z.object({
   specId: z.coerce.bigint(),

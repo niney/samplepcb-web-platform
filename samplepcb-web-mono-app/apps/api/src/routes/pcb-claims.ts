@@ -3,14 +3,22 @@ import { z } from 'zod';
 import {
   ApiError,
   CustomerPcbClaimListResponse,
+  CustomerPcbClaimMineQuery,
+  CustomerPcbClaimMineResponse,
   PCB_CLAIM_ELIGIBILITY_LABELS,
   PCB_CLAIM_KIND_LABELS,
   PcbClaimCreateFields,
   PcbClaimCreateResponse,
   type CustomerPcbClaimSpecViewType,
+  type CustomerPcbClaimableRowType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
-import { getCartRowsByOdId, getOrderInfoByCtId, getOrdererContactByOdId } from '../lib/g5-db';
+import {
+  getCartRowsByOdId,
+  getDeliveredCartRowsByMember,
+  getOrderInfoByCtId,
+  getOrdererContactByOdId,
+} from '../lib/g5-db';
 import {
   createPcbClaim,
   isPcbClaimActive,
@@ -29,6 +37,13 @@ import { buildPcbClaimReceivedEmail, sendPcbMail } from '../lib/pcb-rfq-email';
 // collectMultipart 뒤 PcbClaimCreateFields 로 한다.
 
 const OdQuery = z.object({ odId: z.string().min(1) });
+
+/** "접수할 주문" 후보로 훑는 최근 배송·완료 주문행 수 — 회원 한 명이 4천 행을 넘는 경우가
+ *  실재해(레거시 이관분) 전량 판정은 목록의 일이 아니다. 밖의 주문은 주문내역에서 연다. */
+const CLAIMABLE_SCAN_LIMIT = 50;
+/** 내 접수 내역 상한 — EQ 목록(listMyEqReviews)과 같은 관례. */
+const MY_CLAIMS_TAKE = 200;
+const ACTIVE_STATUSES = ['open', 'reviewing'] as const;
 
 const CREATE_ERROR_MESSAGES: Record<string, string> = {
   ...PCB_CLAIM_ELIGIBILITY_LABELS,
@@ -79,6 +94,74 @@ export const pcbClaimRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         });
       }
       return { result: true as const, data: { specs: out } };
+    },
+  );
+
+  // ── GET /pcb-claims/mine — 주문을 가로지르는 내 A/S(마이페이지 /shop/as) ──────
+  // 소비처는 sp-php `spcb/pages/as.php`. 접수 폼은 여기 없다 — "접수할 주문" 행은 주문
+  // 상세의 A/S 섹션으로, 접수 내역 행은 그 클레임 앵커로 보낸다(폼 복제 금지, EQ 와 같은
+  // 원칙). 판정은 셋뿐이다: 배송·완료(g5 가 이미 걸러 줌) · 스펙 있음 · 진행 중 접수 없음.
+  fastify.get(
+    '/pcb-claims/mine',
+    {
+      schema: {
+        querystring: CustomerPcbClaimMineQuery,
+        response: { 200: CustomerPcbClaimMineResponse },
+      },
+    },
+    async (request) => {
+      const mbId = request.user.mbId;
+      const delivered = await getDeliveredCartRowsByMember(mbId, CLAIMABLE_SCAN_LIMIT);
+      const specs =
+        delivered.length === 0
+          ? []
+          : await prisma.spOrderSpec.findMany({
+              where: { mbId, ctId: { in: delivered.map((r) => r.ctId) } },
+              select: { id: true, ctId: true, projectName: true, qty: true },
+            });
+      const activeSpecIds = new Set(
+        (
+          await prisma.spPcbClaim.findMany({
+            where: { mbId, status: { in: [...ACTIVE_STATUSES] } },
+            select: { specId: true },
+          })
+        ).map((c) => c.specId.toString()),
+      );
+      // 배송 최근순은 g5 가 준 순서다 — 스펙 조회 결과(id 순)를 그 순서로 되돌린다.
+      const specByCt = new Map(specs.map((s) => [s.ctId, s]));
+      const claimable: CustomerPcbClaimableRowType[] = [];
+      for (const row of delivered) {
+        const spec = specByCt.get(row.ctId);
+        if (spec === undefined || spec.ctId === null) continue;
+        if (activeSpecIds.has(spec.id.toString())) continue;
+        claimable.push({
+          specId: String(spec.id),
+          ctId: spec.ctId,
+          odId: row.odId,
+          projectName: spec.projectName,
+          qty: spec.qty,
+          orderedAt: row.orderedAt,
+        });
+      }
+
+      const claims = await prisma.spPcbClaim.findMany({
+        where:
+          request.query.scope === 'open'
+            ? { mbId, status: { in: [...ACTIVE_STATUSES] } }
+            : { mbId },
+        include: pcbClaimInclude,
+        orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+        take: MY_CLAIMS_TAKE,
+      });
+      return {
+        result: true as const,
+        data: {
+          claimable,
+          claimableTruncated: delivered.length >= CLAIMABLE_SCAN_LIMIT,
+          claims: await serializePcbClaims(claims),
+          openCount: activeSpecIds.size,
+        },
+      };
     },
   );
 

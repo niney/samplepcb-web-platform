@@ -2587,7 +2587,8 @@
 #sod_fin .sp_eq_form { margin-top: 12px; }
 #sod_fin .sp_eq_note_label { display: block; font-size: 0.875em; font-weight: 700; color: #374151; }
 #sod_fin .sp_eq_note_label span { font-weight: 400; color: #9ca3af; }
-#sod_fin .sp_eq_form textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.958em; font-family: inherit; }
+#sod_fin .sp_eq_form textarea,
+#sod_fin .sp_as_form textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.958em; font-family: inherit; }
 #sod_fin .sp_eq_btns { display: flex; gap: 8px; margin-top: 10px; }
 #sod_fin .sp_eq_btns button { padding: 9px 20px; border: 0; border-radius: 6px; font-size: 0.958em; font-weight: 700; cursor: pointer; }
 #sod_fin .sp_eq_approve { background: #0284c7; color: #fff; }
@@ -2622,7 +2623,7 @@
 }
 
 /* ==========================================================================
-   제조 확인 목록 (/shop/eq — spcb/pages/eq.php)
+   계정 목록 공용 — 제조 확인(/shop/eq)·A/S 접수(/shop/as)
    주문 상세(#sod_fin .sp_eq_*)와 **같은 시각 문법**을 쓰되 셀렉터를 공유하지 않는다:
    그쪽은 주문 하나 안의 섹션이라 #sod_fin 스코프이고, 이쪽은 독립 페이지다.
    목록에는 결정 폼이 없다(행 → 주문 상세 딥링크) — 그래서 배지·본문 계열만 옮겼다.
@@ -2672,3 +2673,22 @@
 .sp-eqm__go:hover { background: var(--sp-primary-dark); color: #fff; }
 .sp-eqm__item:not(.is-open) .sp-eqm__go { background: #fff; border: 1px solid var(--sp-line); color: var(--sp-ink); }
 .sp-eqm__item:not(.is-open) .sp-eqm__go:hover { background: #f9fafb; color: var(--sp-ink); }
+
+/* A/S 접수(/shop/as) 추가분 — 섹션 머리·범위 알약·조용한 탭 카운트·접수할 주문 행 */
+.sp-eqm__sect { margin: 22px 0 10px; font-size: 15px; font-weight: 700; color: var(--sp-ink); }
+.sp-eqm__secthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 22px; }
+.sp-eqm__secthead .sp-eqm__sect { margin: 0; }
+.sp-eqm__scope { display: flex; gap: 6px; }
+.sp-eqm__pill {
+    display: inline-block; padding: 5px 12px; border: 1px solid var(--sp-line); border-radius: 999px;
+    font-size: 13px; font-weight: 600; color: var(--sp-muted); text-decoration: none; background: #fff;
+}
+.sp-eqm__pill.is-active { border-color: var(--sp-primary); color: var(--sp-primary); background: #eff6ff; }
+.sp-eqm__cnt.is-quiet { background: #e5e7eb; color: #374151; }
+.sp-eqm__empty.is-compact { padding: 22px 16px; }
+.sp-eqm__note { margin: 8px 0 0; font-size: 13px; color: var(--sp-muted); }
+.sp-eqm__note a { color: var(--sp-primary); text-decoration: underline; }
+.sp-eqm__item.is-claimable { padding: 12px 18px; }
+.sp-eqm__item.is-claimable .sp-eqm__foot { margin-top: 0; }
+.sp-eqm__item.is-claimable .sp-eqm__meta { display: flex; flex-direction: column; gap: 2px; }
+.sp-eqm__sub { font-size: 13px; color: var(--sp-muted); }

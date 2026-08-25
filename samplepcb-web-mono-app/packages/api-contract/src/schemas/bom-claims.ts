@@ -139,6 +139,35 @@ export const BomClaimListResponse = z.object({
 });
 export type BomClaimListResponseType = z.infer<typeof BomClaimListResponse>;
 
+// ── 고객: 견적을 가로지르는 "내 문제 접수"(마이페이지 /shop/as 부품 탭) ────────
+// 위 목록은 견적 하나(quoteId)의 뷰다. 이쪽은 회원 전체 — 접수할 수 있는 배송 완료
+// 주문과 낸 접수 내역. 접수 폼은 여기 없다(/app/bom/:id 한 곳). PCB 계약과 값이 비슷해도
+// 여기 따로 선다(트랙 간 어휘 격리 관례).
+export const BomClaimMineQuery = z.object({
+  scope: z.enum(['open', 'all']).default('open'),
+});
+export type BomClaimMineQueryType = z.infer<typeof BomClaimMineQuery>;
+
+export const BomClaimableRow = z.object({
+  quoteId: z.string(),
+  ctId: z.number().int(),
+  odId: z.string(),
+  title: z.string(),
+  orderedAt: z.string(),
+});
+export type BomClaimableRowType = z.infer<typeof BomClaimableRow>;
+
+export const BomClaimMineResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    claimable: z.array(BomClaimableRow),
+    claimableTruncated: z.boolean(),
+    claims: z.array(BomClaim),
+    openCount: z.number().int(),
+  }),
+});
+export type BomClaimMineResponseType = z.infer<typeof BomClaimMineResponse>;
+
 export const BomClaimCreateRequest = z.object({
   kind: BomClaimKind,
   subject: z.string().trim().min(5).max(120),

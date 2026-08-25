@@ -5,13 +5,16 @@ import {
   BomClaimCreateRequest,
   BomClaimCreateResponse,
   BomClaimListResponse,
+  BomClaimMineQuery,
+  BomClaimMineResponse,
   BOM_CLAIM_ELIGIBILITY_LABELS,
   type BomClaimEligibilityReasonType,
   type BomClaimOrderSnapshotType,
+  type BomClaimableRowType,
 } from '@sp/api-contract';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { getOrderInfoByCtId, type OrderInfo } from '../lib/g5-db';
+import { getDeliveredCartRowsByMember, getOrderInfoByCtId, type OrderInfo } from '../lib/g5-db';
 import { filterActiveQuoteItems } from '../lib/bom-quote';
 import {
   resolveBomClaimEligibilityReason,
@@ -81,6 +84,75 @@ export const bomClaimRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
             order: order === null ? null : orderSnapshot(order),
           },
           claims: claims.map(toBomClaimDto),
+        },
+      };
+    },
+  );
+
+  // ── GET /bom/claims/mine — 견적을 가로지르는 내 문제 접수(마이페이지 /shop/as 부품 탭) ──
+  // 소비처는 sp-php `spcb/pages/as.php`. 접수 폼은 /app/bom/:id 한 곳뿐이라 여기선 행을
+  // 그리로 보낸다. PCB 의 /pcb-claims/mine 과 모양이 같지만 함수를 나누지 않는다 — 트랙 간
+  // 어휘 격리 관례(lib/bom-claim.ts 머리 주석)와 같은 이유다.
+  const CLAIMABLE_SCAN_LIMIT = 50;
+  const MY_CLAIMS_TAKE = 200;
+  const ACTIVE_STATUSES = ['open', 'reviewing'] as const;
+  fastify.get(
+    '/bom/claims/mine',
+    {
+      schema: {
+        querystring: BomClaimMineQuery,
+        response: { 200: BomClaimMineResponse },
+      },
+    },
+    async (request) => {
+      const mbId = request.user.mbId;
+      const delivered = await getDeliveredCartRowsByMember(mbId, CLAIMABLE_SCAN_LIMIT);
+      const quotes =
+        delivered.length === 0
+          ? []
+          : await prisma.spBomQuote.findMany({
+              where: { mbId, ctId: { in: delivered.map((r) => r.ctId) } },
+              select: { id: true, ctId: true, title: true },
+            });
+      const activeQuoteIds = new Set(
+        (
+          await prisma.spBomClaim.findMany({
+            where: { mbId, status: { in: [...ACTIVE_STATUSES] } },
+            select: { quoteId: true },
+          })
+        ).map((c) => c.quoteId.toString()),
+      );
+      const quoteByCt = new Map(quotes.map((q) => [q.ctId, q]));
+      const claimable: BomClaimableRowType[] = [];
+      for (const row of delivered) {
+        const quote = quoteByCt.get(row.ctId);
+        if (quote === undefined || quote.ctId === null) continue;
+        if (activeQuoteIds.has(quote.id.toString())) continue;
+        claimable.push({
+          quoteId: String(quote.id),
+          ctId: quote.ctId,
+          odId: row.odId,
+          title: quote.title,
+          orderedAt: row.orderedAt,
+        });
+      }
+
+      const claims = await prisma.spBomClaim.findMany({
+        where:
+          request.query.scope === 'open'
+            ? { mbId, status: { in: [...ACTIVE_STATUSES] } }
+            : { mbId },
+        include: bomClaimInclude,
+        orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+        take: MY_CLAIMS_TAKE,
+      });
+      return {
+        result: true as const,
+        data: {
+          claimable,
+          claimableTruncated: delivered.length >= CLAIMABLE_SCAN_LIMIT,
+          claims: claims.map(toBomClaimDto),
+          openCount: activeQuoteIds.size,
         },
       };
     },

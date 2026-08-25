@@ -522,6 +522,43 @@ export async function getCartOrderProgress(
   return progress;
 }
 
+// ── 회원의 배송·완료 주문행 (A/S 접수 후보 — read-only) ──────────────────────
+// 마이페이지 "A/S 접수"가 "접수할 주문"을 세우는 모수다. 회원 한 명이 배송 완료 주문행을
+// 4천 건 넘게 가진 경우가 실재해(레거시 이관분), 행마다 판정 함수를 돌리는 대신 **최근
+// N 행만** 한 방에 뽑고 트랙별 라우트가 스펙·견적을 배치로 붙인다. 배송·완료 필터를 여기서
+// 이미 걸었으므로(주문 헤더·라인 둘 다) 접수 게이트의 NOT_DELIVERED·LINE_CLOSED 는 통과한
+// 행만 나온다 — 남는 판정은 활성 클레임 유무뿐이다.
+export interface DeliveredCartRow {
+  ctId: number;
+  odId: string;
+  itId: string;
+  /** 주문 시각(od_time) ISO — 최근순 정렬의 근거. */
+  orderedAt: string;
+}
+
+export async function getDeliveredCartRowsByMember(
+  mbId: string,
+  limit: number,
+): Promise<DeliveredCartRow[]> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT c.ct_id, c.od_id, c.it_id, o.od_time
+       FROM g5_shop_cart c
+       INNER JOIN g5_shop_order o ON o.od_id = c.od_id
+      WHERE c.mb_id = ?
+        AND o.od_status IN ('배송', '완료')
+        AND c.ct_status IN ('배송', '완료')
+      ORDER BY o.od_time DESC, c.ct_id DESC
+      LIMIT ?`,
+    [mbId, limit],
+  );
+  return rows.map((row) => ({
+    ctId: Number(row.ct_id),
+    odId: String(row.od_id),
+    itId: String(row.it_id ?? ''),
+    orderedAt: new Date(row.od_time as string | Date).toISOString(),
+  }));
+}
+
 // ── 스마트 BOM 주문·결제 목록용 batch 조회 (D19 — read-only, ⑫의 연장) ───────
 // BOM 주문 축 파생: sp_bom_quote.ctId → cart(od_id) → od 헤더. 저장 없음.
 

@@ -123,6 +123,10 @@ specs/
   journey-bom-comparison-workspace.e2e.test.ts BOM 여정 19호 — 전체 BOM 비교→필터·페이지·오류·모바일 열 탐색
   journey-bom-admin-comparison-workspace.e2e.test.ts BOM 여정 20호 — 관리자 전체 비교→가림·페이지·복구·모바일 감사
   journey-bom-admin-workbook-recovery.e2e.test.ts BOM 여정 21호 — 관리자 실제 XLSX→분석·시트 오류 복구·모바일 감사
+  customer-eq-menu.e2e.test.ts         마이페이지 "확인 요청 > 제조 확인"(/shop/eq) — /mine API·배지·목록에 결정 폼 없음·딥링크·390px
+  customer-as-menu.e2e.test.ts         마이페이지 "문의 > A/S 접수"(/shop/as) — PCB·BOM /mine 배타·회색 배지 합산·탭·폼 없음·앵커·390px
+  journey-pcb-as-mypage.e2e.test.ts    여정 44호 — PCB 완주(거버→완료) 뒤 **마이페이지 A/S 접수 진입점으로** 접수→재생산 회차→종결 완주(정리 포함, JOURNEY_KEEP=1 로 남김)
+  demo-pre-eq-keep.e2e.test.ts         데모 무대 — EQ 직전(발주서 발행)까지만 달리고 남긴다(DEMO_KEEP=1, 협력사 기본 tester2협력 = 사람이 로그인 가능한 실계정)
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 

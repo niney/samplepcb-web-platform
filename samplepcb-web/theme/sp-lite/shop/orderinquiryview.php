@@ -340,7 +340,10 @@ if($od['od_pg'] == 'lg') {
         // (theme/sp-lite/js/sp-dialog.js) — 브라우저마다 모양이 다르고 사이트 톤과 따로 논다.
         // spDialog 가 Promise 라 submit 을 일단 막고, 승낙을 받은 뒤 프로그램적으로 제출한다.
         document.addEventListener('click', function (e) {
-            var btn = e.target.closest ? e.target.closest('.sp_eq_btns button') : null;
+            // ⚠ A/S 접수 폼(.sp_as_form)도 .sp_eq_btns·.sp_eq_approve 를 시각 문법으로 빌려 쓴다 —
+            //   EQ 폼(.sp_eq_form)으로 좁히지 않으면 A/S 접수 버튼에서 .sp_eq_decision 이 null 이라
+            //   TypeError 가 난다(여정 44호 pageerror 실측 2026-08-25 — 제출은 되지만 콘솔 오류).
+            var btn = e.target.closest ? e.target.closest('.sp_eq_form .sp_eq_btns button') : null;
             if (!btn || !btn.form) return;
             btn.form.querySelector('.sp_eq_decision').value = btn.getAttribute('data-decision');
         });
@@ -396,7 +399,8 @@ if($od['od_pg'] == 'lg') {
             $sp_claim_remedies = sp_pcb_claim_remedies();
         ?>
         <section id="sp_as_wrap">
-            <h2>PCB A/S</h2>
+            <?php /* 'PCB A/S' 였다 — 메탈마스크 주문에도 같은 섹션이 서므로 트랙 중립어로. */ ?>
+            <h2>A/S 접수</h2>
             <p class="sp_eq_intro">받으신 제품에 문제가 있으면 접수해 주세요. 담당자가 검토 후 처리 방안을 안내드립니다.</p>
 
             <?php foreach ($sp_claim_specs as $cs):
@@ -411,7 +415,8 @@ if($od['od_pg'] == 'lg') {
                 <?php foreach ($cs['claims'] as $cl):
                     $st = sp_pcb_claim_status_label($cl['status']);
                 ?>
-                <div class="sp_as_claim">
+                <?php /* 행 앵커 — 마이페이지 A/S 접수 목록(/shop/as)의 '내용 보기'가 여기로 온다. */ ?>
+                <div class="sp_as_claim" id="as-<?php echo (int) $cl['id']; ?>">
                     <div class="sp_eq_head">
                         <span class="sp_eq_badge <?php echo $st['cls']; ?>"><?php echo $st['label']; ?></span>
                         <span class="sp_as_meta">

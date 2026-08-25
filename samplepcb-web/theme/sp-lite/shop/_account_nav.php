@@ -9,7 +9,7 @@ if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
  * $member 로그인 전제(호출 측이 로그인 게이트). 배지 건수는 여기서 1회 조회.
  */
 if (!isset($sp_account_active)) $sp_account_active = '';
-$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'eq' => '', 'point' => '', 'coupon' => '', 'memo' => '', 'scrap' => '');
+$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'eq' => '', 'as' => '', 'point' => '', 'coupon' => '', 'memo' => '', 'scrap' => '');
 if (isset($cur[$sp_account_active])) $cur[$sp_account_active] = ' aria-current="page"';
 
 $sp_esc   = function_exists('sql_real_escape_string') ? sql_real_escape_string($member['mb_id']) : addslashes($member['mb_id']);
@@ -27,6 +27,10 @@ if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) {
 // 제조 확인(PCB·메탈마스크 공용) 대기 건수 — 답을 안 하면 생산이 멈추는 축이라
 // 항상 켠다. 브리지 미배치 환경에서도 사이드바가 죽지 않게 함수 존재를 확인한다.
 $sp_eq = function_exists('sp_pcb_eq_open_count') ? sp_pcb_eq_open_count($member['mb_id']) : 0;
+// A/S 접수 진행 중 건수(PCB + 부품 BOM 합산) — 관리자 차례라 고객을 재촉하는 빨간 배지가
+// 아니라 회색(nav_badge 기본)이다. 세기만 DB 직접(브리지 규약 — 판정은 sp-node).
+$sp_as = (function_exists('sp_pcb_claim_active_count') ? sp_pcb_claim_active_count($member['mb_id']) : 0)
+       + (function_exists('sp_bom_claim_active_count') ? sp_bom_claim_active_count($member['mb_id']) : 0);
 ?>
 <aside class="smb_nav" aria-label="계정 메뉴">
     <div class="nav_id">
@@ -69,6 +73,14 @@ $sp_eq = function_exists('sp_pcb_eq_open_count') ? sp_pcb_eq_open_count($member[
                         'EQ' 라는 말이 없다(계약 pcbEqEventLabel). 화면이 EQ 를 하드코딩하면
                         스텐실 고객에게 없는 단어가 나온다(2026-08-17 확정 결함). */ ?>
                 <li><a href="<?php echo G5_URL ?>/shop/eq"<?php echo $cur['eq']; ?>><i class="fa fa-check-square-o" aria-hidden="true"></i><span class="lbl">제조 확인</span><?php if ($sp_eq) { ?><span class="nav_badge on"><?php echo number_format($sp_eq); ?></span><?php } ?></a></li>
+            </ul>
+        </div>
+        <div class="nav_group">
+            <p class="nav_glabel">문의</p>
+            <ul>
+                <?php /* "요청"이 아니라 "접수" — 확인 요청은 자사→고객, 이쪽은 고객→자사다.
+                        결과(재생산·환불·안내)는 관리자 판정이라 이름이 결과를 정하지 않는다. */ ?>
+                <li><a href="<?php echo G5_URL ?>/shop/as"<?php echo $cur['as']; ?>><i class="fa fa-wrench" aria-hidden="true"></i><span class="lbl">A/S 접수</span><?php if ($sp_as) { ?><span class="nav_badge"><?php echo number_format($sp_as); ?></span><?php } ?></a></li>
             </ul>
         </div>
         <div class="nav_group">

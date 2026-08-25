@@ -21,6 +21,37 @@ function sp_pcb_claims($od_id)
     return $res['json']['data']['specs'];
 }
 
+/** 주문을 가로지르는 **내 A/S**(마이페이지 /shop/as PCB 탭). $scope: open|all.
+ *  돌려주는 값: claimable(접수할 주문)·claimableTruncated·claims·openCount — 실패는 빈 구조. */
+function sp_pcb_claims_mine($scope = 'open')
+{
+    $empty = array('claimable' => array(), 'claimableTruncated' => false, 'claims' => array(), 'openCount' => 0);
+    if (!function_exists('sp_pcb_node_call')) return $empty;
+    $scope = ($scope === 'all') ? 'all' : 'open';
+    $res = sp_pcb_node_call('GET', '/api/pcb-claims/mine?scope=' . $scope);
+    if ($res === null || $res['status'] !== 200 || !isset($res['json']['data'])) return $empty;
+    $d = $res['json']['data'];
+    return array(
+        'claimable'          => isset($d['claimable']) && is_array($d['claimable']) ? $d['claimable'] : array(),
+        'claimableTruncated' => !empty($d['claimableTruncated']),
+        'claims'             => isset($d['claims']) && is_array($d['claims']) ? $d['claims'] : array(),
+        'openCount'          => isset($d['openCount']) ? (int) $d['openCount'] : 0,
+    );
+}
+
+/** 사이드바 배지용 **진행 중 건수만** — API 가 아니라 DB 직접 count.
+ *  사이드바는 모든 계정 페이지에서 렌더되므로 API 왕복을 붙이지 않는다(sp_pcb_eq_open_count
+ *  와 같은 이유). ⚠ 판정이 아니라 세기다 — 목록·접수 판정은 전부 sp-node.
+ *  '진행 중'은 open|reviewing — 관리자 차례이지 고객 차례가 아니라 화면은 회색 배지다. */
+function sp_pcb_claim_active_count($mb_id)
+{
+    if ($mb_id === '') return 0;
+    $esc = function_exists('sql_real_escape_string') ? sql_real_escape_string($mb_id) : addslashes($mb_id);
+    $row = sql_fetch(" select count(*) as cnt from sp_pcb_claim
+                        where mbId = '{$esc}' and status in ('open', 'reviewing') ", false);
+    return isset($row['cnt']) ? (int) $row['cnt'] : 0;
+}
+
 /** 상태 라벨 — 계약(PCB_CLAIM_STATUS_LABELS)과 같은 말을 쓴다. 배지 클래스는 EQ 공용. */
 function sp_pcb_claim_status_label($status)
 {

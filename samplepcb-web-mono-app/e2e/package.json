@@ -109,6 +109,7 @@
     "journey:moneyrace": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-money-race",
     "journey:myturn": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-myturn",
     "journey:customerview": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-customer-view",
+    "journey:asmypage": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-pcb-as-mypage",
     "pcb:qr": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run pcb-package-qr",
     "pcb:invoice": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run pcb-invoice-attach",
     "typecheck": "tsc --noEmit"
