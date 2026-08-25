@@ -1,3 +1,398 @@
 @charset "utf-8";
 /* sp-lite skin: member\basic */
 
+/* ==========================================================================
+   로그인 (#mb_login) — Figma 일반고객_로그인(103:3337) 이식
+   카드 1020×643 · 좌 비주얼 490×603 · 우 폼 400 폭 · 페이지 배경 #ecf2f6
+   글꼴은 디자인의 Noto Sans KR 대신 테마 공통 Pretendard(--sp-font)를 쓴다.
+   ========================================================================== */
+body:has(#mb_login) { background: #ecf2f6; }
+#container:has(> #mb_login) > #container_title { display: none; }
+
+#mb_login {
+    --lg-ink: #111;
+    --lg-text: #444;
+    --lg-muted: #666;
+    --lg-placeholder: #999;
+    --lg-line: #ececec;
+    --lg-field: #f3f3f3;
+    --lg-divider: #d9d9d9;
+    --lg-radius: 8px;
+    margin: 80px auto 0;
+    max-width: 1020px;
+}
+
+/* ── 카드 ─────────────────────────────────────────────────────────────── */
+#mb_login .mb_login_card {
+    display: grid;
+    grid-template-columns: 490px minmax(0, 1fr);
+    padding: 20px;
+    background: #fff;
+    border: 1px solid var(--lg-line);
+    border-radius: 24px;
+}
+
+/* ── 좌측 비주얼 ──────────────────────────────────────────────────────── */
+#mb_login .mb_login_visual {
+    position: relative;
+    min-height: 603px;
+    border: 1px solid var(--lg-line);
+    border-radius: 20px;
+    overflow: hidden;
+    background: #f7f7f7;
+}
+#mb_login .mb_login_visual__photo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+}
+#mb_login .mb_login_visual::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(217, 217, 217, .26) 0%, rgba(87, 122, 201, .28) 100%);
+    pointer-events: none;
+}
+#mb_login .mb_login_visual__brand {
+    position: absolute;
+    top: 30px;
+    left: 26px;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+#mb_login .mb_login_visual__mark {
+    display: block;
+    width: 30px;
+    height: 30px;
+    transform: scaleY(-1);
+}
+#mb_login .mb_login_visual__logo {
+    position: relative;
+    display: block;
+    width: 147px;
+    height: 25px;
+}
+#mb_login .mb_login_visual__logo img {
+    /* svg 에 드롭섀도 여백이 포함돼 있어 로고 박스보다 크게 깔아 정렬 */
+    position: absolute;
+    top: -23.75%;
+    left: -4.08%;
+    width: 108.16%;
+    height: 147.5%;
+    max-width: none;
+}
+
+/* ── 우측 폼 패널 ─────────────────────────────────────────────────────── */
+#mb_login .mb_login_panel {
+    padding: 52px 35px 30px 55px;
+}
+#mb_login .mb_login_panel > *,
+#mb_login .mb_login_panel form {
+    width: 400px;
+    max-width: 100%;
+}
+
+#mb_login .mb_login_head { margin: 0 0 34px; }
+#mb_login .mb_login_head h2 {
+    margin: 0;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -.02em;
+    color: var(--lg-ink);
+}
+#mb_login .mb_login_head p {
+    margin: 8px 0 0;
+    font-size: 20px;
+    line-height: 1.3;
+    color: var(--lg-text);
+}
+
+#mb_login #login_fs {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+/* 입력 */
+#mb_login .mb_login_field { position: relative; }
+#mb_login .mb_login_field + .mb_login_field { margin-top: 18px; }
+#mb_login .mb_login_field::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: .4;
+    background: center / contain no-repeat;
+    pointer-events: none;
+}
+#mb_login .mb_login_field--id::before {
+    left: 20px;
+    width: 20px;
+    height: 20px;
+    background-image: url(img/ico-user.png);
+}
+#mb_login .mb_login_field--pw::before {
+    left: 18px;
+    width: 24px;
+    height: 24px;
+    background-image: url(img/ico-lock.png);
+}
+#mb_login .mb_login_field .frm_input {
+    display: block;
+    width: 100%;
+    height: 54px;
+    padding: 0 16px 0 58px;
+    border: 1px solid transparent;
+    border-radius: var(--lg-radius);
+    background: var(--lg-field);
+    font-size: 14px;
+    color: var(--lg-ink);
+    outline: 0;
+    transition: border-color .15s, background-color .15s;
+}
+#mb_login .mb_login_field .frm_input::placeholder { color: var(--lg-placeholder); }
+#mb_login .frm_input:-webkit-autofill {
+    /* 크롬 자동완성의 연파랑 배경 억제 — 디자인의 #f3f3f3 유지 */
+    -webkit-box-shadow: 0 0 0 1000px var(--lg-field) inset;
+    -webkit-text-fill-color: var(--lg-ink);
+}
+#mb_login .mb_login_field .frm_input:focus {
+    border-color: var(--lg-ink);
+    background: #fff;
+}
+
+/* 체크박스 행 */
+#mb_login #login_info {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin: 31px 0 21px;
+}
+#mb_login .chk_box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+#mb_login .chk_box input {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    border: 0;
+    border-radius: 2px;
+    background: var(--lg-divider) center / 18px 18px no-repeat;
+    cursor: pointer;
+}
+#mb_login .chk_box input:checked { background-image: url(img/chk.svg); }
+#mb_login .chk_box input:focus-visible { outline: 2px solid var(--sp-primary); outline-offset: 2px; }
+#mb_login .chk_box label {
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--lg-muted);
+    cursor: pointer;
+}
+
+/* 로그인 버튼 */
+#mb_login #login_fs .btn_submit {
+    display: block;
+    width: 100%;
+    height: 54px;
+    border: 0;
+    border-radius: var(--lg-radius);
+    background: var(--lg-ink);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 500;
+    transition: background-color .15s;
+}
+#mb_login #login_fs .btn_submit:hover { background: #333; }
+#mb_login #login_fs .btn_submit:focus-visible { outline: 2px solid var(--sp-primary); outline-offset: 2px; }
+
+/* 회원가입 · 비밀번호 초기화 */
+#mb_login .mb_login_links {
+    display: flex;
+    justify-content: space-between;
+    margin: 30px 0 0;
+    font-size: 14px;
+    line-height: 1.3;
+}
+#mb_login .mb_login_links a {
+    color: var(--lg-muted);
+    text-decoration: underline;
+    text-underline-position: from-font;
+}
+#mb_login .mb_login_links a:hover { color: var(--lg-ink); }
+
+/* ── 소셜 로그인 (skin/social/social_login.skin.php 출력 재스타일) ───────── */
+#mb_login #sns_login {
+    margin: 30px 0 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+#mb_login #sns_login h3 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1.3;
+    font-weight: 400;
+    color: var(--lg-muted);
+    white-space: nowrap;
+    text-align: center;
+}
+#mb_login #sns_login h3::before,
+#mb_login #sns_login h3::after {
+    content: "";
+    flex: 0 0 124px;
+    height: 1px;
+    background: var(--lg-divider);
+}
+#mb_login #sns_login .sns-wrap {
+    display: flex;
+    justify-content: center;
+    gap: 28px;
+    margin: 12px 0 0;
+}
+#mb_login #sns_login .sns-icon {
+    position: relative;
+    display: block;
+    width: 46px;
+    height: 46px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    line-height: normal;
+    transition: transform .15s;
+}
+#mb_login #sns_login .sns-icon:hover { transform: translateY(-2px); }
+#mb_login #sns_login .sns-icon .ico {
+    position: static;
+    display: block;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: center / 46px 46px no-repeat;
+}
+#mb_login #sns_login .sns-naver .ico    { background-image: url(img/sns-naver.svg); }
+#mb_login #sns_login .sns-kakao .ico    { background-image: url(img/sns-kakao.svg); }
+#mb_login #sns_login .sns-facebook .ico { background-image: url(img/sns-facebook.svg); }
+#mb_login #sns_login .sns-google .ico   { background-image: url(img/sns-google.svg); background-color: transparent; }
+/* 디자인에 없는 서비스(설정에서 켜면 노출) — 그누보드 기본 아이콘을 같은 원형 규격으로 */
+#mb_login #sns_login .sns-payco .ico   { background: #df0b00 url(../../../../../skin/social/img/sns_payco_s.png) center / 30px 30px no-repeat; }
+#mb_login #sns_login .sns-twitter .ico { background: #1ea1f2 url(../../../../../skin/social/img/sns_twitter_s.png) center / 30px 30px no-repeat; }
+#mb_login #sns_login .sns-icon .txt {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    font-size: 0;
+    line-height: 0;
+    overflow: hidden;
+}
+
+/* ── 비회원 구매 · 주문조회 (orderform / orderinquiry 진입 시) ──────────── */
+#mb_login .mb_login_sub {
+    margin: 24px 0 0;
+    padding: 40px 55px;
+    background: #fff;
+    border: 1px solid var(--lg-line);
+    border-radius: 24px;
+}
+#mb_login .mb_login_sub h2 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--lg-ink);
+}
+#mb_login .mb_login_sub > p {
+    margin: 0 0 20px;
+    font-size: 14px;
+    color: var(--lg-muted);
+}
+#mb_login #guest_privacy {
+    max-height: 200px;
+    overflow: auto;
+    margin: 0 0 16px;
+    padding: 16px;
+    border: 1px solid var(--lg-line);
+    border-radius: var(--lg-radius);
+    background: var(--lg-field);
+    font-size: 13px;
+    line-height: 1.6;
+}
+#mb_login .mb_login_sub .btn_confirm { margin: 20px 0 0; }
+#mb_login .mb_login_sub .btn_submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 200px;
+    height: 54px;
+    padding: 0 24px;
+    border: 0;
+    border-radius: var(--lg-radius);
+    background: var(--lg-ink);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 500;
+}
+#mb_login #mb_login_od {
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+#mb_login #mb_login_od form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+#mb_login #mb_login_od .frm_input {
+    flex: 1 1 200px;
+    height: 54px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--lg-radius);
+    background: var(--lg-field);
+    font-size: 14px;
+}
+#mb_login #mb_login_od .frm_input:focus { border-color: var(--lg-ink); background: #fff; outline: 0; }
+#mb_login #mb_login_odinfo {
+    margin: 16px 0 0;
+    font-size: 13px;
+    color: var(--lg-muted);
+}
+#mb_login #mb_login_odinfo p { margin: 0; }
+
+/* ── 반응형 ───────────────────────────────────────────────────────────── */
+@media (max-width: 1023px) {
+    #mb_login { margin: 16px auto 0; max-width: 560px; }
+    #mb_login .mb_login_card {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 0;
+        border-radius: 20px;
+    }
+    #mb_login .mb_login_visual { display: none; }
+    #mb_login .mb_login_panel { padding: 40px 24px 32px; }
+    #mb_login .mb_login_panel > *,
+    #mb_login .mb_login_panel form { width: 100%; }
+    #mb_login .mb_login_head h2 { font-size: 28px; }
+    #mb_login .mb_login_head p { font-size: 17px; }
+    #mb_login #sns_login h3::before,
+    #mb_login #sns_login h3::after { flex: 1 1 0; }
+    #mb_login .mb_login_sub { padding: 28px 24px; border-radius: 20px; }
+}

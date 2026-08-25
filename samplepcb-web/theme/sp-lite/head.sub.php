@@ -58,6 +58,9 @@ if (!empty($member['mb_id']) && !G5_IS_MOBILE) {
         $sp_account_active = 'memo';
     }
 }
+// sp-lite: 로그인 페이지(bbs/login.php)는 코어가 _head.sub.php(베어)로 열지만, 디자인(Figma 일반고객_로그인)이
+// 공용 헤더·푸터 위에 놓이므로 #wrapper/#container 셸로 감싼다(tail.sub 가 대칭으로 닫음). 사이드바 없음.
+$sp_shell_page = (!$sp_inline_account && $sp_cur_sub === 'login.php');
 ?>
 <!doctype html>
 <html lang="ko">
@@ -145,5 +148,20 @@ if ($sp_inline_account) {
         </div>
         <div class="shop-content account-main">
             <div id="wrapper_title"><?php echo $g5['title']; ?></div>
+<?php
+}
+
+if ($sp_shell_page) {
+    include_once(G5_LIB_PATH.'/outlogin.lib.php');
+    include_once(G5_LIB_PATH.'/poll.lib.php');
+    include_once(G5_LIB_PATH.'/visit.lib.php');
+    include_once(G5_LIB_PATH.'/connect.lib.php');
+    include_once(G5_LIB_PATH.'/popular.lib.php');
+    include_once(G5_LIB_PATH.'/latest.lib.php');
+    include_once(G5_THEME_PATH.'/inc/header.php'); // 공용 헤더(GNB)
+    define('SP_SHELL_PAGE', true);
+?>
+<div id="wrapper">
+    <main id="container">
 <?php
 }

@@ -11,6 +11,15 @@ if (defined('SP_INLINE_ACCOUNT')) {
 <?php
     include_once(G5_THEME_PATH.'/inc/footer.php'); // 공용 푸터
 }
+
+// sp-lite: 셸 페이지(로그인) 클로저 — head.sub 의 $sp_shell_page 오프너와 대칭.
+if (defined('SP_SHELL_PAGE')) {
+?>
+    </main><!-- } #container 끝 -->
+</div><!-- } #wrapper 끝 -->
+<?php
+    include_once(G5_THEME_PATH.'/inc/footer.php'); // 공용 푸터
+}
 ?>
 
 <?php if ($is_admin == 'super') {  ?><!-- <div style='float:left; text-align:center;'>RUN TIME : <?php echo get_microtime()-$begin_time; ?><br></div> --><?php }  ?>
