@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
   pcbProgressLabel,
+  pcbProgressShortLabel,
   progressTargetCtIds,
   resolvePcbProgressStage,
+  slowestPcbProgress,
 } from './pcb-customer-progress';
 
 // 고객 진행 단계 판정(P4.13) — 발주 상태·발송 신호의 조합 전수.
 
 describe('resolvePcbProgressStage', () => {
-  it('생산 전(issued·eq_requested·eq_done)은 전부 EQ 단계로 묶인다', () => {
-    for (const s of ['issued', 'eq_requested', 'eq_done']) {
-      expect(resolvePcbProgressStage(s, null)).toBe('eq');
-    }
+  it('확인 구간은 세 칸으로 갈린다 — issued/eq_requested/eq_done 이 한 문구로 뭉치지 않는다(08-25 교정)', () => {
+    expect(resolvePcbProgressStage('issued', null)).toBe('eq_pending');
+    expect(resolvePcbProgressStage('eq_requested', null)).toBe('eq');
+    expect(resolvePcbProgressStage('eq_done', null)).toBe('eq_done');
+  });
+
+  it('모르는 발주 상태는 가장 이른 칸으로 접는다', () => {
+    expect(resolvePcbProgressStage('???', null)).toBe('eq_pending');
   });
 
   it('producing 은 생산 중', () => {
@@ -63,6 +69,16 @@ describe('progressTargetCtIds', () => {
 });
 
 describe('pcbProgressLabel', () => {
+  it('확인 구간 세 문구 — 준비/진행/완료가 서로 다르다', () => {
+    expect(pcbProgressLabel('eq_pending', 0)).toBe('제조 확인(EQ) 준비 중');
+    expect(pcbProgressLabel('eq', 0)).toBe('제조 확인(EQ) 진행 중');
+    expect(pcbProgressLabel('eq_done', 0)).toBe('제조 확인 완료 — 생산 준비 중');
+    // 스텐실은 EQ 라는 말 대신 '제작 전 확인'.
+    expect(pcbProgressLabel('eq_pending', 0, false, 'stencil')).toBe('제작 전 확인 준비 중');
+    expect(pcbProgressLabel('eq', 0, false, 'stencil')).toBe('제작 전 확인 중');
+    expect(pcbProgressLabel('eq_done', 0, false, 'stencil')).toBe('확인 완료 — 생산 준비 중');
+  });
+
   it('회차>0 이면 A/S 재생산 접두가 붙는다', () => {
     expect(pcbProgressLabel('producing', 0)).toBe('생산 진행 중');
     expect(pcbProgressLabel('producing', 1)).toBe('A/S 재생산 — 생산 진행 중');
@@ -78,5 +94,27 @@ describe('pcbProgressLabel', () => {
     // 직송 아님(기본값) — 기존 어휘 유지.
     expect(pcbProgressLabel('shipping', 0)).toBe('입고 운송 중');
     expect(pcbProgressLabel('received', 0, false)).toBe('입고 완료 — 배송 준비 중');
+  });
+});
+
+describe('pcbProgressShortLabel', () => {
+  it('배지용 짧은 문구 — 같은 축(직송·스텐실·회차)을 따른다', () => {
+    expect(pcbProgressShortLabel('eq', 0)).toBe('제조 확인 중');
+    expect(pcbProgressShortLabel('eq', 0, false, 'stencil')).toBe('제작 전 확인');
+    expect(pcbProgressShortLabel('received', 0)).toBe('입고 완료');
+    expect(pcbProgressShortLabel('received', 0, true)).toBe('직송 완료');
+    expect(pcbProgressShortLabel('producing', 1)).toBe('A/S 생산 중');
+  });
+});
+
+describe('slowestPcbProgress', () => {
+  it('주문 배지는 가장 느린 줄을 따른다 — 한 줄이 입고돼도 다른 줄이 EQ 면 아직 EQ 다', () => {
+    const picked = slowestPcbProgress([
+      { stage: 'received' as const, id: 'a' },
+      { stage: 'eq' as const, id: 'b' },
+      { stage: 'producing' as const, id: 'c' },
+    ]);
+    expect(picked?.id).toBe('b');
+    expect(slowestPcbProgress([])).toBeNull();
   });
 });

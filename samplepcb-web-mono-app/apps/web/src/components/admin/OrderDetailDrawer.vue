@@ -60,6 +60,20 @@ const odIdRef = computed(() => props.odId);
 const { data, isLoading } = useAdminOrderDetail(odIdRef);
 const detail = computed(() => data.value?.data ?? null);
 const order = computed(() => detail.value?.order ?? null);
+// 협력 트랙 진행 — 줄마다 다르면 가장 느린 줄(서버 사전 순서 = stage 배열 순서)을 주문의 현재로.
+const TRACK_STAGE_ORDER = ['eq_pending', 'eq', 'eq_done', 'producing', 'produced', 'shipping', 'received'];
+// 고객 화면과 같은 규칙 — 배송·완료·취소 뒤에는 코어 배송정보가 정본이라 협력 트랙 줄을 접는다.
+const TRACK_CLOSED_OD = new Set(['배송', '완료', '취소']);
+const trackProgress = computed(() => {
+  if (order.value === null || TRACK_CLOSED_OD.has(order.value.status)) return null;
+  let out: { stage: string; label: string; shortLabel: string } | null = null;
+  for (const it of detail.value?.items ?? []) {
+    const p = it.pcbProgress;
+    if (p === null) continue;
+    if (out === null || TRACK_STAGE_ORDER.indexOf(p.stage) < TRACK_STAGE_ORDER.indexOf(out.stage)) out = p;
+  }
+  return out;
+});
 
 // 입금 조정은 무통장 한정(그 외 결제수단은 PG 원장이 진실이라 수동 조정 금지 — 서버 409).
 const isBankTransfer = computed<boolean>(() => order.value?.settleCase === '무통장');
@@ -540,6 +554,9 @@ const NEXT_ACTION: Record<string, NextAction> = {
   품질시험: { target: '생산완료', labelKey: 'toProdDone', notify: false, needsDelivery: false, bankOnly: false },
   생산완료: { target: '배송', labelKey: 'toShipping', notify: true, needsDelivery: true, bankOnly: false },
   배송: { target: '완료', labelKey: 'toDone', notify: false, needsDelivery: false, bankOnly: false },
+  // A/S 는 파이프라인 밖(생산완료↔배송 사이의 가지) — 재생산·재배송이 끝나면 배송 단계로
+  // 복귀한다. "다음 단계가 없습니다"만 띄우면 관리자는 직접 변경 셀렉트를 뒤져야 했다(08-25 실측).
+  'A/S': { target: '배송', labelKey: 'toReship', notify: true, needsDelivery: true, bankOnly: false },
 };
 const nextAction = computed<NextAction | null>(() => {
   const o = order.value;
@@ -773,6 +790,15 @@ const inputClass =
                   </div>
                   <!-- 상태 진행 스텝퍼(선형 파이프라인 상 현재 위치) -->
                   <OrderStatusStepper :status="order.status" class="mt-3" />
+                  <!-- 협력 트랙 진행(od 무접촉) — od 가 '입금'에 머물러도 실제 제작이 어디까지
+                       왔는지. 여러 줄이면 가장 느린 줄이 이 주문의 현재다. -->
+                  <p
+                    v-if="trackProgress !== null"
+                    class="mt-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-800"
+                  >
+                    <span class="font-semibold">{{ t('admin.orders.drawer.trackProgress') }}</span>
+                    · {{ trackProgress.label }}
+                  </p>
                   <dl
                     v-if="order.payment.pg !== '' || order.payment.tno !== '' || order.payment.appNo !== ''"
                     class="mt-3 grid grid-cols-3 gap-x-4 gap-y-1 text-sm"
@@ -1411,6 +1437,13 @@ const inputClass =
                             :class="isCancelledItemStatus(it.ctStatus) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'"
                           >
                             {{ it.ctStatus }}
+                          </span>
+                          <span
+                            v-if="it.pcbProgress !== null"
+                            class="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] text-violet-700"
+                            :title="it.pcbProgress.label"
+                          >
+                            {{ it.pcbProgress.shortLabel }}
                           </span>
                           <UiBadge
                             v-if="it.quote !== null"

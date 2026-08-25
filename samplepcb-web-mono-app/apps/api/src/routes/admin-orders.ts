@@ -57,6 +57,7 @@ import {
 import { kstDateTimeStr, kstTodayYmd } from '../lib/kst';
 import { orderInfoBodyToFields } from '../lib/order-edit';
 import { buildOptionSummary } from '../lib/option-summary';
+import { listPcbProgressForLines } from '../lib/pcb-customer-progress';
 import { notifyOrderEvent } from '../lib/php-bridge';
 import type { NotifyStatus } from '../lib/php-bridge';
 import { recordMailLog } from '../lib/mail-log';
@@ -220,10 +221,17 @@ async function buildOrderItems(odId: string): Promise<AdminOrderCartItemType[]> 
     if (!thumbByRef.has(t.refId.toString())) thumbByRef.set(t.refId.toString(), t.id);
   }
 
+  // 협력 트랙 진행(od 무접촉, D6) — 고객 카드와 같은 사전. 관리자 조회라 소유 판정은 생략(null).
+  const progressByCt = new Map<number, { stage: string; label: string; shortLabel: string }>();
+  for (const p of await listPcbProgressForLines(cartRows, null)) {
+    if (p.ctId !== null) progressByCt.set(p.ctId, { stage: p.stage, label: p.label, shortLabel: p.shortLabel });
+  }
+
   return cartRows.map((r) => {
     const spec = specByCt.get(r.ctId);
     const thumbId = spec !== undefined ? thumbByRef.get(spec.id.toString()) : undefined;
     return {
+      pcbProgress: progressByCt.get(r.ctId) ?? null,
       ctId: r.ctId,
       itId: r.itId,
       itName: r.itName,

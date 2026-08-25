@@ -74,7 +74,15 @@ if (isset($total_count)) {
               order by a.od_id desc
               $limit ";
     $result = sql_query($sql);
-    for ($i=0; $row=sql_fetch_array($result); $i++)
+    // 협력 트랙 진행(P4.13)을 목록 배지에 겹치려면 od_id 를 먼저 모아 **한 번에** 물어야 한다
+    // (행마다 HTTP 왕복 금지). 진행이 없는 주문은 od 매핑 그대로다.
+    $sp_oi_rows = array();
+    while ($sp_oi_r = sql_fetch_array($result)) $sp_oi_rows[] = $sp_oi_r;
+    $sp_oi_od_ids = array();
+    foreach ($sp_oi_rows as $sp_oi_r) $sp_oi_od_ids[] = $sp_oi_r['od_id'];
+    $sp_oi_progress = function_exists('sp_pcb_progress_batch') ? sp_pcb_progress_batch($sp_oi_od_ids) : array();
+    $i = count($sp_oi_rows); // 아래 빈 목록 판정(if ($i == 0))이 코어 for 루프의 $i 를 기대한다.
+    foreach ($sp_oi_rows as $row)
     {
         $uid = function_exists('get_shop_uid') ? get_shop_uid('order', $row['od_id'], $row['od_time'], $row['od_ip']) : md5($row['od_id'].$row['od_time'].$row['od_ip']);
         // 과거 주문은 같은 템플릿 PCB 여러 줄이 od_cart_count=1로 저장돼 있을 수 있다.
@@ -98,9 +106,13 @@ if (isset($total_count)) {
 
         // 상태 배지 — 고객노출 라벨/색은 공용 헬퍼(extend/sp_order_status.extend.php)로 일원화.
         // 상세(orderinquiryview.php)와 같은 함수를 써 목록↔상세 표기가 어긋나지 않게 한다.
-        if (function_exists('sp_order_status_customer')) {
-            $sc = sp_order_status_customer($row['od_status']);
-            $od_status = '<span class="'.$sc['cls'].'">'.$sc['label'].'</span>';
+        // 헤더 배지 = od 매핑 + 줄 집계(반품/품절·일부 취소) + 협력 트랙 진행(결제 뒤·배송 전).
+        if (function_exists('sp_order_status_customer_order')) {
+            $sc = sp_order_status_customer_order(
+                $row,
+                isset($sp_oi_progress[(string) $row['od_id']]) ? $sp_oi_progress[(string) $row['od_id']] : null
+            );
+            $od_status = sp_order_status_badge_html($sc);
         } else {
             $od_status = '<span class="status_06">'.$row['od_status'].'</span>';
         }

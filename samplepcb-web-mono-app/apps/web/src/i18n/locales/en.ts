@@ -685,6 +685,7 @@ export const en = {
         toProdDone: 'Mark production done',
         toShipping: 'Mark shipping',
         toDone: 'Mark done',
+        toReship: 'Reship after A/S',
         processing: 'Processing…',
         delete: 'Delete selected',
         sendMail: 'Send email',
@@ -798,10 +799,12 @@ export const en = {
       },
       stepper: {
         offPipeline: 'Current: {status} (off the pipeline)',
+        afterService: 'A/S in progress — a branch between production done and shipping. When re-production and re-shipping are done, use [Reship after A/S] to return to the shipping step.',
       },
       drawer: {
         close: 'Close',
         noSettle: 'No payment method',
+        trackProgress: 'Partner track progress',
         pg: 'PG',
         tno: 'Transaction no.',
         appNo: 'Approval no.',

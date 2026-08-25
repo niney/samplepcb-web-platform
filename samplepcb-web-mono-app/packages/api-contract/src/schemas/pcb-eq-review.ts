@@ -142,15 +142,30 @@ export type CustomerPcbEqReviewMineResponseType = z.infer<typeof CustomerPcbEqRe
 // od 는 '입금'에 머물러도 실제 제작은 EQ→생산→입고로 움직인다(D6 1차 수동 유지 —
 // od 를 안 바꾸고 sp 축을 그대로 보여준다). 협력사명·발주 정보는 노출하지 않는다.
 // 라벨은 서버가 완성한다(PHP·화면은 그대로 출력).
-export const PCB_PROGRESS_STAGES = ['eq', 'producing', 'produced', 'shipping', 'received'] as const;
+// 확인(EQ) 구간은 세 칸이다(2026-08-25 실측 교정) — issued(협력사가 아직 안 올림)·
+// eq_requested(검토 중)·eq_done(확인 끝, 생산 대기)이 한 문구로 뭉치면 고객은 몇 주를
+// 같은 글자로 본다. 순서는 배열 순서가 곧 진행 순서다(느린 줄 판정에 쓴다).
+export const PCB_PROGRESS_STAGES = [
+  'eq_pending',
+  'eq',
+  'eq_done',
+  'producing',
+  'produced',
+  'shipping',
+  'received',
+] as const;
 export type PcbProgressStageType = (typeof PCB_PROGRESS_STAGES)[number];
 
 export const CustomerPcbProgressItem = z.object({
   specId: z.number(),
+  /** 이 스펙의 카트 줄 — 주문 상세가 줄 배지에 진행을 겹쳐 그릴 때의 조인 키. */
+  ctId: z.number().nullable(),
   projectName: z.string(),
   reorderRound: z.number().int(), // 0=원주문, 1..=A/S 재생산 회차
   stage: z.enum(PCB_PROGRESS_STAGES),
   label: z.string(), // 예: '제조 확인(EQ) 진행 중' · 'A/S 재생산 — 생산 진행 중'
+  /** 배지용 짧은 문구(목록·줄 상태 칸) — 긴 라벨은 상태 칸에서 잘린다(여정 10호 X7 실측). */
+  shortLabel: z.string(),
   /**
    * 좌표파일(메탈마스크) — **통보 없는 열람**(사용자 결정 2026-08-16). 메일도 확인 요청도
    * 만들지 않고, 고객이 주문내역을 열면 여기 있다. 요청하는 고객이 종종 있어서다.
@@ -169,6 +184,30 @@ export const CustomerPcbProgressItem = z.object({
     .default(null),
 });
 export type CustomerPcbProgressItemType = z.infer<typeof CustomerPcbProgressItem>;
+
+// ── 주문내역 **목록**용 일괄 요약 — 주문마다 가장 느린 줄의 단계 하나 ─────────────
+// 목록 배지가 od_status('입금완료')만 찍으면 협력 트랙이 입고까지 가도 고객은 몇 주를
+// '입금완료'로 본다(2026-08-25 실측). 진행이 있는 주문만 돌려주고, 없는 주문은 od 매핑.
+export const CustomerPcbProgressBatchBody = z.object({
+  odIds: z.array(z.string().min(1).max(32)).min(1).max(50),
+});
+export type CustomerPcbProgressBatchBodyType = z.infer<typeof CustomerPcbProgressBatchBody>;
+
+export const CustomerPcbProgressOrderSummary = z.object({
+  odId: z.string(),
+  stage: z.enum(PCB_PROGRESS_STAGES),
+  label: z.string(),
+  shortLabel: z.string(),
+  /** 진행 카드가 있는 줄 수 — 여러 줄이면 목록 배지는 가장 느린 줄을 따른다. */
+  lineCount: z.number().int(),
+});
+export type CustomerPcbProgressOrderSummaryType = z.infer<typeof CustomerPcbProgressOrderSummary>;
+
+export const CustomerPcbProgressBatchResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ orders: z.array(CustomerPcbProgressOrderSummary) }),
+});
+export type CustomerPcbProgressBatchResponseType = z.infer<typeof CustomerPcbProgressBatchResponse>;
 
 export const CustomerPcbProgressResponse = z.object({
   result: z.literal(true),

@@ -35,7 +35,12 @@ if($od['od_pg'] == 'lg') {
     <div class="sp-deposit-notice">
         <div class="sp-deposit-notice__head">
             <b>입금 안내</b>
+            <?php if ($od['od_status'] === '주문'): ?>
             <span>아직 입금이 확인되지 않았습니다 — 아래 계좌로 입금해 주시면 제작이 시작됩니다.</span>
+            <?php else: ?>
+            <?php // od 는 입금 이후인데 미수가 남은 경우(일부 입금·조정) — "확인되지 않았다"는 배지 '입금완료'와 딴말이다(08-25 실측). ?>
+            <span>입금이 일부 확인되었습니다 — 남은 금액을 아래 계좌로 입금해 주세요.</span>
+            <?php endif; ?>
         </div>
         <dl class="sp-deposit-notice__list">
             <div>
@@ -90,6 +95,15 @@ if($od['od_pg'] == 'lg') {
         <?php
         $st_count1 = $st_count2 = 0;
         $custom_cancel = false;
+
+        // ── PCB 제작 진행(P4.13, od 무접촉) — 줄 배지와 아래 '제작 진행 상황' 카드가 **같은 응답**을
+        // 쓴다(두 번 부르지 않는다). 결제 뒤·배송 전 구간의 줄은 od 라벨 대신 이 진행이 배지다
+        // (08-25 실측 교정 — 그전엔 카드만 움직이고 줄은 '입금완료'였다). ctId 로 줄에 붙인다.
+        $sp_progress = function_exists('sp_pcb_progress') ? sp_pcb_progress($od_id) : array();
+        $sp_progress_by_ct = array();
+        foreach ($sp_progress as $sp_pg) {
+            if (isset($sp_pg['ctId']) && $sp_pg['ctId'] !== null) $sp_progress_by_ct[(int) $sp_pg['ctId']] = $sp_pg;
+        }
 
         $sql = " select it_id, it_name, ct_send_cost, it_sc_type
                     from {$g5['g5_shop_cart_table']}
@@ -194,7 +208,17 @@ if($od['od_pg'] == 'lg') {
 	                <td headers="th_itpt" class="td_numbig text_right"><?php echo number_format($point); ?></td>
 	                <td headers="th_itsd" class="td_dvr"><?php echo $ct_send_cost; ?></td>
 	                <td headers="th_itsum" class="td_numbig text_right"><?php echo number_format($sell_price); ?></td>
-	                <td headers="th_itst" class="td_mngsmall"><?php echo function_exists('sp_order_status_customer') ? sp_order_status_customer($opt['ct_status'])['label'] : $opt['ct_status']; ?></td>
+	                <td headers="th_itst" class="td_mngsmall"><?php
+	                    if (function_exists('sp_order_status_customer')) {
+	                        $sp_sc = sp_order_status_customer(
+	                            $opt['ct_status'],
+	                            isset($sp_progress_by_ct[(int) $opt['ct_id']]) ? $sp_progress_by_ct[(int) $opt['ct_id']] : null
+	                        );
+	                        echo '<span class="'.$sp_sc['cls'].' sp_line_status">'.$sp_sc['label'].'</span>';
+	                    } else {
+	                        echo $opt['ct_status'];
+	                    }
+	                ?></td>
 	            </tr>
 	            <?php
 	                    $tot_point       += $point;
@@ -216,8 +240,7 @@ if($od['od_pg'] == 'lg') {
         <?php
         // ── PCB 제작 진행 단계(P4.13) — od 상태('입금' 등)와 별개로 실제 제작이
         // 어디까지 왔는지 보여준다(sp 축 파생, od 무접촉 — D6 수동 유지). 발주 전이면
-        // 항목이 없어 섹션 자체가 나오지 않는다.
-        $sp_progress = function_exists('sp_pcb_progress') ? sp_pcb_progress($od_id) : array();
+        // 항목이 없어 섹션 자체가 나오지 않는다. 응답은 위(상품 표 앞)에서 한 번 받았다.
         if ($sp_progress):
         ?>
         <section id="sp_progress_wrap">
@@ -225,7 +248,8 @@ if($od['od_pg'] == 'lg') {
             <ul class="sp_progress_list">
                 <?php foreach ($sp_progress as $pg): ?>
                 <li class="sp_progress_item">
-                    <span class="sp_eq_badge <?php echo $pg['stage'] === 'received' ? 'sp_eq_ok' : 'sp_eq_wait'; ?>">
+                    <?php // 단계별 색(08-25) — 그전엔 입고만 초록, 나머지는 전부 같은 대기색이었다. ?>
+                    <span class="sp_eq_badge sp_stage_<?php echo preg_replace('/[^a-z_]/', '', (string) $pg['stage']); ?>">
                         <?php echo get_text($pg['label']); ?>
                     </span>
                     <strong class="sp_progress_proj"><?php echo get_text($pg['projectName']); ?></strong>
@@ -500,6 +524,12 @@ if($od['od_pg'] == 'lg') {
                     <dd>입금(결제)이 완료 되었습니다.
                     <dt>준비</dt>
                     <dd>상품 준비 중입니다.
+                    <dt>파일검사 · 제조 확인(EQ)</dt>
+                    <dd>제작 전 데이터를 검토하고 제조 확인 사항을 정리하는 단계입니다. 확인이 필요하면 '제조 확인 요청'으로 안내드립니다.
+                    <dt>생산 · 품질시험 · 생산완료</dt>
+                    <dd>보드를 제작하고 검사한 뒤 발송을 준비합니다. 진행은 '제작 진행 상황'에서 볼 수 있습니다.
+                    <dt>A/S</dt>
+                    <dd>접수된 A/S 를 처리(재생산·재배송)하는 중입니다.
                     <dt>배송</dt>
                     <dd>상품 배송 중입니다.
                     <dt>완료</dt>

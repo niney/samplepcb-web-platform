@@ -228,6 +228,14 @@ export const AdminOrderCartItem = z.object({
   ctStatus: z.string(), // ct_status (쇼핑/주문/…)
   ctSelect: z.number(), // ct_select 0/1
   quote: AdminOrderItemQuote.nullable(),
+  /**
+   * 협력 트랙 진행(sp_pcb_po 파생, od 무접촉 — D6). od 가 '입금'에 머물러도 실제 제작은
+   * EQ→생산→입고로 움직이는데 드로어가 od 스텝퍼만 보여 주면 관리자도 '입금'에서 멈춘
+   * 화면을 본다(2026-08-25 실측). 고객 카드와 같은 사전(pcb-customer-progress)으로 찍는다.
+   */
+  pcbProgress: z
+    .object({ stage: z.string(), label: z.string(), shortLabel: z.string() })
+    .nullable(),
 });
 export type AdminOrderCartItemType = z.infer<typeof AdminOrderCartItem>;
 

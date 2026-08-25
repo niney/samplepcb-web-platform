@@ -3,7 +3,7 @@ import type {
   PcbPoTrackType,
   PcbProgressStageType,
 } from '@sp/api-contract';
-import { resolvePcbPoTrack } from '@sp/api-contract';
+import { PCB_PROGRESS_STAGES, resolvePcbPoTrack } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { isCanceledCartStatus } from './g5-db';
 
@@ -12,22 +12,35 @@ import { isCanceledCartStatus } from './g5-db';
 // 에서 파생해 보여준다. 판정 축은 **최상위 발주(parentPartnerId 0)의 최신 회차** —
 // MD 경유는 상위(A)가 하위 상태를 미러하므로 그대로 고객 관점이 된다.
 // 협력사명·발주 정보는 싣지 않는다(P4.1 관례 — 공급망 비노출).
+//
+// 2026-08-25 실측 교정: 이 파생이 **카드에만** 실리고 목록·줄 배지는 od 만 읽어, 협력
+// 트랙이 입고까지 가도 고객 목록은 '입금완료'였다. 이제 같은 파생을 목록(일괄 요약)·줄
+// 배지(ctId 조인)·관리자 드로어가 함께 쓴다 — 사전은 이 파일 하나다.
 
 interface ShipmentSignal {
   status: string;
   receivedAt: Date | null;
 }
 
+/** 단계 순서(느린 줄 판정) — 계약 배열 순서가 곧 진행 순서다. */
+const STAGE_ORDER: Record<PcbProgressStageType, number> = Object.fromEntries(
+  PCB_PROGRESS_STAGES.map((s, i) => [s, i]),
+) as Record<PcbProgressStageType, number>;
+
 /** 순수 판정 — 발주 상태+관리자향 발송 신호 → 고객 단계. 발주 전(null 발주)은 카드 없음.
+ *  확인 구간은 세 칸(issued→eq_pending · eq_requested→eq · eq_done→eq_done).
  *  선적요청(requested)은 아직 실물이 안 움직인 서류 단계라 '발송 준비 중'으로 묶는다 —
  *  운송(shipping)은 shipped 부터다(재점검 확정 08-10). */
 export const resolvePcbProgressStage = (
   poStatus: string,
   shipment: ShipmentSignal | null,
 ): PcbProgressStageType => {
-  if (poStatus !== 'produced') {
-    return poStatus === 'producing' ? 'producing' : 'eq';
-  }
+  if (poStatus === 'issued') return 'eq_pending';
+  if (poStatus === 'eq_requested') return 'eq';
+  if (poStatus === 'eq_done') return 'eq_done';
+  if (poStatus === 'producing') return 'producing';
+  // 모르는 값은 가장 이른 칸으로 접는다 — 앞서 나갔다고 말하는 것보다 안전하다.
+  if (poStatus !== 'produced') return 'eq_pending';
   if (shipment === null || shipment.status === 'preparing' || shipment.status === 'requested') {
     return 'produced';
   }
@@ -36,17 +49,37 @@ export const resolvePcbProgressStage = (
 };
 
 const STAGE_LABELS: Record<PcbProgressStageType, string> = {
+  eq_pending: '제조 확인(EQ) 준비 중',
   eq: '제조 확인(EQ) 진행 중',
+  eq_done: '제조 확인 완료 — 생산 준비 중',
   producing: '생산 진행 중',
   produced: '생산 완료 — 발송 준비 중',
   shipping: '입고 운송 중',
   received: '입고 완료 — 배송 준비 중',
 };
 
+/** 배지용 짧은 문구 — 목록·줄 상태 칸은 좁아 긴 문구가 잘린다(여정 10호 X7). */
+const SHORT_LABELS: Record<PcbProgressStageType, string> = {
+  eq_pending: '제조 확인 준비',
+  eq: '제조 확인 중',
+  eq_done: '생산 준비',
+  producing: '생산 중',
+  produced: '생산 완료',
+  shipping: '입고 중',
+  received: '입고 완료',
+};
+
 /** 스텐실(메탈마스크)에는 EQ 왕복이 없다 — 'EQ' 라는 말이 고객에게 뜻이 안 통한다.
- *  갈리는 건 첫 칸 하나뿐이라(생산·발송·입고는 두 트랙이 같은 일) 여기서만 덮어쓴다. */
+ *  갈리는 건 확인 구간뿐이라(생산·발송·입고는 두 트랙이 같은 일) 여기서만 덮어쓴다. */
 const STENCIL_STAGE_LABELS: Partial<Record<PcbProgressStageType, string>> = {
+  eq_pending: '제작 전 확인 준비 중',
   eq: '제작 전 확인 중',
+  eq_done: '확인 완료 — 생산 준비 중',
+};
+const STENCIL_SHORT_LABELS: Partial<Record<PcbProgressStageType, string>> = {
+  eq_pending: '확인 준비',
+  eq: '제작 전 확인',
+  eq_done: '생산 준비',
 };
 
 /** 직송(발주 destinationCountry non-null) — 실물이 자사를 거치지 않으므로 '입고' 어휘가
@@ -54,6 +87,10 @@ const STENCIL_STAGE_LABELS: Partial<Record<PcbProgressStageType, string>> = {
 const DIRECT_SHIP_LABELS: Partial<Record<PcbProgressStageType, string>> = {
   shipping: '주문지로 직송 배송 중',
   received: '직송 배송 완료',
+};
+const DIRECT_SHIP_SHORT_LABELS: Partial<Record<PcbProgressStageType, string>> = {
+  shipping: '직송 중',
+  received: '직송 완료',
 };
 
 export const pcbProgressLabel = (
@@ -66,6 +103,28 @@ export const pcbProgressLabel = (
   ((directShip ? DIRECT_SHIP_LABELS[stage] : undefined) ??
     (track === 'stencil' ? STENCIL_STAGE_LABELS[stage] : undefined) ??
     STAGE_LABELS[stage]);
+
+export const pcbProgressShortLabel = (
+  stage: PcbProgressStageType,
+  reorderRound: number,
+  directShip = false,
+  track: PcbPoTrackType = 'eq',
+): string =>
+  (reorderRound > 0 ? 'A/S ' : '') +
+  ((directShip ? DIRECT_SHIP_SHORT_LABELS[stage] : undefined) ??
+    (track === 'stencil' ? STENCIL_SHORT_LABELS[stage] : undefined) ??
+    SHORT_LABELS[stage]);
+
+/** 여러 줄 중 **가장 느린** 진행 — 주문 하나의 배지는 그 주문이 못 넘은 단계를 말해야 한다. */
+export const slowestPcbProgress = <T extends { stage: PcbProgressStageType }>(
+  items: readonly T[],
+): T | null => {
+  let out: T | null = null;
+  for (const it of items) {
+    if (out === null || STAGE_ORDER[it.stage] < STAGE_ORDER[out.stage]) out = it;
+  }
+  return out;
+};
 
 // ── 좌표파일 — 통보 없는 열람(사용자 결정 2026-08-16) ────────────────────────
 // 고객이 요청하는 일이 있어 **주문내역에 그냥 놓아 둔다**. 메일도 확인 요청도 만들지 않는다.
@@ -95,16 +154,19 @@ export const progressTargetCtIds = (
   lines: readonly { ctId: number; ctStatus: string }[],
 ): number[] => lines.filter((l) => !isCanceledCartStatus(l.ctStatus)).map((l) => l.ctId);
 
-/** 주문의 카트행들 → 소유 스펙별 진행 카드. 발주(최상위) 없는 스펙·취소된 줄은 항목을 내지 않는다. */
-export const listCustomerPcbProgress = async (
+/**
+ * 카트행들 → 소유 스펙별 진행 카드. 발주(최상위) 없는 스펙·취소된 줄은 항목을 내지 않는다.
+ * `mbId` 가 null 이면 소유 판정을 생략한다 — **관리자 드로어 전용**(고객 라우트는 반드시 회원 id).
+ */
+export const listPcbProgressForLines = async (
   lines: readonly { ctId: number; ctStatus: string }[],
-  mbId: string,
+  mbId: string | null,
 ): Promise<CustomerPcbProgressItemType[]> => {
   const ctIds = progressTargetCtIds(lines);
   if (ctIds.length === 0) return [];
   const specs = await prisma.spOrderSpec.findMany({
-    where: { ctId: { in: ctIds }, mbId, status: 'active' },
-    select: { id: true, projectName: true, category: true },
+    where: { ctId: { in: ctIds }, ...(mbId === null ? {} : { mbId }), status: 'active' },
+    select: { id: true, ctId: true, projectName: true, category: true },
   });
   const out: CustomerPcbProgressItemType[] = [];
   for (const spec of specs) {
@@ -128,22 +190,27 @@ export const listCustomerPcbProgress = async (
       if (row !== null) shipment = { status: row.status, receivedAt: row.receivedAt };
     }
     const stage = resolvePcbProgressStage(po.status, shipment);
+    const directShip = po.destinationCountry !== null;
+    const track = resolvePcbPoTrack(spec.category);
     out.push({
       specId: Number(spec.id),
+      ctId: spec.ctId,
       projectName: spec.projectName,
       reorderRound: po.reorderRound,
       stage,
-      label: pcbProgressLabel(
-        stage,
-        po.reorderRound,
-        po.destinationCountry !== null,
-        resolvePcbPoTrack(spec.category),
-      ),
+      label: pcbProgressLabel(stage, po.reorderRound, directShip, track),
+      shortLabel: pcbProgressShortLabel(stage, po.reorderRound, directShip, track),
       coordFile: await loadCustomerCoordFile(po, spec.projectName),
     });
   }
   return out;
 };
+
+/** 고객 라우트용 — 소유 판정 필수. */
+export const listCustomerPcbProgress = (
+  lines: readonly { ctId: number; ctStatus: string }[],
+  mbId: string,
+): Promise<CustomerPcbProgressItemType[]> => listPcbProgressForLines(lines, mbId);
 
 /** 이 발주의 고객 열람용 좌표파일 — 확인 전이거나 없으면 null.
  *  '최신'은 fileId 로 정한다(orderPcbEqFiles 와 같은 사전 — writeDate 는 같은 초에 갈리지 않는다). */

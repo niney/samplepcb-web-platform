@@ -1650,6 +1650,7 @@
    영카트 표준 상태 클래스. 이 테마 외 사용처 없어 전역 정의.
    ========================================================================== */
 .status_01, .status_02, .status_03,
+.status_03_1, .status_03_2, .status_03_3, .status_03_4, .status_03_5,
 .status_04, .status_05, .status_06 {
     display: inline-block;
     padding: 3px 11px;
@@ -1664,7 +1665,15 @@
 .status_03 { background: #eef2ff; color: #4338ca; }  /* 상품준비중 */
 .status_04 { background: #e0f2fe; color: #0369a1; }  /* 상품배송   */
 .status_05 { background: #dcfce7; color: #15803d; }  /* 배송완료   */
-.status_06 { background: #f3f4f6; color: #6b7280; }  /* 주문취소   */
+.status_06 { background: #f3f4f6; color: #6b7280; }  /* 주문취소·반품·품절 */
+/* 제작 단계(08-25) — 그전엔 8단계가 전부 status_03 한 색이라 고객이 단계를 색으로 못 갈랐다. */
+.status_03_1 { background: #f3e8ff; color: #7e22ce; } /* 파일검사·제조 확인(EQ) */
+.status_03_2 { background: #ccfbf1; color: #0f766e; } /* 생산시작·생산중 */
+.status_03_3 { background: #ecfccb; color: #4d7c0f; } /* 품질시험 */
+.status_03_4 { background: #d1fae5; color: #047857; } /* 생산완료·입고 */
+.status_03_5 { background: #ffe4e6; color: #be123c; } /* A/S */
+/* 보조 배지(일부 취소) — 본 배지 옆에 작게 */
+.status_sub { padding: 2px 8px; font-size: 0.8em; }
 
 /* ==========================================================================
    주문내역 목록 (넓은 화면 표 / 좁은 화면 카드)
@@ -2730,6 +2739,14 @@
 #sod_fin .sp_eq_badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.833em; font-weight: 700; }
 #sod_fin .sp_eq_wait { background: #e0f2fe; color: #0369a1; }
 #sod_fin .sp_eq_ok   { background: #d1fae5; color: #047857; }
+/* 제작 진행 카드 단계색(08-25) — 확인(보라)→생산(청록)→생산완료(연초록)→운송(하늘)→입고(초록) */
+#sod_fin .sp_stage_eq_pending, #sod_fin .sp_stage_eq, #sod_fin .sp_stage_eq_done { background: #f3e8ff; color: #7e22ce; }
+#sod_fin .sp_stage_producing { background: #ccfbf1; color: #0f766e; }
+#sod_fin .sp_stage_produced  { background: #d1fae5; color: #047857; }
+#sod_fin .sp_stage_shipping  { background: #e0f2fe; color: #0369a1; }
+#sod_fin .sp_stage_received  { background: #dcfce7; color: #15803d; }
+/* 상품 표 상태 칸 — 목록과 같은 배지(폭이 좁아 여백만 줄인다) */
+#sod_fin .sp_line_status { padding: 2px 8px; font-size: 0.833em; }
 #sod_fin .sp_eq_no   { background: #fee2e2; color: #b91c1c; }
 #sod_fin .sp_eq_off  { background: #f3f4f6; color: #6b7280; }
 

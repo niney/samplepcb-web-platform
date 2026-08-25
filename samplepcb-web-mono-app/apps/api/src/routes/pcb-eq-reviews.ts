@@ -7,8 +7,11 @@ import {
   CustomerPcbEqReviewListResponse,
   CustomerPcbEqReviewMineQuery,
   CustomerPcbEqReviewMineResponse,
+  CustomerPcbProgressBatchBody,
+  CustomerPcbProgressBatchResponse,
   CustomerPcbProgressResponse,
 } from '@sp/api-contract';
+import type { CustomerPcbProgressOrderSummaryType } from '@sp/api-contract';
 import { getCartOrderLinks, getCartRowsByOdId, getOrderRow } from '../lib/g5-db';
 import {
   decideEqReview,
@@ -16,7 +19,11 @@ import {
   listCustomerEqReviews,
   listMyEqReviews,
 } from '../lib/pcb-eq-review';
-import { getCustomerCoordFile, listCustomerPcbProgress } from '../lib/pcb-customer-progress';
+import {
+  getCustomerCoordFile,
+  listCustomerPcbProgress,
+  slowestPcbProgress,
+} from '../lib/pcb-customer-progress';
 import { downloadFromFileServer } from '../lib/file-server';
 import { sendPcbMail, buildPcbEqCustomerDecisionEmail } from '../lib/pcb-rfq-email';
 import { prisma } from '../lib/prisma';
@@ -121,6 +128,40 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           items: closed ? [] : await listCustomerPcbProgress(rows, request.user.mbId),
         },
       };
+    },
+  );
+
+  // ── POST /pcb-progress/batch — 주문내역 **목록**용 일괄 요약(주문마다 가장 느린 줄) ──
+  // 목록 배지가 od 만 읽으면 협력 트랙이 입고까지 가도 '입금완료'다(2026-08-25 실측).
+  // 소유 판정은 서버가 다시 한다 — 목록은 내 주문만 넘기지만 odId 는 아무나 적을 수 있다.
+  // 접힘 규칙은 단건과 같다(배송·완료·취소면 없음). '주문'(미입금)의 우선순위는 PHP 가
+  // 정한다 — 돈이 먼저라 진행이 있어도 '입금확인중'을 보인다.
+  fastify.post(
+    '/pcb-progress/batch',
+    {
+      schema: {
+        body: CustomerPcbProgressBatchBody,
+        response: { 200: CustomerPcbProgressBatchResponse },
+      },
+    },
+    async (request) => {
+      const orders: CustomerPcbProgressOrderSummaryType[] = [];
+      for (const odId of [...new Set(request.body.odIds)]) {
+        const [rows, order] = await Promise.all([getCartRowsByOdId(odId), getOrderRow(odId)]);
+        if (order?.mbId !== request.user.mbId) continue;
+        if (PROGRESS_CLOSED_OD.has(order.status)) continue;
+        const items = await listCustomerPcbProgress(rows, request.user.mbId);
+        const slowest = slowestPcbProgress(items);
+        if (slowest === null) continue;
+        orders.push({
+          odId,
+          stage: slowest.stage,
+          label: slowest.label,
+          shortLabel: slowest.shortLabel,
+          lineCount: items.length,
+        });
+      }
+      return { result: true as const, data: { orders } };
     },
   );
 

@@ -135,6 +135,29 @@ function sp_pcb_progress($od_id)
     return $res['json']['data']['items'];
 }
 
+/** 주문내역 **목록**용 진행 일괄 요약(주문마다 가장 느린 줄) — od_id ⇒ 항목(stage/label/shortLabel).
+ *  행마다 API 를 부르면 목록 한 페이지에 HTTP 왕복이 20개 붙으므로 한 번에 묻는다(최대 50건).
+ *  실패·비로그인·없음은 빈 배열(배지는 od 매핑으로 폴백). */
+function sp_pcb_progress_batch($od_ids)
+{
+    $ids = array();
+    foreach ((array) $od_ids as $id) {
+        $id = (string) $id;
+        if ($id !== '') $ids[] = $id;
+    }
+    if (count($ids) === 0) return array();
+    $out = array();
+    foreach (array_chunk(array_values(array_unique($ids)), 50) as $chunk) {
+        $res = sp_pcb_node_call('POST', '/api/pcb-progress/batch', array('odIds' => $chunk));
+        if ($res === null || $res['status'] !== 200) continue;
+        if (!isset($res['json']['data']['orders']) || !is_array($res['json']['data']['orders'])) continue;
+        foreach ($res['json']['data']['orders'] as $o) {
+            if (isset($o['odId'])) $out[(string) $o['odId']] = $o;
+        }
+    }
+    return $out;
+}
+
 /** 확인 요청 첨부 다운로드 URL — nginx 가 /api 를 sp-node 로 넘긴다(브라우저는 세션 쿠키가
  *  아니라 이 URL 을 그대로 열 수 없으므로, 다운로드는 eq-file.php 브리지를 거친다). */
 function sp_pcb_eq_file_url($review_id, $file_id)

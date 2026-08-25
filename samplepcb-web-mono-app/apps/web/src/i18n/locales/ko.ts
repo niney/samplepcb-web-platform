@@ -693,6 +693,7 @@ export const ko = {
         toProdDone: '생산완료 처리',
         toShipping: '배송 처리',
         toDone: '완료 처리',
+        toReship: 'A/S 재배송 처리',
         processing: '처리 중…',
         delete: '선택 삭제',
         sendMail: '메일 발송',
@@ -806,10 +807,12 @@ export const ko = {
       },
       stepper: {
         offPipeline: '현재 상태: {status} (진행 단계 밖)',
+        afterService: 'A/S 진행 중 — 생산완료와 배송 사이의 가지 상태입니다. 재생산·재배송이 끝나면 [A/S 재배송 처리]로 배송 단계에 복귀합니다.',
       },
       drawer: {
         close: '닫기',
         noSettle: '결제수단없음',
+        trackProgress: '협력 트랙 진행',
         pg: 'PG',
         tno: '거래번호',
         appNo: '승인번호',
