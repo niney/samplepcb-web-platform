@@ -25,19 +25,102 @@ if (!function_exists('sp_order_status_customer')) {
         return in_array($status, array('취소', '반품', '품절'), true);
     }
 
-    /** 진행 단계(stage) → 배지 색. 확인 구간=파일검사·EQ 색, 생산=생산 색, 입고=상품준비 색. */
+    /** 진행 단계(stage) → 배지 색. 확인 구간=파일검사·EQ 색, 생산·조달=생산 색, 발송·운송=완료 색, 입고=상품준비 색.
+     *  BOM 단계(procure_*·packing·inbound)는 sp-node lib/bom-customer-progress 사전(08-25 §6.35). */
     function sp_order_progress_cls($stage)
     {
         switch ($stage) {
             case 'eq_pending':
             case 'eq':
-            case 'eq_done':   return 'status_03_1';
-            case 'producing': return 'status_03_2';
+            case 'eq_done':          return 'status_03_1';
+            case 'producing':
+            case 'procuring':
+            case 'procure_confirmed': return 'status_03_2';
             case 'produced':
-            case 'shipping':  return 'status_03_4';
-            case 'received':  return 'status_03';
-            default:          return 'status_03';
+            case 'shipping':
+            case 'packing':
+            case 'inbound':          return 'status_03_4';
+            case 'received':
+            case 'procure_pending':  return 'status_03';
+            default:                 return 'status_03';
         }
+    }
+
+    /** 주문의 트랙 — 카트 it_id 로 판정(PCB 4종 · sp-bom-parts · 그 밖은 일반). 혼합 주문은 없다(D17). */
+    function sp_order_track($od_id)
+    {
+        global $g5;
+        $esc = function_exists('sql_real_escape_string') ? sql_real_escape_string($od_id) : addslashes($od_id);
+        $res = sql_query(" select distinct it_id from {$g5['g5_shop_cart_table']} where od_id = '{$esc}' ", false);
+        $track = 'generic';
+        if (!$res) return $track;
+        $pcb = array('sp-pcb-std', 'sp-mask', 'sp-pcb-adv', 'sp-pcb-flex');
+        while ($r = sql_fetch_array($res)) {
+            if (in_array($r['it_id'], $pcb, true)) return 'pcb';
+            if ($r['it_id'] === 'sp-bom-parts') $track = 'bom';
+        }
+        return $track;
+    }
+
+    /** 진행 항목들 중 **가장 느린** 것 — 트랙별 순서표(sp-node 계약 배열 순서 사본). */
+    function sp_order_slowest_progress($items)
+    {
+        $rank = array(
+            'eq_pending' => 0, 'eq' => 1, 'eq_done' => 2, 'producing' => 3, 'produced' => 4, 'shipping' => 5, 'received' => 6,
+            'procure_pending' => 0, 'procuring' => 1, 'procure_confirmed' => 2, 'packing' => 3, 'inbound' => 4,
+        );
+        $out = null;
+        foreach ((array) $items as $it) {
+            if (!is_array($it) || empty($it['stage'])) continue;
+            $r = isset($rank[$it['stage']]) ? $rank[$it['stage']] : 0;
+            if ($out === null || $r < $out['_rank']) { $out = $it; $out['_rank'] = $r; }
+        }
+        return $out;
+    }
+
+    /**
+     * 고객 주문 진행 스텝퍼(Figma 103:4561 골격) — od 축 + 협력·조달 파생을 한 줄로.
+     * 반환 array('mode' => 'steps'|'cancel', 'steps' => [...], 'current' => int, 'note' => '', 'label' => '')
+     *  · 취소류: 스텝 대신 취소 라벨 하나(시안의 숨은 '주문취소' 노드)
+     *  · '주문'(미입금)=0 · 배송/완료=od 가 정본 · 그 사이는 진행 파생이 있으면 그것이, 없으면 od 제작 상태가 칸을 정한다
+     */
+    function sp_order_customer_steps($od_status, $track, $stage = null)
+    {
+        if (sp_order_status_is_cancel($od_status)) {
+            $sc = sp_order_status_customer($od_status);
+            return array('mode' => 'cancel', 'steps' => array(), 'current' => -1, 'note' => '', 'label' => $sc['label']);
+        }
+        if ($track === 'bom') {
+            $steps = array('입금확인', '입금완료', '부품 조달', '발송·운송', '입고 완료', '상품배송', '배송완료');
+            $byStage = array('procure_pending' => 2, 'procuring' => 2, 'procure_confirmed' => 2, 'packing' => 3, 'inbound' => 3, 'received' => 4);
+            // BOM A/S 는 배송 뒤 교환·재발송이라 '상품배송' 칸에 세우고 안내문을 붙인다.
+            $byOd = array('입금' => 1, '준비' => 2, '가격확인' => 2, '파일검사' => 2, 'EQ' => 2, '생산시작' => 2, '생산중' => 2, '품질시험' => 2, '생산완료' => 3, 'A/S' => 5);
+        } else if ($track === 'pcb') {
+            $steps = array('입금확인', '입금완료', '제조 확인', '생산', '생산완료', '입고 완료', '상품배송', '배송완료');
+            $byStage = array('eq_pending' => 2, 'eq' => 2, 'eq_done' => 2, 'producing' => 3, 'produced' => 4, 'shipping' => 4, 'received' => 5);
+            $byOd = array('입금' => 1, '준비' => 1, '가격확인' => 1, '파일검사' => 2, 'EQ' => 2, '생산시작' => 3, '생산중' => 3, '품질시험' => 3, '생산완료' => 4, 'A/S' => 4);
+        } else {
+            $steps = array('입금확인', '입금완료', '상품준비', '상품배송', '배송완료');
+            $byStage = array();
+            $byOd = array('입금' => 1, '준비' => 2, '가격확인' => 2, '파일검사' => 2, 'EQ' => 2, '생산시작' => 2, '생산중' => 2, '품질시험' => 2, '생산완료' => 2, 'A/S' => 2);
+        }
+        $last = count($steps) - 1;
+        $note = '';
+        if ($od_status === '주문') {
+            $current = 0;
+        } else if ($od_status === '배송') {
+            $current = $last - 1;
+        } else if ($od_status === '완료') {
+            $current = $last;
+        } else if ($stage !== null && isset($byStage[$stage]) && sp_order_status_progress_applies($od_status)) {
+            $current = $byStage[$stage];
+        } else if (isset($byOd[$od_status])) {
+            $current = $byOd[$od_status];
+            if ($od_status === 'A/S') $note = 'A/S 진행 중 — 재생산·재배송 뒤 배송 단계로 이어집니다.';
+        } else {
+            $current = 1;
+        }
+        return array('mode' => 'steps', 'steps' => $steps, 'current' => $current, 'note' => $note, 'label' => '');
     }
 
     /**

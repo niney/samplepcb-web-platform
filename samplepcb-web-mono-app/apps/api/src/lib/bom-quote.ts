@@ -69,6 +69,7 @@ import {
   type OfferPick,
 } from '@sp/utils';
 import { prisma } from './prisma';
+import { deriveBomQuoteOrderProgress } from './order-progress';
 import { engineFetch } from './engine-client';
 import {
   getBomCartStates,
@@ -6657,6 +6658,7 @@ export function toSummaryDto(
   quote: QuoteRow,
   counts: BomQuoteSummaryCounts,
   orderState: BomQuoteSummaryType['orderState'] = 'none',
+  orderProgress: BomQuoteSummaryType['orderProgress'] = null,
 ): BomQuoteSummaryType {
   return {
     id: String(quote.id),
@@ -6672,6 +6674,7 @@ export function toSummaryDto(
     answeredAt: quote.answeredAt?.toISOString() ?? null,
     confirmedTotal: customerCanViewQuoteAnswer(quote.status) ? quote.confirmedTotal : null,
     orderState,
+    orderProgress,
   };
 }
 
@@ -6854,7 +6857,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
   const selectedRfqItemIds = activeItems.flatMap((item) =>
     item.included && item.selectedRfqItemId !== null ? [item.selectedRfqItemId] : [],
   );
-  const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState, selectedRfqItems] = await Promise.all([
+  const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState, selectedRfqItems, orderProgress] = await Promise.all([
     loadPartMetaMap(activeItems),
     loadCandidateDisplayMeta(quote.id, activeItems),
     loadSupplierSearchSummary(quote.activeSupplierSearchRunId, quote.enrichStatus),
@@ -6865,6 +6868,8 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
           select: { rfq: { select: { deliveryDate: true } } },
         })
       : Promise.resolve([]),
+    // 주문 뒤 진행(조달·물류 파생) — "주문내역에서 확인하세요" 대신 실제 단계(08-25 §6.35).
+    deriveBomQuoteOrderProgress(quote.ctId, quote.mbId),
   ]);
   const itemDtos = [...activeItems]
     .sort((a, b) => a.rowIdx - b.rowIdx)
@@ -6948,6 +6953,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
       : null,
     answerNote: customerAnswerVisible ? quote.answerNote : null,
     orderState,
+    orderProgress,
     items: itemDtos,
   };
 }

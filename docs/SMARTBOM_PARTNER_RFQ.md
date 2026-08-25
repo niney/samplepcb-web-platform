@@ -1586,9 +1586,32 @@ Mouser 3/6 NOT_COMPLETE → 8/6 OVER_RECEIVED → 취소·정확 충전 → 구�
   `force-status 완료` 가 배송 게이트(BOM_FULFILLMENT_INCOMPLETE) 없이 통과하는 것은 status-matrix
   (시드 편)에서 이미 확정된 그대로다.
 
-교정 후보(미착수): PCB P4.13/P4.14 의 BOM 판 — `sp_bom_po`/`sp_bom_shipment` 파생 고객 단계(조달 중 →
-발송 준비 → 배송 중(협력사→자사) → 입고 완료 → 배송 준비)를 주문내역 목록·줄 배지와 `/app/bom/:id`
-패널에 겹치고, 라벨 3벌을 한 사전으로 모은다.
+**교정 완료(같은 날, §6.36)** — 아래 참조.
+
+### 6.36 고객 진행 표시 — BOM 조달·물류 파생 + 트랙 공용 스텝퍼 (2026-08-25)
+
+PCB P4.13/P4.14 의 배관을 BOM 까지 넓혔다. od 는 여전히 안 바꾼다(D6).
+
+- **파생**: `lib/bom-customer-progress.ts` — 발주·선적 신호 → 6칸 `procure_pending(입금 뒤 발주 전)
+  → procuring(issued) → procure_confirmed(confirmed) → packing(preparing/requested) → inbound(shipping·
+  shipped·arrived·customs) → received(delivered/done 또는 receivedAt)`. 여러 발주면 **가장 느린** 것 +
+  `partial`('일부 앞서 진행 중'), 국제 선적은 '해외 부품 운송 중'/'해외 운송·통관 중'. 협력사명·수는 없다.
+- **트랙 공용 진입점**: `GET /api/order-progress?odId=` · `POST /api/order-progress/batch`
+  (`lib/order-progress.ts` — PCB+BOM 합치고 `slowestOrderProgress`). `/pcb-progress` 는 PCB 전용으로
+  남겨 기존 여정을 깨지 않는다. PHP 브리지 `sp_pcb_progress()`/`sp_pcb_progress_batch()` 는 공용 라우트로
+  갈아탔다. 미입금('주문')이면 발주 전 `procure_pending` 은 내지 않는다(돈이 먼저).
+- **고객 화면**: ① 주문내역 목록·줄 배지 — PHP `sp_order_status_customer($status,$progress)` 병합
+  그대로(BOM 단계색 `sp_order_progress_cls`) ② 상세 카드 '진행 상황'(BOM 줄이 있으면 제목이 넓어진다)
+  ③ **스텝퍼**(Figma 103:4561 골격, `sp_order_customer_steps`) — 트랙별 칸: PCB 8칸 `입금확인→입금완료→
+  제조 확인→생산→생산완료→입고 완료→상품배송→배송완료`, BOM 7칸 `입금확인→입금완료→부품 조달→발송·운송→
+  입고 완료→상품배송→배송완료`, 일반 5칸. 취소류는 칸 대신 취소 배지. od 축('주문'·배송·완료)이 정본이고
+  그 사이는 가장 느린 진행이 칸을 정한다 ④ `/app/bom/:id` "주문 완료" 옆 **진행 칩**(`orderProgress` —
+  주문번호 링크) · 히스토리 배지 옆 칩 — `mergedOrderCustomerLabel`(계약, PHP 사전 미러) ⑤ 고객 라벨
+  사전 단일화 `BOM_QUOTE_CUSTOMER_STATUS_LABELS`(히스토리·상세 공용, 관리자는 smartbom.ts 어휘 유지).
+- **게이트**: `force-status 완료` 도 배송과 같은 BOM 입고 게이트를 탄다(이미 '배송'인 주문만 예외).
+- **실측**(status-matrix-bom 재주행): S08 주문 '입금확인중' → S09 '조달 준비' → S10 '조달 중' → S11
+  '조달 확정' → S12 '발송 준비' → S13 '입고 중' → S14 '입고 완료' → S15 '상품배송' → S16 '배송완료' — 목록·
+  줄·카드·칩·스텝퍼가 같은 축으로 움직인다.
 
 ⚠ 계약 드리프트: `POST /rfq-selection` 이 `kind: 'partner'|'supplier'` 판별 union 이 된 뒤에도
 `journey-bom-domestic`·`journey-bom-revision` 은 kind 없이 호출하고 있었다(400) — 08-25 교정.

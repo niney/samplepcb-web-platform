@@ -3,28 +3,21 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError, useAuthStore } from '@sp/shared';
 import type { BomQuoteStatusType, BomQuoteSummaryType } from '@sp/api-contract';
+import { BOM_QUOTE_CUSTOMER_STATUS_LABELS, mergedOrderCustomerLabel } from '@sp/api-contract';
 import { useDeleteBomQuotes, useMyBomQuotes } from '../../bom/useBom';
 
 const PAGE_SIZE = 20;
 
+// 라벨은 계약 사전 하나(08-25) — 상세(BomQuote.vue)와 같은 말을 쓴다.
+const STATUS_LABEL = BOM_QUOTE_CUSTOMER_STATUS_LABELS;
 const STATUS_OPTIONS: { value: 'all' | BomQuoteStatusType; label: string }[] = [
   { value: 'all', label: '전체 상태' },
-  { value: 'draft', label: '작성 중' },
-  { value: 'requested', label: '견적 요청' },
-  { value: 'reviewing', label: '검토 중' },
-  { value: 'answered', label: '답변 완료' },
-  { value: 'closed', label: '종료' },
-  { value: 'canceled', label: '취소' },
+  ...(Object.keys(STATUS_LABEL) as BomQuoteStatusType[]).map((value) => ({ value, label: STATUS_LABEL[value] })),
 ];
 
-const STATUS_LABEL: Record<BomQuoteStatusType, string> = {
-  draft: '작성 중',
-  requested: '견적 요청',
-  reviewing: '검토 중',
-  answered: '답변 완료',
-  closed: '종료',
-  canceled: '취소',
-};
+/** 주문 뒤 진행 칩 — quote.status 는 answered 에서 멈추므로 주문·조달·배송은 이 칩이 말한다. */
+const orderProgressText = (item: BomQuoteSummaryType): string =>
+  item.orderProgress === null ? '' : mergedOrderCustomerLabel(item.orderProgress.odStatus, item.orderProgress, 'shortLabel');
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -429,6 +422,13 @@ async function confirmDelete(): Promise<void> {
               </td>
               <td class="px-3 py-3">
                 <span class="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold" :class="statusClass(item.status)">{{ STATUS_LABEL[item.status] }}</span>
+                <a
+                  v-if="item.orderProgress !== null"
+                  :href="`/shop/orderinquiryview.php?od_id=${item.orderProgress.odId}`"
+                  class="ml-1 inline-flex rounded-full bg-teal-50 px-2 py-1 text-[11px] font-semibold text-teal-700 hover:bg-teal-100"
+                  :title="`주문 ${item.orderProgress.odId} — 주문내역에서 자세히`"
+                  data-testid="bom-order-progress"
+                >{{ orderProgressText(item) }}</a>
               </td>
               <td class="px-3 py-3 text-[12px] text-ink-muted">
                 <p><b class="tabular-nums text-ink">{{ item.itemCount }}</b>개 부품</p>

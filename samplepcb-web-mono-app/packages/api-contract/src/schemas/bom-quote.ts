@@ -14,6 +14,16 @@ export const BOM_QUOTE_MAX_ITEM_QTY = 2_147_483_647;
 export const BomQuoteStatus = z.enum(['draft', 'requested', 'reviewing', 'answered', 'closed', 'canceled']);
 export type BomQuoteStatusType = z.infer<typeof BomQuoteStatus>;
 
+/** 고객 화면(히스토리·상세) 공용 라벨 — 화면마다 사전을 두면 어긋난다(08-25 실측: 3벌). 관리자는 smartbom.ts 어휘. */
+export const BOM_QUOTE_CUSTOMER_STATUS_LABELS: Record<BomQuoteStatusType, string> = {
+  draft: '작성 중',
+  requested: '견적요청 접수',
+  reviewing: '담당자 검토 중',
+  answered: '견적 회신 완료',
+  closed: '종료',
+  canceled: '취소됨',
+};
+
 /** 견적 생성 출처 — 업로드 파일과 단일검색 카트를 화면에서 추측 없이 구분한다. */
 export const BomQuoteSourceKind = z.enum(['upload', 'single_search']);
 export type BomQuoteSourceKindType = z.infer<typeof BomQuoteSourceKind>;
@@ -958,6 +968,19 @@ export const BomQuoteSummary = z.object({
   confirmedTotal: z.number().nullable(),
   /** 영카트 주문 전환 파생 상태(D16·D30) — 저장 아님, 현재 ct 행에서 파생. */
   orderState: z.enum(['none', 'cart', 'ordered', 'canceled']),
+  /**
+   * 주문 뒤 진행(od + 조달·물류 파생, 08-25 §6.35) — "주문내역에서 확인하세요" 대신 실제 단계를
+   * 말하기 위한 값. stage/label 은 결제 뒤·배송 전 구간에만 있고, 배송·완료·취소 뒤엔 od 만.
+   */
+  orderProgress: z
+    .object({
+      odId: z.string(),
+      odStatus: z.string(),
+      stage: z.string().nullable(),
+      label: z.string().nullable(),
+      shortLabel: z.string().nullable(),
+    })
+    .nullable(),
 });
 export type BomQuoteSummaryType = z.infer<typeof BomQuoteSummary>;
 

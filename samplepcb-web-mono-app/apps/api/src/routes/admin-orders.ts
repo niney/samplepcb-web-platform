@@ -746,12 +746,14 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (order === null) return reply.notFound('주문이 없습니다');
 
       const { target, delivery, sendMail, preserveCanceled } = request.body;
-      if (target === '배송') {
+      // '완료'도 같은 게이트 — 배송을 건너뛰어 완료로 점프하면 미입고 주문이 종결됐다(08-25 실측).
+      // 이미 '배송'인 주문의 완료 전이는 배송 때 통과한 게이트라 다시 묻지 않는다.
+      if (target === '배송' || (target === '완료' && order.status !== '배송')) {
         const readiness = await loadBomOrderShippingReadiness(odId);
         if (readiness.hasBomCases && !readiness.ready) {
           return reply.status(409).send({
             error: 'BOM_FULFILLMENT_INCOMPLETE',
-            message: '공급 부족 대체발주와 모든 발주서 입고가 끝난 뒤 배송 처리할 수 있습니다.',
+            message: '공급 부족 대체발주와 모든 발주서 입고가 끝난 뒤 배송·완료 처리할 수 있습니다.',
           });
         }
       }

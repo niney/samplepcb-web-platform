@@ -127,7 +127,7 @@ function sp_pcb_eq_open_count($mb_id)
  *  완성해 내려주고 여기서는 그대로 출력한다(협력사·발주 정보 비노출). */
 function sp_pcb_progress($od_id)
 {
-    $res = sp_pcb_node_call('GET', '/api/pcb-progress?odId=' . rawurlencode((string) $od_id));
+    $res = sp_pcb_node_call('GET', '/api/order-progress?odId=' . rawurlencode((string) $od_id));
     if ($res === null || $res['status'] !== 200) return array();
     if (!isset($res['json']['data']['items']) || !is_array($res['json']['data']['items'])) {
         return array();
@@ -148,7 +148,7 @@ function sp_pcb_progress_batch($od_ids)
     if (count($ids) === 0) return array();
     $out = array();
     foreach (array_chunk(array_values(array_unique($ids)), 50) as $chunk) {
-        $res = sp_pcb_node_call('POST', '/api/pcb-progress/batch', array('odIds' => $chunk));
+        $res = sp_pcb_node_call('POST', '/api/order-progress/batch', array('odIds' => $chunk));
         if ($res === null || $res['status'] !== 200) continue;
         if (!isset($res['json']['data']['orders']) || !is_array($res['json']['data']['orders'])) continue;
         foreach ($res['json']['data']['orders'] as $o) {

@@ -45,6 +45,7 @@ function quoteDetail(
     engineJobId: 'job-101',
     procurementMode: 'sample',
     orderState: 'none',
+    orderProgress: null,
     buildStatus,
     sheets: [{
       sheetIndex: 0,

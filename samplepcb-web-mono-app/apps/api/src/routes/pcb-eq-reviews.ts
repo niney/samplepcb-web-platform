@@ -10,8 +10,15 @@ import {
   CustomerPcbProgressBatchBody,
   CustomerPcbProgressBatchResponse,
   CustomerPcbProgressResponse,
+  CustomerOrderProgressBatchBody,
+  CustomerOrderProgressBatchResponse,
+  CustomerOrderProgressResponse,
 } from '@sp/api-contract';
-import type { CustomerPcbProgressOrderSummaryType } from '@sp/api-contract';
+import type {
+  CustomerOrderProgressOrderSummaryType,
+  CustomerPcbProgressOrderSummaryType,
+} from '@sp/api-contract';
+import { listOrderProgressForLines, slowestOrderProgress } from '../lib/order-progress';
 import { getCartOrderLinks, getCartRowsByOdId, getOrderRow } from '../lib/g5-db';
 import {
   decideEqReview,
@@ -128,6 +135,59 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           items: closed ? [] : await listCustomerPcbProgress(rows, request.user.mbId),
         },
       };
+    },
+  );
+
+  // ── GET /order-progress?odId= · POST /order-progress/batch — 트랙 공용(PCB+BOM) ──────
+  // /pcb-progress 는 PCB 전용으로 남긴다(기존 여정이 읽는다). PHP 주문내역·/app/bom 은 이쪽.
+  fastify.get(
+    '/order-progress',
+    {
+      schema: {
+        querystring: CustomerPcbEqReviewListQuery,
+        response: { 200: CustomerOrderProgressResponse },
+      },
+    },
+    async (request) => {
+      const [rows, order] = await Promise.all([
+        getCartRowsByOdId(request.query.odId),
+        getOrderRow(request.query.odId),
+      ]);
+      const closed = order?.mbId !== request.user.mbId || PROGRESS_CLOSED_OD.has(order.status);
+      return {
+        result: true as const,
+        data: { items: closed ? [] : await listOrderProgressForLines(rows, request.user.mbId, order.status) },
+      };
+    },
+  );
+
+  fastify.post(
+    '/order-progress/batch',
+    {
+      schema: {
+        body: CustomerOrderProgressBatchBody,
+        response: { 200: CustomerOrderProgressBatchResponse },
+      },
+    },
+    async (request) => {
+      const orders: CustomerOrderProgressOrderSummaryType[] = [];
+      for (const odId of [...new Set(request.body.odIds)]) {
+        const [rows, order] = await Promise.all([getCartRowsByOdId(odId), getOrderRow(odId)]);
+        if (order?.mbId !== request.user.mbId) continue;
+        if (PROGRESS_CLOSED_OD.has(order.status)) continue;
+        const items = await listOrderProgressForLines(rows, request.user.mbId, order.status);
+        const slowest = slowestOrderProgress(items);
+        if (slowest === null) continue;
+        orders.push({
+          odId,
+          track: slowest.track,
+          stage: slowest.stage,
+          label: slowest.label,
+          shortLabel: slowest.shortLabel,
+          lineCount: items.length,
+        });
+      }
+      return { result: true as const, data: { orders } };
     },
   );
 

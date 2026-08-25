@@ -2745,6 +2745,28 @@
 #sod_fin .sp_stage_produced  { background: #d1fae5; color: #047857; }
 #sod_fin .sp_stage_shipping  { background: #e0f2fe; color: #0369a1; }
 #sod_fin .sp_stage_received  { background: #dcfce7; color: #15803d; }
+/* BOM 조달·물류 단계(08-25 §6.35) — 조달(청록)→발송·운송(연초록/하늘)→입고(초록) */
+#sod_fin .sp_stage_procure_pending { background: #eef2ff; color: #4338ca; }
+#sod_fin .sp_stage_procuring, #sod_fin .sp_stage_procure_confirmed { background: #ccfbf1; color: #0f766e; }
+#sod_fin .sp_stage_packing  { background: #d1fae5; color: #047857; }
+#sod_fin .sp_stage_inbound  { background: #e0f2fe; color: #0369a1; }
+
+/* 주문 진행 스텝퍼(Figma 103:4561 골격) — 원형 칸 + 꺾쇠, 현재 칸은 짙은 색 */
+#sod_fin .sp-steps-wrap { margin: 16px 0 22px; }
+/* 칸은 가용 폭에 맞춰 줄어든다(8칸이 한 줄에 들어가야 한다) — aspect-ratio 로 원형 유지 */
+#sod_fin .sp-steps { display: flex; align-items: center; gap: 4px; list-style: none; margin: 0; padding: 4px 0; }
+#sod_fin .sp-steps__item { flex: 1 1 0; min-width: 0; max-width: 84px; }
+#sod_fin .sp-steps__dot { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1 / 1; box-sizing: border-box; border-radius: 50%; background: #f3f4f6; color: #9ca3af; font-size: 12px; font-weight: 600; text-align: center; line-height: 1.25; padding: 0 4px; word-break: keep-all; }
+#sod_fin .sp-steps__item.is-done .sp-steps__dot { background: #e5e7eb; color: #374151; }
+#sod_fin .sp-steps__item.is-current .sp-steps__dot { background: #111827; color: #fff; font-weight: 700; box-shadow: 0 0 0 3px #e5e7eb; }
+#sod_fin .sp-steps__sep { flex: 0 0 auto; color: #d1d5db; font-size: 22px; line-height: 1; }
+#sod_fin .sp-steps__note { margin: 6px 0 0; font-size: 0.875em; color: #6b7280; }
+#sod_fin .sp-steps__cancel { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+@media (max-width: 640px) {
+    #sod_fin .sp-steps { overflow-x: auto; }
+    #sod_fin .sp-steps__item { flex: 0 0 auto; width: 60px; }
+    #sod_fin .sp-steps__dot { font-size: 11px; }
+}
 /* 상품 표 상태 칸 — 목록과 같은 배지(폭이 좁아 여백만 줄인다) */
 #sod_fin .sp_line_status { padding: 2px 8px; font-size: 0.833em; }
 #sod_fin .sp_eq_no   { background: #fee2e2; color: #b91c1c; }

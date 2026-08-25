@@ -5,9 +5,11 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { useVirtualizer } from '@tanstack/vue-virtual';
 import { ApiRequestError, apiGet, apiGetBlob } from '@sp/shared';
 import {
+  BOM_QUOTE_CUSTOMER_STATUS_LABELS,
   BOM_QUOTE_MAX_SET_OR_SPARE_QTY,
   BomQuotePrintResponse,
   apiRoutes,
+  mergedOrderCustomerLabel,
   type BomQuoteDetailResponseType,
   type BomQuoteDetailType,
   type BomQuoteItemType,
@@ -2220,14 +2222,13 @@ async function downloadOriginal(): Promise<void> {
 }
 
 // ── 표시 헬퍼 ────────────────────────────────────────────────────────────────
-const STATUS_LABEL: Record<string, string> = {
-  draft: '작성 중',
-  requested: '견적요청 접수',
-  reviewing: '담당자 검토 중',
-  answered: '견적 회신 완료',
-  closed: '종료',
-  canceled: '취소됨',
-};
+// 라벨은 계약 사전 하나(08-25) — 히스토리(BomHistory.vue)와 같은 말을 쓴다.
+const STATUS_LABEL: Record<string, string> = BOM_QUOTE_CUSTOMER_STATUS_LABELS;
+/** 주문 뒤 진행 — od 라벨 + 조달·물류 파생(결제 뒤·배송 전)을 한 줄로. */
+const orderProgressText = computed(() => {
+  const p = detail.value?.orderProgress ?? null;
+  return p === null ? '' : mergedOrderCustomerLabel(p.odStatus, p);
+});
 
 function fmtWon(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
@@ -3030,7 +3031,17 @@ function fmtAmount(v: number | null): string {
             <!-- 주문 전환(D16) — 확정가 있는 회신만. 결제는 영카트 주문서에서(VAT 포함 전환) -->
             <div v-if="detail.orderState === 'ordered'" class="mt-2">
               <span class="inline-block rounded bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white">주문 완료</span>
-              <span class="ml-1 text-[10px] text-emerald-700">주문내역에서 진행 상황을 확인하세요.</span>
+              <!-- 주문 뒤 진행(08-25) — "주문내역에서 확인하세요" 대신 실제 단계를 말한다. -->
+              <a
+                v-if="detail.orderProgress !== null"
+                :href="`/shop/orderinquiryview.php?od_id=${detail.orderProgress.odId}`"
+                class="ml-1 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-1 text-[11px] font-bold text-teal-800 hover:bg-teal-100"
+                data-testid="bom-order-progress"
+              >{{ orderProgressText }} <span aria-hidden="true">→</span></a>
+              <span v-else class="ml-1 text-[10px] text-emerald-700">주문내역에서 진행 상황을 확인하세요.</span>
+              <p v-if="detail.orderProgress !== null" class="mt-1 text-[10px] leading-[15px] text-emerald-700">
+                주문 {{ detail.orderProgress.odId }} · 주문내역에서 배송정보까지 볼 수 있습니다.
+              </p>
             </div>
             <template v-else-if="canOrder">
               <p

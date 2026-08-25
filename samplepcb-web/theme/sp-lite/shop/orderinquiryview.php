@@ -89,21 +89,46 @@ if($od['od_pg'] == 'lg') {
     }
     </script>
     <?php endif; ?>
+
+    <?php
+    // ── 주문 진행(트랙 공용, od 무접촉) — 줄 배지·진행 카드·스텝퍼가 **같은 응답**을 쓴다(한 번만 부른다).
+    // 결제 뒤·배송 전 구간의 줄은 od 라벨 대신 이 진행이 배지다(08-25 교정 — 그전엔 카드만 움직이고
+    // 줄·목록은 '입금완료'였다). PCB 는 협력 트랙, BOM 은 조달·물류(§6.35) 파생. ctId 로 줄에 붙인다.
+    $sp_progress = function_exists('sp_pcb_progress') ? sp_pcb_progress($od_id) : array();
+    $sp_progress_by_ct = array();
+    $sp_progress_has_bom = false;
+    foreach ($sp_progress as $sp_pg) {
+        if (isset($sp_pg['ctId']) && $sp_pg['ctId'] !== null) $sp_progress_by_ct[(int) $sp_pg['ctId']] = $sp_pg;
+        if (isset($sp_pg['track']) && $sp_pg['track'] === 'bom') $sp_progress_has_bom = true;
+    }
+    // 스텝퍼(Figma 103:4561 골격) — 트랙별 칸 세트 + od 축 + 가장 느린 진행.
+    if (function_exists('sp_order_customer_steps')):
+        $sp_track = sp_order_track($od_id);
+        $sp_slowest = sp_order_slowest_progress($sp_progress);
+        $sp_steps = sp_order_customer_steps($od['od_status'], $sp_track, $sp_slowest ? $sp_slowest['stage'] : null);
+    ?>
+    <section class="sp-steps-wrap" aria-label="주문 진행 단계" data-track="<?php echo $sp_track; ?>">
+        <?php if ($sp_steps['mode'] === 'cancel'): ?>
+        <div class="sp-steps__cancel"><span class="status_06 sp-steps__cancel-badge"><?php echo $sp_steps['label']; ?></span> <span class="sp-steps__note">이 주문은 종료되었습니다. 아래 내역은 참고용입니다.</span></div>
+        <?php else: $sp_step_last = count($sp_steps['steps']) - 1; ?>
+        <ol class="sp-steps">
+            <?php foreach ($sp_steps['steps'] as $sp_i => $sp_label):
+                $sp_cls = $sp_i < $sp_steps['current'] ? 'is-done' : ($sp_i === $sp_steps['current'] ? 'is-current' : 'is-todo'); ?>
+            <li class="sp-steps__item <?php echo $sp_cls; ?>"<?php echo $sp_i === $sp_steps['current'] ? ' aria-current="step"' : ''; ?>><span class="sp-steps__dot"><?php echo $sp_label; ?></span></li>
+            <?php if ($sp_i < $sp_step_last): ?><li class="sp-steps__sep" aria-hidden="true">›</li><?php endif; ?>
+            <?php endforeach; ?>
+        </ol>
+        <?php if ($sp_steps['note'] !== ''): ?><p class="sp-steps__note"><?php echo $sp_steps['note']; ?></p><?php endif; ?>
+        <?php endif; ?>
+    </section>
+    <?php endif; ?>
+
     <section id="sod_fin_list">
         <h2>주문하신 상품</h2>
 
         <?php
         $st_count1 = $st_count2 = 0;
         $custom_cancel = false;
-
-        // ── PCB 제작 진행(P4.13, od 무접촉) — 줄 배지와 아래 '제작 진행 상황' 카드가 **같은 응답**을
-        // 쓴다(두 번 부르지 않는다). 결제 뒤·배송 전 구간의 줄은 od 라벨 대신 이 진행이 배지다
-        // (08-25 실측 교정 — 그전엔 카드만 움직이고 줄은 '입금완료'였다). ctId 로 줄에 붙인다.
-        $sp_progress = function_exists('sp_pcb_progress') ? sp_pcb_progress($od_id) : array();
-        $sp_progress_by_ct = array();
-        foreach ($sp_progress as $sp_pg) {
-            if (isset($sp_pg['ctId']) && $sp_pg['ctId'] !== null) $sp_progress_by_ct[(int) $sp_pg['ctId']] = $sp_pg;
-        }
 
         $sql = " select it_id, it_name, ct_send_cost, it_sc_type
                     from {$g5['g5_shop_cart_table']}
@@ -244,7 +269,7 @@ if($od['od_pg'] == 'lg') {
         if ($sp_progress):
         ?>
         <section id="sp_progress_wrap">
-            <h2>제작 진행 상황</h2>
+            <h2><?php echo $sp_progress_has_bom ? '진행 상황' : '제작 진행 상황'; ?></h2>
             <ul class="sp_progress_list">
                 <?php foreach ($sp_progress as $pg): ?>
                 <li class="sp_progress_item">

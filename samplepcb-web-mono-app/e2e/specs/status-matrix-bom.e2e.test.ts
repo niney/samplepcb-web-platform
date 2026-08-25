@@ -197,6 +197,8 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — BOM 전 구간(견적요�
       const row = page.locator('tr', { has: page.locator(`a[href$="/bom/${quoteId}"]`) }).first();
       await row.waitFor({ state: 'visible', timeout: 30_000 });
       out['history'] = (await row.locator('span.rounded-full').first().innerText()).trim();
+      // 주문 뒤 진행 칩(08-25 신설) — 없으면 빈 문자열.
+      out['historyChip'] = ((await row.locator('[data-testid="bom-order-progress"]').first().textContent().catch(() => '')) ?? '').trim();
       await shot(page, `${tag}-customer-bom-history`);
     } catch (e) {
       out['history'] = `(화면 실패: ${e instanceof Error ? e.message.split('\n')[0] ?? '' : String(e)})`;
@@ -210,12 +212,14 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — BOM 전 구간(견적요�
         const badge = [...document.querySelectorAll('span')].find((s) => s.className.includes('bg-blue-50') && cands.includes((s.textContent ?? '').trim()));
         const btn = [...document.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim()).find((t) => /주문하기/.test(t)) ?? '';
         // 조달·물류 낱말 — 고객 상세가 발주·선적·입고를 조금이라도 말하는가.
-        const words = ['발주', '선적', '입고', '배송', '주문 완료', '결제', '취소'].filter((w) => text.includes(w));
-        return { badge: (badge?.textContent ?? '').trim(), btn, words: words.join('/') };
+        const words = ['발주', '선적', '입고', '배송', '주문 완료', '결제', '취소', '조달'].filter((w) => text.includes(w));
+        const chip = (document.querySelector('[data-testid="bom-order-progress"]')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+        return { badge: (badge?.textContent ?? '').trim(), btn, words: words.join('/'), chip };
       }, BOM_LABEL_CANDIDATES);
       out['detail'] = res.badge;
       out['detailBtn'] = res.btn;
       out['detailWords'] = res.words;
+      out['detailChip'] = res.chip;
       await shot(page, `${tag}-customer-bom-detail`);
     } catch (e) {
       out['detail'] = `(화면 실패: ${e instanceof Error ? e.message.split('\n')[0] ?? '' : String(e)})`;
@@ -239,11 +243,17 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — BOM 전 구간(견적요�
           const progress = [...document.querySelectorAll('#sp_progress_wrap .sp_eq_badge')].map((b) => (b.textContent ?? '').trim());
           const text = document.body.innerText;
           const delivery = /배송정보[\s\S]{0,120}/.exec(text)?.[0].replace(/\s+/g, ' ').slice(0, 90) ?? '';
-          return { lines: lines.join(' / '), progress: progress.length === 0 ? '(카드 없음)' : progress.join(' / '), delivery };
+          // 스텝퍼(08-25 신설) — 현재 칸 텍스트(취소면 취소 배지).
+          const cur = document.querySelector('.sp-steps__item.is-current .sp-steps__dot')?.textContent?.trim()
+            ?? document.querySelector('.sp-steps__cancel-badge')?.textContent?.trim() ?? '(스텝퍼 없음)';
+          const total = document.querySelectorAll('.sp-steps__item').length;
+          const done = document.querySelectorAll('.sp-steps__item.is-done').length;
+          return { lines: lines.join(' / '), progress: progress.length === 0 ? '(카드 없음)' : progress.join(' / '), delivery, stepper: `${cur} (${String(done + 1)}/${String(total)})` };
         });
         out['orderLine'] = detail.lines;
         out['progressCard'] = detail.progress;
         out['deliveryInfo'] = detail.delivery;
+        out['stepper'] = detail.stepper;
         await shot(page, `${tag}-customer-order-detail`);
       } catch (e) {
         out['orderList'] = `(화면 실패: ${e instanceof Error ? e.message.split('\n')[0] ?? '' : String(e)})`;
@@ -258,11 +268,11 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — BOM 전 구간(견적요�
     const adminV = await observeAdmin(tag);
     const custV = await observeCustomer(tag);
     rows.push({ step, action, db, admin: adminV, customer: custV, note });
-    log(`[${step}] ${action} | ${db} | 관리자 ${adminV['caseBadge'] ?? ''}/${adminV['timeline'] ?? ''} 큐=${adminV['bomOrderTabs'] ?? '-'} od=${adminV['orderStatus'] ?? '-'} | 고객 히스토리=${custV['history'] ?? ''} 상세=${custV['detail'] ?? ''}[${custV['detailBtn'] ?? ''}] 주문목록=${custV['orderList'] ?? '-'} 줄=${custV['orderLine'] ?? '-'} ${note}`);
+    log(`[${step}] ${action} | ${db} | 관리자 ${adminV['caseBadge'] ?? ''}/${adminV['timeline'] ?? ''} 큐=${adminV['bomOrderTabs'] ?? '-'} od=${adminV['orderStatus'] ?? '-'} | 고객 히스토리=${custV['history'] ?? ''}+${custV['historyChip'] ?? ''} 상세=${custV['detail'] ?? ''}+${custV['detailChip'] ?? ''}[${custV['detailBtn'] ?? ''}] 주문목록=${custV['orderList'] ?? '-'} 줄=${custV['orderLine'] ?? '-'} 스텝=${custV['stepper'] ?? '-'} ${note}`);
   };
 
   const writeReport = (): void => {
-    const cols = ['단계', '조작', 'DB', '관리자 Case 배지', '관리자 타임라인', '관리자 다음 작업', '관리자 주문 배지', 'BOM 주문 큐 탭', '고객 히스토리', '고객 상세 라벨', '고객 상세 버튼', '고객 상세 조달·물류 낱말', '고객 주문목록 배지', '고객 주문상세 줄', '진행 카드', '배송정보', '비고'];
+    const cols = ['단계', '조작', 'DB', '관리자 Case 배지', '관리자 타임라인', '관리자 다음 작업', '관리자 주문 배지', 'BOM 주문 큐 탭', '고객 히스토리', '히스토리 진행 칩', '고객 상세 라벨', '상세 진행 칩', '고객 상세 버튼', '고객 상세 조달·물류 낱말', '고객 주문목록 배지', '고객 주문상세 줄', '진행 카드', '스텝퍼 현재', '배송정보', '비고'];
     const md = [
       `# BOM 전 구간 상태 실측 (${new Date().toISOString()})`,
       '',
@@ -272,8 +282,8 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — BOM 전 구간(견적요�
       `| ${cols.map(() => '---').join(' | ')} |`,
       ...rows.map((r) => `| ${[
         r.step, r.action, r.db, r.admin['caseBadge'] ?? '', r.admin['timeline'] ?? '', r.admin['next'] ?? '', r.admin['orderStatus'] ?? '', r.admin['bomOrderTabs'] ?? '',
-        r.customer['history'] ?? '', r.customer['detail'] ?? '', r.customer['detailBtn'] ?? '', r.customer['detailWords'] ?? '',
-        r.customer['orderList'] ?? '', r.customer['orderLine'] ?? '', r.customer['progressCard'] ?? '', r.customer['deliveryInfo'] ?? '', r.note,
+        r.customer['history'] ?? '', r.customer['historyChip'] ?? '', r.customer['detail'] ?? '', r.customer['detailChip'] ?? '', r.customer['detailBtn'] ?? '', r.customer['detailWords'] ?? '',
+        r.customer['orderList'] ?? '', r.customer['orderLine'] ?? '', r.customer['progressCard'] ?? '', r.customer['stepper'] ?? '', r.customer['deliveryInfo'] ?? '', r.note,
       ].map((c) => String(c).replace(/\|/g, '\\|')).join(' | ')} |`),
       '',
       '## 메모',

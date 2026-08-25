@@ -132,6 +132,7 @@ import {
   toSummaryDto,
   upsertBomQuoteManualItem,
 } from '../lib/bom-quote';
+import { deriveBomQuoteOrderProgress } from '../lib/order-progress';
 
 // ── /api/bom/quotes — 고객(회원) BOM 견적 CRUD (설계: docs/BOM_QUOTE.md) ─────
 // 업로드(견적+엔진 잡 생성) → build(파싱 결과→라인+필요수량) → 공급사 검색
@@ -1310,8 +1311,9 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     return {
       result: true as const,
       data: {
-        items: rows.map((row) => {
+        items: await Promise.all(rows.map(async (row) => {
           const activeItems = filterActiveQuoteItems(row.items, row.sheets);
+          const orderState = row.ctId === null ? 'none' : (cartStates.get(row.ctId) ?? 'none');
           return toSummaryDto(
             row,
             {
@@ -1319,9 +1321,11 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
               includedCount: activeItems.filter((item) => item.included).length,
               matchedCount: activeItems.filter((item) => item.matchStatus !== 'none').length,
             },
-            row.ctId === null ? 'none' : (cartStates.get(row.ctId) ?? 'none'),
+            orderState,
+            // 주문된 행만 진행을 붙인다(히스토리 칩) — 나머지는 g5 접근 없음.
+            orderState === 'ordered' ? await deriveBomQuoteOrderProgress(row.ctId, request.user.mbId) : null,
           );
-        }),
+        })),
         total,
         deletableCount,
         page,

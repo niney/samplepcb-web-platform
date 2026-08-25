@@ -58,6 +58,8 @@ type CustomerView = {
   listLabel: string;
   listCls: string;
   detailLines: { name: string; status: string }[];
+  /** 주문 진행 스텝퍼 현재 칸(08-25 신설). */
+  stepper: string;
   progress: string[];
   progressCls: string[];
   cancelNotice: boolean;
@@ -260,8 +262,14 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — 관리자 상태 ↔ 고�
       }));
       const badges = [...document.querySelectorAll('#sp_progress_wrap .sp_eq_badge')] as HTMLElement[];
       const text = document.body.innerText;
+      // 스텝퍼(08-25 신설) — 현재 칸(취소면 취소 배지) + 위치.
+      const cur = document.querySelector('.sp-steps__item.is-current .sp-steps__dot')?.textContent?.trim()
+        ?? document.querySelector('.sp-steps__cancel-badge')?.textContent?.trim() ?? '(스텝퍼 없음)';
+      const total = document.querySelectorAll('.sp-steps__item').length;
+      const done = document.querySelectorAll('.sp-steps__item.is-done').length;
       return {
         detailLines: lines,
+        stepper: `${cur} (${String(done + 1)}/${String(total)})`,
         progress: badges.map((b) => (b.textContent ?? '').trim().replace(/\s+/g, ' ')),
         progressCls: badges.map((b) => b.className.trim()),
         cancelNotice: text.includes('주문 취소, 반품, 품절된 내역이 있습니다'),
@@ -479,17 +487,17 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — 관리자 상태 ↔ 고�
     };
     section(
       'PCB — od_status 축 (관리자 통합 주문내역 force-status / 줄 취소)',
-      ['관리자 조작', 'DB od_status', '관리자 배지(목록)', '드로어 협력 트랙 줄', '관리자 탭', 'PCB 큐 탭', 'PCB 큐 od/ct', '고객 목록 배지', '고객 목록 class', '고객 상세 줄 상태', '제작 진행 카드', '비고'],
+      ['관리자 조작', 'DB od_status', '관리자 배지(목록)', '드로어 협력 트랙 줄', '관리자 탭', 'PCB 큐 탭', 'PCB 큐 od/ct', '고객 목록 배지', '고객 목록 class', '고객 상세 줄 상태', '제작 진행 카드', '스텝퍼 현재', '비고'],
       (r) => [r.action, r.db, String(r.admin.uiLabel ?? ''), String(r.admin.trackProgress ?? ''), (r.admin.tabs ?? []).join(','), (r.admin.pcbTabs ?? []).join(','),
         (r.admin.pcbQueue ?? []).map((q) => `${q.odStatus}/${q.ctStatus}${q.lineCanceled ? '(줄취소)' : ''}`).join(' '),
-        String(r.customer.listLabel ?? ''), String(r.customer.listCls ?? ''), fmtLines(r.customer), fmtProgress(r.customer), r.note],
+        String(r.customer.listLabel ?? ''), String(r.customer.listCls ?? ''), fmtLines(r.customer), fmtProgress(r.customer), String(r.customer.stepper ?? ''), r.note],
       (r) => r.track === 'PCB' && r.axis === 'od_status',
     );
     section(
       'PCB — 협력 트랙 축 (sp_pcb_po.status → 고객 제작 진행 카드, od 무접촉)',
-      ['발주 상태(DB)', '관리자 Case 라벨', '관리자 API', 'od_status', '관리자 배지(목록)', '드로어 협력 트랙 줄', '고객 목록 배지', '고객 목록 class', '고객 상세 줄 상태', '제작 진행 카드', '카드 class', '비고'],
+      ['발주 상태(DB)', '관리자 Case 라벨', '관리자 API', 'od_status', '관리자 배지(목록)', '드로어 협력 트랙 줄', '고객 목록 배지', '고객 목록 class', '고객 상세 줄 상태', '제작 진행 카드', '카드 class', '스텝퍼 현재', '비고'],
       (r) => [r.db, String(r.admin.caseLabel ?? ''), String(r.admin.apiStatus ?? ''), String(r.admin.odStatus ?? ''), String(r.admin.uiLabel ?? ''), String(r.admin.trackProgress ?? ''),
-        String(r.customer.listLabel ?? ''), String(r.customer.listCls ?? ''), fmtLines(r.customer), fmtProgress(r.customer), (r.customer.progressCls ?? []).join(' / '), r.note],
+        String(r.customer.listLabel ?? ''), String(r.customer.listCls ?? ''), fmtLines(r.customer), fmtProgress(r.customer), (r.customer.progressCls ?? []).join(' / '), String(r.customer.stepper ?? ''), r.note],
       (r) => r.track === 'PCB' && r.axis === 'pcb_po',
     );
     section(
@@ -500,8 +508,8 @@ describe.skipIf(!RUN)('상태 매트릭스 실측 — 관리자 상태 ↔ 고�
     );
     section(
       'BOM — od_status 축 (부품 주문의 영카트 상태)',
-      ['관리자 조작', 'DB od_status', '관리자 배지(목록)', '관리자 탭', '고객 목록 배지', '고객 목록 class', '고객 상세 줄 상태', '제작 진행 카드', 'Case 타임라인 단계', '비고'],
-      (r) => [r.action, r.db, String(r.admin.uiLabel ?? ''), (r.admin.tabs ?? []).join(','), String(r.customer.listLabel ?? ''), String(r.customer.listCls ?? ''), fmtLines(r.customer), fmtProgress(r.customer), String(r.admin.step ?? ''), r.note],
+      ['관리자 조작', 'DB od_status', '관리자 배지(목록)', '관리자 탭', '고객 목록 배지', '고객 목록 class', '고객 상세 줄 상태', '제작 진행 카드', '스텝퍼 현재', 'Case 타임라인 단계', '비고'],
+      (r) => [r.action, r.db, String(r.admin.uiLabel ?? ''), (r.admin.tabs ?? []).join(','), String(r.customer.listLabel ?? ''), String(r.customer.listCls ?? ''), fmtLines(r.customer), fmtProgress(r.customer), String(r.customer.stepper ?? ''), String(r.admin.step ?? ''), r.note],
       (r) => r.track === 'BOM' && r.axis === 'od_status',
     );
     md.push('## 메모', '', ...notes.map((n) => `- ${n}`), '', '## 생성물 대장(정리됨)', '', ...ledger.map((l) => `- ${l}`), '');
