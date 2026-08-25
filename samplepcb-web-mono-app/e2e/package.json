@@ -114,7 +114,8 @@
     "pcb:invoice": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run pcb-invoice-attach",
     "typecheck": "tsc --noEmit",
     "e2e:status-matrix": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run status-matrix",
-    "e2e:status-matrix:headed": "cross-env PORTAL_E2E=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run status-matrix"
+    "e2e:status-matrix:headed": "cross-env PORTAL_E2E=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run status-matrix",
+    "e2e:status-matrix-bom": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run status-matrix-bom"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

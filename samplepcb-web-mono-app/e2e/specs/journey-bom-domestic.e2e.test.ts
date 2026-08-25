@@ -579,6 +579,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 1호 — 다양한 BOM → 국내 
     for (const item of rfq.items) {
       expect(item.unitPrice, `품목 ${item.quoteItemId} 회신 단가`).not.toBeNull();
       const selected = await api(A, 'POST', `/api/admin/bom-quotes/${quoteId}/rfq-selection`, {
+        kind: 'partner', // 계약이 partner|supplier 판별 union 으로 바뀌었다(08-25)
         itemId: item.quoteItemId,
         rfqItemId: item.rfqItemId,
       });

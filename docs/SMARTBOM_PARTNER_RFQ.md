@@ -1568,6 +1568,31 @@ Mouser 3/6 NOT_COMPLETE → 8/6 OVER_RECEIVED → 취소·정확 충전 → 구�
 - 후속(미착수): Case 품목 툴바 퀵액션 `[협력사 보유 행 선택]` · 발송 모달의 보유 배지·상단 정렬 ·
   포털 회신 폼의 내 재고 프리필.
 
+### 6.35 전 구간 상태 실측 — 관리자 ↔ 고객 표기 (2026-08-25)
+
+관측 러너 `e2e/specs/status-matrix-bom.e2e.test.ts`(`pnpm -F e2e e2e:status-matrix-bom`, 실흐름 —
+업로드 UI + 전이 API, 끝나면 Case 강제 삭제로 정리)로 S01 업로드 → S16 완료까지 16개 관측점을
+찍었다(`e2e/output/status-matrix-bom.md`). PCB 의 P4.14 와 같은 구조의 공백이 확정됐다:
+
+- **관리자는 전 구간을 본다** — Case 타임라인 1→12 가 모든 전이(견적요청·검토·RFQ·회신·확정·주문·
+  결제·발주·선적·검수·배송·완료)를 따라간다. Case 배지는 S07 부터 '회신 완료' 고정(배지=quote.status,
+  타임라인=파생 — 설계대로). 주문·결제 큐 탭: 주문=awaiting_payment · 입금=paid+paid_unissued ·
+  발주~발송=paid · 입고=paid+to_ship · 배송=paid+shipping · 완료=paid+completed.
+- **고객은 입금 뒤 입고까지 깜깜하다** — `/app/bom/:id` 는 S07 이후 내내 '견적 회신 완료' + "주문 완료
+  — 주문내역에서 진행 상황을 확인하세요" 인데, 정작 주문내역은 S09 입금 → S14 입고까지 다섯 단계가
+  전부 **'입금완료'** 다. 조달(발주·협력사 확인)·선적(포장·택배)·입고(검수)가 고객 화면 어디에도
+  없다(진행 카드는 PCB 전용). 배송(S15)에서야 '상품배송'+운송장, 완료(S16) '배송완료'.
+- 고객 라벨 3벌 불일치(관리자 '회신 완료' / 히스토리 '답변 완료' / 상세 '견적 회신 완료')와
+  `force-status 완료` 가 배송 게이트(BOM_FULFILLMENT_INCOMPLETE) 없이 통과하는 것은 status-matrix
+  (시드 편)에서 이미 확정된 그대로다.
+
+교정 후보(미착수): PCB P4.13/P4.14 의 BOM 판 — `sp_bom_po`/`sp_bom_shipment` 파생 고객 단계(조달 중 →
+발송 준비 → 배송 중(협력사→자사) → 입고 완료 → 배송 준비)를 주문내역 목록·줄 배지와 `/app/bom/:id`
+패널에 겹치고, 라벨 3벌을 한 사전으로 모은다.
+
+⚠ 계약 드리프트: `POST /rfq-selection` 이 `kind: 'partner'|'supplier'` 판별 union 이 된 뒤에도
+`journey-bom-domestic`·`journey-bom-revision` 은 kind 없이 호출하고 있었다(400) — 08-25 교정.
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

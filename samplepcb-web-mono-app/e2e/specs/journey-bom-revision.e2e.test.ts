@@ -613,6 +613,7 @@ describe.skipIf(!RUN || !JOURNEY)(
       expect(firstRfq.items).toHaveLength(3);
       for (const item of firstRfq.items) {
         const selected = await api(A, 'POST', `/api/admin/bom-quotes/${quoteId}/rfq-selection`, {
+          kind: 'partner', // 계약이 partner|supplier 판별 union 으로 바뀌었다(08-25)
           itemId: item.quoteItemId,
           rfqItemId: item.rfqItemId,
         });
@@ -878,6 +879,7 @@ describe.skipIf(!RUN || !JOURNEY)(
       expect(quoted.items).toHaveLength(4);
       for (const item of quoted.items) {
         const selected = await api(A, 'POST', `/api/admin/bom-quotes/${quoteId}/rfq-selection`, {
+          kind: 'partner',
           itemId: item.quoteItemId,
           rfqItemId: item.rfqItemId,
         });
