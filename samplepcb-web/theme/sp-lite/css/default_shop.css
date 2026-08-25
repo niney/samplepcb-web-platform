@@ -2620,3 +2620,55 @@
 @media (max-width: 600px) {
     #sod_fin .sp_eq_btns button { flex: 1; }
 }
+
+/* ==========================================================================
+   제조 확인 목록 (/shop/eq — spcb/pages/eq.php)
+   주문 상세(#sod_fin .sp_eq_*)와 **같은 시각 문법**을 쓰되 셀렉터를 공유하지 않는다:
+   그쪽은 주문 하나 안의 섹션이라 #sod_fin 스코프이고, 이쪽은 독립 페이지다.
+   목록에는 결정 폼이 없다(행 → 주문 상세 딥링크) — 그래서 배지·본문 계열만 옮겼다.
+   ========================================================================== */
+.sp-eqm { min-width: 0; margin: 0 0 48px; }
+.sp-eqm__intro { margin: 0 0 14px; font-size: 15px; color: var(--sp-muted); }
+.sp-eqm__empty {
+    margin: 0; padding: 48px 16px; border: 1px dashed var(--sp-line); border-radius: 10px;
+    text-align: center; color: var(--sp-muted); background: #fff;
+}
+.sp-eqm__cnt {
+    display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px;
+    background: #ef4444; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.sp-quotes-tabs a.sp-quotes-tab { text-decoration: none; display: inline-block; }
+
+.sp-eqm__list { list-style: none; margin: 0; padding: 0; }
+.sp-eqm__item {
+    min-width: 0;                     /* 긴 프로젝트명이 좁은 화면을 가로로 터뜨리지 않게 */
+    border: 1px solid var(--sp-line); border-radius: 10px; background: #fff;
+    padding: 16px 18px; margin-bottom: 10px;
+}
+.sp-eqm__item.is-open { border-color: #7dd3fc; background: #f0f9ff; }
+
+.sp-eqm__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.sp-eqm__proj { min-width: 0; font-size: 15px; color: var(--sp-ink); word-break: break-all; }
+.sp-eqm .sp_eq_due { font-size: 13px; color: var(--sp-muted); }
+.sp-eqm .sp_eq_badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.sp-eqm .sp_eq_wait { background: #e0f2fe; color: #0369a1; }
+.sp-eqm .sp_eq_ok   { background: #d1fae5; color: #047857; }
+.sp-eqm .sp_eq_no   { background: #fee2e2; color: #b91c1c; }
+.sp-eqm .sp_eq_off  { background: #f3f4f6; color: #6b7280; }
+
+.sp-eqm__msg {
+    margin: 0; padding: 10px 12px; border-left: 3px solid #0ea5e9; background: #fff;
+    font-size: 14px; line-height: 1.7; color: #0f172a;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sp-eqm__item:not(.is-open) .sp-eqm__msg { border-left-color: #d1d5db; background: #f9fafb; color: #4b5563; }
+
+.sp-eqm__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.sp-eqm__meta { min-width: 0; font-size: 13px; color: var(--sp-muted); }
+.sp-eqm__go {
+    display: inline-block; padding: 8px 16px; border-radius: 8px;
+    background: var(--sp-primary); color: #fff; font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.sp-eqm__go:hover { background: var(--sp-primary-dark); color: #fff; }
+.sp-eqm__item:not(.is-open) .sp-eqm__go { background: #fff; border: 1px solid var(--sp-line); color: var(--sp-ink); }
+.sp-eqm__item:not(.is-open) .sp-eqm__go:hover { background: #f9fafb; color: var(--sp-ink); }

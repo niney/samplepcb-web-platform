@@ -5,13 +5,16 @@ import {
   CustomerPcbEqDecisionResponse,
   CustomerPcbEqReviewListQuery,
   CustomerPcbEqReviewListResponse,
+  CustomerPcbEqReviewMineQuery,
+  CustomerPcbEqReviewMineResponse,
   CustomerPcbProgressResponse,
 } from '@sp/api-contract';
-import { getCartRowsByOdId, getOrderRow } from '../lib/g5-db';
+import { getCartOrderLinks, getCartRowsByOdId, getOrderRow } from '../lib/g5-db';
 import {
   decideEqReview,
   getEqReviewFile,
   listCustomerEqReviews,
+  listMyEqReviews,
 } from '../lib/pcb-eq-review';
 import { getCustomerCoordFile, listCustomerPcbProgress } from '../lib/pcb-customer-progress';
 import { downloadFromFileServer } from '../lib/file-server';
@@ -58,6 +61,37 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       return {
         result: true as const,
         data: { reviews: await listCustomerEqReviews(ctIds, request.user.mbId) },
+      };
+    },
+  );
+
+  // ── GET /pcb-eq-reviews/mine — 주문을 가로지르는 내 확인 요청(마이페이지) ────
+  // 소비처는 sp-php `/shop/eq`(spcb/pages/eq.php). 결정은 여기서 하지 않는다 —
+  // 행은 주문 상세 딥링크로 보내고, 승인·반려 폼은 orderinquiryview 한 곳에만 둔다.
+  fastify.get(
+    '/pcb-eq-reviews/mine',
+    {
+      schema: {
+        querystring: CustomerPcbEqReviewMineQuery,
+        response: { 200: CustomerPcbEqReviewMineResponse },
+      },
+    },
+    async (request) => {
+      const { reviews, openCount } = await listMyEqReviews(request.user.mbId, request.query.scope);
+      // 주문번호는 g5 영역이라 여기서 붙인다(lib 은 sp_ 만 만진다 — 위 목록과 같은 관례).
+      // 주문이 지워진 건(여정 34호)은 링크할 곳이 없으므로 odId=null 로 남는다.
+      const links = await getCartOrderLinks(
+        [...new Set(reviews.map((r) => r.ctId).filter((v): v is number => v !== null))],
+      );
+      return {
+        result: true as const,
+        data: {
+          reviews: reviews.map((r) => ({
+            ...r,
+            odId: r.ctId === null ? null : (links.get(r.ctId)?.odId ?? null),
+          })),
+          openCount,
+        },
       };
     },
   );

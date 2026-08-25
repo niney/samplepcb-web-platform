@@ -109,6 +109,35 @@ export const CustomerPcbEqReviewListResponse = z.object({
 });
 export type CustomerPcbEqReviewListResponseType = z.infer<typeof CustomerPcbEqReviewListResponse>;
 
+// ── 고객: 주문을 가로지르는 "내 확인 요청" 목록(마이페이지 진입점) ───────────
+// 주문 상세 목록(위)과 모수가 다르다: 그쪽은 odId 한 건, 이쪽은 **회원의 전 주문**이다.
+// 고객이 "지금 내가 답해야 할 게 있나"를 주문을 하나씩 열지 않고 알게 하는 것이 목적이라,
+// 기본 모수는 열린 요청(open)이고 이력은 요청해야 나온다.
+//
+// 결정 UI 는 여기 없다 — 행은 주문 상세 딥링크로 보낸다. 승인·반려 폼이 두 벌이 되면
+// 첨부·기한·경고(반려 후 새 파일 없음)까지 두 곳에서 갈린다.
+export const CustomerPcbEqReviewMineQuery = z.object({
+  /** open=확인 대기만(기본) · all=이력 포함. 배지 모수는 언제나 open 이다. */
+  scope: z.enum(['open', 'all']).default('open'),
+});
+export type CustomerPcbEqReviewMineQueryType = z.infer<typeof CustomerPcbEqReviewMineQuery>;
+
+/** 목록 행 — 주문번호가 붙는다(딥링크 대상). 주문이 지워진 건은 null 이라 링크가 없다. */
+export const CustomerPcbEqReviewMineView = CustomerPcbEqReviewView.extend({
+  odId: z.string().nullable(),
+});
+export type CustomerPcbEqReviewMineViewType = z.infer<typeof CustomerPcbEqReviewMineView>;
+
+export const CustomerPcbEqReviewMineResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    reviews: z.array(CustomerPcbEqReviewMineView),
+    /** scope 와 무관하게 열린 요청 수 — 사이드바 배지와 같은 수. */
+    openCount: z.number().int(),
+  }),
+});
+export type CustomerPcbEqReviewMineResponseType = z.infer<typeof CustomerPcbEqReviewMineResponse>;
+
 // ── 고객 주문 상세의 PCB 진행 단계(P4.13) — od 상태와 별개의 협력 트랙 파생 표시 ──
 // od 는 '입금'에 머물러도 실제 제작은 EQ→생산→입고로 움직인다(D6 1차 수동 유지 —
 // od 를 안 바꾸고 sp 축을 그대로 보여준다). 협력사명·발주 정보는 노출하지 않는다.

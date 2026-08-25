@@ -85,6 +85,44 @@ function sp_pcb_eq_reviews($od_id)
     return $res['json']['data']['reviews'];
 }
 
+/** 주문을 가로지르는 **내 확인 요청** 목록(마이페이지 /shop/eq).
+ *  $scope: 'open'=확인 대기만(기본) · 'all'=이력 포함.
+ *  돌려주는 값: array('reviews' => array, 'openCount' => int) — 실패는 빈 목록·0. */
+function sp_pcb_eq_reviews_mine($scope = 'open')
+{
+    $scope = ($scope === 'all') ? 'all' : 'open';
+    $empty = array('reviews' => array(), 'openCount' => 0);
+    $res = sp_pcb_node_call('GET', '/api/pcb-eq-reviews/mine?scope=' . $scope);
+    if ($res === null || $res['status'] !== 200) return $empty;
+    if (!isset($res['json']['data']['reviews']) || !is_array($res['json']['data']['reviews'])) {
+        return $empty;
+    }
+    return array(
+        'reviews'   => $res['json']['data']['reviews'],
+        'openCount' => isset($res['json']['data']['openCount']) ? (int) $res['json']['data']['openCount'] : 0,
+    );
+}
+
+/** 사이드바 배지용 **대기 건수만** — 여기서는 API 를 부르지 않고 DB 를 직접 센다.
+ *
+ *  이 함수는 계정 사이드바(_account_nav.php)가 부르고, 사이드바는 마이페이지·장바구니·
+ *  포인트·쪽지 등 **모든 계정 페이지**에서 렌더된다. API 를 태우면 그 전부에 HTTP 왕복이
+ *  하나씩 붙는다(주문내역 배지도 같은 이유로 직접 count 다). sp_* 는 그누보드와 같은 DB 에
+ *  동거하므로 조인 한 방이면 된다.
+ *
+ *  ⚠ 이건 **판정이 아니라 세기**다 — 목록·결정의 판정은 전부 sp-node 다(브리지 규약).
+ *  'requested' 가 곧 유효한 대기인 근거: EQ 전이가 열린 요청을 닫는다(closeOpenEqReviews). */
+function sp_pcb_eq_open_count($mb_id)
+{
+    if ($mb_id === '') return 0;
+    $esc = function_exists('sql_real_escape_string') ? sql_real_escape_string($mb_id) : addslashes($mb_id);
+    $row = sql_fetch(" select count(*) as cnt
+                         from sp_pcb_eq_review r
+                         join sp_order_spec s on s.id = r.specId
+                        where s.mbId = '{$esc}' and r.status = 'requested' ", false);
+    return isset($row['cnt']) ? (int) $row['cnt'] : 0;
+}
+
 /** PCB 제작 진행 단계(P4.13) — od 상태와 별개의 협력 트랙 파생. 라벨은 sp-node 가
  *  완성해 내려주고 여기서는 그대로 출력한다(협력사·발주 정보 비노출). */
 function sp_pcb_progress($od_id)

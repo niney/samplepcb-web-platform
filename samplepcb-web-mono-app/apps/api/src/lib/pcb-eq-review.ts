@@ -180,6 +180,56 @@ export const listCustomerEqReviews = async (
   });
 };
 
+/**
+ * 회원의 **전 주문**을 가로지르는 확인 요청 — 마이페이지 "제조 확인" 목록의 모수.
+ *
+ * 위 [[listCustomerEqReviews]] 와 축이 다르다: 그쪽은 주문 하나(odId→ctIds)를 받고,
+ * 이쪽은 회원을 받는다. 고객이 "지금 답해야 할 게 있나"를 주문을 하나씩 열어보지 않고
+ * 알게 하는 것이 목적이다(메일 딥링크가 유일한 진입점이던 것의 보완).
+ *
+ * 소유권은 **po.spec.mbId** 로 관계 필터를 건다 — 회원의 spec 을 통째로 읽어와 id 목록을
+ * 만들면 이관분이 많은 회원에서 수천 행을 헛돈다(review.specId 는 po.specId 의 비정규화
+ * 사본이고 불변이라 어느 쪽으로 타도 같은 행이다).
+ *
+ * openCount 는 scope 와 무관하게 **열린 것만** 센다 — 사이드바 배지와 같은 수여야 한다.
+ * 'requested' 가 곧 유효한 대기인 것은 EQ 전이가 열린 요청을 닫아주기 때문이다
+ * (pcb-po.ts closeOpenEqReviews) — 여기서 발주 상태를 다시 볼 필요가 없다.
+ */
+export const listMyEqReviews = async (
+  mbId: string,
+  scope: 'open' | 'all',
+): Promise<{ reviews: CustomerPcbEqReviewViewType[]; openCount: number }> => {
+  const mine = { po: { spec: { mbId } } };
+  const openCount = await prisma.spPcbEqReview.count({
+    where: { ...mine, status: 'requested' },
+  });
+  const rows = await prisma.spPcbEqReview.findMany({
+    where: scope === 'open' ? { ...mine, status: 'requested' } : mine,
+    orderBy: { id: 'desc' },
+    take: 200, // 이력 전량은 목록의 일이 아니다 — 오래된 건은 주문 상세가 정본이다.
+    include: { po: { select: { spec: { select: { ctId: true, projectName: true } } } } },
+  });
+  if (rows.length === 0) return { reviews: [], openCount };
+  const files = await loadSharedFiles(rows);
+  const now = new Date();
+  return {
+    reviews: rows.map((r) => ({
+      id: Number(r.id),
+      projectName: r.po.spec.projectName,
+      ctId: r.po.spec.ctId,
+      status: asEqReviewStatus(r.status),
+      message: r.message,
+      dueOn: iso(r.dueOn),
+      files: toFileViews(parseSharedFileIds(r.sharedFileIds), files),
+      requestedAt: r.requestedAt.toISOString(),
+      decidedAt: iso(r.decidedAt),
+      decisionNote: r.decisionNote,
+      overdue: isOverdue(r, now),
+    })),
+    openCount,
+  };
+};
+
 export type EqDecisionError =
   | 'REVIEW_NOT_FOUND'
   | 'NOT_OWNER'

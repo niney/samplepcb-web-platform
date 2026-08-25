@@ -2,14 +2,14 @@
 if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
 /*
  * 공용 계정 사이드바 — 마이페이지·주문내역·주문상세·장바구니·위시리스트·견적관리 공유(SSOT).
- * 진입점이 $sp_account_active 로 활성 메뉴 지정(home|orders|cart|wish|quotes); 미지정 시 활성 없음.
+ * 진입점이 $sp_account_active 로 활성 메뉴 지정(home|orders|cart|wish|quotes|eq); 미지정 시 활성 없음.
  *   · 쇼핑 페이지: 테마 shop.head.php 가 SCRIPT_NAME 으로 자동 판별해 #aside 에 include.
- *   · 견적 페이지(/shop/quotes·/shop/quotes/archive): 다른 head(theme/head.php)라
+ *   · 커스텀 페이지(/shop/quotes·/shop/quotes/archive·/shop/eq): 다른 head(theme/head.php)라
  *     페이지가 .account-layout 로 직접 감싸 include.
  * $member 로그인 전제(호출 측이 로그인 게이트). 배지 건수는 여기서 1회 조회.
  */
 if (!isset($sp_account_active)) $sp_account_active = '';
-$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'point' => '', 'coupon' => '', 'memo' => '', 'scrap' => '');
+$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'eq' => '', 'point' => '', 'coupon' => '', 'memo' => '', 'scrap' => '');
 if (isset($cur[$sp_account_active])) $cur[$sp_account_active] = ' aria-current="page"';
 
 $sp_esc   = function_exists('sql_real_escape_string') ? sql_real_escape_string($member['mb_id']) : addslashes($member['mb_id']);
@@ -24,6 +24,9 @@ if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) {
     $tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_wish_table']} where mb_id = '{$sp_esc}' ");
     $sp_wi = (int) $tmp['cnt'];
 }
+// 제조 확인(PCB·메탈마스크 공용) 대기 건수 — 답을 안 하면 생산이 멈추는 축이라
+// 항상 켠다. 브리지 미배치 환경에서도 사이드바가 죽지 않게 함수 존재를 확인한다.
+$sp_eq = function_exists('sp_pcb_eq_open_count') ? sp_pcb_eq_open_count($member['mb_id']) : 0;
 ?>
 <aside class="smb_nav" aria-label="계정 메뉴">
     <div class="nav_id">
@@ -57,6 +60,15 @@ if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) {
                 <?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 토글 — docs/wishlist-hidden.md ?>
                 <li><a href="<?php echo G5_SHOP_URL ?>/wishlist.php"<?php echo $cur['wish']; ?>><i class="fa fa-heart-o" aria-hidden="true"></i><span class="lbl">위시리스트</span><?php if ($sp_wi) { ?><span class="nav_badge"><?php echo number_format($sp_wi); ?></span><?php } ?></a></li>
                 <?php } ?>
+            </ul>
+        </div>
+        <div class="nav_group">
+            <p class="nav_glabel">확인 요청</p>
+            <ul>
+                <?php /* 트랙 중립어 — 메탈마스크(스텐실) 발주도 같은 축을 쓰지만 그쪽엔
+                        'EQ' 라는 말이 없다(계약 pcbEqEventLabel). 화면이 EQ 를 하드코딩하면
+                        스텐실 고객에게 없는 단어가 나온다(2026-08-17 확정 결함). */ ?>
+                <li><a href="<?php echo G5_URL ?>/shop/eq"<?php echo $cur['eq']; ?>><i class="fa fa-check-square-o" aria-hidden="true"></i><span class="lbl">제조 확인</span><?php if ($sp_eq) { ?><span class="nav_badge on"><?php echo number_format($sp_eq); ?></span><?php } ?></a></li>
             </ul>
         </div>
         <div class="nav_group">

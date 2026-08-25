@@ -19,3 +19,4 @@ RewriteRule ^([a-z0-9-]+)/?$ /spcb/pages/$1.php [L,QSA]
 #    파일은 shop/(코어 subtree)이 아닌 spcb/pages/ 에 둔다. /quotes 는 2)번 규칙의 별칭으로 유지.
 RewriteRule ^shop/quotes/?$ /spcb/pages/quotes.php [L,QSA]
 RewriteRule ^shop/quotes/archive/?$ /spcb/pages/quotes-archive.php [L,QSA]
+RewriteRule ^shop/eq/?$ /spcb/pages/eq.php [L,QSA]
