@@ -1739,7 +1739,41 @@
 
 .empty_list_row td { padding: 64px 16px; text-align: center; color: var(--sp-muted); }
 
-#sod_v .pg_wrap { margin-top: 24px; }
+/* 주문내역 제목(Figma 103:4517 — 아이콘 + 36px) */
+#wrapper_title.sp-title-lg {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 36px;
+    font-weight: 600;
+    color: var(--acc-ink, #0a151e);
+}
+#wrapper_title.sp-title-lg .sp-title-ico { width: 36px; height: 36px; object-fit: contain; }
+
+/* 유형 탭(전체/PCB/부품) — .sp-quotes-tabs 공용 문법, 여백만 보정 */
+.sp-oi-tabs { margin: 0 0 14px; }
+
+/* 페이지네이션 — Figma 103:4498(‹ 숫자 › · 파랑 활성 밑줄). 동작·마크업은 get_paging 그대로,
+   처음/맨끝 링크만 숨긴다. */
+#sod_v .pg_wrap { display: flex; justify-content: center; margin-top: 28px; }
+#sod_v .pg { display: flex; align-items: center; gap: 18px; }
+#sod_v .pg_page,
+#sod_v .pg_current {
+    padding: 0 2px;
+    background: none;
+    border: 0;
+    font-size: 16px;
+    color: #4c4c4c;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+}
+#sod_v .pg_page:hover { color: var(--acc-primary, #1e64fd); }
+#sod_v .pg_current { color: #2674ff; font-weight: 700; text-decoration: underline; }
+#sod_v .pg_start, #sod_v .pg_end { display: none; }
+#sod_v .pg_prev, #sod_v .pg_next { font-size: 0; }
+#sod_v .pg_prev::before, #sod_v .pg_next::before { font-size: 20px; color: #4c4c4c; line-height: 1; }
+#sod_v .pg_prev::before { content: "\2039"; }  /* ‹ */
+#sod_v .pg_next::before { content: "\203A"; }  /* › */
 
 @media (max-width: 640px) {
     .sod_list_wrap { border: 0; background: transparent; overflow: visible; }
@@ -2198,7 +2232,18 @@
 }
 .smb_nav .nav_group a .nav_ico { width: 18px; height: 18px; flex: none; object-fit: contain; }
 .smb_nav .nav_group a:hover { color: var(--acc-primary); }
-.smb_nav .nav_group a[aria-current="page"] { color: var(--acc-primary); font-weight: 700; }
+/* 활성 = 다크 필(Figma 103:4277 — 좌우로 12px 튀어나온 224px 알약). 전 계정 페이지 공통. */
+.smb_nav .nav_group a[aria-current="page"] {
+    background: var(--acc-ink);
+    color: #fff;
+    font-weight: 600;
+    margin: 0 -12px;
+    padding: 9px 16px;
+    border-radius: 4px;
+}
+.smb_nav .nav_group a[aria-current="page"] .nav_ico { filter: brightness(0) invert(1); } /* 회색 SVG → 흰색 */
+.smb_nav .nav_group a[aria-current="page"] .nav_badge,
+.smb_nav .nav_group a[aria-current="page"] .nav_unit { color: #fff; }
 .smb_nav .nav_group a .lbl { flex: 1; }
 /* 건수 — pill 이 아니라 우측 정렬 굵은 텍스트(.nav_badge=숫자 · .nav_unit=단위). e2e 가
    .nav_badge textContent 를 Number() 로 파싱하므로 숫자만 담고 단위는 형제로 뺀다. */
@@ -2432,6 +2477,8 @@
     .smb_nav { position: static; }
     .smb_nav .nav_body { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 20px; }
     .smb_nav .nav_group + .nav_group { margin-top: 0; }
+    /* 좁은 그리드에선 다크 필이 옆 칸을 침범하지 않게 */
+    .smb_nav .nav_group a[aria-current="page"] { margin: 0; padding: 9px 10px; }
     #smb_my_wish ul { grid-template-columns: repeat(3, 1fr); }
     /* 요약 밴드 2열 랩 */
     .smb_dash { flex-wrap: wrap; gap: 20px 30px; }

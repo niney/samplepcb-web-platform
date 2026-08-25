@@ -121,4 +121,14 @@ $sp_account_active = (!empty($member['mb_id']) && isset($sp_account_pages[$sp_cu
         ?>
         <!-- .shop-content 시작 { -->
         <div class="<?php echo implode(' ', $content_class); ?>">
-            <?php if ((!$bo_table || $w == 's' ) && !defined('_INDEX_')) { ?><div id="wrapper_title"><?php echo $g5['title'] ?></div><?php } ?>
+            <?php
+            // 페이지 제목 보정(Figma 103:4517) — 주문내역은 아이콘 + '주문내역' 36px.
+            // 코어가 $g5['title']='주문내역조회' 를 넣지만 표기는 테마 몫이다(코어 무수정).
+            $sp_title_html = $g5['title'];
+            $sp_title_cls  = '';
+            if ($sp_cur_script === 'orderinquiry.php') {
+                $sp_title_cls  = ' sp-title-lg';
+                $sp_title_html = '<img class="sp-title-ico" src="'.G5_THEME_URL.'/img/account/ico-title-orders.svg" alt="">주문내역';
+            }
+            ?>
+            <?php if ((!$bo_table || $w == 's' ) && !defined('_INDEX_')) { ?><div id="wrapper_title" class="<?php echo trim($sp_title_cls); ?>"><?php echo $sp_title_html ?></div><?php } ?>

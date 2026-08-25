@@ -4,8 +4,47 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
 
 // sp-lite 주문내역 목록 (전 기기 pc 파일 사용 · 반응형: 넓은 화면 표 / 좁은 화면 카드)
 // 코어 shop/orderinquiry.sub.php 의 테마 위임 훅으로 이 파일이 대체 include 됨.
-// 열 구성·순서는 Figma 103:2361(마이페이지 최근 주문)과 일치 — 주문내역 페이지도 공용.
+// 열 구성·순서는 Figma 103:2361/103:4215 와 일치 — 마이페이지 최근 주문과 공용.
+//
+// ── 유형 탭(Figma 103:4507 — 전체/PCB/부품) ──────────────────────────────────
+// 판별키 = 주문 카트행의 템플릿 it_id (PCB 4종 · 부품 sp-bom-parts). PCB+부품 혼합 주문은
+// 정책(D17)상 없고 실데이터 16,346건에서도 0건이라 탭이 겹치지 않는다. 레거시 일반 상품
+// 주문(어느 쪽도 아님)은 '전체'에서만 보인다(사용자 결정 2026-08-25). 설계·SMT 탭은
+// 데이터 축이 없어 만들지 않는다.
+//
+// 탭·총건·페이지네이션은 **주문내역 페이지에서만**(isset($total_count) 마커 — 마이페이지의
+// 최근 주문 include 는 총건 없이 limit 만 넘긴다). 코어 orderinquiry.php 는 무수정:
+// get_paging 이 이 include **뒤에** 실행되므로 여기서 $total_count/$total_page/$qstr 를
+// 재계산해 덮으면 총건·페이지 수·페이지 링크(track 유지)까지 탭을 따라간다.
+$sp_oi_track = (isset($_GET['track']) && in_array($_GET['track'], array('pcb', 'bom'), true)) ? $_GET['track'] : '';
+$sp_oi_pcb_items = "'sp-pcb-std','sp-mask','sp-pcb-adv','sp-pcb-flex'";
+$sp_oi_where = '';
+if ($sp_oi_track === 'pcb') {
+    $sp_oi_where = " and exists (select 1 from {$g5['g5_shop_cart_table']} c
+                                  where c.od_id = a.od_id and c.it_id in ({$sp_oi_pcb_items})) ";
+} else if ($sp_oi_track === 'bom') {
+    $sp_oi_where = " and exists (select 1 from {$g5['g5_shop_cart_table']} c
+                                  where c.od_id = a.od_id and c.it_id = 'sp-bom-parts') ";
+}
+
+if (isset($total_count)) {
+    if ($sp_oi_where !== '') {
+        // 필터된 모수로 총건·페이지 재계산(코어 계산을 덮는다 — 코어 get_paging 은 이 뒤에 돈다).
+        $tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_order_table']} a
+                            where a.mb_id = '{$member['mb_id']}' {$sp_oi_where} ");
+        $total_count = (int) $tmp['cnt'];
+        $total_page  = max(1, ceil($total_count / $rows));
+        // 페이지 링크가 탭을 물고 다니게 — get_paging 이 기존 page= 는 지우고 다시 붙인다.
+        $qstr = ($qstr ? $qstr . '&amp;' : '') . 'track=' . $sp_oi_track;
+    }
+    $sp_oi_url = G5_SHOP_URL . '/orderinquiry.php';
 ?>
+<div class="sp-quotes-tabs sp-oi-tabs" role="tablist">
+    <a class="sp-quotes-tab<?php echo $sp_oi_track === '' ? ' is-active' : ''; ?>" href="<?php echo $sp_oi_url; ?>">전체</a>
+    <a class="sp-quotes-tab<?php echo $sp_oi_track === 'pcb' ? ' is-active' : ''; ?>" href="<?php echo $sp_oi_url; ?>?track=pcb">PCB</a>
+    <a class="sp-quotes-tab<?php echo $sp_oi_track === 'bom' ? ' is-active' : ''; ?>" href="<?php echo $sp_oi_url; ?>?track=bom">부품</a>
+</div>
+<?php } ?>
 
 <!-- 주문 내역 목록 (sp-lite) 시작 { -->
 <?php if (isset($total_count)) { ?>
@@ -28,10 +67,11 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
     </thead>
     <tbody>
     <?php
-    $sql = " select *
-               from {$g5['g5_shop_order_table']}
-              where mb_id = '{$member['mb_id']}'
-              order by od_id desc
+    $sql = " select a.*
+               from {$g5['g5_shop_order_table']} a
+              where a.mb_id = '{$member['mb_id']}'
+              {$sp_oi_where}
+              order by a.od_id desc
               $limit ";
     $result = sql_query($sql);
     for ($i=0; $row=sql_fetch_array($result); $i++)
@@ -86,4 +126,32 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
     </tbody>
     </table>
 </div>
+<?php if (isset($total_count)) { ?>
+<script>
+// 페이지네이션 ‹ › 보강(Figma 103:4498) — 코어 get_paging 은 '이전/다음'을 10페이지 블록을
+// 넘을 때만 내고 그마저 블록 점프다. 피그마는 **한 페이지씩** ‹ › — 코어 무수정으로 테마가
+// 앵커를 세우거나(없을 때) 단일 스텝으로 고쳐 단다(있을 때). 마크업이 sub 뒤에 렌더되므로
+// DOMContentLoaded 에서 처리한다.
+document.addEventListener('DOMContentLoaded', function () {
+    var pg = document.querySelector('#sod_v .pg');
+    if (!pg) return;
+    var cur = <?php echo (int) $page; ?>;
+    var total = <?php echo (int) $total_page; ?>;
+    var base = '<?php echo G5_SHOP_URL; ?>/orderinquiry.php?<?php echo $qstr ? str_replace('&amp;', '&', $qstr) . '&' : ''; ?>page=';
+    function ensure(cls, label, target, first) {
+        var a = pg.querySelector('.' + cls);
+        if (target === null) { if (a) a.remove(); return; }
+        if (!a) {
+            a = document.createElement('a');
+            a.className = 'pg_page ' + cls;
+            a.textContent = label;
+            if (first) pg.insertBefore(a, pg.firstChild); else pg.appendChild(a);
+        }
+        a.href = base + target;
+    }
+    ensure('pg_prev', '이전', cur > 1 ? cur - 1 : null, true);
+    ensure('pg_next', '다음', cur < total ? cur + 1 : null, false);
+});
+</script>
+<?php } ?>
 <!-- } 주문 내역 목록 (sp-lite) 끝 -->

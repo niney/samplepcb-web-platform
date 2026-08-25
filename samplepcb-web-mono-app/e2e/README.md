@@ -127,6 +127,7 @@ specs/
   customer-as-menu.e2e.test.ts         마이페이지 "문의 > A/S 접수"(/shop/as) — PCB·BOM /mine 배타·회색 배지 합산·탭·폼 없음·앵커·390px
   journey-pcb-as-mypage.e2e.test.ts    여정 44호 — PCB 완주(거버→완료) 뒤 **마이페이지 A/S 접수 진입점으로** 접수→재생산 회차→종결 완주(정리 포함, JOURNEY_KEEP=1 로 남김)
   demo-pre-eq-keep.e2e.test.ts         데모 무대 — EQ 직전(발주서 발행)까지만 달리고 남긴다(DEMO_KEEP=1, 협력사 기본 tester2협력 = 사람이 로그인 가능한 실계정)
+  orderinquiry-tabs.e2e.test.ts        주문내역 유형 탭(전체/PCB/부품) — 총건=DB count·페이지 링크 track 유지·폴백·사이드바 다크 필·제목 36px
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
