@@ -2,169 +2,132 @@
 if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
 
 // 계정 사이드바는 레이아웃(theme/sp-lite/shop/shop.head.php)이 #aside 로 공용 제공.
-// 이 파일은 우측 콘텐츠(내정보 → 최근 주문내역 → 최근 위시리스트)만 담당한다.
+// 이 파일은 우측 콘텐츠(요약 밴드 → 내정보(접힘) → 최근 주문)만 담당한다.
+// 디자인 정본: Figma 103:2361(마이페이지). 색은 계정 셸 스코프 토큰(.smb_dash)으로 피그마 값.
 
 $g5['title'] = '마이페이지';
 include_once('./_head.php');
+
+// ── 요약 밴드 집계 (마이페이지 전용 — 사이드바와 별개로 독립 조회) ─────────────
+$my_esc = function_exists('sql_real_escape_string') ? sql_real_escape_string($member['mb_id']) : addslashes($member['mb_id']);
+
+$tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_order_table']} where mb_id = '{$my_esc}' ");
+$my_od_cnt = (int) $tmp['cnt'];
+
+// 견적 — PCB(sp_order_spec) + 부품 BOM(sp_bom_quote) 합산(사용자 결정).
+//  · 견적대기 = PCB rfq + BOM requested|reviewing
+//  · 견적확정(주문 가능·미주문) = PCB quoted·ctId 없음 + BOM answered·확정가 있음·미주문
+$my_q_wait = 0; $my_q_conf = 0;
+$row = sql_fetch(" select
+    (select count(*) from sp_order_spec where mbId = '{$my_esc}' and status = 'active' and quoteStatus = 'rfq') as pcb_wait,
+    (select count(*) from sp_order_spec where mbId = '{$my_esc}' and status = 'active' and quoteStatus = 'quoted' and ctId is null) as pcb_conf ", false);
+if ($row !== false && $row !== null) { $my_q_wait += (int) $row['pcb_wait']; $my_q_conf += (int) $row['pcb_conf']; }
+$row = sql_fetch(" select
+    (select count(*) from sp_bom_quote where mbId = '{$my_esc}' and status in ('requested','reviewing')) as bom_wait,
+    (select count(*) from sp_bom_quote where mbId = '{$my_esc}' and status = 'answered' and confirmedTotal is not null and (ctId is null or ctId = 0)) as bom_conf ", false);
+if ($row !== false && $row !== null) { $my_q_wait += (int) $row['bom_wait']; $my_q_conf += (int) $row['bom_conf']; }
+
+// 확인 요청 = 제조 확인 대기(사이드바와 같은 헬퍼 — 워킹 파일은 고객 확인 단계가 없어 제외).
+$my_eq_cnt = function_exists('sp_pcb_eq_open_count') ? sp_pcb_eq_open_count($member['mb_id']) : 0;
+$my_point  = (int) $member['mb_point'];
 ?>
 
 <!-- 마이페이지 콘텐츠 시작 { -->
 <div id="smb_my_list">
 
-    <!-- 내정보 시작 { -->
-    <section id="smb_my_ov">
+    <!-- 요약 밴드 시작 { -->
+    <div class="smb_dash">
+        <a class="smb_dash_cell" href="<?php echo G5_SHOP_URL ?>/orderinquiry.php">
+            <span class="smb_dash_k">주문내역</span>
+            <span class="smb_dash_v"><b><?php echo number_format($my_od_cnt); ?></b>건</span>
+        </a>
+        <a class="smb_dash_cell" href="<?php echo G5_URL ?>/shop/quotes">
+            <span class="smb_dash_k">견적관리</span>
+            <span class="smb_dash_v smb_dash_pair">
+                <span class="smb_dash_sub"><em>견적대기</em><span><b><?php echo number_format($my_q_wait); ?></b>건</span></span>
+                <span class="smb_dash_sub"><em>견적확정</em><span><b><?php echo number_format($my_q_conf); ?></b>건</span></span>
+            </span>
+        </a>
+        <a class="smb_dash_cell" href="<?php echo G5_URL ?>/shop/eq">
+            <span class="smb_dash_k">확인요청</span>
+            <span class="smb_dash_v smb_dash_pair">
+                <span class="smb_dash_sub"><em>제조 확인</em><span><b><?php echo number_format($my_eq_cnt); ?></b>건</span></span>
+            </span>
+        </a>
+        <a class="smb_dash_cell smb_dash_last" href="<?php echo G5_BBS_URL ?>/point.php">
+            <span class="smb_dash_k">포인트</span>
+            <span class="smb_dash_v"><b><?php echo number_format($my_point); ?></b>P</span>
+        </a>
+    </div>
+    <!-- } 요약 밴드 끝 -->
+
+    <!-- 내정보 시작 { (기본 접힘 · 토글) -->
+    <section id="smb_my_ov" class="smb_collapsible">
         <div class="smb_panel_h">
-            <h2>내정보</h2>
-            <a class="smb_panel_more" href="<?php echo G5_BBS_URL ?>/member_confirm.php?url=register_form.php">정보수정</a>
+            <h2>내 정보</h2>
+            <button type="button" class="smb_toggle" id="smb_my_ov_toggle" aria-expanded="false" aria-controls="smb_my_ov_body">
+                <span class="smb_toggle_txt">내 정보 보기</span>
+                <span class="smb_toggle_ico" aria-hidden="true"></span>
+            </button>
         </div>
-        <dl class="op_area">
-            <dt>연락처</dt>
-            <dd><?php echo ($member['mb_tel'] ? $member['mb_tel'] : '미등록'); ?></dd>
-            <dt>E-Mail</dt>
-            <dd><?php echo ($member['mb_email'] ? $member['mb_email'] : '미등록'); ?></dd>
-            <dt>최종접속일시</dt>
-            <dd><?php echo $member['mb_today_login']; ?></dd>
-            <dt>회원가입일시</dt>
-            <dd><?php echo $member['mb_datetime']; ?></dd>
-            <dt id="smb_my_ovaddt">주소</dt>
-            <dd id="smb_my_ovaddd"><?php echo sprintf("(%s%s)", $member['mb_zip1'], $member['mb_zip2']).' '.print_address($member['mb_addr1'], $member['mb_addr2'], $member['mb_addr3'], $member['mb_addr_jibeon']); ?></dd>
-        </dl>
+        <div class="smb_collapse_body" id="smb_my_ov_body" hidden>
+            <dl class="op_area">
+                <dt>연락처</dt>
+                <dd><?php echo ($member['mb_tel'] ? $member['mb_tel'] : '미등록'); ?></dd>
+                <dt>E-Mail</dt>
+                <dd><?php echo ($member['mb_email'] ? $member['mb_email'] : '미등록'); ?></dd>
+                <dt>최종접속일시</dt>
+                <dd><?php echo $member['mb_today_login']; ?></dd>
+                <dt>회원가입일시</dt>
+                <dd><?php echo $member['mb_datetime']; ?></dd>
+                <dt id="smb_my_ovaddt">주소</dt>
+                <dd id="smb_my_ovaddd"><?php echo sprintf("(%s%s)", $member['mb_zip1'], $member['mb_zip2']).' '.print_address($member['mb_addr1'], $member['mb_addr2'], $member['mb_addr3'], $member['mb_addr_jibeon']); ?></dd>
+            </dl>
+        </div>
     </section>
     <!-- } 내정보 끝 -->
 
-    <!-- 최근 주문내역 시작 { -->
+    <!-- 최근 주문 시작 { -->
     <section id="smb_my_od">
         <div class="smb_panel_h">
-            <h2>최근 주문내역</h2>
+            <h2>최근 주문</h2>
             <a class="smb_panel_more" href="./orderinquiry.php">더보기</a>
         </div>
         <?php
-        // 최근 주문내역
+        // 최근 주문 8건(Figma) — 목록·상세와 같은 공용 서브(orderinquiry.sub.php, 상품명 열 포함).
         define("_ORDERINQUIRY_", true);
-
-        $limit = " limit 0, 5 ";
+        $limit = " limit 0, 8 ";
         include G5_SHOP_PATH.'/orderinquiry.sub.php';
         ?>
     </section>
-    <!-- } 최근 주문내역 끝 -->
+    <!-- } 최근 주문 끝 -->
 
-    <?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 토글 — docs/wishlist-hidden.md ?>
-    <!-- 최근 위시리스트 시작 { -->
-    <section id="smb_my_wish">
-        <div class="smb_panel_h">
-            <h2>최근 위시리스트</h2>
-            <a class="smb_panel_more" href="./wishlist.php">더보기</a>
-        </div>
-        <form name="fwishlist" method="post" action="./cartupdate.php">
-        <input type="hidden" name="act" value="multi">
-        <input type="hidden" name="sw_direct" value="">
-        <input type="hidden" name="prog" value="wish">
-            <ul>
-            <?php
-            $sql = " select *
-                       from {$g5['g5_shop_wish_table']} a,
-                            {$g5['g5_shop_item_table']} b
-                      where a.mb_id = '{$member['mb_id']}'
-                        and a.it_id  = b.it_id
-                      order by a.wi_id desc
-                      limit 0, 8 ";
-            $result = sql_query($sql);
-            for ($i=0; $row = sql_fetch_array($result); $i++)
-            {
-                $image = get_it_image($row['it_id'], 100, 100, true);
-
-                $sql = " select count(*) as cnt from {$g5['g5_shop_item_option_table']} where it_id = '{$row['it_id']}' and io_type = '0' ";
-                $tmp = sql_fetch($sql);
-                $out_cd = (isset($tmp['cnt']) && $tmp['cnt']) ? 'no' : '';
-            ?>
-
-            <li>
-                <div class="smb_my_chk">
-                    <?php if(is_soldout($row['it_id'])) { //품절검사 ?> 품절
-                    <?php } else { //품절이 아니면 체크할수 있도록한다 ?>
-                    <div class="chk_box">
-                        <input type="checkbox" name="chk_it_id[<?php echo $i; ?>]" value="1" id="chk_it_id_<?php echo $i; ?>" onclick="out_cd_check(this, '<?php echo $out_cd; ?>');" class="selec_chk">
-                        <label for="chk_it_id_<?php echo $i; ?>"><span></span><b class="sound_only"><?php echo $row['it_name']; ?></b></label>
-                    </div>
-                    <?php } ?>
-                    <input type="hidden" name="it_id[<?php echo $i; ?>]" value="<?php echo $row['it_id']; ?>">
-                    <input type="hidden" name="io_type[<?php echo $row['it_id']; ?>][0]" value="0">
-                    <input type="hidden" name="io_id[<?php echo $row['it_id']; ?>][0]" value="">
-                    <input type="hidden" name="io_value[<?php echo $row['it_id']; ?>][0]" value="<?php echo $row['it_name']; ?>">
-                    <input type="hidden" name="ct_qty[<?php echo $row['it_id']; ?>][0]" value="1">
-                </div>
-                <div class="smb_my_img"><?php echo $image; ?></div>
-                <div class="smb_my_tit"><a href="<?php echo shop_item_url($row['it_id']); ?>"><?php echo stripslashes($row['it_name']); ?></a></div>
-                <div class="smb_my_price"><?php echo display_price(get_price($row), $row['it_tel_inq']); ?></div>
-                <div class="smb_my_date"><?php echo $row['wi_time']; ?></div>
-                <a href="./wishupdate.php?w=d&amp;wi_id=<?php echo $row['wi_id']; ?>" class="wish_del"><i class="fa fa-trash" aria-hidden="true"></i><span class="sound_only">삭제</span></a>
-            </li>
-
-            <?php
-            }
-
-            if ($i == 0)
-                echo '<li class="empty_li">보관 내역이 없습니다.</li>';
-            ?>
-            </ul>
-
-            <div id="smb_ws_act">
-                <button type="submit" class="btn01" onclick="return fwishlist_check(document.fwishlist,'');">장바구니</button>
-                <button type="submit" class="btn02" onclick="return fwishlist_check(document.fwishlist,'direct_buy');">주문하기</button>
-            </div>
-        </form>
-    </section>
-    <!-- } 최근 위시리스트 끝 -->
-    <?php } // end SP_USE_WISHLIST ?>
 </div>
 <!-- } 마이페이지 콘텐츠 끝 -->
 
 <script>
-function out_cd_check(fld, out_cd)
-{
-    if (out_cd == 'no'){
-        alert("옵션이 있는 상품입니다.\n\n상품을 클릭하여 상품페이지에서 옵션을 선택한 후 주문하십시오.");
-        fld.checked = false;
-        return;
+(function () {
+    var KEY = 'sp_my_ov_open';
+    var btn = document.getElementById('smb_my_ov_toggle');
+    var body = document.getElementById('smb_my_ov_body');
+    var txt = btn ? btn.querySelector('.smb_toggle_txt') : null;
+    if (!btn || !body) return;
+    function apply(open) {
+        body.hidden = !open;
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.classList.toggle('is-open', open);
+        if (txt) txt.textContent = open ? '내 정보 접기' : '내 정보 보기';
     }
-
-    if (out_cd == 'tel_inq'){
-        alert("이 상품은 전화로 문의해 주십시오.\n\n장바구니에 담아 구입하실 수 없습니다.");
-        fld.checked = false;
-        return;
-    }
-}
-
-function fwishlist_check(f, act)
-{
-    var k = 0;
-    var length = f.elements.length;
-
-    for(i=0; i<length; i++) {
-        if (f.elements[i].checked) {
-            k++;
-        }
-    }
-
-    if(k == 0)
-    {
-        alert("상품을 하나 이상 체크 하십시오");
-        return false;
-    }
-
-    if (act == "direct_buy")
-    {
-        f.sw_direct.value = 1;
-    }
-    else
-    {
-        f.sw_direct.value = 0;
-    }
-
-    return true;
-}
+    var saved = false;
+    try { saved = localStorage.getItem(KEY) === '1'; } catch (e) { /* private mode */ }
+    apply(saved);
+    btn.addEventListener('click', function () {
+        var open = body.hidden; // 현재 숨김이면 펼친다
+        apply(open);
+        try { localStorage.setItem(KEY, open ? '1' : '0'); } catch (e) { /* noop */ }
+    });
+})();
 </script>
-<!-- } 마이페이지 끝 -->
 
 <?php
 include_once("./_tail.php");

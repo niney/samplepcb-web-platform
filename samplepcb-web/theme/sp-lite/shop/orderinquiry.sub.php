@@ -4,6 +4,7 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
 
 // sp-lite 주문내역 목록 (전 기기 pc 파일 사용 · 반응형: 넓은 화면 표 / 좁은 화면 카드)
 // 코어 shop/orderinquiry.sub.php 의 테마 위임 훅으로 이 파일이 대체 include 됨.
+// 열 구성·순서는 Figma 103:2361(마이페이지 최근 주문)과 일치 — 주문내역 페이지도 공용.
 ?>
 
 <!-- 주문 내역 목록 (sp-lite) 시작 { -->
@@ -15,8 +16,9 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
     <table class="sod_list_tbl">
     <thead>
     <tr>
+        <th scope="col">주문일</th>
         <th scope="col">주문번호</th>
-        <th scope="col">주문일시</th>
+        <th scope="col">상품명</th>
         <th scope="col">상품수</th>
         <th scope="col">주문금액</th>
         <th scope="col">결제액</th>
@@ -40,6 +42,14 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
         $cart_count = function_exists('sp_order_cart_count')
                     ? sp_order_cart_count($row['od_id'])
                     : (int) $row['od_cart_count'];
+
+        // 상품명 — 주문의 첫 카트행 it_name + "외 N건". 어느 주문인지 목록에서 바로 알게 한다.
+        $od_esc = function_exists('sql_real_escape_string') ? sql_real_escape_string($row['od_id']) : addslashes($row['od_id']);
+        $it_row = sql_fetch(" select it_name from {$g5['g5_shop_cart_table']}
+                               where od_id = '{$od_esc}' order by ct_id asc limit 1 ");
+        $it_name = (isset($it_row['it_name']) && $it_row['it_name'] !== '') ? $it_row['it_name'] : '-';
+        $it_more = ($cart_count > 1) ? ' 외 '.($cart_count - 1).'건' : '';
+
         // 부분취소 환불 뒤에도 총수납만 보이면 실제로 남은 결제액보다 크게 보인다.
         // 영카트 미수 산식과 같은 수납 + 포인트 - 환불을 목록의 결제액으로 쓴다.
         $net_receipt_price = (int) $row['od_receipt_price']
@@ -58,8 +68,9 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
         $view_url = G5_SHOP_URL.'/orderinquiryview.php?od_id='.$row['od_id'].'&amp;uid='.$uid;
     ?>
     <tr>
+        <td class="sod_col_time" data-th="주문일"><?php echo str_replace('-', '.', substr($row['od_time'], 0, 10)); /* 2026.08.25 (YYYY.MM.DD) */ ?></td>
         <td class="sod_col_id" data-th="주문번호"><a href="<?php echo $view_url; ?>"><?php echo $row['od_id']; ?></a></td>
-        <td class="sod_col_time" data-th="주문일시"><?php echo substr($row['od_time'],2,14); ?> (<?php echo get_yoil($row['od_time']); ?>)</td>
+        <td class="sod_col_name" data-th="상품명"><a href="<?php echo $view_url; ?>" title="<?php echo get_text($it_name.$it_more); ?>"><?php echo get_text($it_name); ?><?php echo $it_more; ?></a></td>
         <td class="sod_col_cnt" data-th="상품수"><?php echo $cart_count; ?></td>
         <td class="sod_col_price" data-th="주문금액"><?php echo display_price($row['od_cart_price'] + $row['od_send_cost'] + $row['od_send_cost2']); ?></td>
         <td class="sod_col_pay" data-th="결제액"><?php echo display_price($net_receipt_price); ?></td>
@@ -70,7 +81,7 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
     }
 
     if ($i == 0)
-        echo '<tr class="empty_list_row"><td colspan="7">주문 내역이 없습니다.</td></tr>';
+        echo '<tr class="empty_list_row"><td colspan="8">주문 내역이 없습니다.</td></tr>';
     ?>
     </tbody>
     </table>

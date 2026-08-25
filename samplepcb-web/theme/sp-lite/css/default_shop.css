@@ -1683,7 +1683,7 @@
 .sod_list_tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 
 .sod_list_tbl thead th {
-    padding: 14px 16px;
+    padding: 14px 12px;
     background: var(--sp-bg-soft);
     border-bottom: 1px solid var(--sp-line);
     font-size: 13px;
@@ -1692,10 +1692,9 @@
     white-space: nowrap;
     text-align: center;
 }
-.sod_list_tbl thead th:first-child { text-align: left; }
 
 .sod_list_tbl tbody td {
-    padding: 15px 16px;
+    padding: 15px 12px;
     border-bottom: 1px solid var(--sp-line);
     text-align: center;
     vertical-align: middle;
@@ -1705,14 +1704,38 @@
 .sod_list_tbl tbody tr:last-child td { border-bottom: 0; }
 .sod_list_tbl tbody tr:hover td { background: var(--sp-bg-soft); }
 
-.sod_col_id { text-align: left; }
+/* 본문 정렬 — 상품명·주문번호 좌측, 금액 3열 우측. `.sod_list_tbl tbody td`(가운데 기본)에
+   특이도로 지지 않도록 tbody td.<class> 로 올린다. */
+.sod_list_tbl tbody td.sod_col_id,
+.sod_list_tbl tbody td.sod_col_name { text-align: left; }
 .sod_col_id a { font-weight: 600; color: var(--sp-primary); }
 .sod_col_id a:hover { text-decoration: underline; }
 
-.sod_col_price,
-.sod_col_pay,
-.sod_col_misu { text-align: right; font-variant-numeric: tabular-nums; }
+.sod_list_tbl tbody td.sod_col_price,
+.sod_list_tbl tbody td.sod_col_pay,
+.sod_list_tbl tbody td.sod_col_misu { text-align: right; font-variant-numeric: tabular-nums; }
 .sod_col_misu { color: var(--sp-muted); }
+
+/* 상품명 열(Figma) — 남는 폭을 다 차지하는 유연 컬럼, 셀 폭까지 채우고 말줄임.
+   고정 max-width(240px)로 묶으면 넓은 셀에서 빈 공간을 남긴 채 잘린다(2026-08-25 실측). */
+.sod_col_time { text-align: center; white-space: nowrap; }
+.sod_col_name { width: 100%; max-width: 0; }   /* 남는 폭 전부 흡수 → 링크가 셀 폭에 맞춰 말줄임 */
+.sod_col_name a {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--acc-text, #141e34);
+    font-weight: 500;
+}
+.sod_col_name a:hover { color: var(--acc-primary, #1e64fd); }
+
+/* 헤더 정렬을 본문과 맞춘다 — 주문번호·상품명 좌측, 금액 3열 우측(본문은 이미 좌/우 정렬). */
+.sod_list_tbl thead th:nth-child(2),  /* 주문번호 */
+.sod_list_tbl thead th:nth-child(3) { text-align: left; }   /* 상품명 */
+.sod_list_tbl thead th:nth-child(5),  /* 주문금액 */
+.sod_list_tbl thead th:nth-child(6),  /* 결제액 */
+.sod_list_tbl thead th:nth-child(7) { text-align: right; }  /* 미입금액 */
 
 .empty_list_row td { padding: 64px 16px; text-align: center; color: var(--sp-muted); }
 
@@ -2090,9 +2113,17 @@
 #container.is-account,
 .account-layout {
     display: grid;
-    grid-template-columns: 248px minmax(0, 1fr);
-    gap: 24px;
+    grid-template-columns: 200px minmax(0, 1fr); /* Figma 103:2361 — 사이드 200 + gap 40 */
+    gap: 40px;
     align-items: start;
+    /* 계정 셸 스코프 토큰 — 이 화면만 피그마 색값(사이트 전역 토큰 불변, 사용자 결정 2026-08-25). */
+    --acc-primary: #1e64fd;
+    --acc-ink: #0a151e;
+    --acc-text: #141e34;
+    --acc-muted: #666;
+    --acc-line: #d9d9d9;
+    --acc-band: #f0f4fa;
+    --acc-band-line: #c0c6ce;
 }
 /* 콘텐츠 컬럼(그리드 자식)이 넘치지 않도록 */
 #container.is-account > .shop-content,
@@ -2102,136 +2133,178 @@
 #container:has(> .account-layout) > #container_title { display: none; }
 
 /* ==== 좌: 계정 사이드바 ==== */
+/* Figma 103:2361 — 카드 크롬 없이 평면 리스트(경계선/배경 상자 제거). */
 .smb_nav {
     position: sticky;
     top: 20px;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg);
-    overflow: hidden;
 }
 
-/* 신원 카드: 아바타 + 이름 + 포인트/쿠폰 스탯 타일 */
-.smb_nav .nav_id { padding: 20px 18px; border-bottom: 1px solid var(--sp-line); }
-.smb_nav .nav_id_top { display: flex; align-items: center; gap: 12px; }
-.smb_nav .nav_avatar {
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    flex: none;
-    overflow: hidden;
-    display: grid;
-    place-items: center;
-    background: linear-gradient(135deg, var(--sp-primary), var(--sp-primary-dark));
-}
-.smb_nav .nav_avatar img { width: 100%; height: 100%; object-fit: cover; }
-.smb_nav .nav_name { font-size: 16px; font-weight: 700; color: var(--sp-ink); line-height: 1.25; }
-.smb_nav .nav_sub { display: block; font-size: 12px; color: var(--sp-muted); }
-.smb_nav .nav_stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
-.smb_nav .nav_stat {
-    padding: 9px 10px;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg-soft);
-    transition: border-color .15s;
-}
-.smb_nav .nav_stat:hover { border-color: var(--sp-primary); }
-.smb_nav .nav_stat .v {
+/* 머리: 이름 + [정보수정 | 로그아웃] 알약 */
+.smb_nav .nav_head { margin-bottom: 22px; }
+.smb_nav .nav_name {
     display: block;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--sp-ink);
-    font-variant-numeric: tabular-nums;
-    line-height: 1.2;
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--acc-ink);
+    line-height: 1.3;
+    word-break: keep-all;
+    margin-bottom: 14px;
 }
-.smb_nav .nav_stat .v small { font-size: 11px; font-weight: 600; color: var(--sp-muted); margin-left: 1px; }
-.smb_nav .nav_stat .k { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 11px; color: var(--sp-muted); }
-.smb_nav .nav_stat .k i { font-size: 12px; color: var(--sp-primary); }
-
-/* 그룹 메뉴 */
-.smb_nav .nav_group { padding: 14px 12px 4px; }
-.smb_nav .nav_group + .nav_group { border-top: 1px solid var(--sp-line); }
-.smb_nav .nav_glabel {
-    margin: 0;
-    padding: 0 8px 6px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: var(--sp-muted);
-}
-.smb_nav .nav_group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
-.smb_nav .nav_group li { margin: 0; }
-.smb_nav .nav_group a {
+.smb_nav .nav_name:hover { text-decoration: underline; }
+.smb_nav .nav_acts {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 9px 10px;
+    height: 34px;
+    border: 1px solid var(--acc-line);
     border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--sp-ink);
-    transition: background-color .13s, color .13s;
 }
-.smb_nav .nav_group a i { width: 17px; font-size: 15px; text-align: center; color: var(--sp-muted); transition: color .13s; }
-.smb_nav .nav_group a:hover { background: var(--sp-bg-soft); }
-.smb_nav .nav_group a:hover i { color: var(--sp-primary); }
-.smb_nav .nav_group a[aria-current="page"] { background: var(--sp-primary-soft); color: var(--sp-primary); font-weight: 700; }
-.smb_nav .nav_group a[aria-current="page"] i { color: var(--sp-primary); }
-.smb_nav .nav_group a .lbl { flex: 1; }
-.smb_nav .nav_badge {
-    min-width: 19px;
-    height: 19px;
-    padding: 0 6px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    background: var(--sp-bg-soft);
-    color: var(--sp-muted);
-    border: 1px solid var(--sp-line);
-}
-.smb_nav .nav_badge.on { background: var(--sp-primary); color: #fff; border-color: var(--sp-primary); }
-/* 신규 메뉴(견적관리) NEW 태그 */
-.smb_nav .nav_new { margin-left: 2px; padding: 1px 4px; border-radius: 4px; font-size: 9px; font-weight: 800; letter-spacing: .04em; color: #fff; background: #d64545; }
-
-/* 로그아웃 · 회원탈퇴(위험 액션 — 빨강 hover) */
-.smb_nav .nav_foot { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--sp-line); }
-.smb_nav .nav_foot a {
+.smb_nav .nav_acts a {
     flex: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
-    min-height: 38px;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg);
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--sp-muted);
-    transition: border-color .13s, color .13s;
+    gap: 4px;
+    font-size: 14px;
+    color: var(--acc-muted);
+    transition: color .13s;
 }
-.smb_nav .nav_foot a i { font-size: 14px; }
-.smb_nav .nav_foot a.logout:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
-.smb_nav .nav_foot a.leave:hover { border-color: #d64545; color: #d64545; }
+.smb_nav .nav_acts a:hover { color: var(--acc-primary); }
+.smb_nav .nav_acts a:hover .nav_ai { opacity: .75; }
+.smb_nav .nav_ai { width: 14px; height: 14px; object-fit: contain; }
+.smb_nav .nav_acts_sep { width: 1px; height: 18px; background: var(--acc-line); }
+
+/* 그룹 메뉴 */
+.smb_nav .nav_group { padding: 0; }
+.smb_nav .nav_group + .nav_group { margin-top: 30px; }
+.smb_nav .nav_glabel {
+    margin: 0 0 6px;
+    padding: 0 4px;
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--acc-ink);
+}
+.smb_nav .nav_group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.smb_nav .nav_group li { margin: 0; }
+.smb_nav .nav_group a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 4px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--acc-muted);
+    transition: color .13s, background-color .13s;
+}
+.smb_nav .nav_group a .nav_ico { width: 18px; height: 18px; flex: none; object-fit: contain; }
+.smb_nav .nav_group a:hover { color: var(--acc-primary); }
+.smb_nav .nav_group a[aria-current="page"] { color: var(--acc-primary); font-weight: 700; }
+.smb_nav .nav_group a .lbl { flex: 1; }
+/* 건수 — pill 이 아니라 우측 정렬 굵은 텍스트(.nav_badge=숫자 · .nav_unit=단위). e2e 가
+   .nav_badge textContent 를 Number() 로 파싱하므로 숫자만 담고 단위는 형제로 뺀다. */
+.smb_nav .nav_badge {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--acc-text);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+.smb_nav .nav_unit { margin-left: 1px; font-size: 13px; font-weight: 400; color: var(--acc-text); }
+.smb_nav .nav_badge.on, .smb_nav .nav_unit.on { color: var(--acc-primary); } /* 제조 확인=고객 차례(파랑) */
+/* 신규 메뉴(견적관리) NEW 태그 */
+.smb_nav .nav_new { margin-left: 4px; padding: 1px 5px; border-radius: 4px; font-size: 9px; font-weight: 800; letter-spacing: .04em; color: #fff; background: #d64545; }
+
+/* 회원탈퇴 — 눈에 띄지 않는 하단 링크(피그마 미배치, 코어 회원탈퇴 경로 보존) */
+.smb_nav .nav_foot { margin-top: 30px; }
+.smb_nav .nav_foot a.leave { font-size: 12px; color: var(--acc-muted); opacity: .7; }
+.smb_nav .nav_foot a.leave:hover { color: #d64545; opacity: 1; text-decoration: underline; }
 
 /* ==== 우: 대시보드 패널 ==== */
-#smb_my_list { display: flex; flex-direction: column; gap: 24px; min-width: 0; margin: 0 0 48px; }
-#smb_my_list section {
-    margin: 0;
-    padding: 24px;
-    border: 1px solid var(--sp-line);
-    border-radius: var(--sp-radius);
-    background: var(--sp-bg);
+/* 마이페이지 제목 — Figma 103:2656(36px SemiBold). 마이페이지에만(:has(#smb_my_list)). */
+.shop-content:has(#smb_my_list) > #wrapper_title {
+    font-size: 36px;
+    font-weight: 600;
+    color: var(--acc-ink);
+    margin: 0 0 22px;
 }
 
-/* 패널 헤더: 제목(좌) + 더보기/정보수정(우) */
-.smb_panel_h { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
-.smb_panel_h h2 { margin: 0; font-size: 16px; font-weight: 700; color: var(--sp-ink); }
+/* Figma 103:2361 — 콘텐츠는 카드 상자 없이 제목 + 표/정의목록. 밴드만 배경. */
+#smb_my_list { display: flex; flex-direction: column; gap: 28px; min-width: 0; margin: 0 0 48px; }
+#smb_my_list section { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+
+/* 요약 밴드 — 4칸(주문내역·견적관리·확인요청·포인트), 세로 구분선 */
+.smb_dash {
+    display: flex;
+    gap: 30px;
+    padding: 22px 32px 24px;
+    border-radius: 10px;
+    background: var(--acc-band);
+}
+.smb_dash_cell {
+    flex: 1 0 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 100px;
+    padding-right: 30px;
+    border-right: 1px solid var(--acc-band-line);
+}
+.smb_dash_cell.smb_dash_last { padding-right: 0; border-right: 0; }
+.smb_dash_k { font-size: 17px; font-weight: 500; color: var(--acc-ink); }
+.smb_dash_v {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 17px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--acc-primary);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.smb_dash_v b { font-size: 31px; font-weight: 800; line-height: 1.1; }
+.smb_dash_pair { align-items: flex-end; }
+.smb_dash_sub { display: flex; flex-direction: column; align-items: flex-end; }
+.smb_dash_sub em { font-size: 14px; font-weight: 400; font-style: normal; color: var(--acc-primary); }
+.smb_dash_cell:hover .smb_dash_v { opacity: .82; }
+
+/* 패널 헤더: 제목(좌, 19px) + 더보기/토글(우) */
+.smb_panel_h { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
+.smb_panel_h h2 { margin: 0; font-size: 19px; font-weight: 600; color: var(--acc-ink); }
+
+/* 내정보 토글 버튼 */
+.smb_toggle {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border: 1px solid var(--acc-line);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--acc-muted);
+    cursor: pointer;
+    transition: color .13s, border-color .13s;
+}
+.smb_toggle:hover { color: var(--acc-primary); border-color: var(--acc-primary); }
+.smb_toggle_ico {
+    width: 9px; height: 9px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg) translate(-1px, -1px);
+    transition: transform .15s;
+}
+.smb_toggle.is-open .smb_toggle_ico { transform: rotate(-135deg) translate(-1px, -1px); }
+.smb_collapse_body[hidden] { display: none; }
+#smb_my_ov .smb_collapse_body {
+    padding: 18px 20px;
+    border: 1px solid var(--acc-line);
+    border-radius: 8px;
+    background: #fbfcfe;
+}
 .smb_panel_more {
     margin-left: auto;
     display: inline-flex;
@@ -2257,7 +2330,12 @@
 #smb_my_ov .op_area #smb_my_ovaddd { grid-column: 2 / -1; }  /* 주소값 전폭 */
 
 /* 주문 표는 공용 .sod_list_* 재사용 — 패널이 이미 테두리를 가지므로 내부 래퍼 테두리 제거 */
-#smb_my_od .sod_list_wrap { border: 0; border-radius: 0; }
+/* 최근 주문 표(Figma) — 카드 상자 없이 상단 진한 선 + 옅은 행 구분선, 헤더 무배경. */
+#smb_my_od .sod_list_wrap { border: 0; border-radius: 0; background: none; }
+#smb_my_od .sod_list_tbl thead th { background: none; border-top: 1px solid var(--acc-ink); border-bottom: 1px solid var(--acc-line); color: var(--acc-muted); font-weight: 400; padding: 12px 16px; }
+#smb_my_od .sod_list_tbl tbody td { border-bottom: 1px solid var(--acc-line); }
+#smb_my_od .sod_list_tbl tbody tr:last-child td { border-bottom: 1px solid var(--acc-line); }
+#smb_my_od .sod_col_id a { color: var(--acc-primary); }
 
 /* 위시리스트 상품 그리드 */
 #smb_my_wish ul {
@@ -2350,20 +2428,28 @@
 @media (max-width: 960px) {
     /* 사이드바를 상단으로 내리고 메뉴는 3열로 펼침 */
     #container.is-account,
-    .account-layout { grid-template-columns: 1fr; }
+    .account-layout { grid-template-columns: 1fr; gap: 24px; }
     .smb_nav { position: static; }
-    .smb_nav .nav_body { display: grid; grid-template-columns: repeat(3, 1fr); }
-    .smb_nav .nav_group,
-    .smb_nav .nav_group + .nav_group { border-top: 1px solid var(--sp-line); }
+    .smb_nav .nav_body { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 20px; }
+    .smb_nav .nav_group + .nav_group { margin-top: 0; }
     #smb_my_wish ul { grid-template-columns: repeat(3, 1fr); }
+    /* 요약 밴드 2열 랩 */
+    .smb_dash { flex-wrap: wrap; gap: 20px 30px; }
+    .smb_dash_cell { flex: 1 0 40%; }
+    .smb_dash_cell:nth-child(2n) { padding-right: 0; border-right: 0; }
 }
 @media (max-width: 640px) {
-    #smb_my_list section { padding: 18px 16px; }
     .smb_nav .nav_body { grid-template-columns: 1fr; }
+    .smb_nav .nav_name { font-size: 22px; }
     #smb_my_wish ul { grid-template-columns: repeat(2, 1fr); }
     #smb_my_ov .op_area { grid-template-columns: max-content 1fr; gap: 6px 12px; }
     #smb_my_ov .op_area #smb_my_ovaddd { grid-column: auto; }
     #smb_ws_act button { flex: 1; padding: 0 12px; }
+    /* 밴드 1열 */
+    .smb_dash { flex-direction: column; padding: 18px 18px 20px; }
+    .smb_dash_cell { flex: none; width: 100%; min-height: 0; padding: 0 0 16px; border-right: 0; border-bottom: 1px solid var(--acc-band-line); }
+    .smb_dash_cell.smb_dash_last { padding-bottom: 0; border-bottom: 0; }
+    .smb_dash_v { justify-content: flex-start; }
 }
 
 /* ==========================================================================
