@@ -730,28 +730,31 @@
 .sp-quotes { margin: 0 0 48px; }
 
 /* 견적 유형 탭 — PCB(거버) · 부품 BOM(스마트 BOM 트랙, SMARTBOM_PARTNER_RFQ.md §6) */
+/* Figma 103:4507 — 16px · 비활성 #323232 Regular · 활성 #05f SemiBold + 3px 바 · 1px 라인 */
 .sp-quotes-tabs {
     display: flex;
-    gap: 6px;
+    gap: 24px;
     margin: 0 0 18px;
-    border-bottom: 2px solid var(--sp-line);
+    border-bottom: 1px solid #d9d9d9;
 }
 .sp-quotes-tab {
-    margin-bottom: -2px;
-    padding: 10px 16px;
+    margin-bottom: -1px;
+    padding: 0 2px 6px;
     border: 0;
-    border-bottom: 2px solid transparent;
+    border-bottom: 3px solid transparent;
     background: none;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--sp-muted);
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 22px;
+    color: #323232;
     cursor: pointer;
 }
 .sp-quotes-tab.is-active {
-    border-bottom-color: var(--sp-primary);
-    color: var(--sp-primary);
+    border-bottom-color: #05f;
+    color: #05f;
+    font-weight: 600;
 }
-.sp-quotes-tab:hover { color: var(--sp-ink); }
+.sp-quotes-tab:hover { color: #05f; }
 
 /* BOM 행 액션(견적 보기·주문하기) — 금액 아래 우측 정렬 */
 .sp-bom__acts {
@@ -1770,10 +1773,21 @@
 #sod_v .pg_page:hover { color: var(--acc-primary, #1e64fd); }
 #sod_v .pg_current { color: #2674ff; font-weight: 700; text-decoration: underline; }
 #sod_v .pg_start, #sod_v .pg_end { display: none; }
-#sod_v .pg_prev, #sod_v .pg_next { font-size: 0; }
-#sod_v .pg_prev::before, #sod_v .pg_next::before { font-size: 20px; color: #4c4c4c; line-height: 1; }
-#sod_v .pg_prev::before { content: "\2039"; }  /* ‹ */
-#sod_v .pg_next::before { content: "\203A"; }  /* › */
+/* 화살표 = Figma 원본 셰브론(#0A151E · stroke 2px · round cap, Group 4 SVG를 mask 로 그대로) —
+   항상 양쪽, 갈 곳 없으면 opacity .3(시안값) 비활성 */
+#sod_v .pg_prev, #sod_v .pg_next { font-size: 0; display: inline-flex; align-items: center; }
+#sod_v .pg_prev::before, #sod_v .pg_next::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 12px;
+    background-color: var(--acc-ink, #0a151e);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='12' viewBox='0 0 8 12' fill='none'%3E%3Cpath d='M7 11L1 6L7 1' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 8px 12px no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='12' viewBox='0 0 8 12' fill='none'%3E%3Cpath d='M7 11L1 6L7 1' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 8px 12px no-repeat;
+}
+#sod_v .pg_next::before { transform: scaleX(-1); }
+#sod_v .pg_prev:hover::before, #sod_v .pg_next:hover::before { background-color: var(--acc-primary, #1e64fd); }
+#sod_v .pg_prev.is-disabled, #sod_v .pg_next.is-disabled { opacity: .3; pointer-events: none; cursor: default; }
 
 @media (max-width: 640px) {
     .sod_list_wrap { border: 0; background: transparent; overflow: visible; }
@@ -2375,12 +2389,21 @@
 #smb_my_ov .op_area #smb_my_ovaddd { grid-column: 2 / -1; }  /* 주소값 전폭 */
 
 /* 주문 표는 공용 .sod_list_* 재사용 — 패널이 이미 테두리를 가지므로 내부 래퍼 테두리 제거 */
-/* 최근 주문 표(Figma) — 카드 상자 없이 상단 진한 선 + 옅은 행 구분선, 헤더 무배경. */
-#smb_my_od .sod_list_wrap { border: 0; border-radius: 0; background: none; }
-#smb_my_od .sod_list_tbl thead th { background: none; border-top: 1px solid var(--acc-ink); border-bottom: 1px solid var(--acc-line); color: var(--acc-muted); font-weight: 400; padding: 12px 16px; }
-#smb_my_od .sod_list_tbl tbody td { border-bottom: 1px solid var(--acc-line); }
-#smb_my_od .sod_list_tbl tbody tr:last-child td { border-bottom: 1px solid var(--acc-line); }
-#smb_my_od .sod_col_id a { color: var(--acc-primary); }
+/* 주문 표(Figma 103:2361/4215 — 마이페이지 최근 주문 #smb_my_od · 주문내역 #sod_v 공용):
+   카드 상자 없이 상단 진한 선 + 옅은 행 구분선, 헤더 무배경 15px Regular,
+   본문 #141e34 · 금액 3열 Bold · 주문번호 파랑 Medium. */
+#smb_my_od .sod_list_wrap,
+#sod_v .sod_list_wrap { border: 0; border-radius: 0; background: none; }
+#smb_my_od .sod_list_tbl thead th,
+#sod_v .sod_list_tbl thead th { background: none; border-top: 1px solid var(--acc-ink); border-bottom: 1px solid var(--acc-line); color: var(--acc-muted); font-size: 15px; font-weight: 400; padding: 12px 16px; }
+#smb_my_od .sod_list_tbl tbody td,
+#sod_v .sod_list_tbl tbody td { border-bottom: 1px solid var(--acc-line); color: var(--acc-text); }
+#smb_my_od .sod_list_tbl tbody tr:last-child td,
+#sod_v .sod_list_tbl tbody tr:last-child td { border-bottom: 1px solid var(--acc-line); }
+#smb_my_od .sod_col_id a,
+#sod_v .sod_col_id a { color: var(--acc-primary); font-weight: 500; }
+#smb_my_od td.sod_col_price, #smb_my_od td.sod_col_pay, #smb_my_od td.sod_col_misu,
+#sod_v td.sod_col_price, #sod_v td.sod_col_pay, #sod_v td.sod_col_misu { font-weight: 700; color: var(--acc-text); }
 
 /* 위시리스트 상품 그리드 */
 #smb_my_wish ul {

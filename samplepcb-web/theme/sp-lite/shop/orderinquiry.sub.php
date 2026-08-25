@@ -140,14 +140,15 @@ document.addEventListener('DOMContentLoaded', function () {
     var base = '<?php echo G5_SHOP_URL; ?>/orderinquiry.php?<?php echo $qstr ? str_replace('&amp;', '&', $qstr) . '&' : ''; ?>page=';
     function ensure(cls, label, target, first) {
         var a = pg.querySelector('.' + cls);
-        if (target === null) { if (a) a.remove(); return; }
         if (!a) {
             a = document.createElement('a');
             a.className = 'pg_page ' + cls;
             a.textContent = label;
             if (first) pg.insertBefore(a, pg.firstChild); else pg.appendChild(a);
         }
-        a.href = base + target;
+        // Figma 103:4498 — 화살표는 항상 양쪽에 서고, 갈 곳이 없으면 비활성으로 남는다.
+        if (target === null) { a.removeAttribute('href'); a.classList.add('is-disabled'); }
+        else { a.href = base + target; a.classList.remove('is-disabled'); }
     }
     ensure('pg_prev', '이전', cur > 1 ? cur - 1 : null, true);
     ensure('pg_next', '다음', cur < total ? cur + 1 : null, false);

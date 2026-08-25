@@ -73,7 +73,8 @@ describe.skipIf(!RUN)('주문내역 유형 탭 — 전체/PCB/부품 + 다크 �
         (document.querySelector('.sod_v_count strong')?.textContent ?? '0').replace(/,/g, ''),
       ),
       rows: document.querySelectorAll('.sod_list_tbl tbody tr:not(.empty_list_row)').length,
-      pgHrefs: [...document.querySelectorAll('#sod_v .pg a')].map((a) => (a as HTMLAnchorElement).href),
+      // 비활성 화살표(href 없는 a)는 링크가 아니다 — track 유지 검사에서 제외.
+      pgHrefs: [...document.querySelectorAll('#sod_v .pg a[href]')].map((a) => (a as HTMLAnchorElement).href),
       pgStartHidden:
         document.querySelector('#sod_v .pg_start') === null ||
         getComputedStyle(document.querySelector('#sod_v .pg_start') as Element).display === 'none',
@@ -98,14 +99,22 @@ describe.skipIf(!RUN)('주문내역 유형 탭 — 전체/PCB/부품 + 다크 �
     }
     expect(v.pgStartHidden, '처음/맨끝 링크 숨김(Figma)').toBe(true);
 
-    // ‹ › 는 한 페이지씩(Figma) — 1페이지는 › 만, 2페이지는 둘 다·단일 스텝·track 유지.
-    const arrows = async (): Promise<{ prev: string | null; next: string | null }> =>
-      customer.page.evaluate(() => ({
-        prev: (document.querySelector('#sod_v .pg_prev') as HTMLAnchorElement | null)?.href ?? null,
-        next: (document.querySelector('#sod_v .pg_next') as HTMLAnchorElement | null)?.href ?? null,
-      }));
+    // ‹ › 는 항상 양쪽(Figma) — 갈 곳 없으면 비활성(is-disabled·href 없음), 이동은 한 페이지씩.
+    const arrows = async (): Promise<{
+      prev: string | null; next: string | null; prevOff: boolean; nextOff: boolean;
+    }> =>
+      customer.page.evaluate(() => {
+        const g = (s: string) => document.querySelector(s) as HTMLAnchorElement | null;
+        return {
+          prev: g('#sod_v .pg_prev')?.getAttribute('href') ?? null,
+          next: g('#sod_v .pg_next')?.getAttribute('href') ?? null,
+          prevOff: g('#sod_v .pg_prev')?.classList.contains('is-disabled') ?? false,
+          nextOff: g('#sod_v .pg_next')?.classList.contains('is-disabled') ?? false,
+        };
+      });
     const p1 = await arrows();
-    expect(p1.prev, '1페이지엔 이전 없음').toBeNull();
+    expect(p1.prevOff, '1페이지 이전은 비활성으로 보인다').toBe(true);
+    expect(p1.prev, '비활성엔 href 없음').toBeNull();
     expect(p1.next, '1페이지 다음 → 2').toContain('page=2');
     await customer.page.goto(`${BASE_URL}/shop/orderinquiry.php?track=pcb&page=2`, { waitUntil: 'networkidle' });
     const p2 = await arrows();
@@ -113,7 +122,7 @@ describe.skipIf(!RUN)('주문내역 유형 탭 — 전체/PCB/부품 + 다크 �
     expect(p2.prev).toContain('track=pcb');
     const pcbPages = Math.ceil(cntPcb / 15); // cf_page_rows
     if (pcbPages > 2) expect(p2.next, '2페이지 다음 → 3').toContain('page=3');
-    else expect(p2.next, '마지막 페이지엔 다음 없음').toBeNull();
+    else expect(p2.nextOff, '마지막 페이지 다음은 비활성').toBe(true);
   }, 120_000);
 
   test('T3. 부품 탭 — 총건 = 부품 주문 수 · 행 전부 부품 BOM', async () => {
