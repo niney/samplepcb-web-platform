@@ -96,7 +96,5 @@ $sp_as = (function_exists('sp_pcb_claim_active_count') ? sp_pcb_claim_active_cou
         </div>
     </div>
 
-    <div class="nav_foot">
-        <a class="leave" href="<?php echo G5_BBS_URL ?>/member_confirm.php?url=member_leave.php" onclick="return confirm('정말 회원에서 탈퇴 하시겠습니까?');">회원탈퇴</a>
-    </div>
+    <?php // 회원탈퇴는 사이드바에서 뺐다 — 미배치 링크 패널(inc/quicklinks.php '계정')에 보관(사용자 결정 08-25). ?>
 </aside>

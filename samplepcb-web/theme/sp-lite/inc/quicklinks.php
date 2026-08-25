@@ -45,6 +45,12 @@ if (defined('G5_USE_SHOP') && G5_USE_SHOP) {
         array('상품문의',   G5_SHOP_URL.'/itemqalist.php'),
     );
 }
+
+// 계정 — 마이페이지 재설계(Figma 103:2361)에서 사이드바 밖으로 뺀 링크(사용자 결정 08-25).
+// member_confirm(비밀번호 확인) 경유라 오클릭으로 바로 탈퇴되지 않는다.
+$sp_quicklinks['계정'] = array(
+    array('회원탈퇴', G5_BBS_URL.'/member_confirm.php?url=member_leave.php'),
+);
 ?>
 <div class="sp-float">
     <div class="sp-quick-panel" id="sp_quick_panel">
