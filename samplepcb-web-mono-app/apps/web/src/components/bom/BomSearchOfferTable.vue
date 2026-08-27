@@ -201,7 +201,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
   if (isSelected(row)) return props.actionContext === 'quote' ? '추가됨' : '적용';
   if (props.cartPartIds.has(row.part.id)) return '변경';
   if (props.actionContext === 'quote') return 'BOM 추가';
-  return inquiry ? '견적담기' : '담기';
+  return inquiry ? 'RFQ' : '담기';
 }
 
 // ── 협력사 보유(docs/PARTNER_PARTS.md) ────────────────────────────────────────
@@ -280,7 +280,7 @@ function partnerActionLabel(part: BomPartHitType): string {
   if (props.pendingKey === partnerKey(part)) return '처리 중…';
   if (isPartnerSelected(part)) return props.actionContext === 'quote' ? '추가됨' : '적용';
   if (props.actionContext === 'quote') return 'BOM 추가';
-  return '견적담기';
+  return 'RFQ';
 }
 
 </script>
