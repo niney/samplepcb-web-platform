@@ -60,6 +60,7 @@ import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomQuoteAddWorkspace from '../../components/bom/BomQuoteAddWorkspace.vue';
 import BomQuoteCheckbox from '../../components/bom/BomQuoteCheckbox.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
+import BomQuoteRequestModal from '../../components/bom/BomQuoteRequestModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
 import BomClaimPanel from '../../components/bom/BomClaimPanel.vue';
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
@@ -363,7 +364,8 @@ watch(quoteId, () => {
   setQty.value = 1;
   spareQty.value = 0;
   quantityAdjustmentMessage.value = '';
-  if (requestModal.value) finishRequestModalClose(false);
+  requestModal.value = false;
+  requestDone.value = false;
   autoBuildAttempted.value = false;
   selectedSheetIndexes.value = [];
   buildError.value = '';
@@ -1661,7 +1663,6 @@ onBeforeUnmount(() => {
   saveTimer = null;
   compactRightOpen.value = false;
   if (sheetManagerOpen.value) finishSheetManagerClose(false);
-  if (requestModal.value) finishRequestModalClose(false);
   window.removeEventListener('keydown', onCompactPanelKeydown);
   window.removeEventListener('keydown', onPartDataPreparationKeydown);
   window.removeEventListener('beforeunload', onBeforeWindowUnload);
@@ -2066,7 +2067,7 @@ const loadEstimatePrint = async () => {
 };
 
 const requestModal = ref(false);
-const requestTitle = ref('');
+const requestInitialTitle = ref('');
 const requestError = ref('');
 const requestSubmitting = ref(false);
 // 요청 성공 후 같은 모달을 완료 패널로 바꾼다 — 접수 사실과 다음 행선지를 한 자리에서
@@ -2074,99 +2075,26 @@ const requestSubmitting = ref(false);
 // 아니라 "무엇을 보냈고 접수됐는가"이고, 상태 전이(요청 접수→검토 중→회신 완료)도
 // 이 상세에서 관찰된다. 견적관리로 나가는 선택지는 주 버튼으로 제공한다.
 const requestDone = ref(false);
-const requestDialog = ref<HTMLElement | null>(null);
-const requestTitleInput = ref<HTMLInputElement | null>(null);
-const requestDonePanel = ref<HTMLElement | null>(null);
-const requestErrorPanel = ref<HTMLParagraphElement | null>(null);
-let requestModalTriggerElement: HTMLElement | null = null;
-let requestModalBodyOverflow: string | null = null;
 
-async function openRequestModal(): Promise<void> {
+function openRequestModal(): void {
   if (editingLocked.value) return;
-  requestTitle.value = detail.value?.title ?? '';
+  requestInitialTitle.value = detail.value?.title ?? '';
   requestError.value = '';
   requestDone.value = false;
-  requestModalTriggerElement =
-    document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  requestModalBodyOverflow = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
   requestModal.value = true;
-  await nextTick();
-  requestTitleInput.value?.focus();
-  requestTitleInput.value?.select();
-}
-
-function finishRequestModalClose(restoreFocus: boolean): void {
-  requestModal.value = false;
-  requestDone.value = false;
-  if (requestModalBodyOverflow !== null) {
-    document.body.style.overflow = requestModalBodyOverflow;
-  }
-  requestModalBodyOverflow = null;
-  const trigger = requestModalTriggerElement;
-  requestModalTriggerElement = null;
-  if (restoreFocus && trigger?.isConnected === true) {
-    void nextTick(() => {
-      trigger.focus();
-    });
-  }
 }
 
 function closeRequestModal(): void {
-  if (!requestSubmitting.value) finishRequestModalClose(true);
+  if (requestSubmitting.value) return;
+  requestModal.value = false;
+  requestDone.value = false;
 }
 
-function requestModalFocusableElements(): HTMLElement[] {
-  const dialog = requestDialog.value;
-  if (dialog === null) return [];
-  return [
-    ...dialog.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-    ),
-  ].filter((element) => element.getClientRects().length > 0);
-}
-
-function onRequestModalKeydown(event: KeyboardEvent): void {
-  if (!requestModal.value) return;
-  if (event.key === 'Escape') {
-    if (!requestSubmitting.value) {
-      event.preventDefault();
-      event.stopPropagation();
-      finishRequestModalClose(true);
-    }
-    return;
-  }
-  if (event.key !== 'Tab') return;
-  const focusable = requestModalFocusableElements();
-  const first = focusable[0];
-  const last = focusable.at(-1);
-  if (first === undefined || last === undefined) {
-    event.preventDefault();
-    requestDialog.value?.focus();
-    return;
-  }
-  const active = document.activeElement;
-  if (event.shiftKey && (active === first || requestDialog.value?.contains(active) !== true)) {
-    event.preventDefault();
-    last.focus();
-  } else if (
-    !event.shiftKey
-    && (active === last || requestDialog.value?.contains(active) !== true)
-  ) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-async function submitRequest(): Promise<void> {
+async function submitRequest(title: string): Promise<void> {
   if (requestSubmitting.value) return;
   if (editingLocked.value) {
-    finishRequestModalClose(false);
-    return;
-  }
-  if (requestTitle.value.trim() === '') {
-    requestError.value = '견적명을 입력해 주세요.';
-    void nextTick(() => requestErrorPanel.value?.focus());
+    requestModal.value = false;
+    requestDone.value = false;
     return;
   }
   requestSubmitting.value = true;
@@ -2174,16 +2102,13 @@ async function submitRequest(): Promise<void> {
     const saved = await saveNow(); // 마지막 편집 반영 후 요청
     if (!saved || dirty.value) {
       requestError.value = '변경사항을 저장하지 못했습니다. 다시 시도하면 저장 후 견적요청을 이어갑니다.';
-      void nextTick(() => requestErrorPanel.value?.focus());
       return;
     }
-    await request.mutateAsync({ quoteId: quoteId.value, title: requestTitle.value.trim() });
+    await request.mutateAsync({ quoteId: quoteId.value, title });
     // 닫지 않고 완료 패널로 전환 — 접수 사실을 보여주고 다음 행선지를 고르게 한다.
     requestDone.value = true;
-    void nextTick(() => requestDonePanel.value?.focus());
   } catch {
     requestError.value = '견적요청에 실패했습니다. 포함된 라인이 있는지 확인해 주세요.';
-    void nextTick(() => requestErrorPanel.value?.focus());
   } finally {
     requestSubmitting.value = false;
   }
@@ -3494,45 +3419,28 @@ function fmtAmount(v: number | null): string {
       </div>
     </div>
 
-    <!-- 견적명 모달 — 요청 성공 시 같은 자리에서 완료 패널로 바뀐다(requestDone) -->
-    <div v-if="requestModal && (!editingLocked || requestDone)" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="closeRequestModal">
-      <div
-        ref="requestDialog"
-        class="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl outline-none"
-        role="dialog"
-        aria-modal="true"
-        :aria-labelledby="requestDone ? 'bom-request-done-title' : 'bom-request-title'"
-        tabindex="-1"
-        @keydown="onRequestModalKeydown"
-      >
-        <template v-if="requestDone">
-          <div ref="requestDonePanel" class="outline-none" role="status" tabindex="-1">
-            <h3 id="bom-request-done-title" class="text-base font-semibold text-gray-900">견적요청이 접수되었습니다</h3>
-            <p class="mt-1 text-xs leading-5 text-gray-500">
-              담당자가 검토 후 확정 견적으로 회신합니다. 진행 상태는 이 견적에서 확인할 수 있고,
-              회신이 오면 견적관리에서 주문으로 넘길 수 있습니다.
-            </p>
-          </div>
-          <div class="mt-4 flex justify-end gap-2">
-            <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50" @click="closeRequestModal">이 견적 계속 보기</button>
-            <!-- 견적관리는 sp-php 화면이라 라우터가 아닌 전체 이동이다 -->
-            <a :href="quotesUrl()" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">견적관리에서 보기</a>
-          </div>
-        </template>
-        <template v-else>
-          <h3 id="bom-request-title" class="text-base font-semibold text-gray-900">견적요청</h3>
-          <p class="mt-1 text-xs text-gray-500">요청 후에는 내용이 동결되고 담당자가 확정 견적으로 회신합니다.</p>
-          <input ref="requestTitleInput" v-model="requestTitle" type="text" placeholder="견적명" aria-label="견적명" class="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" @input="requestError = ''">
-          <p v-if="requestError !== ''" ref="requestErrorPanel" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 outline-none" role="alert" tabindex="-1">{{ requestError }}</p>
-          <div class="mt-4 flex justify-end gap-2">
-            <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="closeRequestModal">취소</button>
-            <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="submitRequest">
-              {{ requestSubmitting ? '요청 중…' : '견적요청 보내기' }}
-            </button>
-          </div>
-        </template>
-      </div>
-    </div>
+    <!-- 견적명 확인 → 요청 완료 선택을 단일검색과 같은 공용 모달로 유지한다. -->
+    <BomQuoteRequestModal
+      :open="requestModal && (!editingLocked || requestDone)"
+      :initial-title="requestInitialTitle"
+      :submitting="requestSubmitting"
+      :error="requestError"
+      :done="requestDone"
+      done-description="담당자가 검토 후 확정 견적으로 회신합니다. 진행 상태는 이 견적에서 확인할 수 있고, 회신이 오면 견적관리에서 주문으로 넘길 수 있습니다."
+      @close="closeRequestModal"
+      @clear-error="requestError = ''"
+      @submit="submitRequest"
+    >
+      <template #done-actions>
+        <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50" @click="closeRequestModal">
+          이 견적 계속 보기
+        </button>
+        <!-- 견적관리는 sp-php 화면이라 라우터가 아닌 전체 이동이다 -->
+        <a :href="quotesUrl()" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+          견적관리에서 보기
+        </a>
+      </template>
+    </BomQuoteRequestModal>
 
     <div v-if="pendingSelection !== null" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true" aria-labelledby="part-data-title" @click.self="closePartDataPreparation">
       <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-surface p-5 shadow-2xl">

@@ -12,10 +12,12 @@ import {
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
 import { bomQuoteItemSelectionKey } from '../../bom/search-selection';
+import { quotesUrl } from '../../lib/auth-urls';
 import BomLandingCard from '../../components/bom/BomLandingCard.vue';
 import BomLandingIntro from '../../components/bom/BomLandingIntro.vue';
 import BomLandingToggle from '../../components/bom/BomLandingToggle.vue';
 import BomPartSearchWorkspace from '../../components/bom/BomPartSearchWorkspace.vue';
+import BomQuoteRequestModal from '../../components/bom/BomQuoteRequestModal.vue';
 import BomSearchCartPanel from '../../components/bom/BomSearchCartPanel.vue';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
 import cardIllust from '../../assets/bom/bom-card-illust-search.png';
@@ -48,6 +50,11 @@ const removingItemId = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const mobileCartOpen = ref(false);
 const cartItemCount = computed(() => cart.value?.items.length ?? 0);
+const requestModal = ref(false);
+const requestInitialTitle = ref('');
+const requestError = ref('');
+const requestDone = ref(false);
+const requestedQuoteId = ref<string | null>(null);
 
 function submitLanding(): void {
   const nextQuery = landingInput.value.trim();
@@ -110,22 +117,44 @@ async function removePartFromCart(partId: string): Promise<void> {
   if (item !== undefined) await removeFromCart(item.id);
 }
 
-async function requestCartQuote(): Promise<void> {
+function singleSearchDefaultTitle(): string {
+  const date = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  return `단일검색 견적 ${date}`;
+}
+
+function openCartRequestModal(): void {
   const quoteId = cart.value?.id;
   if (quoteId === undefined) return;
+  requestedQuoteId.value = quoteId;
+  requestInitialTitle.value = singleSearchDefaultTitle();
+  requestError.value = '';
+  requestDone.value = false;
   actionError.value = null;
+  requestModal.value = true;
+}
+
+function closeCartRequestModal(): void {
+  if (requestQuote.isPending.value) return;
+  requestModal.value = false;
+  requestDone.value = false;
+}
+
+async function submitCartRequest(title: string): Promise<void> {
+  const quoteId = requestedQuoteId.value;
+  if (quoteId === null) return;
+  actionError.value = null;
+  requestError.value = '';
   try {
-    const date = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Seoul',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
-    await requestQuote.mutateAsync({ quoteId, title: `단일검색 견적 ${date}` });
+    await requestQuote.mutateAsync({ quoteId, title });
     mobileCartOpen.value = false;
-    await router.push({ name: 'bom-quote', params: { id: quoteId } });
+    requestDone.value = true;
   } catch (error: unknown) {
-    actionError.value = mutationMessage(error);
+    requestError.value = mutationMessage(error);
   }
 }
 
@@ -189,7 +218,7 @@ async function requestCartQuote(): Promise<void> {
       :requesting="requestQuote.isPending.value"
       @quantity="updateCartQuantity"
       @remove="removeFromCart"
-      @request="requestCartQuote"
+      @request="openCartRequestModal"
     />
 
     <button
@@ -215,10 +244,31 @@ async function requestCartQuote(): Promise<void> {
             :requesting="requestQuote.isPending.value"
             @quantity="updateCartQuantity"
             @remove="removeFromCart"
-            @request="requestCartQuote"
+            @request="openCartRequestModal"
           />
         </div>
       </div>
     </Teleport>
+
+    <BomQuoteRequestModal
+      :open="requestModal"
+      :initial-title="requestInitialTitle"
+      :submitting="requestQuote.isPending.value"
+      :error="requestError"
+      :done="requestDone"
+      done-description="담당자가 검토 후 확정 견적으로 회신합니다. 부품 검색을 계속하거나 요청한 견적의 진행 상태를 확인할 수 있습니다."
+      @close="closeCartRequestModal"
+      @clear-error="requestError = ''"
+      @submit="submitCartRequest"
+    >
+      <template #done-actions>
+        <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50" @click="closeCartRequestModal">
+          부품 검색 계속하기
+        </button>
+        <a :href="quotesUrl()" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+          견적관리에서 보기
+        </a>
+      </template>
+    </BomQuoteRequestModal>
   </div>
 </template>
