@@ -471,6 +471,8 @@ export async function autoEnrichQuote(
     purpose?: 'admin_rfq_compare';
     allowedStatuses?: readonly ('draft' | 'requested' | 'reviewing')[];
     enforceMemberDailyLimit?: boolean;
+    /** 파일 시트가 없는 단일검색의 영속 비교 분석을 명시적으로 선택한다. */
+    analysisSheetIndexes?: readonly number[];
   } = {},
 ): Promise<bigint | null> {
   const quote = await prisma.spBomQuote.findUnique({
@@ -488,7 +490,9 @@ export async function autoEnrichQuote(
     || quote.activeAnalysisRunId === null
   ) return null;
   const config = await getBomQuoteRuntimeConfig();
-  const sheetIndexes = quote.sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetIndex);
+  const sheetIndexes = options.analysisSheetIndexes === undefined
+    ? quote.sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetIndex)
+    : [...options.analysisSheetIndexes];
   if (sheetIndexes.length === 0) return null;
   const procurement = buildEngineProcurementPolicy(
     config.usdKrwRate,

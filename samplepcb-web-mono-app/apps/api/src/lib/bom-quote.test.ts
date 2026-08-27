@@ -1640,6 +1640,93 @@ describe('BOM 엔진 후보 결정 투영', () => {
     });
   });
 
+  it('단일검색 협력사 행은 exact 엔진 판정을 기술 후보로 박제하되 현재 협력사 선택은 유지한다', () => {
+    const items = buildItemsFromEngineResult(ENGINE_RESULT, [1]);
+    const item = items[0];
+    if (item === undefined) throw new Error('테스트 견적 행이 없습니다');
+    const componentId = 'single-search-partner';
+    item.mpn = 'ADN2525ACPZ';
+    item.manufacturerName = 'ADI';
+    item.matchStatus = 'manual';
+    item.matchEvidence = null;
+    item.recommendedCandidateKey = null;
+    item.selectedCandidateKey = null;
+    item.selectionSource = 'partner';
+    item.selectedOffer = null;
+    item.sourceRow = {
+      manualAdded: true,
+      singleSearch: true,
+      manualSupplierComparison: true,
+      componentId,
+      inputPartNumber: 'ADN2525ACPZ',
+      inputManufacturer: 'ADI',
+    };
+
+    const refreshed = candidate('verified_exact', 'ADN2525ACPZ', 'digikey', 70, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      identityKey: 'ik1:manual-partner',
+      technicalEvidenceKey: 'ek1:manual-partner',
+      selectionRecommendation: 'preselect',
+      manufacturer: 'ADI',
+    });
+    attachProcurementDecision(
+      refreshed,
+      'ok2:manual-digikey',
+      'automatic',
+      1,
+      'supplier-offer-key-v2',
+    );
+
+    const result = applyEngineSelectedIdentityOfferResult(
+      items,
+      [],
+      {
+        supplier_search_schema_version: '1.7',
+        procurement_decision_contract_status: 'current',
+        search: {
+          search_schema_version: '1.7',
+          components: [{
+            component_id: componentId,
+            status: 'verified_exact',
+            procurement_decision: componentProcurementDecision(
+              'automatic_recommended',
+              'ok2:manual-digikey',
+              1,
+              {
+                applicationIdentityKey: 'ik1:manual-partner',
+                applicationEvidenceKey: 'ek1:manual-partner',
+              },
+            ),
+            candidates: [refreshed],
+          }],
+        },
+      },
+      undefined,
+      { setQty: 1, spareQty: 0, usdKrwRate: 1_400 },
+    );
+
+    expect(result.applied).toBe(true);
+    expect(result.processedRowIndexes).toEqual([item.rowIdx]);
+    expect(result.candidateSnapshots).toHaveLength(1);
+    expect(result.candidateSnapshots[0]?.candidate).toMatchObject({
+      candidateKey: 'ik1:manual-partner',
+      selectionMode: 'exact',
+      offers: [{ offerKey: 'ok2:manual-digikey', supplier: 'digikey' }],
+    });
+    expect(item).toMatchObject({
+      selectedCandidateKey: 'ik1:manual-partner',
+      selectionSource: 'partner',
+      selectedOffer: null,
+      matchEvidence: {
+        selectionApplicationState: 'not_selected',
+        selectedCandidateKey: 'ik1:manual-partner',
+        selectedSupplier: null,
+        decisionReasonCodes: ['customer-choice'],
+      },
+    });
+  });
+
   it('수량 누락이어도 엔진의 안전 기술 1순위를 견적 제외 상태로 선정한다', () => {
     const technical = candidate('spec_compatible', 'WR04X1001FTL', 'samplepcb', 1, 1, {
       currentDecisionContract: true,

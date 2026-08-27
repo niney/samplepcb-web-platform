@@ -96,6 +96,7 @@ import {
 } from './bom-supplier-operations';
 import { applyLocalCatalogFallback } from './bom-local-catalog';
 import { loadBomQuoteItemReviewStates } from './bom-admin-review';
+import { singleSearchPartnerComparisonTarget } from './bom-single-search-comparison';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
 // 원칙: 수량·구매 조건은 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
@@ -3012,10 +3013,15 @@ export async function applyEngineSupplierResult(
  * 같은 엔진 identityKey의 3사 supplier_offer만 교체한다.
  */
 export function applyEngineSelectedIdentityOfferResult(
-  items: readonly BomQuoteItemInputType[],
+  items: BomQuoteItemInputType[],
   existingCandidateSnapshots: readonly QuoteCandidateSnapshotInput[],
   envelopeValue: unknown,
   log?: Pick<FastifyBaseLogger, 'warn'>,
+  quoteContext: {
+    setQty: number;
+    spareQty: number;
+    usdKrwRate: number | null;
+  } = { setQty: 1, spareQty: 0, usdKrwRate: null },
 ): ApplyEngineSupplierResult {
   const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
   if (
@@ -3054,16 +3060,19 @@ export function applyEngineSelectedIdentityOfferResult(
     const component = components.get(componentId);
     if (component === undefined) continue;
     const selectedKey = selectedTechnicalCandidateKey(item);
-    if (selectedKey === null) continue;
     const currentCandidates = candidatesByRowIdx.get(item.rowIdx) ?? [];
-    const current = currentCandidates.find((candidate) => candidate.candidateKey === selectedKey);
-    if (
-      current === undefined
-      || !current.manualSelectable
-      || current.identityKey === ''
-      || current.mpn.trim() === ''
-      || normalizeMpn(current.mpn) !== normalizeMpn(item.mpn)
-    ) continue;
+    const current = selectedKey === null
+      ? undefined
+      : currentCandidates.find((candidate) => candidate.candidateKey === selectedKey);
+    const currentIsValid = current !== undefined
+      && current.manualSelectable
+      && current.identityKey !== ''
+      && current.mpn.trim() !== ''
+      && normalizeMpn(current.mpn) === normalizeMpn(item.mpn);
+    const manualComparisonBootstrap = item.selectionSource === 'partner'
+      && item.sourceRow?.manualSupplierComparison === true
+      && !currentIsValid;
+    if (!manualComparisonBootstrap && !currentIsValid) continue;
 
     const parsedTrace = parseEngineSearchTrace(component.search_trace);
     if (parsedTrace.issues.length > 0) {
@@ -3076,6 +3085,43 @@ export function applyEngineSelectedIdentityOfferResult(
         trace: parsedTrace.trace,
       });
     }
+
+    if (manualComparisonBootstrap) {
+      const needed = neededQty(item.bomQty, quoteContext.setQty, quoteContext.spareQty);
+      const decision = selectEngineMatch(component, needed, quoteContext.usdKrwRate);
+      const selected = decision?.snapshots.find((candidate) =>
+        candidate.selectionMode === 'exact'
+        && candidate.manualSelectable
+        && candidate.identityKey !== ''
+        && normalizeMpn(candidate.mpn) === normalizeMpn(item.mpn));
+      processedRowIndexes.push(item.rowIdx);
+      if (decision === null || selected === undefined) continue;
+      const retainedSnapshots = retainQuoteCandidateSnapshots(decision.snapshots, [
+        selected.candidateKey,
+        decision.recommendedCandidateKey,
+        decision.evidence.technicalPreselectionCandidateKey,
+      ]);
+      candidateSnapshots.push(...retainedSnapshots.map((candidate) => ({
+        rowIdx: item.rowIdx,
+        candidate,
+      })));
+      item.recommendedCandidateKey = decision.recommendedCandidateKey;
+      item.selectedCandidateKey = selected.candidateKey;
+      item.matchEvidence = selectedEvidence(
+        {
+          ...decision.evidence,
+          selectionApplicationState: 'not_selected',
+          confirmationRequired: false,
+        },
+        selected,
+        null,
+        needed,
+        decision.evidence.priceEvidence?.technicalTopLineTotalKrw ?? null,
+        item.matchEvidence?.decisionReasonCodes ?? ['customer-choice'],
+      );
+      continue;
+    }
+    if (current === undefined) continue;
 
     const refreshedOffers = new Map<string, StoredCandidateOfferType>();
     for (const group of buildCandidateGroups(component, true)) {
@@ -3106,7 +3152,7 @@ export function applyEngineSelectedIdentityOfferResult(
     };
     candidateSnapshots.push(...currentCandidates.map((candidate) => ({
       rowIdx: item.rowIdx,
-      candidate: candidate.candidateKey === selectedKey ? refreshedCurrent : candidate,
+      candidate: candidate.candidateKey === current.candidateKey ? refreshedCurrent : candidate,
     })));
     processedRowIndexes.push(item.rowIdx);
   }
@@ -4308,28 +4354,37 @@ function selectedCandidateForSupplierRefresh(
 export interface AdminBomSupplierRefreshTarget {
   itemId: string;
   componentId: string;
-  candidateKey: string;
-  identityKey: string;
+  candidateKey: string | null;
+  identityKey: string | null;
   partNumber: string;
   manufacturer: string | null;
 }
 
-/** 선정된 기술 후보가 있고 MPN identity를 엔진 키로 검증할 수 있는 활성 행만 조회한다. */
+/**
+ * 선정된 기술 후보 또는 단일검색의 명시적 협력사 선택에서 exact 조회 identity를 만든다.
+ * 후자는 아직 엔진 후보가 없으므로 검토 시작 시 분석 스냅샷을 준비한 뒤 엔진 판정을 받는다.
+ */
 export async function getAdminBomSupplierRefreshTargets(
   quoteId: bigint,
 ): Promise<AdminBomSupplierRefreshTarget[] | null> {
   const quote = await prisma.spBomQuote.findUnique({
     where: { id: quoteId },
     select: {
+      sourceKind: true,
       sheets: { select: { sheetIndex: true, selected: true } },
       items: {
         orderBy: { rowIdx: 'asc' },
         select: {
           id: true,
+          rowIdx: true,
           included: true,
           sourceSheetIndex: true,
           sourceRow: true,
           mpn: true,
+          manufacturerName: true,
+          description: true,
+          bomQty: true,
+          selectionSource: true,
           selectedCandidateKey: true,
           matchEvidence: true,
           candidates: {
@@ -4341,23 +4396,22 @@ export async function getAdminBomSupplierRefreshTargets(
     },
   });
   if (quote === null) return null;
-  const targets = filterActiveQuoteItems(quote.items, quote.sheets).flatMap((item) => {
-    if (!item.included) return [];
-    const sourceRow = item.sourceRow !== null
-      && typeof item.sourceRow === 'object'
-      && !Array.isArray(item.sourceRow)
-      ? item.sourceRow
-      : null;
-    const componentId = sourceRow?.componentId;
-    if (typeof componentId !== 'string' || componentId === '') return [];
-    const candidates = item.candidates.flatMap((row) => {
-      const parsed = StoredCandidate.safeParse(row.payload);
-      return parsed.success ? [parsed.data] : [];
-    });
-    const selected = selectedCandidateForSupplierRefresh(item, candidates);
-    return selected === null
-      ? []
-      : [{
+  const targets = filterActiveQuoteItems(quote.items, quote.sheets)
+    .flatMap<AdminBomSupplierRefreshTarget>((item) => {
+      if (!item.included) return [];
+      const sourceRow = item.sourceRow !== null
+        && typeof item.sourceRow === 'object'
+        && !Array.isArray(item.sourceRow)
+        ? item.sourceRow
+        : null;
+      const componentId = sourceRow?.componentId;
+      const candidates = item.candidates.flatMap((row) => {
+        const parsed = StoredCandidate.safeParse(row.payload);
+        return parsed.success ? [parsed.data] : [];
+      });
+      const selected = selectedCandidateForSupplierRefresh(item, candidates);
+      if (selected !== null && typeof componentId === 'string' && componentId !== '') {
+        return [{
           itemId: String(item.id),
           componentId,
           candidateKey: selected.candidateKey,
@@ -4365,7 +4419,20 @@ export async function getAdminBomSupplierRefreshTargets(
           partNumber: selected.mpn,
           manufacturer: selected.manufacturerName,
         }];
-  });
+      }
+      if (quote.sourceKind !== 'single_search') return [];
+      const manual = singleSearchPartnerComparisonTarget(quoteId, item);
+      return manual === null
+        ? []
+        : [{
+          itemId: manual.itemId,
+          componentId: manual.componentId,
+          candidateKey: null,
+          identityKey: null,
+          partNumber: manual.partNumber,
+          manufacturer: manual.manufacturer,
+        }];
+    });
   return [...new Map(targets.map((target) => [target.componentId, target] as const)).values()];
 }
 
@@ -5866,12 +5933,21 @@ export async function refreshQuoteFromSupplierResult(
         const candidate = StoredCandidate.safeParse(candidateRow.payload);
         return candidate.success ? [{ rowIdx: row.rowIdx, candidate: candidate.data }] : [];
       }));
+    const preserveCurrentSelections = options.preserveCurrentSelections === true;
+    const appliedRate = preserveCurrentSelections
+      ? (quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed))
+      : config.usdKrwRate;
     const applied = options.selectedIdentityOfferRefresh === true
       ? applyEngineSelectedIdentityOfferResult(
           currentItems,
           existingCandidateSnapshots,
           resolvedEnvelope,
           log,
+          {
+            setQty: quote.setQty,
+            spareQty: quote.spareQty,
+            usdKrwRate: appliedRate,
+          },
         )
       : await applyEngineSupplierResult(
           evaluatedItems,
@@ -5883,10 +5959,6 @@ export async function refreshQuoteFromSupplierResult(
           options.targeted !== true,
         );
     if (!applied.applied) return false;
-    const preserveCurrentSelections = options.preserveCurrentSelections === true;
-    const appliedRate = preserveCurrentSelections
-      ? (quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed))
-      : config.usdKrwRate;
     const result = computeQuote(
       preserveCurrentSelections ? currentItems : evaluatedItems,
       appliedRate,
@@ -6104,9 +6176,15 @@ async function persistQuoteItemsInTransaction<T extends BomQuoteItemInputType>(
   const dataFor = (item: QuoteComputedItem<T>) => {
     const source = item.sourceRow;
     const componentId = source !== null && typeof source.componentId === 'string' ? source.componentId : null;
+    // 단일검색 비교용 componentId는 공급사 결과 조인 키일 뿐 업로드 원본 연결이 아니다.
+    // analysisComponentId를 채우면 수동 행 제거·표시 계약이 원본 분석 행으로 바뀌므로 null을 유지한다.
+    const manualSupplierComparison = source !== null
+      && source.manualSupplierComparison === true;
     return {
       quoteId,
-      analysisComponentId: componentId === null ? null : (analysisComponentByEngineId.get(componentId) ?? null),
+      analysisComponentId: componentId === null || manualSupplierComparison
+        ? null
+        : (analysisComponentByEngineId.get(componentId) ?? null),
       rowIdx: item.rowIdx,
       included: item.included,
       mpn: item.mpn,

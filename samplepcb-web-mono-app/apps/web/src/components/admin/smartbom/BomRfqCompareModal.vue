@@ -132,6 +132,7 @@ function emptySupplierCellLabel(supplier: AdminBomLiveSupplierType): string {
   if (outcome === 'error') return '조회 실패';
   if (outcome === 'partial_error') return '결과 없음/일부 실패';
   if (outcome === 'skipped') return '미실행';
+  if (outcome === 'results') return '정확 품번 구매조건 없음';
   return '해당 품번 결과 없음';
 }
 
@@ -563,6 +564,10 @@ const fmtFetchedAt = (value: string): string => new Date(value).toLocaleString('
                       <span class="block text-gray-400 tabular-nums">
                         = {{ item.lineTotalKrw === null ? '—' : `${fmt(Math.round(item.lineTotalKrw))}원` }}
                       </span>
+                    </template>
+                    <template v-else-if="item.selectionSource === 'partner'">
+                      <b class="text-blue-700">협력사 보유</b>
+                      <span class="block text-gray-400">견적요청 후 가격 확정</span>
                     </template>
                     <span v-else class="text-gray-400">미선정</span>
                     <span

@@ -36,6 +36,7 @@ import {
   getAdminBomSupplierRefreshTargets,
 } from '../lib/bom-quote';
 import { supplierSearchRunPolicyFromOptions } from '../lib/bom-supplier-search-policy';
+import { prepareSingleSearchComparisonAnalysis } from '../lib/bom-single-search-comparison';
 import { autoEnrichQuote, healEnrichment } from './bom-quotes';
 
 // ── /api/admin/bom-quotes/:id/rfqs — 협력사 RFQ 발송·현황·대리 입력 ──────────
@@ -195,7 +196,14 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           message: '진행 중인 공급사 확인이 완료된 뒤 다시 시도해 주세요.',
         });
       }
-      const targets = await getAdminBomSupplierRefreshTargets(quote.id) ?? [];
+      let targets = await getAdminBomSupplierRefreshTargets(quote.id) ?? [];
+      if (
+        quote.sourceKind === 'single_search'
+        && targets.some((target) => target.candidateKey === null)
+      ) {
+        await prepareSingleSearchComparisonAnalysis(quote.id);
+        targets = await getAdminBomSupplierRefreshTargets(quote.id) ?? [];
+      }
       const componentIds = targets.map((target) => target.componentId);
       if (targets.length === 0) {
         const current = await adminSupplierRefreshView(quote.id);
@@ -226,6 +234,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         purpose: 'admin_rfq_compare',
         allowedStatuses: ['requested', 'reviewing'],
         enforceMemberDailyLimit: false,
+        ...(quote.sourceKind === 'single_search' ? { analysisSheetIndexes: [0] } : {}),
       });
       if (runId === null) {
         return reply.status(502).send({

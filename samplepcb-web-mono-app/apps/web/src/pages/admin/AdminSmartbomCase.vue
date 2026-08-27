@@ -47,6 +47,7 @@ import {
   useAdminBomRfqs,
   useAdminRfqReply,
   useReissueRfqMagicLink,
+  useStartAdminSupplierOfferRefresh,
 } from '../../admin/useAdminBomRfqs';
 import {
   downloadBomPoImportFile,
@@ -1062,6 +1063,7 @@ const compareOpen = ref(false);
 const replyRfq = ref<AdminBomRfqViewType | null>(null);
 const replyError = ref('');
 const rfqReply = useAdminRfqReply();
+const startSupplierRefresh = useStartAdminSupplierOfferRefresh();
 
 function openRfqReply(rfq: AdminBomRfqViewType): void {
   replyRfq.value = rfq;
@@ -1505,16 +1507,34 @@ function reviewFields() {
 }
 
 async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
-  if (detailId.value === null) return;
+  const quoteId = detailId.value;
+  const current = detail.value;
+  if (quoteId === null) return;
+  const startsSingleSearchReview = nextStatus === 'reviewing'
+    && current?.status === 'requested'
+    && current.sourceKind === 'single_search';
   actionError.value = '';
   try {
     await patch.mutateAsync({
-      quoteId: detailId.value,
+      quoteId,
       body: {
         ...(nextStatus !== undefined ? { status: nextStatus } : {}),
         ...reviewFields(),
       },
     });
+    if (!startsSingleSearchReview) return;
+    rfqLinkNotice.value = '';
+    rfqLinkError.value = '';
+    try {
+      const response = await startSupplierRefresh.mutateAsync({ quoteId });
+      rfqLinkNotice.value = response.data.message;
+      await Promise.all([detailQuery.refetch(), rfqQuery.refetch()]);
+    } catch (error) {
+      rfqLinkError.value = error instanceof ApiRequestError
+        ? `검토는 시작됐지만 공급사 시세 확인을 시작하지 못했습니다: ${error.message}`
+        : '검토는 시작됐지만 공급사 시세 확인을 시작하지 못했습니다.';
+      await Promise.all([detailQuery.refetch(), rfqQuery.refetch()]);
+    }
   } catch (error) {
     actionError.value = error instanceof ApiRequestError
       ? (error.payload?.message ?? error.message)
