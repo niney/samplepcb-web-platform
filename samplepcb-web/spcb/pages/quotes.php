@@ -17,9 +17,10 @@
 // 서버가 지연 반영으로 보관함(/shop/quotes/archive)에 넣는다. 아래 JS 의
 // cartState 분기(담김 배지·삭제 제외)는 하위호환 백스톱으로만 남아 있다.
 //
-// 디자인: cart.php(테마 오버라이드)와 같은 시각 문법 — 카드 목록(.sp-cart-item)과
-// 주문요약(.sp-cart-summary) 클래스를 재사용(비쇼핑 부트스트랩이라 default_shop.css 직접 링크),
-// 견적 전용 변형은 default_shop.css 의 "견적관리" 섹션(sp-quotes__*) 참조.
+// 디자인: Figma 103:2659 (2026-08-26) — 구분선 행 목록 + '주문 예상 금액' 패널. 마크업은 cart.php 의
+// 클래스(.sp-cart-item·.sp-cart-summary)를 그대로 쓰되 래퍼 .sp-quotes--fig 스코프의 CSS 가 시안 모양으로
+// 덮는다(default_shop.css "견적관리 — Figma 103:2659"). 보관함(quotes-archive.php)은 같은 클래스로
+// 옛 카드 모양을 유지한다(사용자 결정 B) — 스코프 클래스를 거기 붙이지 말 것.
 
 include_once __DIR__ . '/../../common.php'; // 그누보드 부트스트랩 → $is_member, 테마 상수
 
@@ -58,10 +59,12 @@ foreach (array(
 <div class="sp-quotes-tabs" role="tablist" id="sp-quotes-filters">
     <button type="button" class="sp-quotes-tab is-active" data-filter="all">전체</button>
     <button type="button" class="sp-quotes-tab" data-filter="pcb">PCB</button>
-    <button type="button" class="sp-quotes-tab" data-filter="bom">부품 BOM</button>
+    <button type="button" class="sp-quotes-tab" data-filter="bom">부품</button>
+    <?php /* 시안엔 없는 진입로 — 목록이 있을 때도 보관함에 갈 수 있게(사용자 결정 08-26) */ ?>
+    <a class="sp-quotes-tabs__aside" href="<?php echo G5_URL; ?>/shop/quotes/archive">지난 견적 보관함 ›</a>
 </div>
 
-<div class="sp-quotes">
+<div class="sp-quotes sp-quotes--fig">
     <p class="sp-quotes__status" id="sp-quotes-status">불러오는 중…</p>
 
     <div class="sp-cart-empty sp-quotes__empty" id="sp-quotes-empty" hidden>
@@ -88,10 +91,11 @@ foreach (array(
                 <div class="sp-cart-toolbar">
                     <span class="sp-chk">
                         <input type="checkbox" id="sp-quotes-check-all" class="selec_chk">
-                        <label for="sp-quotes-check-all"><span></span>전체선택 <em id="sp_sel_cnt">0/0</em></label>
+                        <label for="sp-quotes-check-all"><span></span>전체선택 <em id="sp_sel_cnt"><b>0</b>/0</em></label>
                     </span>
                     <div class="sp-cart-toolbar-btns btn_cart_del">
-                        <button type="button" id="sp-quotes-del-sel">선택삭제</button>
+                        <button type="button" id="sp-quotes-del-sel"><img class="sp-ico" src="<?php echo G5_THEME_URL; ?>/img/account/ico-x.svg" alt="">선택삭제</button>
+                        <?php /* 시안엔 선택삭제뿐 — 비우기는 기능이라 같은 모양으로 옆에 둔다 */ ?>
                         <button type="button" id="sp-quotes-del-all">비우기</button>
                     </div>
                 </div>
@@ -102,34 +106,30 @@ foreach (array(
                         <strong><span id="sp-quotes-mobile-total">0</span>원</strong>
                         <small>국내 배송비는 주문서에서 별도 계산</small>
                     </p>
-                    <button type="button" class="sp-btn sp-btn-primary btn_submit js-sp-quotes-direct">바로 주문</button>
+                    <button type="button" class="sp-btn sp-btn-primary btn_submit js-sp-quotes-direct">주문하기</button>
                 </div>
 
                 <ul class="sp-cart-items" id="sp-quotes-rows"></ul>
             </section>
 
-            <!-- 주문 요약 -->
+            <!-- 주문 예상 금액(Figma 103:2659) — 버튼까지 카드 안. 안내는 시안 문구만(유형별 주문 안내는 [주문하기] 시 alert 가 맡는다 — 사용자 결정 08-26). -->
             <aside class="sp-cart-side">
                 <div class="sp-cart-summary">
-                    <h2>주문 요약</h2>
+                    <h2>주문 예상 금액</h2>
                     <dl class="sp-cart-summary-row">
-                        <dt>선택 견적</dt>
+                        <dt>총 선택 견적</dt>
                         <dd><span id="sp-quotes-count">0건</span></dd>
                     </dl>
                     <dl class="sp-cart-summary-row sp-cart-summary-total">
-                        <dt>선택 결제예상액 합계</dt>
+                        <dt>총 주문 예상 금액</dt>
                         <dd><strong id="sp-quotes-total">0</strong>원</dd>
                     </dl>
                     <p class="sp-cart-summary-note">
-                        표시·합계 금액은 모두 부가세 포함 결제예상액입니다.
-                        국내 배송비는 주문서에서 별도로 계산됩니다.
-                        PCB 견적과 부품 BOM 견적은 각각 별도 주문으로 진행됩니다(같은 유형끼리 선택).
-                        PCB 수량을 바꾸면 서버가 다시 견적합니다(확정·담김 상태 제외).
+                        선택한 상품만 주문서에 담깁니다. 최종 금액은 주문서에서 다시 계산됩니다.
                     </p>
-                </div>
-
-                <div class="sp-cart-act">
-                    <button type="button" class="sp-btn sp-btn-primary btn_submit js-sp-quotes-direct" id="sp-quotes-direct">바로 주문</button>
+                    <div class="sp-cart-act">
+                        <button type="button" class="sp-btn sp-btn-primary btn_submit js-sp-quotes-direct" id="sp-quotes-direct">주문하기</button>
+                    </div>
                 </div>
             </aside>
 
@@ -177,7 +177,10 @@ foreach (array(
     };
 
     function fmtNum(n) { return n.toLocaleString('ko-KR'); }
-    function fmtDate(iso) { return iso ? iso.slice(0, 10) : '-'; }
+    function fmtDate(v) {
+        var d = String(v || '').slice(0, 10);
+        return /^\d{4}[.-]\d{2}[.-]\d{2}$/.test(d) ? d.slice(2, 4) + '.' + d.slice(5, 7) + '.' + d.slice(8, 10) : (d || '-');
+    }
     function vatIncludedBreakdown(total) {
         var normalizedTotal = Math.round(Number(total));
         var supply = Math.round(normalizedTotal / 1.1);
@@ -219,12 +222,25 @@ foreach (array(
         return label ? '<span class="sp-badge sp-badge--' + cls + '">' + label + '</span>' : '';
     }
 
-    // ── 행 렌더(유형별 템플릿) ────────────────────────────────────────────────
+    // ── 행 렌더(유형별 템플릿) — Figma 103:2659 (2026-08-26) ──────────────────────
+    // 세 줄 구성: [파일명] / [사양 — PCB 만] / [유형 | 출고예정 | 접수]. 우측은 금액·VAT포함(툴팁)·배지.
+    // 시안에 없는 검토 중 안내·담김/주문됨 배지는 금액 칸에 작게 둔다. 수량 입력(재견적)은 뺐다 —
+    // 사양 줄의 'Npcs' 가 수량이고, 수량이 다르면 새 견적으로 간다(사용자 결정 08-26).
+    var ICO_ETA = '<img class="sp-ico" src="<?php echo G5_THEME_URL; ?>/img/account/ico-eta.svg" alt="">';
+    var ICO_RCV = '<img class="sp-ico" src="<?php echo G5_THEME_URL; ?>/img/account/ico-received.svg" alt="">';
+    var CAT_LABEL = { standard: 'PCB (standard)', advance: 'PCB (advance)', flexible: 'FPCB (flexible)', metalmask: '메탈마스크 (metalmask)' };
+    function catLabel(it) {
+        var c = String(it.category || '').toLowerCase();
+        return (it.orderCategory === 'mass' ? '양산 ' : '샘플 ') + (CAT_LABEL[c] || c);
+    }
+    function vatTip(payment, prefix) {
+        return '<span class="sp-quotes__vat sp-tip" tabindex="0" role="note" data-tip="' + (prefix || '') + '공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원">VAT포함</span>';
+    }
+
     function renderPcbRow(it) {
         // 체크박스는 cart.php 와 동일하게 "선택" 범용(주문·삭제 공용) — 주문됨만 잠금.
         // 주문/삭제 가능 여부는 버튼 동작에서 항목별로 거른다(담김 카드는 주문 시 행 재사용).
         var selectable = it.cartState !== 'ordered';
-        var qtyEditable = it.quoteStatus !== 'quoted' && it.cartState === 'none';
         var chkId = 'sp-quotes-check-' + it.projectId;
         var payment = it.price === null ? null : vatIncludedBreakdown(it.price);
 
@@ -236,7 +252,8 @@ foreach (array(
                 '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (payment === null ? '' : payment.total) + '" data-cartstate="' + it.cartState + '"' + (selectable ? '' : ' disabled') + '>' +
                 '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
             '</span>' +
-            // 거버 썸네일(서명 프록시 URL — sp-node 발급이라 신뢰 가능), 없으면 템플릿 이미지 폴백
+            // 거버 썸네일(서명 프록시 URL — sp-node 발급이라 신뢰 가능), 없으면 템플릿 이미지 폴백.
+            // PCB 는 고객용 상세 화면이 없어 링크를 걸지 않는다(사용자 결정 08-26 — 후속 작업 예정).
             '<span class="sp-cart-thumb">' + (it.thumbnailUrl
                 ? '<img src="' + it.thumbnailUrl + '" alt="">'
                 : (THUMBS[String(it.category).toLowerCase()] || '')) + '</span>' +
@@ -246,45 +263,38 @@ foreach (array(
                 '<div class="sod_opt"><ul><li class="sp-quotes__opt"></li></ul></div>' +
                 '<div class="sp-cart-meta">' +
                     '<span class="sp-quotes__cat"></span>' +
-                    '<span>' + (it.orderCategory === 'mass' ? '양산' : '샘플') + '</span>' +
-                    (it.eta ? '<span>출고예정 ' + it.eta + '</span>' : '') +
-                    '<span>접수 ' + fmtDate(it.createdAt) + '</span>' +
-                '</div>' +
-                '<div class="sp-quotes__badges">' +
-                    badge('PCB', 'type') +
-                    badge(QUOTE_LABEL[it.quoteStatus], it.quoteStatus) +
-                    badge(CART_LABEL[it.cartState], 'cart') +
+                    (it.eta ? '<span>' + ICO_ETA + '출고예정 ' + fmtDate(it.eta) + '</span>' : '') +
+                    '<span>' + ICO_RCV + '접수 ' + fmtDate(it.createdAt) + '</span>' +
                 '</div>' +
             '</div>' +
             '<div class="sp-cart-calc">' +
-                '<span class="sp-cart-qty sp-quotes__qty-label">수량' +
-                    '<input type="number" class="sp-quotes__qty" min="1" value="' + it.qty + '"' + (qtyEditable ? '' : ' disabled') + ' data-id="' + it.projectId + '" data-prev="' + it.qty + '">' +
-                '</span>' +
                 (payment === null
                     ? '<span class="sp-quotes__pending">견적 대기</span>'
-                    : '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' +
-                      '<span class="sp-quotes__tax-detail">VAT 포함 · 공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원</span>') +
-                // rfq(견적요청) 행은 배지만 '견적 대기'인데 금액은 자동견적가가 그대로 떠서,
-                // 담당자 검토 결과인 줄 오해하기 쉽다. 지금 보이는 값의 정체와 다음 일을 밝힌다
-                // (BOM 행의 '확정가 안내 후 주문 가능' 과 같은 배려).
+                    : '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' + vatTip(payment, '')) +
+                // rfq(견적요청) 행은 배지만 '견적 대기'인데 금액은 자동견적가가 그대로 떠서, 담당자 검토
+                // 결과인 줄 오해하기 쉽다 — 한 줄로 압축해 지금 보이는 값의 정체를 밝힌다.
                 (it.quoteStatus === 'rfq'
-                    ? '<span class="sp-quotes__pending">담당자 검토 중 — 확정가는 메일로 안내드립니다' +
-                      (payment === null ? '' : '. 지금 보이는 금액은 자동견적가입니다') + '</span>'
+                    ? '<span class="sp-quotes__note">' + (payment === null ? '담당자 검토 중 — 확정가는 메일로 안내' : '자동견적가 · 담당자 검토 중') + '</span>'
                     : '') +
+                '<div class="sp-quotes__badges">' +
+                    badge(QUOTE_LABEL[it.quoteStatus], it.quoteStatus) +
+                    badge(CART_LABEL[it.cartState], 'cart') +
+                '</div>' +
             '</div>';
         li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
-        li.querySelector('.sp-quotes__cat').textContent = it.category;
+        li.querySelector('.sp-quotes__cat').textContent = catLabel(it);
         li.querySelector('.sp-quotes__opt').textContent = it.optionSummary || '';
         return li;
     }
 
-    // 부품 BOM 행 — 체크(주문 전용, 회신 완료+확정가 건만 활성) + [견적 보기](/app/bom).
-    // 단건 주문도 체크 → [바로 주문] 문법으로 통일한다(상세 화면의 단건 주문은 별도 유지).
+    // 부품 BOM 행 — 체크(주문 전용, 회신 완료+확정가 건만 활성). 제목·썸네일이 견적 보기(/app/bom) 링크.
+    // 단건 주문도 체크 → [주문하기] 문법으로 통일한다(상세 화면의 단건 주문은 별도 유지).
     function renderBomRow(q) {
         var canOrder = q.status === 'answered' && q.confirmedTotal !== null && q.orderState !== 'ordered';
         var supplyPrice = q.confirmedTotal !== null ? q.confirmedTotal : q.finalTotal;
         var payment = supplyPrice === null ? null : vatExcludedBreakdown(supplyPrice);
         var chkId = 'sp-bom-check-' + q.id;
+        var href = '<?php echo G5_URL; ?>/app/bom/' + q.id;
 
         var li = document.createElement('li');
         li.className = 'sp-cart-item sp-quotes__item' + (canOrder ? '' : ' sp-quotes__item--locked');
@@ -294,32 +304,28 @@ foreach (array(
                 '<input type="checkbox" class="sp-bom__check selec_chk" id="' + chkId + '" value="' + q.id + '" data-price="' + (q.confirmedTotal === null ? '' : payment.total) + '"' + (canOrder ? '' : ' disabled') + '>' +
                 '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
             '</span>' +
-            '<span class="sp-cart-thumb">' + (THUMBS.bom || '') + '</span>' +
-            '<span class="prd_name"><a class="sp-bom__name" href="<?php echo G5_URL; ?>/app/bom/' + q.id + '"><b></b></a></span>' +
+            '<a class="sp-cart-thumb" href="' + href + '" aria-label="견적 보기">' + (THUMBS.bom || '') + '</a>' +
+            '<span class="prd_name"><a class="sp-bom__name" href="' + href + '"><b></b></a></span>' +
             '<div class="sp-cart-info">' +
+                // BOM 은 사양 줄이 없다(사용자 확인 08-26) — 메타 한 줄만
                 '<div class="sp-cart-meta">' +
                     '<span>부품 BOM</span>' +
                     '<span>품목 ' + q.includedCount + '/' + q.itemCount + '종</span>' +
-                    (q.requestedAt ? '<span>요청 ' + fmtDate(q.requestedAt) + '</span>' : '<span>수정 ' + fmtDate(q.updatedAt) + '</span>') +
-                '</div>' +
-                '<div class="sp-quotes__badges">' +
-                    badge('부품', 'type') +
-                    badge(BOM_STATUS_LABEL[q.status] || q.status, q.status === 'answered' ? 'quoted' : q.status) +
-                    badge(CART_LABEL[q.orderState], 'cart') +
+                    (q.requestedAt ? '<span>' + ICO_RCV + '접수 ' + fmtDate(q.requestedAt) + '</span>' : '<span>' + ICO_RCV + '수정 ' + fmtDate(q.updatedAt) + '</span>') +
                 '</div>' +
             '</div>' +
             '<div class="sp-cart-calc">' +
                 (payment !== null && payment.total > 0
-                    ? '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' +
-                      '<span class="sp-quotes__tax-detail">VAT 포함 · ' + (q.confirmedTotal !== null ? '확정' : '예상') + ' 공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원</span>'
+                    ? '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' + vatTip(payment, q.confirmedTotal !== null ? '확정 ' : '예상 ')
                     : '<span class="sp-quotes__pending">금액 산정 전</span>') +
-                '<div class="sp-bom__acts">' +
-                    (q.orderState === 'canceled'
-                        ? '<span class="sp-quotes__pending">이전 주문 취소 — 다시 주문할 수 있습니다</span>' : '') +
-                    // 회신 완료인데 확정가가 없으면 체크가 잠긴 이유를 보여준다(D16-1 게이트)
-                    (q.status === 'answered' && q.confirmedTotal === null && q.orderState !== 'ordered'
-                        ? '<span class="sp-quotes__pending">확정가 안내 후 주문 가능</span>' : '') +
-                    '<a class="sp-btn" href="<?php echo G5_URL; ?>/app/bom/' + q.id + '">견적 보기</a>' +
+                (q.orderState === 'canceled'
+                    ? '<span class="sp-quotes__note">이전 주문 취소 — 다시 주문할 수 있습니다</span>' : '') +
+                // 회신 완료인데 확정가가 없으면 체크가 잠긴 이유를 보여준다(D16-1 게이트)
+                (q.status === 'answered' && q.confirmedTotal === null && q.orderState !== 'ordered'
+                    ? '<span class="sp-quotes__note">확정가 안내 후 주문 가능</span>' : '') +
+                '<div class="sp-quotes__badges">' +
+                    badge(BOM_STATUS_LABEL[q.status] || q.status, q.status === 'answered' ? 'quoted' : q.status) +
+                    badge(CART_LABEL[q.orderState], 'cart') +
                 '</div>' +
             '</div>';
         li.querySelector('.sp-bom__name b').textContent = q.title; // XSS 안전 주입
@@ -398,7 +404,7 @@ foreach (array(
         document.getElementById('sp-quotes-total').textContent = totalText;
         document.getElementById('sp-quotes-mobile-count').textContent = countText;
         document.getElementById('sp-quotes-mobile-total').textContent = totalText;
-        document.getElementById('sp_sel_cnt').textContent = checked.length + '/' + all.length;
+        document.getElementById('sp_sel_cnt').innerHTML = '<b>' + checked.length + '</b>/' + all.length;
         document.getElementById('sp-quotes-check-all').checked = all.length > 0 && all.length === checked.length;
     }
 
@@ -427,24 +433,6 @@ foreach (array(
                 statusEl.textContent = '목록을 불러오지 못했습니다: ' + e.message;
             });
     }
-
-    // 수량 변경 → 서버 재견적 (가격은 항상 서버 계산) — PCB 행 전용 기능
-    rowsEl.addEventListener('change', function (ev) {
-        var input = ev.target;
-        if (!input.classList.contains('sp-quotes__qty')) { return; }
-        var qty = parseInt(input.value, 10);
-        if (!(qty > 0)) { input.value = input.dataset.prev; return; }
-        refreshToken()
-            .then(function () { return api('PATCH', '/' + input.dataset.id, { qty: qty }); })
-            .then(function (r) {
-                if (!r.ok) {
-                    alert(errMsg(r.json));
-                    input.value = input.dataset.prev;
-                    return;
-                }
-                load(); // 가격·상태가 함께 바뀌므로 목록 재조회
-            });
-    });
 
     // 견적 삭제 — cart.php 와 동일한 툴바 [선택삭제]/[비우기] 방식. **PCB 전용**
     // (부품 BOM 삭제·수정은 /app/bom 담당 — BOM 체크가 섞여 있으면 제외 안내).
@@ -579,6 +567,13 @@ foreach (array(
     }
     document.querySelectorAll('.js-sp-quotes-direct').forEach(function (button) {
         button.addEventListener('click', orderSelectedQuotes);
+    });
+
+    // VAT포함 툴팁(.sp-tip) — hover/포커스는 CSS, 터치는 탭 토글(바깥 탭이면 닫힘)
+    document.addEventListener('click', function (ev) {
+        var tip = ev.target.closest ? ev.target.closest('.sp-tip') : null;
+        document.querySelectorAll('.sp-tip.is-open').forEach(function (el) { if (el !== tip) { el.classList.remove('is-open'); } });
+        if (tip) { tip.classList.toggle('is-open'); }
     });
 
     if (location.hash === '#bom') { currentFilter = 'bom'; applyFilter('bom'); }

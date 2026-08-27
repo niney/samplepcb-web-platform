@@ -10,7 +10,8 @@
 // (실파일·sp_file·옵션 행·sp_quote·spec 파기). 확인은 alert 가 아닌 레이어 팝업(.sp-modal)로,
 // 복구 불가를 명시한다. 파일서버 실패 시 spec 이 보존되므로 재클릭 = 재시도.
 //
-// 구조·디자인은 quotes.php 와 동일한 셸 + JS 렌더링(cart 카드 문법 재사용).
+// 구조·디자인은 quotes.php 와 동일 — Figma 103:2659 행 문법(.sp-quotes--fig)을 그대로 쓰고,
+// 우측 패널이 없으니 목록은 전폭(.sp-quotes--archive). 사용자 결정 08-26(옛 카드 유지 B → 동형 A).
 
 include_once __DIR__ . '/../../common.php'; // 그누보드 부트스트랩 → $is_member, 테마 상수
 
@@ -42,11 +43,11 @@ foreach (array(
     <div class="account-main">
         <div id="wrapper_title"><?php echo $g5['title']; ?></div>
 
-<div class="sp-quotes">
+<div class="sp-quotes sp-quotes--fig sp-quotes--archive">
     <p class="sp-quotes__desc">
+        <a class="sp-quotes__back" href="<?php echo G5_URL; ?>/shop/quotes">‹ 견적관리</a>
         견적관리 또는 장바구니에서 삭제한 견적이 보관되는 곳입니다.
-        여기서 [영구 삭제]하면 거버 파일을 포함해 완전히 삭제되며 복구할 수 없습니다.
-        <a href="<?php echo G5_URL; ?>/shop/quotes">견적관리로 돌아가기</a>
+        여기서 영구 삭제하면 거버 파일을 포함해 완전히 삭제되며 복구할 수 없습니다.
     </p>
 
     <p class="sp-quotes__status" id="sp-quotes-status">불러오는 중…</p>
@@ -69,11 +70,11 @@ foreach (array(
                 <div class="sp-cart-toolbar">
                     <span class="sp-chk">
                         <input type="checkbox" id="sp-quotes-check-all" class="selec_chk">
-                        <label for="sp-quotes-check-all"><span></span>전체선택 <em id="sp_sel_cnt">0/0</em></label>
+                        <label for="sp-quotes-check-all"><span></span>전체선택 <em id="sp_sel_cnt"><b>0</b>/0</em></label>
                     </span>
                     <div class="sp-cart-toolbar-btns btn_cart_del">
-                        <button type="button" id="sp-archive-del-sel">선택 영구 삭제</button>
-                        <button type="button" id="sp-archive-del-all">비우기</button>
+                        <button type="button" id="sp-archive-del-sel" class="is-danger"><img class="sp-ico" src="<?php echo G5_THEME_URL; ?>/img/account/ico-x.svg" alt="">선택 영구 삭제</button>
+                        <button type="button" id="sp-archive-del-all" class="is-danger">비우기</button>
                     </div>
                 </div>
 
@@ -120,7 +121,10 @@ foreach (array(
     };
 
     function fmtNum(n) { return n.toLocaleString('ko-KR'); }
-    function fmtDate(iso) { return iso ? iso.slice(0, 10) : '-'; }
+    function fmtDate(v) {
+        var d = String(v || '').slice(0, 10);
+        return /^\d{4}[.-]\d{2}[.-]\d{2}$/.test(d) ? d.slice(2, 4) + '.' + d.slice(5, 7) + '.' + d.slice(8, 10) : (d || '-');
+    }
     function errMsg(body) {
         return (body && ERROR_MSG[body.error]) || (body && (body.message || body.error)) || '요청에 실패했습니다.';
     }
@@ -146,6 +150,20 @@ foreach (array(
         return label ? '<span class="sp-badge sp-badge--' + cls + '">' + label + '</span>' : '';
     }
 
+    // ── 행 렌더 — 견적관리(quotes.php)와 같은 3줄 문법(Figma 103:2659, 08-26): 파일명 / 사양 / 유형 | 접수 | 삭제.
+    var ICO_RCV = '<img class="sp-ico" src="<?php echo G5_THEME_URL; ?>/img/account/ico-received.svg" alt="">';
+    var ICO_DEL = '<img class="sp-ico" src="<?php echo G5_THEME_URL; ?>/img/account/ico-x.svg" alt="">';
+    var CAT_LABEL = { standard: 'PCB (standard)', advance: 'PCB (advance)', flexible: 'FPCB (flexible)', metalmask: '메탈마스크 (metalmask)' };
+    function catLabel(it) {
+        var c = String(it.category || '').toLowerCase();
+        return (it.orderCategory === 'mass' ? '양산 ' : '샘플 ') + (CAT_LABEL[c] || c);
+    }
+    function vatIncludedBreakdown(total) {
+        var normalizedTotal = Math.round(Number(total));
+        var supply = Math.round(normalizedTotal / 1.1);
+        return { supply: supply, vat: normalizedTotal - supply, total: normalizedTotal };
+    }
+
     function render(items) {
         rowsEl.innerHTML = '';
         if (items.length === 0) {
@@ -160,6 +178,8 @@ foreach (array(
 
         items.forEach(function (it) {
             var chkId = 'sp-archive-check-' + it.projectId;
+            var payment = it.price === null ? null : vatIncludedBreakdown(it.price);
+            var deletedOn = it.deletedAt || it.updatedAt || null;
             var li = document.createElement('li');
             li.className = 'sp-cart-item sp-quotes__item sp-quotes__item--locked';
             li.innerHTML =
@@ -171,27 +191,27 @@ foreach (array(
                 '<span class="sp-cart-thumb">' + (it.thumbnailUrl
                     ? '<img src="' + it.thumbnailUrl + '" alt="">'
                     : (THUMBS[String(it.category).toLowerCase()] || '')) + '</span>' +
+                '<span class="prd_name"><b class="sp-quotes__name"></b></span>' +
                 '<div class="sp-cart-info">' +
-                    '<span class="prd_name"><b class="sp-quotes__name"></b></span>' +
                     '<div class="sod_opt"><ul><li class="sp-quotes__opt"></li></ul></div>' +
                     '<div class="sp-cart-meta">' +
                         '<span class="sp-quotes__cat"></span>' +
-                        '<span>' + (it.orderCategory === 'mass' ? '양산' : '샘플') + '</span>' +
-                        '<span>접수 ' + fmtDate(it.createdAt) + '</span>' +
-                    '</div>' +
-                    '<div class="sp-quotes__badges">' +
-                        badge(QUOTE_LABEL[it.quoteStatus], it.quoteStatus) +
-                        badge('보관됨', 'cart') +
+                        '<span>' + ICO_RCV + '접수 ' + fmtDate(it.createdAt) + '</span>' +
+                        (deletedOn ? '<span>' + ICO_DEL + '삭제 ' + fmtDate(deletedOn) + '</span>' : '') +
                     '</div>' +
                 '</div>' +
                 '<div class="sp-cart-calc">' +
-                    '<span class="sp-cart-qty">수량 <strong>' + fmtNum(it.qty) + '</strong>개</span>' +
-                    (it.price === null
+                    (payment === null
                         ? '<span class="sp-quotes__pending">견적 대기</span>'
-                        : '<strong class="sp-cart-sum">' + fmtNum(it.price) + '원</strong>') +
+                        : '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' +
+                          '<span class="sp-quotes__vat sp-tip" tabindex="0" role="note" data-tip="공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원">VAT포함</span>') +
+                    '<div class="sp-quotes__badges">' +
+                        badge(QUOTE_LABEL[it.quoteStatus], it.quoteStatus) +
+                        badge('보관됨', 'archived') +
+                    '</div>' +
                 '</div>';
             li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
-            li.querySelector('.sp-quotes__cat').textContent = it.category;
+            li.querySelector('.sp-quotes__cat').textContent = catLabel(it);
             li.querySelector('.sp-quotes__opt').textContent = it.optionSummary || '';
             rowsEl.appendChild(li);
         });
@@ -202,7 +222,7 @@ foreach (array(
     function updateSelCnt() {
         var all = rowsEl.querySelectorAll('.sp-quotes__check');
         var checked = rowsEl.querySelectorAll('.sp-quotes__check:checked');
-        document.getElementById('sp_sel_cnt').textContent = checked.length + '/' + all.length;
+        document.getElementById('sp_sel_cnt').innerHTML = '<b>' + checked.length + '</b>/' + all.length;
         document.getElementById('sp-quotes-check-all').checked = all.length > 0 && all.length === checked.length;
     }
 
@@ -303,6 +323,13 @@ foreach (array(
     rowsEl.addEventListener('change', function (ev) {
         if (!ev.target.classList.contains('sp-quotes__check')) { return; }
         updateSelCnt();
+    });
+
+    // VAT포함 툴팁(.sp-tip) — hover/포커스는 CSS, 터치는 탭 토글
+    document.addEventListener('click', function (ev) {
+        var tip = ev.target.closest ? ev.target.closest('.sp-tip') : null;
+        document.querySelectorAll('.sp-tip.is-open').forEach(function (el) { if (el !== tip) { el.classList.remove('is-open'); } });
+        if (tip) { tip.classList.toggle('is-open'); }
     });
 
     load();

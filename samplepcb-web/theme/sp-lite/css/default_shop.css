@@ -940,6 +940,153 @@
     .sp-quotes__tax-detail { flex: 0 0 100%; max-width: none; }
 }
 
+/* ── 견적관리 — Figma 103:2659 (2026-08-26) ────────────────────────────────────
+   670px 목록(카드 없이 구분선 행) + 30px + 340px '주문 예상 금액' 패널. 색은 계정 셸 토큰(--acc-*).
+   보관함(/shop/quotes/archive)은 옛 카드 문법을 그대로 쓰기로 했으므로(사용자 결정 B, 08-26)
+   새 규칙은 전부 .sp-quotes--fig 스코프 — 위의 공용 .sp-cart-*/.sp-quotes__* 규칙을 덮기만 한다.
+   시안에 없는 기능(비우기·담김/주문됨 배지·검토 중 안내·모바일 주문 바)은 빼지 않고 자리만 정했다(수량 재견적은 뺌 — 08-26).
+   보관함(quotes-archive.php)도 같은 문법(.sp-quotes--archive = 패널 없이 전폭). */
+.sp-quotes--fig .sp-cart-body { grid-template-columns: minmax(0, 1fr) 340px; gap: 30px; }
+
+/* 툴바 — 검정 상단 룰 + 회색 하단 룰, 배경·상자 없음 */
+.sp-quotes--fig .sp-cart-toolbar {
+    min-height: 51px; margin: 0; padding: 8px 0;
+    border: 0; border-top: 1px solid var(--acc-ink, #0a151e); border-bottom: 1px solid #d9d9d9;
+    border-radius: 0; background: none;
+}
+.sp-quotes--fig .sp-cart-toolbar .sp-chk label { font-size: 15px; color: var(--acc-muted, #666); }
+.sp-quotes--fig .sp-cart-toolbar #sp_sel_cnt { font-style: normal; font-weight: 600; color: #000; }
+.sp-quotes--fig .sp-cart-toolbar #sp_sel_cnt b { color: var(--acc-primary, #1e64fd); font-weight: 700; }
+.sp-quotes--fig .sp-cart-toolbar-btns { gap: 6px; }
+.sp-quotes--fig .sp-cart-toolbar-btns button {
+    display: inline-flex; align-items: center; gap: 2px;
+    min-height: 0; padding: 5px 10px;
+    border: 1px solid #d8d8d8; border-radius: 4px; background: #fff;
+    font-size: 14px; font-weight: 400; color: var(--acc-text, #141e34);
+}
+.sp-quotes--fig .sp-cart-toolbar-btns button:hover { border-color: var(--acc-ink, #0a151e); color: var(--acc-ink, #0a151e); }
+.sp-quotes--fig .sp-ico { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
+.sp-quotes--fig .sp-cart-toolbar-btns .sp-ico { width: 14px; height: 14px; vertical-align: -2px; }
+
+/* 체크박스 — 18px · 2px 라운드 · #bebebe, 체크 시 파랑 */
+.sp-quotes--fig .sp-chk label span { width: 18px; height: 18px; border: 1px solid #bebebe; border-radius: 2px; background: #fff; }
+.sp-quotes--fig .sp-chk .selec_chk:checked + label span { background: var(--acc-primary, #1e64fd); border-color: var(--acc-primary, #1e64fd); }
+
+/* 행 — 카드 없음, 회색 구분선, 체크는 세로 중앙, 썸네일 74 */
+.sp-quotes--fig .sp-cart-items { margin: 0; }
+.sp-quotes--fig .sp-quotes__item {
+    grid-template-columns: 18px 74px minmax(0, 1fr) auto;
+    grid-template-areas:
+        "chk thumb name calc"
+        "chk thumb info calc";
+    grid-template-rows: auto 1fr; /* 우측 금액 칸이 높아도 1행(파일명)은 안 늘어난다 — 사양이 제목 바로 아래 붙는다 */
+    gap: 6px 10px; align-items: start;
+    min-height: 115px; box-sizing: border-box; margin: 0; padding: 20px 0;
+    border: 0; border-bottom: 1px solid #d9d9d9; border-radius: 0; background: none;
+}
+.sp-quotes--fig .sp-quotes__item:hover { border-color: #d9d9d9; box-shadow: none; }
+.sp-quotes--fig .sp-quotes__item > .sp-cart-item-chk { margin: 0; align-self: center; }
+.sp-quotes--fig .sp-quotes__item > .sp-cart-thumb { display: block; width: 74px; height: 74px; margin-right: 10px; border: 0; border-radius: 0; background: #f4f4f4; }
+.sp-quotes--fig .sp-quotes__item > .prd_name { font-size: 14px; font-weight: 500; line-height: 1.3; color: var(--acc-text, #141e34); }
+.sp-quotes--fig .sp-quotes__item > .prd_name a:hover { color: var(--acc-primary, #1e64fd); text-decoration: underline; text-underline-offset: 2px; }
+.sp-quotes--fig .sp-quotes__item--locked .prd_name { color: var(--acc-muted, #666); }
+/* 2번째 줄 사양(PCB 만 — BOM 은 사양이 없다) */
+.sp-quotes--fig .sp-cart-info .sod_opt { margin: 0; }
+.sp-quotes--fig .sp-cart-info .sod_opt ul { padding: 0; border-radius: 0; background: none; }
+.sp-quotes--fig .sp-cart-info .sod_opt li { font-size: 14px; line-height: 1.3; color: #484c52; word-break: break-all; }
+/* 3번째 줄 메타 — `유형 | 출고예정 | 접수`, 구분은 글자 `|` */
+.sp-quotes--fig .sp-cart-meta { margin: 12px 0 0; gap: 4px 10px; align-items: center; font-size: 14px; color: var(--acc-muted, #666); }
+.sp-quotes--fig .sp-cart-meta span + span::before { content: "|"; display: inline; width: auto; height: auto; margin: 0 10px 0 0; background: none; vertical-align: 0; color: var(--acc-muted, #666); }
+.sp-quotes--fig .sp-cart-meta .sp-ico { margin-right: 6px; }
+
+/* 우측 금액 칸 — 금액 18 Bold · VAT포함 11 · 배지 pill(단계별 색 유지) */
+.sp-quotes--fig .sp-quotes__item > .sp-cart-calc { gap: 4px; min-width: 110px; padding-left: 16px; align-items: flex-end; }
+.sp-quotes--fig .sp-cart-sum { font-size: 18px; font-weight: 700; line-height: 1.3; color: var(--acc-text, #141e34); }
+.sp-quotes--fig .sp-quotes__vat { font-size: 11px; color: #8f8f8f; cursor: help; }
+.sp-quotes--fig .sp-quotes__badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin: 6px 0 0; }
+.sp-quotes--fig .sp-badge { padding: 4px 8px; border-radius: 37px; font-size: 11px; font-weight: 500; }
+.sp-quotes--fig .sp-badge + .sp-badge { margin-left: 0; }
+.sp-quotes--fig .sp-badge--quoted { background: #e3fae8; color: #1b712b; }
+.sp-quotes--fig .sp-quotes__pending,
+.sp-quotes--fig .sp-quotes__note { max-width: 220px; font-size: 12px; font-weight: 500; line-height: 1.4; text-align: right; }
+.sp-quotes--fig .sp-quotes__pending { color: #b45309; }
+.sp-quotes--fig .sp-quotes__note { color: var(--acc-muted, #666); font-weight: 400; }
+
+/* 커스텀 툴팁 — data-tip. hover/포커스/탭(.is-open)에 뜬다. 라이브러리 없음. */
+.sp-tip { position: relative; outline: none; }
+.sp-tip::after {
+    /* 왼쪽에 띄운다 — 위는 금액, 아래는 배지라 가린다 */
+    content: attr(data-tip); position: absolute; right: calc(100% + 8px); top: 50%; transform: translate(2px, -50%); z-index: 5;
+    padding: 6px 10px; border-radius: 6px; background: var(--acc-ink, #0a151e); color: #fff;
+    font-size: 12px; font-weight: 500; line-height: 1.4; white-space: nowrap;
+    opacity: 0; visibility: hidden; transform: translateY(2px); pointer-events: none;
+    transition: opacity .12s, transform .12s;
+}
+.sp-tip::before {
+    content: ""; position: absolute; right: calc(100% + 3px); top: 50%; transform: translateY(-50%);
+    border: 5px solid transparent; border-left-color: var(--acc-ink, #0a151e);
+    opacity: 0; visibility: hidden; transition: opacity .12s;
+}
+.sp-tip:hover::after, .sp-tip:focus-visible::after, .sp-tip.is-open::after,
+.sp-tip:hover::before, .sp-tip:focus-visible::before, .sp-tip.is-open::before { opacity: 1; visibility: visible; }
+.sp-tip:hover::after, .sp-tip:focus-visible::after, .sp-tip.is-open::after { transform: translate(0, -50%); }
+
+/* 우측 패널 — '주문 예상 금액' 카드, 버튼은 카드 안 */
+.sp-quotes--fig .sp-cart-summary {
+    display: flex; flex-direction: column; gap: 15px;
+    padding: 24px 20px 20px; border: 1px solid #bebebe; border-radius: 10px; background: #fff;
+}
+.sp-quotes--fig .sp-cart-summary h2 { margin: 0; padding-bottom: 14px; border-bottom: 1px solid #d8d8d8; font-size: 20px; font-weight: 700; color: var(--acc-text, #141e34); }
+.sp-quotes--fig .sp-cart-summary-row { margin: 0; padding-bottom: 14px; border-bottom: 1px solid #d8d8d8; font-size: 15px; }
+.sp-quotes--fig .sp-cart-summary-row dt { font-weight: 400; color: var(--acc-muted, #666); }
+.sp-quotes--fig .sp-cart-summary-row dd { font-size: 18px; font-weight: 700; color: var(--acc-text, #141e34); }
+.sp-quotes--fig .sp-cart-summary-total { margin: 0; padding: 0; border: 0; }
+.sp-quotes--fig .sp-cart-summary-total dt { font-size: 18px; font-weight: 600; color: var(--acc-text, #141e34); }
+.sp-quotes--fig .sp-cart-summary-total dd { font-size: 20px; font-weight: 800; color: var(--acc-primary, #1e64fd); }
+.sp-quotes--fig .sp-cart-summary-total dd strong { font-size: inherit; font-weight: inherit; color: inherit; letter-spacing: 0; }
+.sp-quotes--fig .sp-cart-summary-note { margin: 0; font-size: 14px; line-height: 1.3; color: var(--acc-muted, #666); opacity: .7; }
+.sp-quotes--fig .sp-cart-act { margin: 11px 0 0; }
+.sp-quotes--fig .sp-cart-act .btn_submit {
+    min-height: 44px; padding: 6px 0; border-radius: 8px;
+    font-size: 20px; font-weight: 600; letter-spacing: -0.4px; line-height: 32px;
+}
+
+/* 탭 줄 오른쪽 — 지난 견적 보관함 링크(시안엔 없음, 기능 접근로) */
+.sp-quotes-tabs__aside { margin-left: auto; align-self: center; padding-bottom: 6px; font-size: 14px; color: var(--acc-muted, #666); text-decoration: none; }
+.sp-quotes-tabs__aside:hover { color: var(--acc-primary, #1e64fd); text-decoration: underline; text-underline-offset: 2px; }
+
+/* 보관함 — 패널 없이 전폭, 머리 안내문 + 돌아가기, 영구 삭제 버튼은 hover 에만 빨강 */
+.sp-quotes--archive .sp-cart-body { grid-template-columns: minmax(0, 1fr); }
+.sp-quotes--archive .sp-quotes__desc { margin: 0 0 18px; padding: 0; border: 0; background: none; font-size: 14px; line-height: 1.5; color: var(--acc-muted, #666); }
+.sp-quotes--archive .sp-quotes__back { display: inline-block; margin-right: 10px; font-weight: 500; color: var(--acc-primary, #1e64fd); text-decoration: none; }
+.sp-quotes--archive .sp-quotes__back:hover { text-decoration: underline; text-underline-offset: 2px; }
+.sp-quotes--fig .sp-badge--archived { background: #f3f4f6; color: #6b7280; }
+.sp-quotes--fig .sp-cart-toolbar-btns button.is-danger:hover { border-color: #d64545; color: #d64545; }
+
+/* 반응형 — 시안 없음(이쪽 판단): 960 아래 1열, 640 아래 금액 칸을 행 아래로 */
+@media (max-width: 960px) {
+    .sp-quotes--fig .sp-cart-body { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+@media (max-width: 640px) {
+    .sp-quotes--fig .sp-quotes__item {
+        grid-template-columns: 18px 74px minmax(0, 1fr);
+        grid-template-areas:
+            "chk thumb name"
+            "chk thumb info"
+            "calc calc calc";
+        padding: 16px 0;
+    }
+    .sp-quotes--fig .sp-quotes__item > .sp-cart-calc {
+        flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 4px 10px;
+        margin: 0; padding: 8px 0 0; border-top: 0;
+    }
+    .sp-quotes--fig .sp-quotes__badges { margin: 0; }
+    .sp-quotes--fig .sp-cart-toolbar { padding: 8px 0; }
+}
+/* 18px 상자에 맞춘 체크 표시 위치(공용은 20px 기준) */
+.sp-quotes--fig .sp-chk label span::after { left: 5px; top: 1.5px; width: 5px; height: 9px; }
+
+
 
 /* ==========================================================================
    지난 견적 보관함 (spcb/pages/quotes-archive.php)
