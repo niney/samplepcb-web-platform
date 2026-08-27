@@ -2156,11 +2156,7 @@ const orderProgressText = computed(() => {
 });
 
 function fmtWon(v: number | null): string {
-  return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
-}
-
-function fmtAmount(v: number | null): string {
-  return v === null ? '—' : v.toLocaleString('ko-KR');
+  return v === null ? '—' : `₩${v.toLocaleString('ko-KR')}원`;
 }
 </script>
 
@@ -2532,7 +2528,7 @@ function fmtAmount(v: number | null): string {
                 ? '배송 후 문제 접수 · 처리 이력'
                 : pricingPending
                   ? '가격 확인 중…'
-                  : `${confirmedQuoteVisible ? '확정' : '예상'} ${fmtAmount(displayedFinalTotal)}원` }}
+                  : `${confirmedQuoteVisible ? '확정' : '예상'} ${fmtWon(displayedFinalTotal)}` }}
             </p>
           </div>
           <button
@@ -3195,14 +3191,14 @@ function fmtAmount(v: number | null): string {
             </div>
             <div v-else class="mt-[9px]">
               <div class="h-[129px] space-y-[13px] rounded-[8px] border border-bom-panel-card-border bg-bom-panel-card px-[11px] pb-[13px] pt-[15px] text-[12px] leading-[14px] [&>:last-child]:-translate-y-px">
-                <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="font-noto tracking-[-0.48px] text-bom-panel-label">단가</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedAverageSetUnitPrice) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">부품 합계</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedItemsTotal) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">운송료</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedShippingFee) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">관리비</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedManagementFee) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
+                <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="font-noto tracking-[-0.48px] text-bom-panel-label">단가</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtWon(displayedAverageSetUnitPrice) }}</span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">부품 합계</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtWon(displayedItemsTotal) }}</span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">운송료</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtWon(displayedShippingFee) }}</span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">관리비</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtWon(displayedManagementFee) }}</span></div>
               </div>
               <div class="relative mt-[12px] h-[74px] rounded-[8px] border border-bom-panel-total-border bg-bom-panel-total px-[11px] py-[11px]">
                 <span class="font-noto text-[12px] font-medium leading-[14px] text-bom-panel-heading">최종합계 <span class="text-[10px] font-normal text-bom-panel-vat">(VAT 별도)</span></span>
-                <span class="absolute bottom-[12px] right-[11px] text-[19px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtAmount(displayedFinalTotal) }}<small class="ml-[3px] text-[12px] font-normal">원</small></span>
+                <span class="absolute bottom-[12px] right-[11px] text-[19px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtWon(displayedFinalTotal) }}</span>
               </div>
               <ul v-if="confirmedQuoteVisible" class="mt-[11px] list-disc pl-[14px] text-[11px] leading-[16px] text-bom-estimate-notice">
                 <li>담당자가 확정한 공급가액입니다.</li>

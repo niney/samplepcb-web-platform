@@ -23,7 +23,6 @@ const emit = defineEmits<{
 type CartTab = 'all' | 'priced' | 'inquiry';
 interface CartLinePrice {
   amount: string;
-  unit: string | null;
   priced: boolean;
 }
 
@@ -73,26 +72,28 @@ function setQuantity(item: BomQuoteItemType, raw: number | string, commit: boole
   if (commit && next !== item.bomQty) emit('quantity', item.id, next);
 }
 
-function moneyAmount(value: number | null | undefined): string {
+function wonAmount(value: number | null | undefined): string {
   return value === null || value === undefined
     ? '—'
-    : Math.round(value).toLocaleString('ko-KR');
+    : `₩${Math.round(value).toLocaleString('ko-KR')}원`;
 }
 
 function linePrice(item: BomQuoteItemType): CartLinePrice {
   if (item.lineTotalKrw !== null) {
-    return { amount: moneyAmount(item.lineTotalKrw), unit: '원', priced: true };
+    return { amount: wonAmount(item.lineTotalKrw), priced: true };
   }
   const offer = item.selectedOffer;
   if (offer === null) {
     return item.selectionSource === 'partner'
-      ? { amount: '견적요청 후 확정', unit: null, priced: false }
-      : { amount: '재고 확인 필요', unit: null, priced: false };
+      ? { amount: '견적요청 후 확정', priced: false }
+      : { amount: '재고 확인 필요', priced: false };
+  }
+  if (offer.currency === 'KRW') {
+    return { amount: `₩${offer.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}원`, priced: true };
   }
   const prefix = offer.currency === 'USD' ? '$' : `${offer.currency} `;
   return {
     amount: `${prefix}${offer.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`,
-    unit: null,
     priced: true,
   };
 }
@@ -196,7 +197,6 @@ function hideCartMpnTooltip(itemId: string): void {
           <span class="truncate font-medium" :class="item.selectedOffer === null ? 'text-ink-muted' : 'text-brand-strong'">{{ supplierName(item) }}</span>
           <span v-if="linePrice(item).priced" class="shrink-0 whitespace-nowrap font-noto leading-[16px] text-brand-soft">
             <strong class="text-[14px] font-bold leading-[16px] tabular-nums">{{ linePrice(item).amount }}</strong>
-            <span v-if="linePrice(item).unit !== null" class="ml-[3px] text-[12px] font-normal leading-[16px]">{{ linePrice(item).unit }}</span>
           </span>
           <strong v-else class="shrink-0 whitespace-nowrap font-noto text-[12px] font-normal leading-[16px] text-ink-muted">{{ linePrice(item).amount }}</strong>
         </div>
@@ -210,17 +210,16 @@ function hideCartMpnTooltip(itemId: string): void {
       </h3>
 
       <dl class="mt-[10px] h-[129px] space-y-[14px] rounded-[8px] border border-search-estimate-border bg-search-estimate-bg px-[12px] py-[14px] text-[12px] leading-[14px]">
-        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">단가</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.itemsTotal) }} <small v-if="cart?.itemsTotal !== null && cart?.itemsTotal !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
-        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">합계</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.itemsTotal) }} <small v-if="cart?.itemsTotal !== null && cart?.itemsTotal !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
-        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">운송료</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.shippingFee) }} <small v-if="cart?.shippingFee !== null && cart?.shippingFee !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
-        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">관리비</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.managementFee) }} <small v-if="cart?.managementFee !== null && cart?.managementFee !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">단가</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ wonAmount(cart?.itemsTotal) }}</dd></div>
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">합계</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ wonAmount(cart?.itemsTotal) }}</dd></div>
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">운송료</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ wonAmount(cart?.shippingFee) }}</dd></div>
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">관리비</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ wonAmount(cart?.managementFee) }}</dd></div>
       </dl>
 
       <div class="mt-[12px] h-[74px] rounded-[8px] border border-search-total-border bg-search-total-bg px-[12px] py-[10px]">
         <p class="font-noto text-[12px] font-medium leading-[14px] tracking-[-0.44px] text-search-total-label">최종합계 <span class="text-[10px] text-search-total-vat">(VAT 별도)</span></p>
         <p class="mt-[11px] text-right font-sans leading-[14px] text-brand-soft">
-          <strong class="text-[19px] font-bold leading-[14px] tabular-nums">{{ moneyAmount(cart?.finalTotal) }}</strong>
-          <span v-if="cart?.finalTotal !== null && cart?.finalTotal !== undefined" class="text-[12px] leading-[14px]"> 원</span>
+          <strong class="text-[19px] font-bold leading-[14px] tabular-nums">{{ wonAmount(cart?.finalTotal) }}</strong>
         </p>
       </div>
 
