@@ -41,6 +41,7 @@ import {
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
+import { serviceActorHook, type ActorRouteOptions } from '../lib/service-actor';
 import { bomOrderformUrl, orderBomQuote } from '../lib/bom-order';
 import {
   getBomCartStates,
@@ -1056,8 +1057,8 @@ async function healCatalogPreparation(
   }
 }
 
-export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
-  fastify.addHook('preHandler', fastify.authenticate);
+export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, opts, done) => {
+  fastify.addHook('preHandler', opts.actor === 'service' ? serviceActorHook : fastify.authenticate);
 
   const activeSearchCartResponse = async (mbId: string) => {
     const quote = await loadActiveBomSearchCart(mbId);

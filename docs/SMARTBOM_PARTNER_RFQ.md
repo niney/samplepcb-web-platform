@@ -1624,6 +1624,28 @@ PCB P4.13/P4.14 의 배관을 BOM 까지 넓혔다. od 는 여전히 안 바꾼�
 > 같은 행 문법(`.sp-quotes--archive` = 패널 없이 전폭, 삭제 버튼은 hover 빨강), 탭 줄 오른쪽에 `지난 견적 보관함 ›` 진입 링크.
 > 수량 입력(재견적)은 뺐다 — 사양 줄 `Npcs` 가 수량이고 수량이 다르면 새 견적(사용자 결정 08-26). 비우기·담김/주문됨 배지·검토 중 안내는 유지.
 
+### 6.37 사내 서비스용 BOM API — `/api/svc` (2026-08-27)
+
+사내 다른 서비스가 BOM 업로드→분석→견적을 받는 무인증 경로. **호출측에 줄 문서는
+`docs/BOM_SERVICE_API.md`**(내부 운영 정보 없음) — 아래는 우리 쪽 기록이다.
+
+- **구조**: `bomRoutes`·`bomQuoteRoutes` 를 `{ prefix: '/api/svc', actor: 'service' }` 로 **한 번 더 등록**한다.
+  `fastify.authenticate` 자리에만 `serviceActorHook`(`lib/service-actor.ts`)이 들어간다 — 라우트·계약·테스트 복제 0.
+- **소유**: 고정 mbId(env `SVC_BOM_MB_ID`, 기본 `apibot`). `sp_bom_quote.mbId` 는 FK 없는 VarChar 라
+  g5 회원 없이도 돌지만(이미 `codex-bom-verify` 등 가상 ID 300건 공존), **ID 선점용으로 회원 하나는 만들 것** —
+  누가 그 ID 로 가입하면 그 사람 견적이 서비스 API 에 열린다. RFQ·주문 전환까지 쓰면 회원 계정 필수(메일·카트).
+- **격리**: `assertJobAccess`·`loadOwnQuote` 가 그대로 살아 **무인증인데도 고객 견적은 404**(실측). 일일 사용량 원장은
+  `mbId_dayKey` 복합키라 회원 한도를 깎지 않는다.
+- **비용**: `reserveDailySupplierSearch` 가 `isServiceMbId` 면 상한만 Int32 max 로 올린다(호출처 3곳 무수정, 집계는 적립).
+  잡당 `max_calls` 클램프는 유지 — 엔진 상한이 3,000콜이라 이걸 풀면 실 과금이 그대로 샌다.
+- ⚠ **접근 통제는 코드가 아니라 nginx** — `location /api/svc/ { allow <호출 서비스 IP>; deny all; proxy_pass http://node_api; }`.
+  2026-08-27 현재 **미설정**(다음 작업).
+- ⚠ **Fastify 훅을 동기 `void` 로 두면 요청이 영구 hang** 한다(done 미호출·비 thenable). eslint `require-await` 를
+  맞추려다 실제로 재현했고 tsc·eslint 는 통과한다 — `Promise<void>` 를 반환할 것.
+- **실측**: 3부품 CSV 업로드→`prepare`→`build`→폴링 완주, 자동 선정 3/3·부품합계 ₩2,433(DigiKey·UniKeyIC 실 오퍼).
+  같은 파일을 회원 경로로 올린 결과와 동일 — svc ≡ member 동등성 확인. 참조번호 개수 ≠ 수량이면
+  `quantityResolution=conflict` 로 자동 선정이 막히고 합계가 0 이 된다(오류 아님).
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

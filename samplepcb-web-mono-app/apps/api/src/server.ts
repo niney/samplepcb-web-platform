@@ -121,6 +121,10 @@ await app.register(adminSeoRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — BOM 추출 + 공급사 검색 (sp-engine Python 프록시)
 await app.register(bomRoutes, { prefix: '/api' });
 await app.register(bomQuoteRoutes, { prefix: '/api' });
+// 사내 서비스용 BOM API — 같은 라우트를 서비스 액터로 한 번 더 등록한다(docs/BOM_SERVICE_API.md).
+// 인증 없이 열리므로 배포 시 nginx 에서 /api/svc 를 호출 서비스 IP 로 제한할 것.
+await app.register(bomRoutes, { prefix: '/api/svc', actor: 'service' });
+await app.register(bomQuoteRoutes, { prefix: '/api/svc', actor: 'service' });
 await app.register(bomClaimRoutes, { prefix: '/api' });
 await app.register(adminBomRoutes, { prefix: '/api/admin' });
 await app.register(adminBomQuoteRoutes, { prefix: '/api/admin' });

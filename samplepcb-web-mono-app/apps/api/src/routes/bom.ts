@@ -34,6 +34,7 @@ import {
   partOffersForDisplay,
 } from '../lib/parts-offer-kind';
 import { prisma } from '../lib/prisma';
+import { serviceActorHook, type ActorRouteOptions } from '../lib/service-actor';
 import { buildExactSearchIntent, buildPartSort, buildSearchQuery, toHit } from './admin-parts';
 
 // ── /api/bom — 고객(회원) 스마트 BOM: 엔진 잡 프록시 + 카탈로그 검색 ──────────
@@ -44,8 +45,8 @@ import { buildExactSearchIntent, buildPartSort, buildSearchQuery, toHit } from '
 const IdParams = z.object({ id: z.string().min(1) });
 const PartSearchSupplementError = z.object({ result: z.literal(false), error: z.string() });
 
-export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
-  fastify.addHook('preHandler', fastify.authenticate);
+export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, opts, done) => {
+  fastify.addHook('preHandler', opts.actor === 'service' ? serviceActorHook : fastify.authenticate);
 
   // 인메모리 소유가 sp-node 재시작으로 유실돼도 견적 행(engineJobId+mbId)이 소유를
   // 증명한다 — 엔진 잡이 살아있는 한 기존 draft 의 공급사 검색이 계속 동작.

@@ -9,6 +9,7 @@ import {
 } from '@sp/api-contract';
 import { engineFetch } from './engine-client';
 import { prisma } from './prisma';
+import { isServiceMbId } from './service-actor';
 
 const StoredPreflight = z.object({
   plan: z.object({
@@ -64,6 +65,7 @@ const StoredIngestTiming = z.object({
 });
 
 const ENGINE_STATUS_TIMEOUT_MS = 3_000;
+const INT32_MAX = 2_147_483_647;
 
 export type SupplierRunSummarySnapshot = z.infer<typeof StoredResultSummary>;
 
@@ -170,6 +172,9 @@ export function supplierRunLimitedComponentCount(
 }
 
 export async function reserveDailySupplierSearch(mbId: string, limit: number): Promise<boolean> {
+  // 서비스 액터(/api/svc)는 회원 일일 한도를 면제하되 사용량은 그대로 적립해
+  // 관리자 운영 화면의 오늘 사용량 집계에서 계속 보이게 한다.
+  const effectiveLimit = isServiceMbId(mbId) ? INT32_MAX : limit;
   const dayKey = kstDayKey();
   await prisma.spBomSupplierDailyUsage.upsert({
     where: { mbId_dayKey: { mbId, dayKey } },
@@ -177,7 +182,7 @@ export async function reserveDailySupplierSearch(mbId: string, limit: number): P
     update: { updatedAt: new Date() },
   });
   const reserved = await prisma.spBomSupplierDailyUsage.updateMany({
-    where: { mbId, dayKey, searchCount: { lt: limit } },
+    where: { mbId, dayKey, searchCount: { lt: effectiveLimit } },
     data: { searchCount: { increment: 1 } },
   });
   return reserved.count === 1;
