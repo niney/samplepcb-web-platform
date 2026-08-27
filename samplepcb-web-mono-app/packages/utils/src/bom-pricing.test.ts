@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyQtyToOffer,
   computeTotals,
+  effectiveRfqReplyQty,
   isSevereOrderSurplus,
   neededQty,
   pickBreak,
@@ -36,6 +37,15 @@ describe('수량 박제(레거시 보존 + 주문배수 신규)', () => {
   it('MOQ 바닥: 필요수량이 MOQ 미만이면 MOQ 로', () => {
     expect(stampOrderQty(100, 4000, null)).toBe(4000);
     expect(stampOrderQty(5000, 4000, null)).toBe(5000);
+  });
+
+  it('협력사 회신 실효 수량: 회신수량(미입력=필요수량)에 MOQ 바닥, 배수 없음', () => {
+    expect(effectiveRfqReplyQty(100, null, null)).toBe(100);
+    expect(effectiveRfqReplyQty(100, 250, null)).toBe(250);
+    expect(effectiveRfqReplyQty(100, null, 4000)).toBe(4000);
+    expect(effectiveRfqReplyQty(100, 5000, 4000)).toBe(5000);
+    expect(effectiveRfqReplyQty(100, 500, 4000)).toBe(4000); // 모순 입력도 MOQ 아래로는 안 내려간다
+    expect(effectiveRfqReplyQty(0, null, null)).toBe(1);
   });
 
   it('주문배수 올림(레거시 미구현 보정): 5000 필요·배수 4000 → 8000', () => {

@@ -1654,6 +1654,27 @@ PCB P4.13/P4.14 의 배관을 BOM 까지 넓혔다. od 는 여전히 안 바꾼�
   같은 파일을 회원 경로로 올린 결과와 동일 — svc ≡ member 동등성 확인. 참조번호 개수 ≠ 수량이면
   `quantityResolution=conflict` 로 자동 선정이 막히고 합계가 0 이 된다(오류 아님).
 
+### 6.38 협력사 회신 — MOQ ↔ 회신수량 동기화·실효 수량 단일 공식 (2026-08-27)
+
+배경: 수량 셋(필요수량 `orderQty`·회신수량 `replyQty`·`moq`)을 소비처마다 다르게 셌다.
+협력사 폼 금액과 `sp_bom_rfq.totalAmount` 는 `단가 × (replyQty ?? orderQty)`, 관리자
+비교 모달 협력사 칸은 `단가 × orderQty`, 선정 뒤 `computeQuote` 는 `stampOrderQty(needed, moq)`.
+필요 100·MOQ 4000 이면 협력사는 100개 금액을 보고 회신하고, 비교표는 3사 오퍼만 MOQ 를
+적용해 협력사가 부당하게 최저가로 뽑히며, 발주는 4000 으로 찍혔다.
+
+결정:
+
+| # | 규칙 | 근거 |
+|---|---|---|
+| 1 | 실효 회신수량 = `effectiveRfqReplyQty(orderQty, replyQty, moq)` = `stampOrderQty(replyQty ?? orderQty, moq, null)` (`@sp/utils`). 폼 금액·RFQ 합계(`bom-rfq.ts`)·비교 모달(`BomRfqCompareModal.vue`)이 모두 이 함수. | 선정 후 주문수량과 회신 시점 금액이 같은 값이 된다. 회신엔 주문배수 필드가 없어 배수 올림은 없다. |
+| 2 | 폼(`RfqReplyForm.vue`, 협력사·매직링크·관리자 대리 입력 공용): MOQ 가 필요수량을 넘으면 회신수량을 MOQ 로 채우고 `replyQtyAuto` 로 표시(연한 노랑·툴팁). 사람이 직접 친 회신수량은 덮지 않는다. MOQ 가 필요수량 이하로 내려가면 파생값은 비워 "미입력 = 필요수량" 으로 돌아간다. 회신수량을 손으로 비우면 다시 파생 대상. | 한 방향(MOQ→회신수량)만. 저장된 회신수량이 정확히 MOQ 와 같고 MOQ > 필요수량이면 파생값으로 간주해 재로드 뒤에도 MOQ 를 따라간다. |
+| 3 | `replyQty < moq` 는 모순 — 폼 검증과 계약 `BomRfqItemReplyInput.refine` 양쪽에서 거부. | 직접 API 호출자(e2e·`/api/svc`·관리자)도 같은 규칙. 기존 e2e 는 전부 `replyQty ≥ moq`. |
+| 4 | 보유 부품 프리필 MOQ 도 같은 파생을 탄다(단가는 여전히 프리필 안 함, §6.36). | 프리필 배지가 이미 "확인하고 고쳐 주세요" 를 안내한다. |
+
+하지 않은 것: 회신수량→MOQ 역방향, MOQ > 재고 차단(선정 시 `stockShort` 가 잡는다),
+`breakQty`(`bom-rfq.ts` 선정 오퍼) 변경 — 단일가 회신이라 구간 조회에 영향이 없고
+`computeQuote` 가 MOQ 를 다시 적용한다.
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

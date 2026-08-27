@@ -64,6 +64,20 @@ export function stampOrderQty(needed: number, moq: number | null, orderMultiple:
   return Math.ceil(base / mult) * mult;
 }
 
+/**
+ * 협력사 회신 실효 수량 — 회신수량(미입력 = 필요수량)에 MOQ 바닥.
+ * 회신 폼 금액·RFQ 합계(`sp_bom_rfq.totalAmount`)·관리자 비교표가 같은 값을 쓴다.
+ * 선정 뒤 `computeQuote` 가 `stampOrderQty` 로 다시 찍는 주문수량과 일치시키기 위함이며,
+ * 회신에는 주문배수가 없으므로 배수 올림은 하지 않는다(docs/SMARTBOM_PARTNER_RFQ.md §6.38).
+ */
+export function effectiveRfqReplyQty(
+  orderQty: number,
+  replyQty: number | null,
+  moq: number | null,
+): number {
+  return stampOrderQty(Math.max(1, replyQty ?? orderQty), moq, null);
+}
+
 /** 절대 초과량과 비율이 모두 큰 주문은 자동추천하지 않고 사용자 검토로 남긴다. */
 export function isSevereOrderSurplus(needed: number, orderQty: number): boolean {
   const normalizedNeeded = Math.max(1, needed);

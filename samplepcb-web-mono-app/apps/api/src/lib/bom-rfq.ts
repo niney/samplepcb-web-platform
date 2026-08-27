@@ -11,6 +11,7 @@ import type {
   PartnerRfqLineItemType,
   PartnerRfqListItemType,
 } from '@sp/api-contract';
+import { effectiveRfqReplyQty } from '@sp/utils';
 import { prisma } from './prisma';
 import { computeQuote, filterActiveQuoteItems, persistQuoteComputed, toItemDto } from './bom-quote';
 import { toCapabilities } from './partner';
@@ -254,10 +255,11 @@ export const saveRfqReply = async (
     const unknown = body.items.find((item) => !scopeById.has(item.quoteItemId));
     if (unknown !== undefined) return { ok: false, error: 'ITEM_OUT_OF_SCOPE' };
 
+    // 합계 수량 = 회신 실효 수량(회신수량 ?? 필요수량, MOQ 바닥) — 폼 금액·비교표와 같은 공식(§6.38).
     let total = 0;
     for (const item of body.items) {
       const scope = scopeById.get(item.quoteItemId);
-      const qty = item.replyQty ?? scope?.orderQty ?? 0;
+      const qty = effectiveRfqReplyQty(scope?.orderQty ?? 0, item.replyQty, item.moq);
       total += item.unitPrice * qty;
     }
     const totalAmount = Math.round(total);

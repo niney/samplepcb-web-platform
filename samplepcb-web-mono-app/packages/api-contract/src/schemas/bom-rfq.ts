@@ -23,18 +23,24 @@ export const BomRfqItemSource = z.enum(BOM_RFQ_ITEM_SOURCES);
 
 // ── 회신 입력(협력사 포털 저장 · 관리자 대리 입력 공용) ─────────────────────
 // PUT = 문서 단위 replace-all(행 일괄). 단가 없는 행은 보내지 않는다(= 미회신).
-// 합계(totalAmount)는 서버가 단가 × (회신수량 ?? 주문수량) 으로 재계산해 박제한다.
+// 합계(totalAmount)는 서버가 단가 × max(회신수량 ?? 주문수량, MOQ) 으로 재계산해 박제한다
+// (`effectiveRfqReplyQty`, §6.38). 회신수량 < MOQ 는 모순이라 입력 단계에서 거부한다.
 
-export const BomRfqItemReplyInput = z.object({
-  quoteItemId: z.string().regex(/^\d+$/),
-  unitPrice: z.number().nonnegative(),
-  replyQty: z.number().int().positive().nullable(),
-  moq: z.number().int().positive().nullable(),
-  stock: z.number().int().nonnegative().nullable(),
-  dateCode: z.string().trim().max(100).nullable(),
-  leadTime: z.string().trim().max(64).nullable(),
-  memo: z.string().trim().max(500).nullable(),
-});
+export const BomRfqItemReplyInput = z
+  .object({
+    quoteItemId: z.string().regex(/^\d+$/),
+    unitPrice: z.number().nonnegative(),
+    replyQty: z.number().int().positive().nullable(),
+    moq: z.number().int().positive().nullable(),
+    stock: z.number().int().nonnegative().nullable(),
+    dateCode: z.string().trim().max(100).nullable(),
+    leadTime: z.string().trim().max(64).nullable(),
+    memo: z.string().trim().max(500).nullable(),
+  })
+  .refine((item) => item.replyQty === null || item.moq === null || item.replyQty >= item.moq, {
+    message: '회신수량은 MOQ 이상이어야 합니다.',
+    path: ['replyQty'],
+  });
 export type BomRfqItemReplyInputType = z.infer<typeof BomRfqItemReplyInput>;
 
 export const BomRfqReplyBody = z.object({

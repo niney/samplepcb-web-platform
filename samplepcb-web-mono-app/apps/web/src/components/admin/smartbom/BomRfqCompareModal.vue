@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import {
   ADMIN_BOM_LIVE_SUPPLIERS,
   type AdminBomLiveSupplierType,
+  type AdminBomRfqItemViewType,
   type AdminBomRfqSelectionBodyType,
   type AdminBomRfqViewType,
   type AdminBomSupplierComparisonOfferType,
@@ -11,6 +12,7 @@ import {
   type BomQuoteItemType,
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
+import { effectiveRfqReplyQty } from '@sp/utils';
 import {
   useAdminSupplierOfferRefresh,
   useSelectRfqReply,
@@ -169,8 +171,18 @@ const cellOf = (item: BomQuoteItemType, rfq: AdminBomRfqViewType) => {
 const isRequested = (item: BomQuoteItemType, rfq: AdminBomRfqViewType): boolean =>
   rfq.requestedItemIds === null || rfq.requestedItemIds.includes(item.id);
 
-const lineTotalOf = (item: BomQuoteItemType, unitPrice: number): number =>
-  Math.round(unitPrice * Math.max(1, item.orderQty));
+// 협력사 회신 행합계 — 3사 칸(applied.lineTotalKrw)처럼 MOQ·회신수량을 반영한 실효 수량으로 센다.
+// 단가 × 필요수량으로만 세면 MOQ 4000 회신이 100개 값으로 최저가에 뽑힌다(§6.38).
+const lineTotalOf = (
+  item: BomQuoteItemType,
+  reply: Pick<AdminBomRfqItemViewType, 'unitPrice' | 'replyQty' | 'moq'>,
+): number =>
+  Math.round((reply.unitPrice ?? 0) * effectiveRfqReplyQty(item.orderQty, reply.replyQty, reply.moq));
+
+const partnerLineTotalOf = (item: BomQuoteItemType, rfq: AdminBomRfqViewType): number => {
+  const reply = cellOf(item, rfq);
+  return reply === null ? 0 : lineTotalOf(item, reply);
+};
 
 interface PartnerChoice { kind: 'partner'; rfqItemId: number; total: number }
 interface SupplierChoice {
@@ -255,7 +267,7 @@ function persistedChoice(item: BomQuoteItemType): Choice {
       return {
         kind: 'partner',
         rfqItemId: reply.rfqItemId,
-        total: lineTotalOf(item, reply.unitPrice),
+        total: lineTotalOf(item, reply),
       };
     }
   }
@@ -356,7 +368,7 @@ function choosePartner(item: BomQuoteItemType, rfq: AdminBomRfqViewType): void {
   setChoice(item.id, {
     kind: 'partner',
     rfqItemId: reply.rfqItemId,
-    total: lineTotalOf(item, reply.unitPrice),
+    total: lineTotalOf(item, reply),
   });
 }
 
@@ -389,7 +401,7 @@ function pickLowestAll(): void {
       const reply = cellOf(item, rfq);
       const price = reply?.unitPrice ?? null;
       if (reply === null || price === null) continue;
-      const total = lineTotalOf(item, price);
+      const total = lineTotalOf(item, reply);
       if (best === null || total < best.total) {
         best = { choice: { kind: 'partner', rfqItemId: reply.rfqItemId, total }, total };
       }
@@ -639,7 +651,7 @@ const fmtFetchedAt = (value: string): string => new Date(value).toLocaleString('
                     <span>
                       <span class="tabular-nums font-semibold">{{ fmt(cellOf(item, rfq)?.unitPrice ?? 0) }}원</span>
                       <span class="block text-gray-400 tabular-nums">
-                        = {{ fmt(lineTotalOf(item, cellOf(item, rfq)?.unitPrice ?? 0)) }}원
+                        = {{ fmt(partnerLineTotalOf(item, rfq)) }}원
                         <template v-if="cellOf(item, rfq)?.moq !== null"> · MOQ {{ fmt(cellOf(item, rfq)?.moq ?? 0) }}</template>
                       </span>
                       <span v-if="isCurrentRfqSelection(item, cellOf(item, rfq)?.rfqItemId ?? -1)" class="mt-0.5 inline-block rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-bold text-emerald-700">

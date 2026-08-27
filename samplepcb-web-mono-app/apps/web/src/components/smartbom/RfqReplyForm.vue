@@ -5,11 +5,13 @@ import {
   type BomRfqItemReplyInputType,
   type BomRfqReplyBodyType,
 } from '@sp/api-contract';
-import { kstDateInput } from '@sp/utils';
+import { effectiveRfqReplyQty, kstDateInput } from '@sp/utils';
 
 // 협력사 회신 폼 — 포털 회신·관리자 대리 입력 공용(docs/SMARTBOM_PARTNER_RFQ.md §4).
 // 행별 단가·재고·D/C·납기·메모 입력. 단가가 비어 있는 행은 미회신으로 제출에서 제외된다.
 // 합계는 서버가 재계산·박제하므로 여기서는 참고 표시만 한다.
+// MOQ → 회신수량은 한 방향으로만 따라간다(§6.38): MOQ 가 필요수량을 넘으면 회신수량을
+// MOQ 로 채우고, 사람이 직접 친 회신수량은 덮지 않는다. 회신수량 < MOQ 는 모순이라 막는다.
 
 export interface RfqReplyFormRow {
   quoteItemId: string;
@@ -68,6 +70,10 @@ interface EditRow {
   memo: string;
   /** 보유 부품에서 값을 채워 넣은 행 — 사람이 확인하도록 표시만 한다. */
   prefilled: boolean;
+  /** 회신수량이 MOQ 에서 파생된 값인가 — true 인 동안만 MOQ 변경을 따라간다. */
+  replyQtyAuto: boolean;
+  /** 마지막으로 동기화에 반영한 MOQ — 변경 감지용(제출에는 안 실린다). */
+  lastMoq: number | null;
 }
 
 const editRows = ref<EditRow[]>([]);
@@ -80,6 +86,12 @@ const initRows = (): void => {
     // 보유 부품 프리필(docs/PARTNER_PARTS.md) — **아직 회신하지 않은 행에만** 제안한다.
     // 이미 쓴 회신은 절대 덮지 않는다(값은 사람이 확정한 것이 정본).
     const suggest = row.reply === null ? (row.myStock ?? null) : null;
+    const moq = row.reply?.moq ?? suggest?.moq ?? null;
+    const savedReplyQty = row.reply?.replyQty ?? null;
+    // MOQ 가 필요수량을 넘는데 회신수량이 비었으면 MOQ 로 파생(§6.38). 저장된 회신수량이
+    // 정확히 MOQ 와 같으면 파생값으로 보고 이후 MOQ 변경을 계속 따라가게 둔다.
+    const moqAboveNeed = moq !== null && moq > row.orderQty;
+    const replyQtyAuto = savedReplyQty === null ? moqAboveNeed : moqAboveNeed && savedReplyQty === moq;
     return {
       quoteItemId: row.quoteItemId,
       mpn: row.mpn,
@@ -89,22 +101,21 @@ const initRows = (): void => {
       // 단가는 제안하지 않는다 — 재고표 단가는 견적가가 아니고, 프리필이 곧 제시가로
       // 굳어지면 협력사가 손해를 본다(수량·환율·시점이 다르다).
       unitPrice: row.reply?.unitPrice ?? null,
-      replyQty: row.reply?.replyQty ?? null,
-      moq: row.reply?.moq ?? suggest?.moq ?? null,
+      replyQty: savedReplyQty ?? (moqAboveNeed ? moq : null),
+      moq,
       stock: row.reply?.stock ?? suggest?.stockQty ?? null,
       dateCode: row.reply?.dateCode ?? suggest?.dateCode ?? '',
       leadTime: row.reply?.leadTime ?? suggest?.leadTime ?? '',
       memo: row.reply?.memo ?? '',
       prefilled: suggest !== null,
+      replyQtyAuto,
+      lastMoq: moq,
     };
   });
   deliveryDateInput.value = kstDateInput(props.deliveryDate);
   memoInput.value = props.memo ?? '';
 };
 watch(() => props.rows, initRows, { immediate: true });
-watch(editRows, () => {
-  validationIssue.value = null;
-}, { deep: true });
 watch([deliveryDateInput, memoInput], () => {
   validationIssue.value = null;
 });
@@ -114,10 +125,38 @@ const num = (v: unknown): number | null =>
 const strOrNull = (v: string): string | null => (v.trim() === '' ? null : v.trim());
 const hasValue = (v: unknown): boolean => v !== null && v !== undefined && v !== '';
 
+// MOQ → 회신수량 한 방향 동기화. 사람이 직접 친 회신수량(replyQtyAuto=false·값 있음)은 덮지 않는다.
+// MOQ 가 필요수량 이하로 내려가면 파생값은 비워 "미입력 = 필요수량" 의미로 돌아간다.
+const syncReplyQtyFromMoq = (row: EditRow): void => {
+  if (!row.replyQtyAuto && hasValue(row.replyQty)) return;
+  const moq = num(row.moq);
+  if (moq !== null && moq > row.orderQty) {
+    row.replyQty = moq;
+    row.replyQtyAuto = true;
+  } else if (row.replyQtyAuto) {
+    row.replyQty = null;
+    row.replyQtyAuto = false;
+  }
+};
+// 회신수량을 손으로 지우면 다시 MOQ 파생 대상이 된다(비운 채로 MOQ 아래에 둘 수는 없다).
+const onReplyQtyChange = (row: EditRow): void => {
+  if (!hasValue(row.replyQty)) syncReplyQtyFromMoq(row);
+};
+watch(editRows, (rows) => {
+  validationIssue.value = null;
+  for (const row of rows) {
+    const moq = num(row.moq);
+    if (moq === row.lastMoq) continue;
+    row.lastMoq = moq;
+    syncReplyQtyFromMoq(row);
+  }
+}, { deep: true });
+
 const lineTotal = (row: EditRow): number | null => {
   const price = num(row.unitPrice);
   if (price === null) return null;
-  const qty = num(row.replyQty) ?? row.orderQty;
+  // 서버 합계·관리자 비교표와 같은 공식 — 회신수량(?? 필요수량)에 MOQ 바닥.
+  const qty = effectiveRfqReplyQty(row.orderQty, num(row.replyQty), num(row.moq));
   return Math.round(price * qty);
 };
 
@@ -197,6 +236,14 @@ function validateRows(): boolean {
     }
     if (!validateInteger(row, 'replyQty', '회신수량', 1)) return false;
     if (!validateInteger(row, 'moq', 'MOQ', 1)) return false;
+    const replyQty = num(row.replyQty);
+    const moq = num(row.moq);
+    if (replyQty !== null && moq !== null && replyQty < moq) {
+      return rejectInput(
+        fieldKey(row, 'replyQty'),
+        `${partLabel(row)} 회신수량은 MOQ(${moq.toLocaleString('ko-KR')}) 이상이어야 합니다.`,
+      );
+    }
     if (!validateInteger(row, 'stock', '재고', 0)) return false;
     if (row.dateCode.trim().length > 100) {
       return rejectInput(fieldKey(row, 'dateCode'), `${partLabel(row)} Date Code는 100자 이내로 입력해 주세요.`);
@@ -333,8 +380,14 @@ function submit(): void {
                 :aria-invalid="isInvalid(row, 'replyQty')"
                 :aria-describedby="isInvalid(row, 'replyQty') ? 'rfq-reply-validation-error' : undefined"
                 :data-rfq-key="fieldKey(row, 'replyQty')"
+                :title="row.replyQtyAuto ? 'MOQ에 맞춰 자동으로 채운 수량입니다. 직접 고칠 수 있습니다.' : undefined"
                 class="w-20 rounded border border-gray-300 px-1.5 py-1 text-right tabular-nums"
-                :class="{ 'border-red-500 ring-1 ring-red-200': isInvalid(row, 'replyQty') }"
+                :class="{
+                  'border-red-500 ring-1 ring-red-200': isInvalid(row, 'replyQty'),
+                  'bg-amber-50': row.replyQtyAuto && !isInvalid(row, 'replyQty'),
+                }"
+                @input="row.replyQtyAuto = false"
+                @change="onReplyQtyChange(row)"
               >
             </td>
             <td class="px-2 py-1.5">
