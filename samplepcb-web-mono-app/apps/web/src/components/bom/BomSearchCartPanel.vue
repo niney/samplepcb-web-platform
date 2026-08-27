@@ -183,7 +183,7 @@ function hideCartMpnTooltip(itemId: string): void {
         </div>
 
         <div class="absolute right-0 top-[10px] flex items-center gap-[4px]">
-          <div class="flex h-[22px] w-[58px] items-center overflow-hidden rounded-[4px] border border-line-strong bg-search-input">
+          <div class="flex h-[22px] w-[72px] items-center overflow-hidden rounded-[4px] border border-line-strong bg-search-input">
             <button type="button" class="w-[15px] shrink-0 text-[11px] text-ink-muted hover:bg-surface-raised disabled:opacity-40" :disabled="pendingItemId !== null" aria-label="수량 감소" @click="setQuantity(item, quantity(item) - 1, true)">−</button>
             <input :value="quantity(item)" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="7" autocomplete="off" class="h-full min-w-0 flex-1 border-x border-line-soft bg-transparent text-center font-sans text-[11px] font-medium tabular-nums text-ink outline-none" aria-label="품목 수량" :disabled="pendingItemId !== null" @input="setQuantity(item, ($event.target as HTMLInputElement).value, false)" @change="setQuantity(item, ($event.target as HTMLInputElement).value, true)">
             <button type="button" class="w-[15px] shrink-0 text-[11px] text-ink-muted hover:bg-surface-raised disabled:opacity-40" :disabled="pendingItemId !== null" aria-label="수량 증가" @click="setQuantity(item, quantity(item) + 1, true)">+</button>
