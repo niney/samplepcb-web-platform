@@ -2,13 +2,14 @@ import { z } from 'zod';
 import type { PartDetailType } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { specsSiRecord } from './parts-es';
-import { PARTNER_SUPPLIER, SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { SAMPLEPCB_SUPPLIER } from './parts-facts';
 import {
   isCatalogInquiryOffer,
   partOfferDerivedFrom,
   partOfferKind,
   partOffersForDisplay,
 } from './parts-offer-kind';
+import { loadQuoteItemPartnerHolders } from './partner-parts';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // 부품 상세(DB) DTO 빌더 — 관리자 카탈로그 상세와 고객 BOM 구매 조건 변경 모달이 공유.
@@ -25,7 +26,17 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
     include: { offers: { include: { priceBreaks: true } } },
   });
   if (part === null) return null;
-  const partnerOffers = part.offers.filter((offer) => offer.supplier === PARTNER_SUPPLIER);
+  const holderLookup = await loadQuoteItemPartnerHolders([{ id: part.id, mpn: part.mpn }]);
+  const partnerHolders = holderLookup.itemHolders[String(part.id)] ?? [];
+  const partnerNames = [...new Set(
+    partnerHolders.map((holder) => holder.partnerName),
+  )].sort((left, right) => left.localeCompare(right, 'ko-KR'));
+  const partnerStocks = partnerHolders.flatMap((holder) =>
+    holder.stockQty === null ? [] : [holder.stockQty]);
+  const partnerUpdatedAt = partnerHolders
+    .map((holder) => holder.uploadedAt)
+    .sort()
+    .at(-1) ?? null;
   const visibleOffers = partOffersForDisplay(part.offers);
   const realOffers = visibleOffers.filter((offer) => offer.supplier !== SAMPLEPCB_SUPPLIER);
   const ownCatalogOffers = visibleOffers.filter(
@@ -62,15 +73,16 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
         : new Date(Math.max(...freshnessOffers.map((offer) => offer.fetchedAt.getTime()))).toISOString(),
     score: null,
     hasCatalogInquiryOffer: visibleOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
-    hasPartnerStock: partnerOffers.length > 0,
-    partnerStock: partnerOffers.length === 0
+    hasPartnerStock: partnerHolders.length > 0,
+    partnerStock: partnerHolders.length === 0
       ? null
       : {
-          partnerCount: new Set(partnerOffers.map((offer) => offer.supplierSku.split(':')[0])).size,
-          totalStockQty: partnerOffers.reduce((sum, offer) => sum + Math.max(0, offer.stock ?? 0), 0),
-          updatedAt: new Date(
-            Math.max(...partnerOffers.map((offer) => offer.fetchedAt.getTime())),
-          ).toISOString(),
+          partnerCount: partnerHolders.length,
+          partnerNames,
+          totalStockQty: partnerStocks.length === 0
+            ? null
+            : partnerStocks.reduce((sum, stock) => sum + Math.max(0, stock), 0),
+          updatedAt: partnerUpdatedAt,
         },
     firstSeenAt: part.firstSeenAt.toISOString(),
     lastSeenAt: part.lastSeenAt.toISOString(),

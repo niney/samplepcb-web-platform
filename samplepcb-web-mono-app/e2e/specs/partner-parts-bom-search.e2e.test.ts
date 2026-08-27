@@ -251,8 +251,8 @@ describe.skipIf(!RUN)('협력사 보유 부품 × 고객 BOM 실검색', () => {
       select: { id: true },
     });
 
-    // ④ 단일검색이 품번으로 찾는다. 협력사 근거는 `hasPartnerStock` 로만 드러나고
-    //    공급사·재고 집계에는 안 들어간다(P5 — 고객 화면에 조직 이름 미노출).
+    // ④ 단일검색이 품번으로 찾는다. 협력사명은 Distributor에 공개하되
+    //    공급사 패싯·검증 재고 집계에는 들어가지 않는다(P5 정책 변경).
     const exact = await api(
       admin(),
       'GET',
@@ -264,6 +264,7 @@ describe.skipIf(!RUN)('협력사 보유 부품 × 고객 BOM 실검색', () => {
     );
     expect(hit, '협력사만 가진 품번도 단일검색에 잡혀야 한다').toBeDefined();
     expect(hit.hasPartnerStock).toBe(true);
+    expect(hit.partnerStock.partnerNames).toContain(PARTNER_NAME);
     expect(hit.suppliers, '협력사는 공급사 패싯에 들어가지 않는다').toEqual([]);
     expect(hit.totalStock, '검증되지 않은 주장이 재고 집계에 섞이면 안 된다').toBe(0);
 

@@ -26,6 +26,7 @@ import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
 import { loadPartDetailDto } from '../lib/parts-read';
+import { loadQuoteItemPartnerHolders } from '../lib/partner-parts';
 import { normalizeSupplierPackaging } from '../lib/supplier-packaging';
 import { SAMPLEPCB_SUPPLIER } from '../lib/parts-facts';
 import {
@@ -175,13 +176,18 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
       total = typeof res.hits.total === 'number' ? res.hits.total : (res.hits.total?.value ?? 0);
     }
     const hits = res.hits.hits.flatMap((h) => (h._source === undefined ? [] : [toHit(h._source, h._score)]));
-    const parts = hits.length === 0
-      ? []
-      : await prisma.spPart.findMany({
-          where: { id: { in: hits.map((h) => BigInt(h.id)) } },
-          include: { offers: { include: { priceBreaks: true } } },
-        });
-    const config = await getBomQuoteRuntimeConfig();
+    const [parts, config, holderLookup] = await Promise.all([
+      hits.length === 0
+        ? []
+        : prisma.spPart.findMany({
+            where: { id: { in: hits.map((h) => BigInt(h.id)) } },
+            include: { offers: { include: { priceBreaks: true } } },
+          }),
+      getBomQuoteRuntimeConfig(),
+      loadQuoteItemPartnerHolders(
+        hits.map((hit) => ({ id: BigInt(hit.id), mpn: hit.mpn })),
+      ),
+    ]);
     const pricingContext = {
       targetCurrency: 'KRW' as const,
       usdKrwRate: config.usdKrwRate,
@@ -195,6 +201,16 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
       data: {
         items: hits.map((hit) => {
           const part = partsById.get(hit.id);
+          const partnerHolders = holderLookup.itemHolders[hit.id] ?? [];
+          const partnerNames = [...new Set(
+            partnerHolders.map((holder) => holder.partnerName),
+          )].sort((left, right) => left.localeCompare(right, 'ko-KR'));
+          const partnerStocks = partnerHolders.flatMap((holder) =>
+            holder.stockQty === null ? [] : [holder.stockQty]);
+          const partnerUpdatedAt = partnerHolders
+            .map((holder) => holder.uploadedAt)
+            .sort()
+            .at(-1) ?? null;
           const offerInputs = part === undefined ? [] : toOfferInputs(part);
           const pick = pickDefaultOffer(offerInputs, q.needed, config.usdKrwRate);
           const offerOptions = part === undefined
@@ -241,6 +257,17 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
               });
           return {
             ...hit,
+            hasPartnerStock: partnerHolders.length > 0,
+            partnerStock: partnerHolders.length === 0
+              ? null
+              : {
+                  partnerCount: partnerHolders.length,
+                  partnerNames,
+                  totalStockQty: partnerStocks.length === 0
+                    ? null
+                    : partnerStocks.reduce((sum, stock) => sum + Math.max(0, stock), 0),
+                  updatedAt: partnerUpdatedAt,
+                },
             source: 'catalog' as const,
             inlineOffers: null,
             offerOptions,

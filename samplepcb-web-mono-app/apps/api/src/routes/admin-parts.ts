@@ -203,6 +203,8 @@ export function toHit(doc: SpPartDoc, score: number | null | undefined): PartHit
     partnerStock: doc.hasPartnerStock === true
       ? {
           partnerCount: doc.partnerCount ?? 0,
+          // 이름은 ES에 저장하지 않는다. 고객 BOM 검색 라우트가 현재 원장에서 보강한다.
+          partnerNames: [],
           totalStockQty: doc.partnerStockQty ?? null,
           updatedAt: doc.partnerStockUpdatedAt ?? null,
         }

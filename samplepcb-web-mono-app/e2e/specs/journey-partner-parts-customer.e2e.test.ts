@@ -193,7 +193,7 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 고객 여정', () => {
   }, 300_000);
 
   // ── ① 고객 세션 노출 ───────────────────────────────────────────────────────
-  test('고객 화면 어디에도 협력사 이름이 없다 (P5)', async () => {
+  test('단일검색 Distributor에는 협력사명이 보이고 카트에는 공급망 상세가 이어지지 않는다 (P5)', async () => {
     const session = await newSession({ mbId: CUSTOMER });
     try {
       await session.page.goto('/app/bom/search', { waitUntil: 'networkidle' });
@@ -206,19 +206,19 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 고객 여정', () => {
       const section = session.page.locator('section', { hasText: '협력사 보유' }).first();
       expect(await section.isVisible(), '고객에게도 보유 사실은 보인다').toBe(true);
 
-      // 곳 수·재고·기준일까지는 보이되 **조직 이름은 어디에도 없어야 한다**.
+      // 정책 변경: 단일검색 Distributor에는 현재 보유 협력사명을 명시한다.
       const body = await session.page.locator('body').innerText();
       for (const name of [PARTNER_A, PARTNER_B]) {
-        expect(body.includes(name), `고객 화면에 협력사 이름이 샜다: ${name}`).toBe(false);
+        expect(body.includes(name), `단일검색 Distributor에 협력사명이 있어야 한다: ${name}`).toBe(true);
       }
       await snap(session.page, 'journey-customer-search');
 
-      // 담아서 견적 상세까지 — 카트·행 표기에서도 이름이 새지 않는지.
-      await session.page.locator('button', { hasText: '견적담기' }).first().click();
+      // RFQ로 담은 뒤에도 카트는 특정 협력사를 선정한 상태가 아니므로 일반 표기를 유지한다.
+      await section.locator('button', { hasText: 'RFQ' }).first().click();
       await session.page.waitForTimeout(2_500);
-      const afterAdd = await session.page.locator('body').innerText();
+      const afterAdd = await session.page.locator('aside', { hasText: '부품 견적' }).innerText();
       for (const name of [PARTNER_A, PARTNER_B]) {
-        expect(afterAdd.includes(name), `카트에 협력사 이름이 샜다: ${name}`).toBe(false);
+        expect(afterAdd.includes(name), `카트가 특정 협력사를 선정한 것처럼 보이면 안 된다: ${name}`).toBe(false);
       }
       await snap(session.page, 'journey-customer-cart');
       expect(session.pageErrors, session.pageErrors.join('\n')).toEqual([]);
@@ -226,7 +226,7 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 고객 여정', () => {
       await session.close();
     }
 
-    // API 도 같은 계약이다 — 화면만 가리고 응답에 남으면 우회로가 열린다.
+    // API도 이름만 공개하고 조직 식별자·연락처·개별 재고는 내리지 않는다.
     const search = await api(
       buyer(),
       'GET',
@@ -235,8 +235,9 @@ describe.skipIf(!RUN)('협력사 보유 부품 — 고객 여정', () => {
     const hit = (search.json.data.items as any[]).find((item) => item.mpn === SHARED_MPN);
     expect(hit?.hasPartnerStock).toBe(true);
     expect(hit?.partnerStock?.partnerCount, '곳 수는 보인다').toBe(2);
-    expect(JSON.stringify(hit)).not.toContain(PARTNER_A);
-    expect(JSON.stringify(hit)).not.toContain(PARTNER_B);
+    expect(hit?.partnerStock?.partnerNames).toEqual(expect.arrayContaining([PARTNER_A, PARTNER_B]));
+    expect(hit?.partnerStock).not.toHaveProperty('partnerIds');
+    expect(hit?.partnerStock).not.toHaveProperty('contactEmail');
   }, 300_000);
 
   // ── ② 주문 게이트 ──────────────────────────────────────────────────────────

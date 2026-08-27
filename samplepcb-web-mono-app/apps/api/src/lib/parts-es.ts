@@ -140,7 +140,7 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     // 협력사뿐인 부품은 스펙·설명이 없다. 색인은 하되(품번으로는 찾혀야 한다)
     // broad·파라메트릭 질의에서는 제외한다 — 안 그러면 제조사명 한 단어에 수천 건이 쏟아진다.
     partnerOnly: partnerOffers.length > 0 && partnerOffers.length === part.offers.length,
-    // 곳 수·합계·기준일까지만 — 조직 이름은 색인에도 넣지 않는다(P5: 고객 화면 미노출).
+    // 곳 수·합계·기준일까지만 색인 — 고객 공개 이름은 현재 DB에서 조회 시 보강한다(P5).
     partnerStockQty: partnerOffers.length === 0
       ? null
       : partnerOffers.reduce((sum, offer) => sum + Math.max(0, offer.stock ?? 0), 0),

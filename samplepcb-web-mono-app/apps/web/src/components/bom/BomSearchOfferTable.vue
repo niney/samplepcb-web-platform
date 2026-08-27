@@ -239,9 +239,18 @@ function restorePartnerQuantity(part: BomPartHitType, event: Event): void {
   if (input.value === '') input.value = partnerQuantity(part).toString();
 }
 
-function partnerCountText(part: BomPartHitType): string {
+function partnerDistributorText(part: BomPartHitType): string {
+  const names = part.partnerStock?.partnerNames ?? [];
+  if (names.length === 1) return names[0] ?? '협력사 보유';
+  if (names.length === 2) return names.join(' · ');
+  if (names.length > 2) return `${names.slice(0, 2).join(' · ')} 외 ${String(names.length - 2)}곳`;
   const count = part.partnerStock?.partnerCount ?? 0;
-  return count > 1 ? `${String(count)}곳` : '';
+  return count > 1 ? `협력사 보유 ${String(count)}곳` : '협력사 보유';
+}
+
+function partnerDistributorTitle(part: BomPartHitType): string {
+  const names = part.partnerStock?.partnerNames ?? [];
+  return names.length === 0 ? '협력사 보유' : names.join(' · ');
 }
 
 function partnerStockText(part: BomPartHitType): string {
@@ -532,7 +541,9 @@ function partnerActionLabel(part: BomPartHitType): string {
                 </div>
               </td>
               <td class="px-[8px]">
-                <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong">협력사 보유 {{ partnerCountText(part) }}</p>
+                <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="partnerDistributorTitle(part)">
+                  {{ partnerDistributorText(part) }}
+                </p>
                 <!-- 협력사가 스스로 올린 재고표다. 나이를 늘 함께 보여 그대로 믿지 않게 한다. -->
                 <p class="mt-[2px] truncate text-[11px] leading-[16px] text-ink-muted">{{ partnerAgeText(part) }}</p>
               </td>

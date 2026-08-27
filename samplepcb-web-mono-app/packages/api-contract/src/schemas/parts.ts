@@ -55,13 +55,15 @@ export const PartHit = z.object({
   /** 가격·실재고 없이 취급 가능성만 확인된 제조사 카탈로그 정보가 존재한다. */
   hasCatalogInquiryOffer: z.boolean(),
   /**
-   * 협력사 보유(docs/PARTNER_PARTS.md) — 곳 수·재고 합계·기준일까지만. **조직 이름은 없다**(P5).
-   * 값은 협력사의 주장이라 `totalStock`·`minPrice` 집계에는 섞지 않는다.
+   * 협력사 보유(docs/PARTNER_PARTS.md) — 고객 단일검색에는 현재 승인 협력사명을 함께 공개한다(P5).
+   * 조직 ID·연락처·개별 재고는 없고, 값은 협력사의 주장이라 `totalStock`·`minPrice`에는 섞지 않는다.
    */
   hasPartnerStock: z.boolean(),
   partnerStock: z
     .object({
       partnerCount: z.number().int().nonnegative(),
+      /** 고객 단일검색 Distributor 표기용 현재 승인 협력사명. ID·연락처·개별 재고는 포함하지 않는다. */
+      partnerNames: z.array(z.string().trim().min(1).max(191)),
       totalStockQty: z.number().int().nonnegative().nullable(),
       updatedAt: z.string().nullable(),
     })
