@@ -7,7 +7,7 @@ import {
   MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_STATUS_LABELS,
   MARKET_REGIONS,
-  MARKET_SERVICE_AREAS,
+  MARKET_ACTIVE_SERVICE_AREAS,
   MARKET_SERVICE_AREA_LABELS,
   MARKET_REGION_LABELS,
   MARKET_TOOL_GROUPS,
@@ -21,8 +21,8 @@ import type {
   MarketToolCodeType,
   MarketCareerRangeType,
   MarketCategoryCodeType,
+  MarketActiveServiceAreaType,
   MarketRegionType,
-  MarketServiceAreaType,
   MarketTravelRangeType,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
@@ -53,7 +53,7 @@ interface RegisterForm {
   region: MarketRegionType;
   travelRange: MarketTravelRangeType;
   intro: string;
-  serviceAreas: MarketServiceAreaType[];
+  serviceAreas: MarketActiveServiceAreaType[];
   categories: MarketCategoryCodeType[];
   cadTools: MarketToolCodeType[];
   bankName: string;
@@ -100,7 +100,7 @@ function toggleCategory(code: MarketCategoryCodeType): void {
   if (i >= 0) form.categories.splice(i, 1);
   else form.categories.push(code);
 }
-function toggleServiceArea(code: MarketServiceAreaType): void {
+function toggleServiceArea(code: MarketActiveServiceAreaType): void {
   const i = form.serviceAreas.indexOf(code);
   if (i >= 0) form.serviceAreas.splice(i, 1);
   else form.serviceAreas.push(code);
@@ -355,7 +355,7 @@ const stepTitles = computed(() => [
           <div>
             <p class="text-xs font-bold text-tx-2">제공 가능한 개발 분야 <span class="font-normal text-tx-3">(복수 선택)</span> <span class="text-red-500">*</span></p>
             <div class="mt-2 flex flex-wrap gap-1.5">
-              <button v-for="area in MARKET_SERVICE_AREAS" :key="area" type="button" class="rounded-full border px-3 py-1.5 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2 hover:border-line-2'" @click="toggleServiceArea(area)">{{ MARKET_SERVICE_AREA_LABELS[area] }}</button>
+              <button v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" type="button" class="rounded-full border px-3 py-1.5 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2 hover:border-line-2'" @click="toggleServiceArea(area)">{{ MARKET_SERVICE_AREA_LABELS[area] }}</button>
             </div>
             <p v-if="form.serviceAreas.length === 0" class="mt-2 text-xs text-red-500">개발 분야를 1개 이상 선택해 주세요.</p>
           </div>

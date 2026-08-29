@@ -163,8 +163,8 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
   // MD 관전(하위 발주 열람) — 같은 fallback RECEIVER 라도 주어가 다르다. 협력사 문구를
   // 그대로 내면 "내가 올려야 하나?"로 읽힌다(실주행 확정). 기본은 하위가 진행, 대행은 보조.
   if (d.direction === 'issued') {
-    // 응답 타입이 z.input 계열로 흐르면 default('') 전이라 undefined 가 섞인다 — 빈값 통일.
-    const counterparty = d.counterpartyName ?? '';
+    // 2026-08-28 @sp/shared apiGet 이 출력 타입(default 적용 후)을 주므로 빈값 통일이 불필요해졌다.
+    const counterparty = d.counterpartyName;
     const sub = counterparty === '' ? '하위 협력사' : `하위 협력사(${counterparty})`;
     // 트랙별 어휘 — 스텐실에는 EQ 왕복이 없어 'EQ 승인'이라는 말 자체가 뜻이 안 통한다.
     const st = isStencil.value;
@@ -352,7 +352,7 @@ const selectableChildRfqs = computed(
 const originChildTargets = computed(() => {
   const d = detail.value;
   if (d?.direction !== 'received' || d.reorderRound === 0) return [];
-  return (d.originChildPos ?? []).filter(
+  return d.originChildPos.filter(
     (o) => !d.children.some((c) => c.partnerId === o.partnerId),
   );
 });

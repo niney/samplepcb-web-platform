@@ -1,0 +1,24 @@
+{
+  "id": "04-firmware-only",
+  "label": "펌웨어 단독 — 양산 보드 소스 유실",
+  "title": "기존 온도 조절기 보드 펌웨어 재개발",
+  "serviceAreas": ["firmware"],
+  "description": "이미 양산 중인 온도 조절기 보드가 있는데 제조사가 문을 닫아 펌웨어 소스를 잃어버렸습니다. 회로도와 보드 실물은 있습니다. MCU 는 STM32F103 이고 디스플레이는 7세그먼트 4자리, 릴레이 출력 2개, NTC 온도 센서 1개가 붙어 있습니다. 기존 동작과 같게 펌웨어를 새로 만들고, RS-485 로 설정값을 읽고 쓸 수 있게 추가하고 싶습니다.",
+  "answers": [
+    { "code": "stage", "choices": ["production"] },
+    { "code": "deliverables", "choices": ["firmware", "docs"] },
+    { "code": "quantity", "choices": ["mass"], "note": "월 500대" },
+    { "code": "power", "choices": ["mains_ac"] },
+    { "code": "connectivity", "choices": ["rs485_rs232"] },
+    { "code": "external", "choices": ["existing_device"], "note": "기존 PLC" },
+    { "code": "constraints", "choices": ["none"] },
+    { "code": "certification", "choices": ["kc"], "note": "기존 인증을 유지해야 하는지 모름" },
+    { "code": "timeline", "choices": ["asap"] }
+  ],
+  "attachments": [],
+  "golden": {
+    "mustContain": ["STM32F103", "7세그먼트", "릴레이", "NTC", "RS-485", "PLC"],
+    "forbidden": ["Modbus", "4층", "ESP32", "BLE", "Wi-Fi", "3.3V", "5V"],
+    "expectedOpen": ["프로토콜", "회로도", "기존 동작"]
+  }
+}

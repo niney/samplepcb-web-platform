@@ -4,19 +4,19 @@ import {
   MARKET_BUDGET_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
   MARKET_METHOD_LABELS,
-  MARKET_REQUEST_TYPE_LABELS,
-  MARKET_SERVICE_AREA_LABELS,
   MARKET_TOOL_LABELS,
 } from '@sp/api-contract';
 import type { MarketProjectListItemType } from '@sp/api-contract';
+import { devReviewAreaBadge } from '@sp/utils';
 import { dateShort, ddayBadge, ddayToneClass } from '../lib/market-format';
+import { toActiveServiceAreas } from '../lib/service-areas';
 
 const props = defineProps<{ item: MarketProjectListItemType }>();
 
 const dday = computed(() => ddayBadge(props.item));
-const categoryChipClass = computed(() =>
-  props.item.requestType === 'system' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700',
-);
+// 의뢰 유형 배지는 폐기(2026-08-28) — 분야 배지 하나로 통일한다("회로 + PCB"·"풀 개발(…)").
+// 저장값에 비활성 분야가 섞인 옛 의뢰는 배지가 빈 문자열이 될 수 있어 v-if 로 감춘다.
+const areaBadge = computed(() => devReviewAreaBadge(toActiveServiceAreas(props.item.serviceAreas)));
 </script>
 
 <template>
@@ -38,11 +38,8 @@ const categoryChipClass = computed(() =>
     </h3>
 
     <div class="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
-      <span class="rounded-full px-2 py-0.5 font-semibold" :class="categoryChipClass">
-        {{ MARKET_REQUEST_TYPE_LABELS[item.requestType] }}
-      </span>
-      <span v-for="area in item.serviceAreas" :key="area" class="rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
-        {{ MARKET_SERVICE_AREA_LABELS[area] }}
+      <span v-if="areaBadge !== ''" class="rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
+        {{ areaBadge }}
       </span>
       <span
         class="rounded-full px-2 py-0.5 font-semibold"
@@ -52,6 +49,9 @@ const categoryChipClass = computed(() =>
       </span>
       <span v-if="item.ndaRequired" class="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">
         NDA
+      </span>
+      <span v-if="item.hasDevReview" class="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+        AI 사전 검토서
       </span>
     </div>
 

@@ -10,11 +10,14 @@
 //   pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-market.mts run
 //   pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-market.mts cleanup
 // 검증 맥락: docs/MARKET_FLOW.md §5(접근 제어)·§4(상태 머신). 2차(결제) 회귀에도 재사용.
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+// 검토서 입력 해시는 **출하 코드와 같은 함수**를 쓴다(규칙이 갈라지면 정상 등록이
+// REVIEW_STALE 로 튕기는 결함을 하네스가 못 잡는다). tsx 가 TS 를 그대로 로드한다.
+import { devReviewInputHash } from '../../samplepcb-web-mono-app/apps/api/src/lib/ai/dev-review.ts';
 
 // api 패키지의 node_modules 를 해석(스크립트가 리포 ops/ 에 살아 자체 해석 불가).
 const apiRequire = createRequire(
@@ -88,6 +91,34 @@ const mailpitTotal = async () => {
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ── AI 사전 검토서 잡 시드(LLM 호출 없음) ──────────────────────────────────────
+// 등록 라우트는 클라이언트가 보낸 검토서 본문을 믿지 않고 sp_ai_job 의 done 행을 읽는다.
+// 그래서 하네스가 완료 잡을 직접 만들어 두고 jobId 만 넘긴다(실호출은 관리자 샘플·프로빙 몫).
+const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+
+const minimalDevReview = (serviceAreas, answers, summary) => ({
+  version: 1,
+  brief: { serviceAreas, answers },
+  summary,
+  requirements: [],
+  diagram: {
+    project: { name: 'E2E', summary: '', stage: 'idea', service_type: 'single' },
+    groups: [{ id: 'main', label: 'MAIN' }],
+    blocks: [{ id: 'mcu', group: 'main', type: 'controller', label: '메인 컨트롤러', status: 'tbd' }],
+    connections: [],
+    constraints: [],
+    feature_highlights: [],
+    questions_missing: [],
+  },
+  areas: serviceAreas.map((area) => ({ area, scope: [], risks: [], spec: [] })),
+  openQuestions: [],
+  meta: {
+    jobId: '', model: 'e2e-model', promptVersion: 'dev-review.v1', inputHash: '',
+    generatedAt: new Date().toISOString(), attachmentFiles: [],
+  },
+  stats: { confirmed: 2, needsConfirmation: 3 },
+});
 
 // g5 원시 접근 — 계약 결제는 그누보드 DB(samplepcb) 동거이므로 prisma 로 g5_* 를 직접
 // 쿼리한다(1차 하네스가 g5_config·g5_member 를 $queryRaw 로 읽는 관례와 동일). g5-db.ts
@@ -249,6 +280,11 @@ async function cleanup() {
   await prisma.spMarketBid.deleteMany({ where: { projectId: { in: pids } } });
   await prisma.spMarketNdaSign.deleteMany({ where: { projectId: { in: pids } } });
   await prisma.spMarketProject.deleteMany({ where: { id: { in: pids } } });
+  // 하네스가 시드한 AI 잡(sp_ai_job) — 프로젝트와 FK 가 없으므로 id 로 직접 지운다.
+  const aiJobIds = (ids.aiJobIds ?? []).map((v) => String(v));
+  if (aiJobIds.length > 0) {
+    await prisma.spAiJob.deleteMany({ where: { id: { in: aiJobIds } } });
+  }
   if (ids.expertId !== null) {
     await prisma.spMarketExpert.deleteMany({ where: { id: BigInt(ids.expertId) } });
   }
@@ -267,7 +303,11 @@ async function cleanup() {
     leftOpt = Number(opt?.c ?? 0);
   }
   const leftContracts = await prisma.spMarketContract.count({ where: { projectId: { in: pids } } });
-  console.log(`잔여(0 기대) — 카트행:${leftCart} 옵션행:${leftOpt} 계약:${leftContracts}`);
+  const leftAiJobs =
+    aiJobIds.length === 0 ? 0 : await prisma.spAiJob.count({ where: { id: { in: aiJobIds } } });
+  console.log(
+    `잔여(0 기대) — 카트행:${leftCart} 옵션행:${leftOpt} 계약:${leftContracts} AI잡:${leftAiJobs}`,
+  );
   console.log('cleanup 완료:', ids);
 }
 
@@ -293,7 +333,30 @@ async function run() {
   console.log(`주체: expert=${em.mb_id} client=${cm.mb_id} stranger=${sm.mb_id} admin=${cfAdmin}`);
 
   const mailBefore = await mailpitTotal();
-  const ids = { expertId: null, projectIds: [], contractKeys: [], simOdIds: [] };
+  const ids = { expertId: null, projectIds: [], contractKeys: [], simOdIds: [], aiJobIds: [] };
+
+  // 완료 잡 시드 — 소유자·입력 해시를 지정해 등록 라우트의 대조 경로를 그대로 태운다.
+  const seedAiJob = async (mbId, inputHash, review) => {
+    const id = randomUUID();
+    await prisma.spAiJob.create({
+      data: {
+        id,
+        useCase: 'market.dev-review',
+        mbId,
+        status: 'done',
+        stage: null,
+        model: 'e2e-model',
+        promptVersion: 'dev-review.v1',
+        inputHash,
+        resultJson: JSON.stringify({ ...review, meta: { ...review.meta, jobId: id, inputHash } }),
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+    });
+    ids.aiJobIds.push(id);
+    writeFileSync(IDS_FILE, JSON.stringify(ids));
+    return id;
+  };
 
   try {
     // ── 1) 전문가 등록(multipart) ──
@@ -330,46 +393,81 @@ async function run() {
     const reApprove = await req('POST', `/api/admin/market/experts/${ids.expertId}/approve`, { token: tAdmin });
     assert(reApprove.status === 409, '이중 승인 409', reApprove.status);
 
-    // ── 3) 의뢰 등록(역견적·NDA·첨부) ──
-    const prjForm = new FormData();
-    prjForm.append(
-      'payload',
-      JSON.stringify({
-        title: 'E2E 심박 모니터 회로 개발',
-        requestType: 'individual',
-        serviceAreas: ['circuit'],
-        categories: ['power', 'mcu'], // STEP2 세부분야(specialties 컬럼)
-        cadTools: [], // 빈 배열 = 특정 툴 요구 없음(신규 의미 체계)
-        description: 'E2E 통합 테스트용 프로젝트 상세 설명입니다.',
-        diagramHtml: '<html><body><svg viewBox="0 0 10 10"><text>E2E DIAGRAM</text></svg></body></html>',
-        // 구성 명세(JSON) — 서버가 재검증·정규화 직렬화해 저장(인터뷰 파이프라인 P1 산출 형태)
-        diagramSpec: JSON.stringify({
-          project: { name: 'E2E Spec', summary: 'E2E', stage: 'idea', service_type: 'single' },
-          groups: [{ id: 'main', label: 'MAIN CONTROLLER' }],
-          blocks: [{ id: 'mcu', group: 'main', type: 'controller', label: 'E2E MCU', status: 'confirmed' }],
-          connections: [],
-          constraints: [],
-          feature_highlights: [],
-          questions_missing: [],
-        }),
-        // 작업검토지시서(Phase 2) + 신규 의뢰 인터뷰 답변 원문 공개 동의
-        rocMd: '## 1. 프로젝트 식별\nE2E ROC 문서',
-        interviewAnswers: [{ code: 'stage', answer: '아이디어만 있음' }],
-        shareInterviewAnswers: true,
-        // 분야별 포스팅 카드(Phase 3) — 의뢰 분야(circuit) 밖 카드(firmware)는 서버가 걸러야 함
-        postings: [
-          { serviceArea: 'circuit', summary: ['E2E 회로 요약'], scope: ['전원부 설계'], deliverables: ['회로도'], notes: [] },
-          { serviceArea: 'firmware', summary: ['걸러져야 함'], scope: ['걸러져야 함'], deliverables: [], notes: [] },
-        ],
-        ndaRequired: true,
-        budgetRange: 'r300_700',
-        deadline: { days: 7 },
-        method: 'open',
-      }),
+    // ── 3) AI 사전 검토서 잡 시드 → 의뢰 등록(역견적·NDA·첨부) ──
+    // 원천 해시 = 제목·분야·설명·9문항 답변 + 첨부 원본 SHA-256(앞 10개). 등록 라우트가
+    // 같은 규칙으로 재계산해 대조하므로, 하네스도 출하 함수(devReviewInputHash)를 쓴다.
+    const prjAnswers = [
+      { code: 'stage', choices: ['idea'] },
+      { code: 'deliverables', choices: ['schematic', 'bom'] },
+      { code: 'power', choices: ['adapter_dc'], note: '12V 어댑터' },
+    ];
+    const prjAttachmentBody = 'e2e spec content';
+    const prjSource = {
+      title: 'E2E 심박 모니터 회로 개발',
+      serviceAreas: ['circuit'],
+      description: 'E2E 통합 테스트용 프로젝트 상세 설명입니다.',
+      answers: prjAnswers,
+    };
+    const prjHash = devReviewInputHash({
+      ...prjSource,
+      attachmentHashes: [sha256(Buffer.from(prjAttachmentBody))],
+    });
+    const reviewJobId = await seedAiJob(
+      cm.mb_id,
+      prjHash,
+      minimalDevReview(['circuit'], prjAnswers, 'E2E 검토서 요약'),
     );
-    prjForm.append('attachment', new Blob(['e2e spec content'], { type: 'text/plain' }), 'e2e-spec.txt');
-    const prj = await req('POST', '/api/market/projects', { token: tClient, form: prjForm });
-    assert(prj.status === 200 && prj.json?.result === true, '의뢰 등록(open+NDA+첨부)', prj);
+    // 제3자(stranger) 소유 잡 — 같은 해시라도 소유자가 다르면 등록이 막혀야 한다.
+    const strangerJobId = await seedAiJob(
+      sm.mb_id,
+      prjHash,
+      minimalDevReview(['circuit'], prjAnswers, '남의 검토서'),
+    );
+
+    const buildProjectForm = (over = {}) => {
+      const form = new FormData();
+      form.append(
+        'payload',
+        JSON.stringify({
+          ...prjSource,
+          categories: ['power', 'mcu'], // STEP2 세부분야(specialties 컬럼)
+          cadTools: [], // 빈 배열 = 특정 툴 요구 없음(신규 의미 체계)
+          ndaRequired: true,
+          budgetRange: 'r300_700',
+          deadline: { days: 7 },
+          method: 'open',
+          devReviewJobId: reviewJobId,
+          ...over,
+        }),
+      );
+      form.append('attachment', new Blob([prjAttachmentBody], { type: 'text/plain' }), 'e2e-spec.txt');
+      return form;
+    };
+
+    // 3-a) 타인 소유 잡 id → 400 REVIEW_JOB_INVALID(존재하지만 내 것이 아니다)
+    const foreignJob = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildProjectForm({ devReviewJobId: strangerJobId }),
+    });
+    assert(
+      foreignJob.status === 400 && foreignJob.json?.error === 'REVIEW_JOB_INVALID',
+      '타인 검토서 잡으로 등록 400 REVIEW_JOB_INVALID',
+      foreignJob,
+    );
+
+    // 3-b) 원천(제목)이 달라진 payload → 400 REVIEW_STALE(신선도 대조)
+    const stale = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildProjectForm({ title: 'E2E 심박 모니터 회로 개발(제목만 바뀜)' }),
+    });
+    assert(
+      stale.status === 400 && stale.json?.error === 'REVIEW_STALE',
+      '원천 변경 후 등록 400 REVIEW_STALE',
+      stale,
+    );
+
+    const prj = await req('POST', '/api/market/projects', { token: tClient, form: buildProjectForm() });
+    assert(prj.status === 200 && prj.json?.result === true, '의뢰 등록(open+NDA+첨부+검토서)', prj);
     const pid = prj.json?.data?.projectId;
     ids.projectIds.push(pid);
     writeFileSync(IDS_FILE, JSON.stringify(ids));
@@ -386,46 +484,63 @@ async function run() {
       '세부분야 반영 + 빈 요구 툴',
       anon.json?.data?.categories,
     );
-    // spec 동반 시 서버가 클라이언트 HTML 을 버리고 같은 명세로 재렌더한다(d6a4bb2ad) —
-    // 저장본에는 spec 블록 라벨이 있고 클라이언트 마커는 없어야 한다.
+    // 검토서는 서버 저장분(sp_ai_job)이 정본 — 클라이언트가 본문을 보낸 적이 없는데도
+    // 상세를 볼 수 있는 뷰어 전원(익명 포함)에게 노출된다(공개 범위 = description 동일).
     assert(
-      (anon.json?.data?.diagramHtml ?? '').includes('E2E MCU') &&
-        !(anon.json?.data?.diagramHtml ?? '').includes('E2E DIAGRAM'),
-      'AI 구성도(diagramHtml) 서버 재렌더 왕복',
+      anon.json?.data?.devReview?.stats?.confirmed === 2 &&
+        anon.json?.data?.devReview?.summary === 'E2E 검토서 요약',
+      'AI 사전 검토서 익명 상세 노출(서버 저장분)',
+      anon.json?.data?.devReview,
     );
     assert(
-      (anon.json?.data?.diagramSpec ?? '').includes('E2E MCU'),
-      'AI 구성 명세(diagramSpec) 왕복',
+      anon.json?.data?.devReview?.meta?.jobId === reviewJobId &&
+        anon.json?.data?.hasDevReview === true,
+      '검토서 meta.jobId 박제 + 목록 플래그 hasDevReview',
+      anon.json?.data?.meta,
     );
     assert(
-      (anon.json?.data?.rocMd ?? '').includes('E2E ROC') &&
-        anon.json?.data?.interviewAnswers === null,
-      'AI 지시서(rocMd) 왕복 + 익명 인터뷰 답변 비노출',
-    );
-    const expertDetail = await req('GET', `/api/market/projects/${pid}`, { token: tExpert });
-    assert(
-      expertDetail.json?.data?.interviewAnswers?.[0]?.answer === '아이디어만 있음',
-      '견적 가능 전문가에게 공개 동의 인터뷰 원문 노출',
-      expertDetail.json?.data?.interviewAnswers,
-    );
-    const anonPostings = anon.json?.data?.postings ?? [];
-    assert(
-      anonPostings.length === 1 && anonPostings[0]?.serviceArea === 'circuit',
-      '포스팅 카드 왕복 + 분야 밖 카드 필터',
-      anonPostings,
+      anon.json?.data?.requestType === 'individual',
+      '분야 1개 → requestType=individual 파생',
+      anon.json?.data?.requestType,
     );
 
-    // ── 4.5) 전체서비스(시스템 통합) 입찰 제한 — individual 전문가는 403 ──
+    // ── 4.3) 검토서 부착 상태의 원천 수정 가드 ──
+    // 원천(제목·설명·분야)과 검토서가 어긋나는 상태를 만들 수 없다: 409 → 같은 요청에
+    // devReview:null 을 실으면 통과(검토서를 버리는 선택을 명시한 것).
+    const retitle = await req('PATCH', `/api/market/projects/${pid}`, {
+      token: tClient,
+      body: { title: 'E2E 심박 모니터 회로 개발 v2' },
+    });
+    assert(
+      retitle.status === 409 && retitle.json?.error === 'DEV_REVIEW_ATTACHED',
+      '검토서 있는 의뢰의 제목 PATCH 409 DEV_REVIEW_ATTACHED',
+      retitle,
+    );
+    const retitleWithDrop = await req('PATCH', `/api/market/projects/${pid}`, {
+      token: tClient,
+      body: { title: 'E2E 심박 모니터 회로 개발 v2', devReview: null },
+    });
+    assert(retitleWithDrop.status === 200, '제목+검토서 제거 동시 PATCH 200', retitleWithDrop);
+    const afterDrop = await req('GET', `/api/market/projects/${pid}`);
+    assert(
+      afterDrop.json?.data?.devReview === null &&
+        afterDrop.json?.data?.hasDevReview === false &&
+        afterDrop.json?.data?.title === 'E2E 심박 모니터 회로 개발 v2',
+      '검토서 제거 반영 + 제목 갱신',
+      afterDrop.json?.data?.devReview,
+    );
+
+    // ── 4.5) 분야 2개 → requestType=system 파생 + 개인 전문가 입찰 200 ──
+    // 전체서비스 회사 전용 가드는 폐지됐다(활성 3분야는 개인이 통으로 수행).
     const sysForm = new FormData();
     sysForm.append(
       'payload',
       JSON.stringify({
-        title: 'E2E 시스템 통합 의뢰(입찰 제한 검증)',
-        requestType: 'system',
+        title: 'E2E 회로+펌웨어 통합 의뢰',
         serviceAreas: ['circuit', 'firmware'],
         categories: [],
         cadTools: [],
-        description: '전체서비스 입찰 제한 E2E 검증용 프로젝트입니다.',
+        description: '분야 2개 파생·개인 전문가 입찰 E2E 검증용 프로젝트입니다.',
         ndaRequired: false,
         budgetRange: 'r300_700',
         deadline: { days: 7 },
@@ -436,20 +551,17 @@ async function run() {
     const sysPid = sysPrj.json?.data?.projectId;
     ids.projectIds.push(sysPid);
     writeFileSync(IDS_FILE, JSON.stringify(ids));
-    const sysBid = await req('POST', `/api/market/projects/${sysPid}/bids`, {
-      token: tExpert, // e2e 전문가는 individual — company·house 만 허용이어야 함
-      body: { amount: 1_000_000, durationDays: 30, message: '전체서비스 제한에 막혀야 하는 입찰입니다.' },
-    });
+    const sysDetail = await req('GET', `/api/market/projects/${sysPid}`);
     assert(
-      sysBid.status === 403 && sysBid.json?.error === 'FULL_SERVICE_COMPANY_ONLY',
-      '시스템 통합 의뢰 individual 입찰 403',
-      sysBid,
+      sysDetail.json?.data?.requestType === 'system',
+      '분야 2개 → requestType=system 파생',
+      sysDetail.json?.data?.requestType,
     );
-    const badSpec = await req('PATCH', `/api/market/projects/${pid}`, {
-      token: tClient,
-      body: { diagramSpec: '{"broken":true}' },
+    const sysBid = await req('POST', `/api/market/projects/${sysPid}/bids`, {
+      token: tExpert, // e2e 전문가는 individual — 이제 통합 의뢰에도 입찰할 수 있어야 한다
+      body: { amount: 1_000_000, durationDays: 30, message: '통합 의뢰 개인 전문가 입찰입니다.' },
     });
-    assert(badSpec.status === 400, '파손 구성 명세 PATCH 400', badSpec.status);
+    assert(sysBid.status === 200, '시스템 통합 의뢰 개인 전문가 입찰 200', sysBid);
 
     // ── 5) 소유자 상세: 파일 보임 → fileId 확보 ──
     const ownerDetail = await req('GET', `/api/market/projects/${pid}`, { token: tClient });
@@ -525,7 +637,6 @@ async function run() {
       'payload',
       JSON.stringify({
         title: 'E2E 지정견적 ArtWork',
-        requestType: 'individual',
         serviceAreas: ['pcb'],
         cadTools: ['kicad'],
         description: '지정견적 E2E 테스트 상세 설명입니다.',
@@ -562,8 +673,7 @@ async function run() {
       'payload',
       JSON.stringify({
         title: 'E2E 조기마감 테스트',
-        requestType: 'individual',
-        serviceAreas: ['etc'],
+        serviceAreas: ['firmware'], // 신규 등록은 활성 3종(circuit·pcb·firmware)만 허용
         cadTools: ['any'], // 레거시 표현 — 서버가 수용하고 읽기에서 빈 배열로 정규화해야 한다
         description: '조기 마감 E2E 테스트 상세 설명입니다.',
         ndaRequired: false,
@@ -622,7 +732,6 @@ async function run() {
         'payload',
         JSON.stringify({
           title,
-          requestType: 'individual',
           serviceAreas: ['circuit'],
           cadTools: [],
           description: `${title} — 2차 E2E 상세 설명입니다.`,

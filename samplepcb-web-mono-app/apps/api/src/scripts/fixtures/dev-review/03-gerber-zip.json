@@ -1,0 +1,24 @@
+{
+  "id": "03-gerber-zip",
+  "label": "거버+BOM+블록도 zip 첨부",
+  "title": "스마트 화분 컨트롤러 — 아트웍 재작업 및 펌웨어",
+  "serviceAreas": ["pcb", "firmware"],
+  "description": "직접 그린 블록도와 BOM, 초안 거버가 있습니다. 아트웍을 제대로 다시 잡아 주시고 펌웨어를 새로 개발해 주세요. 부품은 BOM 에 적힌 것을 그대로 쓰고 싶습니다. 앱은 다른 팀이 만들고 있어서 보드와 앱 사이 통신 규격은 같이 정해야 합니다.",
+  "answers": [
+    { "code": "stage", "choices": ["pcb"] },
+    { "code": "deliverables", "choices": ["artwork", "firmware", "prototype"] },
+    { "code": "quantity", "choices": ["proto_1_10"] },
+    { "code": "power", "choices": ["adapter_dc"], "note": "12V" },
+    { "code": "connectivity", "choices": ["wifi", "usb"] },
+    { "code": "external", "choices": ["mobile_app"] },
+    { "code": "constraints", "choices": ["has"], "note": "60 x 60 mm" },
+    { "code": "certification", "choices": ["none"] },
+    { "code": "timeline", "choices": ["within_1m"] }
+  ],
+  "attachments": ["03-design-pack.zip"],
+  "golden": {
+    "mustContain": ["STM32G071", "SHT31", "12V", "60", "Wi-Fi", "USB", "펌프"],
+    "forbidden": ["4층", "4-layer", "nRF", "ESP32-S3", "BLE"],
+    "expectedOpen": ["앱", "통신 규격", "펌프"]
+  }
+}

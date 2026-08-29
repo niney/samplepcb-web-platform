@@ -4,7 +4,7 @@ import {
   MARKET_ACTIVE_CATEGORIES,
   MARKET_CATEGORIES,
   MARKET_CATEGORY_LABELS,
-  MARKET_SERVICE_AREAS,
+  MARKET_ACTIVE_SERVICE_AREAS,
   MARKET_SERVICE_AREA_LABELS,
   MARKET_TOOL_GROUPS,
   MARKET_TOOL_GROUP_CODES,
@@ -15,7 +15,6 @@ import type {
   MarketToolCodeType,
   MarketCategoryCodeType,
   MarketExpertMeType,
-  MarketServiceAreaType,
 } from '@sp/api-contract';
 import { useDeleteExpertFile, useUpdateExpertMe } from '../api/useMarketExpertMe';
 import { errorMessage } from '../lib/error-msg';
@@ -35,7 +34,8 @@ const form = reactive({
   displayName: props.me.displayName,
   phone: props.me.phone,
   intro: props.me.intro ?? '',
-  serviceAreas: [...props.me.serviceAreas] as MarketServiceAreaType[],
+  // 읽기 정규화 = 활성 ∩ 저장값 — 비활성 분야가 섞인 옛 프로필도 저장 시 계약을 통과한다.
+  serviceAreas: MARKET_ACTIVE_SERVICE_AREAS.filter((a) => props.me.serviceAreas.includes(a)),
   categories: [...props.me.categories] as MarketCategoryCodeType[],
   cadTools: [...props.me.cadTools] as MarketToolCodeType[],
   bankName: props.me.bankName ?? '',
@@ -134,7 +134,7 @@ async function save(): Promise<void> {
     <div>
       <p class="text-xs font-bold text-tx-2">제공 가능한 개발 분야</p>
       <div class="mt-2 flex flex-wrap gap-1.5">
-        <button v-for="area in MARKET_SERVICE_AREAS" :key="area" type="button" class="rounded-full border px-3 py-1.5 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2'" @click="toggle(form.serviceAreas, area)">{{ MARKET_SERVICE_AREA_LABELS[area] }}</button>
+        <button v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" type="button" class="rounded-full border px-3 py-1.5 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2'" @click="toggle(form.serviceAreas, area)">{{ MARKET_SERVICE_AREA_LABELS[area] }}</button>
       </div>
     </div>
 

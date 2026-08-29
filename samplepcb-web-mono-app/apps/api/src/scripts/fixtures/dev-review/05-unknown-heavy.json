@@ -1,0 +1,24 @@
+{
+  "id": "05-unknown-heavy",
+  "label": "\"모름\" 다수 — 유보 규율 검증",
+  "title": "공장 설비 진동 감지 장치",
+  "serviceAreas": ["circuit", "pcb"],
+  "description": "공장에 있는 모터가 고장 나기 전에 진동이 커지는 걸 미리 알고 싶습니다. 어떤 방식이 좋을지 잘 몰라서 전문가 의견을 듣고 싶습니다.",
+  "answers": [
+    { "code": "stage", "choices": ["idea"] },
+    { "code": "deliverables", "choices": ["unknown"] },
+    { "code": "quantity", "choices": ["unknown"] },
+    { "code": "power", "choices": ["unknown"] },
+    { "code": "connectivity", "choices": ["unknown"] },
+    { "code": "external", "choices": ["unknown"] },
+    { "code": "constraints", "choices": ["unknown"] },
+    { "code": "certification", "choices": ["unknown"] },
+    { "code": "timeline", "choices": ["flexible"] }
+  ],
+  "attachments": [],
+  "golden": {
+    "mustContain": ["진동", "모터"],
+    "forbidden": ["ADXL", "MPU6050", "LoRa", "BLE", "Wi-Fi", "ESP32", "STM32", "4층", "12V", "24V", "3.3V", "5V"],
+    "expectedOpen": ["전원", "통신", "설치", "수량"]
+  }
+}

@@ -1,43 +1,122 @@
-import { randomUUID } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import {
-  createAiJob,
-  findReusableAiJob,
-  finishAiJob,
-  hashAiInput,
-  hashAiText,
-} from './jobs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MarketDevReviewType } from '@sp/api-contract';
 
-describe('AI 동일 입력 잡 캐시', () => {
-  const source = {
-    model: 'test-model',
-    promptVersion: hashAiText('prompt-v1'),
-    inputHash: hashAiInput({ title: 'same request', answers: [] }),
-  };
+// sp_ai_job(DB) 저장소 — 재사용 창·소유 경계는 prisma where 절이 강제하므로 목으로 그
+// 질의 조건을 검사하고, 파손 저장분(resultJson)이 조용히 통과하지 않는지를 확인한다.
 
-  it('동일 회원의 완료된 성공 결과만 재사용한다', () => {
-    const mbId = `cache-owner-${randomUUID()}`;
-    const running = createAiJob('market.request-structurize', mbId, source);
-    expect(findReusableAiJob('market.request-structurize', mbId, source)).toBeUndefined();
+const prismaMocks = vi.hoisted(() => ({
+  findFirst: vi.fn(),
+  findUnique: vi.fn(),
+  create: vi.fn(),
+  updateMany: vi.fn(),
+}));
 
-    finishAiJob(running.id, { json: '{"ok":true}' });
-    expect(findReusableAiJob('market.request-structurize', mbId, source)?.id).toBe(running.id);
+vi.mock('../prisma', () => ({
+  prisma: {
+    spAiJob: {
+      findFirst: prismaMocks.findFirst,
+      findUnique: prismaMocks.findUnique,
+      create: prismaMocks.create,
+      updateMany: prismaMocks.updateMany,
+      findMany: vi.fn(),
+      count: vi.fn(),
+    },
+  },
+}));
+
+import { findReusableAiJob, finishAiJob, getAiJob } from './jobs';
+
+const review: MarketDevReviewType = {
+  version: 1,
+  brief: { serviceAreas: ['circuit'], answers: [{ code: 'stage', choices: ['idea'] }] },
+  summary: '테스트 검토서',
+  requirements: [],
+  diagram: {
+    project: { name: 'T', summary: '', stage: 'idea', service_type: 'single' },
+    groups: [{ id: 'main', label: 'MAIN' }],
+    blocks: [{ id: 'mcu', group: 'main', type: 'controller', label: '메인 컨트롤러', status: 'tbd' }],
+    connections: [],
+    constraints: [],
+    feature_highlights: [],
+    questions_missing: [],
+  },
+  areas: [{ area: 'circuit', scope: [], risks: [], spec: [] }],
+  openQuestions: [],
+  meta: {
+    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v1', inputHash: 'h',
+    generatedAt: '2026-08-28T00:00:00.000Z', attachmentFiles: [],
+  },
+  stats: { confirmed: 0, needsConfirmation: 0 },
+};
+
+const row = (over: Record<string, unknown> = {}) => ({
+  id: 'job-1',
+  useCase: 'market.dev-review',
+  mbId: 'owner',
+  status: 'done',
+  stage: null,
+  model: 'm',
+  promptVersion: 'dev-review.v1',
+  inputHash: 'h',
+  resultJson: JSON.stringify(review),
+  error: null,
+  startedAt: new Date('2026-08-28T00:00:00Z'),
+  finishedAt: new Date('2026-08-28T00:01:00Z'),
+  ...over,
+});
+
+describe('AI 잡 저장소(sp_ai_job)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('회원·모델·프롬프트·입력 경계가 하나라도 다르면 재사용하지 않는다', () => {
-    const mbId = `cache-boundary-${randomUUID()}`;
-    const job = createAiJob('market.request-roc', mbId, source);
-    finishAiJob(job.id, { md: 'result' });
+  it('완료 잡의 검토서를 파싱해 돌려준다', async () => {
+    prismaMocks.findUnique.mockResolvedValue(row());
+    const job = await getAiJob('job-1');
+    expect(job?.status).toBe('done');
+    expect(job?.review?.summary).toBe('테스트 검토서');
+  });
 
-    expect(findReusableAiJob('market.request-roc', `${mbId}-other`, source)).toBeUndefined();
-    expect(findReusableAiJob('market.request-roc', mbId, { ...source, model: 'other' })).toBeUndefined();
-    expect(findReusableAiJob('market.request-roc', mbId, {
-      ...source,
-      promptVersion: hashAiText('prompt-v2'),
-    })).toBeUndefined();
-    expect(findReusableAiJob('market.request-roc', mbId, {
-      ...source,
-      inputHash: hashAiInput({ title: 'changed request', answers: [] }),
-    })).toBeUndefined();
+  it('파손된 저장분은 done 이어도 error 로 취급한다', async () => {
+    prismaMocks.findUnique.mockResolvedValue(row({ resultJson: '{"version":9}' }));
+    const job = await getAiJob('job-1');
+    expect(job?.status).toBe('error');
+    expect(job?.review).toBeNull();
+    expect(job?.error).toBe('RESULT_CORRUPTED');
+  });
+
+  it('재사용은 회원·모델·프롬프트·입력·상태·시간창을 전부 건다', async () => {
+    prismaMocks.findFirst.mockResolvedValue(row());
+    const found = await findReusableAiJob('market.dev-review', 'owner', {
+      model: 'm', promptVersion: 'dev-review.v1', inputHash: 'h',
+    });
+    expect(found?.id).toBe('job-1');
+    const args = prismaMocks.findFirst.mock.calls[0]?.[0] as
+      | { where: Record<string, unknown> }
+      | undefined;
+    const where = args?.where ?? {};
+    expect(where).toMatchObject({
+      useCase: 'market.dev-review', mbId: 'owner', model: 'm',
+      promptVersion: 'dev-review.v1', inputHash: 'h', status: 'done',
+    });
+    expect(where.finishedAt).toHaveProperty('gte');
+  });
+
+  it('파손 저장분은 캐시로 재사용하지 않는다(비 JSON 도 500 이 아니다)', async () => {
+    prismaMocks.findFirst.mockResolvedValue(row({ resultJson: 'not json at all{' }));
+    await expect(
+      findReusableAiJob('market.dev-review', 'owner', {
+        model: 'm', promptVersion: 'dev-review.v1', inputHash: 'h',
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('오류 코드는 100자로 잘라 저장한다(VARCHAR(100) 방어)', async () => {
+    prismaMocks.updateMany.mockResolvedValue({ count: 1 });
+    await finishAiJob('job-1', { error: 'X'.repeat(300) });
+    const args = prismaMocks.updateMany.mock.calls[0]?.[0] as
+      | { data: { error: string } }
+      | undefined;
+    expect(args?.data.error).toHaveLength(100);
   });
 });

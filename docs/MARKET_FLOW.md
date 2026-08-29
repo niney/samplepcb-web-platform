@@ -47,57 +47,39 @@ local-web.samplepcb.co.kr (nginx 443)
 - **첨부·증빙은 `sp_file` 폴리모픽 재사용**: refType `'sp_market_project'`(attachment) /
   `'sp_market_expert'`(license·portfolio·bizreg). pathToken 비노출·`uploadedBy`에 mbId 금지
   (varchar(20)) 불변식 유지. 파일서버 serviceType은 env `MARKET_FILE_SERVICE_TYPE`(기본 `market`).
-- 프로젝트 분류는 `requestType`(시스템 통합 개발/개별 분야 개발)과 복수
-  `serviceAreas`(회로·PCB·펌웨어·제품디자인·기구설계·앱·서버·Linux/Windows 소프트웨어·기타)로
-  분리한다. 전문가도 같은 `serviceAreas`를 보유해 검색·매칭 기준을 공유하며, 세부분야
+- 프로젝트 분류는 복수 `serviceAreas` 로 한다 — **2026-08-28 분야 축소**: 신규 선택(의뢰·전문가
+  등록·필터)은 `MARKET_ACTIVE_SERVICE_AREAS`(회로·PCB·펌웨어) 3종만, 전체 enum(제품디자인·기구·
+  앱·서버·SW·기타)은 읽기 호환(기존 데이터·라벨)으로만 남는다. `requestType`(시스템 통합/개별)은
+  **입력이 아니라 서버 파생값**(분야 2개 이상=`system`) — 위저드의 유형 카드·자동 전환 UI 와
+  전체서비스 회사 전용 입찰 가드(`FULL_SERVICE_COMPANY_ONLY`)는 폐지됐다. 화면 표기는 분야 배지
+  (`devReviewAreaBadge`: 1개=분야명, 2개="회로 + PCB", 3개="풀 개발(회로·PCB·펌웨어)"). 세부분야
   18종(`categories`)과 툴 역량은 별도 축으로 유지한다.
-- **의뢰 위저드 v2(2026-07-16) = AI-우선 4스텝**: 분야 → 설명·자료(제목+자연어 설명+첨부+
-  AI 분석 동의, 기본 on) → AI 인터뷰(동적) → 검토·등록. 구 "전문 기술·도구"·"예산·일정"·
-  "견적 방식" 스텝은 삭제 — 예산·마감·방식·NDA는 검토 스텝의 컴팩트 조건 폼으로 흡수했고
-  희망 시작/완료일 입력은 제거했다(스키마 optional 유지). 신규 의뢰의 `categories`·`cadTools`는
-  항상 빈 배열(=무관)로 저장하며, 코드 사전·기존 데이터 표시·전문가 프로필 축은 유지한다.
-  특정 툴 요구는 설명·고정 제약(COMMON-10) 답변에 자연어로 담긴다. 프로젝트 `categories`는
-  물리 컬럼 `specialties`(Prisma `@map` — 인접 `category`=requestType 물리명과 혼동 회피)에
-  저장(기존 데이터 호환).
-- **AI 인터뷰·검토 스텝**: structurize 활성 && AI 분석 동의일 때만 인터뷰 스텝이 존재하고,
-  검토 스텝 진입 시 구조화가 자동 시작된다. 대기 중에도 조건 입력은 가능하지만 **포함 예정
-  산출물이 생성 중이면 등록은 차단**된다(사유 안내 + "생성 중인 AI 산출물 빼고 바로 등록"
-  건너뛰기 — 생성 중인 것만 제외, 완료된 명세·구성도는 유지). 동의 해제·비활성 시 스텝은 [분야, 설명·자료, 검토·등록]으로 줄고 일반 등록만
-  가능하다. v2에서 레거시 단발 구성도 UI는 제거(유스케이스·API·기존 데이터 표시는 존치).
-  인터뷰의 `DiagramSpec`은 FE/BE 공용 결정적 SVG 렌더러가 즉시 변환하고 서버가 저장 전에
-  재생성한다. 모든 구성도는 sandbox iframe에 넣기 전 외부 연결 차단 CSP와 활성 요소 제거를
-  적용해 `diagramHtml`에 저장한다. 정본
-  **docs/AI_DIAGRAM.md**(범용 AI 유스케이스 계층·프로빙 확정 프롬프트·운영).
-- AI 인터뷰 질문은 정책 77문항 + Linux/Windows 보완 3문항의 뱅크에서 앞 단계 중복을 빼고
-  `selectAiInterviewQuestions`가 최대 15개를 선택하며, 화면에는 한 번에 최대 5개씩 보인다.
-  시스템 통합은 공통 최대 8 + 연결 4 + 선택 분야 3, 개별 의뢰는 공통 + 해당 분야 질문으로
-  구성한다. 앱·서버 의뢰에 전원·MCU 같은 무관한 질문은 전달하지 않는다. 세부분야·요구 툴
-  기술 컨텍스트는 위저드 v2에서 항상 빈 값으로 전달된다(프롬프트 계약은 유지).
-- 설명 스텝의 AI 분석 동의(기본 on) 시 인터뷰 스텝 진입에서 선분석이 자동 실행되어, 최초
-  후보 중 이미 명확히 답한 질문만 근거와 함께 제외하고 "제가 이해한 내용" 요약을 보여준다
-  (선분석 v2 `understood`). 부분 답변·추론 항목은 유지하고, 제거된 자리를 낮은 우선순위
-  질문으로 채우지 않는다. 입력이 바뀌거나 선분석이 실패하면 결정적 후보로 복귀한다. 첨부가
-  있으면 COMMON-06(보유자료)은 폼 차원에서 후보 제외한다. 최종 질문 코드(`aiQuestionCodes`)는
-  등록 시 구조화 잡 provenance 재검증에만 사용하며 DB에는 저장하지 않는다.
-- 첨부가 있으면(설명 스텝의 AI 분석 동의가 전송 고지를 겸함) 문서 텍스트·PDF/래스터
-  미리보기를 AI 구조화에 함께 사용한다.
-  원본 해시를 잡 캐시·provenance에 포함하고 등록 첨부와 재검증한다. 미지원 바이너리는 내용을
-  추정하지 않으며, 상세 포맷·상한·프로빙 결과는 `docs/AI_DIAGRAM.md` §6을 따른다.
-- AI 산출물은 생성 시점의 제목·설명·의뢰 유형·분야·인터뷰 답변·질문 코드·첨부 메타 서명을
-  추적한다. ROC·분야 카드에는 예산·견적 마감·견적 방식도 전달하며 이 조건들은 문서 서명에만
-  포함한다(조건만 바뀌면 명세·구성도는 신선 유지, ROC·카드만 제출 제외).
-  원천이 달라지면 기존 명세·구성도·ROC·포스팅은 오래된 결과로 표시하고 제출에서 제외한다.
-  명세 포함 여부는 구성도와 별도로 선택하며, 서버는 create/PATCH 모두 명세 없는 ROC·포스팅
-  저장을 거부한다.
-- 모든 AI 프롬프트에는 고객 자유 입력 속 명령을 따르지 않는 고정 보안 정책을 관리자 템플릿
-  밖에서 주입한다. 동일 회원의 유스케이스·모델·프롬프트·입력 해시가 모두 같은 성공 잡은
-  1시간 TTL 안에서 재사용하며, SW 명세는 API·DB·캐시·큐·워커·운영 블록 타입을 보존한다.
-- 등록 시 서버는 AI jobId의 소유자·유스케이스·현재 입력·출력을 검증해 모델·프롬프트 버전·
-  입력/출력 해시를 `aiGenerationMeta`에 저장한다. 현재 산출물과 일치할 때만 "검증된 AI 생성본",
-  결정적 SVG는 "명세 기반 시스템 렌더", 이후 변경분은 "고객 수정본", 레거시는 "출처 미확인"이다.
-- AI 인터뷰 원문은 신규 등록에서 명시 동의한 건만 현재 견적 가능 전문가와 채택 전문가에게
-  공개하며 기존 건은 소급 공개하지 않는다. ROC는 계약 비구속 AI 초안 고지를 본문·화면에
-  고정하고, 채택 트랜잭션은 의뢰·AI 산출물·공개 동의 답변·채택 견적을 계약 JSON에 스냅샷한다.
+- **의뢰 위저드 v3(2026-08-28) = 3스텝**: 설명·자료(분야 칩 3개+제목+설명+첨부+AI 사전 검토
+  동의, 기본 on) → 질문 9문항 한 화면(`DEV_REVIEW_QUESTIONS`, 전부 "잘 모르겠어요" 탈출구) →
+  검토·등록(진입 시 **AI 사전 검토서** 자동 생성 + 미리보기 + 포함 체크 + 조건 폼). 동의 해제·
+  비활성 시 [설명·자료, 검토·등록]. 예산·마감·방식·NDA 는 검토 스텝의 조건 폼, 희망 시작/완료일
+  입력은 없다(컬럼만 남고 항상 null). 신규 의뢰의 `categories`·`cadTools`는 항상 빈 배열.
+  프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map`)에 저장(기존 데이터 호환).
+- **AI 사전 검토서(단일 산출물)** — 정본 **docs/AI_DEV_REVIEW.md**. 옛 4산출물(구성도 HTML·
+  구성 명세·작업검토지시서·분야별 카드)·80문항 인터뷰·선분석·provenance 체계는 폐기(`docs/
+  AI_DIAGRAM.md` 는 경위 기록). 검토서는 `sp_market_project.devReview`(JSON) 하나에 저장되고
+  공개 범위는 description 과 동일(상세를 볼 수 있는 뷰어 전원). 9문항 답변은
+  `interviewAnswers` 컬럼 재사용(`DevReviewAnswers`).
+  - 파이프라인 2단: 첨부 판독(비전 모델, 이미지·PDF 미리보기가 있을 때만) → 검토서(주모델,
+    텍스트 전용) → 서버 후처리 R1~R7(근거 없는 확정 강등·삭제, 자료에 없는 수치·품번 삭제) →
+    `sp_ai_job`(DB) 저장. `POST /api/ai/market.dev-review/run`(multipart) → `GET /api/ai/jobs/:id`
+    폴링(`stage: attachments|review`).
+  - 등록은 `devReviewJobId` 만 보낸다 — 서버가 자기 저장분을 소유자·완료·유스케이스·입력 해시
+    (제목·분야·설명·답변·첨부 원본 SHA-256 앞 10개)까지 대조한 뒤 박제. 불일치 400
+    `REVIEW_STALE`, 타인·미완료 잡 400 `REVIEW_JOB_INVALID`. 클라이언트는 산출물 본문을 보내지
+    않으므로 해시 대조·"고객 수정본" 라벨 체계가 없다.
+  - 검토서와 원천(제목·설명·분야)은 항상 일치한다는 불변식: 원천을 바꾸는 PATCH 는 검토서가
+    남아 있으면 409 `DEV_REVIEW_ATTACHED`(같은 요청에 `devReview:null` 을 실으면 허용).
+  - 항목은 확정/확인 필요 2상태. 판정어·리스크 등급·금액·주수는 없다(기간은 전문가 입찰
+    `durationDays`). 프롬프트는 코드 정본(`dev-review.v1`), 관리자는 사용 토글·모델·첨부 판독
+    모델·추가 지침·샘플 테스트·실행 이력만 만진다.
+  - 계약 채택 스냅샷(`sp_market_contract.requestSnapshot`)에는 `devReview` 가 들어간다(옛 스냅샷은
+    zod strip 으로 계속 파싱).
 - 툴 코드는 ECAD·MCAD·디자인 통합 flat 배열(`MARKET_TOOL_CODES`) — DB/계약 필드명은
   `cadTools` 그대로(호환), 그룹 해석은 `MARKET_TOOL_GROUP_CODES` 로 UI/매칭 단계에서 한다.
   **빈 배열 = 특정 툴 요구 없음**. 구 `'any'` 코드는 레거시 데이터 호환용으로만 enum 잔존
@@ -149,7 +131,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | NDA 메타 | ndaRequired && 미서명(소유자·관리자 제외) → 첨부 **개수만**(파일명도 기밀 힌트) |
 | 첨부 다운로드 | 소유자 ∨ 관리자 ∨ (승인 전문가 ∧ (targeted→지정자) ∧ (접수 중 ∨ 채택 전문가) ∧ (NDA 불요 ∨ 서명)). 프록시 스트림 = 게이트 실집행점 |
 | NDA 서명 자격 | 다운로드 자격 전문가와 동일 집합 + 채택 전문가는 마감 후에도 서명 가능(작업 열람 데드락 방지) |
-| 입찰 가드 사슬 | 승인 전문가 → 자기 프로젝트 금지 → targeted 지정자만 → **시스템 통합(전체서비스)은 company·house 만**(403 FULL_SERVICE_COMPANY_ONLY — 목록·상세는 공개, 입찰만 제한. 2026-07-12 확정) → lazy 마감 → unique 중복(409 ALREADY_BID→PATCH 유도) |
+| 입찰 가드 사슬 | 승인 전문가 → 자기 프로젝트 금지 → targeted 지정자만 → lazy 마감(전체서비스 회사 전용 가드는 2026-08-28 폐지) → unique 중복(409 ALREADY_BID→PATCH 유도) |
 | 소유자 수정 | 입찰 0건(≠withdrawn) && 접수 중일 때만(method·지정 대상 변경 불허) |
 | 연락처·계좌 | 본인·관리자 외 어떤 응답에도 부재(채택 전 직거래 차단 — 연락 개시는 2차 계약/메시지) |
 
@@ -165,7 +147,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | 관리자 라우트 | `apps/api/src/routes/admin-market-{experts,projects,settings}.ts` (prefix `/api/admin`, requireAdmin addHook) + `GET /api/admin/market/files/:fileId` |
 | 공용 헬퍼 | `apps/api/src/lib/market.ts`(asXxx 내로잉·lazy 마감·마감 계산 KST 23:59:59·sp_file 조각·multipart 수집) |
 | 계약 | `packages/api-contract/src/schemas/market.ts` + `routes.ts` apiRoutes 10종 |
-| 소비자 화면 | `apps/market/src/pages/{Home,Projects,ProjectDetail,Experts,ExpertDetail,RequestWizard,ExpertRegister,Me}.vue` — 의뢰 위저드 v2는 `components/request/Step{Area,Describe,Interview,Review}.vue` + `composables/useRequestWizard{Form,Ai}.ts`로 분해(셸 ~170줄) |
+| 소비자 화면 | `apps/market/src/pages/{Home,Projects,ProjectDetail,Experts,ExpertDetail,RequestWizard,ExpertRegister,Me}.vue` — 의뢰 위저드 v3는 `components/request/Step{Describe,Questions,Review}.vue` + `composables/useRequestWizardForm.ts`·`useDevReviewJob.ts` + `components/dev-review/DevReviewView.vue` |
 | 관리자 화면 | `apps/web/src/pages/admin/AdminMarket{Experts,Projects,Settings}.vue` + `admin/useAdminMarket.ts` |
 
 ## 7. 알림 (1차 = 메일 4종, 비차단)
@@ -217,7 +199,7 @@ local-web.samplepcb.co.kr (nginx 443)
 - dev: `pnpm --filter market dev`(5176, strictPort — 점유 시 실패가 정상 신호),
   api(3333)·web(5173)과 병행. 통합 확인은 local-web(라이브 nginx 반영 후).
 - **E2E 회귀**: `ops/scripts/e2e-market.mts` — 1차 매칭 36 + **2차 거래 56 = 총 92항목**
-  (STEP2 확장 세부분야·빈 요구 툴·레거시 `['any']` 정규화 + AI 구성도 diagramHtml 왕복, 2026-07-12)
+  (STEP2 확장 세부분야·빈 요구 툴·레거시 `['any']` 정규화, 2026-07-12 + **AI 사전 검토서 11케이스**(잡 시드·REVIEW_STALE·REVIEW_JOB_INVALID·DEV_REVIEW_ATTACHED·requestType 파생·개인 입찰 200, 2026-08-28 — 총 101항목))
   (§4·§5·§8의 실행 가능한 명세 — 계약 생성 스냅샷·checkout DB 실증·주문 결제 시뮬→lazy
   승격·hold/자동확정·confirm/settle·취소 카트 정리·재주입). api 가동 상태에서
   `pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-market.mts run`

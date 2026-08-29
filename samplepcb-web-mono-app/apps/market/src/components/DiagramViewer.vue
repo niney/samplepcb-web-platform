@@ -1,44 +1,46 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { buildDiagramSrcdoc } from '../lib/diagram-srcdoc';
 
-// AI 구성도 뷰어 — 기본은 컨테이너 폭에 맞춘 축소 미리보기(scale-to-fit, 스크롤 없음),
-// 클릭하면 모달에서 원본 크기 전체보기. 위저드 미리보기·프로젝트 상세가 공유한다.
+// 시스템 구성도 뷰어 — 기본은 컨테이너 폭에 맞춘 축소 미리보기(scale-to-fit, 스크롤 없음),
+// 클릭하면 모달에서 원본 크기 전체보기. 위저드 검토서 미리보기·프로젝트 상세가 공유한다.
 //
-// 보안: LLM 산출 HTML 이므로 iframe 은 sandbox 필수. allow-same-origin 만 부여
-// (allow-scripts 없음 → 스크립트 실행 자체가 불가)해 부모가 contentDocument 로 실제
-// 콘텐츠 크기를 측정한다 — 측정값으로 미리보기 잘림·모달 빈 스크롤을 없앤다.
-// blob/새 탭 전체보기는 sandbox 가 풀려 금지.
+// 입력 HTML 은 @sp/utils renderDiagramSpecHtml 이 만든 **결정적 SVG** 하나뿐이다
+// (스크립트·외부 리소스 없음, CSP meta 내장). LLM 이 HTML 을 직접 뱉던 시절의 클라이언트
+// 살균(lib/diagram-srcdoc.ts)은 그래서 사라졌고, iframe 은 `sandbox=""`(전 권한 차단)로
+// 더 좁게 잠근다 — 스크립트·동일 출처·폼·이동 전부 금지.
+//
+// 크기: sandbox="" 는 contentDocument 접근을 막아 DOM 실측이 불가능하다. 대신 우리
+// 렌더러가 항상 `<svg … width="W" height="H">` 를 내므로 문자열에서 그 값을 읽는다
+// (같은 입력 → 같은 출력이라 신뢰 가능). 실패 시 설계 캔버스 기본값으로 폴백.
 //
 // 레이아웃: scale 은 시각 축소일 뿐 레이아웃 크기는 원본 그대로라, iframe 을 absolute 로
 // 띄워 레이아웃 기여를 0 으로 만든다(안 그러면 grid min-content 가 1400px 로 밀려
 // 부모 카드를 뚫는다 — 실측 버그).
 
 const props = defineProps<{ html: string }>();
-const sandboxedHtml = computed(() => buildDiagramSrcdoc(props.html));
 
-// 프롬프트가 강제하는 설계 캔버스(svg viewBox 1400×1000) — 측정 실패 시 폴백.
+// 렌더러의 설계 캔버스(svg width 1400) — 크기 파싱 실패 시 폴백.
 const BASE_W = 1400;
 const BASE_H = 1000;
 
+const svgSize = computed<{ w: number; h: number }>(() => {
+  const m = /<svg[^>]*\swidth="(\d+)"[^>]*\sheight="(\d+)"/.exec(props.html);
+  const w = Number(m?.[1]);
+  const h = Number(m?.[2]);
+  return {
+    w: Number.isFinite(w) && w > 0 ? w : BASE_W,
+    h: Number.isFinite(h) && h > 0 ? h : BASE_H,
+  };
+});
+
 const wrap = ref<HTMLDivElement | null>(null);
 const wrapW = ref(0);
-const contentW = ref(BASE_W);
-const contentH = ref(BASE_H);
 const open = ref(false);
 
+const contentW = computed(() => svgSize.value.w);
+const contentH = computed(() => svgSize.value.h);
 const scale = computed(() => Math.min(1, (wrapW.value > 0 ? wrapW.value : BASE_W) / contentW.value));
 const previewH = computed(() => Math.round(contentH.value * scale.value));
-
-// srcdoc 로드 후 실제 콘텐츠 크기 측정 — sandbox 에 allow-same-origin 이 없으면
-// contentDocument 가 null(불투명 출처)이라 폴백값으로 동작한다.
-function onPreviewLoad(e: Event): void {
-  const doc = (e.target as HTMLIFrameElement).contentDocument;
-  const de = doc?.documentElement;
-  if (de === undefined) return;
-  contentW.value = Math.max(BASE_W, de.scrollWidth);
-  contentH.value = Math.max(200, de.scrollHeight);
-}
 
 let ro: ResizeObserver | null = null;
 onMounted(() => {
@@ -75,8 +77,8 @@ watch(open, (v) => {
       @keydown.enter="open = true"
     >
       <iframe
-        sandbox="allow-same-origin"
-        :srcdoc="sandboxedHtml"
+        sandbox=""
+        :srcdoc="html"
         title="시스템 구성도 미리보기"
         class="pointer-events-none absolute left-0 top-0 origin-top-left border-0"
         :style="{
@@ -84,7 +86,6 @@ watch(open, (v) => {
           height: `${String(contentH)}px`,
           transform: `scale(${String(scale)})`,
         }"
-        @load="onPreviewLoad"
       />
       <div
         class="absolute inset-0 flex items-end justify-end bg-transparent p-3 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -103,7 +104,7 @@ watch(open, (v) => {
         <div class="flex max-h-[94vh] w-fit max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
           <div class="flex items-center justify-between gap-6 border-b border-line px-4 py-2.5">
             <p class="text-sm font-extrabold text-tx-1">
-              시스템 구성도 <span class="font-normal text-tx-3">(자동 생성 초안)</span>
+              시스템 구성도 <span class="font-normal text-tx-3">(AI 사전 검토서)</span>
             </p>
             <button
               type="button"
@@ -115,8 +116,8 @@ watch(open, (v) => {
           </div>
           <div class="min-h-0 flex-1 overflow-auto">
             <iframe
-              sandbox="allow-same-origin"
-              :srcdoc="sandboxedHtml"
+              sandbox=""
+              :srcdoc="html"
               title="시스템 구성도 전체보기"
               class="pointer-events-none block border-0"
               :style="{ width: `${String(contentW)}px`, height: `${String(contentH)}px` }"

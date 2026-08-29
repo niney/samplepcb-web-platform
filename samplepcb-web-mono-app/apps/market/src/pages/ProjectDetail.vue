@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  aiInterviewQuestionLabel,
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
@@ -10,19 +9,15 @@ import {
   MARKET_CAREER_RANGE_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_METHOD_LABELS,
-  MARKET_REQUEST_TYPE_LABELS,
-  MARKET_SERVICE_AREA_LABELS,
   apiRoutes,
 } from '@sp/api-contract';
-import type {
-  MarketAiArtifactProvenanceType,
-  MarketBidSubmitBodyType,
-} from '@sp/api-contract';
+import { MarketDevReview } from '@sp/api-contract';
+import type { MarketBidSubmitBodyType } from '@sp/api-contract';
+import { devReviewAreaBadge } from '@sp/utils';
 import { useAuthStore } from '@sp/shared';
 import BidFormModal from '../components/BidFormModal.vue';
 import ContractCard from '../components/ContractCard.vue';
-import DiagramViewer from '../components/DiagramViewer.vue';
-import RocViewer from '../components/RocViewer.vue';
+import DevReviewView from '../components/dev-review/DevReviewView.vue';
 import DeliverModal from '../components/DeliverModal.vue';
 import NdaSignModal from '../components/NdaSignModal.vue';
 import {
@@ -43,13 +38,13 @@ import {
   useContractQuery,
   useDeliver,
 } from '../api/useMarketContract';
-import { useExpertMe } from '../api/useMarketExpertMe';
-import { useMarketProjectDetail } from '../api/useMarketProjects';
+import { useMarketProjectDetail, useUpdateProject } from '../api/useMarketProjects';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
+import { toActiveServiceAreas } from '../lib/service-areas';
 
 // 프로젝트 상세 — 역할별 표면(프로토타입 project-detail.html 이식):
 //   비로그인: 열람 + 로그인 유도 / 전문가: NDA 서명·첨부 열람·블라인드 견적 제출·수정·철회
@@ -67,26 +62,25 @@ const detail = computed(() => detailQ.data.value?.data);
 const viewer = computed(() => detail.value?.viewer ?? null);
 const isOwner = computed(() => viewer.value?.isOwner === true);
 
-// 시스템 통합(전체서비스) 의뢰 입찰 제한 — company·house 만(서버 가드
-// FULL_SERVICE_COMPANY_ONLY 와 동일 규칙, 여기는 UX 분기). viewer 에 expertType 이
-// 없어 본인 전문가 프로필에서 읽는다.
-const isExpertViewerEarly = computed(
-  () => viewer.value?.isApprovedExpert === true && !viewer.value.isOwner,
+// 분야 배지 — 의뢰 유형(개별/시스템 통합) 표기를 대체한다(docs/AI_DEV_REVIEW.md §4).
+// 전체서비스 입찰 제한(FULL_SERVICE_COMPANY_ONLY)은 폐지되어 개인 전문가도 입찰한다.
+const areaBadge = computed(() =>
+  detail.value === undefined ? '' : devReviewAreaBadge(toActiveServiceAreas(detail.value.serviceAreas)),
 );
-const expertMeQ = useExpertMe(isExpertViewerEarly);
-const fullServiceBlocked = computed(
-  () =>
-    detail.value?.requestType === 'system' &&
-    isExpertViewerEarly.value &&
-    expertMeQ.data.value?.data.expertType === 'individual',
-);
+
+// 응답 스키마는 .catch() 기본값을 쓰는 필드가 많아 zod 의 **입력** 타입으로 좁혀져 온다
+// (@sp/shared apiGet 의 ZodType<T> 는 입력=출력을 요구한다). 이미 검증된 값을 같은
+// 스키마로 한 번 더 통과시켜 출력 타입을 되찾는다 — 전부 idempotent 한 규칙이라 안전하다.
+const devReview = computed(() => {
+  const raw = detail.value?.devReview ?? null;
+  return raw === null ? null : MarketDevReview.parse(raw);
+});
 
 const canBid = computed(() => {
   const d = detail.value;
   const v = viewer.value;
   if (d === undefined || v === null) return false;
   if (v.isOwner || !v.isApprovedExpert || d.biddingClosed) return false;
-  if (fullServiceBlocked.value) return false;
   return d.method === 'open' || v.isTargetExpert;
 });
 // NDA 서명 자격 = 입찰 자격과 동일 집합(서버와 동일 규칙).
@@ -120,6 +114,7 @@ const checkout = useCheckout();
 const deliver = useDeliver();
 const confirmContract = useConfirm();
 const cancelContract = useCancelContract();
+const updateProject = useUpdateProject(projectId);
 
 // 모달·인라인 확인 상태 (네이티브 confirm 미사용 — 접근성·자동화 친화)
 const ndaOpen = ref(false);
@@ -128,7 +123,7 @@ const bidMode = ref<'create' | 'edit'>('create');
 const modalError = ref('');
 const actionError = ref('');
 const confirmAwardId = ref<number | null>(null);
-const confirmAction = ref<'close' | 'cancel' | 'withdraw' | null>(null);
+const confirmAction = ref<'close' | 'cancel' | 'withdraw' | 'remove-review' | null>(null);
 const reportOpen = ref(false);
 const reportError = ref('');
 
@@ -290,29 +285,22 @@ const fmtSize = (bytes: number): string =>
     ? `${(bytes / 1_048_576).toFixed(1)}MB`
     : `${Math.max(1, Math.round(bytes / 1024)).toString()}KB`;
 
-const provenanceLabel = (provenance: MarketAiArtifactProvenanceType | null): string => {
-  if (provenance?.state === 'ai-generated') return '검증된 AI 생성본';
-  if (provenance?.state === 'deterministic') return '명세 기반 시스템 렌더';
-  if (provenance?.state === 'customer-modified') return '고객 수정본';
-  return '출처 미확인';
-};
-
-const provenanceTitle = (provenance: MarketAiArtifactProvenanceType | null): string => {
-  if (provenance === null) return '';
-  const details = [
-    provenance.model !== null ? `모델 ${provenance.model}` : null,
-    provenance.promptVersion !== null ? `프롬프트 ${provenance.promptVersion.slice(0, 12)}` : null,
-    provenance.generatedAt !== null ? `생성 ${provenance.generatedAt}` : null,
-  ].filter((value): value is string => value !== null);
-  return details.join(' · ');
-};
-
-const interviewAnswerLabel = (code: string): string =>
-  aiInterviewQuestionLabel(code) ?? (code === 'extra' ? 'AI 추가 질문' : '추가 확인 사항');
+// AI 사전 검토서 제거 — 검토서는 원천(제목·설명·분야)과 항상 일치한다는 불변식이라
+// 원천을 고치려면 먼저 떼야 한다. 본문 갱신 경로는 없고 계약이 여는 건 null(제거) 하나뿐이다.
+async function onRemoveDevReview(): Promise<void> {
+  actionError.value = '';
+  try {
+    await updateProject.mutateAsync({ devReview: null });
+    await detailQ.refetch();
+    confirmAction.value = null;
+  } catch (err) {
+    actionError.value = errorMessage(err);
+  }
+}
 </script>
 
 <template>
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+  <section class="mx-auto w-full max-w-[1440px] px-6 py-10">
     <div v-if="detailQ.isLoading.value" class="py-20 text-center text-sm text-tx-3">
       {{ $t('common.loading') }}
     </div>
@@ -344,8 +332,8 @@ const interviewAnswerLabel = (code: string): string =>
           >
             {{ dday.label }}
           </span>
-          <span class="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
-            {{ MARKET_REQUEST_TYPE_LABELS[detail.requestType] }} · {{ detail.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join(' · ') }}
+          <span v-if="areaBadge !== ''" class="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+            {{ areaBadge }}
           </span>
           <span
             class="rounded-full px-2 py-0.5 font-semibold"
@@ -393,109 +381,43 @@ const interviewAnswerLabel = (code: string): string =>
             </div>
           </div>
 
-          <div
-            v-if="detail.interviewAnswers !== null && detail.interviewAnswers.length > 0"
-            class="rounded-2xl border border-line bg-white p-6"
-          >
-            <p class="font-mono text-[11px] tracking-widest text-tx-3">ORIGINAL INTERVIEW</p>
-            <h2 class="mt-1 text-sm font-extrabold text-tx-1">의뢰인이 답한 AI 질문 원문</h2>
-            <p class="mt-1 text-xs leading-relaxed text-tx-3">
-              AI 문서와 대조할 수 있도록 의뢰인이 공개에 동의한 신규 의뢰의 답변만 표시합니다.
-            </p>
-            <dl class="mt-3 grid gap-3">
-              <div
-                v-for="(answer, index) in detail.interviewAnswers"
-                :key="`${answer.code}-${String(index)}`"
-                class="rounded-xl bg-paper p-3 text-xs leading-relaxed"
-              >
-                <dt class="font-bold text-tx-1">{{ interviewAnswerLabel(answer.code) }}</dt>
-                <dd class="mt-1 whitespace-pre-line text-tx-2">{{ answer.answer }}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <!-- AI 시스템 구성도 — sandbox iframe 전용(LLM 산출 HTML, DOM 직결 금지) -->
-          <div v-if="detail.diagramHtml !== null" class="rounded-2xl border border-line bg-white p-6">
-            <p class="font-mono text-[11px] tracking-widest text-tx-3">SYSTEM DIAGRAM</p>
-            <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              시스템 구성도
-              <span
-                class="font-normal text-tx-3"
-                :title="provenanceTitle(detail.aiProvenance.diagramHtml)"
-              >({{ provenanceLabel(detail.aiProvenance.diagramHtml) }} · 클릭하면 크게 보기)</span>
-            </h2>
-            <div class="mt-3">
-              <DiagramViewer :html="detail.diagramHtml" />
-            </div>
-          </div>
-
-          <!-- AI 작업검토지시서 — 마크다운 라인 파서 렌더(v-html 금지) -->
-          <div v-if="detail.rocMd !== null" class="rounded-2xl border border-line bg-white p-6">
-            <p class="font-mono text-[11px] tracking-widest text-tx-3">WORK REVIEW DOC</p>
-            <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              작업검토지시서
-              <span
-                class="font-normal text-tx-3"
-                :title="provenanceTitle(detail.aiProvenance.rocMd)"
-              >({{ provenanceLabel(detail.aiProvenance.rocMd) }} · 미확정 값은 TBD)</span>
-            </h2>
-            <p class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-              이 문서는 AI 생성 초안으로 계약의 일부가 아닙니다. 검수 기준과 완료 조건은 계약 체결 시 당사자가 별도로 확정해야 합니다.
-            </p>
-            <div class="mt-3">
-              <RocViewer :md="detail.rocMd" />
-            </div>
-          </div>
-
-          <!-- 분야별 포스팅 카드 — 전문가 관점 요약(AI 생성) -->
-          <div v-if="detail.postings !== null" class="rounded-2xl border border-line bg-white p-6">
-            <p class="font-mono text-[11px] tracking-widest text-tx-3">POSTINGS BY AREA</p>
-            <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              분야별 작업 안내
-              <span
-                class="font-normal text-tx-3"
-                :title="provenanceTitle(detail.aiProvenance.postings)"
-              >({{ provenanceLabel(detail.aiProvenance.postings) }})</span>
-            </h2>
-            <p
-              v-if="detail.requestType === 'system'"
-              class="mt-2 rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700"
-            >
-              시스템 통합(전체서비스) 의뢰 — 견적 제출은 파트너사(기업)·샘플피씨비만 가능합니다.
-            </p>
-            <div class="mt-3 grid gap-3 md:grid-cols-2">
-              <div
-                v-for="card in detail.postings"
-                :key="card.serviceArea"
-                class="rounded-xl border border-line p-4 text-xs leading-relaxed text-tx-2"
-              >
-                <p class="text-[13px] font-extrabold text-tx-1">
-                  {{ MARKET_SERVICE_AREA_LABELS[card.serviceArea] }}
+          <!-- AI 사전 검토서 — 공개 범위는 상세 설명과 동일(상세를 볼 수 있는 뷰어 전원) -->
+          <div v-if="devReview !== null" class="rounded-2xl border border-line bg-white p-6">
+            <DevReviewView :review="devReview" />
+            <div v-if="isOwner" class="mt-5 border-t border-line pt-4">
+              <template v-if="confirmAction === 'remove-review'">
+                <p class="text-xs font-bold text-tx-2">
+                  AI 사전 검토서를 이 의뢰에서 제거할까요? 다시 붙일 수는 없습니다.
                 </p>
-                <ul class="mt-2 grid gap-1">
-                  <li v-for="(s, i) in card.summary" :key="i" class="flex gap-1.5">
-                    <span class="text-copper-500">•</span><span>{{ s }}</span>
-                  </li>
-                </ul>
-                <p class="mt-2 font-bold text-tx-1">작업 범위</p>
-                <ul class="mt-1 grid gap-1">
-                  <li v-for="(s, i) in card.scope" :key="i" class="flex gap-1.5">
-                    <span class="text-tx-3">–</span><span>{{ s }}</span>
-                  </li>
-                </ul>
-                <template v-if="(card.deliverables ?? []).length > 0">
-                  <p class="mt-2 font-bold text-tx-1">산출물</p>
-                  <p class="mt-1">{{ (card.deliverables ?? []).join(' · ') }}</p>
-                </template>
-                <template v-if="(card.notes ?? []).length > 0">
-                  <p class="mt-2 font-bold text-amber-700">확인 필요</p>
-                  <ul class="mt-1 grid gap-1">
-                    <li v-for="(s, i) in card.notes ?? []" :key="i" class="flex gap-1.5">
-                      <span class="text-amber-600">!</span><span>{{ s }}</span>
-                    </li>
-                  </ul>
-                </template>
-              </div>
+                <div class="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    class="rounded-lg bg-ink-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+                    :disabled="updateProject.isPending.value"
+                    @click="onRemoveDevReview"
+                  >
+                    {{ updateProject.isPending.value ? '제거 중…' : '검토서 제거' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2"
+                    @click="confirmAction = null"
+                  >
+                    취소
+                  </button>
+                </div>
+              </template>
+              <button
+                v-else
+                type="button"
+                class="rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2 hover:border-line-2"
+                @click="confirmAction = 'remove-review'"
+              >
+                검토서 제거
+              </button>
+              <p class="mt-2 text-[11px] leading-relaxed text-tx-3">
+                검토서가 붙어 있는 동안에는 제목·설명·개발 분야를 바꿀 수 없습니다.
+              </p>
             </div>
           </div>
 
@@ -780,9 +702,6 @@ const interviewAnswerLabel = (code: string): string =>
                 <template v-if="detail.biddingClosed">견적 접수가 마감되었습니다.</template>
                 <template v-else-if="detail.method === 'targeted' && viewer.isTargetExpert === false">
                   지정견적 프로젝트 — 지정된 전문가만 참여할 수 있습니다.
-                </template>
-                <template v-else-if="fullServiceBlocked">
-                  시스템 통합(전체서비스) 의뢰는 파트너사(기업)·샘플피씨비만 견적을 제출할 수 있습니다.
                 </template>
                 <template v-else-if="viewer.isApprovedExpert === false">
                   승인된 전문가만 견적을 제출할 수 있습니다.

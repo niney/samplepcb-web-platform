@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AiJobLogResponse,
   AiJobResponse,
   AiModelsResponse,
   AiRunResponse,
@@ -10,7 +11,7 @@ import {
   apiRoutes,
 } from '@sp/api-contract';
 import type {
-  AiAdminPromptTestRunType,
+  AiAdminDevReviewTestRunType,
   AiSettingsUpdateType,
   BusinessInfoUpdateType,
   GerberPricingUpdateType,
@@ -26,6 +27,8 @@ export type SettingsTabKey = 'businessInfo' | 'gerberPricing' | 'aiIntegration' 
 const businessInfoPath = `${apiRoutes.adminSettings}/business-info`;
 const gerberPricingPath = `${apiRoutes.adminSettings}/gerber-pricing`;
 const aiSettingsPath = `${apiRoutes.adminSettings}/ai`;
+
+const AI_JOBS_KEY = ['admin', 'settings', 'ai', 'jobs'] as const;
 
 // AI 연동 설정 조회 — apiKey 는 마스킹 값만 온다(원문 비노출).
 export function useAiSettings() {
@@ -55,24 +58,48 @@ export function useAiModels() {
   });
 }
 
-// 저장 전 편집 중인 모델·프롬프트를 서버의 비식별 샘플로 실제 실행한다.
-export function useAiPromptTest() {
+// 저장 전 편집 중인 모델·추가 지침을 서버의 비식별 샘플로 실제 실행한다(설정은 안 바뀐다).
+export function useAiDevReviewTest() {
   return useMutation({
-    mutationFn: (body: AiAdminPromptTestRunType) =>
+    mutationFn: (body: AiAdminDevReviewTestRunType) =>
       apiSend('POST', `${aiSettingsPath}/test`, body, AiRunResponse),
   });
 }
 
-// 샘플 테스트도 실제 의뢰와 같은 비동기 잡을 사용한다. 완료·오류 뒤에는 폴링을 멈춘다.
-export function useAiPromptTestJob(jobId: Ref<string | null>) {
+// 샘플 테스트도 실제 의뢰와 같은 비동기 잡을 쓴다(관리자 전용 라우트가 아니라 /ai/jobs/:id —
+// 관리자 토큰의 mbId 가 소유자). 완료·오류 뒤에는 폴링을 멈추고, 탭을 떠나 언마운트되면
+// vue-query 가 구독을 정리한다.
+export function useAiJob(jobId: Ref<string | null>) {
   return useQuery({
     queryKey: computed(() => ['admin', 'settings', 'ai', 'test-job', jobId.value]),
     queryFn: () => apiGet(`${apiRoutes.ai}/jobs/${jobId.value ?? ''}`, AiJobResponse),
     enabled: computed(() => jobId.value !== null),
-    refetchInterval: (query) =>
-      query.state.data?.data.status === 'running' ? 3000 : false,
+    refetchInterval: (query) => (query.state.data?.data.status === 'running' ? 3000 : false),
     retry: false,
   });
+}
+
+// 실행 이력(sp_ai_job) — 페이지네이션. 잡이 끝나면 화면이 이 키를 무효화한다.
+export function useAiJobLog(page: Ref<number>, pageSize = 20) {
+  return useQuery({
+    queryKey: computed(() => [...AI_JOBS_KEY, page.value, pageSize]),
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(page.value),
+        pageSize: String(pageSize),
+      });
+      return apiGet(`${aiSettingsPath}/jobs?${params.toString()}`, AiJobLogResponse);
+    },
+    staleTime: 10 * 1000,
+  });
+}
+
+// 이력 무효화 — 샘플 테스트 시작·완료 시점에 화면이 호출한다.
+export function useInvalidateAiJobLog(): () => Promise<void> {
+  const queryClient = useQueryClient();
+  return async () => {
+    await queryClient.invalidateQueries({ queryKey: AI_JOBS_KEY });
+  };
 }
 
 // 사업자정보 조회 — 거의 불변이라 오래 캐시(useAdminNotifyConfig 관례).

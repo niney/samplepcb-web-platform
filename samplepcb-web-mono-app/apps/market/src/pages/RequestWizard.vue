@@ -6,16 +6,16 @@ import { useCreateProject } from '../api/useMarketProjects';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 import { useRequestWizardForm } from '../composables/useRequestWizardForm';
-import { useRequestWizardAi } from '../composables/useRequestWizardAi';
-import StepArea from '../components/request/StepArea.vue';
+import { useDevReviewJob } from '../composables/useDevReviewJob';
 import StepDescribe from '../components/request/StepDescribe.vue';
-import StepInterview from '../components/request/StepInterview.vue';
+import StepQuestions from '../components/request/StepQuestions.vue';
 import StepReview from '../components/request/StepReview.vue';
 
-// 재능마켓 의뢰 마법사 v2 — AI-우선 4스텝. 이 셸은 스텝 인디케이터·네비게이션·제출
-// 오케스트레이션만 담당한다. 폼 상태·스텝 정의·검증은 useRequestWizardForm, 선분석·구조화·
-// ROC·분야 카드 잡 오케스트레이션과 신선도 서명은 useRequestWizardAi 로 분리했다.
-// 백엔드 계약(MarketProjectCreatePayload)·라우트는 불변 — categories·cadTools 는 항상 빈 배열.
+// 재능마켓 의뢰 위저드 3스텝(docs/AI_DEV_REVIEW.md §5.1) — 설명·자료 → 질문 → 검토·등록.
+// 이 셸은 스텝 인디케이터·네비게이션·제출 오케스트레이션만 한다. 폼 값·스텝 정의는
+// useRequestWizardForm, 검토서 잡·신선도는 useDevReviewJob(스텝 이동에도 살아 있도록
+// 셸이 소유한다).
+// 등록 payload 는 검토서 본문을 싣지 않는다 — jobId 만 보내고 서버가 자기 저장분을 쓴다.
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -26,27 +26,30 @@ const submitError = ref('');
 const createdId = ref<number | null>(null);
 
 const form = useRequestWizardForm();
-const ai = useRequestWizardAi(form);
-const { fields, attachments, steps, stepIndex, currentStep, isLastStep, stepValid, prev, next, projectDeadline } = form;
+const job = useDevReviewJob(form);
+const {
+  fields,
+  attachments,
+  steps,
+  stepIndex,
+  currentStep,
+  isLastStep,
+  stepValid,
+  prev,
+  next,
+  projectDeadline,
+  buildAnswers,
+} = form;
 
-// 등록 가능 여부 — 검토 스텝은 폼 유효성 + 답변 공개 동의 + AI 생성 완료 대기 결합.
+// 등록 가능 여부 — 폼 유효성 + "포함 예정 검토서가 생성 중이 아님".
 const canProceed = computed(
-  () =>
-    stepValid.value &&
-    !(
-      currentStep.value === 'review' &&
-      (ai.reviewBlockedByConsent.value || ai.aiGenerationBlocking.value)
-    ),
+  () => stepValid.value && !(currentStep.value === 'review' && job.blocking.value),
 );
-// 등록 버튼이 비활성인 사유 안내(검토 스텝 · 동의 우선). 둘 다 걸리면 동의 안내만.
-const registerHelp = computed<string>(() => {
-  if (currentStep.value !== 'review') return '';
-  if (ai.reviewBlockedByConsent.value) return 'AI 질문 답변 원문 공개 동의에 체크하면 등록할 수 있습니다';
-  if (ai.aiGenerationBlocking.value) {
-    return "AI 생성이 끝나면 등록됩니다 — 기다리지 않으려면 '생성 중인 AI 산출물 빼고 바로 등록'을 누르세요";
-  }
-  return '';
-});
+const registerHelp = computed<string>(() =>
+  currentStep.value === 'review' && job.blocking.value
+    ? "AI 사전 검토서 생성이 끝나면 등록됩니다 — 기다리지 않으려면 '검토서 없이 바로 등록'을 누르세요"
+    : '',
+);
 
 function goLogin(): void {
   window.location.assign(loginUrl(marketPath(route.fullPath)));
@@ -56,11 +59,11 @@ async function submit(): Promise<void> {
   submitError.value = '';
   const payload = {
     title: fields.title.trim(),
-    requestType: fields.requestType,
-    serviceAreas: fields.serviceAreas,
+    serviceAreas: [...fields.serviceAreas],
     categories: [],
     cadTools: [],
     description: fields.description.trim(),
+    answers: buildAnswers(),
     ndaRequired: fields.ndaRequired,
     budgetRange: fields.budgetRange,
     deadline: projectDeadline(),
@@ -68,7 +71,9 @@ async function submit(): Promise<void> {
     ...(fields.method === 'targeted' && fields.targetExpertId !== null
       ? { targetExpertId: fields.targetExpertId }
       : {}),
-    ...ai.aiPayloadParts(),
+    ...(job.includable.value && job.jobId.value !== null
+      ? { devReviewJobId: job.jobId.value }
+      : {}),
   };
   const fd = new FormData();
   fd.append('payload', JSON.stringify(payload));
@@ -83,7 +88,7 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <section class="mx-auto w-full max-w-3xl px-4 py-10">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
     <p class="font-mono text-[11px] tracking-widest text-tx-3">NEW REQUEST</p>
     <h1 class="mt-1 text-2xl font-extrabold text-tx-1">{{ $t('nav.request') }}</h1>
 
@@ -124,7 +129,7 @@ async function submit(): Promise<void> {
       </div>
     </div>
 
-    <!-- 마법사 -->
+    <!-- 위저드 -->
     <template v-else>
       <ol class="mt-6 flex flex-wrap items-center gap-2 text-xs font-bold">
         <li v-for="(s, i) in steps" :key="s.key" class="flex items-center gap-2">
@@ -146,10 +151,9 @@ async function submit(): Promise<void> {
       </ol>
 
       <div class="mt-6 rounded-2xl border border-line bg-white p-6 sm:p-8">
-        <StepArea v-if="currentStep === 'area'" :form="form" />
-        <StepDescribe v-else-if="currentStep === 'describe'" :form="form" />
-        <StepInterview v-else-if="currentStep === 'interview'" :form="form" :ai="ai" />
-        <StepReview v-else-if="currentStep === 'review'" :form="form" :ai="ai" />
+        <StepDescribe v-if="currentStep === 'describe'" :form="form" />
+        <StepQuestions v-else-if="currentStep === 'questions'" :form="form" />
+        <StepReview v-else-if="currentStep === 'review'" :form="form" :job="job" />
 
         <p v-if="submitError !== ''" class="mt-4 text-xs font-semibold text-red-600">{{ submitError }}</p>
         <p v-if="registerHelp !== ''" class="mt-4 text-xs leading-relaxed text-tx-3">{{ registerHelp }}</p>

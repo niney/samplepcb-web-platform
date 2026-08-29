@@ -13,7 +13,6 @@ const projectFilters = ref<ProjectListFilters>({
   page: 1,
   pageSize: 6,
   tab: 'open',
-  requestType: '',
   serviceArea: '',
   method: '',
   q: '',

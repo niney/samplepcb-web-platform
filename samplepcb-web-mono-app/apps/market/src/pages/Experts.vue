@@ -4,7 +4,7 @@ import {
   MARKET_CATEGORIES,
   MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
-  MARKET_SERVICE_AREAS,
+  MARKET_ACTIVE_SERVICE_AREAS,
   MARKET_SERVICE_AREA_LABELS,
   MARKET_TOOL_GROUPS,
   MARKET_TOOL_GROUP_CODES,
@@ -75,7 +75,7 @@ const resetPage = (): void => {
         @change="resetPage"
       >
         <option value="">전체 개발 분야</option>
-        <option v-for="area in MARKET_SERVICE_AREAS" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
+        <option v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
       </select>
 
       <select

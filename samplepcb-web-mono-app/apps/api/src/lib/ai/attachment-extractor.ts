@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 import { strFromU8, unzipSync } from 'fflate';
 import { PDFParse } from 'pdf-parse';
 import type { UploadTarget } from '../file-server';
-import { hashAiBytes } from './jobs';
+import { hashAiBytes } from './hash';
 
 // AI 전송용 첨부 전처리. 원본은 저장하지 않고 요청 메모리에서 텍스트·미리보기만 만든다.
 // 파일별/전체 상한을 두어 100MB 업로드 허용치가 그대로 모델 컨텍스트로 번지지 않게 한다.

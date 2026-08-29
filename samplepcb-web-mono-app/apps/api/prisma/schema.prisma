@@ -233,23 +233,23 @@ model SpMarketProject {
   categories               Json      @map("specialties") // 세부분야 코드 배열(회로·펌웨어 STEP2)
   cadTools                 Json // 요구 툴 코드 배열(ECAD·MCAD·디자인 통합) — 빈 배열=무관, 'any' 는 레거시
   description              String    @db.Text
-  // AI 생성 시스템 구성도(단일 HTML) — 공개 범위는 description 과 동일(설명에서 파생).
-  // 렌더는 반드시 sandbox iframe(srcdoc) — LLM 출력이라 DOM 직결 금지.
+  // AI 사전 검토서(MarketDevReview 직렬화) — 의뢰의 단일 AI 산출물. 공개 범위는
+  // description 과 동일(상세를 볼 수 있는 뷰어 전원). docs/AI_DEV_REVIEW.md §1.
+  devReview                Json?
+  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
   diagramHtml              String?   @db.MediumText
-  // 구성 명세 JSON(DiagramSpec 직렬화) — 구성도의 원천 데이터. 재생성과 후속 문서
-  // (ROC·포스팅 요약) 파생의 근원이라 HTML 과 별도로 보존한다.
+  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
   diagramSpec              String?   @db.MediumText
-  // AI 작업검토지시서 마크다운(Phase 2) — 공개 범위는 description 과 동일.
+  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
   rocMd                    String?   @db.MediumText
-  // 인터뷰 답변 원본([{code,answer}]) — 응답 미노출 저장 전용, 명세·문서 재생성의 근원.
+  // 9문항 답변([{code,choices,note}]) — 검토서 원천이자 브리프의 근원(DevReviewAnswers).
+  // 옛 80문항 인터뷰([{code,answer}])가 남아 있는 행은 파싱 실패 시 조용히 빈 값이 된다.
   interviewAnswers         Json?
-  // 신규 등록에서 원본 답변의 견적 가능 전문가 공개를 명시 동의한 시각. null인 기존 건은
-  // 어떤 신규 응답에도 답변을 싣지 않아 과거 비공개 정책을 소급 변경하지 않는다.
+  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
   interviewAnswersSharedAt DateTime?
-  // 분야별 포스팅 카드(Phase 3, MarketPostingCards) — 공개 범위는 description 과 동일.
+  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
   postings                 Json?
-  // AI 잡 출처와 결정적 렌더 출처의 검증 메타데이터. 모델·프롬프트/입력/출력 해시·jobId를
-  // 보존하며, 실제 산출물과 해시가 다르면 응답 라벨을 고객 수정본으로 내린다.
+  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
   aiGenerationMeta         Json?
   ndaRequired              Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
   budgetRange              String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
@@ -394,16 +394,41 @@ model SpConfig {
   @@map("sp_config")
 }
 
-// AI 유스케이스 설정 — 연결(sp_config ai_*)과 분리된 유스케이스 단위(활성·모델·프롬프트).
-// 행은 서버가 레지스트리(lib/ai/usecases.ts) 기준으로 lazy 생성. 현재 market.request-diagram 1종.
+// AI 유스케이스 설정 — 연결(sp_config ai_*)과 분리된 유스케이스 단위(활성·모델·추가 지침).
+// 행은 서버가 레지스트리(lib/ai/usecases.ts) 기준으로 lazy 생성. 현재 market.dev-review 1종.
 model SpAiUsecase {
-  useCase        String   @id @db.VarChar(100)
-  enabled        Boolean  @default(false)
-  model          String   @db.VarChar(100)
-  promptTemplate String   @db.Text
-  updatedAt      DateTime @updatedAt
+  useCase String  @id @db.VarChar(100)
+  enabled Boolean @default(false)
+  model   String  @db.VarChar(100)
+  /// deprecated 2026-08-28 — 미사용(프롬프트는 코드 정본, docs/AI_DEV_REVIEW.md §7). 새 행은 ''.
+  promptTemplate String @db.Text
+  /// 관리자가 프롬프트 끝에 덧붙이는 운영 지침(≤2000자). 스키마·출력 규칙은 코드가 정본.
+  extraInstructions String?  @db.Text
+  updatedAt         DateTime @updatedAt
 
   @@map("sp_ai_usecase")
+}
+
+// AI 실행 잡 — 생성이 수 분이라 run 은 잡을 만들고 즉시 반환, 클라이언트가 폴링한다.
+// 인메모리 스토어를 대체(2026-08-28): 서버 재시작에 견디고, 의뢰 등록 시점의 소유자·신선도
+// (inputHash) 대조가 DB 사실 하나로 끝난다(docs/AI_DEV_REVIEW.md §3·§7).
+model SpAiJob {
+  id            String    @id @db.Char(36)
+  useCase       String    @db.VarChar(100)
+  mbId          String    @db.VarChar(191) // 소유자 — 본인 잡만 조회·사용 가능
+  status        String    @db.VarChar(20) // running|done|error
+  stage         String?   @db.VarChar(20) // attachments|review
+  model         String    @db.VarChar(100)
+  promptVersion String    @db.VarChar(100) // 'dev-review.v1' 같은 코드 버전 태그(해시 아님)
+  inputHash     String    @db.Char(64)
+  resultJson    String?   @db.MediumText // 후처리된 MarketDevReview 직렬화
+  error         String?   @db.VarChar(100)
+  startedAt     DateTime
+  finishedAt    DateTime?
+
+  @@index([mbId, startedAt], map: "sp_ai_job_owner_idx")
+  @@index([useCase, mbId, model, promptVersion, inputHash, status], map: "sp_ai_job_reuse_idx")
+  @@map("sp_ai_job")
 }
 
 // ── 부품 카탈로그 (BOM 공급사 검색 자동 인제스트, docs/PARTS_SEARCH.md) ──────

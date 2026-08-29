@@ -1,4 +1,9 @@
-import type { ZodType } from 'zod';
+import type { ZodType, ZodTypeDef } from 'zod';
+
+// 스키마 제네릭은 <출력, Def, 입력=unknown> — .catch()/.default()/.transform() 이 섞인 응답
+// 스키마에서도 호출부가 **출력** 타입을 받는다(입력=출력을 강제하면 추론이 입력 형태로 무너져
+// 소비처마다 parse 를 한 번 더 하는 우회가 생긴다 — 2026-08-28 검토서 화면 실측).
+type Schema<T> = ZodType<T, ZodTypeDef, unknown>;
 import { ApiError, ApiMemberError, type ApiErrorType } from '@sp/api-contract';
 import { useAuthStore } from './auth';
 
@@ -48,7 +53,7 @@ function toApiErrorPayload(body: unknown): ApiErrorType | null {
   return null;
 }
 
-async function parseJson<T>(res: Response, schema: ZodType<T>): Promise<T> {
+async function parseJson<T>(res: Response, schema: Schema<T>): Promise<T> {
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null);
     throw new ApiRequestError(res.status, toApiErrorPayload(body));
@@ -58,7 +63,7 @@ async function parseJson<T>(res: Response, schema: ZodType<T>): Promise<T> {
 }
 
 // 타입 안전 GET: 응답을 schema.parse 로 검증해 T 로 반환.
-export async function apiGet<T>(path: string, schema: ZodType<T>): Promise<T> {
+export async function apiGet<T>(path: string, schema: Schema<T>): Promise<T> {
   return parseJson(await authFetch(path), schema);
 }
 
@@ -70,7 +75,7 @@ export async function apiSend<T>(
   method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
   body: unknown,
-  schema: ZodType<T>,
+  schema: Schema<T>,
 ): Promise<T> {
   const res = await authFetch(path, {
     method,
@@ -87,7 +92,7 @@ export async function apiSendForm<T>(
   method: 'POST' | 'PATCH',
   path: string,
   form: FormData,
-  schema: ZodType<T>,
+  schema: Schema<T>,
 ): Promise<T> {
   const res = await authFetch(path, { method, body: form });
   return parseJson(res, schema);

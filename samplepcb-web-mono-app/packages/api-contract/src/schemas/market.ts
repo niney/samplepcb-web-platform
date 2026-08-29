@@ -1,4 +1,9 @@
 import { z } from 'zod';
+// ⚠ 아래 두 줄의 **순서를 바꾸지 말 것** — market-service-area 를 먼저 평가해야
+// market-dev-review 가 (진행 중인 이 모듈을 거쳐) 활성 분야 상수를 초기화된 상태로 읽는다.
+import { MARKET_ACTIVE_SERVICE_AREAS, MarketActiveServiceArea } from './market-service-area';
+export * from './market-service-area';
+import { DevReviewAnswers, MarketDevReview } from './market-dev-review';
 
 // ── PCB 재능마켓(market) 계약 ────────────────────────────────────────────────
 // 도메인: 의뢰인(회원)이 프로젝트를 등록하고(역견적=공개 블라인드 입찰 / 지정견적=1:1),
@@ -262,6 +267,7 @@ export const MARKET_SERVICE_AREAS = [
 ] as const;
 export const MarketServiceArea = z.enum(MARKET_SERVICE_AREAS);
 export type MarketServiceAreaType = z.infer<typeof MarketServiceArea>;
+// 활성 3종(MARKET_ACTIVE_SERVICE_AREAS)은 ./market-service-area 에서 재export — 위 import 주석 참조.
 export const MARKET_SERVICE_AREA_LABELS = {
   circuit: '회로 개발',
   pcb: 'PCB 설계',
@@ -482,7 +488,8 @@ const marketExpertEditableShape = {
   region: MarketRegion.optional(),
   travelRange: MarketTravelRange.optional(),
   intro: z.string().trim().min(10).max(5000),
-  serviceAreas: z.array(MarketServiceArea).min(1).max(MARKET_SERVICE_AREAS.length),
+  // 신규 등록·수정은 활성 3종만(2026-08-28) — 응답·목록은 전체 enum 을 그대로 읽는다.
+  serviceAreas: z.array(MarketActiveServiceArea).min(1).max(MARKET_ACTIVE_SERVICE_AREAS.length),
   categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
   cadTools: z.array(MarketToolCode).max(MARKET_TOOL_CODES.length).default([]),
   bankName: z.string().trim().min(1).max(50),
@@ -598,94 +605,21 @@ export const MarketProjectDeadline = z.union([
 ]);
 export type MarketProjectDeadlineType = z.infer<typeof MarketProjectDeadline>;
 
-// ── 분야별 포스팅 카드(Phase 3) — market.request-postings 산출 ───────────────
-// 단일 의뢰를 유지한 채(사용자 확정 — 분리 입찰 아님) 분야별 전문가 관점의 요약 카드를
-// 상세에 표시한다. 공개 범위는 description 과 동일. ai.ts 가 market.ts 를 import 하는
-// 방향이므로 여기 정의(역방향 순환 금지).
-export const MarketPostingCard = z.object({
-  serviceArea: MarketServiceArea,
-  summary: z.array(z.string().trim().min(1).max(300)).min(1).max(6),
-  scope: z.array(z.string().trim().min(1).max(200)).min(1).max(10),
-  // .catch 는 vue-tsc 추론이 unknown 으로 무너져 .default 사용(누락만 보정, 파손은 재시도).
-  deliverables: z.array(z.string().trim().min(1).max(200)).max(10).default([]),
-  notes: z.array(z.string().trim().min(1).max(300)).max(6).default([]),
-});
-export type MarketPostingCardType = z.infer<typeof MarketPostingCard>;
-export const MarketPostingCards = z
-  .array(MarketPostingCard)
-  .min(1)
-  .max(MARKET_SERVICE_AREAS.length);
-export type MarketPostingCardsType = z.infer<typeof MarketPostingCards>;
-
-export const MarketAiInterviewAnswer = z.object({
-  code: z.string().trim().min(1).max(30),
-  answer: z.string().trim().min(1).max(2000),
-});
-export type MarketAiInterviewAnswerType = z.infer<typeof MarketAiInterviewAnswer>;
-
-// AI 산출물 출처 표시 — 저장 메타데이터와 현재 산출물 해시를 서버가 대조한 결과만 응답한다.
-// 메타데이터가 없는 레거시/직접 입력은 unverified, 생성 뒤 원천·출력이 달라지면 customer-modified.
-export const MarketAiArtifactProvenance = z.object({
-  state: z.enum(['ai-generated', 'deterministic', 'customer-modified', 'unverified']),
-  model: z.string().nullable(),
-  promptVersion: z.string().nullable(),
-  generatedAt: z.string().nullable(),
-});
-export type MarketAiArtifactProvenanceType = z.infer<typeof MarketAiArtifactProvenance>;
-
-export const MarketAiProvenance = z.object({
-  diagramSpec: MarketAiArtifactProvenance.nullable(),
-  diagramHtml: MarketAiArtifactProvenance.nullable(),
-  rocMd: MarketAiArtifactProvenance.nullable(),
-  postings: MarketAiArtifactProvenance.nullable(),
-});
-export type MarketAiProvenanceType = z.infer<typeof MarketAiProvenance>;
-
+// 의뢰 편집 필드 — 2026-08-28 AI 산출물 재구성으로 옛 4산출물(구성도 HTML·구성 명세·ROC·
+// 포스팅 카드)과 인터뷰 답변 공개 동의·잡 id 전달이 전부 사라졌다. 클라이언트는 산출물 본문을
+// 보내지 않는다 — 서버가 자기 저장분(sp_ai_job)을 쓴다(docs/AI_DEV_REVIEW.md §3).
+// requestType 도 payload 에서 빠졌다: 서버가 serviceAreas 개수로 파생한다(§4).
 const marketProjectEditableShape = {
   title: z.string().trim().min(2).max(200),
-  requestType: MarketRequestType,
-  serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length),
+  // 신규 등록·수정은 활성 3종만(읽기는 전체 enum 호환).
+  serviceAreas: z.array(MarketActiveServiceArea).min(1).max(MARKET_ACTIVE_SERVICE_AREAS.length),
   // 세부분야(회로·펌웨어) — 빈 배열 = 지정 없음. 분야-코드 정합성은 클라 pruning 신뢰(서버는 enum 만).
   categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
   // 빈 배열 = 특정 툴 요구 없음('any' 는 레거시 데이터에만 존재).
   cadTools: z.array(MarketProjectToolCode).max(MARKET_PROJECT_TOOL_CODES.length),
   description: z.string().trim().min(10).max(20000),
-  // 시스템 구성도 단일 HTML — DiagramSpec 결정적 렌더 또는 전자 분야 legacy AI 산출.
-  // 공개 범위는 description 과 동일. 렌더는 반드시 sandbox iframe(srcdoc).
-  diagramHtml: z.string().max(512_000).optional(),
-  // 구성 명세 JSON(DiagramSpec 직렬화 — market.request-structurize 산출). 구성도의
-  // 원천 데이터로, 재생성·후속 문서(ROC·포스팅 요약) 파생의 근원. 공개 범위 동일.
-  diagramSpec: z.string().max(200_000).optional(),
-  // 작업검토지시서 마크다운(market.request-roc 산출, Phase 2) — 견적 낼 전문가·검수자용.
-  // 공개 범위는 description 과 동일. 렌더는 이스케이프 라인 파서(v-html 금지).
-  rocMd: z.string().max(200_000).optional(),
-  // 인터뷰 답변 원본(ai.ts AiInterviewAnswer 와 동형 — ai.ts 가 market.ts 를 import 하는
-  // 순환을 피해 인라인 정의). 어떤 응답에도 노출하지 않는 저장 전용 원천 데이터 —
-  // 향후 명세·문서 재생성(Phase 3)의 근원.
-  interviewAnswers: z
-    .array(MarketAiInterviewAnswer)
-    .max(60)
-    .optional(),
-  // 답변 원문을 견적 가능한 전문가에게 공개한다는 신규 등록 시점의 명시 동의.
-  shareInterviewAnswers: z.literal(true).optional(),
-  // 분야별 포스팅 카드(Phase 3) — 서버가 의뢰 분야 밖 카드를 걸러 저장.
-  postings: MarketPostingCards.optional(),
-  // 서버가 인메모리 잡의 소유자·유스케이스·입력·출력을 직접 대조하는 참조값이다.
-  // 이 필드 자체는 출처 메타데이터로 신뢰하거나 DB에 그대로 저장하지 않는다.
-  aiJobIds: z
-    .object({
-      structurize: z.string().uuid().optional(),
-      legacyDiagram: z.string().uuid().optional(),
-      roc: z.string().uuid().optional(),
-      postings: z.string().uuid().optional(),
-    })
-    .optional(),
-  // 등록 시 구조화 잡의 입력 해시를 재구성하기 위한 일회성 질문 코드. DB에는 저장하지 않는다.
-  aiQuestionCodes: z.array(z.string().trim().min(1).max(30)).max(15).optional(),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
-  startHopeDate: z.string().regex(DATE_RE).optional(),
-  dueHopeDate: z.string().regex(DATE_RE).optional(),
   deadline: MarketProjectDeadline,
 } as const;
 
@@ -696,6 +630,11 @@ const cadAnyExclusive = (cadTools: readonly string[] | undefined): boolean =>
 export const MarketProjectCreatePayload = z
   .object({
     ...marketProjectEditableShape,
+    // 9문항 답변(§2) — sp_market_project.interviewAnswers 컬럼 재사용.
+    answers: DevReviewAnswers.default([]),
+    // 서버가 소유자·완료·유스케이스·입력 해시를 DB 에서 직접 대조하는 참조값이다.
+    // 검토서 본문은 클라이언트가 보내지 않는다(서버 저장분이 정본).
+    devReviewJobId: z.string().uuid().optional(),
     method: MarketProjectMethod,
     targetExpertId: z.number().int().positive().optional(), // targeted 필수 / open 금지
   })
@@ -704,13 +643,6 @@ export const MarketProjectCreatePayload = z
     path: ['cadTools'],
   })
   .superRefine((p, ctx) => {
-    if (p.requestType === 'individual' && p.serviceAreas.length !== 1) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: '개별 분야 개발은 개발 분야를 1개 선택해야 합니다',
-        path: ['serviceAreas'],
-      });
-    }
     if (p.method === 'targeted' && p.targetExpertId === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -725,48 +657,23 @@ export const MarketProjectCreatePayload = z
         path: ['targetExpertId'],
       });
     }
-    if (p.diagramSpec === undefined && p.rocMd !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: '작업검토지시서는 구성 명세가 필요합니다',
-        path: ['rocMd'],
-      });
-    }
-    if (p.diagramSpec === undefined && p.postings !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: '분야별 작업 안내 카드는 구성 명세가 필요합니다',
-        path: ['postings'],
-      });
-    }
-    if ((p.interviewAnswers?.length ?? 0) > 0 && p.shareInterviewAnswers !== true) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'AI 인터뷰 답변을 저장하려면 전문가 공개 동의가 필요합니다',
-        path: ['shareInterviewAnswers'],
-      });
-    }
   });
 export type MarketProjectCreatePayloadType = z.infer<typeof MarketProjectCreatePayload>;
 
 // 수정 — 입찰 0건 && bidding && 마감 전(라우트 가드). method/지정 대상은 변경 불가.
-// 희망일은 null 로 비울 수 있다.
+// devReview 는 null(제거)만 받는다: 검토서 본문은 서버 저장분이 정본이라 갱신 경로가 없고,
+// 원천(제목·설명·분야)을 바꾸는 수정은 검토서가 남아 있으면 라우트가 409 로 막는다
+// (같은 요청에 devReview:null 을 실으면 허용 — 검토서와 원천이 항상 일치한다는 불변식).
 export const MarketProjectUpdateBody = z
   .object({
     title: marketProjectEditableShape.title,
-    requestType: marketProjectEditableShape.requestType,
     serviceAreas: marketProjectEditableShape.serviceAreas,
     categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length), // default 없이 — 미전송=변경 없음
     cadTools: marketProjectEditableShape.cadTools,
     description: marketProjectEditableShape.description,
-    diagramHtml: z.string().max(512_000).nullable(), // null = 구성도 제거(spec 도 함께 제거됨)
-    diagramSpec: z.string().max(200_000).nullable(),
-    rocMd: z.string().max(200_000).nullable(), // null = 지시서 제거(spec 제거 시 동반 제거)
-    postings: MarketPostingCards.nullable(), // null = 카드 제거(spec 제거 시 동반 제거)
+    devReview: z.null(), // null = AI 사전 검토서 제거
     ndaRequired: z.boolean(),
     budgetRange: marketProjectEditableShape.budgetRange,
-    startHopeDate: z.string().regex(DATE_RE).nullable(),
-    dueHopeDate: z.string().regex(DATE_RE).nullable(),
     deadline: MarketProjectDeadline,
   })
   .partial()
@@ -774,26 +681,6 @@ export const MarketProjectUpdateBody = z
   .refine((b) => cadAnyExclusive(b.cadTools), {
     message: "'상관없음'은 단독으로만 선택할 수 있습니다",
     path: ['cadTools'],
-  })
-  .refine(
-    (b) => b.requestType === undefined || b.serviceAreas === undefined || b.requestType !== 'individual' || b.serviceAreas.length === 1,
-    { message: '개별 분야 개발은 개발 분야를 1개 선택해야 합니다', path: ['serviceAreas'] },
-  )
-  .superRefine((b, ctx) => {
-    if (b.diagramSpec === null && b.rocMd !== undefined && b.rocMd !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: '구성 명세를 제거하면서 작업검토지시서를 유지할 수 없습니다',
-        path: ['rocMd'],
-      });
-    }
-    if (b.diagramSpec === null && b.postings !== undefined && b.postings !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: '구성 명세를 제거하면서 분야별 작업 안내 카드를 유지할 수 없습니다',
-        path: ['postings'],
-      });
-    }
   });
 export type MarketProjectUpdateBodyType = z.infer<typeof MarketProjectUpdateBody>;
 
@@ -808,7 +695,7 @@ export const MarketProjectListQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(12),
   // open=입찰 가능(bidding && 마감 전), closed=마감(수동 closed 포함 파생), awarded=선정 완료.
   tab: z.enum(['open', 'closed', 'awarded', 'all']).default('open'),
-  requestType: MarketRequestType.optional(),
+  // 의뢰 유형 필터는 폐기(분야 필터로 대체) — requestType 은 서버 파생 표시값으로만 남는다.
   serviceArea: MarketServiceArea.optional(),
   method: MarketProjectMethod.optional(),
   q: z.string().optional(), // 제목·설명 contains
@@ -820,13 +707,14 @@ export type MarketProjectListQueryType = z.infer<typeof MarketProjectListQuery>;
 export const MarketProjectListItem = z.object({
   projectId: z.number(),
   title: z.string(),
-  requestType: MarketRequestType,
+  requestType: MarketRequestType, // 서버 파생(분야 2개 이상=system) — 표시 전용
   serviceAreas: z.array(MarketServiceArea),
   categories: z.array(MarketCategoryCode),
   cadTools: z.array(MarketProjectToolCode),
   budgetRange: MarketBudgetRange,
   method: MarketProjectMethod,
   ndaRequired: z.boolean(),
+  hasDevReview: z.boolean(), // 목록엔 존재 여부만(본문은 상세에서)
   ownerName: z.string(), // maskName 적용값(예: 박*한)
   bidCount: z.number(), // withdrawn 제외
   viewCount: z.number(),
@@ -870,12 +758,8 @@ export type MarketProjectAttachmentsType = z.infer<typeof MarketProjectAttachmen
 
 export const MarketProjectDetail = MarketProjectListItem.extend({
   description: z.string(),
-  diagramHtml: z.string().nullable(), // 자동 생성 구성도 — sandbox iframe 렌더 전용
-  diagramSpec: z.string().nullable(), // 구성 명세 JSON — 공개 범위는 description 동일
-  rocMd: z.string().nullable(), // AI 작업검토지시서 — 공개 범위는 description 동일
-  postings: MarketPostingCards.nullable(), // 분야별 포스팅 카드 — 공개 범위 동일
-  aiProvenance: MarketAiProvenance,
-  interviewAnswers: z.array(MarketAiInterviewAnswer).nullable(),
+  // AI 사전 검토서 — 공개 범위는 description 과 동일(상세를 볼 수 있는 뷰어 전원).
+  devReview: MarketDevReview.nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
@@ -1275,13 +1159,7 @@ export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
   cadTools: z.array(MarketProjectToolCode),
   budgetRange: MarketBudgetRange,
   description: z.string(),
-  diagramHtml: z.string().nullable(),
-  diagramSpec: z.string().nullable(),
-  rocMd: z.string().nullable(),
-  postings: MarketPostingCards.nullable(),
-  aiProvenance: MarketAiProvenance,
-  interviewAnswers: z.array(MarketAiInterviewAnswer).nullable(),
-  interviewAnswersSharedAt: z.string().nullable(),
+  devReview: MarketDevReview.nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   targetExpert: z

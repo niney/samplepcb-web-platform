@@ -1,7 +1,8 @@
 import type { FastifyRequest } from 'fastify';
-import type { SpFile, SpMarketExpert, SpMarketProject } from '@prisma/client';
+import type { SpFile, SpMarketProject } from '@prisma/client';
 import { maskName } from '@sp/utils';
 import {
+  MARKET_ACTIVE_SERVICE_AREAS,
   MARKET_BUDGET_RANGES,
   MARKET_CAREER_RANGES,
   MARKET_CATEGORIES,
@@ -11,12 +12,11 @@ import {
   MARKET_SERVICE_AREAS,
   MARKET_TOOL_CODES,
   MARKET_TRAVEL_RANGES,
-  MarketAiInterviewAnswer,
-  MarketPostingCards,
+  MarketDevReview,
 } from '@sp/api-contract';
 import type {
-  MarketPostingCardsType,
-  MarketAiInterviewAnswerType,
+  MarketActiveServiceAreaType,
+  MarketDevReviewType,
   MarketBidStatusType,
   MarketBudgetRangeType,
   MarketCareerRangeType,
@@ -118,15 +118,17 @@ export const toCategoryCodes = (json: unknown): MarketCategoryCodeType[] =>
 export const toServiceAreaCodes = (json: unknown): MarketServiceAreaType[] =>
   toCodeArray(json, MARKET_SERVICE_AREAS);
 
-// 분야별 포스팅 카드(Json 컬럼) — 형태가 어긋난 저장분은 null 로 정규화(응답 500 방지).
-export const toPostings = (json: unknown): MarketPostingCardsType | null => {
-  const r = MarketPostingCards.nullable().safeParse(json ?? null);
-  return r.success ? r.data : null;
-};
+// 활성 3종만 남긴 정규화(2026-08-28 분야 축소) — 옛 값(앱·서버 등)은 조용히 숨긴다.
+// 저장은 건드리지 않고 노출만 좁히는 읽기 규칙이다(레거시 'any'→[] 선례와 동형).
+export const toActiveServiceAreaCodes = (json: unknown): MarketActiveServiceAreaType[] =>
+  toCodeArray(json, MARKET_ACTIVE_SERVICE_AREAS);
 
-export const toInterviewAnswers = (json: unknown): MarketAiInterviewAnswerType[] | null => {
-  const result = MarketAiInterviewAnswer.array().safeParse(json);
-  return result.success ? result.data : null;
+// AI 사전 검토서(Json 컬럼) — 형태가 어긋난 저장분은 null 로 정규화(응답 500 방지).
+// 계약 스키마가 바뀌어 옛 저장분이 탈락해도 상세가 죽지 않는다.
+export const toDevReview = (json: unknown): MarketDevReviewType | null => {
+  if (json === null || json === undefined) return null;
+  const r = MarketDevReview.safeParse(json);
+  return r.success ? r.data : null;
 };
 
 export const toToolCodes = (json: unknown): MarketToolCodeType[] =>
@@ -143,23 +145,6 @@ export const toProjectToolCodes = (json: unknown): MarketProjectToolCodeType[] =
 // "지금 입찰 접수 중인가"의 부정 — 읽기 응답(biddingClosed)과 쓰기 가드가 같은 식을 쓴다.
 export const isBiddingClosed = (status: string, bidDeadlineAt: Date, now = new Date()): boolean =>
   status !== 'bidding' || bidDeadlineAt.getTime() <= now.getTime();
-
-export const canExpertViewInterviewAnswers = (args: {
-  project: Pick<
-    SpMarketProject,
-    'status' | 'bidDeadlineAt' | 'requestType' | 'method' | 'targetExpertId'
-  >;
-  expert: Pick<SpMarketExpert, 'id' | 'status' | 'expertType'>;
-  awardedExpertId: bigint | null;
-  now: Date;
-}): boolean => {
-  const { project, expert, awardedExpertId, now } = args;
-  if (awardedExpertId === expert.id) return true;
-  if (expert.status !== 'approved') return false;
-  if (project.requestType === 'system' && expert.expertType === 'individual') return false;
-  if (project.method === 'targeted' && project.targetExpertId !== expert.id) return false;
-  return !isBiddingClosed(project.status, project.bidDeadlineAt, now);
-};
 
 // 마감 입력(프리셋 N일 뒤 or 지정일) → 절대 시각. 지정일은 그 날 23:59:59 KST.
 export const deadlineToDate = (deadline: MarketProjectDeadlineType, now = new Date()): Date =>
@@ -226,6 +211,7 @@ export const toMarketProjectListItem = (
   budgetRange: asBudgetRange(p.budgetRange),
   method: asProjectMethod(p.method),
   ndaRequired: p.ndaRequired,
+  hasDevReview: p.devReview !== null,
   ownerName,
   bidCount,
   viewCount: p.viewCount,

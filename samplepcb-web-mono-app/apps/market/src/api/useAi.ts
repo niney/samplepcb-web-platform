@@ -6,95 +6,40 @@ import {
   AiUsecaseStatusResponse,
   apiRoutes,
 } from '@sp/api-contract';
-import type {
-  AiDiagramRunBodyType,
-  AiPostingsRunBodyType,
-  AiQuestionPreanalysisRunBodyType,
-  AiRocRunBodyType,
-  AiStructurizeRunBodyType,
-  AiUsecaseKeyType,
-} from '@sp/api-contract';
-import { apiGet, apiSend, apiSendForm } from '@sp/shared';
+import type { DevReviewRunPayloadType } from '@sp/api-contract';
+import { apiGet, apiSendForm } from '@sp/shared';
 
-// AI 유스케이스 훅 — 활성 여부(스텝 게이트) + 실행(잡 시작) + 잡 폴링.
-// 생성이 수 분이라 실행은 jobId 만 받고, 폴링 쿼리가 5초 간격으로 완료를 기다린다.
+// AI 사전 검토서 훅 3종(docs/AI_DEV_REVIEW.md §3) — 활성 여부·실행(잡 시작)·잡 폴링.
+// 생성이 수 분(첨부 판독 + 검토서)이라 실행은 jobId 만 받고 폴링이 완료를 기다린다.
 
-// 활성 여부(공개) — 위저드가 diagram 스텝을 노출할지 결정. 관리자 토글은 드물어 오래 캐시.
-export function useAiUsecaseStatus(useCase: AiUsecaseKeyType) {
+const DEV_REVIEW_USECASE = 'market.dev-review';
+
+// 활성 여부(공개·비밀 없음) — 위저드가 질문 스텝·검토서 생성을 노출할지 결정.
+// 관리자 토글은 드물어 오래 캐시한다.
+export function useDevReviewStatus() {
   return useQuery({
-    queryKey: ['ai', 'status', useCase],
-    queryFn: () => apiGet(`${apiRoutes.ai}/${useCase}/status`, AiUsecaseStatusResponse),
+    queryKey: ['ai', 'status', DEV_REVIEW_USECASE],
+    queryFn: () =>
+      apiGet(`${apiRoutes.ai}/${DEV_REVIEW_USECASE}/status`, AiUsecaseStatusResponse),
     staleTime: 5 * 60 * 1000,
   });
 }
 
-// 구성도 생성 시작(설명 기반 폴백 경로) — jobId 반환(비동기).
-export function useRunDiagram() {
+// 실행 — multipart(payload JSON 문자열 + attachment[]). 첨부는 등록 때와 같은 파일을
+// 그대로 보낸다(서버가 원본 SHA-256 으로 신선도를 대조한다).
+export function useRunDevReview() {
   return useMutation({
-    mutationFn: (body: AiDiagramRunBodyType) =>
-      apiSend('POST', `${apiRoutes.ai}/market.request-diagram/run`, body, AiRunResponse),
-  });
-}
-
-// 인터뷰 답변 → 구성 명세 JSON 구조화(P1) — 결과는 잡의 json 필드.
-export function useRunStructurize() {
-  return useMutation({
-    mutationFn: (body: AiStructurizeRunBodyType) =>
-      apiSend('POST', `${apiRoutes.ai}/market.request-structurize/run`, body, AiRunResponse),
-  });
-}
-
-// 등록 전 첨부를 서버에서 추출·비전 분석한 뒤 같은 구성 명세 잡으로 연결한다.
-export function useRunStructurizeWithAttachments() {
-  return useMutation({
-    mutationFn: ({ body, files }: { body: AiStructurizeRunBodyType; files: readonly File[] }) => {
+    mutationFn: ({ payload, files }: { payload: DevReviewRunPayloadType; files: readonly File[] }) => {
       const form = new FormData();
-      form.append('payload', JSON.stringify(body));
+      form.append('payload', JSON.stringify(payload));
       for (const file of files) form.append('attachment', file);
       return apiSendForm(
         'POST',
-        `${apiRoutes.ai}/market.request-structurize/run-with-attachments`,
+        `${apiRoutes.ai}/${DEV_REVIEW_USECASE}/run`,
         form,
         AiRunResponse,
       );
     },
-  });
-}
-
-// 설명·첨부에서 이미 답이 확인된 최초 질문을 비동기 선분석한다. 첨부가 없어도 같은
-// multipart 계약을 사용해 UI 분기를 없앤다.
-export function useRunQuestionPreanalysis() {
-  return useMutation({
-    mutationFn: ({ body, files }: {
-      body: AiQuestionPreanalysisRunBodyType;
-      files: readonly File[];
-    }) => {
-      const form = new FormData();
-      form.append('payload', JSON.stringify(body));
-      for (const file of files) form.append('attachment', file);
-      return apiSendForm(
-        'POST',
-        `${apiRoutes.ai}/market.request-structurize/preanalyze-questions`,
-        form,
-        AiRunResponse,
-      );
-    },
-  });
-}
-
-// 구성 명세 + 답변 → 작업검토지시서 마크다운(Phase 2) — 결과는 잡의 md 필드.
-export function useRunRoc() {
-  return useMutation({
-    mutationFn: (body: AiRocRunBodyType) =>
-      apiSend('POST', `${apiRoutes.ai}/market.request-roc/run`, body, AiRunResponse),
-  });
-}
-
-// 구성 명세 + 답변 → 분야별 포스팅 카드 JSON(Phase 3) — 결과는 잡의 json 필드.
-export function useRunPostings() {
-  return useMutation({
-    mutationFn: (body: AiPostingsRunBodyType) =>
-      apiSend('POST', `${apiRoutes.ai}/market.request-postings/run`, body, AiRunResponse),
   });
 }
 
@@ -104,8 +49,7 @@ export function useAiJob(jobId: Ref<string | null>) {
     queryKey: computed(() => ['ai', 'job', jobId.value]),
     queryFn: () => apiGet(`${apiRoutes.ai}/jobs/${jobId.value ?? ''}`, AiJobResponse),
     enabled: computed(() => jobId.value !== null),
-    refetchInterval: (query) =>
-      query.state.data?.data.status === 'running' ? 5000 : false,
-    retry: false, // 404(서버 재시작으로 잡 소실)는 즉시 에러 표시 → 재생성 유도
+    refetchInterval: (query) => (query.state.data?.data.status === 'running' ? 5000 : false),
+    retry: false, // 404(타인 잡·소실)는 즉시 에러 표시 → 재생성 유도
   });
 }

@@ -1,29 +1,41 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { MarketServiceArea } from '@sp/api-contract';
+import {
+  DEV_REVIEW_QUESTIONS,
+  DEV_REVIEW_QUESTION_MAP,
+  MARKET_ACTIVE_SERVICE_AREAS,
+  MarketActiveServiceArea,
+} from '@sp/api-contract';
 import type {
+  DevReviewAnswerType,
+  DevReviewQuestionCodeType,
+  MarketActiveServiceAreaType,
   MarketBudgetRangeType,
   MarketProjectDeadlineType,
   MarketProjectMethodType,
-  MarketRequestTypeType,
-  MarketServiceAreaType,
 } from '@sp/api-contract';
-import { useAiUsecaseStatus } from '../api/useAi';
+import { useDevReviewStatus } from '../api/useAi';
 
-// 의뢰 마법사 v2 폼 상태 — AI-우선 4스텝(분야 → 설명·자료 → AI 인터뷰 → 검토·등록).
-// 인터뷰 스텝은 structurize 유스케이스 활성 && AI 분석 동의일 때만 존재한다(둘 중 하나라도
-// 빠지면 스텝 배열은 [area, describe, review], 검토 스텝은 조건 폼만 노출).
-// 이 컴포저블은 폼 값·스텝 정의·네비게이션·폼 자체 유효성만 소유한다 — AI 잡 오케스트레이션과
-// 답변 공개 동의 결합은 useRequestWizardAi·셸이 담당한다.
+// 의뢰 위저드 3스텝 폼 상태(docs/AI_DEV_REVIEW.md §5.1) — 설명·자료 → 질문 9문항 → 검토·등록.
+// 질문 스텝은 검토서 생성이 활성(관리자 토글)이고 AI 사전 검토에 동의했을 때만 존재한다
+// (둘 중 하나라도 빠지면 [describe, review] 2스텝, 검토 스텝은 조건 폼만 노출).
+// 이 컴포저블은 폼 값·스텝 정의·네비게이션·폼 자체 유효성만 소유한다 — 검토서 잡
+// 오케스트레이션과 신선도 판정은 useDevReviewJob 이 담당한다.
+// 의뢰 유형(requestType)은 사라졌다: 서버가 분야 개수로 파생한다(§4).
 
-export type StepKey = 'area' | 'describe' | 'interview' | 'review';
+export type StepKey = 'describe' | 'questions' | 'review';
+
+// 문항 하나의 입력 상태 — 미응답은 choices 가 빈 배열이고 등록 payload 에서 빠진다.
+export interface QuestionState {
+  choices: string[];
+  note: string;
+}
 
 export interface RequestForm {
-  requestType: MarketRequestTypeType;
-  serviceAreas: MarketServiceAreaType[];
+  serviceAreas: MarketActiveServiceAreaType[];
   title: string;
   description: string;
-  // AI 분석 동의(기본 true) — 해제 시 인터뷰 스텝이 빠지고 일반 등록으로 진행된다.
+  // AI 사전 검토 동의(기본 true) — 해제 시 질문 스텝이 빠지고 검토서 없이 등록된다.
   aiConsent: boolean;
   ndaRequired: boolean;
   budgetRange: MarketBudgetRangeType;
@@ -36,9 +48,9 @@ export interface RequestForm {
 export function useRequestWizardForm() {
   const route = useRoute();
 
-  // ?cat= 분야 프리셋, ?expert= 지정견적 프리셋(전문가 상세의 CTA 진입).
-  const presetServiceArea = ((): MarketServiceAreaType => {
-    const area = MarketServiceArea.safeParse(route.query.cat);
+  // ?cat= 분야 프리셋(활성 3종만 — 그 외는 circuit), ?expert= 지정견적 프리셋.
+  const presetServiceArea = ((): MarketActiveServiceAreaType => {
+    const area = MarketActiveServiceArea.safeParse(route.query.cat);
     return area.success ? area.data : 'circuit';
   })();
   const presetExpertId = ((): number | null => {
@@ -47,7 +59,6 @@ export function useRequestWizardForm() {
   })();
 
   const fields = reactive<RequestForm>({
-    requestType: 'individual',
     serviceAreas: [presetServiceArea],
     title: '',
     description: '',
@@ -60,25 +71,69 @@ export function useRequestWizardForm() {
     targetExpertId: presetExpertId,
   });
   const attachments = ref<File[]>([]);
-  const typeNotice = ref('');
 
-  // 인터뷰 스텝 게이트 — structurize 활성 여부(관리자 토글은 드물어 오래 캐시).
-  const structurizeStatus = useAiUsecaseStatus('market.request-structurize');
-  const interviewEnabled = computed(() => structurizeStatus.data.value?.data.enabled ?? false);
-  const interviewStepShown = computed(() => interviewEnabled.value && fields.aiConsent);
+  // 9문항 입력 상태 — 코드가 계약에 고정이라 키를 하나씩 적는다(사전에 문항이 늘면
+  // 여기서 컴파일 에러가 나는 것이 의도다. Object.fromEntries 는 키 타입을 잃는다).
+  const questionState = reactive<Record<DevReviewQuestionCodeType, QuestionState>>({
+    stage: { choices: [], note: '' },
+    deliverables: { choices: [], note: '' },
+    quantity: { choices: [], note: '' },
+    power: { choices: [], note: '' },
+    connectivity: { choices: [], note: '' },
+    external: { choices: [], note: '' },
+    constraints: { choices: [], note: '' },
+    certification: { choices: [], note: '' },
+    timeline: { choices: [], note: '' },
+  });
+
+  function toggleChoice(code: DevReviewQuestionCodeType, choice: string): void {
+    const state = questionState[code];
+    const multi = DEV_REVIEW_QUESTION_MAP[code].multi;
+    if (!multi) {
+      state.choices = state.choices[0] === choice ? [] : [choice];
+      return;
+    }
+    const i = state.choices.indexOf(choice);
+    if (i >= 0) state.choices.splice(i, 1);
+    else state.choices.push(choice);
+  }
+
+  // 메모 필수(noteRequiredFor 선택지를 고른 문항) 미충족 목록 — 등록 전 게이트.
+  const noteMissingCodes = computed<DevReviewQuestionCodeType[]>(() =>
+    DEV_REVIEW_QUESTIONS.flatMap((q) => {
+      const state = questionState[q.code];
+      if (state.choices.length === 0) return [];
+      const required = q.noteRequiredFor?.some((c) => state.choices.includes(c)) ?? false;
+      return required && state.note.trim() === '' ? [q.code] : [];
+    }),
+  );
+
+  // 등록·검토서 실행에 실을 답변 — 응답한 문항만(§5.1 "미응답 문항은 보내지 않는다").
+  function buildAnswers(): DevReviewAnswerType[] {
+    return DEV_REVIEW_QUESTIONS.flatMap((q) => {
+      const state = questionState[q.code];
+      if (state.choices.length === 0) return [];
+      const note = state.note.trim();
+      return [{ code: q.code, choices: [...state.choices], ...(note !== '' ? { note } : {}) }];
+    });
+  }
+
+  // 검토서 생성 활성 여부(관리자 토글은 드물어 오래 캐시).
+  const devReviewStatus = useDevReviewStatus();
+  const devReviewEnabled = computed(() => devReviewStatus.data.value?.data.enabled ?? false);
+  const questionsStepShown = computed(() => devReviewEnabled.value && fields.aiConsent);
 
   const steps = computed<{ key: StepKey; label: string }[]>(() => [
-    { key: 'area', label: '분야' },
     { key: 'describe', label: '설명·자료' },
-    ...(interviewStepShown.value ? [{ key: 'interview' as const, label: 'AI 인터뷰' }] : []),
+    ...(questionsStepShown.value ? [{ key: 'questions' as const, label: '질문' }] : []),
     { key: 'review', label: '검토·등록' },
   ]);
 
   const stepIndex = ref(0);
-  const currentStep = computed<StepKey>(() => steps.value[stepIndex.value]?.key ?? 'area');
+  const currentStep = computed<StepKey>(() => steps.value[stepIndex.value]?.key ?? 'describe');
   const isLastStep = computed(() => stepIndex.value === steps.value.length - 1);
 
-  // 동의 해제로 인터뷰 스텝이 사라져 인덱스가 배열을 벗어나면 마지막 스텝으로 보정.
+  // 동의 해제로 질문 스텝이 사라져 인덱스가 배열을 벗어나면 마지막 스텝으로 보정.
   watch(steps, (list) => {
     if (stepIndex.value > list.length - 1) stepIndex.value = Math.max(0, list.length - 1);
   });
@@ -94,23 +149,12 @@ export function useRequestWizardForm() {
     if (i >= 0) stepIndex.value = i;
   }
 
-  function toggleServiceArea(code: MarketServiceAreaType): void {
+  function toggleServiceArea(code: MarketActiveServiceAreaType): void {
     const i = fields.serviceAreas.indexOf(code);
     if (i >= 0) fields.serviceAreas.splice(i, 1);
     else fields.serviceAreas.push(code);
-    if (fields.requestType === 'individual' && fields.serviceAreas.length > 1) {
-      fields.requestType = 'system';
-      typeNotice.value = '개발 분야를 여러 개 선택해 의뢰 유형이 시스템 통합 개발로 자동 변경되었습니다.';
-    }
   }
-  function selectRequestType(type: MarketRequestTypeType): void {
-    fields.requestType = type;
-    typeNotice.value = '';
-    if (type === 'individual' && fields.serviceAreas.length > 1) {
-      fields.serviceAreas = [fields.serviceAreas[0] ?? 'circuit'];
-      typeNotice.value = '개별 분야 개발은 한 분야만 선택할 수 있어 첫 번째 분야만 유지했습니다.';
-    }
-  }
+
   function pickAttachments(e: Event): void {
     const input = e.target as HTMLInputElement;
     attachments.value = input.files !== null ? Array.from(input.files) : [];
@@ -123,29 +167,34 @@ export function useRequestWizardForm() {
       : { days: Number(fields.deadlineMode) as 3 | 7 | 14 };
   }
 
-  // 스텝별 폼 자체 유효성 — 답변 공개 동의처럼 AI 상태와 얽힌 조건은 셸에서 결합한다.
+  // 스텝별 폼 자체 유효성 — 검토서 생성 대기처럼 잡 상태와 얽힌 조건은 셸에서 결합한다.
   const stepValid = computed<boolean>(() => {
     const key = currentStep.value;
-    if (key === 'area') return fields.requestType === 'system' || fields.serviceAreas.length === 1;
-    if (key === 'describe') return fields.title.trim().length >= 2 && fields.description.trim().length >= 10;
-    if (key === 'interview') return true; // 전 문항 선택 사항
+    if (key === 'describe') {
+      return (
+        fields.serviceAreas.length > 0 &&
+        fields.title.trim().length >= 2 &&
+        fields.description.trim().length >= 10
+      );
+    }
+    // 전 문항 선택 사항 — 다만 '있음(메모 필수)' 선택지는 메모가 있어야 서버가 받는다.
+    if (key === 'questions') return noteMissingCodes.value.length === 0;
     const deadlineOk = fields.deadlineMode !== 'date' || fields.deadlineDate >= todayKst;
     const methodOk = fields.method === 'open' || fields.targetExpertId !== null;
-    return deadlineOk && methodOk;
+    return deadlineOk && methodOk && noteMissingCodes.value.length === 0;
   });
-
-  const requestTypeDescs: Record<MarketRequestTypeType, string> = {
-    system: '여러 개발 분야를 연결해 제품 또는 시스템 전체를 개발합니다.',
-    individual: '필요한 개발 분야를 하나 이상 선택해 의뢰합니다.',
-  };
 
   return {
     fields,
     attachments,
-    typeNotice,
     presetExpertId,
-    interviewEnabled,
-    interviewStepShown,
+    activeServiceAreas: MARKET_ACTIVE_SERVICE_AREAS,
+    questionState,
+    toggleChoice,
+    noteMissingCodes,
+    buildAnswers,
+    devReviewEnabled,
+    questionsStepShown,
     steps,
     stepIndex,
     currentStep,
@@ -154,12 +203,10 @@ export function useRequestWizardForm() {
     prev,
     goToStep,
     toggleServiceArea,
-    selectRequestType,
     pickAttachments,
     todayKst,
     projectDeadline,
     stepValid,
-    requestTypeDescs,
   };
 }
 

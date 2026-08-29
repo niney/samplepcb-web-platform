@@ -27,7 +27,7 @@ import {
   toToolCodes,
   toCategoryCodes,
   toFileMeta,
-  toServiceAreaCodes,
+  toActiveServiceAreaCodes,
 } from '../lib/market';
 import { prisma } from '../lib/prisma';
 
@@ -151,7 +151,7 @@ export const adminMarketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts
           contactHours: expert.contactHours,
           travelRange: asTravelRangeOrNull(expert.travelRange),
           intro: expert.intro,
-          serviceAreas: toServiceAreaCodes(expert.serviceAreas),
+          serviceAreas: toActiveServiceAreaCodes(expert.serviceAreas),
           categories: toCategoryCodes(expert.categories),
           cadTools: toToolCodes(expert.cadTools),
           bankName: expert.bankName,

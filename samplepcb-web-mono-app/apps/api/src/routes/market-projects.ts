@@ -17,14 +17,9 @@ import type {
   MarketMyProjectListItemType,
   MarketProjectViewerType,
 } from '@sp/api-contract';
-import { renderDiagramSpecHtml } from '@sp/utils';
-import {
-  buildAiGenerationMeta,
-  invalidateAiGenerationMeta,
-  toAiProvenance,
-} from '../lib/ai/provenance';
-import { hashAiBytes } from '../lib/ai/jobs';
-import { parseDiagramSpecString } from '../lib/ai/usecases';
+import { getAiJob } from '../lib/ai/jobs';
+import { devReviewInputHash } from '../lib/ai/dev-review';
+import { devReviewAttachmentHashes } from './ai';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
@@ -34,19 +29,15 @@ import {
   MARKET_FILE_SERVICE_TYPE,
   REF_MARKET_PROJECT,
   asBidStatus,
-  asRequestType,
-  canExpertViewInterviewAnswers,
   collectMultipart,
   deadlineToDate,
   deleteMarketFile,
   isBiddingClosed,
   marketBidCounts,
   marketOwnerNames,
+  toDevReview,
   toFileMeta,
-  toInterviewAnswers,
   toMarketProjectListItem,
-  toPostings,
-  toServiceAreaCodes,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
 import {
@@ -89,16 +80,10 @@ const awardedExpertIdOf = async (p: SpMarketProject): Promise<bigint | null> => 
   return awarded?.expertId ?? null;
 };
 
-// 공개 동의된 인터뷰 원문은 실제 견적 가능 전문가와 채택 전문가에게만 노출한다.
-// 첨부 NDA와 별개의 견적 판단 자료이며, 시스템 통합 의뢰의 개인 전문가는 입찰 제한과 동일하게 제외.
-const expertCanViewInterviewAnswers = async (
-  project: SpMarketProject,
-  expert: SpMarketExpert,
-  now: Date,
-): Promise<boolean> => {
-  const awardedExpertId = await awardedExpertIdOf(project);
-  return canExpertViewInterviewAnswers({ project, expert, awardedExpertId, now });
-};
+// 의뢰 유형은 더 이상 입력이 아니다 — 분야 2개 이상이면 시스템 통합(docs/AI_DEV_REVIEW.md §4).
+// 표시용 파생값이며 입찰 자격을 가르지 않는다(전체서비스 회사 전용 가드는 폐지).
+const deriveRequestType = (serviceAreas: readonly string[]): 'system' | 'individual' =>
+  serviceAreas.length > 1 ? 'system' : 'individual';
 
 // 전문가의 첨부 접근 자격 — 입찰 접수 중(입찰 준비) 또는 채택된 작업자만.
 // 마감 후 비채택 전문가·일반 회원은 접근 불가(NDA 게이트 취지의 최소권한).
@@ -178,45 +163,32 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return reply.status(400).send({ result: false, error: 'DEADLINE_PAST' });
     }
 
-    // 구성 명세 JSON — 우리 AI 산출이 정상 경로지만 클라이언트 입력이므로 재검증하고,
-    // 정규화 직렬화본으로 저장한다(이관 specJson _legacy 교훈: 저장 전 형태 통제).
-    let normalizedDiagramSpec: string | null = null;
-    let normalizedDiagram: ReturnType<typeof parseDiagramSpecString> | null = null;
-    if (payload.diagramSpec !== undefined) {
-      try {
-        normalizedDiagram = parseDiagramSpecString(payload.diagramSpec);
-        normalizedDiagramSpec = JSON.stringify(normalizedDiagram);
-      } catch {
-        return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
+    // AI 사전 검토서 — 클라이언트는 본문을 보내지 않는다. jobId 만 받아 서버가 자기
+    // 저장분(sp_ai_job)을 소유자·완료·유스케이스·입력 해시까지 대조한 뒤 그대로 박제한다.
+    // 해시 규칙은 실행 라우트(§3.4)와 **정확히 같아야** 한다 — 다르면 정상 등록이 튕긴다.
+    let devReview: Prisma.InputJsonValue | null = null;
+    if (payload.devReviewJobId !== undefined) {
+      const job = await getAiJob(payload.devReviewJobId);
+      if (
+        job?.mbId !== mbId ||
+        job.useCase !== 'market.dev-review' ||
+        job.status !== 'done' ||
+        job.review === null
+      ) {
+        return reply.status(400).send({ result: false, error: 'REVIEW_JOB_INVALID' });
       }
+      const expected = devReviewInputHash({
+        title: payload.title,
+        serviceAreas: payload.serviceAreas,
+        description: payload.description,
+        answers: payload.answers,
+        attachmentHashes: devReviewAttachmentHashes(attachments),
+      });
+      if (job.inputHash !== expected) {
+        return reply.status(400).send({ result: false, error: 'REVIEW_STALE' });
+      }
+      devReview = job.review;
     }
-    if (
-      normalizedDiagramSpec === null &&
-      (payload.rocMd !== undefined || payload.postings !== undefined)
-    ) {
-      return reply.status(400).send({ result: false, error: 'AI_ARTIFACT_SPEC_REQUIRED' });
-    }
-    // 포스팅 카드 — 의뢰 분야 밖 카드는 조용히 걸러 저장(스키마는 계약이 이미 검증).
-    const postingCards =
-      payload.postings?.filter((c) => payload.serviceAreas.includes(c.serviceArea)) ?? [];
-    const diagramHtml =
-      payload.diagramHtml !== undefined && normalizedDiagram !== null
-        ? renderDiagramSpecHtml(normalizedDiagram)
-        : payload.diagramHtml ?? null;
-    const persistedPostings = postingCards.length > 0 ? postingCards : null;
-    const aiGenerationMeta = buildAiGenerationMeta({
-      mbId,
-      payload,
-      artifacts: {
-        diagramSpec: normalizedDiagramSpec,
-        diagramHtml,
-        rocMd: payload.rocMd ?? null,
-        postings: persistedPostings,
-      },
-      generatedAt: now,
-      // 첨부 AI 전처리와 같은 앞쪽 10개만 캐시/provenance 원천으로 사용한다.
-      attachmentHashes: attachments.slice(0, 10).map((file) => hashAiBytes(file.buffer)),
-    });
 
     // 지정견적 — 대상은 승인 전문가여야 하고, 자기 자신(자전 입찰 유도) 지정은 금지.
     let targetExpert: SpMarketExpert | null = null;
@@ -260,25 +232,19 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         data: {
           mbId,
           title: payload.title,
-          requestType: payload.requestType,
+          requestType: deriveRequestType(payload.serviceAreas),
           serviceAreas: payload.serviceAreas,
           categories: payload.categories,
           cadTools: payload.cadTools,
           description: payload.description,
-          diagramHtml,
-          diagramSpec: normalizedDiagramSpec,
-          rocMd: payload.rocMd ?? null,
-          interviewAnswers: payload.interviewAnswers ?? Prisma.DbNull,
-          interviewAnswersSharedAt:
-            payload.shareInterviewAnswers === true && (payload.interviewAnswers?.length ?? 0) > 0
-              ? now
-              : null,
-          postings: persistedPostings ?? Prisma.DbNull,
-          aiGenerationMeta: aiGenerationMeta ?? Prisma.DbNull,
+          devReview: devReview ?? Prisma.DbNull,
+          // 9문항 답변 — 브리프·검토서 원천(컬럼 재사용).
+          interviewAnswers: payload.answers.length > 0 ? payload.answers : Prisma.DbNull,
           ndaRequired: payload.ndaRequired,
           budgetRange: payload.budgetRange,
-          startHopeDate: payload.startHopeDate ?? null,
-          dueHopeDate: payload.dueHopeDate ?? null,
+          // 시작·완료 희망일은 위저드 v2 에서 사라졌다 — 컬럼만 남고 항상 null.
+          startHopeDate: null,
+          dueHopeDate: null,
           bidDeadlineAt,
           method: payload.method,
           targetExpertId: targetExpert?.id ?? null,
@@ -339,11 +305,10 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     '/market/projects',
     { schema: { querystring: MarketProjectListQuery } },
     async (request) => {
-      const { page, pageSize, tab, requestType, serviceArea, method, q, sort } = request.query;
+      const { page, pageSize, tab, serviceArea, method, q, sort } = request.query;
       const now = new Date();
 
       const base: Prisma.SpMarketProjectWhereInput = {
-        ...(requestType !== undefined ? { requestType } : {}),
         ...(serviceArea !== undefined ? { serviceAreas: { array_contains: [serviceArea] } } : {}),
         ...(method !== undefined ? { method } : {}),
         ...(q !== undefined && q.trim() !== ''
@@ -424,8 +389,6 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       // 개인화 + 첨부 메타 노출 판정.
       let viewer: MarketProjectViewerType | null = null;
       let filesVisible = isOwner || isAdmin;
-      let interviewAnswersVisible =
-        project.interviewAnswersSharedAt !== null && (isOwner || isAdmin);
       if (user !== null) {
         const expert = await prisma.spMarketExpert.findUnique({ where: { mbId: user.mbId } });
         const [signed, myBid] = await Promise.all([
@@ -459,13 +422,6 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           myBidStatus: myBid !== null ? asBidStatus(myBid.status) : null,
           contract: contractSummary,
         };
-        if (
-          !interviewAnswersVisible &&
-          project.interviewAnswersSharedAt !== null &&
-          expert !== null
-        ) {
-          interviewAnswersVisible = await expertCanViewInterviewAnswers(project, expert, now);
-        }
         // 메타 규칙: NDA 불요 → 공개 / NDA 요구 → 소유자·관리자·서명자만(파일명도 기밀 힌트).
         if (!filesVisible) filesVisible = !project.ndaRequired || viewer.ndaSigned;
       } else {
@@ -477,7 +433,6 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         marketOwnerNames([project.mbId]),
         marketBidCounts([project.id]),
       ]);
-      const postings = toPostings(project.postings);
 
       return {
         result: true as const,
@@ -489,19 +444,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             now,
           ),
           description: project.description,
-          diagramHtml: project.diagramHtml,
-          diagramSpec: project.diagramSpec,
-          rocMd: project.rocMd,
-          postings,
-          aiProvenance: toAiProvenance(project.aiGenerationMeta, {
-            diagramSpec: project.diagramSpec,
-            diagramHtml: project.diagramHtml,
-            rocMd: project.rocMd,
-            postings,
-          }),
-          interviewAnswers: interviewAnswersVisible
-            ? toInterviewAnswers(project.interviewAnswers)
-            : null,
+          // 검토서 공개 범위 = description 과 동일(상세를 볼 수 있는 뷰어 전원).
+          devReview: toDevReview(project.devReview),
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,
@@ -539,101 +483,33 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       }
 
       const body = request.body;
-      const nextRequestType = body.requestType ?? asRequestType(project.requestType);
-      const nextServiceAreas = body.serviceAreas ?? toServiceAreaCodes(project.serviceAreas);
-      if (nextRequestType === 'individual' && nextServiceAreas.length !== 1) {
-        return reply.status(400).send({ result: false, error: 'INDIVIDUAL_AREA_REQUIRED' });
+      // 검토서는 원천(제목·설명·분야)과 항상 일치한다는 불변식 — 원천을 바꾸는 수정은
+      // 검토서가 남아 있으면 막고, 같은 요청에 devReview:null 을 실으면 허용한다.
+      const sourceTouched =
+        body.title !== undefined || body.description !== undefined || body.serviceAreas !== undefined;
+      const removingReview = body.devReview === null;
+      if (sourceTouched && project.devReview !== null && !removingReview) {
+        return reply.status(409).send({ result: false, error: 'DEV_REVIEW_ATTACHED' });
       }
+
       const data: Prisma.SpMarketProjectUpdateInput = {};
       if (body.title !== undefined) data.title = body.title;
-      if (body.requestType !== undefined) data.requestType = body.requestType;
-      if (body.serviceAreas !== undefined) data.serviceAreas = body.serviceAreas;
+      if (body.serviceAreas !== undefined) {
+        data.serviceAreas = body.serviceAreas;
+        data.requestType = deriveRequestType(body.serviceAreas); // 분야 개수에서 재파생
+      }
       if (body.categories !== undefined) data.categories = body.categories;
       if (body.cadTools !== undefined) data.cadTools = body.cadTools;
       if (body.description !== undefined) data.description = body.description;
-      let normalizedBodySpec: ReturnType<typeof parseDiagramSpecString> | null = null;
-      if (body.diagramSpec !== undefined && body.diagramSpec !== null) {
-        try {
-          normalizedBodySpec = parseDiagramSpecString(body.diagramSpec);
-          data.diagramSpec = JSON.stringify(normalizedBodySpec);
-        } catch {
-          return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
-        }
-      }
-      if (body.diagramHtml !== undefined) {
-        if (body.diagramHtml === null) {
-          data.diagramHtml = null;
-        } else if (normalizedBodySpec !== null) {
-          data.diagramHtml = renderDiagramSpecHtml(normalizedBodySpec);
-        } else if (body.diagramSpec === undefined && project.diagramSpec !== null) {
-          try {
-            data.diagramHtml = renderDiagramSpecHtml(parseDiagramSpecString(project.diagramSpec));
-          } catch {
-            data.diagramHtml = body.diagramHtml;
-          }
-        } else {
-          data.diagramHtml = body.diagramHtml;
-        }
-      } else if (normalizedBodySpec !== null && project.diagramHtml !== null) {
-        // 명세가 바뀌었는데 구성도 포함 상태가 유지되면 같은 명세로 즉시 재렌더한다.
-        data.diagramHtml = renderDiagramSpecHtml(normalizedBodySpec);
-      }
-      // 구성도 제거(diagramHtml=null) 시 spec 을 명시하지 않았으면 함께 제거 — 원천
-      // 데이터만 남아 상세·후속 문서가 지워진 구성도를 되살리는 혼란을 막는다.
-      const specRemoved =
-        body.diagramSpec === null || (body.diagramHtml === null && body.diagramSpec === undefined);
-      const nextHasSpec =
-        body.diagramSpec !== undefined ? body.diagramSpec !== null : !specRemoved && project.diagramSpec !== null;
-      const nextHasRoc =
-        body.rocMd !== undefined ? body.rocMd !== null : !specRemoved && project.rocMd !== null;
-      const nextHasPostings =
-        body.postings !== undefined ? body.postings !== null : !specRemoved && project.postings !== null;
-      const aiArtifactsTouched =
-        body.diagramHtml !== undefined ||
-        body.diagramSpec !== undefined ||
-        body.rocMd !== undefined ||
-        body.postings !== undefined;
-      if (aiArtifactsTouched && !nextHasSpec && (nextHasRoc || nextHasPostings)) {
-        return reply.status(400).send({ result: false, error: 'AI_ARTIFACT_SPEC_REQUIRED' });
-      }
-      if (specRemoved) data.diagramSpec = null;
-      if (body.diagramSpec === null && body.diagramHtml === undefined) data.diagramHtml = null;
-      if (body.rocMd !== undefined) data.rocMd = body.rocMd;
-      if (body.postings !== undefined) {
-        const filtered = (body.postings ?? []).filter((c) => nextServiceAreas.includes(c.serviceArea));
-        data.postings = filtered.length > 0 ? filtered : Prisma.DbNull;
-      }
-      // 원천(spec) 제거 시 파생(지시서·포스팅 카드)도 명시가 없으면 동반 제거.
-      if (specRemoved && body.rocMd === undefined) data.rocMd = null;
-      if (specRemoved && body.postings === undefined) data.postings = Prisma.DbNull;
+      if (removingReview) data.devReview = Prisma.DbNull;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
       if (body.budgetRange !== undefined) data.budgetRange = body.budgetRange;
-      if (body.startHopeDate !== undefined) data.startHopeDate = body.startHopeDate;
-      if (body.dueHopeDate !== undefined) data.dueHopeDate = body.dueHopeDate;
       if (body.deadline !== undefined) {
         const next = deadlineToDate(body.deadline, now);
         if (next.getTime() <= now.getTime()) {
           return reply.status(400).send({ result: false, error: 'DEADLINE_PAST' });
         }
         data.bidDeadlineAt = next;
-      }
-      const aiSourceTouched =
-        body.title !== undefined ||
-        body.requestType !== undefined ||
-        body.serviceAreas !== undefined ||
-        body.categories !== undefined ||
-        body.cadTools !== undefined ||
-        body.description !== undefined ||
-        body.diagramHtml !== undefined ||
-        body.diagramSpec !== undefined ||
-        body.rocMd !== undefined ||
-        body.postings !== undefined ||
-        body.budgetRange !== undefined ||
-        body.startHopeDate !== undefined ||
-        body.dueHopeDate !== undefined ||
-        body.deadline !== undefined;
-      if (aiSourceTouched) {
-        data.aiGenerationMeta = invalidateAiGenerationMeta(project.aiGenerationMeta) ?? Prisma.DbNull;
       }
 
       const updated = await prisma.spMarketProject.update({ where: { id: project.id }, data });

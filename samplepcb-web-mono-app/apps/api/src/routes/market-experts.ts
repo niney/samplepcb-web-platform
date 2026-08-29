@@ -23,7 +23,7 @@ import {
   toToolCodes,
   toCategoryCodes,
   toFileMeta,
-  toServiceAreaCodes,
+  toActiveServiceAreaCodes,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
 import { prisma } from '../lib/prisma';
@@ -61,7 +61,7 @@ const toExpertMe = (e: SpMarketExpert, files: ExpertFileRow[]): MarketExpertMeTy
   region: asRegionOrNull(e.region),
   travelRange: asTravelRangeOrNull(e.travelRange),
   intro: e.intro,
-  serviceAreas: toServiceAreaCodes(e.serviceAreas),
+  serviceAreas: toActiveServiceAreaCodes(e.serviceAreas),
   categories: toCategoryCodes(e.categories),
   cadTools: toToolCodes(e.cadTools),
   bankName: e.bankName,
@@ -81,7 +81,7 @@ const toExpertPublic = (e: SpMarketExpert): MarketExpertPublicType => ({
   expertType: asExpertType(e.expertType),
   careerRange: asCareerRange(e.careerRange),
   region: asRegionOrNull(e.region),
-  serviceAreas: toServiceAreaCodes(e.serviceAreas),
+  serviceAreas: toActiveServiceAreaCodes(e.serviceAreas),
   categories: toCategoryCodes(e.categories),
   cadTools: toToolCodes(e.cadTools),
   intro: e.intro,
@@ -367,7 +367,8 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const keyword = q?.trim().toLowerCase();
       const filtered = rows.filter((e) => {
         if (expertType !== undefined && asExpertType(e.expertType) !== expertType) return false;
-        if (serviceArea !== undefined && !toServiceAreaCodes(e.serviceAreas).includes(serviceArea))
+        // 필터 값은 전체 enum(읽기 호환)이라 활성 코드 배열과 폭이 다르다 — some 비교로 좁힌다.
+        if (serviceArea !== undefined && !toActiveServiceAreaCodes(e.serviceAreas).some((a) => a === serviceArea))
           return false;
         if (category !== undefined && !toCategoryCodes(e.categories).includes(category))
           return false;

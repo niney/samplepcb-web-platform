@@ -1,7 +1,8 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import {
-  AI_USECASES,
-  AiAdminPromptTestRun,
+  AiAdminDevReviewTestRun,
+  AiJobLogQuery,
+  AiJobLogResponse,
   AiModelsResponse,
   AiRunResponse,
   AiSettingsResponse,
@@ -17,7 +18,7 @@ import {
   GerberPricingResponse,
   GerberPricingUpdate,
 } from '@sp/api-contract';
-import type { AiUsecaseKeyType } from '@sp/api-contract';
+import { maskName } from '@sp/utils';
 import { getBusinessInfo, updateBusinessInfo, type BusinessInfo } from '../lib/g5-db';
 import { cleanXssTags, isValidCallback } from '../lib/shop-config';
 import {
@@ -36,13 +37,18 @@ import {
 import { ollamaListModels } from '../lib/ai/ollama';
 import {
   AI_USECASE_DEFS,
+  DEV_REVIEW_USECASE,
   ensureAiUsecaseRows,
   getAiConnection,
+  getAiVisionModel,
   maskApiKey,
   setAiConnection,
+  setAiVisionModel,
 } from '../lib/ai/usecases';
-import { getAiAdminSampleInput } from '../lib/ai/admin-samples';
-import { startAiJob } from '../lib/ai/runner';
+import { getDevReviewAdminSample } from '../lib/ai/admin-samples';
+import { devReviewInputHash } from '../lib/ai/dev-review';
+import { listAiJobs } from '../lib/ai/jobs';
+import { startDevReviewJob } from '../lib/ai/runner';
 import { prisma } from '../lib/prisma';
 
 // 관리자 설정(/app/admin/settings) — 영카트 쇼핑몰설정을 탭 단위로 이식하는 도메인.
@@ -137,30 +143,32 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     },
   );
 
-  // ── AI 연동(ai) 탭 — 연결(sp_config ai_*) + 유스케이스(sp_ai_usecase) ────────
+  // ── AI 연동(ai) 탭 — 연결(sp_config ai_*) + 검토서 설정(sp_ai_usecase) ───────
   // apiKey 원문은 응답에 절대 싣지 않는다(마스킹만). 유스케이스 행은 레지스트리 기준
-  // lazy 생성 — 새 유스케이스가 코드에 추가되면 이 GET 이 자동으로 행을 만든다.
+  // lazy 생성 — 프롬프트 본문은 코드 정본이라 관리자는 토글·모델·추가 지침만 만진다.
 
   const aiSettingsData = async () => {
     await ensureAiUsecaseRows();
-    const [conn, rows] = await Promise.all([
+    const [conn, vision, row] = await Promise.all([
       getAiConnection(),
-      prisma.spAiUsecase.findMany({ orderBy: { useCase: 'asc' } }),
+      getAiVisionModel(),
+      prisma.spAiUsecase.findUnique({ where: { useCase: DEV_REVIEW_USECASE } }),
     ]);
+    const def = AI_USECASE_DEFS[DEV_REVIEW_USECASE];
     return {
       baseUrl: conn.baseUrl,
       apiKeyMasked: maskApiKey(conn.apiKey),
       baseUrlFromEnv: conn.baseUrlFromEnv,
       apiKeyFromEnv: conn.apiKeyFromEnv,
-      usecases: rows
-        .filter((r) => (AI_USECASES as readonly string[]).includes(r.useCase))
-        .map((r) => ({
-          useCase: r.useCase as AiUsecaseKeyType,
-          enabled: r.enabled,
-          model: r.model,
-          promptTemplate: r.promptTemplate,
-          updatedAt: r.updatedAt.toISOString(),
-        })),
+      visionModel: vision.model,
+      visionModelFromEnv: vision.fromEnv,
+      devReview: {
+        enabled: row?.enabled ?? false,
+        model: row?.model ?? def.defaultModel,
+        extraInstructions: row?.extraInstructions ?? '',
+        promptVersion: def.promptVersion, // 읽기 전용 — 프롬프트 정본은 코드
+        updatedAt: (row?.updatedAt ?? new Date()).toISOString(),
+      },
     };
   };
 
@@ -264,40 +272,75 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     async (request) => {
       const body = request.body;
       await setAiConnection({ baseUrl: body.baseUrl, apiKey: body.apiKey });
-      if (body.usecases !== undefined) {
+      if (body.visionModel !== undefined) await setAiVisionModel(body.visionModel);
+      if (body.devReview !== undefined) {
         await ensureAiUsecaseRows();
-        for (const u of body.usecases) {
-          await prisma.spAiUsecase.update({
-            where: { useCase: u.useCase },
-            data: { enabled: u.enabled, model: u.model, promptTemplate: u.promptTemplate },
-          });
-        }
+        await prisma.spAiUsecase.update({
+          where: { useCase: DEV_REVIEW_USECASE },
+          data: {
+            enabled: body.devReview.enabled,
+            model: body.devReview.model,
+            // 빈 문자열은 "지침 없음" — null 로 저장해 표시·프롬프트 양쪽에서 같게 다룬다.
+            extraInstructions: body.devReview.extraInstructions === ''
+              ? null
+              : body.devReview.extraInstructions,
+          },
+        });
       }
       return { result: true as const, data: await aiSettingsData() };
     },
   );
 
-  // POST /api/admin/settings/ai/test — 저장 전 모델·프롬프트를 비식별 샘플로 실제 실행.
+  // POST /api/admin/settings/ai/test — 저장 전 모델·추가 지침을 비식별 샘플로 실제 실행.
   // 활성 토글과 DB 설정은 바꾸지 않으며 캐시도 우회해 현재 연결·모델을 반드시 검증한다.
+  // 폴링은 일반 실행과 같은 /api/ai/jobs/:id(관리자 토큰의 mbId 가 소유자).
   fastify.post(
     '/settings/ai/test',
-    { schema: { body: AiAdminPromptTestRun, response: { 200: AiRunResponse } } },
+    { schema: { body: AiAdminDevReviewTestRun, response: { 200: AiRunResponse } } },
     async (request) => {
-      const { useCase, model, promptTemplate } = request.body;
-      const def = AI_USECASE_DEFS[useCase];
-      const input: unknown = def.inputSchema.parse(getAiAdminSampleInput(useCase));
-      const prompt = def.buildPrompt(promptTemplate, input);
-      const started = await startAiJob({
-        useCase,
+      const { model, extraInstructions } = request.body;
+      const source = getDevReviewAdminSample();
+      const started = await startDevReviewJob({
         mbId: request.user.mbId,
         model,
-        promptTemplate,
-        input,
-        prompt,
+        think: AI_USECASE_DEFS[DEV_REVIEW_USECASE].think,
+        extraInstructions,
+        source,
+        images: [], // 샘플엔 첨부가 없다 — 비전 단계를 타지 않는다
+        inputHash: devReviewInputHash({ ...source, attachmentHashes: [] }),
         log: request.log,
         reuseCompleted: false,
       });
       return { result: true as const, data: { jobId: started.job.id, cached: false } };
+    },
+  );
+
+  // GET /api/admin/settings/ai/jobs — 실행 이력(최근순). 회원 식별자는 마스킹만 노출.
+  fastify.get(
+    '/settings/ai/jobs',
+    { schema: { querystring: AiJobLogQuery, response: { 200: AiJobLogResponse } } },
+    async (request) => {
+      const { items, total } = await listAiJobs(request.query);
+      return {
+        result: true as const,
+        data: {
+          items: items.map((j) => ({
+            jobId: j.id,
+            useCase: j.useCase,
+            stage: j.stage,
+            model: j.model,
+            status: j.status,
+            mbIdMasked: maskName(j.mbId),
+            elapsedSecs: Math.round(
+              ((j.finishedAt ?? new Date()).getTime() - j.startedAt.getTime()) / 1000,
+            ),
+            error: j.error,
+            startedAt: j.startedAt.toISOString(),
+            finishedAt: j.finishedAt?.toISOString() ?? null,
+          })),
+          total,
+        },
+      };
     },
   );
 

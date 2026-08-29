@@ -19,11 +19,15 @@ const CODE_MESSAGES: Record<string, string> = {
   NOT_BIDDING: '입찰 중 상태가 아닙니다.',
   NOT_CANCELLABLE: '취소할 수 없는 상태입니다.',
   NOT_AVAILABLE: '진행할 수 없는 프로젝트입니다.',
+  // AI 사전 검토서(docs/AI_DEV_REVIEW.md §3) — 원천이 바뀌면 서버가 등록을 튕긴다.
+  REVIEW_STALE: '의뢰 내용이 바뀌어 검토서를 다시 만들어야 합니다.',
+  REVIEW_JOB_INVALID: '검토서를 찾을 수 없습니다. 다시 만든 뒤 등록해 주세요.',
+  DEV_REVIEW_ATTACHED:
+    'AI 사전 검토서가 붙어 있어 의뢰 내용을 바꿀 수 없습니다. 검토서를 제거한 뒤 수정해 주세요.',
+  USECASE_DISABLED: 'AI 사전 검토서 생성이 지금 중지되어 있습니다. 검토서 없이 등록할 수 있습니다.',
   // 입찰·NDA
   SELF_BID_FORBIDDEN: '내가 등록한 프로젝트에는 견적을 제출할 수 없습니다.',
   TARGETED_ONLY: '지정견적 프로젝트는 지정된 전문가만 참여할 수 있습니다.',
-  FULL_SERVICE_COMPANY_ONLY:
-    '시스템 통합(전체서비스) 의뢰는 파트너사(기업)·샘플피씨비만 견적을 제출할 수 있습니다.',
   BIDDING_CLOSED: '견적 접수가 마감된 프로젝트입니다.',
   ALREADY_BID: '이미 견적을 제출했습니다. 기존 견적을 수정해 주세요.',
   BID_FINALIZED: '이미 확정된 견적이라 변경할 수 없습니다.',

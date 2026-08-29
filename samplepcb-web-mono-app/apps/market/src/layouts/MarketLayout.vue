@@ -22,7 +22,7 @@ function goLogout(): void {
     <!-- 탑바 -->
     <div class="hidden border-b border-line bg-white sm:block">
       <div
-        class="mx-auto flex h-9 w-full max-w-6xl items-center justify-between px-4 text-xs text-tx-3"
+        class="mx-auto flex h-9 w-full max-w-[1440px] items-center justify-between px-6 text-xs text-tx-3"
       >
         <span>{{ $t('app.tagline') }}</span>
         <div class="flex items-center gap-4">
@@ -36,7 +36,7 @@ function goLogout(): void {
 
     <!-- 헤더 -->
     <header class="sticky top-0 z-40 border-b border-line bg-white/95 backdrop-blur">
-      <div class="mx-auto flex h-16 w-full max-w-6xl items-center gap-6 px-4">
+      <div class="mx-auto flex h-16 w-full max-w-[1440px] items-center gap-6 px-6">
         <RouterLink :to="{ name: 'home' }" class="flex shrink-0 items-center gap-1.5">
           <span class="font-mono text-lg font-bold tracking-tight text-ink-950">SAMPLEPCB</span>
           <span class="rounded-md bg-copper-500 px-1.5 py-0.5 text-[11px] font-extrabold text-white">
@@ -96,7 +96,7 @@ function goLogout(): void {
 
       <!-- 모바일 메뉴 -->
       <div v-if="mobileOpen" class="border-t border-line bg-white md:hidden">
-        <nav class="mx-auto flex w-full max-w-6xl flex-col px-4 py-2 text-sm font-semibold text-tx-2">
+        <nav class="mx-auto flex w-full max-w-[1440px] flex-col px-6 py-2 text-sm font-semibold text-tx-2">
           <RouterLink to="/projects" class="py-2.5" @click="mobileOpen = false">
             {{ $t('nav.projects') }}
           </RouterLink>
@@ -129,7 +129,7 @@ function goLogout(): void {
     </main>
 
     <footer class="mt-16 border-t border-line bg-white">
-      <div class="mx-auto grid w-full max-w-6xl gap-8 px-4 py-10 sm:grid-cols-3">
+      <div class="mx-auto grid w-full max-w-[1440px] gap-8 px-6 py-10 sm:grid-cols-3">
         <div>
           <p class="font-mono text-sm font-bold text-ink-950">SAMPLEPCB 재능마켓</p>
           <p class="mt-2 text-xs leading-relaxed text-tx-3">{{ $t('app.tagline') }}</p>

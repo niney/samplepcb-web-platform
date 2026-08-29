@@ -1,0 +1,24 @@
+{
+  "id": "02-detailed-pdf",
+  "label": "상세 요구 PDF 첨부",
+  "title": "저온 창고 환경 모니터 보드",
+  "serviceAreas": ["circuit", "pcb", "firmware"],
+  "description": "냉동·냉장 창고용 온습도 모니터 보드입니다. 요구사항은 첨부한 PDF 에 정리했습니다. 센서 종류와 케이스는 개발사 제안을 받고 싶습니다.",
+  "answers": [
+    { "code": "stage", "choices": ["spec"] },
+    { "code": "deliverables", "choices": ["schematic", "bom", "artwork", "firmware", "prototype", "docs"] },
+    { "code": "quantity", "choices": ["proto_1_10"], "note": "시제품 10대, 이후 연 300대 양산" },
+    { "code": "power", "choices": ["adapter_dc", "battery"], "note": "12V 어댑터 + 정전 대비 백업 배터리" },
+    { "code": "connectivity", "choices": ["ethernet"] },
+    { "code": "external", "choices": ["server_cloud", "existing_device"] },
+    { "code": "constraints", "choices": ["has"], "note": "80×50mm 이내, -25~+5°C, IP65" },
+    { "code": "certification", "choices": ["kc"] },
+    { "code": "timeline", "choices": ["within_3m"], "note": "시제품 8주" }
+  ],
+  "attachments": ["02-requirements.pdf"],
+  "golden": {
+    "mustContain": ["12V", "-25", "IP65", "Ethernet", "MQTT", "24시간", "10대", "KC", "4시간", "±0.3"],
+    "forbidden": ["W5500", "STM32", "ESP32", "4층", "4-layer", "nRF", "Wi-Fi 모듈"],
+    "expectedOpen": ["센서", "케이스", "경광등", "배터리"]
+  }
+}

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import {
+  MARKET_ACTIVE_SERVICE_AREAS,
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
@@ -10,8 +12,11 @@ import {
   MARKET_REQUEST_TYPE_LABELS,
   MARKET_SERVICE_AREA_LABELS,
   MARKET_PROJECT_STATUS_LABELS,
+  MarketDevReview,
   apiRoutes,
 } from '@sp/api-contract';
+import type { MarketActiveServiceAreaType, MarketServiceAreaType } from '@sp/api-contract';
+import { devReviewAreaBadge } from '@sp/utils';
 import { apiGetBlob } from '@sp/shared';
 import {
   useAdminCancelProject,
@@ -19,9 +24,12 @@ import {
   useAdminMarketProjectList,
   type AdminMarketProjectFilters,
 } from '../../admin/useAdminMarket';
+import DevReviewSummary from '../../components/admin/DevReviewSummary.vue';
 import UiPagination from '../../components/ui/UiPagination.vue';
 
 // 재능마켓 프로젝트 모니터 — 관리자는 블라인드·마스킹 예외(입찰 전체·의뢰인 원명·NDA 서명자).
+
+const { t } = useI18n();
 
 const filters = ref<AdminMarketProjectFilters>({
   page: 1,
@@ -36,6 +44,29 @@ const { data, isFetching } = useAdminMarketProjectList(filters);
 const selectedId = ref<number | null>(null);
 const detailQ = useAdminMarketProjectDetail(selectedId);
 const detail = computed(() => detailQ.data.value?.data);
+
+// 분야 표시는 의뢰 유형 카드를 대체한 "분야 배지" 하나로 통일한다(docs/AI_DEV_REVIEW.md §4).
+// 저장값은 옛 enum 전체를 읽을 수 있으므로(읽기 호환) 활성 3종만 배지로 묶고, 남은 옛
+// 분야는 라벨 그대로 뒤에 잇는다 — 이관 의뢰가 배지에서 통째로 사라지지 않게.
+const isActiveArea = (area: MarketServiceAreaType): area is MarketActiveServiceAreaType =>
+  (MARKET_ACTIVE_SERVICE_AREAS as readonly MarketServiceAreaType[]).includes(area);
+
+// apiGet 은 `ZodType<T>`(입력·출력 동일) 로 스키마를 받아 .catch() 가 섞인 필드에서
+// 추론이 입력 형태로 무너진다. 런타임 값은 이미 응답 스키마를 통과한 출력 형태이므로
+// 한 번 더 parse 해 출력 타입으로 좁힌다(실질 no-op).
+const devReview = computed(() => {
+  const raw = detail.value?.devReview;
+  return raw === undefined || raw === null ? null : MarketDevReview.parse(raw);
+});
+
+const areaBadge = computed(() => {
+  const areas = detail.value?.serviceAreas ?? [];
+  const active = areas.filter(isActiveArea);
+  const legacy = areas.filter((a) => !isActiveArea(a)).map((a) => MARKET_SERVICE_AREA_LABELS[a]);
+  return [active.length > 0 ? devReviewAreaBadge(active) : '', ...legacy]
+    .filter((label) => label !== '')
+    .join(' · ');
+});
 
 const cancelProject = useAdminCancelProject();
 const confirmCancel = ref(false);
@@ -101,16 +132,16 @@ const statusBadge = (s: string): string =>
     <div class="flex flex-wrap items-center gap-2">
       <div class="flex rounded-lg border border-gray-200 bg-white p-1 text-xs font-semibold">
         <button
-          v-for="t in TABS"
-          :key="t"
+          v-for="tabKey in TABS"
+          :key="tabKey"
           type="button"
           class="rounded-md px-3 py-1.5"
-          :class="filters.tab === t ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
-          @click="setTab(t)"
+          :class="filters.tab === tabKey ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
+          @click="setTab(tabKey)"
         >
-          {{ tabLabel[t] }}
+          {{ tabLabel[tabKey] }}
           <span v-if="data !== undefined" class="ml-1 text-[11px] opacity-70">
-            {{ data.data.counts[t] }}
+            {{ data.data.counts[tabKey] }}
           </span>
         </button>
       </div>
@@ -206,7 +237,8 @@ const statusBadge = (s: string): string =>
               {{ MARKET_PROJECT_STATUS_LABELS[detail.status] }}
             </span>
             <span class="text-xs text-gray-500">{{ MARKET_METHOD_LABELS[detail.method] }}</span>
-            <span class="text-xs text-gray-500">{{ MARKET_REQUEST_TYPE_LABELS[detail.requestType] }} · {{ detail.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join(' · ') }}</span>
+            <span class="text-xs text-gray-500">{{ MARKET_REQUEST_TYPE_LABELS[detail.requestType] }}</span>
+            <span class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">{{ areaBadge }}</span>
             <span v-if="detail.ndaRequired" class="text-xs font-bold text-amber-600">NDA</span>
           </div>
           <h3 class="mt-2 text-base font-bold text-gray-900">{{ detail.title }}</h3>
@@ -233,6 +265,15 @@ const statusBadge = (s: string): string =>
           <p class="mt-3 whitespace-pre-line rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
             {{ detail.description }}
           </p>
+
+          <!-- AI 사전 검토서 — 관리자 축약본(배지·요약·핵심 요구·분야별 확인 필요·확정할
+               항목·구성도·JSON). 본문은 서버 저장분이 정본이라 여기서 고칠 수 없다. -->
+          <div v-if="devReview !== null" class="mt-4 rounded-xl border border-blue-100 bg-blue-50/30 p-3">
+            <p class="text-xs font-bold text-gray-500">{{ t('admin.devReview.title') }}</p>
+            <div class="mt-2">
+              <DevReviewSummary :review="devReview" />
+            </div>
+          </div>
 
           <div class="mt-4">
             <p class="text-xs font-bold text-gray-500">첨부 ({{ detail.attachments.length }})</p>

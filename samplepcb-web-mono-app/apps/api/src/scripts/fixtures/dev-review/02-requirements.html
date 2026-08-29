@@ -1,0 +1,29 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>저온 창고 환경 모니터 요구사항</title>
+<style>body{font-family:'Malgun Gothic',sans-serif;font-size:12pt;line-height:1.6;padding:24px}h1{font-size:18pt}h2{font-size:14pt;margin-top:22px}table{border-collapse:collapse}td,th{border:1px solid #666;padding:4px 10px}</style></head><body>
+<h1>저온 창고 환경 모니터 보드 — 개발 요구사항 v1.2</h1>
+<p>작성: 콜드체인솔루션 기술팀 · 2026-08-20</p>
+<h2>1. 목적</h2>
+<p>냉동·냉장 창고 내부의 온도와 습도를 상시 측정하여 사무실 서버로 전송하고, 설정 범위를 벗어나면 즉시 경보를 발생시키는 모니터 보드를 개발한다. 기존 데이터로거는 현장에서 수거해야 확인이 가능해 실시간 감시가 되지 않는다.</p>
+<h2>2. 환경 및 전원</h2>
+<table>
+<tr><th>항목</th><th>요구</th></tr>
+<tr><td>동작 온도</td><td>-25°C ~ +5°C (창고 내부)</td></tr>
+<tr><td>측정 정밀도</td><td>온도 ±0.3°C, 습도 ±3%RH</td></tr>
+<tr><td>보호 등급</td><td>IP65 (결로·세척수 대응)</td></tr>
+<tr><td>전원</td><td>DC 12V 어댑터 (창고 천장 배선 사용)</td></tr>
+<tr><td>정전 시</td><td>최소 4시간 측정·기록 유지 (백업 배터리)</td></tr>
+</table>
+<h2>3. 통신</h2>
+<p>창고마다 이미 유선 Ethernet이 배선되어 있으므로 Ethernet으로 사무실 서버에 연결한다. 프로토콜은 서버 담당자가 MQTT를 요청했다. 무선(Wi-Fi)은 냉동 창고의 금속 패널 때문에 사용하지 않는다.</p>
+<h2>4. 기능</h2>
+<ul>
+<li>10초 간격 측정, 1분 평균값 서버 전송</li>
+<li>서버 연결이 끊겨도 최근 24시간 데이터를 보드에 저장했다가 복구 후 재전송</li>
+<li>설정 범위 이탈 시 보드의 부저와 경광등 출력 접점 동작</li>
+<li>보드 전면 LED 3개로 전원·통신·경보 상태 표시</li>
+</ul>
+<h2>5. 기구·수량·일정</h2>
+<p>보드 크기는 80 × 50 mm 이내, 시제품 10대를 먼저 제작해 창고 2곳에 설치 검증한다. 검증 후 연간 300대 규모로 양산할 계획이며, 판매 제품이므로 KC 인증을 받아야 한다. 시제품은 계약 후 8주 안에 받고 싶다.</p>
+<h2>6. 제공 자료</h2>
+<p>창고 배선도, 서버 MQTT 토픽 규격서는 계약 후 제공한다. 센서 종류와 케이스는 정해지지 않았으며 개발사 제안을 받는다.</p>
+</body></html>

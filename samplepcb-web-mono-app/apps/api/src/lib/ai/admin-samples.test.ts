@@ -1,35 +1,52 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { AI_USECASES } from '@sp/api-contract';
-import { getAiAdminSampleInput } from './admin-samples';
-import { AI_USECASE_DEFS } from './usecases';
+import { DevReviewAnswers, DevReviewRunPayload } from '@sp/api-contract';
+import { DEV_REVIEW_ADMIN_SAMPLE } from './admin-samples';
+import { buildDevReviewPrompt, devReviewSourceText } from './dev-review';
 
-describe('AI 관리자 프롬프트 테스트 샘플', () => {
-  for (const useCase of AI_USECASES) {
-    it(`${useCase} 입력 계약과 프롬프트 바인딩을 만족한다`, () => {
-      const def = AI_USECASE_DEFS[useCase];
-      const input: unknown = def.inputSchema.parse(getAiAdminSampleInput(useCase));
-      if (def.isApplicable !== undefined) expect(def.isApplicable(input)).toBe(true);
+// 관리자 샘플이 계약을 만족하고, 원본 픽스처(01-idea-only)와 어긋나지 않는지 지킨다 —
+// 샘플은 코드 상수 사본이라 픽스처만 고치면 조용히 노후화된다.
 
-      const prompt = def.buildPrompt(def.defaultPrompt, input);
-      expect(prompt.length).toBeGreaterThan(100);
-      expect(prompt).not.toContain('{{title}}');
+const fixturePath = path.resolve(
+  fileURLToPath(new URL('../../scripts/fixtures/dev-review/01-idea-only.json', import.meta.url)),
+);
+const fixture = JSON.parse(readFileSync(fixturePath, 'utf8')) as {
+  title: string;
+  serviceAreas: string[];
+  description: string;
+  answers: unknown;
+  attachments: string[];
+};
+
+describe('AI 사전 검토서 관리자 샘플', () => {
+  it('실행 payload 계약을 만족한다(첨부 없음 — 비전 단계를 타지 않는다)', () => {
+    const parsed = DevReviewRunPayload.parse({
+      title: DEV_REVIEW_ADMIN_SAMPLE.title,
+      serviceAreas: DEV_REVIEW_ADMIN_SAMPLE.serviceAreas,
+      description: DEV_REVIEW_ADMIN_SAMPLE.description,
+      answers: DEV_REVIEW_ADMIN_SAMPLE.answers,
     });
-  }
+    expect(parsed.answers).toHaveLength(9);
+    expect(DEV_REVIEW_ADMIN_SAMPLE.attachmentFiles).toHaveLength(0);
+    expect(DEV_REVIEW_ADMIN_SAMPLE.attachmentContext).toBe('');
+  });
 
-  it('R&D 개발의뢰서는 10개 고정 섹션이 모두 있어야 저장한다', () => {
-    const def = AI_USECASE_DEFS['rnd.pcb-request-document'];
-    const input: unknown = def.inputSchema.parse(getAiAdminSampleInput('rnd.pcb-request-document'));
-    const valid = Array.from({ length: 10 }, (_value, index) => {
-      const number = index + 1;
-      if (number === 2) return '## 2. 첨부자료 목록\n- F0001 prototype/board.pdf';
-      if (number === 4) return '## 4. 입력 조건\n- 회로 문서 확인 [근거: F0001]';
-      if (number === 7) return '## 7. 산출물\n- Gerber, NC Drill, BOM, Pick & Place 좌표';
-      if (number === 9) return '## 9. 미확정 항목\n- 보드 치수 (TBD)';
-      return `## ${String(number)}. 섹션\n내용`;
-    }).join('\n\n');
-    const result = def.parseResult(valid, input);
-    expect('md' in result).toBe(true);
-    expect(() => def.parseResult(valid.replace('## 10. 섹션\n내용', ''), input)).toThrow('FORMAT_MISMATCH');
-    expect(() => def.parseResult(valid.replace('F0001 prototype/board.pdf', 'prototype/board.pdf'), input)).toThrow('SOURCE_COVERAGE_MISMATCH');
+  it('프로빙 픽스처 01-idea-only 와 같은 내용이다', () => {
+    expect(DEV_REVIEW_ADMIN_SAMPLE.title).toBe(fixture.title);
+    expect(DEV_REVIEW_ADMIN_SAMPLE.description).toBe(fixture.description);
+    expect([...DEV_REVIEW_ADMIN_SAMPLE.serviceAreas]).toEqual(fixture.serviceAreas);
+    expect([...DEV_REVIEW_ADMIN_SAMPLE.answers]).toEqual(DevReviewAnswers.parse(fixture.answers));
+    expect(fixture.attachments).toHaveLength(0);
+  });
+
+  it('프롬프트에 바인딩되고 추가 지침이 실린다', () => {
+    const prompt = buildDevReviewPrompt(DEV_REVIEW_ADMIN_SAMPLE, '표는 5행 이상 채울 것');
+    expect(prompt.length).toBeGreaterThan(1000);
+    expect(prompt).toContain('반려견 자동 급식기 제어 보드');
+    expect(prompt).toContain('표는 5행 이상 채울 것');
+    // 근거 코퍼스에 답변 라벨이 들어가야 후처리 R1 이 인용을 인정한다.
+    expect(devReviewSourceText(DEV_REVIEW_ADMIN_SAMPLE)).toContain('Wi-Fi');
   });
 });

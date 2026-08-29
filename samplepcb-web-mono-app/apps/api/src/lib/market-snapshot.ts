@@ -1,13 +1,12 @@
 import type { SpMarketBid, SpMarketProject } from '@prisma/client';
 import { z } from 'zod';
-import { MarketAiInterviewAnswer, MarketPostingCards } from '@sp/api-contract';
+import { MarketDevReview } from '@sp/api-contract';
 import {
   asBudgetRange,
   asProjectMethod,
   asRequestType,
   toCategoryCodes,
-  toInterviewAnswers,
-  toPostings,
+  toDevReview,
   toProjectToolCodes,
   toServiceAreaCodes,
 } from './market';
@@ -23,12 +22,11 @@ const MarketRequestSnapshot = z.object({
     categories: z.array(z.string()),
     cadTools: z.array(z.string()),
     description: z.string(),
-    diagramHtml: z.string().nullable(),
-    diagramSpec: z.string().nullable(),
-    rocMd: z.string().nullable(),
-    postings: MarketPostingCards.nullable(),
-    interviewAnswers: z.array(MarketAiInterviewAnswer).nullable(),
-    aiGenerationMetaJson: z.string().nullable(),
+    // AI 사전 검토서(2026-08-28) — 옛 스냅샷엔 없으므로 default(null). 옛 AI 필드
+    // (diagramHtml·diagramSpec·rocMd·postings·interviewAnswers·aiGenerationMetaJson)는
+    // 스키마에서 뺐다: zod 기본 strip 이라 **옛 스냅샷도 그대로 파싱된다**(계약 캡처 시각
+    // 조회가 null 로 무너지지 않는다). 저장분 자체는 손대지 않는다.
+    devReview: MarketDevReview.nullable().default(null),
     ndaRequired: z.boolean(),
     budgetRange: z.string(),
     startHopeDate: z.string().nullable(),
@@ -65,16 +63,7 @@ export function buildMarketRequestSnapshot(
       categories: toCategoryCodes(project.categories),
       cadTools: toProjectToolCodes(project.cadTools),
       description: project.description,
-      diagramHtml: project.diagramHtml,
-      diagramSpec: project.diagramSpec,
-      rocMd: project.rocMd,
-      postings: toPostings(project.postings),
-      interviewAnswers:
-        project.interviewAnswersSharedAt !== null
-          ? toInterviewAnswers(project.interviewAnswers)
-          : null,
-      aiGenerationMetaJson:
-        project.aiGenerationMeta === null ? null : JSON.stringify(project.aiGenerationMeta),
+      devReview: toDevReview(project.devReview),
       ndaRequired: project.ndaRequired,
       budgetRange: asBudgetRange(project.budgetRange),
       startHopeDate: project.startHopeDate,

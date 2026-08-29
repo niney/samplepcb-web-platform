@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import {
+  MARKET_ACTIVE_SERVICE_AREAS,
   MARKET_METHOD_LABELS,
-  MARKET_REQUEST_TYPE_LABELS,
   MARKET_SERVICE_AREA_LABELS,
-  MarketRequestType,
-  MarketServiceArea,
   MarketProjectMethod,
 } from '@sp/api-contract';
 import ProjectCard from '../components/ProjectCard.vue';
@@ -17,7 +15,6 @@ const filters = ref<ProjectListFilters>({
   page: 1,
   pageSize: 12,
   tab: 'open',
-  requestType: '',
   serviceArea: '',
   method: '',
   q: '',
@@ -47,7 +44,7 @@ const resetPage = (): void => {
 </script>
 
 <template>
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+  <section class="mx-auto w-full max-w-[1440px] px-6 py-10">
     <p class="font-mono text-[11px] tracking-widest text-tx-3">OPEN BOARD</p>
     <h1 class="mt-1 text-2xl font-extrabold text-tx-1">{{ $t('projects.title') }}</h1>
     <p class="mt-1.5 text-sm text-tx-2">{{ $t('projects.subtitle') }}</p>
@@ -67,20 +64,9 @@ const resetPage = (): void => {
         </button>
       </div>
 
-      <select
-        v-model="filters.requestType"
-        class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2"
-        @change="resetPage"
-      >
-        <option value="">{{ $t('projects.allCategories') }}</option>
-        <option v-for="c in MarketRequestType.options" :key="c" :value="c">
-          {{ MARKET_REQUEST_TYPE_LABELS[c] }}
-        </option>
-      </select>
-
       <select v-model="filters.serviceArea" class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2" @change="resetPage">
-        <option value="">전체 개발 분야</option>
-        <option v-for="area in MarketServiceArea.options" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
+        <option value="">{{ $t('projects.allCategories') }}</option>
+        <option v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
       </select>
 
       <select
@@ -125,7 +111,7 @@ const resetPage = (): void => {
     <div v-if="isLoading" class="mt-10 text-center text-sm text-tx-3">{{ $t('common.loading') }}</div>
     <template v-else-if="data !== undefined">
       <p class="mt-5 text-xs text-tx-3">{{ $t('projects.total', { n: data.data.total }) }}</p>
-      <div v-if="data.data.items.length > 0" class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div v-if="data.data.items.length > 0" class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <ProjectCard v-for="p in data.data.items" :key="p.projectId" :item="p" />
       </div>
       <div v-else class="mt-6 rounded-2xl border border-dashed border-line-2 bg-white p-14 text-center">
