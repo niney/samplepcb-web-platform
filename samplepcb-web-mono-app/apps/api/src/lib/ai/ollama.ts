@@ -152,9 +152,11 @@ function escapeControlCharsInStrings(json: string): string {
   return out;
 }
 
-// 최상위 균형 객체 후보(문자열 인식) — 큰 것부터. 추론문이 content 에 섞여 나오는 모델(glm-5.3 실측)은
-// 글 속 중괄호 때문에 "첫 { 부터 마지막 } 까지" 가 깨진다 — 실제 JSON 블록을 골라낸다.
-function balancedObjects(text: string): string[] {
+// 최상위 균형 객체 후보 — **뒤에 있는 것부터**. 추론문이 content 에 섞여 나오는 모델(glm-5.3 실측,
+// 115KB 추론 뒤에 최종 JSON)은 글 속 중괄호와 초안 JSON 때문에 "첫 { 부터 마지막 } 까지" 도, "가장 큰
+// 객체" 도 깨진다 — 최종 답은 항상 마지막 완전한 객체다. stringAware=false 는 추론문의 어긋난 따옴표가
+// 스캐너를 속일 때의 두 번째 시도.
+function balancedObjects(text: string, stringAware: boolean): string[] {
   const spans: [number, number][] = [];
   let depth = 0;
   let start = -1;
@@ -162,13 +164,13 @@ function balancedObjects(text: string): string[] {
   let escaped = false;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
-    if (inString) {
+    if (stringAware && inString) {
       if (escaped) escaped = false;
       else if (ch === '\\') escaped = true;
       else if (ch === '"') inString = false;
       continue;
     }
-    if (ch === '"') {
+    if (stringAware && ch === '"') {
       inString = true;
     } else if (ch === '{') {
       if (depth === 0) start = i;
@@ -181,7 +183,40 @@ function balancedObjects(text: string): string[] {
       }
     }
   }
-  return spans.map(([s, e]) => text.slice(s, e)).sort((a, b) => b.length - a.length);
+  return spans.reverse().map(([s, e]) => text.slice(s, e));
+}
+
+// 줄 머리 `{` 에서 새로 시작해 균형이 맞는 곳까지 — 앞선 추론문의 어긋난 따옴표·중괄호에 오염되지 않는다
+// (glm-5.3 실측: 초안 JSON 뒤에 "Wait —" 하고 다시 추론, 홀수 개 따옴표 뒤에 최종 JSON).
+function spanFromLineStart(text: string, start: number, stringAware: boolean): string | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (stringAware && inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (stringAware && ch === '"') inString = true;
+    else if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+// 열 0 의 `{` 만 — 들여쓴 `{` 는 정돈된 JSON 의 중첩 객체(배열 원소)라 최종 답의 시작이 아니다(실측:
+// 마지막 줄 머리 객체를 고르면 openQuestions 의 마지막 원소가 뽑혀 diagram 없는 객체가 됐다).
+function lineStartBraces(text: string): number[] {
+  const out: number[] = [];
+  const re = /^\{/gm;
+  for (const m of text.matchAll(re)) out.push(m.index);
+  return out;
 }
 
 // LLM 응답에서 JSON 객체만 추출 — 코드펜스·서문·후문·추론문·제어문자 방어.
@@ -194,10 +229,16 @@ export function extractJsonObject(text: string): unknown {
     return a >= 0 && b > a ? [s.slice(a, b + 1)] : [];
   };
   const fenced = fence?.[1];
+  const fromLineStarts = lineStartBraces(text)
+    .reverse() // 최종 답은 마지막 완전한 객체
+    .flatMap((s) => [spanFromLineStart(text, s, true), spanFromLineStart(text, s, false)])
+    .filter((c): c is string => c !== null);
   const candidates = [
-    ...(fenced === undefined ? [] : [...balancedObjects(fenced), ...naive(fenced)]),
-    ...balancedObjects(text),
-    ...naive(text), // 따옴표가 어긋난 산문이 스캐너를 속일 때의 마지막 보루
+    ...(fenced === undefined ? [] : [...balancedObjects(fenced, true), ...naive(fenced)]),
+    ...fromLineStarts,
+    ...balancedObjects(text, true),
+    ...balancedObjects(text, false),
+    ...naive(text), // 마지막 보루
   ];
   if (candidates.length === 0) throw new Error('no JSON object in LLM output');
   let lastError: unknown = new Error('no JSON object in LLM output');
