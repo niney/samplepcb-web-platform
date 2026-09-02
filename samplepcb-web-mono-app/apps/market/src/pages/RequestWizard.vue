@@ -8,10 +8,9 @@ import { loginUrl, marketPath } from '../lib/auth-urls';
 import { useRequestWizardForm } from '../composables/useRequestWizardForm';
 import { useDevReviewJob } from '../composables/useDevReviewJob';
 import StepDescribe from '../components/request/StepDescribe.vue';
-import StepQuestions from '../components/request/StepQuestions.vue';
 import StepReview from '../components/request/StepReview.vue';
 
-// 재능마켓 의뢰 위저드 3스텝(docs/AI_DEV_REVIEW.md §5.1) — 설명·자료 → 질문 → 검토·등록.
+// 재능마켓 의뢰 위저드 2스텝(docs/AI_DEV_REVIEW.md §12.4) — 의뢰 내용 → 검토·등록.
 // 이 셸은 스텝 인디케이터·네비게이션·제출 오케스트레이션만 한다. 폼 값·스텝 정의는
 // useRequestWizardForm, 검토서 잡·신선도는 useDevReviewJob(스텝 이동에도 살아 있도록
 // 셸이 소유한다).
@@ -152,7 +151,6 @@ async function submit(): Promise<void> {
 
       <div class="mt-6 rounded-2xl border border-line bg-white p-6 sm:p-8">
         <StepDescribe v-if="currentStep === 'describe'" :form="form" />
-        <StepQuestions v-else-if="currentStep === 'questions'" :form="form" />
         <StepReview v-else-if="currentStep === 'review'" :form="form" :job="job" />
 
         <p v-if="submitError !== ''" class="mt-4 text-xs font-semibold text-red-600">{{ submitError }}</p>

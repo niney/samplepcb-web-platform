@@ -3,29 +3,28 @@ import type { SpMarketBid, SpMarketProject } from '@prisma/client';
 import { buildMarketRequestSnapshot, requestSnapshotCapturedAt } from './market-snapshot';
 
 const devReview = {
-  version: 1,
+  version: 2,
   brief: { serviceAreas: ['circuit', 'firmware'], answers: [{ code: 'stage', choices: ['spec'] }] },
   summary: '제어 시스템 회로·펌웨어 개발',
   requirements: [],
   diagram: {
-    project: { name: 'CTRL', summary: '', stage: 'spec', service_type: 'full' },
-    groups: [{ id: 'main', label: 'MAIN' }],
-    blocks: [{ id: 'mcu', group: 'main', type: 'controller', label: '메인 컨트롤러', status: 'tbd' }],
-    connections: [],
-    constraints: [],
-    feature_highlights: [],
-    questions_missing: [],
+    columns: { inputs: '입력', board: '메인 보드', outputs: '출력·연동' },
+    inputs: [],
+    board: { label: '메인 컨트롤러', detail: '', chips: [] },
+    outputs: [],
+    linkIn: '',
+    linkOut: '',
+    notes: { flow: '', design: '', extension: '' },
   },
   areas: [
-    { area: 'circuit', scope: [], risks: [], spec: [] },
-    { area: 'firmware', scope: [], risks: [], spec: [] },
+    { area: 'circuit', summary: '', spec: [] },
+    { area: 'firmware', summary: '', spec: [] },
   ],
   openQuestions: [],
   meta: {
-    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v1', inputHash: 'h',
-    generatedAt: '2026-08-28T00:00:00.000Z', attachmentFiles: [],
+    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
+    generatedAt: '2026-09-02T00:00:00.000Z', attachmentFiles: [],
   },
-  stats: { confirmed: 0, needsConfirmation: 0 },
 };
 
 const project = {

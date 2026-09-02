@@ -10,16 +10,11 @@ export const DEV_REVIEW_ADMIN_SAMPLE: DevReviewSource = {
   title: '반려견 자동 급식기 제어 보드',
   serviceAreas: ['circuit', 'pcb', 'firmware'],
   description:
-    '집을 비울 때 정해진 시간에 사료를 주는 자동 급식기를 만들고 싶습니다. 스마트폰으로 급식 시간을 설정하고 급식 기록을 확인하고 싶어요. 아직 아이디어 단계라 회로나 부품은 정해진 게 없습니다. 사료가 나오는 부분은 기구 업체가 따로 만들 예정입니다.',
+    '집을 비울 때 정해진 시간에 사료를 주는 자동 급식기를 만들고 싶습니다. 스마트폰으로 급식 시간을 설정하고 급식 기록을 확인하고 싶어요. 집 Wi-Fi 에 연결해서 쓰면 좋겠습니다. 아직 아이디어 단계라 회로나 부품은 정해진 게 없습니다. 사료가 나오는 부분은 기구 업체가 따로 만들 예정입니다.',
   answers: [
     { code: 'stage', choices: ['idea'] },
-    { code: 'deliverables', choices: ['schematic', 'artwork', 'firmware', 'prototype'] },
-    { code: 'quantity', choices: ['proto_1_10'], note: '먼저 3대' },
-    { code: 'power', choices: ['unknown'] },
-    { code: 'connectivity', choices: ['wifi'] },
+    { code: 'quantity', choices: ['proto_1_10'], note: '먼저 3개' },
     { code: 'external', choices: ['mobile_app'] },
-    { code: 'constraints', choices: ['unknown'] },
-    { code: 'certification', choices: ['unknown'] },
     { code: 'timeline', choices: ['within_3m'] },
   ],
   attachmentContext: '',

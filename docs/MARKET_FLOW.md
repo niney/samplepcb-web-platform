@@ -54,19 +54,22 @@ local-web.samplepcb.co.kr (nginx 443)
   전체서비스 회사 전용 입찰 가드(`FULL_SERVICE_COMPANY_ONLY`)는 폐지됐다. 화면 표기는 분야 배지
   (`devReviewAreaBadge`: 1개=분야명, 2개="회로 + PCB", 3개="풀 개발(회로·PCB·펌웨어)"). 세부분야
   18종(`categories`)과 툴 역량은 별도 축으로 유지한다.
-- **의뢰 위저드 v3(2026-08-28) = 3스텝**: 설명·자료(분야 칩 3개+제목+설명+첨부+AI 사전 검토
-  동의, 기본 on) → 질문 9문항 한 화면(`DEV_REVIEW_QUESTIONS`, 전부 "잘 모르겠어요" 탈출구) →
-  검토·등록(진입 시 **AI 사전 검토서** 자동 생성 + 미리보기 + 포함 체크 + 조건 폼). 동의 해제·
-  비활성 시 [설명·자료, 검토·등록]. 예산·마감·방식·NDA 는 검토 스텝의 조건 폼, 희망 시작/완료일
+- **의뢰 위저드 v4(2026-09-02) = 2스텝**(docs/AI_DEV_REVIEW.md §12): 의뢰 내용(분야 카드 3개+
+  쉬운 설명+"잘 모르겠어요 — 전부 맡길게요"(=풀 개발) · 제목 · "무엇을 만들고 싶은가요?" · 간단 질문
+  **4문항**(현재 상태·수량·함께 쓰는 것·목표 시점, `DEV_REVIEW_ACTIVE_QUESTIONS`, 전부 선택 +
+  "잘 모르겠어요") · 첨부 · AI 사전 검토 동의) → 검토·등록(진입 시 **AI 사전 검토서** 자동 생성 +
+  미리보기 + 포함 체크 + 조건 폼). 의뢰자는 비전문가라는 전제 — 전원·통신·인증 같은 기술 문항은
+  묻지 않는다(설명에 있으면 검토서가 쓰고, 없으면 "전문가와 상의할 항목"). 옛 9문항 코드는 읽기
+  호환. 예산·마감·방식·NDA 는 검토 스텝의 조건 폼, 희망 시작/완료일
   입력은 없다(컬럼만 남고 항상 null). 신규 의뢰의 `categories`·`cadTools`는 항상 빈 배열.
   프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map`)에 저장(기존 데이터 호환).
 - **AI 사전 검토서(단일 산출물)** — 정본 **docs/AI_DEV_REVIEW.md**. 옛 4산출물(구성도 HTML·
   구성 명세·작업검토지시서·분야별 카드)·80문항 인터뷰·선분석·provenance 체계는 폐기(`docs/
   AI_DIAGRAM.md` 는 경위 기록). 검토서는 `sp_market_project.devReview`(JSON) 하나에 저장되고
-  공개 범위는 description 과 동일(상세를 볼 수 있는 뷰어 전원). 9문항 답변은
-  `interviewAnswers` 컬럼 재사용(`DevReviewAnswers`).
+  공개 범위는 description 과 동일(상세를 볼 수 있는 뷰어 전원). 4문항 답변은
+  `interviewAnswers` 컬럼 재사용(`DevReviewActiveAnswers`, 저장 검토서 brief 는 옛 코드도 파싱).
   - 파이프라인 2단: 첨부 판독(비전 모델, 이미지·PDF 미리보기가 있을 때만) → 검토서(주모델,
-    텍스트 전용) → 서버 후처리 R1~R7(근거 없는 확정 강등·삭제, 자료에 없는 수치·품번 삭제) →
+    텍스트 전용) → 서버 후처리(근거 없는 항목·자료에 없는 수치·품번 **삭제**, 상의 항목 ≤6) →
     `sp_ai_job`(DB) 저장. `POST /api/ai/market.dev-review/run`(multipart) → `GET /api/ai/jobs/:id`
     폴링(`stage: attachments|review`).
   - 등록은 `devReviewJobId` 만 보낸다 — 서버가 자기 저장분을 소유자·완료·유스케이스·입력 해시
@@ -75,9 +78,12 @@ local-web.samplepcb.co.kr (nginx 443)
     않으므로 해시 대조·"고객 수정본" 라벨 체계가 없다.
   - 검토서와 원천(제목·설명·분야)은 항상 일치한다는 불변식: 원천을 바꾸는 PATCH 는 검토서가
     남아 있으면 409 `DEV_REVIEW_ATTACHED`(같은 요청에 `devReview:null` 을 실으면 허용).
-  - 항목은 확정/확인 필요 2상태. 판정어·리스크 등급·금액·주수는 없다(기간은 전문가 입찰
-    `durationDays`). 프롬프트는 코드 정본(`dev-review.v1`), 관리자는 사용 토글·모델·첨부 판독
-    모델·추가 지침·샘플 테스트·실행 이력만 만진다.
+  - **v2(2026-09-02) 는 확정만** — 항목 상태 축 없음, 정해지지 않은 것은 "전문가와 상의할 항목"
+    한 목록(≤6). 섹션 = 고객 의뢰내용 · 제안 시스템 구성도(입력→메인 보드→출력·연동 3열 카드,
+    `renderDevReviewDiagramHtml`) · 기술개발 검토 결과(분야별 한 줄) · 개발명세서(확정 행만) ·
+    작업 항목 및 결과물 · 개발 단계. 판정어·리스크 등급·금액·주수는 없다(기간은 전문가 입찰
+    `durationDays`). 프롬프트는 코드 정본(`dev-review.v2`), 관리자는 사용 토글·모델·첨부 판독
+    모델·추가 지침·샘플 테스트·실행 이력만 만진다. v1 저장분은 파싱 실패 → 검토서 없음.
   - 계약 채택 스냅샷(`sp_market_contract.requestSnapshot`)에는 `devReview` 가 들어간다(옛 스냅샷은
     zod strip 으로 계속 파싱).
 - 툴 코드는 ECAD·MCAD·디자인 통합 flat 배열(`MARKET_TOOL_CODES`) — DB/계약 필드명은

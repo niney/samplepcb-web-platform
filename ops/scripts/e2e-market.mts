@@ -98,26 +98,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 const minimalDevReview = (serviceAreas, answers, summary) => ({
-  version: 1,
+  version: 2,
   brief: { serviceAreas, answers },
   summary,
-  requirements: [],
+  requirements: [{ text: 'E2E 확정 요구', evidence: 'E2E 통합 테스트용' }],
   diagram: {
-    project: { name: 'E2E', summary: '', stage: 'idea', service_type: 'single' },
-    groups: [{ id: 'main', label: 'MAIN' }],
-    blocks: [{ id: 'mcu', group: 'main', type: 'controller', label: '메인 컨트롤러', status: 'tbd' }],
-    connections: [],
-    constraints: [],
-    feature_highlights: [],
-    questions_missing: [],
+    columns: { inputs: '입력', board: '메인 보드', outputs: '출력·연동' },
+    inputs: [{ label: '센서', detail: '', icon: 'sensor' }],
+    board: { label: '메인 컨트롤러', detail: '', chips: ['데이터 처리'] },
+    outputs: [],
+    linkIn: '',
+    linkOut: '',
+    notes: { flow: '', design: '', extension: '' },
   },
-  areas: serviceAreas.map((area) => ({ area, scope: [], risks: [], spec: [] })),
-  openQuestions: [],
+  areas: serviceAreas.map((area) => ({ area, summary: '', spec: [] })),
+  openQuestions: [{ question: '전원은 무엇으로 공급하나요?', why: '전원 회로 설계에 필요' }],
   meta: {
-    jobId: '', model: 'e2e-model', promptVersion: 'dev-review.v1', inputHash: '',
+    jobId: '', model: 'e2e-model', promptVersion: 'dev-review.v2', inputHash: '',
     generatedAt: new Date().toISOString(), attachmentFiles: [],
   },
-  stats: { confirmed: 2, needsConfirmation: 3 },
 });
 
 // g5 원시 접근 — 계약 결제는 그누보드 DB(samplepcb) 동거이므로 prisma 로 g5_* 를 직접
@@ -346,7 +345,7 @@ async function run() {
         status: 'done',
         stage: null,
         model: 'e2e-model',
-        promptVersion: 'dev-review.v1',
+        promptVersion: 'dev-review.v2',
         inputHash,
         resultJson: JSON.stringify({ ...review, meta: { ...review.meta, jobId: id, inputHash } }),
         startedAt: new Date(),
@@ -394,12 +393,12 @@ async function run() {
     assert(reApprove.status === 409, '이중 승인 409', reApprove.status);
 
     // ── 3) AI 사전 검토서 잡 시드 → 의뢰 등록(역견적·NDA·첨부) ──
-    // 원천 해시 = 제목·분야·설명·9문항 답변 + 첨부 원본 SHA-256(앞 10개). 등록 라우트가
+    // 원천 해시 = 제목·분야·설명·활성 4문항 답변 + 첨부 원본 SHA-256(앞 10개). 등록 라우트가
     // 같은 규칙으로 재계산해 대조하므로, 하네스도 출하 함수(devReviewInputHash)를 쓴다.
     const prjAnswers = [
       { code: 'stage', choices: ['idea'] },
-      { code: 'deliverables', choices: ['schematic', 'bom'] },
-      { code: 'power', choices: ['adapter_dc'], note: '12V 어댑터' },
+      { code: 'quantity', choices: ['proto_1_10'], note: '먼저 3개' },
+      { code: 'external', choices: ['mobile_app'] },
     ];
     const prjAttachmentBody = 'e2e spec content';
     const prjSource = {
@@ -487,7 +486,8 @@ async function run() {
     // 검토서는 서버 저장분(sp_ai_job)이 정본 — 클라이언트가 본문을 보낸 적이 없는데도
     // 상세를 볼 수 있는 뷰어 전원(익명 포함)에게 노출된다(공개 범위 = description 동일).
     assert(
-      anon.json?.data?.devReview?.stats?.confirmed === 2 &&
+      anon.json?.data?.devReview?.version === 2 &&
+        anon.json?.data?.devReview?.requirements?.length === 1 &&
         anon.json?.data?.devReview?.summary === 'E2E 검토서 요약',
       'AI 사전 검토서 익명 상세 노출(서버 저장분)',
       anon.json?.data?.devReview,

@@ -142,7 +142,7 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
         const { review, diagnostics } = postProcessDevReview(output, effective, meta);
         await finishAiJob(job.id, { review });
         log.info(
-          { jobId: job.id, elapsedMs: raw.elapsedMs, stats: review.stats, diagnostics },
+          { jobId: job.id, elapsedMs: raw.elapsedMs, facts: review.requirements.length, openQuestions: review.openQuestions.length, diagnostics },
           'dev review job done',
         );
         return;

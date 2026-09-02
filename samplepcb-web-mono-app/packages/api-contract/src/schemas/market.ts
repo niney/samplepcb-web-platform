@@ -3,7 +3,7 @@ import { z } from 'zod';
 // market-dev-review 가 (진행 중인 이 모듈을 거쳐) 활성 분야 상수를 초기화된 상태로 읽는다.
 import { MARKET_ACTIVE_SERVICE_AREAS, MarketActiveServiceArea } from './market-service-area';
 export * from './market-service-area';
-import { DevReviewAnswers, MarketDevReview } from './market-dev-review';
+import { DevReviewActiveAnswers, MarketDevReview } from './market-dev-review';
 
 // ── PCB 재능마켓(market) 계약 ────────────────────────────────────────────────
 // 도메인: 의뢰인(회원)이 프로젝트를 등록하고(역견적=공개 블라인드 입찰 / 지정견적=1:1),
@@ -630,8 +630,8 @@ const cadAnyExclusive = (cadTools: readonly string[] | undefined): boolean =>
 export const MarketProjectCreatePayload = z
   .object({
     ...marketProjectEditableShape,
-    // 9문항 답변(§2) — sp_market_project.interviewAnswers 컬럼 재사용.
-    answers: DevReviewAnswers.default([]),
+    // 활성 4문항 답변(docs/AI_DEV_REVIEW.md §12) — sp_market_project.interviewAnswers 컬럼 재사용.
+    answers: DevReviewActiveAnswers.default([]),
     // 서버가 소유자·완료·유스케이스·입력 해시를 DB 에서 직접 대조하는 참조값이다.
     // 검토서 본문은 클라이언트가 보내지 않는다(서버 저장분이 정본).
     devReviewJobId: z.string().uuid().optional(),

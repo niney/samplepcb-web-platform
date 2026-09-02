@@ -52,6 +52,7 @@ const expertFilters = ref<ExpertListFilters>({
 const expertList = useMarketExpertList(expertFilters);
 
 const answeredCount = computed(() => buildAnswers().length);
+const questionCount = props.form.activeQuestions.length;
 const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
 </script>
 
@@ -62,8 +63,8 @@ const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
       <div>
         <p class="text-xs font-bold text-tx-2">AI 사전 검토서</p>
         <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
-          입력한 설명·답변·첨부를 근거로 검토서를 만듭니다(약 30초~3분). 생성 중에도 아래 견적 조건을
-          미리 입력할 수 있습니다.
+          적어 주신 내용과 첨부를 근거로 요약·제안 구성도·작업 항목을 정리합니다(약 30초~3분). 생성 중에도
+          아래 견적 조건을 미리 입력할 수 있습니다.
         </p>
       </div>
 
@@ -236,7 +237,7 @@ const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
     <div class="rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
       <p class="font-bold text-tx-1">최종 의뢰 내용</p>
       <p class="mt-1"><b class="text-tx-1">{{ fields.title || '(제목 미입력)' }}</b></p>
-      <p class="mt-1">{{ areaBadge }} · 질문 답변 {{ answeredCount }}/9</p>
+      <p class="mt-1">{{ areaBadge }} · 질문 답변 {{ answeredCount }}/{{ questionCount }}</p>
       <p class="mt-1">
         {{ MARKET_BUDGET_RANGE_LABELS[fields.budgetRange] }} ·
         견적 마감 {{ fields.deadlineMode === 'date' ? fields.deadlineDate : `${fields.deadlineMode}일 뒤` }} ·

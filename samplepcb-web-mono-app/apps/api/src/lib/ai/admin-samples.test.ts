@@ -28,7 +28,7 @@ describe('AI 사전 검토서 관리자 샘플', () => {
       description: DEV_REVIEW_ADMIN_SAMPLE.description,
       answers: DEV_REVIEW_ADMIN_SAMPLE.answers,
     });
-    expect(parsed.answers).toHaveLength(9);
+    expect(parsed.answers).toHaveLength(4);
     expect(DEV_REVIEW_ADMIN_SAMPLE.attachmentFiles).toHaveLength(0);
     expect(DEV_REVIEW_ADMIN_SAMPLE.attachmentContext).toBe('');
   });

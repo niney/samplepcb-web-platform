@@ -1,53 +1,35 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { DEV_REVIEW_DISCLAIMER, MARKET_SERVICE_AREA_LABELS } from '@sp/api-contract';
-import type {
-  DevReviewAreaReviewType,
-  DevReviewAreaType,
-  GroundedItemType,
-  MarketDevReviewType,
-} from '@sp/api-contract';
-import { buildDevReviewView, renderDiagramSpecHtml } from '@sp/utils';
+import type { DevReviewAreaType, MarketDevReviewType } from '@sp/api-contract';
+import { buildDevReviewView, renderDevReviewDiagramHtml } from '@sp/utils';
 import DiagramViewer from '../DiagramViewer.vue';
-import DevReviewItemList from './DevReviewItemList.vue';
 
-// AI 사전 검토서 뷰(docs/AI_DEV_REVIEW.md §1) — 고객·전문가가 같은 JSON 을 같은 순서로 본다.
-// 위저드 미리보기와 프로젝트 상세가 공유한다.
+// AI 사전 검토서 뷰 v2(docs/AI_DEV_REVIEW.md §12) — 고객·전문가가 같은 JSON 을 같은 순서로 본다.
+// 위저드 미리보기와 프로젝트 상세가 공유한다. 프로토타입(samplepcb-development-review 목업)의
+// 섹션 언어를 따른다: 고객 의뢰내용 → 제안 시스템 구성도 → 기술개발 검토 결과 → 개발명세서 →
+// 작업 항목 및 결과물 → 개발 단계. 확정된 것만 보이고, 정해지지 않은 것은 "전문가와 상의할
+// 항목" 한 목록뿐이다. 근거(출처)는 고객 화면에 펼치지 않는다(관리자 축약본만).
 //
-// 저장하지 않는 파생값(브리프 행·결과물 목록·단계 순서·분야 배지)은 계약의 순수 함수
-// buildDevReviewView 가 렌더 시 계산한다 — 사전이 바뀌면 옛 검토서도 새 사전으로 보인다.
-// 구성도는 결정적 SVG(renderDiagramSpecHtml)라 v-html 이 아니라 sandbox iframe 으로만 나간다.
-// 판정어·리스크 등급·금액·주수는 어디에도 쓰지 않는다.
+// 저장하지 않는 파생값(브리프 행·작업 항목·단계·분야 배지)은 계약의 순수 함수 buildDevReviewView
+// 가 렌더 시 계산한다. 구성도는 결정적 SVG(renderDevReviewDiagramHtml)라 v-html 이 아니라
+// sandbox iframe 으로만 나간다. 판정어·리스크 등급·금액·주수는 어디에도 쓰지 않는다.
 
 const props = defineProps<{ review: MarketDevReviewType }>();
 
 const view = computed(() => buildDevReviewView(props.review));
-const diagramHtml = computed(() => renderDiagramSpecHtml(props.review.diagram));
-
+const diagramHtml = computed(() => renderDevReviewDiagramHtml(props.review.diagram));
 const areaLabel = (area: DevReviewAreaType): string => MARKET_SERVICE_AREA_LABELS[area];
 
-const confirmedSpec = (area: DevReviewAreaReviewType): number =>
-  area.spec.filter((row) => row.status === 'confirmed').length;
+const notes = computed(() =>
+  [
+    { key: 'flow', label: '데이터 흐름', text: props.review.diagram.notes.flow },
+    { key: 'design', label: '핵심 설계', text: props.review.diagram.notes.design },
+    { key: 'extension', label: '확장 방향', text: props.review.diagram.notes.extension },
+  ].filter((n) => n.text !== ''),
+);
 
-// 분야 카드의 "확인 필요" 요약 — 범위·명세에서 확인 필요 항목만 모은다(질문 우선 표시).
-const areaOpenPoints = (area: DevReviewAreaReviewType): string[] => {
-  const items: GroundedItemType[] = [...area.scope, ...area.spec];
-  return items
-    .filter((item) => item.status === 'needs_confirmation')
-    .map((item) => (item.question !== null && item.question !== '' ? item.question : item.text));
-};
-
-// 결과물 목록 — 분야 순서(계약 사전 순)를 유지한 채 분야별로 묶는다.
-const deliverableGroups = computed(() => {
-  const groups: { area: DevReviewAreaType; items: { key: string; label: string; requested: boolean }[] }[] = [];
-  for (const d of view.value.deliverables) {
-    const last = groups.find((g) => g.area === d.area);
-    const entry = { key: d.key, label: d.label, requested: d.requested };
-    if (last === undefined) groups.push({ area: d.area, items: [entry] });
-    else last.items.push(entry);
-  }
-  return groups;
-});
+const itemLetter = (i: number): string => String.fromCharCode(65 + i);
 
 // 생성 시각 — 서버 ISO(UTC)를 KST 로 옮겨 분 단위까지 작게 표시한다.
 const generatedAtLabel = computed(() => {
@@ -59,25 +41,19 @@ const generatedAtLabel = computed(() => {
 </script>
 
 <template>
-  <div class="grid gap-6">
-    <!-- ① 헤더 — 분야 배지 · 확정/확인 필요 집계 · 고정 고지문 -->
+  <div class="grid gap-7">
+    <!-- 헤더 — 분야 배지 · 확정/상의 개수 · 요약 한 줄 -->
     <header class="grid gap-2">
       <div class="flex flex-wrap items-center gap-2 text-xs">
         <span class="font-mono text-[11px] tracking-widest text-tx-3">AI PRE-REVIEW</span>
-        <span class="rounded-full bg-blue-50 px-2.5 py-0.5 font-semibold text-blue-700">
-          {{ view.areaBadge }}
-        </span>
-        <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 font-bold text-emerald-700">
-          확정 {{ view.stats.confirmed }}
-        </span>
-        <span class="rounded-full bg-amber-100 px-2.5 py-0.5 font-bold text-amber-700">
-          확인 필요 {{ view.stats.needsConfirmation }}
+        <span class="rounded-full bg-blue-50 px-2.5 py-0.5 font-semibold text-blue-700">{{ view.areaBadge }}</span>
+        <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 font-bold text-emerald-700">확정 {{ view.factCount }}</span>
+        <span v-if="view.openQuestions.length > 0" class="rounded-full bg-amber-100 px-2.5 py-0.5 font-bold text-amber-700">
+          상의 {{ view.openQuestions.length }}
         </span>
       </div>
       <h2 class="text-lg font-extrabold text-tx-1">AI 사전 검토서</h2>
-      <p class="rounded-xl bg-paper px-3.5 py-2.5 text-xs leading-relaxed text-tx-2">
-        {{ DEV_REVIEW_DISCLAIMER }}
-      </p>
+      <p v-if="review.summary !== ''" class="text-sm leading-relaxed text-tx-2">{{ review.summary }}</p>
       <p class="text-[11px] text-tx-3">
         {{ review.meta.model }} · {{ generatedAtLabel }} 생성
         <template v-if="review.meta.attachmentFiles.length > 0">
@@ -86,208 +62,151 @@ const generatedAtLabel = computed(() => {
       </p>
     </header>
 
-    <!-- ② 의뢰 브리프 -->
+    <!-- ① 고객 의뢰내용 -->
     <section class="grid gap-3">
-      <h3 class="text-sm font-extrabold text-tx-1">의뢰 브리프</h3>
-      <dl
-        v-if="view.briefRows.length > 0"
-        class="grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2"
-      >
-        <div
-          v-for="row in view.briefRows"
-          :key="row.code"
-          class="grid gap-0.5 bg-white px-3.5 py-2.5 text-xs leading-relaxed"
-          :class="row.unknown ? 'text-tx-3' : 'text-tx-2'"
-        >
-          <dt class="flex items-center gap-1.5 font-bold text-tx-2">
-            {{ row.label }}
-            <span v-if="row.unknown" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
-              확인 필요
-            </span>
-          </dt>
-          <dd>{{ row.value }}</dd>
-        </div>
-      </dl>
-      <p v-else class="rounded-xl bg-paper px-3.5 py-2.5 text-xs text-tx-3">
-        답변한 질문이 없어 브리프에 표시할 항목이 없습니다.
-      </p>
-
-      <p v-if="review.summary !== ''" class="text-sm leading-relaxed text-tx-2">{{ review.summary }}</p>
-
-      <template v-if="review.requirements.length > 0">
-        <p class="text-xs font-bold text-tx-2">핵심 요구</p>
-        <DevReviewItemList :items="review.requirements" />
-      </template>
-    </section>
-
-    <!-- ③ 시스템 구성도 — 결정적 SVG(sandbox iframe), 컨테이너 폭 전체 -->
-    <section class="grid gap-3">
-      <h3 class="text-sm font-extrabold text-tx-1">
-        시스템 구성도 <span class="font-normal text-tx-3">(클릭하면 크게 보기)</span>
-      </h3>
-      <DiagramViewer :html="diagramHtml" />
-    </section>
-
-    <!-- ④ 분야별 검토 포인트 -->
-    <section v-if="review.areas.length > 0" class="grid gap-3">
-      <h3 class="text-sm font-extrabold text-tx-1">분야별 검토 포인트</h3>
-      <div class="grid gap-3 xl:grid-cols-2">
-        <div v-for="area in review.areas" :key="area.area" class="grid gap-3 rounded-2xl border border-line p-4">
-          <p class="text-xs font-extrabold text-tx-1">{{ areaLabel(area.area) }}</p>
-
-          <template v-if="area.scope.length > 0">
-            <p class="text-[11px] font-bold text-tx-3">구현 방식·범위</p>
-            <DevReviewItemList :items="area.scope" />
-          </template>
-
-          <template v-if="area.risks.length > 0">
-            <p class="text-[11px] font-bold text-tx-3">주의 리스크</p>
-            <ul class="grid gap-2">
-              <li
-                v-for="(risk, i) in area.risks"
-                :key="i"
-                class="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-relaxed text-amber-900"
-              >
-                {{ risk.text }}
-                <details v-if="risk.evidence !== null && risk.evidence !== ''" class="mt-1.5">
-                  <summary class="cursor-pointer text-[11px] font-semibold text-amber-700">출처 보기</summary>
-                  <p class="mt-1 border-l-2 border-amber-300 pl-2 text-[11px]">“{{ risk.evidence }}”</p>
-                </details>
-              </li>
-            </ul>
-          </template>
-
-          <template v-if="areaOpenPoints(area).length > 0">
-            <p class="text-[11px] font-bold text-tx-3">확인 필요</p>
-            <ul class="grid gap-1 text-xs leading-relaxed text-tx-3">
-              <li v-for="(point, i) in areaOpenPoints(area)" :key="i" class="flex gap-1.5">
-                <span class="text-amber-600">•</span><span>{{ point }}</span>
-              </li>
-            </ul>
-          </template>
-        </div>
+      <div>
+        <p class="font-mono text-[10px] tracking-widest text-emerald-700">CUSTOMER BRIEF</p>
+        <h3 class="text-base font-extrabold text-tx-1">고객 의뢰내용</h3>
       </div>
-    </section>
-
-    <!-- ⑤ 개발명세서 -->
-    <section v-if="review.areas.length > 0" class="grid gap-3">
-      <h3 class="text-sm font-extrabold text-tx-1">개발명세서</h3>
-      <div v-for="area in review.areas" :key="area.area" class="grid gap-2">
-        <p class="text-xs font-bold text-tx-2">{{ areaLabel(area.area) }}</p>
-        <!-- 확정 0건이면 표를 만들지 않는다(정본 §1.2 R6) -->
-        <p v-if="confirmedSpec(area) === 0" class="rounded-xl bg-paper px-3.5 py-2.5 text-xs text-tx-3">
-          상담 후 작성
-        </p>
-        <div v-else class="overflow-x-auto rounded-xl border border-line">
-          <table class="w-full min-w-[560px] border-collapse text-xs">
-            <thead>
-              <tr class="bg-paper text-left text-[11px] font-bold text-tx-2">
-                <th class="w-40 px-3.5 py-2">항목</th>
-                <th class="px-3.5 py-2">내용</th>
-                <th class="w-24 px-3.5 py-2">상태</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(row, i) in area.spec"
-                :key="i"
-                class="border-t border-line align-top"
-                :class="row.status === 'confirmed' ? 'bg-white' : 'bg-paper'"
-              >
-                <td class="px-3.5 py-2.5 font-semibold" :class="row.status === 'confirmed' ? 'text-tx-1' : 'text-tx-3'">
-                  {{ row.item }}
-                </td>
-                <td class="px-3.5 py-2.5 leading-relaxed" :class="row.status === 'confirmed' ? 'text-tx-2' : 'text-tx-3'">
-                  {{ row.text }}
-                  <p v-if="row.status !== 'confirmed' && row.question !== null" class="mt-1 font-semibold text-amber-800">
-                    ❓ {{ row.question }}
-                  </p>
-                  <p v-if="row.status !== 'confirmed' && row.why !== null && row.why !== ''" class="mt-1 text-tx-3">
-                    {{ row.why }}
-                  </p>
-                  <details v-if="row.evidence !== null && row.evidence !== ''" class="mt-1">
-                    <summary class="cursor-pointer text-[11px] font-semibold text-tx-3">출처 보기</summary>
-                    <p class="mt-1 border-l-2 border-line-2 pl-2 text-[11px] text-tx-3">“{{ row.evidence }}”</p>
-                  </details>
-                </td>
-                <td class="px-3.5 py-2.5">
-                  <span
-                    class="rounded px-1.5 py-0.5 text-[10px] font-bold"
-                    :class="row.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
-                  >
-                    {{ row.status === 'confirmed' ? '확정' : '확인 필요' }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ⑥ 결과물 목록 -->
-    <section v-if="deliverableGroups.length > 0" class="grid gap-3">
-      <h3 class="text-sm font-extrabold text-tx-1">
-        결과물 목록 <span class="font-normal text-tx-3">(굵게 표시된 항목은 직접 요청한 결과물)</span>
-      </h3>
-      <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <div v-for="group in deliverableGroups" :key="group.area" class="rounded-2xl border border-line p-4">
-          <p class="text-xs font-extrabold text-tx-1">{{ areaLabel(group.area) }}</p>
-          <ul class="mt-2 grid gap-1 text-xs leading-relaxed">
-            <li v-for="d in group.items" :key="d.key" class="flex gap-1.5">
-              <span class="text-copper-500">•</span>
-              <span :class="d.requested ? 'font-bold text-tx-1' : 'text-tx-2'">{{ d.label }}</span>
+      <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+        <dl class="grid content-start gap-px overflow-hidden rounded-xl border border-line bg-line">
+          <div class="grid grid-cols-[88px_1fr] gap-3 bg-white px-3.5 py-2.5 text-xs">
+            <dt class="text-tx-3">개발 분야</dt>
+            <dd class="font-bold text-tx-1">{{ view.areaBadge }}</dd>
+          </div>
+          <div
+            v-for="row in view.briefRows"
+            :key="row.code"
+            class="grid grid-cols-[88px_1fr] gap-3 bg-white px-3.5 py-2.5 text-xs"
+          >
+            <dt class="text-tx-3">{{ row.label }}</dt>
+            <dd class="font-bold text-tx-1">
+              <template v-if="row.unknown">
+                <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">상담에서 확정</span>
+              </template>
+              <template v-else>{{ row.value }}</template>
+            </dd>
+          </div>
+        </dl>
+        <div class="rounded-xl bg-paper p-4">
+          <p class="text-xs font-bold text-tx-1">핵심 개발 요구사항</p>
+          <ul v-if="review.requirements.length > 0" class="mt-2.5 grid gap-2">
+            <li v-for="(item, i) in review.requirements" :key="i" class="flex gap-2 text-xs leading-relaxed text-tx-2">
+              <span class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-700">✓</span>
+              <span>{{ item.text }}</span>
             </li>
           </ul>
+          <p v-else class="mt-2 text-xs leading-relaxed text-tx-3">
+            설명에서 확정된 요구가 아직 없습니다. 전문가 상담에서 함께 정리합니다.
+          </p>
         </div>
       </div>
     </section>
 
-    <!-- ⑦ 개발 단계 순서 — 기간 없음 -->
-    <section v-if="view.phases.length > 0" class="grid gap-3">
-      <h3 class="text-sm font-extrabold text-tx-1">개발 단계 순서</h3>
-      <p class="text-xs text-tx-3">기간은 전문가 견적에서 제시됩니다.</p>
-      <ol class="grid gap-2">
+    <!-- ② 제안 시스템 구성도 -->
+    <section class="grid gap-3">
+      <div class="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p class="font-mono text-[10px] tracking-widest text-emerald-700">SYSTEM ARCHITECTURE</p>
+          <h3 class="text-base font-extrabold text-tx-1">제안 시스템 구성도</h3>
+        </div>
+        <span class="rounded-full border border-line px-2.5 py-0.5 text-[11px] font-bold text-tx-2">검토안 V1 · 클릭하면 크게</span>
+      </div>
+      <DiagramViewer :html="diagramHtml" />
+      <div v-if="notes.length > 0" class="grid gap-2 sm:grid-cols-3">
+        <div v-for="n in notes" :key="n.key" class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+          <p class="text-[10px] font-bold text-tx-3">{{ n.label }}</p>
+          <p class="mt-0.5 text-xs font-bold text-tx-1">{{ n.text }}</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ③ 기술개발 검토 결과 -->
+    <section class="grid gap-3">
+      <div>
+        <p class="font-mono text-[10px] tracking-widest text-emerald-700">AI REVIEW</p>
+        <h3 class="text-base font-extrabold text-tx-1">기술개발 검토 결과</h3>
+      </div>
+      <div class="grid gap-2 sm:grid-cols-3">
+        <div v-for="area in review.areas" :key="area.area" class="rounded-xl border border-line bg-white p-3.5">
+          <p class="text-xs font-extrabold text-tx-1">{{ areaLabel(area.area) }}</p>
+          <p v-if="area.summary !== ''" class="mt-1 text-xs leading-relaxed text-tx-2">{{ area.summary }}</p>
+          <p v-else class="mt-1 text-xs text-tx-3">상담 후 작성</p>
+        </div>
+      </div>
+      <div v-if="view.openQuestions.length > 0" class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <p class="text-xs font-bold text-amber-900">전문가와 상의할 항목</p>
+        <ol class="mt-2 grid gap-1.5 sm:grid-cols-2">
+          <li v-for="(q, i) in view.openQuestions" :key="i" class="flex gap-2 text-xs leading-relaxed text-amber-900">
+            <span class="shrink-0 font-bold">{{ i + 1 }}.</span>
+            <span>
+              {{ q.question }}
+              <span v-if="q.why !== ''" class="block text-[11px] text-amber-700">{{ q.why }}</span>
+            </span>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ④ 개발명세서 -->
+    <section class="grid gap-3">
+      <div>
+        <p class="font-mono text-[10px] tracking-widest text-emerald-700">DEVELOPMENT SPECIFICATION</p>
+        <h3 class="text-base font-extrabold text-tx-1">개발명세서</h3>
+        <p class="mt-0.5 text-xs text-tx-3">고객 자료에서 확정된 항목만 담았습니다. 나머지는 전문가가 상담 후 채웁니다.</p>
+      </div>
+      <div v-for="area in review.areas" :key="area.area" class="rounded-xl border border-line bg-white p-4">
+        <p class="text-xs font-extrabold text-tx-1">{{ areaLabel(area.area) }}</p>
+        <div v-if="area.spec.length > 0" class="mt-2.5 grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+          <div v-for="(row, i) in area.spec" :key="i" class="grid gap-0.5 border-l-2 border-line pl-3">
+            <p class="text-[11px] font-bold text-tx-2">{{ row.item }}</p>
+            <p class="text-xs leading-relaxed text-tx-1">{{ row.text }}</p>
+          </div>
+        </div>
+        <p v-else class="mt-1.5 text-xs text-tx-3">상담 후 작성</p>
+      </div>
+    </section>
+
+    <!-- ⑤ 작업 항목 및 결과물 — 금액 없음 -->
+    <section class="grid gap-3">
+      <div>
+        <p class="font-mono text-[10px] tracking-widest text-emerald-700">WORK ITEMS</p>
+        <h3 class="text-base font-extrabold text-tx-1">작업 항목 및 결과물</h3>
+        <p class="mt-0.5 text-xs text-tx-3">금액은 전문가 견적에서 항목별로 제시됩니다.</p>
+      </div>
+      <ul class="grid gap-2">
         <li
-          v-for="(phase, i) in view.phases"
-          :key="phase.key"
-          class="flex items-start gap-3 rounded-xl border border-line px-3.5 py-2.5 text-xs leading-relaxed"
+          v-for="(w, i) in view.workItems"
+          :key="w.area"
+          class="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line bg-white px-4 py-3"
         >
-          <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ink-900 text-[10px] font-bold text-white">
-            {{ i + 1 }}
-          </span>
-          <span class="min-w-0 flex-1">
-            <b class="text-tx-1">{{ phase.label }}</b>
-            <span class="ml-1.5 text-tx-3">{{ phase.areas.map(areaLabel).join(' · ') }}</span>
-            <span v-if="phase.deliverables.length > 0" class="mt-0.5 block text-tx-2">
-              {{ phase.deliverables.join(' · ') }}
+          <span class="text-xs font-extrabold text-tx-1">{{ itemLetter(i) }}. {{ w.label }}</span>
+          <span class="text-[11px] text-tx-3">{{ w.areaLabel }}</span>
+          <span class="flex flex-wrap gap-1.5">
+            <span v-for="d in w.deliverables" :key="d" class="rounded-full bg-paper px-2.5 py-0.5 text-[11px] font-semibold text-tx-2">
+              {{ d }}
             </span>
           </span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ⑥ 개발 단계 — 기간 없음 -->
+    <section class="grid gap-3">
+      <div>
+        <p class="font-mono text-[10px] tracking-widest text-emerald-700">DEVELOPMENT STEPS</p>
+        <h3 class="text-base font-extrabold text-tx-1">개발 단계</h3>
+        <p class="mt-0.5 text-xs text-tx-3">기간은 전문가 견적에서 제시됩니다.</p>
+      </div>
+      <ol class="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <li v-for="(phase, i) in view.phases" :key="phase.key" class="rounded-xl border border-line bg-white p-3">
+          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-ink-900 text-[10px] font-bold text-white">{{ i + 1 }}</span>
+          <p class="mt-2 text-xs font-extrabold text-tx-1">{{ phase.label }}</p>
+          <p class="mt-0.5 text-[11px] leading-relaxed text-tx-3">{{ phase.note }}</p>
         </li>
       </ol>
     </section>
 
-    <!-- ⑧ 전문가와 확정할 항목 -->
-    <section v-if="view.openQuestions.length > 0" class="grid gap-3">
-      <h3 class="text-sm font-extrabold text-tx-1">전문가와 확정할 항목</h3>
-      <ul class="grid gap-2">
-        <li
-          v-for="(q, i) in view.openQuestions"
-          :key="i"
-          class="rounded-xl border border-line bg-paper px-3.5 py-2.5 text-xs leading-relaxed"
-        >
-          <div class="flex flex-wrap items-center gap-1.5">
-            <span v-if="q.topic !== ''" class="rounded bg-white px-1.5 py-0.5 text-[10px] font-bold text-tx-2">
-              {{ q.topic }}
-            </span>
-            <span v-if="q.area !== null" class="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
-              {{ areaLabel(q.area) }}
-            </span>
-          </div>
-          <p class="mt-1 font-semibold text-tx-1">{{ q.question }}</p>
-          <p v-if="q.why !== ''" class="mt-0.5 text-tx-3">{{ q.why }}</p>
-        </li>
-      </ul>
-    </section>
+    <p class="rounded-xl bg-paper px-3.5 py-2.5 text-[11px] leading-relaxed text-tx-3">{{ DEV_REVIEW_DISCLAIMER }}</p>
   </div>
 </template>

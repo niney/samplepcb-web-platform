@@ -27,26 +27,25 @@ vi.mock('../prisma', () => ({
 import { findReusableAiJob, finishAiJob, getAiJob } from './jobs';
 
 const review: MarketDevReviewType = {
-  version: 1,
+  version: 2,
   brief: { serviceAreas: ['circuit'], answers: [{ code: 'stage', choices: ['idea'] }] },
   summary: '테스트 검토서',
   requirements: [],
   diagram: {
-    project: { name: 'T', summary: '', stage: 'idea', service_type: 'single' },
-    groups: [{ id: 'main', label: 'MAIN' }],
-    blocks: [{ id: 'mcu', group: 'main', type: 'controller', label: '메인 컨트롤러', status: 'tbd' }],
-    connections: [],
-    constraints: [],
-    feature_highlights: [],
-    questions_missing: [],
+    columns: { inputs: '입력', board: '메인 보드', outputs: '출력·연동' },
+    inputs: [],
+    board: { label: '메인 컨트롤러', detail: '', chips: [] },
+    outputs: [],
+    linkIn: '',
+    linkOut: '',
+    notes: { flow: '', design: '', extension: '' },
   },
-  areas: [{ area: 'circuit', scope: [], risks: [], spec: [] }],
+  areas: [{ area: 'circuit', summary: '', spec: [] }],
   openQuestions: [],
   meta: {
-    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v1', inputHash: 'h',
-    generatedAt: '2026-08-28T00:00:00.000Z', attachmentFiles: [],
+    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
+    generatedAt: '2026-09-02T00:00:00.000Z', attachmentFiles: [],
   },
-  stats: { confirmed: 0, needsConfirmation: 0 },
 };
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -56,7 +55,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   status: 'done',
   stage: null,
   model: 'm',
-  promptVersion: 'dev-review.v1',
+  promptVersion: 'dev-review.v2',
   inputHash: 'h',
   resultJson: JSON.stringify(review),
   error: null,
@@ -88,7 +87,7 @@ describe('AI 잡 저장소(sp_ai_job)', () => {
   it('재사용은 회원·모델·프롬프트·입력·상태·시간창을 전부 건다', async () => {
     prismaMocks.findFirst.mockResolvedValue(row());
     const found = await findReusableAiJob('market.dev-review', 'owner', {
-      model: 'm', promptVersion: 'dev-review.v1', inputHash: 'h',
+      model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
     });
     expect(found?.id).toBe('job-1');
     const args = prismaMocks.findFirst.mock.calls[0]?.[0] as
@@ -97,7 +96,7 @@ describe('AI 잡 저장소(sp_ai_job)', () => {
     const where = args?.where ?? {};
     expect(where).toMatchObject({
       useCase: 'market.dev-review', mbId: 'owner', model: 'm',
-      promptVersion: 'dev-review.v1', inputHash: 'h', status: 'done',
+      promptVersion: 'dev-review.v2', inputHash: 'h', status: 'done',
     });
     expect(where.finishedAt).toHaveProperty('gte');
   });
@@ -106,7 +105,7 @@ describe('AI 잡 저장소(sp_ai_job)', () => {
     prismaMocks.findFirst.mockResolvedValue(row({ resultJson: 'not json at all{' }));
     await expect(
       findReusableAiJob('market.dev-review', 'owner', {
-        model: 'm', promptVersion: 'dev-review.v1', inputHash: 'h',
+        model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
       }),
     ).resolves.toBeNull();
   });
