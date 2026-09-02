@@ -120,13 +120,95 @@ export function extractHtml(text: string): string {
   return text.trim();
 }
 
-// LLM 응답에서 JSON 객체만 추출 — 코드펜스·서문·후문 방어(인터뷰 프로빙 로직 이식).
+// 문자열 안에 그대로 흘러든 제어문자(개행·탭 — kimi-k3·mistral 실측)를 이스케이프해 JSON.parse 가 받게 한다.
+function escapeControlCharsInStrings(json: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const ch of json) {
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) {
+        out += code === 0x0a ? '\\n' : code === 0x09 ? '\\t' : code === 0x0d ? '\\r' : ' ';
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
+}
+
+// 최상위 균형 객체 후보(문자열 인식) — 큰 것부터. 추론문이 content 에 섞여 나오는 모델(glm-5.3 실측)은
+// 글 속 중괄호 때문에 "첫 { 부터 마지막 } 까지" 가 깨진다 — 실제 JSON 블록을 골라낸다.
+function balancedObjects(text: string): string[] {
+  const spans: [number, number][] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === '}' && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        spans.push([start, i + 1]);
+        start = -1;
+      }
+    }
+  }
+  return spans.map(([s, e]) => text.slice(s, e)).sort((a, b) => b.length - a.length);
+}
+
+// LLM 응답에서 JSON 객체만 추출 — 코드펜스·서문·후문·추론문·제어문자 방어.
 // 파싱 실패는 throw — 러너의 재시도 1회가 흡수한다.
 export function extractJsonObject(text: string): unknown {
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  const candidate = fence?.[1] ?? text;
-  const start = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('no JSON object in LLM output');
-  return JSON.parse(candidate.slice(start, end + 1)) as unknown;
+  const naive = (s: string): string[] => {
+    const a = s.indexOf('{');
+    const b = s.lastIndexOf('}');
+    return a >= 0 && b > a ? [s.slice(a, b + 1)] : [];
+  };
+  const fenced = fence?.[1];
+  const candidates = [
+    ...(fenced === undefined ? [] : [...balancedObjects(fenced), ...naive(fenced)]),
+    ...balancedObjects(text),
+    ...naive(text), // 따옴표가 어긋난 산문이 스캐너를 속일 때의 마지막 보루
+  ];
+  if (candidates.length === 0) throw new Error('no JSON object in LLM output');
+  let lastError: unknown = new Error('no JSON object in LLM output');
+  for (const candidate of new Set(candidates)) {
+    for (const variant of [candidate, escapeControlCharsInStrings(candidate)]) {
+      try {
+        return JSON.parse(variant) as unknown;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('no JSON object in LLM output');
 }
