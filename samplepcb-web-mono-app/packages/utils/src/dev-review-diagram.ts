@@ -161,10 +161,11 @@ function renderSidePanel(
     const textX = cardX + 62;
     const firstY = card.labelLines.length > 1 ? cy + 26 : cy + (card.node.detail === '' ? 37 : 30);
     parts.push(
-      `<rect class="card" x="${String(cardX)}" y="${String(cy)}" width="${String(cardW)}" height="${String(card.height)}" rx="12"/>`,
+      `<rect class="card${card.node.tbd ? ' card-tbd' : ''}" x="${String(cardX)}" y="${String(cy)}" width="${String(cardW)}" height="${String(card.height)}" rx="12"/>`,
       `<rect class="icon-bg" x="${String(iconCx)}" y="${String(iconCy)}" width="36" height="36" rx="10"/>`,
       renderIcon(card.node.icon, iconCx + 8, iconCy + 8, 20, 'icon'),
     );
+    if (card.node.tbd) parts.push(renderTbdPill(cardX + cardW - 44, cy + 8));
     card.labelLines.forEach((line, i) => {
       parts.push(
         `<text class="card-label" x="${String(textX)}" y="${String(firstY + i * 18)}">${escapeXml(line)}</text>`,
@@ -199,10 +200,11 @@ function renderBoardPanel(
   const hasDetail = diagram.board.detail !== '';
   const firstY = labelLines.length > 1 ? cardY + 30 : hasDetail ? cardY + 34 : cardY + 43;
   parts.push(
-    `<rect class="board-card" x="${String(innerX)}" y="${String(cardY)}" width="${String(innerW)}" height="${String(BOARD_CARD_H)}" rx="12"/>`,
+    `<rect class="board-card${diagram.board.tbd ? ' board-card-tbd' : ''}" x="${String(innerX)}" y="${String(cardY)}" width="${String(innerW)}" height="${String(BOARD_CARD_H)}" rx="12"/>`,
     `<rect class="board-icon-bg" x="${String(innerX + 16)}" y="${String(cardY + 18)}" width="40" height="40" rx="10"/>`,
     renderIcon('chip', innerX + 24, cardY + 26, 24, 'board-icon'),
   );
+  if (diagram.board.tbd) parts.push(renderTbdPill(innerX + innerW - 44, cardY + 8));
   labelLines.forEach((line, i) => {
     parts.push(
       `<text class="board-label" x="${String(innerX + 70)}" y="${String(firstY + i * 19)}">${escapeXml(line)}</text>`,
@@ -228,6 +230,14 @@ function renderBoardPanel(
     cy += CHIP_H + CHIP_GAP;
   }
   return parts.join('');
+}
+
+// "미정" 표식 — 고객이 종류·방식을 정하지 않았다고 말한 카드(점선 테두리와 함께).
+function renderTbdPill(x: number, y: number): string {
+  return [
+    `<rect class="tbd-pill" x="${String(x)}" y="${String(y)}" width="36" height="16" rx="8"/>`,
+    `<text class="tbd-text" x="${String(x + 18)}" y="${String(y + 11.5)}" text-anchor="middle">미정</text>`,
+  ].join('');
 }
 
 // 열 사이 화살표 — 수직 중앙, 라벨은 화살표 위.
@@ -267,7 +277,7 @@ export function renderDevReviewDiagramHtml(diagram: DevReviewDiagramType): strin
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>제안 시스템 구성도</title>
   <style>
-    html,body{margin:0;background:#fff;color:#14243e;font-family:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",Arial,sans-serif}svg{display:block;background:#fff}.panel{fill:#f5f7fb;stroke:#e4eaf3;stroke-width:1.5}.panel-title{font-size:12px;font-weight:800;fill:#52627d;letter-spacing:.2px}.card{fill:#fff;stroke:#e4eaf3;stroke-width:1.2}.card-empty{stroke-dasharray:6 4;fill:#fbfcfe}.card-empty-text{font-size:12px;fill:#8593ab}.icon-bg{fill:#eef2f8}.icon{fill:none;stroke:#14243e;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.card-label{font-size:14px;font-weight:700;fill:#14243e}.card-detail{font-size:11px;fill:#8593ab}.board{fill:#0c1b33}.board-title{font-size:12px;font-weight:800;fill:#a9bad4;letter-spacing:.2px}.board-card{fill:#16283f;stroke:#1f3550;stroke-width:1}.board-icon-bg{fill:#10b981}.board-icon{fill:none;stroke:#ffffff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.board-label{font-size:15px;font-weight:800;fill:#f2f6fc}.board-detail{font-size:11px;fill:#a9bad4}.chip{fill:#102138;stroke:#1f3550;stroke-width:1}.chip-text{font-size:12px;font-weight:600;fill:#f2f6fc}.link{fill:none;stroke:#8593ab;stroke-width:1.6;stroke-linecap:round}.link-label{font-size:11px;font-weight:800;fill:#0f9f6e}.footer{font-size:10px;fill:#c3cddd}
+    html,body{margin:0;background:#fff;color:#14243e;font-family:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",Arial,sans-serif}svg{display:block;background:#fff}.panel{fill:#f5f7fb;stroke:#e4eaf3;stroke-width:1.5}.panel-title{font-size:12px;font-weight:800;fill:#52627d;letter-spacing:.2px}.card{fill:#fff;stroke:#e4eaf3;stroke-width:1.2}.card-empty{stroke-dasharray:6 4;fill:#fbfcfe}.card-empty-text{font-size:12px;fill:#8593ab}.icon-bg{fill:#eef2f8}.icon{fill:none;stroke:#14243e;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.card-label{font-size:14px;font-weight:700;fill:#14243e}.card-detail{font-size:11px;fill:#8593ab}.board{fill:#0c1b33}.board-title{font-size:12px;font-weight:800;fill:#a9bad4;letter-spacing:.2px}.board-card{fill:#16283f;stroke:#1f3550;stroke-width:1}.board-icon-bg{fill:#10b981}.board-icon{fill:none;stroke:#ffffff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.board-label{font-size:15px;font-weight:800;fill:#f2f6fc}.board-detail{font-size:11px;fill:#a9bad4}.chip{fill:#102138;stroke:#1f3550;stroke-width:1}.chip-text{font-size:12px;font-weight:600;fill:#f2f6fc}.link{fill:none;stroke:#8593ab;stroke-width:1.6;stroke-linecap:round}.link-label{font-size:11px;font-weight:800;fill:#0f9f6e}.card-tbd{stroke:#d29a2b;stroke-dasharray:5 4}.board-card-tbd{stroke:#d29a2b;stroke-dasharray:5 4}.tbd-pill{fill:#fdf3d7}.tbd-text{font-size:9.5px;font-weight:800;fill:#9a6a00}.footer{font-size:10px;fill:#c3cddd}
   </style>
 </head>
 <body>

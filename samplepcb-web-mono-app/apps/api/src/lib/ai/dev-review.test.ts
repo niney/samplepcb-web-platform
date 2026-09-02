@@ -3,6 +3,7 @@ import type { DevReviewLlmOutputType, DevReviewMetaType } from '@sp/api-contract
 import {
   buildDevReviewCorpus,
   buildDevReviewPrompt,
+  detectSourceConflicts,
   devReviewInputHash,
   isGroundedQuote,
   normalizeForMatch,
@@ -47,11 +48,11 @@ const output: DevReviewLlmOutputType = {
   diagram: {
     columns: { inputs: '현장 입력', board: '제어 보드', outputs: '연동' },
     inputs: [
-      { label: '온습도 센서 SHT31', detail: '온도·습도', icon: 'sensor' }, // 품번만 제거
-      { label: 'ADS1115', detail: '', icon: 'other' }, // 라벨이 통째 품번 → 카드 삭제
+      { label: '온습도 센서 SHT31', detail: '온도·습도', icon: 'sensor', tbd: true }, // 품번만 제거
+      { label: 'ADS1115', detail: '', icon: 'other', tbd: false }, // 라벨이 통째 품번 → 카드 삭제
     ],
-    board: { label: '메인 컨트롤러 nRF52840', detail: '제어·통신', chips: ['전원 변환 3.3V', '데이터 처리', 'STM32'] },
-    outputs: [{ label: '스마트폰 앱', detail: '실시간 표시', icon: 'phone' }],
+    board: { label: '메인 컨트롤러 nRF52840', detail: '제어·통신', chips: ['전원 변환 3.3V', '데이터 처리', 'STM32'], tbd: false },
+    outputs: [{ label: '스마트폰 앱', detail: '실시간 표시', icon: 'phone', tbd: false }],
     linkIn: 'I2C', // 자료에 없음 → 비움
     linkOut: 'BLE', // 자료에 있음 → 유지
     notes: { flow: '센싱 → BLE 전송', design: '4층 기판 설계', extension: '' },
@@ -92,7 +93,7 @@ describe('AI 사전 검토서 후처리(v2 — 확정만)', () => {
   });
 
   it('구성도 — 라벨의 품번·수치만 제거, 라벨이 비면 카드·칩 삭제, 연결 라벨은 자료에 있는 것만', () => {
-    expect(review.diagram.inputs.map((n) => n.label)).toEqual(['온습도 센서']);
+    expect(review.diagram.inputs.map((n) => [n.label, n.tbd])).toEqual([['온습도 센서', true]]);
     expect(review.diagram.board.label).toBe('메인 컨트롤러');
     expect(review.diagram.board.chips).toEqual(['전원 변환', '데이터 처리']);
     expect(review.diagram.outputs.map((n) => n.label)).toEqual(['스마트폰 앱']);
@@ -129,6 +130,59 @@ describe('AI 사전 검토서 후처리(v2 — 확정만)', () => {
     expect(review.brief.serviceAreas).toEqual(['circuit', 'pcb']);
     expect(review.brief.answers).toHaveLength(3);
     expect(review.meta.jobId).toBe('job-1');
+  });
+});
+
+describe('R8 — 자료 간 불일치', () => {
+  const conflicted: DevReviewSource = {
+    ...source,
+    attachmentContext: '[첨부 1] 요구 메모\n- 팬: 24V DC 팬 2대\n- 전원: 24V 어댑터 하나로 팬과 제어기를 같이 돌림\n- 온도 설정 20~40도',
+  };
+  const out: DevReviewLlmOutputType = {
+    ...output,
+    requirements: [
+      fact('12V 어댑터 입력', '12V 어댑터로 동작하고'), // 설명 쪽 값 — 역시 확정 불가
+      fact('24V 어댑터 하나로 팬과 제어기 구동', '24V 어댑터 하나로 팬과 제어기를 같이 돌림'), // 첨부 쪽 값
+      fact('온도·습도를 측정해 스마트폰 앱으로 표시', '온도·습도를 재서 블루투스(BLE)로 스마트폰 앱에 보여주는 보드'),
+    ],
+    diagram: {
+      ...output.diagram,
+      inputs: [{ label: '24V 어댑터', detail: '팬과 제어기 공용', icon: 'power', tbd: false }],
+      board: { ...output.diagram.board, label: '메인 컨트롤러', chips: ['전원 변환'] },
+      notes: { flow: '', design: '', extension: '' },
+    },
+    areas: [{ area: 'circuit', summary: '24V 전원 회로', spec: [{ item: '전원부', ...fact('24V DC 팬 2대 구동', '24V DC 팬 2대') }] }],
+    openQuestions: [
+      { question: '전원 전압을 12V로 할지 24V로 할지 확정이 필요합니다.', why: '' }, // 자동 질문으로 갈음
+      { question: '옥외에 설치되나요?', why: '' },
+    ],
+  };
+
+  it('같은 단위의 수치가 설명과 첨부에서 서로 다르면 불일치로 감지한다', () => {
+    expect(detectSourceConflicts(conflicted)).toEqual([{ unit: 'v', label: '전압', primary: ['12'], attachment: ['24'] }]);
+    // 첨부가 설명 값을 포함하면(12V 와 5V 레일) 불일치가 아니다.
+    expect(detectSourceConflicts({ ...source, attachmentContext: '입력 12V, 내부 5V 와 3.3V' })).toEqual([]);
+    // 한쪽에만 있는 단위(첨부의 온도)는 판정 대상이 아니다.
+    expect(detectSourceConflicts({ ...source, attachmentContext: '동작 온도 -20~60℃' })).toEqual([]);
+  });
+
+  it('불일치 값을 품은 확정 항목은 양쪽 다 삭제되고, 구성도 라벨은 값만 빠지며 미정이 된다', () => {
+    const { review, diagnostics } = postProcessDevReview(out, conflicted, meta);
+    expect(review.requirements.map((r) => r.text)).toEqual(['온도·습도를 측정해 스마트폰 앱으로 표시']);
+    expect(review.areas[0]?.spec).toEqual([]);
+    expect(review.areas[0]?.summary).toBe('전원 회로');
+    expect(review.diagram.inputs).toEqual([{ label: '어댑터', detail: '팬과 제어기 공용', icon: 'power', tbd: true }]);
+    expect(diagnostics.conflicts).toBe(1);
+    expect(diagnostics.r8Dropped).toBe(3);
+  });
+
+  it('상의 항목 맨 앞에 "자료 간 확인 필요" 를 세우고 같은 값을 말하는 모델 질문은 접는다', () => {
+    const { review } = postProcessDevReview(out, conflicted, meta);
+    expect(review.openQuestions[0]?.question).toBe('자료 간 확인 필요: 전압 — 설명에는 12V, 첨부에는 24V로 적혀 있습니다. 어느 쪽이 맞나요?');
+    expect(review.openQuestions.map((q) => q.question)).toEqual([
+      review.openQuestions[0]?.question,
+      '옥외에 설치되나요?',
+    ]);
   });
 });
 

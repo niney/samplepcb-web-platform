@@ -34,7 +34,7 @@ const review: MarketDevReviewType = {
   diagram: {
     columns: { inputs: '입력', board: '메인 보드', outputs: '출력·연동' },
     inputs: [],
-    board: { label: '메인 컨트롤러', detail: '', chips: [] },
+    board: { label: '메인 컨트롤러', detail: '', chips: [], tbd: false },
     outputs: [],
     linkIn: '',
     linkOut: '',

@@ -65,9 +65,9 @@ const DEV_REVIEW_RULES = `당신은 회로·PCB·펌웨어 개발 의뢰를 사�
   "requirements": [ {"text": "핵심 개발 요구사항(쉬운 말, 40자 이내)", "evidence": "고객 문장 인용"} ],
   "diagram": {
     "columns": {"inputs": "왼쪽 열 이름(예: 현장 입력)", "board": "가운데 열 이름(예: 제어 보드)", "outputs": "오른쪽 열 이름(예: 연동·출력)"},
-    "inputs": [ {"label": "보드로 들어오는 것(센서·신호·버튼·전원 입력)", "detail": "한 줄 보충(20자 이내)", "icon": "sensor|signal|button|power|other"} ],
-    "board": {"label": "보드 이름(예: 메인 컨트롤러 — 품번은 고객이 말한 경우만)", "detail": "한 줄 보충(20자 이내)", "chips": ["보드 안 기능 블록(예: 전원 변환, 입력 보호, 데이터 처리, 무선 통신, 저장)"]},
-    "outputs": [ {"label": "보드에서 나가는 것·연동 대상(출력 장치·앱·서버·PC·기존 장비)", "detail": "한 줄 보충(20자 이내)", "icon": "display|motor|relay|wireless|phone|cloud|pc|device|storage|other"} ],
+    "inputs": [ {"label": "보드로 들어오는 것(센서·신호·버튼·전원 입력)", "detail": "한 줄 보충(20자 이내)", "icon": "sensor|signal|button|power|other", "tbd": false} ],
+    "board": {"label": "보드 이름(예: 메인 컨트롤러 — 품번은 고객이 말한 경우만)", "detail": "한 줄 보충(20자 이내)", "chips": ["보드 안 기능 블록(예: 전원 변환, 입력 보호, 데이터 처리, 무선 통신, 저장)"], "tbd": false},
+    "outputs": [ {"label": "보드에서 나가는 것·연동 대상(출력 장치·앱·서버·PC·기존 장비)", "detail": "한 줄 보충(20자 이내)", "icon": "display|motor|relay|wireless|phone|cloud|pc|device|storage|other", "tbd": false} ],
     "linkIn": "입력→보드 연결 방식(고객 자료에 있는 것만, 없으면 \\"\\")",
     "linkOut": "보드→출력·연동 연결 방식(고객 자료에 있는 것만, 없으면 \\"\\")",
     "notes": {"flow": "데이터 흐름 한 줄(예: 센싱 → 처리 → 앱 전송)", "design": "핵심 설계 포인트 한 줄", "extension": "고객이 말한 확장 방향 한 줄, 없으면 \\"\\""}
@@ -78,9 +78,15 @@ const DEV_REVIEW_RULES = `당신은 회로·PCB·펌웨어 개발 의뢰를 사�
 
 [작성 지침]
 - requirements: 고객이 원하는 기능·조건 3~5개. 자료가 빈약하면 1~2개도 괜찮습니다. 질문 답변(현재 상태·수량·함께 쓰는 것·목표 시점)은 이미 표로 표시되므로 requirements 에 반복하지 않습니다.
-- diagram: inputs 0~5개, chips 3~8개(각 12자 이내), outputs 0~5개. 고객이 말하지 않은 기능(앱·클라우드·OTA·통신 방식 등)을 추가하지 않습니다. 함께 쓰는 것(앱·서버·PC·기존 장비)이 답변에 있으면 outputs 에 넣습니다. 라벨은 역할명(예: "온도 센서", "스마트폰 앱")으로 짧게.
+- diagram: inputs 0~5개, chips 3~8개(각 12자 이내), outputs 0~5개. 고객이 말하지 않은 기능(앱·클라우드·OTA·통신 방식 등)을 추가하지 않습니다. 라벨은 역할명(예: "온도 센서", "스마트폰 앱")으로 짧게.
+  · 분류 기준 — inputs: 보드로 들어오는 것. 센서(온도·습도·진동·전압·전류 측정 등), 버튼·스위치, 카메라, 외부 신호·기존 장비에서 오는 신호, 전원 입력(어댑터·배터리·AC). outputs: 보드가 움직이거나 보내는 것. 모터·펌프·밸브·릴레이·히터 같은 구동 장치, LED·부저·디스플레이 같은 표시 장치, 스마트폰 앱·서버·PC·기존 장비 같은 연동 대상(질문 답변의 "함께 쓰는 것" 포함). chips: 보드 안 기능 블록 — 전원 변환, 입력 보호, 신호 처리, 데이터 저장, 통신(고객이 말한 방식만), 구동 제어 등.
+  · 같은 장치가 여러 개면 카드 하나에 label 끝 "×N"(예: "릴레이 출력 ×2").
+  · 저항·커패시터 값, 핀 번호, 세부 회로소자, 층수·내부 전압 같은 설계 결정은 쓰지 않습니다.
+  · tbd: 고객이 그 항목의 종류·방식을 "정하지 않았다·제안 받고 싶다"고 말한 경우에만 true(예: "센서 종류는 개발사 제안" → 온습도 센서 카드 tbd:true). 고객이 언급하지 않은 것은 tbd 카드도 만들지 않습니다.
+- 자료 간 불일치: 설명과 첨부, 또는 첨부끼리 내용이 다르면(예: 설명은 12V, 도면은 24V) 어느 쪽도 고르지 말고 그 항목은 확정에서 빼고 openQuestions 에 "자료 간 확인 필요: …"로 씁니다.
 - areas: [개발 분야]의 분야마다 정확히 하나씩. spec 은 근거가 있는 행만 0~6행 — 억지로 채우지 않습니다.
-- openQuestions: 고객이 "잘 모르겠어요"라고 답한 주제, 자료에 없는 전원·통신·크기·설치 환경·인증·수량 등 개발에 꼭 필요한 것만. 같은 주제를 표현만 바꿔 반복하지 않습니다.`;
+- openQuestions: 고객이 "잘 모르겠어요"라고 답한 주제, 자료에 없는 전원·통신·크기·설치 환경·인증·수량 등 개발에 꼭 필요한 것만. 같은 주제를 표현만 바꿔 반복하지 않습니다.
+  · 하드웨어 검토 체크리스트(해당하는 경우에만, 고객이 이미 답한 것은 묻지 않음): 상용 AC 전원이나 모터·히터·릴레이·펌프 같은 큰 부하를 제어하면 절연·보호(퓨즈·서지) 방식 / RS-485·CAN 등 외부 장비와 유선 통신이 있으면 절연 여부와 통신 규약 / 무선(Wi-Fi·BLE·LTE·LoRa)이 있으면 안테나 형태(내장·외장)와 전파 인증 / 전원 입력 종류(어댑터·배터리·AC)가 자료에 없으면 전원 방식 / 기록·저장 요구가 있으면 보관 기간과 저장 위치(보드·서버) / 설치 환경(옥외·고온·다습·진동)이 자료에 없으면 설치 환경. 이 체크리스트 항목을 구성도 카드나 확정 항목으로 만들지 않고, 고객 자료에서 직접 나온 질문(고객이 모른다고 한 것·자료에 빠진 것) 뒤에 둡니다.`;
 
 export function buildDevReviewPrompt(source: DevReviewSource, extraInstructions = ''): string {
   const extra = extraInstructions.trim();
@@ -252,6 +258,87 @@ export function ungroundedTokens(text: string, corpus: string): string[] {
   return bad;
 }
 
+// ── R8 자료 간 불일치 — 설명(제목·설명·답변)과 첨부가 같은 단위에 서로 다른 수치만 갖는 경우 ───────
+// 프로빙 실측(픽스처 06): "자료가 다르면 고르지 말라"는 프롬프트를 3모델 모두 안 지켰다(24V 를 확정에
+// 올리고, 질문은 냈다 안 냈다). 두 값 모두 고객 원문 인용이라 R1·R2 로는 못 잡는다 → 결정적으로 잡는다.
+// 같은 단위의 수치 집합이 양쪽 다 비어 있지 않고 교집합이 없으면 불일치. 그 값을 품은 확정 항목은 삭제,
+// 구성도 라벨에선 그 토큰만 제거, 상의 항목 맨 앞에 "자료 간 확인 필요" 를 자동으로 세운다.
+const UNIT_CANON: Readonly<Record<string, string>> = {
+  v: 'v', kv: 'kv', mv: 'mv', a: 'a', ma: 'ma', ua: 'ua', w: 'w', mw: 'mw', kw: 'kw',
+  mm: 'mm', cm: 'cm', um: 'um', m: 'm', inch: 'inch',
+  '대': 'ea', '개': 'ea', set: 'ea', sets: 'ea', ea: 'ea', pcs: 'ea',
+  '층': 'layer', layer: 'layer', layers: 'layer',
+  '℃': 'c', '°c': 'c',
+  '주': 'week', '일': 'day', '개월': 'month',
+  mah: 'mah', ah: 'ah', hz: 'hz', khz: 'khz', mhz: 'mhz', ghz: 'ghz',
+};
+const UNIT_LABEL: Readonly<Record<string, string>> = {
+  v: '전압', kv: '전압', mv: '전압', a: '전류', ma: '전류', ua: '전류', w: '전력', mw: '전력', kw: '전력',
+  mm: '크기', cm: '크기', um: '크기', m: '길이', inch: '크기', ea: '수량', layer: '층수', c: '온도',
+  week: '기간', day: '기간', month: '기간', mah: '배터리 용량', ah: '배터리 용량',
+  hz: '주파수', khz: '주파수', mhz: '주파수', ghz: '주파수',
+};
+
+// 불일치 판정 단위 — 같은 물건의 사양이라 볼 수 있는 단위만. 수량(대·개)은 시제품 수와 부품 개수가
+// 섞이고, 크기(mm)는 보드와 구멍이 섞여 오탐이 커서 뺀다(실측: "시제품 5대" vs "팬 2대"가 불일치로 잡혔다).
+const CONFLICT_UNITS = new Set(['v', 'kv', 'mv', 'a', 'ma', 'ua', 'w', 'mw', 'kw', 'layer', 'c', 'hz', 'khz', 'mhz', 'ghz', 'mah', 'ah']);
+
+interface NumericToken { raw: string; unit: string; value: string }
+// 불일치 판정용은 단위 뒤 한국어 조사("12V로"·"24V를")까지 허용한다(NUMERIC_RE 의 뒤 글자 금지 완화).
+const NUMERIC_LOOSE_RE = new RegExp(NUMERIC_RE.source.replace('(?![a-z가-힣])', '(?![a-z])'), 'giu');
+function numericTokens(text: string): NumericToken[] {
+  const out: NumericToken[] = [];
+  for (const m of text.normalize('NFKC').matchAll(NUMERIC_LOOSE_RE)) {
+    const unit = UNIT_CANON[(m[2] ?? '').toLowerCase()];
+    if (unit === undefined) continue;
+    out.push({ raw: m[0], unit, value: (m[1] ?? '').replace(',', '.') });
+  }
+  return out;
+}
+
+export interface SourceConflict { unit: string; label: string; primary: string[]; attachment: string[] }
+
+export function detectSourceConflicts(source: DevReviewSource): SourceConflict[] {
+  const primaryText = [source.title, source.description, ...source.answers.map(devReviewAnswerText)].join('\n');
+  const group = (tokens: readonly NumericToken[]): Map<string, Set<string>> => {
+    const m = new Map<string, Set<string>>();
+    for (const t of tokens) {
+      const set = m.get(t.unit) ?? new Set<string>();
+      set.add(t.value);
+      m.set(t.unit, set);
+    }
+    return m;
+  };
+  const primary = group(numericTokens(primaryText));
+  const attachment = group(numericTokens(source.attachmentContext));
+  const conflicts: SourceConflict[] = [];
+  for (const [unit, a] of primary) {
+    if (!CONFLICT_UNITS.has(unit)) continue;
+    const b = attachment.get(unit);
+    if (b === undefined || b.size === 0) continue;
+    if ([...a].some((v) => b.has(v))) continue;
+    conflicts.push({ unit, label: UNIT_LABEL[unit] ?? unit, primary: [...a], attachment: [...b] });
+  }
+  return conflicts;
+}
+
+// 텍스트 안에서 불일치 값에 해당하는 수치 토큰(원문 표기).
+export function conflictTokensIn(text: string, conflicts: readonly SourceConflict[]): string[] {
+  if (conflicts.length === 0) return [];
+  return numericTokens(text)
+    .filter((t) => conflicts.some((c) => c.unit === t.unit && (c.primary.includes(t.value) || c.attachment.includes(t.value))))
+    .map((t) => t.raw);
+}
+
+const unitSuffix = (unit: string): string => (unit === 'ea' ? '개' : unit === 'layer' ? '층' : unit === 'c' ? '°C' : unit.toUpperCase());
+export function conflictQuestion(c: SourceConflict): DevReviewOpenQuestionType {
+  const fmt = (values: readonly string[]): string => values.map((v) => `${v}${unitSuffix(c.unit)}`).join('·');
+  return {
+    question: `자료 간 확인 필요: ${c.label} — 설명에는 ${fmt(c.primary)}, 첨부에는 ${fmt(c.attachment)}로 적혀 있습니다. 어느 쪽이 맞나요?`,
+    why: '설명과 첨부 자료의 값이 달라 어느 쪽도 확정하지 않았습니다.',
+  };
+}
+
 // 라벨에서 근거 없는 토큰만 제거(구성도·요약 — 항목 삭제 대신 역할명만 남긴다). 토큰이 괄호 안에
 // 있으면("…개발(ESP32 기반)") 괄호 묶음째 걷어낸다 — "( 기반" 같은 파편이 남지 않게.
 export function stripTokens(text: string, tokens: readonly string[]): string {
@@ -347,6 +434,7 @@ export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
       label: board.label,
       detail: board.detail,
       chips: asArray(board.chips).map(chipText).filter((c): c is string => c !== null && c.trim() !== '').slice(0, 8),
+      tbd: board.tbd,
     },
     outputs: parseEach(DevReviewDiagramNode, asArray(dr.outputs), 5),
     linkIn: dr.linkIn,
@@ -379,6 +467,8 @@ export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
 export interface DevReviewDiagnostics {
   r1Dropped: number; // 근거 없는 항목 → 삭제
   r2Dropped: number; // 자료에 없는 수치·품번 → 삭제
+  r8Dropped: number; // 자료 간 불일치 값을 품은 항목 → 삭제
+  conflicts: number; // 감지된 불일치 단위 수
   tokensStripped: number; // 요약·구성도·분야 한 줄에서 제거한 토큰 수
   diagramNodesDropped: number; // 토큰 제거 뒤 빈 라벨이 된 카드·칩
   linksCleared: number; // 코퍼스에 없는 연결 라벨
@@ -390,73 +480,78 @@ export interface DevReviewPostProcessResult {
   diagnostics: DevReviewDiagnostics;
 }
 
-const keepFact = <T extends DevReviewFactType>(item: T, corpus: string, diag: DevReviewDiagnostics): T | null => {
-  if (ungroundedTokens(item.text, corpus).length > 0) {
-    diag.r2Dropped += 1;
+interface Ctx { corpus: string; conflicts: readonly SourceConflict[]; diag: DevReviewDiagnostics }
+
+const keepFact = <T extends DevReviewFactType>(item: T, ctx: Ctx): T | null => {
+  if (ungroundedTokens(item.text, ctx.corpus).length > 0) {
+    ctx.diag.r2Dropped += 1;
     return null;
   }
-  if (!isGroundedQuote(item.evidence, corpus)) {
-    diag.r1Dropped += 1;
+  if (!isGroundedQuote(item.evidence, ctx.corpus)) {
+    ctx.diag.r1Dropped += 1;
+    return null;
+  }
+  if (conflictTokensIn(item.text, ctx.conflicts).length > 0) {
+    ctx.diag.r8Dropped += 1;
     return null;
   }
   return item;
 };
 
-// 삭제 대신 근거 없는 토큰만 걷어내는 문장(요약·분야 한 줄·구성도 라벨).
-const cleanText = (text: string, corpus: string, diag: DevReviewDiagnostics): string => {
-  const bad = ungroundedTokens(text, corpus);
+// 삭제 대신 근거 없는 토큰·불일치 값만 걷어내는 문장(요약·분야 한 줄·구성도 라벨).
+const cleanText = (text: string, ctx: Ctx): string => {
+  const bad = [...ungroundedTokens(text, ctx.corpus), ...conflictTokensIn(text, ctx.conflicts)];
   if (bad.length === 0) return text;
-  diag.tokensStripped += bad.length;
+  ctx.diag.tokensStripped += bad.length;
   return stripTokens(text, bad);
 };
 
-const cleanNode = (
-  node: DevReviewDiagramNodeType,
-  corpus: string,
-  diag: DevReviewDiagnostics,
-): DevReviewDiagramNodeType | null => {
-  const label = cleanText(node.label, corpus, diag);
+const cleanNode = (node: DevReviewDiagramNodeType, ctx: Ctx): DevReviewDiagramNodeType | null => {
+  const label = cleanText(node.label, ctx);
   if (label === '') {
-    diag.diagramNodesDropped += 1;
+    ctx.diag.diagramNodesDropped += 1;
     return null;
   }
-  return { ...node, label, detail: cleanText(node.detail, corpus, diag) };
+  // 불일치 값을 걷어낸 카드는 값이 정해지지 않은 카드다 — 미정 표식을 붙인다.
+  const conflicted = conflictTokensIn(`${node.label} ${node.detail}`, ctx.conflicts).length > 0;
+  return { ...node, label, detail: cleanText(node.detail, ctx), tbd: node.tbd || conflicted };
 };
 
-const cleanLink = (label: string, corpus: string, diag: DevReviewDiagnostics): string => {
-  if (label === '' || corpus.includes(normalizeForMatch(label))) return label;
-  diag.linksCleared += 1;
+const cleanLink = (label: string, ctx: Ctx): string => {
+  if (label === '' || ctx.corpus.includes(normalizeForMatch(label))) return label;
+  ctx.diag.linksCleared += 1;
   return '';
 };
 
-const cleanDiagram = (d: DevReviewDiagramType, corpus: string, diag: DevReviewDiagnostics): DevReviewDiagramType => {
+const cleanDiagram = (d: DevReviewDiagramType, ctx: Ctx): DevReviewDiagramType => {
   const nodes = (list: readonly DevReviewDiagramNodeType[]) =>
     list.flatMap((n) => {
-      const r = cleanNode(n, corpus, diag);
+      const r = cleanNode(n, ctx);
       return r === null ? [] : [r];
     });
   const chips = d.board.chips.flatMap((c) => {
-    const cleaned = cleanText(c, corpus, diag);
+    const cleaned = cleanText(c, ctx);
     if (cleaned !== '') return [cleaned];
-    diag.diagramNodesDropped += 1;
+    ctx.diag.diagramNodesDropped += 1;
     return [];
   });
-  const boardLabel = cleanText(d.board.label, corpus, diag);
+  const boardLabel = cleanText(d.board.label, ctx);
   return {
     columns: d.columns,
     inputs: nodes(d.inputs),
     board: {
       label: boardLabel === '' ? '메인 컨트롤러' : boardLabel,
-      detail: cleanText(d.board.detail, corpus, diag),
+      detail: cleanText(d.board.detail, ctx),
       chips,
+      tbd: d.board.tbd,
     },
     outputs: nodes(d.outputs),
-    linkIn: cleanLink(d.linkIn, corpus, diag),
-    linkOut: cleanLink(d.linkOut, corpus, diag),
+    linkIn: cleanLink(d.linkIn, ctx),
+    linkOut: cleanLink(d.linkOut, ctx),
     notes: {
-      flow: cleanText(d.notes.flow, corpus, diag),
-      design: cleanText(d.notes.design, corpus, diag),
-      extension: cleanText(d.notes.extension, corpus, diag),
+      flow: cleanText(d.notes.flow, ctx),
+      design: cleanText(d.notes.design, ctx),
+      extension: cleanText(d.notes.extension, ctx),
     },
   };
 };
@@ -467,12 +562,15 @@ export function postProcessDevReview(
   meta: DevReviewMetaType,
 ): DevReviewPostProcessResult {
   const diag: DevReviewDiagnostics = {
-    r1Dropped: 0, r2Dropped: 0, tokensStripped: 0, diagramNodesDropped: 0, linksCleared: 0, openQuestionsDeduped: 0,
+    r1Dropped: 0, r2Dropped: 0, r8Dropped: 0, conflicts: 0,
+    tokensStripped: 0, diagramNodesDropped: 0, linksCleared: 0, openQuestionsDeduped: 0,
   };
-  const corpus = buildDevReviewCorpus(source);
+  const conflicts = detectSourceConflicts(source);
+  diag.conflicts = conflicts.length;
+  const ctx: Ctx = { corpus: buildDevReviewCorpus(source), conflicts, diag };
   const facts = <T extends DevReviewFactType>(list: readonly T[]): T[] =>
     list.flatMap((it) => {
-      const r = keepFact(it, corpus, diag);
+      const r = keepFact(it, ctx);
       return r === null ? [] : [r];
     });
 
@@ -482,19 +580,26 @@ export function postProcessDevReview(
   const areas = source.serviceAreas.map((area) => {
     const src = byArea.get(area);
     const spec = facts(src?.spec ?? []).map((row) => {
-      const item = cleanText(row.item, corpus, diag);
+      const item = cleanText(row.item, ctx);
       return { ...row, item: item === '' ? '항목' : item };
     });
-    return { area, summary: cleanText(src?.summary ?? '', corpus, diag), spec };
+    return { area, summary: cleanText(src?.summary ?? '', ctx), spec };
   });
 
-  const summary = cleanText(output.summary, corpus, diag).slice(0, 200);
-  const diagram = cleanDiagram(output.diagram, corpus, diag);
+  const summary = cleanText(output.summary, ctx).slice(0, 200);
+  const diagram = cleanDiagram(output.diagram, ctx);
 
+  // R8 — 불일치 질문을 맨 앞에 세우고, 같은 값을 언급하는 모델 질문은 그것으로 갈음한다.
   // R5 — 같은 질문의 표현 차이("전원 공급 방식은?"·"전원 입력 방식과 전압은?")는 토큰 자카드 0.5 로 접는다.
   const kept: string[][] = [];
-  const openQuestions: DevReviewOpenQuestionType[] = [];
+  const openQuestions: DevReviewOpenQuestionType[] = conflicts.map(conflictQuestion);
+  for (const q of openQuestions) kept.push(questionTokens(q.question));
   for (const q of output.openQuestions) {
+    if (openQuestions.length >= DEV_REVIEW_MAX_OPEN_QUESTIONS) break;
+    if (conflictTokensIn(q.question, conflicts).length > 0) {
+      diag.openQuestionsDeduped += 1;
+      continue;
+    }
     const tokens = questionTokens(q.question);
     if (tokens.length === 0) continue;
     if (kept.some((k) => jaccard(k, tokens) >= 0.5)) {
@@ -503,7 +608,6 @@ export function postProcessDevReview(
     }
     kept.push(tokens);
     openQuestions.push(q);
-    if (openQuestions.length >= DEV_REVIEW_MAX_OPEN_QUESTIONS) break;
   }
 
   const review = MarketDevReview.parse({

@@ -119,6 +119,23 @@ const generatedAtLabel = computed(() => {
           <p class="mt-0.5 text-xs font-bold text-tx-1">{{ n.text }}</p>
         </div>
       </div>
+      <!-- 노란 메모 — 하드웨어 블록도 관례의 "검토 메모"에 해당. 도면 안에는 고객이 말한 것만 두고
+           미정·확인 사항은 도면 바로 아래 이 한 목록에 모은다(§12 결정 13). -->
+      <div v-if="view.openQuestions.length > 0" class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <p class="text-xs font-bold text-amber-900">
+          전문가와 상의할 항목
+          <span class="ml-1 font-normal text-amber-700">— 구성도에 없는 것은 아직 정해지지 않은 것입니다</span>
+        </p>
+        <ol class="mt-2 grid gap-1.5 sm:grid-cols-2">
+          <li v-for="(q, i) in view.openQuestions" :key="i" class="flex gap-2 text-xs leading-relaxed text-amber-900">
+            <span class="shrink-0 font-bold">{{ i + 1 }}.</span>
+            <span>
+              {{ q.question }}
+              <span v-if="q.why !== ''" class="block text-[11px] text-amber-700">{{ q.why }}</span>
+            </span>
+          </li>
+        </ol>
+      </div>
     </section>
 
     <!-- ③ 기술개발 검토 결과 -->
@@ -133,18 +150,6 @@ const generatedAtLabel = computed(() => {
           <p v-if="area.summary !== ''" class="mt-1 text-xs leading-relaxed text-tx-2">{{ area.summary }}</p>
           <p v-else class="mt-1 text-xs text-tx-3">상담 후 작성</p>
         </div>
-      </div>
-      <div v-if="view.openQuestions.length > 0" class="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <p class="text-xs font-bold text-amber-900">전문가와 상의할 항목</p>
-        <ol class="mt-2 grid gap-1.5 sm:grid-cols-2">
-          <li v-for="(q, i) in view.openQuestions" :key="i" class="flex gap-2 text-xs leading-relaxed text-amber-900">
-            <span class="shrink-0 font-bold">{{ i + 1 }}.</span>
-            <span>
-              {{ q.question }}
-              <span v-if="q.why !== ''" class="block text-[11px] text-amber-700">{{ q.why }}</span>
-            </span>
-          </li>
-        </ol>
       </div>
     </section>
 

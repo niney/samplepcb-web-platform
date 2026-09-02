@@ -253,6 +253,8 @@ export const DevReviewDiagramNode = z.object({
   label: z.string().trim().min(1).max(30),
   detail: z.string().trim().max(40).catch(''),
   icon: DevReviewDiagramIcon.catch('other'),
+  // 미정 — 고객이 "종류·방식은 정하지 않았다"고 말한 항목만(모델 판단 아님). 렌더러가 점선+미정 표시.
+  tbd: z.boolean().catch(false),
 });
 export type DevReviewDiagramNodeType = z.infer<typeof DevReviewDiagramNode>;
 
@@ -272,8 +274,9 @@ export const DevReviewDiagram = z.object({
       label: z.string().trim().min(1).max(30).catch('메인 컨트롤러'),
       detail: z.string().trim().max(40).catch(''),
       chips: z.array(z.string().trim().min(1).max(16)).max(8).catch([]),
+      tbd: z.boolean().catch(false), // 보드·부품이 미정이라고 고객이 말한 경우
     })
-    .catch({ label: '메인 컨트롤러', detail: '', chips: [] }),
+    .catch({ label: '메인 컨트롤러', detail: '', chips: [], tbd: false }),
   outputs: z.array(DevReviewDiagramNode).max(5).catch([]),
   linkIn: z.string().trim().max(24).catch(''), // 입력→보드 연결 라벨(고객 자료에 있는 것만)
   linkOut: z.string().trim().max(24).catch(''), // 보드→출력·연동 연결 라벨
@@ -349,11 +352,12 @@ const FACT_JSON_SCHEMA = {
 
 const NODE_JSON_SCHEMA = {
   type: 'object',
-  required: ['label', 'detail', 'icon'],
+  required: ['label', 'detail', 'icon', 'tbd'],
   properties: {
     label: { type: 'string' },
     detail: { type: 'string' },
     icon: { type: 'string', enum: [...DEV_REVIEW_DIAGRAM_ICONS] },
+    tbd: { type: 'boolean' },
   },
 } as const;
 
@@ -375,11 +379,12 @@ export const DEV_REVIEW_LLM_JSON_SCHEMA = {
         inputs: { type: 'array', items: NODE_JSON_SCHEMA },
         board: {
           type: 'object',
-          required: ['label', 'detail', 'chips'],
+          required: ['label', 'detail', 'chips', 'tbd'],
           properties: {
             label: { type: 'string' },
             detail: { type: 'string' },
             chips: { type: 'array', items: { type: 'string' } },
+            tbd: { type: 'boolean' },
           },
         },
         outputs: { type: 'array', items: NODE_JSON_SCHEMA },

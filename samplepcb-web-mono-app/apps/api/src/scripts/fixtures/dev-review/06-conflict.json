@@ -1,0 +1,19 @@
+{
+  "id": "06-conflict",
+  "label": "자료 간 불일치 + 고객이 미정이라 말한 항목",
+  "title": "온실 환기팬 제어기",
+  "serviceAreas": ["circuit", "firmware"],
+  "description": "비닐하우스 안 온도가 설정값을 넘으면 환기팬 2대를 자동으로 돌리는 제어기입니다. 전원은 12V 어댑터를 쓸 생각입니다. 온도 센서 종류는 아직 정하지 못했고 개발사 제안을 받고 싶습니다. 스마트폰에서 온도를 볼 수 있으면 좋겠는데 무선 방식은 정하지 않았습니다. 자세한 조건은 첨부 메모에 있습니다.",
+  "answers": [
+    { "code": "stage", "choices": ["idea"] },
+    { "code": "quantity", "choices": ["proto_1_10"], "note": "2대" },
+    { "code": "external", "choices": ["mobile_app"] },
+    { "code": "timeline", "choices": ["unknown"] }
+  ],
+  "attachments": ["06-spec-note.txt"],
+  "golden": {
+    "mustContain": ["환기팬", "온도", "스마트폰"],
+    "forbidden": ["12V", "24V", "ESP32", "STM32", "BLE", "Wi-Fi", "LoRa", "DHT22", "SHT31", "4층"],
+    "expectedOpen": ["자료 간 확인", "전원", "무선", "센서"]
+  }
+}

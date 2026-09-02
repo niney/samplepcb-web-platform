@@ -238,7 +238,7 @@ async function main(): Promise<void> {
             record.ok = true;
             writeFileSync(path.join(outDir, `${tag}.json`), JSON.stringify({ record, output, review, missingGolden: fx.golden.mustContain.filter((s) => !mustHit.includes(s)) }, null, 2));
             writeFileSync(path.join(outDir, `${tag}.diagram.html`), renderDevReviewDiagramHtml(review.diagram));
-            console.log(`${String(record.elapsedSec)}s · 확정 ${String(record.preFacts)}→${String(record.postFacts)} · R1 ${String(diagnostics.r1Dropped)}✕ R2 ${String(diagnostics.r2Dropped)}✕ 토큰 ${String(diagnostics.tokensStripped)} · 골든 ${record.golden.must} · 금지 ${String(forbiddenHit.length)} · 상의 ${record.golden.open}(${String(review.openQuestions.length)}) · 구성도 ${String(record.nodes.inputs)}/${String(record.nodes.chips)}/${String(record.nodes.outputs)}`);
+            console.log(`${String(record.elapsedSec)}s · 확정 ${String(record.preFacts)}→${String(record.postFacts)} · R1 ${String(diagnostics.r1Dropped)}✕ R2 ${String(diagnostics.r2Dropped)}✕ R8 ${String(diagnostics.r8Dropped)}✕(불일치 ${String(diagnostics.conflicts)}) 토큰 ${String(diagnostics.tokensStripped)} · 골든 ${record.golden.must} · 금지 ${String(forbiddenHit.length)} · 상의 ${record.golden.open}(${String(review.openQuestions.length)}) · 구성도 ${String(record.nodes.inputs)}/${String(record.nodes.chips)}/${String(record.nodes.outputs)}`);
           } catch (err) {
             record.error = err instanceof Error ? err.message.slice(0, 300) : String(err);
             console.log(`실패 — ${record.error}`);
@@ -253,11 +253,11 @@ async function main(): Promise<void> {
   const rows = records.map((r) => [
     r.fixture, r.model, r.think, r.ok ? '✓' : `✕ ${r.error ?? ''}`, String(r.elapsedSec), r.formatUsed ? 'fmt' : 'free',
     `${String(r.preFacts)}→${String(r.postFacts)}`,
-    r.diagnostics === null ? '-' : `${String(r.diagnostics.r1Dropped)}/${String(r.diagnostics.r2Dropped)}/${String(r.diagnostics.tokensStripped)}`,
+    r.diagnostics === null ? '-' : `${String(r.diagnostics.r1Dropped)}/${String(r.diagnostics.r2Dropped)}/${String(r.diagnostics.r8Dropped)}(${String(r.diagnostics.conflicts)})/${String(r.diagnostics.tokensStripped)}`,
     r.golden.must, r.golden.forbidden.length === 0 ? '0' : r.golden.forbidden.join(' '), r.golden.open, String(r.openQuestionCount),
     `${String(r.nodes.inputs)}/${String(r.nodes.chips)}/${String(r.nodes.outputs)}`,
   ]);
-  const header = ['fixture', 'model', 'think', 'ok', 'sec', 'mode', '확정(전→후)', 'R1✕/R2✕/토큰', '골든', '금지', '상의항목', '상의수', '구성도 입력/칩/출력'];
+  const header = ['fixture', 'model', 'think', 'ok', 'sec', 'mode', '확정(전→후)', 'R1✕/R2✕/R8✕(불일치)/토큰', '골든', '금지', '상의항목', '상의수', '구성도 입력/칩/출력'];
   const md = [`| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
   writeFileSync(path.join(outDir, 'summary.md'), `# dev-review probe ${runId} (${DEV_REVIEW_PROMPT_VERSION})\n\n${md}\n`);
   console.log(`\n${md}\n\n→ ${outDir}`);

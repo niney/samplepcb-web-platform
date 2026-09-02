@@ -47,6 +47,18 @@ describe('renderDevReviewDiagramHtml', () => {
     expect(html).toContain('아주 긴 라벨 이름을');
   });
 
+  it('고객이 미정이라고 말한 카드는 점선 테두리와 "미정" 표식을 얻는다', () => {
+    const html = renderDevReviewDiagramHtml({
+      ...diagram,
+      inputs: [{ label: '온습도 센서', detail: '종류는 제안 받고 싶음', icon: 'sensor', tbd: true }],
+      board: { ...diagram.board, tbd: true },
+    });
+    expect(html.match(/class="card card-tbd"/g)).toHaveLength(1);
+    expect(html).toContain('class="board-card board-card-tbd"');
+    expect(html.match(/>미정</g)).toHaveLength(2);
+    expect(renderDevReviewDiagramHtml(diagram)).not.toContain('미정');
+  });
+
   it('빈 열은 "해당 없음" 카드 하나로 채운다', () => {
     const html = renderDevReviewDiagramHtml({ ...diagram, inputs: [], outputs: [] });
     expect(html.match(/해당 없음/g)).toHaveLength(2);
