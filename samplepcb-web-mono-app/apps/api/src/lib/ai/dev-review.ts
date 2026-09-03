@@ -8,6 +8,7 @@ import {
   DevReviewDiagramNode,
   DevReviewFact,
   DevReviewLlmOutput,
+  DevReviewObservation,
   DevReviewOpenQuestion,
   DevReviewSpecRow,
   MARKET_SERVICE_AREA_LABELS,
@@ -17,6 +18,7 @@ import {
 import type {
   DevReviewAnswerType,
   DevReviewAreaType,
+  DevReviewCheckType,
   DevReviewDiagramNodeType,
   DevReviewDiagramType,
   DevReviewFactType,
@@ -33,7 +35,7 @@ import { extractJsonObject } from './ollama';
 // (v1 의 "확인 필요" 강등은 없다 — 정해지지 않은 것은 openQuestions 한 목록뿐).
 // 프로빙 하네스(scripts/probe-dev-review.ts)와 실제 라우트가 같은 함수를 쓴다.
 
-export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v2';
+export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v2.1'; // 09-03: 상의 항목 분야·검토 관찰·답변↔자료 정합
 export const ATTACHMENT_READ_PROMPT_VERSION = 'attachment-read.v1';
 export const DEV_REVIEW_MAX_OPEN_QUESTIONS = 6;
 
@@ -72,8 +74,8 @@ const DEV_REVIEW_RULES = `당신은 회로·PCB·펌웨어 개발 의뢰를 사�
     "linkOut": "보드→출력·연동 연결 방식(고객 자료에 있는 것만, 없으면 \\"\\")",
     "notes": {"flow": "데이터 흐름 한 줄(예: 센싱 → 처리 → 앱 전송)", "design": "핵심 설계 포인트 한 줄", "extension": "고객이 말한 확장 방향 한 줄, 없으면 \\"\\""}
   },
-  "areas": [ {"area": "circuit|pcb|firmware", "summary": "이 분야에서 무엇을 만드는지 한 줄(쉬운 말, 60자 이내)", "spec": [ {"item": "항목명(예: 입력부, 전원부, 통신, 펌웨어 기능)", "text": "내용(60자 이내)", "evidence": "고객 문장 인용"} ]} ],
-  "openQuestions": [ {"question": "전문가 상담에서 확정할 질문 한 문장", "why": "왜 필요한지 한 문장"} ]
+  "areas": [ {"area": "circuit|pcb|firmware", "summary": "이 분야에서 무엇을 만드는지 한 줄(쉬운 말, 60자 이내)", "spec": [ {"item": "항목명(예: 입력부, 전원부, 통신, 펌웨어 기능)", "text": "내용(60자 이내)", "evidence": "고객 문장 인용"} ], "observations": [ {"text": "검토 관찰 한 줄(60자 이내)", "evidence": "고객 문장 인용"} ]} ],
+  "openQuestions": [ {"question": "전문가 상담에서 확정할 질문 한 문장", "why": "왜 필요한지 한 문장", "area": "circuit|pcb|firmware|general"} ]
 }
 
 [작성 지침]
@@ -85,7 +87,9 @@ const DEV_REVIEW_RULES = `당신은 회로·PCB·펌웨어 개발 의뢰를 사�
   · tbd: 고객이 그 항목의 종류·방식을 "정하지 않았다·제안 받고 싶다"고 말한 경우에만 true(예: "센서 종류는 개발사 제안" → 온습도 센서 카드 tbd:true). 고객이 언급하지 않은 것은 tbd 카드도 만들지 않습니다.
 - 자료 간 불일치: 설명과 첨부, 또는 첨부끼리 내용이 다르면(예: 설명은 12V, 도면은 24V) 어느 쪽도 고르지 말고 그 항목은 확정에서 빼고 openQuestions 에 "자료 간 확인 필요: …"로 씁니다.
 - areas: [개발 분야]의 분야마다 정확히 하나씩. spec 은 근거가 있는 행만 0~6행 — 억지로 채우지 않습니다.
-- openQuestions: 고객이 "잘 모르겠어요"라고 답한 주제, 자료에 없는 전원·통신·크기·설치 환경·인증·수량 등 개발에 꼭 필요한 것만. 같은 주제를 표현만 바꿔 반복하지 않습니다.
+  · observations(검토 관찰): 이 분야에서 전문가가 먼저 볼 지점을 0~2줄. 고객 자료에 있는 사실 둘 이상을 이어 "무엇이 이 개발의 핵심인가"를 말합니다(예: "이더넷과 RS485 두 경로가 있어 폴백 전환 처리가 펌웨어의 중심입니다"). 각 관찰은 evidence 로 그 사실이 적힌 고객 문장을 인용합니다. 권장·추천·"해야 합니다"·리스크·주의 같은 판단 어휘는 쓰지 않고, spec 행을 되풀이하지 않습니다. 이을 사실이 없으면 빈 배열.
+- openQuestions: 고객이 "잘 모르겠어요"라고 답한 주제, 자료에 없는 전원·통신·크기·설치 환경·인증·수량 등 개발에 꼭 필요한 것만. 같은 주제를 표현만 바꿔 반복하지 않습니다. area 는 그 질문이 정해져야 진행되는 분야(circuit·pcb·firmware) — 분야를 가리기 어렵거나 여러 분야에 걸치면 general.
+  · 질문 답변과 자료가 범주에서 어긋나면(예: 현재 상태는 "아이디어만"인데 첨부가 회로도·넷리스트, 함께 쓰는 것은 "없음"인데 설명에 PC·앱 연동) 자료를 우선해 검토서를 쓰되 그 어긋남을 openQuestions 에 "답변과 자료 확인 필요: …" 한 문장으로 씁니다(area general).
   · 하드웨어 검토 체크리스트(해당하는 경우에만, 고객이 이미 답한 것은 묻지 않음): 상용 AC 전원이나 모터·히터·릴레이·펌프 같은 큰 부하를 제어하면 절연·보호(퓨즈·서지) 방식 / RS-485·CAN 등 외부 장비와 유선 통신이 있으면 절연 여부와 통신 규약 / 무선(Wi-Fi·BLE·LTE·LoRa)이 있으면 안테나 형태(내장·외장)와 전파 인증 / 전원 입력 종류(어댑터·배터리·AC)가 자료에 없으면 전원 방식 / 기록·저장 요구가 있으면 보관 기간과 저장 위치(보드·서버) / 설치 환경(옥외·고온·다습·진동)이 자료에 없으면 설치 환경. 이 체크리스트 항목을 구성도 카드나 확정 항목으로 만들지 않고, 고객 자료에서 직접 나온 질문(고객이 모른다고 한 것·자료에 빠진 것) 뒤에 둡니다.`;
 
 export function buildDevReviewPrompt(source: DevReviewSource, extraInstructions = ''): string {
@@ -336,6 +340,7 @@ export function conflictQuestion(c: SourceConflict): DevReviewOpenQuestionType {
   return {
     question: `자료 간 확인 필요: ${c.label} — 설명에는 ${fmt(c.primary)}, 첨부에는 ${fmt(c.attachment)}로 적혀 있습니다. 어느 쪽이 맞나요?`,
     why: '설명과 첨부 자료의 값이 달라 어느 쪽도 확정하지 않았습니다.',
+    area: 'general',
   };
 }
 
@@ -389,6 +394,72 @@ export function devReviewInputHash(input: {
   });
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }
+
+// ── R9 답변↔자료 정합 — 4문항 답과 설명·첨부의 범주 어긋남 ────────────────────────
+// PRJ-0059 실측: "아이디어만 있어요"+"장치 단독"으로 답했는데 첨부는 넷리스트까지 끝난 설계 설명서, 설명엔
+// PC 연동. R8 은 단위 수치만 봐서 못 잡았고 모델도 안 물었다. 답변은 코퍼스에 넣지 않고 설명·첨부만 훑는다.
+// 단서 뒤 짧은 거리에 부정("회로도는 없다")이 오면 단서로 치지 않는다.
+const DESIGN_ARTIFACT_RE = /(회로도|넷리스트|netlist|schematic|거버|gerber|아트웍|artwork|kicad|altium|orcad|eagle|pcb\s*(?:설계|레이아웃|layout)\s*(?:파일|데이터)?|부품표|\bbom\b)/giu;
+// "TCP 서버"·"웹 서버"는 보드 자신의 역할이라 연동 단서가 아니다(08 실측: docx 의 "TCP 서버"가 잡혔다).
+const EXTERNAL_LINK_RE = /(\bpcs?\b|컴퓨터|스마트폰|휴대폰|앱|어플|(?<!tcp\s?|udp\s?|http\s?|웹\s?)서버|클라우드|\bcloud\b|\bmqtt\b|\bhmi\b|\bplc\b|기존\s*장비|상위\s*장치|관제)/giu;
+const NEGATION_AFTER_RE = /^.{0,10}(없|아직|않|미정|미보유|제외)/u;
+
+function findClues(text: string, re: RegExp): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(re)) {
+    const idx = m.index;
+    const after = text.slice(idx + m[0].length, idx + m[0].length + 14);
+    if (NEGATION_AFTER_RE.test(after)) continue;
+    const clue = m[0].trim();
+    if (!out.some((c) => c.toLowerCase() === clue.toLowerCase())) out.push(clue);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+const joinClues = (clues: readonly string[]): string => clues.join('·');
+
+export function detectAnswerChecks(source: DevReviewSource): DevReviewCheckType[] {
+  const material = `${source.description}\n${source.attachmentContext}`;
+  const checks: DevReviewCheckType[] = [];
+  const answerOf = (code: DevReviewAnswerType['code']) => source.answers.find((a) => a.code === code);
+  const stage = answerOf('stage');
+  if (stage?.choices.length === 1 && (stage.choices[0] === 'idea' || stage.choices[0] === 'unknown')) {
+    const found = findClues(material, DESIGN_ARTIFACT_RE);
+    if (found.length > 0) {
+      const answer = devReviewAnswerText(stage);
+      checks.push({
+        code: 'stage',
+        answer,
+        found,
+        text: `답변과 자료 확인 필요: 현재 상태는 '${answer}'로 답하셨는데 자료에 ${joinClues(found)}이(가) 나옵니다. 어느 단계가 맞나요?`,
+      });
+    }
+  }
+  const external = answerOf('external');
+  if (external?.choices.length === 1 && external.choices[0] === 'none') {
+    const found = findClues(material, EXTERNAL_LINK_RE);
+    if (found.length > 0) {
+      const answer = devReviewAnswerText(external);
+      checks.push({
+        code: 'external',
+        answer,
+        found,
+        text: `답변과 자료 확인 필요: 함께 쓰는 것은 '${answer}'로 답하셨는데 자료에 ${joinClues(found)}이(가) 나옵니다. 연동 대상이 있나요?`,
+      });
+    }
+  }
+  return checks;
+}
+
+export function checkQuestion(c: DevReviewCheckType): DevReviewOpenQuestionType {
+  return { question: c.text.slice(0, 120), why: '답변과 자료가 달라 자료를 우선해 검토서를 썼습니다.', area: 'general' };
+}
+
+// 검토 관찰의 판단 어휘 — 관찰은 사실을 잇는 문장이지 권고가 아니다(v1 "리스크" 행이 근거 없이 나온 교훈).
+// 프로빙(09-03, 7픽스처×2): 모델은 "…재작업이 필요합니다"·"…고려되어야 합니다"처럼 권고형으로 흐르기 쉽다 →
+// 필요·고려·해야·되어야 전부 금지. 사실을 잇는 문장은 "…이 핵심입니다"·"…이 중심입니다" 꼴로 남는다.
+const OBSERVATION_JUDGEMENT_RE = /(권장|추천|권고|해야|돼야|되어야|필요|바람직|리스크|위험|주의|고려|우려|제안)/u;
 
 // ── 파서 — 배열 원소를 개별 검증해 깨진 원소만 버린다 ───────────────────────────
 
@@ -448,6 +519,7 @@ export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
       area: x.area,
       summary: x.summary,
       spec: parseEach(DevReviewSpecRow, asArray(x.spec), 6),
+      observations: parseEach(DevReviewObservation, asArray(x.observations), 2),
     }];
   });
   return DevReviewLlmOutput.parse({
@@ -473,6 +545,8 @@ export interface DevReviewDiagnostics {
   diagramNodesDropped: number; // 토큰 제거 뒤 빈 라벨이 된 카드·칩
   linksCleared: number; // 코퍼스에 없는 연결 라벨
   openQuestionsDeduped: number;
+  r9Checks: number; // 답변↔자료 범주 어긋남 수
+  observationsDropped: number; // 근거 없음·판단 어휘·명세 되풀이로 버린 관찰
 }
 
 export interface DevReviewPostProcessResult {
@@ -564,6 +638,7 @@ export function postProcessDevReview(
   const diag: DevReviewDiagnostics = {
     r1Dropped: 0, r2Dropped: 0, r8Dropped: 0, conflicts: 0,
     tokensStripped: 0, diagramNodesDropped: 0, linksCleared: 0, openQuestionsDeduped: 0,
+    r9Checks: 0, observationsDropped: 0,
   };
   const conflicts = detectSourceConflicts(source);
   diag.conflicts = conflicts.length;
@@ -583,7 +658,19 @@ export function postProcessDevReview(
       const item = cleanText(row.item, ctx);
       return { ...row, item: item === '' ? '항목' : item };
     });
-    return { area, summary: cleanText(src?.summary ?? '', ctx), spec };
+    // 관찰 — 사실과 같은 근거 규칙(R1·R2·R8) + 판단 어휘 금지 + 명세 행·상의 항목 되풀이(토큰 자카드 0.5)
+    // 제거. 상의 항목과의 중복은 아래에서 상의 항목이 확정된 뒤 거른다.
+    const rawObservations = src?.observations ?? [];
+    const groundedObservations = facts(rawObservations);
+    diag.observationsDropped += rawObservations.length - groundedObservations.length;
+    const specTokens = spec.map((r) => questionTokens(`${r.item} ${r.text}`));
+    const observations = groundedObservations.filter((o) => {
+      const tokens = questionTokens(o.text);
+      const bad = OBSERVATION_JUDGEMENT_RE.test(o.text) || specTokens.some((t) => jaccard(t, tokens) >= 0.5);
+      if (bad) diag.observationsDropped += 1;
+      return !bad;
+    });
+    return { area, summary: cleanText(src?.summary ?? '', ctx), spec, observations };
   });
 
   const summary = cleanText(output.summary, ctx).slice(0, 200);
@@ -591,8 +678,12 @@ export function postProcessDevReview(
 
   // R8 — 불일치 질문을 맨 앞에 세우고, 같은 값을 언급하는 모델 질문은 그것으로 갈음한다.
   // R5 — 같은 질문의 표현 차이("전원 공급 방식은?"·"전원 입력 방식과 전압은?")는 토큰 자카드 0.5 로 접는다.
+  // R9 — 답변↔자료 정합 질문은 불일치 질문 다음에 세운다. 모델이 같은 어긋남을 물었으면 자카드로 접힌다.
+  const checks = detectAnswerChecks(source);
+  diag.r9Checks = checks.length;
   const kept: string[][] = [];
-  const openQuestions: DevReviewOpenQuestionType[] = conflicts.map(conflictQuestion);
+  const openQuestions: DevReviewOpenQuestionType[] = [...conflicts.map(conflictQuestion), ...checks.map(checkQuestion)]
+    .slice(0, DEV_REVIEW_MAX_OPEN_QUESTIONS);
   for (const q of openQuestions) kept.push(questionTokens(q.question));
   for (const q of output.openQuestions) {
     if (openQuestions.length >= DEV_REVIEW_MAX_OPEN_QUESTIONS) break;
@@ -609,6 +700,15 @@ export function postProcessDevReview(
     kept.push(tokens);
     openQuestions.push(q);
   }
+  // 관찰이 상의 항목을 되풀이하면(07 실측: "SDRAM 32MB vs 16MB" 가 관찰과 질문에 동시에) 관찰 쪽을 버린다 —
+  // 질문이 행동(상담)으로 이어지는 자리라서.
+  for (const area of areas) {
+    area.observations = area.observations.filter((o) => {
+      const dup = kept.some((k) => jaccard(k, questionTokens(o.text)) >= 0.5);
+      if (dup) diag.observationsDropped += 1;
+      return !dup;
+    });
+  }
 
   const review = MarketDevReview.parse({
     version: DEV_REVIEW_VERSION,
@@ -618,6 +718,7 @@ export function postProcessDevReview(
     diagram,
     areas,
     openQuestions,
+    checks,
     meta,
   });
   return { review, diagnostics: diag };

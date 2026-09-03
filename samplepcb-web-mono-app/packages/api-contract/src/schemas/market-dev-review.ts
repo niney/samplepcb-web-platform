@@ -226,18 +226,43 @@ export const DevReviewSpecRow = DevReviewFact.extend({
 });
 export type DevReviewSpecRowType = z.infer<typeof DevReviewSpecRow>;
 
+// 검토 관찰 — 자료의 사실 둘을 잇는 전문가식 한 줄(예: "이더넷·RS485 두 경로라 폴백 전환이 펌웨어의
+// 핵심"). 사실과 같은 근거 규칙(R1·R2·R8)을 받고, 권장·판정 어휘는 후처리가 버린다(§12.10).
+export const DevReviewObservation = DevReviewFact;
+export type DevReviewObservationType = z.infer<typeof DevReviewObservation>;
+
 export const DevReviewAreaReview = z.object({
   area: DevReviewArea,
   summary: z.string().trim().max(160).catch(''), // 이 분야에서 무엇을 구현하는지 한 줄
   spec: z.array(DevReviewSpecRow).max(6),
+  observations: z.array(DevReviewObservation).max(2).catch([]),
 });
 export type DevReviewAreaReviewType = z.infer<typeof DevReviewAreaReview>;
+
+// 상의 항목의 분야 — 검토 결과 카드가 분야별 "상담에서 정할 n건"을 셀 때 쓴다. 자료 간 불일치·
+// 답변↔자료 정합처럼 분야에 안 속하는 것은 general.
+export const DEV_REVIEW_QUESTION_AREAS = [...DEV_REVIEW_AREAS, 'general'] as const;
+export const DevReviewQuestionArea = z.enum(DEV_REVIEW_QUESTION_AREAS);
+export type DevReviewQuestionAreaType = z.infer<typeof DevReviewQuestionArea>;
 
 export const DevReviewOpenQuestion = z.object({
   question: z.string().trim().min(1).max(120),
   why: z.string().trim().max(120).catch(''),
+  area: DevReviewQuestionArea.catch('general'),
 });
 export type DevReviewOpenQuestionType = z.infer<typeof DevReviewOpenQuestion>;
+
+// 답변↔자료 정합 — 4문항 답과 설명·첨부가 범주 수준에서 어긋난 것(예: "아이디어만 있어요"인데 첨부에
+// 넷리스트, "장치 단독"인데 설명에 PC 연동). 코드가 결정적으로 감지해(R9) 검토 결과에 알리고 상의 항목에도
+// 같은 문장을 세운다. R8(수치 불일치)의 범주판.
+export const DEV_REVIEW_CHECK_CODES = ['stage', 'external'] as const;
+export const DevReviewCheck = z.object({
+  code: z.enum(DEV_REVIEW_CHECK_CODES),
+  answer: z.string().max(60), // 고객이 고른 답 라벨
+  found: z.array(z.string().max(30)).min(1).max(6), // 자료에서 발견한 단서(원문 표기)
+  text: z.string().max(200), // 화면 문장
+});
+export type DevReviewCheckType = z.infer<typeof DevReviewCheck>;
 
 // ── 제안 시스템 구성도 — 입력 → 메인 보드 → 출력·연동 3열 고정 레이아웃 ──────────
 // 그룹·id·연결 그래프(v1 DiagramSpec)를 버리고, 렌더러(@sp/utils renderDevReviewDiagramHtml)가
@@ -324,6 +349,7 @@ export const MarketDevReview = z.object({
   diagram: DevReviewDiagram,
   areas: z.array(DevReviewAreaReview).max(3),
   openQuestions: z.array(DevReviewOpenQuestion).max(6),
+  checks: z.array(DevReviewCheck).max(4).catch([]), // 09-03 추가 — 구저장분은 빈 배열
   meta: DevReviewMeta,
 });
 export type MarketDevReviewType = z.infer<typeof MarketDevReview>;
@@ -401,7 +427,7 @@ export const DEV_REVIEW_LLM_JSON_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['area', 'summary', 'spec'],
+        required: ['area', 'summary', 'spec', 'observations'],
         properties: {
           area: { type: 'string', enum: [...DEV_REVIEW_AREAS] },
           summary: { type: 'string' },
@@ -413,6 +439,7 @@ export const DEV_REVIEW_LLM_JSON_SCHEMA = {
               properties: { item: { type: 'string' }, ...FACT_JSON_SCHEMA.properties },
             },
           },
+          observations: { type: 'array', items: FACT_JSON_SCHEMA },
         },
       },
     },
@@ -420,8 +447,12 @@ export const DEV_REVIEW_LLM_JSON_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['question', 'why'],
-        properties: { question: { type: 'string' }, why: { type: 'string' } },
+        required: ['question', 'why', 'area'],
+        properties: {
+          question: { type: 'string' },
+          why: { type: 'string' },
+          area: { type: 'string', enum: [...DEV_REVIEW_QUESTION_AREAS] },
+        },
       },
     },
   },

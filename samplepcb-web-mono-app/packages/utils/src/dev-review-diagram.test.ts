@@ -100,10 +100,15 @@ describe('buildDevReviewView', () => {
     requirements: [{ text: '요구 1', evidence: '근거' }],
     diagram,
     areas: [
-      { area: 'circuit', summary: '회로', spec: [{ item: '전원부', text: '12V', evidence: '12V' }] },
-      { area: 'firmware', summary: '', spec: [] },
+      { area: 'circuit', summary: '회로', spec: [{ item: '전원부', text: '12V', evidence: '12V' }], observations: [{ text: '관찰 1', evidence: '12V' }] },
+      { area: 'firmware', summary: '', spec: [], observations: [] },
     ],
-    openQuestions: [{ question: '전원은?', why: '' }],
+    openQuestions: [
+      { question: '전원은?', why: '', area: 'circuit' },
+      { question: 'OTA 는?', why: '', area: 'firmware' },
+      { question: '답변과 자료 확인 필요: …', why: '', area: 'general' },
+    ],
+    checks: [{ code: 'stage', answer: '아이디어만 있어요', found: ['회로도'], text: '답변과 자료 확인 필요: …' }],
     meta: { jobId: 'j', model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h', generatedAt: '2026-09-02T00:00:00.000Z', attachmentFiles: [] },
   };
 
@@ -113,5 +118,12 @@ describe('buildDevReviewView', () => {
     expect(view.areaLabels).toEqual(['회로 개발', '펌웨어 개발']);
     expect(view.briefRows.map((r) => [r.label, r.unknown])).toEqual([['현재 상태', false], ['수량', true]]);
     expect(view.factCount).toBe(2);
+    // 검토 결과 카드 — 분야별 확정 수·상담에서 정할 수·관찰, 공통 질문은 따로 센다.
+    expect(view.areaCards.map((c) => [c.label, c.factCount, c.openCount, c.observations.length])).toEqual([
+      ['회로 개발', 1, 1, 1],
+      ['펌웨어 개발', 0, 1, 0],
+    ]);
+    expect(view.generalOpenCount).toBe(1);
+    expect(view.checks).toHaveLength(1);
   });
 });

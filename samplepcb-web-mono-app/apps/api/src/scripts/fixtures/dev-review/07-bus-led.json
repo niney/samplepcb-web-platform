@@ -1,0 +1,19 @@
+{
+  "id": "07-bus-led",
+  "label": "분산형 버스 LED 컨트롤러 v2 — 상세 설명 + PCB 구성 설명서(docx)",
+  "title": "분산형 버스 LED 컨트롤러 v2",
+  "serviceAreas": ["circuit", "pcb", "firmware"],
+  "description": "이 컨트롤러는 버스에 설치되는 LED 행선지·안내 사인을 구동합니다. 한 대의 PC(차량 탑재 장치)가 이더넷으로 여러 대의 컨트롤러에 접속하고, 각 컨트롤러가 자신에게 연결된 HUB75 LED 패널 군을 독립적으로 구동하는 분산 구조입니다.\n설치 대수: 4대 (전면 · 측면 · 후면 · 승객 안내)\n4대 모두 동일한 펌웨어 한 벌로 동작하며, 보드의 3비트 주소 딥스위치(SW1)가 프로토콜 주소와 IP 마지막 옥텟을 동시에 결정합니다.\n주 전송: 이더넷 TCP (포트 5000). 상시 연결이므로 컨트롤러가 표출 완료를 PC 로 즉시 푸시할 수 있습니다.\n보조 전송: RS485 (절연). 이더넷 장애 시 폴백 및 현장 설정용으로 유지합니다.\n보드 1대당 HUB75 출력 2계통(J2 · J6)을 독립 구동합니다.",
+  "answers": [
+    { "code": "stage", "choices": ["spec"] },
+    { "code": "quantity", "choices": ["proto_1_10"], "note": "4대" },
+    { "code": "external", "choices": ["pc_software", "existing_device"] },
+    { "code": "timeline", "choices": ["unknown"] }
+  ],
+  "attachments": ["07-controller-v2.docx"],
+  "golden": {
+    "mustContain": ["LED", "이더넷", "HUB75", "RS485"],
+    "forbidden": [],
+    "expectedOpen": []
+  }
+}

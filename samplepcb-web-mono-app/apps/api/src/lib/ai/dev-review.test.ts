@@ -3,6 +3,7 @@ import type { DevReviewLlmOutputType, DevReviewMetaType } from '@sp/api-contract
 import {
   buildDevReviewCorpus,
   buildDevReviewPrompt,
+  detectAnswerChecks,
   detectSourceConflicts,
   devReviewInputHash,
   isGroundedQuote,
@@ -66,18 +67,22 @@ const output: DevReviewLlmOutputType = {
         { item: 'MCU ESP32', ...fact('무선 컨트롤러', '스마트폰 앱에 보여주는') }, // 항목명의 품번만 제거
         { item: '통신', ...fact('BLE 로 앱 연결', '통상 필요') }, // R1 삭제
       ],
+      observations: [
+        fact('BLE 앱 연동과 12V 어댑터 전원이 함께 있어 무선부 전원 설계가 중심입니다', '12V 어댑터로 동작하고'),
+        fact('저전력 설계를 권장합니다', '12V 어댑터로 동작하고'), // 판단 어휘 → 삭제
+      ],
     },
-    { area: 'firmware', summary: '펌웨어', spec: [] }, // 선택 분야 아님 → 제거
+    { area: 'firmware', summary: '펌웨어', spec: [], observations: [] }, // 선택 분야 아님 → 제거
   ],
   openQuestions: [
-    { question: '전원 공급 방식은 무엇인가요?', why: '전원 회로 설계에 필요' },
-    { question: '전원 공급 방식은?', why: '중복 — 접힌다' },
-    { question: '옥외에 설치되나요?', why: '방수·온도 범위' },
-    { question: 'KC 인증이 필요한가요?', why: '판매 시 필수' },
-    { question: '시제품 수량은 몇 대인가요?', why: '제작 방식' },
-    { question: '목표 일정은 언제인가요?', why: '일정 계획' },
-    { question: '케이스 크기 제한이 있나요?', why: '보드 외형' },
-    { question: '센서 정밀도 요구가 있나요?', why: '부품 선정' }, // 6개 캡에 걸려 빠진다
+    { question: '전원 공급 방식은 무엇인가요?', why: '전원 회로 설계에 필요', area: 'general' },
+    { question: '전원 공급 방식은?', why: '중복 — 접힌다', area: 'general' },
+    { question: '옥외에 설치되나요?', why: '방수·온도 범위', area: 'general' },
+    { question: 'KC 인증이 필요한가요?', why: '판매 시 필수', area: 'general' },
+    { question: '시제품 수량은 몇 대인가요?', why: '제작 방식', area: 'general' },
+    { question: '목표 일정은 언제인가요?', why: '일정 계획', area: 'general' },
+    { question: '케이스 크기 제한이 있나요?', why: '보드 외형', area: 'general' },
+    { question: '센서 정밀도 요구가 있나요?', why: '부품 선정', area: 'general' }, // 6개 캡에 걸려 빠진다
   ],
 };
 
@@ -125,6 +130,19 @@ describe('AI 사전 검토서 후처리(v2 — 확정만)', () => {
     expect(diagnostics.openQuestionsDeduped).toBe(1);
   });
 
+  it('검토 관찰 — 근거 있는 사실 연결만 남고 판단 어휘·명세·상의 항목 되풀이는 버린다', () => {
+    expect(review.areas[0]?.observations.map((o) => o.text)).toEqual(['BLE 앱 연동과 12V 어댑터 전원이 함께 있어 무선부 전원 설계가 중심입니다']);
+    expect(diagnostics.observationsDropped).toBe(1);
+    const dup = postProcessDevReview({
+      ...output,
+      areas: [{ area: 'circuit', summary: '', spec: [], observations: [fact('옥외에 설치되나요 방수', '12V 어댑터로 동작하고')] }],
+    }, source, meta);
+    expect(dup.review.areas[0]?.observations).toEqual([]); // "옥외에 설치되나요?" 질문과 겹친다
+    expect(dup.diagnostics.observationsDropped).toBe(1);
+    expect(review.checks).toEqual([]); // 답변(idea·mobile_app)과 자료가 어긋나지 않는다
+    expect(diagnostics.r9Checks).toBe(0);
+  });
+
   it('버전·브리프·메타가 채워진다', () => {
     expect(review.version).toBe(2);
     expect(review.brief.serviceAreas).toEqual(['circuit', 'pcb']);
@@ -151,10 +169,10 @@ describe('R8 — 자료 간 불일치', () => {
       board: { ...output.diagram.board, label: '메인 컨트롤러', chips: ['전원 변환'] },
       notes: { flow: '', design: '', extension: '' },
     },
-    areas: [{ area: 'circuit', summary: '24V 전원 회로', spec: [{ item: '전원부', ...fact('24V DC 팬 2대 구동', '24V DC 팬 2대') }] }],
+    areas: [{ area: 'circuit', summary: '24V 전원 회로', spec: [{ item: '전원부', ...fact('24V DC 팬 2대 구동', '24V DC 팬 2대') }], observations: [] }],
     openQuestions: [
-      { question: '전원 전압을 12V로 할지 24V로 할지 확정이 필요합니다.', why: '' }, // 자동 질문으로 갈음
-      { question: '옥외에 설치되나요?', why: '' },
+      { question: '전원 전압을 12V로 할지 24V로 할지 확정이 필요합니다.', why: '', area: 'general' }, // 자동 질문으로 갈음
+      { question: '옥외에 설치되나요?', why: '', area: 'general' },
     ],
   };
 
@@ -183,6 +201,39 @@ describe('R8 — 자료 간 불일치', () => {
       review.openQuestions[0]?.question,
       '옥외에 설치되나요?',
     ]);
+  });
+});
+
+describe('R9 — 답변↔자료 정합', () => {
+  const mismatched: DevReviewSource = {
+    ...source,
+    description: '버스용 LED 컨트롤러입니다. PC 한 대가 이더넷으로 여러 보드에 접속합니다. 회로도와 넷리스트는 첨부했습니다.',
+    answers: [
+      { code: 'stage', choices: ['idea'] },
+      { code: 'external', choices: ['none'] },
+    ],
+    attachmentContext: '[첨부 1] 설계 설명서\n- 기준 자료: 컨트롤러v2_넷리스트_v0.4.net (KiCad)\n- 회로도 v0.4',
+  };
+
+  it('"아이디어만"인데 회로도·넷리스트가 있고 "장치 단독"인데 PC 연동이 있으면 두 건을 잡는다', () => {
+    const checks = detectAnswerChecks(mismatched);
+    expect(checks.map((c) => c.code)).toEqual(['stage', 'external']);
+    expect(checks[0]?.found).toEqual(['회로도', '넷리스트', 'KiCad']);
+    expect(checks[0]?.text).toBe("답변과 자료 확인 필요: 현재 상태는 '아이디어만 있어요'로 답하셨는데 자료에 회로도·넷리스트·KiCad이(가) 나옵니다. 어느 단계가 맞나요?");
+    expect(checks[1]?.found).toEqual(['PC']);
+  });
+
+  it('단서 뒤에 부정이 오면("회로도는 없다") 단서로 치지 않고, 답이 어긋나지 않으면 비어 있다', () => {
+    expect(detectAnswerChecks({ ...mismatched, description: '회로도는 아직 없습니다. PC 프로그램은 없고 장치 단독입니다.', attachmentContext: '' })).toEqual([]);
+    expect(detectAnswerChecks({ ...mismatched, answers: [{ code: 'stage', choices: ['schematic'] }, { code: 'external', choices: ['pc_software'] }] })).toEqual([]);
+  });
+
+  it('정합 질문은 불일치 질문 다음·모델 질문 앞에 서고 검토서 checks 에도 남는다', () => {
+    const { review, diagnostics } = postProcessDevReview(output, mismatched, meta);
+    expect(diagnostics.r9Checks).toBe(2);
+    expect(review.checks.map((c) => c.code)).toEqual(['stage', 'external']);
+    expect(review.openQuestions.slice(0, 2).map((q) => [q.area, q.question.startsWith('답변과 자료 확인 필요')])).toEqual([['general', true], ['general', true]]);
+    expect(review.openQuestions).toHaveLength(6);
   });
 });
 

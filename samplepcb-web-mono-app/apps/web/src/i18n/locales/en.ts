@@ -351,6 +351,7 @@ export const en = {
       requirements: 'Key requirements',
       areas: 'Areas and specification',
       afterConsult: 'After consultation',
+      check: 'Answer vs. material',
       openQuestions: 'To confirm with the expert',
       diagram: 'System diagram',
       diagramTitle: 'AI pre-review system diagram',

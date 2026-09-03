@@ -7,6 +7,8 @@ import {
 import type {
   DevReviewAnswerType,
   DevReviewAreaType,
+  DevReviewCheckType,
+  DevReviewObservationType,
   DevReviewOpenQuestionType,
   MarketDevReviewType,
 } from '@sp/api-contract';
@@ -57,12 +59,42 @@ export function buildDevReviewBriefRows(answers: readonly DevReviewAnswerType[])
   });
 }
 
+// ── 기술개발 검토 결과 카드 — "이 분야가 얼마나 준비됐고 무엇이 남았나"(§12.10) ──────────
+// 명세서(무엇이 확정됐나)·상의 항목(무엇을 물어야 하나)과 겹치지 않게, 분야별 확정 수·상담에서 정할 수·
+// 검토 관찰만 싣는다. 전부 저장된 검토서에서 결정적으로 센다.
+export interface DevReviewAreaCard {
+  area: DevReviewAreaType;
+  label: string;
+  summary: string;
+  factCount: number; // 이 분야 명세 확정 행
+  openCount: number; // 이 분야로 분류된 상의 항목
+  observations: DevReviewObservationType[];
+}
+
+export function buildDevReviewAreaCards(review: MarketDevReviewType): DevReviewAreaCard[] {
+  const byArea = new Map(review.areas.map((a) => [a.area, a]));
+  return sortAreas(review.brief.serviceAreas).map((area) => {
+    const src = byArea.get(area);
+    return {
+      area,
+      label: MARKET_SERVICE_AREA_LABELS[area],
+      summary: src?.summary ?? '',
+      factCount: src?.spec.length ?? 0,
+      openCount: review.openQuestions.filter((q) => q.area === area).length,
+      observations: src?.observations ?? [],
+    };
+  });
+}
+
 export interface DevReviewView {
   areaBadge: string;
   areaLabels: string[];
   briefRows: DevReviewBriefRow[];
   openQuestions: DevReviewOpenQuestionType[];
   factCount: number; // 근거 붙은 확정 항목 수(핵심 요구 + 명세 행)
+  areaCards: DevReviewAreaCard[];
+  generalOpenCount: number; // 분야에 안 속하는 상의 항목(불일치·정합·공통)
+  checks: DevReviewCheckType[]; // 답변↔자료 정합 알림
 }
 
 export function buildDevReviewView(review: MarketDevReviewType): DevReviewView {
@@ -73,5 +105,8 @@ export function buildDevReviewView(review: MarketDevReviewType): DevReviewView {
     briefRows: buildDevReviewBriefRows(review.brief.answers),
     openQuestions: review.openQuestions,
     factCount: review.requirements.length + review.areas.reduce((sum, a) => sum + a.spec.length, 0),
+    areaCards: buildDevReviewAreaCards(review),
+    generalOpenCount: review.openQuestions.filter((q) => q.area === 'general').length,
+    checks: review.checks,
   };
 }

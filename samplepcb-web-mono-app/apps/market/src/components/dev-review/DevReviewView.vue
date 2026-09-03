@@ -145,17 +145,46 @@ const generatedAtLabel = computed(() => {
       </div>
     </section>
 
-    <!-- ③ 기술개발 검토 결과 -->
+    <!-- ③ 기술개발 검토 결과 — 분야별 준비 상태(확정 n·상담 m) + 검토 관찰 + 답변↔자료 정합(§12.10).
+         명세서(무엇이 확정됐나)·상의 항목(무엇을 물어야 하나)과 겹치지 않는 "얼마나 준비됐나"만 싣는다. -->
     <section class="grid gap-3">
       <div>
         <p class="font-mono text-[10px] tracking-widest text-emerald-700">AI REVIEW</p>
         <h3 class="text-base font-extrabold text-tx-1">기술개발 검토 결과</h3>
+        <p class="mt-0.5 text-xs text-tx-3">
+          분야별로 자료에서 확정된 것과 상담에서 정할 것을 셌습니다.
+          <template v-if="review.meta.attachmentFiles.length > 0"> 첨부 {{ review.meta.attachmentFiles.length }}건을 읽었습니다.</template>
+          <template v-if="view.generalOpenCount > 0"> 분야 공통 상의 항목 {{ view.generalOpenCount }}건은 위 목록에 있습니다.</template>
+        </p>
+      </div>
+      <div v-if="view.checks.length > 0" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <p class="text-xs font-bold text-amber-900">답변과 자료가 다릅니다 — 자료를 우선해 검토서를 썼습니다</p>
+        <ul class="mt-1.5 grid gap-1">
+          <li v-for="c in view.checks" :key="c.code" class="text-xs leading-relaxed text-amber-900">
+            <span class="font-bold">{{ c.answer }}</span>
+            <span class="text-amber-700"> 로 답하셨는데 자료에 </span>
+            <span class="font-bold">{{ c.found.join(' · ') }}</span>
+            <span class="text-amber-700"> 이(가) 나옵니다.</span>
+          </li>
+        </ul>
       </div>
       <div class="grid gap-2 sm:grid-cols-3">
-        <div v-for="area in review.areas" :key="area.area" class="rounded-xl border border-line bg-white p-3.5">
-          <p class="text-xs font-extrabold text-tx-1">{{ areaLabel(area.area) }}</p>
-          <p v-if="area.summary !== ''" class="mt-1 text-xs leading-relaxed text-tx-2">{{ area.summary }}</p>
-          <p v-else class="mt-1 text-xs text-tx-3">상담 후 작성</p>
+        <div v-for="card in view.areaCards" :key="card.area" class="grid content-start gap-2 rounded-xl border border-line bg-white p-3.5">
+          <p class="text-xs font-extrabold text-tx-1">{{ card.label }}</p>
+          <p v-if="card.summary !== ''" class="text-xs leading-relaxed text-tx-2">{{ card.summary }}</p>
+          <div class="flex flex-wrap gap-1.5 text-[11px] font-bold">
+            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">자료에서 확정 {{ card.factCount }}</span>
+            <span v-if="card.openCount > 0" class="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">상담에서 정할 것 {{ card.openCount }}</span>
+          </div>
+          <p v-if="card.factCount === 0 && card.observations.length === 0" class="text-[11px] leading-relaxed text-tx-3">
+            자료에 이 분야 내용이 없습니다. 전문가 상담에서 정리합니다.
+          </p>
+          <ul v-if="card.observations.length > 0" class="grid gap-1 border-t border-line pt-2">
+            <li v-for="(o, i) in card.observations" :key="i" class="flex gap-1.5 text-[11px] leading-relaxed text-tx-2">
+              <span class="shrink-0 text-tx-3">›</span>
+              <span>{{ o.text }}</span>
+            </li>
+          </ul>
         </div>
       </div>
     </section>

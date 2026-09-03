@@ -72,7 +72,7 @@ const conn: AiConnection = {
 const fixtureDir = path.resolve(fileURLToPath(new URL('.', import.meta.url)), 'fixtures/dev-review');
 const MIME: Record<string, string> = {
   '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.zip': 'application/zip',
-  '.csv': 'text/csv', '.txt': 'text/plain', '.md': 'text/markdown', '.html': 'text/html',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.csv': 'text/csv', '.txt': 'text/plain', '.md': 'text/markdown', '.html': 'text/html',
 };
 
 const loadFixtures = (): Fixture[] =>
@@ -105,6 +105,8 @@ interface RunRecord {
   golden: { must: string; forbidden: string[]; open: string };
   openQuestionCount: number;
   nodes: { inputs: number; chips: number; outputs: number };
+  observations: { pre: number; post: number }; // 검토 관찰(§12.10 C 프로빙)
+  questionAreas: string; // 상의 항목 분야 분포(예: c2 f1 g3)
 }
 
 const countFacts = (o: Pick<DevReviewLlmOutputType, 'requirements' | 'areas'>): number =>
@@ -198,6 +200,7 @@ async function main(): Promise<void> {
             fixture: fx.id, model, think: thinkLabel, run, ok: false, error: null, elapsedSec: 0, thinkingChars: 0,
             formatUsed: false, preFacts: 0, postFacts: 0, diagnostics: null,
             golden: { must: '-', forbidden: [], open: '-' }, openQuestionCount: 0, nodes: { inputs: 0, chips: 0, outputs: 0 },
+            observations: { pre: 0, post: 0 }, questionAreas: '-',
           };
           try {
             const extra: OllamaChatExtra = {
@@ -219,6 +222,15 @@ async function main(): Promise<void> {
             record.diagnostics = { ...diagnostics };
             record.postFacts = countFacts(review);
             record.openQuestionCount = review.openQuestions.length;
+            record.observations = {
+              pre: output.areas.reduce((n, a) => n + a.observations.length, 0),
+              post: review.areas.reduce((n, a) => n + a.observations.length, 0),
+            };
+            record.questionAreas = ['circuit', 'pcb', 'firmware', 'general']
+              .map((a) => [a[0], review.openQuestions.filter((q) => q.area === a).length] as const)
+              .filter(([, n]) => n > 0)
+              .map(([k, n]) => `${k ?? ''}${String(n)}`)
+              .join(' ') || '-';
             record.nodes = {
               inputs: review.diagram.inputs.length,
               chips: review.diagram.board.chips.length,
@@ -238,7 +250,7 @@ async function main(): Promise<void> {
             record.ok = true;
             writeFileSync(path.join(outDir, `${tag}.json`), JSON.stringify({ record, output, review, missingGolden: fx.golden.mustContain.filter((s) => !mustHit.includes(s)) }, null, 2));
             writeFileSync(path.join(outDir, `${tag}.diagram.html`), renderDevReviewDiagramHtml(review.diagram));
-            console.log(`${String(record.elapsedSec)}s · 확정 ${String(record.preFacts)}→${String(record.postFacts)} · R1 ${String(diagnostics.r1Dropped)}✕ R2 ${String(diagnostics.r2Dropped)}✕ R8 ${String(diagnostics.r8Dropped)}✕(불일치 ${String(diagnostics.conflicts)}) 토큰 ${String(diagnostics.tokensStripped)} · 골든 ${record.golden.must} · 금지 ${String(forbiddenHit.length)} · 상의 ${record.golden.open}(${String(review.openQuestions.length)}) · 구성도 ${String(record.nodes.inputs)}/${String(record.nodes.chips)}/${String(record.nodes.outputs)}`);
+            console.log(`${String(record.elapsedSec)}s · 확정 ${String(record.preFacts)}→${String(record.postFacts)} · R1 ${String(diagnostics.r1Dropped)}✕ R2 ${String(diagnostics.r2Dropped)}✕ R8 ${String(diagnostics.r8Dropped)}✕(불일치 ${String(diagnostics.conflicts)}) 토큰 ${String(diagnostics.tokensStripped)} · 골든 ${record.golden.must} · 금지 ${String(forbiddenHit.length)} · 상의 ${record.golden.open}(${String(review.openQuestions.length)}) · 구성도 ${String(record.nodes.inputs)}/${String(record.nodes.chips)}/${String(record.nodes.outputs)} · 관찰 ${String(record.observations.pre)}→${String(record.observations.post)} · R9 ${String(diagnostics.r9Checks)} · 분야 ${record.questionAreas}`);
           } catch (err) {
             record.error = err instanceof Error ? err.message.slice(0, 300) : String(err);
             console.log(`실패 — ${record.error}`);
@@ -256,8 +268,11 @@ async function main(): Promise<void> {
     r.diagnostics === null ? '-' : `${String(r.diagnostics.r1Dropped)}/${String(r.diagnostics.r2Dropped)}/${String(r.diagnostics.r8Dropped)}(${String(r.diagnostics.conflicts)})/${String(r.diagnostics.tokensStripped)}`,
     r.golden.must, r.golden.forbidden.length === 0 ? '0' : r.golden.forbidden.join(' '), r.golden.open, String(r.openQuestionCount),
     `${String(r.nodes.inputs)}/${String(r.nodes.chips)}/${String(r.nodes.outputs)}`,
+    `${String(r.observations.pre)}→${String(r.observations.post)}`,
+    r.diagnostics === null ? '-' : String(r.diagnostics.r9Checks),
+    r.questionAreas,
   ]);
-  const header = ['fixture', 'model', 'think', 'ok', 'sec', 'mode', '확정(전→후)', 'R1✕/R2✕/R8✕(불일치)/토큰', '골든', '금지', '상의항목', '상의수', '구성도 입력/칩/출력'];
+  const header = ['fixture', 'model', 'think', 'ok', 'sec', 'mode', '확정(전→후)', 'R1✕/R2✕/R8✕(불일치)/토큰', '골든', '금지', '상의항목', '상의수', '구성도 입력/칩/출력', '관찰(전→후)', 'R9', '상의 분야'];
   const md = [`| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
   writeFileSync(path.join(outDir, 'summary.md'), `# dev-review probe ${runId} (${DEV_REVIEW_PROMPT_VERSION})\n\n${md}\n`);
   console.log(`\n${md}\n\n→ ${outDir}`);

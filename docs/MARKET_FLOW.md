@@ -80,9 +80,9 @@ local-web.samplepcb.co.kr (nginx 443)
     남아 있으면 409 `DEV_REVIEW_ATTACHED`(같은 요청에 `devReview:null` 을 실으면 허용).
   - **v2(2026-09-02) 는 확정만** — 항목 상태 축 없음, 정해지지 않은 것은 "전문가와 상의할 항목"
     한 목록(≤6). 섹션 = 고객 의뢰내용 · 제안 시스템 구성도(입력→메인 보드→출력·연동 3열 카드,
-    `renderDevReviewDiagramHtml`) · 기술개발 검토 결과(분야별 한 줄) · 개발명세서(확정 행만).
+    `renderDevReviewDiagramHtml`) · 기술개발 검토 결과(분야별 준비 상태 확정 n·상담 m + 검토 관찰 + 답변↔자료 정합 R9, docs/AI_DEV_REVIEW.md §12.10) · 개발명세서(확정 행만).
     (작업 항목·개발 단계 섹션은 09-03 제거 — 정적 안내.) 판정어·리스크 등급·금액·주수는 없다(기간은 전문가 입찰
-    `durationDays`). 프롬프트는 코드 정본(`dev-review.v2`), 관리자는 사용 토글·모델·첨부 판독
+    `durationDays`). 프롬프트는 코드 정본(`dev-review.v2.1`), 관리자는 사용 토글·모델·첨부 판독
     모델·추가 지침·샘플 테스트·실행 이력만 만진다. v1 저장분은 파싱 실패 → 검토서 없음.
   - 계약 채택 스냅샷(`sp_market_contract.requestSnapshot`)에는 `devReview` 가 들어간다(옛 스냅샷은
     zod strip 으로 계속 파싱).

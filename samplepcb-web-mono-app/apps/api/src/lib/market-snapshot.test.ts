@@ -17,10 +17,11 @@ const devReview = {
     notes: { flow: '', design: '', extension: '' },
   },
   areas: [
-    { area: 'circuit', summary: '', spec: [] },
-    { area: 'firmware', summary: '', spec: [] },
+    { area: 'circuit', summary: '', spec: [], observations: [] },
+    { area: 'firmware', summary: '', spec: [], observations: [] },
   ],
   openQuestions: [],
+  checks: [],
   meta: {
     jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
     generatedAt: '2026-09-02T00:00:00.000Z', attachmentFiles: [],

@@ -143,8 +143,21 @@ const generatedAt = computed(() => formatDateTime(props.review.meta.generatedAt)
               </span>
             </li>
           </ul>
+          <ul v-if="area.observations.length > 0" class="mt-1.5 grid gap-1 border-t border-gray-100 pt-1.5">
+            <li v-for="(o, index) in area.observations" :key="index" class="text-[11px] text-gray-600">
+              › {{ o.text }}
+              <span v-if="o.evidence !== null" class="block text-[11px] text-gray-400">
+                {{ t('admin.devReview.evidence') }}: {{ o.evidence }}
+              </span>
+            </li>
+          </ul>
         </div>
       </div>
+      <ul v-if="props.review.checks.length > 0" class="mt-1.5 grid gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+        <li v-for="c in props.review.checks" :key="c.code" class="text-[11px] text-amber-900">
+          {{ t('admin.devReview.check') }}: {{ c.text }}
+        </li>
+      </ul>
     </div>
 
     <!-- 전문가와 상의할 항목 -->

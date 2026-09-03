@@ -351,6 +351,7 @@ export const ko = {
       requirements: '핵심 요구',
       areas: '분야별 검토·명세',
       afterConsult: '상담 후 작성',
+      check: '답변↔자료 정합',
       openQuestions: '전문가와 확정할 항목',
       diagram: '시스템 구성도',
       diagramTitle: 'AI 사전 검토서 시스템 구성도',

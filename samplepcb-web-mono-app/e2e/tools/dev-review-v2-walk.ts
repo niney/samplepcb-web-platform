@@ -3,23 +3,51 @@
 // 로그인은 helpers/browser 의 /spcb/api/me 스텁(로컬 서명 JWT). 실행(e2e 디렉터리):
 //   E2E_BASE_URL=http://127.0.0.1:5300 pnpm exec tsx tools/dev-review-v2-walk.ts
 // 환경: WALK_ADMIN_URL(기본 http://127.0.0.1:5173) · WALK_MB_ID(기본 e2e-customer) · WALK_KEEP=1(정리 생략)
+//       WALK_SCENARIO=feeder(기본, 아이디어만·첨부 없음) | bus-led-mismatch(픽스처 08 — docx 첨부 + 답변↔자료 어긋남, §12.10 R9)
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from 'playwright-core';
 import { closeBrowser, newSession } from '../helpers/browser';
 import { disconnectPrisma, getPrisma } from '../helpers/db';
-import { outputDir } from '../helpers/env';
+import { readFileSync } from 'node:fs';
+import { monoRoot, outputDir } from '../helpers/env';
 
 const ADMIN_URL = process.env.WALK_ADMIN_URL ?? 'http://127.0.0.1:5173';
 const MB_ID = process.env.WALK_MB_ID ?? 'e2e-customer';
 const KEEP = process.env.WALK_KEEP === '1';
+const SCENARIO = process.env.WALK_SCENARIO === 'bus-led-mismatch' ? 'bus-led-mismatch' : 'feeder';
 const dir = join(outputDir, 'dev-review-v2');
 mkdirSync(dir, { recursive: true });
 
-const TITLE = `반려견 자동 급식기 제어 보드 (v2 walk ${new Date().toISOString().slice(11, 19)})`;
-const DESCRIPTION =
-  '집을 비울 때 정해진 시간에 사료를 주는 자동 급식기를 만들고 싶습니다. 스마트폰으로 급식 시간을 설정하고 급식 기록을 확인하고 싶어요. 집 Wi-Fi 에 연결해서 쓰면 좋겠습니다. 아직 아이디어 단계라 회로나 부품은 정해진 게 없습니다. 사료가 나오는 부분은 기구 업체가 따로 만들 예정입니다.';
+const STAMP = new Date().toISOString().slice(11, 19);
+const FIXTURE_DIR = join(monoRoot, 'apps', 'api', 'src', 'scripts', 'fixtures', 'dev-review');
+interface Scenario { title: string; description: string; areas: readonly string[] | 'all'; answers: readonly string[]; quantityNote: string; attachments: readonly string[] }
+const SCENARIOS: Record<typeof SCENARIO, Scenario> = {
+  feeder: {
+    title: `반려견 자동 급식기 제어 보드 (v2 walk ${STAMP})`,
+    description:
+      '집을 비울 때 정해진 시간에 사료를 주는 자동 급식기를 만들고 싶습니다. 스마트폰으로 급식 시간을 설정하고 급식 기록을 확인하고 싶어요. 집 Wi-Fi 에 연결해서 쓰면 좋겠습니다. 아직 아이디어 단계라 회로나 부품은 정해진 게 없습니다. 사료가 나오는 부분은 기구 업체가 따로 만들 예정입니다.',
+    areas: 'all',
+    answers: ['아이디어만 있어요', '시제품 1~10개', '스마트폰 앱', '3개월 안'],
+    quantityNote: '먼저 3개',
+    attachments: [],
+  },
+  'bus-led-mismatch': (() => {
+    const fx = JSON.parse(readFileSync(join(FIXTURE_DIR, '08-bus-led-mismatch.json'), 'utf8')) as { title: string; description: string; attachments: string[] };
+    return {
+      title: `${fx.title} (v2 walk ${STAMP})`,
+      description: fx.description,
+      areas: ['회로 개발'],
+      answers: ['아이디어만 있어요', '시제품 1~10개', '없어요(장치 단독)', '가능한 빨리'],
+      quantityNote: '4대',
+      attachments: fx.attachments.map((f) => join(FIXTURE_DIR, f)),
+    };
+  })(),
+};
+const SC = SCENARIOS[SCENARIO];
+const TITLE = SC.title;
+const DESCRIPTION = SC.description;
 
 const shot = async (page: Page, name: string, fullPage = true): Promise<void> => {
   const path = join(dir, `${name}.png`);
@@ -36,14 +64,27 @@ async function main(): Promise<void> {
     // ── 1단계: 의뢰 내용 ──
     await page.goto('/market/request');
     await page.getByText('어떤 개발이 필요한가요?').waitFor({ timeout: 30_000 });
-    await page.getByRole('button', { name: '잘 모르겠어요 — 전부 맡길게요' }).click();
+    if (SC.areas === 'all') await page.getByRole('button', { name: '잘 모르겠어요 — 전부 맡길게요' }).click();
+    else {
+      for (const a of SC.areas) {
+        const card = page.locator('button', { hasText: a }).first();
+        await card.click();
+        // 첫 클릭이 하이드레이션 전에 떨어지면 안 잡힌다 — 선택 클래스로 확인하고 한 번 더.
+        if (!((await card.getAttribute('class')) ?? '').includes('bg-ink-900')) await card.click();
+      }
+    }
     await page.getByPlaceholder('예: 화분 물 주기 알림 장치').fill(TITLE);
     await page.locator('textarea').first().fill(DESCRIPTION);
-    await page.getByRole('button', { name: '아이디어만 있어요', exact: true }).click();
-    await page.getByRole('button', { name: '시제품 1~10개', exact: true }).click();
-    await page.getByPlaceholder('예: 먼저 3개, 이후 월 200개').fill('먼저 3개');
-    await page.getByRole('button', { name: '스마트폰 앱', exact: true }).click();
-    await page.getByRole('button', { name: '3개월 안', exact: true }).click();
+    const [stage, quantity, external, timeline] = SC.answers;
+    await page.getByRole('button', { name: stage ?? '', exact: true }).click();
+    await page.getByRole('button', { name: quantity ?? '', exact: true }).click();
+    await page.getByPlaceholder('예: 먼저 3개, 이후 월 200개').fill(SC.quantityNote);
+    await page.getByRole('button', { name: external ?? '', exact: true }).click();
+    await page.getByRole('button', { name: timeline ?? '', exact: true }).click();
+    if (SC.attachments.length > 0) {
+      await page.locator('input[type="file"]').setInputFiles([...SC.attachments]);
+      await page.waitForTimeout(500);
+    }
     await shot(page, '01-step1-describe');
 
     // ── 2단계: 검토서 생성(실 LLM) → 미리보기 ──
