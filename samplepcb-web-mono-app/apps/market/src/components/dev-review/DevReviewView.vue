@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { DEV_REVIEW_DISCLAIMER, MARKET_SERVICE_AREA_LABELS } from '@sp/api-contract';
 import type { DevReviewAreaType, MarketDevReviewType } from '@sp/api-contract';
 import { buildDevReviewView, renderDevReviewDiagramHtml } from '@sp/utils';
+import type { DevReviewDiagramPage } from '@sp/utils';
 import DiagramViewer from '../DiagramViewer.vue';
 
 // AI 사전 검토서 뷰 v2(docs/AI_DEV_REVIEW.md §12) — 고객·전문가가 같은 JSON 을 같은 순서로 본다.
@@ -15,10 +16,17 @@ import DiagramViewer from '../DiagramViewer.vue';
 // 가 렌더 시 계산한다. 구성도는 결정적 SVG(renderDevReviewDiagramHtml)라 v-html 이 아니라
 // sandbox iframe 으로만 나간다. 판정어·리스크 등급·금액·주수는 어디에도 쓰지 않는다.
 
-const props = defineProps<{ review: MarketDevReviewType }>();
+// title = 프로젝트명(구성도 제목 띠), page = 구성도 페이지 비율(auto 카드형 / a3 인쇄형 / wide 16:9).
+const props = defineProps<{ review: MarketDevReviewType; title?: string; page?: DevReviewDiagramPage }>();
 
 const view = computed(() => buildDevReviewView(props.review));
-const diagramHtml = computed(() => renderDevReviewDiagramHtml(props.review.diagram));
+const diagramHtml = computed(() =>
+  renderDevReviewDiagramHtml(props.review.diagram, {
+    title: props.title ?? '',
+    meta: `검토안 V1 · ${props.review.meta.model} · ${generatedAtLabel.value} 생성`,
+    page: props.page ?? 'auto',
+  }),
+);
 const areaLabel = (area: DevReviewAreaType): string => MARKET_SERVICE_AREA_LABELS[area];
 
 const notes = computed(() =>

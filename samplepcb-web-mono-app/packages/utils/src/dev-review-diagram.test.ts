@@ -52,16 +52,37 @@ describe('renderDevReviewDiagramHtml', () => {
       ...diagram,
       inputs: [{ label: '온습도 센서', detail: '종류는 제안 받고 싶음', icon: 'sensor', tbd: true }],
       board: { ...diagram.board, tbd: true },
-    });
+    }, { legend: false });
     expect(html.match(/class="card card-tbd"/g)).toHaveLength(1);
     expect(html).toContain('class="board-card board-card-tbd"');
     expect(html.match(/>미정</g)).toHaveLength(2);
-    expect(renderDevReviewDiagramHtml(diagram)).not.toContain('미정');
+    expect(renderDevReviewDiagramHtml(diagram, { legend: false })).not.toContain('미정');
+  });
+
+  it('제목 띠·범례·페이지 비율 — a3 는 849 높이에 범례를 하단에 고정, auto 는 내용 높이', () => {
+    const a3 = renderDevReviewDiagramHtml(diagram, { title: '온실 보드 <v1>', meta: '검토안 V1', page: 'a3' });
+    expect(a3).toContain('온실 보드 &lt;v1&gt;');
+    expect(a3).toContain('검토안 V1');
+    expect(a3).toContain('>범례<');
+    expect(/<svg[^>]*\sheight="849"/.test(a3)).toBe(true);
+    const wide = renderDevReviewDiagramHtml(diagram, { page: 'wide' });
+    expect(/<svg[^>]*\sheight="675"/.test(wide)).toBe(true);
+    const auto = renderDevReviewDiagramHtml(diagram, { legend: false });
+    expect(auto).not.toContain('>범례<');
+    const h = Number(/<svg[^>]*\sheight="(\d+)"/.exec(auto)?.[1]);
+    expect(h).toBeGreaterThan(200);
+    expect(h).toBeLessThan(675);
   });
 
   it('빈 열은 "해당 없음" 카드 하나로 채운다', () => {
-    const html = renderDevReviewDiagramHtml({ ...diagram, inputs: [], outputs: [] });
+    const html = renderDevReviewDiagramHtml({ ...diagram, inputs: [], outputs: [] }, { legend: false });
     expect(html.match(/해당 없음/g)).toHaveLength(2);
+  });
+
+  it('긴 연결 라벨은 화살표 위 두 줄로 접는다', () => {
+    const html = renderDevReviewDiagramHtml({ ...diagram, linkOut: 'Ethernet으로 사무실 서버 전송' }, { legend: false });
+    expect(html).toContain('>Ethernet<');
+    expect(html.match(/class="link-label"/g)?.length).toBeGreaterThanOrEqual(3); // linkIn 1줄 + linkOut 2줄
   });
 });
 

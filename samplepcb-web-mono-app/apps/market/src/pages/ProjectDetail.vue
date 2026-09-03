@@ -383,7 +383,7 @@ async function onRemoveDevReview(): Promise<void> {
 
           <!-- AI 사전 검토서 — 공개 범위는 상세 설명과 동일(상세를 볼 수 있는 뷰어 전원) -->
           <div v-if="devReview !== null" class="rounded-2xl border border-line bg-white p-6">
-            <DevReviewView :review="devReview" />
+            <DevReviewView :review="devReview" :title="detail.title" />
             <div v-if="isOwner" class="mt-5 border-t border-line pt-4">
               <template v-if="confirmAction === 'remove-review'">
                 <p class="text-xs font-bold text-tx-2">

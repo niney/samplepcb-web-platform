@@ -127,7 +127,7 @@ const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
       <!-- 완료 — 미리보기 + 포함 체크 -->
       <template v-if="review !== null">
         <div class="rounded-2xl border border-line bg-white p-4 sm:p-5">
-          <DevReviewView :review="review" />
+          <DevReviewView :review="review" :title="fields.title" />
         </div>
         <div class="flex flex-wrap items-center gap-4">
           <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">

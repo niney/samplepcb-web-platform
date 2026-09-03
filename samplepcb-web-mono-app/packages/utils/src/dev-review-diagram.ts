@@ -246,10 +246,92 @@ function renderLink(x1: number, x2: number, y: number, label: string): string {
   const parts = [
     `<path class="link" d="M ${String(x1 + 6)} ${String(y)} H ${String(x2 - 10)}" marker-end="url(#arrow)"/>`,
   ];
+  // 라벨은 화살표 위 두 줄(8자, 10px)까지 — 열 사이 폭(80px)에 맞춘다(실측: "Ethernet으로 사무실…"이 옆 패널을 덮었다).
   if (label !== '') {
-    parts.push(
-      `<text class="link-label" x="${String(mid)}" y="${String(y - 10)}" text-anchor="middle">${escapeXml(clip(label, 14))}</text>`,
-    );
+    const lines = wrapLabel(label, 8);
+    const baseY = y - 10 - (lines.length - 1) * 13;
+    lines.forEach((line, i) => {
+      parts.push(
+        `<text class="link-label" x="${String(mid)}" y="${String(baseY + i * 13)}" text-anchor="middle">${escapeXml(line)}</text>`,
+      );
+    });
+  }
+  return parts.join('');
+}
+
+// ── 페이지 프레임 — 제목 띠·범례·페이지 비율(PCB 담당자 프롬프트의 "제목 상단 중앙·범례·A3 가로") ──
+// auto = 내용 높이대로(카드 안 미리보기), a3 = 1200×849(√2, 인쇄·PDF 감), wide = 1200×675(16:9, 화면 공유).
+// 페이지 모드에서 내용이 짧으면 세로 가운데에 놓고 범례는 하단에 고정, 내용이 길면 페이지가 늘어난다.
+export type DevReviewDiagramPage = 'auto' | 'a3' | 'wide';
+export interface DevReviewDiagramFrame {
+  title?: string; // 상단 중앙 제목(프로젝트명)
+  meta?: string; // 부제(검토안 V1 · 생성일 · 모델)
+  page?: DevReviewDiagramPage;
+  legend?: boolean; // 기본 true
+}
+export const DEV_REVIEW_DIAGRAM_PAGE_HEIGHT: Readonly<Record<Exclude<DevReviewDiagramPage, 'auto'>, number>> = {
+  a3: Math.round(DEV_REVIEW_DIAGRAM_WIDTH / Math.SQRT2), // 849
+  wide: Math.round((DEV_REVIEW_DIAGRAM_WIDTH * 9) / 16), // 675
+};
+
+const TITLE_H = 64;
+const META_ONLY_H = 30;
+const LEGEND_H = 46;
+const LEGEND_GAP = 14;
+
+function renderTitleBand(title: string, meta: string, y: number): string {
+  const cx = DEV_REVIEW_DIAGRAM_WIDTH / 2;
+  const parts: string[] = [];
+  if (title !== '') {
+    parts.push(`<text class="doc-title" x="${String(cx)}" y="${String(y + 26)}" text-anchor="middle">${escapeXml(clip(title, 48))}</text>`);
+    if (meta !== '') parts.push(`<text class="doc-meta" x="${String(cx)}" y="${String(y + 48)}" text-anchor="middle">${escapeXml(clip(meta, 90))}</text>`);
+  } else if (meta !== '') {
+    parts.push(`<text class="doc-meta" x="${String(cx)}" y="${String(y + 18)}" text-anchor="middle">${escapeXml(clip(meta, 90))}</text>`);
+  }
+  return parts.join('');
+}
+
+// 범례 — 이 도면에 실제로 쓰인 표기 5가지(카드·보드 칩·연결·미정·해당 없음). 절연·전압 같은 표기는 없다.
+function renderLegend(y: number): string {
+  const x0 = PAD;
+  const w = DEV_REVIEW_DIAGRAM_WIDTH - PAD * 2;
+  const cy = y + LEGEND_H / 2;
+  const items: { swatch: (x: number) => string; label: string; width: number }[] = [
+    {
+      width: 128,
+      label: '입력·출력 장치',
+      swatch: (x) => `<rect class="card" x="${String(x)}" y="${String(cy - 9)}" width="28" height="18" rx="5"/>`,
+    },
+    {
+      width: 120,
+      label: '보드 기능 블록',
+      swatch: (x) => `<rect class="chip" x="${String(x)}" y="${String(cy - 9)}" width="28" height="18" rx="5"/>`,
+    },
+    {
+      width: 268,
+      label: '연결 · 방식 표기는 고객 자료에 있을 때만',
+      swatch: (x) => `<path class="link" d="M ${String(x)} ${String(cy)} H ${String(x + 24)}" marker-end="url(#arrow)"/>`,
+    },
+    {
+      width: 232,
+      label: '미정 · 고객이 아직 정하지 않은 항목',
+      swatch: (x) => `<rect class="card card-tbd" x="${String(x)}" y="${String(cy - 9)}" width="28" height="18" rx="5"/>`,
+    },
+    {
+      width: 170,
+      label: '해당 없음 · 자료에 없음',
+      swatch: (x) => `<rect class="card card-empty" x="${String(x)}" y="${String(cy - 9)}" width="28" height="18" rx="5"/>`,
+    },
+  ];
+  const parts = [
+    `<rect class="legend" x="${String(x0)}" y="${String(y)}" width="${String(w)}" height="${String(LEGEND_H)}" rx="10"/>`,
+    `<text class="legend-title" x="${String(x0 + 16)}" y="${String(cy + 4)}">범례</text>`,
+  ];
+  let x = x0 + 62;
+  for (const item of items) {
+    parts.push(item.swatch(x));
+    parts.push(`<text class="legend-text" x="${String(x + 36)}" y="${String(cy + 4)}">${escapeXml(item.label)}</text>`);
+    x += item.width;
   }
   return parts.join('');
 }
@@ -258,16 +340,29 @@ function renderLink(x1: number, x2: number, y: number, label: string): string {
  * 검증된 DevReviewDiagram 을 외부 리소스·스크립트가 없는 단일 HTML/SVG 로 렌더한다.
  * 같은 입력은 바이트 단위로 같은 결과를 낸다.
  */
-export function renderDevReviewDiagramHtml(diagram: DevReviewDiagramType): string {
+export function renderDevReviewDiagramHtml(diagram: DevReviewDiagramType, frame: DevReviewDiagramFrame = {}): string {
   const inputs = diagram.inputs.map(layoutNode);
   const outputs = diagram.outputs.map(layoutNode);
   const chips = layoutChips(diagram.board.chips);
   const sideH = Math.max(sideContentHeight(inputs), sideContentHeight(outputs));
   const boardContentH = BOARD_CARD_H + (chips.height > 0 ? 12 + chips.height : 0);
   const panelH = PANEL_HEAD + PANEL_PAD + Math.max(sideH, boardContentH) + PANEL_PAD;
-  const top = PAD;
-  const canvasH = top + panelH + PAD;
+
+  const title = frame.title?.trim() ?? '';
+  const meta = frame.meta?.trim() ?? '';
+  const legend = frame.legend ?? true;
+  const page = frame.page ?? 'auto';
+  const titleH = title !== '' ? TITLE_H : meta !== '' ? META_ONLY_H : 0;
+  const legendBlock = legend ? LEGEND_GAP + LEGEND_H : 0;
+  const contentH = PAD + titleH + panelH + legendBlock + PAD;
+  const pageH = page === 'auto' ? contentH : Math.max(contentH, DEV_REVIEW_DIAGRAM_PAGE_HEIGHT[page]);
+  // 페이지 모드에서 남는 세로 공간은 패널 위아래로 나눠 가운데에 놓는다(제목은 위, 범례는 아래 고정).
+  const slack = pageH - contentH;
+  const top = PAD + titleH + Math.floor(slack / 2);
+  const canvasH = pageH;
+  const legendY = canvasH - PAD - LEGEND_H;
   const linkY = top + PANEL_HEAD + PANEL_PAD + CARD_H1 / 2;
+  const docTitle = title === '' ? '제안 시스템 구성도' : `${title} — 제안 시스템 구성도`;
 
   return `<!doctype html>
 <html lang="ko">
@@ -275,22 +370,24 @@ export function renderDevReviewDiagramHtml(diagram: DevReviewDiagramType): strin
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>제안 시스템 구성도</title>
+  <title>${escapeXml(docTitle)}</title>
   <style>
-    html,body{margin:0;background:#fff;color:#14243e;font-family:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",Arial,sans-serif}svg{display:block;background:#fff}.panel{fill:#f5f7fb;stroke:#e4eaf3;stroke-width:1.5}.panel-title{font-size:12px;font-weight:800;fill:#52627d;letter-spacing:.2px}.card{fill:#fff;stroke:#e4eaf3;stroke-width:1.2}.card-empty{stroke-dasharray:6 4;fill:#fbfcfe}.card-empty-text{font-size:12px;fill:#8593ab}.icon-bg{fill:#eef2f8}.icon{fill:none;stroke:#14243e;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.card-label{font-size:14px;font-weight:700;fill:#14243e}.card-detail{font-size:11px;fill:#8593ab}.board{fill:#0c1b33}.board-title{font-size:12px;font-weight:800;fill:#a9bad4;letter-spacing:.2px}.board-card{fill:#16283f;stroke:#1f3550;stroke-width:1}.board-icon-bg{fill:#10b981}.board-icon{fill:none;stroke:#ffffff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.board-label{font-size:15px;font-weight:800;fill:#f2f6fc}.board-detail{font-size:11px;fill:#a9bad4}.chip{fill:#102138;stroke:#1f3550;stroke-width:1}.chip-text{font-size:12px;font-weight:600;fill:#f2f6fc}.link{fill:none;stroke:#8593ab;stroke-width:1.6;stroke-linecap:round}.link-label{font-size:11px;font-weight:800;fill:#0f9f6e}.card-tbd{stroke:#d29a2b;stroke-dasharray:5 4}.board-card-tbd{stroke:#d29a2b;stroke-dasharray:5 4}.tbd-pill{fill:#fdf3d7}.tbd-text{font-size:9.5px;font-weight:800;fill:#9a6a00}.footer{font-size:10px;fill:#c3cddd}
+    html,body{margin:0;background:#fff;color:#14243e;font-family:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",Arial,sans-serif}svg{display:block;background:#fff}.panel{fill:#f5f7fb;stroke:#e4eaf3;stroke-width:1.5}.panel-title{font-size:12px;font-weight:800;fill:#52627d;letter-spacing:.2px}.card{fill:#fff;stroke:#e4eaf3;stroke-width:1.2}.card-empty{stroke-dasharray:6 4;fill:#fbfcfe}.card-empty-text{font-size:12px;fill:#8593ab}.icon-bg{fill:#eef2f8}.icon{fill:none;stroke:#14243e;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.card-label{font-size:14px;font-weight:700;fill:#14243e}.card-detail{font-size:11px;fill:#8593ab}.board{fill:#0c1b33}.board-title{font-size:12px;font-weight:800;fill:#a9bad4;letter-spacing:.2px}.board-card{fill:#16283f;stroke:#1f3550;stroke-width:1}.board-icon-bg{fill:#10b981}.board-icon{fill:none;stroke:#ffffff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.board-label{font-size:15px;font-weight:800;fill:#f2f6fc}.board-detail{font-size:11px;fill:#a9bad4}.chip{fill:#102138;stroke:#1f3550;stroke-width:1}.chip-text{font-size:12px;font-weight:600;fill:#f2f6fc}.link{fill:none;stroke:#8593ab;stroke-width:1.6;stroke-linecap:round}.link-label{font-size:10px;font-weight:800;fill:#0f9f6e}.card-tbd{stroke:#d29a2b;stroke-dasharray:5 4}.board-card-tbd{stroke:#d29a2b;stroke-dasharray:5 4}.tbd-pill{fill:#fdf3d7}.tbd-text{font-size:9.5px;font-weight:800;fill:#9a6a00}.doc-title{font-size:20px;font-weight:800;fill:#14243e;letter-spacing:-.2px}.doc-meta{font-size:11px;font-weight:600;fill:#8593ab;letter-spacing:.3px}.legend{fill:#fff;stroke:#e4eaf3;stroke-width:1.2}.legend-title{font-size:11px;font-weight:800;fill:#52627d;letter-spacing:.4px}.legend-text{font-size:11px;fill:#52627d}.footer{font-size:10px;fill:#c3cddd}
   </style>
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" width="${String(DEV_REVIEW_DIAGRAM_WIDTH)}" height="${String(canvasH)}" viewBox="0 0 ${String(DEV_REVIEW_DIAGRAM_WIDTH)} ${String(canvasH)}" role="img" aria-label="제안 시스템 구성도">
+<svg xmlns="http://www.w3.org/2000/svg" width="${String(DEV_REVIEW_DIAGRAM_WIDTH)}" height="${String(canvasH)}" viewBox="0 0 ${String(DEV_REVIEW_DIAGRAM_WIDTH)} ${String(canvasH)}" role="img" aria-label="${escapeXml(docTitle)}">
   <defs>
     <marker id="arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#8593ab"/></marker>
   </defs>
+  ${renderTitleBand(title, meta, PAD)}
   ${renderSidePanel(LEFT_X, top, panelH, diagram.columns.inputs, inputs, '해당 없음')}
   ${renderLink(LEFT_X + SIDE_W, CENTER_X, linkY, diagram.linkIn)}
   ${renderBoardPanel(top, panelH, diagram, chips)}
   ${renderLink(CENTER_X + CENTER_W, RIGHT_X, linkY, diagram.linkOut)}
   ${renderSidePanel(RIGHT_X, top, panelH, diagram.columns.outputs, outputs, '해당 없음')}
-  <text class="footer" x="${String(DEV_REVIEW_DIAGRAM_WIDTH - PAD)}" y="${String(canvasH - 10)}" text-anchor="end">dev-review diagram renderer v2</text>
+  ${legend ? renderLegend(legendY) : ''}
+  <text class="footer" x="${String(DEV_REVIEW_DIAGRAM_WIDTH - PAD)}" y="${String(canvasH - 10)}" text-anchor="end">SamplePCB AI 사전 검토서 · dev-review diagram renderer v2</text>
 </svg>
 </body>
 </html>`;

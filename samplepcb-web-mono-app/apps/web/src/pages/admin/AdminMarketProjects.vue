@@ -271,7 +271,7 @@ const statusBadge = (s: string): string =>
           <div v-if="devReview !== null" class="mt-4 rounded-xl border border-blue-100 bg-blue-50/30 p-3">
             <p class="text-xs font-bold text-gray-500">{{ t('admin.devReview.title') }}</p>
             <div class="mt-2">
-              <DevReviewSummary :review="devReview" />
+              <DevReviewSummary :review="devReview" :title="detail?.title ?? ''" />
             </div>
           </div>
 

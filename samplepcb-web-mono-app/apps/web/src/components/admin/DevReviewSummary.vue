@@ -13,11 +13,16 @@ import { formatDateTime } from '../../lib/format';
 // 구성도는 renderDevReviewDiagramHtml 의 결정적 SVG 를 sandbox iframe srcdoc 으로만 넣는다.
 // LLM 산출 문자열은 어디에서도 v-html 로 흘리지 않는다.
 
-const props = defineProps<{ review: MarketDevReviewType }>();
+const props = defineProps<{ review: MarketDevReviewType; title?: string }>();
 const { t } = useI18n();
 
 const view = computed(() => buildDevReviewView(props.review));
-const diagramSrcdoc = computed(() => renderDevReviewDiagramHtml(props.review.diagram));
+const diagramSrcdoc = computed(() =>
+  renderDevReviewDiagramHtml(props.review.diagram, {
+    title: props.title ?? '',
+    meta: `검토안 V1 · ${props.review.meta.model} · ${formatDateTime(props.review.meta.generatedAt)}`,
+  }),
+);
 
 // 구성도 크기 — sandbox="" 는 contentDocument 접근을 막아 DOM 실측이 불가능하다. 대신
 // 렌더러가 항상 `<svg … width="W" height="H">` 를 내므로 문자열에서 읽는다(결정적 SVG라
