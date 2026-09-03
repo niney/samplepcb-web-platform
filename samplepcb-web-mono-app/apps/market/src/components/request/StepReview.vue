@@ -63,7 +63,7 @@ const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
       <div>
         <p class="text-xs font-bold text-tx-2">AI 사전 검토서</p>
         <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
-          적어 주신 내용과 첨부를 근거로 요약·제안 구성도·작업 항목을 정리합니다(약 30초~3분). 생성 중에도
+          적어 주신 내용과 첨부를 근거로 요약·제안 구성도·개발명세서를 정리합니다(약 30초~3분). 생성 중에도
           아래 견적 조건을 미리 입력할 수 있습니다.
         </p>
       </div>

@@ -107,11 +107,10 @@ describe('buildDevReviewView', () => {
     meta: { jobId: 'j', model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h', generatedAt: '2026-09-02T00:00:00.000Z', attachmentFiles: [] },
   };
 
-  it('분야 순서를 사전 순으로 정렬하고 작업 항목·단계를 분야로 필터한다', () => {
+  it('분야 순서를 사전 순으로 정렬하고 브리프 행·확정 수를 파생한다', () => {
     const view = buildDevReviewView(review);
     expect(view.areaBadge).toBe('회로 + 펌웨어');
-    expect(view.workItems.map((w) => w.label)).toEqual(['회로 설계', '펌웨어 개발']);
-    expect(view.phases.map((p) => p.key)).toEqual(['requirements', 'circuit', 'firmware', 'verification']);
+    expect(view.areaLabels).toEqual(['회로 개발', '펌웨어 개발']);
     expect(view.briefRows.map((r) => [r.label, r.unknown])).toEqual([['현재 상태', false], ['수량', true]]);
     expect(view.factCount).toBe(2);
   });

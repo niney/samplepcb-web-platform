@@ -159,7 +159,7 @@ const asActive = (code: string): DevReviewActiveQuestionCodeType => code as DevR
       <input v-model="fields.aiConsent" type="checkbox" class="mt-0.5">
       <span>
         <b>🤖 AI 사전 검토 동의</b> — 적어 주신 내용과 첨부에서 추출한 텍스트·이미지를 AI 분석에 외부 서버로
-        보내 <b>AI 사전 검토서</b>(요약·구성도·작업 항목)를 만듭니다. 검토서의 공개 범위는 설명과 같습니다.
+        보내 <b>AI 사전 검토서</b>(요약·구성도·개발명세서)를 만듭니다. 검토서의 공개 범위는 설명과 같습니다.
         <template v-if="devReviewEnabled">
           <br>해제하면 검토서 없이 입력한 내용만으로 등록됩니다.
         </template>

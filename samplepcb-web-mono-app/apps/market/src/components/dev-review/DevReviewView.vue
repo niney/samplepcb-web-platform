@@ -8,11 +8,11 @@ import DiagramViewer from '../DiagramViewer.vue';
 
 // AI 사전 검토서 뷰 v2(docs/AI_DEV_REVIEW.md §12) — 고객·전문가가 같은 JSON 을 같은 순서로 본다.
 // 위저드 미리보기와 프로젝트 상세가 공유한다. 프로토타입(samplepcb-development-review 목업)의
-// 섹션 언어를 따른다: 고객 의뢰내용 → 제안 시스템 구성도 → 기술개발 검토 결과 → 개발명세서 →
-// 작업 항목 및 결과물 → 개발 단계. 확정된 것만 보이고, 정해지지 않은 것은 "전문가와 상의할
-// 항목" 한 목록뿐이다. 근거(출처)는 고객 화면에 펼치지 않는다(관리자 축약본만).
+// 섹션 언어를 따른다: 고객 의뢰내용 → 제안 시스템 구성도 → 기술개발 검토 결과 → 개발명세서.
+// (작업 항목·개발 단계는 분야 사전으로 찍히는 정적 안내라 AI 판단처럼 읽혀 2026-09-03 제거.)
+// 확정된 것만 보이고, 정해지지 않은 것은 "전문가와 상의할 항목" 한 목록뿐이다. 근거(출처)는 고객 화면에 펼치지 않는다(관리자 축약본만).
 //
-// 저장하지 않는 파생값(브리프 행·작업 항목·단계·분야 배지)은 계약의 순수 함수 buildDevReviewView
+// 저장하지 않는 파생값(브리프 행·분야 배지)은 계약의 순수 함수 buildDevReviewView
 // 가 렌더 시 계산한다. 구성도는 결정적 SVG(renderDevReviewDiagramHtml)라 v-html 이 아니라
 // sandbox iframe 으로만 나간다. 판정어·리스크 등급·금액·주수는 어디에도 쓰지 않는다.
 
@@ -37,7 +37,6 @@ const notes = computed(() =>
   ].filter((n) => n.text !== ''),
 );
 
-const itemLetter = (i: number): string => String.fromCharCode(65 + i);
 
 // 생성 시각 — 서버 ISO(UTC)를 KST 로 옮겨 분 단위까지 작게 표시한다.
 const generatedAtLabel = computed(() => {
@@ -178,46 +177,6 @@ const generatedAtLabel = computed(() => {
         </div>
         <p v-else class="mt-1.5 text-xs text-tx-3">상담 후 작성</p>
       </div>
-    </section>
-
-    <!-- ⑤ 작업 항목 및 결과물 — 금액 없음 -->
-    <section class="grid gap-3">
-      <div>
-        <p class="font-mono text-[10px] tracking-widest text-emerald-700">WORK ITEMS</p>
-        <h3 class="text-base font-extrabold text-tx-1">작업 항목 및 결과물</h3>
-        <p class="mt-0.5 text-xs text-tx-3">금액은 전문가 견적에서 항목별로 제시됩니다.</p>
-      </div>
-      <ul class="grid gap-2">
-        <li
-          v-for="(w, i) in view.workItems"
-          :key="w.area"
-          class="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line bg-white px-4 py-3"
-        >
-          <span class="text-xs font-extrabold text-tx-1">{{ itemLetter(i) }}. {{ w.label }}</span>
-          <span class="text-[11px] text-tx-3">{{ w.areaLabel }}</span>
-          <span class="flex flex-wrap gap-1.5">
-            <span v-for="d in w.deliverables" :key="d" class="rounded-full bg-paper px-2.5 py-0.5 text-[11px] font-semibold text-tx-2">
-              {{ d }}
-            </span>
-          </span>
-        </li>
-      </ul>
-    </section>
-
-    <!-- ⑥ 개발 단계 — 기간 없음 -->
-    <section class="grid gap-3">
-      <div>
-        <p class="font-mono text-[10px] tracking-widest text-emerald-700">DEVELOPMENT STEPS</p>
-        <h3 class="text-base font-extrabold text-tx-1">개발 단계</h3>
-        <p class="mt-0.5 text-xs text-tx-3">기간은 전문가 견적에서 제시됩니다.</p>
-      </div>
-      <ol class="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        <li v-for="(phase, i) in view.phases" :key="phase.key" class="rounded-xl border border-line bg-white p-3">
-          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-ink-900 text-[10px] font-bold text-white">{{ i + 1 }}</span>
-          <p class="mt-2 text-xs font-extrabold text-tx-1">{{ phase.label }}</p>
-          <p class="mt-0.5 text-[11px] leading-relaxed text-tx-3">{{ phase.note }}</p>
-        </li>
-      </ol>
     </section>
 
     <p class="rounded-xl bg-paper px-3.5 py-2.5 text-[11px] leading-relaxed text-tx-3">{{ DEV_REVIEW_DISCLAIMER }}</p>
