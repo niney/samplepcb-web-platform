@@ -7,22 +7,21 @@ const CODE_MESSAGES: Record<string, string> = {
   ALREADY_APPLIED: '이미 전문가 등록 이력이 있습니다. 마이페이지에서 상태를 확인해 주세요.',
   BIZREG_REQUIRED: '기업(파트너사)은 사업자등록증 파일을 첨부해야 합니다.',
   NOT_REGISTERED: '전문가 등록 이력이 없습니다.',
-  NOT_EDITABLE: '지금 상태에서는 수정할 수 없습니다.',
+  // 접수가 끝난(마감·채택·취소) 의뢰 — 접수 중이면 견적이 있어도 수정할 수 있다(§의뢰 수정·버전).
+  NOT_EDITABLE: '견적 접수가 끝난 의뢰는 수정할 수 없습니다.',
   EXPERT_NOT_APPROVED: '승인된 전문가만 이용할 수 있는 기능입니다.',
   // 프로젝트
   DEADLINE_PAST: '견적 마감일이 이미 지났습니다. 날짜를 다시 선택해 주세요.',
   TARGET_EXPERT_REQUIRED: '지정견적은 대상 전문가를 선택해야 합니다.',
   TARGET_EXPERT_INVALID: '지정한 전문가를 찾을 수 없거나 활동 중이 아닙니다.',
   SELF_TARGET_FORBIDDEN: '본인을 지정견적 대상으로 선택할 수 없습니다.',
-  HAS_BIDS: '이미 견적이 제출된 프로젝트는 수정할 수 없습니다.',
   NOT_BIDDING: '입찰 중 상태가 아닙니다.',
   NOT_CANCELLABLE: '취소할 수 없는 상태입니다.',
   NOT_AVAILABLE: '진행할 수 없는 프로젝트입니다.',
+  ANSWERS_REQUIRED: '필수 조건(완료 시점·목표 단계·인도 범위)에 답해야 합니다.',
   // AI 사전 검토서(docs/AI_DEV_REVIEW.md §3) — 원천이 바뀌면 서버가 등록을 튕긴다.
   REVIEW_STALE: '의뢰 내용이 바뀌어 검토서를 다시 만들어야 합니다.',
   REVIEW_JOB_INVALID: '검토서를 찾을 수 없습니다. 다시 만든 뒤 등록해 주세요.',
-  DEV_REVIEW_ATTACHED:
-    'AI 사전 검토서가 붙어 있어 의뢰 내용을 바꿀 수 없습니다. 검토서를 제거한 뒤 수정해 주세요.',
   USECASE_DISABLED: 'AI 사전 검토서 생성이 지금 중지되어 있습니다. 검토서 없이 등록할 수 있습니다.',
   ATTACHMENT_FIELD_INVALID: '첨부 자료의 분야·항목이 선택한 개발 분야와 맞지 않습니다. 다시 선택해 주세요.',
   DEV_DIAGRAM_RUNNING: '정밀 구성도를 만드는 중입니다. 완료되면 메일로 알려드립니다.',

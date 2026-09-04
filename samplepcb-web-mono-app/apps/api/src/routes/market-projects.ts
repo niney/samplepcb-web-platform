@@ -7,11 +7,14 @@ import {
   MARKET_NDA_TEXT,
   MyDevDiagramsResponse,
   MARKET_NDA_VERSION,
+  MARKET_REVISION_DEADLINE_EXTEND_MS,
+  MARKET_REVISION_DEADLINE_GUARD_MS,
   MarketMyProjectListQuery,
   MarketNdaSignBody,
   MarketProjectCreatePayload,
   MarketProjectListQuery,
   MarketProjectUpdateBody,
+  isMajorMarketRevision,
   normalizeMarketTools,
   marketRequiredMissing,
 } from '@sp/api-contract';
@@ -48,6 +51,13 @@ import {
   toFileMeta,
   toMarketProjectListItem,
 } from '../lib/market';
+import {
+  diffProjectSnapshots,
+  isDevReviewStale,
+  parseSnapshot,
+  snapshotOfProject,
+  writeProjectRevision,
+} from '../lib/market-revision';
 import {
   asContractStatus,
   cancelPendingContractTx,
@@ -120,18 +130,12 @@ const expertFileAccess = async (
   return { ok: true };
 };
 
-// 소유자 수정 가드 — 입찰 접수 중 && 입찰 0건(≠withdrawn)일 때만.
-// (입찰자가 본 조건의 사후 변경은 공정성 훼손 — 설계 결정)
-const editBlockReason = async (
-  p: SpMarketProject,
-  now: Date,
-): Promise<'NOT_EDITABLE' | 'HAS_BIDS' | null> => {
-  if (isBiddingClosed(p.status, p.bidDeadlineAt, now)) return 'NOT_EDITABLE';
-  const bids = await prisma.spMarketBid.count({
-    where: { projectId: p.id, status: { not: 'withdrawn' } },
-  });
-  return bids > 0 ? 'HAS_BIDS' : null;
-};
+// 수정 가능 판정 — 접수 중(bidding ∧ 마감 전)이면 **입찰이 있어도 수정할 수 있다**.
+// 옛 규칙(입찰 1건이면 잠금)은 오타 하나도 못 고치게 만들었다. 대신 수정 직전 값을 이력으로 남기고
+// 중대한 수정은 입찰자 화면에 경고로 뜬다(docs/MARKET_FLOW.md §의뢰 수정·버전).
+// 마감·채택·취소 뒤는 그대로 잠근다 — 그 뒤 원천이 바뀌면 계약 분쟁이 된다.
+const editBlockReason = (p: SpMarketProject, now: Date): 'NOT_EDITABLE' | null =>
+  isBiddingClosed(p.status, p.bidDeadlineAt, now) ? 'NOT_EDITABLE' : null;
 
 export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   // ── POST /market/projects — 의뢰 등록(multipart: payload + attachment[]) ────
@@ -425,6 +429,16 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         project.viewCount += 1;
       }
 
+      // 수정 이력 — 한 번에 읽어 개수·마지막 시각·마지막 중대 수정·검토서 stale 을 모두 파생한다.
+      const revRows = await prisma.spMarketProjectRevision.findMany({
+        where: { projectId: project.id },
+        orderBy: { revNo: 'asc' },
+        select: { createdAt: true, major: true, changedFields: true },
+      });
+      const revisionCount = revRows.length;
+      const lastRevisionAt = revRows.at(-1)?.createdAt ?? null;
+      const lastMajorAt = [...revRows].reverse().find((r) => r.major)?.createdAt ?? null;
+
       // 개인화 + 첨부 메타 노출 판정.
       let viewer: MarketProjectViewerType | null = null;
       let filesVisible = isOwner || isAdmin;
@@ -459,6 +473,12 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             project.targetExpertId === expert.id,
           ndaSigned: signed !== null,
           myBidStatus: myBid !== null ? asBidStatus(myBid.status) : null,
+          // 내 견적(재제출 포함 최종 시각) 뒤에 중대한 수정이 있었나 — 알림 대신 이 배너가 알린다.
+          myBidOutdated:
+            myBid !== null &&
+            myBid.status !== 'withdrawn' &&
+            lastMajorAt !== null &&
+            myBid.updatedAt.getTime() < lastMajorAt.getTime(),
           contract: contractSummary,
         };
         // 메타 규칙: NDA 불요 → 공개 / NDA 요구 → 소유자·관리자·서명자만(파일명도 기밀 힌트).
@@ -494,6 +514,10 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             count: fileRows.length,
             files: filesVisible ? fileRows.map(toFileMeta) : null,
           },
+          revisionCount,
+          lastRevisionAt: lastRevisionAt?.toISOString() ?? null,
+          // 검토서를 만든 뒤에 원천이 바뀌었나 — 지우지 않고 "몇 번째 버전 기준" 배지로만 알린다.
+          devReviewStale: isDevReviewStale(toDevReview(project.devReview), revRows),
           ndaText: MARKET_NDA_TEXT,
           ndaTextVersion: MARKET_NDA_VERSION,
           viewer,
@@ -502,7 +526,9 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     },
   );
 
-  // ── PATCH /market/projects/:id — 소유자 수정(입찰 0건·접수 중일 때만) ───────
+  // ── PATCH /market/projects/:id — 소유자 수정(접수 중이면 입찰이 있어도 가능) ──
+  // 수정 직전 값은 sp_market_project_revision 에 스냅샷으로 남고(같은 트랜잭션), 중대한 수정이면
+  // 마감이 24시간보다 가까울 때 48시간 뒤로 자동 연장한다 — 입찰자가 견적을 고칠 시간을 남긴다.
   fastify.patch(
     '/market/projects/:id',
     {
@@ -518,19 +544,19 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         return reply.status(403).send({ result: false, error: 'FORBIDDEN' });
       }
       const now = new Date();
-      const blocked = await editBlockReason(project, now);
+      const blocked = editBlockReason(project, now);
       if (blocked !== null) {
         return reply.status(409).send({ result: false, error: blocked });
       }
 
       const body = request.body;
-      // 검토서는 원천(제목·설명·분야)과 항상 일치한다는 불변식 — 원천을 바꾸는 수정은
-      // 검토서가 남아 있으면 막고, 같은 요청에 devReview:null 을 실으면 허용한다.
-      const sourceTouched =
-        body.title !== undefined || body.description !== undefined || body.serviceAreas !== undefined;
-      const removingReview = body.devReview === null;
-      if (sourceTouched && project.devReview !== null && !removingReview) {
-        return reply.status(409).send({ result: false, error: 'DEV_REVIEW_ATTACHED' });
+      const nextAreas = body.serviceAreas ?? toAreaCodes(project.serviceAreas);
+      // 답변은 등록과 같은 게이트 — 필수 문항(공통 조건 3)을 비우는 수정은 막는다.
+      if (body.answers !== undefined) {
+        const missing = marketRequiredMissing(body.answers, nextAreas);
+        if (missing.length > 0) {
+          return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing });
+        }
       }
 
       const data: Prisma.SpMarketProjectUpdateInput = {};
@@ -540,10 +566,11 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         data.requestType = deriveRequestType(body.serviceAreas); // 분야 개수에서 재파생
       }
       if (body.tools !== undefined) {
-        data.tools = normalizeMarketTools(body.tools, body.serviceAreas ?? toAreaCodes(project.serviceAreas));
+        data.tools = normalizeMarketTools(body.tools, nextAreas);
       }
       if (body.description !== undefined) data.description = body.description;
-      if (removingReview) data.devReview = Prisma.DbNull;
+      if (body.answers !== undefined) data.answers = body.answers;
+      if (body.devReview === null) data.devReview = Prisma.DbNull;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
       if (body.budgetRange !== undefined) data.budgetRange = body.budgetRange;
       if (body.deadline !== undefined) {
@@ -554,8 +581,71 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         data.bidDeadlineAt = next;
       }
 
-      const updated = await prisma.spMarketProject.update({ where: { id: project.id }, data });
-      return { result: true as const, data: { projectId: Number(updated.id) } };
+      // 마감 자동 연장 — 중대 필드가 바뀌는데 남은 시간이 24시간 미만이면 48시간 뒤로 민다.
+      // (diff 전에 정해야 이 연장까지 같은 revision 의 변경으로 기록된다.)
+      const touched = Object.keys(body).filter((k) => k !== 'devReview');
+      const willBeMajor = isMajorMarketRevision(touched);
+      const effectiveDeadline = data.bidDeadlineAt instanceof Date ? data.bidDeadlineAt : project.bidDeadlineAt;
+      let deadlineExtendedTo: Date | null = null;
+      if (willBeMajor && effectiveDeadline.getTime() - now.getTime() < MARKET_REVISION_DEADLINE_GUARD_MS) {
+        deadlineExtendedTo = new Date(now.getTime() + MARKET_REVISION_DEADLINE_EXTEND_MS);
+        data.bidDeadlineAt = deadlineExtendedTo;
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const beforeCount = await tx.spFile.count({
+          where: { refType: REF_MARKET_PROJECT, refId: project.id },
+        });
+        const before = snapshotOfProject(project, beforeCount);
+        const updated = await tx.spMarketProject.update({ where: { id: project.id }, data });
+        const after = snapshotOfProject(updated, beforeCount); // 첨부는 이 라우트에서 안 바뀐다
+        return writeProjectRevision(tx, project.id, request.user.mbId, true, before, after);
+      });
+
+      return {
+        result: true as const,
+        data: {
+          projectId: Number(project.id),
+          revNo: result?.revNo ?? null,
+          major: result?.major ?? false,
+          deadlineExtendedTo: deadlineExtendedTo === null ? null : deadlineExtendedTo.toISOString(),
+        },
+      };
+    },
+  );
+
+  // ── GET /market/projects/:id/revisions — 수정 이력(상세를 볼 수 있으면 누구나) ──
+  // 공개 범위는 설명과 같다. 첨부는 개수 변화만 담겨 있어 NDA 게이트를 새게 하지 않는다.
+  fastify.get(
+    '/market/projects/:id/revisions',
+    { schema: { params: ProjectIdParams } },
+    async (request, reply) => {
+      const projectId = BigInt(request.params.id);
+      const project = await prisma.spMarketProject.findUnique({ where: { id: projectId } });
+      if (project === null) return reply.notFound('프로젝트가 없습니다');
+      const rows = await prisma.spMarketProjectRevision.findMany({
+        where: { projectId },
+        orderBy: { revNo: 'asc' },
+      });
+      const attachmentCount = await prisma.spFile.count({
+        where: { refType: REF_MARKET_PROJECT, refId: projectId },
+      });
+      // 변경 내역은 저장하지 않고 스냅샷 사슬에서 만든다 — rev N 의 "이후" = rev N+1 의 스냅샷,
+      // 마지막 rev 의 "이후" = 현재 프로젝트. 되돌리기용 원본(스냅샷)과 화면용 문장이 어긋날 일이 없다.
+      const current = snapshotOfProject(project, attachmentCount);
+      const items = rows.map((r, i) => {
+        const before = parseSnapshot(r.snapshot);
+        const after = i + 1 < rows.length ? parseSnapshot(rows[i + 1]?.snapshot ?? null) : current;
+        return {
+          revNo: r.revNo,
+          major: r.major,
+          byOwner: r.byOwner,
+          createdAt: r.createdAt.toISOString(),
+          changes: before === null || after === null ? [] : diffProjectSnapshots(before, after).changes,
+        };
+      });
+      items.reverse(); // 최신 먼저
+      return { result: true as const, data: { items, total: items.length } };
     },
   );
 
@@ -581,7 +671,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return reply.status(403).send({ result: false, error: 'FORBIDDEN' });
     }
     const now = new Date();
-    const blocked = await editBlockReason(project, now);
+    const blocked = editBlockReason(project, now);
     if (blocked !== null) {
       return reply.status(409).send({ result: false, error: blocked });
     }
@@ -604,19 +694,28 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       request.log.error({ err }, 'market project file upload failed');
       return reply.status(502).send({ result: false, error: 'FILE_UPLOAD_FAILED' });
     }
-    await prisma.spFile.createMany({
-      data: uploaded.map((u, i) => ({
-        refType: REF_MARKET_PROJECT,
-        refId: project.id,
-        uploadFileName: u.uploadFileName,
-        originFileName: u.originFileName,
-        pathToken: u.pathToken,
-        size: BigInt(u.size),
-        writeDate: now,
-        fileType: 'attachment',
-        area: attachments[i]?.area ?? null,
-        slot: attachments[i]?.slot ?? null,
-      })),
+    // 첨부 증감도 의뢰 수정이다 — 개수 변화를 이력에 남긴다(중대 = 입찰자 경고 대상).
+    await prisma.$transaction(async (tx) => {
+      const beforeCount = await tx.spFile.count({
+        where: { refType: REF_MARKET_PROJECT, refId: project.id },
+      });
+      await tx.spFile.createMany({
+        data: uploaded.map((u, i) => ({
+          refType: REF_MARKET_PROJECT,
+          refId: project.id,
+          uploadFileName: u.uploadFileName,
+          originFileName: u.originFileName,
+          pathToken: u.pathToken,
+          size: BigInt(u.size),
+          writeDate: now,
+          fileType: 'attachment',
+          area: attachments[i]?.area ?? null,
+          slot: attachments[i]?.slot ?? null,
+        })),
+      });
+      const before = snapshotOfProject(project, beforeCount);
+      const after = snapshotOfProject(project, beforeCount + uploaded.length);
+      await writeProjectRevision(tx, project.id, request.user.mbId, true, before, after);
     });
     const fileRows = await projectFiles(project.id);
     return { result: true as const, data: { files: fileRows.map(toFileMeta) } };
@@ -660,7 +759,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (project.mbId !== request.user.mbId) {
         return reply.status(403).send({ result: false, error: 'FORBIDDEN' });
       }
-      const blocked = await editBlockReason(project, new Date());
+      const blocked = editBlockReason(project, new Date());
       if (blocked !== null) {
         return reply.status(409).send({ result: false, error: blocked });
       }
@@ -672,12 +771,24 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         },
       });
       if (file === null) return reply.notFound('파일이 없습니다');
+      const beforeCount = await prisma.spFile.count({
+        where: { refType: REF_MARKET_PROJECT, refId: project.id },
+      });
       try {
         await deleteMarketFile(file);
       } catch (err) {
         request.log.error({ err, fileId: Number(file.id) }, 'market project file delete failed');
         return reply.status(502).send({ result: false, error: 'FILE_DELETE_FAILED' });
       }
+      // 삭제는 파일서버 왕복이라 트랜잭션 밖에서 끝난다 — 이력은 그 뒤에 남긴다(실패해도 삭제는 유효).
+      await writeProjectRevision(
+        prisma,
+        project.id,
+        request.user.mbId,
+        true,
+        snapshotOfProject(project, beforeCount),
+        snapshotOfProject(project, Math.max(0, beforeCount - 1)),
+      );
       return { result: true as const, data: { fileId: Number(file.id) } };
     },
   );

@@ -10,7 +10,9 @@ export default defineConfig({
   base: '/market/',
   server: {
     // 5173=sp-vue, 5174·5175=git worktree 병렬 dev 대역 — 그 다음 번호를 쓴다.
-    port: 5176,
+    // 워크트리에서 두 번째 인스턴스를 띄울 땐 SP_MARKET_PORT/SP_API_TARGET 으로 옮긴다
+    // (본 checkout 의 5176·3333 을 건드리지 않고 나란히 확인하기 위한 통로).
+    port: Number(process.env.SP_MARKET_PORT ?? 5176),
     // nginx location /market/ 가 5176 고정 프록시 — 점유 시 조용히 다른 포트로
     // 밀리면(라우팅 무단절단) 원인 찾기 어려우므로 명시적으로 실패시킨다.
     strictPort: true,
@@ -21,7 +23,7 @@ export default defineConfig({
     // Vite 는 기본적으로 비허용 Host 를 403 차단하므로 명시 허용한다.
     allowedHosts: ['local-web.samplepcb.co.kr'],
     proxy: {
-      '/api': 'http://127.0.0.1:3333',
+      '/api': process.env.SP_API_TARGET ?? 'http://127.0.0.1:3333',
       '/spcb': 'http://127.0.0.1:8888',
     },
   },

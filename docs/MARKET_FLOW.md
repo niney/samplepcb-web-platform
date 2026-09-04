@@ -33,7 +33,7 @@ local-web.samplepcb.co.kr (nginx 443)
   서비스('nginx')라 `-s reload` 신호가 Access denied — 변경 시 관리자
   `net stop nginx & net start nginx`(순단 ~1초).
 
-## 3. 데이터 모델 (Prisma `sp_market_*` 5테이블, 2026-07-08 마이그레이션)
+## 3. 데이터 모델 (Prisma `sp_market_*` 7테이블 — 2026-07-08 5종 + 계약 + 수정 이력)
 
 | 테이블 | 역할 | 핵심 |
 |---|---|---|
@@ -42,6 +42,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | `sp_market_bid` | 입찰 | **unique(projectId, expertId)** = 전문가당 1입찰(재제출=같은 행) · amount 원 단위 Int · status `submitted\|awarded\|rejected\|withdrawn` |
 | `sp_market_nda_sign` | NDA 전자서명 | unique(projectId, mbId) · textVersion(문구 원문은 계약 상수) · signedName·ip 감사 스냅샷 |
 | `sp_market_settings` | 설정 싱글턴(id=1) | feeRateBp(기본 1000=10%) — GET 폴백/PATCH upsert, 시드 불요 |
+| `sp_market_project_revision` | 의뢰 수정 이력(2026-09-05) | unique(projectId, revNo) · `snapshot`=수정 **직전** 값 한 덩어리 · `changedFields`·`major`(중대 = 견적 전제가 달라짐) — §11 |
 | `sp_market_contract` | 계약(2차) | **projectId unique**(프로젝트당 1건) · amount=채택 입찰액(VAT 포함 총액) · **feeRateBp/fee/payout 채택 시점 스냅샷** · **contractKey**(uuid=영카트 io_id·주문 라인 식별) · ctId(카트행, 재주입 시 갱신) · status `pending\|paid\|delivered\|completed\|settled\|cancelled` · hold(자동확정 정지)·검수·정산·취소 감사 필드 |
 
 - **첨부·증빙은 `sp_file` 폴리모픽 재사용**: refType `'sp_market_project'`(attachment) /
@@ -62,8 +63,8 @@ local-web.samplepcb.co.kr (nginx 443)
     (제목·분야·설명·답변·첨부 원본 SHA-256 앞 10개)까지 대조한 뒤 박제. 불일치 400
     `REVIEW_STALE`, 타인·미완료 잡 400 `REVIEW_JOB_INVALID`. 클라이언트는 산출물 본문을 보내지
     않으므로 해시 대조·"고객 수정본" 라벨 체계가 없다.
-  - 검토서와 원천(제목·설명·분야)은 항상 일치한다는 불변식: 원천을 바꾸는 PATCH 는 검토서가
-    남아 있으면 409 `DEV_REVIEW_ATTACHED`(같은 요청에 `devReview:null` 을 실으면 허용).
+  - ~~검토서와 원천은 항상 일치한다는 불변식(409 `DEV_REVIEW_ATTACHED`)~~ → **2026-09-05 폐지**:
+    원천을 바꿔도 검토서를 떼지 않고 `devReviewStale` 배지로 "수정 전 내용으로 만든 것"임을 알린다(§11).
   - **v2(2026-09-02) 는 확정만** — 항목 상태 축 없음, 정해지지 않은 것은 "전문가와 상의할 항목"
     한 목록(≤6). 섹션 = 고객 의뢰내용 · 제안 시스템 구성도(입력→메인 보드→출력·연동 3열 카드,
     `renderDevReviewDiagramHtml`) · 기술개발 검토 결과(분야별 준비 상태 확정 n·상담 m + 검토 관찰 + 답변↔자료 정합 R9, docs/AI_DEV_REVIEW.md §12.10) · 개발명세서(확정 행만).
@@ -124,7 +125,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | 첨부 다운로드 | 소유자 ∨ 관리자 ∨ (승인 전문가 ∧ (targeted→지정자) ∧ (접수 중 ∨ 채택 전문가) ∧ (NDA 불요 ∨ 서명)). 프록시 스트림 = 게이트 실집행점 |
 | NDA 서명 자격 | 다운로드 자격 전문가와 동일 집합 + 채택 전문가는 마감 후에도 서명 가능(작업 열람 데드락 방지) |
 | 입찰 가드 사슬 | 승인 전문가 → 자기 프로젝트 금지 → targeted 지정자만 → lazy 마감(전체서비스 회사 전용 가드는 2026-08-28 폐지) → unique 중복(409 ALREADY_BID→PATCH 유도) |
-| 소유자 수정 | 입찰 0건(≠withdrawn) && 접수 중일 때만(method·지정 대상 변경 불허) |
+| 소유자 수정 | **접수 중(bidding ∧ 마감 전)이면 입찰이 있어도 가능**(method·지정 대상만 변경 불허). 마감·채택·취소 뒤는 409 `NOT_EDITABLE` — §11 참조 |
 | 연락처·계좌 | 본인·관리자 외 어떤 응답에도 부재(채택 전 직거래 차단 — 연락 개시는 2차 계약/메시지) |
 
 에러 봉투: 회원 라우트 `{result:false,error:'CODE'}`(pcb-projects 관례) · 관리자 라우트
@@ -218,3 +219,52 @@ local-web.samplepcb.co.kr (nginx 443)
 - 3차 후보(§1)에 추가: 계약 카트행의 cart.php 딥링크(현재 상품 링크 유지), 재사용 카트행의
   옵션 행 소실 시 자동 복구(현재는 사용자 행 삭제 후 재결제 경로로 해소).
 - 위키 재컴파일(`/wiki-compile`) 권장 — sp-node-api·sp-vue-web·infrastructure 토픽에 마켓 반영.
+
+## 11. 의뢰 수정·버전 (2026-09-05)
+
+의뢰를 등록한 뒤에도 고칠 수 있다. 옛 규칙(**입찰 1건이라도 있으면 잠금**)은 오타 하나도 못 고치게 만들었고,
+검토서가 붙어 있으면 원천 수정을 아예 막았다(`DEV_REVIEW_ATTACHED`). 둘 다 폐지하고, 대신 **수정 직전 값을
+남기고 바뀌었음을 상대에게 보이게** 한다.
+
+### 11.1 규칙
+
+| 축 | 결정 |
+|---|---|
+| 수정 창 | `bidding ∧ 마감 전` 이면 **입찰 유무 무관**하게 수정 가능. 마감·채택·취소 뒤는 409 `NOT_EDITABLE`(그 뒤 원천이 바뀌면 계약 분쟁) |
+| 수정 대상 | 제목 · 개발 분야 · 희망 툴 · 설명 · **답변**(신규 — 옛 계약엔 없어 조건을 못 고쳤다) · 예산 · NDA · 마감 · 첨부. `method`·지정 대상은 불변(입찰 자격의 근거) |
+| 이력 | 수정 한 번 = `sp_market_project_revision` 한 행(append-only). `snapshot` = **수정 직전** 값 한 덩어리(필드가 늘어도 스키마 불변, 되돌리기 여지). 바뀐 값이 없으면 행을 만들지 않는다 |
+| 중대/사소 | **중대** = 분야·설명·답변·마감·첨부(이미 낸 견적의 전제가 달라진다) → 입찰자 경고 + 마감 자동 연장 대상. **사소** = 제목·툴·예산·NDA → 이력에만 남는다(배너 남발 방지) |
+| 마감 자동 연장 | 중대한 수정인데 남은 시간이 **24시간 미만**이면 마감을 **48시간 뒤**로 민다(`MARKET_REVISION_DEADLINE_*`). 소유자 선택이 아니라 규칙 — 입찰자가 견적을 고칠 시간을 남긴다 |
+| 검토서 | 원천이 바뀌어도 **지우지 않는다**. `devReviewStale`(검토서 생성 뒤 제목·분야·설명·답변·첨부가 바뀌었나)로 "수정 전 내용으로 만든 검토서" 배지만 세운다. 제거는 여전히 소유자 선택(`devReview:null`) |
+| 첨부 | 추가·삭제는 즉시 반영(파일서버 왕복이라 저장 버튼과 트랜잭션 경계가 다르다) — 각각 자기 revision 을 남긴다. 이력에는 **개수 변화만** 담는다(파일명은 NDA 게이트 뒤 정보) |
+| 되돌리기 | 1차 범위 밖. 되돌린 것도 또 하나의 수정이라 스냅샷만 쌓아 두면 나중에 붙일 수 있다 |
+
+### 11.2 "바뀌었다" 를 알리는 법 (알림 기능 없이)
+
+판정은 하나뿐이다: **내 견적 `updatedAt`(재제출 최종 시각) < 마지막 중대 revision `createdAt`**.
+
+- 상세 헤더 배지 `수정됨 v3 · 9/4` → 누르면 이력 섹션으로.
+- 입찰자 전용 경고 배너(`viewer.myBidOutdated`) — "견적을 내신 뒤 의뢰 내용이 바뀌었습니다" + [바뀐 내용 보기] [견적 수정].
+  견적을 다시 내면(재제출 = 같은 행 수정) `updatedAt` 이 앞서므로 경고가 스스로 사라진다.
+- 내 견적 목록 배지(`projectRevisedAfterBid`) — 상세에 다시 안 들어와도 보이게.
+- 수정 이력 섹션 — 필드별 이전/이후. 서버가 스냅샷 사슬에서 만들어 내려준다(rev N 의 "이후" = rev N+1 의 스냅샷,
+  마지막은 현재 프로젝트) — 화면은 diff 를 계산하지 않는다.
+- 메일은 붙이지 않았다(`sendMarketMail` 인프라는 있으므로 나중에 한 줄).
+
+### 11.3 구현 위치
+
+| 층 | 위치 |
+|---|---|
+| DB | `sp_market_project_revision`(projectId·revNo unique · actorMbId · byOwner · major · changedFields · snapshot) — 마이그레이션 `20260905090000_market_project_revision` |
+| 계약 | `MarketProjectUpdateBody`(+answers) · `MarketProjectRevisionItem`/`ListResponse` · `MarketProjectUpdateResponse{revNo,major,deadlineExtendedTo}` · `MARKET_REVISION_FIELDS`/`_LABELS`/`MARKET_MAJOR_REVISION_FIELDS`/`isMajorMarketRevision`/`MARKET_REVISION_DEADLINE_*` · Detail `revisionCount·lastRevisionAt·devReviewStale` · Viewer `myBidOutdated` · MyBid `projectRevisedAfterBid` |
+| 서버 | `lib/market-revision.ts`(스냅샷·diff·기록·stale 판정) · `routes/market-projects.ts` PATCH/`GET :id/revisions`/첨부 2종 · `routes/market-bids.ts` my/bids |
+| 화면 | `pages/ProjectEdit.vue`(신규, 라우트 `/projects/:id/edit`) · `ProjectDetail.vue`(배지·경고 배너·이력 섹션·검토서 stale) · `Me.vue`(견적 목록 배지) |
+
+⚠ 수정 화면은 등록 위저드를 재사용하지 않는다 — 위저드는 AI 잡 오케스트레이션까지 소유해서 수정 경로로 끌고 오면
+검토서를 다시 돌리게 된다. 문항·분야 카드·드롭존 컴포넌트만 빌려 쓴다.
+⚠ 마감은 **손댔을 때만** 보낸다(`deadlineTouched`) — 등록은 시각까지 있는 값이고 수정 화면은 날짜 입력이라,
+그대로 보내면 저장만 눌러도 23:59 로 밀려 "중대한 수정"(입찰자 경고)이 공짜로 발생한다.
+
+검증(2026-09-05): e2e-market **146/0**(수정 8케이스 신규 — 사소/중대 구분 · 빈 수정 무이력 · 이력 목록 · 입찰
+있는 수정 · myBidOutdated · 재제출로 경고 해소 · 채택 후 NOT_EDITABLE) · api 단위 980 + `market-revision` 6 ·
+계약/api/market/web 타입체크·lint 0 · 실브라우저 수정 왕복(pageErrors 0).

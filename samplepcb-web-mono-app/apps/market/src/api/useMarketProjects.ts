@@ -2,10 +2,14 @@ import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   DevDiagramRequestResponse,
+  MarketFileDeleteResponse,
   MarketMyProjectListResponse,
   MarketProjectCreateResponse,
   MarketProjectDetailResponse,
+  MarketProjectFilesResponse,
   MarketProjectListResponse,
+  MarketProjectRevisionListResponse,
+  MarketProjectUpdateResponse,
   apiRoutes,
 } from '@sp/api-contract';
 import type {
@@ -94,9 +98,8 @@ export function useCreateProject() {
   });
 }
 
-// 의뢰 수정(소유자·입찰 0건·접수 중) — 현재 마켓 화면이 쓰는 유일한 용도는
-// AI 사전 검토서 제거({ devReview: null })다. 검토서 본문은 서버 저장분이 정본이라
-// 갱신 경로가 없고, 제거만 계약에 열려 있다(MarketProjectUpdateBody).
+// 의뢰 수정(소유자·접수 중이면 입찰이 있어도 가능) — 서버가 수정 직전 값을 이력으로 남기고
+// 중대한 수정이면 마감을 자동 연장한다(docs/MARKET_FLOW.md §의뢰 수정·버전).
 export function useUpdateProject(projectId: Ref<number | null>) {
   const qc = useQueryClient();
   return useMutation({
@@ -105,11 +108,60 @@ export function useUpdateProject(projectId: Ref<number | null>) {
         'PATCH',
         `${apiRoutes.marketProjects}/${String(projectId.value)}`,
         body,
-        MarketProjectCreateResponse,
+        MarketProjectUpdateResponse,
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['market', 'projects'] });
       void qc.invalidateQueries({ queryKey: ['market', 'my-projects'] });
+      void qc.invalidateQueries({ queryKey: ['market', 'revisions'] });
+    },
+  });
+}
+
+// 수정 이력 — 상세의 "수정 이력" 섹션. 공개 범위는 설명과 같다(첨부는 개수 변화만 담긴다).
+export function useProjectRevisions(projectId: Ref<number | null>, enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['market', 'revisions', projectId],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.marketProjects}/${String(projectId.value)}/revisions`,
+        MarketProjectRevisionListResponse,
+      ),
+    enabled: computed(() => enabled.value && projectId.value !== null),
+  });
+}
+
+// 첨부 추가(multipart) — 등록과 같은 파트 이름(attachment / attachment:<분야>:<슬롯>).
+export function useAddProjectFiles(projectId: Ref<number | null>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (form: FormData) =>
+      apiSendForm(
+        'POST',
+        `${apiRoutes.marketProjects}/${String(projectId.value)}/files`,
+        form,
+        MarketProjectFilesResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['market', 'projects', 'detail', projectId] });
+      void qc.invalidateQueries({ queryKey: ['market', 'revisions'] });
+    },
+  });
+}
+
+export function useDeleteProjectFile(projectId: Ref<number | null>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (fileId: number) =>
+      apiSend(
+        'DELETE',
+        `${apiRoutes.marketProjects}/${String(projectId.value)}/files/${String(fileId)}`,
+        {},
+        MarketFileDeleteResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['market', 'projects', 'detail', projectId] });
+      void qc.invalidateQueries({ queryKey: ['market', 'revisions'] });
     },
   });
 }

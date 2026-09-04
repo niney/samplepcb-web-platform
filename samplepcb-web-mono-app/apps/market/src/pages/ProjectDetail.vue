@@ -41,7 +41,12 @@ import {
   useContractQuery,
   useDeliver,
 } from '../api/useMarketContract';
-import { useMarketProjectDetail, useRequestDevDiagram, useUpdateProject } from '../api/useMarketProjects';
+import {
+  useMarketProjectDetail,
+  useProjectRevisions,
+  useRequestDevDiagram,
+  useUpdateProject,
+} from '../api/useMarketProjects';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
 import { errorMessage } from '../lib/error-msg';
@@ -151,6 +156,14 @@ const reportError = ref('');
 const dday = computed(() => (detail.value !== undefined ? ddayBadge(detail.value) : null));
 const bids = computed(() => bidsQ.data.value?.data.items ?? []);
 
+// 수정 이력(docs/MARKET_FLOW.md §의뢰 수정·버전) — 이력이 있을 때만 조회한다.
+const hasRevisions = computed(() => (detail.value?.revisionCount ?? 0) > 0);
+const revisionsQ = useProjectRevisions(projectId, hasRevisions);
+const revisions = computed(() => revisionsQ.data.value?.data.items ?? []);
+// 알림이 없는 대신 화면이 알린다: 내 견적 뒤에 중대한 수정이 있었다.
+const myBidOutdated = computed(() => viewer.value?.myBidOutdated === true);
+const majorRevisionCount = computed(() => revisions.value.filter((r) => r.major).length);
+
 // 구성도 카드를 검토서 밖에 따로 세우는 경우 — 검토서가 없고(있으면 그 안에 그린다) 메타가 있거나 소유자(만들기 버튼).
 const standaloneDiagram = computed(
   () => devReview.value === null && detail.value !== undefined && (detail.value.devDiagram.meta !== null || isOwner.value),
@@ -164,6 +177,7 @@ const sections = computed(() => {
   if (devReview.value !== null) list.push({ id: 'review', label: 'AI 사전 검토서', count: null });
   if (standaloneDiagram.value) list.push({ id: 'diagram', label: '시스템 구성도', count: null });
   list.push({ id: 'files', label: '첨부', count: d.attachments.count });
+  if (d.revisionCount > 0) list.push({ id: 'revisions', label: '수정 이력', count: d.revisionCount });
   if (isOwner.value) list.push({ id: 'bids', label: '받은 견적', count: d.bidCount });
   return list;
 });
@@ -385,6 +399,15 @@ async function onRemoveDevReview(): Promise<void> {
             {{ MARKET_METHOD_LABELS[detail.method] }}
           </span>
           <span v-if="detail.ndaRequired" class="rounded-full bg-amber-100 px-2.5 py-1 text-amber-700">🔏 NDA</span>
+          <button
+            v-if="detail.revisionCount > 0"
+            type="button"
+            class="rounded-full bg-ink-900 px-2.5 py-1 text-white transition hover:bg-ink-800"
+            @click="jumpTo('revisions')"
+          >
+            수정됨 v{{ detail.revisionCount }}
+            <span v-if="detail.lastRevisionAt !== null" class="font-normal opacity-80">· {{ dateShort(detail.lastRevisionAt) }}</span>
+          </button>
         </div>
         <h1 class="text-h1 font-extrabold text-tx-1">{{ detail.title }}</h1>
         <div class="flex flex-wrap gap-x-5 gap-y-1 text-label text-tx-2">
@@ -399,6 +422,26 @@ async function onRemoveDevReview(): Promise<void> {
           <span>{{ dateShort(detail.createdAt) }} 등록</span>
         </div>
       </header>
+
+      <!-- 견적을 낸 뒤 의뢰가 바뀌었다 — 알림 기능이 없는 대신 이 배너가 알린다(§의뢰 수정·버전) -->
+      <div v-if="myBidOutdated" class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-4 text-amber-900">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-200 text-body">⚠</span>
+        <div class="min-w-0">
+          <p class="text-lead font-extrabold">견적을 내신 뒤 의뢰 내용이 바뀌었습니다</p>
+          <p class="text-label leading-relaxed">
+            바뀐 내용을 확인하고 필요하면 견적을 다시 내 주세요.
+            <span v-if="majorRevisionCount > 0">중대한 수정 {{ majorRevisionCount }}건</span>
+          </p>
+        </div>
+        <div class="ml-auto flex flex-wrap gap-2">
+          <button type="button" class="h-9 rounded-lg border border-amber-400 bg-white px-3.5 text-label font-bold text-amber-900 hover:border-amber-600" @click="jumpTo('revisions')">
+            바뀐 내용 보기
+          </button>
+          <button v-if="canBid && myBid !== null" type="button" class="h-9 rounded-lg bg-amber-600 px-3.5 text-label font-bold text-white hover:bg-amber-700" @click="openBidModal('edit')">
+            견적 수정
+          </button>
+        </div>
+      </div>
 
       <!-- sticky 섹션 내비 -->
       <nav class="sticky top-0 z-20 mt-5 border-b border-line bg-paper">
@@ -459,6 +502,11 @@ async function onRemoveDevReview(): Promise<void> {
 
           <!-- AI 사전 검토서 — 공개 범위는 상세 설명과 동일(상세를 볼 수 있는 뷰어 전원) -->
           <div v-if="devReview !== null" id="s-review" class="scroll-mt-16 rounded-2xl border border-line bg-white p-6">
+            <!-- 검토서는 원천이 바뀌어도 지우지 않는다 — 어느 버전 기준인지만 알린다(§의뢰 수정·버전) -->
+            <p v-if="detail.devReviewStale" class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-label leading-relaxed text-amber-900">
+              <b class="text-body">이 검토서는 수정 전 내용으로 만들었습니다</b> — 그 뒤 의뢰가 바뀌어 지금 내용과 다를 수 있습니다.
+              <template v-if="isOwner"> 필요하면 검토서를 제거하고 새 의뢰로 다시 만들 수 있습니다.</template>
+            </p>
             <DevReviewView
               :review="devReview"
               :title="detail.title"
@@ -524,6 +572,37 @@ async function onRemoveDevReview(): Promise<void> {
               </button>
               <p v-else-if="viewer === null" class="mt-2 text-label text-tx-3">열람 자격(승인 전문가)은 로그인 후 확인됩니다.</p>
             </div>
+          </div>
+
+          <!-- 수정 이력 — 언제 무엇이 바뀌었나(첨부는 개수 변화만, 파일명은 NDA 게이트 뒤) -->
+          <div v-if="detail.revisionCount > 0" id="s-revisions" class="grid scroll-mt-16 gap-4 rounded-2xl border border-line bg-white p-6">
+            <div>
+              <p class="font-mono text-micro tracking-[.14em] text-tx-3">REVISIONS</p>
+              <h2 class="text-title font-extrabold text-tx-1">
+                수정 이력 <span class="font-normal tabular-nums text-tx-3">{{ detail.revisionCount }}회</span>
+              </h2>
+              <p class="mt-1 text-label text-tx-3">의뢰인이 등록 뒤 고친 내용입니다. 중대한 수정은 견적을 낸 전문가에게 경고로 표시됩니다.</p>
+            </div>
+            <p v-if="revisionsQ.isPending.value" class="text-body text-tx-3">불러오는 중…</p>
+            <ol v-else class="grid gap-3">
+              <li v-for="r in revisions" :key="r.revNo" class="grid gap-2.5 rounded-xl border border-line bg-paper p-4">
+                <div class="flex flex-wrap items-center gap-2 text-micro font-bold">
+                  <span class="rounded-full bg-ink-900 px-2.5 py-1 text-white">v{{ r.revNo }}</span>
+                  <span v-if="r.major" class="rounded-full bg-amber-100 px-2.5 py-1 text-amber-700">중대한 수정</span>
+                  <span v-if="!r.byOwner" class="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">관리자 대행</span>
+                  <span class="font-mono font-normal text-tx-3">{{ dateShort(r.createdAt) }}</span>
+                </div>
+                <dl class="grid gap-2">
+                  <div v-for="c in r.changes" :key="c.field" class="grid gap-1 sm:grid-cols-[110px_1fr]">
+                    <dt class="text-label font-semibold text-tx-3">{{ c.label }}</dt>
+                    <dd class="grid gap-1 text-body text-tx-1">
+                      <span class="whitespace-pre-line text-tx-3 line-through decoration-tx-3/40">{{ c.before }}</span>
+                      <span class="whitespace-pre-line font-semibold">{{ c.after }}</span>
+                    </dd>
+                  </div>
+                </dl>
+              </li>
+            </ol>
           </div>
 
           <!-- 소유자: 받은 견적 비교 -->
@@ -605,6 +684,14 @@ async function onRemoveDevReview(): Promise<void> {
             <p class="text-lead font-bold text-tx-1">받은 견적 <span class="tabular-nums">{{ detail.bidCount }}</span>건</p>
             <p class="text-label leading-relaxed text-tx-3">채택하면 나머지 견적은 자동 종결됩니다. 마감 전에는 언제든 조기 마감할 수 있습니다.</p>
             <div class="grid gap-2">
+              <!-- 의뢰 수정 — 접수 중이면 견적이 있어도 고칠 수 있다(수정 이력이 남고 입찰자에게 경고가 뜬다) -->
+              <RouterLink
+                v-if="detail.status === 'bidding' && !detail.biddingClosed"
+                :to="`/projects/${String(detail.projectId)}/edit`"
+                class="flex h-10 items-center justify-center rounded-lg border border-line-2 px-4 text-body font-bold text-tx-2 transition hover:border-tx-3"
+              >
+                의뢰 수정
+              </RouterLink>
               <template v-if="detail.status === 'bidding' && !detail.biddingClosed">
                 <template v-if="confirmAction === 'close'">
                   <p class="text-label font-bold text-tx-2">견적 접수를 조기 마감할까요?</p>

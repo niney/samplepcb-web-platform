@@ -282,6 +282,25 @@ model SpMarketBid {
   @@map("sp_market_bid")
 }
 
+// 의뢰 수정 이력 — 수정 한 번 = 한 행(append-only, 리포의 *_event 테이블 관례).
+// snapshot 은 수정 **직전** 값 한 덩어리라 필드가 늘어도 스키마가 안 바뀐다(되돌리기 여지도 남는다).
+// major = 이미 낸 견적의 전제가 달라지는 수정(분야·설명·답변·마감·첨부) — 입찰자 경고·마감 자동 연장의 기준.
+model SpMarketProjectRevision {
+  id            BigInt   @id @default(autoincrement())
+  projectId     BigInt
+  revNo         Int // 프로젝트별 1부터
+  actorMbId     String   @db.VarChar(191)
+  byOwner       Boolean  @default(true) // false = 관리자 대행
+  major         Boolean  @default(false)
+  changedFields Json // MarketRevisionField 코드 배열
+  snapshot      Json // 수정 직전 값(title·serviceAreas·tools·description·answers·budgetRange·ndaRequired·bidDeadlineAt·attachmentCount)
+  createdAt     DateTime @default(now())
+
+  @@unique([projectId, revNo])
+  @@index([projectId, createdAt]) // 이력 목록 + 마지막 major 조회
+  @@map("sp_market_project_revision")
+}
+
 // NDA 전자서명 — 프로젝트 단위 1인 1서명(재서명 요청은 멱등). 문구 원문은 계약
 // (MARKET_NDA_TEXT)이 버전 관리하고 여기엔 textVersion 만 저장.
 model SpMarketNdaSign {

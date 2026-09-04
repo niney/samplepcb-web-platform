@@ -27,6 +27,7 @@ import {
 } from '../lib/market';
 import { asContractStatus, computeContractFee } from '../lib/market-contract';
 import { buildMarketRequestSnapshot } from '../lib/market-snapshot';
+import { lastMajorRevisionMap } from '../lib/market-revision';
 import { prisma } from '../lib/prisma';
 
 // ── /api/market — 입찰(블라인드 견적) 제출·수정·철회·비교·채택 ────────────────
@@ -444,9 +445,12 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       const contractStatusByBid = new Map(
         contracts.map((c) => [c.bidId.toString(), asContractStatus(c.status)]),
       );
+      // 내 견적 뒤에 의뢰가 중대하게 바뀌었나 — 목록 배지(상세의 myBidOutdated 와 같은 판정).
+      const majorRevisedAt = await lastMajorRevisionMap(rows.map((b) => b.projectId));
       const now = new Date();
       const items: MarketMyBidListItemType[] = rows.map((b) => {
         const p = projectById.get(b.projectId.toString());
+        const revisedAt = majorRevisedAt.get(b.projectId.toString());
         return {
           bidId: Number(b.id),
           amount: b.amount,
@@ -455,6 +459,10 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           contractStatus: contractStatusByBid.get(b.id.toString()) ?? null,
           createdAt: b.createdAt.toISOString(),
           updatedAt: b.updatedAt.toISOString(),
+          projectRevisedAfterBid:
+            b.status !== 'withdrawn' &&
+            revisedAt !== undefined &&
+            b.updatedAt.getTime() < revisedAt.getTime(),
           project: {
             projectId: Number(b.projectId),
             title: p?.title ?? '',

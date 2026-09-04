@@ -30,7 +30,8 @@ const apiRequire = createRequire(
 );
 const { PrismaClient } = apiRequire('@prisma/client');
 
-const API = 'http://127.0.0.1:3333';
+// 기본은 로컬 sp-node(3333). 워크트리에서 별도 인스턴스를 띄워 검증할 땐 E2E_API 로 포트를 바꾼다.
+const API = process.env.E2E_API ?? 'http://127.0.0.1:3333';
 const MAILPIT = 'http://127.0.0.1:8025';
 const IDS_FILE = join(tmpdir(), 'sp-market-e2e-ids.json');
 const MODE = process.argv[2] ?? 'run';
@@ -499,8 +500,9 @@ async function run() {
     // ── 3) AI 사전 검토서 잡 시드 → 의뢰 등록(역견적·NDA·첨부) ──
     // 원천 해시 = 제목·분야·설명·공통+분야별 질문 답변 + 첨부(`파트이름:sha256`, 정렬 앞 10개).
     // 등록 라우트가 같은 규칙으로 재계산해 대조하므로, 하네스도 출하 함수(devReviewInputHash)를 쓴다.
-    // 첨부는 일반 1건 + 분야 슬롯(attachment:circuit:schematic) 1건 — 슬롯 파트가 해시·area/slot
-    // 응답에 모두 반영되는지 같이 검증한다.
+    // 첨부는 일반 1건 + 분야 슬롯(attachment:circuit:schematic) 1건 — 슬롯 파트가 area/slot 응답에
+    // 반영되는지 같이 검증한다. **해시에는 일반 첨부만** 들어간다: 슬롯 자료는 AI 분석 대상이 아니라
+    // (docs/AI_DEV_REVIEW.md §13.10) devReviewAttachmentHashes 가 `attachment` 파트만 잰다.
     const prjAnswers = [
       ...requiredAnswers,
       { code: 'stage', choices: ['idea'] },
@@ -518,10 +520,7 @@ async function run() {
     };
     const prjHash = devReviewInputHash({
       ...prjSource,
-      attachmentHashes: [
-        attachmentHashOf('attachment', prjAttachmentBody),
-        attachmentHashOf(prjSlotField, prjSlotBody),
-      ],
+      attachmentHashes: [attachmentHashOf('attachment', prjAttachmentBody)],
     });
     const reviewJobId = await seedAiJob(
       cm.mb_id,
@@ -766,29 +765,63 @@ async function run() {
     const myDiagramsAnon = await req('GET', '/api/market/my/dev-diagrams');
     assert(myDiagramsAnon.status === 401, '내 구성도 목록 비로그인 401', myDiagramsAnon.status);
 
-    // ── 4.3) 검토서 부착 상태의 원천 수정 가드 ──
-    // 원천(제목·설명·분야)과 검토서가 어긋나는 상태를 만들 수 없다: 409 → 같은 요청에
-    // devReview:null 을 실으면 통과(검토서를 버리는 선택을 명시한 것).
+    // ── 4.3) 의뢰 수정 + 버전(docs/MARKET_FLOW.md §의뢰 수정·버전) ──
+    // 검토서가 붙어 있어도 원천을 고칠 수 있다(옛 409 DEV_REVIEW_ATTACHED 폐지). 검토서는 지우지 않고
+    // devReviewStale 로 "수정 전 내용으로 만든 것"임을 알린다. 수정 직전 값은 revision 으로 남는다.
     const retitle = await req('PATCH', `/api/market/projects/${pid}`, {
       token: tClient,
       body: { title: 'E2E 심박 모니터 회로 개발 v2' },
     });
     assert(
-      retitle.status === 409 && retitle.json?.error === 'DEV_REVIEW_ATTACHED',
-      '검토서 있는 의뢰의 제목 PATCH 409 DEV_REVIEW_ATTACHED',
+      retitle.status === 200 && retitle.json?.data?.revNo === 1 && retitle.json?.data?.major === false,
+      '검토서 있는 의뢰의 제목 PATCH 200 + v1(사소한 수정)',
       retitle,
     );
-    const retitleWithDrop = await req('PATCH', `/api/market/projects/${pid}`, {
+    const noop = await req('PATCH', `/api/market/projects/${pid}`, {
       token: tClient,
-      body: { title: 'E2E 심박 모니터 회로 개발 v2', devReview: null },
+      body: { title: 'E2E 심박 모니터 회로 개발 v2' },
     });
-    assert(retitleWithDrop.status === 200, '제목+검토서 제거 동시 PATCH 200', retitleWithDrop);
+    assert(noop.status === 200 && noop.json?.data?.revNo === null, '같은 값 PATCH 는 이력을 만들지 않는다', noop);
+
+    const majorEdit = await req('PATCH', `/api/market/projects/${pid}`, {
+      token: tClient,
+      body: { description: "E2E 심박 모니터 회로 개발 의뢰입니다. 전원은 USB-C 어댑터로 씁니다. 설명을 고쳐 중대한 수정을 만듭니다." },
+    });
+    assert(
+      majorEdit.status === 200 && majorEdit.json?.data?.revNo === 2 && majorEdit.json?.data?.major === true,
+      '설명 수정은 중대한 수정(v2, major)',
+      majorEdit,
+    );
+
+    const afterEdit = await req('GET', `/api/market/projects/${pid}`);
+    assert(
+      afterEdit.json?.data?.title === 'E2E 심박 모니터 회로 개발 v2' &&
+        afterEdit.json?.data?.devReview !== null &&
+        afterEdit.json?.data?.devReviewStale === true &&
+        afterEdit.json?.data?.revisionCount === 2,
+      '수정 반영 + 검토서 유지 + devReviewStale + revisionCount',
+      { stale: afterEdit.json?.data?.devReviewStale, count: afterEdit.json?.data?.revisionCount },
+    );
+
+    const revs = await req('GET', `/api/market/projects/${pid}/revisions`);
+    assert(
+      revs.status === 200 &&
+        revs.json?.data?.items?.[0]?.revNo === 2 &&
+        revs.json?.data?.items?.[0]?.changes?.[0]?.field === 'description' &&
+        revs.json?.data?.items?.[1]?.changes?.[0]?.field === 'title',
+      '수정 이력 목록 — 최신 먼저, 바뀐 필드만',
+      revs.json?.data?.items,
+    );
+
+    const dropReview = await req('PATCH', `/api/market/projects/${pid}`, {
+      token: tClient,
+      body: { devReview: null },
+    });
+    assert(dropReview.status === 200, '검토서 제거 PATCH 200', dropReview);
     const afterDrop = await req('GET', `/api/market/projects/${pid}`);
     assert(
-      afterDrop.json?.data?.devReview === null &&
-        afterDrop.json?.data?.hasDevReview === false &&
-        afterDrop.json?.data?.title === 'E2E 심박 모니터 회로 개발 v2',
-      '검토서 제거 반영 + 제목 갱신',
+      afterDrop.json?.data?.devReview === null && afterDrop.json?.data?.hasDevReview === false,
+      '검토서 제거 반영',
       afterDrop.json?.data?.devReview,
     );
 
@@ -888,6 +921,40 @@ async function run() {
     });
     assert(patch.status === 200 && patch.json?.data?.amount === 4000000, '입찰 재제출');
 
+    // ── 8.1) 견적이 들어온 뒤의 의뢰 수정 — 옛 HAS_BIDS 잠금 폐지, 대신 입찰자에게 표시된다 ──
+    const editWithBids = await req('PATCH', `/api/market/projects/${pid}`, {
+      token: tClient,
+      body: { description: 'E2E 심박 모니터 회로 개발 의뢰입니다. 견적 접수 뒤 설명을 한 번 더 고칩니다. 방수 등급이 필요합니다.' },
+    });
+    assert(
+      editWithBids.status === 200 && editWithBids.json?.data?.major === true,
+      '입찰 1건 있는 의뢰 수정 200(중대)',
+      editWithBids,
+    );
+    const expertView = await req('GET', `/api/market/projects/${pid}`, { token: tExpert });
+    assert(
+      expertView.json?.data?.viewer?.myBidOutdated === true,
+      '입찰자 상세: 내 견적 뒤 수정 → myBidOutdated',
+      expertView.json?.data?.viewer,
+    );
+    const myBidsAfterEdit = await req('GET', '/api/market/my/bids', { token: tExpert });
+    assert(
+      myBidsAfterEdit.json?.data?.items?.some((i) => i.project.projectId === pid && i.projectRevisedAfterBid === true),
+      '내 견적 목록: 의뢰 변경됨 배지',
+      myBidsAfterEdit.json?.data?.items,
+    );
+    const rebid = await req('PATCH', `/api/market/projects/${pid}/my-bid`, {
+      token: tExpert,
+      body: { amount: 4000000, durationDays: 35, message: 'E2E 수정 제안 메시지입니다.' },
+    });
+    assert(rebid.status === 200, '견적 재제출로 경고 해소 준비', rebid);
+    const expertViewAfterRebid = await req('GET', `/api/market/projects/${pid}`, { token: tExpert });
+    assert(
+      expertViewAfterRebid.json?.data?.viewer?.myBidOutdated === false,
+      '견적을 다시 내면 경고가 사라진다',
+      expertViewAfterRebid.json?.data?.viewer,
+    );
+
     // ── 9) 채택 트랜잭션 + 레이스/종결 가드 ──
     const bidId = patch.json?.data?.bidId;
     const award = await req('POST', `/api/market/projects/${pid}/bids/${bidId}/award`, { token: tClient });
@@ -901,6 +968,16 @@ async function run() {
       body: { amount: 1, durationDays: 1, message: '채택 후 수정 시도입니다.' },
     });
     assert(lateEdit.status === 409, '채택 후 수정 409');
+    // 채택 뒤에는 의뢰 자체도 잠긴다 — 그 뒤 원천이 바뀌면 계약 분쟁이 된다.
+    const lateProjectEdit = await req('PATCH', `/api/market/projects/${pid}`, {
+      token: tClient,
+      body: { title: '채택 후 제목 수정 시도' },
+    });
+    assert(
+      lateProjectEdit.status === 409 && lateProjectEdit.json?.error === 'NOT_EDITABLE',
+      '채택 후 의뢰 수정 409 NOT_EDITABLE',
+      lateProjectEdit,
+    );
 
     // ── 10) 지정견적: 인박스 수신·지정자 입찰·취소·익명 404 ──
     const tf = new FormData();

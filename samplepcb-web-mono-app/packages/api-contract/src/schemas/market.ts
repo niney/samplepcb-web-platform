@@ -479,16 +479,18 @@ export const MarketProjectCreatePayload = z
   });
 export type MarketProjectCreatePayloadType = z.infer<typeof MarketProjectCreatePayload>;
 
-// 수정 — 입찰 0건 && bidding && 마감 전(라우트 가드). method/지정 대상은 변경 불가.
-// devReview 는 null(제거)만 받는다: 검토서 본문은 서버 저장분이 정본이라 갱신 경로가 없고,
-// 원천(제목·설명·분야)을 바꾸는 수정은 검토서가 남아 있으면 라우트가 409 로 막는다
-// (같은 요청에 devReview:null 을 실으면 허용 — 검토서와 원천이 항상 일치한다는 불변식).
+// 수정 — bidding && 마감 전이면 **입찰이 있어도** 고칠 수 있다(docs/MARKET_FLOW.md §수정·버전).
+// 대신 수정 직전 값이 sp_market_project_revision 에 스냅샷으로 남고, 중대한 수정은 입찰자 화면에
+// 경고로 뜬다. method/지정 대상은 여전히 변경 불가(입찰 자격의 근거라 바꾸면 판이 달라진다).
+// devReview 는 null(제거)만 받는다 — 검토서 본문은 서버 저장분이 정본이라 갱신 경로가 없다.
+// 원천을 바꿔도 검토서를 떼지 않는다: 서버가 "몇 번째 버전 기준" 인지 파생해 배지로 알린다.
 export const MarketProjectUpdateBody = z
   .object({
     title: marketProjectEditableShape.title,
     serviceAreas: marketProjectEditableShape.serviceAreas,
     tools: MarketTools, // default 없이 — 미전송=변경 없음
     description: marketProjectEditableShape.description,
+    answers: MarketAnswers, // 공통 조건·질문·분야 맞춤 답변(필수 문항 미응답은 라우트가 ANSWERS_REQUIRED)
     devReview: z.null(), // null = AI 사전 검토서 제거
     ndaRequired: z.boolean(),
     budgetRange: marketProjectEditableShape.budgetRange,
@@ -502,6 +504,74 @@ export const MarketProjectUpdateBody = z
     }
   });
 export type MarketProjectUpdateBodyType = z.infer<typeof MarketProjectUpdateBody>;
+
+// ── 의뢰 수정 이력(버전) ─────────────────────────────────────────────────────
+// 수정 한 번 = revision 한 행(수정 **직전** 값 스냅샷 + 바뀐 필드). 되돌리기는 1차 범위 밖 —
+// 되돌린 것도 또 하나의 수정이라 스냅샷만 쌓아 두면 나중에 붙일 수 있다.
+export const MARKET_REVISION_FIELDS = [
+  'title', 'serviceAreas', 'tools', 'description', 'answers',
+  'budgetRange', 'ndaRequired', 'deadline', 'attachments',
+] as const;
+export type MarketRevisionFieldType = (typeof MARKET_REVISION_FIELDS)[number];
+
+export const MARKET_REVISION_FIELD_LABELS = {
+  title: '제목',
+  serviceAreas: '개발 분야',
+  tools: '희망 툴·언어',
+  description: '의뢰 설명',
+  answers: '질문 답변',
+  budgetRange: '예상 예산',
+  ndaRequired: 'NDA',
+  deadline: '견적 마감',
+  attachments: '첨부 자료',
+} as const satisfies Record<MarketRevisionFieldType, string>;
+
+// 중대한 수정 = 이미 낸 견적의 전제가 달라지는 것. 이 필드가 바뀐 수정만 입찰자에게 경고로 뜨고,
+// 마감 임박 자동 연장의 대상이 된다. 제목·툴·NDA·예산은 이력에만 남는다(배너 남발 방지).
+export const MARKET_MAJOR_REVISION_FIELDS = [
+  'serviceAreas', 'description', 'answers', 'deadline', 'attachments',
+] as const;
+export const isMajorMarketRevision = (fields: readonly string[]): boolean =>
+  fields.some((f) => (MARKET_MAJOR_REVISION_FIELDS as readonly string[]).includes(f));
+
+// 마감 임박 자동 연장 — 중대한 수정 시 마감이 24시간보다 가까우면 48시간 뒤로 민다.
+// 입찰자가 바뀐 내용을 보고 견적을 고칠 시간을 남기기 위한 것(소유자 선택이 아니라 규칙).
+export const MARKET_REVISION_DEADLINE_GUARD_MS = 24 * 3600_000;
+export const MARKET_REVISION_DEADLINE_EXTEND_MS = 48 * 3600_000;
+
+export const MarketRevisionChange = z.object({
+  field: z.string().max(32),
+  label: z.string().max(40),
+  before: z.string().max(3000).nullable(),
+  after: z.string().max(3000).nullable(),
+});
+export type MarketRevisionChangeType = z.infer<typeof MarketRevisionChange>;
+
+export const MarketProjectRevisionItem = z.object({
+  revNo: z.number().int(),
+  major: z.boolean(),
+  byOwner: z.boolean(), // false = 관리자 대행
+  createdAt: z.string(), // ISO
+  changes: z.array(MarketRevisionChange),
+});
+export type MarketProjectRevisionItemType = z.infer<typeof MarketProjectRevisionItem>;
+
+export const MarketProjectRevisionListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ items: z.array(MarketProjectRevisionItem), total: z.number() }),
+});
+export type MarketProjectRevisionListResponseType = z.infer<typeof MarketProjectRevisionListResponse>;
+
+export const MarketProjectUpdateResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    projectId: z.number(),
+    revNo: z.number().int().nullable(), // 바뀐 값이 없으면 null(빈 수정은 이력을 남기지 않는다)
+    major: z.boolean(),
+    deadlineExtendedTo: z.string().nullable(), // 자동 연장했으면 새 마감 ISO
+  }),
+});
+export type MarketProjectUpdateResponseType = z.infer<typeof MarketProjectUpdateResponse>;
 
 export const MarketProjectCreateResponse = z.object({
   result: z.literal(true),
@@ -564,6 +634,9 @@ export const MarketProjectViewer = z.object({
   isTargetExpert: z.boolean(), // targeted 에서 내가 지정 대상(open 이면 false)
   ndaSigned: z.boolean(),
   myBidStatus: MarketBidStatus.nullable(), // 내 입찰 없으면 null
+  // 내가 견적을 낸 뒤 의뢰가 중대하게 바뀌었다 — 알림이 없는 대신 이 값으로 화면이 경고를 띄운다.
+  // 판정: 내 입찰 updatedAt(재제출 최종 시각) < 마지막 major revision createdAt.
+  myBidOutdated: z.boolean(),
   contract: MarketContractSummary.nullable(), // 당사자(의뢰인·채택 전문가) 아니면 null
 });
 export type MarketProjectViewerType = z.infer<typeof MarketProjectViewer>;
@@ -586,6 +659,12 @@ export const MarketProjectDetail = MarketProjectListItem.extend({
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
   attachments: MarketProjectAttachments,
+  // 수정 이력 요약 — 상세 헤더 배지("수정됨 v3")와 이력 섹션의 진입점.
+  revisionCount: z.number().int(),
+  lastRevisionAt: z.string().nullable(), // ISO
+  // 검토서는 원천이 바뀌어도 지우지 않는다 — 몇 번째 버전 기준인지만 알린다(§13.13).
+  // true = 검토서 생성 뒤 원천(제목·설명·분야·답변·첨부)이 바뀌었다.
+  devReviewStale: z.boolean(),
   ndaText: z.string(), // 현재 버전 NDA 문구(서명 모달 표시용)
   ndaTextVersion: z.string(),
   viewer: MarketProjectViewer.nullable(), // null = 비로그인
@@ -765,6 +844,8 @@ export const MarketMyBidListItem = z.object({
   contractStatus: MarketContractStatus.nullable(), // 채택 계약 없으면 null
   createdAt: z.string(),
   updatedAt: z.string(),
+  // 내 견적 제출 뒤 의뢰가 중대하게 바뀌었다 — 목록 배지(상세의 myBidOutdated 와 같은 판정).
+  projectRevisedAfterBid: z.boolean(),
   project: z.object({
     projectId: z.number(),
     title: z.string(),

@@ -3,6 +3,7 @@ import MarketLayout from './layouts/MarketLayout.vue';
 import Home from './pages/Home.vue';
 import Projects from './pages/Projects.vue';
 import ProjectDetail from './pages/ProjectDetail.vue';
+import ProjectEdit from './pages/ProjectEdit.vue';
 import Experts from './pages/Experts.vue';
 import ExpertDetail from './pages/ExpertDetail.vue';
 import RequestWizard from './pages/RequestWizard.vue';
@@ -16,6 +17,7 @@ const children: RouteRecordRaw[] = [
   { path: '', name: 'home', component: Home },
   { path: 'projects', name: 'projects', component: Projects },
   { path: 'projects/:id(\\d+)', name: 'project-detail', component: ProjectDetail },
+  { path: 'projects/:id(\\d+)/edit', name: 'project-edit', component: ProjectEdit },
   { path: 'experts', name: 'experts', component: Experts },
   { path: 'experts/:id(\\d+)', name: 'expert-detail', component: ExpertDetail },
   { path: 'request', name: 'request', component: RequestWizard },

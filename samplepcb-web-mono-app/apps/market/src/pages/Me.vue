@@ -233,7 +233,13 @@ function goLogin(): void {
                 {{ MARKET_BID_STATUS_LABELS[b.status] }}
               </span>
               <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-bold text-tx-1">{{ b.project.title }}</p>
+                <p class="truncate text-sm font-bold text-tx-1">
+                  {{ b.project.title }}
+                  <!-- 내 견적 뒤에 의뢰가 바뀌었다 — 알림이 없으니 목록에서 바로 보이게 한다 -->
+                  <span v-if="b.projectRevisedAfterBid" class="ml-1.5 whitespace-nowrap rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                    ⚠ 의뢰 변경됨
+                  </span>
+                </p>
                 <p class="mt-0.5 text-xs text-tx-3">
                   {{ MARKET_PROJECT_STATUS_LABELS[b.project.status] }} ·
                   {{ dateShort(b.updatedAt) }} 제출
