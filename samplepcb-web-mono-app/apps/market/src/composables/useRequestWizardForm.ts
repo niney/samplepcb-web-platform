@@ -227,13 +227,28 @@ export function useRequestWizardForm() {
     fields.serviceAreas = [...MARKET_AREA_CODES];
   }
 
-  function pickAttachments(e: Event): void {
-    const input = e.target as HTMLInputElement;
-    attachments.value = input.files !== null ? Array.from(input.files) : [];
+  // 첨부는 누적한다 — 드래그앤드롭·파일 선택을 여러 번 나눠 하는 것이 정상 동작이라
+  // 교체(옛 동작)면 먼저 고른 파일이 조용히 사라진다. 같은 파일(name+size+lastModified)만 중복으로 거른다.
+  const sameFile = (a: File, b: File): boolean =>
+    a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+  function mergeFiles(current: File[], incoming: File[]): File[] {
+    const next = [...current];
+    for (const f of incoming) if (!next.some((x) => sameFile(x, f))) next.push(f);
+    return next;
   }
-  function pickSlotFiles(area: string, slot: string, e: Event): void {
-    const input = e.target as HTMLInputElement;
-    slotFiles[slotKey(area, slot)] = input.files !== null ? Array.from(input.files) : [];
+  function addAttachments(files: File[]): void {
+    attachments.value = mergeFiles(attachments.value, files);
+  }
+  function removeAttachment(index: number): void {
+    attachments.value = attachments.value.filter((_, i) => i !== index);
+  }
+  function addSlotFiles(area: string, slot: string, files: File[]): void {
+    const key = slotKey(area, slot);
+    slotFiles[key] = mergeFiles(slotFiles[key] ?? [], files);
+  }
+  function removeSlotFile(area: string, slot: string, index: number): void {
+    const key = slotKey(area, slot);
+    slotFiles[key] = (slotFiles[key] ?? []).filter((_, i) => i !== index);
   }
 
   const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
@@ -301,8 +316,10 @@ export function useRequestWizardForm() {
     toggleServiceArea,
     allServiceAreasSelected,
     selectAllServiceAreas,
-    pickAttachments,
-    pickSlotFiles,
+    addAttachments,
+    removeAttachment,
+    addSlotFiles,
+    removeSlotFile,
     todayKst,
     projectDeadline,
     stepValid,

@@ -6,13 +6,15 @@ import type { ExpertListFilters } from '../../api/useMarketExperts';
 import { slotKey } from '../../composables/useRequestWizardForm';
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
 import AreaIcon from '../AreaIcon.vue';
+import FileDropZone from './FileDropZone.vue';
 import QuestionField from './QuestionField.vue';
 
 // 스텝 2 — 몇 가지만 더(docs/AI_DEV_REVIEW.md §13.4·§13.8·§13.9):
 //   ① 프로젝트 공통 조건(필수, n/6) — 예산·완료 시점·목표 단계·견적 방식·인도 범위·NDA. 굵은 테두리로
 //      화면에서 이 블록 하나만 세운다(나머지 카드는 평면).
 //   ② 공통 질문 3(선택) ③ 선택 분야마다 카드 하나 [맞춤 질문 2~3(풀 개발이면 2) · 희망 개발툴·언어("전문가
-//      추천"이 기본, 접힘) · 추가자료 슬롯]. 분야 카드는 왼쪽 색 띠(--color-area-*)로 구분한다.
+//      추천"이 기본, 접힘) · 추가자료 슬롯(FileDropZone slot — 10칸까지 늘어나 크기는 그대로 두고 드롭만 받는다)].
+//      분야는 카드 헤더의 AreaIcon 타일 색(--color-area-*)으로 구분한다.
 // 카드는 레지스트리 데이터로만 그린다 — 분야가 늘어도 이 컴포넌트는 안 바뀐다.
 const props = defineProps<{ form: RequestWizardForm }>();
 const {
@@ -30,10 +32,11 @@ const {
   clearTools,
   isRecommended,
   slotFiles,
-  pickSlotFiles,
+  addSlotFiles,
+  removeSlotFile,
 } = props.form;
 
-const slotCount = (area: string, slot: string): number => slotFiles[slotKey(area, slot)]?.length ?? 0;
+const filesOf = (area: string, slot: string): File[] => slotFiles[slotKey(area, slot)] ?? [];
 
 // 지정 전문가 선택 목록(승인 전문가 전체 — 소규모 전제).
 const expertFilters = ref<ExpertListFilters>({ page: 1, pageSize: 100, expertType: '', serviceArea: '', tool: '', q: '' });
@@ -198,22 +201,17 @@ const expertList = useMarketExpertList(expertFilters);
         <p class="text-label font-semibold text-tx-2">
           {{ area.short }} 관련 자료 <span class="font-normal text-tx-3">있는 것만 · 없으면 전문가 검토 후 보완</span>
         </p>
-        <div class="grid gap-2.5 sm:grid-cols-2">
-          <label
+        <div class="grid items-start gap-2.5 sm:grid-cols-2">
+          <FileDropZone
             v-for="slot in area.attachmentSlots"
             :key="slot.code"
-            class="grid gap-1 rounded-xl border px-4 py-3 text-label"
-            :class="slotCount(area.code, slot.code) > 0 ? 'border-ink-900 bg-white' : 'border-dashed border-line-2 bg-paper'"
-          >
-            <span class="font-semibold text-tx-1">
-              {{ slot.label }}
-              <span v-if="slotCount(area.code, slot.code) > 0" class="ml-1 rounded-full bg-ink-900 px-2 py-0.5 text-micro text-white">
-                {{ slotCount(area.code, slot.code) }}개
-              </span>
-            </span>
-            <span class="font-normal text-tx-3">{{ slot.hint }}</span>
-            <input type="file" multiple class="mt-1 text-label font-normal" @change="pickSlotFiles(area.code, slot.code, $event)">
-          </label>
+            variant="slot"
+            :files="filesOf(area.code, slot.code)"
+            :label="slot.label"
+            :hint="slot.hint"
+            @add="addSlotFiles(area.code, slot.code, $event)"
+            @remove="removeSlotFile(area.code, slot.code, $event)"
+          />
         </div>
       </div>
     </div>

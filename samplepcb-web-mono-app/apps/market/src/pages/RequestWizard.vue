@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useCreateProject } from '../api/useMarketProjects';
@@ -56,6 +56,20 @@ const registerHelp = computed<string>(() =>
     : '',
 );
 const answeredCount = computed(() => buildAnswers().length);
+
+// 드롭존을 빗나간 파일 드롭 방어 — 기본 동작이면 브라우저가 그 파일을 이 탭에서 열어 작성 중인 의뢰가 통째로
+// 사라진다(첨부도 안 붙는다). 창 전체에서 기본 동작만 막는다. 드롭존 자신의 핸들러는 그 전에 이미 실행된다.
+function swallowDrop(e: DragEvent): void {
+  e.preventDefault();
+}
+onMounted(() => {
+  window.addEventListener('dragover', swallowDrop);
+  window.addEventListener('drop', swallowDrop);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('dragover', swallowDrop);
+  window.removeEventListener('drop', swallowDrop);
+});
 
 function goLogin(): void {
   window.location.assign(loginUrl(marketPath(route.fullPath)));

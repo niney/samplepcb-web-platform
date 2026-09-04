@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
 import AreaIcon from '../AreaIcon.vue';
+import FileDropZone from './FileDropZone.vue';
 
 // 스텝 1 — 의뢰 내용(docs/AI_DEV_REVIEW.md §13.4): 개발 분야(레지스트리 카드 + 쉬운 설명 +
 // "잘 모르겠어요" = 전 분야) · 제목 · 설명 · 참고 자료(일반 첨부) · AI 사전 검토 동의.
@@ -15,7 +16,8 @@ const {
   toggleServiceArea,
   allServiceAreasSelected,
   selectAllServiceAreas,
-  pickAttachments,
+  addAttachments,
+  removeAttachment,
 } = props.form;
 </script>
 
@@ -101,12 +103,13 @@ const {
       <p class="text-label font-semibold text-tx-2">
         참고 자료 <span class="font-normal text-tx-3">(선택 · 여러 개 가능 — 손그림·사진·문서 무엇이든)</span>
       </p>
-      <label class="grid gap-1.5 rounded-xl border border-dashed border-line-2 bg-paper px-4 py-3.5 text-label">
-        <span class="font-semibold text-tx-1">분석할 문서를 첨부해 주세요</span>
-        <span class="text-tx-3">PDF · Word · 이미지 · 회로도 · 거버 · 사양서. 분야별 자료(회로도·화면 시안 등)는 다음 단계에서 따로 올릴 수 있습니다.</span>
-        <input type="file" multiple class="mt-1 text-label font-normal" @change="pickAttachments">
-        <span v-if="attachments.length > 0" class="font-semibold text-tx-1">{{ attachments.length }}개 선택됨</span>
-      </label>
+      <FileDropZone
+        :files="attachments"
+        label="PDF · Word · 엑셀 · 이미지 · 손그림 사진"
+        hint="여기로 끌어다 놓거나 눌러서 선택 — 나눠 놓아도 쌓입니다. 회로도·거버 같은 분야별 자료는 다음 단계에서 올립니다."
+        @add="addAttachments"
+        @remove="removeAttachment"
+      />
       <p v-if="attachments.length === 0" class="rounded-xl bg-amber-50 px-4 py-3 text-label leading-relaxed text-amber-800">
         자료가 있으면 검토서가 훨씬 정확해집니다. 준비가 어려우면 유선 상담(070-8667-1080)을 이용해 주세요.
       </p>
