@@ -44,9 +44,11 @@ import {
 import {
   useMarketProjectDetail,
   useProjectRevisions,
+  useRegenerateDevReview,
   useRequestDevDiagram,
   useUpdateProject,
 } from '../api/useMarketProjects';
+import { useAiJob, useDevReviewStatus } from '../api/useAi';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
 import { errorMessage } from '../lib/error-msg';
@@ -163,6 +165,40 @@ const revisions = computed(() => revisionsQ.data.value?.data.items ?? []);
 // 알림이 없는 대신 화면이 알린다: 내 견적 뒤에 중대한 수정이 있었다.
 const myBidOutdated = computed(() => viewer.value?.myBidOutdated === true);
 const majorRevisionCount = computed(() => revisions.value.filter((r) => r.major).length);
+
+// AI 사전 검토서 재생성(§11.4) — 자동이 아니다. 소유자가 누를 때만 돌고, 완료 순간 서버가 프로젝트에 쓴다.
+const aiStatus = useDevReviewStatus();
+const canRegenerateReview = computed(
+  () =>
+    isOwner.value &&
+    detail.value !== undefined &&
+    !detail.value.biddingClosed &&
+    aiStatus.data.value?.data.enabled === true,
+);
+const regenerateReview = useRegenerateDevReview(projectId);
+const reviewJobId = ref<string | null>(null);
+const reviewJob = useAiJob(reviewJobId);
+const reviewRegenerating = computed(
+  () => regenerateReview.isPending.value || reviewJob.data.value?.data.status === 'running',
+);
+const reviewError = ref('');
+async function onRegenerateReview(): Promise<void> {
+  reviewError.value = '';
+  try {
+    const res = await regenerateReview.mutateAsync();
+    reviewJobId.value = res.data.jobId;
+  } catch (err) {
+    reviewError.value = errorMessage(err);
+  }
+}
+// 잡이 끝나면 서버가 이미 프로젝트에 써 넣었다 — 상세만 다시 읽으면 새 검토서가 붙는다.
+watch(
+  () => reviewJob.data.value?.data.status,
+  (status) => {
+    if (status === 'done') void detailQ.refetch();
+    if (status === 'error') reviewError.value = '검토서 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+  },
+);
 
 // 구성도 카드를 검토서 밖에 따로 세우는 경우 — 검토서가 없고(있으면 그 안에 그린다) 메타가 있거나 소유자(만들기 버튼).
 const standaloneDiagram = computed(
@@ -502,11 +538,28 @@ async function onRemoveDevReview(): Promise<void> {
 
           <!-- AI 사전 검토서 — 공개 범위는 상세 설명과 동일(상세를 볼 수 있는 뷰어 전원) -->
           <div v-if="devReview !== null" id="s-review" class="scroll-mt-16 rounded-2xl border border-line bg-white p-6">
-            <!-- 검토서는 원천이 바뀌어도 지우지 않는다 — 어느 버전 기준인지만 알린다(§의뢰 수정·버전) -->
-            <p v-if="detail.devReviewStale" class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-label leading-relaxed text-amber-900">
-              <b class="text-body">이 검토서는 수정 전 내용으로 만들었습니다</b> — 그 뒤 의뢰가 바뀌어 지금 내용과 다를 수 있습니다.
-              <template v-if="isOwner"> 필요하면 검토서를 제거하고 새 의뢰로 다시 만들 수 있습니다.</template>
+            <!-- 검토서는 원천이 바뀌어도 지우지 않는다 — 어느 버전 기준인지 알리고, 갱신은 소유자가 고른다(§11.4) -->
+            <div v-if="detail.devReviewStale" class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-amber-900">
+              <div class="min-w-0">
+                <p class="text-body font-bold">이 검토서는 수정 전 내용으로 만들었습니다</p>
+                <p class="text-label leading-relaxed">그 뒤 의뢰가 바뀌어 지금 내용과 다를 수 있습니다.</p>
+              </div>
+              <button
+                v-if="canRegenerateReview"
+                type="button"
+                class="ml-auto h-9 shrink-0 rounded-lg bg-amber-600 px-3.5 text-label font-bold text-white transition hover:bg-amber-700 disabled:opacity-40"
+                :disabled="reviewRegenerating"
+                @click="onRegenerateReview"
+              >
+                {{ reviewRegenerating ? '다시 만드는 중…' : '새 내용으로 다시 만들기' }}
+              </button>
+            </div>
+            <!-- 재생성 진행 — 기존 검토서는 그대로 두고 위에 얇은 띠만(완료되면 자리에서 바뀐다) -->
+            <p v-if="reviewRegenerating" class="mb-4 flex items-center gap-2.5 rounded-xl bg-copper-50 px-4 py-3 text-label font-semibold text-copper-700">
+              <span class="pulse-dot h-2 w-2 rounded-full bg-copper-500" />
+              AI 가 새 내용으로 검토서를 다시 쓰고 있습니다 — 보통 30초~3분. 다 되면 이 자리에서 바뀝니다.
             </p>
+            <p v-if="reviewError !== ''" class="mb-4 rounded-xl bg-red-50 px-4 py-3 text-label font-semibold text-red-700">{{ reviewError }}</p>
             <DevReviewView
               :review="devReview"
               :title="detail.title"
@@ -529,7 +582,10 @@ async function onRemoveDevReview(): Promise<void> {
               <button v-else type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="confirmAction = 'remove-review'">
                 검토서 제거
               </button>
-              <p class="mt-2 text-label leading-relaxed text-tx-3">검토서가 붙어 있는 동안에는 제목·설명·개발 분야를 바꿀 수 없습니다.</p>
+              <p class="mt-2 text-label leading-relaxed text-tx-3">
+                검토서가 붙어 있어도 의뢰는 수정할 수 있습니다 — 수정하면 “수정 전 내용” 안내가 붙고,
+                원하실 때 새 내용으로 다시 만들 수 있습니다.
+              </p>
             </div>
           </div>
 
@@ -822,3 +878,10 @@ async function onRemoveDevReview(): Promise<void> {
     </template>
   </section>
 </template>
+
+<style scoped>
+/* 검토서 재생성 진행 표시 — 구성도 섹션과 같은 점 펄스(§11.4) */
+.pulse-dot { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .pulse-dot { animation: none; } }
+</style>

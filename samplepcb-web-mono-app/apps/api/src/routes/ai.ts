@@ -6,14 +6,12 @@ import {
   AiUsecaseStatusResponse,
   ApiMemberError,
   DevReviewRunPayload,
-  MARKET_ATTACHMENT_FIELD,
   parseMarketAttachmentField,
 } from '@sp/api-contract';
 import { DEV_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from '../lib/ai/usecases';
 import { getAiJob } from '../lib/ai/jobs';
-import { devReviewInputHash } from '../lib/ai/dev-review';
+import { devReviewAttachmentHashes, devReviewInputHash } from '../lib/ai/dev-review';
 import type { DevReviewSource } from '../lib/ai/dev-review';
-import { hashAiBytes } from '../lib/ai/hash';
 import { startDevReviewJob } from '../lib/ai/runner';
 import { startDevDiagramJob } from '../lib/ai/dev-diagram-runner';
 import { expandAiArchives } from '../lib/ai/archive';
@@ -27,18 +25,6 @@ import { collectMultipart, splitMarketAttachments } from '../lib/market';
 // 외부 전송 원칙: 제한 추출한 문서 텍스트 + 래스터 미리보기(비전 판독)만 나간다.
 
 const JobParams = z.object({ jobId: z.string().uuid() });
-
-// 첨부 원본(zip 전개 **전**) 앞 10개의 SHA-256 — 캐시·신선도 판정의 원천. **1스텝 참고 자료
-// (`attachment`)만** 잰다: 2스텝 분야 슬롯 자료는 AI 분석 대상이 아니므로(§13.10) 슬롯 파일을
-// 더하거나 빼도 검토서가 오래되지 않는다. 파트 이름 순으로 정렬한다(순서가 달라도 같은 해시).
-// ⚠ 의뢰 등록 라우트(market-projects create)가 같은 함수를 쓴다 — 규칙이 어긋나면 정상 등록이
-// REVIEW_STALE 로 튕긴다.
-export const devReviewAttachmentHashes = (files: readonly { field: string; buffer: Buffer }[]): string[] =>
-  files
-    .filter((f) => f.field === MARKET_ATTACHMENT_FIELD)
-    .map((f) => `${f.field}:${hashAiBytes(f.buffer)}`)
-    .sort()
-    .slice(0, 10);
 
 export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   // ── GET /ai/market.dev-review/status — 공개(비밀 없음): FE 스텝 게이트용 ──

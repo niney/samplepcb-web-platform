@@ -815,6 +815,11 @@ async function run() {
       revs.json?.data?.items,
     );
 
+    // 검토서 재생성 라우트(§11.4) — 실제 생성은 30초~3분짜리 LLM 이라 하네스는 **가드만** 본다
+    // (행복 경로는 실브라우저 왕복으로 확인). 제3자는 403.
+    const regenStranger = await req('POST', `/api/market/projects/${pid}/dev-review`, { token: tStranger });
+    assert(regenStranger.status === 403, '검토서 재생성 제3자 403', regenStranger.status);
+
     const dropReview = await req('PATCH', `/api/market/projects/${pid}`, {
       token: tClient,
       body: { devReview: null },
@@ -979,6 +984,13 @@ async function run() {
       lateProjectEdit.status === 409 && lateProjectEdit.json?.error === 'NOT_EDITABLE',
       '채택 후 의뢰 수정 409 NOT_EDITABLE',
       lateProjectEdit,
+    );
+    // 검토서 재생성도 같은 창에서만 — 채택 뒤에 검토서가 바뀌면 전문가가 본 전제가 사후에 달라진다.
+    const lateRegen = await req('POST', `/api/market/projects/${pid}/dev-review`, { token: tClient });
+    assert(
+      lateRegen.status === 409 && lateRegen.json?.error === 'NOT_EDITABLE',
+      '채택 후 검토서 재생성 409 NOT_EDITABLE',
+      lateRegen,
     );
 
     // ── 10) 지정견적: 인박스 수신·지정자 입찰·취소·익명 404 ──

@@ -28,7 +28,9 @@ import type {
   MarketAnswerType,
   MarketDevReviewType,
 } from '@sp/api-contract';
+import { MARKET_ATTACHMENT_FIELD } from '@sp/api-contract';
 import { extractJsonObject } from './ollama';
+import { hashAiBytes } from './hash';
 
 // ── AI 사전 검토서 v3 — 프롬프트(코드 정본)·파서·후처리 규칙 ─────────────────────
 // docs/AI_DEV_REVIEW.md §13. 정확도는 프롬프트가 아니라 여기 결정적 후처리가 담보한다:
@@ -402,6 +404,17 @@ export function devReviewSourceText(source: DevReviewSource): string {
 }
 
 // 캐시·신선도 판정의 입력 해시 — 등록 조건(예산·마감·방식·NDA)은 원천이 아니다(§3).
+// 첨부 원본(zip 전개 **전**) 앞 10개의 SHA-256 — 캐시·신선도 판정의 원천. **1스텝 참고 자료
+// (`attachment`)만** 잰다: 2스텝 분야 슬롯 자료는 AI 분석 대상이 아니다(§13.10).
+// ⚠ 실행 라우트·등록 라우트·재생성(프로젝트 저장분)이 **같은 함수**를 써야 한다 — 규칙이 갈라지면
+// 정상 등록이 REVIEW_STALE 로 튕기거나 캐시가 헛돈다.
+export const devReviewAttachmentHashes = (files: readonly { field: string; buffer: Buffer }[]): string[] =>
+  files
+    .filter((f) => f.field === MARKET_ATTACHMENT_FIELD)
+    .map((f) => `${f.field}:${hashAiBytes(f.buffer)}`)
+    .sort()
+    .slice(0, 10);
+
 export function devReviewInputHash(input: {
   title: string;
   serviceAreas: readonly string[];

@@ -2,6 +2,7 @@ import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   DevDiagramRequestResponse,
+  MarketDevReviewRegenerateResponse,
   MarketFileDeleteResponse,
   MarketMyProjectListResponse,
   MarketProjectCreateResponse,
@@ -114,6 +115,24 @@ export function useUpdateProject(projectId: Ref<number | null>) {
       void qc.invalidateQueries({ queryKey: ['market', 'projects'] });
       void qc.invalidateQueries({ queryKey: ['market', 'my-projects'] });
       void qc.invalidateQueries({ queryKey: ['market', 'revisions'] });
+    },
+  });
+}
+
+// AI 사전 검토서 재생성(소유자) — 수정으로 검토서가 "수정 전 내용"이 됐을 때 고객이 누를 때만 돈다.
+// 자동으로 돌리지 않는 이유는 docs/MARKET_FLOW.md §11.4(오타 한 번에 3분짜리 잡·연속 저장 폭주).
+export function useRegenerateDevReview(projectId: Ref<number | null>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiSend(
+        'POST',
+        `${apiRoutes.marketProjects}/${String(projectId.value)}/dev-review`,
+        {},
+        MarketDevReviewRegenerateResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['market', 'projects', 'detail', projectId] });
     },
   });
 }

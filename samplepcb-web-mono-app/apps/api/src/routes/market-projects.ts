@@ -24,9 +24,14 @@ import type {
   MarketProjectViewerType,
 } from '@sp/api-contract';
 import { getAiJob } from '../lib/ai/jobs';
-import { devReviewInputHash } from '../lib/ai/dev-review';
-import { attachDevDiagramJob, requestDevDiagramForProject } from '../lib/ai/dev-diagram-runner';
-import { devReviewAttachmentHashes } from './ai';
+import { devReviewAttachmentHashes, devReviewInputHash } from '../lib/ai/dev-review';
+import {
+  attachDevDiagramJob,
+  buildProjectDevReviewSourceWithImages,
+  requestDevDiagramForProject,
+} from '../lib/ai/dev-diagram-runner';
+import { startDevReviewJob } from '../lib/ai/runner';
+import { DEV_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from '../lib/ai/usecases';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
@@ -744,6 +749,60 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         });
       }
       return { result: true as const, data: { projectId: Number(project.id), status: queued.meta.status } };
+    },
+  );
+
+  // ── POST /market/projects/:id/dev-review — 검토서 재생성(소유자, docs/MARKET_FLOW.md §11.4) ──
+  // 의뢰를 고치면 검토서는 "수정 전 내용" 이 된다(devReviewStale). 자동으로 다시 돌리지 않는다 —
+  // 오타 한 번에 3분짜리 잡이 돌고 연속 저장이 잡을 쌓기 때문. 소유자가 원할 때만 이 라우트로 돈다.
+  // 근거는 저장분에서 다시 만든다(설명·답변 + 참고 자료 실파일 텍스트·이미지) — 등록 때와 같은 집합.
+  fastify.post(
+    '/market/projects/:id/dev-review',
+    { schema: { params: ProjectIdParams }, preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const project = await prisma.spMarketProject.findUnique({
+        where: { id: BigInt(request.params.id) },
+      });
+      if (project === null) return reply.notFound('프로젝트가 없습니다');
+      if (project.mbId !== request.user.mbId && !request.user.isAdmin) {
+        return reply.status(403).send({ result: false, error: 'FORBIDDEN' });
+      }
+      // 수정과 같은 창에서만 — 마감·채택 뒤에 검토서가 바뀌면 전문가가 본 전제가 사후에 달라진다.
+      const blocked = editBlockReason(project, new Date());
+      if (blocked !== null) {
+        return reply.status(409).send({ result: false, error: blocked });
+      }
+      const runtime = await getAiUsecaseRuntime(DEV_REVIEW_USECASE);
+      if (!runtime.enabled) {
+        return reply.status(409).send({ result: false, error: 'USECASE_DISABLED' });
+      }
+
+      const { source, images, attachmentHashes } = await buildProjectDevReviewSourceWithImages(project);
+      const started = await startDevReviewJob({
+        mbId: project.mbId, // 잡 소유자 = 의뢰인(관리자 대행이어도 의뢰인 것으로 남긴다)
+        model: runtime.model,
+        think: toOllamaThink(runtime.think),
+        extraInstructions: runtime.extraInstructions,
+        source,
+        images,
+        inputHash: devReviewInputHash({
+          title: source.title,
+          serviceAreas: source.serviceAreas,
+          description: source.description,
+          answers: source.answers,
+          attachmentHashes,
+        }),
+        projectId: project.id, // 완료 순간 러너가 프로젝트에 박제한다
+        log: request.log,
+      });
+      request.log.info(
+        { projectId: Number(project.id), jobId: started.job.id, cached: started.cached },
+        'dev review regenerate requested',
+      );
+      return {
+        result: true as const,
+        data: { projectId: Number(project.id), jobId: started.job.id, cached: started.cached },
+      };
     },
   );
 

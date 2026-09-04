@@ -21,8 +21,11 @@ import {
   useAddProjectFiles,
   useDeleteProjectFile,
   useMarketProjectDetail,
+  useRegenerateDevReview,
+  useRequestDevDiagram,
   useUpdateProject,
 } from '../api/useMarketProjects';
+import { useDevReviewStatus } from '../api/useAi';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 import AreaIcon from '../components/AreaIcon.vue';
@@ -166,6 +169,34 @@ async function save(): Promise<void> {
     await detail.refetch();
   } catch (err) {
     saveError.value = errorMessage(err);
+  }
+}
+
+// AI 검토서 갱신 — 저장 뒤 원천이 바뀌어 검토서가 낡았을 때만 권한다(자동 아님, §11.4).
+const aiStatus = useDevReviewStatus();
+const reviewNeedsUpdate = computed(
+  () =>
+    saved.value !== null &&
+    project.value?.devReviewStale === true &&
+    aiStatus.data.value?.data.enabled === true,
+);
+const alsoDiagram = ref(false);
+const regenerating = ref(false);
+const regenerateDone = ref(false);
+const regenerate = useRegenerateDevReview(projectId);
+const requestDiagram = useRequestDevDiagram(projectId);
+async function regenerateReview(): Promise<void> {
+  saveError.value = '';
+  regenerating.value = true;
+  try {
+    await regenerate.mutateAsync();
+    // 구성도는 검토서보다 10배 오래 걸린다 — 고른 사람만 같이 돌린다.
+    if (alsoDiagram.value) await requestDiagram.mutateAsync();
+    regenerateDone.value = true;
+  } catch (err) {
+    saveError.value = errorMessage(err);
+  } finally {
+    regenerating.value = false;
   }
 }
 
@@ -415,6 +446,37 @@ const goLogin = (): void => {
         <p v-if="saved.deadlineExtendedTo !== null" class="mt-1">
           마감이 임박해 <b>{{ kstDate(saved.deadlineExtendedTo) }}</b> 로 자동 연장했습니다.
         </p>
+      </div>
+
+      <!-- AI 검토서 갱신 — 자동으로 돌리지 않는다(§11.4). 원천이 바뀌어 검토서가 낡았을 때만 권한다. -->
+      <div
+        v-if="reviewNeedsUpdate"
+        class="grid gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-4 text-amber-900"
+      >
+        <div>
+          <p class="text-lead font-extrabold">AI 사전 검토서가 수정 전 내용입니다</p>
+          <p class="text-label leading-relaxed">
+            새 내용으로 다시 만들까요? 지금 안 만들어도 상세 화면에서 언제든 만들 수 있고, 그때까지는
+            “수정 전 내용” 안내가 검토서에 붙습니다.
+          </p>
+        </div>
+        <label class="flex items-center gap-2 text-label font-semibold">
+          <input v-model="alsoDiagram" type="checkbox">
+          시스템 구성도도 함께 다시 만들기 <span class="font-normal">(5~10분, 완성되면 알림)</span>
+        </label>
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            class="h-10 rounded-lg bg-amber-600 px-4 text-label font-bold text-white transition hover:bg-amber-700 disabled:opacity-40"
+            :disabled="regenerating"
+            @click="regenerateReview"
+          >
+            {{ regenerating ? '요청 중…' : '검토서 다시 만들기' }}
+          </button>
+          <span v-if="regenerateDone" class="text-label font-semibold">
+            시작했습니다 — 상세 화면에서 진행 상태를 볼 수 있습니다.
+          </span>
+        </div>
       </div>
 
       <div class="flex flex-wrap items-center gap-3">

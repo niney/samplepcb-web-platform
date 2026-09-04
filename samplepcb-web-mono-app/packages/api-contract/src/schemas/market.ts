@@ -562,6 +562,18 @@ export const MarketProjectRevisionListResponse = z.object({
 });
 export type MarketProjectRevisionListResponseType = z.infer<typeof MarketProjectRevisionListResponse>;
 
+// AI 사전 검토서 재생성(소유자) — 자동이 아니라 요청할 때만 돈다(docs/MARKET_FLOW.md §11.4).
+// cached = 같은 입력의 완료 잡을 그대로 박제했다(다시 돌리지 않았다).
+export const MarketDevReviewRegenerateResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    projectId: z.number(),
+    jobId: z.string(),
+    cached: z.boolean(),
+  }),
+});
+export type MarketDevReviewRegenerateResponseType = z.infer<typeof MarketDevReviewRegenerateResponse>;
+
 export const MarketProjectUpdateResponse = z.object({
   result: z.literal(true),
   data: z.object({

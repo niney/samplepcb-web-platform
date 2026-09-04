@@ -15,6 +15,7 @@ import {
 import type { DevReviewSource } from './dev-review';
 import { getAiConnection, getAiVisionModel } from './usecases';
 import { createAiJob, findReusableAiJob, finishAiJob, setAiJobStage, type AiJob } from './jobs';
+import { prisma } from '../prisma';
 
 // AI 사전 검토서 러너 — 실제 의뢰 실행과 관리자 샘플 테스트가 같은 2단 파이프라인을 쓴다.
 // ① 첨부 판독(비전 모델, 이미지가 있을 때만) → 텍스트로 근거 코퍼스에 합류
@@ -37,6 +38,9 @@ export interface StartDevReviewJobOptions {
   inputHash: string;
   log: AiRunLogger;
   reuseCompleted?: boolean;
+  // 등록된 의뢰의 **재생성**(docs/MARKET_FLOW.md §11.4) — 완료 순간 러너가 프로젝트에 써 넣는다.
+  // 위저드(등록 전)는 프로젝트가 없어 이 값이 없다: 그때는 등록 라우트가 jobId 로 박제한다.
+  projectId?: bigint;
 }
 
 export interface StartedAiJob {
@@ -88,6 +92,13 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
     const reusable = await findReusableAiJob(USE_CASE, mbId, jobSource);
     if (reusable !== null) {
       log.info({ useCase: USE_CASE, jobId: reusable.id, mbId }, 'ai job cache hit');
+      // 재생성인데 같은 입력의 완료 잡이 있으면 즉시 박제한다 — 다시 돌리지 않고도 프로젝트가 최신이 된다.
+      if (options.projectId !== undefined && reusable.review !== null) {
+        await prisma.spMarketProject.update({
+          where: { id: options.projectId },
+          data: { devReview: reusable.review },
+        });
+      }
       return { job: reusable, cached: true };
     }
   }
@@ -152,6 +163,13 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
         };
         const { review, diagnostics } = postProcessDevReview(output, effective, meta);
         await finishAiJob(job.id, { review });
+        // 재생성이면 완료 순간 프로젝트에 박제한다(구성도 러너와 같은 연결 규칙).
+        if (options.projectId !== undefined) {
+          await prisma.spMarketProject.update({
+            where: { id: options.projectId },
+            data: { devReview: review },
+          });
+        }
         log.info(
           { jobId: job.id, elapsedMs: raw.elapsedMs, facts: review.requirements.length, openQuestions: review.openQuestions.length, diagnostics },
           'dev review job done',

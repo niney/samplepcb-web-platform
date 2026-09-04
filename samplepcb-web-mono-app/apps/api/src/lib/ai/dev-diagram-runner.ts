@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { SpMarketProject } from '@prisma/client';
+import { MARKET_ATTACHMENT_FIELD } from '@sp/api-contract';
 import type { MarketDevDiagramType } from '@sp/api-contract';
 import { downloadFromFileServer } from '../file-server';
 import { getMembersByIds } from '../g5-db';
@@ -16,6 +17,7 @@ import {
   isDevDiagramAcceptable,
   sanitizeDevDiagramHtml,
 } from './dev-diagram';
+import { devReviewAttachmentHashes } from './dev-review';
 import type { DevReviewSource } from './dev-review';
 import { createAiJob, findReusableAiJob, finishAiJob, getAiJob, listRunningAiJobs, updateAiJobResult } from './jobs';
 import type { AiJob } from './jobs';
@@ -60,7 +62,11 @@ const jobResultJson = (meta: MarketDevDiagramType, html = ''): string => JSON.st
 // 프로젝트 저장분(설명·답변·첨부 실파일)에서 근거 코퍼스를 다시 만든다 — 재생성·재시작 복구용.
 // 첨부는 **1스텝 참고 자료(area = null)만** 읽는다 — 2스텝 분야 슬롯 자료는 AI 분석 대상이 아니다(§13.10).
 // 실행 라우트(routes/ai.ts)와 같은 집합이어야 같은 코퍼스가 나온다.
-export async function buildProjectDevReviewSource(project: SpMarketProject): Promise<DevReviewSource> {
+// 이미지(래스터 미리보기)는 **검토서 재생성**이 쓴다 — 구성도는 텍스트 코퍼스만 보므로 버린다.
+// (버리고 만들면 재생성본이 원본보다 근거가 빈약해진다 — 첨부 이미지 판독이 통째로 빠진다.)
+export async function buildProjectDevReviewSourceWithImages(
+  project: SpMarketProject,
+): Promise<{ source: DevReviewSource; images: string[]; attachmentHashes: string[] }> {
   const files = await prisma.spFile.findMany({
     where: { refType: REF_MARKET_PROJECT, refId: project.id, area: null },
     orderBy: { id: 'asc' },
@@ -79,14 +85,27 @@ export async function buildProjectDevReviewSource(project: SpMarketProject): Pro
     { maxFiles: 50 },
   );
   return {
-    title: project.title,
-    serviceAreas: toAreaCodes(project.serviceAreas),
-    description: project.description,
-    answers: toAnswers(project.answers),
-    attachmentContext: prepared.context,
-    attachmentFiles: files.map((f) => f.originFileName).slice(0, 20),
+    source: {
+      title: project.title,
+      serviceAreas: toAreaCodes(project.serviceAreas),
+      description: project.description,
+      answers: toAnswers(project.answers),
+      attachmentContext: prepared.context,
+      attachmentFiles: files.map((f) => f.originFileName).slice(0, 20),
+    },
+    images: prepared.images,
+    // 등록 라우트와 **같은 형식**(`attachment:<원본 sha256>` 정렬 앞 10)이라, 등록 직후 재생성은
+    // 그때 만든 잡의 캐시에 그대로 맞는다(3분짜리를 헛돌리지 않는다).
+    attachmentHashes: devReviewAttachmentHashes(
+      present.map((f) => ({ field: MARKET_ATTACHMENT_FIELD, buffer: f.buffer })),
+    ),
   };
 }
+
+export async function buildProjectDevReviewSource(project: SpMarketProject): Promise<DevReviewSource> {
+  return (await buildProjectDevReviewSourceWithImages(project)).source;
+}
+
 
 // ── 시작 — 잡 생성 + 큐 ───────────────────────────────────────────────────────
 export type StartDevDiagramResult =
