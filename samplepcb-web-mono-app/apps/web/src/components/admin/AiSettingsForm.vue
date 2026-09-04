@@ -16,9 +16,10 @@ import {
 import DevReviewSummary from './DevReviewSummary.vue';
 import UiPagination from '../ui/UiPagination.vue';
 
-// AI 연동 폼 — 네 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
+// AI 연동 폼 — 여섯 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
 // 추가 지침·프롬프트 버전·샘플 테스트) ③ 정밀 시스템 구성도(사용·모델·thinking 단계·추가 지침·
-// 프롬프트 버전 — docs/AI_DEV_REVIEW.md §13.5) ④ 실행 이력(sp_ai_job). 프롬프트 본문은 코드
+// 프롬프트 버전 — docs/AI_DEV_REVIEW.md §13.5) ④·⑤ 개발의뢰 검토서·구성도(docs/DEVELOP_FLOW.md §7.3 —
+// 마켓과 모델·지침이 갈린다. 검토서도 관리자 대기라 thinking 단계를 가진다) ⑥ 실행 이력(sp_ai_job). 프롬프트 본문은 코드
 // 정본(docs/AI_DEV_REVIEW.md §6)이라 화면에 textarea 가 없다. 샘플 테스트는 검토서용만 있다.
 // apiKey 는 서버가 마스킹만 돌려주므로 입력칸은 항상 빈 값에서 시작: 입력=교체, 비움=유지,
 // 삭제 체크=제거. "연결 테스트"는 /api/tags 프록시 — 성공 시 모델 목록을 datalist 로 제공.
@@ -40,6 +41,15 @@ const ddEnabled = ref(false);
 const ddModel = ref('');
 const ddThink = ref<AiThinkLevelType>('high');
 const ddExtra = ref('');
+// 개발의뢰(develop.*) — 마켓과 같은 두 유스케이스를 따로 든다(모델·thinking·지침이 다르다).
+const devrEnabled = ref(false);
+const devrModel = ref('');
+const devrThink = ref<AiThinkLevelType>('high');
+const devrExtra = ref('');
+const devdEnabled = ref(false);
+const devdModel = ref('');
+const devdThink = ref<AiThinkLevelType>('high');
+const devdExtra = ref('');
 const models = ref<string[]>([]);
 
 const testJobId = ref<string | null>(null);
@@ -90,15 +100,28 @@ watch(
     ddModel.value = d.devDiagram.model;
     ddThink.value = d.devDiagram.think;
     ddExtra.value = d.devDiagram.extraInstructions;
+    devrEnabled.value = d.developReview.enabled;
+    devrModel.value = d.developReview.model;
+    devrThink.value = d.developReview.think;
+    devrExtra.value = d.developReview.extraInstructions;
+    devdEnabled.value = d.developDiagram.enabled;
+    devdModel.value = d.developDiagram.model;
+    devdThink.value = d.developDiagram.think;
+    devdExtra.value = d.developDiagram.extraInstructions;
     apiKeyInput.value = '';
     clearApiKey.value = false;
   },
   { immediate: true },
 );
 
-// 두 유스케이스 모두 model 이 계약 min(1) 이라 둘 다 채워야 저장할 수 있다.
+// 네 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
 const canSubmit = computed(
-  () => !save.isPending.value && drModel.value.trim() !== '' && ddModel.value.trim() !== '',
+  () =>
+    !save.isPending.value &&
+    drModel.value.trim() !== '' &&
+    ddModel.value.trim() !== '' &&
+    devrModel.value.trim() !== '' &&
+    devdModel.value.trim() !== '',
 );
 const thinkLabel = (level: AiThinkLevelType): string =>
   level === 'off'
@@ -178,6 +201,18 @@ function onSubmit(): void {
       model: ddModel.value.trim(),
       think: ddThink.value,
       extraInstructions: ddExtra.value.trim(),
+    },
+    developReview: {
+      enabled: devrEnabled.value,
+      model: devrModel.value.trim(),
+      think: devrThink.value,
+      extraInstructions: devrExtra.value.trim(),
+    },
+    developDiagram: {
+      enabled: devdEnabled.value,
+      model: devdModel.value.trim(),
+      think: devdThink.value,
+      extraInstructions: devdExtra.value.trim(),
     },
   });
 }
@@ -412,6 +447,120 @@ function onSubmit(): void {
         </div>
       </div>
 
+      <!-- ④ 개발의뢰 검토서 — 관리자가 눌러서 도는 초안(고객은 기다리지 않는다)이라 정밀 모델을 허용한다. -->
+      <div class="space-y-3 rounded-md border border-gray-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-800">
+            {{ t('admin.settings.ai.developReview.title') }}
+            <span class="ml-1 font-mono text-xs font-normal text-gray-400">develop.dev-review</span>
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input v-model="devrEnabled" type="checkbox">
+            {{ t('admin.settings.ai.developReview.enabled') }}
+          </label>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.ai.developReview.enabledHint') }}</p>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developReview.model') }}</span>
+          <input v-model="devrModel" type="text" list="ai-models" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm">
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.developReview.modelHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developReview.think') }}</span>
+          <select v-model="devrThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
+          </select>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.developReview.thinkHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developReview.extraInstructions') }}</span>
+          <textarea
+            v-model="devrExtra"
+            rows="4"
+            :maxlength="AI_EXTRA_INSTRUCTIONS_MAX"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          />
+          <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {{ t('admin.settings.ai.developReview.extraInstructionsHint') }}
+            <span class="ml-auto font-mono text-[11px] text-gray-400">
+              {{ t('admin.settings.ai.devReview.extraInstructionsCount', { count: devrExtra.length, max: AI_EXTRA_INSTRUCTIONS_MAX }) }}
+            </span>
+          </span>
+        </label>
+
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devReview.promptVersion') }}</span>
+          <p class="font-mono text-sm text-gray-700">{{ data?.data.developReview.promptVersion }}</p>
+          <span class="text-xs text-gray-500">
+            {{ t('admin.settings.ai.devReview.promptVersionHint') }}
+            <template v-if="data !== undefined">
+              · {{ t('admin.settings.ai.devReview.updatedAt') }}
+              {{ formatDateTime(data.data.developReview.updatedAt) }}
+            </template>
+          </span>
+        </div>
+      </div>
+
+      <!-- ⑤ 개발의뢰 구성도 -->
+      <div class="space-y-3 rounded-md border border-gray-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-800">
+            {{ t('admin.settings.ai.developDiagram.title') }}
+            <span class="ml-1 font-mono text-xs font-normal text-gray-400">develop.dev-diagram</span>
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input v-model="devdEnabled" type="checkbox">
+            {{ t('admin.settings.ai.developDiagram.enabled') }}
+          </label>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.ai.developDiagram.enabledHint') }}</p>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developDiagram.model') }}</span>
+          <input v-model="devdModel" type="text" list="ai-models" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm">
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.developDiagram.modelHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developDiagram.think') }}</span>
+          <select v-model="devdThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
+          </select>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.thinkHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developDiagram.extraInstructions') }}</span>
+          <textarea
+            v-model="devdExtra"
+            rows="4"
+            :maxlength="AI_EXTRA_INSTRUCTIONS_MAX"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          />
+          <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {{ t('admin.settings.ai.developDiagram.extraInstructionsHint') }}
+            <span class="ml-auto font-mono text-[11px] text-gray-400">
+              {{ t('admin.settings.ai.devDiagram.extraInstructionsCount', { count: devdExtra.length, max: AI_EXTRA_INSTRUCTIONS_MAX }) }}
+            </span>
+          </span>
+        </label>
+
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.promptVersion') }}</span>
+          <p class="font-mono text-sm text-gray-700">{{ data?.data.developDiagram.promptVersion }}</p>
+          <span class="text-xs text-gray-500">
+            {{ t('admin.settings.ai.devDiagram.promptVersionHint') }}
+            <template v-if="data !== undefined">
+              · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
+              {{ formatDateTime(data.data.developDiagram.updatedAt) }}
+            </template>
+          </span>
+        </div>
+      </div>
+
       <datalist id="ai-models">
         <option v-for="m in models" :key="m" :value="m" />
       </datalist>
@@ -427,7 +576,7 @@ function onSubmit(): void {
         <span v-if="save.isSuccess.value" class="text-sm text-green-600">{{ t('admin.settings.saved') }}</span>
       </div>
 
-      <!-- ④ 실행 이력 -->
+      <!-- ⑥ 실행 이력 -->
       <div class="space-y-3 rounded-md border border-gray-200 p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-gray-800">{{ t('admin.settings.ai.jobs.title') }}</h3>

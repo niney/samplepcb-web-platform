@@ -19,7 +19,8 @@ export interface AdminMenuItem {
     | 'pcbShipmentPending'
     | 'pcbOrdersAwaiting'
     | 'pcbRemittancePending'
-    | 'pcbClaimsPending';
+    | 'pcbClaimsPending'
+    | 'developReceived';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -48,6 +49,14 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
   { to: { name: 'admin-market-contracts' }, labelKey: 'admin.menu.marketContracts' },
   { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
+  // 개발의뢰(/develop, sp-develop) 관리 — 워크큐(상세는 형제 라우트)·설정
+  {
+    to: { name: 'admin-develop-requests' },
+    labelKey: 'admin.menu.developRequests',
+    badge: 'developReceived',
+    activeRouteNames: ['admin-develop-request'],
+  },
+  { to: { name: 'admin-develop-settings' }, labelKey: 'admin.menu.developSettings' },
   {
     to: { name: 'admin-bom' },
     labelKey: 'admin.menu.bom',

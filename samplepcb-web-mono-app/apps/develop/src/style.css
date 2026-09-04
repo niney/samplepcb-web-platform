@@ -1,0 +1,79 @@
+@import "tailwindcss";
+/* 공용 UI(@sp/ui)는 workspace 심링크라 Tailwind v4 자동 스캔에서 빠진다 — 소스를 명시한다. */
+@source "../../../packages/ui/src";
+
+/* 개발의뢰(sp-develop) 디자인 토큰 — 마켓과 무관하게 새로 정한다(docs/DEVELOP_FLOW.md §2 결정 19).
+   컨셉: "엔지니어링 스튜디오" — 밝은 종이 위에 짙은 잉크, 브랜드는 일렉트릭 블루 하나. 장식보다 정보 밀도.
+   공용 컴포넌트(@sp/ui)가 쓰는 토큰 이름(brand-*·ink-*·paper·line·line-2·tx-1/2/3·text-micro…text-h1·--color-area-*)은
+   이 앱이 값을 정한다 — 이름을 바꾸면 공용 컴포넌트가 무색이 된다. */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 브랜드 — 일렉트릭 블루 */
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7ff;
+  --color-brand-200: #b9d0ff;
+  --color-brand-300: #8fb3fb;
+  --color-brand-400: #4d8cf7;
+  --color-brand-500: #1b6ef3;
+  --color-brand-600: #155ad1;
+  --color-brand-700: #1147a6;
+  --color-brand-900: #0d2f6b;
+  /* 잉크(짙은 표면·헤더·강조 텍스트) */
+  --color-ink-950: #0b1220;
+  --color-ink-900: #111a2e;
+  --color-ink-850: #182338;
+  --color-ink-800: #1f2c45;
+  --color-ink-700: #2a3a58;
+  /* 표면·라인·텍스트 */
+  --color-paper: #f4f6f8;
+  --color-line: #e2e8f0;
+  --color-line-2: #cbd5e1;
+  --color-tx-1: #0f172a;
+  --color-tx-2: #475569;
+  --color-tx-3: #7c8aa0;
+  /* 온다크 보조 */
+  --color-dk-tx-1: #f1f5f9;
+  --color-dk-tx-2: #a7b4c8;
+
+  /* 타입 스케일(공용 컴포넌트와 공유) */
+  --text-micro: 12px;
+  --text-micro--line-height: 1.5;
+  --text-label: 13px;
+  --text-label--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.6;
+  --text-lead: 15px;
+  --text-lead--line-height: 1.65;
+  --text-title: 18px;
+  --text-title--line-height: 1.3;
+  --text-h1: 28px;
+  --text-h1--line-height: 1.25;
+  --text-display: 40px;
+  --text-display--line-height: 1.15;
+}
+
+/* 분야 색(레지스트리 5종) — AreaIcon 타일이 인라인 var() 로 읽는다. 유틸리티로 안 쓰는 변수는 v4 가 버리므로 static. */
+@theme static {
+  --color-area-circuit: #2b5fb3;
+  --color-area-pcb: #1d8a5b;
+  --color-area-firmware: #7a4bd6;
+  --color-area-app: #d9488a;
+  --color-area-server: #b7791f;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-tx-1);
+  word-break: keep-all;
+  letter-spacing: -0.01em;
+}
+
+/* 인쇄(견적서) — 화면 셸은 숨기고 종이 한 장만 남긴다. */
+@media print {
+  body { background: #fff; }
+  .print-hidden { display: none !important; }
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "@sp/config/tsconfig/vue.json",
+  "include": ["src", "env.d.ts"],
+  "compilerOptions": {
+    "types": ["vite/client"]
+  }
+}

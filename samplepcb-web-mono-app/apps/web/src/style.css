@@ -1,4 +1,45 @@
 @import "tailwindcss";
+/* 공용 UI(@sp/ui — 검토서 뷰어·구성도·드롭존·미리보기)는 workspace 심링크라 자동 스캔에서 빠진다. */
+@source "../../../packages/ui/src";
+
+/* @sp/ui 가 쓰는 시맨틱 토큰(docs/DEVELOP_FLOW.md §7.1) — 관리자 팔레트에 맞춘 값. 기존 --color-brand(단색)·--color-line 과
+   이름이 겹치지 않는 숫자 스케일·paper·tx-*·ink-9xx 만 더한다. 관리자 화면 자체는 기존 토큰을 계속 쓴다. */
+@theme {
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7ff;
+  --color-brand-200: #b9d0ff;
+  --color-brand-400: #4798ff;
+  --color-brand-500: #2477f4;
+  --color-brand-600: #1e64fd;
+  --color-brand-700: #1147a6;
+  --color-ink-950: #061023;
+  --color-ink-900: #0f1b33;
+  --color-ink-800: #1b2a47;
+  --color-paper: #f6f7f9;
+  --color-line-2: #d3d5dc;
+  --color-tx-1: #111827;
+  --color-tx-2: #4b5563;
+  --color-tx-3: #8e97a5;
+  --text-micro: 12px;
+  --text-micro--line-height: 1.5;
+  --text-label: 13px;
+  --text-label--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.6;
+  --text-lead: 15px;
+  --text-lead--line-height: 1.65;
+  --text-title: 18px;
+  --text-title--line-height: 1.3;
+  --text-h1: 28px;
+  --text-h1--line-height: 1.25;
+}
+@theme static {
+  --color-area-circuit: #2b5fb3;
+  --color-area-pcb: #1d8a5b;
+  --color-area-firmware: #7a4bd6;
+  --color-area-app: #d9488a;
+  --color-area-server: #b7791f;
+}
 
 /* 브라우저가 그리는 UI(스크롤바·select 팝업·날짜 선택기·입력 캐럿)는 CSS 로 색을 주지 못하고
    color-scheme 을 봐야 따라온다. 이게 normal 이면 다크 화면에서도 스크롤바와 드롭다운 목록만

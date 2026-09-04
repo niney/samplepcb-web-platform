@@ -14,6 +14,7 @@ import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
 import { usePcbClaimsPendingCount } from '../admin/useAdminPcbClaims';
+import { useDevelopReceivedCount } from '../admin/useAdminDevelop';
 import {
   pcbAdminEntryTo,
   pcbAdminSectionTo,
@@ -134,6 +135,8 @@ const pcbRemittancePending = usePcbRemittancePendingCount(isAdminUser);
 const { data: pcbClaimsPending } = usePcbClaimsPendingCount(isAdminUser);
 // PCB 대기 큐 — 각 역할이 "아직 시작하지 않은" 수(요청 대기·발주 대기).
 const { todoRfq: pcbTodoRfq, todoPo: pcbTodoPo } = useAdminPcbTodoCounts(isAdminUser);
+// 개발의뢰 — 아직 검토를 시작하지 않은 접수 건(docs/DEVELOP_FLOW.md §7.3).
+const { data: developReceived } = useDevelopReceivedCount(isAdminUser);
 // PCB 배지는 합산이다 — SmartBOM 과 달리 시작 전(대기 큐)과 진행 중 내 차례가 모두
 // 관리자 몫이라, 하나만 세면 나머지가 묻힌다("이 역할이 지금 움직여야 하는 수").
 const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefined =>
@@ -159,7 +162,9 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
                     ? pcbRemittancePending.value
                     : badge === 'pcbClaimsPending'
                       ? pcbClaimsPending.value
-                      : bomShipmentPending.value;
+                      : badge === 'developReceived'
+                        ? developReceived.value
+                        : bomShipmentPending.value;
 </script>
 
 <template>

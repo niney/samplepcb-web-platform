@@ -242,6 +242,22 @@ const routes: RouteRecordRaw[] = [
       { path: 'market/projects', name: 'admin-market-projects', component: AdminMarketProjects },
       { path: 'market/contracts', name: 'admin-market-contracts', component: AdminMarketContracts },
       { path: 'market/settings', name: 'admin-market-settings', component: AdminMarketSettings },
+      // 개발의뢰(/develop, sp-develop) 관리 — 워크큐·전면 상세·설정(docs/DEVELOP_FLOW.md §7.3)
+      {
+        path: 'develop/requests',
+        name: 'admin-develop-requests',
+        component: () => import('./pages/admin/AdminDevelopRequests.vue'),
+      },
+      {
+        path: 'develop/requests/:id(\\d+)',
+        name: 'admin-develop-request',
+        component: () => import('./pages/admin/AdminDevelopRequestDetail.vue'),
+      },
+      {
+        path: 'develop/settings',
+        name: 'admin-develop-settings',
+        component: () => import('./pages/admin/AdminDevelopSettings.vue'),
+      },
       { path: 'slides', name: 'admin-slides', component: AdminSlides },
       { path: 'seo', name: 'admin-seo', component: AdminSeo },
       {
