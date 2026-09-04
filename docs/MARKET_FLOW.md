@@ -123,6 +123,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | 마스킹 | 의뢰인 표시명은 서버가 `maskName`(@sp/utils) 적용 — 원명·mbId 는 공개 응답에 부재. 전문가 displayName 은 비마스킹(프로필 공개 동의 — 약관 명문) |
 | NDA 메타 | ndaRequired && 미서명(소유자·관리자 제외) → 첨부 **개수만**(파일명도 기밀 힌트) |
 | 첨부 다운로드 | 소유자 ∨ 관리자 ∨ (승인 전문가 ∧ (targeted→지정자) ∧ (접수 중 ∨ 채택 전문가) ∧ (NDA 불요 ∨ 서명)). 프록시 스트림 = 게이트 실집행점 |
+| 첨부 미리보기 | 다운로드와 **같은 게이트**(`accessibleProjectFile` 한 함수를 두 라우트가 호출 — 복제하면 미리보기가 NDA 우회로가 된다). §5.1 |
 | NDA 서명 자격 | 다운로드 자격 전문가와 동일 집합 + 채택 전문가는 마감 후에도 서명 가능(작업 열람 데드락 방지) |
 | 입찰 가드 사슬 | 승인 전문가 → 자기 프로젝트 금지 → targeted 지정자만 → lazy 마감(전체서비스 회사 전용 가드는 2026-08-28 폐지) → unique 중복(409 ALREADY_BID→PATCH 유도) |
 | 소유자 수정 | **접수 중(bidding ∧ 마감 전)이면 입찰이 있어도 가능**(method·지정 대상만 변경 불허). 마감·채택·취소 뒤는 409 `NOT_EDITABLE` — §11 참조 |
@@ -132,6 +133,38 @@ local-web.samplepcb.co.kr (nginx 443)
 `ApiError{error,message}` 선언형. FE 는 `@sp/shared` 가 두 형태를 정규화(`ApiMemberError`),
 코드→메시지 맵은 `apps/market/src/lib/error-msg.ts` 단일 소스.
 
+### 5.1 첨부 미리보기 (2026-09-04)
+
+전문가가 **받을 가치가 있는지 판단**하기 위해 다운로드 없이 내용을 본다. 정독은 여전히
+다운로드 몫이고 그 버튼은 남는다 — 그래서 서식 재현을 좇지 않는다.
+
+| 갈래 | 형식 | 어떻게 |
+|---|---|---|
+| 브라우저가 직접 | 이미지(svg 포함) · **pdf** · 텍스트·소스·거버·csv/tsv | 다운로드 라우트의 **원본 Blob** 을 그대로 그린다 → 원본과 100% 동일, 서버 부하 0 |
+| 서버가 구조화 | **xlsx·xlsm**(시트별 표) · **docx**(텍스트) · **zip**(목록) | `GET …/files/:fileId/preview` → `FilePreviewData` |
+| 미지원 | 구형 오피스(xls·doc·ppt) · pptx · hwp · dwg | '보기' 버튼 자체를 안 띄운다 → 다운로드 폴백 |
+
+- **판정은 계약 함수 하나**(`fileViewKind`, `packages/api-contract/src/schemas/file-preview.ts`)를
+  프런트와 서버가 공유한다. 갈리면 "보기 버튼은 있는데 열면 미지원"이 된다.
+- **구형 오피스 제외는 능력이 아니라 경계다.** 구형 판독은 LibreOffice 로 신형 정규화
+  (`xls→xlsx`, `doc→docx`)를 태우는 별도 결정 — 그때 `fileViewKind` 의 집합에 더하면 뒤쪽
+  파이프라인(파서·렌더러)은 그대로 재사용된다. sp-engine(BOM 도메인)에 얹지 않는다.
+- **보안 3제약**: `blob:` URL 은 생성 문서의 origin 을 상속한다 → ① SVG 는 `<img>` 로만(그
+  컨텍스트에선 스크립트가 안 돈다) ② html/htm 은 렌더하지 않고 **소스 텍스트**로 분류
+  ③ PDF 는 `<embed type="application/pdf">`. iframe+sandbox 는 실측 실패다 —
+  `allow-same-origin` 없는 opaque origin 에서 Chrome 이 내장 뷰어를 거부하고("Chrome에서
+  차단한 페이지입니다"), 그렇다고 주면 origin 상속이 열린다. embed 의 PDFium 은 별도
+  프로세스이고 PDF 안의 JS(Acrobat JS API)는 DOM·스토리지에 닿지 않는다.
+- **함정 3개(실측)**: ① ExcelJS 는 유효한 xlsx 를 자주 못 읽는다(x: prefix·표/도형 관계) →
+  카탈로그 로더의 `excelJsCompatibleArchive` 정화를 **실패 시에만** 폴백으로 태운다
+  ② ExcelJS 는 병합 셀 범위의 **모든** 셀에 같은 값을 채워 준다 → 좌상단(`master`)만 남기지
+  않으면 제목이 열마다 반복돼 표가 안 읽힌다 ③ 파일서버가 `octet-stream` 을 주면 Blob 의
+  type 이 비어 `<img>`·PDF 뷰어가 아예 안 뜬다 → `resolveFileMime` 로 확장자 보정.
+- 상한: 30MB(초과 시 버튼 미노출) · 시트 12개 · 시트당 500행 × 40열 · 문서 5만자 · zip 300개.
+  스프레드시트는 파싱 **전에** zip 헤더로 비대(styles.xml 2MB·시트 XML 50MB)를 걸러낸다
+  (sp-engine `bom_loader` 가 남긴 실측 함정을 ExcelJS 도 그대로 물려받는다).
+- 텍스트는 UTF-8 로 읽고 치환문자가 섞이면 **euc-kr 로 재디코드**한다(국내 CSV·로그).
+
 ## 6. API·화면 지도
 
 | 영역 | 위치 |
@@ -139,6 +172,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | 회원 라우트 | `apps/api/src/routes/market-{experts,projects,bids}.ts` (prefix `/api`) |
 | 관리자 라우트 | `apps/api/src/routes/admin-market-{experts,projects,settings}.ts` (prefix `/api/admin`, requireAdmin addHook) + `GET /api/admin/market/files/:fileId` |
 | 공용 헬퍼 | `apps/api/src/lib/market.ts`(asXxx 내로잉·lazy 마감·마감 계산 KST 23:59:59·sp_file 조각·multipart 수집) |
+| 첨부 미리보기 | 계약 `schemas/file-preview.ts`(판정·MIME·CSV 파서·상한) · 서버 `apps/api/src/lib/file-preview.ts`(도메인 중립 — 다른 도메인은 라우트만 추가) · 화면 `apps/market/src/{lib/file-preview.ts,components/FilePreviewModal.vue}`. §5.1 |
 | 계약 | `packages/api-contract/src/schemas/market.ts` + `routes.ts` apiRoutes 10종 |
 | 소비자 화면 | `apps/market/src/pages/{Home,Projects,ProjectDetail,Experts,ExpertDetail,RequestWizard,ExpertRegister,Me}.vue` — 의뢰 위저드 v5(3스텝)는 `components/request/Step{Describe,Details,Review}.vue·QuestionField.vue` + `composables/useRequestWizardForm.ts`·`useDevReviewJob.ts` + `components/dev-review/DevReviewView.vue` |
 | 관리자 화면 | `apps/web/src/pages/admin/AdminMarket{Experts,Projects,Settings}.vue` + `admin/useAdminMarket.ts` |

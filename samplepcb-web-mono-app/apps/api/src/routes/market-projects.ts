@@ -17,6 +17,9 @@ import {
   isMajorMarketRevision,
   normalizeMarketTools,
   marketRequiredMissing,
+  needsServerPreview,
+  fileViewKind,
+  resolveFileMime,
 } from '@sp/api-contract';
 import type {
   JwtClaimsType,
@@ -34,6 +37,7 @@ import { startDevReviewJob } from '../lib/ai/runner';
 import { DEV_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from '../lib/ai/usecases';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
+import { buildFilePreview } from '../lib/file-preview';
 import { getMembersByIds } from '../lib/g5-db';
 import { kstDateTimeStr } from '../lib/kst';
 import { buildTargetedRequestEmail, sendMarketMail } from '../lib/market-email';
@@ -133,6 +137,33 @@ const expertFileAccess = async (
     if (signed === null) return { ok: false, reason: 'NDA_REQUIRED' };
   }
   return { ok: true };
+};
+
+// 첨부 실체 접근 판정 — 다운로드와 미리보기가 **같은 함수**를 쓴다.
+// 게이트를 복제하면 한쪽만 고쳐졌을 때 미리보기가 NDA 우회로가 된다(파일명 자체가 기밀 힌트).
+type AccessibleFile = Pick<SpFile, 'id' | 'pathToken' | 'originFileName' | 'size'>;
+const accessibleProjectFile = async (
+  params: { id: string; fileId: string },
+  user: { mbId: string; isAdmin: boolean },
+): Promise<
+  | { ok: true; project: SpMarketProject; file: AccessibleFile }
+  | { ok: false; status: 403 | 404; error: string }
+> => {
+  const project = await prisma.spMarketProject.findUnique({ where: { id: BigInt(params.id) } });
+  if (project === null) return { ok: false, status: 404, error: '프로젝트가 없습니다' };
+
+  const isOwner = project.mbId === user.mbId;
+  if (!isOwner && !user.isAdmin) {
+    const access = await expertFileAccess(project, user.mbId, new Date());
+    if (!access.ok) return { ok: false, status: 403, error: access.reason };
+  }
+
+  const file = await prisma.spFile.findFirst({
+    where: { id: BigInt(params.fileId), refType: REF_MARKET_PROJECT, refId: project.id },
+    select: { id: true, pathToken: true, originFileName: true, size: true },
+  });
+  if (file === null) return { ok: false, status: 404, error: '파일이 없습니다' };
+  return { ok: true, project, file };
 };
 
 // 수정 가능 판정 — 접수 중(bidding ∧ 마감 전)이면 **입찰이 있어도 수정할 수 있다**.
@@ -940,38 +971,61 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     '/market/projects/:id/files/:fileId',
     { schema: { params: ProjectFileParams }, preHandler: fastify.authenticate },
     async (request, reply) => {
-      const project = await prisma.spMarketProject.findUnique({
-        where: { id: BigInt(request.params.id) },
-      });
-      if (project === null) return reply.notFound('프로젝트가 없습니다');
+      const found = await accessibleProjectFile(request.params, request.user);
+      if (!found.ok) return reply.status(found.status).send({ result: false, error: found.error });
 
-      const isOwner = project.mbId === request.user.mbId;
-      if (!isOwner && !request.user.isAdmin) {
-        const access = await expertFileAccess(project, request.user.mbId, new Date());
-        if (!access.ok) {
-          return reply.status(403).send({ result: false, error: access.reason });
-        }
-      }
-
-      const file = await prisma.spFile.findFirst({
-        where: {
-          id: BigInt(request.params.fileId),
-          refType: REF_MARKET_PROJECT,
-          refId: project.id,
-        },
-        select: { pathToken: true, originFileName: true },
-      });
-      if (file === null) return reply.notFound('파일이 없습니다');
-
-      const downloaded = await downloadFromFileServer(file.pathToken);
+      const downloaded = await downloadFromFileServer(found.file.pathToken);
       if (downloaded === null) return reply.notFound('파일이 없습니다');
       return reply
         .header(
           'Content-Disposition',
-          `attachment; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`,
+          `attachment; filename*=UTF-8''${encodeURIComponent(found.file.originFileName)}`,
         )
-        .type(downloaded.contentType)
+        // 파일서버가 형식을 모르면 octet-stream 을 준다. 다운로드만 하던 시절엔 티가 안 났지만
+        // 미리보기에선 Blob 의 type 이 비어 `<img>`·PDF 뷰어가 아예 안 뜬다 — 확장자로 보정한다.
+        .type(resolveFileMime(found.file.originFileName, downloaded.contentType))
         .send(downloaded.buffer);
+    },
+  );
+
+  // ── GET /market/projects/:id/files/:fileId/preview — 첨부 미리보기(구조화) ──
+  // 게이트는 다운로드와 **같은 함수**를 쓴다(accessibleProjectFile). 갈리는 순간 미리보기가
+  // NDA 우회로가 된다. 브라우저가 직접 그리는 형식(이미지·PDF·텍스트)은 여기 오지 않는다 —
+  // 프런트가 다운로드 라우트의 Blob 을 그대로 그리므로 원본과 100% 같다.
+  fastify.get(
+    '/market/projects/:id/files/:fileId/preview',
+    { schema: { params: ProjectFileParams }, preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const found = await accessibleProjectFile(request.params, request.user);
+      if (!found.ok) return reply.status(found.status).send({ result: false, error: found.error });
+
+      const name = found.file.originFileName;
+      // 판정은 계약 함수 하나(fileViewKind)를 프런트와 공유한다 — 서버가 받아주지 않을 형식은
+      // 파일서버까지 다녀올 이유가 없다.
+      if (!needsServerPreview(fileViewKind(name))) {
+        return {
+          result: true as const,
+          data: {
+            fileId: Number(found.file.id),
+            name,
+            size: Number(found.file.size),
+            kind: 'unsupported' as const,
+            reason: 'FORMAT' as const,
+            sheets: null,
+            text: null,
+            entries: null,
+            truncated: false,
+            note: '',
+          },
+        };
+      }
+
+      const downloaded = await downloadFromFileServer(found.file.pathToken);
+      if (downloaded === null) return reply.notFound('파일이 없습니다');
+      return {
+        result: true as const,
+        data: await buildFilePreview(Number(found.file.id), name, downloaded.buffer),
+      };
     },
   );
 

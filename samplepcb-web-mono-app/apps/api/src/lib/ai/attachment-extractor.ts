@@ -83,7 +83,10 @@ const officeXmlText = (xml: string): string => cleanText(decodeXmlEntities(
     .replace(/<[^>]+>/g, ''),
 ));
 
-const officeArchive = (buffer: Buffer, extension: string): ExtractedFile => {
+// export 인 이유: 첨부 미리보기(lib/file-preview.ts)가 docx 텍스트에 같은 추출을 쓴다.
+// 두 곳이 다른 코드를 쓰면 "AI 는 읽었는데 화면 미리보기는 비어 있다"가 된다.
+// 미리보기는 images 를 버리고 text 만 쓴다 — 추출 비용은 MAX_IMAGES(4)로 이미 묶여 있다.
+export const officeArchive = (buffer: Buffer, extension: string): ExtractedFile => {
   const documentPattern = extension === '.docx'
     ? /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i
     : /^ppt\/slides\/slide\d+\.xml$/i;

@@ -22,6 +22,7 @@ import ContractCard from '../components/ContractCard.vue';
 import DevDiagramSection from '../components/dev-review/DevDiagramSection.vue';
 import DevReviewView from '../components/dev-review/DevReviewView.vue';
 import DeliverModal from '../components/DeliverModal.vue';
+import FilePreviewModal from '../components/FilePreviewModal.vue';
 import NdaSignModal from '../components/NdaSignModal.vue';
 import {
   useAwardBid,
@@ -51,6 +52,7 @@ import {
 import { useAiJob, useDevReviewStatus } from '../api/useAi';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
+import { canPreview, type PreviewTarget } from '../lib/file-preview';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
@@ -355,6 +357,10 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
   }
 }
 
+// 첨부 미리보기 — 열려 있는 파일 하나(null 이면 닫힘). 권한은 서버가 다운로드와 같은
+// 게이트로 다시 판정하므로 여기서는 UX 분기만 한다.
+const previewFile = ref<PreviewTarget | null>(null);
+
 // ── 계약(2차) 액션 ──────────────────────────────────────────────────────────
 async function onCheckout(): Promise<void> {
   if (projectId.value === null) return;
@@ -654,6 +660,9 @@ async function onRemoveDevReview(): Promise<void> {
                   <span v-if="fileSlotLabel(f) !== ''" class="shrink-0 rounded-full border border-line bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">{{ fileSlotLabel(f) }}</span>
                   <span class="min-w-0 flex-1 truncate text-tx-1">{{ f.name }}</span>
                   <span class="text-label tabular-nums text-tx-3">{{ fmtSize(f.size) }}</span>
+                  <button v-if="auth.isLoggedIn && canPreview(f)" type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-copper-400 hover:text-copper-600" @click="previewFile = { fileId: f.fileId, name: f.name, size: f.size }">
+                    보기
+                  </button>
                   <button v-if="auth.isLoggedIn" type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-copper-400 hover:text-copper-600" @click="downloadFile(f.fileId, f.name)">
                     다운로드
                   </button>
@@ -915,6 +924,14 @@ async function onRemoveDevReview(): Promise<void> {
         :error="reportError"
         @close="reportOpen = false"
         @submit="onSubmitReport"
+      />
+      <FilePreviewModal
+        v-if="projectId !== null"
+        :open="previewFile !== null"
+        :project-id="projectId"
+        :file="previewFile"
+        @close="previewFile = null"
+        @download="downloadFile"
       />
     </template>
   </section>
