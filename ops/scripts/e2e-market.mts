@@ -321,6 +321,8 @@ async function cleanup() {
 
   await prisma.spMarketBid.deleteMany({ where: { projectId: { in: pids } } });
   await prisma.spMarketNdaSign.deleteMany({ where: { projectId: { in: pids } } });
+  // 수정 이력(FK 없음) — 프로젝트를 지우기 전에 같이 지운다. 안 그러면 고아 행이 남는다.
+  await prisma.spMarketProjectRevision.deleteMany({ where: { projectId: { in: pids } } });
   await prisma.spMarketProject.deleteMany({ where: { id: { in: pids } } });
   // 하네스가 시드한 AI 잡(sp_ai_job) — 프로젝트와 FK 가 없으므로 id 로 직접 지운다.
   const aiJobIds = (ids.aiJobIds ?? []).map((v) => String(v));
