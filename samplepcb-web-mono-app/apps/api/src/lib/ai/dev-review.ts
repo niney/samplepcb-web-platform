@@ -1,56 +1,57 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
-  DEV_REVIEW_QUESTION_MAP,
+  DEV_REVIEW_GENERAL_AREA,
   DEV_REVIEW_VERSION,
   DevReviewAreaReview,
-  DevReviewDiagram,
-  DevReviewDiagramNode,
   DevReviewFact,
   DevReviewLlmOutput,
   DevReviewObservation,
   DevReviewOpenQuestion,
   DevReviewSpecRow,
-  MARKET_SERVICE_AREA_LABELS,
+  MARKET_AREAS,
   MarketDevReview,
-  devReviewAnswerText,
+  marketAnswerText,
+  marketArea,
+  marketAreaLabel,
+  marketQuestion,
+  sortMarketAreas,
 } from '@sp/api-contract';
 import type {
-  DevReviewAnswerType,
-  DevReviewAreaType,
   DevReviewCheckType,
-  DevReviewDiagramNodeType,
-  DevReviewDiagramType,
   DevReviewFactType,
   DevReviewLlmOutputType,
   DevReviewMetaType,
   DevReviewOpenQuestionType,
+  MarketAnswerType,
   MarketDevReviewType,
 } from '@sp/api-contract';
 import { extractJsonObject } from './ollama';
 
-// ── AI 사전 검토서 v2 — 프롬프트(코드 정본)·파서·후처리 규칙 ─────────────────────
-// docs/AI_DEV_REVIEW.md §12. 정확도는 프롬프트가 아니라 여기 결정적 후처리가 담보한다:
+// ── AI 사전 검토서 v3 — 프롬프트(코드 정본)·파서·후처리 규칙 ─────────────────────
+// docs/AI_DEV_REVIEW.md §13. 정확도는 프롬프트가 아니라 여기 결정적 후처리가 담보한다:
 // 근거(고객 원문 인용)가 코퍼스에 없는 항목과 자료에 없는 수치·품번을 품은 항목은 **삭제**
 // (v1 의 "확인 필요" 강등은 없다 — 정해지지 않은 것은 openQuestions 한 목록뿐).
+// 분야 정의·명세 항목 예·상의 항목 체크리스트는 레지스트리(market-areas)의 prompt 조각에서
+// 조립한다 — 분야가 늘어도 이 파일의 규칙 본문은 바뀌지 않는다.
 // 프로빙 하네스(scripts/probe-dev-review.ts)와 실제 라우트가 같은 함수를 쓴다.
 
-export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v2.1'; // 09-03: 상의 항목 분야·검토 관찰·답변↔자료 정합
+export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v4'; // 09-04: 분야 레지스트리(5종)·분야별 질문 · 구성도는 검토서에서 분리(§13.7)
 export const ATTACHMENT_READ_PROMPT_VERSION = 'attachment-read.v1';
 export const DEV_REVIEW_MAX_OPEN_QUESTIONS = 6;
 
 export interface DevReviewSource {
   title: string;
-  serviceAreas: readonly DevReviewAreaType[];
+  serviceAreas: readonly string[]; // 레지스트리 분야 코드
   description: string;
-  answers: readonly DevReviewAnswerType[];
+  answers: readonly MarketAnswerType[]; // 공통 + 분야별 질문
   attachmentContext: string; // 추출 텍스트 + 이미지 판독 결과(둘 다 근거 코퍼스)
   attachmentFiles: readonly string[];
 }
 
 // ── 프롬프트 ────────────────────────────────────────────────────────────────
 
-const DEV_REVIEW_RULES = `당신은 회로·PCB·펌웨어 개발 의뢰를 사전 검토하는 하드웨어 개발 PM입니다. 아래 [고객 자료]만을 근거로 "AI 사전 검토서" JSON을 작성합니다. 의뢰자는 전자 개발 비전문가일 수 있습니다 — 쉬운 한국어로, 짧게, 확정된 것만 씁니다. 이 검토서는 고객과, 견적을 낼 전문가가 함께 봅니다.
+const DEV_REVIEW_RULES = `당신은 전자제품(회로·PCB·펌웨어)과 그에 붙는 앱·서버 개발 의뢰를 사전 검토하는 개발 PM입니다. 아래 [고객 자료]만을 근거로 "AI 사전 검토서" JSON을 작성합니다. 의뢰자는 전자 개발 비전문가일 수 있습니다 — 쉬운 한국어로, 짧게, 확정된 것만 씁니다. 이 검토서는 고객과, 견적을 낼 전문가가 함께 봅니다. 시스템 구성도는 별도 산출물이라 여기서는 만들지 않습니다.
 
 [절대 규칙]
 1. 고객 자료에 있는 사실만 씁니다. requirements 와 spec 의 각 항목에는 evidence 로 그 근거가 되는 고객 자료의 문장을 120자 이내로 그대로 인용합니다(요약·의역·번역 금지). 인용할 문장이 없는 항목은 쓰지 않습니다.
@@ -65,45 +66,51 @@ const DEV_REVIEW_RULES = `당신은 회로·PCB·펌웨어 개발 의뢰를 사�
 {
   "summary": "의뢰를 한 문장으로(무엇을·왜·어디에, 80자 이내)",
   "requirements": [ {"text": "핵심 개발 요구사항(쉬운 말, 40자 이내)", "evidence": "고객 문장 인용"} ],
-  "diagram": {
-    "columns": {"inputs": "왼쪽 열 이름(예: 현장 입력)", "board": "가운데 열 이름(예: 제어 보드)", "outputs": "오른쪽 열 이름(예: 연동·출력)"},
-    "inputs": [ {"label": "보드로 들어오는 것(센서·신호·버튼·전원 입력)", "detail": "한 줄 보충(20자 이내)", "icon": "sensor|signal|button|power|other", "tbd": false} ],
-    "board": {"label": "보드 이름(예: 메인 컨트롤러 — 품번은 고객이 말한 경우만)", "detail": "한 줄 보충(20자 이내)", "chips": ["보드 안 기능 블록(예: 전원 변환, 입력 보호, 데이터 처리, 무선 통신, 저장)"], "tbd": false},
-    "outputs": [ {"label": "보드에서 나가는 것·연동 대상(출력 장치·앱·서버·PC·기존 장비)", "detail": "한 줄 보충(20자 이내)", "icon": "display|motor|relay|wireless|phone|cloud|pc|device|storage|other", "tbd": false} ],
-    "linkIn": "입력→보드 연결 방식(고객 자료에 있는 것만, 없으면 \\"\\")",
-    "linkOut": "보드→출력·연동 연결 방식(고객 자료에 있는 것만, 없으면 \\"\\")",
-    "notes": {"flow": "데이터 흐름 한 줄(예: 센싱 → 처리 → 앱 전송)", "design": "핵심 설계 포인트 한 줄", "extension": "고객이 말한 확장 방향 한 줄, 없으면 \\"\\""}
-  },
-  "areas": [ {"area": "circuit|pcb|firmware", "summary": "이 분야에서 무엇을 만드는지 한 줄(쉬운 말, 60자 이내)", "spec": [ {"item": "항목명(예: 입력부, 전원부, 통신, 펌웨어 기능)", "text": "내용(60자 이내)", "evidence": "고객 문장 인용"} ], "observations": [ {"text": "검토 관찰 한 줄(60자 이내)", "evidence": "고객 문장 인용"} ]} ],
-  "openQuestions": [ {"question": "전문가 상담에서 확정할 질문 한 문장", "why": "왜 필요한지 한 문장", "area": "circuit|pcb|firmware|general"} ]
+  "areas": [ {"area": "[개발 분야]의 코드 중 하나", "summary": "이 분야에서 무엇을 만드는지 한 줄(쉬운 말, 60자 이내)", "spec": [ {"item": "항목명([개발 분야]의 명세 항목 예 참고)", "text": "내용(60자 이내)", "evidence": "고객 문장 인용"} ], "observations": [ {"text": "검토 관찰 한 줄(60자 이내)", "evidence": "고객 문장 인용"} ]} ],
+  "openQuestions": [ {"question": "전문가 상담에서 확정할 질문 한 문장", "why": "왜 필요한지 한 문장", "area": "[개발 분야]의 코드 중 하나 또는 general"} ]
 }
 
 [작성 지침]
 - requirements: 고객이 원하는 기능·조건 3~5개. 자료가 빈약하면 1~2개도 괜찮습니다. 질문 답변(현재 상태·수량·함께 쓰는 것·목표 시점)은 이미 표로 표시되므로 requirements 에 반복하지 않습니다.
-- diagram: inputs 0~5개, chips 3~8개(각 12자 이내), outputs 0~5개. 고객이 말하지 않은 기능(앱·클라우드·OTA·통신 방식 등)을 추가하지 않습니다. 라벨은 역할명(예: "온도 센서", "스마트폰 앱")으로 짧게.
-  · 분류 기준 — inputs: 보드로 들어오는 것. 센서(온도·습도·진동·전압·전류 측정 등), 버튼·스위치, 카메라, 외부 신호·기존 장비에서 오는 신호, 전원 입력(어댑터·배터리·AC). outputs: 보드가 움직이거나 보내는 것. 모터·펌프·밸브·릴레이·히터 같은 구동 장치, LED·부저·디스플레이 같은 표시 장치, 스마트폰 앱·서버·PC·기존 장비 같은 연동 대상(질문 답변의 "함께 쓰는 것" 포함). chips: 보드 안 기능 블록 — 전원 변환, 입력 보호, 신호 처리, 데이터 저장, 통신(고객이 말한 방식만), 구동 제어 등.
-  · 같은 장치가 여러 개면 카드 하나에 label 끝 "×N"(예: "릴레이 출력 ×2").
-  · 저항·커패시터 값, 핀 번호, 세부 회로소자, 층수·내부 전압 같은 설계 결정은 쓰지 않습니다.
-  · tbd: 고객이 그 항목의 종류·방식을 "정하지 않았다·제안 받고 싶다"고 말한 경우에만 true(예: "센서 종류는 개발사 제안" → 온습도 센서 카드 tbd:true). 고객이 언급하지 않은 것은 tbd 카드도 만들지 않습니다.
 - 자료 간 불일치: 설명과 첨부, 또는 첨부끼리 내용이 다르면(예: 설명은 12V, 도면은 24V) 어느 쪽도 고르지 말고 그 항목은 확정에서 빼고 openQuestions 에 "자료 간 확인 필요: …"로 씁니다.
-- areas: [개발 분야]의 분야마다 정확히 하나씩. spec 은 근거가 있는 행만 0~6행 — 억지로 채우지 않습니다.
+- areas: [개발 분야]의 분야마다 정확히 하나씩(코드는 [개발 분야]에 적힌 것만). spec 은 근거가 있는 행만 0~6행 — 억지로 채우지 않습니다. 항목명은 [개발 분야]의 "명세 항목 예"를 참고하되 자료에 있는 것만 씁니다.
   · observations(검토 관찰): 이 분야에서 전문가가 먼저 볼 지점을 0~2줄. 고객 자료에 있는 사실 둘 이상을 이어 "무엇이 이 개발의 핵심인가"를 말합니다(예: "이더넷과 RS485 두 경로가 있어 폴백 전환 처리가 펌웨어의 중심입니다"). 각 관찰은 evidence 로 그 사실이 적힌 고객 문장을 인용합니다. 권장·추천·"해야 합니다"·리스크·주의 같은 판단 어휘는 쓰지 않고, spec 행을 되풀이하지 않습니다. 이을 사실이 없으면 빈 배열.
-- openQuestions: 고객이 "잘 모르겠어요"라고 답한 주제, 자료에 없는 전원·통신·크기·설치 환경·인증·수량 등 개발에 꼭 필요한 것만. 같은 주제를 표현만 바꿔 반복하지 않습니다. area 는 그 질문이 정해져야 진행되는 분야(circuit·pcb·firmware) — 분야를 가리기 어렵거나 여러 분야에 걸치면 general.
+- openQuestions: 고객이 "잘 모르겠어요"라고 답한 주제, 자료에 없는 전원·통신·크기·설치 환경·인증·수량 등 개발에 꼭 필요한 것만. 같은 주제를 표현만 바꿔 반복하지 않습니다. area 는 그 질문이 정해져야 진행되는 분야 코드 — 분야를 가리기 어렵거나 여러 분야에 걸치면 general.
   · 질문 답변과 자료가 범주에서 어긋나면(예: 현재 상태는 "아이디어만"인데 첨부가 회로도·넷리스트, 함께 쓰는 것은 "없음"인데 설명에 PC·앱 연동) 자료를 우선해 검토서를 쓰되 그 어긋남을 openQuestions 에 "답변과 자료 확인 필요: …" 한 문장으로 씁니다(area general).
-  · 하드웨어 검토 체크리스트(해당하는 경우에만, 고객이 이미 답한 것은 묻지 않음): 상용 AC 전원이나 모터·히터·릴레이·펌프 같은 큰 부하를 제어하면 절연·보호(퓨즈·서지) 방식 / RS-485·CAN 등 외부 장비와 유선 통신이 있으면 절연 여부와 통신 규약 / 무선(Wi-Fi·BLE·LTE·LoRa)이 있으면 안테나 형태(내장·외장)와 전파 인증 / 전원 입력 종류(어댑터·배터리·AC)가 자료에 없으면 전원 방식 / 기록·저장 요구가 있으면 보관 기간과 저장 위치(보드·서버) / 설치 환경(옥외·고온·다습·진동)이 자료에 없으면 설치 환경. 이 체크리스트 항목을 구성도 카드나 확정 항목으로 만들지 않고, 고객 자료에서 직접 나온 질문(고객이 모른다고 한 것·자료에 빠진 것) 뒤에 둡니다.`;
+  · 분야 검토 체크리스트(해당하는 경우에만, 고객이 이미 답한 것은 묻지 않음): [개발 분야]의 "상의 항목 규칙"을 따릅니다. 이 체크리스트 항목을 구성도 카드나 확정 항목으로 만들지 않고, 고객 자료에서 직접 나온 질문(고객이 모른다고 한 것·자료에 빠진 것) 뒤에 둡니다.`;
+
+// [개발 분야] 블록 — 레지스트리의 prompt 조각(정의·명세 항목 예·상의 항목 규칙)을 선택 분야만 조립한다.
+export function buildDevReviewAreaBlock(areas: readonly string[]): string {
+  const lines = sortMarketAreas(areas).map((code) => {
+    const def = marketArea(code);
+    if (def === undefined) return `- ${code}`;
+    return [
+      `- ${code} = ${def.label}: ${def.prompt.what}`,
+      `  · 명세 항목 예: ${def.prompt.specItems.join(', ')}`,
+      def.prompt.checks.length === 0 ? '' : `  · 상의 항목 규칙: ${def.prompt.checks.join(' / ')}`,
+    ].filter((l) => l !== '').join('\n');
+  });
+  return `[개발 분야]\n${lines.join('\n')}`;
+}
+
+const answerLine = (a: MarketAnswerType): string => {
+  const q = marketQuestion(a.code);
+  const area = q === undefined ? null : a.code.includes('.') ? a.code.slice(0, a.code.indexOf('.')) : null;
+  const prefix = area === null ? '' : `[${marketAreaLabel(area)}] `;
+  return `- ${prefix}${q?.label ?? a.code} → ${marketAnswerText(a)}`;
+};
 
 export function buildDevReviewPrompt(source: DevReviewSource, extraInstructions = ''): string {
   const extra = extraInstructions.trim();
-  const answers = source.answers
-    .map((a) => `- ${DEV_REVIEW_QUESTION_MAP[a.code].label} → ${devReviewAnswerText(a)}`)
-    .join('\n');
+  const answers = source.answers.map(answerLine).join('\n');
   const attachments = source.attachmentContext.trim();
   return [
     DEV_REVIEW_RULES,
+    buildDevReviewAreaBlock(source.serviceAreas),
     `[추가 지침]\n${extra === '' ? '(없음)' : extra}`,
     '[고객 자료]',
     `■ 제목: ${source.title}`,
-    `■ 개발 분야: ${source.serviceAreas.map((a) => MARKET_SERVICE_AREA_LABELS[a]).join(', ')}`,
+    `■ 개발 분야: ${sortMarketAreas(source.serviceAreas).map(marketAreaLabel).join(', ')}`,
     `■ 설명:\n${source.description}`,
     `■ 질문 답변:\n${answers === '' ? '(없음)' : answers}`,
     `■ 첨부 자료:\n${attachments === '' ? '(없음)' : attachments}`,
@@ -303,7 +310,7 @@ function numericTokens(text: string): NumericToken[] {
 export interface SourceConflict { unit: string; label: string; primary: string[]; attachment: string[] }
 
 export function detectSourceConflicts(source: DevReviewSource): SourceConflict[] {
-  const primaryText = [source.title, source.description, ...source.answers.map(devReviewAnswerText)].join('\n');
+  const primaryText = [source.title, source.description, ...source.answers.map(marketAnswerText)].join('\n');
   const group = (tokens: readonly NumericToken[]): Map<string, Set<string>> => {
     const m = new Map<string, Set<string>>();
     for (const t of tokens) {
@@ -340,7 +347,7 @@ export function conflictQuestion(c: SourceConflict): DevReviewOpenQuestionType {
   return {
     question: `자료 간 확인 필요: ${c.label} — 설명에는 ${fmt(c.primary)}, 첨부에는 ${fmt(c.attachment)}로 적혀 있습니다. 어느 쪽이 맞나요?`,
     why: '설명과 첨부 자료의 값이 달라 어느 쪽도 확정하지 않았습니다.',
-    area: 'general',
+    area: DEV_REVIEW_GENERAL_AREA,
   };
 }
 
@@ -361,14 +368,14 @@ export function stripTokens(text: string, tokens: readonly string[]): string {
 export function devReviewSourceText(source: DevReviewSource): string {
   const answers = source.answers
     .flatMap((a) => {
-      const q = DEV_REVIEW_QUESTION_MAP[a.code];
-      const text = devReviewAnswerText(a);
-      return [`${q.label} → ${text}`, `${q.short}: ${text}`];
+      const q = marketQuestion(a.code);
+      const text = marketAnswerText(a);
+      return [`${q?.label ?? a.code} → ${text}`, `${q?.short ?? a.code}: ${text}`];
     })
     .join('\n');
   return [
     source.title,
-    source.serviceAreas.map((a) => MARKET_SERVICE_AREA_LABELS[a]).join(', '),
+    sortMarketAreas(source.serviceAreas).map(marketAreaLabel).join(', '),
     source.description,
     answers,
     source.attachmentContext,
@@ -378,9 +385,9 @@ export function devReviewSourceText(source: DevReviewSource): string {
 // 캐시·신선도 판정의 입력 해시 — 등록 조건(예산·마감·방식·NDA)은 원천이 아니다(§3).
 export function devReviewInputHash(input: {
   title: string;
-  serviceAreas: readonly DevReviewAreaType[];
+  serviceAreas: readonly string[];
   description: string;
-  answers: readonly DevReviewAnswerType[];
+  answers: readonly MarketAnswerType[];
   attachmentHashes: readonly string[];
 }): string {
   const canonical = JSON.stringify({
@@ -422,12 +429,12 @@ const joinClues = (clues: readonly string[]): string => clues.join('·');
 export function detectAnswerChecks(source: DevReviewSource): DevReviewCheckType[] {
   const material = `${source.description}\n${source.attachmentContext}`;
   const checks: DevReviewCheckType[] = [];
-  const answerOf = (code: DevReviewAnswerType['code']) => source.answers.find((a) => a.code === code);
+  const answerOf = (code: string) => source.answers.find((a) => a.code === code);
   const stage = answerOf('stage');
   if (stage?.choices.length === 1 && (stage.choices[0] === 'idea' || stage.choices[0] === 'unknown')) {
     const found = findClues(material, DESIGN_ARTIFACT_RE);
     if (found.length > 0) {
-      const answer = devReviewAnswerText(stage);
+      const answer = marketAnswerText(stage);
       checks.push({
         code: 'stage',
         answer,
@@ -440,7 +447,7 @@ export function detectAnswerChecks(source: DevReviewSource): DevReviewCheckType[
   if (external?.choices.length === 1 && external.choices[0] === 'none') {
     const found = findClues(material, EXTERNAL_LINK_RE);
     if (found.length > 0) {
-      const answer = devReviewAnswerText(external);
+      const answer = marketAnswerText(external);
       checks.push({
         code: 'external',
         answer,
@@ -453,7 +460,7 @@ export function detectAnswerChecks(source: DevReviewSource): DevReviewCheckType[
 }
 
 export function checkQuestion(c: DevReviewCheckType): DevReviewOpenQuestionType {
-  return { question: c.text.slice(0, 120), why: '답변과 자료가 달라 자료를 우선해 검토서를 썼습니다.', area: 'general' };
+  return { question: c.text.slice(0, 120), why: '답변과 자료가 달라 자료를 우선해 검토서를 썼습니다.', area: DEV_REVIEW_GENERAL_AREA };
 }
 
 // 검토 관찰의 판단 어휘 — 관찰은 사실을 잇는 문장이지 권고가 아니다(v1 "리스크" 행이 근거 없이 나온 교훈).
@@ -474,8 +481,6 @@ const jaccard = (a: readonly string[], b: readonly string[]): number => {
 };
 
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
-const asRecord = (v: unknown): Record<string, unknown> =>
-  typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {};
 
 const parseEach = <T>(schema: z.ZodType<T>, values: unknown[], max: number): T[] =>
   values.flatMap((v) => {
@@ -483,35 +488,10 @@ const parseEach = <T>(schema: z.ZodType<T>, values: unknown[], max: number): T[]
     return r.success ? [r.data] : [];
   }).slice(0, max);
 
-// 칩은 문자열 배열이지만 모델이 {label} 객체로 주기도 한다 — 둘 다 받는다.
-const chipText = (v: unknown): string | null => {
-  if (typeof v === 'string') return v;
-  const label = asRecord(v).label;
-  return typeof label === 'string' ? label : null;
-};
-
 export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
   const obj = extractJsonObject(raw);
   if (typeof obj !== 'object' || obj === null) throw new Error('DEV_REVIEW_NOT_OBJECT');
   const o = obj as Record<string, unknown>;
-  const d = o.diagram;
-  if (typeof d !== 'object' || d === null) throw new Error('DEV_REVIEW_DIAGRAM_INVALID');
-  const dr = d as Record<string, unknown>;
-  const board = asRecord(dr.board);
-  const diagram = DevReviewDiagram.parse({
-    columns: dr.columns,
-    inputs: parseEach(DevReviewDiagramNode, asArray(dr.inputs), 5),
-    board: {
-      label: board.label,
-      detail: board.detail,
-      chips: asArray(board.chips).map(chipText).filter((c): c is string => c !== null && c.trim() !== '').slice(0, 8),
-      tbd: board.tbd,
-    },
-    outputs: parseEach(DevReviewDiagramNode, asArray(dr.outputs), 5),
-    linkIn: dr.linkIn,
-    linkOut: dr.linkOut,
-    notes: dr.notes,
-  });
   const areasRaw = asArray(o.areas).flatMap((a) => {
     if (typeof a !== 'object' || a === null) return [];
     const x = a as Record<string, unknown>;
@@ -525,25 +505,22 @@ export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
   return DevReviewLlmOutput.parse({
     summary: typeof o.summary === 'string' ? o.summary : '',
     requirements: parseEach(DevReviewFact, asArray(o.requirements), 5),
-    diagram,
-    areas: parseEach(DevReviewAreaReview, areasRaw, 3),
+    areas: parseEach(DevReviewAreaReview, areasRaw, MARKET_AREAS.length),
     openQuestions: parseEach(DevReviewOpenQuestion, asArray(o.openQuestions), DEV_REVIEW_MAX_OPEN_QUESTIONS),
   });
 }
 
 // ── 후처리 ──────────────────────────────────────────────────────────────────
 // R1 근거: evidence 가 코퍼스에 없는 항목 삭제 · R2 수치·품번: 자료에 없는 값을 품은 항목 삭제
-// (요약·분야 한 줄·구성도 라벨은 삭제 대신 그 토큰만 제거) · R4 구성도: 연결 라벨은 코퍼스에
-// 있는 것만 · R5 상의 항목: 표현만 다른 중복을 접고 최대 6개 · R6 빈 명세: 뷰가 "상담 후 작성".
+// (요약·분야 한 줄은 삭제 대신 그 토큰만 제거) · R5 상의 항목: 표현만 다른 중복을 접고 최대 6개 ·
+// R6 빈 명세: 뷰가 "상담 후 작성". (R4 구성도 규칙은 v4 에서 구성도가 분리되며 사라졌다.)
 
 export interface DevReviewDiagnostics {
   r1Dropped: number; // 근거 없는 항목 → 삭제
   r2Dropped: number; // 자료에 없는 수치·품번 → 삭제
   r8Dropped: number; // 자료 간 불일치 값을 품은 항목 → 삭제
   conflicts: number; // 감지된 불일치 단위 수
-  tokensStripped: number; // 요약·구성도·분야 한 줄에서 제거한 토큰 수
-  diagramNodesDropped: number; // 토큰 제거 뒤 빈 라벨이 된 카드·칩
-  linksCleared: number; // 코퍼스에 없는 연결 라벨
+  tokensStripped: number; // 요약·분야 한 줄에서 제거한 토큰 수
   openQuestionsDeduped: number;
   r9Checks: number; // 답변↔자료 범주 어긋남 수
   observationsDropped: number; // 근거 없음·판단 어휘·명세 되풀이로 버린 관찰
@@ -572,62 +549,12 @@ const keepFact = <T extends DevReviewFactType>(item: T, ctx: Ctx): T | null => {
   return item;
 };
 
-// 삭제 대신 근거 없는 토큰·불일치 값만 걷어내는 문장(요약·분야 한 줄·구성도 라벨).
+// 삭제 대신 근거 없는 토큰·불일치 값만 걷어내는 문장(요약·분야 한 줄).
 const cleanText = (text: string, ctx: Ctx): string => {
   const bad = [...ungroundedTokens(text, ctx.corpus), ...conflictTokensIn(text, ctx.conflicts)];
   if (bad.length === 0) return text;
   ctx.diag.tokensStripped += bad.length;
   return stripTokens(text, bad);
-};
-
-const cleanNode = (node: DevReviewDiagramNodeType, ctx: Ctx): DevReviewDiagramNodeType | null => {
-  const label = cleanText(node.label, ctx);
-  if (label === '') {
-    ctx.diag.diagramNodesDropped += 1;
-    return null;
-  }
-  // 불일치 값을 걷어낸 카드는 값이 정해지지 않은 카드다 — 미정 표식을 붙인다.
-  const conflicted = conflictTokensIn(`${node.label} ${node.detail}`, ctx.conflicts).length > 0;
-  return { ...node, label, detail: cleanText(node.detail, ctx), tbd: node.tbd || conflicted };
-};
-
-const cleanLink = (label: string, ctx: Ctx): string => {
-  if (label === '' || ctx.corpus.includes(normalizeForMatch(label))) return label;
-  ctx.diag.linksCleared += 1;
-  return '';
-};
-
-const cleanDiagram = (d: DevReviewDiagramType, ctx: Ctx): DevReviewDiagramType => {
-  const nodes = (list: readonly DevReviewDiagramNodeType[]) =>
-    list.flatMap((n) => {
-      const r = cleanNode(n, ctx);
-      return r === null ? [] : [r];
-    });
-  const chips = d.board.chips.flatMap((c) => {
-    const cleaned = cleanText(c, ctx);
-    if (cleaned !== '') return [cleaned];
-    ctx.diag.diagramNodesDropped += 1;
-    return [];
-  });
-  const boardLabel = cleanText(d.board.label, ctx);
-  return {
-    columns: d.columns,
-    inputs: nodes(d.inputs),
-    board: {
-      label: boardLabel === '' ? '메인 컨트롤러' : boardLabel,
-      detail: cleanText(d.board.detail, ctx),
-      chips,
-      tbd: d.board.tbd,
-    },
-    outputs: nodes(d.outputs),
-    linkIn: cleanLink(d.linkIn, ctx),
-    linkOut: cleanLink(d.linkOut, ctx),
-    notes: {
-      flow: cleanText(d.notes.flow, ctx),
-      design: cleanText(d.notes.design, ctx),
-      extension: cleanText(d.notes.extension, ctx),
-    },
-  };
 };
 
 export function postProcessDevReview(
@@ -637,7 +564,7 @@ export function postProcessDevReview(
 ): DevReviewPostProcessResult {
   const diag: DevReviewDiagnostics = {
     r1Dropped: 0, r2Dropped: 0, r8Dropped: 0, conflicts: 0,
-    tokensStripped: 0, diagramNodesDropped: 0, linksCleared: 0, openQuestionsDeduped: 0,
+    tokensStripped: 0, openQuestionsDeduped: 0,
     r9Checks: 0, observationsDropped: 0,
   };
   const conflicts = detectSourceConflicts(source);
@@ -652,7 +579,8 @@ export function postProcessDevReview(
   const requirements = facts(output.requirements);
   const byArea = new Map(output.areas.map((a) => [a.area, a]));
   // 분야는 선택 분야만·전부 존재한다(모델이 빠뜨린 분야는 빈 명세 → R6 "상담 후 작성").
-  const areas = source.serviceAreas.map((area) => {
+  const selectedAreas = sortMarketAreas(source.serviceAreas);
+  const areas = selectedAreas.map((area) => {
     const src = byArea.get(area);
     const spec = facts(src?.spec ?? []).map((row) => {
       const item = cleanText(row.item, ctx);
@@ -674,7 +602,6 @@ export function postProcessDevReview(
   });
 
   const summary = cleanText(output.summary, ctx).slice(0, 200);
-  const diagram = cleanDiagram(output.diagram, ctx);
 
   // R8 — 불일치 질문을 맨 앞에 세우고, 같은 값을 언급하는 모델 질문은 그것으로 갈음한다.
   // R5 — 같은 질문의 표현 차이("전원 공급 방식은?"·"전원 입력 방식과 전압은?")는 토큰 자카드 0.5 로 접는다.
@@ -685,8 +612,10 @@ export function postProcessDevReview(
   const openQuestions: DevReviewOpenQuestionType[] = [...conflicts.map(conflictQuestion), ...checks.map(checkQuestion)]
     .slice(0, DEV_REVIEW_MAX_OPEN_QUESTIONS);
   for (const q of openQuestions) kept.push(questionTokens(q.question));
-  for (const q of output.openQuestions) {
+  for (const raw of output.openQuestions) {
     if (openQuestions.length >= DEV_REVIEW_MAX_OPEN_QUESTIONS) break;
+    // 상의 항목의 분야는 선택 분야 코드만 — 그 밖은 general 로 접는다(모델이 지어낸 코드 방어).
+    const q: DevReviewOpenQuestionType = selectedAreas.includes(raw.area) ? raw : { ...raw, area: DEV_REVIEW_GENERAL_AREA };
     if (conflictTokensIn(q.question, conflicts).length > 0) {
       diag.openQuestionsDeduped += 1;
       continue;
@@ -715,7 +644,6 @@ export function postProcessDevReview(
     brief: { serviceAreas: [...source.serviceAreas], answers: [...source.answers] },
     summary,
     requirements,
-    diagram,
     areas,
     openQuestions,
     checks,

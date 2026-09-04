@@ -4,19 +4,21 @@ import { useRoute } from 'vue-router';
 import {
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
-  MARKET_CATEGORY_LABELS,
-  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_METHOD_LABELS,
   apiRoutes,
+  marketAreaBadge,
+  marketSlotLabel,
+  marketToolRows,
 } from '@sp/api-contract';
 import { MarketDevReview } from '@sp/api-contract';
 import type { MarketBidSubmitBodyType } from '@sp/api-contract';
-import { devReviewAreaBadge } from '@sp/utils';
+import { buildDevReviewBriefRows } from '@sp/utils';
 import { useAuthStore } from '@sp/shared';
 import BidFormModal from '../components/BidFormModal.vue';
 import ContractCard from '../components/ContractCard.vue';
+import DevDiagramSection from '../components/dev-review/DevDiagramSection.vue';
 import DevReviewView from '../components/dev-review/DevReviewView.vue';
 import DeliverModal from '../components/DeliverModal.vue';
 import NdaSignModal from '../components/NdaSignModal.vue';
@@ -38,13 +40,12 @@ import {
   useContractQuery,
   useDeliver,
 } from '../api/useMarketContract';
-import { useMarketProjectDetail, useUpdateProject } from '../api/useMarketProjects';
+import { useMarketProjectDetail, useRequestDevDiagram, useUpdateProject } from '../api/useMarketProjects';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
-import { toActiveServiceAreas } from '../lib/service-areas';
 
 // 프로젝트 상세 — 역할별 표면(프로토타입 project-detail.html 이식):
 //   비로그인: 열람 + 로그인 유도 / 전문가: NDA 서명·첨부 열람·블라인드 견적 제출·수정·철회
@@ -64,9 +65,13 @@ const isOwner = computed(() => viewer.value?.isOwner === true);
 
 // 분야 배지 — 의뢰 유형(개별/시스템 통합) 표기를 대체한다(docs/AI_DEV_REVIEW.md §4).
 // 전체서비스 입찰 제한(FULL_SERVICE_COMPANY_ONLY)은 폐지되어 개인 전문가도 입찰한다.
-const areaBadge = computed(() =>
-  detail.value === undefined ? '' : devReviewAreaBadge(toActiveServiceAreas(detail.value.serviceAreas)),
-);
+const areaBadge = computed(() => (detail.value === undefined ? '' : marketAreaBadge(detail.value.serviceAreas)));
+// 희망 툴(분야별)·질문 답변(브리프 행) — 검토서가 없어도 보인다.
+const toolRows = computed(() => (detail.value === undefined ? [] : marketToolRows(detail.value.tools, detail.value.serviceAreas)));
+const briefRows = computed(() => (detail.value === undefined ? [] : buildDevReviewBriefRows(detail.value.answers)));
+// 첨부 — 일반 첨부 먼저, 분야별 슬롯 첨부는 "[슬롯 라벨]" 을 붙여 구분.
+const fileSlotLabel = (f: { area: string | null; slot: string | null }): string =>
+  f.area !== null && f.slot !== null ? marketSlotLabel(f.area, f.slot) : '';
 
 // 응답 스키마는 .catch() 기본값을 쓰는 필드가 많아 zod 의 **입력** 타입으로 좁혀져 온다
 // (@sp/shared apiGet 의 ZodType<T> 는 입력=출력을 요구한다). 이미 검증된 값을 같은
@@ -115,6 +120,16 @@ const deliver = useDeliver();
 const confirmContract = useConfirm();
 const cancelContract = useCancelContract();
 const updateProject = useUpdateProject(projectId);
+const requestDiagram = useRequestDevDiagram(projectId);
+const diagramError = ref('');
+async function onRequestDiagram(): Promise<void> {
+  diagramError.value = '';
+  try {
+    await requestDiagram.mutateAsync();
+  } catch (err) {
+    diagramError.value = errorMessage(err);
+  }
+}
 
 // 모달·인라인 확인 상태 (네이티브 confirm 미사용 — 접근성·자동화 친화)
 const ndaOpen = ref(false);
@@ -367,23 +382,46 @@ async function onRemoveDevReview(): Promise<void> {
             <p class="mt-3 whitespace-pre-line text-sm leading-relaxed text-tx-2">
               {{ detail.description }}
             </p>
-            <div class="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-4 text-xs text-tx-2">
-              <span v-if="detail.categories.length > 0">
-                세부분야:
-                <b class="text-tx-1">{{ detail.categories.map((c) => MARKET_CATEGORY_LABELS[c]).join(' · ') }}</b>
-              </span>
-              <span>
-                요구 툴:
-                <b class="text-tx-1">{{ detail.cadTools.length > 0 ? detail.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join(' · ') : '특정 툴 요구 없음' }}</b>
-              </span>
-              <span v-if="detail.startHopeDate !== null">시작 희망 {{ detail.startHopeDate }}</span>
-              <span v-if="detail.dueHopeDate !== null">완료 희망 {{ detail.dueHopeDate }}</span>
+            <dl v-if="briefRows.length > 0" class="mt-4 grid gap-px overflow-hidden rounded-xl border border-line bg-line">
+              <div v-for="row in briefRows" :key="row.code" class="grid grid-cols-[96px_1fr] gap-3 bg-white px-3.5 py-2 text-xs">
+                <dt class="text-tx-3">{{ row.label }}</dt>
+                <dd class="font-bold text-tx-1">
+                  <span v-if="row.unknown" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">상담에서 확정</span>
+                  <template v-else>{{ row.value }}</template>
+                </dd>
+              </div>
+            </dl>
+            <div class="mt-4 grid gap-1 border-t border-line pt-4 text-xs text-tx-2">
+              <p class="font-bold text-tx-1">희망 개발툴·언어</p>
+              <p v-for="r in toolRows" :key="r.area">
+                {{ r.areaLabel }}:
+                <b class="text-tx-1">{{ r.labels.length > 0 ? r.labels.join(' · ') : '전문가 추천' }}</b>
+              </p>
             </div>
+          </div>
+
+          <!-- 시스템 구성도(§13.7) — 검토서가 없을 때만 별도 카드(검토서가 있으면 그 안에 그린다) -->
+          <div v-if="devReview === null && (detail.devDiagram.meta !== null || isOwner)" class="rounded-2xl border border-line bg-white p-6">
+            <DevDiagramSection
+              :diagram="detail.devDiagram"
+              :can-regenerate="isOwner"
+              :regenerating="requestDiagram.isPending.value"
+              :regenerate-error="diagramError"
+              @regenerate="onRequestDiagram"
+            />
           </div>
 
           <!-- AI 사전 검토서 — 공개 범위는 상세 설명과 동일(상세를 볼 수 있는 뷰어 전원) -->
           <div v-if="devReview !== null" class="rounded-2xl border border-line bg-white p-6">
-            <DevReviewView :review="devReview" :title="detail.title" />
+            <DevReviewView
+              :review="devReview"
+              :title="detail.title"
+              :diagram="detail.devDiagram"
+              :can-regenerate-diagram="isOwner"
+              :diagram-regenerating="requestDiagram.isPending.value"
+              :diagram-regenerate-error="diagramError"
+              @regenerate-diagram="onRequestDiagram"
+            />
             <div v-if="isOwner" class="mt-5 border-t border-line pt-4">
               <template v-if="confirmAction === 'remove-review'">
                 <p class="text-xs font-bold text-tx-2">
@@ -436,6 +474,7 @@ async function onRemoveDevReview(): Promise<void> {
                   class="flex items-center gap-3 rounded-xl border border-line px-4 py-2.5 text-sm"
                 >
                   <span class="text-base">📎</span>
+                  <span v-if="fileSlotLabel(f) !== ''" class="shrink-0 rounded bg-line px-1.5 py-0.5 text-[10px] font-bold text-tx-3">{{ fileSlotLabel(f) }}</span>
                   <span class="min-w-0 flex-1 truncate text-tx-1">{{ f.name }}</span>
                   <span class="text-xs text-tx-3">{{ fmtSize(f.size) }}</span>
                   <button

@@ -31,7 +31,7 @@ import {
   AUTO_CONFIRM_DAYS,
 } from '../lib/market-contract';
 import { buildContractSettledEmail, sendMarketMail } from '../lib/market-email';
-import { REF_MARKET_CONTRACT, asProjectMethod, asProjectStatus, asRequestType, toFileMeta, toServiceAreaCodes } from '../lib/market';
+import { REF_MARKET_CONTRACT, asProjectMethod, asProjectStatus, asRequestType, toFileMeta, toAreaCodes } from '../lib/market';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/market/contracts — 계약 모니터·정산(운영 감독) ─────────────────
@@ -101,7 +101,7 @@ const buildDetail = async (c: SpMarketContract): Promise<AdminMarketContractDeta
       projectId: Number(c.projectId),
       title: project?.title ?? '',
       requestType: asRequestType(project?.requestType ?? 'individual'),
-      serviceAreas: toServiceAreaCodes(project?.serviceAreas ?? []),
+      serviceAreas: toAreaCodes(project?.serviceAreas ?? []),
       method: asProjectMethod(project?.method ?? 'open'),
       status: asProjectStatus(project?.status ?? 'bidding'),
     },

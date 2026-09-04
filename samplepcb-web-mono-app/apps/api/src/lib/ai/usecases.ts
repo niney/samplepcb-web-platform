@@ -1,29 +1,50 @@
 import { AI_USECASES } from '@sp/api-contract';
-import type { AiUsecaseKeyType } from '@sp/api-contract';
+import type { AiThinkLevelType, AiUsecaseKeyType } from '@sp/api-contract';
 import { DEV_REVIEW_PROMPT_VERSION } from './dev-review';
+import { DEV_DIAGRAM_PROMPT_VERSION } from './dev-diagram';
+import type { OllamaThink } from './ollama';
 import { prisma } from '../prisma';
 
 // ── AI 유스케이스 레지스트리 ─────────────────────────────────────────────────
-// 2026-08-28 재작성(docs/AI_DEV_REVIEW.md): 유스케이스는 **AI 사전 검토서 하나**뿐이고,
-// 프롬프트는 코드 정본(lib/ai/dev-review.ts)이라 DB 에서 사라졌다 — 관리자는 사용 토글·
-// 모델·추가 지침만 만진다(스키마와 어긋난 DB 프롬프트가 파서를 깨는 구조를 제거).
-// 기본 모델·think 는 프로빙 결과로 바뀌는 상수라 **여기 한 곳**에만 둔다.
+// 유스케이스 2종(docs/AI_DEV_REVIEW.md §13): market.dev-review(사전 검토서, 즉시) ·
+// market.dev-diagram(정밀 구성도, 비동기). 프롬프트는 코드 정본이라 DB 에 없다 — 관리자는
+// 사용 토글·모델·thinking 단계·추가 지침만 만진다. 기본 모델·think 는 프로빙 결과로 바뀌는
+// 상수라 **여기 한 곳**에만 둔다.
 
 export const DEV_REVIEW_USECASE = 'market.dev-review' as const;
+export const DEV_DIAGRAM_USECASE = 'market.dev-diagram' as const;
 
 export interface AiUsecaseDef {
   defaultModel: string;
   promptVersion: string;
-  think: boolean;
+  think: AiThinkLevelType;
+  temperature?: number;
+  seed?: number;
+  timeoutMs: number;
 }
 
 export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
   'market.dev-review': {
     defaultModel: 'deepseek-v4-pro:0813',
     promptVersion: DEV_REVIEW_PROMPT_VERSION,
-    think: false,
+    think: 'off',
+    timeoutMs: 600_000,
+  },
+  // §12.11 프로빙: kimi-k3 thinking high, temperature 0, seed 42 — 566초. 동기 UX 불가 → 비동기 전용.
+  'market.dev-diagram': {
+    defaultModel: 'kimi-k3',
+    promptVersion: DEV_DIAGRAM_PROMPT_VERSION,
+    think: 'high',
+    temperature: 0,
+    seed: 42,
+    timeoutMs: 900_000,
   },
 };
+
+// 관리자 설정값(off|low|medium|high) → ollama think 옵션.
+export const toOllamaThink = (level: AiThinkLevelType): OllamaThink => (level === 'off' ? false : level);
+export const asThinkLevel = (v: string | null | undefined, fallback: AiThinkLevelType): AiThinkLevelType =>
+  v === 'off' || v === 'low' || v === 'medium' || v === 'high' ? v : fallback;
 
 // ── 연결 설정 — 우선순위: env(.env) > 관리자 저장값(sp_config) > 기본값 ──────
 // 운영은 .env 파일 관리 권장(키가 DB 에 남지 않음). env 가 잡혀 있으면 관리자 화면
@@ -34,7 +55,8 @@ const AI_API_KEY_KEY = 'ai_api_key';
 const AI_VISION_MODEL_KEY = 'ai_vision_model';
 export const AI_DEFAULT_BASE_URL = 'http://127.0.0.1:11434'; // 로컬 데몬(클라우드 프록시)
 // ollama.com 직결 태그에는 `:cloud` 접미사가 없다 — 옛 기본값 'qwen3.5:cloud' 는 직결에서
-// 존재하지 않아 첨부 판독이 통째로 실패했다(프로빙 실측 교정).
+// 존재하지 않아 첨부 판독이 통째로 실패했다(프로빙 실측 교정). 로컬 데몬 프록시는 반대로
+// `:cloud` 가 필요하다 → 러너가 404 에 접미사를 붙였다 떼며 1회 재시도한다(runner.ts).
 export const AI_DEFAULT_VISION_MODEL = 'qwen3.5:397b';
 
 const envOrNull = (name: string): string | null => {
@@ -128,6 +150,7 @@ export async function ensureAiUsecaseRows(): Promise<void> {
         useCase: key,
         enabled: false,
         model: AI_USECASE_DEFS[key].defaultModel,
+        think: AI_USECASE_DEFS[key].think,
         promptTemplate: '',
         extraInstructions: null,
       },
@@ -138,4 +161,25 @@ export async function ensureAiUsecaseRows(): Promise<void> {
 export async function getAiUsecase(key: AiUsecaseKeyType) {
   await ensureAiUsecaseRows();
   return prisma.spAiUsecase.findUnique({ where: { useCase: key } });
+}
+
+// 실행에 필요한 유효 설정(행 + 코드 기본값 병합).
+export interface AiUsecaseRuntime {
+  enabled: boolean;
+  model: string;
+  think: AiThinkLevelType;
+  extraInstructions: string;
+  def: AiUsecaseDef;
+}
+
+export async function getAiUsecaseRuntime(key: AiUsecaseKeyType): Promise<AiUsecaseRuntime> {
+  const row = await getAiUsecase(key);
+  const def = AI_USECASE_DEFS[key];
+  return {
+    enabled: row?.enabled ?? false,
+    model: row?.model ?? def.defaultModel,
+    think: asThinkLevel(row?.think, def.think),
+    extraInstructions: row?.extraInstructions ?? '',
+    def,
+  };
 }

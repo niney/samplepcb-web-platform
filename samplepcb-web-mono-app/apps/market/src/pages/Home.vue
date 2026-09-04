@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { MARKET_AREAS } from '@sp/api-contract';
 import ExpertCard from '../components/ExpertCard.vue';
 import ProjectCard from '../components/ProjectCard.vue';
 import { useMarketExpertList } from '../api/useMarketExperts';
@@ -25,17 +26,13 @@ const expertFilters = ref<ExpertListFilters>({
   pageSize: 4,
   expertType: '',
   serviceArea: '',
-  category: '',
-  cadTool: '',
+  tool: '',
   q: '',
 });
 const { data: expertData } = useMarketExpertList(expertFilters);
 
-const categories = [
-  { code: 'circuit', title: '회로개발', desc: '아두이노 · 펌웨어 · RF · 전원 등 18개 분야' },
-  { code: 'pcb', title: 'PCB 설계', desc: 'Altium · PADS · OrCAD · KiCad ArtWork' },
-  { code: 'firmware', title: '펌웨어 개발', desc: 'MCU · 임베디드 · 제어 소프트웨어' },
-] as const;
+// 분야 진입 카드 — 레지스트리에서 파생(분야가 늘면 카드도 는다).
+const categories = MARKET_AREAS.map((a) => ({ code: a.code, title: a.label, desc: a.hint }));
 
 const steps = [
   { no: '01', title: '프로젝트 의뢰', desc: '개발 명세와 예산·일정을 등록합니다. NDA로 자료를 보호할 수 있습니다.' },
@@ -86,7 +83,7 @@ const steps = [
 
     <!-- 분야 진입 -->
     <section class="mx-auto w-full max-w-6xl px-4 pt-14">
-      <div class="grid gap-4 sm:grid-cols-3">
+      <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <RouterLink
           v-for="c in categories"
           :key="c.code"

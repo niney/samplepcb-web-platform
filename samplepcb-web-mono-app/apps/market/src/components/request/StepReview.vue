@@ -6,7 +6,7 @@ import {
   MARKET_DEADLINE_PRESETS,
   MARKET_EXPERT_TYPE_LABELS,
 } from '@sp/api-contract';
-import { devReviewAreaBadge } from '@sp/utils';
+import { marketAreaBadge } from '@sp/api-contract';
 import DevReviewView from '../dev-review/DevReviewView.vue';
 import { useMarketExpertList } from '../../api/useMarketExperts';
 import type { ExpertListFilters } from '../../api/useMarketExperts';
@@ -17,7 +17,7 @@ import type { DevReviewJob } from '../../composables/useDevReviewJob';
 // "이 검토서를 의뢰에 포함" 체크를 띄운다. 그 아래는 견적 조건 폼(예산·마감·방식·NDA).
 // 포함 예정 검토서가 생성 중이면 등록이 차단되고, 기다리지 않으려면 탈출구를 누른다.
 const props = defineProps<{ form: RequestWizardForm; job: DevReviewJob }>();
-const { fields, attachments, todayKst, buildAnswers } = props.form;
+const { fields, totalAttachmentCount, todayKst, buildAnswers, activeQuestions } = props.form;
 const {
   active: aiActive,
   running,
@@ -30,6 +30,10 @@ const {
   include,
   includable,
   blocking,
+  diagramMeta,
+  diagramSkipReason,
+  diagramCached,
+  diagramFailed,
   ensure,
   regenerate,
   skip,
@@ -45,15 +49,14 @@ const expertFilters = ref<ExpertListFilters>({
   pageSize: 100,
   expertType: '',
   serviceArea: '',
-  category: '',
-  cadTool: '',
+  tool: '',
   q: '',
 });
 const expertList = useMarketExpertList(expertFilters);
 
 const answeredCount = computed(() => buildAnswers().length);
-const questionCount = props.form.activeQuestions.length;
-const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
+const questionCount = computed(() => activeQuestions.value.length);
+const areaBadge = computed(() => marketAreaBadge(fields.serviceAreas));
 </script>
 
 <template>
@@ -63,8 +66,9 @@ const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
       <div>
         <p class="text-xs font-bold text-tx-2">AI 사전 검토서</p>
         <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
-          적어 주신 내용과 첨부를 근거로 요약·제안 구성도·개발명세서를 정리합니다(약 30초~3분). 생성 중에도
-          아래 견적 조건을 미리 입력할 수 있습니다.
+          적어 주신 내용과 첨부를 근거로 요약·개발명세서를 정리합니다(약 30초~3분). 시스템 구성도는 같이 시작돼
+          5~10분 뒤 완성되며, 등록 뒤 화면을 벗어나도 우측 아래 알림으로 알려드립니다. 생성 중에도 아래 견적
+          조건을 미리 입력할 수 있습니다.
         </p>
       </div>
 
@@ -127,7 +131,14 @@ const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
       <!-- 완료 — 미리보기 + 포함 체크 -->
       <template v-if="review !== null">
         <div class="rounded-2xl border border-line bg-white p-4 sm:p-5">
-          <DevReviewView :review="review" :title="fields.title" />
+          <DevReviewView
+            :review="review"
+            :title="fields.title"
+            :diagram="{ meta: diagramMeta, html: null }"
+            :diagram-skip-reason="diagramSkipReason"
+            :diagram-failed="diagramFailed"
+            :diagram-reused="diagramCached"
+          />
         </div>
         <div class="flex flex-wrap items-center gap-4">
           <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
@@ -242,7 +253,7 @@ const areaBadge = computed(() => devReviewAreaBadge(fields.serviceAreas));
         {{ MARKET_BUDGET_RANGE_LABELS[fields.budgetRange] }} ·
         견적 마감 {{ fields.deadlineMode === 'date' ? fields.deadlineDate : `${fields.deadlineMode}일 뒤` }} ·
         {{ fields.method === 'open' ? '역견적' : '지정견적' }} ·
-        {{ fields.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} · 첨부 {{ attachments.length }}개
+        {{ fields.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} · 첨부 {{ totalAttachmentCount }}개
       </p>
       <p v-if="aiActive" class="mt-1 text-tx-3">
         <template v-if="blocking">AI 사전 검토서 생성 중 — 완료 후 등록 가능</template>

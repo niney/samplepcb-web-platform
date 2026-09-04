@@ -46,18 +46,6 @@ const output: DevReviewLlmOutputType = {
     fact('데이터 로깅 기능', '자료에 없음 — 통상 필요'), // R1 삭제(근거 불일치)
     fact('4-Layer PCB 적용', '보드 크기는 80 x 50 mm'), // R2 삭제(자료에 없는 층수)
   ],
-  diagram: {
-    columns: { inputs: '현장 입력', board: '제어 보드', outputs: '연동' },
-    inputs: [
-      { label: '온습도 센서 SHT31', detail: '온도·습도', icon: 'sensor', tbd: true }, // 품번만 제거
-      { label: 'ADS1115', detail: '', icon: 'other', tbd: false }, // 라벨이 통째 품번 → 카드 삭제
-    ],
-    board: { label: '메인 컨트롤러 nRF52840', detail: '제어·통신', chips: ['전원 변환 3.3V', '데이터 처리', 'STM32'], tbd: false },
-    outputs: [{ label: '스마트폰 앱', detail: '실시간 표시', icon: 'phone', tbd: false }],
-    linkIn: 'I2C', // 자료에 없음 → 비움
-    linkOut: 'BLE', // 자료에 있음 → 유지
-    notes: { flow: '센싱 → BLE 전송', design: '4층 기판 설계', extension: '' },
-  },
   areas: [
     {
       area: 'circuit',
@@ -97,18 +85,6 @@ describe('AI 사전 검토서 후처리(v2 — 확정만)', () => {
     expect(review.summary).toBe('비닐하우스 온습도를 BLE로 앱에 보내는 보드 개발');
   });
 
-  it('구성도 — 라벨의 품번·수치만 제거, 라벨이 비면 카드·칩 삭제, 연결 라벨은 자료에 있는 것만', () => {
-    expect(review.diagram.inputs.map((n) => [n.label, n.tbd])).toEqual([['온습도 센서', true]]);
-    expect(review.diagram.board.label).toBe('메인 컨트롤러');
-    expect(review.diagram.board.chips).toEqual(['전원 변환', '데이터 처리']);
-    expect(review.diagram.outputs.map((n) => n.label)).toEqual(['스마트폰 앱']);
-    expect(review.diagram.linkIn).toBe('');
-    expect(review.diagram.linkOut).toBe('BLE');
-    expect(review.diagram.notes.design).toBe('기판 설계');
-    expect(review.diagram.columns.inputs).toBe('현장 입력');
-    expect(diagnostics.diagramNodesDropped).toBe(2);
-    expect(diagnostics.linksCleared).toBe(1);
-  });
 
   it('분야는 선택 분야만·전부 존재하고, 명세 항목명의 품번은 제거된다', () => {
     expect(review.areas.map((a) => a.area)).toEqual(['circuit', 'pcb']);
@@ -144,7 +120,7 @@ describe('AI 사전 검토서 후처리(v2 — 확정만)', () => {
   });
 
   it('버전·브리프·메타가 채워진다', () => {
-    expect(review.version).toBe(2);
+    expect(review.version).toBe(4);
     expect(review.brief.serviceAreas).toEqual(['circuit', 'pcb']);
     expect(review.brief.answers).toHaveLength(3);
     expect(review.meta.jobId).toBe('job-1');
@@ -163,12 +139,6 @@ describe('R8 — 자료 간 불일치', () => {
       fact('24V 어댑터 하나로 팬과 제어기 구동', '24V 어댑터 하나로 팬과 제어기를 같이 돌림'), // 첨부 쪽 값
       fact('온도·습도를 측정해 스마트폰 앱으로 표시', '온도·습도를 재서 블루투스(BLE)로 스마트폰 앱에 보여주는 보드'),
     ],
-    diagram: {
-      ...output.diagram,
-      inputs: [{ label: '24V 어댑터', detail: '팬과 제어기 공용', icon: 'power', tbd: false }],
-      board: { ...output.diagram.board, label: '메인 컨트롤러', chips: ['전원 변환'] },
-      notes: { flow: '', design: '', extension: '' },
-    },
     areas: [{ area: 'circuit', summary: '24V 전원 회로', spec: [{ item: '전원부', ...fact('24V DC 팬 2대 구동', '24V DC 팬 2대') }], observations: [] }],
     openQuestions: [
       { question: '전원 전압을 12V로 할지 24V로 할지 확정이 필요합니다.', why: '', area: 'general' }, // 자동 질문으로 갈음
@@ -189,7 +159,6 @@ describe('R8 — 자료 간 불일치', () => {
     expect(review.requirements.map((r) => r.text)).toEqual(['온도·습도를 측정해 스마트폰 앱으로 표시']);
     expect(review.areas[0]?.spec).toEqual([]);
     expect(review.areas[0]?.summary).toBe('전원 회로');
-    expect(review.diagram.inputs).toEqual([{ label: '어댑터', detail: '팬과 제어기 공용', icon: 'power', tbd: true }]);
     expect(diagnostics.conflicts).toBe(1);
     expect(diagnostics.r8Dropped).toBe(3);
   });
@@ -273,28 +242,13 @@ describe('파서·프롬프트·해시', () => {
       ...output,
       requirements: [output.requirements[0], { text: '' }, 'junk'],
       openQuestions: [{ question: '' }, output.openQuestions[3]],
-      diagram: {
-        ...output.diagram,
-        inputs: [output.diagram.inputs[0], { label: '' }, 'junk'],
-        board: { label: '메인', detail: '', chips: ['전원', { label: '통신' }, '', 7] },
-        columns: 'broken',
-      },
       areas: [{ area: 'circuit', summary: 7, spec: [{ item: '전원부', text: '12V 입력', evidence: '12V' }, { item: '' }] }],
     })}\n\`\`\``;
     const parsed = parseDevReviewLlmOutput(raw);
     expect(parsed.requirements).toHaveLength(1);
     expect(parsed.openQuestions).toHaveLength(1);
-    expect(parsed.diagram.inputs).toHaveLength(1);
-    expect(parsed.diagram.board.chips).toEqual(['전원', '통신']);
-    expect(parsed.diagram.columns).toEqual({ inputs: '입력', board: '메인 보드', outputs: '출력·연동' });
     expect(parsed.areas[0]?.summary).toBe('');
     expect(parsed.areas[0]?.spec.map((r) => r.item)).toEqual(['전원부']);
-  });
-
-  it('구성도가 없으면 실패(러너 재시도 대상)', () => {
-    expect(() => parseDevReviewLlmOutput(JSON.stringify({ summary: 'x', requirements: [], areas: [] }))).toThrow(
-      'DEV_REVIEW_DIAGRAM_INVALID',
-    );
   });
 
   it('프롬프트에 규칙·답변·첨부가 바인딩되고 추가 지침은 관리자 몫', () => {

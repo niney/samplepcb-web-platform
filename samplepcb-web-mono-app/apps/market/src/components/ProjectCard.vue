@@ -2,21 +2,23 @@
 import { computed } from 'vue';
 import {
   MARKET_BUDGET_RANGE_LABELS,
-  MARKET_CATEGORY_LABELS,
   MARKET_METHOD_LABELS,
-  MARKET_TOOL_LABELS,
+  marketAreaBadge,
+  marketToolRows,
 } from '@sp/api-contract';
 import type { MarketProjectListItemType } from '@sp/api-contract';
-import { devReviewAreaBadge } from '@sp/utils';
 import { dateShort, ddayBadge, ddayToneClass } from '../lib/market-format';
-import { toActiveServiceAreas } from '../lib/service-areas';
 
 const props = defineProps<{ item: MarketProjectListItemType }>();
 
 const dday = computed(() => ddayBadge(props.item));
-// 의뢰 유형 배지는 폐기(2026-08-28) — 분야 배지 하나로 통일한다("회로 + PCB"·"풀 개발(…)").
-// 저장값에 비활성 분야가 섞인 옛 의뢰는 배지가 빈 문자열이 될 수 있어 v-if 로 감춘다.
-const areaBadge = computed(() => devReviewAreaBadge(toActiveServiceAreas(props.item.serviceAreas)));
+// 분야 배지 하나로 통일("회로 + PCB"·"풀 개발(…)") — 레지스트리에 없는 옛 코드는 "(종료)" 라벨.
+const areaBadge = computed(() => marketAreaBadge(props.item.serviceAreas));
+// 희망 툴 요약 — 지정한 분야만 "분야: 툴·툴", 전부 비었으면 "툴·언어는 전문가 추천".
+const toolSummary = computed(() => {
+  const rows = marketToolRows(props.item.tools, props.item.serviceAreas).filter((r) => r.labels.length > 0);
+  return rows.length === 0 ? '툴·언어는 전문가 추천' : rows.map((r) => `${r.areaLabel}: ${r.labels.join('·')}`).join(' / ');
+});
 </script>
 
 <template>
@@ -53,16 +55,12 @@ const areaBadge = computed(() => devReviewAreaBadge(toActiveServiceAreas(props.i
       <span v-if="item.hasDevReview" class="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
         AI 사전 검토서
       </span>
+      <span v-if="item.devDiagramStatus === 'done'" class="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
+        정밀 구성도
+      </span>
     </div>
 
-    <p class="mt-2 line-clamp-1 text-xs text-tx-3">
-      {{
-        [
-          ...item.categories.map((c) => MARKET_CATEGORY_LABELS[c]),
-          ...item.cadTools.map((c) => MARKET_TOOL_LABELS[c]),
-        ].join(' · ') || '요구 툴·세부분야 무관'
-      }}
-    </p>
+    <p class="mt-2 line-clamp-1 text-xs text-tx-3">{{ toolSummary }}</p>
 
     <div class="mt-auto flex items-center justify-between border-t border-line pt-3 text-xs text-tx-2">
       <span class="font-semibold text-tx-1">{{ MARKET_BUDGET_RANGE_LABELS[item.budgetRange] }}</span>

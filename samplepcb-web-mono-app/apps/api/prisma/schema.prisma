@@ -90,6 +90,9 @@ model SpFile {
   writeDate      DateTime @map("write_date")
   fileType       String?  @map("file_type") @db.VarChar(50) // gerber|thumbnail|bom|drawing
   uploadedBy     String?  @map("uploaded_by") @db.VarChar(20) // ADMIN|PARTNER|…
+  // 재능마켓 분야별 추가자료 슬롯(docs/AI_DEV_REVIEW.md §13) — 레지스트리 분야·슬롯 코드. 다른 도메인은 null.
+  area           String?  @db.VarChar(32)
+  slot           String?  @db.VarChar(32)
 
   @@index([refType, refId], map: "idx_sp_file_ref")
   @@map("sp_file")
@@ -202,9 +205,8 @@ model SpMarketExpert {
   region           String?   @db.VarChar(20) // 활동 지역 코드
   travelRange      String?   @db.VarChar(20) // 이동 가능 거리 코드
   intro            String?   @db.Text
-  serviceAreas     Json // 제공 가능한 개발 영역 코드 배열
-  categories       Json // 회로개발 세부분야 코드 배열
-  cadTools         Json // CAD 툴 코드 배열
+  serviceAreas     Json // 제공 가능한 개발 분야 코드 배열(레지스트리 market-areas)
+  tools            Json? // 다룰 수 있는 툴·언어 — MarketTools {version, byArea:{area:[code]}}
   bankName         String?   @db.VarChar(50) // 정산계좌(2차 정산 대비 수집) — 본인·관리자 외 비노출
   bankHolder       String?   @db.VarChar(50)
   bankAccount      String?   @db.VarChar(50)
@@ -228,29 +230,17 @@ model SpMarketProject {
   mbId                     String    @db.VarChar(191) // 의뢰인 — 공개 응답엔 maskName 값만 나간다
   title                    String    @db.VarChar(200)
   requestType              String    @map("category") @db.VarChar(30) // system|individual
-  serviceAreas             Json // 실제 필요한 개발 영역 코드 배열(복수)
-  // 물리명 specialties — 인접 물리 컬럼 category(=requestType)와 category/categories 혼동 회피.
-  categories               Json      @map("specialties") // 세부분야 코드 배열(회로·펌웨어 STEP2)
-  cadTools                 Json // 요구 툴 코드 배열(ECAD·MCAD·디자인 통합) — 빈 배열=무관, 'any' 는 레거시
+  serviceAreas             Json // 개발 분야 코드 배열(레지스트리 market-areas, 복수)
+  // 희망 툴·언어 — MarketTools {version, byArea:{area:[code]}}. 빈 분야 = 전문가 추천.
+  tools                    Json?
   description              String    @db.Text
-  // AI 사전 검토서(MarketDevReview 직렬화) — 의뢰의 단일 AI 산출물. 공개 범위는
-  // description 과 동일(상세를 볼 수 있는 뷰어 전원). docs/AI_DEV_REVIEW.md §1.
+  // 공통 4문항 + 분야별 질문 답변([{code,choices,note}]) — 검토서 원천이자 브리프의 근원(MarketAnswers).
+  answers                  Json?
+  // AI 산출물 1 — 사전 검토서(MarketDevReview v3 직렬화, 즉시). 공개 범위는 description 과 동일.
   devReview                Json?
-  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
-  diagramHtml              String?   @db.MediumText
-  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
-  diagramSpec              String?   @db.MediumText
-  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
-  rocMd                    String?   @db.MediumText
-  // 9문항 답변([{code,choices,note}]) — 검토서 원천이자 브리프의 근원(DevReviewAnswers).
-  // 옛 80문항 인터뷰([{code,answer}])가 남아 있는 행은 파싱 실패 시 조용히 빈 값이 된다.
-  interviewAnswers         Json?
-  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
-  interviewAnswersSharedAt DateTime?
-  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
-  postings                 Json?
-  /// deprecated 2026-08-28 — 미사용(docs/AI_DEV_REVIEW.md §7)
-  aiGenerationMeta         Json?
+  // AI 산출물 2 — 정밀 시스템 구성도(비동기, docs/AI_DEV_REVIEW.md §13.5): 메타(MarketDevDiagram) + 살균 HTML.
+  devDiagram               Json?
+  devDiagramHtml           String?   @db.MediumText
   ndaRequired              Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
   budgetRange              String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
   startHopeDate            String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)
@@ -404,6 +394,8 @@ model SpAiUsecase {
   promptTemplate String @db.Text
   /// 관리자가 프롬프트 끝에 덧붙이는 운영 지침(≤2000자). 스키마·출력 규칙은 코드가 정본.
   extraInstructions String?  @db.Text
+  /// thinking 단계 off|low|medium|high — null 이면 코드 기본값(AI_USECASE_DEFS)
+  think             String?  @db.VarChar(10)
   updatedAt         DateTime @updatedAt
 
   @@map("sp_ai_usecase")
@@ -417,11 +409,11 @@ model SpAiJob {
   useCase       String    @db.VarChar(100)
   mbId          String    @db.VarChar(191) // 소유자 — 본인 잡만 조회·사용 가능
   status        String    @db.VarChar(20) // running|done|error
-  stage         String?   @db.VarChar(20) // attachments|review
+  stage         String?   @db.VarChar(20) // attachments|review|diagram
   model         String    @db.VarChar(100)
   promptVersion String    @db.VarChar(100) // 'dev-review.v1' 같은 코드 버전 태그(해시 아님)
   inputHash     String    @db.Char(64)
-  resultJson    String?   @db.MediumText // 후처리된 MarketDevReview 직렬화
+  resultJson    String?   @db.MediumText // dev-review: MarketDevReview · dev-diagram: MarketDevDiagram 메타(본문 HTML 은 프로젝트 컬럼)
   error         String?   @db.VarChar(100)
   startedAt     DateTime
   finishedAt    DateTime?

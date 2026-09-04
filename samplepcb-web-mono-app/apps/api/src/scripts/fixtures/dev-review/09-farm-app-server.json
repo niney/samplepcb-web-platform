@@ -1,0 +1,21 @@
+{
+  "id": "09-farm-app-server",
+  "label": "축사 환경 모니터 — 하드웨어 + 앱 + 서버(소프트웨어 분야 포함, 첨부 없음·긴 설명)",
+  "title": "축사 온습도·암모니아 모니터링 세트",
+  "serviceAreas": ["circuit", "firmware", "app", "server"],
+  "description": "돼지 축사 3동에 설치할 환경 모니터를 만들고 싶습니다. 동마다 장치 2대(총 6대)를 벽에 붙이고, 각 장치는 온도·습도와 암모니아 농도를 10분마다 재서 서버로 보냅니다. 서버는 값을 1년 이상 보관하고, 사장님과 관리자 2명이 스마트폰 앱에서 동별 현재 값과 하루 그래프를 봅니다. 암모니아가 25ppm 을 넘거나 온도가 32도를 넘으면 앱 푸시 알림이 와야 합니다. 축사에는 Wi-Fi 공유기가 이미 있어서 장치는 Wi-Fi 로 붙이면 됩니다. 전원은 축사 콘센트(220V)에서 어댑터로 받고 싶습니다. 장치 케이스는 먼지·습기가 많아서 밀폐형이면 좋겠고, 센서 종류는 개발사가 제안해 주세요. 앱은 안드로이드만 있어도 됩니다. 서버는 저희가 쓰는 클라우드가 따로 없어서 개발사가 추천하는 곳에 두면 됩니다. 나중에 환풍기 자동 제어까지 붙이고 싶은데 이번에는 모니터링만 합니다.",
+  "answers": [
+    { "code": "stage", "choices": ["idea"] },
+    { "code": "quantity", "choices": ["proto_1_10"], "note": "6대" },
+    { "code": "external", "choices": ["mobile_app", "server_cloud"] },
+    { "code": "timeline", "choices": ["within_3m"] },
+    { "code": "app.platform", "choices": ["android"] },
+    { "code": "server.scale", "choices": ["small"] }
+  ],
+  "attachments": [],
+  "golden": {
+    "mustContain": ["암모니아", "Wi-Fi", "앱", "서버"],
+    "forbidden": ["LoRa", "LTE", "STM32", "ESP32"],
+    "expectedOpen": ["센서"]
+  }
+}

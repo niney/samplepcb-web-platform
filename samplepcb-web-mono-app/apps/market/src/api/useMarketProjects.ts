@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  DevDiagramRequestResponse,
   MarketMyProjectListResponse,
   MarketProjectCreateResponse,
   MarketProjectDetailResponse,
@@ -10,7 +11,6 @@ import {
 import type {
   MarketProjectMethodType,
   MarketProjectUpdateBodyType,
-  MarketServiceAreaType,
 } from '@sp/api-contract';
 import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 
@@ -22,7 +22,7 @@ export interface ProjectListFilters {
   pageSize: number;
   tab: 'open' | 'closed' | 'awarded' | 'all';
   // 의뢰 유형 필터는 폐기(2026-08-28) — 분야 필터가 대체한다.
-  serviceArea: '' | MarketServiceAreaType;
+  serviceArea: string; // '' = 전체(레지스트리 분야 코드)
   method: '' | MarketProjectMethodType;
   q: string;
   sort: 'latest' | 'deadline';
@@ -54,10 +54,32 @@ export function useMarketProjectDetail(projectId: Ref<number | null>) {
     queryFn: () =>
       apiGet(`${apiRoutes.marketProjects}/${String(projectId.value)}`, MarketProjectDetailResponse),
     enabled: computed(() => projectId.value !== null),
+    // 정밀 구성도가 대기·생성 중이면 10초마다 다시 읽어 완성되는 순간 상세에 붙인다(§13.5).
+    refetchInterval: (query) => {
+      const status = query.state.data?.data.devDiagram.meta?.status;
+      return status === 'queued' || status === 'running' ? 10_000 : false;
+    },
   });
 }
 
 // 의뢰 등록(multipart: payload + attachment[]).
+// 정밀 시스템 구성도 (재)생성 요청(소유자) — 서버 큐에 넣고 상태를 queued 로 바꾼다(§13.5).
+export function useRequestDevDiagram(projectId: Ref<number | null>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiSend(
+        'POST',
+        `${apiRoutes.marketProjects}/${String(projectId.value)}/dev-diagram`,
+        {},
+        DevDiagramRequestResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['market', 'projects', 'detail', projectId] });
+    },
+  });
+}
+
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
@@ -66,6 +88,8 @@ export function useCreateProject() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['market', 'projects'] });
       void qc.invalidateQueries({ queryKey: ['market', 'my-projects'] });
+      // 등록으로 구성도 잡이 프로젝트에 연결됐다 — 플로팅 트레이가 바로 "생성 중" 을 보이게(§13.7).
+      void qc.invalidateQueries({ queryKey: ['market', 'my-dev-diagrams'] });
     },
   });
 }

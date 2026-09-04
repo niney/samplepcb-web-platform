@@ -1,5 +1,10 @@
-// 재능마켓 API E2E — 1차(매칭: 블라인드·NDA·마감·레이스 33항목) + 2차(계약 결제: award
-// 계약 자동생성·checkout·lazy 승격·납품·검수·자동확정·정산·취소·재주입).
+// 재능마켓 API E2E — 1차(매칭: 블라인드·NDA·마감·레이스) + 2차(계약 결제: award 계약 자동생성·
+// checkout·lazy 승격·납품·검수·자동확정·정산·취소·재주입) + v3 분야 레지스트리(2026-09-04:
+// 분야별 툴 정규화·슬롯 첨부 area/slot·미지 툴 400·분야 밖 질문 400·정밀 구성도 409) + v4 구성도
+// 분리(검토서 version 4 에 diagram 없음·devDiagramJobId 연결 대조·/my/dev-diagrams·jobs diagram 메타).
+// 총 134항목(Mailpit 가동 시; 미가동이면 메일 6항목 SKIP). 시스템 구성도 유스케이스(sp_ai_usecase 의
+// market.dev-diagram)는 하네스가 시작 시 enabled=0 으로 내리고 끝날 때 원복한다 — 활성이면 등록마다
+// 10분짜리 kimi 생성이 시작돼 비용이 난다(dev-review 유스케이스는 건드리지 않는다).
 // sp-node(3333)가 떠 있어야 하며, 실존 회원 3명(전문가/의뢰인/제3자)과 관리자(cf_admin)
 // JWT 를 JWT_SECRET 으로 직접 서명해 사용한다(의뢰인 JWT 엔 영카트 버킷 cartId 클레임 포함).
 // 메일은 로컬 Mailpit(127.0.0.1:25)이 가로채므로 실발송 0통. 2차 결제는 코어 orderformupdate
@@ -96,28 +101,59 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 등록 라우트는 클라이언트가 보낸 검토서 본문을 믿지 않고 sp_ai_job 의 done 행을 읽는다.
 // 그래서 하네스가 완료 잡을 직접 만들어 두고 jobId 만 넘긴다(실호출은 관리자 샘플·프로빙 몫).
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+// 첨부 해시 항목 = `${파트이름}:${sha256}` 정렬 앞 10개 — routes/ai.ts devReviewAttachmentHashes 와
+// 같은 규칙(서버 모듈을 통째로 로드하지 않으려고 계산만 복제; 규칙이 바뀌면 REVIEW_STALE 로 드러난다).
+const attachmentHashOf = (field, body) => `${field}:${sha256(Buffer.from(body))}`;
 
+const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v4';
+const DEV_DIAGRAM_PROMPT_VERSION = 'dev-diagram.v1';
+const DEV_DIAGRAM_USECASE = 'market.dev-diagram';
+// 검토서 v4 픽스처 — MarketDevReview.parse 를 통과해야 sp_ai_job 시드가 유효하다(v4 는 3열 카드
+// 구성도(diagram)가 없다 — 구성도는 market.dev-diagram 잡 하나뿐; 분야 카드 observations·상의 항목
+// area·checks 는 v3 모양 그대로).
 const minimalDevReview = (serviceAreas, answers, summary) => ({
-  version: 2,
+  version: 4,
   brief: { serviceAreas, answers },
   summary,
   requirements: [{ text: 'E2E 확정 요구', evidence: 'E2E 통합 테스트용' }],
-  diagram: {
-    columns: { inputs: '입력', board: '메인 보드', outputs: '출력·연동' },
-    inputs: [{ label: '센서', detail: '', icon: 'sensor' }],
-    board: { label: '메인 컨트롤러', detail: '', chips: ['데이터 처리'] },
-    outputs: [],
-    linkIn: '',
-    linkOut: '',
-    notes: { flow: '', design: '', extension: '' },
-  },
-  areas: serviceAreas.map((area) => ({ area, summary: '', spec: [] })),
-  openQuestions: [{ question: '전원은 무엇으로 공급하나요?', why: '전원 회로 설계에 필요' }],
+  areas: serviceAreas.map((area) => ({ area, summary: '', spec: [], observations: [] })),
+  openQuestions: [
+    { question: '전원은 무엇으로 공급하나요?', why: '전원 회로 설계에 필요', area: 'circuit' },
+    { question: '자료 간 확인 필요: 없음', why: 'E2E', area: 'general' },
+  ],
+  checks: [],
   meta: {
-    jobId: '', model: 'e2e-model', promptVersion: 'dev-review.v2', inputHash: '',
+    jobId: '', model: 'e2e-model', promptVersion: DEV_REVIEW_PROMPT_VERSION, inputHash: '',
     generatedAt: new Date().toISOString(), attachmentFiles: [],
   },
 });
+
+// 시스템 구성도 잡 결과 픽스처(DevDiagramJobResult = meta + 살균 HTML). status/jobId 는 시드가 채운다.
+const minimalDevDiagramResult = (jobId, status = 'done') => {
+  const now = new Date().toISOString();
+  return {
+    meta: {
+      version: 1,
+      status,
+      jobId,
+      model: 'e2e-model',
+      promptVersion: DEV_DIAGRAM_PROMPT_VERSION,
+      think: 'high',
+      requestedAt: now,
+      generatedAt: status === 'done' ? now : null,
+      elapsedSecs: status === 'done' ? 1 : null,
+      attempt: 1,
+      audit:
+        status === 'done'
+          ? { svgCount: 1, sectionCount: 1, strippedNodes: 0, ungroundedTokens: [], requiredMissing: [] }
+          : null,
+      error: null,
+      skipReason: null,
+      corpusChars: 120,
+    },
+    html: status === 'done' ? '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg><h2>E2E 검토</h2>' : '',
+  };
+};
 
 // g5 원시 접근 — 계약 결제는 그누보드 DB(samplepcb) 동거이므로 prisma 로 g5_* 를 직접
 // 쿼리한다(1차 하네스가 g5_config·g5_member 를 $queryRaw 로 읽는 관례와 동일). g5-db.ts
@@ -335,6 +371,7 @@ async function run() {
   const ids = { expertId: null, projectIds: [], contractKeys: [], simOdIds: [], aiJobIds: [] };
 
   // 완료 잡 시드 — 소유자·입력 해시를 지정해 등록 라우트의 대조 경로를 그대로 태운다.
+  // 잡 재사용 창(findReusableAiJob)은 finishedAt 이 아니라 startedAt 기준 1시간이라 startedAt 을 지금으로.
   const seedAiJob = async (mbId, inputHash, review) => {
     const id = randomUUID();
     await prisma.spAiJob.create({
@@ -345,7 +382,7 @@ async function run() {
         status: 'done',
         stage: null,
         model: 'e2e-model',
-        promptVersion: 'dev-review.v2',
+        promptVersion: DEV_REVIEW_PROMPT_VERSION,
         inputHash,
         resultJson: JSON.stringify({ ...review, meta: { ...review.meta, jobId: id, inputHash } }),
         startedAt: new Date(),
@@ -356,6 +393,36 @@ async function run() {
     writeFileSync(IDS_FILE, JSON.stringify(ids));
     return id;
   };
+  // 시스템 구성도 잡 시드(useCase=market.dev-diagram, done) — 등록 payload devDiagramJobId 연결 대조용.
+  const seedDiagramJob = async (mbId, inputHash) => {
+    const id = randomUUID();
+    await prisma.spAiJob.create({
+      data: {
+        id,
+        useCase: DEV_DIAGRAM_USECASE,
+        mbId,
+        status: 'done',
+        stage: null,
+        model: 'e2e-model',
+        promptVersion: DEV_DIAGRAM_PROMPT_VERSION,
+        inputHash,
+        resultJson: JSON.stringify(minimalDevDiagramResult(id)),
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+    });
+    ids.aiJobIds.push(id);
+    writeFileSync(IDS_FILE, JSON.stringify(ids));
+    return id;
+  };
+
+  // 시스템 구성도 유스케이스를 하네스 동안 끈다(활성이면 등록마다 kimi 생성이 시작돼 비용) — finally 에서 원복.
+  const diagramUsecaseBefore = await prisma.spAiUsecase.findUnique({ where: { useCase: DEV_DIAGRAM_USECASE } });
+  const diagramUsecaseWasEnabled = diagramUsecaseBefore !== null && diagramUsecaseBefore.enabled === true;
+  if (diagramUsecaseWasEnabled) {
+    await prisma.spAiUsecase.update({ where: { useCase: DEV_DIAGRAM_USECASE }, data: { enabled: false } });
+    console.log(`유스케이스 ${DEV_DIAGRAM_USECASE} enabled=1 → 0 (끝날 때 원복)`);
+  }
 
   try {
     // ── 1) 전문가 등록(multipart) ──
@@ -371,9 +438,9 @@ async function run() {
         region: 'seoul',
         travelRange: 'within30km',
         intro: 'E2E 통합 테스트용 전문가 소개입니다.',
-        serviceAreas: ['circuit', 'pcb'], // 필수(min 1) — 의뢰 유형·분야 분리 이후
-        categories: ['arduino', 'firmware'],
-        cadTools: ['kicad'],
+        serviceAreas: ['circuit', 'pcb'], // 필수(min 1) — 레지스트리 5종 코드
+        // v3: 분야별 툴(레지스트리 사전) — 목록 필터 ?tool=kicad 가 이 값으로 걸린다.
+        tools: { version: 1, byArea: { circuit: ['kicad'], pcb: ['kicad', 'altium'] } },
         bankName: '신한',
         bankHolder: '테스트',
         bankAccount: '110-123-456789',
@@ -392,15 +459,51 @@ async function run() {
     const reApprove = await req('POST', `/api/admin/market/experts/${ids.expertId}/approve`, { token: tAdmin });
     assert(reApprove.status === 409, '이중 승인 409', reApprove.status);
 
+    // ── 2.5) 전문가 v3 응답·목록 툴 필터(분야 무관 툴 코드 하나) ──
+    const expertDetail = await req('GET', `/api/market/experts/${ids.expertId}`);
+    assert(
+      expertDetail.status === 200 &&
+        JSON.stringify(expertDetail.json?.data?.tools?.byArea?.pcb) === JSON.stringify(['kicad', 'altium']) &&
+        expertDetail.json?.data?.categories === undefined &&
+        expertDetail.json?.data?.cadTools === undefined,
+      '전문가 상세 tools.byArea 반영(+옛 categories/cadTools 없음)',
+      expertDetail.json?.data?.tools,
+    );
+    const expertsByTool = await req('GET', '/api/market/experts?tool=altium&pageSize=100');
+    assert(
+      expertsByTool.status === 200 &&
+        expertsByTool.json?.data?.items?.some((e) => e.expertId === ids.expertId),
+      '전문가 목록 ?tool=altium 포함',
+      expertsByTool.json?.data?.items?.length,
+    );
+    const expertsByOtherTool = await req('GET', '/api/market/experts?tool=flutter&pageSize=100');
+    assert(
+      expertsByOtherTool.status === 200 &&
+        !expertsByOtherTool.json?.data?.items?.some((e) => e.expertId === ids.expertId),
+      '전문가 목록 ?tool=flutter 제외',
+    );
+    const expertsBadTool = await req('GET', '/api/market/experts?tool=not-a-tool&pageSize=100');
+    assert(
+      expertsBadTool.status === 200 &&
+        !expertsBadTool.json?.data?.items?.some((e) => e.expertId === ids.expertId),
+      '전문가 목록 미지 툴 필터 = 0건(400 아님)',
+      expertsBadTool.status,
+    );
+
     // ── 3) AI 사전 검토서 잡 시드 → 의뢰 등록(역견적·NDA·첨부) ──
-    // 원천 해시 = 제목·분야·설명·활성 4문항 답변 + 첨부 원본 SHA-256(앞 10개). 등록 라우트가
-    // 같은 규칙으로 재계산해 대조하므로, 하네스도 출하 함수(devReviewInputHash)를 쓴다.
+    // 원천 해시 = 제목·분야·설명·공통+분야별 질문 답변 + 첨부(`파트이름:sha256`, 정렬 앞 10개).
+    // 등록 라우트가 같은 규칙으로 재계산해 대조하므로, 하네스도 출하 함수(devReviewInputHash)를 쓴다.
+    // 첨부는 일반 1건 + 분야 슬롯(attachment:circuit:schematic) 1건 — 슬롯 파트가 해시·area/slot
+    // 응답에 모두 반영되는지 같이 검증한다.
     const prjAnswers = [
       { code: 'stage', choices: ['idea'] },
       { code: 'quantity', choices: ['proto_1_10'], note: '먼저 3개' },
       { code: 'external', choices: ['mobile_app'] },
+      { code: 'timeline', choices: ['within_3m'] },
     ];
     const prjAttachmentBody = 'e2e spec content';
+    const prjSlotBody = 'e2e schematic sketch';
+    const prjSlotField = 'attachment:circuit:schematic';
     const prjSource = {
       title: 'E2E 심박 모니터 회로 개발',
       serviceAreas: ['circuit'],
@@ -409,7 +512,10 @@ async function run() {
     };
     const prjHash = devReviewInputHash({
       ...prjSource,
-      attachmentHashes: [sha256(Buffer.from(prjAttachmentBody))],
+      attachmentHashes: [
+        attachmentHashOf('attachment', prjAttachmentBody),
+        attachmentHashOf(prjSlotField, prjSlotBody),
+      ],
     });
     const reviewJobId = await seedAiJob(
       cm.mb_id,
@@ -429,17 +535,19 @@ async function run() {
         'payload',
         JSON.stringify({
           ...prjSource,
-          categories: ['power', 'mcu'], // STEP2 세부분야(specialties 컬럼)
-          cadTools: [], // 빈 배열 = 특정 툴 요구 없음(신규 의미 체계)
+          // v3 희망 툴 — 중복 코드·선택 안 한 분야(pcb)는 저장 정규화가 걷어내야 한다(툴은 해시 원천이 아니다).
+          tools: { version: 1, byArea: { circuit: ['kicad', 'altium', 'kicad'], pcb: ['kicad'] } },
           ndaRequired: true,
           budgetRange: 'r300_700',
           deadline: { days: 7 },
           method: 'open',
           devReviewJobId: reviewJobId,
+          aiConsent: false, // 정밀 구성도 큐는 유스케이스 비활성 전제(활성이면 조용히 큐잉될 뿐)
           ...over,
         }),
       );
       form.append('attachment', new Blob([prjAttachmentBody], { type: 'text/plain' }), 'e2e-spec.txt');
+      form.append(prjSlotField, new Blob([prjSlotBody], { type: 'text/plain' }), 'e2e-schematic.txt');
       return form;
     };
 
@@ -474,22 +582,51 @@ async function run() {
     // ── 4) 익명 상세: viewer null·마스킹·첨부 메타 잠금 ──
     const anon = await req('GET', `/api/market/projects/${pid}`);
     assert(anon.status === 200 && anon.json?.data?.viewer === null, '익명 상세 viewer=null');
-    assert(anon.json?.data?.attachments?.files === null && anon.json?.data?.attachments?.count === 1, 'NDA 메타 잠금(개수만)');
+    assert(anon.json?.data?.attachments?.files === null && anon.json?.data?.attachments?.count === 2, 'NDA 메타 잠금(개수만, 일반+슬롯=2)');
     const masked = anon.json?.data?.ownerName ?? '';
     assert(masked.includes('*') || masked === '회원', '의뢰인 마스킹', masked);
+    // v3 툴 정규화 — 중복 제거·선택 분야(circuit)만 남고 pcb 는 버려진다. 옛 categories/cadTools 는 응답에 없다.
     assert(
-      JSON.stringify(anon.json?.data?.categories) === JSON.stringify(['power', 'mcu']) &&
-        (anon.json?.data?.cadTools ?? ['x']).length === 0,
-      '세부분야 반영 + 빈 요구 툴',
-      anon.json?.data?.categories,
+      JSON.stringify(anon.json?.data?.tools?.byArea) === JSON.stringify({ circuit: ['kicad', 'altium'] }) &&
+        anon.json?.data?.tools?.version === 1 &&
+        anon.json?.data?.categories === undefined &&
+        anon.json?.data?.cadTools === undefined,
+      '희망 툴 정규화(중복 제거·선택 분야만) + 옛 필드 없음',
+      anon.json?.data?.tools,
     );
+    assert(
+      JSON.stringify(anon.json?.data?.answers) === JSON.stringify(prjAnswers),
+      '질문 답변(answers) 상세 반영',
+      anon.json?.data?.answers,
+    );
+    // 시스템 구성도 — 잡 id 없이 검토서만 있으면 등록 뒤 큐잉을 시도하는데, 유스케이스가 꺼져 있어
+    // 조용히 건너뛰어 meta/html 이 null 이다.
+    assert(
+      anon.json?.data?.devDiagram?.meta === null && anon.json?.data?.devDiagram?.html === null,
+      '시스템 구성도 미시도(유스케이스 비활성) devDiagram null',
+      anon.json?.data?.devDiagram,
+    );
+    // 잡 폴링 응답 — 검토서 잡은 diagram 메타가 null(구성도는 별도 잡), 타인 잡은 404.
+    const reviewJobPoll = await req('GET', `/api/ai/jobs/${reviewJobId}`, { token: tClient });
+    assert(
+      reviewJobPoll.status === 200 &&
+        reviewJobPoll.json?.data?.status === 'done' &&
+        reviewJobPoll.json?.data?.review?.version === 4 &&
+        reviewJobPoll.json?.data?.diagram === null,
+      '잡 폴링: 검토서 잡 review v4 + diagram null',
+      reviewJobPoll.json?.data,
+    );
+    const strangerJobPoll = await req('GET', `/api/ai/jobs/${strangerJobId}`, { token: tClient });
+    assert(strangerJobPoll.status === 404, '잡 폴링: 타인 잡 404', strangerJobPoll.status);
     // 검토서는 서버 저장분(sp_ai_job)이 정본 — 클라이언트가 본문을 보낸 적이 없는데도
     // 상세를 볼 수 있는 뷰어 전원(익명 포함)에게 노출된다(공개 범위 = description 동일).
     assert(
-      anon.json?.data?.devReview?.version === 2 &&
+      anon.json?.data?.devReview?.version === 4 &&
         anon.json?.data?.devReview?.requirements?.length === 1 &&
-        anon.json?.data?.devReview?.summary === 'E2E 검토서 요약',
-      'AI 사전 검토서 익명 상세 노출(서버 저장분)',
+        anon.json?.data?.devReview?.summary === 'E2E 검토서 요약' &&
+        'diagram' in (anon.json?.data?.devReview ?? {}) === false &&
+        anon.json?.data?.devReview?.openQuestions?.[1]?.area === 'general',
+      'AI 사전 검토서(v4) 익명 상세 노출(서버 저장분, diagram 필드 없음)',
       anon.json?.data?.devReview,
     );
     assert(
@@ -503,6 +640,125 @@ async function run() {
       '분야 1개 → requestType=individual 파생',
       anon.json?.data?.requestType,
     );
+
+    // ── 4.1) 시스템 구성도 잡 연결(devDiagramJobId) — 대조 실패는 등록을 막지 않는다 ──
+    // 같은 원천(제목·분야·설명·답변·첨부)이라 입력 해시는 prjHash 그대로. 검토서 잡은 안 실어(devReviewJobId
+    // 생략) 구성도 연결만 본다. 유스케이스가 꺼져 있고 aiConsent=false 라 미연결 시 자동 큐잉도 없다.
+    const withoutReview = (over) => buildProjectForm({ devReviewJobId: undefined, ...over });
+    // 4.1-a) 엉뚱한 uuid → 200 등록, 상세 devDiagram.meta null
+    const bogusDiag = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: withoutReview({ devDiagramJobId: randomUUID() }),
+    });
+    assert(bogusDiag.status === 200 && bogusDiag.json?.result === true, '엉뚱한 devDiagramJobId 로 등록 200(연결만 생략)', bogusDiag);
+    const bogusPid = bogusDiag.json?.data?.projectId;
+    if (bogusPid) ids.projectIds.push(bogusPid);
+    writeFileSync(IDS_FILE, JSON.stringify(ids));
+    const bogusDetail = await req('GET', `/api/market/projects/${bogusPid}`, { token: tClient });
+    assert(
+      bogusDetail.status === 200 &&
+        bogusDetail.json?.data?.devDiagram?.meta === null &&
+        bogusDetail.json?.data?.devReview === null,
+      '엉뚱한 잡 id → devDiagram.meta null(검토서도 없음)',
+      bogusDetail.json?.data?.devDiagram,
+    );
+    // 4.1-b) 타인(stranger) 소유 구성도 잡 → 200 등록, 연결 생략
+    const strangerDiagJobId = await seedDiagramJob(sm.mb_id, prjHash);
+    const foreignDiag = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: withoutReview({ devDiagramJobId: strangerDiagJobId }),
+    });
+    assert(foreignDiag.status === 200 && foreignDiag.json?.result === true, '타인 구성도 잡 id 로 등록 200(연결만 생략)', foreignDiag);
+    const foreignPid = foreignDiag.json?.data?.projectId;
+    if (foreignPid) ids.projectIds.push(foreignPid);
+    writeFileSync(IDS_FILE, JSON.stringify(ids));
+    const foreignDetail = await req('GET', `/api/market/projects/${foreignPid}`, { token: tClient });
+    assert(
+      foreignDetail.json?.data?.devDiagram?.meta === null,
+      '타인 구성도 잡 → devDiagram.meta null',
+      foreignDetail.json?.data?.devDiagram,
+    );
+    // 4.1-c) 내 잡 + 입력 해시 어긋남(제목 변경) → 200 등록, 연결 생략(stale)
+    const ownDiagJobId = await seedDiagramJob(cm.mb_id, prjHash);
+    const staleDiag = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: withoutReview({ devDiagramJobId: ownDiagJobId, title: 'E2E 심박 모니터 회로 개발(구성도 stale)' }),
+    });
+    assert(staleDiag.status === 200, '원천 어긋난 구성도 잡으로 등록 200(연결만 생략)', staleDiag);
+    const stalePid = staleDiag.json?.data?.projectId;
+    if (stalePid) ids.projectIds.push(stalePid);
+    writeFileSync(IDS_FILE, JSON.stringify(ids));
+    const staleDetail = await req('GET', `/api/market/projects/${stalePid}`, { token: tClient });
+    assert(
+      staleDetail.json?.data?.devDiagram?.meta === null,
+      '원천 어긋난 구성도 잡 → devDiagram.meta null',
+      staleDetail.json?.data?.devDiagram,
+    );
+    // 4.1-d) 내 잡 + 해시 일치 → 연결: 상세 meta.status=done·jobId·html 본문, 목록 devDiagramStatus=done
+    const linkedDiag = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: withoutReview({ devDiagramJobId: ownDiagJobId }),
+    });
+    assert(linkedDiag.status === 200, '내 구성도 잡(해시 일치) 등록 200', linkedDiag);
+    const linkedPid = linkedDiag.json?.data?.projectId;
+    if (linkedPid) ids.projectIds.push(linkedPid);
+    writeFileSync(IDS_FILE, JSON.stringify(ids));
+    const linkedDetail = await req('GET', `/api/market/projects/${linkedPid}`, { token: tClient });
+    assert(
+      linkedDetail.json?.data?.devDiagram?.meta?.status === 'done' &&
+        linkedDetail.json?.data?.devDiagram?.meta?.jobId === ownDiagJobId &&
+        linkedDetail.json?.data?.devDiagram?.meta?.attempt === 1 &&
+        typeof linkedDetail.json?.data?.devDiagram?.html === 'string' &&
+        linkedDetail.json?.data?.devDiagram?.html.includes('<svg'),
+      '구성도 잡 연결 → devDiagram meta done + html 본문',
+      linkedDetail.json?.data?.devDiagram?.meta,
+    );
+    const linkedList = await req('GET', '/api/market/projects?tab=open&pageSize=100');
+    assert(
+      linkedList.json?.data?.items?.find((i) => i.projectId === linkedPid)?.devDiagramStatus === 'done',
+      '목록 devDiagramStatus=done',
+      linkedList.json?.data?.items?.find((i) => i.projectId === linkedPid),
+    );
+    // 잡 폴링 — 구성도 잡은 diagram 메타(done)·review null
+    const diagJobPoll = await req('GET', `/api/ai/jobs/${ownDiagJobId}`, { token: tClient });
+    assert(
+      diagJobPoll.status === 200 &&
+        diagJobPoll.json?.data?.diagram?.status === 'done' &&
+        diagJobPoll.json?.data?.diagram?.jobId === ownDiagJobId &&
+        diagJobPoll.json?.data?.review === null,
+      '잡 폴링: 구성도 잡 diagram done + review null',
+      diagJobPoll.json?.data,
+    );
+    // 연결된 프로젝트(done)에 재요청 — 유스케이스 비활성이라 409 USECASE_DISABLED(RUNNING 아님)
+    const relink = await req('POST', `/api/market/projects/${linkedPid}/dev-diagram`, { token: tClient });
+    assert(
+      relink.status === 409 && relink.json?.error === 'USECASE_DISABLED',
+      '완성된 구성도 재생성 요청(유스케이스 비활성) 409 USECASE_DISABLED',
+      relink,
+    );
+
+    // ── 4.2) GET /api/market/my/dev-diagrams — 진행 중 + 24시간 내 완료분(소유자 전용) ──
+    const myDiagrams = await req('GET', '/api/market/my/dev-diagrams', { token: tClient });
+    assert(
+      myDiagrams.status === 200 &&
+        myDiagrams.json?.result === true &&
+        Array.isArray(myDiagrams.json?.data?.items) &&
+        myDiagrams.json.data.items.some(
+          (i) => i.projectId === linkedPid && i.meta?.status === 'done' && typeof i.title === 'string',
+        ) &&
+        !myDiagrams.json.data.items.some((i) => i.projectId === bogusPid),
+      '내 구성도 목록: 연결 건 포함(done)·미연결 건 제외',
+      myDiagrams.json?.data?.items?.map((i) => [i.projectId, i.meta?.status]),
+    );
+    const myDiagramsStranger = await req('GET', '/api/market/my/dev-diagrams', { token: tStranger });
+    assert(
+      myDiagramsStranger.status === 200 &&
+        !myDiagramsStranger.json?.data?.items?.some((i) => i.projectId === linkedPid),
+      '내 구성도 목록: 제3자에겐 남의 건 없음',
+      myDiagramsStranger.json?.data?.items?.length,
+    );
+    const myDiagramsAnon = await req('GET', '/api/market/my/dev-diagrams');
+    assert(myDiagramsAnon.status === 401, '내 구성도 목록 비로그인 401', myDiagramsAnon.status);
 
     // ── 4.3) 검토서 부착 상태의 원천 수정 가드 ──
     // 원천(제목·설명·분야)과 검토서가 어긋나는 상태를 만들 수 없다: 409 → 같은 요청에
@@ -538,8 +794,7 @@ async function run() {
       JSON.stringify({
         title: 'E2E 회로+펌웨어 통합 의뢰',
         serviceAreas: ['circuit', 'firmware'],
-        categories: [],
-        cadTools: [],
+        tools: { version: 1, byArea: { firmware: ['c_cpp', 'stm32cube'] } },
         description: '분야 2개 파생·개인 전문가 입찰 E2E 검증용 프로젝트입니다.',
         ndaRequired: false,
         budgetRange: 'r300_700',
@@ -563,10 +818,19 @@ async function run() {
     });
     assert(sysBid.status === 200, '시스템 통합 의뢰 개인 전문가 입찰 200', sysBid);
 
-    // ── 5) 소유자 상세: 파일 보임 → fileId 확보 ──
+    // ── 5) 소유자 상세: 파일 보임 → fileId 확보 + 슬롯 첨부 area/slot 메타 ──
     const ownerDetail = await req('GET', `/api/market/projects/${pid}`, { token: tClient });
-    const fileId = ownerDetail.json?.data?.attachments?.files?.[0]?.fileId;
+    const ownerFiles = ownerDetail.json?.data?.attachments?.files ?? [];
+    const generalFile = ownerFiles.find((f) => f.name === 'e2e-spec.txt');
+    const slotFile = ownerFiles.find((f) => f.name === 'e2e-schematic.txt');
+    const fileId = generalFile?.fileId;
     assert(typeof fileId === 'number', '소유자 첨부 메타 노출', ownerDetail.json?.data?.attachments);
+    assert(
+      generalFile?.area === null && generalFile?.slot === null &&
+        slotFile?.area === 'circuit' && slotFile?.slot === 'schematic',
+      '슬롯 첨부 area/slot 메타(일반=null·슬롯=circuit/schematic)',
+      ownerFiles,
+    );
 
     // ── 6) 전문가: NDA 전 다운로드 403 → 서명(멱등) → 200 ──
     const dl403 = await fetch(`${API}/api/market/projects/${pid}/files/${fileId}`, {
@@ -638,7 +902,9 @@ async function run() {
       JSON.stringify({
         title: 'E2E 지정견적 ArtWork',
         serviceAreas: ['pcb'],
-        cadTools: ['kicad'],
+        tools: { version: 1, byArea: { pcb: ['kicad'] } },
+        // 분야별 질문(pcb.outline) — fixed 는 메모 필수(noteRequiredFor).
+        answers: [{ code: 'pcb.outline', choices: ['fixed'], note: '80×50mm, 케이스 맞춤' }],
         description: '지정견적 E2E 테스트 상세 설명입니다.',
         ndaRequired: false,
         budgetRange: 'under300',
@@ -652,6 +918,13 @@ async function run() {
     const tpid = tprj.json?.data?.projectId;
     ids.projectIds.push(tpid);
     writeFileSync(IDS_FILE, JSON.stringify(ids));
+    const tDetail = await req('GET', `/api/market/projects/${tpid}`, { token: tClient });
+    assert(
+      tDetail.json?.data?.answers?.[0]?.code === 'pcb.outline' &&
+        tDetail.json?.data?.answers?.[0]?.note === '80×50mm, 케이스 맞춤',
+      '분야별 질문(pcb.outline) 답변 저장·상세 반영',
+      tDetail.json?.data?.answers,
+    );
     const inbox = await req('GET', '/api/market/my/targeted-projects', { token: tExpert });
     assert(
       inbox.status === 200 && inbox.json?.data?.items?.some((i) => i.projectId === tpid),
@@ -667,30 +940,101 @@ async function run() {
     const anonCancelled = await req('GET', `/api/market/projects/${tpid}`);
     assert(anonCancelled.status === 404, '취소 건 익명 404');
 
-    // ── 11) 조기 마감 → 마감 후 입찰 409 ──
-    const cf = new FormData();
-    cf.append(
-      'payload',
-      JSON.stringify({
-        title: 'E2E 조기마감 테스트',
-        serviceAreas: ['firmware'], // 신규 등록은 활성 3종(circuit·pcb·firmware)만 허용
-        cadTools: ['any'], // 레거시 표현 — 서버가 수용하고 읽기에서 빈 배열로 정규화해야 한다
-        description: '조기 마감 E2E 테스트 상세 설명입니다.',
-        ndaRequired: false,
-        budgetRange: 'undecided',
-        deadline: { days: 14 },
-        method: 'open',
-      }),
+    // ── 11) v3 입력 거절(미지 툴·분야 밖 질문·미지 슬롯·미지 분야) → 정상 등록 → 정밀 구성도 409 → 조기 마감 ──
+    // 옛 하네스의 "cadTools:['any'] 수용+빈 배열 정규화"는 폐기됐다 — 툴 코드는 레지스트리 사전 검증이라
+    // 미지 코드는 400 이고, 빈 byArea 가 "전문가 추천"이다.
+    const closePayload = {
+      title: 'E2E 조기마감 테스트',
+      serviceAreas: ['firmware'],
+      tools: { version: 1, byArea: {} }, // 빈 = 전문가 추천
+      description: '조기 마감 E2E 테스트 상세 설명입니다.',
+      ndaRequired: false,
+      budgetRange: 'undecided',
+      deadline: { days: 14 },
+      method: 'open',
+    };
+    const buildCloseForm = (over = {}, extraPart = null) => {
+      const f = new FormData();
+      f.append('payload', JSON.stringify({ ...closePayload, ...over }));
+      if (extraPart !== null) f.append(extraPart, new Blob(['x'], { type: 'text/plain' }), 'x.txt');
+      return f;
+    };
+    const badTool = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildCloseForm({ tools: { version: 1, byArea: { firmware: ['any'] } } }),
+    });
+    assert(
+      badTool.status === 400 && badTool.json?.error === 'PAYLOAD_SCHEMA_MISMATCH' &&
+        JSON.stringify(badTool.json?.issues ?? []).includes('UNKNOWN_TOOL:any'),
+      "미지 툴 코드(['any']) 400 PAYLOAD_SCHEMA_MISMATCH(UNKNOWN_TOOL)",
+      badTool,
     );
-    const cprj = await req('POST', '/api/market/projects', { token: tClient, form: cf });
+    const badAnswer = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildCloseForm({ answers: [{ code: 'pcb.outline', choices: ['free'] }] }),
+    });
+    assert(
+      badAnswer.status === 400 && badAnswer.json?.error === 'PAYLOAD_SCHEMA_MISMATCH' &&
+        JSON.stringify(badAnswer.json?.issues ?? []).includes('UNKNOWN_QUESTION'),
+      '선택 분야 밖 질문(pcb.outline on firmware) 400(UNKNOWN_QUESTION)',
+      badAnswer,
+    );
+    const badSlot = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildCloseForm({}, 'attachment:pcb:gerber'), // 선택 안 한 분야의 슬롯
+    });
+    assert(
+      badSlot.status === 400 && badSlot.json?.error === 'ATTACHMENT_FIELD_INVALID',
+      '선택 안 한 분야 슬롯 파트 400 ATTACHMENT_FIELD_INVALID',
+      badSlot,
+    );
+    const badSlot2 = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildCloseForm({}, 'attachment:firmware:nope'), // 사전에 없는 슬롯
+    });
+    assert(
+      badSlot2.status === 400 && badSlot2.json?.error === 'ATTACHMENT_FIELD_INVALID',
+      '사전에 없는 슬롯 파트 400 ATTACHMENT_FIELD_INVALID',
+      badSlot2,
+    );
+    const badArea = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildCloseForm({ serviceAreas: ['mechanical'] }),
+    });
+    assert(
+      badArea.status === 400 && badArea.json?.error === 'PAYLOAD_SCHEMA_MISMATCH',
+      '레지스트리 밖 분야 코드 400',
+      badArea,
+    );
+
+    const cprj = await req('POST', '/api/market/projects', { token: tClient, form: buildCloseForm() });
+    assert(cprj.status === 200, '툴 미지정(전문가 추천) 등록 200', cprj);
     const cpid = cprj.json?.data?.projectId;
     ids.projectIds.push(cpid);
     writeFileSync(IDS_FILE, JSON.stringify(ids));
     const cDetail = await req('GET', `/api/market/projects/${cpid}`, { token: tClient });
     assert(
-      (cDetail.json?.data?.cadTools ?? ['x']).length === 0,
-      "레거시 ['any'] 수용 + 빈 배열 정규화",
-      cDetail.json?.data?.cadTools,
+      JSON.stringify(cDetail.json?.data?.tools) === JSON.stringify({ version: 1, byArea: {} }) &&
+        cDetail.json?.data?.cadTools === undefined,
+      '빈 툴 = {version:1, byArea:{}} 정규화(옛 cadTools 없음)',
+      cDetail.json?.data?.tools,
+    );
+    const listItem = await req('GET', '/api/market/projects?tab=open&pageSize=100');
+    const cItem = listItem.json?.data?.items?.find((i) => i.projectId === cpid);
+    assert(
+      cItem !== undefined && cItem.devDiagramStatus === null && cItem.hasDevReview === false &&
+        cItem.categories === undefined,
+      '목록 devDiagramStatus=null·hasDevReview=false(옛 categories 없음)',
+      cItem,
+    );
+    // 시스템 구성도 수동 요청 — 유스케이스 비활성이면 409 USECASE_DISABLED(하네스가 시작 시 enabled=0 으로 내림).
+    const diagStranger = await req('POST', `/api/market/projects/${cpid}/dev-diagram`, { token: tStranger });
+    assert(diagStranger.status === 403 && diagStranger.json?.error === 'FORBIDDEN', '정밀 구성도 요청 제3자 403', diagStranger);
+    const diagOwner = await req('POST', `/api/market/projects/${cpid}/dev-diagram`, { token: tClient });
+    assert(
+      diagOwner.status === 409 && diagOwner.json?.error === 'USECASE_DISABLED',
+      '정밀 구성도 요청(유스케이스 비활성) 409 USECASE_DISABLED',
+      diagOwner,
     );
     const close = await req('POST', `/api/market/projects/${cpid}/close`, { token: tClient });
     assert(close.status === 200 && close.json?.data?.status === 'closed', '조기 마감');
@@ -733,7 +1077,6 @@ async function run() {
         JSON.stringify({
           title,
           serviceAreas: ['circuit'],
-          cadTools: [],
           description: `${title} — 2차 E2E 상세 설명입니다.`,
           ndaRequired: false,
           budgetRange: 'r300_700',
@@ -1041,6 +1384,10 @@ async function run() {
     );
   } finally {
     writeFileSync(IDS_FILE, JSON.stringify(ids));
+    if (diagramUsecaseWasEnabled) {
+      await prisma.spAiUsecase.update({ where: { useCase: DEV_DIAGRAM_USECASE }, data: { enabled: true } });
+      console.log(`유스케이스 ${DEV_DIAGRAM_USECASE} enabled 원복(0 → 1)`);
+    }
   }
 
   console.log(`\n결과: PASS ${pass} / FAIL ${fail}`);

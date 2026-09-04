@@ -11,13 +11,18 @@ export interface AiConnection {
   apiKey: string | null;
 }
 
+// thinking 제어 — boolean(on/off) 또는 effort 단계(kimi-k3·gpt-oss 계열: low|medium|high).
+// 정밀 구성도 프로빙(§12.11)에서 kimi-k3 는 'high' 에서만 채택 품질이 나왔다.
+export type OllamaThink = boolean | 'low' | 'medium' | 'high';
+
 export interface OllamaChatExtra {
   // 'json' 또는 JSON 스키마 객체 — 서버가 문법 수준에서 출력 형태를 강제한다.
   format?: 'json' | Record<string, unknown>;
-  // thinking 모델(deepseek-v4·glm 등) 사고 단계 on/off. 지원 안 하는 모델엔 보내지 않는다.
-  think?: boolean;
+  // thinking 모델(deepseek-v4·glm·kimi 등) 사고 단계. 지원 안 하는 모델엔 보내지 않는다.
+  think?: OllamaThink;
   numCtx?: number;
   temperature?: number;
+  seed?: number; // 재현성(프로빙·정밀 구성도는 temperature 0 + seed 고정)
 }
 
 export interface OllamaChatResult {
@@ -44,6 +49,7 @@ export async function ollamaChatDetailed(
   const options: Record<string, number> = {};
   if (extra.numCtx !== undefined) options.num_ctx = extra.numCtx;
   if (extra.temperature !== undefined) options.temperature = extra.temperature;
+  if (extra.seed !== undefined) options.seed = extra.seed;
   const res = await fetch(`${conn.baseUrl}/api/chat`, {
     method: 'POST',
     headers: authHeaders(conn),

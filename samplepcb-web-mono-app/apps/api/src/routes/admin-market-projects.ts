@@ -29,12 +29,14 @@ import {
   asRegionOrNull,
   isBiddingClosed,
   marketBidCounts,
-  toCategoryCodes,
+  toAnswers,
+  toAreaCodes,
+  toDevDiagramView,
   toDevReview,
   toFileMeta,
-  toProjectToolCodes,
-  toServiceAreaCodes,
+  toTools,
 } from '../lib/market';
+import { requestDevDiagramForProject } from '../lib/ai/dev-diagram-runner';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/market/projects — 프로젝트 모니터(운영 감독) ──────────────────
@@ -63,7 +65,7 @@ const toAdminProjectItem = (
   projectId: Number(p.id),
   title: p.title,
   requestType: asRequestType(p.requestType),
-  serviceAreas: toServiceAreaCodes(p.serviceAreas),
+  serviceAreas: toAreaCodes(p.serviceAreas),
   method: asProjectMethod(p.method),
   status: asProjectStatus(p.status),
   ndaRequired: p.ndaRequired,
@@ -78,6 +80,22 @@ const toAdminProjectItem = (
 
 export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
+
+  // ── POST /admin/market/projects/:id/dev-diagram — 정밀 구성도 강제 (재)생성 ─────────
+  // 유스케이스가 꺼져 있어도 실행한다(비용을 아는 사람의 수동 액션). 진행 중이면 409.
+  fastify.post(
+    '/market/projects/:id/dev-diagram',
+    { schema: { params: ProjectIdParams } },
+    async (request, reply) => {
+      const project = await prisma.spMarketProject.findUnique({
+        where: { id: BigInt(request.params.id) },
+      });
+      if (project === null) return reply.notFound('프로젝트가 없습니다');
+      const queued = await requestDevDiagramForProject(project, request.log, { force: true });
+      if (!queued.ok) return reply.status(409).send({ result: false, error: 'DEV_DIAGRAM_RUNNING' });
+      return { result: true as const, data: { projectId: Number(project.id), status: queued.meta.status } };
+    },
+  );
 
   // ── GET /api/admin/market/projects — 목록(탭 counts) ────────────────────────
   fastify.get(
@@ -160,7 +178,7 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
         prisma.spFile.findMany({
           where: { refType: REF_MARKET_PROJECT, refId: project.id },
           orderBy: { id: 'asc' },
-          select: { id: true, fileType: true, originFileName: true, size: true },
+          select: { id: true, fileType: true, originFileName: true, size: true, area: true, slot: true },
         }),
         prisma.spMarketBid.findMany({ where: { projectId: project.id }, orderBy: { id: 'asc' } }),
         prisma.spMarketNdaSign.findMany({
@@ -186,11 +204,12 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
             bidCounts.get(project.id.toString()) ?? 0,
             now,
           ),
-          categories: toCategoryCodes(project.categories),
-          cadTools: toProjectToolCodes(project.cadTools),
+          tools: toTools(project.tools),
+          answers: toAnswers(project.answers),
           budgetRange: asBudgetRange(project.budgetRange),
           description: project.description,
           devReview: toDevReview(project.devReview),
+          devDiagram: toDevDiagramView(project, true),
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           targetExpert:

@@ -27,24 +27,15 @@ vi.mock('../prisma', () => ({
 import { findReusableAiJob, finishAiJob, getAiJob } from './jobs';
 
 const review: MarketDevReviewType = {
-  version: 2,
+  version: 4,
   brief: { serviceAreas: ['circuit'], answers: [{ code: 'stage', choices: ['idea'] }] },
   summary: '테스트 검토서',
   requirements: [],
-  diagram: {
-    columns: { inputs: '입력', board: '메인 보드', outputs: '출력·연동' },
-    inputs: [],
-    board: { label: '메인 컨트롤러', detail: '', chips: [], tbd: false },
-    outputs: [],
-    linkIn: '',
-    linkOut: '',
-    notes: { flow: '', design: '', extension: '' },
-  },
   areas: [{ area: 'circuit', summary: '', spec: [], observations: [] }],
   openQuestions: [],
   checks: [],
   meta: {
-    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
+    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v4', inputHash: 'h',
     generatedAt: '2026-09-02T00:00:00.000Z', attachmentFiles: [],
   },
 };
@@ -56,7 +47,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   status: 'done',
   stage: null,
   model: 'm',
-  promptVersion: 'dev-review.v2',
+  promptVersion: 'dev-review.v4',
   inputHash: 'h',
   resultJson: JSON.stringify(review),
   error: null,
@@ -88,7 +79,7 @@ describe('AI 잡 저장소(sp_ai_job)', () => {
   it('재사용은 회원·모델·프롬프트·입력·상태·시간창을 전부 건다', async () => {
     prismaMocks.findFirst.mockResolvedValue(row());
     const found = await findReusableAiJob('market.dev-review', 'owner', {
-      model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
+      model: 'm', promptVersion: 'dev-review.v4', inputHash: 'h',
     });
     expect(found?.id).toBe('job-1');
     const args = prismaMocks.findFirst.mock.calls[0]?.[0] as
@@ -97,16 +88,16 @@ describe('AI 잡 저장소(sp_ai_job)', () => {
     const where = args?.where ?? {};
     expect(where).toMatchObject({
       useCase: 'market.dev-review', mbId: 'owner', model: 'm',
-      promptVersion: 'dev-review.v2', inputHash: 'h', status: 'done',
+      promptVersion: 'dev-review.v4', inputHash: 'h', status: 'done',
     });
-    expect(where.finishedAt).toHaveProperty('gte');
+    expect(where.startedAt).toHaveProperty('gte');
   });
 
   it('파손 저장분은 캐시로 재사용하지 않는다(비 JSON 도 500 이 아니다)', async () => {
     prismaMocks.findFirst.mockResolvedValue(row({ resultJson: 'not json at all{' }));
     await expect(
       findReusableAiJob('market.dev-review', 'owner', {
-        model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
+        model: 'm', promptVersion: 'dev-review.v4', inputHash: 'h',
       }),
     ).resolves.toBeNull();
   });

@@ -5,7 +5,10 @@
 import { createPool } from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2/promise';
 import { PrismaClient } from '@prisma/client';
-import { MARKET_TOOL_CODES, MARKET_CATEGORIES, MARKET_SERVICE_AREAS } from '@sp/api-contract';
+import { MARKET_AREAS, MARKET_AREA_CODES } from '@sp/api-contract';
+
+// 당사는 전 분야·전 툴 — 레지스트리에서 파생(사전이 늘면 시드 재실행으로 갱신).
+const houseTools = { version: 1 as const, byArea: Object.fromEntries(MARKET_AREAS.map((a) => [a.code, a.tools.options.map((o) => o.code)])) };
 
 // g5-db.ts 의 전역 풀은 스크립트가 닫을 수 없어(프로세스 잔류) 자체 풀을 쓴다
 // — seed-template-items.ts 관례.
@@ -30,9 +33,8 @@ if (existing !== null) {
   await prisma.spMarketExpert.update({
     where: { id: existing.id },
     data: {
-      serviceAreas: [...MARKET_SERVICE_AREAS],
-      categories: [...MARKET_CATEGORIES],
-      cadTools: [...MARKET_TOOL_CODES],
+      serviceAreas: [...MARKET_AREA_CODES],
+      tools: houseTools,
     },
   });
   console.log(`skills refreshed: house expert #${String(existing.id)} (${existing.displayName})`);
@@ -58,9 +60,8 @@ if (existing !== null) {
         travelRange: 'nationwide',
         intro:
           'PCB 온라인 플랫폼 샘플피씨비 당사진행 서비스입니다. 회로개발·PCB설계부터 제작·SMT 양산까지 원스톱으로 진행합니다.',
-        serviceAreas: [...MARKET_SERVICE_AREAS],
-        categories: [...MARKET_CATEGORIES],
-        cadTools: [...MARKET_TOOL_CODES],
+        serviceAreas: [...MARKET_AREA_CODES],
+        tools: houseTools,
         termsAgreedAt: now,
         status: 'approved',
         decidedBy: mbId,

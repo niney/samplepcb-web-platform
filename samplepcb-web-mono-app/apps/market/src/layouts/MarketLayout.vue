@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
+import DevDiagramTray from '../components/DevDiagramTray.vue';
 import { loginUrl, logoutUrl, marketPath } from '../lib/auth-urls';
 
 const auth = useAuthStore();
@@ -127,6 +128,8 @@ function goLogout(): void {
     <main class="flex-1">
       <RouterView />
     </main>
+    <!-- 시스템 구성도 플로팅 트레이(§13.7) — 로그인 사용자의 진행·완료 알림, 어느 페이지에서든 -->
+    <DevDiagramTray />
 
     <footer class="mt-16 border-t border-line bg-white">
       <div class="mx-auto grid w-full max-w-[1440px] gap-8 px-6 py-10 sm:grid-cols-3">

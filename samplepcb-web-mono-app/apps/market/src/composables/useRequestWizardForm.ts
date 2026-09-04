@@ -1,30 +1,38 @@
 import { computed, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  DEV_REVIEW_ACTIVE_QUESTIONS,
-  DEV_REVIEW_QUESTION_MAP,
-  MARKET_ACTIVE_SERVICE_AREAS,
-  MarketActiveServiceArea,
+  MARKET_AREAS,
+  MARKET_AREA_CODES,
+  MARKET_COMMON_QUESTIONS,
+  MARKET_TOOLS_VERSION,
+  isMarketAreaCode,
+  marketArea,
+  marketAttachmentField,
+  marketQuestionsFor,
+  sortMarketAreas,
 } from '@sp/api-contract';
 import type {
-  DevReviewActiveQuestionCodeType,
-  DevReviewAnswerType,
-  MarketActiveServiceAreaType,
+  MarketAnswerType,
+  MarketAreaDef,
   MarketBudgetRangeType,
   MarketProjectDeadlineType,
   MarketProjectMethodType,
+  MarketQuestionDef,
+  MarketToolsType,
 } from '@sp/api-contract';
 import { useDevReviewStatus } from '../api/useAi';
 
-// 의뢰 위저드 2스텝 폼 상태(docs/AI_DEV_REVIEW.md §12.4) — 의뢰 내용(분야·제목·설명·첨부·
-// 간단 질문 4문항) → 검토·등록. 의뢰자는 전자 개발 비전문가일 수 있다는 전제라 물어보는
-// 것을 최소화했다: 질문은 전부 선택 사항이고 "잘 모르겠어요" 탈출구가 있으며, 모름은
-// 검토서의 "전문가와 상의할 항목"으로 흐른다.
+// 의뢰 위저드 3스텝 폼 상태(docs/AI_DEV_REVIEW.md §13.4) —
+//   ① 의뢰 내용(분야·제목·설명·참고 자료·AI 동의)
+//   ② 몇 가지만 더(공통 4문항 + 선택 분야마다 [분야 질문 · 희망 툴 · 추가자료 슬롯])
+//   ③ 검토·등록(AI 사전 검토서 미리보기 + 견적 조건).
+// 의뢰자는 비전문가일 수 있다는 전제라 물어보는 것을 최소화했다: 질문은 전부 선택 사항이고
+// "잘 모르겠어요" 탈출구가 있으며, 툴은 "전문가 추천"(빈 선택)이 기본이다. 분야·질문·툴·슬롯의
+// 정본은 레지스트리(MARKET_AREAS)라 이 파일에 분야 코드를 문자열로 박지 않는다.
 // 이 컴포저블은 폼 값·스텝 정의·네비게이션·폼 자체 유효성만 소유한다 — 검토서 잡
 // 오케스트레이션과 신선도 판정은 useDevReviewJob 이 담당한다.
-// 의뢰 유형(requestType)은 사라졌다: 서버가 분야 개수로 파생한다(§4).
 
-export type StepKey = 'describe' | 'review';
+export type StepKey = 'describe' | 'details' | 'review';
 
 // 문항 하나의 입력 상태 — 미응답은 choices 가 빈 배열이고 등록 payload 에서 빠진다.
 export interface QuestionState {
@@ -33,10 +41,10 @@ export interface QuestionState {
 }
 
 export interface RequestForm {
-  serviceAreas: MarketActiveServiceAreaType[];
+  serviceAreas: string[];
   title: string;
   description: string;
-  // AI 사전 검토 동의(기본 true) — 해제 시 검토서 없이 등록된다.
+  // AI 사전 검토 동의(기본 true) — 해제 시 검토서 없이 등록되고 정밀 구성도도 만들지 않는다.
   aiConsent: boolean;
   ndaRequired: boolean;
   budgetRange: MarketBudgetRangeType;
@@ -46,13 +54,15 @@ export interface RequestForm {
   targetExpertId: number | null;
 }
 
+export const slotKey = (area: string, slot: string): string => `${area}:${slot}`;
+
 export function useRequestWizardForm() {
   const route = useRoute();
 
-  // ?cat= 분야 프리셋(활성 3종만 — 그 외는 circuit), ?expert= 지정견적 프리셋.
-  const presetServiceArea = ((): MarketActiveServiceAreaType => {
-    const area = MarketActiveServiceArea.safeParse(route.query.cat);
-    return area.success ? area.data : 'circuit';
+  // ?cat= 분야 프리셋(레지스트리 코드만 — 그 외는 첫 분야), ?expert= 지정견적 프리셋.
+  const presetServiceArea = ((): string => {
+    const cat = typeof route.query.cat === 'string' ? route.query.cat : '';
+    return isMarketAreaCode(cat) ? cat : (MARKET_AREA_CODES[0] ?? 'circuit');
   })();
   const presetExpertId = ((): number | null => {
     const n = Number(route.query.expert);
@@ -71,21 +81,22 @@ export function useRequestWizardForm() {
     method: presetExpertId !== null ? 'targeted' : 'open',
     targetExpertId: presetExpertId,
   });
+  // 참고 자료(일반 첨부, 1단계) + 분야별 추가자료(2단계, 키 = "area:slot").
   const attachments = ref<File[]>([]);
+  const slotFiles = reactive<Record<string, File[]>>({});
 
-  // 활성 4문항 입력 상태 — 코드가 계약에 고정이라 키를 하나씩 적는다(사전에 문항이 늘면
-  // 여기서 컴파일 에러가 나는 것이 의도다. Object.fromEntries 는 키 타입을 잃는다).
-  const questionState = reactive<Record<DevReviewActiveQuestionCodeType, QuestionState>>({
-    stage: { choices: [], note: '' },
-    quantity: { choices: [], note: '' },
-    external: { choices: [], note: '' },
-    timeline: { choices: [], note: '' },
-  });
-
-  function toggleChoice(code: DevReviewActiveQuestionCodeType, choice: string): void {
-    const state = questionState[code];
-    const multi = DEV_REVIEW_QUESTION_MAP[code].multi;
-    if (!multi) {
+  // 질문 상태 — 코드로 lazy 생성(레지스트리에 문항이 늘어도 여기는 안 바뀐다).
+  const questionState = reactive<Record<string, QuestionState>>({});
+  function stateOf(code: string): QuestionState {
+    const s = questionState[code];
+    if (s !== undefined) return s;
+    const created: QuestionState = { choices: [], note: '' };
+    questionState[code] = created;
+    return created;
+  }
+  function toggleChoice(question: MarketQuestionDef, choice: string): void {
+    const state = stateOf(question.code);
+    if (!question.multi) {
       state.choices = state.choices[0] === choice ? [] : [choice];
       return;
     }
@@ -94,26 +105,73 @@ export function useRequestWizardForm() {
     else state.choices.push(choice);
   }
 
+  // 희망 툴 — 분야별 코드 배열. 키가 없거나 빈 배열 = 전문가 추천(기본).
+  const tools = reactive<Record<string, string[]>>({});
+  function toggleTool(area: string, code: string): void {
+    const list = tools[area] ?? (tools[area] = []);
+    const i = list.indexOf(code);
+    if (i >= 0) list.splice(i, 1);
+    else list.push(code);
+  }
+  function clearTools(area: string): void {
+    tools[area] = [];
+  }
+  const isRecommended = (area: string): boolean => (tools[area]?.length ?? 0) === 0;
+
+  // 선택 분야(레지스트리 순서)·분야 정의·물을 질문(공통 → 분야).
+  const selectedAreas = computed(() => sortMarketAreas(fields.serviceAreas));
+  const areaDefs = computed<MarketAreaDef[]>(() =>
+    selectedAreas.value.map((c) => marketArea(c)).filter((d): d is MarketAreaDef => d !== undefined),
+  );
+  const activeQuestions = computed<MarketQuestionDef[]>(() => marketQuestionsFor(fields.serviceAreas));
+  const commonQuestions = MARKET_COMMON_QUESTIONS;
+
   // 메모 필수(noteRequiredFor 선택지를 고른 문항) 미충족 목록 — 등록 전 게이트.
-  const noteMissingCodes = computed<DevReviewActiveQuestionCodeType[]>(() =>
-    DEV_REVIEW_ACTIVE_QUESTIONS.flatMap((q) => {
-      const code = q.code as DevReviewActiveQuestionCodeType;
-      const state = questionState[code];
-      if (state.choices.length === 0) return [];
+  const noteMissingCodes = computed<string[]>(() =>
+    activeQuestions.value.flatMap((q) => {
+      const state = questionState[q.code];
+      if (state === undefined || state.choices.length === 0) return [];
       const required = q.noteRequiredFor?.some((c) => state.choices.includes(c)) ?? false;
-      return required && state.note.trim() === '' ? [code] : [];
+      return required && state.note.trim() === '' ? [q.code] : [];
     }),
   );
 
-  // 등록·검토서 실행에 실을 답변 — 응답한 문항만("미응답 문항은 보내지 않는다").
-  function buildAnswers(): DevReviewAnswerType[] {
-    return DEV_REVIEW_ACTIVE_QUESTIONS.flatMap((q) => {
-      const state = questionState[q.code as DevReviewActiveQuestionCodeType];
-      if (state.choices.length === 0) return [];
+  // 등록·검토서 실행에 실을 답변 — 응답한 문항만, 선택 분야 밖 문항은 버린다.
+  function buildAnswers(): MarketAnswerType[] {
+    return activeQuestions.value.flatMap((q) => {
+      const state = questionState[q.code];
+      if (state === undefined || state.choices.length === 0) return [];
       const note = state.note.trim();
       return [{ code: q.code, choices: [...state.choices], ...(note !== '' ? { note } : {}) }];
     });
   }
+  function buildTools(): MarketToolsType {
+    const byArea: Record<string, string[]> = {};
+    for (const area of selectedAreas.value) {
+      const codes = tools[area] ?? [];
+      if (codes.length > 0) byArea[area] = [...codes];
+    }
+    return { version: MARKET_TOOLS_VERSION, byArea };
+  }
+  // 첨부 전체(일반 + 슬롯) — 검토서 실행·등록 multipart 가 같은 순서로 붙인다.
+  function appendAttachments(fd: FormData): void {
+    for (const f of attachments.value) fd.append('attachment', f);
+    for (const area of selectedAreas.value) {
+      const def = marketArea(area);
+      for (const slot of def?.attachmentSlots ?? []) {
+        for (const f of slotFiles[slotKey(area, slot.code)] ?? []) fd.append(marketAttachmentField(area, slot.code), f);
+      }
+    }
+  }
+  // 선택 분야의 슬롯 첨부만(분야를 해제하면 그 슬롯 파일은 보내지 않는다).
+  const activeSlotFiles = computed<{ field: string; file: File }[]>(() =>
+    selectedAreas.value.flatMap((area) =>
+      (marketArea(area)?.attachmentSlots ?? []).flatMap((slot) =>
+        (slotFiles[slotKey(area, slot.code)] ?? []).map((file) => ({ field: marketAttachmentField(area, slot.code), file })),
+      ),
+    ),
+  );
+  const totalAttachmentCount = computed(() => attachments.value.length + activeSlotFiles.value.length);
 
   // 검토서 생성 활성 여부(관리자 토글은 드물어 오래 캐시).
   const devReviewStatus = useDevReviewStatus();
@@ -121,6 +179,7 @@ export function useRequestWizardForm() {
 
   const steps: readonly { key: StepKey; label: string }[] = [
     { key: 'describe', label: '의뢰 내용' },
+    { key: 'details', label: '몇 가지만 더' },
     { key: 'review', label: '검토·등록' },
   ];
 
@@ -139,22 +198,26 @@ export function useRequestWizardForm() {
     if (i >= 0) stepIndex.value = i;
   }
 
-  function toggleServiceArea(code: MarketActiveServiceAreaType): void {
+  function toggleServiceArea(code: string): void {
     const i = fields.serviceAreas.indexOf(code);
     if (i >= 0) fields.serviceAreas.splice(i, 1);
     else fields.serviceAreas.push(code);
   }
-  // "잘 모르겠어요 — 전부 맡길게요": 분야를 모르는 의뢰자는 풀 개발로 등록한다(§12.4).
+  // "잘 모르겠어요 — 전부 맡길게요": 분야를 모르는 의뢰자는 전 분야(풀 개발)로 등록한다.
   const allServiceAreasSelected = computed(
-    () => MARKET_ACTIVE_SERVICE_AREAS.every((a) => fields.serviceAreas.includes(a)),
+    () => MARKET_AREA_CODES.every((a) => fields.serviceAreas.includes(a)),
   );
   function selectAllServiceAreas(): void {
-    fields.serviceAreas = [...MARKET_ACTIVE_SERVICE_AREAS];
+    fields.serviceAreas = [...MARKET_AREA_CODES];
   }
 
   function pickAttachments(e: Event): void {
     const input = e.target as HTMLInputElement;
     attachments.value = input.files !== null ? Array.from(input.files) : [];
+  }
+  function pickSlotFiles(area: string, slot: string, e: Event): void {
+    const input = e.target as HTMLInputElement;
+    slotFiles[slotKey(area, slot)] = input.files !== null ? Array.from(input.files) : [];
   }
 
   const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
@@ -171,10 +234,10 @@ export function useRequestWizardForm() {
       return (
         fields.serviceAreas.length > 0 &&
         fields.title.trim().length >= 2 &&
-        fields.description.trim().length >= 10 &&
-        noteMissingCodes.value.length === 0
+        fields.description.trim().length >= 10
       );
     }
+    if (key === 'details') return noteMissingCodes.value.length === 0;
     const deadlineOk = fields.deadlineMode !== 'date' || fields.deadlineDate >= todayKst;
     const methodOk = fields.method === 'open' || fields.targetExpertId !== null;
     return deadlineOk && methodOk && noteMissingCodes.value.length === 0;
@@ -183,13 +246,26 @@ export function useRequestWizardForm() {
   return {
     fields,
     attachments,
+    slotFiles,
+    activeSlotFiles,
+    totalAttachmentCount,
     presetExpertId,
-    activeServiceAreas: MARKET_ACTIVE_SERVICE_AREAS,
-    activeQuestions: DEV_REVIEW_ACTIVE_QUESTIONS,
+    areas: MARKET_AREAS,
+    selectedAreas,
+    areaDefs,
+    commonQuestions,
+    activeQuestions,
     questionState,
+    stateOf,
     toggleChoice,
     noteMissingCodes,
     buildAnswers,
+    tools,
+    toggleTool,
+    clearTools,
+    isRecommended,
+    buildTools,
+    appendAttachments,
     devReviewEnabled,
     steps,
     stepIndex,
@@ -202,6 +278,7 @@ export function useRequestWizardForm() {
     allServiceAreasSelected,
     selectAllServiceAreas,
     pickAttachments,
+    pickSlotFiles,
     todayKst,
     projectDeadline,
     stepValid,

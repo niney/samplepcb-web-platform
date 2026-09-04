@@ -8,6 +8,7 @@ import {
   MarketExpertUpdatePayload,
 } from '@sp/api-contract';
 import type { MarketExpertMeType, MarketExpertPublicType } from '@sp/api-contract';
+import { marketToolCodesOf, normalizeMarketTools } from '@sp/api-contract';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
 import {
@@ -20,10 +21,9 @@ import {
   asTravelRangeOrNull,
   collectMultipart,
   deleteMarketFile,
-  toToolCodes,
-  toCategoryCodes,
+  toAreaCodes,
   toFileMeta,
-  toActiveServiceAreaCodes,
+  toTools,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
 import { prisma } from '../lib/prisma';
@@ -61,9 +61,8 @@ const toExpertMe = (e: SpMarketExpert, files: ExpertFileRow[]): MarketExpertMeTy
   region: asRegionOrNull(e.region),
   travelRange: asTravelRangeOrNull(e.travelRange),
   intro: e.intro,
-  serviceAreas: toActiveServiceAreaCodes(e.serviceAreas),
-  categories: toCategoryCodes(e.categories),
-  cadTools: toToolCodes(e.cadTools),
+  serviceAreas: toAreaCodes(e.serviceAreas),
+  tools: toTools(e.tools),
   bankName: e.bankName,
   bankHolder: e.bankHolder,
   bankAccount: e.bankAccount,
@@ -81,9 +80,8 @@ const toExpertPublic = (e: SpMarketExpert): MarketExpertPublicType => ({
   expertType: asExpertType(e.expertType),
   careerRange: asCareerRange(e.careerRange),
   region: asRegionOrNull(e.region),
-  serviceAreas: toActiveServiceAreaCodes(e.serviceAreas),
-  categories: toCategoryCodes(e.categories),
-  cadTools: toToolCodes(e.cadTools),
+  serviceAreas: toAreaCodes(e.serviceAreas),
+  tools: toTools(e.tools),
   intro: e.intro,
 });
 
@@ -163,8 +161,7 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             travelRange: payload.travelRange ?? null,
             intro: payload.intro,
             serviceAreas: payload.serviceAreas,
-            categories: payload.categories,
-            cadTools: payload.cadTools,
+            tools: normalizeMarketTools(payload.tools, payload.serviceAreas),
             bankName: payload.bankName,
             bankHolder: payload.bankHolder,
             bankAccount: payload.bankAccount,
@@ -287,8 +284,9 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     if (payload.travelRange !== undefined) data.travelRange = payload.travelRange;
     if (payload.intro !== undefined) data.intro = payload.intro;
     if (payload.serviceAreas !== undefined) data.serviceAreas = payload.serviceAreas;
-    if (payload.categories !== undefined) data.categories = payload.categories;
-    if (payload.cadTools !== undefined) data.cadTools = payload.cadTools;
+    if (payload.tools !== undefined) {
+      data.tools = normalizeMarketTools(payload.tools, payload.serviceAreas ?? toAreaCodes(expert.serviceAreas));
+    }
     if (payload.bankName !== undefined) data.bankName = payload.bankName;
     if (payload.bankHolder !== undefined) data.bankHolder = payload.bankHolder;
     if (payload.bankAccount !== undefined) data.bankAccount = payload.bankAccount;
@@ -361,18 +359,15 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     '/market/experts',
     { schema: { querystring: MarketExpertListQuery } },
     async (request) => {
-      const { page, pageSize, expertType, serviceArea, category, cadTool, q } = request.query;
+      const { page, pageSize, expertType, serviceArea, tool, q } = request.query;
       const rows = await prisma.spMarketExpert.findMany({ where: { status: 'approved' } });
 
       const keyword = q?.trim().toLowerCase();
       const filtered = rows.filter((e) => {
         if (expertType !== undefined && asExpertType(e.expertType) !== expertType) return false;
-        // 필터 값은 전체 enum(읽기 호환)이라 활성 코드 배열과 폭이 다르다 — some 비교로 좁힌다.
-        if (serviceArea !== undefined && !toActiveServiceAreaCodes(e.serviceAreas).some((a) => a === serviceArea))
-          return false;
-        if (category !== undefined && !toCategoryCodes(e.categories).includes(category))
-          return false;
-        if (cadTool !== undefined && !toToolCodes(e.cadTools).includes(cadTool)) return false;
+        if (serviceArea !== undefined && !toAreaCodes(e.serviceAreas).includes(serviceArea)) return false;
+        // 툴 필터는 분야 무관 — 어느 분야에서든 그 툴을 다루면 일치.
+        if (tool !== undefined && !marketToolCodesOf(toTools(e.tools)).includes(tool)) return false;
         if (keyword !== undefined && keyword !== '') {
           const hay = `${e.displayName} ${e.intro ?? ''}`.toLowerCase();
           if (!hay.includes(keyword)) return false;

@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { DEV_REVIEW_LLM_JSON_SCHEMA } from '@sp/api-contract';
 import type { DevReviewMetaType } from '@sp/api-contract';
 import { ollamaChatDetailed } from './ollama';
-import type { AiConnection, OllamaChatExtra, OllamaChatResult } from './ollama';
+import type { AiConnection, OllamaChatExtra, OllamaChatResult, OllamaThink } from './ollama';
 import {
   ATTACHMENT_READ_JSON_SCHEMA,
   DEV_REVIEW_PROMPT_VERSION,
@@ -30,7 +30,7 @@ type AiRunLogger = Pick<FastifyBaseLogger, 'info' | 'warn'>;
 export interface StartDevReviewJobOptions {
   mbId: string;
   model: string;
-  think: boolean;
+  think: OllamaThink;
   extraInstructions: string;
   source: DevReviewSource; // attachmentContext 는 첨부 "텍스트"만 — 이미지 판독은 여기서 붙인다
   images: readonly string[]; // base64 래스터 미리보기
@@ -44,8 +44,14 @@ export interface StartedAiJob {
   cached: boolean;
 }
 
+// 모델 태그 폴백 — ollama.com 직결은 `:cloud` 접미가 없고 로컬 데몬 프록시는 있어야 한다(둘 다 404).
+// 관리자가 어느 쪽 표기로 저장했든 한 번은 맞도록 접미를 붙였다 뗐다 재시도한다.
+const alternateModelTag = (model: string): string =>
+  model.endsWith(':cloud') ? model.slice(0, -':cloud'.length) : `${model}:cloud`;
+
 // 구조화 출력(format)·thinking(think) 미지원 모델은 4xx 로 거절한다 — 그 옵션만 빼고 1회
 // 재시도한다(프로브 하네스 chatWithFallback 과 같은 규칙, 여기가 출하 코드의 정본).
+// 404(모델 없음)는 옵션이 아니라 태그 문제라 접미 폴백을 먼저 시도한다.
 export async function chatWithOptionFallback(
   conn: AiConnection,
   model: string,
@@ -59,6 +65,11 @@ export async function chatWithOptionFallback(
     return await ollamaChatDetailed(conn, model, prompt, timeoutMs, images, extra);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('HTTP 404')) {
+      const alt = alternateModelTag(model);
+      log.warn({ model, alt }, 'ai: model tag not found — retrying with alternate tag');
+      return ollamaChatDetailed(conn, alt, prompt, timeoutMs, images, extra);
+    }
     if (/HTTP 4\d\d/.test(msg) && (extra.format !== undefined || extra.think !== undefined)) {
       const rest: OllamaChatExtra = { ...extra };
       delete rest.format;

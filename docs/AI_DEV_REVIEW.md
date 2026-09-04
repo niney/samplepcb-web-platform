@@ -486,3 +486,149 @@ PC 연동)의 **범주 모순**을 R8(단위 수치)도 모델도 못 잡았다.
 **결론** — A+B+C 모두 채택. C 는 잔존률이 낮지만(≈35%) 남는 것은 근거 있는 핵심 지적이라 카드 가치가 있고,
 없으면 빈 채로 둔다(억지 생성 금지). 프롬프트 버전 `dev-review.v2.1`. 관리자 축약본은 관찰(근거 포함)·정합 알림을
 같이 보여준다. 남은 것: 의뢰자 "맞아요/달라요" 피드백 동선(미기획).
+
+### 12.11 구성도 무제약 프로빙 (2026-09-04, kimi-k3:cloud, `e2e/specs/dev-review-diagram-free.e2e.test.ts`)
+
+**질문** — 3열 카드·JSON 스키마·후처리를 전부 빼고 "이 자료로 시스템 구성도를 만들어 달라"는 한 문장만 주면
+모델이 무엇을 내놓는가. 입력 = 제목 + 설명(버스 LED 컨트롤러) + docx 설명서 추출 텍스트(20,161자). 지시문은
+첫 줄 한 문장뿐, 형식·언어·범위 지시 없음. 화면·DB 무관, 첨부 추출기와 ollama 클라이언트만 실코드.
+
+| 회차 | 시간 | thinking | 출력 | 형식 | 자료 부품 7종 | 자료 밖 품번 |
+|---|---|---|---|---|---|---|
+| 1 | 407s | 80k자 | 4,832자 | ASCII 박스 그림 3장 + 표 + 프로토콜 요약 | 6/7(SDRAM 품번만 "32MB"로) | 0 |
+| 2 | 499s | 109k자 | 7,208자 | ASCII 5장(1장은 스스로 "복잡하다"며 다시 그림) + 표 3 + 전원 트리 | 6/7(같음) | 0 |
+
+**관찰**
+- 형식은 두 번 다 **ASCII 박스 그림**(Mermaid·SVG 아님). 모델이 마지막 줄에 "Mermaid·PPT 로도 변환해 드릴 수
+  있다"고 덧붙인다. 2회차의 첫 그림은 선이 엉켜 모델 스스로 폐기하고 다시 그렸다 — 텍스트 도면은 폭·정렬이
+  불안정하다.
+- 근거 밖 사실은 사실상 0. IP 매핑(192.168.10.10+주소)·명령 코드(0x12~0x22)·핀(PE2-4·PB14·PD3)·종단 120Ω·
+  AP2112K·TVS·페라이트 전부 docx 에 있다. 추론으로 보탠 것은 "이더넷 스위치"·"멀티드롭"·"데이지 체인"·"설정
+  단말" 네 단어 — 자료의 구조(PC 1대 ↔ 4대, RS485 버스)에서 나오는 합리적 보충이고 틀린 것은 없다.
+- 정보 밀도는 **설계자 수준**(핀 번호·저항값·디커플링 개수·명령 코드). §12.7 에서 확인한 대로 자료가 완성 설계서라
+  가능한 것이며, 아이디어 단계 의뢰(01·05 픽스처)라면 같은 프롬프트가 지어내거나 TBD 로 채울 것이 뻔하다(미실측).
+- 언어는 한국어 본문 + 규격·부품명 영문. 비전문가가 읽을 표현은 아니다.
+- 지연 407~499s, thinking 8~11만 자 — 위저드 동기 대기(≤6분)에 못 들어간다.
+
+**판단** — 모델의 "이해"는 충분하다(부품·연결·흐름을 빠짐없이 복원). 부족한 것은 **표현 매체**다: 텍스트 도면은
+화면에 못 싣고, 비전문가 의뢰자에게는 과밀하다. 따라서 현행 구조(모델은 내용을 JSON 으로, 렌더는 코드가)를
+버릴 이유는 없고, 바꿀 수 있는 것은 **렌더 레이아웃의 자유도**다 — 자료가 충분할 때 모델이 낸 블록·연결을
+3열이 아닌 일반 그래프(블록도)로 그리는 옵션. 다음 실측은 같은 무제약 입력에 "Mermaid flowchart 로" 한 줄만
+더한 변형(형식만 제약)으로, 렌더 가능한 출력이 유지되는지 보는 것.
+
+**변형 — "HTML 형식으로 만들어 주세요." 한 문장 추가 (2026-09-04, kimi-k3:cloud 1회, `…-html/`)**
+
+| 시간 | thinking | 출력 | 내용 | 자료 부품 | 자료 밖 품번 |
+|---|---|---|---|---|---|
+| 499s | 65k자 | 36k자(코드 펜스 안 완전한 HTML, 인라인 CSS + SVG 2장 + 표 4) | ① 차량 토폴로지 SVG(PC→스위치 없이 4대, 이더넷 실선·RS485 점선·HUB75·+5V 배전, 범례) ② 보드 내부 SVG(J1→U3→U1→U5~U10→J2/J6, U2·U4·전원·설정, 범례) ③ 프로토콜 프레임·OPCODE 표·전원 트리 | 7/7 | 0 |
+
+브라우저에 그대로 열리는 완성 페이지가 나왔다. 선 색·범례·영역 구분·표까지 §12.7 PCB 담당자 프롬프트가 요구한 표현
+규칙 대부분을 **지시 없이** 갖췄고, 자료 밖 부품·수치는 없었다. 다만 (a) 근거가 완성 설계서라서 가능한 밀도이고,
+(b) 499s 라 동기 생성에는 못 들어가며, (c) HTML/SVG 는 회차마다 구조가 달라 화면에 그대로 싣기 전에 sandbox
+iframe + CSP(현행 뷰어 방식)와 자료 밖 토큰 검사(R2)를 같은 원문에 적용해야 한다. 아이디어 단계 입력에서의 거동은
+미실측.
+
+**같은 HTML 지시 — deepseek-v4-pro:cloud 1회 (2026-09-04, `…T20-51-20-html/`)**
+
+| 시간 | thinking | 출력 | 내용 | 자료 부품 | 자료 밖 품번 |
+|---|---|---|---|---|---|
+| 20s | 0.8k자 | 17k자 HTML(CSS 카드, SVG 0·표 0) | PC 카드 → 이더넷 띠 → 컨트롤러 4장(IP·MCU·SDRAM·SW1·J2/J6 칩) → RS485 띠 → LED 패널 4장 → 범례 4 → 시스템 요약 6줄 | 4/7 (PHY·SDRAM 품번·레벨시프터 없음) | 0 |
+
+kimi-k3 와 같은 입력·같은 한 문장인데 결과의 층위가 다르다. kimi 는 설계자용(보드 내부 블록·핀·전원 트리·OPCODE 표,
+499s), deepseek 은 **고객용 토폴로지 한 장**(보드 내부 없음, 20s). 둘 다 자료 밖 사실은 0. 즉 형식 한 문장은
+"렌더 가능한 출력"을 보장하지만 **밀도·층위는 모델이 정한다** — 서비스가 원하는 층위(비전문가 의뢰자 + 전문가
+기초 자산)를 얻으려면 결국 "보드 내부 블록을 포함" 같은 범위 지시가 필요하고, 그 지시가 쌓이면 현행 프롬프트로
+돌아온다. 남은 실측: 아이디어 단계 입력(첨부 없음)에서의 거동.
+
+## 13. v3 재설계 — 분야 레지스트리·3스텝 위저드·정밀 구성도 (2026-09-04, 사용자 확정)
+
+> **이 절이 §4·§5·§12.2~§12.4 의 해당 부분을 대체한다.** v2(2026-09-02)까지는 프로토타입이라 저장 데이터를 버리고
+> 재구현했다(마이그레이션 `20260904090000_market_v3_areas_registry` 가 옛 컬럼을 지운다). 검토서 후처리 규칙
+> (R1~R9, §12.3·§12.7~§12.10)과 프로빙 결론은 그대로 살아 있다.
+
+### 13.1 결정
+
+| # | 결정 | 근거 |
+|---|---|---|
+| 19 | 개발 분야 **5종**(회로·PCB·펌웨어·**앱·서버**) — 의뢰·전문가 등록·필터 모두 동시에 연다. "잘 모르겠어요 — 전부 맡길게요" = 5종 전부 | 사용자 확정. 참고 사이트(talent-market-customer)의 앱·서버 분야 |
+| 20 | 위저드 **3스텝** — ① 의뢰 내용(분야·제목·설명·참고 자료·AI 동의) ② **몇 가지만 더**(공통 4문항 + 선택 분야마다 [분야별 질문 · 희망 개발툴·언어 · 추가자료 슬롯]) ③ 검토·등록 | 1스텝이 길어졌고 2스텝은 분야가 확정된 뒤라 조건부 렌더가 자연스럽다 |
+| 21 | 희망 툴·언어는 **"전문가 추천"이 기본**(빈 선택), 접힌 섹션. 참고 사이트의 분야별 목록 채택 | §12 원칙(비전문가가 답할 수 없는 건 묻지 않는다)과의 절충 |
+| 22 | 분야별 추가자료는 1스텝 참고 자료와 **별개** — 2스텝에서 슬롯(회로도·거버·기존 소스·화면 시안·API 명세 …)별로 받고 `sp_file.area`·`slot` 컬럼에 저장 | 사용자 확정. fileType 에 접미를 겹쳐 쓰지 않고 필드를 더한다 |
+| 23 | **분야 레지스트리 하나에서 전부 파생** — 분야·질문·툴·슬롯·프롬프트 조각의 정본 `market-areas.ts`. 분야 추가 = 항목 1개 + 프로빙 픽스처 1개, 질문·툴·슬롯 추가 = 항목만 | 확장·수정에 대비(사용자 요청) |
+| 24 | 저장 스키마는 `z.enum` 이 아니라 **문자열 + 레지스트리 검증** — 분야를 빼도 옛 저장분 파싱이 깨지지 않고 라벨만 "(종료)". JSON 컬럼은 `version` 동봉 | 같은 이유 |
+| 25 | **정밀 시스템 구성도** = AI 산출물 2(비동기) — kimi-k3 thinking high(§12.11 프로빙 채택안)를 **등록 뒤 서버 큐**로 돌리고 완성되면 상세에 붙고 메일. 위저드는 기다리지 않는다(검토서의 3열 카드가 즉시 자리를 채운다) | 566초·thinking 14만 자라 동기 UX 불가, 요청당 비용도 통제 필요 |
+| 26 | 정밀 구성도 **게이트** — 첨부 텍스트 ≥800자 또는 설명 ≥500자 또는 (설계 단계 답변 ∧ 첨부 있음)일 때만 자동 생성. 미달은 `skipped` + 관리자·소유자 수동 생성 | 아이디어 단계 입력은 TBD 상자로 채워질 뿐(§12.11 미실측 영역) |
+
+### 13.2 분야 레지스트리 (`packages/api-contract/src/schemas/market-areas.ts`)
+
+```ts
+MarketAreaDef = {
+  code, label, short, hint, kind: 'hardware' | 'software',
+  questions: MarketQuestionDef[],          // 분야별 질문 — code 는 `${area}.${name}` 네임스페이스
+  tools: { label, options: [{code,label}] }, // 희망 툴·언어(빈 선택 = 전문가 추천)
+  attachmentSlots: [{code,label,hint}],     // 2스텝 추가자료 슬롯 → sp_file(area, slot)
+  prompt: { what, specItems, checks },      // 검토서·구성도 프롬프트 조각
+}
+MARKET_AREAS = [circuit, pcb, firmware, app, server]   // 순서 = 화면 순서
+MARKET_COMMON_QUESTIONS = [stage, quantity, external, timeline]  // 공통 4문항(§12 유지)
+```
+
+파생: `MARKET_AREA_CODES`·`marketAreaLabel`·`marketAreaBadge`(1개=분야명 · 2~4개="회로 + PCB" · 5개="풀 개발(…)")·
+`sortMarketAreas`·`marketQuestionsFor(areas)`·`marketAnswerIssues(answers, areas)`(중복·미지 문항·선택 분야 밖·미지
+선택지·단일 선택·메모 필수)·`MarketTools {version:1, byArea:{area:[code]}}`·`normalizeMarketTools`·`marketToolRows`·
+`parseMarketAttachmentField('attachment:circuit:schematic')`. 분야별 질문은 현재 3개(`pcb.outline`·`app.platform`·
+`server.scale`) — 비전문가가 답할 수 있는 것만.
+
+프롬프트에서의 쓰임: 검토서 `buildDevReviewAreaBlock` 이 선택 분야의 `what`·`specItems`·`checks` 를 `[개발 분야]`
+블록으로 조립하고, 구성도 노드에 `develop`(이번 의뢰에서 새로 만드는 앱·서버 카드 — 기존 연동 대상과 구분,
+렌더러가 "개발" 표식) 이 생겼다. 프롬프트 버전 `dev-review.v3`.
+
+### 13.3 저장 구조
+
+| 테이블 | v3 |
+|---|---|
+| `sp_market_project` | `serviceAreas`(string[]) · `tools`(MarketTools) · `answers`(MarketAnswers, 옛 `interviewAnswers` 개명) · `devReview`(v3) · `devDiagram`(MarketDevDiagram 메타) · `devDiagramHtml`(살균 HTML). 삭제: `specialties`·`cadTools`·`diagramSpec`·`rocMd`·`interviewAnswersSharedAt`·`postings`·`aiGenerationMeta` |
+| `sp_market_expert` | `serviceAreas` · `tools`. 삭제: `categories`·`cadTools` |
+| `sp_file` | `area`·`slot`(nullable — 의뢰 슬롯 첨부만) |
+| `sp_ai_usecase` | `think`(off\|low\|medium\|high) 추가. 유스케이스 2종 `market.dev-review`·`market.dev-diagram` |
+
+계약: `MarketProjectCreatePayload` = `{ title, serviceAreas, tools, description, answers, aiConsent, devReviewJobId?, ndaRequired, budgetRange, deadline, method, targetExpertId? }`. multipart 파트 = `attachment`(일반) + `attachment:<area>:<slot>`(슬롯, 레지스트리·선택 분야 검증 → 400 `ATTACHMENT_FIELD_INVALID`). 검토서 입력 해시의 첨부 항목은 `${파트명}:${sha256}` 정렬 앞 10개(`routes/ai.ts devReviewAttachmentHashes` — 등록 라우트와 공유).
+
+### 13.4 화면
+
+- 위저드(`apps/market` `useRequestWizardForm`·`StepDescribe`·`StepDetails`·`StepReview`·`QuestionField`): 2스텝 카드는 레지스트리 데이터로만 그린다. 툴은 `<details>` 접힘 + "전문가 추천" 칩 기본. 슬롯 첨부는 `slotFiles["area:slot"]`. 검토서 신선도 서명은 제목·분야·설명·답변·첨부 전체(파트명 포함) — 툴은 원천이 아니다.
+- 전문가 등록·프로필: `AreaToolsPicker`(분야 5종 + 분야별 툴). 목록 필터 `serviceArea`·`tool`.
+- 의뢰 상세: 브리프 행(`buildDevReviewBriefRows(answers)`, 검토서 없이도)·희망 툴 행·슬롯 라벨 붙은 첨부·**정밀 구성도 섹션**(`DevDiagramSection` — 상태 배지·sandbox iframe 미리보기·전체 문서 모달·소유자 재생성).
+- 관리자: 의뢰 상세에 툴·답변·정밀 구성도(감사 요약·강제 재생성), AI 설정에 정밀 구성도 블록(사용·모델·thinking·추가 지침).
+
+### 13.5 정밀 시스템 구성도 (`apps/api/src/lib/ai/dev-diagram.ts`·`dev-diagram-runner.ts`)
+
+- 프롬프트 `dev-diagram.v1` = §12.11 R4 프롬프트의 일반 규칙(배치·연결선·표현·정보 처리) + 픽스처 전용 교정 9개를 일반화한 것(요약 박스 선행·양방향 화살촉·viewBox 1900×1200·채널 그룹 2행·절연 경계·통신 블록 누락 금지) + `[개발 분야]`(레지스트리) + **앱·서버가 있으면 시스템 토폴로지 SVG 한 장 추가**(장치↔앱↔서버↔기존 장비, 개발 대상/기존 표식) + 도면 뒤 섹션 제목(공통 3 + 분야마다 1).
+- 실행: `AI_USECASE_DEFS['market.dev-diagram'] = { kimi-k3, think 'high', temperature 0, seed 42, timeout 900s }`. 관리자가 모델·thinking 단계·추가 지침을 바꿀 수 있다. `:cloud` 접미는 404 시 러너가 붙였다 뗐다 재시도(ollama.com 직결 ↔ 로컬 프록시).
+- 흐름: 등록(aiConsent ∨ 검토서 포함) → `requestDevDiagram` → 프로세스 내 큐(동시 1) → `running` → 파일서버에서 첨부 내려받아 같은 추출기로 코퍼스 재구성 → 게이트(§13.1 #26) → 생성 → **살균**(script·foreignObject·이벤트 속성·외부 URL·iframe 등 제거, CSP 메타 삽입) → **감사**(svg 수·섹션 수·자료 밖 수치·품번(R2 함수 재사용)·자료 핵심 품번 누락) → SVG 0 이면 1회 재시도 → `done` + 메일(`market_dev_diagram_ready`) | `error`. 서버 재시작 시 `resumeDevDiagramQueue` 가 queued/running 을 다시 태운다.
+- 감사 결과는 삭제·강등에 쓰지 않고 **기록만**(전문가용 초안이라 자료 밖 표기도 TBD·검토 항목으로 보이는 편이 낫다). 화면은 "자료에 없는 표기 n건(전문가 확인)"으로만 알린다.
+- 라우트: `POST /api/market/projects/:id/dev-diagram`(소유자 — 유스케이스 꺼짐 409 `USECASE_DISABLED`, 진행 중 409 `DEV_DIAGRAM_RUNNING`) · `POST /api/admin/market/projects/:id/dev-diagram`(강제).
+- 프로빙 스펙 `e2e/specs/dev-diagram-probe.e2e.test.ts` 는 이 모듈의 함수를 그대로 import 한다(§9 규율). `DIAGRAM_FORCE=1` 로 게이트를 무시해 아이디어 단계 거동을 실측할 수 있다. 결과는 §13.6.
+
+### 13.6 프로빙 v3 (2026-09-04, kimi-k3 thinking high · temperature 0 · seed 42, 원본 e2e/output/dev-diagram/2026-09-04T01-46-48/)
+
+| 픽스처 | 입력 | 게이트 | 소요 | thinking | SVG | 섹션 | 자료 밖 표기 | 빠진 품번 | 골든 | 금지 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 07 버스 LED(회로·PCB·펌웨어) | 설명 + docx 20,826자 | 통과 | **300s** | 53,550자 | 1 | 6 | 0 | 10 → 규칙 보정 뒤 감소(패키지·핀 이름 제외) | 4/4 | 0 |
+| 09 축사 모니터(회로·펌웨어·**앱·서버**, 아이디어 단계·첨부 없음) | 설명 560자 | 강제(FORCE) | **141s** | 20,333자 | **2**(토폴로지 + 하드웨어) | 7 | 3(4개·32°C·1대 — 설명의 "32도"·수량 표기 차이) | 0 | 4/4 | 0 |
+
+관찰 — 07 은 §12.11 R4 실측과 같은 밀도(MCU 중앙·전원 체인·절연·양방향 화살촉·노란 검토 메모·검토 섹션 6개)를 픽스처 전용 교정 없이 **일반 규칙만으로** 냈고 300초(프로빙 566초보다 빠름). 09 는 앱·서버 분야가 있을 때 **시스템 토폴로지 SVG 가 먼저** 나오고(장치 ×6 · Wi-Fi 공유기 "기존" · 클라우드 서버·Android 앱 "개발 대상" 표식, HTTP/MQTT TBD), 하드웨어 블록도는 부품명 전부 TBD·출력 영역 "제어 출력 없음(향후 환풍기)"로 자료 밖 사실을 만들지 않았다. 분야별 검토사항(회로·펌웨어·앱·서버) 4절이 모두 생성됐다. → 아이디어 단계도 설명이 500자 이상이면 쓸 만하다고 판단해 게이트의 설명 기준을 600→**500자**로 낮췄다(첨부 없음·짧은 설명은 여전히 생략). 감사의 "빠진 품번"은 패키지(QFN-24-1EP)·핀 이름(SDA10)이 섞여 규칙에 제외 목록을 더했다. 살균 제거 노드 0(모델이 스크립트·외부 리소스를 쓰지 않았다).
+
+실브라우저 완주(`e2e/tools/dev-review-v2-walk.ts`, 3스텝으로 갱신) — 5분야 카드·2단계(공통 4문항 + 분야별 카드 5개)·deepseek 검토서 10초·등록 #77·상세(브리프 행·희망 툴·정밀 구성도 섹션·5분야 검토 카드)·관리자 드로어 pageErrors 0. e2e-market 하네스 **118/0**(101→118: 슬롯 첨부 area/slot·툴 정규화·분야 밖 질문 400·미지 툴 400·dev-diagram 403/409). 단위: api 976 · utils(레지스트리 11 + 렌더러 8) · dev-diagram 6.
+
+### 13.7 시스템 구성도 단일화 — 3단계 병렬 시작 · 플로팅 알림 (2026-09-04, 사용자 확정)
+
+| # | 결정 | 근거 |
+|---|---|---|
+| 27 | 검토서 안의 3열 카드 "제안 시스템 구성도"를 **없애고** kimi 정밀 SVG 하나만 **"시스템 구성도"** 로 둔다(검토서 `MarketDevReview` **v4** — `diagram` 삭제, 렌더러 `renderDevReviewDiagramHtml`·`DiagramViewer`·R4 규칙 삭제) | 두 구성도가 한 화면에 있어 헷갈림. 검토서 프롬프트도 짧아진다 |
+| 28 | 구성도 잡은 **3단계 진입 시 검토서 잡과 병렬로** 시작한다(`POST /ai/market.dev-review/run` → `{ jobId, diagramJobId, diagramSkipReason }`). 프로젝트 없이 사용자 소유 `sp_ai_job` 으로 돌고 결과(메타+살균 HTML)를 잡 행에 둔다. 등록 payload `devDiagramJobId` 로 서버가 소유자·입력 해시를 대조해 연결(done 이면 본문 복사, 진행 중이면 완료 시 러너가 연결된 프로젝트에 쓴다). 대조 실패는 **등록을 막지 않는다** | 등록 뒤 시작보다 5~10분 앞당긴다. 위저드는 여전히 기다리지 않는다 |
+| 29 | 같은 입력 해시면 **진행 중 잡도 재사용**(1시간 창) — 3단계 재진입·검토서 재생성이 kimi 를 다시 돌리지 않는다. 위저드 이탈분 비용은 받아들인다 | 비용 통제 |
+| 30 | **플로팅 트레이**(우하단, 로그인 사용자의 자기 의뢰) — `GET /market/my/dev-diagrams`(진행 중 + 24시간 내 완료·실패·생략)를 진행 중일 때만 10초 폴링. 알약 "생성 중 n건 · 경과", 펼치면 목록(불확정 바·경과·상세 링크), 완료는 "보기"/"닫기"까지 남고 닫은 건 localStorage 기억. **완료 알림은 이 브라우저가 진행 중을 본 적 있는 건만**(다른 기기·앱을 닫았다 온 사람은 메일), 위저드(/request)에서는 진행 중만 표시 — 같은 내용으로 다시 의뢰할 때 24시간 전 완료분이 튀어나오던 혼동의 교정. 같은 입력의 잡 재사용은 3단계 카드에 "재사용" 한 줄로 표기(run 응답 diagramCached). 헤더 배지·SSE 는 안 한다 | 화면을 벗어나도 완료를 알 수 있게. 진행률 % 는 LLM 이 주지 않는다 |
+| 31 | 재시작 복구 — 프로젝트에 연결된 running 잡은 저장분에서 소스를 재구성해 재실행, **연결 안 된 잡(3단계에서만 시작)은 소스가 메모리에만 있어 `ABANDONED`** 로 종료(위저드의 "다시 만들기"가 새 잡을 연다) | 소스를 잡 행에 저장하지 않는 대신 단순함 |
+
+화면: `DevReviewView` 의 ② 자리가 `DevDiagramSection`(상태 카드 → 완성 SVG, "전문가와 상의할 항목" 박스는 그대로 아래). 3단계는 진행 메타만(본문 null), 상세는 완성본 + 소유자 재생성. 관리자 축약본(`DevReviewSummary`)에서 구성도가 빠지고 `AdminMarketProjects` 의 구성도 섹션이 유일한 관리자 화면. 트레이 `DevDiagramTray`(`MarketLayout` 에 상시 마운트).

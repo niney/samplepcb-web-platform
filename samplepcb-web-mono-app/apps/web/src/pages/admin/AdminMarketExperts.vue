@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import {
-  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
-  MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_STATUS_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_REGION_LABELS,
-  MARKET_SERVICE_AREA_LABELS,
   MARKET_TRAVEL_RANGE_LABELS,
   apiRoutes,
+  marketAreaLabel,
+  marketToolRows,
 } from '@sp/api-contract';
 import { apiGetBlob } from '@sp/shared';
 import {
@@ -30,6 +29,11 @@ const { data, isFetching } = useAdminMarketExpertList(filters);
 const selectedId = ref<number | null>(null);
 const detailQ = useAdminMarketExpertDetail(selectedId);
 const detail = computed(() => detailQ.data.value?.data);
+
+// 분야별 다루는 툴 — 레지스트리(market-areas) 기반. 빈 목록은 "무엇이든"(툴 제한 없음).
+const toolRows = computed(() =>
+  detail.value === undefined ? [] : marketToolRows(detail.value.tools, detail.value.serviceAreas),
+);
 
 const decision = useExpertDecision();
 const reason = ref('');
@@ -227,18 +231,24 @@ const statusBadge = (s: string): string =>
           </dl>
 
           <div class="mt-4">
-            <p class="text-xs font-bold text-gray-500">분야 · CAD</p>
+            <p class="text-xs font-bold text-gray-500">분야 · 다루는 툴</p>
             <div class="mt-1.5 flex flex-wrap gap-1">
               <span v-for="area in detail.serviceAreas" :key="area" class="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] text-teal-700">
-                {{ MARKET_SERVICE_AREA_LABELS[area] }}
+                {{ marketAreaLabel(area) }}
               </span>
-              <span v-for="c in detail.categories" :key="c" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
-                {{ MARKET_CATEGORY_LABELS[c] }}
-              </span>
-              <span v-for="c in detail.cadTools" :key="c" class="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] text-teal-700">
-                {{ MARKET_TOOL_LABELS[c] }}
-              </span>
+              <span v-if="detail.serviceAreas.length === 0" class="text-xs text-gray-400">분야 없음</span>
             </div>
+            <ul v-if="toolRows.length > 0" class="mt-1.5 grid gap-1 text-xs">
+              <li v-for="row in toolRows" :key="row.area" class="flex flex-wrap items-center gap-1">
+                <span class="text-gray-500">{{ row.areaLabel }}:</span>
+                <template v-if="row.labels.length > 0">
+                  <span v-for="label in row.labels" :key="label" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                    {{ label }}
+                  </span>
+                </template>
+                <span v-else class="text-gray-400">무엇이든</span>
+              </li>
+            </ul>
           </div>
 
           <div v-if="detail.intro !== null" class="mt-4">

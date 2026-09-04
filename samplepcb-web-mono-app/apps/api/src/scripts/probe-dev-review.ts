@@ -2,7 +2,7 @@
 // attachment-extractor · ollama 클라이언트)를 그대로 실행해 픽스처 × 모델 × 반복으로 채점한다.
 // 채점은 결정적: JSON 유효율 · 후처리 전후 확정 항목 수 · 규칙별 삭제 수 · 골든 사실 재현 ·
 // 금지 사실(확정 표면) 0건 · 기대 상의 항목 재현 · 소요시간. 한국어 품질·구성도 모양은 산출
-// 파일(`*.diagram.html`)을 육안으로.
+// (구성도는 v4 에서 검토서 밖으로 분리 — e2e/specs/dev-diagram-probe 가 따로 잰다.)
 //
 // 실행(apps/api, .env 의 AI_BASE_URL/AI_API_KEY 사용 — DB 불필요):
 //   pnpm exec tsx --env-file=.env src/scripts/probe-dev-review.ts \
@@ -15,7 +15,6 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DEV_REVIEW_LLM_JSON_SCHEMA, DevReviewRunPayload } from '@sp/api-contract';
 import type { DevReviewLlmOutputType, MarketDevReviewType } from '@sp/api-contract';
-import { renderDevReviewDiagramHtml } from '@sp/utils';
 import { expandAiArchives } from '../lib/ai/archive';
 import { prepareAiAttachments } from '../lib/ai/attachment-extractor';
 import {
@@ -104,7 +103,6 @@ interface RunRecord {
   diagnostics: Record<string, number> | null;
   golden: { must: string; forbidden: string[]; open: string };
   openQuestionCount: number;
-  nodes: { inputs: number; chips: number; outputs: number };
   observations: { pre: number; post: number }; // 검토 관찰(§12.10 C 프로빙)
   questionAreas: string; // 상의 항목 분야 분포(예: c2 f1 g3)
 }
@@ -118,16 +116,6 @@ const confirmedSurface = (review: MarketDevReviewType): string =>
     review.summary,
     ...review.requirements.map((i) => i.text),
     ...review.areas.flatMap((a) => [a.summary, ...a.spec.map((r) => `${r.item} ${r.text}`)]),
-    ...review.diagram.inputs.map((n) => `${n.label} ${n.detail}`),
-    review.diagram.board.label,
-    review.diagram.board.detail,
-    ...review.diagram.board.chips,
-    ...review.diagram.outputs.map((n) => `${n.label} ${n.detail}`),
-    review.diagram.linkIn,
-    review.diagram.linkOut,
-    review.diagram.notes.flow,
-    review.diagram.notes.design,
-    review.diagram.notes.extension,
   ].join('\n'));
 
 async function chatWithFallback(model: string, prompt: string, extra: OllamaChatExtra, images: readonly string[] = []) {
@@ -199,7 +187,7 @@ async function main(): Promise<void> {
           const record: RunRecord = {
             fixture: fx.id, model, think: thinkLabel, run, ok: false, error: null, elapsedSec: 0, thinkingChars: 0,
             formatUsed: false, preFacts: 0, postFacts: 0, diagnostics: null,
-            golden: { must: '-', forbidden: [], open: '-' }, openQuestionCount: 0, nodes: { inputs: 0, chips: 0, outputs: 0 },
+            golden: { must: '-', forbidden: [], open: '-' }, openQuestionCount: 0,
             observations: { pre: 0, post: 0 }, questionAreas: '-',
           };
           try {
@@ -231,11 +219,6 @@ async function main(): Promise<void> {
               .filter(([, n]) => n > 0)
               .map(([k, n]) => `${k ?? ''}${String(n)}`)
               .join(' ') || '-';
-            record.nodes = {
-              inputs: review.diagram.inputs.length,
-              chips: review.diagram.board.chips.length,
-              outputs: review.diagram.outputs.length,
-            };
             const surface = confirmedSurface(review);
             const whole = normalizeForMatch(JSON.stringify(review));
             const mustHit = fx.golden.mustContain.filter((s) => whole.includes(normalizeForMatch(s)));
@@ -249,8 +232,7 @@ async function main(): Promise<void> {
             };
             record.ok = true;
             writeFileSync(path.join(outDir, `${tag}.json`), JSON.stringify({ record, output, review, missingGolden: fx.golden.mustContain.filter((s) => !mustHit.includes(s)) }, null, 2));
-            writeFileSync(path.join(outDir, `${tag}.diagram.html`), renderDevReviewDiagramHtml(review.diagram));
-            console.log(`${String(record.elapsedSec)}s · 확정 ${String(record.preFacts)}→${String(record.postFacts)} · R1 ${String(diagnostics.r1Dropped)}✕ R2 ${String(diagnostics.r2Dropped)}✕ R8 ${String(diagnostics.r8Dropped)}✕(불일치 ${String(diagnostics.conflicts)}) 토큰 ${String(diagnostics.tokensStripped)} · 골든 ${record.golden.must} · 금지 ${String(forbiddenHit.length)} · 상의 ${record.golden.open}(${String(review.openQuestions.length)}) · 구성도 ${String(record.nodes.inputs)}/${String(record.nodes.chips)}/${String(record.nodes.outputs)} · 관찰 ${String(record.observations.pre)}→${String(record.observations.post)} · R9 ${String(diagnostics.r9Checks)} · 분야 ${record.questionAreas}`);
+            console.log(`${String(record.elapsedSec)}s · 확정 ${String(record.preFacts)}→${String(record.postFacts)} · R1 ${String(diagnostics.r1Dropped)}✕ R2 ${String(diagnostics.r2Dropped)}✕ R8 ${String(diagnostics.r8Dropped)}✕(불일치 ${String(diagnostics.conflicts)}) 토큰 ${String(diagnostics.tokensStripped)} · 골든 ${record.golden.must} · 금지 ${String(forbiddenHit.length)} · 상의 ${record.golden.open}(${String(review.openQuestions.length)}) · 관찰 ${String(record.observations.pre)}→${String(record.observations.post)} · R9 ${String(diagnostics.r9Checks)} · 분야 ${record.questionAreas}`);
           } catch (err) {
             record.error = err instanceof Error ? err.message.slice(0, 300) : String(err);
             console.log(`실패 — ${record.error}`);
@@ -267,7 +249,6 @@ async function main(): Promise<void> {
     `${String(r.preFacts)}→${String(r.postFacts)}`,
     r.diagnostics === null ? '-' : `${String(r.diagnostics.r1Dropped)}/${String(r.diagnostics.r2Dropped)}/${String(r.diagnostics.r8Dropped)}(${String(r.diagnostics.conflicts)})/${String(r.diagnostics.tokensStripped)}`,
     r.golden.must, r.golden.forbidden.length === 0 ? '0' : r.golden.forbidden.join(' '), r.golden.open, String(r.openQuestionCount),
-    `${String(r.nodes.inputs)}/${String(r.nodes.chips)}/${String(r.nodes.outputs)}`,
     `${String(r.observations.pre)}→${String(r.observations.post)}`,
     r.diagnostics === null ? '-' : String(r.diagnostics.r9Checks),
     r.questionAreas,

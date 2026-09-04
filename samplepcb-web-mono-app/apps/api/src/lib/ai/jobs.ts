@@ -1,12 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { MarketDevReview } from '@sp/api-contract';
-import type { AiJobStageType, AiJobStatusType, AiUsecaseKeyType, MarketDevReviewType } from '@sp/api-contract';
+import { DevDiagramJobResult, MarketDevReview } from '@sp/api-contract';
+import type {
+  AiJobStageType,
+  AiJobStatusType,
+  AiUsecaseKeyType,
+  MarketDevDiagramType,
+  MarketDevReviewType,
+} from '@sp/api-contract';
 import { prisma } from '../prisma';
 
-// AI 잡 저장소 — sp_ai_job(DB). 인메모리 스토어를 대체(2026-08-28, docs/AI_DEV_REVIEW.md §3):
-// 서버 재시작에 견디고, 의뢰 등록 시점의 소유자·완료·신선도(inputHash) 대조가 DB 사실
-// 하나로 끝난다(클라이언트가 산출물 본문을 보내지 않는 구조의 전제).
-// resultJson 은 MarketDevReview.parse 를 통과한 객체의 직렬화 — 읽을 때 파손이면 error 취급.
+// AI 잡 저장소 — sp_ai_job(DB). 서버 재시작에 견디고, 의뢰 등록 시점의 소유자·완료·신선도
+// (inputHash) 대조가 DB 사실 하나로 끝난다(docs/AI_DEV_REVIEW.md §3).
+// resultJson 은 유스케이스별로 다르다: dev-review = MarketDevReview 직렬화(등록 시 프로젝트로 복사),
+// dev-diagram = { meta: MarketDevDiagram, html }(§13.7 — 3단계에서 프로젝트 없이 시작되므로 본문도 잡에
+// 두고, 등록 시 프로젝트 컬럼으로 복사한다).
 
 export interface AiJob {
   id: string;
@@ -17,7 +24,9 @@ export interface AiJob {
   model: string;
   promptVersion: string;
   inputHash: string;
-  review: MarketDevReviewType | null; // done 이고 파손이 아닐 때만
+  review: MarketDevReviewType | null; // dev-review 가 done 이고 파손이 아닐 때만
+  diagram: MarketDevDiagramType | null; // dev-diagram 의 메타(done 이면 결과, running 이면 진행 메타)
+  diagramHtml: string | null; // dev-diagram 이 done 일 때
   error: string | null;
   startedAt: Date;
   finishedAt: Date | null;
@@ -44,40 +53,54 @@ const asStatus = (v: string): AiJobStatusType =>
   v === 'done' || v === 'error' ? v : 'running';
 
 const asStage = (v: string | null): AiJobStageType | null =>
-  v === 'attachments' || v === 'review' ? v : null;
+  v === 'attachments' || v === 'review' || v === 'diagram' ? v : null;
 
-// 저장분 파손(스키마 변경·수기 수정)은 조용히 통과시키지 않는다 — 검토서 없는 error 잡으로
-// 보여 재생성을 유도한다(등록 라우트도 done 이 아니면 거절).
-const parseReview = (json: string): MarketDevReviewType | null => {
-  let raw: unknown;
+const parseJson = (json: string): unknown => {
   try {
-    raw = JSON.parse(json);
+    return JSON.parse(json);
   } catch {
-    return null; // 저장분 파손 — 폴링이 500 으로 죽는 대신 error 잡으로 보인다
+    return undefined; // 저장분 파손 — 폴링이 500 으로 죽는 대신 error 잡으로 보인다
   }
-  const parsed = MarketDevReview.safeParse(raw);
-  return parsed.success ? parsed.data : null;
 };
 
+// 저장분 파손(스키마 변경·수기 수정)은 조용히 통과시키지 않는다 — 결과 없는 error 잡으로
+// 보여 재생성을 유도한다(등록 라우트도 done 이 아니면 거절).
+// dev-diagram 은 running 중에도 진행 메타를 resultJson 에 둔다(위저드·플로팅이 상태를 읽는다).
 const toAiJob = (row: AiJobRow): AiJob => {
   const status = asStatus(row.status);
   let review: MarketDevReviewType | null = null;
-  let error = row.error;
-  if (status === 'done' && row.resultJson !== null) {
-    review = parseReview(row.resultJson);
-    if (review === null) error = 'RESULT_CORRUPTED';
+  let diagram: MarketDevDiagramType | null = null;
+  let diagramHtml: string | null = null;
+  let corrupted = false;
+  if (row.resultJson !== null) {
+    const raw = parseJson(row.resultJson);
+    if (row.useCase === 'market.dev-review' && status === 'done') {
+      const parsed = MarketDevReview.safeParse(raw);
+      if (parsed.success) review = parsed.data;
+      else corrupted = true;
+    } else if (row.useCase === 'market.dev-diagram') {
+      const parsed = DevDiagramJobResult.safeParse(raw);
+      if (parsed.success) {
+        diagram = parsed.data.meta;
+        diagramHtml = parsed.data.html === '' ? null : parsed.data.html;
+      } else if (status === 'done') {
+        corrupted = true;
+      }
+    }
   }
   return {
     id: row.id,
     useCase: row.useCase,
     mbId: row.mbId,
-    status: status === 'done' && review === null ? 'error' : status,
+    status: corrupted ? 'error' : status,
     stage: asStage(row.stage),
     model: row.model,
     promptVersion: row.promptVersion,
     inputHash: row.inputHash,
     review,
-    error: status === 'done' && review === null ? (error ?? 'RESULT_CORRUPTED') : error,
+    diagram,
+    diagramHtml,
+    error: corrupted ? 'RESULT_CORRUPTED' : row.error,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
   };
@@ -95,6 +118,8 @@ export async function createAiJob(input: {
   model: string;
   promptVersion: string;
   inputHash: string;
+  stage?: AiJobStageType;
+  resultJson?: string; // 진행 메타(dev-diagram)
 }): Promise<AiJob> {
   const row = await prisma.spAiJob.create({
     data: {
@@ -102,10 +127,11 @@ export async function createAiJob(input: {
       useCase: input.useCase,
       mbId: input.mbId,
       status: 'running',
-      stage: null,
+      stage: input.stage ?? null,
       model: input.model,
       promptVersion: input.promptVersion,
       inputHash: input.inputHash,
+      resultJson: input.resultJson ?? null,
       startedAt: new Date(),
     },
   });
@@ -116,17 +142,39 @@ export async function setAiJobStage(id: string, stage: AiJobStageType): Promise<
   await prisma.spAiJob.updateMany({ where: { id, status: 'running' }, data: { stage } });
 }
 
+// 진행 중 잡의 결과 본문 갱신(dev-diagram 진행 메타) — 상태는 바꾸지 않는다.
+export async function updateAiJobResult(id: string, resultJson: string): Promise<void> {
+  await prisma.spAiJob.updateMany({ where: { id, status: 'running' }, data: { resultJson } });
+}
+
 export async function finishAiJob(
   id: string,
-  result: { review: MarketDevReviewType } | { error: string },
+  result: { review: MarketDevReviewType } | { diagram: MarketDevDiagramType; html: string } | { error: string; diagram?: MarketDevDiagramType },
 ): Promise<void> {
   const finishedAt = new Date();
+  if ('review' in result) {
+    await prisma.spAiJob.updateMany({
+      where: { id },
+      data: { status: 'done', stage: null, resultJson: JSON.stringify(result.review), error: null, finishedAt },
+    });
+    return;
+  }
+  if ('html' in result) {
+    await prisma.spAiJob.updateMany({
+      where: { id },
+      data: { status: 'done', stage: null, resultJson: JSON.stringify({ meta: result.diagram, html: result.html }), error: null, finishedAt },
+    });
+    return;
+  }
   await prisma.spAiJob.updateMany({
     where: { id },
-    data:
-      'review' in result
-        ? { status: 'done', stage: null, resultJson: JSON.stringify(result.review), error: null, finishedAt }
-        : { status: 'error', error: result.error.slice(0, 100), finishedAt },
+    data: {
+      status: 'error',
+      error: result.error.slice(0, 100),
+      finishedAt,
+      // 실패·생략 메타도 남긴다(플로팅·상세가 사유를 보여준다).
+      ...(result.diagram === undefined ? {} : { resultJson: JSON.stringify({ meta: result.diagram, html: '' }) }),
+    },
   });
 }
 
@@ -137,10 +185,12 @@ export async function getAiJob(id: string): Promise<AiJob | null> {
 
 // 동일 회원·유스케이스·모델·프롬프트 버전·입력의 성공 결과는 창 안에서 재사용한다.
 // 사용자 간 결과 공유는 자유 입력의 기밀 경계를 흐리므로 하지 않는다.
+// dev-diagram 은 **진행 중 잡도** 재사용한다(3단계 재진입·검토서 재생성 때 10분짜리 kimi 를 다시 돌리지 않는다).
 export async function findReusableAiJob(
   useCase: AiUsecaseKeyType,
   mbId: string,
   source: AiJobSource,
+  options: { includeRunning?: boolean } = {},
 ): Promise<AiJob | null> {
   const row = await prisma.spAiJob.findFirst({
     where: {
@@ -149,14 +199,22 @@ export async function findReusableAiJob(
       model: source.model,
       promptVersion: source.promptVersion,
       inputHash: source.inputHash,
-      status: 'done',
-      finishedAt: { gte: new Date(Date.now() - REUSE_WINDOW_MS) },
+      status: options.includeRunning === true ? { in: ['done', 'running'] } : 'done',
+      startedAt: { gte: new Date(Date.now() - REUSE_WINDOW_MS) },
     },
     orderBy: { startedAt: 'desc' },
   });
   if (row === null) return null;
   const job = toAiJob(row);
-  return job.review === null ? null : job; // 파손 저장분은 캐시로 쓰지 않는다
+  if (job.status === 'error') return null; // 파손 저장분은 캐시로 쓰지 않는다
+  if (job.useCase === 'market.dev-review' && job.review === null) return null;
+  return job;
+}
+
+// 재시작 복구 — 진행 중으로 남은 잡(유스케이스별).
+export async function listRunningAiJobs(useCase: AiUsecaseKeyType): Promise<AiJob[]> {
+  const rows = await prisma.spAiJob.findMany({ where: { useCase, status: 'running' }, orderBy: { startedAt: 'asc' } });
+  return rows.map(toAiJob);
 }
 
 // 관리자 실행 이력 — 본문(resultJson, MEDIUMTEXT)은 읽지 않는다(목록에 필요 없고 비싸다).

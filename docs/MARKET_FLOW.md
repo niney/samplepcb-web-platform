@@ -47,22 +47,8 @@ local-web.samplepcb.co.kr (nginx 443)
 - **첨부·증빙은 `sp_file` 폴리모픽 재사용**: refType `'sp_market_project'`(attachment) /
   `'sp_market_expert'`(license·portfolio·bizreg). pathToken 비노출·`uploadedBy`에 mbId 금지
   (varchar(20)) 불변식 유지. 파일서버 serviceType은 env `MARKET_FILE_SERVICE_TYPE`(기본 `market`).
-- 프로젝트 분류는 복수 `serviceAreas` 로 한다 — **2026-08-28 분야 축소**: 신규 선택(의뢰·전문가
-  등록·필터)은 `MARKET_ACTIVE_SERVICE_AREAS`(회로·PCB·펌웨어) 3종만, 전체 enum(제품디자인·기구·
-  앱·서버·SW·기타)은 읽기 호환(기존 데이터·라벨)으로만 남는다. `requestType`(시스템 통합/개별)은
-  **입력이 아니라 서버 파생값**(분야 2개 이상=`system`) — 위저드의 유형 카드·자동 전환 UI 와
-  전체서비스 회사 전용 입찰 가드(`FULL_SERVICE_COMPANY_ONLY`)는 폐지됐다. 화면 표기는 분야 배지
-  (`devReviewAreaBadge`: 1개=분야명, 2개="회로 + PCB", 3개="풀 개발(회로·PCB·펌웨어)"). 세부분야
-  18종(`categories`)과 툴 역량은 별도 축으로 유지한다.
-- **의뢰 위저드 v4(2026-09-02) = 2스텝**(docs/AI_DEV_REVIEW.md §12): 의뢰 내용(분야 카드 3개+
-  쉬운 설명+"잘 모르겠어요 — 전부 맡길게요"(=풀 개발) · 제목 · "무엇을 만들고 싶은가요?" · 간단 질문
-  **4문항**(현재 상태·수량·함께 쓰는 것·목표 시점, `DEV_REVIEW_ACTIVE_QUESTIONS`, 전부 선택 +
-  "잘 모르겠어요") · 첨부 · AI 사전 검토 동의) → 검토·등록(진입 시 **AI 사전 검토서** 자동 생성 +
-  미리보기 + 포함 체크 + 조건 폼). 의뢰자는 비전문가라는 전제 — 전원·통신·인증 같은 기술 문항은
-  묻지 않는다(설명에 있으면 검토서가 쓰고, 없으면 "전문가와 상의할 항목"). 옛 9문항 코드는 읽기
-  호환. 예산·마감·방식·NDA 는 검토 스텝의 조건 폼, 희망 시작/완료일
-  입력은 없다(컬럼만 남고 항상 null). 신규 의뢰의 `categories`·`cadTools`는 항상 빈 배열.
-  프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map`)에 저장(기존 데이터 호환).
+- 프로젝트 분류는 복수 `serviceAreas` — **2026-09-04 v3: 분야 레지스트리 5종**(회로·PCB·펌웨어·앱·서버, `packages/api-contract/src/schemas/market-areas.ts` 정본, docs/AI_DEV_REVIEW.md §13). 분야 코드는 문자열 + 레지스트리 검증(빠진 분야는 라벨 "(종료)"). `requestType` 은 서버 파생값(2개 이상=`system`). 표기는 `marketAreaBadge`(1개=분야명, 2~4개="회로 + PCB", 5개="풀 개발(…)"). 세부분야(`categories`)·CAD 툴(`cadTools`) 축은 폐기되고 **분야별 희망 툴·언어 `tools {byArea}`**(빈 분야 = 전문가 추천)로 바뀌었다 — 전문가도 같은 모양.
+- **의뢰 위저드 v5(2026-09-04) = 3스텝**(docs/AI_DEV_REVIEW.md §13.4): ① 의뢰 내용(분야 카드 5개 + "잘 모르겠어요 — 전부 맡길게요"(=5종) · 제목 · 설명 · 참고 자료 · AI 동의) ② 몇 가지만 더(공통 4문항 + 선택 분야마다 [분야별 질문 · 희망 툴·언어(전문가 추천 기본) · 추가자료 슬롯 → `sp_file.area/slot`]) ③ 검토·등록(AI 사전 검토서 + 조건 폼). 답변은 `answers` 컬럼(`MarketAnswers`). 등록 뒤 **정밀 시스템 구성도**(kimi-k3 thinking high, 비동기 큐)가 `devDiagram`·`devDiagramHtml` 에 붙고 의뢰인에게 메일(§13.5).
 - **AI 사전 검토서(단일 산출물)** — 정본 **docs/AI_DEV_REVIEW.md**. 옛 4산출물(구성도 HTML·
   구성 명세·작업검토지시서·분야별 카드)·80문항 인터뷰·선분석·provenance 체계는 폐기(`docs/
   AI_DIAGRAM.md` 는 경위 기록). 검토서는 `sp_market_project.devReview`(JSON) 하나에 저장되고
@@ -153,7 +139,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | 관리자 라우트 | `apps/api/src/routes/admin-market-{experts,projects,settings}.ts` (prefix `/api/admin`, requireAdmin addHook) + `GET /api/admin/market/files/:fileId` |
 | 공용 헬퍼 | `apps/api/src/lib/market.ts`(asXxx 내로잉·lazy 마감·마감 계산 KST 23:59:59·sp_file 조각·multipart 수집) |
 | 계약 | `packages/api-contract/src/schemas/market.ts` + `routes.ts` apiRoutes 10종 |
-| 소비자 화면 | `apps/market/src/pages/{Home,Projects,ProjectDetail,Experts,ExpertDetail,RequestWizard,ExpertRegister,Me}.vue` — 의뢰 위저드 v3는 `components/request/Step{Describe,Questions,Review}.vue` + `composables/useRequestWizardForm.ts`·`useDevReviewJob.ts` + `components/dev-review/DevReviewView.vue` |
+| 소비자 화면 | `apps/market/src/pages/{Home,Projects,ProjectDetail,Experts,ExpertDetail,RequestWizard,ExpertRegister,Me}.vue` — 의뢰 위저드 v5(3스텝)는 `components/request/Step{Describe,Details,Review}.vue·QuestionField.vue` + `composables/useRequestWizardForm.ts`·`useDevReviewJob.ts` + `components/dev-review/DevReviewView.vue` |
 | 관리자 화면 | `apps/web/src/pages/admin/AdminMarket{Experts,Projects,Settings}.vue` + `admin/useAdminMarket.ts` |
 
 ## 7. 알림 (1차 = 메일 4종, 비차단)

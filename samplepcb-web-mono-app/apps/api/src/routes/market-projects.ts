@@ -5,12 +5,14 @@ import { z } from 'zod';
 import {
   JwtClaims,
   MARKET_NDA_TEXT,
+  MyDevDiagramsResponse,
   MARKET_NDA_VERSION,
   MarketMyProjectListQuery,
   MarketNdaSignBody,
   MarketProjectCreatePayload,
   MarketProjectListQuery,
   MarketProjectUpdateBody,
+  normalizeMarketTools,
 } from '@sp/api-contract';
 import type {
   JwtClaimsType,
@@ -19,6 +21,7 @@ import type {
 } from '@sp/api-contract';
 import { getAiJob } from '../lib/ai/jobs';
 import { devReviewInputHash } from '../lib/ai/dev-review';
+import { attachDevDiagramJob, requestDevDiagramForProject } from '../lib/ai/dev-diagram-runner';
 import { devReviewAttachmentHashes } from './ai';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
@@ -35,11 +38,15 @@ import {
   isBiddingClosed,
   marketBidCounts,
   marketOwnerNames,
+  splitMarketAttachments,
+  toAnswers,
+  toAreaCodes,
+  toDevDiagram,
+  toDevDiagramView,
   toDevReview,
   toFileMeta,
   toMarketProjectListItem,
 } from '../lib/market';
-import type { MarketReceivedFile } from '../lib/market';
 import {
   asContractStatus,
   cancelPendingContractTx,
@@ -61,13 +68,13 @@ const ProjectFileParams = z.object({
   fileId: z.string().regex(/^\d+$/),
 });
 
-type ProjectFileRow = Pick<SpFile, 'id' | 'fileType' | 'originFileName' | 'size'>;
+type ProjectFileRow = Pick<SpFile, 'id' | 'fileType' | 'originFileName' | 'size' | 'area' | 'slot'>;
 
 const projectFiles = (projectId: bigint): Promise<ProjectFileRow[]> =>
   prisma.spFile.findMany({
     where: { refType: REF_MARKET_PROJECT, refId: projectId },
     orderBy: { id: 'asc' },
-    select: { id: true, fileType: true, originFileName: true, size: true },
+    select: { id: true, fileType: true, originFileName: true, size: true, area: true, slot: true },
   });
 
 // 채택된 입찰의 전문가 id(없으면 null) — 채택 후 접근 유지 판정에 쓴다.
@@ -155,7 +162,12 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
     }
     const payload = parsed.data;
-    const attachments: MarketReceivedFile[] = files.filter((f) => f.field === 'attachment');
+    // 첨부 — 일반 + 분야별 슬롯(레지스트리 정합, 선택 분야의 슬롯만).
+    const split = splitMarketAttachments(files, payload.serviceAreas);
+    if (split.invalid.length > 0) {
+      return reply.status(400).send({ result: false, error: 'ATTACHMENT_FIELD_INVALID' });
+    }
+    const attachments = split.accepted;
 
     const now = new Date();
     const bidDeadlineAt = deadlineToDate(payload.deadline, now);
@@ -234,12 +246,11 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           title: payload.title,
           requestType: deriveRequestType(payload.serviceAreas),
           serviceAreas: payload.serviceAreas,
-          categories: payload.categories,
-          cadTools: payload.cadTools,
+          tools: normalizeMarketTools(payload.tools, payload.serviceAreas),
           description: payload.description,
           devReview: devReview ?? Prisma.DbNull,
-          // 9문항 답변 — 브리프·검토서 원천(컬럼 재사용).
-          interviewAnswers: payload.answers.length > 0 ? payload.answers : Prisma.DbNull,
+          // 공통·분야별 질문 답변 — 브리프·검토서·정밀 구성도의 원천.
+          answers: payload.answers.length > 0 ? payload.answers : Prisma.DbNull,
           ndaRequired: payload.ndaRequired,
           budgetRange: payload.budgetRange,
           // 시작·완료 희망일은 위저드 v2 에서 사라졌다 — 컬럼만 남고 항상 null.
@@ -252,7 +263,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
       if (uploaded.length > 0) {
         await tx.spFile.createMany({
-          data: uploaded.map((u) => ({
+          data: uploaded.map((u, i) => ({
             refType: REF_MARKET_PROJECT,
             refId: p.id,
             uploadFileName: u.uploadFileName,
@@ -261,11 +272,33 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             size: BigInt(u.size),
             writeDate: now,
             fileType: 'attachment',
+            area: attachments[i]?.area ?? null,
+            slot: attachments[i]?.slot ?? null,
           })),
         });
       }
       return p;
     });
+
+    // 시스템 구성도(§13.7) — 3단계에서 시작한 잡(devDiagramJobId)을 프로젝트에 연결한다(소유자·입력 해시 대조,
+    // 어긋나면 연결만 건너뛴다 — 등록은 막지 않는다). 잡 id 없이 AI 동의만 있으면 등록 뒤 서버가 큐에 넣는다.
+    let diagramLinked = false;
+    if (payload.devDiagramJobId !== undefined) {
+      const expected = devReviewInputHash({
+        title: payload.title,
+        serviceAreas: payload.serviceAreas,
+        description: payload.description,
+        answers: payload.answers,
+        attachmentHashes: devReviewAttachmentHashes(attachments),
+      });
+      const linked = await attachDevDiagramJob(project.id, mbId, payload.devDiagramJobId, expected, request.log);
+      diagramLinked = linked === 'linked';
+      if (!diagramLinked) request.log.warn({ projectId: Number(project.id), jobId: payload.devDiagramJobId, linked }, 'dev diagram job not linked');
+    }
+    if (!diagramLinked && (payload.aiConsent || devReview !== null)) {
+      const queued = await requestDevDiagramForProject(project, request.log);
+      if (!queued.ok) request.log.info({ projectId: Number(project.id), reason: queued.reason }, 'dev diagram not queued');
+    }
 
     // 지정견적 요청 알림(비차단) — 지정 전문가에게 메일. 실패해도 등록은 유효.
     if (targetExpert !== null) {
@@ -444,8 +477,10 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             now,
           ),
           description: project.description,
+          answers: toAnswers(project.answers),
           // 검토서 공개 범위 = description 과 동일(상세를 볼 수 있는 뷰어 전원).
           devReview: toDevReview(project.devReview),
+          devDiagram: toDevDiagramView(project, true),
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,
@@ -498,8 +533,9 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         data.serviceAreas = body.serviceAreas;
         data.requestType = deriveRequestType(body.serviceAreas); // 분야 개수에서 재파생
       }
-      if (body.categories !== undefined) data.categories = body.categories;
-      if (body.cadTools !== undefined) data.cadTools = body.cadTools;
+      if (body.tools !== undefined) {
+        data.tools = normalizeMarketTools(body.tools, body.serviceAreas ?? toAreaCodes(project.serviceAreas));
+      }
       if (body.description !== undefined) data.description = body.description;
       if (removingReview) data.devReview = Prisma.DbNull;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
@@ -544,7 +580,11 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return reply.status(409).send({ result: false, error: blocked });
     }
 
-    const attachments = files.filter((f) => f.field === 'attachment');
+    const split = splitMarketAttachments(files, toAreaCodes(project.serviceAreas));
+    if (split.invalid.length > 0) {
+      return reply.status(400).send({ result: false, error: 'ATTACHMENT_FIELD_INVALID' });
+    }
+    const attachments = split.accepted;
     if (attachments.length === 0) {
       return reply.badRequest('attachment 파일 파트가 없습니다');
     }
@@ -559,7 +599,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return reply.status(502).send({ result: false, error: 'FILE_UPLOAD_FAILED' });
     }
     await prisma.spFile.createMany({
-      data: uploaded.map((u) => ({
+      data: uploaded.map((u, i) => ({
         refType: REF_MARKET_PROJECT,
         refId: project.id,
         uploadFileName: u.uploadFileName,
@@ -568,11 +608,39 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         size: BigInt(u.size),
         writeDate: now,
         fileType: 'attachment',
+        area: attachments[i]?.area ?? null,
+        slot: attachments[i]?.slot ?? null,
       })),
     });
     const fileRows = await projectFiles(project.id);
     return { result: true as const, data: { files: fileRows.map(toFileMeta) } };
   });
+
+  // ── POST /market/projects/:id/dev-diagram — 정밀 구성도 (재)생성 요청(소유자·관리자) ────
+  // 등록 시 자동으로 큐에 들어가지만 게이트 생략·실패·자료 보강 뒤 다시 돌릴 때 쓴다. 관리자는
+  // 유스케이스가 꺼져 있어도 강제 실행할 수 있다(비용을 아는 사람의 수동 액션).
+  fastify.post(
+    '/market/projects/:id/dev-diagram',
+    { schema: { params: ProjectIdParams }, preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const project = await prisma.spMarketProject.findUnique({
+        where: { id: BigInt(request.params.id) },
+      });
+      if (project === null) return reply.notFound('프로젝트가 없습니다');
+      const isAdmin = request.user.isAdmin;
+      if (project.mbId !== request.user.mbId && !isAdmin) {
+        return reply.status(403).send({ result: false, error: 'FORBIDDEN' });
+      }
+      const queued = await requestDevDiagramForProject(project, request.log, { force: isAdmin });
+      if (!queued.ok) {
+        return reply.status(409).send({
+          result: false,
+          error: queued.reason === 'RUNNING' ? 'DEV_DIAGRAM_RUNNING' : 'USECASE_DISABLED',
+        });
+      }
+      return { result: true as const, data: { projectId: Number(project.id), status: queued.meta.status } };
+    },
+  );
 
   // ── DELETE /market/projects/:id/files/:fileId — 소유자 첨부 삭제 ────────────
   fastify.delete(
@@ -802,6 +870,30 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         result: true as const,
         data: { projectId: Number(project.id), status: 'cancelled' as const },
       };
+    },
+  );
+
+  // ── GET /market/my/dev-diagrams — 내 시스템 구성도 진행 목록(플로팅 위젯, §13.7) ─────────
+  // 진행 중(queued·running) + 최근 24시간 안에 완료·실패·생략된 것. 소유자 전용, 본문 없음.
+  fastify.get(
+    '/market/my/dev-diagrams',
+    { schema: { response: { 200: MyDevDiagramsResponse } }, preHandler: fastify.authenticate },
+    async (request) => {
+      const rows = await prisma.spMarketProject.findMany({
+        where: { mbId: request.user.mbId, NOT: { devDiagram: { equals: Prisma.DbNull } } },
+        orderBy: { id: 'desc' },
+        take: 50,
+        select: { id: true, title: true, devDiagram: true },
+      });
+      const since = Date.now() - 24 * 3600_000;
+      const items = rows.flatMap((r) => {
+        const meta = toDevDiagram(r.devDiagram);
+        if (meta === null) return [];
+        const active = meta.status === 'queued' || meta.status === 'running';
+        const recent = new Date(meta.generatedAt ?? meta.requestedAt).getTime() >= since;
+        return active || recent ? [{ projectId: Number(r.id), title: r.title, meta }] : [];
+      });
+      return { result: true as const, data: { items } };
     },
   );
 

@@ -8,7 +8,6 @@ const CODE_MESSAGES: Record<string, string> = {
   BIZREG_REQUIRED: '기업(파트너사)은 사업자등록증 파일을 첨부해야 합니다.',
   NOT_REGISTERED: '전문가 등록 이력이 없습니다.',
   NOT_EDITABLE: '지금 상태에서는 수정할 수 없습니다.',
-  CATEGORY_OR_CADTOOL_REQUIRED: '전문 분야 또는 CAD 툴을 1개 이상 선택해 주세요.',
   EXPERT_NOT_APPROVED: '승인된 전문가만 이용할 수 있는 기능입니다.',
   // 프로젝트
   DEADLINE_PAST: '견적 마감일이 이미 지났습니다. 날짜를 다시 선택해 주세요.',
@@ -25,6 +24,8 @@ const CODE_MESSAGES: Record<string, string> = {
   DEV_REVIEW_ATTACHED:
     'AI 사전 검토서가 붙어 있어 의뢰 내용을 바꿀 수 없습니다. 검토서를 제거한 뒤 수정해 주세요.',
   USECASE_DISABLED: 'AI 사전 검토서 생성이 지금 중지되어 있습니다. 검토서 없이 등록할 수 있습니다.',
+  ATTACHMENT_FIELD_INVALID: '첨부 자료의 분야·항목이 선택한 개발 분야와 맞지 않습니다. 다시 선택해 주세요.',
+  DEV_DIAGRAM_RUNNING: '정밀 구성도를 만드는 중입니다. 완료되면 메일로 알려드립니다.',
   // 입찰·NDA
   SELF_BID_FORBIDDEN: '내가 등록한 프로젝트에는 견적을 제출할 수 없습니다.',
   TARGETED_ONLY: '지정견적 프로젝트는 지정된 전문가만 참여할 수 있습니다.',

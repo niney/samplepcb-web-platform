@@ -1,36 +1,21 @@
 <script setup lang="ts">
-import { DEV_REVIEW_UNKNOWN_CHOICE, MARKET_SERVICE_AREA_LABELS } from '@sp/api-contract';
-import type { DevReviewActiveQuestionCodeType, MarketActiveServiceAreaType } from '@sp/api-contract';
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
 
-// 스텝 1 — 의뢰 내용 한 화면(docs/AI_DEV_REVIEW.md §12.4): 개발 분야(쉬운 설명 + "잘 모르겠어요"
-// = 풀 개발) · 제목 · 설명 · 간단 질문 4문항(전부 선택) · 첨부 · AI 사전 검토 동의.
+// 스텝 1 — 의뢰 내용(docs/AI_DEV_REVIEW.md §13.4): 개발 분야(레지스트리 카드 + 쉬운 설명 +
+// "잘 모르겠어요" = 전 분야) · 제목 · 설명 · 참고 자료(일반 첨부) · AI 사전 검토 동의.
 // 의뢰자는 이 분야를 잘 모른다는 전제 — 용어 대신 "무엇을 만들고 어디에 쓰는지"만 묻는다.
+// 질문·분야별 툴·추가자료는 2단계로 옮겨 이 화면은 짧게 유지한다.
 const props = defineProps<{ form: RequestWizardForm }>();
 const {
   fields,
   attachments,
-  activeServiceAreas,
-  activeQuestions,
-  questionState,
-  toggleChoice,
-  noteMissingCodes,
+  areas,
   devReviewEnabled,
   toggleServiceArea,
   allServiceAreasSelected,
   selectAllServiceAreas,
   pickAttachments,
 } = props.form;
-
-// 분야 칩 아래 한 줄 설명 — 비전문가가 고를 수 있게 하는 말.
-const AREA_HINT: Record<MarketActiveServiceAreaType, string> = {
-  circuit: '어떤 부품을 어떻게 연결할지 설계(회로도·부품 목록)',
-  pcb: '실제 기판 도면과 제작 파일(아트웍·거버)',
-  firmware: '보드를 동작시키는 프로그램',
-};
-
-const unknown = DEV_REVIEW_UNKNOWN_CHOICE;
-const asActive = (code: string): DevReviewActiveQuestionCodeType => code as DevReviewActiveQuestionCodeType;
 </script>
 
 <template>
@@ -41,22 +26,22 @@ const asActive = (code: string): DevReviewActiveQuestionCodeType => code as DevR
         어떤 개발이 필요한가요? <span class="font-normal text-tx-3">(여러 개 선택 가능)</span>
         <span class="text-red-500">*</span>
       </p>
-      <div class="mt-3 grid gap-2 sm:grid-cols-3">
+      <div class="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <button
-          v-for="area in activeServiceAreas"
-          :key="area"
+          v-for="area in areas"
+          :key="area.code"
           type="button"
           class="rounded-2xl border-2 p-3.5 text-left transition"
           :class="
-            fields.serviceAreas.includes(area)
+            fields.serviceAreas.includes(area.code)
               ? 'border-ink-900 bg-ink-900 text-white'
               : 'border-line bg-white text-tx-2 hover:border-line-2'
           "
-          @click="toggleServiceArea(area)"
+          @click="toggleServiceArea(area.code)"
         >
-          <p class="text-sm font-extrabold">{{ MARKET_SERVICE_AREA_LABELS[area] }}</p>
-          <p class="mt-1 text-[11px] leading-relaxed" :class="fields.serviceAreas.includes(area) ? 'text-dk-tx-2' : 'text-tx-3'">
-            {{ AREA_HINT[area] }}
+          <p class="text-sm font-extrabold">{{ area.label }}</p>
+          <p class="mt-1 text-[11px] leading-relaxed" :class="fields.serviceAreas.includes(area.code) ? 'text-dk-tx-2' : 'text-tx-3'">
+            {{ area.hint }}
           </p>
         </button>
       </div>
@@ -90,65 +75,21 @@ const asActive = (code: string): DevReviewActiveQuestionCodeType => code as DevR
       <span>무엇을 만들고 싶은가요? <span class="text-red-500">*</span></span>
       <textarea
         v-model="fields.description"
-        rows="6"
+        rows="7"
         placeholder="어디에 쓰는 물건인지, 꼭 있어야 하는 기능, 정해진 것(크기·전원·연결 방식 등)이 있으면 적어 주세요. 잘 모르는 부분은 비워 두셔도 됩니다 — 전문가 상담에서 함께 정합니다. (10자 이상)"
         class="rounded-lg border border-line p-3 text-sm font-normal leading-relaxed"
       />
+      <span class="font-normal text-tx-3">기술 용어를 몰라도 괜찮습니다. 사용 목적과 원하는 동작을 편하게 적어 주세요.</span>
     </label>
 
-    <!-- 간단 질문 4문항 — 전부 선택 사항 -->
-    <div class="grid gap-4 rounded-2xl bg-paper p-4">
-      <p class="text-xs font-bold text-tx-2">
-        몇 가지만 더 알려주세요 <span class="font-normal text-tx-3">(선택 — 모르면 '잘 모르겠어요')</span>
-      </p>
-      <div v-for="q in activeQuestions" :key="q.code" class="grid gap-1.5">
-        <p class="text-xs font-semibold text-tx-2">
-          {{ q.label }}
-          <span v-if="q.multi" class="font-normal text-tx-3">(여러 개 가능)</span>
-        </p>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            v-for="opt in q.options"
-            :key="opt.code"
-            type="button"
-            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
-            :class="[
-              questionState[asActive(q.code)].choices.includes(opt.code)
-                ? opt.code === unknown
-                  ? 'border-tx-3 bg-tx-3 text-white'
-                  : 'border-ink-900 bg-ink-900 text-white'
-                : opt.code === unknown
-                  ? 'border-dashed border-line-2 bg-white text-tx-3 hover:border-tx-3'
-                  : 'border-line bg-white text-tx-2 hover:border-line-2',
-            ]"
-            @click="toggleChoice(asActive(q.code), opt.code)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-        <label v-if="q.notePlaceholder !== undefined" class="grid gap-1">
-          <input
-            v-model="questionState[asActive(q.code)].note"
-            type="text"
-            :placeholder="q.notePlaceholder"
-            maxlength="500"
-            class="h-9 rounded-lg border bg-white px-3 text-xs font-normal"
-            :class="noteMissingCodes.includes(asActive(q.code)) ? 'border-red-400' : 'border-line'"
-          >
-          <span v-if="noteMissingCodes.includes(asActive(q.code))" class="text-[11px] font-semibold text-red-500">
-            이 선택지는 내용을 적어 주셔야 합니다.
-          </span>
-        </label>
-      </div>
-    </div>
-
-    <!-- 첨부 -->
+    <!-- 참고 자료(일반 첨부) -->
     <label class="grid gap-1.5 text-xs font-bold text-tx-2">
-      <span>참고 자료 첨부 <span class="font-normal text-tx-3">(선택 · 여러 개 가능 — 손그림·사진·문서 무엇이든)</span></span>
+      <span>참고 자료 <span class="font-normal text-tx-3">(선택 · 여러 개 가능 — 손그림·사진·문서 무엇이든)</span></span>
       <input type="file" multiple class="text-xs font-normal" @change="pickAttachments">
       <span v-if="attachments.length > 0" class="font-normal text-tx-3">
         {{ attachments.length }}개 선택됨
       </span>
+      <span class="font-normal text-tx-3">분야별로 있으면 좋은 자료(회로도·화면 시안 등)는 다음 단계에서 따로 올릴 수 있습니다.</span>
     </label>
     <p v-if="attachments.length === 0" class="rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-700">
       자료가 있으면 검토서가 훨씬 정확해집니다. 준비가 어려우면 유선 상담(070-8667-1080)을 이용해 주세요.
@@ -159,9 +100,10 @@ const asActive = (code: string): DevReviewActiveQuestionCodeType => code as DevR
       <input v-model="fields.aiConsent" type="checkbox" class="mt-0.5">
       <span>
         <b>🤖 AI 사전 검토 동의</b> — 적어 주신 내용과 첨부에서 추출한 텍스트·이미지를 AI 분석에 외부 서버로
-        보내 <b>AI 사전 검토서</b>(요약·구성도·개발명세서)를 만듭니다. 검토서의 공개 범위는 설명과 같습니다.
+        보내 <b>AI 사전 검토서</b>(요약·구성도·개발명세서)를 만들고, 등록 뒤에는 <b>정밀 시스템 구성도</b>를
+        추가로 만들어 알려드립니다. 공개 범위는 설명과 같습니다.
         <template v-if="devReviewEnabled">
-          <br>해제하면 검토서 없이 입력한 내용만으로 등록됩니다.
+          <br>해제하면 검토서·구성도 없이 입력한 내용만으로 등록됩니다.
         </template>
         <template v-else>
           <br>지금은 검토서 생성이 중지되어 있어 입력한 내용만으로 등록됩니다.

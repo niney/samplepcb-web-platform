@@ -20,6 +20,7 @@ import { adminMemberRoutes } from './routes/admin-members';
 import { adminOrderRoutes } from './routes/admin-orders';
 import { adminSettingsRoutes } from './routes/admin-settings';
 import { aiRoutes } from './routes/ai';
+import { resumeDevDiagramQueue } from './lib/ai/dev-diagram-runner';
 import { adminSlidesRoutes } from './routes/admin-slides';
 import { adminSeoRoutes } from './routes/admin-seo';
 import { adminBomRoutes } from './routes/admin-bom';
@@ -265,6 +266,10 @@ try {
   const host = process.env.HOST ?? '127.0.0.1';
   await app.listen({ port: Number(process.env.PORT ?? 3333), host });
   scheduleKoreaEximExchangeRateRefresh(app.log);
+  // 정밀 구성도 큐 복구 — 재시작 전에 queued/running 이던 의뢰를 다시 태운다(docs/AI_DEV_REVIEW.md §13.5).
+  void resumeDevDiagramQueue(app.log).then((n) => {
+    if (n > 0) app.log.info({ resumed: n }, 'dev diagram queue resumed');
+  });
 } catch (err) {
   app.log.error(err);
   process.exit(1);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MarketDevReview } from './market-dev-review';
+import { MarketDevDiagram } from './market-dev-diagram';
 
 // ── AI 유스케이스 계약 ───────────────────────────────────────────────────────
 // 2026-08-28 재작성(docs/AI_DEV_REVIEW.md): 4산출물 체계(구성도·명세·ROC·포스팅)와 rnd
@@ -9,7 +10,9 @@ import { MarketDevReview } from './market-dev-review';
 // 모델·첨부 판독 모델·추가 지침 한 칸·샘플 테스트·실행 이력만 만진다.
 // apiKey 원문은 어떤 응답에도 싣지 않는다(마스킹만) — 서버 밖 유출 원천 차단.
 
-export const AI_USECASES = ['market.dev-review'] as const;
+// market.dev-review = AI 사전 검토서(즉시, 위저드 대기) · market.dev-diagram = 정밀 시스템 구성도
+// (비동기, 등록 뒤 — docs/AI_DEV_REVIEW.md §13.5). 둘 다 sp_ai_usecase 한 행(사용·모델·추가 지침).
+export const AI_USECASES = ['market.dev-review', 'market.dev-diagram'] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
 
@@ -24,9 +27,17 @@ export type AiUsecaseStatusResponseType = z.infer<typeof AiUsecaseStatusResponse
 // 생성이 수 분(첨부 판독 + 검토서)이라 동기 HTTP 로 못 버틴다 — run 은 jobId 를 즉시
 // 반환하고 클라이언트가 폴링한다. 잡은 sp_ai_job(DB) — 재시작에 견디고 등록 시점의
 // 소유자·신선도 대조가 서버 사실 하나로 끝난다.
+// run 은 검토서 잡과 **시스템 구성도 잡을 병렬로** 시작한다(§13.7). diagramJobId 는 구성도 유스케이스가
+// 꺼져 있거나 게이트(자료 부족)에 걸리면 null — 그 이유는 diagramSkipReason 에.
 export const AiRunResponse = z.object({
   result: z.literal(true),
-  data: z.object({ jobId: z.string(), cached: z.boolean() }),
+  data: z.object({
+    jobId: z.string(),
+    cached: z.boolean(),
+    diagramJobId: z.string().nullable(),
+    diagramSkipReason: z.string().nullable(),
+    diagramCached: z.boolean(), // 같은 입력의 잡(1시간 창)을 재사용했다 — 3단계 카드가 "재사용" 을 표기
+  }),
 });
 export type AiRunResponseType = z.infer<typeof AiRunResponse>;
 
@@ -34,7 +45,7 @@ export const AiJobStatus = z.enum(['running', 'done', 'error']);
 export type AiJobStatusType = z.infer<typeof AiJobStatus>;
 
 // 진행 표시("첨부 확인 중 → 검토서 작성 중")의 원천. 완료 잡은 null.
-export const AiJobStage = z.enum(['attachments', 'review']);
+export const AiJobStage = z.enum(['attachments', 'review', 'diagram']);
 export type AiJobStageType = z.infer<typeof AiJobStage>;
 
 export const AiJobResponse = z.object({
@@ -43,7 +54,8 @@ export const AiJobResponse = z.object({
     jobId: z.string(),
     status: AiJobStatus,
     stage: AiJobStage.nullable(),
-    review: MarketDevReview.nullable(), // done 일 때만 — 후처리까지 끝난 검토서
+    review: MarketDevReview.nullable(), // dev-review 가 done 일 때만 — 후처리까지 끝난 검토서
+    diagram: MarketDevDiagram.nullable(), // dev-diagram 잡의 메타(본문 HTML 은 프로젝트에 붙은 뒤 상세에서)
     error: z.string().nullable(),
     elapsedSecs: z.number(),
   }),
@@ -64,6 +76,21 @@ export const AiDevReviewSettings = z.object({
 });
 export type AiDevReviewSettingsType = z.infer<typeof AiDevReviewSettings>;
 
+// 정밀 구성도 생성 설정 — 모델·thinking 단계·추가 지침. think 는 프로빙 결정값(high)이 기본.
+export const AI_THINK_LEVELS = ['off', 'low', 'medium', 'high'] as const;
+export const AiThinkLevel = z.enum(AI_THINK_LEVELS);
+export type AiThinkLevelType = z.infer<typeof AiThinkLevel>;
+
+export const AiDevDiagramSettings = z.object({
+  enabled: z.boolean(),
+  model: z.string(),
+  think: AiThinkLevel,
+  extraInstructions: z.string(),
+  promptVersion: z.string(),
+  updatedAt: z.string(), // ISO
+});
+export type AiDevDiagramSettingsType = z.infer<typeof AiDevDiagramSettings>;
+
 export const AiSettingsResponse = z.object({
   result: z.literal(true),
   data: z.object({
@@ -76,6 +103,7 @@ export const AiSettingsResponse = z.object({
     visionModel: z.string(), // 첨부 판독(비전) 모델 — 2단 파이프라인의 1단
     visionModelFromEnv: z.boolean(),
     devReview: AiDevReviewSettings,
+    devDiagram: AiDevDiagramSettings,
   }),
 });
 export type AiSettingsResponseType = z.infer<typeof AiSettingsResponse>;
@@ -89,6 +117,14 @@ export const AiSettingsUpdate = z.object({
     .object({
       enabled: z.boolean(),
       model: z.string().trim().min(1).max(100),
+      extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
+    })
+    .optional(),
+  devDiagram: z
+    .object({
+      enabled: z.boolean(),
+      model: z.string().trim().min(1).max(100),
+      think: AiThinkLevel,
       extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
     })
     .optional(),

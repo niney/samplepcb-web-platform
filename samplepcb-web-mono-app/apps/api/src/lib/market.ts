@@ -2,37 +2,39 @@ import type { FastifyRequest } from 'fastify';
 import type { SpFile, SpMarketProject } from '@prisma/client';
 import { maskName } from '@sp/utils';
 import {
-  MARKET_ACTIVE_SERVICE_AREAS,
+  EMPTY_MARKET_TOOLS,
+  MARKET_ATTACHMENT_FIELD,
   MARKET_BUDGET_RANGES,
   MARKET_CAREER_RANGES,
-  MARKET_CATEGORIES,
-  MARKET_PROJECT_TOOL_CODES,
   MARKET_REQUEST_TYPES,
   MARKET_REGIONS,
-  MARKET_SERVICE_AREAS,
-  MARKET_TOOL_CODES,
   MARKET_TRAVEL_RANGES,
+  MarketAnswers,
+  MarketDevDiagram,
   MarketDevReview,
+  MarketTools,
+  marketSlotLabel,
+  parseMarketAttachmentField,
+  sortMarketAreas,
 } from '@sp/api-contract';
 import type {
-  MarketActiveServiceAreaType,
+  MarketAnswersType,
+  MarketDevDiagramType,
+  MarketDevDiagramViewType,
   MarketDevReviewType,
   MarketBidStatusType,
   MarketBudgetRangeType,
   MarketCareerRangeType,
-  MarketCategoryCodeType,
   MarketExpertStatusType,
   MarketExpertTypeType,
   MarketFileMetaType,
-  MarketProjectToolCodeType,
   MarketRequestTypeType,
-  MarketServiceAreaType,
   MarketProjectDeadlineType,
   MarketProjectListItemType,
   MarketProjectMethodType,
   MarketProjectStatusType,
   MarketRegionType,
-  MarketToolCodeType,
+  MarketToolsType,
   MarketTravelRangeType,
 } from '@sp/api-contract';
 import { deleteFromFileServer } from './file-server';
@@ -104,24 +106,27 @@ export const asRegionOrNull = (v: string | null): MarketRegionType | null =>
 export const asTravelRangeOrNull = (v: string | null): MarketTravelRangeType | null =>
   asCodeOrNull(v, MARKET_TRAVEL_RANGES);
 
-// Json 컬럼(코드 문자열 배열) → 검증된 코드 배열. 우리 라우트만 쓰는 컬럼이지만
-// 미지 값은 조용히 걸러 직렬화 실패를 원천 차단한다(방어적).
-const toCodeArray = <T extends string>(json: unknown, allowed: readonly T[]): T[] => {
+// 분야 코드 배열 — 레지스트리 순서로 정렬, 레지스트리에 없는 옛 코드는 뒤에 그대로(라벨은 "(종료)").
+export const toAreaCodes = (json: unknown): string[] => {
   if (!Array.isArray(json)) return [];
-  const set = new Set<string>(allowed);
-  return json.filter((v): v is T => typeof v === 'string' && set.has(v));
+  const raw = [...new Set(json.filter((v): v is string => typeof v === 'string' && v !== ''))];
+  const known = sortMarketAreas(raw);
+  return [...known, ...raw.filter((c) => !known.includes(c))];
 };
 
-export const toCategoryCodes = (json: unknown): MarketCategoryCodeType[] =>
-  toCodeArray(json, MARKET_CATEGORIES);
+// 희망 툴(Json) — 형태가 어긋나면 빈 값(전문가 추천).
+export const toTools = (json: unknown): MarketToolsType => {
+  if (json === null || json === undefined) return EMPTY_MARKET_TOOLS;
+  const r = MarketTools.safeParse(json);
+  return r.success ? r.data : EMPTY_MARKET_TOOLS;
+};
 
-export const toServiceAreaCodes = (json: unknown): MarketServiceAreaType[] =>
-  toCodeArray(json, MARKET_SERVICE_AREAS);
-
-// 활성 3종만 남긴 정규화(2026-08-28 분야 축소) — 옛 값(앱·서버 등)은 조용히 숨긴다.
-// 저장은 건드리지 않고 노출만 좁히는 읽기 규칙이다(레거시 'any'→[] 선례와 동형).
-export const toActiveServiceAreaCodes = (json: unknown): MarketActiveServiceAreaType[] =>
-  toCodeArray(json, MARKET_ACTIVE_SERVICE_AREAS);
+// 질문 답변(Json) — 형태가 어긋나면 빈 배열.
+export const toAnswers = (json: unknown): MarketAnswersType => {
+  if (json === null || json === undefined) return [];
+  const r = MarketAnswers.safeParse(json);
+  return r.success ? r.data : [];
+};
 
 // AI 사전 검토서(Json 컬럼) — 형태가 어긋난 저장분은 null 로 정규화(응답 500 방지).
 // 계약 스키마가 바뀌어 옛 저장분이 탈락해도 상세가 죽지 않는다.
@@ -131,13 +136,23 @@ export const toDevReview = (json: unknown): MarketDevReviewType | null => {
   return r.success ? r.data : null;
 };
 
-export const toToolCodes = (json: unknown): MarketToolCodeType[] =>
-  toCodeArray(json, MARKET_TOOL_CODES);
+// 정밀 구성도 메타(Json) — 파손이면 null(시도한 적 없음과 같게 보인다).
+export const toDevDiagram = (json: unknown): MarketDevDiagramType | null => {
+  if (json === null || json === undefined) return null;
+  const r = MarketDevDiagram.safeParse(json);
+  return r.success ? r.data : null;
+};
 
-// 레거시 'any' 는 무관(빈 배열) 의미로 정규화 — 마이그레이션 백필의 보험.
-export const toProjectToolCodes = (json: unknown): MarketProjectToolCodeType[] => {
-  const codes = toCodeArray(json, MARKET_PROJECT_TOOL_CODES);
-  return codes.includes('any') ? [] : codes;
+// 상세 응답용 — 본문은 done 이고 열람 가능할 때만.
+export const toDevDiagramView = (
+  p: Pick<SpMarketProject, 'devDiagram' | 'devDiagramHtml'>,
+  visible: boolean,
+): MarketDevDiagramViewType => {
+  const meta = toDevDiagram(p.devDiagram);
+  return {
+    meta,
+    html: visible && meta?.status === 'done' ? (p.devDiagramHtml ?? null) : null,
+  };
 };
 
 // ── 마감 파생(cron 없는 lazy) ────────────────────────────────────────────────
@@ -155,12 +170,14 @@ export const deadlineToDate = (deadline: MarketProjectDeadlineType, now = new Da
 // ── sp_file 조각 ────────────────────────────────────────────────────────────
 
 export const toFileMeta = (
-  f: Pick<SpFile, 'id' | 'fileType' | 'originFileName' | 'size'>,
+  f: Pick<SpFile, 'id' | 'fileType' | 'originFileName' | 'size'> & Partial<Pick<SpFile, 'area' | 'slot'>>,
 ): MarketFileMetaType => ({
   fileId: Number(f.id),
   fileType: f.fileType ?? '',
   name: f.originFileName,
   size: Number(f.size),
+  area: f.area ?? null,
+  slot: f.slot ?? null,
 });
 
 // 파일 1건 삭제 — 실파일(파일서버) 먼저, 성공 시에만 DB 행 삭제(quote-delete.ts 순서
@@ -205,13 +222,13 @@ export const toMarketProjectListItem = (
   projectId: Number(p.id),
   title: p.title,
   requestType: asRequestType(p.requestType),
-  serviceAreas: toServiceAreaCodes(p.serviceAreas),
-  categories: toCategoryCodes(p.categories),
-  cadTools: toProjectToolCodes(p.cadTools),
+  serviceAreas: toAreaCodes(p.serviceAreas),
+  tools: toTools(p.tools),
   budgetRange: asBudgetRange(p.budgetRange),
   method: asProjectMethod(p.method),
   ndaRequired: p.ndaRequired,
   hasDevReview: p.devReview !== null,
+  devDiagramStatus: toDevDiagram(p.devDiagram)?.status ?? null,
   ownerName,
   bidCount,
   viewCount: p.viewCount,
@@ -226,6 +243,37 @@ export const toMarketProjectListItem = (
 export interface MarketReceivedFile extends UploadTarget {
   field: string;
 }
+
+// 의뢰 첨부 파트 분류 — `attachment`(일반) / `attachment:<area>:<slot>`(분야별 추가자료).
+// 레지스트리에 없는 분야·슬롯, 선택하지 않은 분야의 슬롯은 invalid(라우트가 400). 다른 파트 이름
+// (전문가 증빙 등)은 이 함수의 대상이 아니다 — 의뢰 라우트만 쓴다.
+export interface MarketAttachmentInput extends MarketReceivedFile {
+  area: string | null;
+  slot: string | null;
+  labeledName: string; // 추출기 헤더용 "[슬롯 라벨] 파일명" — 근거 코퍼스에 분야 표기가 남는다
+}
+export const splitMarketAttachments = (
+  files: readonly MarketReceivedFile[],
+  areas: readonly string[],
+): { accepted: MarketAttachmentInput[]; invalid: string[] } => {
+  const accepted: MarketAttachmentInput[] = [];
+  const invalid: string[] = [];
+  for (const f of files) {
+    if (!f.field.startsWith(MARKET_ATTACHMENT_FIELD)) continue;
+    const ref = parseMarketAttachmentField(f.field);
+    if (ref === undefined || (ref !== null && !areas.includes(ref.area))) {
+      invalid.push(f.field);
+      continue;
+    }
+    accepted.push({
+      ...f,
+      area: ref?.area ?? null,
+      slot: ref?.slot ?? null,
+      labeledName: ref === null ? f.filename : `[${marketSlotLabel(ref.area, ref.slot)}] ${f.filename}`,
+    });
+  }
+  return { accepted, invalid };
+};
 
 // FormData(파일 파트들 + 텍스트 파트들)를 수집한다. 라우트는 이 호출 **뒤에** jwtVerify 를
 // 해야 한다(multipart 본문을 먼저 소비해야 하는 @fastify/multipart 제약). 텍스트 파트는

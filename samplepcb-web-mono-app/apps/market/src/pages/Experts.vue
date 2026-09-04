@@ -1,16 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import {
-  MARKET_CATEGORIES,
-  MARKET_CATEGORY_LABELS,
-  MARKET_EXPERT_TYPE_LABELS,
-  MARKET_ACTIVE_SERVICE_AREAS,
-  MARKET_SERVICE_AREA_LABELS,
-  MARKET_TOOL_GROUPS,
-  MARKET_TOOL_GROUP_CODES,
-  MARKET_TOOL_GROUP_LABELS,
-  MARKET_TOOL_LABELS,
-} from '@sp/api-contract';
+import { MARKET_AREAS, MARKET_EXPERT_TYPE_LABELS } from '@sp/api-contract';
 import type { MarketExpertTypeType } from '@sp/api-contract';
 import ExpertCard from '../components/ExpertCard.vue';
 import UiPagination from '../components/UiPagination.vue';
@@ -22,8 +12,7 @@ const filters = ref<ExpertListFilters>({
   pageSize: 20,
   expertType: '',
   serviceArea: '',
-  category: '',
-  cadTool: '',
+  tool: '',
   q: '',
 });
 const qInput = ref('');
@@ -75,29 +64,18 @@ const resetPage = (): void => {
         @change="resetPage"
       >
         <option value="">전체 개발 분야</option>
-        <option v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
+        <option v-for="area in MARKET_AREAS" :key="area.code" :value="area.code">{{ area.label }}</option>
       </select>
 
       <select
-        v-model="filters.category"
-        class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2"
-        @change="resetPage"
-      >
-        <option value="">{{ $t('experts.allCategories') }}</option>
-        <option v-for="c in MARKET_CATEGORIES" :key="c" :value="c">
-          {{ MARKET_CATEGORY_LABELS[c] }}
-        </option>
-      </select>
-
-      <select
-        v-model="filters.cadTool"
+        v-model="filters.tool"
         class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2"
         @change="resetPage"
       >
         <option value="">{{ $t('experts.allCadTools') }}</option>
-        <optgroup v-for="g in MARKET_TOOL_GROUPS" :key="g" :label="MARKET_TOOL_GROUP_LABELS[g]">
-          <option v-for="c in MARKET_TOOL_GROUP_CODES[g]" :key="c" :value="c">
-            {{ MARKET_TOOL_LABELS[c] }}
+        <optgroup v-for="area in MARKET_AREAS" :key="area.code" :label="`${area.label} · ${area.tools.label}`">
+          <option v-for="opt in area.tools.options" :key="`${area.code}:${opt.code}`" :value="opt.code">
+            {{ opt.label }}
           </option>
         </optgroup>
       </select>

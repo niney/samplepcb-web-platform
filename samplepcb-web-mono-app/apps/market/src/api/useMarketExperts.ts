@@ -6,10 +6,7 @@ import {
   apiRoutes,
 } from '@sp/api-contract';
 import type {
-  MarketToolCodeType,
-  MarketCategoryCodeType,
   MarketExpertTypeType,
-  MarketServiceAreaType,
 } from '@sp/api-contract';
 import { apiGet } from '@sp/shared';
 
@@ -19,9 +16,8 @@ export interface ExpertListFilters {
   page: number;
   pageSize: number;
   expertType: '' | MarketExpertTypeType; // '' = 전체
-  serviceArea: '' | MarketServiceAreaType;
-  category: '' | MarketCategoryCodeType;
-  cadTool: '' | MarketToolCodeType;
+  serviceArea: string; // '' = 전체(레지스트리 분야 코드)
+  tool: string; // '' = 전체(툴 코드, 분야 무관)
   q: string;
 }
 
@@ -31,8 +27,7 @@ const listPath = (f: ExpertListFilters): string => {
   params.set('pageSize', String(f.pageSize));
   if (f.expertType !== '') params.set('expertType', f.expertType);
   if (f.serviceArea !== '') params.set('serviceArea', f.serviceArea);
-  if (f.category !== '') params.set('category', f.category);
-  if (f.cadTool !== '') params.set('cadTool', f.cadTool);
+  if (f.tool !== '') params.set('tool', f.tool);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
   return `${apiRoutes.marketExperts}?${params.toString()}`;
 };

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { AI_EXTRA_INSTRUCTIONS_MAX, MarketDevReview } from '@sp/api-contract';
+import { AI_EXTRA_INSTRUCTIONS_MAX, AI_THINK_LEVELS, MarketDevReview } from '@sp/api-contract';
+import type { AiThinkLevelType } from '@sp/api-contract';
 import { formatDateTime } from '../../lib/format';
 import {
   useAiDevReviewTest,
@@ -15,10 +16,10 @@ import {
 import DevReviewSummary from './DevReviewSummary.vue';
 import UiPagination from '../ui/UiPagination.vue';
 
-// AI 연동 폼 — 세 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
-// 추가 지침·프롬프트 버전·샘플 테스트) ③ 실행 이력(sp_ai_job). 프롬프트 본문은 코드 정본
-// (docs/AI_DEV_REVIEW.md §6)이라 화면에 textarea 가 없고, 유스케이스도 검토서 1종뿐이라
-// 옛 카드 반복이 사라졌다.
+// AI 연동 폼 — 네 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
+// 추가 지침·프롬프트 버전·샘플 테스트) ③ 정밀 시스템 구성도(사용·모델·thinking 단계·추가 지침·
+// 프롬프트 버전 — docs/AI_DEV_REVIEW.md §13.5) ④ 실행 이력(sp_ai_job). 프롬프트 본문은 코드
+// 정본(docs/AI_DEV_REVIEW.md §6)이라 화면에 textarea 가 없다. 샘플 테스트는 검토서용만 있다.
 // apiKey 는 서버가 마스킹만 돌려주므로 입력칸은 항상 빈 값에서 시작: 입력=교체, 비움=유지,
 // 삭제 체크=제거. "연결 테스트"는 /api/tags 프록시 — 성공 시 모델 목록을 datalist 로 제공.
 const { t } = useI18n();
@@ -35,6 +36,10 @@ const visionModel = ref('');
 const drEnabled = ref(false);
 const drModel = ref('');
 const drExtra = ref('');
+const ddEnabled = ref(false);
+const ddModel = ref('');
+const ddThink = ref<AiThinkLevelType>('high');
+const ddExtra = ref('');
 const models = ref<string[]>([]);
 
 const testJobId = ref<string | null>(null);
@@ -81,13 +86,28 @@ watch(
     drEnabled.value = d.devReview.enabled;
     drModel.value = d.devReview.model;
     drExtra.value = d.devReview.extraInstructions;
+    ddEnabled.value = d.devDiagram.enabled;
+    ddModel.value = d.devDiagram.model;
+    ddThink.value = d.devDiagram.think;
+    ddExtra.value = d.devDiagram.extraInstructions;
     apiKeyInput.value = '';
     clearApiKey.value = false;
   },
   { immediate: true },
 );
 
-const canSubmit = computed(() => !save.isPending.value && drModel.value.trim() !== '');
+// 두 유스케이스 모두 model 이 계약 min(1) 이라 둘 다 채워야 저장할 수 있다.
+const canSubmit = computed(
+  () => !save.isPending.value && drModel.value.trim() !== '' && ddModel.value.trim() !== '',
+);
+const thinkLabel = (level: AiThinkLevelType): string =>
+  level === 'off'
+    ? t('admin.settings.ai.devDiagram.thinkOff')
+    : level === 'low'
+      ? t('admin.settings.ai.devDiagram.thinkLow')
+      : level === 'medium'
+        ? t('admin.settings.ai.devDiagram.thinkMedium')
+        : t('admin.settings.ai.devDiagram.thinkHigh');
 const canTest = computed(() => !isTestRunning.value && drModel.value.trim() !== '');
 
 const jobStatusLabel = (status: 'running' | 'done' | 'error'): string =>
@@ -102,7 +122,9 @@ const jobStageLabel = (stage: string | null): string =>
     ? t('admin.settings.ai.jobs.stageAttachments')
     : stage === 'review'
       ? t('admin.settings.ai.jobs.stageReview')
-      : '-';
+      : stage === 'diagram'
+        ? t('admin.settings.ai.jobs.stageDiagram')
+        : '-';
 
 function onTest(): void {
   modelsTest.mutate(undefined, {
@@ -150,6 +172,12 @@ function onSubmit(): void {
       enabled: drEnabled.value,
       model: drModel.value.trim(),
       extraInstructions: drExtra.value.trim(),
+    },
+    devDiagram: {
+      enabled: ddEnabled.value,
+      model: ddModel.value.trim(),
+      think: ddThink.value,
+      extraInstructions: ddExtra.value.trim(),
     },
   });
 }
@@ -320,6 +348,70 @@ function onSubmit(): void {
         </div>
       </div>
 
+      <!-- ③ 정밀 시스템 구성도 — 등록 뒤 비동기 잡. 모델·thinking 단계는 프로빙 결정값이 기본. -->
+      <div class="space-y-3 rounded-md border border-gray-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-800">
+            {{ t('admin.settings.ai.devDiagram.title') }}
+            <span class="ml-1 font-mono text-xs font-normal text-gray-400">market.dev-diagram</span>
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input v-model="ddEnabled" type="checkbox">
+            {{ t('admin.settings.ai.devDiagram.enabled') }}
+          </label>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.enabledHint') }}</p>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.model') }}</span>
+          <input
+            v-model="ddModel"
+            type="text"
+            list="ai-models"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm"
+          >
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.modelHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.think') }}</span>
+          <select v-model="ddThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">
+              {{ thinkLabel(level) }}
+            </option>
+          </select>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.thinkHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.extraInstructions') }}</span>
+          <textarea
+            v-model="ddExtra"
+            rows="4"
+            :maxlength="AI_EXTRA_INSTRUCTIONS_MAX"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          />
+          <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {{ t('admin.settings.ai.devDiagram.extraInstructionsHint') }}
+            <span class="ml-auto font-mono text-[11px] text-gray-400">
+              {{ t('admin.settings.ai.devDiagram.extraInstructionsCount', { count: ddExtra.length, max: AI_EXTRA_INSTRUCTIONS_MAX }) }}
+            </span>
+          </span>
+        </label>
+
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.promptVersion') }}</span>
+          <p class="font-mono text-sm text-gray-700">{{ data?.data.devDiagram.promptVersion }}</p>
+          <span class="text-xs text-gray-500">
+            {{ t('admin.settings.ai.devDiagram.promptVersionHint') }}
+            <template v-if="data !== undefined">
+              · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
+              {{ formatDateTime(data.data.devDiagram.updatedAt) }}
+            </template>
+          </span>
+        </div>
+      </div>
+
       <datalist id="ai-models">
         <option v-for="m in models" :key="m" :value="m" />
       </datalist>
@@ -335,7 +427,7 @@ function onSubmit(): void {
         <span v-if="save.isSuccess.value" class="text-sm text-green-600">{{ t('admin.settings.saved') }}</span>
       </div>
 
-      <!-- ③ 실행 이력 -->
+      <!-- ④ 실행 이력 -->
       <div class="space-y-3 rounded-md border border-gray-200 p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-gray-800">{{ t('admin.settings.ai.jobs.title') }}</h3>

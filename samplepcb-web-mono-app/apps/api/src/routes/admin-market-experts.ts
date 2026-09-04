@@ -24,10 +24,9 @@ import {
   asExpertType,
   asRegionOrNull,
   asTravelRangeOrNull,
-  toToolCodes,
-  toCategoryCodes,
+  toAreaCodes,
   toFileMeta,
-  toActiveServiceAreaCodes,
+  toTools,
 } from '../lib/market';
 import { prisma } from '../lib/prisma';
 
@@ -151,9 +150,8 @@ export const adminMarketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts
           contactHours: expert.contactHours,
           travelRange: asTravelRangeOrNull(expert.travelRange),
           intro: expert.intro,
-          serviceAreas: toActiveServiceAreaCodes(expert.serviceAreas),
-          categories: toCategoryCodes(expert.categories),
-          cadTools: toToolCodes(expert.cadTools),
+          serviceAreas: toAreaCodes(expert.serviceAreas),
+          tools: toTools(expert.tools),
           bankName: expert.bankName,
           bankHolder: expert.bankHolder,
           bankAccount: expert.bankAccount,

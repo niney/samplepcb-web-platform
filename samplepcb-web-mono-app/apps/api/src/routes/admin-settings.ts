@@ -37,13 +37,16 @@ import {
 import { ollamaListModels } from '../lib/ai/ollama';
 import {
   AI_USECASE_DEFS,
+  DEV_DIAGRAM_USECASE,
   DEV_REVIEW_USECASE,
+  asThinkLevel,
   ensureAiUsecaseRows,
   getAiConnection,
   getAiVisionModel,
   maskApiKey,
   setAiConnection,
   setAiVisionModel,
+  toOllamaThink,
 } from '../lib/ai/usecases';
 import { getDevReviewAdminSample } from '../lib/ai/admin-samples';
 import { devReviewInputHash } from '../lib/ai/dev-review';
@@ -149,12 +152,14 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
   const aiSettingsData = async () => {
     await ensureAiUsecaseRows();
-    const [conn, vision, row] = await Promise.all([
+    const [conn, vision, row, diagramRow] = await Promise.all([
       getAiConnection(),
       getAiVisionModel(),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEV_REVIEW_USECASE } }),
+      prisma.spAiUsecase.findUnique({ where: { useCase: DEV_DIAGRAM_USECASE } }),
     ]);
     const def = AI_USECASE_DEFS[DEV_REVIEW_USECASE];
+    const diagramDef = AI_USECASE_DEFS[DEV_DIAGRAM_USECASE];
     return {
       baseUrl: conn.baseUrl,
       apiKeyMasked: maskApiKey(conn.apiKey),
@@ -168,6 +173,14 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         extraInstructions: row?.extraInstructions ?? '',
         promptVersion: def.promptVersion, // 읽기 전용 — 프롬프트 정본은 코드
         updatedAt: (row?.updatedAt ?? new Date()).toISOString(),
+      },
+      devDiagram: {
+        enabled: diagramRow?.enabled ?? false,
+        model: diagramRow?.model ?? diagramDef.defaultModel,
+        think: asThinkLevel(diagramRow?.think, diagramDef.think),
+        extraInstructions: diagramRow?.extraInstructions ?? '',
+        promptVersion: diagramDef.promptVersion,
+        updatedAt: (diagramRow?.updatedAt ?? new Date()).toISOString(),
       },
     };
   };
@@ -287,6 +300,18 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           },
         });
       }
+      if (body.devDiagram !== undefined) {
+        await ensureAiUsecaseRows();
+        await prisma.spAiUsecase.update({
+          where: { useCase: DEV_DIAGRAM_USECASE },
+          data: {
+            enabled: body.devDiagram.enabled,
+            model: body.devDiagram.model,
+            think: body.devDiagram.think,
+            extraInstructions: body.devDiagram.extraInstructions === '' ? null : body.devDiagram.extraInstructions,
+          },
+        });
+      }
       return { result: true as const, data: await aiSettingsData() };
     },
   );
@@ -303,7 +328,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       const started = await startDevReviewJob({
         mbId: request.user.mbId,
         model,
-        think: AI_USECASE_DEFS[DEV_REVIEW_USECASE].think,
+        think: toOllamaThink(AI_USECASE_DEFS[DEV_REVIEW_USECASE].think),
         extraInstructions,
         source,
         images: [], // 샘플엔 첨부가 없다 — 비전 단계를 타지 않는다
@@ -311,7 +336,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         log: request.log,
         reuseCompleted: false,
       });
-      return { result: true as const, data: { jobId: started.job.id, cached: false } };
+      return { result: true as const, data: { jobId: started.job.id, cached: false, diagramJobId: null, diagramSkipReason: null, diagramCached: false } };
     },
   );
 

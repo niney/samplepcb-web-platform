@@ -1,26 +1,14 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
-import {
-  MARKET_ACTIVE_CATEGORIES,
-  MARKET_CATEGORIES,
-  MARKET_CATEGORY_LABELS,
-  MARKET_ACTIVE_SERVICE_AREAS,
-  MARKET_SERVICE_AREA_LABELS,
-  MARKET_TOOL_GROUPS,
-  MARKET_TOOL_GROUP_CODES,
-  MARKET_TOOL_GROUP_LABELS,
-  MARKET_TOOL_LABELS,
-} from '@sp/api-contract';
-import type {
-  MarketToolCodeType,
-  MarketCategoryCodeType,
-  MarketExpertMeType,
-} from '@sp/api-contract';
+import { reactive, ref } from 'vue';
+import { MARKET_TOOLS_VERSION, sortMarketAreas } from '@sp/api-contract';
+import type { MarketExpertMeType, MarketToolsType } from '@sp/api-contract';
 import { useDeleteExpertFile, useUpdateExpertMe } from '../api/useMarketExpertMe';
 import { errorMessage } from '../lib/error-msg';
+import AreaToolsPicker from './AreaToolsPicker.vue';
 
 // pending·rejected 상태의 본인 프로필 수정 폼 — 저장이 곧 재제출(rejected→pending, 서버).
 // approved 프로필 수정(재승인 플로우)은 2차 — 호출측이 이 폼을 노출하지 않는다.
+// 분야·툴은 레지스트리 기반(AreaToolsPicker) — 저장값에 남은 옛 분야 코드는 조용히 지난다.
 
 const props = defineProps<{ me: MarketExpertMeType }>();
 const emit = defineEmits<{ saved: [] }>();
@@ -34,10 +22,8 @@ const form = reactive({
   displayName: props.me.displayName,
   phone: props.me.phone,
   intro: props.me.intro ?? '',
-  // 읽기 정규화 = 활성 ∩ 저장값 — 비활성 분야가 섞인 옛 프로필도 저장 시 계약을 통과한다.
-  serviceAreas: MARKET_ACTIVE_SERVICE_AREAS.filter((a) => props.me.serviceAreas.includes(a)),
-  categories: [...props.me.categories] as MarketCategoryCodeType[],
-  cadTools: [...props.me.cadTools] as MarketToolCodeType[],
+  serviceAreas: sortMarketAreas(props.me.serviceAreas),
+  tools: Object.fromEntries(Object.entries(props.me.tools.byArea).map(([k, v]) => [k, [...v]])),
   bankName: props.me.bankName ?? '',
   bankHolder: props.me.bankHolder ?? '',
   bankAccount: props.me.bankAccount ?? '',
@@ -54,20 +40,23 @@ function pickFiles(e: Event, kind: 'license' | 'portfolio' | 'bizreg'): void {
   else bizregFile.value = files[0] ?? null;
 }
 
-function toggle<T>(arr: T[], code: T): void {
-  const i = arr.indexOf(code);
-  if (i >= 0) arr.splice(i, 1);
-  else arr.push(code);
+function toggleArea(code: string): void {
+  const i = form.serviceAreas.indexOf(code);
+  if (i >= 0) form.serviceAreas.splice(i, 1);
+  else form.serviceAreas.push(code);
 }
-
-// 숨김 코드(firmware·software — 분야와 동어반복)는 신규 선택지에서 제외하되,
-// 이미 보유한 전문가에게는 계속 보여 해제할 수 있게 한다. 'etc' 툴도 동일(레거시).
-const visibleCategories = computed<MarketCategoryCodeType[]>(() =>
-  MARKET_CATEGORIES.filter(
-    (c) => (MARKET_ACTIVE_CATEGORIES as readonly string[]).includes(c) || form.categories.includes(c),
+function toggleTool(area: string, code: string): void {
+  const list = form.tools[area] ?? (form.tools[area] = []);
+  const i = list.indexOf(code);
+  if (i >= 0) list.splice(i, 1);
+  else list.push(code);
+}
+const buildTools = (): MarketToolsType => ({
+  version: MARKET_TOOLS_VERSION,
+  byArea: Object.fromEntries(
+    form.serviceAreas.filter((a) => (form.tools[a] ?? []).length > 0).map((a) => [a, [...(form.tools[a] ?? [])]]),
   ),
-);
-const hasLegacyEtcTool = computed(() => form.cadTools.includes('etc'));
+});
 
 async function onDeleteFile(fileId: number): Promise<void> {
   error.value = '';
@@ -90,8 +79,7 @@ async function save(): Promise<void> {
     phone: form.phone.trim(),
     intro: form.intro.trim(),
     serviceAreas: form.serviceAreas,
-    categories: form.categories,
-    cadTools: form.cadTools,
+    tools: buildTools(),
     ...(form.bankName !== '' ? { bankName: form.bankName } : {}),
     ...(form.bankHolder.trim() !== '' ? { bankHolder: form.bankHolder.trim() } : {}),
     ...(form.bankAccount.trim() !== '' ? { bankAccount: form.bankAccount.trim() } : {}),
@@ -131,51 +119,12 @@ async function save(): Promise<void> {
       <textarea v-model="form.intro" rows="4" class="rounded-lg border border-line p-3 text-sm font-normal leading-relaxed" />
     </label>
 
-    <div>
-      <p class="text-xs font-bold text-tx-2">제공 가능한 개발 분야</p>
-      <div class="mt-2 flex flex-wrap gap-1.5">
-        <button v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" type="button" class="rounded-full border px-3 py-1.5 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2'" @click="toggle(form.serviceAreas, area)">{{ MARKET_SERVICE_AREA_LABELS[area] }}</button>
-      </div>
-    </div>
-
-    <div>
-      <p class="text-xs font-bold text-tx-2">세부분야 (회로·펌웨어)</p>
-      <div class="mt-2 flex flex-wrap gap-1.5">
-        <button
-          v-for="c in visibleCategories"
-          :key="c"
-          type="button"
-          class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
-          :class="form.categories.includes(c) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2'"
-          @click="toggle(form.categories, c)"
-        >
-          {{ MARKET_CATEGORY_LABELS[c] }}
-        </button>
-      </div>
-    </div>
-    <div v-for="g in MARKET_TOOL_GROUPS" :key="g">
-      <p class="text-xs font-bold text-tx-2">{{ MARKET_TOOL_GROUP_LABELS[g] }}</p>
-      <div class="mt-2 flex flex-wrap gap-1.5">
-        <button
-          v-for="c in MARKET_TOOL_GROUP_CODES[g]"
-          :key="c"
-          type="button"
-          class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
-          :class="form.cadTools.includes(c) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2'"
-          @click="toggle(form.cadTools, c)"
-        >
-          {{ MARKET_TOOL_LABELS[c] }}
-        </button>
-        <button
-          v-if="g === 'ecad' && hasLegacyEtcTool"
-          type="button"
-          class="rounded-full border border-ink-900 bg-ink-900 px-3 py-1.5 text-xs font-semibold text-white transition"
-          @click="toggle(form.cadTools, 'etc')"
-        >
-          {{ MARKET_TOOL_LABELS.etc }}
-        </button>
-      </div>
-    </div>
+    <AreaToolsPicker
+      :service-areas="form.serviceAreas"
+      :tools="form.tools"
+      @toggle-area="toggleArea"
+      @toggle-tool="toggleTool"
+    />
 
     <div class="grid gap-4 sm:grid-cols-3">
       <label class="grid gap-1.5 text-xs font-bold text-tx-2">

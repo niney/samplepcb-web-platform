@@ -79,6 +79,28 @@ export function buildTargetedRequestEmail(p: {
   };
 }
 
+// ①-b 정밀 시스템 구성도 완성 → 의뢰인(docs/AI_DEV_REVIEW.md §13.5 — 등록 뒤 비동기 생성이라 메일로 알린다).
+export function buildDevDiagramReadyEmail(p: {
+  ownerName: string;
+  projectId: number;
+  projectTitle: string;
+  elapsedSecs: number | null;
+}): MarketEmail {
+  return {
+    subject: `[재능마켓] 정밀 시스템 구성도가 준비됐습니다 — ${p.projectTitle}`,
+    html: shell(
+      `${p.ownerName}님, 의뢰의 정밀 시스템 구성도가 완성됐습니다.`,
+      table(
+        row('프로젝트', p.projectTitle) +
+          row('내용', '고객 자료만으로 AI 가 그린 기술 검토 초안(블록도·검토 항목). 인터페이스·부품은 전문가 검토 후 확정됩니다.') +
+          (p.elapsedSecs === null ? '' : row('생성 시간', `약 ${String(Math.round(p.elapsedSecs / 60))}분`)),
+      ),
+      `/market/projects/${String(p.projectId)}`,
+      '구성도 확인',
+    ),
+  };
+}
+
 // ② 새 입찰(견적) 도착 → 의뢰인. (의뢰인은 블라인드 예외 — 금액을 그대로 안내)
 export function buildNewBidEmail(p: {
   projectId: number;

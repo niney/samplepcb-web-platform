@@ -8,6 +8,7 @@ import {
   AdminMarketExpertListResponse,
   AdminMarketProjectDetailResponse,
   AdminMarketProjectListResponse,
+  MarketDevDiagramStatus,
   MarketProjectStatusResponse,
   MarketSettingsResponse,
   apiRoutes,
@@ -118,6 +119,11 @@ export function useAdminMarketProjectDetail(projectId: Ref<number | null>) {
         AdminMarketProjectDetailResponse,
       ),
     enabled: computed(() => projectId.value !== null),
+    // 정밀 구성도가 대기·생성 중이면 완성이 상세에 붙을 때까지 주기 재조회(수 분 걸린다).
+    refetchInterval: (query) => {
+      const status = query.state.data?.data.devDiagram.meta?.status;
+      return status === 'queued' || status === 'running' ? 5000 : false;
+    },
   });
 }
 
@@ -130,6 +136,30 @@ export function useAdminCancelProject() {
         `${apiRoutes.adminMarketProjects}/${String(projectId)}/cancel`,
         undefined,
         MarketProjectStatusResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'market', 'projects'] });
+    },
+  });
+}
+
+// 정밀 시스템 구성도 강제 (재)생성 — POST /api/admin/market/projects/:id/dev-diagram.
+// 응답 `{ result, data: { projectId, status } }` 의 status 는 구성도 상태(queued 등)라
+// 프로젝트 상태 응답 스키마의 data.status 만 갈아 끼운다(apps/web 은 zod 를 직접 안 든다).
+// 진행 중이면 409 DEV_DIAGRAM_RUNNING — 화면이 안내한다.
+const AdminDevDiagramRequestResponse = MarketProjectStatusResponse.extend({
+  data: MarketProjectStatusResponse.shape.data.extend({ status: MarketDevDiagramStatus }),
+});
+
+export function useAdminRequestDevDiagram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: number) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminMarketProjects}/${String(projectId)}/dev-diagram`,
+        undefined,
+        AdminDevDiagramRequestResponse,
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'market', 'projects'] });

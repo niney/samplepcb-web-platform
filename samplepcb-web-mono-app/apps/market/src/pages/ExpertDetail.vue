@@ -2,11 +2,10 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
-  MARKET_CATEGORY_LABELS,
   MARKET_REGION_LABELS,
-  MARKET_SERVICE_AREA_LABELS,
+  marketAreaLabel,
+  marketToolRows,
 } from '@sp/api-contract';
 import { useMarketExpertDetail } from '../api/useMarketExperts';
 import { avatarHue } from '../lib/market-format';
@@ -19,6 +18,7 @@ const expertId = computed<number | null>(() => {
 const { data, isLoading, isError } = useMarketExpertDetail(expertId);
 
 const expert = computed(() => data.value?.data);
+const toolRows = computed(() => (expert.value === undefined ? [] : marketToolRows(expert.value.tools, expert.value.serviceAreas)));
 const typeBadge = computed(() => {
   const t = expert.value?.expertType;
   return t === 'house'
@@ -86,30 +86,19 @@ const typeBadge = computed(() => {
           <h2 class="mt-1 text-sm font-extrabold text-tx-1">전문 분야</h2>
           <div class="mt-3 flex flex-wrap gap-1.5">
             <span v-for="area in expert.serviceAreas" :key="area" class="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700">
-              {{ MARKET_SERVICE_AREA_LABELS[area] }}
+              {{ marketAreaLabel(area) }}
             </span>
-            <span
-              v-for="c in expert.categories"
-              :key="c"
-              class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700"
-            >
-              {{ MARKET_CATEGORY_LABELS[c] }}
-            </span>
-            <span v-if="expert.categories.length === 0" class="text-xs text-tx-3">—</span>
           </div>
         </div>
         <div class="rounded-2xl border border-line bg-white p-6">
-          <p class="font-mono text-[11px] tracking-widest text-tx-3">CAD</p>
-          <h2 class="mt-1 text-sm font-extrabold text-tx-1">사용 CAD 툴</h2>
-          <div class="mt-3 flex flex-wrap gap-1.5">
-            <span
-              v-for="c in expert.cadTools"
-              :key="c"
-              class="rounded-full bg-teal-50 px-2.5 py-1 font-mono text-xs font-medium text-teal-700"
-            >
-              {{ MARKET_TOOL_LABELS[c] }}
-            </span>
-            <span v-if="expert.cadTools.length === 0" class="text-xs text-tx-3">—</span>
+          <p class="font-mono text-[11px] tracking-widest text-tx-3">TOOLS</p>
+          <h2 class="mt-1 text-sm font-extrabold text-tx-1">다루는 툴·언어</h2>
+          <div class="mt-3 grid gap-1.5">
+            <p v-for="r in toolRows" :key="r.area" class="text-xs text-tx-2">
+              <b class="text-tx-1">{{ r.areaLabel }}</b>
+              <span class="ml-1 font-mono text-[11px] text-tx-3">{{ r.labels.length > 0 ? r.labels.join(' · ') : '제한 없음' }}</span>
+            </p>
+            <span v-if="toolRows.length === 0" class="text-xs text-tx-3">—</span>
           </div>
         </div>
       </div>

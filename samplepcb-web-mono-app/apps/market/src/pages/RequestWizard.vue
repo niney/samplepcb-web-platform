@@ -8,9 +8,10 @@ import { loginUrl, marketPath } from '../lib/auth-urls';
 import { useRequestWizardForm } from '../composables/useRequestWizardForm';
 import { useDevReviewJob } from '../composables/useDevReviewJob';
 import StepDescribe from '../components/request/StepDescribe.vue';
+import StepDetails from '../components/request/StepDetails.vue';
 import StepReview from '../components/request/StepReview.vue';
 
-// 재능마켓 의뢰 위저드 2스텝(docs/AI_DEV_REVIEW.md §12.4) — 의뢰 내용 → 검토·등록.
+// 재능마켓 의뢰 위저드 3스텝(docs/AI_DEV_REVIEW.md §13.4) — 의뢰 내용 → 몇 가지만 더 → 검토·등록.
 // 이 셸은 스텝 인디케이터·네비게이션·제출 오케스트레이션만 한다. 폼 값·스텝 정의는
 // useRequestWizardForm, 검토서 잡·신선도는 useDevReviewJob(스텝 이동에도 살아 있도록
 // 셸이 소유한다).
@@ -28,7 +29,6 @@ const form = useRequestWizardForm();
 const job = useDevReviewJob(form);
 const {
   fields,
-  attachments,
   steps,
   stepIndex,
   currentStep,
@@ -38,6 +38,8 @@ const {
   next,
   projectDeadline,
   buildAnswers,
+  buildTools,
+  appendAttachments,
 } = form;
 
 // 등록 가능 여부 — 폼 유효성 + "포함 예정 검토서가 생성 중이 아님".
@@ -59,10 +61,10 @@ async function submit(): Promise<void> {
   const payload = {
     title: fields.title.trim(),
     serviceAreas: [...fields.serviceAreas],
-    categories: [],
-    cadTools: [],
+    tools: buildTools(),
     description: fields.description.trim(),
     answers: buildAnswers(),
+    aiConsent: fields.aiConsent,
     ndaRequired: fields.ndaRequired,
     budgetRange: fields.budgetRange,
     deadline: projectDeadline(),
@@ -73,10 +75,12 @@ async function submit(): Promise<void> {
     ...(job.includable.value && job.jobId.value !== null
       ? { devReviewJobId: job.jobId.value }
       : {}),
+    // 시스템 구성도 잡(§13.7) — 검토서와 같은 입력이므로 stale 판정도 같이 따른다.
+    ...(!job.stale.value && job.diagramJobId.value !== null ? { devDiagramJobId: job.diagramJobId.value } : {}),
   };
   const fd = new FormData();
   fd.append('payload', JSON.stringify(payload));
-  for (const f of attachments.value) fd.append('attachment', f);
+  appendAttachments(fd);
   try {
     const res = await create.mutateAsync(fd);
     createdId.value = res.data.projectId;
@@ -111,6 +115,7 @@ async function submit(): Promise<void> {
         <template v-if="fields.method === 'targeted'">지정한 전문가에게 견적 요청을 알렸습니다.</template>
         <template v-else>조건이 맞는 전문가들이 블라인드 견적을 제출하면 알려드립니다.</template>
         <br>견적 비교·채택은 프로젝트 상세 또는 마이페이지에서 진행하세요.
+        <template v-if="fields.aiConsent"><br>시스템 구성도는 자료가 충분하면 몇 분 뒤 상세에 붙습니다 — 우측 아래 알림과 메일로 알려드립니다.</template>
       </p>
       <div class="mt-5 flex justify-center gap-2">
         <RouterLink
@@ -151,6 +156,7 @@ async function submit(): Promise<void> {
 
       <div class="mt-6 rounded-2xl border border-line bg-white p-6 sm:p-8">
         <StepDescribe v-if="currentStep === 'describe'" :form="form" />
+        <StepDetails v-else-if="currentStep === 'details'" :form="form" />
         <StepReview v-else-if="currentStep === 'review'" :form="form" :job="job" />
 
         <p v-if="submitError !== ''" class="mt-4 text-xs font-semibold text-red-600">{{ submitError }}</p>

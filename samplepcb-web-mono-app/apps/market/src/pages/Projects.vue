@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import {
-  MARKET_ACTIVE_SERVICE_AREAS,
-  MARKET_METHOD_LABELS,
-  MARKET_SERVICE_AREA_LABELS,
-  MarketProjectMethod,
-} from '@sp/api-contract';
+import { MARKET_AREAS, MARKET_METHOD_LABELS, MarketProjectMethod } from '@sp/api-contract';
 import ProjectCard from '../components/ProjectCard.vue';
 import UiPagination from '../components/UiPagination.vue';
 import { useMarketProjectList } from '../api/useMarketProjects';
@@ -66,7 +61,7 @@ const resetPage = (): void => {
 
       <select v-model="filters.serviceArea" class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2" @change="resetPage">
         <option value="">{{ $t('projects.allCategories') }}</option>
-        <option v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
+        <option v-for="area in MARKET_AREAS" :key="area.code" :value="area.code">{{ area.label }}</option>
       </select>
 
       <select

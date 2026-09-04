@@ -30,5 +30,7 @@ export * from './schemas/partner-parts';
 export * from './schemas/market';
 export * from './schemas/ai';
 export * from './schemas/market-dev-review';
+export * from './schemas/market-dev-diagram';
+export * from './schemas/market-areas';
 export * from './schemas/admin-mail';
 export * from './routes';

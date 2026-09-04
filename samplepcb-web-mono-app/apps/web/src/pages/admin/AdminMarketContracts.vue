@@ -4,9 +4,9 @@ import {
   MARKET_CONTRACT_STATUS_LABELS,
   MARKET_METHOD_LABELS,
   MARKET_REQUEST_TYPE_LABELS,
-  MARKET_SERVICE_AREA_LABELS,
   MARKET_PROJECT_STATUS_LABELS,
   apiRoutes,
+  marketAreaLabel,
 } from '@sp/api-contract';
 import { ApiRequestError, apiGetBlob } from '@sp/shared';
 import {
@@ -309,7 +309,7 @@ const anyPending = computed(
           <h3 class="mt-2 text-base font-bold text-gray-900">{{ detail.projectTitle }}</h3>
           <p class="mt-0.5 text-xs text-gray-500">
             {{ MARKET_REQUEST_TYPE_LABELS[detail.project.requestType] }} ·
-            {{ detail.project.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join(' · ') }} ·
+            {{ detail.project.serviceAreas.map(marketAreaLabel).join(' · ') }} ·
             {{ MARKET_METHOD_LABELS[detail.project.method] }} ·
             프로젝트 {{ MARKET_PROJECT_STATUS_LABELS[detail.project.status] }}
             <span class="text-gray-400">(#{{ detail.projectId }})</span>

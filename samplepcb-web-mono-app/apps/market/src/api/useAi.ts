@@ -14,8 +14,7 @@ import { apiGet, apiSendForm } from '@sp/shared';
 
 const DEV_REVIEW_USECASE = 'market.dev-review';
 
-// 활성 여부(공개·비밀 없음) — 위저드가 질문 스텝·검토서 생성을 노출할지 결정.
-// 관리자 토글은 드물어 오래 캐시한다.
+// 활성 여부(공개·비밀 없음) — 위저드가 검토서 생성을 노출할지 결정. 관리자 토글은 드물어 오래 캐시한다.
 export function useDevReviewStatus() {
   return useQuery({
     queryKey: ['ai', 'status', DEV_REVIEW_USECASE],
@@ -25,14 +24,15 @@ export function useDevReviewStatus() {
   });
 }
 
-// 실행 — multipart(payload JSON 문자열 + attachment[]). 첨부는 등록 때와 같은 파일을
-// 그대로 보낸다(서버가 원본 SHA-256 으로 신선도를 대조한다).
+// 실행 — multipart(payload JSON 문자열 + attachment[] + attachment:<area>:<slot>[]). 첨부는 등록 때와
+// 같은 파일을 같은 파트 이름으로 보낸다(서버가 파트명+원본 SHA-256 으로 신선도를 대조한다) —
+// 그래서 파일을 붙이는 함수(appendFiles)를 위저드 폼과 공유한다.
 export function useRunDevReview() {
   return useMutation({
-    mutationFn: ({ payload, files }: { payload: DevReviewRunPayloadType; files: readonly File[] }) => {
+    mutationFn: ({ payload, appendFiles }: { payload: DevReviewRunPayloadType; appendFiles: (fd: FormData) => void }) => {
       const form = new FormData();
       form.append('payload', JSON.stringify(payload));
-      for (const file of files) form.append('attachment', file);
+      appendFiles(form);
       return apiSendForm(
         'POST',
         `${apiRoutes.ai}/${DEV_REVIEW_USECASE}/run`,

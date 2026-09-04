@@ -1,14 +1,14 @@
 import type { SpMarketBid, SpMarketProject } from '@prisma/client';
 import { z } from 'zod';
-import { MarketDevReview } from '@sp/api-contract';
+import { MarketAnswers, MarketDevReview, MarketTools } from '@sp/api-contract';
 import {
   asBudgetRange,
   asProjectMethod,
   asRequestType,
-  toCategoryCodes,
+  toAnswers,
+  toAreaCodes,
   toDevReview,
-  toProjectToolCodes,
-  toServiceAreaCodes,
+  toTools,
 } from './market';
 
 const MarketRequestSnapshot = z.object({
@@ -19,8 +19,9 @@ const MarketRequestSnapshot = z.object({
     title: z.string(),
     requestType: z.string(),
     serviceAreas: z.array(z.string()),
-    categories: z.array(z.string()),
-    cadTools: z.array(z.string()),
+    // v3(2026-09-04): 세부분야·CAD 툴 → 분야별 희망 툴 + 질문 답변. 옛 스냅샷은 default 로 통과.
+    tools: MarketTools.default({ version: 1, byArea: {} }),
+    answers: MarketAnswers.default([]),
     description: z.string(),
     // AI 사전 검토서(2026-08-28) — 옛 스냅샷엔 없으므로 default(null). 옛 AI 필드
     // (diagramHtml·diagramSpec·rocMd·postings·interviewAnswers·aiGenerationMetaJson)는
@@ -59,9 +60,9 @@ export function buildMarketRequestSnapshot(
       projectId: Number(project.id),
       title: project.title,
       requestType: asRequestType(project.requestType),
-      serviceAreas: toServiceAreaCodes(project.serviceAreas),
-      categories: toCategoryCodes(project.categories),
-      cadTools: toProjectToolCodes(project.cadTools),
+      serviceAreas: toAreaCodes(project.serviceAreas),
+      tools: toTools(project.tools),
+      answers: toAnswers(project.answers),
       description: project.description,
       devReview: toDevReview(project.devReview),
       ndaRequired: project.ndaRequired,

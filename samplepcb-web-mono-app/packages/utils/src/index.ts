@@ -40,7 +40,6 @@ export function maskName(name: string): string {
   return `${first}${'*'.repeat(chars.length - 2)}${last}`;
 }
 
-export * from './dev-review-diagram';
 export * from './dev-review-view';
 export * from './spec-units';
 

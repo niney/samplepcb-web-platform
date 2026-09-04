@@ -1,4 +1,4 @@
-// AI 사전 검토서 v2 실브라우저 완주(관찰용, 자동 판정 없음) — 위저드 2스텝 → 실 LLM 생성 →
+// AI 사전 검토서 v3 실브라우저 완주(관찰용, 자동 판정 없음) — 위저드 3스텝(의뢰 내용 → 몇 가지만 더 → 검토·등록) → 실 LLM 생성 →
 // 등록 → 상세 → 관리자 드로어를 playwright-core 로 걷고 스크린샷을 e2e/output/dev-review-v2/ 에 남긴다.
 // 로그인은 helpers/browser 의 /spcb/api/me 스텁(로컬 서명 JWT). 실행(e2e 디렉터리):
 //   E2E_BASE_URL=http://127.0.0.1:5300 pnpm exec tsx tools/dev-review-v2-walk.ts
@@ -75,20 +75,25 @@ async function main(): Promise<void> {
     }
     await page.getByPlaceholder('예: 화분 물 주기 알림 장치').fill(TITLE);
     await page.locator('textarea').first().fill(DESCRIPTION);
+    if (SC.attachments.length > 0) {
+      await page.locator('input[type="file"]').first().setInputFiles([...SC.attachments]);
+      await page.waitForTimeout(500);
+    }
+    await shot(page, '01-step1-describe');
+
+    // ── 2단계: 몇 가지만 더(공통 4문항 + 분야별 카드) ──
+    await page.getByRole('button', { name: '다음', exact: true }).click();
+    await page.getByText('몇 가지만 더 알려주세요').waitFor({ timeout: 30_000 });
     const [stage, quantity, external, timeline] = SC.answers;
     await page.getByRole('button', { name: stage ?? '', exact: true }).click();
     await page.getByRole('button', { name: quantity ?? '', exact: true }).click();
     await page.getByPlaceholder('예: 먼저 3개, 이후 월 200개').fill(SC.quantityNote);
     await page.getByRole('button', { name: external ?? '', exact: true }).click();
     await page.getByRole('button', { name: timeline ?? '', exact: true }).click();
-    if (SC.attachments.length > 0) {
-      await page.locator('input[type="file"]').setInputFiles([...SC.attachments]);
-      await page.waitForTimeout(500);
-    }
-    await shot(page, '01-step1-describe');
+    await shot(page, '01b-step2-details');
 
-    // ── 2단계: 검토서 생성(실 LLM) → 미리보기 ──
-    await page.getByRole('button', { name: '다음' }).click();
+    // ── 3단계: 검토서 생성(실 LLM) → 미리보기 ──
+    await page.getByRole('button', { name: '다음', exact: true }).click();
     await page.getByText('검토서 작성 중', { exact: false }).or(page.getByText('첨부 확인 중')).first().waitFor({ timeout: 30_000 }).catch(() => undefined);
     await shot(page, '02-step2-generating', false);
     const t0 = Date.now();
@@ -96,14 +101,6 @@ async function main(): Promise<void> {
     console.log(`  검토서 생성 ${String(Math.round((Date.now() - t0) / 1000))}s`);
     await page.waitForTimeout(800);
     await shot(page, '03-step2-review');
-    const diagram = page.locator('[aria-label="제안 시스템 구성도 크게 보기"]').first();
-    await diagram.screenshot({ path: join(dir, '04-diagram-preview.png') });
-    await diagram.click();
-    await page.getByRole('button', { name: /닫기/ }).waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(500);
-    await shot(page, '05-diagram-modal', false);
-    await page.keyboard.press('Escape');
-
     // ── 등록 ──
     await page.getByRole('button', { name: '의뢰 등록' }).click();
     await page.getByText('의뢰가 등록되었습니다').waitFor({ timeout: 30_000 });
@@ -112,6 +109,15 @@ async function main(): Promise<void> {
     projectId = m?.[1] === undefined ? null : Number(m[1]);
     console.log(`  등록된 프로젝트 #${String(projectId)}`);
     await shot(page, '06-registered', false);
+    // 플로팅 트레이(§13.7) — 등록 뒤 화면 어디서든 구성도 진행을 알린다. 3단계에서 병렬 시작됐으면 알약이 떠 있다.
+    const tray = page.getByRole('button', { name: /시스템 구성도/ }).first();
+    const trayVisible = await tray.isVisible().catch(() => false);
+    console.log(`  트레이 ${trayVisible ? '표시' : '없음(구성도 생략·비활성)'}`);
+    if (trayVisible) {
+      await tray.click();
+      await page.waitForTimeout(400);
+      await shot(page, '06b-tray-open', false);
+    }
 
     // ── 상세 ──
     if (projectId !== null) {

@@ -1,30 +1,22 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import {
-  MARKET_ACTIVE_CATEGORIES,
   MARKET_CAREER_RANGES,
   MARKET_CAREER_RANGE_LABELS,
-  MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_STATUS_LABELS,
   MARKET_REGIONS,
-  MARKET_ACTIVE_SERVICE_AREAS,
-  MARKET_SERVICE_AREA_LABELS,
   MARKET_REGION_LABELS,
-  MARKET_TOOL_GROUPS,
-  MARKET_TOOL_GROUP_CODES,
-  MARKET_TOOL_GROUP_LABELS,
-  MARKET_TOOL_LABELS,
+  MARKET_TOOLS_VERSION,
   MARKET_TRAVEL_RANGES,
   MARKET_TRAVEL_RANGE_LABELS,
 } from '@sp/api-contract';
 import type {
-  MarketToolCodeType,
   MarketCareerRangeType,
-  MarketCategoryCodeType,
-  MarketActiveServiceAreaType,
   MarketRegionType,
+  MarketToolsType,
   MarketTravelRangeType,
 } from '@sp/api-contract';
+import AreaToolsPicker from '../components/AreaToolsPicker.vue';
 import { useAuthStore } from '@sp/shared';
 import { useExpertMe, useRegisterExpert } from '../api/useMarketExpertMe';
 import { errorMessage } from '../lib/error-msg';
@@ -53,9 +45,8 @@ interface RegisterForm {
   region: MarketRegionType;
   travelRange: MarketTravelRangeType;
   intro: string;
-  serviceAreas: MarketActiveServiceAreaType[];
-  categories: MarketCategoryCodeType[];
-  cadTools: MarketToolCodeType[];
+  serviceAreas: string[];
+  tools: Record<string, string[]>; // 분야별 툴·언어 — 빈 배열 = 제한 없음
   bankName: string;
   bankHolder: string;
   bankAccount: string;
@@ -72,8 +63,7 @@ const form = reactive<RegisterForm>({
   travelRange: 'within30km',
   intro: '',
   serviceAreas: [],
-  categories: [],
-  cadTools: [],
+  tools: {},
   bankName: 'KB국민',
   bankHolder: '',
   bankAccount: '',
@@ -95,21 +85,23 @@ function pickFiles(e: Event, kind: 'license' | 'portfolio' | 'bizreg'): void {
   else bizregFile.value = files[0] ?? null;
 }
 
-function toggleCategory(code: MarketCategoryCodeType): void {
-  const i = form.categories.indexOf(code);
-  if (i >= 0) form.categories.splice(i, 1);
-  else form.categories.push(code);
-}
-function toggleServiceArea(code: MarketActiveServiceAreaType): void {
+function toggleServiceArea(code: string): void {
   const i = form.serviceAreas.indexOf(code);
   if (i >= 0) form.serviceAreas.splice(i, 1);
   else form.serviceAreas.push(code);
 }
-function toggleCad(code: MarketToolCodeType): void {
-  const i = form.cadTools.indexOf(code);
-  if (i >= 0) form.cadTools.splice(i, 1);
-  else form.cadTools.push(code);
+function toggleTool(area: string, code: string): void {
+  const list = form.tools[area] ?? (form.tools[area] = []);
+  const i = list.indexOf(code);
+  if (i >= 0) list.splice(i, 1);
+  else list.push(code);
 }
+const buildTools = (): MarketToolsType => ({
+  version: MARKET_TOOLS_VERSION,
+  byArea: Object.fromEntries(
+    form.serviceAreas.filter((a) => (form.tools[a] ?? []).length > 0).map((a) => [a, [...(form.tools[a] ?? [])]]),
+  ),
+});
 
 const stepValid = computed<boolean>(() => {
   if (step.value === 1) return true;
@@ -145,8 +137,7 @@ async function submit(): Promise<void> {
     travelRange: form.travelRange,
     intro: form.intro.trim(),
     serviceAreas: form.serviceAreas,
-    categories: form.categories,
-    cadTools: form.cadTools,
+    tools: buildTools(),
     bankName: form.bankName,
     bankHolder: form.bankHolder.trim(),
     bankAccount: form.bankAccount.trim(),
@@ -352,55 +343,12 @@ const stepTitles = computed(() => [
 
         <!-- STEP 3: 분야·증빙 -->
         <div v-else-if="step === 3" class="grid gap-6">
-          <div>
-            <p class="text-xs font-bold text-tx-2">제공 가능한 개발 분야 <span class="font-normal text-tx-3">(복수 선택)</span> <span class="text-red-500">*</span></p>
-            <div class="mt-2 flex flex-wrap gap-1.5">
-              <button v-for="area in MARKET_ACTIVE_SERVICE_AREAS" :key="area" type="button" class="rounded-full border px-3 py-1.5 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2 hover:border-line-2'" @click="toggleServiceArea(area)">{{ MARKET_SERVICE_AREA_LABELS[area] }}</button>
-            </div>
-            <p v-if="form.serviceAreas.length === 0" class="mt-2 text-xs text-red-500">개발 분야를 1개 이상 선택해 주세요.</p>
-          </div>
-          <div>
-            <p class="text-xs font-bold text-tx-2">
-              세부분야 (회로·펌웨어) <span class="font-normal text-tx-3">(복수 선택)</span>
-            </p>
-            <div class="mt-2 flex flex-wrap gap-1.5">
-              <button
-                v-for="c in MARKET_ACTIVE_CATEGORIES"
-                :key="c"
-                type="button"
-                class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
-                :class="
-                  form.categories.includes(c)
-                    ? 'border-ink-900 bg-ink-900 text-white'
-                    : 'border-line text-tx-2 hover:border-line-2'
-                "
-                @click="toggleCategory(c)"
-              >
-                {{ MARKET_CATEGORY_LABELS[c] }}
-              </button>
-            </div>
-          </div>
-          <div v-for="g in MARKET_TOOL_GROUPS" :key="g">
-            <p class="text-xs font-bold text-tx-2">
-              {{ MARKET_TOOL_GROUP_LABELS[g] }} <span class="font-normal text-tx-3">(복수 선택)</span>
-            </p>
-            <div class="mt-2 flex flex-wrap gap-1.5">
-              <button
-                v-for="c in MARKET_TOOL_GROUP_CODES[g]"
-                :key="c"
-                type="button"
-                class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
-                :class="
-                  form.cadTools.includes(c)
-                    ? 'border-ink-900 bg-ink-900 text-white'
-                    : 'border-line text-tx-2 hover:border-line-2'
-                "
-                @click="toggleCad(c)"
-              >
-                {{ MARKET_TOOL_LABELS[c] }}
-              </button>
-            </div>
-          </div>
+          <AreaToolsPicker
+            :service-areas="form.serviceAreas"
+            :tools="form.tools"
+            @toggle-area="toggleServiceArea"
+            @toggle-tool="toggleTool"
+          />
           <div class="grid gap-3">
             <label class="grid gap-1.5 text-xs font-bold text-tx-2">
               자격증·경력 증빙 <span class="font-normal text-tx-3">(선택 · 심사 우대)</span>

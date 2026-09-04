@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {
-  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
-  MARKET_CATEGORY_LABELS,
   MARKET_REGION_LABELS,
-  MARKET_SERVICE_AREA_LABELS,
+  marketAreaLabel,
+  marketToolRows,
 } from '@sp/api-contract';
 import type { MarketExpertPublicType } from '@sp/api-contract';
 import { avatarHue } from '../lib/market-format';
@@ -21,7 +20,13 @@ const typeBadge = computed(() =>
       : { label: '지정 3번 · 프리랜서', cls: 'bg-line text-tx-2' },
 );
 const hue = computed(() => avatarHue(props.item.displayName));
-const visibleCategories = computed(() => props.item.categories.slice(0, 3));
+// 툴 한 줄 — 분야별로 지정한 툴만(비운 분야는 제한 없음이라 생략).
+const toolLine = computed(() =>
+  marketToolRows(props.item.tools, props.item.serviceAreas)
+    .filter((r) => r.labels.length > 0)
+    .map((r) => r.labels.join(' · '))
+    .join(' · '),
+);
 </script>
 
 <template>
@@ -52,23 +57,13 @@ const visibleCategories = computed(() => props.item.categories.slice(0, 3));
     </span>
 
     <div class="mt-3 flex flex-wrap gap-1.5 text-xs">
-      <span v-for="area in item.serviceAreas.slice(0, 3)" :key="area" class="rounded-full bg-teal-50 px-2 py-0.5 font-medium text-teal-700">
-        {{ MARKET_SERVICE_AREA_LABELS[area] }}
-      </span>
-      <span
-        v-for="c in visibleCategories"
-        :key="c"
-        class="rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-700"
-      >
-        {{ MARKET_CATEGORY_LABELS[c] }}
-      </span>
-      <span v-if="item.categories.length > 3" class="rounded-full bg-line px-2 py-0.5 text-tx-3">
-        +{{ item.categories.length - 3 }}
+      <span v-for="area in item.serviceAreas.slice(0, 5)" :key="area" class="rounded-full bg-teal-50 px-2 py-0.5 font-medium text-teal-700">
+        {{ marketAreaLabel(area) }}
       </span>
     </div>
 
-    <p v-if="item.cadTools.length > 0" class="mt-2 line-clamp-1 font-mono text-[11px] text-tx-3">
-      {{ item.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join(' · ') }}
+    <p v-if="toolLine !== ''" class="mt-2 line-clamp-1 font-mono text-[11px] text-tx-3">
+      {{ toolLine }}
     </p>
 
     <p v-if="item.intro !== null" class="mt-3 line-clamp-2 border-t border-line pt-3 text-xs leading-relaxed text-tx-2">

@@ -3,19 +3,10 @@ import type { SpMarketBid, SpMarketProject } from '@prisma/client';
 import { buildMarketRequestSnapshot, requestSnapshotCapturedAt } from './market-snapshot';
 
 const devReview = {
-  version: 2,
+  version: 4,
   brief: { serviceAreas: ['circuit', 'firmware'], answers: [{ code: 'stage', choices: ['spec'] }] },
   summary: '제어 시스템 회로·펌웨어 개발',
   requirements: [],
-  diagram: {
-    columns: { inputs: '입력', board: '메인 보드', outputs: '출력·연동' },
-    inputs: [],
-    board: { label: '메인 컨트롤러', detail: '', chips: [] },
-    outputs: [],
-    linkIn: '',
-    linkOut: '',
-    notes: { flow: '', design: '', extension: '' },
-  },
   areas: [
     { area: 'circuit', summary: '', spec: [], observations: [] },
     { area: 'firmware', summary: '', spec: [], observations: [] },
@@ -23,7 +14,7 @@ const devReview = {
   openQuestions: [],
   checks: [],
   meta: {
-    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v2', inputHash: 'h',
+    jobId: 'job-1', model: 'm', promptVersion: 'dev-review.v4', inputHash: 'h',
     generatedAt: '2026-09-02T00:00:00.000Z', attachmentFiles: [],
   },
 };

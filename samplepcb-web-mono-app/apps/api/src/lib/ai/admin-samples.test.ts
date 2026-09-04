@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { DevReviewAnswers, DevReviewRunPayload } from '@sp/api-contract';
+import { MarketAnswers, DevReviewRunPayload } from '@sp/api-contract';
 import { DEV_REVIEW_ADMIN_SAMPLE } from './admin-samples';
 import { buildDevReviewPrompt, devReviewSourceText } from './dev-review';
 
@@ -37,7 +37,7 @@ describe('AI 사전 검토서 관리자 샘플', () => {
     expect(DEV_REVIEW_ADMIN_SAMPLE.title).toBe(fixture.title);
     expect(DEV_REVIEW_ADMIN_SAMPLE.description).toBe(fixture.description);
     expect([...DEV_REVIEW_ADMIN_SAMPLE.serviceAreas]).toEqual(fixture.serviceAreas);
-    expect([...DEV_REVIEW_ADMIN_SAMPLE.answers]).toEqual(DevReviewAnswers.parse(fixture.answers));
+    expect([...DEV_REVIEW_ADMIN_SAMPLE.answers]).toEqual(MarketAnswers.parse(fixture.answers));
     expect(fixture.attachments).toHaveLength(0);
   });
 

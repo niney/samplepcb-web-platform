@@ -113,3 +113,10 @@ export function requireMouserOrderKey(): string {
   }
   return v;
 }
+
+/** AI 프로빙용 ollama 연결 — apps/api/.env 의 AI_BASE_URL/AI_API_KEY(ollama.com 직결 또는 로컬 11434). */
+export function requireAiConnection(): { baseUrl: string; apiKey: string | null } {
+  const baseUrl = process.env.AI_BASE_URL ?? apiEnv['AI_BASE_URL'] ?? 'http://127.0.0.1:11434';
+  const apiKey = process.env.AI_API_KEY ?? apiEnv['AI_API_KEY'] ?? '';
+  return { baseUrl, apiKey: apiKey === '' ? null : apiKey };
+}
