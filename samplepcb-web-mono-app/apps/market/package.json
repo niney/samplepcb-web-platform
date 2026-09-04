@@ -14,6 +14,7 @@
   "dependencies": {
     "@sp/api-contract": "workspace:*",
     "@sp/shared": "workspace:*",
+    "@sp/ui": "workspace:*",
     "@sp/utils": "workspace:*",
     "@tanstack/vue-query": "^5.62.0",
     "pinia": "^3.0.0",

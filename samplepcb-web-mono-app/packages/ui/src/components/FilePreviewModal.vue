@@ -24,9 +24,10 @@ import { errorMessage } from '../lib/error-msg';
 //   2) html/htm 은 렌더하지 않고 소스 텍스트로만 보여준다(계약의 fileViewKind 가 text 로 분류).
 //   3) 텍스트는 언제나 텍스트 바인딩이다 — v-html 은 이 파일에 존재하지 않는다.
 
+// filesPath — 파일 라우트의 `…/files` 까지(도메인마다 다르다: 마켓 프로젝트·개발의뢰 등).
 const props = defineProps<{
   open: boolean;
-  projectId: number;
+  filesPath: string;
   file: PreviewTarget | null;
 }>();
 const emit = defineEmits<{ close: []; download: [fileId: number, name: string] }>();
@@ -68,9 +69,9 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     if (needsServerPreview(kind.value)) {
-      preview.value = await fetchPreviewData(props.projectId, file.fileId);
+      preview.value = await fetchPreviewData(props.filesPath, file.fileId);
     } else {
-      const blob = await fetchPreviewBlob(props.projectId, file.fileId);
+      const blob = await fetchPreviewBlob(props.filesPath, file.fileId);
       if (kind.value === 'text') {
         const text = await decodeTextBlob(blob);
         const delimiter = delimiterFor(file.name);
@@ -134,13 +135,13 @@ const unsupportedText = computed(() => {
           :href="blobUrl"
           target="_blank"
           rel="noopener noreferrer"
-          class="shrink-0 rounded-lg border border-line-2 px-3 py-1.5 text-label font-bold text-tx-2 hover:border-copper-400 hover:text-copper-600"
+          class="shrink-0 rounded-lg border border-line-2 px-3 py-1.5 text-label font-bold text-tx-2 hover:border-brand-400 hover:text-brand-600"
         >
           새 탭
         </a>
         <button
           type="button"
-          class="shrink-0 rounded-lg border border-line-2 px-3 py-1.5 text-label font-bold text-tx-2 hover:border-copper-400 hover:text-copper-600"
+          class="shrink-0 rounded-lg border border-line-2 px-3 py-1.5 text-label font-bold text-tx-2 hover:border-brand-400 hover:text-brand-600"
           @click="emit('download', file.fileId, file.name)"
         >
           다운로드

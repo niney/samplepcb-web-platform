@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import { MARKET_AREAS, MARKET_METHOD_LABELS, MarketProjectMethod } from '@sp/api-contract';
 import ProjectCard from '../components/ProjectCard.vue';
-import UiPagination from '../components/UiPagination.vue';
+import { UiPagination } from '@sp/ui';
 import { useMarketProjectList } from '../api/useMarketProjects';
 import type { ProjectListFilters } from '../api/useMarketProjects';
 

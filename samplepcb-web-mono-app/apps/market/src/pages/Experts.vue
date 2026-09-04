@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { MARKET_AREAS, MARKET_EXPERT_TYPE_LABELS } from '@sp/api-contract';
 import type { MarketExpertTypeType } from '@sp/api-contract';
 import ExpertCard from '../components/ExpertCard.vue';
-import UiPagination from '../components/UiPagination.vue';
+import { UiPagination } from '@sp/ui';
 import { useMarketExpertList } from '../api/useMarketExperts';
 import type { ExpertListFilters } from '../api/useMarketExperts';
 

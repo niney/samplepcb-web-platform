@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
-import AreaIcon from '../AreaIcon.vue';
-import FileDropZone from './FileDropZone.vue';
+import { AreaIcon, FileDropZone } from '@sp/ui';
 
 // 스텝 1 — 의뢰 내용(docs/AI_DEV_REVIEW.md §13.4): 개발 분야(레지스트리 카드 + 쉬운 설명 +
 // "잘 모르겠어요" = 전 분야) · 제목 · 설명 · 참고 자료(일반 첨부) · AI 사전 검토 동의.

@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { DEV_REVIEW_DISCLAIMER, marketAreaLabel } from '@sp/api-contract';
 import type { MarketDevDiagramViewType, MarketDevReviewType } from '@sp/api-contract';
 import { buildDevReviewView } from '@sp/utils';
-import AreaIcon from '../AreaIcon.vue';
+import AreaIcon from './AreaIcon.vue';
 import DevDiagramSection from './DevDiagramSection.vue';
 
 // AI 사전 검토서 뷰 v4(docs/AI_DEV_REVIEW.md §13·§13.7·§13.9) — 고객·전문가가 같은 JSON 을 같은 순서로 본다.
@@ -107,6 +107,10 @@ const generatedAtLabel = computed(() => {
             <span>
               <b>{{ q.question }}</b>
               <span v-if="q.why !== ''" class="block text-label text-amber-800">{{ q.why }}</span>
+              <!-- 개발의뢰: 담당자가 상담 뒤 적은 확인 결과(additive 필드) -->
+              <span v-if="q.resolution" class="mt-1 block rounded-lg bg-white/70 px-2.5 py-1.5 text-label text-emerald-800">
+                <b class="mr-1 text-emerald-700">확인 결과</b>{{ q.resolution }}
+              </span>
             </span>
           </li>
         </ol>
@@ -179,6 +183,15 @@ const generatedAtLabel = computed(() => {
           <p v-else class="text-body text-tx-3">상담 후 작성</p>
         </div>
       </div>
+    </section>
+
+    <!-- 개발의뢰: 담당자 의견(자유 서술, 줄바꿈 유지 — additive 필드, 마켓 저장분엔 없다) -->
+    <section v-if="review.adminComment" class="grid gap-3 border-t border-line pt-7">
+      <div>
+        <p class="font-mono text-micro tracking-[.14em] text-brand-600">ENGINEER'S NOTE</p>
+        <h3 class="text-lead font-extrabold text-tx-1">담당자 의견</h3>
+      </div>
+      <p class="whitespace-pre-line rounded-2xl border border-brand-100 bg-brand-50 p-5 text-body leading-relaxed text-tx-1">{{ review.adminComment }}</p>
     </section>
 
     <p class="rounded-xl bg-paper px-4 py-3 text-label leading-relaxed text-tx-3">{{ DEV_REVIEW_DISCLAIMER }}</p>

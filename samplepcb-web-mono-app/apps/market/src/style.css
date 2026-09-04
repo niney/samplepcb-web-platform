@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* 공용 UI(@sp/ui)는 workspace 심링크(node_modules/@sp/ui)라 Tailwind v4 자동 스캔에서 빠진다 — 소스를 명시한다. */
+@source "../../../packages/ui/src";
 
 /* 재능마켓 디자인 토큰 — 프로토타입 css/style.css 팔레트(딥 네이비 × 카퍼 오렌지) 이식.
    Tailwind v4 는 @theme 변수가 곧 유틸리티(bg-ink-950, text-copper-500, border-line …). */
@@ -22,6 +24,14 @@
   --color-copper-500: #f06e1d;
   --color-copper-600: #d95a10;
   --color-copper-700: #bc4a09;
+  /* 시맨틱 브랜드 별칭 — 공용 UI(@sp/ui)는 brand-* 만 쓴다. 마켓에선 카퍼와 같은 값(시각 무변경). */
+  --color-brand-50: #fff4ec;
+  --color-brand-100: #ffe5d2;
+  --color-brand-200: #ffd0b0;
+  --color-brand-400: #ff8a3d;
+  --color-brand-500: #f06e1d;
+  --color-brand-600: #d95a10;
+  --color-brand-700: #bc4a09;
   /* 표면·라인·텍스트 */
   --color-paper: #f5f7fb;
   --color-line: #e4eaf3;

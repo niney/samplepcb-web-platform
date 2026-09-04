@@ -22,6 +22,7 @@ import type {
   MarketQuestionDef,
   MarketToolsType,
 } from '@sp/api-contract';
+import type { QuestionState } from '@sp/ui';
 import { useDevReviewStatus } from '../api/useAi';
 
 // 의뢰 위저드 3스텝 폼 상태(docs/AI_DEV_REVIEW.md §13.4) —
@@ -37,11 +38,8 @@ import { useDevReviewStatus } from '../api/useAi';
 
 export type StepKey = 'describe' | 'details' | 'review';
 
-// 문항 하나의 입력 상태 — 미응답은 choices 가 빈 배열이고 등록 payload 에서 빠진다.
-export interface QuestionState {
-  choices: string[];
-  note: string;
-}
+// 문항 하나의 입력 상태 — 공용 QuestionField(@sp/ui)와 같은 모양. 옛 import 경로 호환으로 재노출한다.
+export type { QuestionState } from '@sp/ui';
 
 export interface RequestForm {
   serviceAreas: string[];

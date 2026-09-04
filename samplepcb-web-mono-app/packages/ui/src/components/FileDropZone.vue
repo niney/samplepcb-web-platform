@@ -53,7 +53,7 @@ const sizeLabel = (n: number): string =>
           ? 'rounded-xl border-2 border-dashed px-4 py-3'
           : 'rounded-xl border px-4 py-3 text-label',
         dragging
-          ? 'border-copper-500 bg-copper-50'
+          ? 'border-brand-500 bg-brand-50'
           : files.length > 0
             ? (variant === 'panel' ? 'border-ink-900 bg-white' : 'border-ink-900 border-solid bg-white')
             : (variant === 'panel' ? 'border-line-2 bg-paper hover:border-tx-3' : 'border-dashed border-line-2 bg-paper hover:border-tx-3'),
@@ -68,7 +68,7 @@ const sizeLabel = (n: number): string =>
         <span class="flex items-center gap-3">
           <span
             class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition"
-            :class="dragging ? 'bg-copper-500 text-white' : 'bg-white text-tx-3 ring-1 ring-line-2'"
+            :class="dragging ? 'bg-brand-500 text-white' : 'bg-white text-tx-3 ring-1 ring-line-2'"
           >
             <svg class="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" />

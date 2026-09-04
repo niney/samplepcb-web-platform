@@ -19,10 +19,8 @@ import { buildDevReviewBriefRows } from '@sp/utils';
 import { useAuthStore } from '@sp/shared';
 import BidFormModal from '../components/BidFormModal.vue';
 import ContractCard from '../components/ContractCard.vue';
-import DevDiagramSection from '../components/dev-review/DevDiagramSection.vue';
-import DevReviewView from '../components/dev-review/DevReviewView.vue';
+import { DevDiagramSection, DevReviewView, FilePreviewModal, canPreview, type PreviewTarget } from '@sp/ui';
 import DeliverModal from '../components/DeliverModal.vue';
-import FilePreviewModal from '../components/FilePreviewModal.vue';
 import NdaSignModal from '../components/NdaSignModal.vue';
 import {
   useAwardBid,
@@ -52,7 +50,6 @@ import {
 import { useAiJob, useDevReviewStatus } from '../api/useAi';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
-import { canPreview, type PreviewTarget } from '../lib/file-preview';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
@@ -928,7 +925,7 @@ async function onRemoveDevReview(): Promise<void> {
       <FilePreviewModal
         v-if="projectId !== null"
         :open="previewFile !== null"
-        :project-id="projectId"
+        :files-path="`${apiRoutes.marketProjects}/${String(projectId)}/files`"
         :file="previewFile"
         @close="previewFile = null"
         @download="downloadFile"

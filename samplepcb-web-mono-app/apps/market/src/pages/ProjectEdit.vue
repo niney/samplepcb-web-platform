@@ -28,11 +28,8 @@ import {
 import { useDevReviewStatus } from '../api/useAi';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
-import AreaIcon from '../components/AreaIcon.vue';
-import FileDropZone from '../components/request/FileDropZone.vue';
-import QuestionField from '../components/request/QuestionField.vue';
+import { AreaIcon, FileDropZone, QuestionField, type QuestionState } from '@sp/ui';
 import SaveResultModal from '../components/SaveResultModal.vue';
-import type { QuestionState } from '../composables/useRequestWizardForm';
 
 // 의뢰 수정(docs/MARKET_FLOW.md §의뢰 수정·버전) — 접수 중이면 견적이 들어온 뒤에도 고칠 수 있다.
 // 등록 위저드를 재사용하지 않는다: 위저드는 AI 잡 오케스트레이션까지 소유해서 수정 경로에 끌고 오면

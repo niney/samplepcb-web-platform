@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { AiJobStageType, MarketDevDiagramType, MarketDevDiagramViewType, MarketDevReviewType } from '@sp/api-contract';
-import DevDiagramSection from '../../components/dev-review/DevDiagramSection.vue';
+import { DevDiagramSection } from '@sp/ui';
 import StepReview from '../../components/request/StepReview.vue';
 import type { DevReviewJob } from '../../composables/useDevReviewJob';
 import { useRequestWizardForm } from '../../composables/useRequestWizardForm';

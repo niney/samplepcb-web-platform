@@ -1,7 +1,8 @@
-import { ApiRequestError } from '@sp/shared';
+import { apiErrorMessage } from '@sp/ui';
 
 // 서버 비즈니스 에러 코드 → 사용자 메시지(단일 맵 — 전 화면 공유).
 // 코드 정본은 sp-node market 라우트들의 { result:false, error:'CODE' } 응답.
+// 401/404 공통 폴백은 @sp/ui apiErrorMessage 가 맡고, 여기는 마켓 코드 사전만 든다.
 const CODE_MESSAGES: Record<string, string> = {
   // 전문가
   ALREADY_APPLIED: '이미 전문가 등록 이력이 있습니다. 마이페이지에서 상태를 확인해 주세요.',
@@ -55,14 +56,5 @@ export function errorMessage(
   err: unknown,
   fallback = '요청에 실패했습니다. 잠시 후 다시 시도해 주세요.',
 ): string {
-  if (err instanceof ApiRequestError) {
-    const code = err.payload?.error;
-    if (code !== undefined) {
-      const mapped = CODE_MESSAGES[code];
-      if (mapped !== undefined) return mapped;
-    }
-    if (err.status === 401) return '로그인이 필요합니다.';
-    if (err.status === 404) return '대상을 찾을 수 없습니다.';
-  }
-  return fallback;
+  return apiErrorMessage(err, fallback, CODE_MESSAGES);
 }

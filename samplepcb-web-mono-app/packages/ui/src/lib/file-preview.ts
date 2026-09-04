@@ -1,7 +1,6 @@
 import {
   FILE_PREVIEW_MAX_BYTES,
   FilePreviewResponse,
-  apiRoutes,
   delimiterFor,
   fileViewKind,
   needsServerPreview,
@@ -32,17 +31,15 @@ export interface PreviewTarget {
 export const canPreview = (file: { name: string; size: number }): boolean =>
   fileViewKind(file.name) !== 'none' && file.size <= FILE_PREVIEW_MAX_BYTES;
 
-const filePath = (projectId: number, fileId: number): string =>
-  `${apiRoutes.marketProjects}/${String(projectId)}/files/${String(fileId)}`;
+// filesPath = 파일 라우트의 `…/files` 까지(예: `${apiRoutes.marketProjects}/12/files`). 도메인마다 다르므로
+// 호출자가 준다 — 다운로드가 `${filesPath}/:fileId`, 구조화 미리보기가 `${filesPath}/:fileId/preview` 인 것만 약속.
+const filePath = (filesPath: string, fileId: number): string => `${filesPath}/${String(fileId)}`;
 
-export const fetchPreviewBlob = async (projectId: number, fileId: number): Promise<Blob> =>
-  apiGetBlob(filePath(projectId, fileId));
+export const fetchPreviewBlob = async (filesPath: string, fileId: number): Promise<Blob> =>
+  apiGetBlob(filePath(filesPath, fileId));
 
-export const fetchPreviewData = async (
-  projectId: number,
-  fileId: number,
-): Promise<FilePreviewDataType> => {
-  const res = await apiGet(`${filePath(projectId, fileId)}/preview`, FilePreviewResponse);
+export const fetchPreviewData = async (filesPath: string, fileId: number): Promise<FilePreviewDataType> => {
+  const res = await apiGet(`${filePath(filesPath, fileId)}/preview`, FilePreviewResponse);
   return res.data;
 };
 

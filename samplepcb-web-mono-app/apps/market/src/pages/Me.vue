@@ -11,7 +11,7 @@ import {
 import { useAuthStore } from '@sp/shared';
 import { ApiRequestError } from '@sp/shared';
 import ExpertProfileForm from '../components/ExpertProfileForm.vue';
-import UiPagination from '../components/UiPagination.vue';
+import { UiPagination } from '@sp/ui';
 import { useMyBidList, useTargetedProjects } from '../api/useMarketBids';
 import type { MyBidFilters } from '../api/useMarketBids';
 import { useExpertMe } from '../api/useMarketExpertMe';

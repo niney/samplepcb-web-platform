@@ -5,9 +5,7 @@ import { useMarketExpertList } from '../../api/useMarketExperts';
 import type { ExpertListFilters } from '../../api/useMarketExperts';
 import { slotKey } from '../../composables/useRequestWizardForm';
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
-import AreaIcon from '../AreaIcon.vue';
-import FileDropZone from './FileDropZone.vue';
-import QuestionField from './QuestionField.vue';
+import { AreaIcon, FileDropZone, QuestionField } from '@sp/ui';
 
 // 스텝 2 — 몇 가지만 더(docs/AI_DEV_REVIEW.md §13.4·§13.8·§13.9):
 //   ① 프로젝트 공통 조건(필수, n/6) — 예산·완료 시점·목표 단계·견적 방식·인도 범위·NDA. 굵은 테두리로

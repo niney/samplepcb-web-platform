@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { MARKET_DEADLINE_PRESETS } from '@sp/api-contract';
-import DevReviewView from '../dev-review/DevReviewView.vue';
+import { DevReviewView } from '@sp/ui';
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
 import type { DevReviewJob } from '../../composables/useDevReviewJob';
 

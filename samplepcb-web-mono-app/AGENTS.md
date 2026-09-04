@@ -34,10 +34,12 @@ packages/
 ├── config/        @sp/config        ← tsconfig/eslint 공유(이미 작성됨, 수정 금지 기준)
 ├── api-contract/  @sp/api-contract  ← Zod 스키마 + 추론 타입 + 라우트 상수 (FE/BE 공통, src 직접 노출)
 ├── utils/         @sp/utils         ← 순수 함수(FE/BE 공용)
-└── shared/        @sp/shared        ← API 클라이언트 + vue-query 훅 + Pinia auth store
+├── shared/        @sp/shared        ← API 클라이언트 + vue-query 훅 + Pinia auth store
+└── ui/            @sp/ui            ← Vue 렌더 컴포넌트 공용(검토서 뷰어·구성도·드롭존·미리보기 — 시맨틱 토큰만, i18n 미사용; 소비 앱 CSS 에 @source 필요)
 apps/
 ├── web/           Vite + Vue 3      ← base:'/app/' (관리자)
 ├── market/        Vite + Vue 3      ← base:'/market/' (재능마켓 고객 SPA)
+├── develop/       Vite + Vue 3      ← base:'/develop/' (개발의뢰 고객 SPA, 5177 — docs/DEVELOP_FLOW.md)
 └── api/           Fastify 5         ← prefix '/api'
 ```
 
@@ -59,8 +61,8 @@ apps/
 
 ```bash
 pnpm install
-pnpm dev          # turbo: web(5173) + market(5176) + api(3333) 동시
+pnpm dev          # turbo: web(5173) + market(5176) + develop(5177) + api(3333) 동시
 pnpm typecheck    # turbo typecheck (모든 워크스페이스)
 pnpm lint
 ```
-nginx(`../ops/nginx/local-web.conf`)가 `/app`→5173, `/market`→5176, `/api`→3333 프록시.
+nginx(`../ops/nginx/local-web.conf`)가 `/app`→5173, `/market`→5176, `/develop`→5177, `/api`→3333 프록시.

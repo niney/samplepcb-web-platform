@@ -15,7 +15,8 @@ const props = withDefaults(defineProps<{
   skipReason?: string | null; // 3단계(등록 전): run 응답의 생략 사유
   failed?: boolean; // 3단계: 잡 조회 실패
   reused?: boolean; // 3단계: 같은 입력(제목·분야·설명·답변·첨부)의 1시간 안 잡을 재사용
-}>(), { canRegenerate: false, regenerating: false, regenerateError: '', skipReason: null, failed: false, reused: false });
+  uploaded?: boolean; // 개발의뢰: 담당자가 교체 업로드한 도면 — 모델·thinking 메타 줄을 숨기고 "담당자 작성" 으로
+}>(), { canRegenerate: false, regenerating: false, regenerateError: '', skipReason: null, failed: false, reused: false, uploaded: false });
 const emit = defineEmits<{ regenerate: [] }>();
 
 const meta = computed(() => props.diagram.meta);
@@ -24,7 +25,7 @@ const statusLabel = computed(() => (meta.value === null ? '' : MARKET_DEV_DIAGRA
 const statusClass = computed(() => {
   switch (meta.value?.status) {
     case 'done': return 'bg-emerald-100 text-emerald-700';
-    case 'running': case 'queued': return 'bg-copper-50 text-copper-700';
+    case 'running': case 'queued': return 'bg-brand-50 text-brand-700';
     case 'error': return 'bg-red-100 text-red-700';
     default: return 'bg-line text-tx-3';
   }
@@ -134,9 +135,9 @@ const generatedAt = computed(() => {
       <p class="mx-auto max-w-lg text-label leading-relaxed text-tx-3">AI 동의로 등록한 의뢰는 자료가 충분하면 자동으로 만들어집니다.</p>
     </div>
     <!-- 생성 중 — 완성본이 들어올 액자를 미리 세운다(작게: 220px). 5~10분짜리라 주 메시지는 "기다리지 마세요"다. -->
-    <div v-else-if="pending" class="grid gap-3.5 rounded-2xl border-2 border-copper-200 bg-white p-5">
+    <div v-else-if="pending" class="grid gap-3.5 rounded-2xl border-2 border-brand-200 bg-white p-5">
       <div class="flex flex-wrap items-center gap-2.5">
-        <span class="pulse-dot h-2 w-2 shrink-0 rounded-full bg-copper-500" />
+        <span class="pulse-dot h-2 w-2 shrink-0 rounded-full bg-brand-500" />
         <p class="text-body font-extrabold text-tx-1">
           {{ meta.status === 'queued' ? '대기 중 — 곧 시작합니다' : '구성도를 그리는 중입니다' }}
         </p>
@@ -144,7 +145,7 @@ const generatedAt = computed(() => {
           경과 {{ elapsedLabel }} <span class="text-tx-3">/ 보통 5~10분</span>
         </p>
       </div>
-      <div class="h-1.5 overflow-hidden rounded-full bg-copper-50"><span class="dg-bar block h-full w-2/5 rounded-full bg-copper-500" /></div>
+      <div class="h-1.5 overflow-hidden rounded-full bg-brand-50"><span class="dg-bar block h-full w-2/5 rounded-full bg-brand-500" /></div>
       <!-- 도면 자리 — 청사진 격자 위에 블록·연결선이 차례로 옅게 나타난다 -->
       <div class="dg-grid relative h-[220px] overflow-hidden rounded-xl border border-dashed border-line-2" aria-hidden="true">
         <svg class="absolute inset-0 h-full w-full" viewBox="0 0 380 220" fill="none" preserveAspectRatio="xMidYMid meet">
@@ -208,7 +209,8 @@ const generatedAt = computed(() => {
           <span class="rounded-lg bg-ink-900/80 px-3.5 py-2 text-label font-bold text-white">🔍 전체 문서 보기</span>
         </div>
       </div>
-      <p class="text-micro text-tx-3">
+      <p v-if="uploaded" class="text-micro text-tx-3">담당자가 검토 후 작성한 구성도입니다.</p>
+      <p v-else class="text-micro text-tx-3">
         {{ meta.model }} · thinking {{ meta.think }} · {{ generatedAt }} 생성
         <template v-if="meta.elapsedSecs !== null"> · {{ Math.round(meta.elapsedSecs / 60) }}분 소요</template>
         <template v-if="meta.audit !== null && meta.audit.ungroundedTokens.length > 0">

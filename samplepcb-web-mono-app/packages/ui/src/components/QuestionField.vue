@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { MARKET_UNKNOWN_CHOICE } from '@sp/api-contract';
 import type { MarketQuestionDef } from '@sp/api-contract';
-import type { QuestionState } from '../../composables/useRequestWizardForm';
+import type { QuestionState } from '../types';
 
 // 질문 하나(칩 선택 + "왜 묻나요" 한 줄 + 메모) — 공통 조건·공통 질문·분야 맞춤 질문이 같은 모양이라 하나로 그린다.
 // 탈출구(코드 unknown, 라벨은 문항마다 "잘 모르겠어요"·"전문가 추천"·"협의해서 정할게요")는 점선 칩으로
