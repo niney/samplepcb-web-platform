@@ -43,7 +43,7 @@ onMounted(() => {
       <div>
         <h2 class="text-title font-extrabold text-tx-1">AI 사전 검토서</h2>
         <p class="mt-1 text-body leading-relaxed text-tx-2">
-          적어 주신 내용과 첨부를 근거로 요약·개발명세서를 정리합니다(약 30초~3분). 시스템 구성도는 같이 시작돼
+          적어 주신 내용과 1단계 참고 자료를 근거로 요약·개발명세서를 정리합니다(약 30초~3분). 시스템 구성도는 같이 시작돼
           5~10분 뒤 완성되며, 등록 뒤 화면을 벗어나도 우측 아래 알림으로 알려드립니다.
         </p>
       </div>
@@ -74,7 +74,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 오래됨 — 생성 이후 제목·분야·설명·답변·첨부가 바뀌었다. -->
+      <!-- 오래됨 — 생성 이후 제목·분야·설명·답변·참고 자료가 바뀌었다(분야 슬롯 자료는 원천이 아니다). -->
       <div v-if="stale" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-label leading-relaxed text-amber-800">
         <p class="text-body font-bold">의뢰 내용이 바뀌어 검토서가 오래된 상태입니다.</p>
         <p class="mt-1">지금 등록하면 검토서는 빠집니다. 바뀐 내용으로 다시 만들어 주세요.</p>

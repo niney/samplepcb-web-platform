@@ -6,6 +6,7 @@ import {
   AiUsecaseStatusResponse,
   ApiMemberError,
   DevReviewRunPayload,
+  MARKET_ATTACHMENT_FIELD,
   parseMarketAttachmentField,
 } from '@sp/api-contract';
 import { DEV_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from '../lib/ai/usecases';
@@ -27,12 +28,14 @@ import { collectMultipart, splitMarketAttachments } from '../lib/market';
 
 const JobParams = z.object({ jobId: z.string().uuid() });
 
-// 첨부 원본(zip 전개 **전**) 앞 10개의 SHA-256 — 캐시·신선도 판정의 원천. 일반 첨부와 분야별
-// 슬롯 첨부를 합쳐 파트 이름 순으로 정렬한 뒤 잰다(순서가 달라도 같은 해시).
+// 첨부 원본(zip 전개 **전**) 앞 10개의 SHA-256 — 캐시·신선도 판정의 원천. **1스텝 참고 자료
+// (`attachment`)만** 잰다: 2스텝 분야 슬롯 자료는 AI 분석 대상이 아니므로(§13.10) 슬롯 파일을
+// 더하거나 빼도 검토서가 오래되지 않는다. 파트 이름 순으로 정렬한다(순서가 달라도 같은 해시).
 // ⚠ 의뢰 등록 라우트(market-projects create)가 같은 함수를 쓴다 — 규칙이 어긋나면 정상 등록이
 // REVIEW_STALE 로 튕긴다.
 export const devReviewAttachmentHashes = (files: readonly { field: string; buffer: Buffer }[]): string[] =>
-  [...files]
+  files
+    .filter((f) => f.field === MARKET_ATTACHMENT_FIELD)
     .map((f) => `${f.field}:${hashAiBytes(f.buffer)}`)
     .sort()
     .slice(0, 10);
@@ -96,12 +99,14 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
         return reply.status(409).send({ result: false, error: 'USECASE_DISABLED' });
       }
 
-      // 첨부 — 일반 + 분야별 슬롯. 사전에 없는 파트 이름은 거절(레지스트리 정합).
+      // 첨부 — 사전에 없는 파트 이름은 거절(레지스트리 정합).
       const split = splitMarketAttachments(files, payload.serviceAreas);
       if (split.invalid.length > 0) {
         return reply.status(400).send({ result: false, error: 'ATTACHMENT_FIELD_INVALID' });
       }
-      const attachments = split.accepted;
+      // AI 가 읽는 것은 **1스텝 참고 자료뿐**(§13.10). 2스텝 분야 슬롯 자료는 전문가에게만 간다 —
+      // 현재 FE 는 아예 보내지 않지만, 옛 클라이언트가 보내도 400 없이 조용히 뺀다.
+      const attachments = split.accepted.filter((f) => f.area === null);
       // zip 은 전개해서 내용까지 읽되, 해시는 고객이 올린 원본 파일 기준(등록 시 재현 가능).
       const attachmentHashes = devReviewAttachmentHashes(attachments);
       const expanded = expandAiArchives(

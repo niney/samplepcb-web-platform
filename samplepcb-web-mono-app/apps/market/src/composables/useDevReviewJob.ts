@@ -9,15 +9,16 @@ import type { RequestWizardForm } from './useRequestWizardForm';
 // run(multipart) → { jobId, diagramJobId } → 5초 폴링 → 검토서. 시스템 구성도 잡은 3단계에서 검토서와
 // 병렬로 시작되며 여기서는 상태만 본다(본문은 등록 뒤 상세에서). 루프는 없다 — 사용자가 원할 때만 재생성한다.
 //
-// 신선도는 **로컬 서명**으로 판정한다: 검토서의 원천(제목·분야·설명·답변·첨부 전체)을 문자열로
+// 신선도는 **로컬 서명**으로 판정한다: 검토서의 원천(제목·분야·설명·답변·1스텝 참고 자료)을 문자열로
 // 묶어 생성 시점 값과 비교한다. 희망 툴은 원천이 아니다(전문가 힌트 — 바꿔도 검토서가 오래되지
-// 않는다). 서버도 등록 시 같은 원천을 해시로 대조해 REVIEW_STALE 를 내므로, 로컬 판정은 그 400 을
-// 사용자가 만나기 전에 잡아주는 앞단일 뿐이다. 첨부는 파트명+name+size+lastModified 로만 비교한다.
+// 않는다). **2스텝 분야 슬롯 자료도 원천이 아니다**(§13.10 — AI 분석에 안 보내니 더하거나 빼도
+// 검토서는 그대로다). 서버도 등록 시 같은 원천을 해시로 대조해 REVIEW_STALE 를 내므로, 로컬 판정은
+// 그 400 을 사용자가 만나기 전에 잡아주는 앞단일 뿐이다. 첨부는 파트명+name+size+lastModified 로만 비교한다.
 
 const fileSignature = (field: string, f: File): string => `${field}=${f.name}:${String(f.size)}:${String(f.lastModified)}`;
 
 export function useDevReviewJob(form: RequestWizardForm) {
-  const { fields, attachments, activeSlotFiles, devReviewEnabled, buildAnswers } = form;
+  const { fields, attachments, devReviewEnabled, buildAnswers } = form;
 
   // 검토서 생성 노출 조건 = 유스케이스 활성 && AI 사전 검토 동의.
   const active = computed(() => devReviewEnabled.value && fields.aiConsent);
@@ -28,10 +29,7 @@ export function useDevReviewJob(form: RequestWizardForm) {
       serviceAreas: [...fields.serviceAreas].sort(),
       description: fields.description.trim(),
       answers: buildAnswers(),
-      attachments: [
-        ...attachments.value.map((f) => fileSignature('attachment', f)),
-        ...activeSlotFiles.value.map((s) => fileSignature(s.field, s.file)),
-      ].sort().join('|'),
+      attachments: attachments.value.map((f) => fileSignature('attachment', f)).sort().join('|'),
     }),
   );
 
@@ -133,7 +131,7 @@ export function useDevReviewJob(form: RequestWizardForm) {
           description,
           answers: buildAnswers(),
         },
-        appendFiles: form.appendAttachments,
+        appendFiles: form.appendAiAttachments,
       });
       jobId.value = res.data.jobId;
       diagramJobId.value = res.data.diagramJobId;

@@ -1,6 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { SpMarketProject } from '@prisma/client';
-import { marketSlotLabel } from '@sp/api-contract';
 import type { MarketDevDiagramType } from '@sp/api-contract';
 import { downloadFromFileServer } from '../file-server';
 import { getMembersByIds } from '../g5-db';
@@ -59,17 +58,18 @@ const baseMeta = (runtime: { model: string; think: string }, attempt: number, co
 const jobResultJson = (meta: MarketDevDiagramType, html = ''): string => JSON.stringify({ meta, html });
 
 // 프로젝트 저장분(설명·답변·첨부 실파일)에서 근거 코퍼스를 다시 만든다 — 재생성·재시작 복구용.
+// 첨부는 **1스텝 참고 자료(area = null)만** 읽는다 — 2스텝 분야 슬롯 자료는 AI 분석 대상이 아니다(§13.10).
+// 실행 라우트(routes/ai.ts)와 같은 집합이어야 같은 코퍼스가 나온다.
 export async function buildProjectDevReviewSource(project: SpMarketProject): Promise<DevReviewSource> {
   const files = await prisma.spFile.findMany({
-    where: { refType: REF_MARKET_PROJECT, refId: project.id },
+    where: { refType: REF_MARKET_PROJECT, refId: project.id, area: null },
     orderBy: { id: 'asc' },
   });
   const downloaded = await Promise.all(
     files.map(async (f) => {
       const d = await downloadFromFileServer(f.pathToken);
       if (d === null) return null;
-      const slotPrefix = f.area !== null && f.slot !== null ? `[${marketSlotLabel(f.area, f.slot)}] ` : '';
-      return { buffer: d.buffer, filename: `${slotPrefix}${f.originFileName}`, mimetype: d.contentType };
+      return { buffer: d.buffer, filename: f.originFileName, mimetype: d.contentType };
     }),
   );
   const present = downloaded.filter((d): d is NonNullable<typeof d> => d !== null);

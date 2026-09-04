@@ -199,7 +199,8 @@ const expertList = useMarketExpertList(expertFilters);
       <!-- 추가자료 슬롯 -->
       <div class="grid gap-2.5">
         <p class="text-label font-semibold text-tx-2">
-          {{ area.short }} 관련 자료 <span class="font-normal text-tx-3">있는 것만 · 없으면 전문가 검토 후 보완</span>
+          {{ area.short }} 관련 자료
+          <span class="font-normal text-tx-3">있는 것만 · 없으면 전문가 검토 후 보완 — 전문가에게만 전달되고 AI 분석에는 쓰지 않습니다</span>
         </p>
         <div class="grid items-start gap-2.5 sm:grid-cols-2">
           <FileDropZone

@@ -100,8 +100,9 @@ const {
 
     <!-- 참고 자료(일반 첨부) -->
     <div class="grid gap-2">
-      <p class="text-label font-semibold text-tx-2">
+      <p class="flex flex-wrap items-center gap-2 text-label font-semibold text-tx-2">
         참고 자료 <span class="font-normal text-tx-3">(선택 · 여러 개 가능 — 손그림·사진·문서 무엇이든)</span>
+        <span class="rounded-full bg-blue-50 px-2.5 py-0.5 text-micro font-bold text-blue-700">AI 분석 대상</span>
       </p>
       <FileDropZone
         :files="attachments"
@@ -119,9 +120,9 @@ const {
     <label class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-label leading-relaxed text-blue-900">
       <input v-model="fields.aiConsent" type="checkbox" class="mt-1">
       <span>
-        <b class="text-body">AI 사전 검토 동의</b> — 적어 주신 내용과 첨부에서 추출한 텍스트·이미지를 AI 분석에 외부 서버로
-        보내 <b>AI 사전 검토서</b>(요약·개발명세서)를 만들고, 같은 자료로 <b>시스템 구성도</b>를 만들어 알려드립니다.
-        공개 범위는 설명과 같습니다.
+        <b class="text-body">AI 사전 검토 동의</b> — 적어 주신 내용과 <b>위 참고 자료</b>에서 추출한 텍스트·이미지를 AI 분석에
+        외부 서버로 보내 <b>AI 사전 검토서</b>(요약·개발명세서)를 만들고, 같은 자료로 <b>시스템 구성도</b>를 만들어
+        알려드립니다. 다음 단계의 분야별 자료는 보내지 않습니다. 공개 범위는 설명과 같습니다.
         <template v-if="devReviewEnabled">
           <br>해제하면 검토서·구성도 없이 입력한 내용만으로 등록됩니다.
         </template>

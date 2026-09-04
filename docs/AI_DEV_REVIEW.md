@@ -592,11 +592,11 @@ MARKET_COMMON_QUESTIONS = [stage, quantity, external]                   // 공�
 | `sp_file` | `area`·`slot`(nullable — 의뢰 슬롯 첨부만) |
 | `sp_ai_usecase` | `think`(off\|low\|medium\|high) 추가. 유스케이스 2종 `market.dev-review`·`market.dev-diagram` |
 
-계약: `MarketProjectCreatePayload` = `{ title, serviceAreas, tools, description, answers, aiConsent, devReviewJobId?, ndaRequired, budgetRange, deadline, method, targetExpertId? }`. multipart 파트 = `attachment`(일반) + `attachment:<area>:<slot>`(슬롯, 레지스트리·선택 분야 검증 → 400 `ATTACHMENT_FIELD_INVALID`). 검토서 입력 해시의 첨부 항목은 `${파트명}:${sha256}` 정렬 앞 10개(`routes/ai.ts devReviewAttachmentHashes` — 등록 라우트와 공유).
+계약: `MarketProjectCreatePayload` = `{ title, serviceAreas, tools, description, answers, aiConsent, devReviewJobId?, ndaRequired, budgetRange, deadline, method, targetExpertId? }`. multipart 파트 = `attachment`(일반) + `attachment:<area>:<slot>`(슬롯, 레지스트리·선택 분야 검증 → 400 `ATTACHMENT_FIELD_INVALID`). 검토서 입력 해시의 첨부 항목은 **`attachment`(1스텝 참고 자료)만** `${파트명}:${sha256}` 정렬 앞 10개(`routes/ai.ts devReviewAttachmentHashes` — 등록 라우트와 공유). 슬롯 첨부는 AI 분석 대상이 아니라 해시에서 뺀다(§13.10).
 
 ### 13.4 화면
 
-- 위저드(`apps/market` `useRequestWizardForm`·`StepDescribe`·`StepDetails`·`StepReview`·`QuestionField`): 2스텝 카드는 레지스트리 데이터로만 그린다. 툴은 `<details>` 접힘 + "전문가 추천" 칩 기본. 슬롯 첨부는 `slotFiles["area:slot"]`. 검토서 신선도 서명은 제목·분야·설명·답변·첨부 전체(파트명 포함) — 툴은 원천이 아니다.
+- 위저드(`apps/market` `useRequestWizardForm`·`StepDescribe`·`StepDetails`·`StepReview`·`QuestionField`): 2스텝 카드는 레지스트리 데이터로만 그린다. 툴은 `<details>` 접힘 + "전문가 추천" 칩 기본. 슬롯 첨부는 `slotFiles["area:slot"]`. 검토서 신선도 서명은 제목·분야·설명·답변·**1스텝 참고 자료** — 툴과 슬롯 첨부는 원천이 아니다(§13.10).
 - 전문가 등록·프로필: `AreaToolsPicker`(분야 5종 + 분야별 툴). 목록 필터 `serviceArea`·`tool`.
 - 의뢰 상세: 브리프 행(`buildDevReviewBriefRows(answers)`, 검토서 없이도)·희망 툴 행·슬롯 라벨 붙은 첨부·**정밀 구성도 섹션**(`DevDiagramSection` — 상태 배지·sandbox iframe 미리보기·전체 문서 모달·소유자 재생성).
 - 관리자: 의뢰 상세에 툴·답변·정밀 구성도(감사 요약·강제 재생성), AI 설정에 정밀 구성도 블록(사용·모델·thinking·추가 지침).
@@ -682,3 +682,23 @@ MARKET_COMMON_QUESTIONS = [stage, quantity, external]                   // 공�
 
 검증: 계약·market 타입체크 0, eslint 0, 실브라우저 워크(`dev-review-v2-walk`) 2스텝 조건 6/6 → 검토서 → 등록 → 상세·관리자 pageErrors 0.
 결정 48 검증(2026-09-04): 드래그 하이라이트 on/off · 드롭 2건 → 중복 1건 제외 재드롭 3건 · ✕ 삭제 · 하단 바 첨부 카운트 · 슬롯 독립 · 창 밖 드롭 `defaultPrevented` 를 실브라우저에서 확인했고, Playwright 경로(`setInputFiles` on `sr-only`)도 1스텝·2스텝 슬롯 모두 pageErrors 0.
+
+### 13.10 AI 분석 대상 = 1스텝 참고 자료뿐 (2026-09-04 밤, 사용자 확정)
+
+**2스텝 분야별 추가자료 슬롯(회로도·거버·기존 소스·화면 시안·API 명세 …)은 AI 로 보내지 않는다.** 저장·전문가 열람은 그대로다 —
+등록 multipart 는 여전히 전부 올리고 `sp_file.area`·`slot` 에 남는다. 바뀐 것은 "무엇을 외부 LLM 에 보내는가" 하나뿐이다.
+
+| 곳 | 규칙 |
+|---|---|
+| 위저드 (`useRequestWizardForm`) | `appendAiAttachments`(= `attachment` 만) / `appendAttachments`(= 전부, 등록용) 로 갈랐다. 검토서 실행은 앞엣것을 쓴다 |
+| 신선도 서명 (`useDevReviewJob`) | 원천에서 슬롯 첨부를 뺐다 — 2스텝에서 슬롯 파일을 더하거나 빼도 검토서가 "오래됨" 이 되지 않는다 |
+| 실행 라우트 (`routes/ai.ts`) | 슬롯 파트가 와도 400 이 아니라 **조용히 제외**(옛 클라이언트 호환). 코퍼스·이미지·`attachmentFiles` 전부 참고 자료만 |
+| 입력 해시 (`devReviewAttachmentHashes`) | `field === 'attachment'` 만 잰다. 실행·등록 두 라우트가 같은 함수라 규칙이 자동으로 일치한다(어긋나면 정상 등록이 `REVIEW_STALE`) |
+| 구성도 재생성 (`buildProjectDevReviewSource`) | `sp_file` 조회에 `area: null` 을 걸어 실행 라우트와 같은 집합을 읽는다. 슬롯 라벨 접두(`[회로도·부품 목록] …`)는 더 이상 필요 없어 뺐다 |
+| 화면 문구 | 1스텝 "참고 자료" 제목에 **AI 분석 대상** 배지, AI 동의문에 "다음 단계의 분야별 자료는 보내지 않습니다", 2스텝 슬롯 제목에 "전문가에게만 전달되고 AI 분석에는 쓰지 않습니다" |
+
+근거: 분야별 자료는 전문가가 볼 원본(거버·소스·시안)이라 외부 전송 범위를 넓히는 데 비해 검토서 품질 기여가 작다. 고객이 "AI 에
+무엇이 나가는가" 를 1스텝 한 화면에서 전부 확인할 수 있게 됐다.
+
+검증(2026-09-04): Playwright 로 두 multipart 를 가로채 실측 — 실행 `payload + attachment × 2`, 등록 `payload + attachment × 2 +
+attachment:circuit:schematic × 1`. api 타입체크·lint 0 · ai 단위 46 green · market 타입체크·lint 0 · pageErrors 0.

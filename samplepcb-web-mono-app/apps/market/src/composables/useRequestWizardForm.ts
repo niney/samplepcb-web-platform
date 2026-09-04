@@ -169,9 +169,13 @@ export function useRequestWizardForm() {
     }
     return { version: MARKET_TOOLS_VERSION, byArea };
   }
-  // 첨부 전체(일반 + 슬롯) — 검토서 실행·등록 multipart 가 같은 순서로 붙인다.
-  function appendAttachments(fd: FormData): void {
+  // AI 분석에 보내는 첨부 = **1스텝 참고 자료뿐**(§13.10). 2스텝 분야 슬롯 자료는 전문가에게만 간다.
+  function appendAiAttachments(fd: FormData): void {
     for (const f of attachments.value) fd.append('attachment', f);
+  }
+  // 첨부 전체(일반 + 슬롯) — 등록 multipart 가 쓴다(저장·전문가 열람은 전부).
+  function appendAttachments(fd: FormData): void {
+    appendAiAttachments(fd);
     for (const area of selectedAreas.value) {
       const def = marketArea(area);
       for (const slot of def?.attachmentSlots ?? []) {
@@ -304,6 +308,7 @@ export function useRequestWizardForm() {
     clearTools,
     isRecommended,
     buildTools,
+    appendAiAttachments,
     appendAttachments,
     devReviewEnabled,
     steps,
