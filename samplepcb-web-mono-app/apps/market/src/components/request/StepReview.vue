@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { MARKET_DEADLINE_PRESETS } from '@sp/api-contract';
 import DevReviewView from '../dev-review/DevReviewView.vue';
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
@@ -22,6 +22,7 @@ const {
   stale,
   include,
   blocking,
+  diagramJobId,
   diagramMeta,
   diagramSkipReason,
   diagramCached,
@@ -34,6 +35,15 @@ const {
 onMounted(() => {
   if (aiActive.value) ensure();
 });
+
+// 생성 중 표시 — 서버 stage 는 'attachments'(자료 판독) → 'review'(작성) 2단뿐이라 그 둘만 그린다.
+const readingDone = computed(() => stage.value !== 'attachments');
+const runSteps = computed(() => [
+  { key: 'attachments', label: '자료 읽기', state: readingDone.value ? 'done' : 'active' },
+  { key: 'review', label: '검토서 작성', state: readingDone.value ? 'active' : 'wait' },
+]);
+// 90초를 넘기면 "멈춘 것 아닌가" 로 읽히기 시작한다 — 한 줄로 안심시킨다.
+const slowly = computed(() => elapsedSecs.value >= 90);
 </script>
 
 <template>
@@ -48,20 +58,89 @@ onMounted(() => {
         </p>
       </div>
 
-      <!-- 생성 진행 2단(첨부 판독 → 검토서 작성) -->
-      <p v-if="running" class="flex items-center gap-2 rounded-xl bg-copper-50 px-4 py-3 text-body font-semibold text-copper-700">
-        <span class="tray-dot h-2 w-2 rounded-full bg-copper-500" />
-        <template v-if="stage === 'attachments'">첨부 확인 중…</template>
-        <template v-else>검토서 작성 중… (30초~3분)</template>
-        <span class="font-normal tabular-nums">경과 {{ elapsedSecs }}초</span>
-      </p>
+      <!-- 생성 중 — 완성될 검토서 자리를 미리 차지하는 분석 카드(§13.11).
+           단계는 서버가 실제로 알려주는 2단(자료 읽기 → 검토서 작성)만 쓴다 — 없는 진척을 지어내지 않는다. -->
+      <div v-if="running" class="grid gap-5 rounded-2xl border-2 border-copper-200 bg-white p-6">
+        <div class="flex flex-wrap items-center gap-3.5">
+          <span class="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-copper-50 text-copper-600">
+            <span class="ai-ring absolute inset-0 rounded-xl border-2 border-copper-300" />
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-9" />
+              <path d="M8.5 12h5M8.5 16h3" />
+              <path d="m18 2 .9 2.1L21 5l-2.1.9L18 8l-.9-2.1L15 5l2.1-.9z" />
+            </svg>
+          </span>
+          <div class="grid gap-0.5">
+            <p class="text-lead font-extrabold text-tx-1">
+              {{ readingDone ? 'AI 가 검토서를 쓰고 있습니다' : 'AI 가 자료를 읽고 있습니다' }}
+            </p>
+            <p class="text-label text-tx-3">
+              {{ readingDone ? '요약 · 핵심 요구사항 · 분야별 검토 · 개발명세서를 정리합니다.' : '적어 주신 내용과 참고 자료에서 텍스트·이미지를 추출합니다.' }}
+            </p>
+          </div>
+          <p class="ml-auto font-mono text-label tabular-nums text-tx-2">
+            경과 {{ elapsedSecs }}초 <span class="text-tx-3">/ 보통 30초~3분</span>
+          </p>
+        </div>
 
-      <!-- 생성 대기 탈출구 — 포함 예정 검토서가 생성 중이면 등록이 막힌다. -->
-      <div v-if="blocking" class="flex flex-wrap items-center gap-3 rounded-xl bg-paper px-4 py-3 text-label text-tx-2">
-        <span>검토서 생성이 끝나면 등록됩니다.</span>
-        <button type="button" class="h-9 rounded-lg border border-line-2 bg-white px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="skip()">
-          검토서 없이 바로 등록
-        </button>
+        <div class="h-1.5 overflow-hidden rounded-full bg-copper-50"><span class="ai-bar block h-full w-2/5 rounded-full bg-copper-500" /></div>
+
+        <ol class="grid gap-2.5 sm:grid-cols-2">
+          <li
+            v-for="(s, i) in runSteps"
+            :key="s.key"
+            class="flex items-center gap-2.5 rounded-xl border px-4 py-3 text-label transition"
+            :class="s.state === 'done' ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : s.state === 'active' ? 'border-copper-300 bg-copper-50 text-copper-800'
+                : 'border-line bg-paper text-tx-3'"
+          >
+            <span
+              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-micro font-bold"
+              :class="s.state === 'done' ? 'bg-emerald-600 text-white' : s.state === 'active' ? 'bg-copper-500 text-white' : 'bg-white text-tx-3 ring-1 ring-line-2'"
+            >
+              <template v-if="s.state === 'done'">✓</template>
+              <template v-else>{{ i + 1 }}</template>
+            </span>
+            <span class="font-bold">{{ s.label }}</span>
+            <span v-if="s.state === 'active'" class="tray-dot ml-auto h-2 w-2 rounded-full bg-copper-500" />
+          </li>
+        </ol>
+
+        <!-- 완성 레이아웃 예고 — 검토서가 들어오면 이 자리에 그대로 채워진다(높이가 튀지 않는다) -->
+        <div class="grid gap-3 border-t border-line pt-5" aria-hidden="true">
+          <span class="ai-skel h-4 w-1/3 rounded" />
+          <span class="ai-skel h-3 w-full rounded" />
+          <span class="ai-skel h-3 w-11/12 rounded" />
+          <div class="mt-1.5 grid gap-3 sm:grid-cols-2">
+            <div v-for="n in 2" :key="n" class="grid gap-2 rounded-xl border border-line p-4">
+              <span class="ai-skel h-3.5 w-2/5 rounded" />
+              <span class="ai-skel h-3 w-full rounded" />
+              <span class="ai-skel h-3 w-4/5 rounded" />
+            </div>
+          </div>
+        </div>
+
+        <p v-if="slowly" class="rounded-xl bg-paper px-4 py-3 text-label leading-relaxed text-tx-2">
+          조금 더 걸리고 있습니다 — 자료가 많으면 3분까지 걸릴 수 있습니다. 이 화면을 그대로 두셔도 됩니다.
+        </p>
+
+        <!-- 구성도는 같은 자료로 병렬 생성(§13.7) — 검토서보다 훨씬 오래 걸린다는 것을 여기서 알려 준다 -->
+        <p v-if="diagramSkipReason !== null" class="flex flex-wrap items-center gap-2 rounded-xl bg-paper px-4 py-3 text-label text-tx-2">
+          <span class="font-bold text-tx-1">시스템 구성도</span> 이번에는 만들지 않습니다 — {{ diagramSkipReason }}
+        </p>
+        <p v-else-if="diagramJobId !== null" class="flex flex-wrap items-center gap-2 rounded-xl bg-paper px-4 py-3 text-label text-tx-2">
+          <span class="tray-dot h-2 w-2 rounded-full bg-ink-900" />
+          <span class="font-bold text-tx-1">시스템 구성도</span>
+          도 같은 자료로 만들고 있습니다 · 5~10분 · 등록 뒤 화면을 벗어나도 우측 아래 알림으로 알려드립니다.
+        </p>
+
+        <!-- 생성 대기 탈출구 — 포함 예정 검토서가 생성 중이면 등록이 막힌다. -->
+        <div v-if="blocking" class="flex flex-wrap items-center gap-3 border-t border-line pt-5 text-label text-tx-2">
+          <span>검토서 생성이 끝나면 등록됩니다.</span>
+          <button type="button" class="h-9 rounded-lg border border-line-2 bg-white px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="skip()">
+            검토서 없이 바로 등록
+          </button>
+        </div>
       </div>
 
       <!-- 실패 -->
@@ -157,5 +236,23 @@ onMounted(() => {
 <style scoped>
 .tray-dot { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-@media (prefers-reduced-motion: reduce) { .tray-dot { animation: none; } }
+
+/* 분석 카드 — 불확정 진행 바 · 아이콘 링 · 스켈레톤 셔머(§13.11) */
+.ai-bar { animation: ai-bar 1.5s ease-in-out infinite; }
+@keyframes ai-bar { 0% { transform: translateX(-105%); } 100% { transform: translateX(255%); } }
+
+.ai-ring { animation: ai-ring 1.8s ease-out infinite; }
+@keyframes ai-ring { 0% { transform: scale(1); opacity: 0.9; } 70%, 100% { transform: scale(1.25); opacity: 0; } }
+
+.ai-skel {
+  display: block;
+  background: linear-gradient(90deg, var(--color-line) 25%, var(--color-paper) 50%, var(--color-line) 75%) 0 0 / 300% 100%;
+  animation: ai-skel 1.4s ease-in-out infinite;
+}
+@keyframes ai-skel { 0% { background-position: 150% 0; } 100% { background-position: -150% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tray-dot, .ai-bar, .ai-ring, .ai-skel { animation: none; }
+  .ai-ring { opacity: 0.5; }
+}
 </style>
