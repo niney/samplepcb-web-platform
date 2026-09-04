@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
   MARKET_CAREER_RANGE_LABELS,
+  MARKET_COMMON_CONDITIONS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_METHOD_LABELS,
   apiRoutes,
@@ -47,9 +48,11 @@ import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
 
-// 프로젝트 상세 — 역할별 표면(프로토타입 project-detail.html 이식):
+// 프로젝트 상세 — 역할별 표면(docs/AI_DEV_REVIEW.md §13.9 재설계):
 //   비로그인: 열람 + 로그인 유도 / 전문가: NDA 서명·첨부 열람·블라인드 견적 제출·수정·철회
 //   소유자: 받은 견적 비교·채택·조기마감·취소. 실제 강제는 서버 가드 — 여기는 UX 분기.
+// 레이아웃: 1440px = 헤더(종이 위) → sticky 섹션 내비 → 본문(카드 6: 의뢰 내용·검토서·구성도·첨부·견적) + 360px sticky 사이드.
+// 답변 표는 "의뢰 내용" 한 곳에만(검토서 안 고객 의뢰내용은 §13.9 에서 제거).
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -66,9 +69,12 @@ const isOwner = computed(() => viewer.value?.isOwner === true);
 // 분야 배지 — 의뢰 유형(개별/시스템 통합) 표기를 대체한다(docs/AI_DEV_REVIEW.md §4).
 // 전체서비스 입찰 제한(FULL_SERVICE_COMPANY_ONLY)은 폐지되어 개인 전문가도 입찰한다.
 const areaBadge = computed(() => (detail.value === undefined ? '' : marketAreaBadge(detail.value.serviceAreas)));
-// 희망 툴(분야별)·질문 답변(브리프 행) — 검토서가 없어도 보인다.
+// 희망 툴(분야별)·질문 답변(브리프 행) — 검토서가 없어도 보인다. 조건 3(완료 시점·목표 단계·인도 범위)은 타일로, 나머지는 표로.
 const toolRows = computed(() => (detail.value === undefined ? [] : marketToolRows(detail.value.tools, detail.value.serviceAreas)));
 const briefRows = computed(() => (detail.value === undefined ? [] : buildDevReviewBriefRows(detail.value.answers)));
+const isConditionCode = (code: string): boolean => MARKET_COMMON_CONDITIONS.some((q) => q.code === code);
+const conditionRows = computed(() => briefRows.value.filter((r) => isConditionCode(r.code)));
+const answerRows = computed(() => briefRows.value.filter((r) => !isConditionCode(r.code)));
 // 첨부 — 일반 첨부 먼저, 분야별 슬롯 첨부는 "[슬롯 라벨]" 을 붙여 구분.
 const fileSlotLabel = (f: { area: string | null; slot: string | null }): string =>
   f.area !== null && f.slot !== null ? marketSlotLabel(f.area, f.slot) : '';
@@ -143,6 +149,47 @@ const reportOpen = ref(false);
 const reportError = ref('');
 
 const dday = computed(() => (detail.value !== undefined ? ddayBadge(detail.value) : null));
+const bids = computed(() => bidsQ.data.value?.data.items ?? []);
+
+// 구성도 카드를 검토서 밖에 따로 세우는 경우 — 검토서가 없고(있으면 그 안에 그린다) 메타가 있거나 소유자(만들기 버튼).
+const standaloneDiagram = computed(
+  () => devReview.value === null && detail.value !== undefined && (detail.value.devDiagram.meta !== null || isOwner.value),
+);
+
+// 섹션 내비 — 있는 섹션만, 스크롤 위치로 현재 섹션 표시.
+const sections = computed(() => {
+  const d = detail.value;
+  if (d === undefined) return [];
+  const list: { id: string; label: string; count: number | null }[] = [{ id: 'brief', label: '의뢰 내용', count: null }];
+  if (devReview.value !== null) list.push({ id: 'review', label: 'AI 사전 검토서', count: null });
+  if (standaloneDiagram.value) list.push({ id: 'diagram', label: '시스템 구성도', count: null });
+  list.push({ id: 'files', label: '첨부', count: d.attachments.count });
+  if (isOwner.value) list.push({ id: 'bids', label: '받은 견적', count: d.bidCount });
+  return list;
+});
+const activeSection = ref('brief');
+let observer: IntersectionObserver | null = null;
+function observeSections(): void {
+  observer?.disconnect();
+  if (typeof IntersectionObserver === 'undefined') return;
+  observer = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) if (e.isIntersecting) activeSection.value = e.target.id.replace(/^s-/, '');
+    },
+    { rootMargin: '-35% 0px -55% 0px' },
+  );
+  for (const s of sections.value) {
+    const el = document.getElementById(`s-${s.id}`);
+    if (el !== null) observer.observe(el);
+  }
+}
+watch(sections, () => {
+  void nextTick(observeSections);
+}, { immediate: true });
+onBeforeUnmount(() => observer?.disconnect());
+function jumpTo(id: string): void {
+  document.getElementById(`s-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 function goLogin(): void {
   window.location.assign(loginUrl(marketPath(route.fullPath)));
@@ -315,104 +362,103 @@ async function onRemoveDevReview(): Promise<void> {
 </script>
 
 <template>
-  <section class="mx-auto w-full max-w-[1440px] px-6 py-10">
-    <div v-if="detailQ.isLoading.value" class="py-20 text-center text-sm text-tx-3">
+  <section class="mx-auto w-full max-w-[1440px] px-6 pb-20 pt-8">
+    <div v-if="detailQ.isLoading.value" class="py-20 text-center text-body text-tx-3">
       {{ $t('common.loading') }}
     </div>
 
-    <div
-      v-else-if="detail === undefined"
-      class="rounded-2xl border border-line bg-white p-14 text-center"
-    >
-      <p class="text-sm text-tx-3">프로젝트를 찾을 수 없습니다.</p>
-      <RouterLink
-        to="/projects"
-        class="mt-4 inline-block rounded-lg bg-ink-900 px-4 py-2 text-xs font-bold text-white hover:bg-ink-800"
-      >
+    <div v-else-if="detail === undefined" class="rounded-2xl border border-line bg-white p-14 text-center">
+      <p class="text-body text-tx-3">프로젝트를 찾을 수 없습니다.</p>
+      <RouterLink to="/projects" class="mt-4 inline-flex h-10 items-center rounded-lg bg-ink-900 px-5 text-body font-bold text-white hover:bg-ink-800">
         {{ $t('nav.projects') }}
       </RouterLink>
     </div>
 
     <template v-else>
-      <!-- 헤더 -->
-      <div class="rounded-2xl border border-line bg-white p-6 sm:p-8">
-        <div class="flex flex-wrap items-center gap-2 text-xs">
-          <span class="font-mono text-[11px] tracking-widest text-tx-3">
-            PRJ-{{ String(detail.projectId).padStart(4, '0') }}
-          </span>
-          <span
-            v-if="dday !== null"
-            class="rounded-md px-2 py-0.5 font-bold"
-            :class="ddayToneClass[dday.tone]"
-          >
-            {{ dday.label }}
-          </span>
-          <span v-if="areaBadge !== ''" class="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
-            {{ areaBadge }}
-          </span>
-          <span
-            class="rounded-full px-2 py-0.5 font-semibold"
-            :class="detail.method === 'open' ? 'bg-copper-50 text-copper-600' : 'bg-ink-900 text-white'"
-          >
+      <!-- 헤더 — 종이 위에 바로(카드 없음) -->
+      <header class="grid gap-3">
+        <div class="flex flex-wrap items-center gap-2 text-micro font-bold">
+          <span class="font-mono font-normal tracking-[.12em] text-tx-3">PRJ-{{ String(detail.projectId).padStart(4, '0') }}</span>
+          <span v-if="dday !== null" class="rounded-full px-2.5 py-1" :class="ddayToneClass[dday.tone]">{{ dday.label }}</span>
+          <span v-if="areaBadge !== ''" class="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{{ areaBadge }}</span>
+          <span class="rounded-full px-2.5 py-1" :class="detail.method === 'open' ? 'bg-copper-50 text-copper-700' : 'bg-ink-900 text-white'">
             {{ MARKET_METHOD_LABELS[detail.method] }}
           </span>
-          <span v-if="detail.ndaRequired" class="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">
-            🔏 NDA
-          </span>
+          <span v-if="detail.ndaRequired" class="rounded-full bg-amber-100 px-2.5 py-1 text-amber-700">🔏 NDA</span>
         </div>
-        <h1 class="mt-3 text-2xl font-extrabold leading-snug text-tx-1">{{ detail.title }}</h1>
-        <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-tx-2">
-          <span>의뢰인 <b class="text-tx-1">{{ detail.ownerName }}</b></span>
-          <span>예산 <b class="text-tx-1">{{ MARKET_BUDGET_RANGE_LABELS[detail.budgetRange] }}</b></span>
-          <span>
-            마감 <b class="text-tx-1">{{ dateShort(detail.bidDeadlineAt) }}</b>
+        <h1 class="text-h1 font-extrabold text-tx-1">{{ detail.title }}</h1>
+        <div class="flex flex-wrap gap-x-5 gap-y-1 text-label text-tx-2">
+          <span>의뢰인 <b class="font-semibold text-tx-1">{{ detail.ownerName }}</b></span>
+          <span>예산 <b class="font-semibold text-tx-1">{{ MARKET_BUDGET_RANGE_LABELS[detail.budgetRange] }}</b></span>
+          <span v-for="row in conditionRows" :key="row.code">
+            {{ row.label }} <b class="font-semibold text-tx-1">{{ row.unknown ? '협의' : row.value }}</b>
           </span>
-          <span>견적 <b class="text-tx-1">{{ detail.bidCount }}건</b></span>
-          <span>조회 {{ detail.viewCount }}</span>
+          <span>견적 마감 <b class="font-semibold text-tx-1">{{ dateShort(detail.bidDeadlineAt) }}</b></span>
+          <span>견적 <b class="font-semibold tabular-nums text-tx-1">{{ detail.bidCount }}건</b></span>
+          <span class="tabular-nums">조회 {{ detail.viewCount }}</span>
           <span>{{ dateShort(detail.createdAt) }} 등록</span>
         </div>
-      </div>
+      </header>
 
-      <div class="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
+      <!-- sticky 섹션 내비 -->
+      <nav class="sticky top-0 z-20 mt-5 border-b border-line bg-paper">
+        <div class="flex gap-1 overflow-x-auto">
+          <button
+            v-for="s in sections"
+            :key="s.id"
+            type="button"
+            class="whitespace-nowrap border-b-2 px-3.5 py-3 text-label font-semibold transition"
+            :class="activeSection === s.id ? 'border-copper-500 text-tx-1' : 'border-transparent text-tx-2 hover:text-tx-1'"
+            @click="jumpTo(s.id)"
+          >
+            {{ s.label }}<span v-if="s.count !== null" class="ml-1 font-mono text-micro tabular-nums text-tx-3">{{ s.count }}</span>
+          </button>
+        </div>
+      </nav>
+
+      <div class="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <!-- 본문 -->
-        <div class="grid gap-4">
-          <div class="rounded-2xl border border-line bg-white p-6">
-            <p class="font-mono text-[11px] tracking-widest text-tx-3">BRIEF</p>
-            <h2 class="mt-1 text-sm font-extrabold text-tx-1">상세 설명</h2>
-            <p class="mt-3 whitespace-pre-line text-sm leading-relaxed text-tx-2">
-              {{ detail.description }}
-            </p>
-            <dl v-if="briefRows.length > 0" class="mt-4 grid gap-px overflow-hidden rounded-xl border border-line bg-line">
-              <div v-for="row in briefRows" :key="row.code" class="grid grid-cols-[96px_1fr] gap-3 bg-white px-3.5 py-2 text-xs">
-                <dt class="text-tx-3">{{ row.label }}</dt>
-                <dd class="font-bold text-tx-1">
-                  <span v-if="row.unknown" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">상담에서 확정</span>
+        <div class="grid gap-5">
+          <!-- 의뢰 내용 — 설명 · 조건 타일 · 답변 표 · 희망 툴 (한 곳에만) -->
+          <div id="s-brief" class="grid scroll-mt-16 gap-5 rounded-2xl border border-line bg-white p-6">
+            <div>
+              <p class="font-mono text-micro tracking-[.14em] text-tx-3">BRIEF</p>
+              <h2 class="text-title font-extrabold text-tx-1">의뢰 내용</h2>
+            </div>
+            <p class="max-w-[900px] whitespace-pre-line text-lead leading-relaxed text-tx-1">{{ detail.description }}</p>
+            <div v-if="conditionRows.length > 0" class="grid gap-2.5">
+              <p class="text-label font-semibold text-tx-2">프로젝트 조건</p>
+              <div class="grid gap-2.5 sm:grid-cols-3">
+                <div v-for="row in conditionRows" :key="row.code" class="grid gap-0.5 rounded-xl border border-line bg-paper px-4 py-3">
+                  <span class="text-micro font-semibold text-tx-3">{{ row.label }}</span>
+                  <span class="text-body font-semibold text-tx-1">
+                    <span v-if="row.unknown" class="rounded bg-amber-100 px-1.5 py-0.5 text-micro font-bold text-amber-700">협의해서 정함</span>
+                    <template v-else>{{ row.value }}</template>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <dl v-if="answerRows.length > 0 || toolRows.length > 0" class="grid overflow-hidden rounded-xl border border-line sm:grid-cols-[140px_1fr]">
+              <template v-for="row in answerRows" :key="row.code">
+                <dt class="border-t border-line px-4 pt-2.5 text-label font-semibold text-tx-3 first:border-t-0 sm:py-2.5">{{ row.label }}</dt>
+                <dd class="px-4 pb-2.5 text-body font-semibold text-tx-1 sm:border-t sm:border-line sm:py-2.5">
+                  <span v-if="row.unknown" class="rounded bg-amber-100 px-1.5 py-0.5 text-micro font-bold text-amber-700">상담에서 확정</span>
                   <template v-else>{{ row.value }}</template>
                 </dd>
-              </div>
+              </template>
+              <dt class="border-t border-line px-4 pt-2.5 text-label font-semibold text-tx-3 sm:py-2.5">희망 툴·언어</dt>
+              <dd class="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-2.5 text-body sm:border-t sm:border-line sm:py-2.5">
+                <span v-for="r in toolRows" :key="r.area" class="text-tx-2">
+                  {{ r.areaLabel }}
+                  <span v-if="r.labels.length > 0" class="ml-1 rounded-full border border-line bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">{{ r.labels.join(' · ') }}</span>
+                  <span v-else class="ml-1 rounded-full bg-emerald-100 px-2 py-0.5 text-micro font-bold text-emerald-700">전문가 추천</span>
+                </span>
+              </dd>
             </dl>
-            <div class="mt-4 grid gap-1 border-t border-line pt-4 text-xs text-tx-2">
-              <p class="font-bold text-tx-1">희망 개발툴·언어</p>
-              <p v-for="r in toolRows" :key="r.area">
-                {{ r.areaLabel }}:
-                <b class="text-tx-1">{{ r.labels.length > 0 ? r.labels.join(' · ') : '전문가 추천' }}</b>
-              </p>
-            </div>
-          </div>
-
-          <!-- 시스템 구성도(§13.7) — 검토서가 없을 때만 별도 카드(검토서가 있으면 그 안에 그린다) -->
-          <div v-if="devReview === null && (detail.devDiagram.meta !== null || isOwner)" class="rounded-2xl border border-line bg-white p-6">
-            <DevDiagramSection
-              :diagram="detail.devDiagram"
-              :can-regenerate="isOwner"
-              :regenerating="requestDiagram.isPending.value"
-              :regenerate-error="diagramError"
-              @regenerate="onRequestDiagram"
-            />
           </div>
 
           <!-- AI 사전 검토서 — 공개 범위는 상세 설명과 동일(상세를 볼 수 있는 뷰어 전원) -->
-          <div v-if="devReview !== null" class="rounded-2xl border border-line bg-white p-6">
+          <div v-if="devReview !== null" id="s-review" class="scroll-mt-16 rounded-2xl border border-line bg-white p-6">
             <DevReviewView
               :review="devReview"
               :title="detail.title"
@@ -422,163 +468,101 @@ async function onRemoveDevReview(): Promise<void> {
               :diagram-regenerate-error="diagramError"
               @regenerate-diagram="onRequestDiagram"
             />
-            <div v-if="isOwner" class="mt-5 border-t border-line pt-4">
+            <div v-if="isOwner" class="mt-6 border-t border-line pt-5">
               <template v-if="confirmAction === 'remove-review'">
-                <p class="text-xs font-bold text-tx-2">
-                  AI 사전 검토서를 이 의뢰에서 제거할까요? 다시 붙일 수는 없습니다.
-                </p>
-                <div class="mt-2 flex gap-2">
-                  <button
-                    type="button"
-                    class="rounded-lg bg-ink-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
-                    :disabled="updateProject.isPending.value"
-                    @click="onRemoveDevReview"
-                  >
+                <p class="text-body font-bold text-tx-2">AI 사전 검토서를 이 의뢰에서 제거할까요? 다시 붙일 수는 없습니다.</p>
+                <div class="mt-2.5 flex gap-2">
+                  <button type="button" class="h-9 rounded-lg bg-ink-900 px-3.5 text-label font-bold text-white disabled:opacity-40" :disabled="updateProject.isPending.value" @click="onRemoveDevReview">
                     {{ updateProject.isPending.value ? '제거 중…' : '검토서 제거' }}
                   </button>
-                  <button
-                    type="button"
-                    class="rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2"
-                    @click="confirmAction = null"
-                  >
-                    취소
-                  </button>
+                  <button type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2" @click="confirmAction = null">취소</button>
                 </div>
               </template>
-              <button
-                v-else
-                type="button"
-                class="rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2 hover:border-line-2"
-                @click="confirmAction = 'remove-review'"
-              >
+              <button v-else type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="confirmAction = 'remove-review'">
                 검토서 제거
               </button>
-              <p class="mt-2 text-[11px] leading-relaxed text-tx-3">
-                검토서가 붙어 있는 동안에는 제목·설명·개발 분야를 바꿀 수 없습니다.
-              </p>
+              <p class="mt-2 text-label leading-relaxed text-tx-3">검토서가 붙어 있는 동안에는 제목·설명·개발 분야를 바꿀 수 없습니다.</p>
             </div>
           </div>
 
-          <!-- 첨부 (NDA 게이트) -->
-          <div class="rounded-2xl border border-line bg-white p-6">
-            <p class="font-mono text-[11px] tracking-widest text-tx-3">FILES</p>
-            <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              첨부 자료 <span class="font-normal text-tx-3">({{ detail.attachments.count }}개)</span>
-            </h2>
+          <!-- 시스템 구성도(§13.7) — 검토서가 없을 때만 별도 카드 -->
+          <div v-if="standaloneDiagram" id="s-diagram" class="scroll-mt-16 rounded-2xl border border-line bg-white p-6">
+            <DevDiagramSection
+              :diagram="detail.devDiagram"
+              :can-regenerate="isOwner"
+              :regenerating="requestDiagram.isPending.value"
+              :regenerate-error="diagramError"
+              @regenerate="onRequestDiagram"
+            />
+          </div>
 
+          <!-- 첨부 (NDA 게이트) -->
+          <div id="s-files" class="grid scroll-mt-16 gap-4 rounded-2xl border border-line bg-white p-6">
+            <div>
+              <p class="font-mono text-micro tracking-[.14em] text-tx-3">FILES</p>
+              <h2 class="text-title font-extrabold text-tx-1">첨부 자료 <span class="font-normal tabular-nums text-tx-3">{{ detail.attachments.count }}개</span></h2>
+            </div>
             <template v-if="detail.attachments.files !== null">
-              <ul v-if="detail.attachments.files.length > 0" class="mt-3 grid gap-2">
-                <li
-                  v-for="f in detail.attachments.files"
-                  :key="f.fileId"
-                  class="flex items-center gap-3 rounded-xl border border-line px-4 py-2.5 text-sm"
-                >
-                  <span class="text-base">📎</span>
-                  <span v-if="fileSlotLabel(f) !== ''" class="shrink-0 rounded bg-line px-1.5 py-0.5 text-[10px] font-bold text-tx-3">{{ fileSlotLabel(f) }}</span>
+              <ul v-if="detail.attachments.files.length > 0" class="grid gap-2">
+                <li v-for="f in detail.attachments.files" :key="f.fileId" class="flex items-center gap-3 rounded-xl border border-line px-4 py-3 text-body">
+                  <span>📎</span>
+                  <span v-if="fileSlotLabel(f) !== ''" class="shrink-0 rounded-full border border-line bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">{{ fileSlotLabel(f) }}</span>
                   <span class="min-w-0 flex-1 truncate text-tx-1">{{ f.name }}</span>
-                  <span class="text-xs text-tx-3">{{ fmtSize(f.size) }}</span>
-                  <button
-                    v-if="auth.isLoggedIn"
-                    type="button"
-                    class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-copper-400 hover:text-copper-600"
-                    @click="downloadFile(f.fileId, f.name)"
-                  >
+                  <span class="text-label tabular-nums text-tx-3">{{ fmtSize(f.size) }}</span>
+                  <button v-if="auth.isLoggedIn" type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-copper-400 hover:text-copper-600" @click="downloadFile(f.fileId, f.name)">
                     다운로드
                   </button>
                 </li>
               </ul>
-              <p v-else class="mt-3 text-xs text-tx-3">첨부된 자료가 없습니다.</p>
+              <p v-else class="text-body text-tx-3">첨부된 자료가 없습니다.</p>
             </template>
-
-            <div v-else class="mt-3 rounded-xl bg-paper p-5 text-center">
-              <p class="text-sm font-bold text-tx-1">🔏 NDA 서명 후 열람할 수 있습니다</p>
-              <p class="mt-1 text-xs leading-relaxed text-tx-3">
-                파일명·내용은 비밀유지 서명자에게만 공개됩니다.
-              </p>
-              <button
-                v-if="canSignNda"
-                type="button"
-                class="mt-3 rounded-lg bg-ink-900 px-4 py-2 text-xs font-bold text-white hover:bg-ink-800"
-                @click="ndaOpen = true"
-              >
+            <div v-else class="rounded-2xl border border-dashed border-line-2 bg-paper px-6 py-7 text-center">
+              <p class="text-body font-bold text-tx-1">🔏 NDA 서명 후 열람할 수 있습니다</p>
+              <p class="mt-1 text-label leading-relaxed text-tx-3">파일명·내용은 비밀유지 서명자에게만 공개됩니다.</p>
+              <button v-if="canSignNda" type="button" class="mt-3 h-10 rounded-lg bg-ink-900 px-5 text-body font-bold text-white hover:bg-ink-800" @click="ndaOpen = true">
                 NDA 전자서명
               </button>
-              <p v-else-if="viewer === null" class="mt-2 text-xs text-tx-3">
-                열람 자격(승인 전문가)은 로그인 후 확인됩니다.
-              </p>
+              <p v-else-if="viewer === null" class="mt-2 text-label text-tx-3">열람 자격(승인 전문가)은 로그인 후 확인됩니다.</p>
             </div>
           </div>
 
           <!-- 소유자: 받은 견적 비교 -->
-          <div v-if="isOwner" class="rounded-2xl border border-line bg-white p-6">
-            <p class="font-mono text-[11px] tracking-widest text-tx-3">BIDS</p>
-            <h2 class="mt-1 text-sm font-extrabold text-tx-1">받은 견적</h2>
-
-            <div v-if="(bidsQ.data.value?.data.items ?? []).length === 0" class="mt-3 rounded-xl bg-paper p-6 text-center text-xs text-tx-3">
+          <div v-if="isOwner" id="s-bids" class="grid scroll-mt-16 gap-4 rounded-2xl border border-line bg-white p-6">
+            <div>
+              <p class="font-mono text-micro tracking-[.14em] text-tx-3">BIDS</p>
+              <h2 class="text-title font-extrabold text-tx-1">받은 견적 <span class="font-normal tabular-nums text-tx-3">{{ bids.length }}건</span></h2>
+            </div>
+            <div v-if="bids.length === 0" class="rounded-2xl border border-dashed border-line-2 px-6 py-7 text-center text-body text-tx-3">
               아직 도착한 견적이 없습니다. 견적이 오면 이메일로 알려드립니다.
             </div>
-            <div v-else class="mt-3 grid gap-3">
-              <div
-                v-for="b in bidsQ.data.value?.data.items ?? []"
-                :key="b.bidId"
-                class="rounded-xl border p-4"
-                :class="b.status === 'awarded' ? 'border-copper-400 bg-copper-50' : 'border-line'"
-              >
-                <div class="flex flex-wrap items-center gap-2 text-sm">
-                  <b class="text-tx-1">{{ b.expert.displayName }}</b>
-                  <span class="text-xs text-tx-3">
-                    {{ MARKET_EXPERT_TYPE_LABELS[b.expert.expertType] }} ·
-                    경력 {{ MARKET_CAREER_RANGE_LABELS[b.expert.careerRange] }}
-                  </span>
+            <div v-else class="grid gap-3">
+              <div v-for="b in bids" :key="b.bidId" class="rounded-2xl border p-5" :class="b.status === 'awarded' ? 'border-copper-400 bg-copper-50' : 'border-line'">
+                <div class="flex flex-wrap items-center gap-2 text-body">
+                  <b class="text-lead text-tx-1">{{ b.expert.displayName }}</b>
+                  <span class="text-label text-tx-3">{{ MARKET_EXPERT_TYPE_LABELS[b.expert.expertType] }} · 경력 {{ MARKET_CAREER_RANGE_LABELS[b.expert.careerRange] }}</span>
                   <span
-                    class="ml-auto rounded-md px-2 py-0.5 text-[11px] font-bold"
-                    :class="
-                      b.status === 'awarded'
-                        ? 'bg-copper-500 text-white'
-                        : b.status === 'submitted'
-                          ? 'bg-blue-50 text-blue-700'
-                          : 'bg-line text-tx-3'
-                    "
+                    class="ml-auto rounded-full px-2.5 py-1 text-micro font-bold"
+                    :class="b.status === 'awarded' ? 'bg-copper-500 text-white' : b.status === 'submitted' ? 'bg-blue-50 text-blue-700' : 'bg-line text-tx-3'"
                   >
                     {{ MARKET_BID_STATUS_LABELS[b.status] }}
                   </span>
                 </div>
-                <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-tx-2">
-                  <span>금액 <b class="text-base font-extrabold text-tx-1">{{ won(b.amount) }}</b></span>
-                  <span>기간 <b class="text-tx-1">{{ b.durationDays }}일</b></span>
+                <div class="mt-2.5 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-label text-tx-2">
+                  <span>금액 <b class="text-title font-extrabold tabular-nums text-tx-1">{{ won(b.amount) }}</b></span>
+                  <span>기간 <b class="font-semibold tabular-nums text-tx-1">{{ b.durationDays }}일</b></span>
                   <span v-if="b.warranty !== null">하자보수 {{ b.warranty }}</span>
                   <span class="text-tx-3">{{ dateShort(b.updatedAt) }} 제출</span>
                 </div>
-                <p class="mt-2 whitespace-pre-line rounded-lg bg-paper p-3 text-xs leading-relaxed text-tx-2">
-                  {{ b.message }}
-                </p>
-                <div v-if="b.status === 'submitted' && detail.status !== 'awarded' && detail.status !== 'cancelled'" class="mt-3 flex justify-end gap-2">
+                <p class="mt-3 whitespace-pre-line rounded-xl bg-paper p-4 text-body leading-relaxed text-tx-2">{{ b.message }}</p>
+                <div v-if="b.status === 'submitted' && detail.status !== 'awarded' && detail.status !== 'cancelled'" class="mt-3 flex items-center justify-end gap-2">
                   <template v-if="confirmAwardId === b.bidId">
-                    <span class="self-center text-xs font-bold text-tx-2">이 견적으로 확정할까요?</span>
-                    <button
-                      type="button"
-                      class="rounded-lg bg-copper-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-copper-600 disabled:opacity-40"
-                      :disabled="awardBid.isPending.value"
-                      @click="onAward(b.bidId)"
-                    >
+                    <span class="text-label font-bold text-tx-2">이 견적으로 확정할까요?</span>
+                    <button type="button" class="h-9 rounded-lg bg-copper-500 px-3.5 text-label font-bold text-white hover:bg-copper-600 disabled:opacity-40" :disabled="awardBid.isPending.value" @click="onAward(b.bidId)">
                       {{ awardBid.isPending.value ? '처리 중…' : '확정' }}
                     </button>
-                    <button
-                      type="button"
-                      class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2"
-                      @click="confirmAwardId = null"
-                    >
-                      취소
-                    </button>
+                    <button type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2" @click="confirmAwardId = null">취소</button>
                   </template>
-                  <button
-                    v-else
-                    type="button"
-                    class="rounded-lg bg-ink-900 px-4 py-1.5 text-xs font-bold text-white hover:bg-ink-800"
-                    @click="confirmAwardId = b.bidId"
-                  >
-                    채택
-                  </button>
+                  <button v-else type="button" class="h-9 rounded-lg bg-ink-900 px-4 text-label font-bold text-white hover:bg-ink-800" @click="confirmAwardId = b.bidId">채택</button>
                 </div>
               </div>
             </div>
@@ -586,16 +570,12 @@ async function onRemoveDevReview(): Promise<void> {
         </div>
 
         <!-- 사이드바 -->
-        <aside class="grid h-fit gap-4">
+        <aside class="grid gap-4 lg:sticky lg:top-14">
           <!-- 비로그인 -->
           <div v-if="viewer === null" class="rounded-2xl border border-line bg-white p-5 text-center">
-            <p class="text-sm font-bold text-tx-1">견적을 제출하려면</p>
-            <p class="mt-1 text-xs text-tx-3">로그인 후 전문가 자격이 확인됩니다.</p>
-            <button
-              type="button"
-              class="mt-3 w-full rounded-lg bg-ink-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-ink-800"
-              @click="goLogin"
-            >
+            <p class="text-lead font-bold text-tx-1">견적을 제출하려면</p>
+            <p class="mt-1 text-label text-tx-3">로그인 후 전문가 자격이 확인됩니다.</p>
+            <button type="button" class="mt-3 h-11 w-full rounded-lg bg-ink-900 px-4 text-body font-bold text-white hover:bg-ink-800" @click="goLogin">
               {{ $t('auth.login') }}
             </button>
           </div>
@@ -616,164 +596,111 @@ async function onRemoveDevReview(): Promise<void> {
               @report="openReport"
               @download="downloadContractFile"
             />
-            <div v-else class="rounded-2xl border border-line bg-white p-5 text-sm text-tx-3">
-              계약 정보를 불러오는 중…
-            </div>
+            <div v-else class="rounded-2xl border border-line bg-white p-5 text-body text-tx-3">계약 정보를 불러오는 중…</div>
           </template>
 
           <!-- 소유자 액션 -->
-          <div v-else-if="isOwner" class="rounded-2xl border border-line bg-white p-5">
-            <p class="text-sm font-extrabold text-tx-1">내 프로젝트</p>
-            <p class="mt-1 text-xs leading-relaxed text-tx-3">
-              받은 견적 {{ detail.bidCount }}건 · 채택하면 나머지 견적은 자동 종결됩니다.
-            </p>
-            <div v-if="detail.status === 'bidding' && !detail.biddingClosed" class="mt-3 grid gap-2">
-              <template v-if="confirmAction === 'close'">
-                <p class="text-xs font-bold text-tx-2">견적 접수를 조기 마감할까요?</p>
-                <div class="flex gap-2">
-                  <button type="button" class="flex-1 rounded-lg bg-ink-900 px-3 py-2 text-xs font-bold text-white" :disabled="closeProject.isPending.value" @click="onProjectAction('close')">확인</button>
-                  <button type="button" class="flex-1 rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2" @click="confirmAction = null">취소</button>
-                </div>
+          <div v-else-if="isOwner" class="grid gap-3 rounded-2xl border border-line bg-white p-5">
+            <p class="font-mono text-micro tracking-[.14em] text-tx-3">MY PROJECT</p>
+            <p class="text-lead font-bold text-tx-1">받은 견적 <span class="tabular-nums">{{ detail.bidCount }}</span>건</p>
+            <p class="text-label leading-relaxed text-tx-3">채택하면 나머지 견적은 자동 종결됩니다. 마감 전에는 언제든 조기 마감할 수 있습니다.</p>
+            <div class="grid gap-2">
+              <template v-if="detail.status === 'bidding' && !detail.biddingClosed">
+                <template v-if="confirmAction === 'close'">
+                  <p class="text-label font-bold text-tx-2">견적 접수를 조기 마감할까요?</p>
+                  <div class="flex gap-2">
+                    <button type="button" class="h-10 flex-1 rounded-lg bg-ink-900 px-3 text-label font-bold text-white" :disabled="closeProject.isPending.value" @click="onProjectAction('close')">확인</button>
+                    <button type="button" class="h-10 flex-1 rounded-lg border border-line-2 px-3 text-label font-bold text-tx-2" @click="confirmAction = null">취소</button>
+                  </div>
+                </template>
+                <button v-else type="button" class="h-10 rounded-lg bg-ink-900 px-4 text-body font-bold text-white hover:bg-ink-800" @click="confirmAction = 'close'">조기 마감</button>
               </template>
-              <button
-                v-else
-                type="button"
-                class="rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2 hover:border-line-2"
-                @click="confirmAction = 'close'"
-              >
-                조기 마감
-              </button>
-            </div>
-            <div v-if="detail.status !== 'cancelled' && detail.status !== 'awarded'" class="mt-2 grid gap-2">
-              <template v-if="confirmAction === 'cancel'">
-                <p class="text-xs font-bold text-red-600">프로젝트를 취소할까요? 되돌릴 수 없습니다.</p>
-                <div class="flex gap-2">
-                  <button type="button" class="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white" :disabled="cancelProject.isPending.value" @click="onProjectAction('cancel')">취소 확정</button>
-                  <button type="button" class="flex-1 rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2" @click="confirmAction = null">닫기</button>
-                </div>
+              <template v-if="detail.status !== 'cancelled' && detail.status !== 'awarded'">
+                <template v-if="confirmAction === 'cancel'">
+                  <p class="text-label font-bold text-red-600">프로젝트를 취소할까요? 되돌릴 수 없습니다.</p>
+                  <div class="flex gap-2">
+                    <button type="button" class="h-10 flex-1 rounded-lg bg-red-600 px-3 text-label font-bold text-white" :disabled="cancelProject.isPending.value" @click="onProjectAction('cancel')">취소 확정</button>
+                    <button type="button" class="h-10 flex-1 rounded-lg border border-line-2 px-3 text-label font-bold text-tx-2" @click="confirmAction = null">닫기</button>
+                  </div>
+                </template>
+                <button v-else type="button" class="h-10 rounded-lg border border-red-200 px-4 text-body font-bold text-red-500 hover:border-red-400" @click="confirmAction = 'cancel'">프로젝트 취소</button>
               </template>
-              <button
-                v-else
-                type="button"
-                class="rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-500 hover:border-red-400"
-                @click="confirmAction = 'cancel'"
-              >
-                프로젝트 취소
-              </button>
             </div>
           </div>
 
           <!-- 전문가 액션 -->
-          <div v-else class="rounded-2xl border border-line bg-white p-5">
-            <p class="text-sm font-extrabold text-tx-1">견적 제출</p>
+          <div v-else class="grid gap-3 rounded-2xl border border-line bg-white p-5">
+            <p class="text-lead font-bold text-tx-1">견적 제출</p>
 
             <!-- 내 입찰 있음 -->
             <template v-if="myBid !== null">
-              <div class="mt-3 rounded-xl bg-paper p-3 text-xs text-tx-2">
-                <p>
-                  내 견적:
-                  <b class="text-tx-1">{{ won(myBid.amount) }}</b> · {{ myBid.durationDays }}일
-                </p>
-                <p class="mt-1">
-                  상태:
-                  <b class="text-copper-600">{{ MARKET_BID_STATUS_LABELS[myBid.status] }}</b>
-                </p>
+              <div class="rounded-xl bg-paper p-4 text-label text-tx-2">
+                <p>내 견적: <b class="text-body text-tx-1">{{ won(myBid.amount) }}</b> · {{ myBid.durationDays }}일</p>
+                <p class="mt-1">상태: <b class="text-copper-600">{{ MARKET_BID_STATUS_LABELS[myBid.status] }}</b></p>
               </div>
-              <div
-                v-if="(myBid.status === 'submitted' || myBid.status === 'withdrawn') && !detail.biddingClosed"
-                class="mt-3 grid gap-2"
-              >
-                <button
-                  type="button"
-                  class="rounded-lg bg-ink-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-ink-800"
-                  @click="openBidModal('edit')"
-                >
+              <div v-if="(myBid.status === 'submitted' || myBid.status === 'withdrawn') && !detail.biddingClosed" class="grid gap-2">
+                <button type="button" class="h-11 rounded-lg bg-ink-900 px-4 text-body font-bold text-white hover:bg-ink-800" @click="openBidModal('edit')">
                   {{ myBid.status === 'withdrawn' ? '다시 제출' : '견적 수정' }}
                 </button>
                 <template v-if="myBid.status === 'submitted'">
                   <template v-if="confirmAction === 'withdraw'">
-                    <p class="text-xs font-bold text-tx-2">견적을 철회할까요?</p>
+                    <p class="text-label font-bold text-tx-2">견적을 철회할까요?</p>
                     <div class="flex gap-2">
-                      <button type="button" class="flex-1 rounded-lg bg-ink-900 px-3 py-2 text-xs font-bold text-white" :disabled="withdrawBid.isPending.value" @click="onWithdraw">확인</button>
-                      <button type="button" class="flex-1 rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2" @click="confirmAction = null">취소</button>
+                      <button type="button" class="h-10 flex-1 rounded-lg bg-ink-900 px-3 text-label font-bold text-white" :disabled="withdrawBid.isPending.value" @click="onWithdraw">확인</button>
+                      <button type="button" class="h-10 flex-1 rounded-lg border border-line-2 px-3 text-label font-bold text-tx-2" @click="confirmAction = null">취소</button>
                     </div>
                   </template>
-                  <button
-                    v-else
-                    type="button"
-                    class="rounded-lg border border-line px-3 py-2 text-xs font-bold text-tx-2 hover:border-line-2"
-                    @click="confirmAction = 'withdraw'"
-                  >
-                    철회
-                  </button>
+                  <button v-else type="button" class="h-10 rounded-lg border border-line-2 px-4 text-label font-bold text-tx-2 hover:border-tx-3" @click="confirmAction = 'withdraw'">철회</button>
                 </template>
               </div>
             </template>
 
             <!-- 입찰 가능 -->
             <template v-else-if="canBid">
-              <p class="mt-1 text-xs leading-relaxed text-tx-3">
+              <p class="text-label leading-relaxed text-tx-3">
                 견적은 의뢰인만 볼 수 있습니다(블라인드).
-                <template v-if="detail.ndaRequired && viewer.ndaSigned === false">
-                  첨부 열람에는 NDA 서명이 필요합니다.
-                </template>
+                <template v-if="detail.ndaRequired && viewer.ndaSigned === false">첨부 열람에는 NDA 서명이 필요합니다.</template>
               </p>
-              <button
-                type="button"
-                class="mt-3 w-full rounded-lg bg-copper-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-copper-600"
-                @click="openBidModal('create')"
-              >
+              <button type="button" class="h-11 w-full rounded-lg bg-copper-500 px-4 text-body font-bold text-white hover:bg-copper-600" @click="openBidModal('create')">
                 블라인드 견적 제출
               </button>
-              <button
-                v-if="canSignNda"
-                type="button"
-                class="mt-2 w-full rounded-lg border border-line px-4 py-2 text-xs font-bold text-tx-2 hover:border-line-2"
-                @click="ndaOpen = true"
-              >
+              <button v-if="canSignNda" type="button" class="h-10 w-full rounded-lg border border-line-2 px-4 text-label font-bold text-tx-2 hover:border-tx-3" @click="ndaOpen = true">
                 🔏 NDA 서명하고 첨부 열람
               </button>
             </template>
 
             <!-- 자격 없음 -->
             <template v-else>
-              <p class="mt-1 text-xs leading-relaxed text-tx-3">
+              <p class="text-label leading-relaxed text-tx-3">
                 <template v-if="detail.biddingClosed">견적 접수가 마감되었습니다.</template>
-                <template v-else-if="detail.method === 'targeted' && viewer.isTargetExpert === false">
-                  지정견적 프로젝트 — 지정된 전문가만 참여할 수 있습니다.
-                </template>
-                <template v-else-if="viewer.isApprovedExpert === false">
-                  승인된 전문가만 견적을 제출할 수 있습니다.
-                </template>
+                <template v-else-if="detail.method === 'targeted' && viewer.isTargetExpert === false">지정견적 프로젝트 — 지정된 전문가만 참여할 수 있습니다.</template>
+                <template v-else-if="viewer.isApprovedExpert === false">승인된 전문가만 견적을 제출할 수 있습니다.</template>
               </p>
-              <RouterLink
-                v-if="viewer.isApprovedExpert === false"
-                to="/expert/register"
-                class="mt-3 block rounded-lg bg-ink-900 px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-ink-800"
-              >
+              <RouterLink v-if="viewer.isApprovedExpert === false" to="/expert/register" class="flex h-11 items-center justify-center rounded-lg bg-ink-900 px-4 text-body font-bold text-white hover:bg-ink-800">
                 {{ $t('nav.expertRegister') }}
               </RouterLink>
             </template>
           </div>
 
-          <!-- 안전거래 안내 (계약 전) -->
-          <div
-            v-if="viewer?.contract == null"
-            class="rounded-2xl bg-ink-900 p-5 text-xs leading-relaxed text-dk-tx-2"
-          >
-            <p class="font-bold text-dk-tx-1">🛡️ 안전거래 안내</p>
-            <p class="mt-1.5">
-              견적은 블라인드로 보호되고, NDA 서명 기록이 남습니다. 계약·결제는 채택 후
-              샘플피씨비가 순차 안내드립니다.
+          <!-- 시스템 구성도 상태(검토서 안에 있으면 그 상태를 요약) -->
+          <div v-if="detail.devDiagram.meta !== null" class="grid gap-2 rounded-2xl border border-line bg-white p-5">
+            <p class="text-lead font-bold text-tx-1">시스템 구성도</p>
+            <p class="text-label leading-relaxed text-tx-3">
+              <template v-if="detail.devDiagram.meta.status === 'done'">완성됐습니다. 검토서 섹션에서 크게 볼 수 있습니다.</template>
+              <template v-else-if="detail.devDiagram.meta.status === 'queued' || detail.devDiagram.meta.status === 'running'">만드는 중입니다(보통 5~10분). 완성되면 알림과 메일로 알려드립니다.</template>
+              <template v-else-if="detail.devDiagram.meta.status === 'skipped'">자료가 부족해 만들지 않았습니다. 자료가 늘면 다시 만들 수 있습니다.</template>
+              <template v-else>생성에 실패했습니다. 검토서 섹션에서 다시 만들 수 있습니다.</template>
             </p>
           </div>
 
-          <p
-            v-if="actionError !== '' && viewer?.contract == null"
-            class="text-xs font-semibold text-red-600"
-          >
-            {{ actionError }}
-          </p>
+          <!-- 안전거래 안내 (계약 전) -->
+          <div v-if="viewer?.contract == null" class="grid gap-2 rounded-2xl bg-ink-900 p-5 text-label leading-relaxed text-dk-tx-2">
+            <p class="font-mono text-micro tracking-[.14em] text-dk-tx-2/70">ESCROW</p>
+            <p class="text-lead font-bold text-dk-tx-1">안전거래 안내</p>
+            <p>견적은 블라인드로 보호되고, NDA 서명 기록이 남습니다. 계약·결제는 채택 후 샘플피씨비가 순차 안내드립니다.</p>
+          </div>
+
+          <p v-if="actionError !== '' && viewer?.contract == null" class="text-body font-semibold text-red-600">{{ actionError }}</p>
         </aside>
       </div>
 

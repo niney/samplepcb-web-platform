@@ -32,6 +32,32 @@
   /* 온다크 보조 */
   --color-dk-tx-1: #f2f6fc;
   --color-dk-tx-2: #a9bad4;
+
+  /* 타입 스케일(2026-09-04 재설계, docs/AI_DEV_REVIEW.md §13.9) — 의뢰하기·상세는 이 여섯 단계만 쓴다.
+     text-micro 12 · text-label 13 · text-body 14 · text-lead 15 · text-title 18 · text-h1 28.
+     다음에 한 단계 더 키우거나 줄일 때 여기만 바꾼다(페이지의 클래스는 역할명이라 안 바뀐다). */
+  --text-micro: 12px;
+  --text-micro--line-height: 1.5;
+  --text-label: 13px;
+  --text-label--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.6;
+  --text-lead: 15px;
+  --text-lead--line-height: 1.65;
+  --text-title: 18px;
+  --text-title--line-height: 1.3;
+  --text-h1: 28px;
+  --text-h1--line-height: 1.25;
+}
+
+/* 분야 색(레지스트리 5종) — AreaIcon 타일·검토서 명세서 분야명이 인라인 style 의 var() 로 읽는다.
+   유틸리티 클래스에서 안 쓰는 @theme 변수는 Tailwind v4 가 버리므로 static 으로 강제 출력한다. */
+@theme static {
+  --color-area-circuit: #2b5fb3;
+  --color-area-pcb: #1d8a5b;
+  --color-area-firmware: #7a4bd6;
+  --color-area-app: #d9488a;
+  --color-area-server: #b7791f;
 }
 
 body {

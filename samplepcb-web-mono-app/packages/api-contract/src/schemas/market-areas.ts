@@ -27,6 +27,7 @@ export interface MarketQuestionDef {
   readonly noteRequiredFor?: readonly string[]; // 이 선택지를 고르면 메모 필수
   readonly required?: boolean; // 등록 전 답해야 한다(모르면 탈출구 선택지) — 공통 조건이 쓴다
   readonly promptHint?: string; // 검토서 프롬프트에 주는 "이 답이 개발에서 뜻하는 것" 한 줄
+  readonly why?: string; // 위저드 문항 아래 "왜 묻나요" 한 줄(고객용 — promptHint 와 다르다)
 }
 
 export interface MarketToolOption {
@@ -78,6 +79,7 @@ const withUnknown = (options: readonly MarketQuestionOption[], label: string = M
 export const MARKET_COMMON_CONDITIONS: readonly MarketQuestionDef[] = [
   {
     code: 'timeline', label: '언제까지 완성돼야 하나요?', short: '완료 시점', multi: false, required: true,
+    why: '기간에 따라 개발 방식과 단계별 계획이 달라집니다.',
     options: withUnknown([
       { code: 'within_1m', label: '1개월 안' },
       { code: 'm2_3', label: '2~3개월' },
@@ -88,6 +90,7 @@ export const MARKET_COMMON_CONDITIONS: readonly MarketQuestionDef[] = [
   },
   {
     code: 'target_stage', label: '어디까지 만들어 받고 싶나요?', short: '목표 단계', multi: false, required: true,
+    why: '시제품이면 검증·조립까지, 양산 준비 이상이면 생산·검사 자료가 범위에 듭니다.',
     options: withUnknown([
       { code: 'design_docs', label: '설계 자료까지' },
       { code: 'working_proto', label: '동작하는 시제품' },
@@ -99,6 +102,7 @@ export const MARKET_COMMON_CONDITIONS: readonly MarketQuestionDef[] = [
   },
   {
     code: 'deliverable_scope', label: '소스·설계 파일은 어디까지 받나요?', short: '인도 범위', multi: false, required: true,
+    why: '견적가를 가르는 조건입니다. 산출물 목록이 여기서 정해집니다.',
     options: withUnknown([
       { code: 'full_source', label: '전체 원본과 소스' },
       { code: 'maintainable', label: '제작·유지보수 가능한 범위' },
@@ -162,6 +166,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
     questions: [
       {
         code: 'circuit.load', label: '제품이 직접 켜거나 움직여야 하는 것이 있나요?', short: '구동 부하', multi: true,
+        why: '부하 종류에 따라 전원과 보호 회로 구성이 달라집니다.',
         options: withUnknown([
           { code: 'motor_fan', label: '모터·팬' },
           { code: 'relay_valve', label: '릴레이·밸브' },
@@ -172,6 +177,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'circuit.priority', label: '가장 중요하게 지켜야 할 조건은 무엇인가요?', short: '우선 조건', multi: false,
+        why: '우선 조건에 따라 부품과 회로 구성을 달리 제안합니다.',
         options: withUnknown([
           { code: 'small_size', label: '작은 크기' },
           { code: 'battery_life', label: '긴 배터리 시간' },
@@ -206,6 +212,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
     questions: [
       {
         code: 'pcb.outline', label: '기판이 들어갈 최대 크기가 정해져 있나요?', short: '기판 크기', multi: false,
+        why: '정확한 치수를 모르면 케이스나 참고 제품 자료를 올려 주세요.',
         options: withUnknown([
           { code: 'fixed', label: '정확히 정해져 있어요(아래에 적어 주세요)' },
           { code: 'approx', label: '대략만 있어요' },
@@ -217,6 +224,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'pcb.placement', label: '커넥터·버튼·LED·안테나 위치가 정해져 있나요?', short: '외부 부품 위치', multi: false,
+        why: '외부와 맞닿는 부품 위치는 기판 배치에 중요합니다.',
         options: withUnknown([
           { code: 'all_fixed', label: '모두 정해져 있어요' },
           { code: 'partial', label: '일부만 정해져 있어요' },
@@ -226,6 +234,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'pcb.special', label: '기판에 이런 기능이 들어가나요?', short: '특수 기능', multi: true,
+        why: '층수나 임피던스는 전문가가 기능을 보고 결정합니다.',
         options: withUnknown([
           { code: 'wireless', label: '무선 통신·안테나' },
           { code: 'high_speed', label: '카메라·고속 통신' },
@@ -259,6 +268,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
     questions: [
       {
         code: 'firmware.board', label: '펌웨어를 올릴 보드가 준비돼 있나요?', short: '보드 준비', multi: false,
+        why: '하드웨어가 없으면 회로·PCB 개발을 함께 요청할 수 있습니다.',
         options: withUnknown([
           { code: 'have_board', label: '동작하는 보드가 있어요' },
           { code: 'schematic_only', label: '회로도만 있어요' },
@@ -269,6 +279,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'firmware.update', label: '제품을 회수하지 않고 프로그램을 업데이트해야 하나요?', short: '업데이트 방식', multi: false,
+        why: '원격 업데이트가 필요하면 메모리와 통신 구성을 함께 검토합니다.',
         options: withUnknown([
           { code: 'remote_required', label: '원격 업데이트 필수' },
           { code: 'cable', label: '케이블로 하면 돼요' },
@@ -278,6 +289,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'firmware.failure', label: '제품이 멈추거나 통신에 실패하면 어떻게 해야 하나요?', short: '장애 시 동작', multi: false,
+        why: '복구 요구사항은 산업용·무인 제품에서 특히 중요합니다.',
         options: withUnknown([
           { code: 'auto_recover', label: '스스로 재시작·복구' },
           { code: 'retry_alert', label: '다시 시도하고 알림' },
@@ -320,6 +332,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
     questions: [
       {
         code: 'app.platform', label: '어떤 기기에서 쓰나요?', short: '앱 기기', multi: false,
+        why: '개발 도구는 전문가가 지원 범위에 맞춰 선택합니다.',
         options: withUnknown([
           { code: 'android', label: '안드로이드' },
           { code: 'ios', label: '아이폰' },
@@ -330,6 +343,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'app.users', label: '앱을 쓰는 사람은 누구인가요?', short: '앱 사용자', multi: false,
+        why: '사용자 유형이 다르면 화면과 권한을 구분해야 합니다.',
         options: withUnknown([
           { code: 'consumer', label: '일반 사용자' },
           { code: 'admin', label: '관리자' },
@@ -340,6 +354,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'app.core', label: '앱에서 가장 자주 하는 일은 무엇인가요?', short: '핵심 작업', multi: false,
+        why: '핵심 작업을 기준으로 첫 화면을 설계합니다.',
         options: withUnknown([
           { code: 'monitor', label: '상태 확인' },
           { code: 'control', label: '제품 제어' },
@@ -381,6 +396,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
     questions: [
       {
         code: 'server.scale', label: '몇 대·몇 명이 함께 쓰나요?', short: '사용 규모', multi: false,
+        why: '정확한 수치를 모르면 예상 범위를 선택해 주세요.',
         options: withUnknown([
           { code: 'small', label: '장치 몇 대, 나 혼자·소수' },
           { code: 'medium', label: '수십~수백 대, 여러 사용자' },
@@ -390,6 +406,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'server.realtime', label: '데이터 확인이나 원격 제어가 실시간이어야 하나요?', short: '실시간성', multi: false,
+        why: '실시간성에 따라 서버 비용과 통신 구조가 달라집니다.',
         options: withUnknown([
           { code: 'sub_second', label: '1초 안' },
           { code: 'seconds', label: '수초~1분' },
@@ -399,6 +416,7 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'server.ops', label: '개발 후 서버 운영·유지보수도 필요한가요?', short: '운영 범위', multi: false,
+        why: '기존 클라우드 계정이나 서버가 있다면 자료를 공유해 주세요.',
         options: withUnknown([
           { code: 'dev_only', label: '개발만' },
           { code: 'deploy', label: '초기 구축·배포까지' },

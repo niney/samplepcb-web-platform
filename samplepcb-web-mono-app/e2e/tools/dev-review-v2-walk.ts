@@ -90,7 +90,7 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: timeline ?? '', exact: true }).click();
     await page.getByRole('button', { name: targetStage ?? '', exact: true }).click();
     await page.getByRole('button', { name: deliverable ?? '', exact: true }).click();
-    console.log(`  공통 조건 ${await page.locator('text=/^\\d+ \\/ \\d+$/').first().textContent()}`);
+    console.log(`  공통 조건 ${(await page.locator('text=/\\d+ \\/ \\d+ 완료/').first().textContent())?.trim()}`);
     await page.getByRole('button', { name: stage ?? '', exact: true }).click();
     await page.getByRole('button', { name: quantity ?? '', exact: true }).click();
     await page.getByPlaceholder('예: 먼저 3개, 이후 월 200개').fill(SC.quantityNote);

@@ -103,7 +103,8 @@ const headline = computed(() => {
 </script>
 
 <template>
-  <div v-if="visible" class="fixed bottom-4 right-4 z-40 w-[min(360px,calc(100vw-2rem))]">
+  <!-- 위저드에선 하단 고정 액션 바(§13.9) 위로 올린다. -->
+  <div v-if="visible" class="fixed right-4 z-40 w-[min(360px,calc(100vw-2rem))]" :class="onWizard ? 'bottom-24' : 'bottom-4'">
     <!-- 펼친 패널 -->
     <div v-if="open" class="mb-2 overflow-hidden rounded-2xl border border-line bg-white shadow-2xl">
       <div class="flex items-center justify-between border-b border-line px-4 py-2.5">
