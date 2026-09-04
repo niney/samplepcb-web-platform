@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { AiJobStageType, MarketDevDiagramType, MarketDevReviewType } from '@sp/api-contract';
+import type { AiJobStageType, MarketDevDiagramType, MarketDevDiagramViewType, MarketDevReviewType } from '@sp/api-contract';
+import DevDiagramSection from '../../components/dev-review/DevDiagramSection.vue';
 import StepReview from '../../components/request/StepReview.vue';
 import type { DevReviewJob } from '../../composables/useDevReviewJob';
 import { useRequestWizardForm } from '../../composables/useRequestWizardForm';
@@ -148,6 +149,55 @@ const job: DevReviewJob = {
     include.value = false;
   },
 };
+
+// ── 시스템 구성도 섹션(§13.12) — 상세·검토서가 쓰는 DevDiagramSection 을 따로 세워 상태별로 본다.
+//    위저드 경로에서는 html 이 언제나 null 이라(등록 뒤 상세에서만 본문) 완성 모양은 여기서만 볼 수 있다.
+type MockSection = 'queued' | 'running' | 'overdue' | 'done' | 'error' | 'skipped' | 'none';
+const SECTIONS: { key: MockSection; label: string }[] = [
+  { key: 'queued', label: '대기 중' },
+  { key: 'running', label: '그리는 중(3분)' },
+  { key: 'overdue', label: '그리는 중(13분)' },
+  { key: 'done', label: '완성' },
+  { key: 'error', label: '실패' },
+  { key: 'skipped', label: '생략' },
+  { key: 'none', label: '없음' },
+];
+const section = ref<MockSection>('running');
+
+const SAMPLE_DIAGRAM_HTML = `<!doctype html><meta charset="utf-8"><body style="margin:0;font:14px system-ui;background:#fff;padding:16px">
+<svg viewBox="0 0 1900 1200" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <rect x="80" y="480" width="420" height="240" rx="18" fill="#eef3fb" stroke="#2b5fb3" stroke-width="4"/>
+  <text x="290" y="610" text-anchor="middle" font-size="44" fill="#14243e">제어 보드</text>
+  <rect x="760" y="220" width="420" height="240" rx="18" fill="#eefaf3" stroke="#1d8a5b" stroke-width="4"/>
+  <text x="970" y="350" text-anchor="middle" font-size="44" fill="#14243e">사료 배출 모터</text>
+  <rect x="760" y="740" width="420" height="240" rx="18" fill="#fdeef6" stroke="#d9488a" stroke-width="4"/>
+  <text x="970" y="870" text-anchor="middle" font-size="44" fill="#14243e">스마트폰 앱</text>
+  <path d="M500 560 H760 V460" stroke="#52627d" stroke-width="4" fill="none"/>
+  <path d="M500 640 H760 V740" stroke="#52627d" stroke-width="4" fill="none"/>
+</svg>
+<h2 style="font-size:18px">검토 항목</h2><p>모터 사양과 전원 방식은 전문가 검토 후 확정합니다.</p></body>`;
+
+const sectionMeta = (status: MarketDevDiagramType['status'], agoSecs: number): MarketDevDiagramType => ({
+  ...SAMPLE_DIAGRAM_META,
+  status,
+  requestedAt: new Date(Date.now() - agoSecs * 1000).toISOString(),
+  generatedAt: status === 'done' ? new Date().toISOString() : null,
+  elapsedSecs: status === 'done' ? 412 : null,
+  error: status === 'error' ? '모델 응답이 도면을 만들지 못했습니다' : null,
+  skipReason: status === 'skipped' ? '설명이 500자보다 짧고 참고 자료가 없습니다.' : null,
+});
+
+const diagramView = computed<MarketDevDiagramViewType>(() => {
+  switch (section.value) {
+    case 'queued': return { meta: sectionMeta('queued', 4), html: null };
+    case 'running': return { meta: sectionMeta('running', 192), html: null };
+    case 'overdue': return { meta: sectionMeta('running', 780), html: null };
+    case 'done': return { meta: sectionMeta('done', 412), html: SAMPLE_DIAGRAM_HTML };
+    case 'error': return { meta: sectionMeta('error', 300), html: null };
+    case 'skipped': return { meta: sectionMeta('skipped', 2), html: null };
+    default: return { meta: null, html: null };
+  }
+});
 </script>
 
 <template>
@@ -191,6 +241,29 @@ const job: DevReviewJob = {
 
     <div class="mt-6 rounded-2xl border border-line bg-white p-7">
       <StepReview :form="form" :job="job" />
+    </div>
+
+    <!-- 시스템 구성도 섹션 단독(상세 화면과 같은 컴포넌트) -->
+    <div class="mt-8 grid gap-3">
+      <div class="flex flex-wrap items-center gap-2 rounded-2xl bg-ink-950 px-5 py-3.5 text-dk-tx-1">
+        <p class="text-body font-extrabold">시스템 구성도 섹션</p>
+        <span class="text-label text-dk-tx-2">DevDiagramSection · 의뢰 상세와 같은 컴포넌트</span>
+        <div class="ml-auto flex flex-wrap gap-2">
+          <button
+            v-for="s in SECTIONS"
+            :key="s.key"
+            type="button"
+            class="h-8 rounded-full border px-3 text-label font-semibold transition"
+            :class="section === s.key ? 'border-dk-tx-1 bg-white text-ink-950' : 'border-ink-700 text-dk-tx-2 hover:border-dk-tx-2'"
+            @click="section = s.key"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+      </div>
+      <div class="rounded-2xl border border-line bg-white p-7">
+        <DevDiagramSection :diagram="diagramView" can-regenerate />
+      </div>
     </div>
   </section>
 </template>
