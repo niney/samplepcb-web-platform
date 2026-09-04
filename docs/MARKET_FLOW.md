@@ -48,7 +48,7 @@ local-web.samplepcb.co.kr (nginx 443)
   `'sp_market_expert'`(license·portfolio·bizreg). pathToken 비노출·`uploadedBy`에 mbId 금지
   (varchar(20)) 불변식 유지. 파일서버 serviceType은 env `MARKET_FILE_SERVICE_TYPE`(기본 `market`).
 - 프로젝트 분류는 복수 `serviceAreas` — **2026-09-04 v3: 분야 레지스트리 5종**(회로·PCB·펌웨어·앱·서버, `packages/api-contract/src/schemas/market-areas.ts` 정본, docs/AI_DEV_REVIEW.md §13). 분야 코드는 문자열 + 레지스트리 검증(빠진 분야는 라벨 "(종료)"). `requestType` 은 서버 파생값(2개 이상=`system`). 표기는 `marketAreaBadge`(1개=분야명, 2~4개="회로 + PCB", 5개="풀 개발(…)"). 세부분야(`categories`)·CAD 툴(`cadTools`) 축은 폐기되고 **분야별 희망 툴·언어 `tools {byArea}`**(빈 분야 = 전문가 추천)로 바뀌었다 — 전문가도 같은 모양.
-- **의뢰 위저드 v5(2026-09-04) = 3스텝**(docs/AI_DEV_REVIEW.md §13.4): ① 의뢰 내용(분야 카드 5개 + "잘 모르겠어요 — 전부 맡길게요"(=5종) · 제목 · 설명 · 참고 자료 · AI 동의) ② 몇 가지만 더(공통 4문항 + 선택 분야마다 [분야별 질문 · 희망 툴·언어(전문가 추천 기본) · 추가자료 슬롯 → `sp_file.area/slot`]) ③ 검토·등록(AI 사전 검토서 + 조건 폼). 답변은 `answers` 컬럼(`MarketAnswers`). 등록 뒤 **정밀 시스템 구성도**(kimi-k3 thinking high, 비동기 큐)가 `devDiagram`·`devDiagramHtml` 에 붙고 의뢰인에게 메일(§13.5).
+- **의뢰 위저드 v5(2026-09-04) = 3스텝**(docs/AI_DEV_REVIEW.md §13.4): ① 의뢰 내용(분야 카드 5개 + "잘 모르겠어요 — 전부 맡길게요"(=5종) · 제목 · 설명 · 참고 자료 · AI 동의) ② 몇 가지만 더(**프로젝트 공통 조건 6 필수**[예산·완료 시점·목표 단계·견적 방식·인도 범위·NDA, §13.8] + 공통 질문 3 + 선택 분야마다 [맞춤 질문 2~3(풀 개발이면 2) · 희망 툴·언어(전문가 추천 기본) · 추가자료 슬롯 → `sp_file.area/slot`]) ③ 검토·등록(AI 사전 검토서 + 견적 마감). 조건 3 미응답은 등록 400 `ANSWERS_REQUIRED`. 답변은 `answers` 컬럼(`MarketAnswers`). 등록 뒤 **정밀 시스템 구성도**(kimi-k3 thinking high, 비동기 큐)가 `devDiagram`·`devDiagramHtml` 에 붙고 의뢰인에게 메일(§13.5).
 - **AI 사전 검토서(단일 산출물)** — 정본 **docs/AI_DEV_REVIEW.md**. 옛 4산출물(구성도 HTML·
   구성 명세·작업검토지시서·분야별 카드)·80문항 인터뷰·선분석·provenance 체계는 폐기(`docs/
   AI_DIAGRAM.md` 는 경위 기록). 검토서는 `sp_market_project.devReview`(JSON) 하나에 저장되고

@@ -68,7 +68,7 @@ const toolRows = computed(() =>
   detail.value === undefined ? [] : marketToolRows(detail.value.tools, detail.value.serviceAreas),
 );
 
-// 질문 답변 표 — 공통 4문항 + 분야별 문항. 사전에서 사라진 문항 코드는 코드를 그대로 보인다.
+// 질문 답변 표 — 공통 조건·질문 + 분야 맞춤 문항. 사전에서 사라진 문항 코드는 코드를 그대로 보인다.
 interface AnswerRow {
   code: string;
   label: string;
@@ -353,7 +353,7 @@ const statusBadge = (s: string): string =>
             {{ detail.description }}
           </p>
 
-          <!-- 질문 답변 — 공통 4문항 + 분야별 문항. 검토서 없이도 보인다. -->
+          <!-- 질문 답변 — 공통 조건·질문 + 분야 맞춤 문항. 검토서 없이도 보인다. -->
           <div v-if="answerRows.length > 0" class="mt-4">
             <p class="text-xs font-bold text-gray-500">질문 답변 ({{ answerRows.length }})</p>
             <dl class="mt-1.5 grid grid-cols-[96px_1fr] gap-y-1.5 rounded-lg border border-gray-100 px-3 py-2 text-xs">

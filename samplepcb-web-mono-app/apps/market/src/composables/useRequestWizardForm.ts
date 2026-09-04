@@ -3,12 +3,14 @@ import { useRoute } from 'vue-router';
 import {
   MARKET_AREAS,
   MARKET_AREA_CODES,
+  MARKET_COMMON_CONDITIONS,
   MARKET_COMMON_QUESTIONS,
   MARKET_TOOLS_VERSION,
   isMarketAreaCode,
   marketArea,
   marketAttachmentField,
   marketQuestionsFor,
+  marketRequiredMissing,
   sortMarketAreas,
 } from '@sp/api-contract';
 import type {
@@ -24,11 +26,12 @@ import { useDevReviewStatus } from '../api/useAi';
 
 // 의뢰 위저드 3스텝 폼 상태(docs/AI_DEV_REVIEW.md §13.4) —
 //   ① 의뢰 내용(분야·제목·설명·참고 자료·AI 동의)
-//   ② 몇 가지만 더(공통 4문항 + 선택 분야마다 [분야 질문 · 희망 툴 · 추가자료 슬롯])
-//   ③ 검토·등록(AI 사전 검토서 미리보기 + 견적 조건).
-// 의뢰자는 비전문가일 수 있다는 전제라 물어보는 것을 최소화했다: 질문은 전부 선택 사항이고
-// "잘 모르겠어요" 탈출구가 있으며, 툴은 "전문가 추천"(빈 선택)이 기본이다. 분야·질문·툴·슬롯의
-// 정본은 레지스트리(MARKET_AREAS)라 이 파일에 분야 코드를 문자열로 박지 않는다.
+//   ② 몇 가지만 더(프로젝트 공통 조건 6 [예산·완료 시점·목표 단계·견적 방식·인도 범위·NDA] + 공통 질문 3
+//      + 선택 분야마다 [맞춤 질문 · 희망 툴 · 추가자료 슬롯])
+//   ③ 검토·등록(AI 사전 검토서 미리보기 + 견적 마감).
+// 의뢰자는 비전문가일 수 있다는 전제라 물어보는 것을 최소화했다: 공통 조건만 필수(모르면 "협의" 탈출구),
+// 질문은 전부 선택 사항이고 "잘 모르겠어요"·"전문가 추천" 탈출구가 있으며, 툴은 "전문가 추천"(빈 선택)이
+// 기본이다. 분야·질문·툴·슬롯의 정본은 레지스트리(MARKET_AREAS)라 이 파일에 분야 코드를 문자열로 박지 않는다.
 // 이 컴포저블은 폼 값·스텝 정의·네비게이션·폼 자체 유효성만 소유한다 — 검토서 잡
 // 오케스트레이션과 신선도 판정은 useDevReviewJob 이 담당한다.
 
@@ -47,7 +50,7 @@ export interface RequestForm {
   // AI 사전 검토 동의(기본 true) — 해제 시 검토서 없이 등록되고 정밀 구성도도 만들지 않는다.
   aiConsent: boolean;
   ndaRequired: boolean;
-  budgetRange: MarketBudgetRangeType;
+  budgetRange: MarketBudgetRangeType | null; // null = 아직 안 골랐다(2스텝 필수)
   deadlineMode: '3' | '7' | '14' | 'date';
   deadlineDate: string;
   method: MarketProjectMethodType;
@@ -75,7 +78,7 @@ export function useRequestWizardForm() {
     description: '',
     aiConsent: true,
     ndaRequired: true,
-    budgetRange: 'undecided',
+    budgetRange: null,
     deadlineMode: '7',
     deadlineDate: '',
     method: presetExpertId !== null ? 'targeted' : 'open',
@@ -124,7 +127,11 @@ export function useRequestWizardForm() {
     selectedAreas.value.map((c) => marketArea(c)).filter((d): d is MarketAreaDef => d !== undefined),
   );
   const activeQuestions = computed<MarketQuestionDef[]>(() => marketQuestionsFor(fields.serviceAreas));
+  const conditionQuestions = MARKET_COMMON_CONDITIONS;
   const commonQuestions = MARKET_COMMON_QUESTIONS;
+  // 풀 개발이면 분야당 앞 2개만 묻는다(레지스트리 상한) — 카드는 이 목록으로 그린다.
+  const areaQuestionsOf = (area: string): MarketQuestionDef[] =>
+    activeQuestions.value.filter((q) => q.code.startsWith(`${area}.`));
 
   // 메모 필수(noteRequiredFor 선택지를 고른 문항) 미충족 목록 — 등록 전 게이트.
   const noteMissingCodes = computed<string[]>(() =>
@@ -135,6 +142,15 @@ export function useRequestWizardForm() {
       return required && state.note.trim() === '' ? [q.code] : [];
     }),
   );
+
+  // 필수 문항(공통 조건) 미응답 — 등록 라우트(ANSWERS_REQUIRED)와 같은 함수.
+  const requiredMissingCodes = computed<string[]>(() => marketRequiredMissing(buildAnswers(), fields.serviceAreas));
+  // 2스텝 "프로젝트 공통 조건" 진행(n/6): 답변형 조건 3 + 예산 + 견적 방식(지정이면 전문가까지) + NDA(체크박스라 항상 답).
+  const methodOk = computed(() => fields.method === 'open' || fields.targetExpertId !== null);
+  const conditionProgress = computed(() => ({
+    done: conditionQuestions.length - requiredMissingCodes.value.length + (fields.budgetRange === null ? 0 : 1) + (methodOk.value ? 1 : 0) + 1,
+    total: conditionQuestions.length + 3,
+  }));
 
   // 등록·검토서 실행에 실을 답변 — 응답한 문항만, 선택 분야 밖 문항은 버린다.
   function buildAnswers(): MarketAnswerType[] {
@@ -237,10 +253,14 @@ export function useRequestWizardForm() {
         fields.description.trim().length >= 10
       );
     }
-    if (key === 'details') return noteMissingCodes.value.length === 0;
+    const detailsOk =
+      noteMissingCodes.value.length === 0 &&
+      requiredMissingCodes.value.length === 0 &&
+      fields.budgetRange !== null &&
+      methodOk.value;
+    if (key === 'details') return detailsOk;
     const deadlineOk = fields.deadlineMode !== 'date' || fields.deadlineDate >= todayKst;
-    const methodOk = fields.method === 'open' || fields.targetExpertId !== null;
-    return deadlineOk && methodOk && noteMissingCodes.value.length === 0;
+    return deadlineOk && detailsOk;
   });
 
   return {
@@ -253,8 +273,12 @@ export function useRequestWizardForm() {
     areas: MARKET_AREAS,
     selectedAreas,
     areaDefs,
+    conditionQuestions,
     commonQuestions,
+    areaQuestionsOf,
     activeQuestions,
+    requiredMissingCodes,
+    conditionProgress,
     questionState,
     stateOf,
     toggleChoice,

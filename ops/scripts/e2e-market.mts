@@ -105,9 +105,15 @@ const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 // 같은 규칙(서버 모듈을 통째로 로드하지 않으려고 계산만 복제; 규칙이 바뀌면 REVIEW_STALE 로 드러난다).
 const attachmentHashOf = (field, body) => `${field}:${sha256(Buffer.from(body))}`;
 
-const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v4';
+const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v5';
 const DEV_DIAGRAM_PROMPT_VERSION = 'dev-diagram.v1';
 const DEV_DIAGRAM_USECASE = 'market.dev-diagram';
+// 프로젝트 공통 조건 3(완료 시점·목표 단계·인도 범위)은 등록 필수(ANSWERS_REQUIRED, docs/AI_DEV_REVIEW.md §13.8).
+const requiredAnswers = [
+  { code: 'timeline', choices: ['m2_3'] },
+  { code: 'target_stage', choices: ['working_proto'] },
+  { code: 'deliverable_scope', choices: ['full_source'] },
+];
 // 검토서 v4 픽스처 — MarketDevReview.parse 를 통과해야 sp_ai_job 시드가 유효하다(v4 는 3열 카드
 // 구성도(diagram)가 없다 — 구성도는 market.dev-diagram 잡 하나뿐; 분야 카드 observations·상의 항목
 // area·checks 는 v3 모양 그대로).
@@ -496,10 +502,10 @@ async function run() {
     // 첨부는 일반 1건 + 분야 슬롯(attachment:circuit:schematic) 1건 — 슬롯 파트가 해시·area/slot
     // 응답에 모두 반영되는지 같이 검증한다.
     const prjAnswers = [
+      ...requiredAnswers,
       { code: 'stage', choices: ['idea'] },
       { code: 'quantity', choices: ['proto_1_10'], note: '먼저 3개' },
       { code: 'external', choices: ['mobile_app'] },
-      { code: 'timeline', choices: ['within_3m'] },
     ];
     const prjAttachmentBody = 'e2e spec content';
     const prjSlotBody = 'e2e schematic sketch';
@@ -538,7 +544,7 @@ async function run() {
           // v3 희망 툴 — 중복 코드·선택 안 한 분야(pcb)는 저장 정규화가 걷어내야 한다(툴은 해시 원천이 아니다).
           tools: { version: 1, byArea: { circuit: ['kicad', 'altium', 'kicad'], pcb: ['kicad'] } },
           ndaRequired: true,
-          budgetRange: 'r300_700',
+          budgetRange: 'r500_2000',
           deadline: { days: 7 },
           method: 'open',
           devReviewJobId: reviewJobId,
@@ -796,8 +802,9 @@ async function run() {
         serviceAreas: ['circuit', 'firmware'],
         tools: { version: 1, byArea: { firmware: ['c_cpp', 'stm32cube'] } },
         description: '분야 2개 파생·개인 전문가 입찰 E2E 검증용 프로젝트입니다.',
+        answers: requiredAnswers,
         ndaRequired: false,
-        budgetRange: 'r300_700',
+        budgetRange: 'r500_2000',
         deadline: { days: 7 },
         method: 'open',
       }),
@@ -904,10 +911,10 @@ async function run() {
         serviceAreas: ['pcb'],
         tools: { version: 1, byArea: { pcb: ['kicad'] } },
         // 분야별 질문(pcb.outline) — fixed 는 메모 필수(noteRequiredFor).
-        answers: [{ code: 'pcb.outline', choices: ['fixed'], note: '80×50mm, 케이스 맞춤' }],
+        answers: [{ code: 'pcb.outline', choices: ['fixed'], note: '80×50mm, 케이스 맞춤' }, ...requiredAnswers],
         description: '지정견적 E2E 테스트 상세 설명입니다.',
         ndaRequired: false,
-        budgetRange: 'under300',
+        budgetRange: 'under500',
         deadline: { days: 3 },
         method: 'targeted',
         targetExpertId: ids.expertId,
@@ -948,6 +955,7 @@ async function run() {
       serviceAreas: ['firmware'],
       tools: { version: 1, byArea: {} }, // 빈 = 전문가 추천
       description: '조기 마감 E2E 테스트 상세 설명입니다.',
+      answers: requiredAnswers,
       ndaRequired: false,
       budgetRange: 'undecided',
       deadline: { days: 14 },
@@ -978,6 +986,27 @@ async function run() {
         JSON.stringify(badAnswer.json?.issues ?? []).includes('UNKNOWN_QUESTION'),
       '선택 분야 밖 질문(pcb.outline on firmware) 400(UNKNOWN_QUESTION)',
       badAnswer,
+    );
+    // v5: 프로젝트 공통 조건 3(완료 시점·목표 단계·인도 범위)은 등록 필수 — 빠지면 ANSWERS_REQUIRED + missing 코드.
+    const noRequired = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildCloseForm({ answers: [{ code: 'timeline', choices: ['m2_3'] }] }),
+    });
+    assert(
+      noRequired.status === 400 && noRequired.json?.error === 'ANSWERS_REQUIRED' &&
+        JSON.stringify(noRequired.json?.missing ?? []) === JSON.stringify(['target_stage', 'deliverable_scope']),
+      '공통 조건 미응답(목표 단계·인도 범위) 400(ANSWERS_REQUIRED, missing 2)',
+      noRequired,
+    );
+    // 풀 개발(5분야)이면 분야당 앞 2개만 묻는다 — 3번째 문항(server.ops)은 선택 분야 밖 취급(UNKNOWN_QUESTION).
+    const capped = await req('POST', '/api/market/projects', {
+      token: tClient,
+      form: buildCloseForm({ serviceAreas: ['circuit', 'pcb', 'firmware', 'app', 'server'], answers: [...requiredAnswers, { code: 'server.ops', choices: ['dev_only'] }] }),
+    });
+    assert(
+      capped.status === 400 && JSON.stringify(capped.json?.issues ?? []).includes('UNKNOWN_QUESTION'),
+      '풀 개발 분야당 질문 상한 2 — 3번째 문항(server.ops) 400(UNKNOWN_QUESTION)',
+      capped,
     );
     const badSlot = await req('POST', '/api/market/projects', {
       token: tClient,
@@ -1078,8 +1107,9 @@ async function run() {
           title,
           serviceAreas: ['circuit'],
           description: `${title} — 2차 E2E 상세 설명입니다.`,
+          answers: requiredAnswers,
           ndaRequired: false,
-          budgetRange: 'r300_700',
+          budgetRange: 'r500_2000',
           deadline: { days: 7 },
           method: 'open',
         }),

@@ -8,7 +8,11 @@
     { "code": "stage", "choices": ["idea"] },
     { "code": "quantity", "choices": ["proto_1_10"], "note": "6대" },
     { "code": "external", "choices": ["mobile_app", "server_cloud"] },
-    { "code": "timeline", "choices": ["within_3m"] },
+    { "code": "timeline", "choices": ["m2_3"] },
+    { "code": "target_stage", "choices": ["working_proto"] },
+    { "code": "deliverable_scope", "choices": ["full_source"] },
+    { "code": "firmware.update", "choices": ["remote_required"] },
+    { "code": "server.realtime", "choices": ["periodic"] },
     { "code": "app.platform", "choices": ["android"] },
     { "code": "server.scale", "choices": ["small"] }
   ],

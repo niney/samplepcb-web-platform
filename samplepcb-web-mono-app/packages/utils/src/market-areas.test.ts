@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   MARKET_AREAS,
   MARKET_AREA_CODES,
+  MARKET_COMMON_CONDITIONS,
   MARKET_COMMON_QUESTIONS,
+  MARKET_FULL_AREA_QUESTION_CAP,
   MARKET_QUESTIONS,
   marketAnswerIssues,
   marketAnswerText,
   marketAreaBadge,
   marketAreaLabel,
   marketQuestionArea,
+  marketQuestionsFor,
+  marketRequiredMissing,
   marketToolIssues,
   marketToolRows,
   normalizeMarketTools,
@@ -29,10 +33,24 @@ describe('레지스트리 정합성', () => {
       for (const q of a.questions) expect(q.code.startsWith(`${a.code}.`)).toBe(true);
     }
     for (const q of MARKET_COMMON_QUESTIONS) expect(q.code.includes('.')).toBe(false);
+    for (const q of MARKET_COMMON_CONDITIONS) expect(q.code.includes('.')).toBe(false);
   });
 
-  it('모든 질문에 "잘 모르겠어요" 탈출구가 붙어 있고 프롬프트 조각이 비어 있지 않다', () => {
+  it('공통 조건 3은 전부 필수, 분야 맞춤 질문은 2~3개·전부 선택', () => {
+    expect(MARKET_COMMON_CONDITIONS.map((q) => q.code)).toEqual(['timeline', 'target_stage', 'deliverable_scope']);
+    for (const q of MARKET_COMMON_CONDITIONS) expect(q.required).toBe(true);
+    for (const q of [...MARKET_COMMON_QUESTIONS, ...MARKET_AREAS.flatMap((a) => a.questions)]) expect(q.required).toBeUndefined();
+    for (const a of MARKET_AREAS) {
+      expect(a.questions.length).toBeGreaterThanOrEqual(2);
+      expect(a.questions.length).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('모든 질문에 탈출구(unknown)가 붙어 있고 프롬프트 조각이 비어 있지 않다', () => {
     for (const q of MARKET_QUESTIONS) expect(q.options.at(-1)?.code).toBe('unknown');
+    // 탈출구 라벨은 문항 성격을 따른다 — 공통 질문 "잘 모르겠어요", 분야 질문은 "전문가 추천"류, 조건은 "협의"류.
+    for (const q of MARKET_COMMON_QUESTIONS) expect(q.options.at(-1)?.label).toBe('잘 모르겠어요');
+    for (const q of MARKET_COMMON_CONDITIONS) expect(q.options.at(-1)?.label).toMatch(/협의/);
     for (const a of MARKET_AREAS) {
       expect(a.prompt.what.length).toBeGreaterThan(5);
       expect(a.prompt.specItems.length).toBeGreaterThan(0);
@@ -59,6 +77,15 @@ describe('분야 파생', () => {
     expect(marketQuestionArea('stage')).toBeNull();
     expect(marketQuestionArea('app.platform')).toBe('app');
   });
+  it('물을 질문 = 조건 → 공통 → 분야 순, 풀 개발이면 분야당 앞 2개만', () => {
+    const codes = marketQuestionsFor(['server']).map((q) => q.code);
+    expect(codes.slice(0, 3)).toEqual(['timeline', 'target_stage', 'deliverable_scope']);
+    expect(codes.slice(3, 6)).toEqual(['stage', 'quantity', 'external']);
+    expect(codes.slice(6)).toEqual(['server.scale', 'server.realtime', 'server.ops']);
+    const full = marketQuestionsFor([...MARKET_AREA_CODES]).filter((q) => q.code.includes('.'));
+    expect(full.length).toBe(MARKET_AREA_CODES.length * MARKET_FULL_AREA_QUESTION_CAP);
+    expect(full.map((q) => q.code)).not.toContain('server.ops');
+  });
 });
 
 describe('답변 검증·표시', () => {
@@ -79,6 +106,11 @@ describe('답변 검증·표시', () => {
       'answers[3]: NOTE_REQUIRED',
     ]);
     expect(marketAnswerIssues([{ code: 'pcb.outline', choices: ['fixed'], note: '80×50' }], ['pcb'])).toEqual([]);
+  });
+  it('필수 미응답 — 조건 3 중 답하지 않은 코드(빈 choices 도 미응답)', () => {
+    expect(marketRequiredMissing([], ['circuit'])).toEqual(['timeline', 'target_stage', 'deliverable_scope']);
+    expect(marketRequiredMissing([{ code: 'timeline', choices: ['unknown'] }, { code: 'target_stage', choices: [] }], ['circuit'])).toEqual(['target_stage', 'deliverable_scope']);
+    expect(marketAnswerIssues([{ code: 'server.ops', choices: ['dev_only'] }], [...MARKET_AREA_CODES])).toEqual(['answers[0]: UNKNOWN_QUESTION']);
   });
   it('답변 문자열 = 라벨(+메모)', () => {
     expect(marketAnswerText({ code: 'quantity', choices: ['proto_1_10'], note: '먼저 3개' })).toBe('시제품 1~10개 (먼저 3개)');

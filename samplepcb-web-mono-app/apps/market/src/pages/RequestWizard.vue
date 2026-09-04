@@ -66,7 +66,7 @@ async function submit(): Promise<void> {
     answers: buildAnswers(),
     aiConsent: fields.aiConsent,
     ndaRequired: fields.ndaRequired,
-    budgetRange: fields.budgetRange,
+    budgetRange: fields.budgetRange ?? 'undecided', // 2스텝 게이트가 null 을 막는다 — 타입 방어
     deadline: projectDeadline(),
     method: fields.method,
     ...(fields.method === 'targeted' && fields.targetExpertId !== null

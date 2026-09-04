@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
+  MARKET_COMMON_CONDITIONS,
   DEV_REVIEW_GENERAL_AREA,
   DEV_REVIEW_VERSION,
   DevReviewAreaReview,
@@ -11,6 +12,7 @@ import {
   DevReviewSpecRow,
   MARKET_AREAS,
   MarketDevReview,
+  isMarketAnswerUnknown,
   marketAnswerText,
   marketArea,
   marketAreaLabel,
@@ -36,7 +38,7 @@ import { extractJsonObject } from './ollama';
 // 조립한다 — 분야가 늘어도 이 파일의 규칙 본문은 바뀌지 않는다.
 // 프로빙 하네스(scripts/probe-dev-review.ts)와 실제 라우트가 같은 함수를 쓴다.
 
-export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v4'; // 09-04: 분야 레지스트리(5종)·분야별 질문 · 구성도는 검토서에서 분리(§13.7)
+export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v5'; // 09-04: 프로젝트 조건 3(완료 시점·목표 단계·인도 범위)·분야 맞춤 질문 14·답변 해석 블록(§13.8)
 export const ATTACHMENT_READ_PROMPT_VERSION = 'attachment-read.v1';
 export const DEV_REVIEW_MAX_OPEN_QUESTIONS = 6;
 
@@ -71,7 +73,8 @@ const DEV_REVIEW_RULES = `당신은 전자제품(회로·PCB·펌웨어)과 그�
 }
 
 [작성 지침]
-- requirements: 고객이 원하는 기능·조건 3~5개. 자료가 빈약하면 1~2개도 괜찮습니다. 질문 답변(현재 상태·수량·함께 쓰는 것·목표 시점)은 이미 표로 표시되므로 requirements 에 반복하지 않습니다.
+- requirements: 고객이 원하는 기능·조건 3~5개. 자료가 빈약하면 1~2개도 괜찮습니다. 프로젝트 조건(완료 시점·목표 단계·인도 범위)과 질문 답변(현재 상태·수량·함께 쓰는 것·분야별 맞춤 질문)은 이미 표로 표시되므로 requirements 에 반복하지 않습니다.
+- [답변 해석]은 각 답이 개발에서 뜻하는 것입니다. spec·observations 를 쓸 때 참고하되, 해석 문장 자체를 항목으로 만들지 않습니다 — 항목은 여전히 고객 문장 인용이 있어야 합니다.
 - 자료 간 불일치: 설명과 첨부, 또는 첨부끼리 내용이 다르면(예: 설명은 12V, 도면은 24V) 어느 쪽도 고르지 말고 그 항목은 확정에서 빼고 openQuestions 에 "자료 간 확인 필요: …"로 씁니다.
 - areas: [개발 분야]의 분야마다 정확히 하나씩(코드는 [개발 분야]에 적힌 것만). spec 은 근거가 있는 행만 0~6행 — 억지로 채우지 않습니다. 항목명은 [개발 분야]의 "명세 항목 예"를 참고하되 자료에 있는 것만 씁니다.
   · observations(검토 관찰): 이 분야에서 전문가가 먼저 볼 지점을 0~2줄. 고객 자료에 있는 사실 둘 이상을 이어 "무엇이 이 개발의 핵심인가"를 말합니다(예: "이더넷과 RS485 두 경로가 있어 폴백 전환 처리가 펌웨어의 중심입니다"). 각 관찰은 evidence 로 그 사실이 적힌 고객 문장을 인용합니다. 권장·추천·"해야 합니다"·리스크·주의 같은 판단 어휘는 쓰지 않고, spec 행을 되풀이하지 않습니다. 이을 사실이 없으면 빈 배열.
@@ -93,6 +96,19 @@ export function buildDevReviewAreaBlock(areas: readonly string[]): string {
   return `[개발 분야]\n${lines.join('\n')}`;
 }
 
+// [답변 해석] 블록 — 고객이 실제로 답한 문항 중 promptHint 가 있는 것만(조건·분야 맞춤 질문). 답하지 않은
+// 문항의 해석을 주면 모델이 그 주제를 지어내므로 답한 것만 싣는다.
+export function buildDevReviewAnswerHints(answers: readonly MarketAnswerType[]): string {
+  const lines = answers.flatMap((a) => {
+    const q = marketQuestion(a.code);
+    if (q?.promptHint === undefined || isMarketAnswerUnknown(a)) return [];
+    return [`- ${q.short}: ${q.promptHint}`];
+  });
+  return `[답변 해석]\n${lines.length === 0 ? '(없음)' : lines.join('\n')}`;
+}
+
+const isConditionCode = (code: string): boolean => MARKET_COMMON_CONDITIONS.some((q) => q.code === code);
+
 const answerLine = (a: MarketAnswerType): string => {
   const q = marketQuestion(a.code);
   const area = q === undefined ? null : a.code.includes('.') ? a.code.slice(0, a.code.indexOf('.')) : null;
@@ -102,16 +118,19 @@ const answerLine = (a: MarketAnswerType): string => {
 
 export function buildDevReviewPrompt(source: DevReviewSource, extraInstructions = ''): string {
   const extra = extraInstructions.trim();
-  const answers = source.answers.map(answerLine).join('\n');
+  const conditions = source.answers.filter((a) => isConditionCode(a.code)).map(answerLine).join('\n');
+  const answers = source.answers.filter((a) => !isConditionCode(a.code)).map(answerLine).join('\n');
   const attachments = source.attachmentContext.trim();
   return [
     DEV_REVIEW_RULES,
     buildDevReviewAreaBlock(source.serviceAreas),
+    buildDevReviewAnswerHints(source.answers),
     `[추가 지침]\n${extra === '' ? '(없음)' : extra}`,
     '[고객 자료]',
     `■ 제목: ${source.title}`,
     `■ 개발 분야: ${sortMarketAreas(source.serviceAreas).map(marketAreaLabel).join(', ')}`,
     `■ 설명:\n${source.description}`,
+    `■ 프로젝트 조건:\n${conditions === '' ? '(없음)' : conditions}`,
     `■ 질문 답변:\n${answers === '' ? '(없음)' : answers}`,
     `■ 첨부 자료:\n${attachments === '' ? '(없음)' : attachments}`,
   ].join('\n\n');
@@ -402,7 +421,7 @@ export function devReviewInputHash(input: {
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }
 
-// ── R9 답변↔자료 정합 — 4문항 답과 설명·첨부의 범주 어긋남 ────────────────────────
+// ── R9 답변↔자료 정합 — 공통 질문 답과 설명·첨부의 범주 어긋남 ────────────────────────
 // PRJ-0059 실측: "아이디어만 있어요"+"장치 단독"으로 답했는데 첨부는 넷리스트까지 끝난 설계 설명서, 설명엔
 // PC 연동. R8 은 단위 수치만 봐서 못 잡았고 모델도 안 물었다. 답변은 코퍼스에 넣지 않고 설명·첨부만 훑는다.
 // 단서 뒤 짧은 거리에 부정("회로도는 없다")이 오면 단서로 치지 않는다.

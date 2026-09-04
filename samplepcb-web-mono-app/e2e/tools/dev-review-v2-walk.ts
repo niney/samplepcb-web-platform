@@ -22,6 +22,7 @@ mkdirSync(dir, { recursive: true });
 
 const STAMP = new Date().toISOString().slice(11, 19);
 const FIXTURE_DIR = join(monoRoot, 'apps', 'api', 'src', 'scripts', 'fixtures', 'dev-review');
+// answers = [현재 상태, 수량, 함께 쓰는 것, 완료 시점, 목표 단계, 인도 범위] — 뒤 3개는 공통 조건(필수).
 interface Scenario { title: string; description: string; areas: readonly string[] | 'all'; answers: readonly string[]; quantityNote: string; attachments: readonly string[] }
 const SCENARIOS: Record<typeof SCENARIO, Scenario> = {
   feeder: {
@@ -29,7 +30,7 @@ const SCENARIOS: Record<typeof SCENARIO, Scenario> = {
     description:
       '집을 비울 때 정해진 시간에 사료를 주는 자동 급식기를 만들고 싶습니다. 스마트폰으로 급식 시간을 설정하고 급식 기록을 확인하고 싶어요. 집 Wi-Fi 에 연결해서 쓰면 좋겠습니다. 아직 아이디어 단계라 회로나 부품은 정해진 게 없습니다. 사료가 나오는 부분은 기구 업체가 따로 만들 예정입니다.',
     areas: 'all',
-    answers: ['아이디어만 있어요', '시제품 1~10개', '스마트폰 앱', '3개월 안'],
+    answers: ['아이디어만 있어요', '시제품 1~10개', '스마트폰 앱', '2~3개월', '동작하는 시제품', '전체 원본과 소스'],
     quantityNote: '먼저 3개',
     attachments: [],
   },
@@ -39,7 +40,7 @@ const SCENARIOS: Record<typeof SCENARIO, Scenario> = {
       title: `${fx.title} (v2 walk ${STAMP})`,
       description: fx.description,
       areas: ['회로 개발'],
-      answers: ['아이디어만 있어요', '시제품 1~10개', '없어요(장치 단독)', '가능한 빨리'],
+      answers: ['아이디어만 있어요', '시제품 1~10개', '없어요(장치 단독)', '1개월 안', '동작하는 시제품', '제작·유지보수 가능한 범위'],
       quantityNote: '4대',
       attachments: fx.attachments.map((f) => join(FIXTURE_DIR, f)),
     };
@@ -81,15 +82,22 @@ async function main(): Promise<void> {
     }
     await shot(page, '01-step1-describe');
 
-    // ── 2단계: 몇 가지만 더(공통 4문항 + 분야별 카드) ──
+    // ── 2단계: 프로젝트 공통 조건(필수 6) + 공통 질문 3 + 분야별 카드 ──
     await page.getByRole('button', { name: '다음', exact: true }).click();
-    await page.getByText('몇 가지만 더 알려주세요').waitFor({ timeout: 30_000 });
-    const [stage, quantity, external, timeline] = SC.answers;
+    await page.getByText('프로젝트 공통 조건').waitFor({ timeout: 30_000 });
+    const [stage, quantity, external, timeline, targetStage, deliverable] = SC.answers;
+    await page.getByLabel(/예상 개발 예산/).selectOption('r500_2000');
+    await page.getByRole('button', { name: timeline ?? '', exact: true }).click();
+    await page.getByRole('button', { name: targetStage ?? '', exact: true }).click();
+    await page.getByRole('button', { name: deliverable ?? '', exact: true }).click();
+    console.log(`  공통 조건 ${await page.locator('text=/^\\d+ \\/ \\d+$/').first().textContent()}`);
     await page.getByRole('button', { name: stage ?? '', exact: true }).click();
     await page.getByRole('button', { name: quantity ?? '', exact: true }).click();
     await page.getByPlaceholder('예: 먼저 3개, 이후 월 200개').fill(SC.quantityNote);
     await page.getByRole('button', { name: external ?? '', exact: true }).click();
-    await page.getByRole('button', { name: timeline ?? '', exact: true }).click();
+    // 분야 맞춤 질문 — 첫 카드의 첫 문항에서 '전문가 추천' 하나만 찍어 탈출구 동선을 확인한다.
+    const expertPick = page.getByRole('button', { name: '전문가 추천', exact: true }).first();
+    if (await expertPick.isVisible().catch(() => false)) await expertPick.click();
     await shot(page, '01b-step2-details');
 
     // ── 3단계: 검토서 생성(실 LLM) → 미리보기 ──

@@ -15,7 +15,7 @@ export const DEV_REVIEW_ADMIN_SAMPLE: DevReviewSource = {
     { code: 'stage', choices: ['idea'] },
     { code: 'quantity', choices: ['proto_1_10'], note: '먼저 3개' },
     { code: 'external', choices: ['mobile_app'] },
-    { code: 'timeline', choices: ['within_3m'] },
+    { code: 'timeline', choices: ['m2_3'] },
   ],
   attachmentContext: '',
   attachmentFiles: [],

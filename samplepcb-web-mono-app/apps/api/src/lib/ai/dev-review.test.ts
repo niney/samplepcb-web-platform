@@ -256,7 +256,7 @@ describe('파서·프롬프트·해시', () => {
     expect(prompt).toContain('[절대 규칙]');
     expect(prompt).toContain('KC 인증을 항상 확인하세요');
     expect(prompt).toContain('함께 쓰는 것이 있나요? → 스마트폰 앱');
-    expect(prompt).toContain('언제까지 필요한가요? → 잘 모르겠어요');
+    expect(prompt).toContain('언제까지 완성돼야 하나요? → 협의해서 정할게요');
     expect(prompt).toContain('[첨부 1] 사양서');
     expect(prompt).toContain('회로 개발, PCB 설계');
   });

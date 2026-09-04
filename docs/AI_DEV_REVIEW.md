@@ -570,18 +570,18 @@ MarketAreaDef = {
   prompt: { what, specItems, checks },      // 검토서·구성도 프롬프트 조각
 }
 MARKET_AREAS = [circuit, pcb, firmware, app, server]   // 순서 = 화면 순서
-MARKET_COMMON_QUESTIONS = [stage, quantity, external, timeline]  // 공통 4문항(§12 유지)
+MARKET_COMMON_CONDITIONS = [timeline, target_stage, deliverable_scope]  // 프로젝트 공통 조건(필수, §13.8)
+MARKET_COMMON_QUESTIONS = [stage, quantity, external]                   // 공통 질문 3(§12 유지, 완료 시점은 조건으로)
 ```
 
 파생: `MARKET_AREA_CODES`·`marketAreaLabel`·`marketAreaBadge`(1개=분야명 · 2~4개="회로 + PCB" · 5개="풀 개발(…)")·
 `sortMarketAreas`·`marketQuestionsFor(areas)`·`marketAnswerIssues(answers, areas)`(중복·미지 문항·선택 분야 밖·미지
 선택지·단일 선택·메모 필수)·`MarketTools {version:1, byArea:{area:[code]}}`·`normalizeMarketTools`·`marketToolRows`·
-`parseMarketAttachmentField('attachment:circuit:schematic')`. 분야별 질문은 현재 3개(`pcb.outline`·`app.platform`·
-`server.scale`) — 비전문가가 답할 수 있는 것만.
+`parseMarketAttachmentField('attachment:circuit:schematic')`. 분야별 맞춤 질문은 §13.8(분야당 2~3개, 풀 개발이면 앞 2개).
 
 프롬프트에서의 쓰임: 검토서 `buildDevReviewAreaBlock` 이 선택 분야의 `what`·`specItems`·`checks` 를 `[개발 분야]`
 블록으로 조립하고, 구성도 노드에 `develop`(이번 의뢰에서 새로 만드는 앱·서버 카드 — 기존 연동 대상과 구분,
-렌더러가 "개발" 표식) 이 생겼다. 프롬프트 버전 `dev-review.v3`.
+렌더러가 "개발" 표식) 이 생겼다. 프롬프트 버전 `dev-review.v3` → v4(§13.7) → v5(§13.8).
 
 ### 13.3 저장 구조
 
@@ -632,3 +632,30 @@ MARKET_COMMON_QUESTIONS = [stage, quantity, external, timeline]  // 공통 4문�
 | 31 | 재시작 복구 — 프로젝트에 연결된 running 잡은 저장분에서 소스를 재구성해 재실행, **연결 안 된 잡(3단계에서만 시작)은 소스가 메모리에만 있어 `ABANDONED`** 로 종료(위저드의 "다시 만들기"가 새 잡을 연다) | 소스를 잡 행에 저장하지 않는 대신 단순함 |
 
 화면: `DevReviewView` 의 ② 자리가 `DevDiagramSection`(상태 카드 → 완성 SVG, "전문가와 상의할 항목" 박스는 그대로 아래). 3단계는 진행 메타만(본문 null), 상세는 완성본 + 소유자 재생성. 관리자 축약본(`DevReviewSummary`)에서 구성도가 빠지고 `AdminMarketProjects` 의 구성도 섹션이 유일한 관리자 화면. 트레이 `DevDiagramTray`(`MarketLayout` 에 상시 마운트).
+
+### 13.8 프로젝트 공통 조건 2스텝 이동 · 분야 맞춤 질문 14 (2026-09-04 저녁, 사용자 확정)
+
+참고 사이트(talent-market-customer)의 2스텝 "프로젝트 공통 조건"(필수 7 select) 과 "분야 맞춤 질문"(9분야 × 2~5, 4지선다)을
+우리 구조에 맞춰 **합치고 걸러서** 들여왔다. 정본 코드는 여전히 레지스트리 `market-areas.ts` 하나.
+
+| # | 결정 | 근거 |
+|---|---|---|
+| 32 | **프로젝트 공통 조건 6 을 2스텝 맨 위로**(필수, n/6 카운터): 예산·완료 시점·목표 단계·견적 방식·인도 범위·NDA | 참고안 7 중 **공개 범위는 견적 방식과 같은 축**(역견적=마켓 공개, 지정=비공개 1:1)이라 뺐다. 3스텝엔 견적 마감(등록 시점 기준)·검토서·요약만 남는다 |
+| 33 | 답변형 조건 3 은 `answers` 에 저장(`MARKET_COMMON_CONDITIONS` = `timeline`·`target_stage`·`deliverable_scope`, `required: true`), 예산·방식·NDA 는 기존 컬럼 | 컬럼·마이그레이션 없이 문항 추가. 완료 시점은 옛 공통 질문 `timeline` 을 **선택지 교체**(1개월 안·2~3·4~6·6개월 이상·협의 — "가능한 빨리"는 기간이 아니라 제거) |
+| 34 | 필수는 **등록 라우트 게이트** `ANSWERS_REQUIRED`(+ `missing` 코드) = `marketRequiredMissing(answers, areas)`. 검토서 실행 payload 는 안 막는다 | 2스텝 "다음"과 서버가 같은 함수. 모르면 탈출구(코드 `unknown`, 라벨 "협의해서 정할게요"/"계약 전에 협의할게요") |
+| 35 | **예산 구간 상향** `under500 · r500_2000 · r2000_5000 · over5000 · undecided`(옛 300/700/1,500만 → migration 20260904150000 이 가장 가까운 구간으로 UPDATE) | 앱·서버가 들어와 규모가 커졌다. 읽기 `asBudgetRange` 는 미지 코드를 undecided 로 떨어뜨리므로 UPDATE 는 표시값 보존용 |
+| 36 | **분야 맞춤 질문 14**(회로 2·PCB 3·펌웨어 3·앱 3·서버 3), 전부 선택, 탈출구 라벨은 **"전문가 추천"**(코드 unknown 그대로) | 참고안 중 첨부 슬롯과 겹치는 것(회로도 준비·STEP 유무)은 슬롯 첨부로, 4지선다로 답이 안 나오는 것(펌웨어 "입력 시 동작")은 설명에, 공통 조건과 겹치는 우선순위(일정·원가·품질·인증)는 뺐다 |
+| 37 | **풀 개발(5분야)이면 분야당 앞 2개만**(`MARKET_FULL_AREA_QUESTION_CAP`, 배열 순서 = 우선순위) — 3번째 문항 답변은 선택 분야 밖 취급(UNKNOWN_QUESTION) | 조건 6 + 공통 3 + 5×3 = 24 는 너무 길다. `marketQuestionsFor` 가 검증·브리프·프롬프트·위저드의 단일 목록 |
+| 38 | 프롬프트 `dev-review.v5`: `[답변 해석]` 블록(답한 문항의 `promptHint` 만 — 안 답한 문항의 해석을 주면 그 주제를 지어낸다), `■ 프로젝트 조건` 을 `■ 질문 답변` 과 분리, 규칙에 "해석 문장 자체를 항목으로 만들지 않는다" | 새 질문이 검토서에 실제로 쓰이게. 예산·방식·NDA 는 프롬프트에 안 넣는다(규칙 5 금액 금지·서명은 개발과 무관) → 시그니처에도 없어 바꿔도 재생성 안 함 |
+| 39 | "설명에서 확인한 항목은 다시 묻지 않음"(참고안의 선분석 축소)은 **이번엔 안 한다** | 2스텝 진입 때 LLM 호출이 하나 더 생겨 대기 시간이 는다. R9 답변↔자료 정합이 어긋남을 지적하는 쪽이 싸고 정직하다. 선분석 재도입은 별건 |
+
+분야 맞춤 질문(코드 → 선택지):
+- 회로 `circuit.load`(복수) 모터·팬/릴레이·밸브/스피커·조명/없음 · `circuit.priority` 작은 크기/긴 배터리/낮은 원가/산업 안정성
+- PCB `pcb.outline`(선택지 교체: 정확히 정해짐(메모 필수)/대략/기구와 함께/제한 없음) · `pcb.placement` 모두/일부/기구 자료에 표시(탈출구 "전문가가 배치해요") · `pcb.special`(복수) 무선/카메라·고속/모터·큰 전류/일반 저속
+- 펌웨어 `firmware.board` 동작 보드/회로도만/제작 중/하드웨어부터 · `firmware.update` 원격 필수/케이블/불필요 · `firmware.failure` 자동 복구/재시도 후 알림/오류 기록만(탈출구 "기본 안전 동작을 추천받을게요")
+- 앱 `app.platform`(단일로 교체: 안드로이드/아이폰/둘 다/태블릿·전용 단말 — 옛 web·tablet 복수 선택 폐기) · `app.users` 일반/관리자/설치·AS 기사/여러 유형 · `app.core` 상태 확인/제어/데이터 조회/설정·사용자 관리
+- 서버 `server.scale`(유지) · `server.realtime` 1초 안/수초~1분/주기적 · `server.ops` 개발만/구축·배포/지속 운영(탈출구 "운영 방식은 상담할게요")
+
+화면: `StepDetails` = [프로젝트 공통 조건(2열: 예산 select + 조건 3 칩 / 견적 방식 카드 2 + 지정 전문가 select / NDA)] → [공통 질문 3] → [분야 카드: 맞춤 질문 · 툴 · 슬롯]. `QuestionField` 는 `required` 문항에 * 표시. `StepReview` 는 견적 마감 + 검토서 + 요약(조건 한 줄 추가). 폼 `budgetRange` 는 null 로 시작(미선택이면 2스텝 "다음" 잠김).
+
+검증: 계약·utils·api·market·web 타입체크 0, utils 레지스트리 14 tests, api dev-review·admin-samples·snapshot green, e2e-market 하네스(ANSWERS_REQUIRED 400 · 풀 개발 상한 400 케이스 추가), 실브라우저 `dev-review-v2-walk`(2스텝 조건 입력·"전문가 추천" 탈출구 클릭) — 결과는 커밋 메시지·§13.8 하단에 기록.

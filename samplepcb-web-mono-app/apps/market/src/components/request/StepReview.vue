@@ -1,20 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import {
-  MARKET_BUDGET_RANGES,
-  MARKET_BUDGET_RANGE_LABELS,
-  MARKET_DEADLINE_PRESETS,
-  MARKET_EXPERT_TYPE_LABELS,
-} from '@sp/api-contract';
-import { marketAreaBadge } from '@sp/api-contract';
+import { computed, onMounted } from 'vue';
+import { MARKET_BUDGET_RANGE_LABELS, MARKET_DEADLINE_PRESETS, marketAreaBadge, marketAnswerText } from '@sp/api-contract';
 import DevReviewView from '../dev-review/DevReviewView.vue';
-import { useMarketExpertList } from '../../api/useMarketExperts';
-import type { ExpertListFilters } from '../../api/useMarketExperts';
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
 import type { DevReviewJob } from '../../composables/useDevReviewJob';
 
 // 스텝 3 — 진입 시 AI 사전 검토서 생성을 자동 시작하고(동의 on ∧ 활성), 완료되면 미리보기와
-// "이 검토서를 의뢰에 포함" 체크를 띄운다. 그 아래는 견적 조건 폼(예산·마감·방식·NDA).
+// "이 검토서를 의뢰에 포함" 체크를 띄운다. 그 아래는 견적 마감(등록 시점 기준이라 여기 남는다)과 최종 요약 —
+// 예산·방식·NDA 는 2스텝 "프로젝트 공통 조건"으로 옮겨졌다(§13.8).
 // 포함 예정 검토서가 생성 중이면 등록이 차단되고, 기다리지 않으려면 탈출구를 누른다.
 const props = defineProps<{ form: RequestWizardForm; job: DevReviewJob }>();
 const { fields, totalAttachmentCount, todayKst, buildAnswers, activeQuestions } = props.form;
@@ -43,18 +36,12 @@ onMounted(() => {
   if (aiActive.value) ensure();
 });
 
-// 지정 전문가 선택 목록(승인 전문가 전체 — 소규모 전제).
-const expertFilters = ref<ExpertListFilters>({
-  page: 1,
-  pageSize: 100,
-  expertType: '',
-  serviceArea: '',
-  tool: '',
-  q: '',
-});
-const expertList = useMarketExpertList(expertFilters);
-
 const answeredCount = computed(() => buildAnswers().length);
+// 공통 조건 요약 한 줄(완료 시점·목표 단계·인도 범위) — 2스텝에서 고른 값.
+const conditionSummary = computed(() =>
+  buildAnswers().filter((a) => props.form.conditionQuestions.some((q) => q.code === a.code)).map(marketAnswerText).join(' · '),
+);
+const budgetLabel = computed(() => (fields.budgetRange === null ? '예산 미선택' : MARKET_BUDGET_RANGE_LABELS[fields.budgetRange]));
 const questionCount = computed(() => activeQuestions.value.length);
 const areaBadge = computed(() => marketAreaBadge(fields.serviceAreas));
 </script>
@@ -68,7 +55,7 @@ const areaBadge = computed(() => marketAreaBadge(fields.serviceAreas));
         <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
           적어 주신 내용과 첨부를 근거로 요약·개발명세서를 정리합니다(약 30초~3분). 시스템 구성도는 같이 시작돼
           5~10분 뒤 완성되며, 등록 뒤 화면을 벗어나도 우측 아래 알림으로 알려드립니다. 생성 중에도 아래 견적
-          조건을 미리 입력할 수 있습니다.
+          마감을 미리 정할 수 있습니다.
         </p>
       </div>
 
@@ -157,17 +144,9 @@ const areaBadge = computed(() => marketAreaBadge(fields.serviceAreas));
       </template>
     </div>
 
-    <!-- ── 견적 조건 폼 (항상) ──────────────────────────────────────────────── -->
+    <!-- ── 견적 마감 (항상) ──────────────────────────────────────────────── -->
     <div class="grid gap-5" :class="aiActive ? 'border-t border-line pt-5' : ''">
-      <p class="text-xs font-bold text-tx-1">견적 조건</p>
-
-      <label class="grid gap-1.5 text-xs font-bold text-tx-2">
-        예산 범위 <span class="text-red-500">*</span>
-        <select v-model="fields.budgetRange" class="h-10 rounded-lg border border-line px-3 text-sm font-normal">
-          <option v-for="b in MARKET_BUDGET_RANGES" :key="b" :value="b">{{ MARKET_BUDGET_RANGE_LABELS[b] }}</option>
-        </select>
-      </label>
-
+      <p class="text-xs font-bold text-tx-1">견적 마감</p>
       <div>
         <p class="text-xs font-bold text-tx-2">견적 마감 <span class="text-red-500">*</span></p>
         <div class="mt-2 flex flex-wrap items-center gap-1.5">
@@ -199,62 +178,19 @@ const areaBadge = computed(() => marketAreaBadge(fields.serviceAreas));
         </div>
         <p class="mt-2 text-xs text-tx-3">마감 시각은 해당 일 23:59(KST)입니다. 마감 전에는 언제든 조기 마감할 수 있습니다.</p>
       </div>
-
-      <div>
-        <p class="text-xs font-bold text-tx-2">견적 방식 <span class="text-red-500">*</span></p>
-        <div class="mt-2 grid gap-3 sm:grid-cols-2">
-          <button
-            type="button"
-            class="rounded-2xl border-2 p-4 text-left transition"
-            :class="fields.method === 'open' ? 'border-copper-500 bg-copper-50' : 'border-line hover:border-line-2'"
-            @click="fields.method = 'open'"
-          >
-            <p class="text-sm font-extrabold text-tx-1">역견적 (공개 입찰) <span class="ml-1 rounded bg-copper-500 px-1.5 py-0.5 text-[10px] font-bold text-white">추천</span></p>
-            <p class="mt-1.5 text-xs leading-relaxed text-tx-2">조건이 맞는 전문가들이 블라인드로 견적을 제출합니다. 견적은 나만 볼 수 있습니다.</p>
-          </button>
-          <button
-            type="button"
-            class="rounded-2xl border-2 p-4 text-left transition"
-            :class="fields.method === 'targeted' ? 'border-copper-500 bg-copper-50' : 'border-line hover:border-line-2'"
-            @click="fields.method = 'targeted'"
-          >
-            <p class="text-sm font-extrabold text-tx-1">지정견적 (1:1)</p>
-            <p class="mt-1.5 text-xs leading-relaxed text-tx-2">원하는 전문가 한 명에게만 견적을 요청합니다.</p>
-          </button>
-        </div>
-        <label v-if="fields.method === 'targeted'" class="mt-3 grid gap-1.5 text-xs font-bold text-tx-2">
-          작업자 선택 <span class="text-red-500">*</span>
-          <select v-model="fields.targetExpertId" class="h-10 rounded-lg border border-line px-3 text-sm font-normal">
-            <option :value="null" disabled>전문가를 선택하세요</option>
-            <option v-for="e in expertList.data.value?.data.items ?? []" :key="e.expertId" :value="e.expertId">
-              {{ e.displayName }} · {{ MARKET_EXPERT_TYPE_LABELS[e.expertType] }}
-            </option>
-          </select>
-          <span v-if="(expertList.data.value?.data.items ?? []).length === 0" class="font-normal text-tx-3">
-            선택할 수 있는 전문가가 없습니다.
-          </span>
-        </label>
-      </div>
-
-      <label class="flex items-start gap-2 rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
-        <input v-model="fields.ndaRequired" type="checkbox" class="mt-0.5">
-        <span>
-          <b class="text-tx-1">🔏 NDA 보호</b> — 첨부 자료를 NDA에 전자서명한 전문가만 열람하도록 잠급니다. (권장)
-        </span>
-      </label>
     </div>
-
     <!-- ── 최종 요약 ────────────────────────────────────────────────────────── -->
     <div class="rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
       <p class="font-bold text-tx-1">최종 의뢰 내용</p>
       <p class="mt-1"><b class="text-tx-1">{{ fields.title || '(제목 미입력)' }}</b></p>
       <p class="mt-1">{{ areaBadge }} · 질문 답변 {{ answeredCount }}/{{ questionCount }}</p>
       <p class="mt-1">
-        {{ MARKET_BUDGET_RANGE_LABELS[fields.budgetRange] }} ·
+        {{ budgetLabel }} ·
         견적 마감 {{ fields.deadlineMode === 'date' ? fields.deadlineDate : `${fields.deadlineMode}일 뒤` }} ·
         {{ fields.method === 'open' ? '역견적' : '지정견적' }} ·
         {{ fields.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} · 첨부 {{ totalAttachmentCount }}개
       </p>
+      <p v-if="conditionSummary !== ''" class="mt-1">{{ conditionSummary }}</p>
       <p v-if="aiActive" class="mt-1 text-tx-3">
         <template v-if="blocking">AI 사전 검토서 생성 중 — 완료 후 등록 가능</template>
         <template v-else-if="includable">AI 사전 검토서 포함</template>

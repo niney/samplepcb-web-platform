@@ -23,23 +23,24 @@ import { MarketDevDiagramStatus, MarketDevDiagramView } from './market-dev-diagr
 
 // 분야·질문·희망 툴·첨부 슬롯 사전은 ./market-areas 레지스트리가 정본이다(docs/AI_DEV_REVIEW.md §13).
 
-// 예산 구간(금액이 아니라 구간 select — 프로토타입 request STEP4).
+// 예산 구간(금액이 아니라 구간 select). 2026-09-04 v5: 앱·서버 분야가 들어와 참고안 수준(500만·2,000만·5,000만)으로
+// 상향 — 옛 코드(under300·r300_700·r700_1500·over1500)는 migration 20260904150000 이 가장 가까운 구간으로 옮겼다.
 export const MARKET_BUDGET_RANGES = [
-  'under300',
-  'r300_700',
-  'r700_1500',
-  'over1500',
+  'under500',
+  'r500_2000',
+  'r2000_5000',
+  'over5000',
   'undecided',
 ] as const;
 export type MarketBudgetRangeType = (typeof MARKET_BUDGET_RANGES)[number];
 export const MarketBudgetRange = z.enum(MARKET_BUDGET_RANGES);
 
 export const MARKET_BUDGET_RANGE_LABELS = {
-  under300: '300만원 미만',
-  r300_700: '300~700만원',
-  r700_1500: '700~1,500만원',
-  over1500: '1,500만원 이상',
-  undecided: '미정 (견적 후 결정)',
+  under500: '500만원 미만',
+  r500_2000: '500만~2,000만원',
+  r2000_5000: '2,000만~5,000만원',
+  over5000: '5,000만원 이상',
+  undecided: '예산 협의 필요 (견적 후 결정)',
 } as const satisfies Record<MarketBudgetRangeType, string>;
 
 // 경력 구간(프로토타입 expert-register STEP2 select).
@@ -440,7 +441,8 @@ const marketProjectEditableShape = {
 export const MarketProjectCreatePayload = z
   .object({
     ...marketProjectEditableShape,
-    // 공통 4문항 + 선택 분야의 분야별 질문 답변(docs/AI_DEV_REVIEW.md §13) — sp_market_project.answers.
+    // 공통 조건 3 + 공통 질문 3 + 선택 분야의 맞춤 질문 답변(docs/AI_DEV_REVIEW.md §13) — sp_market_project.answers.
+    // 필수 문항(조건 3) 미응답은 등록 라우트가 ANSWERS_REQUIRED 로 막는다(검토서 실행 payload 는 안 막는다).
     answers: MarketAnswers.default([]),
     // 서버가 소유자·완료·유스케이스·입력 해시를 DB 에서 직접 대조하는 참조값이다.
     // 검토서 본문은 클라이언트가 보내지 않는다(서버 저장분이 정본).

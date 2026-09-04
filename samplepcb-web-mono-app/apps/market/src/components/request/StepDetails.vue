@@ -1,15 +1,26 @@
 <script setup lang="ts">
+import { ref } from 'vue';
+import { MARKET_BUDGET_RANGES, MARKET_BUDGET_RANGE_LABELS, MARKET_EXPERT_TYPE_LABELS } from '@sp/api-contract';
+import { useMarketExpertList } from '../../api/useMarketExperts';
+import type { ExpertListFilters } from '../../api/useMarketExperts';
 import { slotKey } from '../../composables/useRequestWizardForm';
 import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
 import QuestionField from './QuestionField.vue';
 
-// 스텝 2 — 몇 가지만 더(docs/AI_DEV_REVIEW.md §13.4): 공통 4문항 + 선택 분야마다 카드 하나
-// [분야별 질문 · 희망 개발툴·언어("전문가 추천"이 기본, 접힘) · 추가자료 슬롯]. 카드는 레지스트리
-// 데이터로만 그린다 — 분야가 늘어도 이 컴포넌트는 안 바뀐다. 전부 선택 사항이다.
+// 스텝 2 — 몇 가지만 더(docs/AI_DEV_REVIEW.md §13.4·§13.8):
+//   ① 프로젝트 공통 조건(필수, n/6) — 예산·완료 시점·목표 단계·견적 방식·인도 범위·NDA. 참고안의
+//      "프로젝트 공통 조건" 7항목 중 공개 범위는 견적 방식과 같은 축이라 뺐다.
+//   ② 공통 질문 3(선택) ③ 선택 분야마다 카드 하나 [맞춤 질문 2~3(풀 개발이면 2) · 희망 개발툴·언어("전문가
+//      추천"이 기본, 접힘) · 추가자료 슬롯].
+// 카드는 레지스트리 데이터로만 그린다 — 분야가 늘어도 이 컴포넌트는 안 바뀐다.
 const props = defineProps<{ form: RequestWizardForm }>();
 const {
+  fields,
+  conditionQuestions,
+  conditionProgress,
   commonQuestions,
   areaDefs,
+  areaQuestionsOf,
   stateOf,
   toggleChoice,
   noteMissingCodes,
@@ -22,11 +33,86 @@ const {
 } = props.form;
 
 const slotCount = (area: string, slot: string): number => slotFiles[slotKey(area, slot)]?.length ?? 0;
+
+// 지정 전문가 선택 목록(승인 전문가 전체 — 소규모 전제).
+const expertFilters = ref<ExpertListFilters>({ page: 1, pageSize: 100, expertType: '', serviceArea: '', tool: '', q: '' });
+const expertList = useMarketExpertList(expertFilters);
 </script>
 
 <template>
   <div class="grid gap-6">
-    <!-- 공통 질문 4문항 -->
+    <!-- 프로젝트 공통 조건(필수) -->
+    <div class="grid gap-4 rounded-2xl border-2 border-ink-900/10 bg-white p-4 sm:p-5">
+      <div class="flex flex-wrap items-center gap-2">
+        <p class="text-sm font-extrabold text-tx-1">프로젝트 공통 조건</p>
+        <span class="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">필수</span>
+        <span class="ml-auto font-mono text-[11px] text-tx-3">{{ conditionProgress.done }} / {{ conditionProgress.total }}</span>
+      </div>
+      <p class="-mt-2 text-[11px] leading-relaxed text-tx-3">
+        견적 비교·계약·산출물 인도 범위를 한 번에 정합니다. 모르는 항목은 '협의해서 정할게요'를 고르세요.
+      </p>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="grid gap-1.5 text-xs font-semibold text-tx-2">
+          <span>예상 개발 예산 <span class="text-red-500">*</span></span>
+          <select v-model="fields.budgetRange" class="h-10 rounded-lg border border-line px-3 text-sm font-normal" :class="fields.budgetRange === null ? 'text-tx-3' : ''">
+            <option :value="null" disabled>선택해 주세요</option>
+            <option v-for="b in MARKET_BUDGET_RANGES" :key="b" :value="b">{{ MARKET_BUDGET_RANGE_LABELS[b] }}</option>
+          </select>
+        </label>
+        <QuestionField
+          v-for="q in conditionQuestions"
+          :key="q.code"
+          :question="q"
+          :state="stateOf(q.code)"
+          :note-missing="noteMissingCodes.includes(q.code)"
+          @toggle="toggleChoice(q, $event)"
+          @note="stateOf(q.code).note = $event"
+        />
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-tx-2">견적·전문가 선정 방식 <span class="text-red-500">*</span></p>
+        <div class="mt-2 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            class="rounded-2xl border-2 p-4 text-left transition"
+            :class="fields.method === 'open' ? 'border-copper-500 bg-copper-50' : 'border-line hover:border-line-2'"
+            @click="fields.method = 'open'"
+          >
+            <p class="text-sm font-extrabold text-tx-1">역견적 (공개 입찰) <span class="ml-1 rounded bg-copper-500 px-1.5 py-0.5 text-[10px] font-bold text-white">추천</span></p>
+            <p class="mt-1.5 text-xs leading-relaxed text-tx-2">조건이 맞는 전문가들이 블라인드로 견적을 제출합니다. 견적은 나만 볼 수 있습니다.</p>
+          </button>
+          <button
+            type="button"
+            class="rounded-2xl border-2 p-4 text-left transition"
+            :class="fields.method === 'targeted' ? 'border-copper-500 bg-copper-50' : 'border-line hover:border-line-2'"
+            @click="fields.method = 'targeted'"
+          >
+            <p class="text-sm font-extrabold text-tx-1">지정견적 (1:1)</p>
+            <p class="mt-1.5 text-xs leading-relaxed text-tx-2">원하는 전문가 한 명에게만 견적을 요청합니다(비공개).</p>
+          </button>
+        </div>
+        <label v-if="fields.method === 'targeted'" class="mt-3 grid gap-1.5 text-xs font-bold text-tx-2">
+          작업자 선택 <span class="text-red-500">*</span>
+          <select v-model="fields.targetExpertId" class="h-10 rounded-lg border border-line px-3 text-sm font-normal">
+            <option :value="null" disabled>전문가를 선택하세요</option>
+            <option v-for="e in expertList.data.value?.data.items ?? []" :key="e.expertId" :value="e.expertId">
+              {{ e.displayName }} · {{ MARKET_EXPERT_TYPE_LABELS[e.expertType] }}
+            </option>
+          </select>
+          <span v-if="(expertList.data.value?.data.items ?? []).length === 0" class="font-normal text-tx-3">
+            선택할 수 있는 전문가가 없습니다.
+          </span>
+        </label>
+      </div>
+      <label class="flex items-start gap-2 rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
+        <input v-model="fields.ndaRequired" type="checkbox" class="mt-0.5">
+        <span>
+          <b class="text-tx-1">🔏 보안·비밀유지 — NDA 보호</b> — 첨부 자료를 NDA에 전자서명한 전문가만 열람하도록 잠급니다. (권장)
+        </span>
+      </label>
+    </div>
+
+    <!-- 공통 질문 3문항 -->
     <div class="grid gap-4 rounded-2xl bg-paper p-4">
       <p class="text-xs font-bold text-tx-2">
         몇 가지만 더 알려주세요 <span class="font-normal text-tx-3">(전부 선택 — 모르면 '잘 모르겠어요')</span>
@@ -50,9 +136,9 @@ const slotCount = (area: string, slot: string): number => slotFiles[slotKey(area
         <p class="text-[11px] text-tx-3">{{ area.hint }}</p>
       </div>
 
-      <!-- 분야별 질문(있을 때만) -->
+      <!-- 분야 맞춤 질문(풀 개발이면 앞 2개) — 모르면 '전문가 추천' -->
       <QuestionField
-        v-for="q in area.questions"
+        v-for="q in areaQuestionsOf(area.code)"
         :key="q.code"
         :question="q"
         :state="stateOf(q.code)"

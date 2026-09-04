@@ -13,6 +13,7 @@ import {
   MarketProjectListQuery,
   MarketProjectUpdateBody,
   normalizeMarketTools,
+  marketRequiredMissing,
 } from '@sp/api-contract';
 import type {
   JwtClaimsType,
@@ -173,6 +174,11 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     const bidDeadlineAt = deadlineToDate(payload.deadline, now);
     if (bidDeadlineAt.getTime() <= now.getTime()) {
       return reply.status(400).send({ result: false, error: 'DEADLINE_PAST' });
+    }
+    // 프로젝트 공통 조건(완료 시점·목표 단계·인도 범위)은 필수 — 모르면 탈출구(unknown)를 골라야 한다(§13.8).
+    const requiredMissing = marketRequiredMissing(payload.answers, payload.serviceAreas);
+    if (requiredMissing.length > 0) {
+      return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing: requiredMissing });
     }
 
     // AI 사전 검토서 — 클라이언트는 본문을 보내지 않는다. jobId 만 받아 서버가 자기

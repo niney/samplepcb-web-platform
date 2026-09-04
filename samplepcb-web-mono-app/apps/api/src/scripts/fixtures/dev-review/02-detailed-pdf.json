@@ -32,7 +32,7 @@
     {
       "code": "timeline",
       "choices": [
-        "within_3m"
+        "m2_3"
       ],
       "note": "시제품 8주"
     }

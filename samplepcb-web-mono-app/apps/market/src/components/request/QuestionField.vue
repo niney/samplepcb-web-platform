@@ -3,8 +3,9 @@ import { MARKET_UNKNOWN_CHOICE } from '@sp/api-contract';
 import type { MarketQuestionDef } from '@sp/api-contract';
 import type { QuestionState } from '../../composables/useRequestWizardForm';
 
-// 질문 하나(칩 선택 + 메모) — 공통 4문항과 분야별 질문이 같은 모양이라 하나로 그린다.
-// '잘 모르겠어요' 는 점선 칩으로 구분해 탈출구임을 보인다(모름은 검토서의 상의 항목으로 흐른다).
+// 질문 하나(칩 선택 + 메모) — 공통 조건·공통 질문·분야 맞춤 질문이 같은 모양이라 하나로 그린다.
+// 탈출구(코드 unknown, 라벨은 문항마다 "잘 모르겠어요"·"전문가 추천"·"협의해서 정할게요")는 점선 칩으로
+// 구분한다(모름은 검토서의 상의 항목으로 흐른다). required 문항은 * 표시 — 미응답이면 2스텝 "다음"이 막힌다.
 defineProps<{
   question: MarketQuestionDef;
   state: QuestionState;
@@ -18,6 +19,7 @@ const unknown = MARKET_UNKNOWN_CHOICE;
   <div class="grid gap-1.5">
     <p class="text-xs font-semibold text-tx-2">
       {{ question.label }}
+      <span v-if="question.required" class="text-red-500">*</span>
       <span v-if="question.multi" class="font-normal text-tx-3">(여러 개 가능)</span>
     </p>
     <div class="flex flex-wrap gap-1.5">
