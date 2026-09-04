@@ -58,6 +58,21 @@ function sp_market_it_ids_in()
     }, sp_market_it_ids()));
 }
 
+// ⑥-2 개발의뢰(sp-develop, docs/DEVELOP_FLOW.md §10) 마일스톤 결제 앵커 상품 it_id — sp-node
+//    seed-develop-anchor-item.ts·g5-db DEVELOP_ANCHOR_IT_ID 와 수동 동기화. 카트행은 마켓 계약과
+//    동형(io_id=마일스톤 uuid, io_price=결제액, ct_price=0, ct_qty=1). sp_quote 목록에 합치지 않는다(⑥ 같은 이유).
+function sp_develop_it_ids()
+{
+    return array('sp-develop-svc');
+}
+
+function sp_develop_it_ids_in()
+{
+    return implode(',', array_map(function ($x) {
+        return "'" . sql_real_escape_string($x) . "'";
+    }, sp_develop_it_ids()));
+}
+
 // ⑦ 스마트 BOM 주문 앵커 상품 it_id — sp-node TEMPLATE_ITEMS.bom과 동일하게 유지.
 //    확정 견적 전체 금액은 io_price에 박제되고 ct_price=0·ct_qty=1이므로 일반상품
 //    판매가 칸을 쓰면 0원으로 보인다. 주문서·주문 메일에서는 건별 총액으로 렌더한다.
@@ -105,7 +120,7 @@ function sp_custom_order_quantity_html($it_id, $ct_option, $ct_qty)
         .'</span>';
 }
 
-// ⑥⑦ 건별(ct_id) 렌더 대상 전체 = 거버 견적 ∪ 재능마켓 계약 ∪ 스마트 BOM — 주문서(pc·mobile
+// ⑥⑦ 건별(ct_id) 렌더 대상 전체 = 거버 견적 ∪ 재능마켓 계약 ∪ 개발의뢰 마일스톤 ∪ 스마트 BOM — 주문서(pc·mobile
 //    orderform.sub.php)의 "일반 상품 = it_id 집계 / 커스텀 행 = 건별(ct_id)" 이원
 //    렌더에서 '커스텀 행 전체'를 가리키는 IN 문자열. 일반 루프의 제외 조건과 건별
 //    루프의 포함 조건이 반드시 이 같은 union 을 써야 이중 렌더/누락이 없다.
@@ -113,7 +128,7 @@ function sp_custom_row_it_ids_in()
 {
     return implode(',', array_map(function ($x) {
         return "'" . sql_real_escape_string($x) . "'";
-    }, array_merge(sp_quote_it_ids(), sp_market_it_ids(), sp_bom_it_ids())));
+    }, array_merge(sp_quote_it_ids(), sp_market_it_ids(), sp_develop_it_ids(), sp_bom_it_ids())));
 }
 
 // 주문 헤더 od_cart_count 용 집계식. 영카트 기본 COUNT(DISTINCT it_id)는 같은 템플릿

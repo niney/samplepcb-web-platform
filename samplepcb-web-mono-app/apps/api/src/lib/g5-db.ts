@@ -265,12 +265,19 @@ export async function getTemplateItem(category: string): Promise<TemplateItem | 
 // getTemplateItem 과 같은 SELECT(스냅샷 모델 — 가격/사양은 읽지 않음). 시드:
 // scripts/seed-market-anchor-item.ts(it_price=0·it_sc_type=1 무료배송·ca_id='10' 노출억제).
 export const MARKET_ANCHOR_IT_ID = 'sp-market-svc';
+// ㉑ 개발의뢰(sp-develop, docs/DEVELOP_FLOW.md §10) 마일스톤 결제 앵커 — 마켓과 동형·별개 it_id(주문 목록에서 갈린다).
+//   시드: scripts/seed-develop-anchor-item.ts. 카트행 io_id = 마일스톤 paymentKey, io_price = 마일스톤 금액(VAT 포함).
+//   PHP 쪽 사전: extend/sp_quote_cart.extend.php sp_develop_it_ids() 와 수동 동기.
+export const DEVELOP_ANCHOR_IT_ID = 'sp-develop-svc';
 
-export async function getMarketAnchorItem(): Promise<TemplateItem | null> {
+export const getMarketAnchorItem = (): Promise<TemplateItem | null> => getAnchorItem(MARKET_ANCHOR_IT_ID);
+export const getDevelopAnchorItem = (): Promise<TemplateItem | null> => getAnchorItem(DEVELOP_ANCHOR_IT_ID);
+
+async function getAnchorItem(itId: string): Promise<TemplateItem | null> {
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
     `SELECT it_id, it_name, it_sc_type, it_sc_method, it_sc_price, it_sc_minimum, it_sc_qty, it_notax
        FROM g5_shop_item WHERE it_id = ?`,
-    [MARKET_ANCHOR_IT_ID],
+    [itId],
   );
   const row = rows[0];
   if (row === undefined) return null;

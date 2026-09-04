@@ -57,6 +57,8 @@ export const DevReviewOpenQuestion = z.object({
   question: z.string().trim().min(1).max(120),
   why: z.string().trim().max(120).catch(''),
   area: DevReviewQuestionArea,
+  // 개발의뢰(docs/DEVELOP_FLOW.md §6) — 담당자가 상담 뒤 적는 "확인 결과". 마켓 저장분엔 없다(additive).
+  resolution: z.string().trim().max(500).nullable().optional(),
 });
 export type DevReviewOpenQuestionType = z.infer<typeof DevReviewOpenQuestion>;
 
@@ -86,6 +88,9 @@ export const DevReviewMeta = z.object({
   inputHash: z.string(),
   generatedAt: z.string(), // ISO
   attachmentFiles: z.array(z.string().max(300)).max(20),
+  // 개발의뢰 관리자 편집 흔적(additive) — 마켓 저장분엔 없다.
+  editedAt: z.string().nullable().optional(),
+  editedBy: z.string().max(191).nullable().optional(),
 });
 export type DevReviewMetaType = z.infer<typeof DevReviewMeta>;
 
@@ -101,6 +106,8 @@ export const MarketDevReview = z.object({
   openQuestions: z.array(DevReviewOpenQuestion).max(6),
   checks: z.array(DevReviewCheck).max(4).catch([]),
   meta: DevReviewMeta,
+  // 개발의뢰 담당자 의견 블록(자유 서술, 줄바꿈 유지) — 공용 뷰어가 있으면 마지막 섹션으로 그린다(additive).
+  adminComment: z.string().trim().max(4000).nullable().optional(),
 });
 export type MarketDevReviewType = z.infer<typeof MarketDevReview>;
 

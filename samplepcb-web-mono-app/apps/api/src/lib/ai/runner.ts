@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { DEV_REVIEW_LLM_JSON_SCHEMA } from '@sp/api-contract';
-import type { DevReviewMetaType } from '@sp/api-contract';
+import type { DevReviewMetaType, MarketDevReviewType } from '@sp/api-contract';
 import { ollamaChatDetailed } from './ollama';
 import type { AiConnection, OllamaChatExtra, OllamaChatResult, OllamaThink } from './ollama';
 import {
@@ -13,7 +13,7 @@ import {
   postProcessDevReview,
 } from './dev-review';
 import type { DevReviewSource } from './dev-review';
-import { getAiConnection, getAiVisionModel } from './usecases';
+import { DEV_REVIEW_USECASE, getAiConnection, getAiVisionModel } from './usecases';
 import { createAiJob, findReusableAiJob, finishAiJob, setAiJobStage, type AiJob } from './jobs';
 import { prisma } from '../prisma';
 
@@ -21,12 +21,21 @@ import { prisma } from '../prisma';
 // ① 첨부 판독(비전 모델, 이미지가 있을 때만) → 텍스트로 근거 코퍼스에 합류
 // ② 검토서(주모델, 텍스트 전용) → 파싱 → 결정적 후처리 R1~R7 → sp_ai_job 에 저장.
 // 라우트는 권한·입력 정책만 결정하고 장시간 생성은 여기서 비동기 처리한다.
+// 유스케이스는 둘: market.dev-review(마켓 위저드·재생성) · develop.dev-review(개발의뢰 관리자 초안, docs/DEVELOP_FLOW.md §6).
+// 완료 순간 써 넣을 곳(target)이 다를 뿐 파이프라인은 같다.
 
-const USE_CASE = 'market.dev-review' as const;
 const REVIEW_TIMEOUT_MS = 600_000;
 const ATTACHMENT_TIMEOUT_MS = 180_000;
 
 type AiRunLogger = Pick<FastifyBaseLogger, 'info' | 'warn'>;
+
+export type DevReviewUsecase = 'market.dev-review' | 'develop.dev-review';
+
+// 완료 시 write-back 대상. 마켓은 프로젝트 devReview 컬럼(고객·전문가에게 곧 보인다),
+// 개발의뢰는 **초안**(devReviewDraft) — 관리자만 보고, 편집·공개는 별도 단계다.
+export type DevReviewTarget =
+  | { kind: 'market'; projectId: bigint }
+  | { kind: 'develop'; requestId: bigint };
 
 export interface StartDevReviewJobOptions {
   mbId: string;
@@ -38,9 +47,10 @@ export interface StartDevReviewJobOptions {
   inputHash: string;
   log: AiRunLogger;
   reuseCompleted?: boolean;
-  // 등록된 의뢰의 **재생성**(docs/MARKET_FLOW.md §11.4) — 완료 순간 러너가 프로젝트에 써 넣는다.
-  // 위저드(등록 전)는 프로젝트가 없어 이 값이 없다: 그때는 등록 라우트가 jobId 로 박제한다.
-  projectId?: bigint;
+  useCase?: DevReviewUsecase; // 기본 market.dev-review
+  // 완료 순간 러너가 써 넣을 곳(docs/MARKET_FLOW.md §11.4 · DEVELOP_FLOW.md §6). 위저드(등록 전)는 대상이 없다.
+  target?: DevReviewTarget;
+  timeoutMs?: number; // 유스케이스 def 의 timeoutMs(개발의뢰는 정밀 모델이라 더 길다)
 }
 
 export interface StartedAiJob {
@@ -85,26 +95,74 @@ export async function chatWithOptionFallback(
   }
 }
 
+// 완료(또는 캐시 적중) 검토서를 대상에 써 넣는다.
+// 개발의뢰: 초안 컬럼 + (작업본이 비어 있으면) 작업본에도 복사 — 관리자가 처음 열 때 편집할 판이 이미 있다.
+// 이미 편집한 작업본은 덮지 않는다(재생성은 새 초안으로만 쌓인다, DEVELOP_FLOW §2 결정 6).
+async function writeReviewToTarget(target: DevReviewTarget, review: MarketDevReviewType, jobId: string): Promise<void> {
+  if (target.kind === 'market') {
+    await prisma.spMarketProject.update({ where: { id: target.projectId }, data: { devReview: review } });
+    return;
+  }
+  const now = new Date();
+  const current = await prisma.spDevelopRequest.findUnique({
+    where: { id: target.requestId },
+    select: { devReview: true },
+  });
+  if (current === null) return;
+  await prisma.$transaction([
+    prisma.spDevelopRequest.update({
+      where: { id: target.requestId },
+      data: {
+        devReviewDraft: review,
+        devReviewDraftAt: now,
+        devReviewDraftJobId: jobId,
+        ...(current.devReview === null ? { devReview: review } : {}),
+      },
+    }),
+    prisma.spDevelopEvent.create({
+      data: {
+        requestId: target.requestId,
+        type: 'ai_drafted',
+        actorMbId: null,
+        byAdmin: true,
+        visibleToCustomer: false,
+        title: 'AI 사전 검토서 초안이 만들어졌습니다',
+        body: null,
+        payload: { jobId, model: review.meta.model },
+      },
+    }),
+  ]);
+}
+
+// 개발의뢰는 잡이 **시작되는 순간** 초안 잡 id 를 적어 둔다 — 관리자 상세가 진행 상태·실패 사유를 잡에서 읽는다.
+async function markDraftJob(target: DevReviewTarget, jobId: string): Promise<void> {
+  if (target.kind !== 'develop') return;
+  await prisma.spDevelopRequest.update({
+    where: { id: target.requestId },
+    data: { devReviewDraftJobId: jobId },
+  });
+}
+
 export async function startDevReviewJob(options: StartDevReviewJobOptions): Promise<StartedAiJob> {
   const { mbId, model, think, extraInstructions, source, images, inputHash, log } = options;
+  const useCase = options.useCase ?? DEV_REVIEW_USECASE;
+  const timeoutMs = options.timeoutMs ?? REVIEW_TIMEOUT_MS;
   const jobSource = { model, promptVersion: DEV_REVIEW_PROMPT_VERSION, inputHash };
   if (options.reuseCompleted !== false) {
-    const reusable = await findReusableAiJob(USE_CASE, mbId, jobSource);
+    const reusable = await findReusableAiJob(useCase, mbId, jobSource);
     if (reusable !== null) {
-      log.info({ useCase: USE_CASE, jobId: reusable.id, mbId }, 'ai job cache hit');
-      // 재생성인데 같은 입력의 완료 잡이 있으면 즉시 박제한다 — 다시 돌리지 않고도 프로젝트가 최신이 된다.
-      if (options.projectId !== undefined && reusable.review !== null) {
-        await prisma.spMarketProject.update({
-          where: { id: options.projectId },
-          data: { devReview: reusable.review },
-        });
+      log.info({ useCase, jobId: reusable.id, mbId }, 'ai job cache hit');
+      // 재생성인데 같은 입력의 완료 잡이 있으면 즉시 박제한다 — 다시 돌리지 않고도 대상이 최신이 된다.
+      if (options.target !== undefined && reusable.review !== null) {
+        await writeReviewToTarget(options.target, reusable.review, reusable.id);
       }
       return { job: reusable, cached: true };
     }
   }
 
   const conn = await getAiConnection();
-  const job = await createAiJob({ useCase: USE_CASE, mbId, ...jobSource });
+  const job = await createAiJob({ useCase, mbId, ...jobSource });
+  if (options.target !== undefined) await markDraftJob(options.target, job.id);
 
   void (async () => {
     let effective = source;
@@ -145,7 +203,7 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
     let lastError: unknown;
     for (let attempt = 0; attempt <= 1; attempt += 1) {
       const raw = await chatWithOptionFallback(
-        conn, model, prompt, REVIEW_TIMEOUT_MS, [], extra, log,
+        conn, model, prompt, timeoutMs, [], extra, log,
       );
       if (raw.text.trim() === '') {
         lastError = new Error('EMPTY_RESULT');
@@ -163,15 +221,10 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
         };
         const { review, diagnostics } = postProcessDevReview(output, effective, meta);
         await finishAiJob(job.id, { review });
-        // 재생성이면 완료 순간 프로젝트에 박제한다(구성도 러너와 같은 연결 규칙).
-        if (options.projectId !== undefined) {
-          await prisma.spMarketProject.update({
-            where: { id: options.projectId },
-            data: { devReview: review },
-          });
-        }
+        // 완료 순간 대상에 박제한다(구성도 러너와 같은 연결 규칙).
+        if (options.target !== undefined) await writeReviewToTarget(options.target, review, job.id);
         log.info(
-          { jobId: job.id, elapsedMs: raw.elapsedMs, facts: review.requirements.length, openQuestions: review.openQuestions.length, diagnostics },
+          { jobId: job.id, useCase, elapsedMs: raw.elapsedMs, facts: review.requirements.length, openQuestions: review.openQuestions.length, diagnostics },
           'dev review job done',
         );
         return;
@@ -182,13 +235,15 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
     }
     throw lastError instanceof Error ? lastError : new Error('GENERATION_FAILED');
   })().catch((err: unknown) => {
-    log.warn({ err, useCase: USE_CASE, jobId: job.id }, 'dev review generation failed');
+    log.warn({ err, useCase, jobId: job.id }, 'dev review generation failed');
     const message = err instanceof Error && err.message === 'EMPTY_RESULT'
       ? 'EMPTY_RESULT'
-      : 'GENERATION_FAILED';
+      : err instanceof Error && /timeout|abort/i.test(err.message)
+        ? 'TIMEOUT'
+        : 'GENERATION_FAILED';
     void finishAiJob(job.id, { error: message });
   });
 
-  log.info({ useCase: USE_CASE, jobId: job.id, mbId, model, images: images.length }, 'ai job started');
+  log.info({ useCase, jobId: job.id, mbId, model, images: images.length }, 'ai job started');
   return { job, cached: false };
 }

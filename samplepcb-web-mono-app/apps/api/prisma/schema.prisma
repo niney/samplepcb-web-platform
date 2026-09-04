@@ -1931,3 +1931,182 @@ model SpPcbPackageEvent {
   @@index([packageId, occurredAt])
   @@map("sp_pcb_package_event")
 }
+
+// ── 개발의뢰(sp-develop, docs/DEVELOP_FLOW.md §3) — 의뢰자 ↔ 샘플피씨비 직접 개발 용역 ─────────
+// 마켓(sp_market_*)과 테이블을 분리한다: 공개 목록·전문가·입찰이 없고 상태 어휘가 다르다. JSON 모양
+// (serviceAreas·tools·answers·devReview·devDiagram)은 마켓 레지스트리·계약을 그대로 쓴다.
+model SpDevelopRequest {
+  id             BigInt  @id @default(autoincrement())
+  mbId           String  @db.VarChar(191) // 의뢰인(회원 전용)
+  title          String  @db.VarChar(200)
+  serviceAreas   Json // 분야 코드 배열(레지스트리 market-areas)
+  tools          Json? // MarketTools
+  description    String  @db.Text
+  answers        Json? // MarketAnswers(공통 조건·질문·분야 맞춤)
+  // 연락처 — 접수 뒤 전화·미팅으로 요구사항을 좁히는 것이 실무라 필수
+  contactName    String  @db.VarChar(100)
+  contactCompany String? @db.VarChar(200)
+  contactPhone   String  @db.VarChar(50)
+  contactEmail   String  @db.VarChar(191)
+  contactHours   String? @db.VarChar(100)
+  budgetRange    String  @db.VarChar(20) // 예산 구간 코드(마켓 사전)
+  ndaWanted      Boolean @default(false) // 비밀유지 계약 희망(당사가 문서 준비, 오프라인)
+  aiConsent      Boolean @default(false) // 참고 자료 외부 LLM 전송 동의 — 미동의면 관리자 AI 잠금
+  status         String  @default("received") @db.VarChar(20) // received|reviewing|quoted|accepted|in_progress|delivered|completed|cancelled|declined
+  assigneeMbId   String? @db.VarChar(191) // 담당자(관리자 계정 하나면 라벨 역할)
+  internalMemo   String? @db.Text // 상담 메모(고객 비노출)
+  aiSupplement   String? @db.Text // AI 보충 메모 — 코퍼스 "담당자 보충 자료"로 합류(고객 비노출)
+
+  // AI 산출물 1 — 검토서 3층: 초안(AI 원본) · 작업본(편집) · 공개본(스냅샷)
+  devReviewDraft       Json?
+  devReviewDraftAt     DateTime?
+  devReviewDraftJobId  String?   @db.Char(36)
+  devReviewInputHash   String?   @db.Char(64) // 초안을 만든 원천 해시 — 현재 원천과 다르면 stale
+  devReview            Json? // 작업본
+  devReviewEditedAt    DateTime?
+  devReviewEditedBy    String?   @db.VarChar(191)
+  devReviewPublic      Json? // 공개본
+  devReviewPublishedAt DateTime?
+  // AI 산출물 2 — 시스템 구성도: 현재본(AI 또는 교체 업로드) + 공개 스냅샷
+  devDiagram            Json? // MarketDevDiagram 메타
+  devDiagramHtml        String?   @db.MediumText
+  devDiagramSource      String?   @db.VarChar(10) // ai|upload
+  devDiagramPublicHtml  String?   @db.MediumText
+  devDiagramPublishedAt DateTime?
+
+  reviewDays     Int       @default(7) // 검수 기간(일) — 수락 견적에서 복사
+  startedAt      DateTime? // 착수(첫 결제 확인 또는 관리자 착수)
+  deliveredAt    DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?   @db.VarChar(1000)
+  declinedReason String?   @db.VarChar(1000)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  quotes     SpDevelopQuote[]
+  events     SpDevelopEvent[]
+  milestones SpDevelopMilestone[]
+
+  @@index([status, createdAt])
+  @@index([mbId, createdAt])
+  @@map("sp_develop_request")
+}
+
+// 타임라인·문의 한 스트림(append-only). 첨부는 sp_file(refType='sp_develop_event').
+model SpDevelopEvent {
+  id                BigInt           @id @default(autoincrement())
+  requestId         BigInt
+  type              String           @db.VarChar(30) // DEVELOP_EVENT_TYPES
+  actorMbId         String?          @db.VarChar(191)
+  byAdmin           Boolean          @default(false)
+  visibleToCustomer Boolean          @default(true)
+  title             String           @db.VarChar(200)
+  body              String?          @db.Text
+  payload           Json? // from/to 상태 · final·locked(산출물) · 세금계산서 금액 등
+  createdAt         DateTime         @default(now())
+  request           SpDevelopRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@map("sp_develop_event")
+}
+
+// 견적서(버전) — initial/revision 은 의뢰당 sent 1건, change(추가 견적)는 독립. 금액은 발송 시 확정.
+model SpDevelopQuote {
+  id             BigInt               @id @default(autoincrement())
+  requestId      BigInt
+  version        Int
+  kind           String               @db.VarChar(10) // initial|revision|change
+  status         String               @default("draft") @db.VarChar(12) // draft|sent|accepted|declined|expired|superseded|withdrawn
+  title          String               @db.VarChar(200)
+  vatMode        String               @default("separate") @db.VarChar(10)
+  supplyAmount   Int                  @default(0)
+  vatAmount      Int                  @default(0)
+  totalAmount    Int                  @default(0)
+  durationDays   Int?
+  scheduleNote   String?              @db.Text
+  deliverables   Json? // string[]
+  exclusions     String?              @db.Text
+  terms          String               @db.Text // 표준 조건 복사본(건별 수정)
+  warrantyDays   Int?
+  reviewDays     Int                  @default(7)
+  validUntil     String               @db.VarChar(10) // YYYY-MM-DD(KST)
+  note           String?              @db.Text
+  internalNote   String?              @db.Text
+  sentAt         DateTime?
+  acceptedAt     DateTime?
+  acceptedName   String?              @db.VarChar(100)
+  acceptedIp     String?              @db.VarChar(64)
+  declinedAt     DateTime?
+  declineReason  String?              @db.VarChar(1000)
+  supersededById BigInt?
+  createdBy      String               @db.VarChar(191)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  request        SpDevelopRequest     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  items          SpDevelopQuoteItem[]
+  milestones     SpDevelopMilestone[]
+
+  @@unique([requestId, version])
+  @@index([requestId, status])
+  @@map("sp_develop_quote")
+}
+
+model SpDevelopQuoteItem {
+  id           BigInt         @id @default(autoincrement())
+  quoteId      BigInt
+  seq          Int
+  title        String         @db.VarChar(200)
+  description  String?        @db.Text
+  amount       Int // 공급가(원)
+  durationDays Int?
+  quote        SpDevelopQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, seq])
+  @@map("sp_develop_quote_item")
+}
+
+// 결제 단위 — 마일스톤 하나 = 영카트 카트행 하나(io_id=paymentKey) = 주문 하나. paid 승격은 lazy 라인 검증.
+model SpDevelopMilestone {
+  id                  BigInt           @id @default(autoincrement())
+  quoteId             BigInt
+  requestId           BigInt
+  seq                 Int
+  title               String           @db.VarChar(100)
+  ratioBp             Int?
+  amount              Int // VAT 포함 결제액(원)
+  trigger             String           @db.VarChar(20) // on_accept|on_delivery|on_completion|manual
+  status              String           @default("draft") @db.VarChar(12) // draft|pending|paid|cancelled
+  paymentKey          String           @unique @db.Char(36) // uuid = g5 io_id
+  ctId                BigInt?
+  paidOdId            String?          @db.VarChar(30)
+  paidAt              DateTime?
+  paidBy              String?          @db.VarChar(10) // lazy|admin
+  unlocksDeliverables Boolean          @default(false)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  quote               SpDevelopQuote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  request             SpDevelopRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, seq])
+  @@index([requestId, status])
+  @@map("sp_develop_milestone")
+}
+
+// 설정 싱글턴(id=1) — GET 폴백/PATCH upsert, 시드 불요(마켓 settings 관례).
+model SpDevelopSettings {
+  id                  Int      @id @default(1)
+  defaultTerms        String   @db.Text
+  defaultExclusions   String   @db.Text
+  defaultWarrantyDays Int      @default(180)
+  defaultReviewDays   Int      @default(7)
+  defaultValidDays    Int      @default(30)
+  defaultVatMode      String   @default("separate") @db.VarChar(10)
+  defaultMilestones   Json // [{title, ratioBp, trigger}]
+  notifyEmails        Json // string[]
+  aiAutoDraft         Boolean  @default(true)
+  aiDiagramAutoDraft  Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
+
+  @@map("sp_develop_settings")
+}

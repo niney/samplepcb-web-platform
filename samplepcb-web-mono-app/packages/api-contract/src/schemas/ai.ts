@@ -12,7 +12,8 @@ import { MarketDevDiagram } from './market-dev-diagram';
 
 // market.dev-review = AI 사전 검토서(즉시, 위저드 대기) · market.dev-diagram = 정밀 시스템 구성도
 // (비동기, 등록 뒤 — docs/AI_DEV_REVIEW.md §13.5). 둘 다 sp_ai_usecase 한 행(사용·모델·추가 지침).
-export const AI_USECASES = ['market.dev-review', 'market.dev-diagram'] as const;
+// develop.* = 개발의뢰(docs/DEVELOP_FLOW.md §6) — 같은 프롬프트·러너, 별도 행(관리자 대기라 정밀 모델을 기본으로 둘 수 있다).
+export const AI_USECASES = ['market.dev-review', 'market.dev-diagram', 'develop.dev-review', 'develop.dev-diagram'] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
 
@@ -104,6 +105,9 @@ export const AiSettingsResponse = z.object({
     visionModelFromEnv: z.boolean(),
     devReview: AiDevReviewSettings,
     devDiagram: AiDevDiagramSettings,
+    // 개발의뢰(develop.*) — 검토서도 think 단계를 가진다(관리자 대기라 정밀 모델 허용).
+    developReview: AiDevDiagramSettings,
+    developDiagram: AiDevDiagramSettings,
   }),
 });
 export type AiSettingsResponseType = z.infer<typeof AiSettingsResponse>;
@@ -121,6 +125,22 @@ export const AiSettingsUpdate = z.object({
     })
     .optional(),
   devDiagram: z
+    .object({
+      enabled: z.boolean(),
+      model: z.string().trim().min(1).max(100),
+      think: AiThinkLevel,
+      extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
+    })
+    .optional(),
+  developReview: z
+    .object({
+      enabled: z.boolean(),
+      model: z.string().trim().min(1).max(100),
+      think: AiThinkLevel,
+      extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
+    })
+    .optional(),
+  developDiagram: z
     .object({
       enabled: z.boolean(),
       model: z.string().trim().min(1).max(100),

@@ -74,11 +74,12 @@ const toAiJob = (row: AiJobRow): AiJob => {
   let corrupted = false;
   if (row.resultJson !== null) {
     const raw = parseJson(row.resultJson);
-    if (row.useCase === 'market.dev-review' && status === 'done') {
+    // market.* 와 develop.* 가 같은 결과 모양을 쓴다 — 접미(.dev-review/.dev-diagram)로 가른다.
+    if (row.useCase.endsWith('.dev-review') && status === 'done') {
       const parsed = MarketDevReview.safeParse(raw);
       if (parsed.success) review = parsed.data;
       else corrupted = true;
-    } else if (row.useCase === 'market.dev-diagram') {
+    } else if (row.useCase.endsWith('.dev-diagram')) {
       const parsed = DevDiagramJobResult.safeParse(raw);
       if (parsed.success) {
         diagram = parsed.data.meta;
@@ -207,7 +208,7 @@ export async function findReusableAiJob(
   if (row === null) return null;
   const job = toAiJob(row);
   if (job.status === 'error') return null; // 파손 저장분은 캐시로 쓰지 않는다
-  if (job.useCase === 'market.dev-review' && job.review === null) return null;
+  if (job.useCase.endsWith('.dev-review') && job.review === null) return null;
   return job;
 }
 

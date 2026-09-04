@@ -48,6 +48,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 | **`sp-php`** | 그누보드5/영카트 (PHP) | `samplepcb-web/` | `/` | `g5` · `youngcart` |
 | **`sp-vue`** | Vue SPA 프런트 (관리자) | `samplepcb-web-mono-app/apps/web` | `/app` | `@sp` 스코프 |
 | **`sp-market`** | Vue SPA 재능마켓 (고객) | `samplepcb-web-mono-app/apps/market` | `/market` | `@sp` 스코프 |
+| **`sp-develop`** | Vue SPA 개발의뢰 (고객 ↔ 당사 직접) | `samplepcb-web-mono-app/apps/develop` | `/develop` | `@sp` 스코프 · 정본 `docs/DEVELOP_FLOW.md` |
 | **`sp-node`** | Node/Fastify 백엔드 | `samplepcb-web-mono-app/apps/api` | `/api` | Fastify · `@sp` 스코프 |
 | **`sp-engine`** | BOM 추출·부품 검색 엔진 | `samplepcb-parts-engine/` | sp-node 내부 연동 | Python |
 
@@ -70,9 +71,10 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 /api/    → 127.0.0.1:3333  Node (Fastify)      ← samplepcb-web-mono-app/apps/api
 /app/    → 127.0.0.1:5173  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/web (base:'/app/')
 /market/ → 127.0.0.1:5176  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/market (base:'/market/')
+/develop/→ 127.0.0.1:5177  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/develop (base:'/develop/')
 /        → 127.0.0.1:8888  PHP (XAMPP Apache)  ← samplepcb-web (그누보드/영카트)  ← 루트=PHP
 ```
-- **`/app`·`/api`·`/market`는 그누보드 예약 경로**(그누보드가 점유 안 함). `/spcb`(인증 브리지)는 별도 location이 없어 catch-all `/`로 흘러 PHP가 처리.
+- **`/app`·`/api`·`/market`·`/develop`는 그누보드 예약 경로**(그누보드가 점유 안 함). `/spcb`(인증 브리지)는 별도 location이 없어 catch-all `/`로 흘러 PHP가 처리.
 
 **설정 파일 위치 (중요)**
 - 실제 구동 = **`D:\nginx\conf\nginx.conf`** (repo **밖**, 로컬 머신).

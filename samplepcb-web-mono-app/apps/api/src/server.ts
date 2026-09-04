@@ -67,6 +67,10 @@ import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
 import { adminMarketContractRoutes } from './routes/admin-market-contracts';
 import { adminMarketSettingsRoutes } from './routes/admin-market-settings';
+import { developRequestRoutes } from './routes/develop-requests';
+import { adminDevelopRequestRoutes } from './routes/admin-develop-requests';
+import { adminDevelopSettingsRoutes } from './routes/admin-develop-settings';
+import { adminDevelopQuoteRoutes } from './routes/admin-develop-quotes';
 import { scheduleKoreaEximExchangeRateRefresh } from './lib/exchange-rate';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
@@ -184,6 +188,11 @@ await app.register(adminMarketExpertRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketProjectRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketContractRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketSettingsRoutes, { prefix: '/api/admin' });
+// 개발의뢰(/develop, sp-develop — docs/DEVELOP_FLOW.md) — 회원(소유자만) · 관리자 워크큐·AI 초안·설정
+await app.register(developRequestRoutes, { prefix: '/api' });
+await app.register(adminDevelopRequestRoutes, { prefix: '/api/admin' });
+await app.register(adminDevelopSettingsRoutes, { prefix: '/api/admin' });
+await app.register(adminDevelopQuoteRoutes, { prefix: '/api/admin' });
 
 // ES sp-parts 부트스트랩 + 색인 실패 큐 드레인 — ES 다운이어도 앱은 뜬다(검색만 축퇴).
 // 기동 시 1회에 그치면 장기 실행 서버의 일시 실패가 재시작 전까지 남으므로 1분마다 수렴시킨다.

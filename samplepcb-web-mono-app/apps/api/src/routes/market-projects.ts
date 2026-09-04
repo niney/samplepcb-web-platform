@@ -831,7 +831,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           answers: source.answers,
           attachmentHashes,
         }),
-        projectId: project.id, // 완료 순간 러너가 프로젝트에 박제한다
+        target: { kind: 'market', projectId: project.id }, // 완료 순간 러너가 프로젝트에 박제한다
         log: request.log,
       });
       request.log.info(

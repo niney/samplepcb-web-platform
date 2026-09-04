@@ -39,6 +39,8 @@ import {
   AI_USECASE_DEFS,
   DEV_DIAGRAM_USECASE,
   DEV_REVIEW_USECASE,
+  DEVELOP_DIAGRAM_USECASE,
+  DEVELOP_REVIEW_USECASE,
   asThinkLevel,
   ensureAiUsecaseRows,
   getAiConnection,
@@ -152,14 +154,31 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
   const aiSettingsData = async () => {
     await ensureAiUsecaseRows();
-    const [conn, vision, row, diagramRow] = await Promise.all([
+    const [conn, vision, row, diagramRow, developReviewRow, developDiagramRow] = await Promise.all([
       getAiConnection(),
       getAiVisionModel(),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEV_REVIEW_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEV_DIAGRAM_USECASE } }),
+      prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_REVIEW_USECASE } }),
+      prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_DIAGRAM_USECASE } }),
     ]);
     const def = AI_USECASE_DEFS[DEV_REVIEW_USECASE];
     const diagramDef = AI_USECASE_DEFS[DEV_DIAGRAM_USECASE];
+    // 개발의뢰(develop.*) 두 유스케이스는 같은 모양(사용·모델·thinking·추가 지침).
+    const thinkBlock = (
+      r: { enabled: boolean; model: string; think: string | null; extraInstructions: string | null; updatedAt: Date } | null,
+      key: typeof DEVELOP_REVIEW_USECASE | typeof DEVELOP_DIAGRAM_USECASE,
+    ) => {
+      const d = AI_USECASE_DEFS[key];
+      return {
+        enabled: r?.enabled ?? false,
+        model: r?.model ?? d.defaultModel,
+        think: asThinkLevel(r?.think, d.think),
+        extraInstructions: r?.extraInstructions ?? '',
+        promptVersion: d.promptVersion,
+        updatedAt: (r?.updatedAt ?? new Date()).toISOString(),
+      };
+    };
     return {
       baseUrl: conn.baseUrl,
       apiKeyMasked: maskApiKey(conn.apiKey),
@@ -182,6 +201,8 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         promptVersion: diagramDef.promptVersion,
         updatedAt: (diagramRow?.updatedAt ?? new Date()).toISOString(),
       },
+      developReview: thinkBlock(developReviewRow, DEVELOP_REVIEW_USECASE),
+      developDiagram: thinkBlock(developDiagramRow, DEVELOP_DIAGRAM_USECASE),
     };
   };
 
@@ -309,6 +330,23 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             model: body.devDiagram.model,
             think: body.devDiagram.think,
             extraInstructions: body.devDiagram.extraInstructions === '' ? null : body.devDiagram.extraInstructions,
+          },
+        });
+      }
+      // 개발의뢰(develop.*) — 검토서·구성도 둘 다 thinking 단계까지 만진다.
+      for (const [key, patch] of [
+        [DEVELOP_REVIEW_USECASE, body.developReview],
+        [DEVELOP_DIAGRAM_USECASE, body.developDiagram],
+      ] as const) {
+        if (patch === undefined) continue;
+        await ensureAiUsecaseRows();
+        await prisma.spAiUsecase.update({
+          where: { useCase: key },
+          data: {
+            enabled: patch.enabled,
+            model: patch.model,
+            think: patch.think,
+            extraInstructions: patch.extraInstructions === '' ? null : patch.extraInstructions,
           },
         });
       }

@@ -26,6 +26,7 @@
     "smartbom:seed-partners": "tsx --env-file=.env src/scripts/seed-smartbom-partners.ts",
     "smartbom:audit-shipment-modes": "tsx --env-file=.env src/scripts/audit-bom-shipment-modes.ts",
     "market:seed-anchor": "tsx --env-file=.env src/scripts/seed-market-anchor-item.ts",
+    "develop:seed-anchor": "tsx --env-file=.env src/scripts/seed-develop-anchor-item.ts",
     "db:migrate": "prisma migrate dev",
     "clean": "rimraf dist .turbo",
     "parts:catalog": "tsx --env-file=.env src/scripts/import-parts-catalog.ts",

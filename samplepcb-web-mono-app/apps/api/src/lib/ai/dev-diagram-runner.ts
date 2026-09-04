@@ -1,11 +1,12 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { SpMarketProject } from '@prisma/client';
+import type { SpDevelopRequest, SpMarketProject } from '@prisma/client';
 import { MARKET_ATTACHMENT_FIELD } from '@sp/api-contract';
 import type { MarketDevDiagramType } from '@sp/api-contract';
 import { downloadFromFileServer } from '../file-server';
 import { getMembersByIds } from '../g5-db';
 import { REF_MARKET_PROJECT, marketOwnerNames, toAnswers, toAreaCodes, toDevDiagram } from '../market';
 import { buildDevDiagramReadyEmail, sendMarketMail } from '../market-email';
+import { buildDevelopReviewSource } from '../develop-ai-source';
 import { prisma } from '../prisma';
 import { expandAiArchives } from './archive';
 import { prepareAiAttachments } from './attachment-extractor';
@@ -22,17 +23,35 @@ import type { DevReviewSource } from './dev-review';
 import { createAiJob, findReusableAiJob, finishAiJob, getAiJob, listRunningAiJobs, updateAiJobResult } from './jobs';
 import type { AiJob } from './jobs';
 import { chatWithOptionFallback } from './runner';
-import { DEV_DIAGRAM_USECASE, getAiConnection, getAiUsecaseRuntime, toOllamaThink } from './usecases';
+import {
+  DEV_DIAGRAM_USECASE,
+  DEVELOP_DIAGRAM_USECASE,
+  getAiConnection,
+  getAiUsecaseRuntime,
+  toOllamaThink,
+} from './usecases';
 
-// ── 시스템 구성도 러너 (docs/AI_DEV_REVIEW.md §13.5·§13.7) ─────────────────────────
-// 잡(sp_ai_job) 중심이다: 위저드 3단계에서 검토서 잡과 **병렬로** 시작되므로 그때는 프로젝트가 없다.
+// ── 시스템 구성도 러너 (docs/AI_DEV_REVIEW.md §13.5·§13.7 · DEVELOP_FLOW.md §6) ─────────────────
+// 잡(sp_ai_job) 중심이다: 마켓 위저드 3단계에서 검토서 잡과 **병렬로** 시작되므로 그때는 프로젝트가 없다.
 // 결과(메타 + 살균 HTML)는 잡 행에 저장되고, 등록 시 `attachDevDiagramJob` 이 프로젝트에 연결한다 —
-// 이미 done 이면 즉시 복사, 진행 중이면 완료 순간 러너가 연결된 프로젝트를 찾아 쓴다(메일 포함).
-// 프로세스 내 큐(동시 1): 프로빙 실측 141~581초·thinking 2~5만 자라 동시 실행은 비용을 통제할 수 없다.
+// 이미 done 이면 즉시 복사, 진행 중이면 완료 순간 러너가 연결된 대상을 찾아 쓴다(마켓은 메일 포함).
+// 대상(target)은 둘 — 마켓 프로젝트(고객·전문가에게 곧 보인다) · 개발의뢰(관리자 전용 현재본, 공개는 별도 스냅샷).
+// 프로세스 내 큐(동시 1, 두 유스케이스 공유): 프로빙 실측 141~581초·thinking 2~5만 자라 동시 실행은 비용을 통제할 수 없다.
 // 흐름: (게이트) → running → kimi 생성 → 살균·감사 → done | error. 게이트 미달은 잡을 만들지 않는다
 // (run 응답의 diagramSkipReason). 다중 인스턴스 배포는 이월(큐가 프로세스 안).
 
 type AiRunLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error'>;
+
+export type DiagramUsecase = typeof DEV_DIAGRAM_USECASE | typeof DEVELOP_DIAGRAM_USECASE;
+const asDiagramUsecase = (v: string): DiagramUsecase =>
+  v === DEVELOP_DIAGRAM_USECASE ? DEVELOP_DIAGRAM_USECASE : DEV_DIAGRAM_USECASE;
+
+// 연결 대상 참조 — 메타·본문을 써 넣을 행.
+export type DiagramTargetRef = { kind: 'market'; id: bigint } | { kind: 'develop'; id: bigint };
+// 연결 대상 행 — 소스 재구성·알림에 쓴다.
+type DiagramTarget = { kind: 'market'; project: SpMarketProject } | { kind: 'develop'; request: SpDevelopRequest };
+const refOf = (t: DiagramTarget): DiagramTargetRef =>
+  t.kind === 'market' ? { kind: 'market', id: t.project.id } : { kind: 'develop', id: t.request.id };
 
 interface QueueEntry { jobId: string; source: DevReviewSource | null; log: AiRunLogger }
 const queue: QueueEntry[] = [];
@@ -106,7 +125,6 @@ export async function buildProjectDevReviewSource(project: SpMarketProject): Pro
   return (await buildProjectDevReviewSourceWithImages(project)).source;
 }
 
-
 // ── 시작 — 잡 생성 + 큐 ───────────────────────────────────────────────────────
 export type StartDevDiagramResult =
   | { ok: true; job: AiJob; cached: boolean }
@@ -118,9 +136,11 @@ export async function startDevDiagramJob(options: {
   inputHash: string; // 검토서와 같은 입력 해시(제목·분야·설명·답변·첨부) — 등록 시 대조
   log: AiRunLogger;
   force?: boolean; // 관리자 강제 — 유스케이스·게이트 무시
+  useCase?: DiagramUsecase; // 기본 market.dev-diagram
 }): Promise<StartDevDiagramResult> {
   const { mbId, source, inputHash, log } = options;
-  const runtime = await getAiUsecaseRuntime(DEV_DIAGRAM_USECASE);
+  const useCase = options.useCase ?? DEV_DIAGRAM_USECASE;
+  const runtime = await getAiUsecaseRuntime(useCase);
   if (!runtime.enabled && options.force !== true) return { ok: false, reason: 'DISABLED', skipReason: null };
   const gate = devDiagramGate(source);
   if (!gate.ok && options.force !== true) return { ok: false, reason: 'GATE', skipReason: gate.reason };
@@ -128,15 +148,15 @@ export async function startDevDiagramJob(options: {
   const jobSource = { model: runtime.model, promptVersion: DEV_DIAGRAM_PROMPT_VERSION, inputHash };
   if (options.force !== true) {
     // 같은 입력이면 진행 중 잡도 재사용 — 3단계 재진입·검토서 재생성이 10분짜리 kimi 를 다시 돌리지 않는다.
-    const reusable = await findReusableAiJob(DEV_DIAGRAM_USECASE, mbId, jobSource, { includeRunning: true });
+    const reusable = await findReusableAiJob(useCase, mbId, jobSource, { includeRunning: true });
     if (reusable !== null) {
-      log.info({ useCase: DEV_DIAGRAM_USECASE, jobId: reusable.id, mbId, status: reusable.status }, 'dev diagram job reuse');
+      log.info({ useCase, jobId: reusable.id, mbId, status: reusable.status }, 'dev diagram job reuse');
       return { ok: true, job: reusable, cached: true };
     }
   }
   const meta = baseMeta(runtime, 1, gate.corpusChars);
   const job = await createAiJob({
-    useCase: DEV_DIAGRAM_USECASE,
+    useCase,
     mbId,
     ...jobSource,
     stage: 'diagram',
@@ -145,23 +165,32 @@ export async function startDevDiagramJob(options: {
   const withMeta: AiJob = { ...job, diagram: { ...meta, jobId: job.id } };
   queue.push({ jobId: job.id, source, log });
   void drain();
-  log.info({ useCase: DEV_DIAGRAM_USECASE, jobId: job.id, mbId, corpusChars: gate.corpusChars }, 'dev diagram job queued');
+  log.info({ useCase, jobId: job.id, mbId, corpusChars: gate.corpusChars }, 'dev diagram job queued');
   return { ok: true, job: withMeta, cached: false };
 }
 
-// ── 프로젝트 연결 ─────────────────────────────────────────────────────────────
-const writeProjectMeta = async (projectId: bigint, meta: MarketDevDiagramType, html?: string | null): Promise<void> => {
-  await prisma.spMarketProject.update({
-    where: { id: projectId },
+// ── 대상 연결 ─────────────────────────────────────────────────────────────────
+// 메타·본문 쓰기. 마켓은 옛 동작 그대로(에러도 html null). 개발의뢰는 실패해도 **이전 본문을 지우지 않는다** —
+// 재생성 실패로 관리자가 공개할 후보를 잃으면 안 된다. done 이면 현재본이 AI 산출물이라 source='ai'.
+const writeTargetMeta = async (ref: DiagramTargetRef, meta: MarketDevDiagramType, html?: string | null): Promise<void> => {
+  if (ref.kind === 'market') {
+    await prisma.spMarketProject.update({
+      where: { id: ref.id },
+      data: { devDiagram: meta, ...(html === undefined ? {} : { devDiagramHtml: html }) },
+    });
+    return;
+  }
+  await prisma.spDevelopRequest.update({
+    where: { id: ref.id },
     data: {
       devDiagram: meta,
-      ...(html === undefined ? {} : { devDiagramHtml: html }),
+      ...(typeof html === 'string' ? { devDiagramHtml: html, devDiagramSource: 'ai' } : {}),
     },
   });
 };
 
-// 잡을 프로젝트에 연결 — done 이면 본문 복사, 진행 중이면 진행 메타만(완료 시 러너가 채운다).
-export async function linkJobToProject(projectId: bigint, job: AiJob, attempt = 1): Promise<MarketDevDiagramType> {
+// 잡을 대상에 연결 — done 이면 본문 복사, 진행 중이면 진행 메타만(완료 시 러너가 채운다).
+export async function linkJobToTarget(ref: DiagramTargetRef, job: AiJob, attempt = 1): Promise<MarketDevDiagramType> {
   const meta: MarketDevDiagramType = {
     ...(job.diagram ?? baseMeta({ model: job.model, think: 'high' }, attempt, 0)),
     jobId: job.id,
@@ -169,18 +198,21 @@ export async function linkJobToProject(projectId: bigint, job: AiJob, attempt = 
   };
   if (job.status === 'done' && job.diagramHtml !== null) {
     const done: MarketDevDiagramType = { ...meta, status: 'done' };
-    await writeProjectMeta(projectId, done, job.diagramHtml);
+    await writeTargetMeta(ref, done, job.diagramHtml);
     return done;
   }
   if (job.status === 'error') {
     const errored: MarketDevDiagramType = { ...meta, status: meta.status === 'skipped' ? 'skipped' : 'error', error: meta.error ?? job.error };
-    await writeProjectMeta(projectId, errored, null);
+    await writeTargetMeta(ref, errored, null);
     return errored;
   }
   const running: MarketDevDiagramType = { ...meta, status: meta.status === 'queued' ? 'queued' : 'running' };
-  await writeProjectMeta(projectId, running, null);
+  await writeTargetMeta(ref, running, null);
   return running;
 }
+
+export const linkJobToProject = (projectId: bigint, job: AiJob, attempt = 1): Promise<MarketDevDiagramType> =>
+  linkJobToTarget({ kind: 'market', id: projectId }, job, attempt);
 
 // 등록 라우트용 — 잡 소유자·유스케이스·입력 해시 대조 뒤 연결. 대조 실패는 이유만 돌려주고 등록은 막지
 // 않는다(검토서와 달리 구성도는 "있으면 좋은" 산출물).
@@ -199,34 +231,72 @@ export async function attachDevDiagramJob(
   return 'linked';
 }
 
-// 프로젝트 기준 (재)생성 — 소유자 상세·관리자 강제·등록 뒤 자동(잡 id 없이 동의만 있을 때). 소스는 저장분에서.
-export async function requestDevDiagramForProject(
-  project: SpMarketProject,
+type RequestResult = { ok: true; meta: MarketDevDiagramType } | { ok: false; reason: 'DISABLED' | 'RUNNING' };
+
+// 대상 기준 (재)생성 공통 — 소스는 호출자가 만든다(마켓은 저장분, 개발의뢰는 저장분 + 보충 메모).
+async function requestForTarget(
+  ref: DiagramTargetRef,
+  current: MarketDevDiagramType | null,
+  mbId: string,
+  source: DevReviewSource,
+  useCase: DiagramUsecase,
   log: AiRunLogger,
-  options: { force?: boolean } = {},
-): Promise<{ ok: true; meta: MarketDevDiagramType } | { ok: false; reason: 'DISABLED' | 'RUNNING' }> {
-  const current = toDevDiagram(project.devDiagram);
+  options: { force?: boolean },
+): Promise<RequestResult> {
   if (current !== null && (current.status === 'queued' || current.status === 'running')) {
     return { ok: false, reason: 'RUNNING' };
   }
   const attempt = (current?.attempt ?? 0) + 1;
-  const source = await buildProjectDevReviewSource(project);
   const started = await startDevDiagramJob({
-    mbId: project.mbId,
+    mbId,
     source,
-    inputHash: `project:${String(project.id)}:${nowIso()}`, // 재생성은 캐시를 안 탄다
+    inputHash: `${ref.kind}:${String(ref.id)}:${nowIso()}`, // 재생성은 캐시를 안 탄다
     log,
+    useCase,
     ...(options.force === undefined ? {} : { force: options.force }),
   });
   if (!started.ok) {
     if (started.reason === 'DISABLED') return { ok: false, reason: 'DISABLED' };
-    const runtime = await getAiUsecaseRuntime(DEV_DIAGRAM_USECASE);
+    const runtime = await getAiUsecaseRuntime(useCase);
     const skipped: MarketDevDiagramType = { ...baseMeta(runtime, attempt, devDiagramGate(source).corpusChars), status: 'skipped', skipReason: started.skipReason };
-    await writeProjectMeta(project.id, skipped, null);
+    await writeTargetMeta(ref, skipped, null);
     return { ok: true, meta: skipped };
   }
-  const meta = await linkJobToProject(project.id, started.job, attempt);
+  const meta = await linkJobToTarget(ref, started.job, attempt);
   return { ok: true, meta };
+}
+
+// 마켓 프로젝트 기준 (재)생성 — 소유자 상세·관리자 강제·등록 뒤 자동(잡 id 없이 동의만 있을 때). 소스는 저장분에서.
+export async function requestDevDiagramForProject(
+  project: SpMarketProject,
+  log: AiRunLogger,
+  options: { force?: boolean } = {},
+): Promise<RequestResult> {
+  const current = toDevDiagram(project.devDiagram);
+  if (current !== null && (current.status === 'queued' || current.status === 'running')) {
+    return { ok: false, reason: 'RUNNING' };
+  }
+  const source = await buildProjectDevReviewSource(project);
+  return requestForTarget({ kind: 'market', id: project.id }, current, project.mbId, source, DEV_DIAGRAM_USECASE, log, options);
+}
+
+// 개발의뢰 기준 (재)생성(docs/DEVELOP_FLOW.md §6) — 등록 직후 자동 초안·관리자 재생성. 소스는 호출자가
+// buildDevelopReviewSource 로 만들어 준다(검토서 잡과 같은 코퍼스를 두 번 내려받지 않기 위해).
+export async function requestDevDiagramForDevelop(
+  request: SpDevelopRequest,
+  source: DevReviewSource,
+  log: AiRunLogger,
+  options: { force?: boolean } = {},
+): Promise<RequestResult> {
+  return requestForTarget(
+    { kind: 'develop', id: request.id },
+    toDevDiagram(request.devDiagram),
+    request.mbId,
+    source,
+    DEVELOP_DIAGRAM_USECASE,
+    log,
+    options,
+  );
 }
 
 // ── 큐 ──────────────────────────────────────────────────────────────────────
@@ -248,35 +318,48 @@ async function drain(): Promise<void> {
   }
 }
 
-// 이 잡에 연결된 프로젝트(등록 시 devDiagram.jobId 로 연결) — 완료 시 컬럼에 쓰고 메일.
-async function linkedProject(jobId: string): Promise<SpMarketProject | null> {
-  const rows = await prisma.spMarketProject.findMany({
+// 이 잡에 연결된 대상(devDiagram.jobId 로 연결) — 완료 시 컬럼에 쓰고(마켓은 메일).
+async function linkedTarget(jobId: string): Promise<DiagramTarget | null> {
+  const projects = await prisma.spMarketProject.findMany({
     where: { devDiagram: { path: '$.jobId', equals: jobId } },
     take: 1,
   });
-  return rows[0] ?? null;
+  const project = projects[0];
+  if (project !== undefined) return { kind: 'market', project };
+  const requests = await prisma.spDevelopRequest.findMany({
+    where: { devDiagram: { path: '$.jobId', equals: jobId } },
+    take: 1,
+  });
+  const request = requests[0];
+  return request === undefined ? null : { kind: 'develop', request };
 }
+
+const rebuildSource = async (target: DiagramTarget): Promise<DevReviewSource> =>
+  target.kind === 'market'
+    ? buildProjectDevReviewSource(target.project)
+    : (await buildDevelopReviewSource(target.request)).source;
 
 async function runOne(entry: QueueEntry): Promise<void> {
   const { jobId, log } = entry;
   const job = await getAiJob(jobId);
   if (job?.status !== 'running') return; // 취소·경합 — 조용히 지난다
-  const runtime = await getAiUsecaseRuntime(DEV_DIAGRAM_USECASE);
+  const useCase = asDiagramUsecase(job.useCase);
+  const runtime = await getAiUsecaseRuntime(useCase);
   const startedAt = Date.now();
   let meta: MarketDevDiagramType = { ...(job.diagram ?? baseMeta(runtime, 1, 0)), jobId, status: 'running', model: runtime.model, think: runtime.think };
   await updateAiJobResult(jobId, jobResultJson(meta));
-  const project = await linkedProject(jobId);
-  if (project !== null) await writeProjectMeta(project.id, meta);
+  const target = await linkedTarget(jobId);
+  if (target !== null) await writeTargetMeta(refOf(target), meta);
 
-  // 소스 — 큐 항목(3단계·재생성)에 있거나, 재시작 복구면 연결된 프로젝트에서 다시 만든다.
+  // 소스 — 큐 항목(3단계·재생성)에 있거나, 재시작 복구면 연결된 대상에서 다시 만든다.
   let source = entry.source;
   if (source === null) {
-    if (project === null) {
+    if (target === null) {
       meta = { ...meta, status: 'error', error: 'SOURCE_LOST' };
       await finishAiJob(jobId, { error: 'SOURCE_LOST', diagram: meta });
       return;
     }
-    source = await buildProjectDevReviewSource(project);
+    source = await rebuildSource(target);
   }
   meta = { ...meta, corpusChars: devDiagramGate(source).corpusChars };
 
@@ -312,11 +395,11 @@ async function runOne(entry: QueueEntry): Promise<void> {
       const elapsedSecs = Math.round((Date.now() - startedAt) / 1000);
       meta = { ...meta, status: 'done', generatedAt: nowIso(), elapsedSecs, audit, error: null };
       await finishAiJob(jobId, { diagram: meta, html });
-      log.info({ jobId, elapsedSecs, thinkingChars: raw.thinkingChars, audit }, 'dev diagram done');
-      const target = await linkedProject(jobId);
-      if (target !== null) {
-        await writeProjectMeta(target.id, meta, html);
-        await notifyOwner(target, meta, log);
+      log.info({ jobId, useCase, elapsedSecs, thinkingChars: raw.thinkingChars, audit }, 'dev diagram done');
+      const done = await linkedTarget(jobId);
+      if (done !== null) {
+        await writeTargetMeta(refOf(done), meta, html);
+        await notifyTarget(done, meta, log);
       }
       return;
     } catch (err) {
@@ -326,11 +409,14 @@ async function runOne(entry: QueueEntry): Promise<void> {
   }
   meta = { ...meta, status: 'error', error: lastError, elapsedSecs: Math.round((Date.now() - startedAt) / 1000) };
   await finishAiJob(jobId, { error: lastError, diagram: meta });
-  const target = await linkedProject(jobId);
-  if (target !== null) await writeProjectMeta(target.id, meta, null);
+  const failed = await linkedTarget(jobId);
+  if (failed !== null) await writeTargetMeta(refOf(failed), meta, null);
 }
 
-async function notifyOwner(project: SpMarketProject, meta: MarketDevDiagramType, log: AiRunLogger): Promise<void> {
+// 완료 알림 — 마켓은 의뢰인 메일. 개발의뢰는 관리자 전용 현재본이라 메일이 없다(관리자 상세가 상태를 본다).
+async function notifyTarget(target: DiagramTarget, meta: MarketDevDiagramType, log: AiRunLogger): Promise<void> {
+  if (target.kind !== 'market') return;
+  const project = target.project;
   const [members, owners] = await Promise.all([getMembersByIds([project.mbId]), marketOwnerNames([project.mbId])]);
   await sendMarketMail(
     log as FastifyBaseLogger,
@@ -352,15 +438,18 @@ async function notifyOwner(project: SpMarketProject, meta: MarketDevDiagramType,
 }
 
 // ── 서버 재시작 복구 ─────────────────────────────────────────────────────────
-// running 으로 남은 dev-diagram 잡: 프로젝트에 연결된 것은 저장분에서 소스를 다시 만들어 재실행,
+// running 으로 남은 dev-diagram 잡(두 유스케이스): 대상에 연결된 것은 저장분에서 소스를 다시 만들어 재실행,
 // 연결 안 된 것(위저드 3단계에서만 시작)은 소스가 메모리에만 있었으므로 복구 불가 → error(ABANDONED).
 // 위저드가 살아 있으면 "다시 만들기"로 새 잡을 시작한다(파일은 브라우저에 있다).
 export async function resumeDevDiagramQueue(log: AiRunLogger): Promise<number> {
-  const running = await listRunningAiJobs(DEV_DIAGRAM_USECASE);
+  const running = [
+    ...(await listRunningAiJobs(DEV_DIAGRAM_USECASE)),
+    ...(await listRunningAiJobs(DEVELOP_DIAGRAM_USECASE)),
+  ];
   let count = 0;
   for (const job of running) {
-    const project = await linkedProject(job.id);
-    if (project === null) {
+    const target = await linkedTarget(job.id);
+    if (target === null) {
       const meta: MarketDevDiagramType = { ...(job.diagram ?? baseMeta({ model: job.model, think: 'high' }, 1, 0)), jobId: job.id, status: 'error', error: 'ABANDONED' };
       await finishAiJob(job.id, { error: 'ABANDONED', diagram: meta });
       continue;

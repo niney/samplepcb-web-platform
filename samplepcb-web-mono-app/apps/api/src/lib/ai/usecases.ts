@@ -13,6 +13,13 @@ import { prisma } from '../prisma';
 
 export const DEV_REVIEW_USECASE = 'market.dev-review' as const;
 export const DEV_DIAGRAM_USECASE = 'market.dev-diagram' as const;
+// 개발의뢰(docs/DEVELOP_FLOW.md §6) — 같은 프롬프트·러너, 별도 행. 관리자가 대기하므로 정밀 모델을 기본으로 둔다.
+export const DEVELOP_REVIEW_USECASE = 'develop.dev-review' as const;
+export const DEVELOP_DIAGRAM_USECASE = 'develop.dev-diagram' as const;
+
+// 유스케이스 키의 "종류"(검토서/구성도) — 잡 저장소·러너가 market/develop 을 가르지 않고 이걸 본다.
+export const isReviewUsecase = (key: string): boolean => key.endsWith('.dev-review');
+export const isDiagramUsecase = (key: string): boolean => key.endsWith('.dev-diagram');
 
 export interface AiUsecaseDef {
   defaultModel: string;
@@ -32,6 +39,22 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
   },
   // §12.11 프로빙: kimi-k3 thinking high, temperature 0, seed 42 — 566초. 동기 UX 불가 → 비동기 전용.
   'market.dev-diagram': {
+    defaultModel: 'kimi-k3',
+    promptVersion: DEV_DIAGRAM_PROMPT_VERSION,
+    think: 'high',
+    temperature: 0,
+    seed: 42,
+    timeoutMs: 900_000,
+  },
+  // 개발의뢰 검토서 — 고객이 기다리지 않으므로(관리자 초안) §12.8 프로빙에서 품질이 deepseek 급이면서 상의 항목을
+  // 덜 내던 kimi-k3 에 thinking 을 켠다. glm-5.3(가장 촘촘, 3~9분)은 관리자가 설정에서 고를 수 있다.
+  'develop.dev-review': {
+    defaultModel: 'kimi-k3',
+    promptVersion: DEV_REVIEW_PROMPT_VERSION,
+    think: 'medium',
+    timeoutMs: 900_000,
+  },
+  'develop.dev-diagram': {
     defaultModel: 'kimi-k3',
     promptVersion: DEV_DIAGRAM_PROMPT_VERSION,
     think: 'high',

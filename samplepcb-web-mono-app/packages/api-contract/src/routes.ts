@@ -70,4 +70,12 @@ export const apiRoutes = {
   adminMarketContracts: '/api/admin/market/contracts',
   adminMarketFiles: '/api/admin/market/files',
   adminMarketSettings: '/api/admin/market/settings',
+  // 개발의뢰(develop, docs/DEVELOP_FLOW.md) — 의뢰자 ↔ 샘플피씨비 직접
+  developRequests: '/api/develop/requests',
+  developMyRequests: '/api/develop/my/requests',
+  adminDevelopRequests: '/api/admin/develop/requests',
+  adminDevelopQuotes: '/api/admin/develop/quotes',
+  adminDevelopMilestones: '/api/admin/develop/milestones',
+  adminDevelopFiles: '/api/admin/develop/files',
+  adminDevelopSettings: '/api/admin/develop/settings',
 } as const;
