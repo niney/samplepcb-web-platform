@@ -59,6 +59,7 @@ import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
 //   비로그인: 열람 + 로그인 유도 / 전문가: NDA 서명·첨부 열람·블라인드 견적 제출·수정·철회
 //   소유자: 받은 견적 비교·채택·조기마감·취소. 실제 강제는 서버 가드 — 여기는 UX 분기.
 // 레이아웃: 1440px = 헤더(종이 위) → sticky 섹션 내비 → 본문(카드 6: 의뢰 내용·검토서·구성도·첨부·견적) + 360px sticky 사이드.
+// sticky 섹션 내비는 사이트 헤더(64px) 아래 top-16 로 고정한다(MarketLayout 헤더가 z-40 라 z-20 내비가 깔리지 않도록).
 // 답변 표는 "의뢰 내용" 한 곳에만(검토서 안 고객 의뢰내용은 §13.9 에서 제거).
 
 const auth = useAuthStore();
@@ -520,7 +521,7 @@ async function onRemoveDevReview(): Promise<void> {
       </div>
 
       <!-- sticky 섹션 내비 -->
-      <nav class="sticky top-0 z-20 mt-5 border-b border-line bg-paper">
+      <nav class="sticky top-16 z-20 mt-5 border-b border-line bg-paper">
         <div class="flex gap-1 overflow-x-auto">
           <button
             v-for="s in sections"
@@ -539,7 +540,7 @@ async function onRemoveDevReview(): Promise<void> {
         <!-- 본문 -->
         <div class="grid gap-5">
           <!-- 의뢰 내용 — 설명 · 조건 타일 · 답변 표 · 희망 툴 (한 곳에만) -->
-          <div id="s-brief" class="grid scroll-mt-16 gap-5 rounded-2xl border border-line bg-white p-6">
+          <div id="s-brief" class="grid scroll-mt-32 gap-5 rounded-2xl border border-line bg-white p-6">
             <div>
               <p class="font-mono text-micro tracking-[.14em] text-tx-3">BRIEF</p>
               <h2 class="text-title font-extrabold text-tx-1">의뢰 내용</h2>
@@ -577,7 +578,7 @@ async function onRemoveDevReview(): Promise<void> {
           </div>
 
           <!-- AI 사전 검토서 — 공개 범위는 상세 설명과 동일(상세를 볼 수 있는 뷰어 전원) -->
-          <div v-if="devReview !== null" id="s-review" class="scroll-mt-16 rounded-2xl border border-line bg-white p-6">
+          <div v-if="devReview !== null" id="s-review" class="scroll-mt-32 rounded-2xl border border-line bg-white p-6">
             <!-- 검토서는 원천이 바뀌어도 지우지 않는다 — 어느 버전 기준인지 알리고, 갱신은 소유자가 고른다(§11.4) -->
             <div v-if="detail.devReviewStale" class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-amber-900">
               <div class="min-w-0">
@@ -630,7 +631,7 @@ async function onRemoveDevReview(): Promise<void> {
           </div>
 
           <!-- 시스템 구성도(§13.7) — 검토서가 없을 때만 별도 카드 -->
-          <div v-if="standaloneDiagram" id="s-diagram" class="scroll-mt-16 rounded-2xl border border-line bg-white p-6">
+          <div v-if="standaloneDiagram" id="s-diagram" class="scroll-mt-32 rounded-2xl border border-line bg-white p-6">
             <DevDiagramSection
               :diagram="detail.devDiagram"
               :can-regenerate="isOwner"
@@ -641,7 +642,7 @@ async function onRemoveDevReview(): Promise<void> {
           </div>
 
           <!-- 첨부 (NDA 게이트) -->
-          <div id="s-files" class="grid scroll-mt-16 gap-4 rounded-2xl border border-line bg-white p-6">
+          <div id="s-files" class="grid scroll-mt-32 gap-4 rounded-2xl border border-line bg-white p-6">
             <div>
               <p class="font-mono text-micro tracking-[.14em] text-tx-3">FILES</p>
               <h2 class="text-title font-extrabold text-tx-1">첨부 자료 <span class="font-normal tabular-nums text-tx-3">{{ detail.attachments.count }}개</span></h2>
@@ -671,7 +672,7 @@ async function onRemoveDevReview(): Promise<void> {
           </div>
 
           <!-- 수정 이력 — 언제 무엇이 바뀌었나(첨부는 개수 변화만, 파일명은 NDA 게이트 뒤) -->
-          <div v-if="detail.revisionCount > 0" id="s-revisions" class="grid scroll-mt-16 gap-4 rounded-2xl border border-line bg-white p-6">
+          <div v-if="detail.revisionCount > 0" id="s-revisions" class="grid scroll-mt-32 gap-4 rounded-2xl border border-line bg-white p-6">
             <div>
               <p class="font-mono text-micro tracking-[.14em] text-tx-3">REVISIONS</p>
               <h2 class="text-title font-extrabold text-tx-1">
@@ -702,7 +703,7 @@ async function onRemoveDevReview(): Promise<void> {
           </div>
 
           <!-- 소유자: 받은 견적 비교 -->
-          <div v-if="isOwner" id="s-bids" class="grid scroll-mt-16 gap-4 rounded-2xl border border-line bg-white p-6">
+          <div v-if="isOwner" id="s-bids" class="grid scroll-mt-32 gap-4 rounded-2xl border border-line bg-white p-6">
             <div>
               <p class="font-mono text-micro tracking-[.14em] text-tx-3">BIDS</p>
               <h2 class="text-title font-extrabold text-tx-1">받은 견적 <span class="font-normal tabular-nums text-tx-3">{{ bids.length }}건</span></h2>
@@ -745,7 +746,7 @@ async function onRemoveDevReview(): Promise<void> {
         </div>
 
         <!-- 사이드바 -->
-        <aside class="grid gap-4 lg:sticky lg:top-14">
+        <aside class="grid gap-4 lg:sticky lg:top-32">
           <!-- 비로그인 -->
           <div v-if="viewer === null" class="rounded-2xl border border-line bg-white p-5 text-center">
             <p class="text-lead font-bold text-tx-1">견적을 제출하려면</p>
