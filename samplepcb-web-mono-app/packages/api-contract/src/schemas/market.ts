@@ -728,9 +728,14 @@ export const MarketProjectStatusResponse = z.object({
 });
 export type MarketProjectStatusResponseType = z.infer<typeof MarketProjectStatusResponse>;
 
+// 첨부 추가는 수정 이력 한 판을 남긴다 — 그 판 번호·중대 여부를 같이 준다(같은 판이 없으면 null/false).
 export const MarketProjectFilesResponse = z.object({
   result: z.literal(true),
-  data: z.object({ files: z.array(MarketFileMeta) }),
+  data: z.object({
+    files: z.array(MarketFileMeta),
+    revNo: z.number().int().positive().nullable(),
+    major: z.boolean(),
+  }),
 });
 export type MarketProjectFilesResponseType = z.infer<typeof MarketProjectFilesResponse>;
 

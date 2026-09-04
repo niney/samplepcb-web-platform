@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
@@ -63,6 +63,7 @@ import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
 
 const auth = useAuthStore();
 const route = useRoute();
+const router = useRouter();
 const projectId = computed<number | null>(() => {
   const n = Number(route.params.id);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -182,6 +183,27 @@ const reviewRegenerating = computed(
   () => regenerateReview.isPending.value || reviewJob.data.value?.data.status === 'running',
 );
 const reviewError = ref('');
+
+// 수정 화면에서 막 저장하고 온 경우(?saved=2&reviewJob=…) — "수정했습니다" 한 줄을 잠깐 띄우고,
+// 편집 화면에서 시작한 재생성 잡을 이어받아 폴링한다(도착 즉시 진행 띠). 쿼리는 곧바로 지운다(§11.5).
+const savedRev = ref<string | null>(null);
+const queryValue = (key: string): string | null => {
+  const q = route.query[key];
+  const value = Array.isArray(q) ? q[0] : q;
+  return typeof value === 'string' && value !== '' ? value : null;
+};
+onMounted(() => {
+  const rev = queryValue('saved');
+  const job = queryValue('reviewJob');
+  if (job !== null) reviewJobId.value = job;
+  if (rev === null && job === null) return;
+  if (rev !== null) {
+    savedRev.value = rev;
+    window.setTimeout(() => (savedRev.value = null), 5000);
+  }
+  void router.replace({ path: route.path });
+});
+
 async function onRegenerateReview(): Promise<void> {
   reviewError.value = '';
   try {
@@ -197,6 +219,14 @@ watch(
   (status) => {
     if (status === 'done') void detailQ.refetch();
     if (status === 'error') reviewError.value = '검토서 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+  },
+);
+// 이어받은 잡을 못 찾는 경우(?reviewJob 이 낡았거나 서버가 잊었을 때, 404) — 진행 띠가 그냥 안 뜨면
+// "왜 안 돌지" 가 남는다. 사정을 말하고 다시 만들기로 유도한다.
+watch(
+  () => reviewJob.error.value,
+  (err) => {
+    if (err !== null) reviewError.value = '검토서 생성 상태를 확인할 수 없습니다. 다시 만들기를 눌러 주세요.';
   },
 );
 
@@ -458,6 +488,16 @@ async function onRemoveDevReview(): Promise<void> {
           <span>{{ dateShort(detail.createdAt) }} 등록</span>
         </div>
       </header>
+
+      <!-- 방금 저장하고 넘어왔다 — 편집 화면이 아니라 결과가 있는 이 화면에서 확인시킨다(§11.5) -->
+      <p
+        v-if="savedRev !== null"
+        class="mt-5 flex items-center gap-2.5 rounded-xl border px-4 py-3 text-body font-bold"
+        :class="savedRev === 'none' ? 'border-line-2 bg-paper text-tx-2' : 'border-emerald-200 bg-emerald-50 text-emerald-800'"
+      >
+        <span>{{ savedRev === 'none' ? '–' : '✓' }}</span>
+        {{ savedRev === 'none' ? '바뀐 내용이 없어 그대로입니다' : `수정했습니다 — v${savedRev}` }}
+      </p>
 
       <!-- 견적을 낸 뒤 의뢰가 바뀌었다 — 알림 기능이 없는 대신 이 배너가 알린다(§의뢰 수정·버전) -->
       <div v-if="myBidOutdated" class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-4 text-amber-900">

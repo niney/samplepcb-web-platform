@@ -31,12 +31,14 @@ import { loginUrl, marketPath } from '../lib/auth-urls';
 import AreaIcon from '../components/AreaIcon.vue';
 import FileDropZone from '../components/request/FileDropZone.vue';
 import QuestionField from '../components/request/QuestionField.vue';
+import SaveResultModal from '../components/SaveResultModal.vue';
 import type { QuestionState } from '../composables/useRequestWizardForm';
 
 // 의뢰 수정(docs/MARKET_FLOW.md §의뢰 수정·버전) — 접수 중이면 견적이 들어온 뒤에도 고칠 수 있다.
 // 등록 위저드를 재사용하지 않는다: 위저드는 AI 잡 오케스트레이션까지 소유해서 수정 경로에 끌고 오면
 // 검토서를 다시 돌리게 된다. 대신 문항·분야 카드 컴포넌트(QuestionField·AreaIcon·FileDropZone)만 빌려 쓴다.
-// 필드는 [저장]으로 한 번에, 첨부는 즉시 반영된다(파일서버 왕복이라 되돌릴 지점이 다르다) — 화면에 명시한다.
+// 필드는 [저장]으로 한 번에, 첨부는 '첨부 올리기'로 즉시 또는 저장할 때 함께 올라간다(파일서버 왕복이라
+// 되돌릴 지점이 다르다) — 화면에 명시한다.
 
 const route = useRoute();
 const router = useRouter();
@@ -151,10 +153,20 @@ function deadlinePayload(): MarketProjectDeadlineType {
     : { days: Number(deadlineMode.value) as 3 | 7 | 14 };
 }
 
+// 저장 = 편집의 끝(§11.5). 결과를 알릴 것이 있으면 모달 하나로 묻고, 어느 쪽을 고르든 상세로 나간다.
+// 알릴 것이 없으면(검토서가 없거나 낡지 않았으면) 모달 없이 바로 상세로 — 흔한 경우에 클릭이 늘지 않게.
+const aiStatus = useDevReviewStatus();
+const regenerating = ref(false);
+const regenerate = useRegenerateDevReview(projectId);
+const requestDiagram = useRequestDevDiagram(projectId);
+
 async function save(): Promise<void> {
   saveError.value = '';
   saved.value = null;
   try {
+    // 고른 첨부를 올리지 않고 저장하면 그대로 사라진다 — 저장이 곧 이탈이라 여기서 먼저 올린다.
+    // 올리기가 실패하면 여기서 던져져 저장이 멈춘다(에러를 삼키고 나가면 파일도 에러도 사라진다).
+    const uploaded = newFiles.value.length > 0 ? await uploadPending() : null;
     // 바뀐 필드만 고르지 않는다 — 서버가 스냅샷으로 견주므로 같은 값은 이력에 남지 않는다.
     const res = await update.mutateAsync({
       title: title.value.trim(),
@@ -165,49 +177,70 @@ async function save(): Promise<void> {
       ndaRequired: ndaRequired.value,
       ...(deadlineTouched.value ? { deadline: deadlinePayload() } : {}),
     });
-    saved.value = res.data;
+    // 첨부 올리기와 PATCH 는 판을 따로 남긴다(첨부 v2 · 필드 v3). 사용자에겐 한 번의 저장이니
+    // 마지막 판 번호와 "둘 중 하나라도 중대" 로 합쳐 한 번만 알린다.
+    const result = {
+      ...res.data,
+      revNo: res.data.revNo ?? uploaded?.revNo ?? null,
+      major: res.data.major || (uploaded?.major ?? false),
+    };
+    saved.value = result;
     await detail.refetch();
+    const stale = project.value?.devReviewStale === true && aiStatus.data.value?.data.enabled === true;
+    // 알릴 것 = 검토서가 낡았거나 · 마감이 자동 연장됐거나 · 입찰자에게 경고가 나갈 때.
+    if (stale || result.deadlineExtendedTo !== null || result.major) {
+      modalStale.value = stale;
+      modalOpen.value = true;
+      return;
+    }
+    goDetail(result.revNo);
   } catch (err) {
     saveError.value = errorMessage(err);
   }
 }
 
-// AI 검토서 갱신 — 저장 뒤 원천이 바뀌어 검토서가 낡았을 때만 권한다(자동 아님, §11.4).
-const aiStatus = useDevReviewStatus();
-const reviewNeedsUpdate = computed(
-  () =>
-    saved.value !== null &&
-    project.value?.devReviewStale === true &&
-    aiStatus.data.value?.data.enabled === true,
-);
-const alsoDiagram = ref(false);
-const regenerating = ref(false);
-const regenerateDone = ref(false);
-const regenerate = useRegenerateDevReview(projectId);
-const requestDiagram = useRequestDevDiagram(projectId);
-async function regenerateReview(): Promise<void> {
+// 결과 모달 — 두 버튼 모두 상세로 나간다.
+const modalOpen = ref(false);
+const modalStale = ref(false);
+async function onRegenerate(alsoDiagram: boolean): Promise<void> {
   saveError.value = '';
   regenerating.value = true;
   try {
-    await regenerate.mutateAsync();
+    const res = await regenerate.mutateAsync();
     // 구성도는 검토서보다 10배 오래 걸린다 — 고른 사람만 같이 돌린다.
-    if (alsoDiagram.value) await requestDiagram.mutateAsync();
-    regenerateDone.value = true;
+    if (alsoDiagram) await requestDiagram.mutateAsync();
+    modalOpen.value = false;
+    goDetail(saved.value?.revNo ?? null, res.data.jobId);
   } catch (err) {
+    modalOpen.value = false;
     saveError.value = errorMessage(err);
   } finally {
     regenerating.value = false;
   }
 }
+function onLater(): void {
+  modalOpen.value = false;
+  goDetail(saved.value?.revNo ?? null);
+}
+// 배경 클릭·ESC — 닫기만. 저장은 끝났고 폼에 남는다(상세로는 버튼으로만).
+function onDismiss(): void {
+  modalOpen.value = false;
+}
 
+// 고른 첨부를 올린다 — 실패는 던진다(저장 흐름이 멈춰야 하므로). 남긴 판(revNo·major)을 돌려준다.
+async function uploadPending(): Promise<{ revNo: number | null; major: boolean }> {
+  const fd = new FormData();
+  for (const f of newFiles.value) fd.append('attachment', f);
+  const res = await addFiles.mutateAsync(fd);
+  newFiles.value = [];
+  return { revNo: res.data.revNo, major: res.data.major };
+}
+// '첨부 올리기' 버튼 — 저장 없이 첨부만 먼저 올릴 때. 여기서는 화면에 남아 에러를 보여 준다.
 async function uploadNew(): Promise<void> {
   if (newFiles.value.length === 0) return;
   saveError.value = '';
-  const fd = new FormData();
-  for (const f of newFiles.value) fd.append('attachment', f);
   try {
-    await addFiles.mutateAsync(fd);
-    newFiles.value = [];
+    await uploadPending();
   } catch (err) {
     saveError.value = errorMessage(err);
   }
@@ -237,8 +270,17 @@ const removeAttachment = (i: number): void => {
   newFiles.value = newFiles.value.filter((_, idx) => idx !== i);
 };
 
-const goDetail = (): void => {
-  void router.push(`/projects/${String(projectId.value ?? 0)}`);
+// 상세로 이동 — 저장 뒤라면 ?saved=2 로 넘겨 상세가 "수정했습니다 — v2" 한 줄을 띄운다(그 뒤 쿼리는 지운다).
+// 저장했는데 바뀐 게 없으면(revNo null) ?saved=none — 조용히 옮겨지면 "저장이 됐나" 가 남는다.
+// 인자 없음(undefined)은 취소·돌아가기라 아무 말도 안 한다.
+// 재생성을 시작했으면 ?reviewJob=<uuid> 도 함께: 상세가 그 잡을 이어 폴링해 도착 즉시 진행 띠를 보인다
+// (편집 화면에서 시작한 잡을 상세가 모르면 "다 되면 이 자리에서 바뀝니다" 약속이 깨진다).
+const goDetail = (revNo?: number | null, reviewJobId?: string): void => {
+  const path = `/projects/${String(projectId.value ?? 0)}`;
+  const query: Record<string, string> = {};
+  if (revNo !== undefined) query.saved = revNo === null ? 'none' : String(revNo);
+  if (reviewJobId !== undefined) query.reviewJob = reviewJobId;
+  void router.push(Object.keys(query).length === 0 ? path : { path, query });
 };
 const goLogin = (): void => {
   window.location.assign(loginUrl(marketPath(route.fullPath)));
@@ -270,7 +312,7 @@ const goLogin = (): void => {
           견적 접수가 끝난 뒤 내용이 바뀌면 이미 받은 견적의 전제가 달라집니다. 조건이 크게 달라졌다면 새 의뢰로 등록해 주세요.
         </p>
       </div>
-      <div><button type="button" class="h-10 rounded-lg border border-line-2 px-4 text-label font-bold text-tx-2 hover:border-tx-3" @click="goDetail">의뢰로 돌아가기</button></div>
+      <div><button type="button" class="h-10 rounded-lg border border-line-2 px-4 text-label font-bold text-tx-2 hover:border-tx-3" @click="goDetail()">의뢰로 돌아가기</button></div>
     </div>
 
     <div v-else class="mt-7 grid gap-6">
@@ -421,7 +463,7 @@ const goLogin = (): void => {
         <FileDropZone
           :files="newFiles"
           label="PDF · Word · 엑셀 · 이미지 · 손그림 사진"
-          hint="여기로 끌어다 놓거나 눌러서 선택 — 아래 '첨부 올리기'를 눌러야 반영됩니다."
+          hint="여기로 끌어다 놓거나 눌러서 선택 — '첨부 올리기'를 누르거나, 저장할 때 함께 올라갑니다."
           @add="addAttachments"
           @remove="removeAttachment"
         />
@@ -438,46 +480,6 @@ const goLogin = (): void => {
       </div>
 
       <p v-if="saveError !== ''" class="rounded-xl bg-red-50 px-4 py-3 text-body font-semibold text-red-700">{{ saveError }}</p>
-      <div v-if="saved !== null" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-label leading-relaxed text-emerald-900">
-        <p class="text-body font-bold">
-          {{ saved.revNo === null ? '바뀐 내용이 없어 이력을 남기지 않았습니다' : `수정했습니다 — v${saved.revNo}` }}
-        </p>
-        <p v-if="saved.major" class="mt-1">견적을 낸 전문가 화면에 “의뢰가 바뀌었다” 경고가 표시됩니다.</p>
-        <p v-if="saved.deadlineExtendedTo !== null" class="mt-1">
-          마감이 임박해 <b>{{ kstDate(saved.deadlineExtendedTo) }}</b> 로 자동 연장했습니다.
-        </p>
-      </div>
-
-      <!-- AI 검토서 갱신 — 자동으로 돌리지 않는다(§11.4). 원천이 바뀌어 검토서가 낡았을 때만 권한다. -->
-      <div
-        v-if="reviewNeedsUpdate"
-        class="grid gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-4 text-amber-900"
-      >
-        <div>
-          <p class="text-lead font-extrabold">AI 사전 검토서가 수정 전 내용입니다</p>
-          <p class="text-label leading-relaxed">
-            새 내용으로 다시 만들까요? 지금 안 만들어도 상세 화면에서 언제든 만들 수 있고, 그때까지는
-            “수정 전 내용” 안내가 검토서에 붙습니다.
-          </p>
-        </div>
-        <label class="flex items-center gap-2 text-label font-semibold">
-          <input v-model="alsoDiagram" type="checkbox">
-          시스템 구성도도 함께 다시 만들기 <span class="font-normal">(5~10분, 완성되면 알림)</span>
-        </label>
-        <div class="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            class="h-10 rounded-lg bg-amber-600 px-4 text-label font-bold text-white transition hover:bg-amber-700 disabled:opacity-40"
-            :disabled="regenerating"
-            @click="regenerateReview"
-          >
-            {{ regenerating ? '요청 중…' : '검토서 다시 만들기' }}
-          </button>
-          <span v-if="regenerateDone" class="text-label font-semibold">
-            시작했습니다 — 상세 화면에서 진행 상태를 볼 수 있습니다.
-          </span>
-        </div>
-      </div>
 
       <div class="flex flex-wrap items-center gap-3">
         <button
@@ -486,13 +488,26 @@ const goLogin = (): void => {
           :disabled="!canSave || update.isPending.value"
           @click="save"
         >
-          {{ update.isPending.value ? '저장 중…' : '저장' }}
+          {{ update.isPending.value ? '저장 중…' : '저장하기' }}
         </button>
-        <button type="button" class="h-11 rounded-lg border border-line-2 px-5 text-body font-bold text-tx-2 hover:border-tx-3" @click="goDetail">
-          의뢰로 돌아가기
+        <button type="button" class="h-11 rounded-lg border border-line-2 px-5 text-body font-bold text-tx-2 hover:border-tx-3" @click="goDetail()">
+          취소하고 돌아가기
         </button>
         <span v-if="requiredMissing.length > 0" class="text-label text-red-500">필수 조건에 답해야 저장할 수 있습니다.</span>
       </div>
+
+      <!-- 저장 결과 + 다음 한 걸음 — 어느 버튼을 눌러도 상세로 나간다(§11.5) -->
+      <SaveResultModal
+        :open="modalOpen"
+        :rev-no="saved?.revNo ?? null"
+        :major="saved?.major ?? false"
+        :deadline-extended-to="saved?.deadlineExtendedTo == null ? null : kstDate(saved.deadlineExtendedTo)"
+        :review-stale="modalStale"
+        :pending="regenerating"
+        @regenerate="onRegenerate"
+        @later="onLater"
+        @dismiss="onDismiss"
+      />
     </div>
   </section>
 </template>

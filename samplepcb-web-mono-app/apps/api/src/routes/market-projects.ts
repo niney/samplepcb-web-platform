@@ -700,7 +700,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return reply.status(502).send({ result: false, error: 'FILE_UPLOAD_FAILED' });
     }
     // 첨부 증감도 의뢰 수정이다 — 개수 변화를 이력에 남긴다(중대 = 입찰자 경고 대상).
-    await prisma.$transaction(async (tx) => {
+    // 남긴 판을 응답에 실어, 저장 직전에 첨부를 올리는 편집 화면이 PATCH 결과와 합쳐 한 번에 알린다(§11.5).
+    const revision = await prisma.$transaction(async (tx) => {
       const beforeCount = await tx.spFile.count({
         where: { refType: REF_MARKET_PROJECT, refId: project.id },
       });
@@ -720,10 +721,17 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
       const before = snapshotOfProject(project, beforeCount);
       const after = snapshotOfProject(project, beforeCount + uploaded.length);
-      await writeProjectRevision(tx, project.id, request.user.mbId, true, before, after);
+      return writeProjectRevision(tx, project.id, request.user.mbId, true, before, after);
     });
     const fileRows = await projectFiles(project.id);
-    return { result: true as const, data: { files: fileRows.map(toFileMeta) } };
+    return {
+      result: true as const,
+      data: {
+        files: fileRows.map(toFileMeta),
+        revNo: revision?.revNo ?? null,
+        major: revision?.major ?? false,
+      },
+    };
   });
 
   // ── POST /market/projects/:id/dev-diagram — 정밀 구성도 (재)생성 요청(소유자·관리자) ────
