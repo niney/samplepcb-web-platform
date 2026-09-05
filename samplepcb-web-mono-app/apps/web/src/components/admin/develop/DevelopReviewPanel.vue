@@ -7,10 +7,12 @@ import {
   useAdminDevelopAiRun,
   useAdminDevelopReviewAction,
   useAdminDevelopReviewPut,
+  useAdminDevelopReviewVersions,
   usePatchAdminDevelop,
 } from '../../../admin/useAdminDevelop';
 import { formatDateTime } from '../../../lib/format';
 import DevelopReviewEditor from './DevelopReviewEditor.vue';
+import DevelopReviewVersions from './DevelopReviewVersions.vue';
 import { developReviewIssues } from './develop-review-edit';
 import { developReviewStateClass } from './develop-badge';
 
@@ -59,8 +61,15 @@ const onEditorUpdate = (review: MarketDevReviewType, isDirty: boolean): void => 
   emit('dirty', isDirty);
 };
 
-const tab = ref<'edit' | 'preview'>('edit');
+const tab = ref<'edit' | 'preview' | 'versions'>('edit');
 const previewReview = computed<MarketDevReviewType | null>(() => working.value ?? source.value);
+
+// 버전 원장(§6.2) — 목록은 가벼워(본문 없음) 검토서가 있으면 늘 받아 둔다: 편집 탭의 "v{n} 작업본" 줄과 버전 탭이 같이 쓴다.
+const requestIdRef = computed(() => props.requestId);
+const versionsEnabled = computed(() => source.value !== null);
+const versions = useAdminDevelopReviewVersions(requestIdRef, versionsEnabled);
+const workingSeq = computed(() => versions.data.value?.data.current.workingSeq ?? null);
+const workingVersionLabel = computed(() => (workingSeq.value === null ? undefined : t('admin.develop.review.versions.workingLine', { seq: workingSeq.value })));
 
 const issues = ref<string[]>([]);
 
@@ -249,7 +258,17 @@ const busy = computed(
           >
             {{ t('admin.develop.review.tabPreview') }}
           </button>
+          <button
+            type="button"
+            class="rounded-md px-3 py-1"
+            :class="tab === 'versions' ? 'bg-blue-600 text-white' : 'text-gray-600'"
+            @click="tab = 'versions'"
+          >
+            {{ t('admin.develop.review.tabVersions') }}
+            <span v-if="versions.data.value !== undefined" class="ml-0.5 text-[11px] font-normal opacity-80">{{ versions.data.value.data.items.length }}</span>
+          </button>
         </div>
+        <span v-if="workingVersionLabel !== undefined" class="text-xs text-gray-500">{{ workingVersionLabel }}</span>
         <span v-if="fromDraftOnly" class="text-xs font-semibold text-amber-700">{{ t('admin.develop.review.fromDraft') }}</span>
         <span v-else-if="dirty" class="text-xs font-semibold text-amber-700">{{ t('admin.develop.review.dirty') }}</span>
 
@@ -313,7 +332,17 @@ const busy = computed(
           :disabled="busy"
           @update="onEditorUpdate"
         />
-        <DevReviewView v-if="tab === 'preview' && previewReview !== null" :review="previewReview" :title="title" />
+        <DevReviewView v-if="tab === 'preview' && previewReview !== null" :review="previewReview" :title="title" :version-label="workingVersionLabel" />
+        <DevelopReviewVersions
+          v-if="tab === 'versions'"
+          :request-id="requestId"
+          :list="versions.data.value?.data"
+          :is-loading="versions.isLoading.value"
+          :is-error="versions.isError.value"
+          :dirty="dirty"
+          :title="title"
+          @notice="setNotice"
+        />
       </div>
     </template>
   </section>

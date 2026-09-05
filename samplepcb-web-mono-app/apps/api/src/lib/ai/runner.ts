@@ -15,6 +15,7 @@ import {
 import type { DevReviewFeatures, DevReviewSource } from './dev-review';
 import { DEV_REVIEW_USECASE, getAiConnection, getAiVisionModel } from './usecases';
 import { createAiJob, findReusableAiJob, finishAiJob, setAiJobStage, type AiJob } from './jobs';
+import { recordDevelopReviewVersion } from '../develop-review-versions';
 import { prisma } from '../prisma';
 
 // AI 사전 검토서 러너 — 실제 의뢰 실행과 관리자 샘플 테스트가 같은 2단 파이프라인을 쓴다.
@@ -109,8 +110,8 @@ async function writeReviewToTarget(target: DevReviewTarget, review: MarketDevRev
     select: { devReview: true },
   });
   if (current === null) return;
-  await prisma.$transaction([
-    prisma.spDevelopRequest.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.spDevelopRequest.update({
       where: { id: target.requestId },
       data: {
         devReviewDraft: review,
@@ -118,8 +119,8 @@ async function writeReviewToTarget(target: DevReviewTarget, review: MarketDevRev
         devReviewDraftJobId: jobId,
         ...(current.devReview === null ? { devReview: review } : {}),
       },
-    }),
-    prisma.spDevelopEvent.create({
+    });
+    await tx.spDevelopEvent.create({
       data: {
         requestId: target.requestId,
         type: 'ai_drafted',
@@ -130,8 +131,16 @@ async function writeReviewToTarget(target: DevReviewTarget, review: MarketDevRev
         body: null,
         payload: { jobId, model: review.meta.model },
       },
-    }),
-  ]);
+    });
+    // 버전 원장(§6.2) — 재생성해도 이전 초안이 남는다. 작업본 seed 는 같은 내용이라 따로 기록하지 않는다.
+    await recordDevelopReviewVersion(tx, target.requestId, {
+      kind: 'ai_draft',
+      review,
+      author: review.meta.model,
+      jobId,
+      inputHash: review.meta.inputHash,
+    });
+  });
 }
 
 // 개발의뢰는 잡이 **시작되는 순간** 초안 잡 id 를 적어 둔다 — 관리자 상세가 진행 상태·실패 사유를 잡에서 읽는다.

@@ -23,6 +23,7 @@ import DevDiagramSection from './DevDiagramSection.vue';
 const props = withDefaults(defineProps<{
   review: MarketDevReviewType;
   title?: string;
+  versionLabel?: string | undefined; // 버전 원장 라벨("v3 · 2026-09-05 공개") — 있으면 메타 줄 끝에 붙는다(§6.2)
   diagram?: MarketDevDiagramViewType | null;
   diagramSkipReason?: string | null;
   diagramFailed?: boolean;
@@ -86,6 +87,7 @@ const generatedAtLabel = computed(() => {
       <p v-if="review.summary !== ''" class="max-w-[900px] text-lead font-semibold leading-relaxed text-tx-1">{{ review.summary }}</p>
       <p class="text-micro text-tx-3">
         {{ review.meta.model }} · {{ generatedAtLabel }} 생성
+        <template v-if="versionLabel !== undefined && versionLabel !== ''"> · {{ versionLabel }}</template>
         <template v-if="review.meta.attachmentFiles.length > 0"> · 첨부 {{ review.meta.attachmentFiles.join(', ') }}</template>
         · 고객이 적어 주신 내용과 자료만으로 만든 AI 사전 검토입니다.
       </p>

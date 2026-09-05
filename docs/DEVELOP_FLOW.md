@@ -136,6 +136,20 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 - **견적으로 가져오기**(견적 편집기, 관리자가 누를 때만): `검토서 일정 가져오기` → `durationDays = 최대 주 × 7일`(보수적, 이미 값이 있으면 인라인 확인) · `단계로 마일스톤 초안 만들기` → 결제 조건을 통째 교체(첫 행 `on_accept` "착수금", 마지막 행 `on_completion`+산출물 해제 "잔금", 중간은 `manual` 제목=단계명, 비율은 균등 분할 정수·나머지는 마지막 행, 합 100%). 자동 반영은 없다 — 예상을 약속으로 바꾸는 것은 사람의 결정이다.
 - 고객·전문가·관리자가 보는 화면은 공용 `DevReviewView` 하나다(기술개발 검토 결과 **뒤**, 개발명세서 **앞**). `schedule` 이 없거나 단계 0이면 섹션째 안 그린다.
 
+### 6.2 검토서 버전 원장 — 이력·비교·복원 (2026-09-05)
+
+3층 컬럼(`devReviewDraft`·`devReview`·`devReviewPublic`)은 **현재 포인터**일 뿐 이력이 없었다 — 초안을 다시 만들면 이전 AI 초안이 사라지고, 다시 공개하면 고객이 전에 본 판을 되짚을 수 없었다. `sp_develop_review_version`(의뢰별 `seq` 1부터, `kind`, 검토서 JSON 스냅샷, `contentHash`, `parentSeq`, `author`, `jobId`, `inputHash`, `note`)이 그 이력이다. 3층 컬럼은 그대로다.
+
+- **기록 3순간**: AI 초안 완성(`runner.writeReviewToTarget`, `ai_draft`, author=모델명) · 관리자 저장 `PUT …/review` 와 초안 가져오기 `reset`(`working`, reset 은 note `초안에서 가져옴`) · 공개 `publish`(`published`). `unpublish` 는 기록하지 않는다. 초안이 작업본을 seed 할 때도 같은 내용이라 따로 기록하지 않는다.
+- **중복 규칙**: 같은 의뢰의 **직전 버전**과 `kind`·`contentHash` 가 모두 같으면 기록하지 않는다. kind 가 다르면 내용이 같아도 기록한다(공개는 공개한 시각 자체가 사실). `contentHash` = `meta.editedAt/By` 를 뺀 키 정렬 JSON 의 sha256(저장 시각·저장자는 내용이 아니다 — 그 외 meta(jobId·model·generatedAt)는 내용이다: 새 AI 실행은 글자가 같아도 새 판).
+- **복원** `POST …/review/versions/:seq/restore`: 그 판을 작업본으로 덮고(`meta.editedAt/By` 는 지금·복원자) `working` 버전을 `parentSeq=seq`, note `v{seq} 복원` 으로 쌓는다. 이력은 지우지 않는다.
+- **목록** `GET …/review/versions` 는 본문 없는 메타(요약 80자·요구사항/상의/일정 단계 수)와 `current{draftSeq,workingSeq,publicSeq}`(지금 3층 JSON 과 contentHash 가 같은 최근 버전 — "지금 초안/작업본/공개" 배지 근거)를 준다. 본문은 `GET …/review/versions/:seq`.
+- **구조 비교**는 `@sp/utils` 순수 함수 `diffDevReview(a,b)`(글자 diff 아님) — summary·adminComment·일정 전제는 단일 텍스트, 요구사항은 text 일치, 분야는 area 코드로 짝짓고 명세는 `item`·관찰은 text, 상의 항목은 question 으로 짝지어 **확인 결과 변화**도 changed, 일정은 단계 `name` 으로 짝지어 기간·산출물·선행 조건·비고·희망 시점, 한쪽만 일정이면 단계 전부 added/removed. checks·meta·brief 는 비교하지 않는다. 변경 문장은 `diffWords`(공백 토큰 LCS)로 단어 하이라이트.
+- **관리자 화면**: 검토서 패널 세 번째 탭 "버전" — 왼쪽 목록(최신 위, kind 배지·지금 포인터 배지·작성자·note·`← v{parent}`), 각 행 A/B 라디오·보기·작업본으로 복원(인라인 확인, 편집 중이면 "저장하지 않은 편집이 사라집니다" 경고만). 기본 선택 **A=지금 공개본, B=지금 작업본**(지금 공개하면 고객에게 무엇이 바뀌는지) — 공개본이 없으면 최신 AI 초안 ↔ 작업본. 편집 탭 옆에 `v{n} 작업본` 한 줄.
+- **고객 화면**: 최신 공개본 하나만 그대로 보되 헤더 메타 줄 끝에 `v{n} 공개본`(`DevelopRequestDetail.reviewPublicSeq`). 고객용 변경 이력은 필요해지면 그때.
+- **백필** `apps/api/src/scripts/backfill-develop-review-versions.ts`(idempotent — 버전 0개인 의뢰만, 초안→작업본(초안과 다를 때만)→공개본을 시각 순으로, note `백필`). 2026-09-05 로컬 실행: 의뢰 2건·3판.
+- 구성도(HTML)도 같은 패턴이 가능하지만 이번엔 검토서만. 기존 `publishedStale` 은 여전히 시각 비교(editedAt > publishedAt)라 내용이 같아도 켜질 수 있다 — 원장의 contentHash 로 바꾸는 것은 후속.
+
 ## 7. 화면
 
 ### 7.1 공용 패키지 `@sp/ui`
@@ -179,7 +193,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 
 회원(prefix `/api`, 소유자만): `POST /develop/requests`(multipart) · `GET /develop/my/requests` · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3).
 
-관리자(prefix `/api/admin`, requireAdmin): `GET /develop/requests`(+counts) · `GET|PATCH /develop/requests/:id` · `POST …/status` · `POST …/ai/review`·`POST …/ai/diagram` · `PUT …/review`·`POST …/review/publish|unpublish|reset` · `POST …/diagram/publish|unpublish|upload` · `POST …/quotes`·`PATCH /develop/quotes/:qid`·`POST …/send|withdraw` · `POST …/events`(multipart) · `POST /develop/milestones/:mid/mark-paid` · `GET /develop/files/:fileId(/preview)`(의뢰·이벤트·견적 파일 한 번호 체계, 미리보기는 고객 라우트와 같은 buildFilePreview) · `GET|PATCH /develop/settings`.
+관리자(prefix `/api/admin`, requireAdmin): `GET /develop/requests`(+counts) · `GET|PATCH /develop/requests/:id` · `POST …/status` · `POST …/ai/review`·`POST …/ai/diagram` · `PUT …/review`·`POST …/review/publish|unpublish|reset` · `POST …/diagram/publish|unpublish|upload` · `POST …/quotes`·`PATCH /develop/quotes/:qid`·`POST …/send|withdraw` · `POST …/events`(multipart) · `POST /develop/milestones/:mid/mark-paid` · `GET …/review/versions`·`GET …/review/versions/:seq`·`POST …/review/versions/:seq/restore`(§6.2 버전 원장) · `GET /develop/files/:fileId(/preview)`(의뢰·이벤트·견적 파일 한 번호 체계, 미리보기는 고객 라우트와 같은 buildFilePreview) · `GET|PATCH /develop/settings`.
 
 에러 봉투: 회원 `{result:false,error:'CODE'}` · 관리자 `ApiError` — 마켓 관례 그대로. 코드→메시지는 각 앱 `lib/error-msg.ts`.
 
@@ -207,7 +221,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 |---|---|
 | 백엔드(P0~P3 전부) | 완료 — 계약 `develop.ts` · migration `20260905150000_develop_request` · 라우트 `develop-requests.ts`(회원 17종: 등록·목록·상세·수정·첨부·취소·**수락/거절·문의·checkout·검수 확정/수정 요청·확인 요청 응답**) · `admin-develop-requests.ts`(워크큐·상세·전이·AI 재생성·검토서 PUT/publish/unpublish/reset·구성도 publish/upload·이벤트·파일) · `admin-develop-quotes.ts`(견적 CRUD·발송·철회·마일스톤 수동 입금) · `admin-develop-settings.ts` · lib `develop*.ts`(lazy 승격·자동확정·만료·메일 10종·설정) · AI 러너 target 어댑터 일반화(마켓 e2e 148/0 무결) |
 | 고객 앱 `apps/develop` | 완료 — 랜딩·위저드 3스텝·내 의뢰·상세(스텝퍼·검토서/구성도 공개본·견적 카드 **수락/거절/마일스톤 결제**·문의·A/S·검수·확인 요청 응답·첨부 미리보기)·수정·견적서 인쇄. Opus 워커 2본(`docs/prompts/develop-phase1a-app.md`·`develop-phase2a-app.md`) + 전수 감사 |
-| 관리자 `apps/web` | 완료 — 워크큐·전면 상세(전이·AI 3층 편집기(**개발 일정(예상) 섹션 포함**)·구성도·**견적 편집기(붙여넣기 파싱·검토서 일정 가져오기·단계로 마일스톤 초안)·발송·철회·마일스톤 수동 입금**·타임라인·내부 메모·검수 기간)·설정·AI 설정 develop 블록·사이드바 배지. 워커 2본(`develop-phase1b-admin.md`·`develop-phase2b-admin.md`) + 감사 |
+| 관리자 `apps/web` | 완료 — 워크큐·전면 상세(전이·AI 3층 편집기(**개발 일정(예상) 섹션·버전 탭(원장·구조 비교·복원, §6.2)**)·구성도·**견적 편집기(붙여넣기 파싱·검토서 일정 가져오기·단계로 마일스톤 초안)·발송·철회·마일스톤 수동 입금**·타임라인·내부 메모·검수 기간)·설정·AI 설정 develop 블록·사이드바 배지. 워커 2본(`develop-phase1b-admin.md`·`develop-phase2b-admin.md`) + 감사 |
 | 공용 `@sp/ui` | 마켓 7컴포넌트 추출(brand-* 시맨틱 토큰·`filesPath` prop·`uploaded`·`resolution`/`adminComment` 렌더). 마켓 typecheck·lint 0 |
 | 검증 | e2e-develop **110/0**(run→cleanup 잔여 0) · e2e-market **148/0** · api 단위 999 · utils 152(견적 순수 함수 8 포함) · 8워크스페이스 typecheck 0 · lint 0(기존 `order-progress.ts`·`bom-claims.ts`·`pcb-claims.ts` 의 prefer-optional-chain 3건은 이 작업 전부터 있던 것) · 실브라우저: 고객 위저드 완주·상세·수정·인쇄 / 관리자 4화면 / 견적 작성→발송→수락→수동 입금→in_progress·철회·삭제, pageErrors 0 |
 | 운영 반영 | 앵커 `sp-develop-svc` 시드 · PHP 사전(`sp_develop_it_ids` union·cart 배지) · 라이브 nginx `/develop/`(폐지된 `/rnd` 5177 블록 재활용) 반영·재시작 완료 |

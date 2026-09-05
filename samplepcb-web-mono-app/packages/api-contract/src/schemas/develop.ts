@@ -364,6 +364,7 @@ export const DevelopRequestDetail = DevelopRequestListItem.extend({
   files: z.array(DevelopFileMeta), // 의뢰 첨부(참고 자료·슬롯)
   review: MarketDevReview.nullable(), // **공개본만**
   reviewPublishedAt: z.string().nullable(),
+  reviewPublicSeq: z.number().int().nullable(), // 지금 공개본과 같은 최근 published 버전의 seq(§6.2) — 고객 화면 "v3" 라벨
   diagram: DevelopPublicDiagram.nullable(), // **공개본만**
   quotes: z.array(DevelopQuoteView), // draft 제외
   events: z.array(DevelopEventView), // visibleToCustomer 만
@@ -774,3 +775,50 @@ export const DEVELOP_DEFAULT_TERMS = [
 ].join('\n');
 
 export const DEVELOP_DEFAULT_EXCLUSIONS = 'PCB 제작비 · 부품 구매비 · SMT/조립비 · 인증(KC·CE 등) 시험비 · 양산 비용은 별도이며, 당사 PCB/부품 주문으로 진행할 수 있습니다.';
+
+// ── 검토서 버전 원장(docs/DEVELOP_FLOW.md §6.2) ─────────────────────────────────
+// 3층(초안·작업본·공개본)은 현재 포인터, 원장은 이력. AI 초안 완성·관리자 저장·공개의 세 순간에 한 판씩.
+export const DEVELOP_REVIEW_VERSION_KINDS = ['ai_draft', 'working', 'published'] as const;
+export type DevelopReviewVersionKindType = (typeof DEVELOP_REVIEW_VERSION_KINDS)[number];
+export const DevelopReviewVersionKind = z.enum(DEVELOP_REVIEW_VERSION_KINDS);
+export const DEVELOP_REVIEW_VERSION_KIND_LABELS = {
+  ai_draft: 'AI 초안',
+  working: '작업본',
+  published: '공개',
+} as const satisfies Record<DevelopReviewVersionKindType, string>;
+
+// 목록 행 — 본문 JSON 은 싣지 않는다(가볍게). 본문은 단건 조회.
+export const DevelopReviewVersionMeta = z.object({
+  seq: z.number().int(),
+  kind: DevelopReviewVersionKind,
+  author: z.string(), // ai_draft=모델명, 그 외=관리자 mbId
+  model: z.string(), // review.meta.model
+  jobId: z.string().nullable(),
+  parentSeq: z.number().int().nullable(), // 복원 원본
+  note: z.string().nullable(),
+  contentHash: z.string(),
+  createdAt: z.string(),
+  summary: z.string(), // review.summary 앞 80자
+  counts: z.object({ requirements: z.number().int(), questions: z.number().int(), phases: z.number().int() }),
+});
+export type DevelopReviewVersionMetaType = z.infer<typeof DevelopReviewVersionMeta>;
+
+export const AdminDevelopReviewVersionListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(DevelopReviewVersionMeta), // 최신 먼저
+    // 현재 3층 JSON 과 contentHash 가 같은 가장 최근 버전 — 화면의 "지금 초안/작업본/공개" 배지 근거
+    current: z.object({
+      draftSeq: z.number().int().nullable(),
+      workingSeq: z.number().int().nullable(),
+      publicSeq: z.number().int().nullable(),
+    }),
+  }),
+});
+export type AdminDevelopReviewVersionListResponseType = z.infer<typeof AdminDevelopReviewVersionListResponse>;
+
+export const AdminDevelopReviewVersionResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ meta: DevelopReviewVersionMeta, review: MarketDevReview }),
+});
+export type AdminDevelopReviewVersionResponseType = z.infer<typeof AdminDevelopReviewVersionResponse>;

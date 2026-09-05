@@ -9,6 +9,8 @@ import {
   AdminDevelopRequestDetailResponse,
   AdminDevelopRequestPatchBody,
   AdminDevelopReviewPutBody,
+  AdminDevelopReviewVersionListResponse,
+  AdminDevelopReviewVersionResponse,
   AdminDevelopStatusBody,
   ApiError,
   DEVELOP_REQUEST_STATUSES,
@@ -47,6 +49,11 @@ import { developReferenceFiles, developSourceSignature } from '../lib/develop-ai
 import { buildCompletedEmail, buildDeliveredEmail, buildStatusChangedEmail, sendDevelopMail } from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy } from '../lib/develop-payment';
 import { buildFilePreview } from '../lib/file-preview';
+import {
+  currentDevelopReviewSeqs,
+  recordDevelopReviewVersion,
+  toDevelopReviewVersionMeta,
+} from '../lib/develop-review-versions';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
@@ -415,9 +422,78 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         ...request.body.review,
         meta: { ...request.body.review.meta, editedAt: now.toISOString(), editedBy: request.user.mbId },
       };
-      const updated = await prisma.spDevelopRequest.update({
-        where: { id: r.id },
-        data: { devReview: review, devReviewEditedAt: now, devReviewEditedBy: request.user.mbId },
+      const updated = await prisma.$transaction(async (tx) => {
+        const u = await tx.spDevelopRequest.update({
+          where: { id: r.id },
+          data: { devReview: review, devReviewEditedAt: now, devReviewEditedBy: request.user.mbId },
+        });
+        // 버전 원장(§6.2) — 내용이 직전 판과 같으면 기록하지 않는다.
+        await recordDevelopReviewVersion(tx, r.id, { kind: 'working', review, author: request.user.mbId });
+        return u;
+      });
+      return { result: true as const, data: await buildAdminDetail(updated) };
+    },
+  );
+
+  // ── 검토서 버전 원장(§6.2) — 목록·단건·복원 ────────────────────────────────────
+  const VersionParams = RequestIdParams.extend({ seq: z.string().regex(/^\d+$/) });
+
+  fastify.get(
+    '/develop/requests/:id/review/versions',
+    { schema: { params: RequestIdParams, response: { 200: AdminDevelopReviewVersionListResponse, 404: ApiError } } },
+    async (request, reply) => {
+      const r = await load(request.params.id);
+      if (r === null) return reply.status(404).send(notFound);
+      const rows = await prisma.spDevelopReviewVersion.findMany({ where: { requestId: r.id }, orderBy: { seq: 'desc' } });
+      return {
+        result: true as const,
+        data: {
+          items: rows.map(toDevelopReviewVersionMeta),
+          current: currentDevelopReviewSeqs(rows, { draft: r.devReviewDraft, working: r.devReview, publicReview: r.devReviewPublic }),
+        },
+      };
+    },
+  );
+
+  fastify.get(
+    '/develop/requests/:id/review/versions/:seq',
+    { schema: { params: VersionParams, response: { 200: AdminDevelopReviewVersionResponse, 404: ApiError } } },
+    async (request, reply) => {
+      const r = await load(request.params.id);
+      if (r === null) return reply.status(404).send(notFound);
+      const row = await prisma.spDevelopReviewVersion.findUnique({ where: { requestId_seq: { requestId: r.id, seq: Number(request.params.seq) } } });
+      const review = row === null ? null : toDevReview(row.review);
+      if (row === null || review === null) return reply.status(404).send({ error: 'NOT_FOUND', message: '버전이 없습니다' });
+      return { result: true as const, data: { meta: toDevelopReviewVersionMeta(row), review } };
+    },
+  );
+
+  // 복원 = 그 판을 작업본으로 덮고 새 working 버전(parentSeq)을 쌓는다. 이력은 지우지 않는다.
+  fastify.post(
+    '/develop/requests/:id/review/versions/:seq/restore',
+    { schema: { params: VersionParams, response: { 200: AdminDevelopRequestDetailResponse, 404: ApiError } } },
+    async (request, reply) => {
+      const r = await load(request.params.id);
+      if (r === null) return reply.status(404).send(notFound);
+      const seq = Number(request.params.seq);
+      const row = await prisma.spDevelopReviewVersion.findUnique({ where: { requestId_seq: { requestId: r.id, seq } } });
+      const source = row === null ? null : toDevReview(row.review);
+      if (row === null || source === null) return reply.status(404).send({ error: 'NOT_FOUND', message: '버전이 없습니다' });
+      const now = new Date();
+      const review: MarketDevReviewType = { ...source, meta: { ...source.meta, editedAt: now.toISOString(), editedBy: request.user.mbId } };
+      const updated = await prisma.$transaction(async (tx) => {
+        const u = await tx.spDevelopRequest.update({
+          where: { id: r.id },
+          data: { devReview: review, devReviewEditedAt: now, devReviewEditedBy: request.user.mbId },
+        });
+        await recordDevelopReviewVersion(tx, r.id, {
+          kind: 'working',
+          review,
+          author: request.user.mbId,
+          parentSeq: seq,
+          note: `v${String(seq)} 복원`,
+        });
+        return u;
       });
       return { result: true as const, data: await buildAdminDetail(updated) };
     },
@@ -445,6 +521,8 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
             title: 'AI 사전 검토서를 공개했습니다',
             payload: { what: 'review' },
           });
+          // 버전 원장(§6.2) — 고객이 실제로 본 판. 내용이 같아도 공개 시각이 사실이라 kind 가 다르면 기록된다.
+          await recordDevelopReviewVersion(tx, r.id, { kind: 'published', review: working, author: request.user.mbId });
           return u;
         });
       } else if (action === 'unpublish') {
@@ -452,9 +530,13 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       } else {
         const draft = toDevReview(r.devReviewDraft);
         if (draft === null) return reply.status(409).send({ error: 'DRAFT_EMPTY', message: '가져올 초안이 없습니다' });
-        updated = await prisma.spDevelopRequest.update({
-          where: { id: r.id },
-          data: { devReview: draft, devReviewEditedAt: now, devReviewEditedBy: request.user.mbId },
+        updated = await prisma.$transaction(async (tx) => {
+          const u = await tx.spDevelopRequest.update({
+            where: { id: r.id },
+            data: { devReview: draft, devReviewEditedAt: now, devReviewEditedBy: request.user.mbId },
+          });
+          await recordDevelopReviewVersion(tx, r.id, { kind: 'working', review: draft, author: request.user.mbId, note: '초안에서 가져옴' });
+          return u;
         });
       }
       return { result: true as const, data: await buildAdminDetail(updated) };

@@ -443,7 +443,11 @@ watch(
       <!-- AI 사전 검토서 (+ 구성도) -->
       <section id="review" class="mt-4 scroll-mt-32 rounded-2xl border border-line bg-white p-5 sm:p-6">
         <template v-if="detail.review !== null">
-          <DevReviewView :review="detail.review" :diagram="diagramView" />
+          <DevReviewView
+            :review="detail.review"
+            :diagram="diagramView"
+            :version-label="detail.reviewPublicSeq === null ? undefined : `v${String(detail.reviewPublicSeq)} 공개본`"
+          />
           <p v-if="diagramUploaded" class="mt-3 rounded-xl bg-paper px-4 py-3 text-label leading-relaxed text-tx-2">
             위 구성도는 담당자가 검토 후 직접 작성해 올린 도면입니다.
           </p>

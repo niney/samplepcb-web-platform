@@ -61,6 +61,7 @@ import {
 } from '../lib/develop-email';
 import { cancelPendingMilestones, deriveMilestonePayment, ensureDevelopLazy } from '../lib/develop-payment';
 import { getDevelopSettings } from '../lib/develop-settings';
+import { developReviewPublicSeq } from '../lib/develop-review-versions';
 import { buildFilePreview } from '../lib/file-preview';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
@@ -270,6 +271,7 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
     files: files.map((f) => toDevelopFileMeta(f)),
     review: toDevReview(r.devReviewPublic),
     reviewPublishedAt: r.devReviewPublishedAt?.toISOString() ?? null,
+    reviewPublicSeq: await developReviewPublicSeq(prisma, r.id, r.devReviewPublic),
     diagram:
       r.devDiagramPublicHtml === null || r.devDiagramPublishedAt === null
         ? null

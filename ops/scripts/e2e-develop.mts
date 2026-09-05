@@ -174,7 +174,8 @@ const minimalReview = (areas) => ({
   areas: areas.map((area) => ({ area, summary: `${area} 한 줄`, spec: [{ item: '전원', text: '리튬 3.7V', evidence: 'e2e' }], observations: [] })),
   openQuestions: [{ question: '외장은 정해졌나요?', why: '안테나 배치', area: 'circuit', resolution: '상담 결과: 3D 프린팅 외장' }],
   checks: [],
-  meta: { jobId: 'e2e', model: 'e2e-model', promptVersion: 'dev-review.v5', inputHash: 'e2e', generatedAt: new Date().toISOString(), attachmentFiles: [] },
+  // generatedAt 은 고정 — 같은 내용을 두 번 저장했을 때 버전이 안 늘어나는지(§6.2 중복 규칙) 보려면 meta 도 같아야 한다.
+  meta: { jobId: 'e2e', model: 'e2e-model', promptVersion: 'dev-review.v5', inputHash: 'e2e', generatedAt: '2026-09-05T00:00:00.000Z', attachmentFiles: [] },
   adminComment: '담당자 의견: 배터리 수명 목표를 먼저 정하면 회로가 단순해집니다.',
   schedule: {
     phases: [
@@ -379,10 +380,35 @@ async function run() {
   const custAfter = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   assert(custAfter.json.data.review?.summary === '[e2e] 담당자 작업본 요약' && custAfter.json.data.reviewPublished === true, '공개 후: 고객 검토서 보임');
   assert(custAfter.json.data.review.schedule?.phases?.length === 2, '고객 공개본에도 개발 일정(예상)');
+  assert(custAfter.json.data.reviewPublicSeq === 2, '고객 상세 reviewPublicSeq = 공개 판 v2', custAfter.json?.data?.reviewPublicSeq);
   const put2 = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: { ...minimalReview(['circuit', 'firmware']), summary: '수정본' } } });
   assert(put2.json.data.review.publishedStale === true, '공개 뒤 편집 → publishedStale');
   const custStale = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   assert(custStale.json.data.review?.summary === '[e2e] 담당자 작업본 요약', '공개본은 스냅샷(편집이 고객 화면을 안 흔든다)');
+  // ── 검토서 버전 원장(§6.2): 저장·공개·저장이 v1 working·v2 published·v3 working 으로 쌓였다 ──
+  const vers = await req('GET', `/api/admin/develop/requests/${rid}/review/versions`, { token: tAdmin });
+  assert(
+    vers.status === 200 && vers.json.data.items.map((v) => `${v.seq}:${v.kind}`).join(',') === '3:working,2:published,1:working',
+    '버전 원장: v3 working · v2 published · v1 working(최신 먼저)',
+    vers.json?.data?.items?.map((v) => `${v.seq}:${v.kind}`),
+  );
+  assert(vers.json.data.current.workingSeq === 3 && vers.json.data.current.publicSeq === 2 && vers.json.data.current.draftSeq === null, '현재 포인터: 작업본 v3 · 공개 v2 · 초안 없음', vers.json?.data?.current);
+  assert(vers.json.data.items[0].author === 'admin' && vers.json.data.items[0].counts.phases === 2, '버전 메타: 작성자·일정 단계 수', vers.json?.data?.items?.[0]);
+  const putSame = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: { ...minimalReview(['circuit', 'firmware']), summary: '수정본' } } });
+  const versSame = await req('GET', `/api/admin/develop/requests/${rid}/review/versions`, { token: tAdmin });
+  assert(putSame.status === 200 && versSame.json.data.items.length === 3, '같은 내용 저장은 버전을 늘리지 않는다', versSame.json?.data?.items?.length);
+  const ver1 = await req('GET', `/api/admin/develop/requests/${rid}/review/versions/1`, { token: tAdmin });
+  assert(ver1.status === 200 && ver1.json.data.review.summary === '[e2e] 담당자 작업본 요약' && ver1.json.data.meta.seq === 1, '옛 판 단건 조회', ver1.json?.data?.meta);
+  const restored = await req('POST', `/api/admin/develop/requests/${rid}/review/versions/1/restore`, { token: tAdmin });
+  assert(restored.status === 200 && restored.json.data.review.working.summary === '[e2e] 담당자 작업본 요약' && restored.json.data.review.editedBy === 'admin', '복원: 작업본이 v1 내용', restored.json?.data?.review?.working?.summary);
+  const versRestored = await req('GET', `/api/admin/develop/requests/${rid}/review/versions`, { token: tAdmin });
+  const newest = versRestored.json.data.items[0];
+  assert(versRestored.json.data.items.length === 4 && newest.kind === 'working' && newest.parentSeq === 1 && newest.note === 'v1 복원' && versRestored.json.data.current.workingSeq === 4, '복원이 새 working v4(parentSeq=1)를 쌓는다', newest);
+  const badRestore = await req('POST', `/api/admin/develop/requests/${rid}/review/versions/999/restore`, { token: tAdmin });
+  assert(badRestore.status === 404, '없는 버전 복원 404');
+  const versStranger = await req('GET', `/api/admin/develop/requests/${rid}/review/versions`, { token: tClient });
+  assert(versStranger.status === 403, '버전 목록은 관리자만(403)');
+
   const unpub = await req('POST', `/api/admin/develop/requests/${rid}/review/unpublish`, { token: tAdmin });
   assert(unpub.status === 200 && unpub.json.data.review.publicReview === null, '검토서 공개 취소');
 

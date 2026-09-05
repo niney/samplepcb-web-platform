@@ -5,6 +5,8 @@ import {
   AdminDevelopQuoteResponse,
   AdminDevelopRequestDetailResponse,
   AdminDevelopRequestListResponse,
+  AdminDevelopReviewVersionListResponse,
+  AdminDevelopReviewVersionResponse,
   AdminDevelopSettingsResponse,
   DevelopEventResponse,
   DevelopOkResponse,
@@ -143,6 +145,37 @@ export function useAdminDevelopReviewPut() {
   return useMutation({
     mutationFn: ({ requestId, review }: { requestId: number; review: MarketDevReviewType }) =>
       apiSend('PUT', `${base}/${String(requestId)}/review`, { review }, AdminDevelopRequestDetailResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+// ── 검토서 버전 원장(§6.2) — 목록은 버전 탭이 열릴 때만, 단건은 고른 판만 ─────────────
+const versionsKey = (requestId: Ref<number | null>) => ['admin', 'develop', 'requests', 'detail', requestId, 'review-versions'] as const;
+
+export function useAdminDevelopReviewVersions(requestId: Ref<number | null>, enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: versionsKey(requestId),
+    queryFn: () => apiGet(`${base}/${String(requestId.value)}/review/versions`, AdminDevelopReviewVersionListResponse),
+    enabled: computed(() => requestId.value !== null && enabled.value),
+  });
+}
+
+export function useAdminDevelopReviewVersion(requestId: Ref<number | null>, seq: Ref<number | null>) {
+  return useQuery({
+    queryKey: computed(() => [...versionsKey(requestId), seq.value] as const),
+    queryFn: () => apiGet(`${base}/${String(requestId.value)}/review/versions/${String(seq.value)}`, AdminDevelopReviewVersionResponse),
+    enabled: computed(() => requestId.value !== null && seq.value !== null),
+    staleTime: Infinity, // 버전 본문은 불변
+  });
+}
+
+export function useAdminDevelopReviewRestore() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, seq }: { requestId: number; seq: number }) =>
+      apiSend('POST', `${base}/${String(requestId)}/review/versions/${String(seq)}/restore`, undefined, AdminDevelopRequestDetailResponse),
     onSuccess: () => {
       invalidateDevelop(qc);
     },
