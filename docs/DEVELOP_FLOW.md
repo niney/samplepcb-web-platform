@@ -124,6 +124,18 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 - 구성도 교체 업로드: svg·png(이미지) 또는 html(`sanitizeDevDiagramHtml` 통과) → `devDiagramSource='upload'`.
 - 고객 화면은 **공개본만**. 공개 전엔 "담당자가 검토 중입니다" 안내.
 
+### 6.1 개발 일정(예상) — 검토서 전용 블록 (2026-09-05)
+
+**역할 분리: 검토서의 일정은 "예상", 견적서의 기간은 "약속".** 검토서는 자료만으로 낸 추정이라 범위로 말하고, 계약이 걸리는 확정 기간·마감은 견적서(`durationDays`·마일스톤)가 정한다. 두 문서가 같은 수치를 다르게 말하면 견적서가 이긴다 — 화면 캡션(`DEV_REVIEW_SCHEDULE_CAPTION`)이 그 순서를 그대로 적는다.
+
+- **개발의뢰에서만 만든다.** 러너가 `target.kind === 'develop'` 일 때만 `features.schedule` 을 켜고, 그때만 프롬프트에 `[개발 일정]` 블록·`DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE`·일정 후처리가 붙는다. 마켓(`market.dev-review`)은 프롬프트 문자열·후처리 결과가 v5 와 **바이트 동일**하고 저장분에 `schedule` 키 자체가 없다(단위 테스트가 박제, e2e-market 회귀).
+- **스키마는 additive**: `MarketDevReview.schedule`(선택·nullable), `DEV_REVIEW_VERSION` 은 **4 유지**. 옛 저장분·마켓 검토서가 그대로 파싱된다. 저장분 읽기는 `.catch(null)` 로 관대하고, 관리자 PUT(`AdminDevelopReviewPutBody`)만 catch 를 벗겨 잘못된 값에 400 을 낸다.
+- **수치는 범위만.** 단계 3~8개, 각 단계 `minWeeks`·`maxWeeks`(정수 1~104주)·산출물·고객 선행 조건·비고. **점 추정 필드도 합계 필드도 없다** — 합계는 `devReviewScheduleTotals` 가 단계에서 매번 다시 낸다(모델이 준 합계는 버린다). 후처리가 이름 빈 단계 삭제·1~104 클램프·min>max 교환·8개 절단을 결정적으로 한다(진단 `schedulePhasesDropped`).
+- **희망 완료 시점 대조는 순수 함수**(`devReviewScheduleFit`) — LLM 판단이 아니다. 상한(주)은 `within_1m`=4 · `m2_3`=13 · `m4_6`=26 · `over_6m`=상한 없음. 판정: 상한 없음 → ok · 최대 ≤ 상한 → ok · 최소 ≤ 상한 < 최대 → tight · 최소 > 상한 → over. `wishCode` 는 후처리가 `answers` 의 `timeline` 에서 채우고, '협의해서 정할게요'(unknown)·미응답이면 null → unknown.
+- **관리자 편집**: 검토서 편집기에 "개발 일정(예상)" 섹션(단계 추가·순서 이동·삭제, 전제 한 줄, 실시간 합계·대조). 일정 통째 삭제("일정 없이 공개") → `schedule=null` → 고객 화면에서 섹션이 사라진다. 일정이 없을 때 `단계 추가` 가 빈 일정을 만들고 `wishCode` 는 고객 답변에서 온다(관리자가 고르는 값이 아니다).
+- **견적으로 가져오기**(견적 편집기, 관리자가 누를 때만): `검토서 일정 가져오기` → `durationDays = 최대 주 × 7일`(보수적, 이미 값이 있으면 인라인 확인) · `단계로 마일스톤 초안 만들기` → 결제 조건을 통째 교체(첫 행 `on_accept` "착수금", 마지막 행 `on_completion`+산출물 해제 "잔금", 중간은 `manual` 제목=단계명, 비율은 균등 분할 정수·나머지는 마지막 행, 합 100%). 자동 반영은 없다 — 예상을 약속으로 바꾸는 것은 사람의 결정이다.
+- 고객·전문가·관리자가 보는 화면은 공용 `DevReviewView` 하나다(기술개발 검토 결과 **뒤**, 개발명세서 **앞**). `schedule` 이 없거나 단계 0이면 섹션째 안 그린다.
+
 ## 7. 화면
 
 ### 7.1 공용 패키지 `@sp/ui`
@@ -195,7 +207,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 |---|---|
 | 백엔드(P0~P3 전부) | 완료 — 계약 `develop.ts` · migration `20260905150000_develop_request` · 라우트 `develop-requests.ts`(회원 17종: 등록·목록·상세·수정·첨부·취소·**수락/거절·문의·checkout·검수 확정/수정 요청·확인 요청 응답**) · `admin-develop-requests.ts`(워크큐·상세·전이·AI 재생성·검토서 PUT/publish/unpublish/reset·구성도 publish/upload·이벤트·파일) · `admin-develop-quotes.ts`(견적 CRUD·발송·철회·마일스톤 수동 입금) · `admin-develop-settings.ts` · lib `develop*.ts`(lazy 승격·자동확정·만료·메일 10종·설정) · AI 러너 target 어댑터 일반화(마켓 e2e 148/0 무결) |
 | 고객 앱 `apps/develop` | 완료 — 랜딩·위저드 3스텝·내 의뢰·상세(스텝퍼·검토서/구성도 공개본·견적 카드 **수락/거절/마일스톤 결제**·문의·A/S·검수·확인 요청 응답·첨부 미리보기)·수정·견적서 인쇄. Opus 워커 2본(`docs/prompts/develop-phase1a-app.md`·`develop-phase2a-app.md`) + 전수 감사 |
-| 관리자 `apps/web` | 완료 — 워크큐·전면 상세(전이·AI 3층 편집기·구성도·**견적 편집기(붙여넣기 파싱)·발송·철회·마일스톤 수동 입금**·타임라인·내부 메모·검수 기간)·설정·AI 설정 develop 블록·사이드바 배지. 워커 2본(`develop-phase1b-admin.md`·`develop-phase2b-admin.md`) + 감사 |
+| 관리자 `apps/web` | 완료 — 워크큐·전면 상세(전이·AI 3층 편집기(**개발 일정(예상) 섹션 포함**)·구성도·**견적 편집기(붙여넣기 파싱·검토서 일정 가져오기·단계로 마일스톤 초안)·발송·철회·마일스톤 수동 입금**·타임라인·내부 메모·검수 기간)·설정·AI 설정 develop 블록·사이드바 배지. 워커 2본(`develop-phase1b-admin.md`·`develop-phase2b-admin.md`) + 감사 |
 | 공용 `@sp/ui` | 마켓 7컴포넌트 추출(brand-* 시맨틱 토큰·`filesPath` prop·`uploaded`·`resolution`/`adminComment` 렌더). 마켓 typecheck·lint 0 |
 | 검증 | e2e-develop **110/0**(run→cleanup 잔여 0) · e2e-market **148/0** · api 단위 999 · utils 152(견적 순수 함수 8 포함) · 8워크스페이스 typecheck 0 · lint 0(기존 `order-progress.ts`·`bom-claims.ts`·`pcb-claims.ts` 의 prefer-optional-chain 3건은 이 작업 전부터 있던 것) · 실브라우저: 고객 위저드 완주·상세·수정·인쇄 / 관리자 4화면 / 견적 작성→발송→수락→수동 입금→in_progress·철회·삭제, pageErrors 0 |
 | 운영 반영 | 앵커 `sp-develop-svc` 시드 · PHP 사전(`sp_develop_it_ids` union·cart 배지) · 라이브 nginx `/develop/`(폐지된 `/rnd` 5177 블록 재활용) 반영·재시작 완료 |

@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import {
+  DEV_REVIEW_TIMELINE_WISH_CODES,
+  MARKET_COMMON_CONDITIONS,
+  devReviewScheduleFit,
+  devReviewScheduleTotals,
+} from '@sp/api-contract';
 import type { DevReviewLlmOutputType, DevReviewMetaType } from '@sp/api-contract';
 import {
   buildDevReviewCorpus,
@@ -7,6 +13,7 @@ import {
   detectSourceConflicts,
   devReviewInputHash,
   isGroundedQuote,
+  normalizeDevReviewSchedule,
   normalizeForMatch,
   parseAttachmentReadResult,
   parseDevReviewLlmOutput,
@@ -276,5 +283,118 @@ describe('파서·프롬프트·해시', () => {
     expect(text).toContain('(이미지 1) 종류: 블록도 — 센서-MCU-BLE 구성');
     expect(text).toContain('- MCU: STM32G071');
     expect(parseAttachmentReadResult('{"images":[]}')).toBe('');
+  });
+});
+
+// ── 개발 일정(예상) — 개발의뢰(develop) 전용 블록(docs/DEVELOP_FLOW.md §6) ──────────────
+// 마켓은 features 기본값(꺼짐)이라 프롬프트도 후처리 결과도 v5 와 같아야 한다. 그 박제가 이 묶음의 절반이다.
+
+const scheduleFeatures = { schedule: true };
+
+const phase = (over: Partial<{ name: string; minWeeks: number; maxWeeks: number; output: string; prerequisite: string; note: string }> = {}) => ({
+  name: '회로 설계', minWeeks: 2, maxWeeks: 3, output: '회로도', prerequisite: '', note: '', ...over,
+});
+
+describe('개발 일정(예상)', () => {
+  it('희망 시점 코드는 레지스트리(timeline 선택지)와 같아야 한다', () => {
+    const options = MARKET_COMMON_CONDITIONS.find((q) => q.code === 'timeline')?.options ?? [];
+    const codes = options.map((o) => o.code).filter((c) => c !== 'unknown');
+    expect(codes).toEqual([...DEV_REVIEW_TIMELINE_WISH_CODES]);
+  });
+
+  it('features 를 주지 않은 프롬프트에는 [개발 일정] 블록이 없다(마켓 무변경)', () => {
+    const market = buildDevReviewPrompt(source, '');
+    expect(market).not.toContain('[개발 일정]');
+    const develop = buildDevReviewPrompt(source, '', scheduleFeatures);
+    expect(develop).toContain('[개발 일정]');
+    // 일정 블록은 규칙 바로 뒤에 들어가고 나머지는 그대로다 — 그 블록만 빼면 마켓 프롬프트와 같다.
+    expect(develop.split('\n\n').filter((b) => !b.startsWith('[개발 일정]')).join('\n\n')).toBe(market);
+  });
+
+  it('파서가 schedule 을 느슨하게 받는다(숫자 문자열·깨진 원소)', () => {
+    const raw = JSON.stringify({
+      ...output,
+      schedule: {
+        phases: [
+          { name: '회로 설계', minWeeks: '2', maxWeeks: 3.4, output: '회로도', prerequisite: '', note: '' },
+          'junk',
+          { name: '펌웨어', minWeeks: '4주', maxWeeks: '6주' },
+        ],
+        assumptions: '고객 회신 3일 이내',
+      },
+    });
+    const parsed = parseDevReviewLlmOutput(raw);
+    expect(parsed.schedule?.phases).toHaveLength(2);
+    expect(parsed.schedule?.phases[0]).toMatchObject({ minWeeks: 2, maxWeeks: 3 });
+    expect(parsed.schedule?.phases[1]).toMatchObject({ name: '펌웨어', minWeeks: 4, maxWeeks: 6 });
+    expect(parseDevReviewLlmOutput(JSON.stringify(output)).schedule).toBeUndefined();
+  });
+
+  it('정규화 — 빈 이름 삭제·1~104 클램프·min/max 교환·8단계 절단·wishCode 추출', () => {
+    const withWish: DevReviewSource = { ...source, answers: [{ code: 'timeline', choices: ['m2_3'] }] };
+    const raw = {
+      phases: [
+        phase({ name: '' }), // 이름 없음 → 삭제
+        phase({ name: '전원부', minWeeks: 0, maxWeeks: 200 }), // 1·104 로 클램프
+        phase({ name: '펌웨어', minWeeks: 9, maxWeeks: 4 }), // 교환
+        ...Array.from({ length: 8 }, (_, i) => phase({ name: `단계 ${String(i)}` })),
+      ],
+      assumptions: '시제품 1회전 기준',
+    };
+    const diag = { r1Dropped: 0, r2Dropped: 0, r8Dropped: 0, conflicts: 0, tokensStripped: 0, openQuestionsDeduped: 0, r9Checks: 0, observationsDropped: 0, schedulePhasesDropped: 0 };
+    const normalized = normalizeDevReviewSchedule(raw, withWish, diag);
+    expect(normalized?.phases).toHaveLength(8);
+    expect(normalized?.phases[0]).toMatchObject({ name: '전원부', minWeeks: 1, maxWeeks: 104 });
+    expect(normalized?.phases[1]).toMatchObject({ name: '펌웨어', minWeeks: 4, maxWeeks: 9 });
+    expect(normalized?.wishCode).toBe('m2_3');
+    expect(normalized?.assumptions).toBe('시제품 1회전 기준');
+    expect(diag.schedulePhasesDropped).toBe(3); // 빈 이름 1 + 상한 초과 2
+  });
+
+  it('정규화 — 단계가 0개면 null, 협의(unknown) 답변이면 wishCode 는 null', () => {
+    const diag = { r1Dropped: 0, r2Dropped: 0, r8Dropped: 0, conflicts: 0, tokensStripped: 0, openQuestionsDeduped: 0, r9Checks: 0, observationsDropped: 0, schedulePhasesDropped: 0 };
+    expect(normalizeDevReviewSchedule({ phases: [], assumptions: '' }, source, diag)).toBeNull();
+    expect(normalizeDevReviewSchedule(undefined, source, diag)).toBeNull();
+    // source 의 timeline 은 'unknown'(협의해서 정할게요)
+    expect(normalizeDevReviewSchedule({ phases: [phase()], assumptions: '' }, source, diag)?.wishCode).toBeNull();
+  });
+
+  it('후처리 — 마켓(features 없음)은 schedule 키 자체가 없고, 개발의뢰만 붙는다', () => {
+    const withSchedule: DevReviewLlmOutputType = {
+      ...output,
+      schedule: { phases: [phase()], assumptions: '고객 회신 3일 이내' },
+    };
+    const market = postProcessDevReview(withSchedule, source, meta).review;
+    expect('schedule' in market).toBe(false);
+    const develop = postProcessDevReview(withSchedule, source, meta, scheduleFeatures).review;
+    expect(develop.schedule?.phases).toHaveLength(1);
+    expect(develop.schedule?.assumptions).toBe('고객 회신 3일 이내');
+  });
+
+  it('합계는 저장하지 않고 단계에서 다시 낸다', () => {
+    expect(devReviewScheduleTotals(null)).toEqual({ minWeeks: 0, maxWeeks: 0 });
+    expect(devReviewScheduleTotals({
+      phases: [phase({ minWeeks: 2, maxWeeks: 3 }), phase({ name: '펌웨어', minWeeks: 8, maxWeeks: 11 })],
+      wishCode: null,
+      assumptions: '',
+    })).toEqual({ minWeeks: 10, maxWeeks: 14 });
+  });
+
+  it('희망 완료 시점 대조는 순수 함수 — ok·tight·over·unknown 네 갈래', () => {
+    const of = (minWeeks: number, maxWeeks: number, wishCode: 'within_1m' | 'm2_3' | 'm4_6' | 'over_6m' | null) => ({
+      phases: [phase({ minWeeks, maxWeeks })],
+      wishCode,
+      assumptions: '',
+    });
+    expect(devReviewScheduleFit(of(8, 12, 'm2_3')).status).toBe('ok'); // 최대 12 ≤ 13
+    const tight = devReviewScheduleFit(of(10, 14, 'm2_3'));
+    expect(tight.status).toBe('tight'); // 최소 10 ≤ 13 < 최대 14
+    expect(tight.text).toContain('예상 10~14주');
+    expect(tight.text).toContain('2~3개월');
+    expect(devReviewScheduleFit(of(20, 30, 'm2_3')).status).toBe('over'); // 최소 20 > 13
+    expect(devReviewScheduleFit(of(40, 60, 'over_6m')).status).toBe('ok'); // 상한 없음
+    const unknown = devReviewScheduleFit(of(4, 6, null));
+    expect(unknown.status).toBe('unknown');
+    expect(unknown.wishLabel).toBe('');
   });
 });

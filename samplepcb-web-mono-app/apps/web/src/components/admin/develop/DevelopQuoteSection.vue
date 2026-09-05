@@ -36,6 +36,12 @@ const allowedKinds = computed<readonly DevelopQuoteKindType[]>(() =>
 );
 const defaultKind = computed(() => defaultDevelopQuoteKind(props.detail.status, props.detail.quotes));
 
+// 견적 편집기에 넘길 개발 일정(예상) — 작업본 → 초안 → 공개본 순으로 관리자가 마지막에 본 것을 준다.
+const reviewSchedule = computed(
+  () =>
+    (props.detail.review.working ?? props.detail.review.draft ?? props.detail.review.publicReview)?.schedule ?? null,
+);
+
 const editingQuote = computed(() => {
   const id = editingQuoteId.value;
   if (id === null) return null;
@@ -89,6 +95,7 @@ const closeEditor = (): void => {
       :initial-kind="editingQuote?.kind ?? defaultKind"
       :allowed-kinds="allowedKinds"
       :request-title="detail.title"
+      :schedule="reviewSchedule"
       @close="closeEditor"
     />
 

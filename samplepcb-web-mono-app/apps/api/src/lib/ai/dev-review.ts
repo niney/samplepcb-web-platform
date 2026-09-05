@@ -3,12 +3,15 @@ import { z } from 'zod';
 import {
   MARKET_COMMON_CONDITIONS,
   DEV_REVIEW_GENERAL_AREA,
+  DEV_REVIEW_SCHEDULE_MAX_PHASES,
+  DEV_REVIEW_SCHEDULE_MAX_WEEKS,
   DEV_REVIEW_VERSION,
   DevReviewAreaReview,
   DevReviewFact,
   DevReviewLlmOutput,
   DevReviewObservation,
   DevReviewOpenQuestion,
+  DevReviewScheduleLlm,
   DevReviewSpecRow,
   MARKET_AREAS,
   MarketDevReview,
@@ -16,6 +19,7 @@ import {
   marketAnswerText,
   marketArea,
   marketAreaLabel,
+  devReviewTimelineWishCode,
   marketQuestion,
   sortMarketAreas,
 } from '@sp/api-contract';
@@ -25,6 +29,8 @@ import type {
   DevReviewLlmOutputType,
   DevReviewMetaType,
   DevReviewOpenQuestionType,
+  DevReviewScheduleLlmType,
+  DevReviewScheduleType,
   MarketAnswerType,
   MarketDevReviewType,
 } from '@sp/api-contract';
@@ -40,7 +46,7 @@ import { hashAiBytes } from './hash';
 // 조립한다 — 분야가 늘어도 이 파일의 규칙 본문은 바뀌지 않는다.
 // 프로빙 하네스(scripts/probe-dev-review.ts)와 실제 라우트가 같은 함수를 쓴다.
 
-export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v5'; // 09-04: 프로젝트 조건 3(완료 시점·목표 단계·인도 범위)·분야 맞춤 질문 14·답변 해석 블록(§13.8)
+export const DEV_REVIEW_PROMPT_VERSION = 'dev-review.v6'; // 09-05: 개발의뢰 전용 [개발 일정] 블록 옵션(features.schedule). 마켓 프롬프트 문자열은 v5 와 바이트 동일하다.
 export const ATTACHMENT_READ_PROMPT_VERSION = 'attachment-read.v1';
 export const DEV_REVIEW_MAX_OPEN_QUESTIONS = 6;
 
@@ -118,13 +124,36 @@ const answerLine = (a: MarketAnswerType): string => {
   return `- ${prefix}${q?.label ?? a.code} → ${marketAnswerText(a)}`;
 };
 
-export function buildDevReviewPrompt(source: DevReviewSource, extraInstructions = ''): string {
+// 프롬프트·후처리의 선택 블록 — 개발의뢰(develop)에서만 켠다. 마켓은 기본값(전부 꺼짐)이라
+// 프롬프트 문자열도 후처리 결과도 v5 와 같다(dev-review.test.ts 가 박제한다).
+export interface DevReviewFeatures {
+  schedule: boolean;
+}
+export const DEV_REVIEW_FEATURES_OFF: DevReviewFeatures = { schedule: false };
+
+// [개발 일정] 블록 — 규칙 4·5 가 "기간·주수를 쓰지 않는다"고 못박았으므로, 이 블록이 그 예외를 명시한다.
+// 수치는 범위(최소·최대 주)만 받고 합계는 서버가 계산한다(모델이 준 합계는 버린다).
+const DEV_REVIEW_SCHEDULE_BLOCK = `[개발 일정]
+이 검토서에는 개발 일정(예상)을 함께 씁니다. 위 [절대 규칙] 4·5 의 "개발 기간을 쓰지 않는다"는 여기서만 예외이며, 나머지 항목(requirements·spec·observations·openQuestions)에는 여전히 기간·주수를 쓰지 않습니다.
+- schedule.phases 에 개발 단계를 순서대로 3~8개 씁니다. 각 단계는 name(단계명 20자 이내), minWeeks·maxWeeks(정수, 주), output(이 단계가 끝나면 나오는 것), prerequisite(고객이 먼저 줘야 할 자료·결정, 없으면 빈 문자열), note(비고, 없으면 빈 문자열)입니다.
+- 분야(회로·PCB·펌웨어·앱·서버)마다 그 분야의 통상 단계를 씁니다. 다만 **고객 자료에 없는 분야의 단계는 만들지 않습니다** — [개발 분야]에 있는 분야만 다룹니다.
+- 기간은 점 하나가 아니라 최소~최대 범위로 씁니다(minWeeks ≤ maxWeeks). 합계는 쓰지 않습니다 — 서버가 단계에서 계산합니다.
+- 시제품 제작·부품 수급·인증 시험처럼 외부 리드타임이 드는 단계는 note 에 그 이유를 한 마디로 적습니다.
+- 확정 어휘(확정·보장·반드시)를 쓰지 않습니다. 전부 자료만으로 낸 예상입니다.
+- schedule.assumptions 에 이 일정이 성립하는 전제를 한 줄로 씁니다(예: 고객 자료 회신 3일 이내·시제품 1회전 기준).`;
+
+export function buildDevReviewPrompt(
+  source: DevReviewSource,
+  extraInstructions = '',
+  features: DevReviewFeatures = DEV_REVIEW_FEATURES_OFF,
+): string {
   const extra = extraInstructions.trim();
   const conditions = source.answers.filter((a) => isConditionCode(a.code)).map(answerLine).join('\n');
   const answers = source.answers.filter((a) => !isConditionCode(a.code)).map(answerLine).join('\n');
   const attachments = source.attachmentContext.trim();
   return [
     DEV_REVIEW_RULES,
+    ...(features.schedule ? [DEV_REVIEW_SCHEDULE_BLOCK] : []),
     buildDevReviewAreaBlock(source.serviceAreas),
     buildDevReviewAnswerHints(source.answers),
     `[추가 지침]\n${extra === '' ? '(없음)' : extra}`,
@@ -520,6 +549,36 @@ const parseEach = <T>(schema: z.ZodType<T>, values: unknown[], max: number): T[]
     return r.success ? [r.data] : [];
   }).slice(0, max);
 
+// 모델이 주는 주(週)는 3 · "3" · "3주" · 3.4 처럼 흔들린다 — 정수로 옮기고 못 읽으면 0(정규화가 버린다).
+const toWeekInt = (v: unknown): number => {
+  if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v) : 0;
+  if (typeof v !== 'string') return 0;
+  const m = /-?\d+(?:[.,]\d+)?/.exec(v);
+  if (m === null) return 0;
+  const n = Number(m[0].replace(',', '.'));
+  return Number.isFinite(n) ? Math.round(n) : 0;
+};
+const asText = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+// LLM 출력의 schedule — 원소별로 깨진 것만 버리고 숫자는 정수로 옮겨 둔다(값 판정은 후처리 몫).
+function parseScheduleRaw(v: unknown): DevReviewScheduleLlmType | undefined {
+  if (typeof v !== 'object' || v === null) return undefined;
+  const o = v as Record<string, unknown>;
+  const phases = asArray(o.phases).flatMap((p) => {
+    if (typeof p !== 'object' || p === null) return [];
+    const x = p as Record<string, unknown>;
+    return [{
+      name: asText(x.name),
+      minWeeks: toWeekInt(x.minWeeks),
+      maxWeeks: toWeekInt(x.maxWeeks),
+      output: asText(x.output),
+      prerequisite: asText(x.prerequisite),
+      note: asText(x.note),
+    }];
+  });
+  return DevReviewScheduleLlm.parse({ phases, assumptions: asText(o.assumptions) });
+}
+
 export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
   const obj = extractJsonObject(raw);
   if (typeof obj !== 'object' || obj === null) throw new Error('DEV_REVIEW_NOT_OBJECT');
@@ -534,8 +593,10 @@ export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
       observations: parseEach(DevReviewObservation, asArray(x.observations), 2),
     }];
   });
+  const schedule = parseScheduleRaw(o.schedule);
   return DevReviewLlmOutput.parse({
     summary: typeof o.summary === 'string' ? o.summary : '',
+    ...(schedule === undefined ? {} : { schedule }),
     requirements: parseEach(DevReviewFact, asArray(o.requirements), 5),
     areas: parseEach(DevReviewAreaReview, areasRaw, MARKET_AREAS.length),
     openQuestions: parseEach(DevReviewOpenQuestion, asArray(o.openQuestions), DEV_REVIEW_MAX_OPEN_QUESTIONS),
@@ -556,6 +617,7 @@ export interface DevReviewDiagnostics {
   openQuestionsDeduped: number;
   r9Checks: number; // 답변↔자료 범주 어긋남 수
   observationsDropped: number; // 근거 없음·판단 어휘·명세 되풀이로 버린 관찰
+  schedulePhasesDropped: number; // 이름이 비었거나 상한(8단계)을 넘어 버린 일정 단계
 }
 
 export interface DevReviewPostProcessResult {
@@ -589,15 +651,54 @@ const cleanText = (text: string, ctx: Ctx): string => {
   return stripTokens(text, bad);
 };
 
+// ── 개발 일정(예상) 정규화 — 수치는 코드가 잡는다 ────────────────────────────────
+// 근거 인용 규칙(R1·R2·R8)은 일정에 적용하지 않는다: 일정은 자료에서 옮겨 적은 사실이 아니라 예상이라
+// 품번·수치 스트립(cleanText)의 대상이 아니다. 대신 범위·개수·순서를 결정적으로 보정한다.
+const clampWeeks = (n: number): number =>
+  Math.min(DEV_REVIEW_SCHEDULE_MAX_WEEKS, Math.max(1, Math.round(n)));
+
+const trimTo = (text: string, max: number): string => text.trim().slice(0, max);
+
+export function normalizeDevReviewSchedule(
+  raw: DevReviewScheduleLlmType | undefined,
+  source: DevReviewSource,
+  diag: DevReviewDiagnostics,
+): DevReviewScheduleType | null {
+  const rawPhases = raw?.phases ?? [];
+  const named = rawPhases.flatMap((p) => {
+    const name = trimTo(p.name, 40);
+    if (name === '') return [];
+    const a = clampWeeks(p.minWeeks);
+    const b = clampWeeks(p.maxWeeks);
+    return [{
+      name,
+      minWeeks: Math.min(a, b), // min > max 면 교환
+      maxWeeks: Math.max(a, b),
+      output: trimTo(p.output, 120),
+      prerequisite: trimTo(p.prerequisite, 120),
+      note: trimTo(p.note, 120),
+    }];
+  });
+  const phases = named.slice(0, DEV_REVIEW_SCHEDULE_MAX_PHASES);
+  diag.schedulePhasesDropped += rawPhases.length - phases.length;
+  if (phases.length === 0) return null;
+  return {
+    phases,
+    wishCode: devReviewTimelineWishCode(source.answers),
+    assumptions: trimTo(raw?.assumptions ?? '', 300),
+  };
+}
+
 export function postProcessDevReview(
   output: DevReviewLlmOutputType,
   source: DevReviewSource,
   meta: DevReviewMetaType,
+  features: DevReviewFeatures = DEV_REVIEW_FEATURES_OFF,
 ): DevReviewPostProcessResult {
   const diag: DevReviewDiagnostics = {
     r1Dropped: 0, r2Dropped: 0, r8Dropped: 0, conflicts: 0,
     tokensStripped: 0, openQuestionsDeduped: 0,
-    r9Checks: 0, observationsDropped: 0,
+    r9Checks: 0, observationsDropped: 0, schedulePhasesDropped: 0,
   };
   const conflicts = detectSourceConflicts(source);
   diag.conflicts = conflicts.length;
@@ -671,8 +772,11 @@ export function postProcessDevReview(
     });
   }
 
+  // features 가 꺼져 있으면 schedule 키 자체를 넣지 않는다 — 마켓 결과는 바이트 단위로 v5 와 같다.
+  const schedule = features.schedule ? normalizeDevReviewSchedule(output.schedule, source, diag) : undefined;
   const review = MarketDevReview.parse({
     version: DEV_REVIEW_VERSION,
+    ...(schedule === undefined ? {} : { schedule }),
     brief: { serviceAreas: [...source.serviceAreas], answers: [...source.answers] },
     summary,
     requirements,

@@ -176,6 +176,14 @@ const minimalReview = (areas) => ({
   checks: [],
   meta: { jobId: 'e2e', model: 'e2e-model', promptVersion: 'dev-review.v5', inputHash: 'e2e', generatedAt: new Date().toISOString(), attachmentFiles: [] },
   adminComment: '담당자 의견: 배터리 수명 목표를 먼저 정하면 회로가 단순해집니다.',
+  schedule: {
+    phases: [
+      { name: '회로 설계', minWeeks: 2, maxWeeks: 3, output: '회로도·부품표', prerequisite: '전원 사양 확정', note: '' },
+      { name: '시제품 제작', minWeeks: 3, maxWeeks: 5, output: '시제품 3대', prerequisite: '', note: '부품 수급 리드타임 포함' },
+    ],
+    wishCode: 'm2_3',
+    assumptions: '고객 자료 회신 3일 이내·시제품 1회전 기준',
+  },
 });
 
 const quoteBody = (kind, over = {}) => ({
@@ -355,12 +363,22 @@ async function run() {
   const put = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: minimalReview(['circuit', 'firmware']) } });
   assert(put.status === 200 && put.json.data.review.working?.adminComment?.startsWith('담당자 의견') && put.json.data.review.editedAt !== null, '작업본 저장(담당자 의견·확인 결과)', put.json?.data?.review);
   assert(put.json.data.review.working.openQuestions[0].resolution === '상담 결과: 3D 프린팅 외장', '상의 항목 확인 결과 보존');
+  assert(put.json.data.review.working.schedule?.phases?.length === 2 && put.json.data.review.working.schedule.wishCode === 'm2_3', '작업본 저장: 개발 일정 2단계·희망 시점', put.json?.data?.review?.working?.schedule);
+  const badWeeks = await req('PUT', `/api/admin/develop/requests/${rid}/review`, {
+    token: tAdmin,
+    body: { review: { ...minimalReview(['circuit', 'firmware']), schedule: { phases: [{ name: '회로 설계', minWeeks: 0, maxWeeks: 200, output: '', prerequisite: '', note: '' }], wishCode: 'm2_3', assumptions: '' } } },
+  });
+  assert(badWeeks.status === 400, '개발 일정 잘못된 주(0·200) → 400', badWeeks.json);
+  const stillTwo = await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin });
+  assert(stillTwo.json.data.review.working.schedule.phases.length === 2, '400 뒤 작업본 일정은 그대로');
   const custBefore = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   assert(custBefore.json.data.review === null, '공개 전: 고객 검토서 null');
   const pub = await req('POST', `/api/admin/develop/requests/${rid}/review/publish`, { token: tAdmin });
   assert(pub.status === 200 && pub.json.data.review.publicReview !== null && pub.json.data.ai.review === 'published', '검토서 공개');
+  assert(pub.json.data.review.publicReview.schedule?.phases?.length === 2, '공개본에 개발 일정이 실린다');
   const custAfter = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   assert(custAfter.json.data.review?.summary === '[e2e] 담당자 작업본 요약' && custAfter.json.data.reviewPublished === true, '공개 후: 고객 검토서 보임');
+  assert(custAfter.json.data.review.schedule?.phases?.length === 2, '고객 공개본에도 개발 일정(예상)');
   const put2 = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: { ...minimalReview(['circuit', 'firmware']), summary: '수정본' } } });
   assert(put2.json.data.review.publishedStale === true, '공개 뒤 편집 → publishedStale');
   const custStale = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });

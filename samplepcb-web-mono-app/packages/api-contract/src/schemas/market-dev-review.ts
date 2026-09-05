@@ -6,6 +6,7 @@ import {
   MarketAreaCodeLoose,
   MarketAreaCodes,
   marketAnswerIssues,
+  marketQuestion,
 } from './market-areas';
 
 // ── AI 사전 검토서 v4 (docs/AI_DEV_REVIEW.md §13·§13.7, 2026-09-04) ─────────────
@@ -72,12 +73,127 @@ export const DevReviewCheck = z.object({
 });
 export type DevReviewCheckType = z.infer<typeof DevReviewCheck>;
 
+// ── 개발 일정(예상) — 개발의뢰(sp-develop) 전용 additive 블록(docs/DEVELOP_FLOW.md §6) ──────
+// **검토서의 일정은 예상, 견적서의 기간은 약속**(2026-09-05 결정). 그래서 여기 수치는 점 추정이 아니라
+// 범위(최소~최대 주)만 받고, 합계는 저장하지 않고 언제나 단계에서 재계산한다(LLM 이 준 합계는 버린다).
+// 마켓 검토서엔 이 블록이 없다 — 프롬프트·JSON 스키마·후처리가 develop 타깃일 때만 켜진다.
+
+export const DEV_REVIEW_SCHEDULE_MAX_PHASES = 8;
+export const DEV_REVIEW_SCHEDULE_MAX_WEEKS = 104;
+
+export const DevReviewSchedulePhase = z.object({
+  name: z.string().trim().min(1).max(40), // 단계명(회로 설계·PCB 아트웍·시제품 제작·펌웨어 1차 …)
+  minWeeks: z.number().int().min(1).max(DEV_REVIEW_SCHEDULE_MAX_WEEKS),
+  maxWeeks: z.number().int().min(1).max(DEV_REVIEW_SCHEDULE_MAX_WEEKS), // 후처리가 min ≤ max 로 보정
+  output: z.string().trim().max(120).catch(''), // 이 단계가 끝나면 나오는 것
+  prerequisite: z.string().trim().max(120).catch(''), // 고객이 먼저 줘야 할 자료·결정(없으면 '')
+  note: z.string().trim().max(120).catch(''),
+});
+export type DevReviewSchedulePhaseType = z.infer<typeof DevReviewSchedulePhase>;
+
+// 고객이 고른 완료 시점 — 공통 조건 질문 'timeline' 의 선택지와 같아야 한다(어긋나면 dev-review.test.ts
+// 가 잡는다). 'unknown'(협의해서 정할게요)은 담지 않는다 → wishCode = null.
+export const DEV_REVIEW_TIMELINE_WISH_CODES = ['within_1m', 'm2_3', 'm4_6', 'over_6m'] as const;
+export type DevReviewTimelineWishCodeType = (typeof DEV_REVIEW_TIMELINE_WISH_CODES)[number];
+
+export const DevReviewSchedule = z.object({
+  phases: z.array(DevReviewSchedulePhase).max(DEV_REVIEW_SCHEDULE_MAX_PHASES),
+  wishCode: z.enum(DEV_REVIEW_TIMELINE_WISH_CODES).nullable(),
+  assumptions: z.string().trim().max(300).catch(''), // 일정 전제(고객 자료 회신 3일 이내·시제품 1회전 …)
+});
+export type DevReviewScheduleType = z.infer<typeof DevReviewSchedule>;
+
+// LLM 출력용 느슨한 버전 — 합계 필드는 아예 받지 않는다(서버가 계산). 깨진 원소는 파서가 버린다.
+export const DevReviewScheduleLlm = z.object({
+  phases: z.array(z.object({
+    name: z.string().trim().max(200).catch(''),
+    minWeeks: z.number().int().catch(0),
+    maxWeeks: z.number().int().catch(0),
+    output: z.string().trim().max(400).catch(''),
+    prerequisite: z.string().trim().max(400).catch(''),
+    note: z.string().trim().max(400).catch(''),
+  })).max(20).catch([]),
+  assumptions: z.string().trim().max(1000).catch(''),
+});
+export type DevReviewScheduleLlmType = z.infer<typeof DevReviewScheduleLlm>;
+
+// ── 일정 순수 함수(화면·서버 공용) ────────────────────────────────────────────────
+export interface DevReviewScheduleTotals { minWeeks: number; maxWeeks: number }
+
+/** 단계 합 — 저장하지 않는 파생값. 표시하는 자리마다 이 함수를 쓴다. */
+export function devReviewScheduleTotals(schedule: DevReviewScheduleType | null | undefined): DevReviewScheduleTotals {
+  const phases = schedule?.phases ?? [];
+  return {
+    minWeeks: phases.reduce((sum, p) => sum + p.minWeeks, 0),
+    maxWeeks: phases.reduce((sum, p) => sum + p.maxWeeks, 0),
+  };
+}
+
+/** 희망 완료 시점의 상한(주) — 'over_6m' 은 상한 없음(null). */
+export const DEV_REVIEW_TIMELINE_WISH_LIMIT_WEEKS: Readonly<Record<DevReviewTimelineWishCodeType, number | null>> = {
+  within_1m: 4,
+  m2_3: 13,
+  m4_6: 26,
+  over_6m: null,
+};
+
+export type DevReviewScheduleFitStatus = 'ok' | 'tight' | 'over' | 'unknown';
+export interface DevReviewScheduleFit {
+  status: DevReviewScheduleFitStatus;
+  wishLabel: string;
+  text: string;
+}
+
+const timelineWishLabel = (code: DevReviewTimelineWishCodeType): string =>
+  marketQuestion('timeline')?.options.find((o) => o.code === code)?.label ?? code;
+
+/**
+ * 고객 희망 완료 시점 ↔ 예상 일정 대조 — **LLM 판단이 아니라 순수 함수**다.
+ * 상한 없음 → ok · 최대 ≤ 상한 → ok · 최소 ≤ 상한 < 최대 → tight · 최소 > 상한 → over.
+ */
+export function devReviewScheduleFit(schedule: DevReviewScheduleType | null | undefined): DevReviewScheduleFit {
+  const { minWeeks, maxWeeks } = devReviewScheduleTotals(schedule);
+  const span = `예상 ${String(minWeeks)}~${String(maxWeeks)}주`;
+  const wishCode = schedule?.wishCode ?? null;
+  if (wishCode === null) {
+    return { status: 'unknown', wishLabel: '', text: `희망 완료 시점 미응답 — ${span}` };
+  }
+  const wishLabel = timelineWishLabel(wishCode);
+  const head = `희망 "${wishLabel}" ↔ ${span}`;
+  const limit = DEV_REVIEW_TIMELINE_WISH_LIMIT_WEEKS[wishCode];
+  if (limit === null) return { status: 'ok', wishLabel, text: `${head} — 희망 시점에 여유가 있습니다` };
+  if (maxWeeks <= limit) return { status: 'ok', wishLabel, text: `${head} — 희망 시점 안에 듭니다` };
+  if (minWeeks <= limit) {
+    return { status: 'tight', wishLabel, text: `${head} — 최대 기준으로 넘어갈 수 있습니다(단계 조정·병행 필요)` };
+  }
+  return { status: 'over', wishLabel, text: `${head} — 희망 시점을 넘습니다(범위를 함께 조정해야 합니다)` };
+}
+
+/**
+ * 고객이 고른 완료 시점 — 공통 조건 'timeline' 의 첫 선택지가 4종 중 하나일 때만.
+ * '협의해서 정할게요'(unknown)·미응답은 null 이고 대조가 'unknown' 으로 난다.
+ * 후처리(서버)와 관리자 편집기(화면)가 같은 함수를 써야 wishCode 가 갈리지 않는다.
+ */
+export function devReviewTimelineWishCode(
+  answers: readonly MarketAnswerTypeForWish[],
+): DevReviewTimelineWishCodeType | null {
+  const choice = answers.find((a) => a.code === 'timeline')?.choices[0];
+  if (choice === undefined) return null;
+  return DEV_REVIEW_TIMELINE_WISH_CODES.find((c) => c === choice) ?? null;
+}
+interface MarketAnswerTypeForWish { readonly code: string; readonly choices: readonly string[] }
+
+export const DEV_REVIEW_SCHEDULE_CAPTION =
+  '이 일정은 자료만으로 낸 예상입니다. 확정 일정은 견적서의 기간을 따릅니다.';
+
 // ── LLM 출력 / 저장 검토서 ──────────────────────────────────────────────────
 export const DevReviewLlmOutput = z.object({
   summary: z.string().trim().max(200).catch(''),
   requirements: z.array(DevReviewFact).max(5),
   areas: z.array(DevReviewAreaReview).max(MARKET_AREAS.length),
   openQuestions: z.array(DevReviewOpenQuestion).max(6),
+  // 개발의뢰 전용(features.schedule) — 마켓 실행에선 모델이 내지 않고 후처리도 넣지 않는다.
+  schedule: DevReviewScheduleLlm.optional(),
 });
 export type DevReviewLlmOutputType = z.infer<typeof DevReviewLlmOutput>;
 
@@ -108,6 +224,9 @@ export const MarketDevReview = z.object({
   meta: DevReviewMeta,
   // 개발의뢰 담당자 의견 블록(자유 서술, 줄바꿈 유지) — 공용 뷰어가 있으면 마지막 섹션으로 그린다(additive).
   adminComment: z.string().trim().max(4000).nullable().optional(),
+  // 개발의뢰 개발 일정(예상) — 마켓 저장분엔 없다. **저장분 읽기는 관대하게**(깨져 있어도 null 로 살려 둔다),
+  // 관리자 입력은 엄격하게(develop.ts AdminDevelopReviewPutBody 가 catch 를 벗겨 400 을 낸다).
+  schedule: DevReviewSchedule.nullable().optional().catch(null),
 });
 export type MarketDevReviewType = z.infer<typeof MarketDevReview>;
 
@@ -138,6 +257,29 @@ const FACT_JSON_SCHEMA = {
   properties: {
     text: { type: 'string' },
     evidence: { type: ['string', 'null'] },
+  },
+} as const;
+
+const SCHEDULE_JSON_SCHEMA = {
+  type: 'object',
+  required: ['phases', 'assumptions'],
+  properties: {
+    phases: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['name', 'minWeeks', 'maxWeeks', 'output', 'prerequisite', 'note'],
+        properties: {
+          name: { type: 'string' },
+          minWeeks: { type: 'integer' },
+          maxWeeks: { type: 'integer' },
+          output: { type: 'string' },
+          prerequisite: { type: 'string' },
+          note: { type: 'string' },
+        },
+      },
+    },
+    assumptions: { type: 'string' },
   },
 } as const;
 
@@ -180,4 +322,12 @@ export const DEV_REVIEW_LLM_JSON_SCHEMA = {
       },
     },
   },
+} as const;
+
+// 개발의뢰용 — 위 스키마에 개발 일정 블록을 더한 것. `required` 에 schedule 을 넣어 모델이 항상 내게 한다.
+// 마켓은 DEV_REVIEW_LLM_JSON_SCHEMA 를 그대로 쓴다(바이트 무변경).
+export const DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE = {
+  ...DEV_REVIEW_LLM_JSON_SCHEMA,
+  required: [...DEV_REVIEW_LLM_JSON_SCHEMA.required, 'schedule'],
+  properties: { ...DEV_REVIEW_LLM_JSON_SCHEMA.properties, schedule: SCHEDULE_JSON_SCHEMA },
 } as const;

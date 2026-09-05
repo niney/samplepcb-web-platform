@@ -9,7 +9,7 @@ import {
   marketAnswerIssues,
   marketToolIssues,
 } from './market-areas';
-import { MarketDevReview } from './market-dev-review';
+import { DevReviewSchedule, MarketDevReview } from './market-dev-review';
 import { MARKET_DEV_DIAGRAM_STATUSES, MarketDevDiagram } from './market-dev-diagram';
 
 // ── 개발의뢰(sp-develop) 계약 — 정본 docs/DEVELOP_FLOW.md ───────────────────────────
@@ -647,7 +647,12 @@ export const AdminDevelopStatusBody = z.object({
 export type AdminDevelopStatusBodyType = z.infer<typeof AdminDevelopStatusBody>;
 
 // 작업본 저장 — 관리자가 고친 검토서 전체를 보낸다(구조 편집). 서버가 meta.editedAt/By 를 찍는다.
-export const AdminDevelopReviewPutBody = z.object({ review: MarketDevReview });
+// 관리자 입력은 **엄격하게** 받는다 — 저장분 읽기용 MarketDevReview 는 schedule 을 `.catch(null)` 로
+// 관대하게 받지만(옛/깨진 저장분을 살려 두려고), 편집기가 보낸 잘못된 주(0·200)를 조용히 null 로 삼키면
+// 관리자가 지운 줄 모른다. 여기서만 catch 를 벗겨 400 을 낸다.
+export const AdminDevelopReviewPutBody = z.object({
+  review: MarketDevReview.extend({ schedule: DevReviewSchedule.nullable().optional() }),
+});
 export type AdminDevelopReviewPutBodyType = z.infer<typeof AdminDevelopReviewPutBody>;
 
 export const AdminDevelopAiRunResponse = z.object({

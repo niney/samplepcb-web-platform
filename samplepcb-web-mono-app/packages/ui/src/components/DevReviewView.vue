@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { DEV_REVIEW_DISCLAIMER, marketAreaLabel } from '@sp/api-contract';
+import {
+  DEV_REVIEW_DISCLAIMER,
+  DEV_REVIEW_SCHEDULE_CAPTION,
+  devReviewScheduleFit,
+  devReviewScheduleTotals,
+  marketAreaLabel,
+} from '@sp/api-contract';
 import type { MarketDevDiagramViewType, MarketDevReviewType } from '@sp/api-contract';
 import { buildDevReviewView } from '@sp/utils';
 import AreaIcon from './AreaIcon.vue';
@@ -40,6 +46,18 @@ const view = computed(() => buildDevReviewView(props.review));
 const areaLabel = (area: string): string => marketAreaLabel(area);
 const areaColor = (area: string): string => `var(--color-area-${area})`;
 const diagramView = computed<MarketDevDiagramViewType>(() => props.diagram ?? { meta: null, html: null });
+
+// 개발 일정(예상) — 개발의뢰(sp-develop) 검토서에만 있는 블록. 마켓·옛 저장분엔 schedule 이 없어 섹션째 빠진다.
+// 합계와 희망 시점 대조는 저장값이 아니라 계약의 순수 함수로 매번 계산한다(관리자가 단계를 고치면 바로 따라온다).
+const schedule = computed(() => props.review.schedule ?? null);
+const scheduleTotals = computed(() => devReviewScheduleTotals(schedule.value));
+const scheduleFit = computed(() => devReviewScheduleFit(schedule.value));
+const FIT_CLASS = {
+  ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  tight: 'border-amber-200 bg-amber-50 text-amber-900',
+  over: 'border-red-200 bg-red-50 text-red-800',
+  unknown: 'border-line bg-paper text-tx-3',
+} as const;
 
 // 생성 시각 — 서버 ISO(UTC)를 KST 로 옮겨 분 단위까지 작게 표시한다.
 const generatedAtLabel = computed(() => {
@@ -157,6 +175,58 @@ const generatedAtLabel = computed(() => {
             </li>
           </ul>
         </div>
+      </div>
+    </section>
+
+    <!-- ②-2 개발 일정(예상) — 검토서의 일정은 **예상**이고, 확정 기간은 견적서가 정한다(§6). -->
+    <section v-if="schedule !== null && schedule.phases.length > 0" class="grid gap-4 border-t border-line pt-7">
+      <div>
+        <p class="font-mono text-micro tracking-[.14em] text-brand-600">ESTIMATED SCHEDULE</p>
+        <h3 class="text-lead font-extrabold text-tx-1">개발 일정(예상)</h3>
+        <p class="mt-1 text-label text-tx-3">단계마다 최소~최대 주로 적었습니다. 고객이 먼저 주셔야 할 자료가 있는 단계는 선행 조건에 적혀 있습니다.</p>
+      </div>
+
+      <div class="grid gap-2">
+        <!-- 표 머리 — 좁은 폭에선 감추고 각 행이 카드로 접힌다(명세 표와 같은 관례) -->
+        <div class="hidden gap-3 px-4 text-micro font-semibold text-tx-3 sm:grid sm:grid-cols-[minmax(0,1.2fr)_86px_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <span>단계</span><span>기간(주)</span><span>산출물</span><span>선행 조건</span><span>비고</span>
+        </div>
+        <div
+          v-for="(phase, i) in schedule.phases"
+          :key="i"
+          class="grid gap-1.5 rounded-2xl border border-line bg-white px-4 py-3 sm:grid-cols-[minmax(0,1.2fr)_86px_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] sm:items-start sm:gap-3"
+        >
+          <p class="min-w-0 text-body font-bold text-tx-1">{{ phase.name }}</p>
+          <p class="min-w-0 text-body font-semibold text-tx-2">
+            <span class="mr-1 text-micro font-semibold text-tx-3 sm:hidden">기간</span>
+            {{ phase.minWeeks }}~{{ phase.maxWeeks }}주
+          </p>
+          <p v-if="phase.output !== ''" class="min-w-0 text-label leading-relaxed text-tx-2">
+            <span class="mr-1 text-micro font-semibold text-tx-3 sm:hidden">산출물</span>{{ phase.output }}
+          </p>
+          <span v-else class="hidden sm:block" />
+          <p v-if="phase.prerequisite !== ''" class="min-w-0 text-label leading-relaxed text-tx-2">
+            <span class="mr-1 text-micro font-semibold text-tx-3 sm:hidden">선행 조건</span>{{ phase.prerequisite }}
+          </p>
+          <span v-else class="hidden sm:block" />
+          <p v-if="phase.note !== ''" class="min-w-0 text-label leading-relaxed text-tx-3">
+            <span class="mr-1 text-micro font-semibold text-tx-3 sm:hidden">비고</span>{{ phase.note }}
+          </p>
+          <span v-else class="hidden sm:block" />
+        </div>
+      </div>
+
+      <div class="grid gap-2">
+        <p class="text-body font-bold text-tx-1">
+          예상 합계 {{ scheduleTotals.minWeeks }}~{{ scheduleTotals.maxWeeks }}주
+        </p>
+        <p class="rounded-xl border px-4 py-2.5 text-label leading-relaxed" :class="FIT_CLASS[scheduleFit.status]">
+          {{ scheduleFit.text }}
+        </p>
+        <p v-if="schedule.assumptions !== ''" class="text-label leading-relaxed text-tx-2">
+          전제 — {{ schedule.assumptions }}
+        </p>
+        <p class="text-micro leading-relaxed text-tx-3">{{ DEV_REVIEW_SCHEDULE_CAPTION }}</p>
       </div>
     </section>
 

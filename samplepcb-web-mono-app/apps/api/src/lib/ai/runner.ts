@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { DEV_REVIEW_LLM_JSON_SCHEMA } from '@sp/api-contract';
+import { DEV_REVIEW_LLM_JSON_SCHEMA, DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE } from '@sp/api-contract';
 import type { DevReviewMetaType, MarketDevReviewType } from '@sp/api-contract';
 import { ollamaChatDetailed } from './ollama';
 import type { AiConnection, OllamaChatExtra, OllamaChatResult, OllamaThink } from './ollama';
@@ -12,7 +12,7 @@ import {
   parseDevReviewLlmOutput,
   postProcessDevReview,
 } from './dev-review';
-import type { DevReviewSource } from './dev-review';
+import type { DevReviewFeatures, DevReviewSource } from './dev-review';
 import { DEV_REVIEW_USECASE, getAiConnection, getAiVisionModel } from './usecases';
 import { createAiJob, findReusableAiJob, finishAiJob, setAiJobStage, type AiJob } from './jobs';
 import { prisma } from '../prisma';
@@ -195,9 +195,12 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
 
     // ② 검토서 — 파싱 실패는 동일 프롬프트로 1회 재시도(러너 관례).
     await setAiJobStage(job.id, 'review');
-    const prompt = buildDevReviewPrompt(effective, extraInstructions);
+    // 개발 일정(예상)은 개발의뢰에서만 만든다(docs/DEVELOP_FLOW.md §6) — 마켓은 프롬프트·JSON 스키마·후처리가
+    // 전부 v5 그대로다. 갈림길은 여기 한 곳뿐이다.
+    const features: DevReviewFeatures = { schedule: options.target?.kind === 'develop' };
+    const prompt = buildDevReviewPrompt(effective, extraInstructions, features);
     const extra: OllamaChatExtra = {
-      format: DEV_REVIEW_LLM_JSON_SCHEMA,
+      format: features.schedule ? DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE : DEV_REVIEW_LLM_JSON_SCHEMA,
       think,
     };
     let lastError: unknown;
@@ -219,7 +222,7 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
           generatedAt: new Date().toISOString(),
           attachmentFiles: [...effective.attachmentFiles],
         };
-        const { review, diagnostics } = postProcessDevReview(output, effective, meta);
+        const { review, diagnostics } = postProcessDevReview(output, effective, meta, features);
         await finishAiJob(job.id, { review });
         // 완료 순간 대상에 박제한다(구성도 러너와 같은 연결 규칙).
         if (options.target !== undefined) await writeReviewToTarget(options.target, review, job.id);

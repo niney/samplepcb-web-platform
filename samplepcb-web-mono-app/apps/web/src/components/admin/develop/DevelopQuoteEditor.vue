@@ -7,9 +7,15 @@ import {
   DEVELOP_QUOTE_KIND_LABELS,
   DEVELOP_VAT_MODES,
   DEVELOP_VAT_MODE_LABELS,
+  devReviewScheduleTotals,
   parseDevelopQuoteLines,
 } from '@sp/api-contract';
-import type { AdminDevelopSettingsType, DevelopQuoteKindType, DevelopQuoteViewType } from '@sp/api-contract';
+import type {
+  AdminDevelopSettingsType,
+  DevReviewScheduleType,
+  DevelopQuoteKindType,
+  DevelopQuoteViewType,
+} from '@sp/api-contract';
 import { apiErrorMessage } from '@sp/ui';
 import {
   useAdminDevelopQuoteCreate,
@@ -41,6 +47,8 @@ const props = defineProps<{
   initialKind: DevelopQuoteKindType;
   allowedKinds: readonly DevelopQuoteKindType[];
   requestTitle: string;
+  // 검토서(작업본 ?? 초안 ?? 공개본)의 개발 일정(예상) — 없으면 null 이고 가져오기 버튼이 아예 안 뜬다.
+  schedule: DevReviewScheduleType | null;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -141,6 +149,61 @@ const addMilestone = (): void => {
 // 산출물 해제는 하나만(계약 superRefine) — 체크하면 나머지를 끈다.
 const setUnlocks = (index: number, checked: boolean): void => {
   form.value.milestones = form.value.milestones.map((m, i) => ({ ...m, unlocksDeliverables: checked && i === index }));
+};
+
+// ── 검토서 예상 일정 가져오기(docs/DEVELOP_FLOW.md §6) ────────────────────────
+// 검토서의 일정은 **예상**, 견적서의 기간은 **약속**이다. 그래서 자동 반영이 아니라 관리자가 누르는
+// 버튼이고, 이미 값이 있으면 인라인 확인을 한 번 거친다(네이티브 confirm 금지).
+const scheduleTotals = computed(() => devReviewScheduleTotals(props.schedule));
+const hasSchedule = computed(() => (props.schedule?.phases.length ?? 0) > 0);
+const scheduleApplied = ref('');
+const scheduleConfirm = ref<'none' | 'duration' | 'milestones'>('none');
+
+// 최대 주 × 7일 — 보수적으로 잡는다. 계약 상한(3650일)을 넘지 않게 자른다.
+const applyScheduleDuration = (): void => {
+  scheduleConfirm.value = 'none';
+  const days = Math.min(DEVELOP_QUOTE_LIMITS.durationDaysMax, scheduleTotals.value.maxWeeks * 7);
+  if (days < 1) return;
+  form.value.durationDays = String(days);
+  scheduleApplied.value = t('admin.develop.quote.fromScheduleNote');
+};
+
+const onScheduleDurationClick = (): void => {
+  if (form.value.durationDays.trim() === '') {
+    applyScheduleDuration();
+    return;
+  }
+  scheduleConfirm.value = 'duration';
+};
+
+// 단계 → 결제 조건 초안. 첫 행은 수락 시, 마지막 행은 검수 확정 시(산출물 해제), 중간은 수동 청구.
+// 비율은 균등 분할 정수이고 나머지는 마지막 행이 흡수한다(합 100%).
+const applyScheduleMilestones = (): void => {
+  scheduleConfirm.value = 'none';
+  const phases = props.schedule?.phases ?? [];
+  if (phases.length === 0) return;
+  const first = t('admin.develop.quote.fromScheduleFirstTitle');
+  const last = t('admin.develop.quote.fromScheduleLastTitle');
+  // 단계가 결제 조건 상한을 넘으면 중간 단계를 앞에서부터 묶어 상한에 맞춘다(현재 단계 상한 8 < 10 이라 방어용).
+  const max = DEVELOP_QUOTE_LIMITS.milestones;
+  const names =
+    phases.length <= max
+      ? phases.map((p) => p.name)
+      : [phases[0]?.name ?? '', ...phases.slice(phases.length - max + 1).map((p) => p.name)];
+  const count = phases.length === 1 ? 2 : names.length;
+  const base = Math.floor(100 / count);
+  form.value.milestones = Array.from({ length: count }, (_, i) => {
+    const isFirst = i === 0;
+    const isLast = i === count - 1;
+    const percent = isLast ? 100 - base * (count - 1) : base;
+    return {
+      title: isFirst ? first : isLast ? last : (names[i] ?? ''),
+      percent: String(percent),
+      trigger: isFirst ? 'on_accept' : isLast ? 'on_completion' : 'manual',
+      unlocksDeliverables: isLast,
+    };
+  });
+  scheduleApplied.value = t('admin.develop.quote.fromScheduleNote');
 };
 
 // ── 저장·발송·삭제 ───────────────────────────────────────────────────────────
@@ -256,7 +319,30 @@ async function onDeleteConfirm(): Promise<void> {
       </label>
       <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.durationDays') }}</span>
-        <input v-model="form.durationDays" type="number" min="1" :max="DEVELOP_QUOTE_LIMITS.durationDaysMax" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+        <div class="mt-1 flex items-center gap-1.5">
+          <input v-model="form.durationDays" type="number" min="1" :max="DEVELOP_QUOTE_LIMITS.durationDaysMax" class="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm">
+          <button
+            v-if="hasSchedule"
+            type="button"
+            class="shrink-0 rounded-md border border-gray-300 bg-white px-2 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
+            :title="t('admin.develop.quote.fromScheduleTitle')"
+            @click="onScheduleDurationClick"
+          >
+            {{ t('admin.develop.quote.fromSchedule') }}
+          </button>
+        </div>
+        <span v-if="hasSchedule" class="mt-0.5 block text-xs text-gray-500">
+          {{ t('admin.develop.quote.fromScheduleTitle') }} — {{ scheduleTotals.minWeeks }}~{{ scheduleTotals.maxWeeks }}주
+        </span>
+        <div v-if="scheduleConfirm === 'duration'" class="mt-1 flex flex-wrap items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-2">
+          <span class="text-xs font-bold text-amber-900">{{ t('admin.develop.quote.fromScheduleConfirm') }}</span>
+          <button type="button" class="rounded-md bg-amber-600 px-2 py-1 text-xs font-bold text-white hover:bg-amber-700" @click="applyScheduleDuration">
+            {{ t('admin.develop.quote.confirmYes') }}
+          </button>
+          <button type="button" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-600" @click="scheduleConfirm = 'none'">
+            {{ t('admin.develop.quote.confirmNo') }}
+          </button>
+        </div>
       </label>
       <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.reviewDays') }}</span>
@@ -384,12 +470,29 @@ async function onDeleteConfirm(): Promise<void> {
           {{ t('admin.develop.quote.ratioSum', { percent: (ratioSum / 100).toFixed(2) }) }}
         </span>
         <button
+          v-if="hasSchedule"
           type="button"
-          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-700 hover:bg-gray-50"
+          @click="scheduleConfirm = 'milestones'"
+        >
+          {{ t('admin.develop.quote.fromScheduleMilestones') }}
+        </button>
+        <button
+          type="button"
+          class="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="form.milestones.length >= DEVELOP_QUOTE_LIMITS.milestones"
           @click="addMilestone"
         >
           {{ t('admin.develop.quote.addMilestone') }}
+        </button>
+      </div>
+      <div v-if="scheduleConfirm === 'milestones'" class="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-2">
+        <span class="text-xs font-bold text-amber-900">{{ t('admin.develop.quote.fromScheduleMilestonesConfirm') }}</span>
+        <button type="button" class="rounded-md bg-amber-600 px-2 py-1 text-xs font-bold text-white hover:bg-amber-700" @click="applyScheduleMilestones">
+          {{ t('admin.develop.quote.confirmYes') }}
+        </button>
+        <button type="button" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-600" @click="scheduleConfirm = 'none'">
+          {{ t('admin.develop.quote.confirmNo') }}
         </button>
       </div>
       <div v-for="(m, i) in form.milestones" :key="`ms-${i}`" class="mt-2 flex flex-wrap items-center gap-1.5">
@@ -421,6 +524,7 @@ async function onDeleteConfirm(): Promise<void> {
         </button>
       </div>
       <p class="mt-2 text-xs text-gray-500">{{ t('admin.develop.quote.milestonesHint') }}</p>
+      <p v-if="scheduleApplied !== ''" class="mt-1 text-xs text-gray-500">{{ scheduleApplied }}</p>
     </div>
 
     <!-- 산출물·조건·비고 -->
