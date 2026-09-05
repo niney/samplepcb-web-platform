@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>로그인 배경 미리보기 (임시)</title>
+<!--
+  ⚠ 임시 미리보기 — 그누보드와 무관한 독립 정적 페이지.
+  Figma Samplepcb_Web › 일반고객_로그인(2077:15, 1920×1080) 의 헤더·배경만 그리고(로그인 카드는 뺌),
+  "bg img 리소스"(2001:55) 배경 아트 위에 여러 애니메이션 프리셋·조합·강도를 실험한다.
+  URL: /spcb/previews/login-bg-claude/ · 배경 레이어: ./assets/{blob,lines,mask-outer,mask-strip}.svg (Figma export 원본)
+  헤더 아이콘·로고는 테마에 이미 있는 자산을 절대경로로 참조한다(복사 없음).
+
+  구조:  .bg > .bg__par(마우스 패럴랙스) > .bg__art(전체 변형 프리셋) > base / blobwrap > blob / lineswrap > lines img | wave svg / strips
+  ─ 프리셋(택1)은 img·art 에, 조합 토글은 wrap 에, 마우스 패럴랙스는 par 에 걸어 transform 이 서로 안 겹치게 했다.
+  ─ 속도·강도는 CSS 변수(--spd, --amp)로 모든 keyframe 에 곱해진다. 파동 모드는 JS 가 같은 값을 읽는다.
+-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root {
+    --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif;
+    --page: #f4f7f8;   /* 디자이너 주석: bg 컬러 #F4F7F8 (프레임 fill 은 #ECF2F6) */
+    --shift: 0px;
+    --spd: 1;          /* 속도 배수 */
+    --amp: 1;          /* 강도 배수 */
+    --blob-o: 1;
+    --lines-o: 1;
+    --mx: 0; --my: 0;  /* 마우스 -1..1 */
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+    position: relative; min-height: 1080px;
+    background: var(--page); font-family: var(--font); color: #111;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+a { color: inherit; text-decoration: none; }
+img { display: block; }
+
+/* ── 배경 아트 (Figma 2001:55 · 2740×1124 로컬 좌표 그대로) ─────────────── */
+.bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.bg--fade { animation: fadein calc(1.6s / var(--spd)) ease-out both; }
+@keyframes fadein { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.bg__par { position: absolute; inset: 0; transition: transform .9s cubic-bezier(.2,.7,.2,1); }
+.bg--mouse .bg__par { transform: translate3d(calc(var(--mx) * 18px * var(--amp)), calc(var(--my) * 12px * var(--amp)), 0); }
+.bg__art {
+    --base: linear-gradient(180deg, #f5f7f8 0%, #f1f5f8 27.3%, #eff7f9 69.8%, #f5f7f8 100%);
+    position: absolute; top: 0; left: 50%;
+    width: 2740px; height: 1124px;
+    margin-left: calc(-1370px + var(--shift));      /* 기본 = 가로 중앙 */
+    transform-origin: 50% 50%;
+    -webkit-mask: url(assets/mask-outer.svg) 0 0 / 100% 100% no-repeat; /* 좌우 5.6% 알파 페더링 */
+            mask: url(assets/mask-outer.svg) 0 0 / 100% 100% no-repeat;
+}
+.bg__art > * { position: absolute; }
+.bg__base  { inset: 0; background: var(--base); }
+.bg__blobwrap  { left: 599px; top: -75px; width: 1230px; height: 1230px; opacity: var(--blob-o); transition: transform .9s cubic-bezier(.2,.7,.2,1); }
+.bg__blob      { width: 100%; height: 100%; transform-origin: 50% 50%; }
+.bg__lineswrap { left: 189px; top: 1px; width: 2382.01px; height: 868.02px; opacity: var(--lines-o); transition: transform .9s cubic-bezier(.2,.7,.2,1); }
+.bg__lines     { width: 100%; height: 100%; }
+.bg__wave      { position: absolute; inset: 0; width: 100%; height: 100%; display: none; overflow: visible; }
+.bg--wave .bg__lines { display: none; }
+.bg--wave .bg__wave  { display: block; }
+.bg__organic   { position: absolute; left: -189px; top: -1px; width: 2740px; height: 1124px; display: none; overflow: visible; }
+.bg--organic .bg__lines   { display: none; }
+.bg--organic .bg__organic { display: block; }
+.bg--mouse .bg__blobwrap  { transform: translate3d(calc(var(--mx) * 28px * var(--amp)), calc(var(--my) * 20px * var(--amp)), 0); }
+.bg--mouse .bg__lineswrap { transform: translate3d(calc(var(--mx) * -14px * var(--amp)), calc(var(--my) * -8px * var(--amp)), 0); }
+.bg__strip {                                                             /* 90px 세로 접힘선 2개 */
+    top: 0; width: 90px; height: 1124px; background: var(--base);
+    -webkit-mask: url(assets/mask-strip.svg) 0 0 / 100% 100% no-repeat;
+            mask: url(assets/mask-strip.svg) 0 0 / 100% 100% no-repeat;
+}
+.bg__strip--l { left: 279px; }
+.bg__strip--r { left: 2481px; }
+
+/* ── 프리셋 (택1) ──────────────────────────────────────────────────────── */
+/* drift: 아트 한 장이 느리게 흐르며 숨 쉰다 — PNG 한 장으로도 동일 구현 가능 */
+.m-drift .bg__art { animation: drift calc(18s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes drift {
+    from { transform: translate3d(0, 0, 0) scale(1); }
+    to   { transform: translate3d(calc(24px * var(--amp)), calc(-14px * var(--amp)), 0) scale(calc(1 + .03 * var(--amp))); }
+}
+/* layers: 블롭은 호흡, 선 다발은 반대로 흐른다 — 레이어 분리 export 필요 */
+.m-layers .bg__blob  { animation: breathe calc(11s / var(--spd)) ease-in-out infinite alternate; }
+.m-layers .bg__lines { animation: lines-drift calc(24s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes breathe {
+    from { transform: translate3d(0, 0, 0) scale(1); opacity: .82; }
+    to   { transform: translate3d(calc(-30px * var(--amp)), calc(18px * var(--amp)), 0) scale(calc(1 + .09 * var(--amp))); opacity: 1; }
+}
+@keyframes lines-drift {
+    from { transform: translate3d(calc(-36px * var(--amp)), calc(10px * var(--amp)), 0); }
+    to   { transform: translate3d(calc(36px * var(--amp)), calc(-10px * var(--amp)), 0); }
+}
+/* float: 블롭이 리사주 궤도로 유영, 선은 정지 */
+.m-float .bg__blob { animation: float-x calc(23s / var(--spd)) ease-in-out infinite alternate, float-y calc(17s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes float-x { from { margin-left: calc(-90px * var(--amp)); } to { margin-left: calc(90px * var(--amp)); } }
+@keyframes float-y { from { margin-top: calc(-60px * var(--amp)); } to { margin-top: calc(60px * var(--amp)); } }
+/* pulse: 글로우가 심장박동처럼 커졌다 작아진다 */
+.m-pulse .bg__blob { animation: pulse calc(4.5s / var(--spd)) ease-in-out infinite; }
+@keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: .75; }
+    45%      { transform: scale(calc(1 + .12 * var(--amp))); opacity: 1; }
+    60%      { transform: scale(calc(1 + .08 * var(--amp))); opacity: .95; }
+}
+/* tilt: 전체가 아주 느리게 기울었다 돌아온다 */
+.m-tilt .bg__art { animation: tilt calc(26s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes tilt {
+    from { transform: rotate(calc(-1.2deg * var(--amp))) scale(calc(1 + .04 * var(--amp))); }
+    to   { transform: rotate(calc(1.2deg * var(--amp)))  scale(calc(1 + .04 * var(--amp))); }
+}
+/* zoom: 켄 번즈 — 천천히 다가온다 */
+.m-zoom .bg__art { animation: zoom calc(34s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes zoom { from { transform: scale(1); } to { transform: scale(calc(1 + .12 * var(--amp))); } }
+/* wave / wave-draw: JS 가 선을 생성하고 위상을 흘린다 (Figma 벡터는 fill 패스라 재사용 불가 — 재창작) */
+.m-wave-draw .bg__wave path { stroke-dasharray: 1; animation: draw calc(9s / var(--spd)) linear infinite; animation-delay: calc(var(--i) * -0.09s); }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: -1; } }
+
+/* ── 조합 토글 (프리셋과 겹쳐 쓴다) ──────────────────────────────────── */
+.t-hue .bg__blobwrap { animation: hue calc(16s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes hue { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(calc(28deg * var(--amp))); } }
+.t-shimmer .bg__lineswrap { animation: shimmer calc(7s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes shimmer { from { opacity: calc(var(--lines-o) * .45); } to { opacity: var(--lines-o); } }
+.t-bob .bg__base { animation: bob calc(20s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes bob { from { transform: translateY(calc(-30px * var(--amp))); } to { transform: translateY(calc(30px * var(--amp))); } }
+
+/* ── 헤더 (Figma "top" 2089:1413 · 1920×94) ────────────────────────────── */
+.top {
+    position: relative; z-index: 2;
+    height: 94px; padding: 25px 320px;
+    background: #fff; backdrop-filter: blur(4px);
+    filter: drop-shadow(0 8px 10px rgba(168, 185, 205, .10));
+}
+.top__con { display: flex; align-items: center; justify-content: space-between; width: 1280px; height: 44px; margin: 0 auto; }
+.top__logo img { width: 175px; height: 28px; }
+.top__menu { display: flex; gap: 30px; font-size: 18px; font-weight: 500; line-height: 1.3; color: #0a151e; white-space: nowrap; }
+.top__btn { display: flex; align-items: center; gap: 36px; }
+.top__auth { display: flex; align-items: center; gap: 20px; }
+.top__login { display: flex; align-items: center; height: 44px; padding: 10px 20px; border-radius: 48px; background: #0a151e; color: #fcfdfd; font-size: 16px; font-weight: 500; line-height: 1.3; }
+.top__join { font-size: 16px; font-weight: 500; line-height: 1.3; color: #576065; text-decoration: underline; }
+.top__icons { display: flex; align-items: center; gap: 18px; }
+.top__icons img { width: 30px; height: 30px; }
+
+/* ── 컨트롤 패널 (미리보기 전용) ───────────────────────────────────────── */
+.ctl {
+    position: fixed; right: 20px; bottom: 20px; z-index: 50;
+    width: 300px; max-height: calc(100vh - 40px); overflow: auto; padding: 14px 16px;
+    background: rgba(255,255,255,.94); backdrop-filter: blur(6px);
+    border: 1px solid #e3e8ec; border-radius: 12px; box-shadow: 0 8px 24px rgba(10,21,30,.10);
+    font-size: 13px; line-height: 1.5; color: #0a151e;
+}
+.ctl h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; }
+.ctl h4 { margin: 12px 0 6px; font-size: 12px; font-weight: 700; color: #576065; }
+.ctl__group { display: flex; flex-direction: column; gap: 4px; margin: 0 0 8px; }
+.ctl label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.ctl small { color: #7a858c; }
+.ctl__grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.ctl__grid label { justify-content: center; padding: 6px 2px; border: 1px solid #dfe5ea; border-radius: 8px; font-size: 12px; white-space: nowrap; }
+.ctl__grid input { display: none; }
+.ctl__grid label:has(input:checked) { border-color: #1a73e8; background: #eef4ff; font-weight: 700; color: #1a73e8; }
+.ctl__desc { margin: 6px 0 0; min-height: 2.6em; font-size: 11.5px; line-height: 1.4; color: #576065; }
+.ctl__toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.ctl label.ctl__range { display: grid; grid-template-columns: 66px 1fr 40px; align-items: center; gap: 8px; white-space: nowrap; }
+.ctl__range input { width: 100%; margin: 0; }
+.ctl__range output { font-size: 11px; color: #7a858c; text-align: right; }
+.ctl__wave, .ctl__organic { display: none; }
+.ctl.is-wave .ctl__wave { display: block; }
+.ctl.is-organic .ctl__organic { display: block; }
+.ctl__grid--o label { border-style: dashed; }
+.ctl__btns { display: flex; gap: 6px; margin-top: 10px; }
+.ctl__btns button { flex: 1; padding: 6px 0; border: 1px solid #dfe5ea; border-radius: 8px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.ctl__btns button:hover { background: #f3f6f9; }
+.ctl__json { margin: 8px 0 0; padding: 6px 8px; font: 10.5px/1.4 ui-monospace, Consolas, monospace; color: #576065; background: #f3f6f9; border-radius: 6px; word-break: break-all; white-space: pre-wrap; display: none; }
+.ctl__json.is-open { display: block; }
+.ctl__note { margin: 8px 0 0; font-size: 11px; color: #7a858c; }
+</style>
+</head>
+<body>
+
+<div class="bg" id="bg" aria-hidden="true">
+  <div class="bg__par">
+    <div class="bg__art">
+        <div class="bg__base"></div>
+        <div class="bg__blobwrap"><img class="bg__blob" src="assets/blob.svg" alt=""></div>
+        <div class="bg__lineswrap">
+            <img class="bg__lines" src="assets/lines.svg" alt="">
+            <!-- 원본 윤곽 변형: ./motion-path.js 가 Figma Vector path 의 d 를 프레임마다 다시 계산한다 (아트 좌표계 2740×1124) -->
+            <svg class="bg__organic" id="organic" viewBox="0 0 2740 1124" fill="none">
+                <defs>
+                    <linearGradient id="og" gradientUnits="userSpaceOnUse" x1="2571.02" y1="772.942" x2="-104.99" y2="384.501">
+                        <stop offset="0.134615" stop-color="#fff"/><stop offset="0.461538" stop-color="#6EACFF"/>
+                        <stop offset="0.658654" stop-color="#C3F3FF"/><stop offset="0.918269" stop-color="#fff"/>
+                    </linearGradient>
+                </defs>
+                <path id="organic-path" fill="url(#og)"/>
+            </svg>
+            <svg class="bg__wave" id="wave" viewBox="0 0 2382 868" preserveAspectRatio="none" fill="none">
+                <defs>
+                    <linearGradient id="wg" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="2382" y2="0">
+                        <stop offset="0.13" stop-color="#fff"/><stop offset="0.46" stop-color="#6EACFF"/>
+                        <stop offset="0.66" stop-color="#C3F3FF"/><stop offset="0.92" stop-color="#fff"/>
+                    </linearGradient>
+                </defs>
+                <g id="wave-g" stroke="url(#wg)" stroke-width="0.8" stroke-opacity="0.75" stroke-linecap="round"></g>
+            </svg>
+        </div>
+        <div class="bg__strip bg__strip--l"></div>
+        <div class="bg__strip bg__strip--r"></div>
+    </div>
+  </div>
+</div>
+
+<header class="top">
+    <div class="top__con">
+        <a class="top__logo" href="#"><img src="/theme/sp-lite/img/logo-header.png" alt="SamplePCB"></a>
+        <nav class="top__menu">
+            <a href="#">PCB 설계</a><a href="#">PCB 주문</a><a href="#">부품 주문</a><a href="#">PCBA 주문</a><a href="#">회사소개</a><a href="#">블로그</a>
+        </nav>
+        <div class="top__btn">
+            <div class="top__auth">
+                <a class="top__login" href="#">로그인</a>
+                <a class="top__join" href="#">회원가입</a>
+            </div>
+            <div class="top__icons">
+                <img src="/theme/sp-lite/img/header/ico-quotes.svg" alt="">
+                <img src="/theme/sp-lite/img/header/ico-cart.svg" alt="">
+                <img src="/theme/sp-lite/img/header/ico-mypage.svg" alt="">
+            </div>
+        </div>
+    </div>
+</header>
+
+<aside class="ctl" id="ctl" aria-label="배경 미리보기 설정">
+    <h3>배경 애니메이션 프리셋</h3>
+    <div class="ctl__grid" id="modes">
+        <label><input type="radio" name="mode" value="off"><span>OFF</span></label>
+        <label><input type="radio" name="mode" value="drift"><span>드리프트</span></label>
+        <label><input type="radio" name="mode" value="layers"><span>레이어</span></label>
+        <label><input type="radio" name="mode" value="float"><span>블롭 유영</span></label>
+        <label><input type="radio" name="mode" value="pulse"><span>글로우 펄스</span></label>
+        <label><input type="radio" name="mode" value="tilt"><span>기울기</span></label>
+        <label><input type="radio" name="mode" value="zoom"><span>줌</span></label>
+        <label><input type="radio" name="mode" value="wave"><span>파동 흐름</span></label>
+        <label><input type="radio" name="mode" value="wave-draw"><span>파동 드로잉</span></label>
+    </div>
+    <h4>원본 윤곽 변형 <small>motion-path.js</small></h4>
+    <div class="ctl__grid ctl__grid--o">
+        <label><input type="radio" name="mode" value="o-organic"><span>유기적 흐름</span></label>
+        <label><input type="radio" name="mode" value="o-wave"><span>흐르는 물결</span></label>
+        <label><input type="radio" name="mode" value="o-stagger"><span>시차 웨이브</span></label>
+        <label><input type="radio" name="mode" value="o-breathe"><span>펼침·수렴</span></label>
+        <label><input type="radio" name="mode" value="o-ribbon"><span>리본 비틀림</span></label>
+        <label><input type="radio" name="mode" value="o-ripple"><span>퍼지는 파동</span></label>
+        <label><input type="radio" name="mode" value="o-right-swap"><span>상하 교차</span></label>
+        <label><input type="radio" name="mode" value="o-center-swap"><span>연속 회전</span></label>
+    </div>
+    <p class="ctl__desc" id="desc"></p>
+
+    <div class="ctl__organic">
+        <h4>윤곽 변형 조절</h4>
+        <div class="ctl__group">
+            <label class="ctl__range">한 주기(초) <input type="range" data-o="period" min="4" max="40" step="1"><output></output></label>
+            <label class="ctl__range">변형 강도 <input type="range" data-o="intensity" min="0" max="100" step="1"><output></output></label>
+            <label class="ctl__range">물결 밀도 <input type="range" data-o="density" min="0.5" max="3" step="0.1"><output></output></label>
+            <label class="ctl__range">시차 <input type="range" data-o="lag" min="0" max="100" step="1"><output></output></label>
+            <label class="ctl__range">빛 움직임 <input type="range" data-o="glow" min="0" max="100" step="1"><output></output></label>
+            <label class="ctl__range">교차 기준(%) <input type="range" data-o="pivot" min="0" max="100" step="1"><output></output></label>
+            <label>흐름 방향 <select data-o="flow"><option value="out">중앙 → 양쪽</option><option value="right">왼쪽 → 오른쪽</option><option value="left">오른쪽 → 왼쪽</option></select> <small>연속 회전만</small></label>
+            <label><input type="checkbox" data-o="glowOn"> 빛(블롭) 같이 움직임</label>
+        </div>
+    </div>
+
+    <h4>조합 토글</h4>
+    <div class="ctl__toggles">
+        <label><input type="checkbox" data-t="mouse"> 마우스 패럴랙스</label>
+        <label><input type="checkbox" data-t="hue"> 블롭 색 순환</label>
+        <label><input type="checkbox" data-t="shimmer"> 선 반짝임</label>
+        <label><input type="checkbox" data-t="bob"> 베이스 출렁임</label>
+        <label><input type="checkbox" data-t="fade"> 진입 페이드인</label>
+        <label><input type="checkbox" id="show" checked> 배경 아트 표시</label>
+    </div>
+
+    <h4>강도</h4>
+    <div class="ctl__group">
+        <label class="ctl__range">속도 <input type="range" data-v="spd" min="0.25" max="3" step="0.05"><output></output></label>
+        <label class="ctl__range">움직임 <input type="range" data-v="amp" min="0.25" max="3" step="0.05"><output></output></label>
+        <label class="ctl__range">블롭 농도 <input type="range" data-v="blobO" min="0" max="1" step="0.05"><output></output></label>
+        <label class="ctl__range">선 농도 <input type="range" data-v="linesO" min="0" max="1" step="0.05"><output></output></label>
+    </div>
+
+    <div class="ctl__wave">
+        <h4>파동 (JS 생성 선)</h4>
+        <div class="ctl__group">
+            <label class="ctl__range">선 개수 <input type="range" data-v="wN" min="8" max="90" step="1"><output></output></label>
+            <label class="ctl__range">진폭 <input type="range" data-v="wA" min="60" max="520" step="10"><output></output></label>
+            <label class="ctl__range">퍼짐 <input type="range" data-v="wS" min="0" max="600" step="10"><output></output></label>
+            <label class="ctl__range">파장 <input type="range" data-v="wL" min="900" max="4800" step="50"><output></output></label>
+            <label class="ctl__range">굵기 <input type="range" data-v="wW" min="0.4" max="3" step="0.1"><output></output></label>
+            <label><input type="checkbox" data-v="wRev"> 흐름 반대 방향</label>
+        </div>
+    </div>
+
+    <h4>배치</h4>
+    <div class="ctl__group">
+        <label><input type="radio" name="color" value="#f4f7f8"> 배경색 #F4F7F8 <small>디자이너 주석</small></label>
+        <label><input type="radio" name="color" value="#ecf2f6"> 배경색 #ECF2F6 <small>프레임 fill</small></label>
+        <label class="ctl__range">가로 위치 <input type="range" data-v="shift" min="-500" max="500" step="10"><output></output></label>
+    </div>
+
+    <div class="ctl__btns">
+        <button type="button" id="btn-reset">초기화</button>
+        <button type="button" id="btn-json">설정 JSON</button>
+    </div>
+    <pre class="ctl__json" id="json"></pre>
+    <p class="ctl__note">임시 페이지 · 설정은 이 브라우저에만 저장</p>
+</aside>
+
+<script type="module">
+import { preparePath } from './motion-path.js?v=1';
+(function () {
+    var KEY = 'login-bg-claude.v1';
+    /* 원본 윤곽 변형 프리셋 — 초기값은 login-background/preview.js 의 presets 에서 가져옴 (2026-09-06 스냅샷) */
+    var OP = {
+        'o-wave':       { period: 14, intensity: 44,  density: 1,   lag: 0,  glow: 35, glowOn: true },
+        'o-stagger':    { period: 16, intensity: 65,  density: 1.4, lag: 70, glow: 40, glowOn: true },
+        'o-breathe':    { period: 18, intensity: 64,  density: 1,   lag: 20, glow: 50, glowOn: true },
+        'o-ribbon':     { period: 20, intensity: 70,  density: 1,   lag: 40, glow: 35, glowOn: true },
+        'o-ripple':     { period: 12, intensity: 68,  density: 2,   lag: 35, glow: 30, glowOn: true },
+        'o-organic':    { period: 24, intensity: 60,  density: 1.1, lag: 65, glow: 45, glowOn: true },
+        'o-right-swap': { period: 12, intensity: 100, density: 1,   lag: 40, glow: 0,  glowOn: false },
+        'o-center-swap':{ period: 16, intensity: 100, density: 1,   lag: 50, glow: 0,  glowOn: false, pivot: 50, flow: 'out' }
+    };
+    Object.keys(OP).forEach(function (k) { if (OP[k].pivot === undefined) OP[k].pivot = 50; if (!OP[k].flow) OP[k].flow = 'out'; }); /* 교차 기준 x = 선 영역 폭의 % (50 = 화면 중앙) */
+    var DESC = {
+        'o-organic':    '서로 다른 리듬을 겹쳐 곡선들이 느슨하고 유연하게 움직인다. Figma 원본 윤곽을 그대로 변형(재창작 아님).',
+        'o-wave':       '양 끝은 안정적으로 유지하고 봉우리와 골이 좌우로 흐른다.',
+        'o-stagger':    '곡선의 높이에 따라 시차를 주어 선 사이 간격이 변한다.',
+        'o-breathe':    '곡선 묶음이 호흡하듯 넓게 펼쳐졌다가 가늘게 모인다.',
+        'o-ribbon':     '중앙 곡선들이 리본처럼 비틀리며 교차하는 흐름이 변한다.',
+        'o-ripple':     '중앙에서 바깥쪽으로 퍼지는 파동이 곡선에 굴곡을 만든다.',
+        'o-right-swap': '오른쪽 위 선은 아래로, 아래 선은 위로. 강도 100%에서 자리를 바꾼 뒤 한 주기에 복귀. 왼쪽은 고정.',
+        'o-center-swap':'리본이 중심선을 축으로 한 방향으로 계속 돈다(360° 연속, 되돌아오지 않음). 꼬임이 기준점에서 바깥으로 흘러나간다. 밀도=날개당 꼬임 수, 시차=대각선 엮임, 흐름 방향 선택 가능.',
+        'off':       '정지. 디자이너 주석대로 이미지 한 장 + #F4F7F8.',
+        'drift':     '아트 전체가 18초 주기로 흐르며 살짝 커진다. export PNG 한 장으로도 같은 구현 — 비용 최소.',
+        'layers':    '블롭은 호흡(11초), 선 다발은 반대 방향으로 흐른다(24초). 블롭·선 분리 export 필요.',
+        'float':     '블롭만 리사주 궤도로 천천히 떠다닌다. 선은 정지 — 카드 뒤 빛이 옮겨 다니는 느낌.',
+        'pulse':     '글로우가 심장박동처럼 커졌다 작아진다(4.5초). 눈에 띄는 편이라 속도 낮춰 볼 것.',
+        'tilt':      '아트 전체가 ±1.2° 기울었다 돌아온다. 원근이 있는 듯한 느낌, 가장 은은.',
+        'zoom':      '켄 번즈. 34초 동안 1.12배까지 다가왔다 물러난다.',
+        'wave':      '선 다발을 JS 로 다시 그려 위상을 흘린다 — 진짜 흐르는 파동. Figma 벡터는 fill 패스라 재창작.',
+        'wave-draw': '파동 흐름 + 선이 그려졌다 지워지는 드로잉 루프. 로딩·진입 연출용.'
+    };
+    var DEF = { mode: 'o-organic', t: { mouse: false, hue: false, shimmer: false, bob: false, fade: false }, show: true,
+                spd: 1, amp: 1, blobO: 1, linesO: 1, shift: 0, color: '#f4f7f8',
+                wN: 28, wA: 330, wS: 250, wL: 2400, wW: 0.8, wRev: false,
+                o: Object.assign({}, OP['o-organic']) };
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) DEF.mode = 'off';
+
+    var state = JSON.parse(JSON.stringify(DEF));
+    try { var saved = JSON.parse(localStorage.getItem(KEY) || 'null'); if (saved) { state = Object.assign(state, saved); state.t = Object.assign({}, DEF.t, saved.t || {}); state.o = Object.assign({}, DEF.o, saved.o || {}); } } catch (e) {}
+
+    var bg = document.getElementById('bg'), ctl = document.getElementById('ctl'), root = document.documentElement;
+    var waveG = document.getElementById('wave-g');
+    var blobImg = bg.querySelector('.bg__blob'), organicPath = document.getElementById('organic-path');
+
+    /* ── 원본 윤곽 변형: Figma export 원본의 Vector path 를 fetch 해 motion-path.js 로 프레임마다 변형 (30fps) */
+    var org = { render: null, raf: 0, phase: 0, last: null, lastPaint: -Infinity, ready: false };
+    fetch('assets/figma-background.svg').then(function (r) { return r.text(); }).then(function (xml) {
+        var doc = new DOMParser().parseFromString(xml, 'image/svg+xml');
+        var d = doc.querySelector('[id="Vector"]').getAttribute('d');
+        organicPath.setAttribute('d', d);
+        org.render = preparePath(d);
+        org.ready = true;
+        apply(false);
+    }).catch(function (e) { console.error('organic: 원본 SVG 로드 실패', e); });
+    function isOrganic() { return state.mode.indexOf('o-') === 0; }
+    function organicSettings() {
+        var o = state.o;
+        return { effect: state.mode.slice(2), intensity: o.intensity, density: o.density, lag: o.lag,
+                 pivot: 189 + 2382.014 * ((o.pivot === undefined ? 50 : o.pivot) / 100), /* 선 영역(189~2571) 안의 x */
+                 flow: o.flow || 'out' };
+    }
+    function organicFrame() {
+        organicPath.setAttribute('d', org.render(org.phase, organicSettings()));
+        var o = state.o;
+        if (!o.glowOn || o.glow === 0) { blobImg.style.transform = ''; return; }
+        var a = o.glow / 40, ph = org.phase;
+        blobImg.style.transform = 'translate(' + (Math.sin(ph) * 32 * a).toFixed(2) + 'px,' + ((Math.cos(ph) - 1) * 12 * a).toFixed(2) + 'px) scale(' + (1 + Math.sin(ph) * .025 * a).toFixed(4) + ')';
+    }
+    function organicTick(now) {
+        if (document.hidden) { org.raf = 0; org.last = null; return; }
+        if (org.last !== null) org.phase = (org.phase + (now - org.last) / (state.o.period * 1000 / state.spd) * 2 * Math.PI) % (2 * Math.PI);
+        org.last = now;
+        if (now - org.lastPaint >= 1000 / 30) { organicFrame(); org.lastPaint = now; }
+        org.raf = requestAnimationFrame(organicTick);
+    }
+    function startOrganic() { if (org.ready && !org.raf) { org.last = null; org.raf = requestAnimationFrame(organicTick); } }
+    function stopOrganic(restore) {
+        if (org.raf) { cancelAnimationFrame(org.raf); org.raf = 0; }
+        if (restore) { blobImg.style.transform = ''; if (org.render) organicPath.setAttribute('d', org.render(0, organicSettings())); }
+    }
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && isOrganic() && state.show) startOrganic(); });
+
+    /* ── 파동: N개의 sin 곡선, 진폭이 선마다 달라 sin=0 인 곳에서 모이고 극점에서 퍼진다(Figma 다발과 같은 구조) */
+    var wave = { paths: [], raf: 0, t: 0, last: 0 };
+    function buildWave() {
+        while (waveG.firstChild) waveG.removeChild(waveG.firstChild);
+        wave.paths = [];
+        for (var i = 0; i < state.wN; i++) {
+            var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            p.setAttribute('pathLength', '1');
+            p.style.setProperty('--i', i);
+            waveG.appendChild(p); wave.paths.push(p);
+        }
+        waveG.setAttribute('stroke-width', state.wW);
+        drawWave();
+    }
+    function drawWave() {
+        var N = state.wN, W = 2382, cy = 434, step = 12;
+        for (var i = 0; i < N; i++) {
+            var u = N > 1 ? i / (N - 1) - .5 : 0;
+            var A = state.wA + u * state.wS;
+            var ph = wave.t + u * .35;                // 선마다 위상을 조금씩 어긋내 꼬임
+            var d = '';
+            for (var x = 0; x <= W; x += step) {
+                var y = cy + A * Math.sin(2 * Math.PI * x / state.wL + ph) + u * 40 * Math.cos(2 * Math.PI * x / state.wL * 2 + ph);
+                d += (x ? ' L' : 'M') + x + ' ' + y.toFixed(1);
+            }
+            wave.paths[i].setAttribute('d', d);
+        }
+    }
+    function tick(now) {
+        var dt = wave.last ? (now - wave.last) / 1000 : 0; wave.last = now;
+        wave.t += dt * .35 * state.spd * (state.wRev ? -1 : 1);
+        drawWave();
+        wave.raf = requestAnimationFrame(tick);
+    }
+    function startWave() { if (!wave.raf) { wave.last = 0; wave.raf = requestAnimationFrame(tick); } }
+    function stopWave()  { if (wave.raf) { cancelAnimationFrame(wave.raf); wave.raf = 0; } }
+
+    /* ── 마우스 패럴랙스 */
+    window.addEventListener('mousemove', function (e) {
+        if (!state.t.mouse) return;
+        root.style.setProperty('--mx', ((e.clientX / innerWidth) * 2 - 1).toFixed(3));
+        root.style.setProperty('--my', ((e.clientY / innerHeight) * 2 - 1).toFixed(3));
+    });
+
+    function apply(replayFade) {
+        var isWave = state.mode === 'wave' || state.mode === 'wave-draw', isOrg = isOrganic();
+        bg.className = 'bg m-' + state.mode + (isWave ? ' bg--wave' : '') + (isOrg ? ' bg--organic' : '')
+            + Object.keys(state.t).filter(function (k) { return state.t[k] && k !== 'fade'; }).map(function (k) { return ' t-' + k + (k === 'mouse' ? ' bg--mouse' : ''); }).join('');
+        if (state.t.fade) { bg.classList.add('bg--fade'); if (replayFade) { bg.style.animation = 'none'; void bg.offsetWidth; bg.style.animation = ''; } }
+        if (!state.t.mouse) { root.style.setProperty('--mx', 0); root.style.setProperty('--my', 0); }
+        bg.style.display = state.show ? '' : 'none';
+        root.style.setProperty('--page', state.color);
+        root.style.setProperty('--shift', state.shift + 'px');
+        root.style.setProperty('--spd', state.spd);
+        root.style.setProperty('--amp', state.amp);
+        root.style.setProperty('--blob-o', state.blobO);
+        root.style.setProperty('--lines-o', state.linesO);
+        ctl.classList.toggle('is-wave', isWave);
+        ctl.classList.toggle('is-organic', isOrg);
+        document.getElementById('desc').textContent = DESC[state.mode] || '';
+        if (isWave && state.show) { if (wave.paths.length !== state.wN) buildWave(); waveG.setAttribute('stroke-width', state.wW); startWave(); }
+        else stopWave();
+        if (isOrg && state.show) { startOrganic(); if (org.ready) organicFrame(); }
+        else stopOrganic(true);
+        document.getElementById('json').textContent = JSON.stringify(state);
+        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    }
+
+    function syncUI() {
+        ctl.querySelector('[name=mode][value="' + state.mode + '"]').checked = true;
+        ctl.querySelector('[name=color][value="' + state.color + '"]').checked = true;
+        ctl.querySelectorAll('[data-t]').forEach(function (el) { el.checked = !!state.t[el.dataset.t]; });
+        document.getElementById('show').checked = state.show;
+        ctl.querySelectorAll('[data-v]').forEach(function (el) {
+            var k = el.dataset.v;
+            if (el.type === 'checkbox') el.checked = !!state[k];
+            else { el.value = state[k]; var o = el.parentNode.querySelector('output'); if (o) o.value = state[k]; }
+        });
+        ctl.querySelectorAll('[data-o]').forEach(function (el) {
+            var k = el.dataset.o;
+            if (el.type === 'checkbox') el.checked = !!state.o[k];
+            else if (el.tagName === 'SELECT') el.value = state.o[k] || 'out';
+            else { el.value = state.o[k]; var o = el.parentNode.querySelector('output'); if (o) o.value = state.o[k]; }
+        });
+    }
+
+    ctl.addEventListener('input', function (e) {
+        var t = e.target, k;
+        if (t.name === 'mode') {
+            state.mode = t.value;
+            if (OP[t.value]) { state.o = Object.assign({}, OP[t.value]); org.phase = 0; syncUI(); } /* 효과별 기본 조절값·시작 시점으로 */
+        }
+        else if (t.dataset.o) { state.o[t.dataset.o] = t.type === 'checkbox' ? t.checked : t.tagName === 'SELECT' ? t.value : Number(t.value); var oo = t.parentNode.querySelector('output'); if (oo) oo.value = t.value; }
+        else if (t.name === 'color') state.color = t.value;
+        else if (t.id === 'show') state.show = t.checked;
+        else if (t.dataset.t) state.t[t.dataset.t] = t.checked;
+        else if ((k = t.dataset.v)) {
+            state[k] = t.type === 'checkbox' ? t.checked : Number(t.value);
+            var o = t.parentNode.querySelector('output'); if (o) o.value = t.value;
+            if (k === 'wN') buildWave();
+        }
+        apply(t.dataset.t === 'fade' && t.checked);
+    });
+    document.getElementById('btn-reset').addEventListener('click', function () { state = JSON.parse(JSON.stringify(DEF)); syncUI(); buildWave(); apply(true); });
+    document.getElementById('btn-json').addEventListener('click', function () { document.getElementById('json').classList.toggle('is-open'); });
+
+    syncUI(); buildWave(); apply(true);
+})();
+</script>
+</body>
+</html>
