@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AdminDevelopRequestDetailType, DevelopQuoteKindType } from '@sp/api-contract';
 import { useAdminDevelopSettings } from '../../../admin/useAdminDevelop';
@@ -11,6 +11,7 @@ import { defaultDevelopQuoteKind } from './develop-quote-edit';
 // 초안은 상세 응답에 같이 실려 오므로(관리자 응답만 draft 포함) 여기서 따로 조회하지 않는다.
 // 새 견적 기본값은 설정 싱글턴에서 복사한다 — 설정을 못 읽으면 작성 버튼을 열지 않는다.
 const props = defineProps<{ detail: AdminDevelopRequestDetailType }>();
+const emit = defineEmits<{ editing: [value: boolean] }>();
 
 const { t } = useI18n();
 const { data: settingsData } = useAdminDevelopSettings();
@@ -18,6 +19,9 @@ const settings = computed(() => settingsData.value?.data);
 
 const editing = ref(false);
 const editingQuoteId = ref<number | null>(null);
+watch(editing, (value) => {
+  emit('editing', value);
+});
 // 편집기를 매번 새로 세우는 키 — 다른 초안으로 갈아탈 때 폼이 남지 않게 한다.
 const editorSeq = ref(0);
 
@@ -57,7 +61,7 @@ const closeEditor = (): void => {
 </script>
 
 <template>
-  <section id="develop-quotes" class="scroll-mt-16 rounded-xl border border-gray-200 bg-white p-4">
+  <section class="rounded-xl border border-gray-200 bg-white p-4">
     <div class="flex flex-wrap items-center gap-2">
       <h2 class="text-base font-bold text-gray-800">
         {{ t('admin.develop.quote.title') }}

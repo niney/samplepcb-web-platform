@@ -24,6 +24,7 @@ const props = defineProps<{
   aiSupplement: string | null;
   title: string;
 }>();
+const emit = defineEmits<{ dirty: [value: boolean] }>();
 
 const { t } = useI18n();
 
@@ -55,6 +56,7 @@ const dirty = ref(false);
 const onEditorUpdate = (review: MarketDevReviewType, isDirty: boolean): void => {
   working.value = review;
   dirty.value = isDirty;
+  emit('dirty', isDirty);
 };
 
 const tab = ref<'edit' | 'preview'>('edit');
@@ -208,7 +210,7 @@ const busy = computed(
         rows="3"
         :maxlength="20000"
         :placeholder="t('admin.develop.review.supplementPlaceholder')"
-        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-relaxed"
+        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-xs leading-relaxed"
       />
       <div class="flex items-center gap-2">
         <span class="text-xs text-gray-500">{{ t('admin.develop.review.supplementHint') }}</span>

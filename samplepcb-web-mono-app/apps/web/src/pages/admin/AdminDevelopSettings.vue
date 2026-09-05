@@ -133,32 +133,32 @@ async function onSubmit(): Promise<void> {
 
         <label class="block text-base">
           <span class="font-medium text-gray-800">{{ t('admin.develop.settings.terms') }}</span>
-          <textarea v-model="terms" rows="8" :maxlength="20000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
+          <textarea v-model="terms" rows="8" :maxlength="20000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
           <span class="mt-0.5 block text-sm text-gray-500">{{ t('admin.develop.settings.termsHint') }}</span>
         </label>
 
         <label class="block text-base">
           <span class="font-medium text-gray-800">{{ t('admin.develop.settings.exclusions') }}</span>
-          <textarea v-model="exclusions" rows="3" :maxlength="4000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
+          <textarea v-model="exclusions" rows="3" :maxlength="4000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
           <span class="mt-0.5 block text-sm text-gray-500">{{ t('admin.develop.settings.exclusionsHint') }}</span>
         </label>
 
         <div class="grid gap-3 sm:grid-cols-4">
           <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.warrantyDays') }}</span>
-            <input v-model="warrantyDays" type="number" min="0" max="3650" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
+            <input v-model="warrantyDays" type="number" min="0" max="3650" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
           </label>
           <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.reviewDays') }}</span>
-            <input v-model="reviewDays" type="number" min="1" max="90" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
+            <input v-model="reviewDays" type="number" min="1" max="90" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
           </label>
           <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.validDays') }}</span>
-            <input v-model="validDays" type="number" min="1" max="365" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
+            <input v-model="validDays" type="number" min="1" max="365" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
           </label>
           <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.vatMode') }}</span>
-            <select v-model="vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base">
+            <select v-model="vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
               <option v-for="mode in DEVELOP_VAT_MODES" :key="mode" :value="mode">{{ DEVELOP_VAT_MODE_LABELS[mode] }}</option>
             </select>
           </label>
@@ -187,13 +187,13 @@ async function onSubmit(): Promise<void> {
             type="text"
             :maxlength="100"
             :placeholder="t('admin.develop.settings.milestoneTitle')"
-            class="h-9 min-w-40 flex-1 rounded-md border border-gray-300 px-3 text-base"
+            class="h-9 min-w-40 flex-1 rounded-md border border-gray-300 px-3 text-sm"
           >
           <label class="flex items-center gap-1 text-sm text-gray-600">
-            <input v-model="m.percent" type="number" min="0.01" max="100" step="0.01" class="h-9 w-24 rounded-md border border-gray-300 px-2 text-base">
+            <input v-model="m.percent" type="number" min="0.01" max="100" step="0.01" class="h-9 w-24 rounded-md border border-gray-300 px-2 text-sm">
             %
           </label>
-          <select v-model="m.trigger" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm">
+          <select v-model="m.trigger" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs">
             <option v-for="trig in DEVELOP_MILESTONE_TRIGGERS" :key="trig" :value="trig">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[trig] }}</option>
           </select>
           <button
@@ -212,7 +212,7 @@ async function onSubmit(): Promise<void> {
         <h2 class="text-base font-bold text-gray-800">{{ t('admin.develop.settings.notifyAi') }}</h2>
         <label class="block text-base">
           <span class="font-medium text-gray-800">{{ t('admin.develop.settings.notifyEmails') }}</span>
-          <textarea v-model="notifyEmails" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm" />
+          <textarea v-model="notifyEmails" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs" />
           <span class="mt-0.5 block text-sm text-gray-500">{{ t('admin.develop.settings.notifyEmailsHint') }}</span>
         </label>
         <label class="flex items-center gap-1.5 text-base text-gray-700">

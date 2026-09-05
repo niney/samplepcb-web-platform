@@ -62,7 +62,7 @@ const openDetail = (requestId: number): void => {
           v-model="qInput"
           type="search"
           :placeholder="t('admin.develop.searchPlaceholder')"
-          class="h-9 w-64 rounded-lg border border-gray-200 bg-white px-3 text-sm"
+          class="h-9 w-64 rounded-lg border border-gray-200 bg-white px-3 text-xs"
           @keyup.enter="applySearch"
         >
         <button type="button" class="h-9 rounded-lg bg-gray-800 px-3 text-sm font-bold text-white" @click="applySearch">

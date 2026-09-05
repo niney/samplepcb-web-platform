@@ -67,7 +67,7 @@ const addQuestion = (): void => {
         v-model="local.summary"
         rows="2"
         :maxlength="L.summaryLen"
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-base leading-relaxed disabled:bg-gray-50"
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed disabled:bg-gray-50"
       />
     </label>
 
@@ -92,7 +92,7 @@ const addQuestion = (): void => {
             type="text"
             :maxlength="L.factTextLen"
             :placeholder="t('admin.develop.editor.requirementPlaceholder')"
-            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
+            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
           >
           <button
             type="button"
@@ -116,7 +116,7 @@ const addQuestion = (): void => {
       </div>
       <label class="grid gap-1 text-base">
         <span class="text-sm font-semibold text-gray-600">{{ t('admin.develop.editor.areaSummary') }}</span>
-        <input v-model="area.summary" type="text" :maxlength="L.areaSummaryLen" class="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-base">
+        <input v-model="area.summary" type="text" :maxlength="L.areaSummaryLen" class="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm">
       </label>
 
       <div class="grid gap-2">
@@ -139,14 +139,14 @@ const addQuestion = (): void => {
               type="text"
               :maxlength="L.specItemLen"
               :placeholder="t('admin.develop.editor.specItemPlaceholder')"
-              class="w-32 shrink-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
+              class="w-32 shrink-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
             >
             <input
               v-model="row.text"
               type="text"
               :maxlength="L.factTextLen"
               :placeholder="t('admin.develop.editor.specTextPlaceholder')"
-              class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
+              class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
             >
             <button
               type="button"
@@ -180,7 +180,7 @@ const addQuestion = (): void => {
             v-model="row.text"
             type="text"
             :maxlength="L.factTextLen"
-            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
+            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
           >
           <button
             type="button"
@@ -215,7 +215,7 @@ const addQuestion = (): void => {
             type="text"
             :maxlength="L.questionLen"
             :placeholder="t('admin.develop.editor.questionPlaceholder')"
-            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
+            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
           >
           <button
             type="button"
@@ -230,14 +230,14 @@ const addQuestion = (): void => {
           type="text"
           :maxlength="L.whyLen"
           :placeholder="t('admin.develop.editor.whyPlaceholder')"
-          class="w-full rounded-md border border-gray-200 px-2.5 py-1.5 text-sm"
+          class="w-full rounded-md border border-gray-200 px-2.5 py-1.5 text-xs"
         >
         <textarea
           v-model="row.resolution"
           rows="2"
           :maxlength="L.resolutionLen"
           :placeholder="t('admin.develop.editor.resolutionPlaceholder')"
-          class="w-full rounded-md border border-emerald-200 px-2.5 py-1.5 text-sm leading-relaxed"
+          class="w-full rounded-md border border-emerald-200 px-2.5 py-1.5 text-xs leading-relaxed"
         />
       </div>
       <p v-if="local.openQuestions.length === 0" class="text-sm text-gray-400">{{ t('admin.develop.editor.noRows') }}</p>
@@ -257,7 +257,7 @@ const addQuestion = (): void => {
         rows="4"
         :maxlength="L.adminCommentLen"
         :placeholder="t('admin.develop.editor.adminCommentPlaceholder')"
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-base leading-relaxed"
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed"
       />
       <span class="text-xs text-gray-500">{{ t('admin.develop.editor.adminCommentHint') }}</span>
     </label>

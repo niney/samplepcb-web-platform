@@ -89,7 +89,7 @@ const timestamps = computed(() =>
 
       <label class="ml-auto inline-flex items-center gap-1.5 text-gray-600" :title="t('admin.develop.side.reviewDaysHint')">
         {{ t('admin.develop.side.reviewDays') }}
-        <input v-model="reviewDays" type="number" min="1" max="90" class="h-8 w-16 rounded-md border border-gray-300 px-2 text-sm">
+        <input v-model="reviewDays" type="number" min="1" max="90" class="h-8 w-16 rounded-md border border-gray-300 px-2 text-xs">
         {{ t('admin.develop.side.days') }}
         <button
           type="button"
@@ -121,7 +121,7 @@ const timestamps = computed(() =>
           rows="5"
           :maxlength="20000"
           :placeholder="t('admin.develop.side.memoPlaceholder')"
-          class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-relaxed"
+          class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-xs leading-relaxed"
         />
         <div class="flex items-center gap-2">
           <span class="text-xs text-gray-500">{{ t('admin.develop.side.memoHint') }}</span>

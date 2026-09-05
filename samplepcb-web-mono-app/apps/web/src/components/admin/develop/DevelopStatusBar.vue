@@ -94,7 +94,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         {{ t('admin.develop.status.assignee') }}
         <select
           :value="assigneeMbId ?? ''"
-          class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm"
+          class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs"
           :disabled="busy"
           @change="onAssignee"
         >
@@ -162,7 +162,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         rows="2"
         :maxlength="1000"
         :placeholder="t('admin.develop.status.reasonPlaceholder')"
-        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-relaxed"
+        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-xs leading-relaxed"
       />
       <div class="flex items-center gap-2">
         <button

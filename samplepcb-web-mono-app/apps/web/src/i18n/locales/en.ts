@@ -726,6 +726,17 @@ export const en = {
         diagram: 'System diagram',
         quotes: 'Quotes',
         timeline: 'Timeline',
+        sideOpen: 'Show request beside',
+        sideClose: 'Hide side view',
+        badge: {
+          running: 'Running',
+          ready: 'Draft',
+          published: 'Published',
+          publishedStale: 'Edited after publish',
+          error: 'Error',
+          editing: 'Editing',
+          sent: 'Sent {count}',
+        },
       },
       side: {
         memo: 'Internal memo',

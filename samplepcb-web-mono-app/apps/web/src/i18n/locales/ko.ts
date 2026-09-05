@@ -725,6 +725,17 @@ export const ko = {
         diagram: '시스템 구성도',
         quotes: '견적서',
         timeline: '진행 타임라인',
+        sideOpen: '의뢰 내용 옆에 보기',
+        sideClose: '옆 보기 닫기',
+        badge: {
+          running: '생성 중',
+          ready: '초안',
+          published: '공개',
+          publishedStale: '공개 뒤 수정',
+          error: '오류',
+          editing: '수정 중',
+          sent: '발송 {count}',
+        },
       },
       side: {
         memo: '내부 메모',

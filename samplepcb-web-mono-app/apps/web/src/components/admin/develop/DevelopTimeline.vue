@@ -136,7 +136,7 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
     <!-- 작성 폼 -->
     <form class="mt-3 grid gap-2 rounded-lg border border-gray-200 bg-gray-50/60 p-3" @submit.prevent="onSubmit">
       <div class="flex flex-wrap items-center gap-2">
-        <select v-model="type" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm">
+        <select v-model="type" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs">
           <option v-for="et in DEVELOP_ADMIN_EVENT_TYPES" :key="et" :value="et">{{ DEVELOP_EVENT_TYPE_LABELS[et] }}</option>
         </select>
         <input
@@ -144,7 +144,7 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
           type="text"
           :maxlength="200"
           :placeholder="t('admin.develop.timeline.titlePlaceholder')"
-          class="h-9 min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 text-sm"
+          class="h-9 min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 text-xs"
         >
       </div>
       <textarea
@@ -152,7 +152,7 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
         rows="3"
         :maxlength="10000"
         :placeholder="t('admin.develop.timeline.bodyPlaceholder')"
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed"
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
       />
 
       <label v-if="type === 'note'" class="inline-flex items-center gap-1.5 text-sm text-gray-700">
@@ -175,19 +175,19 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
       <div v-if="type === 'tax_invoice'" class="grid gap-2 sm:grid-cols-2">
         <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.issuedAt') }}
-          <input v-model="invoiceIssuedAt" type="date" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
+          <input v-model="invoiceIssuedAt" type="date" class="h-9 rounded-md border border-gray-300 px-2 text-xs">
         </label>
         <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.memo') }}
-          <input v-model="invoiceMemo" type="text" :maxlength="200" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
+          <input v-model="invoiceMemo" type="text" :maxlength="200" class="h-9 rounded-md border border-gray-300 px-2 text-xs">
         </label>
         <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.supplyAmount') }}
-          <input v-model="invoiceSupply" type="text" inputmode="numeric" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
+          <input v-model="invoiceSupply" type="text" inputmode="numeric" class="h-9 rounded-md border border-gray-300 px-2 text-xs">
         </label>
         <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.vatAmount') }}
-          <input v-model="invoiceVat" type="text" inputmode="numeric" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
+          <input v-model="invoiceVat" type="text" inputmode="numeric" class="h-9 rounded-md border border-gray-300 px-2 text-xs">
         </label>
       </div>
 
