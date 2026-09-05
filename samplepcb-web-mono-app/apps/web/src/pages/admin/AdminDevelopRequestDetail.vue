@@ -92,8 +92,8 @@ const sections = [
       </nav>
 
       <div class="grid min-w-0 gap-4">
-        <div id="develop-content" class="scroll-mt-28"><DevelopRequestContent :detail="detail" /></div>
-        <div id="develop-review" class="scroll-mt-28">
+        <div id="develop-content" class="scroll-mt-16"><DevelopRequestContent :detail="detail" /></div>
+        <div id="develop-review" class="scroll-mt-16">
           <DevelopReviewPanel
             :request-id="detail.requestId"
             :review="detail.review"
@@ -102,15 +102,15 @@ const sections = [
             :title="detail.title"
           />
         </div>
-        <div id="develop-diagram" class="scroll-mt-28">
+        <div id="develop-diagram" class="scroll-mt-16">
           <DevelopDiagramPanel
             :request-id="detail.requestId"
             :diagram="detail.diagram"
             :ai-consent="detail.aiConsent"
           />
         </div>
-        <div class="scroll-mt-28"><DevelopQuoteSection :detail="detail" /></div>
-        <div id="develop-timeline" class="scroll-mt-28">
+        <div class="scroll-mt-16"><DevelopQuoteSection :detail="detail" /></div>
+        <div id="develop-timeline" class="scroll-mt-16">
           <DevelopTimeline :request-id="detail.requestId" :events="detail.events" :status="detail.status" />
         </div>
       </div>
