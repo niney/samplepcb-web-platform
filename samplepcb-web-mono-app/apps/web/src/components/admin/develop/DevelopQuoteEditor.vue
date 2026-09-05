@@ -215,12 +215,12 @@ async function onDeleteConfirm(): Promise<void> {
 <template>
   <section class="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
     <div class="flex flex-wrap items-center gap-2">
-      <h3 class="text-sm font-bold text-gray-900">
+      <h3 class="text-base font-bold text-gray-900">
         {{ version === null ? t('admin.develop.quote.newTitle') : t('admin.develop.quote.editTitle', { version: version }) }}
       </h3>
       <button
         type="button"
-        class="ml-auto rounded-md border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50"
+        class="ml-auto rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50"
         @click="emit('close')"
       >
         {{ t('admin.develop.quote.close') }}
@@ -229,52 +229,52 @@ async function onDeleteConfirm(): Promise<void> {
 
     <!-- 헤더 -->
     <div class="mt-3 grid gap-3 rounded-lg border border-gray-200 bg-white p-3 sm:grid-cols-2 xl:grid-cols-3">
-      <label class="block text-xs sm:col-span-2 xl:col-span-3">
+      <label class="block text-sm sm:col-span-2 xl:col-span-3">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.fieldTitle') }}</span>
         <input
           v-model="form.title"
           type="text"
           :maxlength="DEVELOP_QUOTE_LIMITS.titleLen"
-          class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base"
         >
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.kind') }}</span>
-        <select v-model="form.kind" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+        <select v-model="form.kind" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base">
           <option v-for="k in allowedKinds" :key="k" :value="k">{{ DEVELOP_QUOTE_KIND_LABELS[k] }}</option>
         </select>
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.vatMode') }}</span>
-        <select v-model="form.vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+        <select v-model="form.vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base">
           <option v-for="mode in DEVELOP_VAT_MODES" :key="mode" :value="mode">{{ DEVELOP_VAT_MODE_LABELS[mode] }}</option>
         </select>
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.validUntil') }}</span>
-        <input v-model="form.validUntil" type="date" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+        <input v-model="form.validUntil" type="date" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.durationDays') }}</span>
-        <input v-model="form.durationDays" type="number" min="1" :max="DEVELOP_QUOTE_LIMITS.durationDaysMax" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+        <input v-model="form.durationDays" type="number" min="1" :max="DEVELOP_QUOTE_LIMITS.durationDaysMax" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.reviewDays') }}</span>
-        <input v-model="form.reviewDays" type="number" min="1" :max="DEVELOP_QUOTE_LIMITS.reviewDaysMax" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+        <input v-model="form.reviewDays" type="number" min="1" :max="DEVELOP_QUOTE_LIMITS.reviewDaysMax" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.warrantyDays') }}</span>
-        <input v-model="form.warrantyDays" type="number" min="0" :max="DEVELOP_QUOTE_LIMITS.warrantyDaysMax" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+        <input v-model="form.warrantyDays" type="number" min="0" :max="DEVELOP_QUOTE_LIMITS.warrantyDaysMax" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
       </label>
     </div>
 
     <!-- 항목표 -->
     <div class="mt-3 rounded-lg border border-gray-200 bg-white p-3">
       <div class="flex flex-wrap items-center gap-2">
-        <h4 class="text-xs font-bold text-gray-800">{{ t('admin.develop.quote.items') }}</h4>
+        <h4 class="text-sm font-bold text-gray-800">{{ t('admin.develop.quote.items') }}</h4>
         <button
           type="button"
-          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="form.items.length >= DEVELOP_QUOTE_LIMITS.items"
           @click="addItem"
         >
@@ -284,20 +284,20 @@ async function onDeleteConfirm(): Promise<void> {
 
       <div v-for="(it, i) in form.items" :key="`item-${i}`" class="mt-2 grid gap-1.5 rounded-md border border-gray-100 p-2">
         <div class="flex flex-wrap items-center gap-1.5">
-          <span class="w-5 text-[11px] font-bold text-gray-400">{{ i + 1 }}</span>
+          <span class="w-5 text-xs font-bold text-gray-400">{{ i + 1 }}</span>
           <input
             v-model="it.title"
             type="text"
             :maxlength="DEVELOP_QUOTE_LIMITS.itemTitleLen"
             :placeholder="t('admin.develop.quote.itemTitle')"
-            class="h-9 min-w-40 flex-1 rounded-md border border-gray-300 px-3 text-sm"
+            class="h-9 min-w-40 flex-1 rounded-md border border-gray-300 px-3 text-base"
           >
           <input
             v-model="it.amount"
             type="text"
             inputmode="numeric"
             :placeholder="t('admin.develop.quote.itemAmount')"
-            class="h-9 w-36 rounded-md border border-gray-300 px-3 text-right text-sm"
+            class="h-9 w-36 rounded-md border border-gray-300 px-3 text-right text-base"
             @blur="it.amount = formatAmountInput(it.amount)"
           >
           <input
@@ -306,11 +306,11 @@ async function onDeleteConfirm(): Promise<void> {
             min="1"
             :max="DEVELOP_QUOTE_LIMITS.durationDaysMax"
             :placeholder="t('admin.develop.quote.itemDays')"
-            class="h-9 w-24 rounded-md border border-gray-300 px-2 text-sm"
+            class="h-9 w-24 rounded-md border border-gray-300 px-2 text-base"
           >
           <button
             type="button"
-            class="rounded-md border border-gray-300 px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-50 disabled:opacity-30"
+            class="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50 disabled:opacity-30"
             :disabled="i === 0"
             @click="moveItem(i, -1)"
           >
@@ -318,7 +318,7 @@ async function onDeleteConfirm(): Promise<void> {
           </button>
           <button
             type="button"
-            class="rounded-md border border-gray-300 px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-50 disabled:opacity-30"
+            class="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50 disabled:opacity-30"
             :disabled="i === form.items.length - 1"
             @click="moveItem(i, 1)"
           >
@@ -326,7 +326,7 @@ async function onDeleteConfirm(): Promise<void> {
           </button>
           <button
             type="button"
-            class="rounded-md border border-red-200 px-2 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+            class="rounded-md border border-red-200 px-2 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
             @click="form.items.splice(i, 1)"
           >
             {{ t('admin.develop.quote.removeRow') }}
@@ -337,55 +337,55 @@ async function onDeleteConfirm(): Promise<void> {
           type="text"
           :maxlength="DEVELOP_QUOTE_LIMITS.descriptionLen"
           :placeholder="t('admin.develop.quote.itemDescription')"
-          class="h-8 w-full rounded-md border border-gray-200 px-3 text-xs"
+          class="h-9 w-full rounded-md border border-gray-200 px-3 text-sm"
         >
       </div>
-      <p v-if="form.items.length === 0" class="mt-2 text-xs text-gray-400">{{ t('admin.develop.quote.noItems') }}</p>
+      <p v-if="form.items.length === 0" class="mt-2 text-sm text-gray-400">{{ t('admin.develop.quote.noItems') }}</p>
 
       <!-- 붙여넣기로 채우기 -->
       <div class="mt-3 rounded-md border border-dashed border-gray-300 p-2">
-        <p class="text-[11px] font-bold text-gray-600">{{ t('admin.develop.quote.paste') }}</p>
+        <p class="text-xs font-bold text-gray-600">{{ t('admin.develop.quote.paste') }}</p>
         <textarea
           v-model="pasteText"
           rows="3"
           :placeholder="t('admin.develop.quote.pastePlaceholder')"
-          class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed"
         />
         <div class="mt-1 flex flex-wrap items-center gap-2">
-          <span class="text-[11px] text-gray-500">{{ t('admin.develop.quote.pasteHint') }}</span>
+          <span class="text-xs text-gray-500">{{ t('admin.develop.quote.pasteHint') }}</span>
           <button
             type="button"
-            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
             :disabled="pasteText.trim() === ''"
             @click="applyPaste"
           >
             {{ t('admin.develop.quote.pasteApply') }}
           </button>
         </div>
-        <p v-if="pasteNote !== ''" class="mt-1 text-[11px] text-amber-700">{{ pasteNote }}</p>
+        <p v-if="pasteNote !== ''" class="mt-1 text-xs text-amber-700">{{ pasteNote }}</p>
       </div>
 
       <!-- 합계 -->
-      <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-t border-gray-100 pt-2 text-xs">
+      <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-t border-gray-100 pt-2 text-sm">
         <dt class="text-gray-500">{{ t('admin.develop.quote.supply') }}</dt>
         <dd class="text-right text-gray-800">{{ formatKrw(amounts.supplyAmount) }}</dd>
         <dt class="text-gray-500">{{ t('admin.develop.quote.vat') }}</dt>
         <dd class="text-right text-gray-800">{{ formatKrw(amounts.vatAmount) }}</dd>
         <dt class="font-bold text-gray-800">{{ t('admin.develop.quote.total') }}</dt>
-        <dd class="text-right text-sm font-bold text-gray-900">{{ formatKrw(amounts.totalAmount) }}</dd>
+        <dd class="text-right text-base font-bold text-gray-900">{{ formatKrw(amounts.totalAmount) }}</dd>
       </dl>
     </div>
 
     <!-- 결제 조건 -->
     <div class="mt-3 rounded-lg border border-gray-200 bg-white p-3">
       <div class="flex flex-wrap items-center gap-2">
-        <h4 class="text-xs font-bold text-gray-800">{{ t('admin.develop.quote.milestones') }}</h4>
-        <span class="text-[11px]" :class="ratioSum === 10000 ? 'text-gray-500' : 'font-bold text-red-600'">
+        <h4 class="text-sm font-bold text-gray-800">{{ t('admin.develop.quote.milestones') }}</h4>
+        <span class="text-xs" :class="ratioSum === 10000 ? 'text-gray-500' : 'font-bold text-red-600'">
           {{ t('admin.develop.quote.ratioSum', { percent: (ratioSum / 100).toFixed(2) }) }}
         </span>
         <button
           type="button"
-          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="form.milestones.length >= DEVELOP_QUOTE_LIMITS.milestones"
           @click="addMilestone"
         >
@@ -398,75 +398,75 @@ async function onDeleteConfirm(): Promise<void> {
           type="text"
           :maxlength="DEVELOP_QUOTE_LIMITS.milestoneTitleLen"
           :placeholder="t('admin.develop.quote.milestoneTitle')"
-          class="h-9 min-w-32 flex-1 rounded-md border border-gray-300 px-3 text-sm"
+          class="h-9 min-w-32 flex-1 rounded-md border border-gray-300 px-3 text-base"
         >
-        <label class="flex items-center gap-1 text-[11px] text-gray-600">
-          <input v-model="m.percent" type="number" min="0.01" max="100" step="0.01" class="h-9 w-20 rounded-md border border-gray-300 px-2 text-sm">
+        <label class="flex items-center gap-1 text-xs text-gray-600">
+          <input v-model="m.percent" type="number" min="0.01" max="100" step="0.01" class="h-9 w-20 rounded-md border border-gray-300 px-2 text-base">
           %
         </label>
-        <select v-model="m.trigger" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs">
+        <select v-model="m.trigger" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm">
           <option v-for="trig in DEVELOP_MILESTONE_TRIGGERS" :key="trig" :value="trig">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[trig] }}</option>
         </select>
-        <label class="flex items-center gap-1 text-[11px] text-gray-600">
+        <label class="flex items-center gap-1 text-xs text-gray-600">
           <input type="checkbox" :checked="m.unlocksDeliverables" @change="setUnlocks(i, ($event.target as HTMLInputElement).checked)">
           {{ t('admin.develop.quote.unlocks') }}
         </label>
-        <span class="w-28 text-right text-xs font-semibold text-gray-700">{{ formatKrw(milestoneAmounts[i] ?? 0) }}</span>
+        <span class="w-28 text-right text-sm font-semibold text-gray-700">{{ formatKrw(milestoneAmounts[i] ?? 0) }}</span>
         <button
           type="button"
-          class="rounded-md border border-red-200 px-2 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+          class="rounded-md border border-red-200 px-2 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
           @click="form.milestones.splice(i, 1)"
         >
           {{ t('admin.develop.quote.removeRow') }}
         </button>
       </div>
-      <p class="mt-2 text-[11px] text-gray-500">{{ t('admin.develop.quote.milestonesHint') }}</p>
+      <p class="mt-2 text-xs text-gray-500">{{ t('admin.develop.quote.milestonesHint') }}</p>
     </div>
 
     <!-- 산출물·조건·비고 -->
     <div class="mt-3 grid gap-3 rounded-lg border border-gray-200 bg-white p-3">
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.deliverables') }}</span>
-        <textarea v-model="form.deliverables" rows="4" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
-        <span class="mt-0.5 block text-[11px] text-gray-500">{{ t('admin.develop.quote.deliverablesHint') }}</span>
+        <textarea v-model="form.deliverables" rows="4" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
+        <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.develop.quote.deliverablesHint') }}</span>
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.scheduleNote') }}</span>
-        <textarea v-model="form.scheduleNote" rows="2" :maxlength="DEVELOP_QUOTE_LIMITS.scheduleNoteLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
+        <textarea v-model="form.scheduleNote" rows="2" :maxlength="DEVELOP_QUOTE_LIMITS.scheduleNoteLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.exclusions') }}</span>
-        <textarea v-model="form.exclusions" rows="3" :maxlength="DEVELOP_QUOTE_LIMITS.exclusionsLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
+        <textarea v-model="form.exclusions" rows="3" :maxlength="DEVELOP_QUOTE_LIMITS.exclusionsLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.terms') }}</span>
-        <textarea v-model="form.terms" rows="8" :maxlength="DEVELOP_QUOTE_LIMITS.termsLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
-        <span class="mt-0.5 block text-[11px] text-gray-500">{{ t('admin.develop.quote.termsHint') }}</span>
+        <textarea v-model="form.terms" rows="8" :maxlength="DEVELOP_QUOTE_LIMITS.termsLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
+        <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.develop.quote.termsHint') }}</span>
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.note') }}</span>
-        <textarea v-model="form.note" rows="2" :maxlength="DEVELOP_QUOTE_LIMITS.noteLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
+        <textarea v-model="form.note" rows="2" :maxlength="DEVELOP_QUOTE_LIMITS.noteLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
       </label>
-      <label class="block text-xs">
+      <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.internalNote') }}</span>
-        <textarea v-model="form.internalNote" rows="2" :maxlength="DEVELOP_QUOTE_LIMITS.internalNoteLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
-        <span class="mt-0.5 block text-[11px] text-gray-500">{{ t('admin.develop.quote.internalNoteHint') }}</span>
+        <textarea v-model="form.internalNote" rows="2" :maxlength="DEVELOP_QUOTE_LIMITS.internalNoteLen" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
+        <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.develop.quote.internalNoteHint') }}</span>
       </label>
     </div>
 
     <!-- 검사 결과 -->
-    <ul v-if="issues.length > 0" class="mt-3 grid gap-0.5 text-[11px] text-red-600">
+    <ul v-if="issues.length > 0" class="mt-3 grid gap-0.5 text-xs text-red-600">
       <li v-for="(issue, i) in issues" :key="i">· {{ issue }}</li>
     </ul>
 
     <!-- 발송 확인 -->
     <div v-if="confirmMode === 'send'" class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-      <p class="text-xs font-bold text-amber-900">{{ t('admin.develop.quote.sendConfirmTitle') }}</p>
-      <p class="mt-1 text-xs text-amber-900">
+      <p class="text-sm font-bold text-amber-900">{{ t('admin.develop.quote.sendConfirmTitle') }}</p>
+      <p class="mt-1 text-sm text-amber-900">
         {{ t('admin.develop.quote.total') }} <b>{{ formatKrw(amounts.totalAmount) }}</b>
         ({{ DEVELOP_VAT_MODE_LABELS[form.vatMode] }}) · {{ t('admin.develop.quote.itemsCount', { count: form.items.length }) }}
       </p>
-      <ul class="mt-1 grid gap-0.5 text-[11px] text-amber-900">
+      <ul class="mt-1 grid gap-0.5 text-xs text-amber-900">
         <li v-for="(m, i) in form.milestones" :key="`c-${i}`">
           · {{ m.title }} — {{ m.percent }}% · {{ DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger] }} · {{ formatKrw(milestoneAmounts[i] ?? 0) }}
         </li>
@@ -474,7 +474,7 @@ async function onDeleteConfirm(): Promise<void> {
       <div class="mt-2 flex items-center gap-2">
         <button
           type="button"
-          class="rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+          class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
           :disabled="busy"
           @click="onSendConfirm"
         >
@@ -482,7 +482,7 @@ async function onDeleteConfirm(): Promise<void> {
         </button>
         <button
           type="button"
-          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:bg-gray-50"
+          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
           @click="confirmMode = 'none'"
         >
           {{ t('admin.develop.quote.confirmNo') }}
@@ -492,11 +492,11 @@ async function onDeleteConfirm(): Promise<void> {
 
     <!-- 삭제 확인 -->
     <div v-if="confirmMode === 'delete'" class="mt-3 rounded-lg border border-red-300 bg-red-50 p-3">
-      <p class="text-xs font-bold text-red-800">{{ t('admin.develop.quote.deleteConfirm') }}</p>
+      <p class="text-sm font-bold text-red-800">{{ t('admin.develop.quote.deleteConfirm') }}</p>
       <div class="mt-2 flex items-center gap-2">
         <button
           type="button"
-          class="rounded-md bg-red-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-red-700 disabled:opacity-40"
+          class="rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-40"
           :disabled="busy"
           @click="onDeleteConfirm"
         >
@@ -504,7 +504,7 @@ async function onDeleteConfirm(): Promise<void> {
         </button>
         <button
           type="button"
-          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:bg-gray-50"
+          class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
           @click="confirmMode = 'none'"
         >
           {{ t('admin.develop.quote.confirmNo') }}
@@ -516,7 +516,7 @@ async function onDeleteConfirm(): Promise<void> {
     <div class="mt-3 flex flex-wrap items-center gap-2">
       <button
         type="button"
-        class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+        class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
         :disabled="busy"
         @click="onSave"
       >
@@ -524,7 +524,7 @@ async function onDeleteConfirm(): Promise<void> {
       </button>
       <button
         type="button"
-        class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+        class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
         :disabled="busy || liveIssues.length > 0"
         @click="onSendClick"
       >
@@ -533,13 +533,13 @@ async function onDeleteConfirm(): Promise<void> {
       <button
         v-if="quoteId !== null"
         type="button"
-        class="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
+        class="rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
         :disabled="busy"
         @click="confirmMode = 'delete'"
       >
         {{ t('admin.develop.quote.delete') }}
       </button>
-      <span v-if="notice !== ''" class="text-xs font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</span>
+      <span v-if="notice !== ''" class="text-sm font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</span>
     </div>
   </section>
 </template>

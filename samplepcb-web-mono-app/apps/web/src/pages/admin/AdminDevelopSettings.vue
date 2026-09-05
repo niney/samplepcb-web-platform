@@ -123,42 +123,42 @@ async function onSubmit(): Promise<void> {
 
 <template>
   <div class="space-y-4">
-    <h1 class="text-xl font-bold">{{ t('admin.develop.settings.title') }}</h1>
-    <p v-if="isLoading" class="text-sm text-gray-500">{{ t('admin.develop.loading') }}</p>
+    <h1 class="text-2xl font-bold">{{ t('admin.develop.settings.title') }}</h1>
+    <p v-if="isLoading" class="text-base text-gray-500">{{ t('admin.develop.loading') }}</p>
 
     <form v-else class="max-w-4xl space-y-5" @submit.prevent="onSubmit">
       <!-- 견적서 기본값 -->
       <section class="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
-        <h2 class="text-sm font-bold text-gray-800">{{ t('admin.develop.settings.quoteDefaults') }}</h2>
+        <h2 class="text-base font-bold text-gray-800">{{ t('admin.develop.settings.quoteDefaults') }}</h2>
 
-        <label class="block text-sm">
+        <label class="block text-base">
           <span class="font-medium text-gray-800">{{ t('admin.develop.settings.terms') }}</span>
-          <textarea v-model="terms" rows="8" :maxlength="20000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
-          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.develop.settings.termsHint') }}</span>
+          <textarea v-model="terms" rows="8" :maxlength="20000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
+          <span class="mt-0.5 block text-sm text-gray-500">{{ t('admin.develop.settings.termsHint') }}</span>
         </label>
 
-        <label class="block text-sm">
+        <label class="block text-base">
           <span class="font-medium text-gray-800">{{ t('admin.develop.settings.exclusions') }}</span>
-          <textarea v-model="exclusions" rows="3" :maxlength="4000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed" />
-          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.develop.settings.exclusionsHint') }}</span>
+          <textarea v-model="exclusions" rows="3" :maxlength="4000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed" />
+          <span class="mt-0.5 block text-sm text-gray-500">{{ t('admin.develop.settings.exclusionsHint') }}</span>
         </label>
 
         <div class="grid gap-3 sm:grid-cols-4">
-          <label class="block text-sm">
+          <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.warrantyDays') }}</span>
-            <input v-model="warrantyDays" type="number" min="0" max="3650" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+            <input v-model="warrantyDays" type="number" min="0" max="3650" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
           </label>
-          <label class="block text-sm">
+          <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.reviewDays') }}</span>
-            <input v-model="reviewDays" type="number" min="1" max="90" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+            <input v-model="reviewDays" type="number" min="1" max="90" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
           </label>
-          <label class="block text-sm">
+          <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.validDays') }}</span>
-            <input v-model="validDays" type="number" min="1" max="365" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+            <input v-model="validDays" type="number" min="1" max="365" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-base">
           </label>
-          <label class="block text-sm">
+          <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.vatMode') }}</span>
-            <select v-model="vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <select v-model="vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base">
               <option v-for="mode in DEVELOP_VAT_MODES" :key="mode" :value="mode">{{ DEVELOP_VAT_MODE_LABELS[mode] }}</option>
             </select>
           </label>
@@ -168,13 +168,13 @@ async function onSubmit(): Promise<void> {
       <!-- 기본 마일스톤 -->
       <section class="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
         <div class="flex flex-wrap items-center gap-2">
-          <h2 class="text-sm font-bold text-gray-800">{{ t('admin.develop.settings.milestones') }}</h2>
-          <span class="text-xs" :class="ratioSum === 10000 ? 'text-gray-500' : 'font-bold text-red-600'">
+          <h2 class="text-base font-bold text-gray-800">{{ t('admin.develop.settings.milestones') }}</h2>
+          <span class="text-sm" :class="ratioSum === 10000 ? 'text-gray-500' : 'font-bold text-red-600'">
             {{ t('admin.develop.settings.ratioSum', { percent: (ratioSum / 100).toFixed(2) }) }}
           </span>
           <button
             type="button"
-            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
             :disabled="milestones.length >= 10"
             @click="addMilestone"
           >
@@ -187,58 +187,58 @@ async function onSubmit(): Promise<void> {
             type="text"
             :maxlength="100"
             :placeholder="t('admin.develop.settings.milestoneTitle')"
-            class="h-9 min-w-40 flex-1 rounded-md border border-gray-300 px-3 text-sm"
+            class="h-9 min-w-40 flex-1 rounded-md border border-gray-300 px-3 text-base"
           >
-          <label class="flex items-center gap-1 text-xs text-gray-600">
-            <input v-model="m.percent" type="number" min="0.01" max="100" step="0.01" class="h-9 w-24 rounded-md border border-gray-300 px-2 text-sm">
+          <label class="flex items-center gap-1 text-sm text-gray-600">
+            <input v-model="m.percent" type="number" min="0.01" max="100" step="0.01" class="h-9 w-24 rounded-md border border-gray-300 px-2 text-base">
             %
           </label>
-          <select v-model="m.trigger" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs">
+          <select v-model="m.trigger" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm">
             <option v-for="trig in DEVELOP_MILESTONE_TRIGGERS" :key="trig" :value="trig">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[trig] }}</option>
           </select>
           <button
             type="button"
-            class="rounded-md border border-red-200 px-2.5 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+            class="rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
             @click="milestones.splice(i, 1)"
           >
             {{ t('admin.develop.settings.removeMilestone') }}
           </button>
         </div>
-        <p class="text-xs text-gray-500">{{ t('admin.develop.settings.milestonesHint') }}</p>
+        <p class="text-sm text-gray-500">{{ t('admin.develop.settings.milestonesHint') }}</p>
       </section>
 
       <!-- 알림·AI -->
       <section class="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
-        <h2 class="text-sm font-bold text-gray-800">{{ t('admin.develop.settings.notifyAi') }}</h2>
-        <label class="block text-sm">
+        <h2 class="text-base font-bold text-gray-800">{{ t('admin.develop.settings.notifyAi') }}</h2>
+        <label class="block text-base">
           <span class="font-medium text-gray-800">{{ t('admin.develop.settings.notifyEmails') }}</span>
-          <textarea v-model="notifyEmails" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs" />
-          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.develop.settings.notifyEmailsHint') }}</span>
+          <textarea v-model="notifyEmails" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm" />
+          <span class="mt-0.5 block text-sm text-gray-500">{{ t('admin.develop.settings.notifyEmailsHint') }}</span>
         </label>
-        <label class="flex items-center gap-1.5 text-sm text-gray-700">
+        <label class="flex items-center gap-1.5 text-base text-gray-700">
           <input v-model="aiAutoDraft" type="checkbox">
           {{ t('admin.develop.settings.aiAutoDraft') }}
         </label>
-        <label class="flex items-center gap-1.5 text-sm text-gray-700">
+        <label class="flex items-center gap-1.5 text-base text-gray-700">
           <input v-model="aiDiagramAutoDraft" type="checkbox">
           {{ t('admin.develop.settings.aiDiagramAutoDraft') }}
         </label>
       </section>
 
-      <ul v-if="issues.length > 0" class="grid gap-0.5 text-xs text-red-600">
+      <ul v-if="issues.length > 0" class="grid gap-0.5 text-sm text-red-600">
         <li v-for="(issue, i) in issues" :key="i">· {{ issue }}</li>
       </ul>
 
       <div class="flex items-center gap-3">
         <button
           type="submit"
-          class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          class="rounded-md bg-blue-600 px-4 py-2 text-base font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="save.isPending.value || issues.length > 0"
         >
           {{ save.isPending.value ? t('admin.develop.saving') : t('admin.develop.settings.save') }}
         </button>
-        <span v-if="notice !== ''" class="text-sm font-semibold" :class="noticeError ? 'text-red-600' : 'text-green-600'">{{ notice }}</span>
-        <span v-if="data !== undefined && data.data.updatedAt !== null" class="ml-auto text-xs text-gray-400">
+        <span v-if="notice !== ''" class="text-base font-semibold" :class="noticeError ? 'text-red-600' : 'text-green-600'">{{ notice }}</span>
+        <span v-if="data !== undefined && data.data.updatedAt !== null" class="ml-auto text-sm text-gray-400">
           {{ t('admin.develop.settings.updatedAt') }} {{ formatDateTime(data.data.updatedAt) }}
         </span>
       </div>

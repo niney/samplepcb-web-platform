@@ -59,20 +59,20 @@ const closeEditor = (): void => {
 <template>
   <section id="develop-quotes" class="scroll-mt-28 rounded-xl border border-gray-200 bg-white p-4">
     <div class="flex flex-wrap items-center gap-2">
-      <h2 class="text-sm font-bold text-gray-800">
+      <h2 class="text-base font-bold text-gray-800">
         {{ t('admin.develop.quote.title') }}
-        <span class="ml-1 text-[11px] font-normal text-gray-400">{{ detail.quotes.length }}</span>
+        <span class="ml-1 text-xs font-normal text-gray-400">{{ detail.quotes.length }}</span>
       </h2>
       <button
         v-if="!closed"
         type="button"
-        class="ml-auto rounded-md border border-blue-300 px-2.5 py-1 text-[11px] font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+        class="ml-auto rounded-md border border-blue-300 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
         :disabled="editing || settings === undefined"
         @click="openNew"
       >
         {{ t('admin.develop.quote.new') }}
       </button>
-      <span v-else class="ml-auto text-[11px] text-gray-400">{{ t('admin.develop.quote.closed') }}</span>
+      <span v-else class="ml-auto text-xs text-gray-400">{{ t('admin.develop.quote.closed') }}</span>
     </div>
 
     <DevelopQuoteEditor
@@ -95,7 +95,7 @@ const closeEditor = (): void => {
         :quote="q"
         @edit="openEdit(q.quoteId)"
       />
-      <p v-if="detail.quotes.length === 0 && !editing" class="py-4 text-center text-xs text-gray-400">
+      <p v-if="detail.quotes.length === 0 && !editing" class="py-4 text-center text-sm text-gray-400">
         {{ t('admin.develop.quote.empty') }}
       </p>
     </div>

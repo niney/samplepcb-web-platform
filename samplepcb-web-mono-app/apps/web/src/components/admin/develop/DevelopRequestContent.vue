@@ -66,13 +66,13 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
 
 <template>
   <section class="rounded-xl border border-gray-200 bg-white p-4">
-    <h2 class="text-sm font-bold text-gray-800">{{ t('admin.develop.content.title') }}</h2>
+    <h2 class="text-base font-bold text-gray-800">{{ t('admin.develop.content.title') }}</h2>
 
-    <p class="mt-3 whitespace-pre-line rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
+    <p class="mt-3 whitespace-pre-line rounded-lg bg-gray-50 p-3 text-sm leading-relaxed text-gray-700">
       {{ detail.description }}
     </p>
 
-    <dl class="mt-4 grid grid-cols-[104px_1fr] gap-y-2 text-xs">
+    <dl class="mt-4 grid grid-cols-[104px_1fr] gap-y-2 text-sm">
       <dt class="text-gray-500">{{ t('admin.develop.content.budget') }}</dt>
       <dd class="font-semibold text-gray-800">{{ MARKET_BUDGET_RANGE_LABELS[detail.budgetRange] }}</dd>
       <dt class="text-gray-500">{{ t('admin.develop.content.nda') }}</dt>
@@ -95,8 +95,8 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
 
     <!-- 연락처 — 접수 뒤 전화·미팅으로 요구사항을 좁히는 것이 실무라 필수 항목이다. -->
     <div class="mt-4 rounded-lg border border-gray-200 p-3">
-      <p class="text-xs font-bold text-gray-500">{{ t('admin.develop.content.contact') }}</p>
-      <dl class="mt-1.5 grid grid-cols-[104px_1fr] gap-y-1.5 text-xs">
+      <p class="text-sm font-bold text-gray-500">{{ t('admin.develop.content.contact') }}</p>
+      <dl class="mt-1.5 grid grid-cols-[104px_1fr] gap-y-1.5 text-sm">
         <dt class="text-gray-500">{{ t('admin.develop.content.contactName') }}</dt>
         <dd class="font-semibold text-gray-800">
           {{ detail.contact.name }}
@@ -114,8 +114,8 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
     </div>
 
     <div v-if="answerRows.length > 0" class="mt-4">
-      <p class="text-xs font-bold text-gray-500">{{ t('admin.develop.content.answers', { count: answerRows.length }) }}</p>
-      <dl class="mt-1.5 grid grid-cols-[112px_1fr] gap-y-1.5 rounded-lg border border-gray-100 px-3 py-2 text-xs">
+      <p class="text-sm font-bold text-gray-500">{{ t('admin.develop.content.answers', { count: answerRows.length }) }}</p>
+      <dl class="mt-1.5 grid grid-cols-[112px_1fr] gap-y-1.5 rounded-lg border border-gray-100 px-3 py-2 text-sm">
         <template v-for="row in answerRows" :key="row.code">
           <dt class="text-gray-500" :title="row.question">{{ row.label }}</dt>
           <dd :class="row.unknown ? 'text-amber-700' : 'text-gray-800'">{{ row.value }}</dd>
@@ -124,24 +124,24 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
     </div>
 
     <div class="mt-4">
-      <p class="text-xs font-bold text-gray-500">{{ t('admin.develop.content.files', { count: detail.files.length }) }}</p>
-      <p v-if="downloadError !== ''" class="mt-1 text-xs font-semibold text-red-600">{{ downloadError }}</p>
+      <p class="text-sm font-bold text-gray-500">{{ t('admin.develop.content.files', { count: detail.files.length }) }}</p>
+      <p v-if="downloadError !== ''" class="mt-1 text-sm font-semibold text-red-600">{{ downloadError }}</p>
       <ul class="mt-1.5 grid gap-1">
         <li
           v-for="f in detail.files"
           :key="f.fileId"
-          class="flex min-w-0 items-center gap-2 rounded-lg border border-gray-100 px-3 py-1.5 text-xs"
+          class="flex min-w-0 items-center gap-2 rounded-lg border border-gray-100 px-3 py-1.5 text-sm"
         >
-          <span v-if="slotLabel(f.area, f.slot) !== ''" class="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+          <span v-if="slotLabel(f.area, f.slot) !== ''" class="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-bold text-indigo-700">
             {{ slotLabel(f.area, f.slot) }}
           </span>
           <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
-          <span class="shrink-0 text-[11px] text-gray-400">{{ formatBytes(f.size) }}</span>
+          <span class="shrink-0 text-xs text-gray-400">{{ formatBytes(f.size) }}</span>
           <button type="button" class="shrink-0 font-bold text-blue-600 hover:text-blue-700" @click="downloadFile(f.fileId, f.name)">
             {{ t('admin.develop.content.download') }}
           </button>
         </li>
-        <li v-if="detail.files.length === 0" class="text-xs text-gray-400">{{ t('admin.develop.content.noFiles') }}</li>
+        <li v-if="detail.files.length === 0" class="text-sm text-gray-400">{{ t('admin.develop.content.noFiles') }}</li>
       </ul>
     </div>
   </section>

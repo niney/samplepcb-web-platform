@@ -61,24 +61,24 @@ const addQuestion = (): void => {
 <template>
   <fieldset class="grid gap-5" :disabled="props.disabled">
     <!-- 요약 -->
-    <label class="grid gap-1 text-sm">
+    <label class="grid gap-1 text-base">
       <span class="font-semibold text-gray-800">{{ t('admin.develop.editor.summary') }}</span>
       <textarea
         v-model="local.summary"
         rows="2"
         :maxlength="L.summaryLen"
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed disabled:bg-gray-50"
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-base leading-relaxed disabled:bg-gray-50"
       />
     </label>
 
     <!-- 핵심 요구사항 -->
     <div class="grid gap-2">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold text-gray-800">{{ t('admin.develop.editor.requirements') }}</span>
-        <span class="text-[11px] text-gray-400">{{ local.requirements.length }} / {{ L.requirements }}</span>
+        <span class="text-base font-semibold text-gray-800">{{ t('admin.develop.editor.requirements') }}</span>
+        <span class="text-xs text-gray-400">{{ local.requirements.length }} / {{ L.requirements }}</span>
         <button
           type="button"
-          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="local.requirements.length >= L.requirements"
           @click="addRequirement"
         >
@@ -92,40 +92,40 @@ const addQuestion = (): void => {
             type="text"
             :maxlength="L.factTextLen"
             :placeholder="t('admin.develop.editor.requirementPlaceholder')"
-            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
+            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
           >
           <button
             type="button"
-            class="shrink-0 rounded-md border border-red-200 px-2 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+            class="shrink-0 rounded-md border border-red-200 px-2 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
             @click="local.requirements.splice(i, 1)"
           >
             {{ t('admin.develop.editor.removeRow') }}
           </button>
         </div>
-        <p v-if="row.evidence !== null && row.evidence !== ''" class="text-[11px] text-gray-400">
+        <p v-if="row.evidence !== null && row.evidence !== ''" class="text-xs text-gray-400">
           {{ t('admin.devReview.evidence') }}: {{ row.evidence }}
         </p>
       </div>
-      <p v-if="local.requirements.length === 0" class="text-xs text-gray-400">{{ t('admin.develop.editor.noRows') }}</p>
+      <p v-if="local.requirements.length === 0" class="text-sm text-gray-400">{{ t('admin.develop.editor.noRows') }}</p>
     </div>
 
     <!-- 분야별 검토 -->
     <div v-for="(area, ai) in local.areas" :key="`area-${area.area}-${ai}`" class="grid gap-3 rounded-lg border border-gray-200 p-3">
       <div class="flex flex-wrap items-center gap-2">
-        <span class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">{{ areaTitle(area.area) }}</span>
+        <span class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">{{ areaTitle(area.area) }}</span>
       </div>
-      <label class="grid gap-1 text-sm">
-        <span class="text-xs font-semibold text-gray-600">{{ t('admin.develop.editor.areaSummary') }}</span>
-        <input v-model="area.summary" type="text" :maxlength="L.areaSummaryLen" class="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm">
+      <label class="grid gap-1 text-base">
+        <span class="text-sm font-semibold text-gray-600">{{ t('admin.develop.editor.areaSummary') }}</span>
+        <input v-model="area.summary" type="text" :maxlength="L.areaSummaryLen" class="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-base">
       </label>
 
       <div class="grid gap-2">
         <div class="flex items-center gap-2">
-          <span class="text-xs font-semibold text-gray-600">{{ t('admin.develop.editor.spec') }}</span>
-          <span class="text-[11px] text-gray-400">{{ area.spec.length }} / {{ L.spec }}</span>
+          <span class="text-sm font-semibold text-gray-600">{{ t('admin.develop.editor.spec') }}</span>
+          <span class="text-xs text-gray-400">{{ area.spec.length }} / {{ L.spec }}</span>
           <button
             type="button"
-            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
             :disabled="area.spec.length >= L.spec"
             @click="addSpec(ai)"
           >
@@ -139,24 +139,24 @@ const addQuestion = (): void => {
               type="text"
               :maxlength="L.specItemLen"
               :placeholder="t('admin.develop.editor.specItemPlaceholder')"
-              class="w-32 shrink-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
+              class="w-32 shrink-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
             >
             <input
               v-model="row.text"
               type="text"
               :maxlength="L.factTextLen"
               :placeholder="t('admin.develop.editor.specTextPlaceholder')"
-              class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
+              class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
             >
             <button
               type="button"
-              class="shrink-0 rounded-md border border-red-200 px-2 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+              class="shrink-0 rounded-md border border-red-200 px-2 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
               @click="area.spec.splice(si, 1)"
             >
               {{ t('admin.develop.editor.removeRow') }}
             </button>
           </div>
-          <p v-if="row.evidence !== null && row.evidence !== ''" class="text-[11px] text-gray-400">
+          <p v-if="row.evidence !== null && row.evidence !== ''" class="text-xs text-gray-400">
             {{ t('admin.devReview.evidence') }}: {{ row.evidence }}
           </p>
         </div>
@@ -164,11 +164,11 @@ const addQuestion = (): void => {
 
       <div class="grid gap-2">
         <div class="flex items-center gap-2">
-          <span class="text-xs font-semibold text-gray-600">{{ t('admin.develop.editor.observations') }}</span>
-          <span class="text-[11px] text-gray-400">{{ area.observations.length }} / {{ L.observations }}</span>
+          <span class="text-sm font-semibold text-gray-600">{{ t('admin.develop.editor.observations') }}</span>
+          <span class="text-xs text-gray-400">{{ area.observations.length }} / {{ L.observations }}</span>
           <button
             type="button"
-            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
             :disabled="area.observations.length >= L.observations"
             @click="addObservation(ai)"
           >
@@ -180,11 +180,11 @@ const addQuestion = (): void => {
             v-model="row.text"
             type="text"
             :maxlength="L.factTextLen"
-            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
+            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
           >
           <button
             type="button"
-            class="shrink-0 rounded-md border border-red-200 px-2 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+            class="shrink-0 rounded-md border border-red-200 px-2 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
             @click="area.observations.splice(oi, 1)"
           >
             {{ t('admin.develop.editor.removeRow') }}
@@ -196,11 +196,11 @@ const addQuestion = (): void => {
     <!-- 상의 항목 + 확인 결과 -->
     <div class="grid gap-2">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold text-gray-800">{{ t('admin.develop.editor.openQuestions') }}</span>
-        <span class="text-[11px] text-gray-400">{{ local.openQuestions.length }} / {{ L.openQuestions }}</span>
+        <span class="text-base font-semibold text-gray-800">{{ t('admin.develop.editor.openQuestions') }}</span>
+        <span class="text-xs text-gray-400">{{ local.openQuestions.length }} / {{ L.openQuestions }}</span>
         <button
           type="button"
-          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="local.openQuestions.length >= L.openQuestions"
           @click="addQuestion"
         >
@@ -209,17 +209,17 @@ const addQuestion = (): void => {
       </div>
       <div v-for="(row, qi) in local.openQuestions" :key="`q-${qi}`" class="grid gap-1.5 rounded-md border border-amber-100 bg-amber-50/30 p-2">
         <div class="flex items-start gap-2">
-          <span class="mt-1.5 shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-amber-700">{{ areaTitle(row.area) }}</span>
+          <span class="mt-1.5 shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-amber-700">{{ areaTitle(row.area) }}</span>
           <input
             v-model="row.question"
             type="text"
             :maxlength="L.questionLen"
             :placeholder="t('admin.develop.editor.questionPlaceholder')"
-            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
+            class="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-base"
           >
           <button
             type="button"
-            class="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+            class="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
             @click="local.openQuestions.splice(qi, 1)"
           >
             {{ t('admin.develop.editor.removeRow') }}
@@ -230,36 +230,36 @@ const addQuestion = (): void => {
           type="text"
           :maxlength="L.whyLen"
           :placeholder="t('admin.develop.editor.whyPlaceholder')"
-          class="w-full rounded-md border border-gray-200 px-2.5 py-1.5 text-xs"
+          class="w-full rounded-md border border-gray-200 px-2.5 py-1.5 text-sm"
         >
         <textarea
           v-model="row.resolution"
           rows="2"
           :maxlength="L.resolutionLen"
           :placeholder="t('admin.develop.editor.resolutionPlaceholder')"
-          class="w-full rounded-md border border-emerald-200 px-2.5 py-1.5 text-xs leading-relaxed"
+          class="w-full rounded-md border border-emerald-200 px-2.5 py-1.5 text-sm leading-relaxed"
         />
       </div>
-      <p v-if="local.openQuestions.length === 0" class="text-xs text-gray-400">{{ t('admin.develop.editor.noRows') }}</p>
+      <p v-if="local.openQuestions.length === 0" class="text-sm text-gray-400">{{ t('admin.develop.editor.noRows') }}</p>
     </div>
 
     <!-- 답변↔자료 정합(표시만) -->
     <div v-if="local.checks.length > 0" class="grid gap-1 rounded-md border border-gray-100 bg-gray-50/60 p-3">
-      <span class="text-xs font-semibold text-gray-600">{{ t('admin.devReview.check') }}</span>
-      <p v-for="(c, ci) in local.checks" :key="`chk-${ci}`" class="text-xs text-gray-600">{{ c.text }}</p>
+      <span class="text-sm font-semibold text-gray-600">{{ t('admin.devReview.check') }}</span>
+      <p v-for="(c, ci) in local.checks" :key="`chk-${ci}`" class="text-sm text-gray-600">{{ c.text }}</p>
     </div>
 
     <!-- 담당자 의견 -->
-    <label class="grid gap-1 text-sm">
+    <label class="grid gap-1 text-base">
       <span class="font-semibold text-gray-800">{{ t('admin.develop.editor.adminComment') }}</span>
       <textarea
         v-model="local.adminComment"
         rows="4"
         :maxlength="L.adminCommentLen"
         :placeholder="t('admin.develop.editor.adminCommentPlaceholder')"
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed"
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-base leading-relaxed"
       />
-      <span class="text-[11px] text-gray-500">{{ t('admin.develop.editor.adminCommentHint') }}</span>
+      <span class="text-xs text-gray-500">{{ t('admin.develop.editor.adminCommentHint') }}</span>
     </label>
   </fieldset>
 </template>

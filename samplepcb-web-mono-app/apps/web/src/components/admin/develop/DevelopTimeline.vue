@@ -131,12 +131,12 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
 
 <template>
   <section class="rounded-xl border border-gray-200 bg-white p-4">
-    <h2 class="text-sm font-bold text-gray-800">{{ t('admin.develop.timeline.title') }}</h2>
+    <h2 class="text-base font-bold text-gray-800">{{ t('admin.develop.timeline.title') }}</h2>
 
     <!-- 작성 폼 -->
     <form class="mt-3 grid gap-2 rounded-lg border border-gray-200 bg-gray-50/60 p-3" @submit.prevent="onSubmit">
       <div class="flex flex-wrap items-center gap-2">
-        <select v-model="type" class="h-8 rounded-md border border-gray-300 bg-white px-2 text-xs">
+        <select v-model="type" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm">
           <option v-for="et in DEVELOP_ADMIN_EVENT_TYPES" :key="et" :value="et">{{ DEVELOP_EVENT_TYPE_LABELS[et] }}</option>
         </select>
         <input
@@ -144,7 +144,7 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
           type="text"
           :maxlength="200"
           :placeholder="t('admin.develop.timeline.titlePlaceholder')"
-          class="h-8 min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 text-xs"
+          class="h-9 min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 text-sm"
         >
       </div>
       <textarea
@@ -152,15 +152,15 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
         rows="3"
         :maxlength="10000"
         :placeholder="t('admin.develop.timeline.bodyPlaceholder')"
-        class="w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+        class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm leading-relaxed"
       />
 
-      <label v-if="type === 'note'" class="inline-flex items-center gap-1.5 text-xs text-gray-700">
+      <label v-if="type === 'note'" class="inline-flex items-center gap-1.5 text-sm text-gray-700">
         <input v-model="visibleToCustomer" type="checkbox">
         {{ t('admin.develop.timeline.visible') }}
       </label>
 
-      <div v-if="type === 'deliverable'" class="flex flex-wrap items-center gap-3 text-xs text-gray-700">
+      <div v-if="type === 'deliverable'" class="flex flex-wrap items-center gap-3 text-sm text-gray-700">
         <label class="inline-flex items-center gap-1.5" :class="canDeliverFinal ? '' : 'text-gray-400'">
           <input v-model="isFinal" type="checkbox" :disabled="!canDeliverFinal">
           {{ t('admin.develop.timeline.final') }}
@@ -169,62 +169,62 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
           <input v-model="isLocked" type="checkbox">
           {{ t('admin.develop.timeline.locked') }}
         </label>
-        <span v-if="!canDeliverFinal" class="text-[11px] text-amber-700">{{ t('admin.develop.timeline.finalHint') }}</span>
+        <span v-if="!canDeliverFinal" class="text-xs text-amber-700">{{ t('admin.develop.timeline.finalHint') }}</span>
       </div>
 
       <div v-if="type === 'tax_invoice'" class="grid gap-2 sm:grid-cols-2">
-        <label class="grid gap-0.5 text-[11px] text-gray-600">
+        <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.issuedAt') }}
-          <input v-model="invoiceIssuedAt" type="date" class="h-8 rounded-md border border-gray-300 px-2 text-xs">
+          <input v-model="invoiceIssuedAt" type="date" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
         </label>
-        <label class="grid gap-0.5 text-[11px] text-gray-600">
+        <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.memo') }}
-          <input v-model="invoiceMemo" type="text" :maxlength="200" class="h-8 rounded-md border border-gray-300 px-2 text-xs">
+          <input v-model="invoiceMemo" type="text" :maxlength="200" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
         </label>
-        <label class="grid gap-0.5 text-[11px] text-gray-600">
+        <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.supplyAmount') }}
-          <input v-model="invoiceSupply" type="text" inputmode="numeric" class="h-8 rounded-md border border-gray-300 px-2 text-xs">
+          <input v-model="invoiceSupply" type="text" inputmode="numeric" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
         </label>
-        <label class="grid gap-0.5 text-[11px] text-gray-600">
+        <label class="grid gap-0.5 text-xs text-gray-600">
           {{ t('admin.develop.timeline.vatAmount') }}
-          <input v-model="invoiceVat" type="text" inputmode="numeric" class="h-8 rounded-md border border-gray-300 px-2 text-xs">
+          <input v-model="invoiceVat" type="text" inputmode="numeric" class="h-9 rounded-md border border-gray-300 px-2 text-sm">
         </label>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <input ref="fileInput" type="file" multiple class="text-[11px]" @change="onPickFiles">
+        <input ref="fileInput" type="file" multiple class="text-xs" @change="onPickFiles">
         <button
           type="submit"
-          class="ml-auto rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+          class="ml-auto rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
           :disabled="!canSubmit"
         >
           {{ create.isPending.value ? t('admin.develop.saving') : t('admin.develop.timeline.submit') }}
         </button>
       </div>
-      <p v-if="notice !== ''" class="text-xs font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
+      <p v-if="notice !== ''" class="text-sm font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
     </form>
 
     <!-- 이벤트 목록 -->
-    <p v-if="downloadError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ downloadError }}</p>
+    <p v-if="downloadError !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ downloadError }}</p>
     <ul class="mt-4 grid gap-2">
       <li
         v-for="e in events"
         :key="e.eventId"
-        class="rounded-lg border p-3 text-xs"
+        class="rounded-lg border p-3 text-sm"
         :class="e.visibleToCustomer ? 'border-gray-100' : 'border-gray-200 bg-gray-50'"
       >
         <div class="flex flex-wrap items-center gap-2">
-          <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-600">
+          <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-gray-600">
             {{ DEVELOP_EVENT_TYPE_LABELS[e.type] }}
           </span>
-          <span v-if="!e.visibleToCustomer" class="rounded-full bg-gray-300 px-2 py-0.5 text-[10px] font-bold text-gray-700">
+          <span v-if="!e.visibleToCustomer" class="rounded-full bg-gray-300 px-2 py-0.5 text-[11px] font-bold text-gray-700">
             {{ t('admin.develop.timeline.internal') }}
           </span>
           <b class="min-w-0 truncate text-gray-800">{{ e.title }}</b>
-          <span class="ml-auto shrink-0 text-[11px] text-gray-400">{{ e.actorName }} · {{ formatDateTime(e.createdAt) }}</span>
+          <span class="ml-auto shrink-0 text-xs text-gray-400">{{ e.actorName }} · {{ formatDateTime(e.createdAt) }}</span>
         </div>
         <p v-if="e.body !== null" class="mt-1.5 whitespace-pre-line leading-relaxed text-gray-700">{{ e.body }}</p>
-        <dl v-if="payloadRows(e.payload).length > 0" class="mt-1.5 grid grid-cols-[112px_1fr] gap-y-0.5 text-[11px] text-gray-500">
+        <dl v-if="payloadRows(e.payload).length > 0" class="mt-1.5 grid grid-cols-[112px_1fr] gap-y-0.5 text-xs text-gray-500">
           <template v-for="row in payloadRows(e.payload)" :key="row.key">
             <dt class="font-mono">{{ row.key }}</dt>
             <dd>{{ row.value }}</dd>
@@ -233,17 +233,17 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
         <ul v-if="e.files.length > 0" class="mt-1.5 grid gap-1">
           <li v-for="f in e.files" :key="f.fileId" class="flex min-w-0 items-center gap-2 rounded border border-gray-100 bg-white px-2 py-1">
             <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
-            <span v-if="f.locked" class="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+            <span v-if="f.locked" class="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700">
               {{ t('admin.develop.timeline.lockedFile') }}
             </span>
-            <span class="shrink-0 text-[11px] text-gray-400">{{ formatBytes(f.size) }}</span>
+            <span class="shrink-0 text-xs text-gray-400">{{ formatBytes(f.size) }}</span>
             <button type="button" class="shrink-0 font-bold text-blue-600 hover:text-blue-700" @click="downloadFile(f.fileId, f.name)">
               {{ t('admin.develop.content.download') }}
             </button>
           </li>
         </ul>
       </li>
-      <li v-if="events.length === 0" class="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-400">
+      <li v-if="events.length === 0" class="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
         {{ t('admin.develop.timeline.empty') }}
       </li>
     </ul>

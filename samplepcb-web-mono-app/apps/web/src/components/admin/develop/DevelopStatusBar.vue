@@ -90,11 +90,11 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
 <template>
   <div class="grid gap-2">
     <div class="flex flex-wrap items-center gap-2">
-      <label class="flex items-center gap-1.5 text-xs text-gray-600">
+      <label class="flex items-center gap-1.5 text-sm text-gray-600">
         {{ t('admin.develop.status.assignee') }}
         <select
           :value="assigneeMbId ?? ''"
-          class="h-8 rounded-md border border-gray-300 bg-white px-2 text-xs"
+          class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm"
           :disabled="busy"
           @change="onAssignee"
         >
@@ -107,7 +107,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         <button
           v-if="canReview"
           type="button"
-          class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+          class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
           :disabled="busy"
           @click="go('reviewing', null)"
         >
@@ -116,7 +116,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         <button
           v-if="canStart"
           type="button"
-          class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+          class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
           :disabled="busy"
           @click="go('in_progress', null)"
         >
@@ -125,7 +125,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         <button
           v-if="canComplete"
           type="button"
-          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
           :disabled="busy"
           @click="go('completed', null)"
         >
@@ -134,7 +134,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         <button
           v-if="canDecline"
           type="button"
-          class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
+          class="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
           :disabled="busy"
           @click="openReason('declined')"
         >
@@ -143,7 +143,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         <button
           v-if="canCancel"
           type="button"
-          class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
+          class="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
           :disabled="busy"
           @click="openReason('cancelled')"
         >
@@ -154,7 +154,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
 
     <!-- 사유 입력 인라인 패널 -->
     <div v-if="reasonTarget !== null" class="grid gap-2 rounded-lg border border-red-200 bg-red-50/40 p-3">
-      <p class="text-xs font-bold text-red-700">
+      <p class="text-sm font-bold text-red-700">
         {{ reasonTarget === 'declined' ? t('admin.develop.status.declineTitle') : t('admin.develop.status.cancelTitle') }}
       </p>
       <textarea
@@ -162,12 +162,12 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         rows="2"
         :maxlength="1000"
         :placeholder="t('admin.develop.status.reasonPlaceholder')"
-        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-xs leading-relaxed"
+        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-relaxed"
       />
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-40"
+          class="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-40"
           :disabled="busy || reason.trim() === ''"
           @click="confirmReason"
         >
@@ -175,7 +175,7 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
         </button>
         <button
           type="button"
-          class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-600"
+          class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-bold text-gray-600"
           @click="reasonTarget = null"
         >
           {{ t('admin.develop.cancel') }}
@@ -183,6 +183,6 @@ const busy = computed(() => transition.isPending.value || patch.isPending.value)
       </div>
     </div>
 
-    <p v-if="notice !== ''" class="text-xs font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
+    <p v-if="notice !== ''" class="text-sm font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
   </div>
 </template>

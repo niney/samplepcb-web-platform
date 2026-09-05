@@ -71,7 +71,7 @@ const timestamps = computed(() =>
 <template>
   <div class="grid gap-2.5">
     <!-- 진행 시각 칩 + 검수 기간 -->
-    <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+    <div class="flex flex-wrap items-center gap-1.5 text-xs">
       <span
         v-for="row in timestamps"
         :key="row.key"
@@ -89,11 +89,11 @@ const timestamps = computed(() =>
 
       <label class="ml-auto inline-flex items-center gap-1.5 text-gray-600" :title="t('admin.develop.side.reviewDaysHint')">
         {{ t('admin.develop.side.reviewDays') }}
-        <input v-model="reviewDays" type="number" min="1" max="90" class="h-7 w-16 rounded-md border border-gray-300 px-2 text-xs">
+        <input v-model="reviewDays" type="number" min="1" max="90" class="h-8 w-16 rounded-md border border-gray-300 px-2 text-sm">
         {{ t('admin.develop.side.days') }}
         <button
           type="button"
-          class="rounded-md border border-gray-300 px-2 py-0.5 text-[11px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          class="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
           :disabled="!reviewDaysDirty || patch.isPending.value"
           @click="save({ reviewDays: parsedReviewDays })"
         >
@@ -106,14 +106,14 @@ const timestamps = computed(() =>
     <div class="rounded-lg border border-dashed border-gray-300 bg-gray-50/60">
       <button
         type="button"
-        class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
+        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm"
         :aria-expanded="memoOpen"
         @click="memoOpen = !memoOpen"
       >
         <span class="font-bold text-gray-700">{{ t('admin.develop.side.memo') }}</span>
         <span v-if="!memoOpen && memoPreview !== ''" class="min-w-0 flex-1 truncate text-gray-500">{{ memoPreview }}</span>
         <span v-else-if="!memoOpen" class="text-gray-400">{{ t('admin.develop.side.memoPlaceholder') }}</span>
-        <span class="ml-auto shrink-0 text-[11px] text-gray-500">{{ memoOpen ? t('admin.develop.side.memoClose') : t('admin.develop.side.memoOpen') }}</span>
+        <span class="ml-auto shrink-0 text-xs text-gray-500">{{ memoOpen ? t('admin.develop.side.memoClose') : t('admin.develop.side.memoOpen') }}</span>
       </button>
       <div v-if="memoOpen" class="grid gap-1.5 border-t border-gray-200 px-3 py-2.5">
         <textarea
@@ -121,13 +121,13 @@ const timestamps = computed(() =>
           rows="5"
           :maxlength="20000"
           :placeholder="t('admin.develop.side.memoPlaceholder')"
-          class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-xs leading-relaxed"
+          class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-relaxed"
         />
         <div class="flex items-center gap-2">
-          <span class="text-[11px] text-gray-500">{{ t('admin.develop.side.memoHint') }}</span>
+          <span class="text-xs text-gray-500">{{ t('admin.develop.side.memoHint') }}</span>
           <button
             type="button"
-            class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1 text-[11px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
             :disabled="!memoDirty || patch.isPending.value"
             @click="save({ internalMemo: memo.trim() === '' ? null : memo.trim() })"
           >
@@ -137,6 +137,6 @@ const timestamps = computed(() =>
       </div>
     </div>
 
-    <p v-if="notice !== ''" class="text-xs font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
+    <p v-if="notice !== ''" class="text-sm font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
   </div>
 </template>

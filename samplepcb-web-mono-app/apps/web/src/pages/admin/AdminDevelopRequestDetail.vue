@@ -42,29 +42,29 @@ const sections = [
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-[1120px] space-y-4">
-    <RouterLink :to="{ name: 'admin-develop-requests' }" class="inline-block text-xs font-semibold text-blue-600 hover:underline">
+  <div class="w-full max-w-[1120px] space-y-4">
+    <RouterLink :to="{ name: 'admin-develop-requests' }" class="inline-block text-sm font-semibold text-blue-600 hover:underline">
       ← {{ t('admin.develop.backToList') }}
     </RouterLink>
 
-    <p v-if="isLoading" class="py-16 text-center text-sm text-gray-400">{{ t('admin.develop.loading') }}</p>
-    <p v-else-if="isError || detail === undefined" class="py-16 text-center text-sm text-red-600">
+    <p v-if="isLoading" class="py-16 text-center text-base text-gray-400">{{ t('admin.develop.loading') }}</p>
+    <p v-else-if="isError || detail === undefined" class="py-16 text-center text-base text-red-600">
       {{ t('admin.develop.detailFail') }}
     </p>
     <template v-else>
       <!-- 헤더 -->
       <header class="rounded-xl border border-gray-200 bg-white p-4">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold" :class="developStatusBadgeClass(detail.status)">
+          <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-bold" :class="developStatusBadgeClass(detail.status)">
             {{ DEVELOP_REQUEST_STATUS_LABELS[detail.status] }}
           </span>
-          <span v-if="marketAreaBadge(detail.serviceAreas) !== ''" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+          <span v-if="marketAreaBadge(detail.serviceAreas) !== ''" class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">
             {{ marketAreaBadge(detail.serviceAreas) }}
           </span>
-          <span class="text-[11px] text-gray-400">#{{ detail.requestId }} · {{ formatDateTime(detail.createdAt) }}</span>
+          <span class="text-xs text-gray-400">#{{ detail.requestId }} · {{ formatDateTime(detail.createdAt) }}</span>
         </div>
-        <h1 class="mt-2 text-xl font-bold text-gray-900">{{ detail.title }}</h1>
-        <p class="mt-1 text-xs text-gray-500">
+        <h1 class="mt-2 text-2xl font-bold text-gray-900">{{ detail.title }}</h1>
+        <p class="mt-1 text-sm text-gray-500">
           {{ t('admin.develop.owner') }}: {{ detail.owner.name === '' ? detail.owner.mbId : detail.owner.name }}
           ({{ detail.owner.mbId }})<template v-if="detail.owner.email !== null"> · {{ detail.owner.email }}</template>
         </p>
@@ -84,7 +84,7 @@ const sections = [
       <nav class="sticky top-14 z-20 -mx-1 rounded-lg border border-gray-200 bg-white/95 px-1 py-1 backdrop-blur">
         <ul class="flex flex-wrap gap-1">
           <li v-for="s in sections" :key="s.id">
-            <a :href="`#${s.id}`" class="inline-block rounded-md px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 hover:text-gray-900">
+            <a :href="`#${s.id}`" class="inline-block rounded-md px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 hover:text-gray-900">
               {{ t(`admin.develop.nav.${s.key}`) }}
             </a>
           </li>

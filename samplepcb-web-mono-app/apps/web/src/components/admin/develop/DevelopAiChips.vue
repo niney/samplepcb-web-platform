@@ -13,7 +13,7 @@ const reviewLabel = (state: DevelopAiReviewStateType): string => t(`admin.develo
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center gap-1 text-[11px] font-bold">
+  <div class="flex flex-wrap items-center gap-1 text-xs font-bold">
     <span v-if="!aiConsent" class="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500">
       {{ t('admin.develop.noAiConsent') }}
     </span>

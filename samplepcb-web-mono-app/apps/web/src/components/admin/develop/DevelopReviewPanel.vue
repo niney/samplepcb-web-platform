@@ -147,9 +147,9 @@ const busy = computed(
 <template>
   <section class="rounded-xl border border-blue-100 bg-blue-50/20 p-4">
     <div class="flex flex-wrap items-center gap-2">
-      <h2 class="text-sm font-bold text-gray-800">{{ t('admin.develop.review.title') }}</h2>
+      <h2 class="text-base font-bold text-gray-800">{{ t('admin.develop.review.title') }}</h2>
       <span
-        class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+        class="rounded-full px-2 py-0.5 text-xs font-bold"
         :class="developReviewStateClass(review.draftRunning ? 'running' : review.publicReview !== null ? 'published' : source !== null ? 'ready' : review.draftError !== null ? 'error' : 'none')"
       >
         {{ review.draftRunning
@@ -160,15 +160,15 @@ const busy = computed(
               ? t('admin.develop.reviewState.ready')
               : t('admin.develop.reviewState.none') }}
       </span>
-      <span v-if="review.stale" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+      <span v-if="review.stale" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
         {{ t('admin.develop.review.stale') }}
       </span>
-      <span v-if="review.publishedStale" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+      <span v-if="review.publishedStale" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
         {{ t('admin.develop.review.publishedStale') }}
       </span>
       <button
         type="button"
-        class="ml-auto rounded-lg border border-blue-300 px-3 py-1.5 text-[11px] font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+        class="ml-auto rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
         :disabled="!aiConsent || review.draftRunning || busy"
         :title="aiConsent ? '' : t('admin.develop.noAiConsentHint')"
         @click="onRegenerate"
@@ -177,18 +177,18 @@ const busy = computed(
       </button>
     </div>
 
-    <p v-if="!aiConsent" class="mt-2 text-xs font-semibold text-amber-700">{{ t('admin.develop.noAiConsentHint') }}</p>
-    <p v-if="review.draftError !== null" class="mt-2 text-xs font-semibold text-red-600">
+    <p v-if="!aiConsent" class="mt-2 text-sm font-semibold text-amber-700">{{ t('admin.develop.noAiConsentHint') }}</p>
+    <p v-if="review.draftError !== null" class="mt-2 text-sm font-semibold text-red-600">
       {{ t('admin.develop.review.draftError', { error: review.draftError }) }}
     </p>
-    <p v-if="notice !== ''" class="mt-2 text-xs font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">
+    <p v-if="notice !== ''" class="mt-2 text-sm font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">
       {{ notice }}
     </p>
-    <ul v-if="issues.length > 0" class="mt-1.5 grid gap-0.5 text-[11px] text-red-600">
+    <ul v-if="issues.length > 0" class="mt-1.5 grid gap-0.5 text-xs text-red-600">
       <li v-for="(issue, i) in issues" :key="i">· {{ issue }}</li>
     </ul>
 
-    <dl class="mt-2 grid grid-cols-[80px_1fr] gap-y-1 text-[11px] text-gray-500">
+    <dl class="mt-2 grid grid-cols-[80px_1fr] gap-y-1 text-xs text-gray-500">
       <dt>{{ t('admin.develop.review.draftAt') }}</dt>
       <dd>{{ review.draftAt === null ? '—' : formatDateTime(review.draftAt) }}</dd>
       <dt>{{ t('admin.develop.review.editedAt') }}</dt>
@@ -202,19 +202,19 @@ const busy = computed(
 
     <!-- AI 보충 메모 — 코퍼스에 담당자 자료로 합류한다. 고객 비노출. -->
     <div class="mt-4 grid gap-1">
-      <span class="text-xs font-semibold text-gray-700">{{ t('admin.develop.review.supplement') }}</span>
+      <span class="text-sm font-semibold text-gray-700">{{ t('admin.develop.review.supplement') }}</span>
       <textarea
         v-model="supplement"
         rows="3"
         :maxlength="20000"
         :placeholder="t('admin.develop.review.supplementPlaceholder')"
-        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-xs leading-relaxed"
+        class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-relaxed"
       />
       <div class="flex items-center gap-2">
-        <span class="text-[11px] text-gray-500">{{ t('admin.develop.review.supplementHint') }}</span>
+        <span class="text-xs text-gray-500">{{ t('admin.develop.review.supplementHint') }}</span>
         <button
           type="button"
-          class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1 text-[11px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
           :disabled="!supplementDirty || patch.isPending.value"
           @click="onSaveSupplement"
         >
@@ -225,12 +225,12 @@ const busy = computed(
 
     <!-- 작업본 -->
     <div v-if="source === null" class="mt-4 rounded-lg border border-dashed border-gray-300 bg-white px-4 py-8 text-center">
-      <p class="text-sm font-semibold text-gray-700">{{ t('admin.develop.review.emptyTitle') }}</p>
-      <p class="mt-1 text-xs text-gray-500">{{ t('admin.develop.review.emptyHint') }}</p>
+      <p class="text-base font-semibold text-gray-700">{{ t('admin.develop.review.emptyTitle') }}</p>
+      <p class="mt-1 text-sm text-gray-500">{{ t('admin.develop.review.emptyHint') }}</p>
     </div>
     <template v-else>
       <div class="mt-4 flex flex-wrap items-center gap-2">
-        <div class="flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs font-semibold">
+        <div class="flex rounded-lg border border-gray-200 bg-white p-0.5 text-sm font-semibold">
           <button
             type="button"
             class="rounded-md px-3 py-1"
@@ -248,13 +248,13 @@ const busy = computed(
             {{ t('admin.develop.review.tabPreview') }}
           </button>
         </div>
-        <span v-if="fromDraftOnly" class="text-[11px] font-semibold text-amber-700">{{ t('admin.develop.review.fromDraft') }}</span>
-        <span v-else-if="dirty" class="text-[11px] font-semibold text-amber-700">{{ t('admin.develop.review.dirty') }}</span>
+        <span v-if="fromDraftOnly" class="text-xs font-semibold text-amber-700">{{ t('admin.develop.review.fromDraft') }}</span>
+        <span v-else-if="dirty" class="text-xs font-semibold text-amber-700">{{ t('admin.develop.review.dirty') }}</span>
 
         <div class="ml-auto flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            class="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+            class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
             :disabled="busy || working === null"
             @click="onSave"
           >
@@ -263,20 +263,20 @@ const busy = computed(
           <template v-if="confirmReset">
             <button
               type="button"
-              class="rounded-lg bg-amber-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-amber-700 disabled:opacity-40"
+              class="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-40"
               :disabled="busy"
               @click="runAction('reset')"
             >
               {{ t('admin.develop.review.resetConfirm') }}
             </button>
-            <button type="button" class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-bold text-gray-600" @click="confirmReset = false">
+            <button type="button" class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-600" @click="confirmReset = false">
               {{ t('admin.develop.cancel') }}
             </button>
           </template>
           <button
             v-else
             type="button"
-            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
             :disabled="busy || review.draft === null"
             @click="confirmReset = true"
           >
@@ -284,7 +284,7 @@ const busy = computed(
           </button>
           <button
             type="button"
-            class="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
+            class="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
             :disabled="busy || review.working === null"
             @click="runAction('publish')"
           >
@@ -293,7 +293,7 @@ const busy = computed(
           <button
             v-if="review.publicReview !== null"
             type="button"
-            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
             :disabled="busy"
             @click="runAction('unpublish')"
           >
@@ -301,7 +301,7 @@ const busy = computed(
           </button>
         </div>
       </div>
-      <p v-if="dirty" class="mt-1 text-[11px] text-gray-500">{{ t('admin.develop.review.publishUsesSaved') }}</p>
+      <p v-if="dirty" class="mt-1 text-xs text-gray-500">{{ t('admin.develop.review.publishUsesSaved') }}</p>
 
       <div class="mt-3 rounded-lg border border-gray-200 bg-white p-4">
         <DevelopReviewEditor
