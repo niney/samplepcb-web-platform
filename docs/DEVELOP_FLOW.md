@@ -161,7 +161,7 @@ P1 구현(2026-09-05): 신규 `apps/web/src/admin/useAdminDevelop.ts`(목록·�
 
 P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`components/admin/develop/DevelopQuoteSection.vue` — 앵커 `#develop-quotes`, 옛 사이드 요약 카드는 삭제) · 견적서 한 장 읽기·철회·마일스톤 수동 입금 확인(`DevelopQuoteCard.vue`) · draft 전용 편집기(`DevelopQuoteEditor.vue`) · 폼↔계약 변환·검사 순수 모듈(`develop-quote-edit.ts`). 훅은 `useAdminDevelop.ts` 에 6개 추가(quote create/patch/delete/send/withdraw · milestone mark-paid, 성공 시 `['admin','develop']` 무효화). 결정 셋: ① 편집기는 문자열 폼으로 들고 저장 직전에만 계약 모양으로 바꾼다 — 금액 입력은 콤마를 허용하고(`parseAmountInput`) blur 에서 천단위로 다시 쓴다. ② 계약 zod 가 막는 자리(항목·마일스톤 ≥1, 비율 합 100%, 해제 마일스톤 ≤1, 각 길이·범위)를 `developQuoteIssues` 가 저장 전에 같은 값으로 먼저 검사한다 — 400 을 사용자 문구로 번역하는 대신 애초에 못 보내게 한다. ③ 발송은 "저장 → send" 두 걸음을 한 버튼에 묶고 그 사이에 인라인 확인 패널(합계·마일스톤 요약)을 세운다. ④ 새 견적 종류는 상태에서 파생한다(`defaultDevelopQuoteKind`: 착수 전 initial/revision · 착수 뒤 change) — 서버 409 `KIND_MISMATCH` 와 같은 규칙이라 화면에서 고를 수 없는 종류가 안 뜬다. ⑤ 붙여넣기 채우기는 빈 행을 버리고 뒤에 붙이며, 금액을 못 읽은 줄은 지우지 않고 경고로 되돌려 준다.
 
-관리자 상세 레이아웃(2026-09-05 저녁, 사용자 결정): 우측 340px 사이드를 없애고 **단일 컬럼 max-w 1120px**. 사이드는 카드 4개가 짧아 아래가 통째로 비었는데 본문(검토서·견적 편집기·타임라인)만 좁아져 손해였다. 옛 사이드 내용은 헤더 아래 운영 띠(, 구 )로 흡수 — 진행 시각은 칩 한 줄, 검수 기간은 인라인 입력, 내부 메모는 기본 접힘(첫 줄 미리보기), 견적 요약은 삭제(본문 견적 섹션이 전부). 섹션 내비(의뢰 내용·AI 검토서·구성도·견적서·타임라인)는 sticky, 앵커 .
+관리자 상세 레이아웃(2026-09-05 저녁, 사용자 결정): 우측 340px 사이드를 없애고 **단일 컬럼 max-w 1120px**. 사이드는 카드 4개가 짧아 아래가 통째로 비었는데 본문(검토서·견적 편집기·타임라인)만 좁아져 손해였다. 옛 사이드 내용은 헤더 아래 운영 띠(`DevelopOpsStrip.vue`, 구 `DevelopSideCards.vue`)로 흡수 — 진행 시각은 칩 한 줄, 검수 기간은 인라인 입력, 내부 메모는 기본 접힘(첫 줄 미리보기), 견적 요약은 삭제(본문 견적 섹션이 전부). 섹션 내비(의뢰 내용·AI 검토서·구성도·견적서·타임라인)는 sticky, 앵커 .
 
 ## 8. API 지도
 
