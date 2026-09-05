@@ -18,7 +18,7 @@ import { formatDateTime } from '../../lib/format';
 // AI 산출물 편집·타임라인 작성처럼 오래 머무는 작업이 있어 좁은 서랍에 담기지 않는다.
 // 레이아웃은 **단일 컬럼 max-w 1120px**(2026-09-05 사용자 결정) — 우측 사이드는 카드가 짧아 아래가 비고
 // 본문(편집기·타임라인)만 좁아져 손해였다. 옛 사이드 내용은 헤더 아래 운영 띠(DevelopOpsStrip)로 흡수.
-// 섹션 내비는 sticky — 긴 페이지에서 편집기 ↔ 견적 ↔ 타임라인 이동용.
+// 섹션 내비는 비고정 앵커 줄 — 관리자에선 따라다닐 필요가 없다(사용자 결정).
 // 상세 조회는 AI 잡이 도는 동안만 5초 폴링한다(useAdminDevelopDetail).
 
 const { t } = useI18n();
@@ -80,8 +80,8 @@ const sections = [
         </div>
       </header>
 
-      <!-- 섹션 내비 — 관리자 헤더 아래 고정 -->
-      <nav class="sticky top-14 z-20 -mx-1 rounded-lg border border-gray-200 bg-white/95 px-1 py-1 backdrop-blur">
+      <!-- 섹션 내비 — 고정하지 않는다(사용자 결정: 관리자는 앵커 이동만 있으면 충분) -->
+      <nav class="rounded-lg border border-gray-200 bg-white px-1 py-1">
         <ul class="flex flex-wrap gap-1">
           <li v-for="s in sections" :key="s.id">
             <a :href="`#${s.id}`" class="inline-block rounded-md px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 hover:text-gray-900">
