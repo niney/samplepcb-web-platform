@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#f4f7f8">
+    <title>배경 모션 실험실 · SamplePCB</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="../../../theme/sp-lite/css/default.css">
+    <link rel="stylesheet" href="./preview.css?v=7">
+    <script type="module" src="./preview.js?v=7"></script>
+</head>
+<body>
+    <main class="background-preview" aria-label="SamplePCB 배경 모션 실험실">
+        <div class="preview-stage" aria-hidden="true">
+            <div class="preview-artwork" id="preview-artwork">
+                <img id="original-artwork" src="./assets/figma-background.svg" width="2740" height="1124" alt="">
+            </div>
+        </div>
+        <aside class="preview-controls" aria-label="배경 애니메이션 설정">
+            <details id="settings-panel" open>
+                <summary>
+                    <span class="panel-heading"><span class="panel-eyebrow">SAMPLEPCB · PREVIEW</span><strong>배경 모션 실험실</strong></span>
+                    <span class="panel-fold"><span class="when-open">접기 −</span><span class="when-closed">설정 +</span></span>
+                </summary>
+                <div class="panel-content">
+                    <div class="preview-controls__row">
+                        <span id="motion-label">애니메이션</span>
+                        <button id="motion-toggle" class="motion-toggle" type="button" role="switch"
+                            aria-checked="false" aria-labelledby="motion-label" aria-describedby="motion-description" disabled>
+                            <span class="motion-toggle__state" aria-hidden="true">OFF</span>
+                            <span class="motion-toggle__track" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <p id="motion-description" class="motion-status" role="status">Figma 원본 · 정적인 배경</p>
+                    <fieldset id="motion-settings" disabled>
+                        <legend class="sound_only">효과와 움직임 조절</legend>
+                        <fieldset class="preset-group">
+                            <legend>애니메이션 예시</legend>
+                            <div class="preset-grid">
+                                <label class="preset"><input type="radio" name="effect" value="wave"><span><small>01</small>흐르는 물결</span></label>
+                                <label class="preset"><input type="radio" name="effect" value="stagger" checked><span><small>02</small>시차 웨이브</span></label>
+                                <label class="preset"><input type="radio" name="effect" value="breathe"><span><small>03</small>펼침과 수렴</span></label>
+                                <label class="preset"><input type="radio" name="effect" value="ribbon"><span><small>04</small>리본 비틀림</span></label>
+                                <label class="preset"><input type="radio" name="effect" value="ripple"><span><small>05</small>퍼지는 파동</span></label>
+                                <label class="preset"><input type="radio" name="effect" value="organic"><span><small>06</small>유기적인 흐름</span></label>
+                                <label class="preset preset--wide"><input type="radio" name="effect" value="right-swap"><span><small>07</small>360° 연속 흐름</span></label>
+                            </div>
+                            <p id="effect-description" class="effect-description" aria-live="polite">곡선의 높이에 따라 시차를 주어 선 사이 간격이 변화합니다.</p>
+                        </fieldset>
+                        <div class="range-controls">
+                            <div class="range-control">
+                                <label for="period"><span id="period-label">한 주기</span><output id="period-output" for="period">16초</output></label>
+                                <input id="period" name="period" type="range" min="4" max="40" step="1" value="16">
+                                <div class="range-hints"><span>빠르게</span><span>느리게</span></div>
+                            </div>
+                            <div class="range-control">
+                                <label for="intensity"><span id="intensity-label">변형 강도</span><output id="intensity-output" for="intensity">65%</output></label>
+                                <input id="intensity" name="intensity" type="range" min="0" max="100" step="1" value="65">
+                            </div>
+                            <div class="range-control">
+                                <label for="density"><span id="density-label">물결 밀도</span><output id="density-output" for="density">1.4배</output></label>
+                                <input id="density" name="density" type="range" min="0.5" max="3" step="0.1" value="1.4">
+                            </div>
+                            <div class="range-control">
+                                <label for="lag">움직임 시차 <output id="lag-output" for="lag">70%</output></label>
+                                <input id="lag" name="lag" type="range" min="0" max="100" step="1" value="70">
+                            </div>
+                            <div class="range-control glow-control">
+                                <div class="glow-heading"><label class="glow-checkbox"><input id="glow-enabled" type="checkbox" checked>빛 움직임</label><output id="glow-output" for="glow">40%</output></div>
+                                <label for="glow" class="sound_only">빛 움직임 강도</label>
+                                <input id="glow" name="glow" type="range" min="0" max="100" step="1" value="40">
+                            </div>
+                        </div>
+                        <div class="panel-actions">
+                            <button id="pause-motion" type="button" class="action-button action-button--primary" aria-pressed="false">일시정지</button>
+                            <button id="reset-settings" type="button" class="action-button">효과 기본값</button>
+                        </div>
+                        <button id="copy-settings" type="button" class="copy-button">현재 설정 링크 복사</button>
+                        <div id="share-fallback" hidden><label for="share-url">링크를 복사해 주세요</label><input id="share-url" type="text" readonly></div>
+                    </fieldset>
+                    <p class="panel-note" id="settings-note" role="status">설정은 이 브라우저에 자동 저장됩니다.</p>
+                    <noscript><p>JavaScript를 켜면 애니메이션을 조절할 수 있습니다.</p></noscript>
+                </div>
+            </details>
+        </aside>
+    </main>
+</body>
+</html>
