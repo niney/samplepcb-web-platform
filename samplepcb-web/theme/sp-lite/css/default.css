@@ -324,62 +324,62 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 }
 
 /* ==========================================================================
-   푸터
+   푸터 — Figma 「웹 메인」(2122:5280) 푸터(2122:6043) 2026-09-06. 다크 #202a37, 높이 346(1920 기준)
    ========================================================================== */
 .sp-footer {
     clear: both;
-    background: var(--sp-footer-bg);
-    color: var(--sp-footer-ink);
-    font-size: 13px;
     margin-top: 48px;
-}
-
-.sp-footer__links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 24px;
-    margin: 0;
-    padding: 18px 0;
-    list-style: none;
-    border-bottom: 1px solid rgba(255, 255, 255, .08);
-}
-.sp-footer__links a {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--sp-footer-ink-strong);
-}
-.sp-footer__links a:hover { color: #fff; }
-
-.sp-footer__body { padding: 24px 0 8px; }
-
-.sp-footer__brand {
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: -.02em;
+    padding: 55px 0 35px;
+    background: #202a37;
     color: #fff;
-    margin-bottom: 10px;
+    font-size: 15px;
+    line-height: 1.3;
 }
-.sp-footer__brand span { color: var(--sp-primary); }
+body:has(.sp-home) .sp-footer { margin-top: 0; } /* 홈은 게시판 섹션에 바로 붙는다 */
+.sp-footer p { margin: 0; }
+.sp-footer a { color: #fff; }
+.sp-footer a:hover { color: #fff; text-decoration: underline; }
+.sp-footer__vr { display: inline-block; width: 1px; height: 20px; background: #484c52; flex: 0 0 auto; }
 
-.sp-footer__info { margin: 0; line-height: 1.9; }
-.sp-footer__info span { margin-right: 16px; }
-.sp-footer__info b { font-weight: 600; color: var(--sp-footer-ink-strong); }
+.sp-footer__co { display: flex; flex-direction: column; gap: 14px; text-shadow: 0 4px 6px rgba(0, 0, 0, .3); }
+.sp-footer__co-name { display: flex; align-items: center; gap: 20px; font-size: 16px; font-weight: 500; color: #fff; }
+.sp-footer__co-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 30px; font-size: 15px; color: rgba(255, 255, 255, .7); }
+.sp-footer__co-line + .sp-footer__co-line { margin-top: -4px; }
+.sp-footer__co-line--tight { gap: 10px 20px; }
 
-.sp-footer__sns {
+.sp-footer__mid {
     display: flex;
-    gap: 12px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 54px;
+    padding: 17px 0 16px;
+    border-top: 1px solid #484c52;
+    border-bottom: 1px solid #484c52;
 }
+.sp-footer__links { display: flex; flex-wrap: wrap; gap: 8px 33px; margin: 0; padding: 0; list-style: none; font-size: 14px; font-weight: 500; }
+.sp-footer__links a { text-shadow: 0 4px 6px rgba(0, 0, 0, .3); }
+.sp-footer__contact { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; padding: 0; list-style: none; font-size: 15px; }
+.sp-footer__contact li { display: flex; align-items: center; gap: 8px; text-shadow: 0 4px 6px rgba(0, 0, 0, .3); white-space: nowrap; }
+.sp-footer__contact img { display: block; width: 16px; height: 16px; }
 
-.sp-footer__copy {
-    padding: 16px 0;
-    margin-top: 16px;
-    border-top: 1px solid rgba(255, 255, 255, .08);
-    font-size: 12px;
+.sp-footer__bottom { display: flex; align-items: center; gap: 16px; margin-top: 34px; }
+.sp-footer__logo { display: block; flex: 0 0 auto; }
+.sp-footer__logo img { display: block; width: 175px; height: 28px; }
+.sp-footer__copy { margin-left: 27px; font-size: 14px; color: rgba(255, 255, 255, .6); text-shadow: 0 4px 6px rgba(0, 0, 0, .3); }
+.sp-footer__sns { display: flex; align-items: center; gap: 30px; margin: 0 0 0 auto; padding: 0; list-style: none; }
+.sp-footer__sns-ico { display: block; opacity: .95; }
+.sp-footer__sns img { display: block; }
+
+@media (max-width: 767.98px) {
+    .sp-footer { padding: 36px 0 28px; }
+    .sp-footer__co-name { flex-wrap: wrap; }
+    .sp-footer__co-line { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .sp-footer__co-line .sp-footer__vr { display: none; }
+    .sp-footer__mid { flex-direction: column; align-items: flex-start; margin-top: 28px; }
+    .sp-footer__bottom { flex-wrap: wrap; }
+    .sp-footer__copy { flex-basis: 100%; margin-left: 0; order: 3; }
 }
-.sp-footer__copy b { color: var(--sp-footer-ink-strong); }
 
 /* ==========================================================================
    우측 하단 플로팅 — 미배치 링크(작업용) + 상단으로
@@ -517,7 +517,6 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 
     #wrapper { padding: 20px 16px 48px; }
 
-    .sp-footer__info span { display: inline-block; }
 
     .sp-float { right: 12px; bottom: 12px; }
 }
