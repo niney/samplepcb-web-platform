@@ -24,8 +24,8 @@
 #   마이그레이션 뒤에는 시드가 따라간다(idempotent — 이미 있으면 skip):
 #     - 개발의뢰 영카트 앵커 상품 sp-develop-svc (develop:seed-anchor)
 #   sp-develop 첫 배포 체크리스트(스크립트 밖):
-#     - 운영 nginx 에 `location /develop/ { alias …/apps/develop/dist/; try_files $uri $uri/ /develop/index.html; }`
-#       추가(ops/nginx/local-web.conf 의 [운영] 주석 블록 참고) + 폐지된 /rnd upstream·location 제거 → 7)
+#     - 운영 nginx: 로컬 보관본 ops/nginx-live/sites-enabled/centrafab(gitignore, 2026-09-05 /develop 블록·/rnd 제거 반영)을
+#       서버 /etc/nginx/sites-enabled/centrafab 에 그대로 올린 뒤 → 7)
 #     - 관리자 > AI 설정에서 develop.dev-review · develop.dev-diagram 유스케이스 켜기(기동 시 행만 자동 생성, 기본 꺼짐)
 #     - 파일서버 serviceType 'develop' 수용 확인(안 되면 .env DEVELOP_FILE_SERVICE_TYPE 로 바꾸고 8)
 #   R&D(rnd) 앱은 2026-08-28 폐지 — apps/rnd 없음.
