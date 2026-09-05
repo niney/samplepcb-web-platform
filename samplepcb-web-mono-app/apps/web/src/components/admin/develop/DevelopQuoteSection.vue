@@ -57,7 +57,7 @@ const closeEditor = (): void => {
 </script>
 
 <template>
-  <section id="develop-quotes" class="rounded-xl border border-gray-200 bg-white p-4">
+  <section id="develop-quotes" class="scroll-mt-28 rounded-xl border border-gray-200 bg-white p-4">
     <div class="flex flex-wrap items-center gap-2">
       <h2 class="text-sm font-bold text-gray-800">
         {{ t('admin.develop.quote.title') }}

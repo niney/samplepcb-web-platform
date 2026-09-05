@@ -719,8 +719,17 @@ export const ko = {
         errNotPayable: '결제 대기 상태가 아닙니다.',
         errAlreadyPaid: '이미 처리된 결제입니다.',
       },
+      nav: {
+        content: '의뢰 내용',
+        review: 'AI 검토서',
+        diagram: '시스템 구성도',
+        quotes: '견적서',
+        timeline: '진행 타임라인',
+      },
       side: {
         memo: '내부 메모',
+        memoOpen: '펼치기',
+        memoClose: '접기',
         memoPlaceholder: '담당자끼리 보는 메모',
         memoHint: '고객에게 보이지 않습니다.',
         save: '저장',

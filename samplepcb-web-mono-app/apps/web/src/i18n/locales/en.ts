@@ -720,8 +720,17 @@ export const en = {
         errNotPayable: 'The milestone is not awaiting payment.',
         errAlreadyPaid: 'The payment was already recorded.',
       },
+      nav: {
+        content: 'Request',
+        review: 'AI review',
+        diagram: 'System diagram',
+        quotes: 'Quotes',
+        timeline: 'Timeline',
+      },
       side: {
         memo: 'Internal memo',
+        memoOpen: 'Expand',
+        memoClose: 'Collapse',
         memoPlaceholder: 'Notes shared between managers',
         memoHint: 'Never shown to the customer.',
         save: 'Save',
