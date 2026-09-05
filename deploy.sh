@@ -9,11 +9,11 @@
 #   2) sp-api + DB 마이그레이션
 #   3) sp-vue(web)만           — 정적 빌드(서비스 재시작 불필요)
 #   4) sp-market만             — 정적 빌드
-#   5) 풀 재배포 (api + web + market + rnd + DB)
+#   5) 풀 재배포 (api + web + market + develop + DB)
 #   6) sp-php(그누보드)만       — git pull + php-fpm reload(opcache 비움)
 #   7) nginx 설정 reload
 #   8) .env만                  — sp-api 재시작
-#   9) R&D(rnd)만               — 연구용 정적 빌드
+#   9) sp-develop(개발의뢰)만   — 정적 빌드 (/develop, docs/DEVELOP_FLOW.md)
 #  10) sp-engine(Python)만     — uv sync + 재시작 (BOM 추출·공급사 검색)
 #
 # 전제: 유저 samplepcb 로 실행(코드 소유권), pnpm/node 는 PATH 에 있음.
@@ -21,6 +21,14 @@
 #   ⚠ 공유 DB 라 prisma 는 'migrate deploy' 만 — reset/dev 금지(g5_* 드랍).
 #   DB 마이그레이션(2,5)은 "파괴적 여부"를 물어본다:
 #     - 추가형(ADD COLUMN 등) → 무중단(N)  /  파괴적(DROP·NOT NULL·타입변경) → 중단(y)
+#   마이그레이션 뒤에는 시드가 따라간다(idempotent — 이미 있으면 skip):
+#     - 개발의뢰 영카트 앵커 상품 sp-develop-svc (develop:seed-anchor)
+#   sp-develop 첫 배포 체크리스트(스크립트 밖):
+#     - 운영 nginx 에 `location /develop/ { alias …/apps/develop/dist/; try_files $uri $uri/ /develop/index.html; }`
+#       추가(ops/nginx/local-web.conf 의 [운영] 주석 블록 참고) + 폐지된 /rnd upstream·location 제거 → 7)
+#     - 관리자 > AI 설정에서 develop.dev-review · develop.dev-diagram 유스케이스 켜기(기동 시 행만 자동 생성, 기본 꺼짐)
+#     - 파일서버 serviceType 'develop' 수용 확인(안 되면 .env DEVELOP_FILE_SERVICE_TYPE 로 바꾸고 8)
+#   R&D(rnd) 앱은 2026-08-28 폐지 — apps/rnd 없음.
 
 set -euo pipefail
 
@@ -45,7 +53,9 @@ migrate()      { step "prisma migrate deploy"; pnpm --filter api exec prisma mig
 build_api()    { step "sp-api 빌드";           pnpm --filter api build; }
 build_web()    { step "sp-vue(web) 빌드";      pnpm --filter web build; }
 build_market() { step "sp-market 빌드";        pnpm --filter market build; }
-build_rnd()    { step "R&D(rnd) 빌드";          pnpm --filter rnd build; }
+build_develop(){ step "sp-develop 빌드";        pnpm --filter develop build; }
+# 마이그레이션 뒤 시드 — 개발의뢰 영카트 앵커 상품(sp-develop-svc). 있으면 skip 이라 매번 돌려도 된다.
+seed_develop() { step "개발의뢰 앵커 시드";     pnpm --filter api run develop:seed-anchor; }
 api_restart()  { step "sp-api 재시작";         sudo systemctl restart sp-api; }
 api_stop()     { step "sp-api 중단";           sudo systemctl stop sp-api; }
 api_start()    { step "sp-api 기동";           sudo systemctl start sp-api; }
@@ -69,9 +79,9 @@ case_1() {  # sp-api 만, DB 변경 없음
 case_2() {  # sp-api + DB 마이그레이션
   pull
   if ask_stop; then
-    api_stop; gen; migrate; build_api; api_start
+    api_stop; gen; migrate; seed_develop; build_api; api_start
   else
-    gen; migrate; build_api; api_restart
+    gen; migrate; seed_develop; build_api; api_restart
   fi
 }
 
@@ -83,12 +93,12 @@ case_4() {  # sp-market 만 — 정적
   pull; build_market
 }
 
-case_5() {  # 풀 재배포 (api + web + market + rnd + DB)
+case_5() {  # 풀 재배포 (api + web + market + develop + DB)
   pull
   if ask_stop; then
-    api_stop; gen; migrate; build_api; build_web; build_market; build_rnd; api_start
+    api_stop; gen; migrate; seed_develop; build_api; build_web; build_market; build_develop; api_start
   else
-    gen; migrate; build_api; build_web; build_market; build_rnd; api_restart
+    gen; migrate; seed_develop; build_api; build_web; build_market; build_develop; api_restart
   fi
 }
 
@@ -105,8 +115,8 @@ case_8() {  # .env 만 — systemd 는 시작시점 env 고정이라 재시작 �
   api_restart
 }
 
-case_9() {  # R&D(rnd) 만 — 정적(nginx 가 즉시 서빙, 재시작 불필요)
-  pull; build_rnd
+case_9() {  # sp-develop(개발의뢰) 만 — 정적(nginx 가 즉시 서빙, 재시작 불필요). API·DB 변경이 있으면 2) 또는 5).
+  pull; build_develop
 }
 
 case_10() {  # sp-engine(Python) 만 — 최초 설치는 ops/systemd/sp-engine.service 머리말 참고
@@ -124,11 +134,11 @@ if [[ -z "$choice" ]]; then
   2) sp-api + DB 마이그레이션
   3) sp-vue(web)만           — 정적 빌드
   4) sp-market만             — 정적 빌드
-  5) 풀 재배포 (api + web + market + rnd + DB)
+  5) 풀 재배포 (api + web + market + develop + DB)
   6) sp-php(그누보드)만       — git pull + php-fpm reload
   7) nginx 설정 reload
   8) .env만                  — sp-api 재시작
-  9) R&D(rnd)만               — 연구용 정적 빌드
+  9) sp-develop(개발의뢰)만   — 정적 빌드
  10) sp-engine(Python)만     — uv sync + 재시작
 MENU
   read -rp "번호 [1-10]: " choice

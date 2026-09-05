@@ -224,7 +224,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 | 관리자 `apps/web` | 완료 — 워크큐·전면 상세(전이·AI 3층 편집기(**개발 일정(예상) 섹션·버전 탭(원장·구조 비교·복원, §6.2)**)·구성도·**견적 편집기(붙여넣기 파싱·검토서 일정 가져오기·단계로 마일스톤 초안)·발송·철회·마일스톤 수동 입금**·타임라인·내부 메모·검수 기간)·설정·AI 설정 develop 블록·사이드바 배지. 워커 2본(`develop-phase1b-admin.md`·`develop-phase2b-admin.md`) + 감사 |
 | 공용 `@sp/ui` | 마켓 7컴포넌트 추출(brand-* 시맨틱 토큰·`filesPath` prop·`uploaded`·`resolution`/`adminComment` 렌더). 마켓 typecheck·lint 0 |
 | 검증 | e2e-develop **110/0**(run→cleanup 잔여 0) · e2e-market **148/0** · api 단위 999 · utils 152(견적 순수 함수 8 포함) · 8워크스페이스 typecheck 0 · lint 0(기존 `order-progress.ts`·`bom-claims.ts`·`pcb-claims.ts` 의 prefer-optional-chain 3건은 이 작업 전부터 있던 것) · 실브라우저: 고객 위저드 완주·상세·수정·인쇄 / 관리자 4화면 / 견적 작성→발송→수락→수동 입금→in_progress·철회·삭제, pageErrors 0 |
-| 운영 반영 | 앵커 `sp-develop-svc` 시드 · PHP 사전(`sp_develop_it_ids` union·cart 배지) · 라이브 nginx `/develop/`(폐지된 `/rnd` 5177 블록 재활용) 반영·재시작 완료 |
+| 운영 반영 | 앵커 `sp-develop-svc` 시드 · PHP 사전(`sp_develop_it_ids` union·cart 배지) · 라이브 nginx `/develop/`(폐지된 `/rnd` 5177 블록 재활용) 반영·재시작 완료(로컬). **운영 배포**는 `deploy.sh`(2026-09-05 갱신: 5번에 develop 빌드, 9번=sp-develop 단독, 2·5번 마이그레이션 뒤 앵커 시드 자동) — 첫 배포 순서: main 병합 → `./deploy.sh 5`(추가형이라 N) → 운영 nginx `/develop/` alias 블록 추가·`/rnd` 제거 → 7 → 6(PHP) → 관리자 AI 설정에서 develop 유스케이스 켜기 → 첨부 업로드 1회 실측(파일서버 serviceType `develop`) |
 
 남은 것: 파일서버 serviceType `develop` 운영 수용 실측 · 알림톡 템플릿 · 실 LLM 초안 육안 1회(관리자 상세에서 `초안 다시 만들기`) · 위키 재컴파일 · 발주서(PO) 첨부 라우트(계약 `poFile` 자리만 있음) · 마일스톤 `manual` 트리거의 청구 열기 플래그.
 
