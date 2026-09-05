@@ -326,7 +326,7 @@ body:has(.sp-about) .sp-footer { margin-top: 0; }
     .sp-about__slogan br { display: none; }
     .sp-about__probs { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; width: auto; height: auto; margin-top: 32px; }
     .sp-about__probs > li:nth-child(n) { position: relative; left: auto; top: auto; width: calc(50% - 8px); max-width: 178px; height: 170px; } /* 데스크톱 nth-child 좌표(0,2,1)와 같은 특이도로 덮음 */
-    .sp-about__platform { margin-top: 64px; }
+    .sp-about .sp-about__platform { margin-top: 64px; }
     .sp-about__lead h2 { font-size: 22px; }
     .sp-about__lead p { font-size: 16px; line-height: 1.6; }
     .sp-about__lead p br { display: none; }
@@ -343,13 +343,16 @@ body:has(.sp-about) .sp-footer { margin-top: 0; }
     .sp-about__ocard::after { display: none; }
     .sp-about__our { width: auto; height: auto; margin-top: 48px; }
     .sp-about__our p { width: auto; font-size: 15px; }
-    .sp-about__sols { flex-wrap: wrap; justify-content: center; margin-top: 28px; }
-    .sp-about__customer { margin-top: 64px; padding: 64px 0; }
+    .sp-about__sols { flex-wrap: wrap; justify-content: center; gap: 16px; margin-top: 28px; }
+    .sp-about__sols li { width: calc(50% - 8px); max-width: 186px; }
+    .sp-about__sols li::before { width: auto; right: 3px; }
+    .sp-about__sols img { left: 50%; margin-left: -35px; }
+    .sp-about .sp-about__customer { margin-top: 56px; padding: 56px 0 40px; }
     .sp-about__cust-head h2 { font-size: 30px; }
     .sp-about__cust-head p { font-size: 16px; }
     .sp-about__cust-logo { display: block; margin: 24px auto 0; }
     .sp-about__cust-tri { display: block; margin: 8px auto 0; }
-    .sp-about__venn { position: relative; width: min(100%, 360px); height: auto; aspect-ratio: 710 / 410; margin: 24px auto 0; } /* 원 2개의 기준(static 으로 풀린 뒤) */
+    .sp-about__venn { position: relative; left: auto; top: auto; width: min(100%, 360px); height: auto; aspect-ratio: 710 / 410; margin: 24px auto 0; } /* 원 2개의 기준(static 으로 풀린 뒤) */
     .sp-about__venn span { top: 7.3%; width: 49.3%; height: 85.4%; font-size: 24px; line-height: 1; display: flex; align-items: center; justify-content: center; }
     .sp-about__venn span:first-child { left: 4.2%; }
     .sp-about__venn span:last-child { left: 46.5%; }
@@ -358,5 +361,5 @@ body:has(.sp-about) .sp-footer { margin-top: 0; }
     .sp-about__ccard hr { position: static; width: auto; margin: 14px 0 12px; }
     .sp-about__chip, .sp-about__ccard--l .sp-about__chip, .sp-about__ccard--r .sp-about__chip { position: static; width: auto; margin-top: 10px; }
     .sp-about__logos, .sp-about__ccard--l .sp-about__logos--1, .sp-about__ccard--l .sp-about__logos--2, .sp-about__ccard--r .sp-about__logos--1 { position: static; flex-wrap: wrap; justify-content: center; gap: 14px 20px; margin-top: 12px; }
-    .sp-about__logos img { max-width: 40%; height: auto; }
+    .sp-about__logos img { max-width: 100%; height: auto; }
 }

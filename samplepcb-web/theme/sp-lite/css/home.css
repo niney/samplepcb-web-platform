@@ -749,6 +749,11 @@
     .sp-why__desc { margin-top: 20px; font-size: 16px; }
     .sp-feats { margin-top: 48px; gap: 16px; }
     .sp-feat { width: 100%; max-width: 406px; }
+    .sp-feat--1 .sp-feat__icon { left: auto; right: 33px; }   /* 카드가 좁아져도 아이콘은 오른쪽 여백 기준 */
+    .sp-feat--2 .sp-feat__icon { left: auto; right: 25px; }
+    .sp-feat--3 .sp-feat__icon { left: auto; right: 33px; }
+    .sp-feat__title { right: 135px; font-size: 22px; line-height: 30px; }        /* 아이콘 영역(오른쪽 135px) 안 침범 */
+    .sp-feat__desc { top: 100px; right: 135px; width: auto; font-size: 14px; } /* 제목이 두 줄로 접혀도 안 겹치게 */
     .sp-ways { margin-top: 64px; padding: 64px 0; }
     .sp-ways__title { font-size: 26px; letter-spacing: -.52px; }
     .sp-ways__hl { display: none; }
@@ -756,6 +761,12 @@
     .sp-ways__desc br { display: none; }
     .sp-ways__grid { gap: 20px; margin-top: 36px; }
     .sp-way { width: 100%; max-width: 404px; }
+    .sp-way { height: auto; padding-bottom: 24px; }              /* 절대 배치 → 흐름 배치(폭에 따라 줄바꿈) */
+    .sp-way__body, .sp-way__list, .sp-way__btn { position: static; width: auto; margin: 16px 20px 0; }
+    .sp-way__body { margin-top: 20px; }
+    .sp-way__list li { white-space: normal; }
+    .sp-faq__head { height: auto; min-height: 40px; }
+    .sp-faq__q { white-space: normal; }
     .sp-boards { min-height: 0; padding: 64px 0; }
     .sp-boards__h { font-size: 28px; }
     .sp-card { padding: 20px 18px; }
