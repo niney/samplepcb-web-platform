@@ -3,7 +3,6 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   MARKET_BUDGET_RANGE_LABELS,
-  apiRoutes,
   isMarketAnswerUnknown,
   marketAnswerText,
   marketAreaLabel,
@@ -12,13 +11,16 @@ import {
   marketToolRows,
 } from '@sp/api-contract';
 import type { AdminDevelopRequestDetailType } from '@sp/api-contract';
-import { apiGetBlob } from '@sp/shared';
-import { apiErrorMessage } from '@sp/ui';
+import { apiErrorMessage, canPreview } from '@sp/ui';
+import type { PreviewTarget } from '@sp/ui';
 import { formatBytes } from '../../../lib/format';
+import { downloadAdminDevelopFile } from './develop-files';
 
 // 의뢰 내용 — 설명 · 조건/질문 답변 · 희망 툴 · 연락처 · 비밀유지 · 첨부 · AI 동의.
 // 문항 라벨·순서는 레지스트리(marketQuestionsFor)가 정본이라, 답변 배열이 아니라 문항 순서로 표를 만든다.
 const props = defineProps<{ detail: AdminDevelopRequestDetailType }>();
+// 미리보기 모달은 상세 페이지 한 곳에 있다 — 여기선 대상만 올린다(옆 보기 패널에서도 같은 모달을 쓴다).
+const emit = defineEmits<{ preview: [file: PreviewTarget] }>();
 
 const { t } = useI18n();
 
@@ -51,13 +53,7 @@ const downloadError = ref('');
 async function downloadFile(fileId: number, name: string): Promise<void> {
   downloadError.value = '';
   try {
-    const blob = await apiGetBlob(`${apiRoutes.adminDevelopFiles}/${String(fileId)}`);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadAdminDevelopFile(fileId, name);
   } catch (error) {
     downloadError.value = apiErrorMessage(error, t('admin.develop.content.downloadFail'));
   }
@@ -137,6 +133,14 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
           </span>
           <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
           <span class="shrink-0 text-xs text-gray-400">{{ formatBytes(f.size) }}</span>
+          <button
+            v-if="canPreview(f)"
+            type="button"
+            class="shrink-0 font-bold text-gray-600 hover:text-gray-900"
+            @click="emit('preview', { fileId: f.fileId, name: f.name, size: f.size })"
+          >
+            {{ t('admin.develop.content.preview') }}
+          </button>
           <button type="button" class="shrink-0 font-bold text-blue-600 hover:text-blue-700" @click="downloadFile(f.fileId, f.name)">
             {{ t('admin.develop.content.download') }}
           </button>

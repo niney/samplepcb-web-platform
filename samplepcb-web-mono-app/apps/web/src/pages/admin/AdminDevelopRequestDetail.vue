@@ -2,7 +2,9 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
-import { DEVELOP_REQUEST_STATUS_LABELS, marketAreaBadge } from '@sp/api-contract';
+import { DEVELOP_REQUEST_STATUS_LABELS, apiRoutes, marketAreaBadge } from '@sp/api-contract';
+import { FilePreviewModal, apiErrorMessage } from '@sp/ui';
+import type { PreviewTarget } from '@sp/ui';
 import { useAdminDevelopDetail } from '../../admin/useAdminDevelop';
 import DevelopDiagramPanel from '../../components/admin/develop/DevelopDiagramPanel.vue';
 import DevelopOpsStrip from '../../components/admin/develop/DevelopOpsStrip.vue';
@@ -12,6 +14,7 @@ import DevelopReviewPanel from '../../components/admin/develop/DevelopReviewPane
 import DevelopStatusBar from '../../components/admin/develop/DevelopStatusBar.vue';
 import DevelopTimeline from '../../components/admin/develop/DevelopTimeline.vue';
 import { developStatusBadgeClass } from '../../components/admin/develop/develop-badge';
+import { downloadAdminDevelopFile } from '../../components/admin/develop/develop-files';
 import { formatDateTime } from '../../lib/format';
 
 // 개발의뢰 전면 상세(docs/DEVELOP_FLOW.md §7.3) — 드로어가 아니라 페이지다.
@@ -93,6 +96,18 @@ const badges = computed<Record<Tab, Badge[]>>(() => {
   return { content: [], review, diagram, quotes, timeline };
 });
 
+// 첨부 미리보기 — 의뢰 첨부·타임라인 첨부·옆 보기 패널이 한 모달을 쓴다(고객 앱과 같은 @sp/ui FilePreviewModal).
+const previewFile = ref<PreviewTarget | null>(null);
+const previewDownloadError = ref('');
+async function downloadFromPreview(fileId: number, name: string): Promise<void> {
+  previewDownloadError.value = '';
+  try {
+    await downloadAdminDevelopFile(fileId, name);
+  } catch (error) {
+    previewDownloadError.value = apiErrorMessage(error, t('admin.develop.content.downloadFail'));
+  }
+}
+
 const badgeClass: Record<Badge['tone'], string> = {
   gray: 'bg-gray-100 text-gray-600',
   blue: 'bg-blue-100 text-blue-700',
@@ -172,7 +187,7 @@ const badgeClass: Record<Badge['tone'], string> = {
       <!-- 본문 (+ 옆 보기) -->
       <div class="grid min-w-0 items-start gap-4" :class="sideOpen ? 'xl:grid-cols-[minmax(0,1fr)_420px]' : ''">
         <div class="grid min-w-0 gap-4">
-          <div v-show="tab === 'content'" role="tabpanel"><DevelopRequestContent :detail="detail" /></div>
+          <div v-show="tab === 'content'" role="tabpanel"><DevelopRequestContent :detail="detail" @preview="previewFile = $event" /></div>
           <div v-show="tab === 'review'" role="tabpanel">
             <DevelopReviewPanel
               :request-id="detail.requestId"
@@ -192,15 +207,24 @@ const badgeClass: Record<Badge['tone'], string> = {
           </div>
           <div v-show="tab === 'quotes'" role="tabpanel"><DevelopQuoteSection :detail="detail" @editing="quoteEditing = $event" /></div>
           <div v-show="tab === 'timeline'" role="tabpanel">
-            <DevelopTimeline :request-id="detail.requestId" :events="detail.events" :status="detail.status" />
+            <DevelopTimeline :request-id="detail.requestId" :events="detail.events" :status="detail.status" @preview="previewFile = $event" />
           </div>
         </div>
 
         <!-- 옆 보기: 의뢰 내용을 참고하며 쓰도록 자기 스크롤로 붙는다(넓은 화면에서만 옆, 좁으면 아래). -->
         <aside v-if="sideOpen" class="min-w-0 xl:sticky xl:top-16 xl:max-h-[calc(100vh-5rem)] xl:overflow-y-auto">
-          <DevelopRequestContent :detail="detail" />
+          <DevelopRequestContent :detail="detail" @preview="previewFile = $event" />
         </aside>
       </div>
+
+      <p v-if="previewDownloadError !== ''" class="text-sm font-semibold text-red-600">{{ previewDownloadError }}</p>
+      <FilePreviewModal
+        :open="previewFile !== null"
+        :files-path="apiRoutes.adminDevelopFiles"
+        :file="previewFile"
+        @close="previewFile = null"
+        @download="downloadFromPreview"
+      />
     </template>
   </div>
 </template>

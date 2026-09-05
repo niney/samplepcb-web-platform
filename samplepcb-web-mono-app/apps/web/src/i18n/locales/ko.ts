@@ -475,6 +475,7 @@ export const ko = {
       },
       content: {
         title: '의뢰 내용',
+        preview: '보기',
         budget: '예산',
         nda: '비밀유지',
         ndaWanted: '희망',

@@ -476,6 +476,7 @@ export const en = {
       },
       content: {
         title: 'Request content',
+        preview: 'View',
         budget: 'Budget',
         nda: 'NDA',
         ndaWanted: 'Requested',

@@ -495,6 +495,10 @@ async function run() {
   assert(lockedDl.status === 403 && lockedDl.json?.error === 'LOCKED_UNTIL_PAID', '잠긴 산출물 다운로드 403 LOCKED_UNTIL_PAID');
   const adminDl = await fetch(`${API}/api/admin/develop/files/${delivEvent.files[0].fileId}`, { headers: { Authorization: `Bearer ${tAdmin}` } });
   assert(adminDl.status === 200, '관리자 파일 다운로드 200');
+  const adminPv = await req('GET', `/api/admin/develop/files/${delivEvent.files[0].fileId}/preview`, { token: tAdmin });
+  assert(adminPv.status === 200 && adminPv.json.data.fileId === delivEvent.files[0].fileId, '관리자 파일 미리보기 200', adminPv.json);
+  const adminPvMissing = await req('GET', '/api/admin/develop/files/999999999/preview', { token: tAdmin });
+  assert(adminPvMissing.status === 404, '관리자 파일 미리보기 404(없는 파일)');
 
   // ── 12. 검수 확정 → 잔금 → 잠금 해제 ─────────────────────────────────────────
   const confirm = await req('POST', `/api/develop/requests/${rid}/deliveries/${delivEvent.eventId}/confirm`, { token: tClient, body: { note: '검수 완료' } });

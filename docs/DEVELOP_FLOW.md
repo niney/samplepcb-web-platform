@@ -167,7 +167,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 
 회원(prefix `/api`, 소유자만): `POST /develop/requests`(multipart) · `GET /develop/my/requests` · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3).
 
-관리자(prefix `/api/admin`, requireAdmin): `GET /develop/requests`(+counts) · `GET|PATCH /develop/requests/:id` · `POST …/status` · `POST …/ai/review`·`POST …/ai/diagram` · `PUT …/review`·`POST …/review/publish|unpublish|reset` · `POST …/diagram/publish|unpublish|upload` · `POST …/quotes`·`PATCH /develop/quotes/:qid`·`POST …/send|withdraw` · `POST …/events`(multipart) · `POST /develop/milestones/:mid/mark-paid` · `GET /develop/files/:fileId` · `GET|PATCH /develop/settings`.
+관리자(prefix `/api/admin`, requireAdmin): `GET /develop/requests`(+counts) · `GET|PATCH /develop/requests/:id` · `POST …/status` · `POST …/ai/review`·`POST …/ai/diagram` · `PUT …/review`·`POST …/review/publish|unpublish|reset` · `POST …/diagram/publish|unpublish|upload` · `POST …/quotes`·`PATCH /develop/quotes/:qid`·`POST …/send|withdraw` · `POST …/events`(multipart) · `POST /develop/milestones/:mid/mark-paid` · `GET /develop/files/:fileId(/preview)`(의뢰·이벤트·견적 파일 한 번호 체계, 미리보기는 고객 라우트와 같은 buildFilePreview) · `GET|PATCH /develop/settings`.
 
 에러 봉투: 회원 `{result:false,error:'CODE'}` · 관리자 `ApiError` — 마켓 관례 그대로. 코드→메시지는 각 앱 `lib/error-msg.ts`.
 

@@ -4,13 +4,13 @@ import { useI18n } from 'vue-i18n';
 import {
   DEVELOP_ADMIN_EVENT_TYPES,
   DEVELOP_EVENT_TYPE_LABELS,
-  apiRoutes,
 } from '@sp/api-contract';
 import type { AdminDevelopEventPayloadType, DevelopEventViewType, DevelopRequestStatusType } from '@sp/api-contract';
-import { apiGetBlob } from '@sp/shared';
-import { apiErrorMessage } from '@sp/ui';
+import { apiErrorMessage, canPreview } from '@sp/ui';
+import type { PreviewTarget } from '@sp/ui';
 import { useAdminDevelopEventCreate } from '../../../admin/useAdminDevelop';
 import { formatBytes, formatDateTime } from '../../../lib/format';
+import { downloadAdminDevelopFile } from './develop-files';
 
 // 진행 타임라인 — 관리자는 비공개 이벤트까지 전부 본다(고객 화면은 visibleToCustomer 만).
 // 작성 폼은 관리자가 직접 만드는 5종(note·comment·review_request·deliverable·tax_invoice).
@@ -20,6 +20,7 @@ const props = defineProps<{
   events: readonly DevelopEventViewType[];
   status: DevelopRequestStatusType;
 }>();
+const emit = defineEmits<{ preview: [file: PreviewTarget] }>();
 
 const { t } = useI18n();
 const create = useAdminDevelopEventCreate();
@@ -107,13 +108,7 @@ async function onSubmit(): Promise<void> {
 async function downloadFile(fileId: number, name: string): Promise<void> {
   downloadError.value = '';
   try {
-    const blob = await apiGetBlob(`${apiRoutes.adminDevelopFiles}/${String(fileId)}`);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadAdminDevelopFile(fileId, name);
   } catch (error) {
     downloadError.value = apiErrorMessage(error, t('admin.develop.content.downloadFail'));
   }
@@ -237,6 +232,14 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
               {{ t('admin.develop.timeline.lockedFile') }}
             </span>
             <span class="shrink-0 text-xs text-gray-400">{{ formatBytes(f.size) }}</span>
+            <button
+              v-if="canPreview(f)"
+              type="button"
+              class="shrink-0 font-bold text-gray-600 hover:text-gray-900"
+              @click="emit('preview', { fileId: f.fileId, name: f.name, size: f.size })"
+            >
+              {{ t('admin.develop.content.preview') }}
+            </button>
             <button type="button" class="shrink-0 font-bold text-blue-600 hover:text-blue-700" @click="downloadFile(f.fileId, f.name)">
               {{ t('admin.develop.content.download') }}
             </button>

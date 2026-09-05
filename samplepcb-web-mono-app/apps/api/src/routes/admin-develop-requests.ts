@@ -13,7 +13,9 @@ import {
   ApiError,
   DEVELOP_REQUEST_STATUSES,
   DevelopRequestStatusResponse,
+  fileViewKind,
   isDevelopClosed,
+  needsServerPreview,
   resolveFileMime,
 } from '@sp/api-contract';
 import type {
@@ -44,6 +46,7 @@ import { developReviewDraftRunning, startDevelopAiDrafts } from '../lib/develop-
 import { developReferenceFiles, developSourceSignature } from '../lib/develop-ai-source';
 import { buildCompletedEmail, buildDeliveredEmail, buildStatusChangedEmail, sendDevelopMail } from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy } from '../lib/develop-payment';
+import { buildFilePreview } from '../lib/file-preview';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
@@ -606,11 +609,15 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
     };
   });
 
+  // ── 관리자 파일 조회 — 의뢰·이벤트·견적 파일을 한 번호 체계로 본다. 다운로드·미리보기가 같은 판정을 쓴다.
+  const findDevelopFile = (fileId: string): Promise<SpFile | null> =>
+    prisma.spFile.findFirst({
+      where: { id: BigInt(fileId), refType: { in: [REF_DEVELOP_REQUEST, REF_DEVELOP_EVENT, REF_DEVELOP_QUOTE] } },
+    });
+
   // ── GET /admin/develop/files/:fileId — 관리자 다운로드(의뢰·이벤트·견적 파일 전부) ─────
   fastify.get('/develop/files/:fileId', { schema: { params: FileIdParams } }, async (request, reply) => {
-    const file = await prisma.spFile.findFirst({
-      where: { id: BigInt(request.params.fileId), refType: { in: [REF_DEVELOP_REQUEST, REF_DEVELOP_EVENT, REF_DEVELOP_QUOTE] } },
-    });
+    const file = await findDevelopFile(request.params.fileId);
     if (file === null) return reply.status(404).send({ error: 'NOT_FOUND', message: '파일이 없습니다' });
     const downloaded = await downloadFromFileServer(file.pathToken);
     if (downloaded === null) return reply.status(404).send({ error: 'NOT_FOUND', message: '파일이 없습니다' });
@@ -618,6 +625,33 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       .header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`)
       .type(resolveFileMime(file.originFileName, downloaded.contentType))
       .send(downloaded.buffer);
+  });
+
+  // ── GET /admin/develop/files/:fileId/preview — 구조화 미리보기(고객 라우트와 같은 buildFilePreview) ──
+  fastify.get('/develop/files/:fileId/preview', { schema: { params: FileIdParams } }, async (request, reply) => {
+    const file = await findDevelopFile(request.params.fileId);
+    if (file === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
+    const name = file.originFileName;
+    if (!needsServerPreview(fileViewKind(name))) {
+      return {
+        result: true as const,
+        data: {
+          fileId: Number(file.id),
+          name,
+          size: Number(file.size),
+          kind: 'unsupported' as const,
+          reason: 'FORMAT' as const,
+          sheets: null,
+          text: null,
+          entries: null,
+          truncated: false,
+          note: '',
+        },
+      };
+    }
+    const downloaded = await downloadFromFileServer(file.pathToken);
+    if (downloaded === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
+    return { result: true as const, data: await buildFilePreview(Number(file.id), name, downloaded.buffer) };
   });
 
   done();
