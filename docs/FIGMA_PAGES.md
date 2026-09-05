@@ -8,7 +8,8 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 |---|---|---|---|
 | 홈 `/` | 2122:5280 웹 메인 + 슬라이드 2122:7989·9271·9557 | `theme/sp-lite/index.php`, `inc/main_slider.php`, `css/home.css`, `js/home.js`, `skin/latest/home-fig/` | 5d7340df3 |
 | 공용 푸터 | 2122:6043 | `theme/sp-lite/inc/footer.php`, `css/default.css` | 5d7340df3 |
-| 회사소개 `/about` | 2122:6136 GNB > 회사소개 | `spcb/pages/about.php`, `css/about.css`, `img/about/` | (이번 커밋) |
+| 회사소개 `/about` | 2122:6136 GNB > 회사소개 | `spcb/pages/about.php`, `css/about.css`, `img/about/` | e71cebaad |
+| 회사 연혁 `/history` | 2122:6658 GNB > 회사 연혁 | `spcb/pages/history.php`, `css/history.css`, `img/history/` | (이번 커밋) |
 
 ## 홈 `/` — 미결
 - 히어로 버튼(주문하기·체험하기·자세히 보기)·카드 버튼·서비스 탭 8개·세 가지 방법 버튼: **링크 없음**.
@@ -27,6 +28,16 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 다이어그램 링(원형 화살표·아이콘 노드)은 벡터·래스터 혼합이라 **2배율 PNG 로 구움**(img/about/ring-2x.png). 링을 고치려면 피그마 2122:6297 을 다시 export.
 - 헤더 피그마에 숨겨진 회사소개 서브메뉴(About Us · History · Customer · Certification · Location)는 미구현 — 연혁·위치 페이지와 함께.
 - 반응형(1023px 이하)은 피그마에 없어 우리 정의.
+
+## 회사 연혁 `/history` — 피그마와 다르게 둔 것(사용자 승인 2026-09-06) · 확인 필요
+- **배너 사진**(2122:6672)이 Unsplash+ 워터마크 프리뷰(라이선스 전) → 회사소개 배너 사진(alexandre-debieve, 무료)으로 대체. 디자이너가 구매·교체 필요.
+- **배너 제목 "History"**(2122:6681)가 피그마에선 이미지 레이어 아래 묻혀 안 보임 → 회사소개와 같은 자리에 보이게 둠. 피그마 레이어 순서 확인 필요.
+- **Company History·Certification 설명문**(2122:6666·6894)이 회사소개 문제 제기 문장 복사본 → 레거시 사이트 문구로 대체("최고의 경쟁력을 가진 (주)샘플피씨비" / "우수한 기술로 인증받은 ㈜샘플피씨비"). 디자이너 문구 확정 필요.
+- **숫자로 보는 SamplePCB**(2122:6854)는 타사 사이트 스크린샷("19+ years of expertise…") → HTML 4칸으로 재구성, **수치·라벨은 피그마 그대로 자리표시**. ⚠ 운영 배포 전 실수치로 교체 필수(`history.php` 의 `$sp_stats`).
+- **인증서**(2122:6859~6893)는 같은 특허증 7장 복제 → 레거시 사이트 실물 6종(특허증 SMT 견적산출·스마트 BOM 특허증·상표등록증·연구개발전담부서 인정서·여성기업확인서·벤처기업확인서, 276×376 원본)으로, 가로 스크롤 띠 + 양끝 흐림. 고해상도 스캔본 받으면 교체.
+- 연혁이 **2023년 5월까지**만 있음 — 2024~2026 항목 받으면 `history.php` 의 `$sp_history` 에 추가.
+- 타임라인 배경 사진(luke-jones, 무료 Unsplash)의 방사형 마스크·Linear Burn 은 CSS 근사(multiply + radial mask).
+- 회사소개 서브메뉴는 여전히 미구현(위치 페이지 뒤 일괄).
 
 ## 공통 함정
 - 그누보드 `latest()` 는 1시간 캐시(`data/cache/latest-*.php`) — 홈 게시판 스킨을 고치면 지울 것.
