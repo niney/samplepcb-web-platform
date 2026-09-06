@@ -124,7 +124,7 @@ $sp_certs = array(
     </section>
 
     <!-- 4. Certification -->
-    <section class="sp-hist__cert" aria-label="Certification">
+    <section class="sp-hist__cert" id="certification" aria-label="Certification"><!-- id: 헤더 회사소개 서브메뉴 Certification 앵커 -->
         <div class="sp-inner sp-hist__box">
             <div class="sp-hist__cert-head">
                 <h2>Certification</h2>

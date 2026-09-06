@@ -4,6 +4,7 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 // sp-lite 공용 헤더 — 커뮤니티(head.php)와 쇼핑몰(shop/shop.head.php) 양쪽에서 include
 // 디자인: Figma 「일반고객_로그인」(2077:15) 의 top(2089:1413) — 94px 흰 바, 로고(심볼+SAMPLEPCB) · GNB(DB 메뉴) ·
 //   우측 [로그인 알약 + 회원가입] + 아이콘 3개(견적관리·장바구니·마이페이지). 반응형: <1024px 에서 햄버거 토글.
+//   GNB 항목·서브메뉴는 Figma top_submenu(2122:9205, 2026-09-06)대로 관리자 메뉴설정(g5_menu)에 등록 — docs/sql/gnb-figma-2122-9205.sql.
 // 로그인 상태는 피그마에 없어 사용자 결정(2026-08-27)대로: 알약 자리에 '로그아웃'(+승인 파트너 '파트너 포탈',
 //   super '관리자'·'시스템 관리자') 밑줄 텍스트 링크. 건수 배지는 견적관리 화면(103:2659) 헤더의 파란 pill.
 $sp_hd_ico = G5_THEME_URL.'/img/header';
@@ -33,12 +34,17 @@ $sp_hd_ico = G5_THEME_URL.'/img/header';
                     ?>
                     <li class="sp-gnb__item<?php echo $has_sub ? ' has-sub' : ''; ?>">
                         <a href="<?php echo $row['me_link']; ?>" target="_<?php echo $row['me_target']; ?>" class="sp-gnb__link"><?php echo $row['me_name'] ?></a>
-                        <?php if ($has_sub) { ?>
-                        <ul class="sp-gnb__sub">
-                            <?php foreach ((array) $row['sub'] as $row2) { if (empty($row2)) continue; ?>
-                            <li><a href="<?php echo $row2['me_link']; ?>" target="_<?php echo $row2['me_target']; ?>"><?php echo $row2['me_name'] ?></a></li>
-                            <?php } ?>
-                        </ul>
+                        <?php if ($has_sub) { // 서브메뉴 바 — 피그마 top_submenu(2122:9251): 헤더 아래 1920×86 흰 바, [1차 메뉴명 | 2차 알약 ×n]. 모바일은 인라인 목록. ?>
+                        <div class="sp-gnb__sub">
+                            <div class="sp-gnb__sub-inner">
+                                <p class="sp-gnb__sub-title"><?php echo $row['me_name'] ?></p>
+                                <ul class="sp-gnb__sub-list">
+                                    <?php foreach ((array) $row['sub'] as $row2) { if (empty($row2)) continue; ?>
+                                    <li><a href="<?php echo $row2['me_link']; ?>" target="_<?php echo $row2['me_target']; ?>"><?php echo $row2['me_name'] ?></a></li>
+                                    <?php } ?>
+                                </ul>
+                            </div>
+                        </div>
                         <?php } ?>
                     </li>
                     <?php } ?>

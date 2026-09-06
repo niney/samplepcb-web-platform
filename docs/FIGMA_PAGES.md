@@ -10,7 +10,8 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 | 공용 푸터 | 2122:6043 | `theme/sp-lite/inc/footer.php`, `css/default.css` | 5d7340df3 |
 | 회사소개 `/about` | 2122:6136 GNB > 회사소개 | `spcb/pages/about.php`, `css/about.css`, `img/about/` | e71cebaad |
 | 회사 연혁 `/history` | 2122:6658 GNB > 회사 연혁 | `spcb/pages/history.php`, `css/history.css`, `img/history/` | cc925e72e |
-| 회사 위치 `/location` | 2122:7157 GNB > 회사 위치 (지사 선택 시) — Contact Us 제외 | `spcb/pages/location.php`, `css/location.css`, `img/location/` | (이번 커밋) |
+| 회사 위치 `/location` | 2122:7157 GNB > 회사 위치 (지사 선택 시) — Contact Us 제외 | `spcb/pages/location.php`, `css/location.css`, `img/location/` | 6eb2fd4c3 |
+| 공용 헤더 GNB·서브메뉴 | 2122:9205 top_submenu (+숨김 2122:9251) | `theme/sp-lite/inc/header.php`, `css/default.css`, **`docs/sql/gnb-figma-2122-9205.sql`(메뉴 데이터)** | (이번 커밋) |
 
 ## 홈 `/` — 미결
 - 히어로 버튼(주문하기·체험하기·자세히 보기)·카드 버튼·서비스 탭 8개·세 가지 방법 버튼: **링크 없음**.
@@ -52,6 +53,14 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 점 세계지도는 피그마 벡터(3,792개 점) SVG + 방사형 페이드는 피그마 gradientTransform 을 그대로 옮긴 `world-fade.svg` 알파 마스크. 발광 점 3개는 CSS blur.
 - 회사소개 서브메뉴는 여전히 미구현(회사소개·연혁·위치 세 페이지 일괄).
 - 반응형(1023px 이하)은 피그마에 없어 우리 정의(390px 실측: 넘침·겹침 0).
+
+## 공용 헤더 GNB·서브메뉴 — 2122:9205 (2026-09-06 실측 교정)
+- 헤더 바(로고·로그인 알약·회원가입·아이콘 3)는 8-27 구현이 이미 피그마 좌표와 일치(실측 0~1px). **달랐던 것은 메뉴 항목**뿐 — GNB 는 그누보드 메뉴설정(g5_menu) 데이터라 코드가 아니라 `docs/sql/gnb-figma-2122-9205.sql` 로 맞춤(로컬 적용 완료). ⚠ **운영 배포 시 같은 SQL 을 운영 DB 에 적용**(거버 도메인은 운영 주소로), 메뉴설정 화면에서 손으로 등록해도 됨.
+- 1차 메뉴 6개: PCB 설계 · PCB 주문 · 부품 주문 · PCBA 주문 · 회사소개 · 블로그. **링크 미정 = `#`**: PCB 설계, PCBA 주문, 블로그. PCB 주문 ← 옛 'PCB샘플'(거버 사이트), 부품 주문 ← 옛 'SMARTBOM'(`/app/bom`).
+- 회사소개 서브메뉴(피그마 숨김 프레임 2122:9251)를 **hover 전폭 바**로 구현: About Us `/about` · History `/history` · Customer `/about#customer` · Certification `/history#certification` · Location `/location`(앵커 id 는 about.php·history.php 에 추가). 옛 작은 드롭다운은 폐기.
+- 피그마 바는 y 95(헤더 94 와 1px 틈) → 붙여 둠. 바 그림자 0 8 20 / blur 8 은 헤더(0 8 10 / blur 4)와 다르게 피그마 그대로.
+- 모바일(<1024)은 기존 햄버거 + 인라인 하위 목록 유지(1차 메뉴명 라벨은 숨김).
+- 메뉴 텍스트 x 좌표는 Pretendard 글자폭 차이로 피그마와 0.5~3px 차이(611 / 711 / 812 / 909 / 1021 / 1113 vs 611.5 / 712.5 / 813.5 / 910.5 / 1023.5 / 1116.5).
 
 ## 공통 함정
 - 그누보드 `latest()` 는 1시간 캐시(`data/cache/latest-*.php`) — 홈 게시판 스킨을 고치면 지울 것.

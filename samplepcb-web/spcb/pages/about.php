@@ -100,7 +100,7 @@ $img = G5_THEME_URL.'/img/about';
     </section>
 
     <!-- 4. Customer -->
-    <section class="sp-about__customer" aria-label="주요 고객">
+    <section class="sp-about__customer" id="customer" aria-label="주요 고객"><!-- id: 헤더 회사소개 서브메뉴 Customer 앵커 -->
         <div class="sp-inner sp-about__box">
             <div class="sp-about__cust-head">
                 <h2>Customer</h2>
