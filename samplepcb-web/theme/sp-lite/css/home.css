@@ -149,7 +149,14 @@
 .sp-s1__screen  { left: 657.59px; top: 474.06px; width: 593.57px; height: 400.24px; }
 
 /* — 슬라이드 2: 제작까지 바로 (카드 3장) */
-.sp-s2 .sp-slide__pattern { left: -51px; top: 596px; width: 2268px; height: 521px; }
+/* 물결 점 패턴(피그마 2122:7992): 점 1,100개가 전부 Color Dodge 블렌드 + 개별 불투명도라 export PNG(회색 구슬)에 블렌드를 CSS 로 되돌린다.
+   블렌드는 같은 스태킹 컨텍스트 안의 배경과만 섞이므로 슬라이드 프레임에 히어로와 같은 그라데이션을 깐다(색 동일 → 이음새 없음). */
+.sp-s2 .sp-slide__frame {
+    background: linear-gradient(180deg, #f5f7f8 0%, #f1f5f8 27.3%, #eff7f9 69.8%, #f5f7f8 100%);
+    background-size: 100% 1082px;
+    background-position: 0 -94px;
+}
+.sp-s2 .sp-slide__pattern { left: -51px; top: 596px; width: 2268px; height: 521px; mix-blend-mode: color-dodge; }
 .sp-s2 .sp-slide__text { top: 104px; }
 .sp-s2__title {
     margin: 14px 0 0;
