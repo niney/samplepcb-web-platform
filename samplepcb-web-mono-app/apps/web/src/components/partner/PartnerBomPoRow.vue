@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed } from 'vue';
 import type { PartnerPoListItemType } from '@sp/api-contract';
-import { fmtKstDate } from '@sp/utils';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
+
+const { pt, pn, pd } = usePartnerI18n();
 
 // BOM 발주서 한 줄(R3) — 홈 '확인할 발주'와 발주서 목록이 같은 줄을 쓴다.
 // 상태는 협력사 관점(partnerPoDisplayStatus — '마감' 같은 관리자 내부 용어 미노출).
@@ -29,14 +31,13 @@ const badge = computed(() =>
     <div class="min-w-0 flex-1">
       <p class="truncate text-sm font-semibold text-gray-900">{{ po.quoteTitle }}</p>
       <p class="mt-0.5 text-sm text-gray-500">
-        {{ po.itemCount }}개 품목 · {{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }} (VAT 별도)
-        · 발주일 {{ fmtKstDate(po.issuedAt) }}
+        {{ pt('{value1}개 품목 · {value2} {value3} (VAT 별도) · 발주일 {value4}', { value1: po.itemCount, value2: pn(po.totalAmount), value3: po.currency, value4: pd(po.issuedAt) }) }}
       </p>
     </div>
     <span v-if="!todo" class="shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold" :class="badge.cls">
-      {{ badge.label }}
+      {{ pt(badge.label) }}
     </span>
-    <span v-if="todo" class="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">확인하기</span>
-    <span v-else class="shrink-0 text-sm text-gray-400">보기 →</span>
+    <span v-if="todo" class="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">{{ pt('확인하기') }}</span>
+    <span v-else class="shrink-0 text-sm text-gray-400">{{ pt('보기 →') }}</span>
   </RouterLink>
 </template>

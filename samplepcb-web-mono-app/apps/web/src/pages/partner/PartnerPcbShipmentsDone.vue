@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed, ref } from 'vue';
 import { usePartnerPcbDoneShipments } from '../../partner/usePartnerPcbPos';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbShipmentCard from '../../components/pcb/PcbShipmentCard.vue';
 import UiPagination from '../../components/ui/UiPagination.vue';
+
+const { pt, pn } = usePartnerI18n();
+
 
 // PCB 완료된 발송(포털 재설계 R2 — BOM §6.11 done 분리 미러) — 협력사 관점 완료
 // (최종 상태 도달·입고 확인) 아카이브. 누적 목록이라 별도 페이지+페이지네이션.
@@ -14,18 +18,19 @@ const page = ref(1);
 const query = usePartnerPcbDoneShipments(page, PAGE_SIZE);
 const items = computed(() => query.data.value?.data.items ?? []);
 const total = computed(() => query.data.value?.data.total ?? 0);
+
 </script>
 
 <template>
   <div class="space-y-4">
-    <PartnerPageHeader title="완료된 발송" subtitle="발송이 끝났거나 입고 확인된 기록입니다." />
+    <PartnerPageHeader :title="pt('완료된 발송')" :subtitle="pt('발송이 끝났거나 입고 확인된 기록입니다.')" />
 
-    <p v-if="query.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
+    <p v-if="query.isLoading.value" class="text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
     <p
       v-else-if="items.length === 0"
       class="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400"
     >
-      완료된 발송이 없습니다.
+      {{ pt('완료된 발송이 없습니다.') }}
     </p>
 
     <template v-else>
@@ -33,7 +38,7 @@ const total = computed(() => query.data.value?.data.total ?? 0);
         <PcbShipmentCard v-for="s in items" :key="s.shipmentId" :shipment="s" readonly />
       </div>
       <div class="flex items-center justify-between">
-        <p class="text-sm text-gray-500">총 {{ total }}건</p>
+        <p class="text-sm text-gray-500">{{ pt('총 {value1}건', { value1: pn(total) }) }}</p>
         <UiPagination
           :page="page"
           :page-size="PAGE_SIZE"

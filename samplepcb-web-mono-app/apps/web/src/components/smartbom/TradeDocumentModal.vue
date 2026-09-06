@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { BomTradeDocumentType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import TradeDocumentSheet from './TradeDocumentSheet.vue';
 import { usePrintIsolation } from '../../lib/usePrintIsolation';
+
+const { pt, enabled, locale } = usePartnerI18n();
 
 const props = defineProps<{
   open: boolean;
@@ -15,6 +19,8 @@ const emit = defineEmits<{ close: [] }>();
 const data = ref<BomTradeDocumentType | null>(null);
 const loading = ref(false);
 const error = ref('');
+// Transient feedback belongs to the selected language; preserve all editable document data.
+watch(locale, () => { error.value = ''; });
 const dialogEl = ref<HTMLElement | null>(null);
 const closeButtonEl = ref<HTMLButtonElement | null>(null);
 const scrollEl = ref<HTMLElement | null>(null);
@@ -33,7 +39,7 @@ async function loadDocument(): Promise<void> {
   } catch (cause) {
     if (version !== loadVersion) return;
     error.value =
-      cause instanceof ApiRequestError ? cause.message : '거래 문서를 불러오지 못했습니다.';
+      !enabled.value && cause instanceof ApiRequestError ? cause.message : pt('거래 문서를 불러오지 못했습니다.');
   } finally {
     if (version === loadVersion) loading.value = false;
   }
@@ -134,6 +140,7 @@ onBeforeUnmount(() => {
   if (previousFocus !== null) restorePageFocus();
 });
 usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
+
 </script>
 
 <template>
@@ -144,7 +151,7 @@ usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
       class="sp-bom-trade-document-host fixed inset-0 z-[70]"
       role="dialog"
       aria-modal="true"
-      :aria-label="label"
+      :aria-label="pt(label)"
       tabindex="-1"
     >
       <div class="no-print absolute inset-0 bg-black/40" @click="emit('close')" />
@@ -159,7 +166,7 @@ usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
             :disabled="data === null"
             @click="onPrint"
           >
-            인쇄
+            {{ pt('인쇄') }}
           </button>
           <button
             ref="closeButtonEl"
@@ -167,7 +174,7 @@ usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
             class="rounded-md bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow hover:bg-gray-100"
             @click="emit('close')"
           >
-            닫기
+            {{ pt('닫기') }}
           </button>
         </div>
 
@@ -175,11 +182,11 @@ usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
           v-if="data !== null"
           class="no-print mb-2 flex shrink-0 items-center gap-2 rounded-lg bg-black/55 px-2 py-1.5 text-xs font-medium text-white min-[840px]:hidden"
         >
-          <span class="min-w-0 flex-1">좌우로 이동해 거래 문서 전체를 확인하세요.</span>
+          <span class="min-w-0 flex-1">{{ pt('좌우로 이동해 거래 문서 전체를 확인하세요.') }}</span>
           <button
             type="button"
             class="grid size-7 shrink-0 place-items-center rounded border border-white/40 bg-white/15 text-base hover:bg-white/25"
-            aria-label="거래 문서 왼쪽으로 이동"
+            :aria-label="pt('거래 문서 왼쪽으로 이동')"
             @click="moveDocument(-1)"
           >
             ←
@@ -187,7 +194,7 @@ usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
           <button
             type="button"
             class="grid size-7 shrink-0 place-items-center rounded border border-white/40 bg-white/15 text-base hover:bg-white/25"
-            aria-label="거래 문서 오른쪽으로 이동"
+            :aria-label="pt('거래 문서 오른쪽으로 이동')"
             @click="moveDocument(1)"
           >
             →
@@ -200,9 +207,7 @@ usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
           class="sp-bom-trade-document-scroll min-h-0 flex-1 overflow-auto"
           @click.self="emit('close')"
         >
-          <p v-if="loading" role="status" class="no-print py-12 text-center text-sm text-white">
-            불러오는 중…
-          </p>
+          <p v-if="loading" role="status" class="no-print py-12 text-center text-sm text-white">{{ pt('불러오는 중…') }}</p>
           <div v-else-if="error !== ''" class="no-print py-12 text-center">
             <p role="alert" class="text-sm font-bold text-red-200">{{ error }}</p>
             <button
@@ -210,7 +215,7 @@ usePrintIsolation(PRINT_STYLE_ID, PRINT_CSS, () => props.open);
               class="mt-3 rounded-md bg-white px-3 py-2 text-sm font-bold text-gray-700 shadow hover:bg-gray-100"
               @click="loadDocument"
             >
-              다시 시도
+              {{ pt('다시 시도') }}
             </button>
           </div>
           <div v-else-if="data !== null" class="w-max shadow-2xl min-[840px]:mx-auto" @click.stop>

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+const { pt, pn, pd, locale } = usePartnerI18n();
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
@@ -87,6 +90,7 @@ const recentUploads = computed(() => uploadsQuery.data.value?.data.items.slice(0
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const error = ref<string | null>(null);
+watch(locale, () => { error.value = null; });
 const dragging = ref(false);
 
 const pickFile = (): void => {
@@ -98,11 +102,11 @@ const submitFile = async (file: File): Promise<void> => {
   error.value = null;
   const lower = file.name.toLowerCase();
   if (!ALLOWED_EXTS.some((ext) => lower.endsWith(ext))) {
-    error.value = '지원하지 않는 파일 형식입니다 (xlsx · xls · csv · tsv)';
+    error.value = pt('지원하지 않는 파일 형식입니다 (xlsx · xls · csv · tsv)');
     return;
   }
   if (file.size > MAX_FILE_BYTES) {
-    error.value = '파일이 50MB 를 초과합니다.';
+    error.value = pt('파일이 50MB 를 초과합니다.');
     return;
   }
   try {
@@ -113,9 +117,9 @@ const submitFile = async (file: File): Promise<void> => {
     });
   } catch (caught) {
     error.value =
-      caught instanceof ApiRequestError
-        ? (caught.payload?.message ?? '업로드에 실패했습니다.')
-        : '업로드에 실패했습니다.';
+      caught instanceof ApiRequestError && locale.value === 'ko'
+        ? (caught.payload?.message ?? pt('업로드에 실패했습니다.'))
+        : pt('업로드에 실패했습니다.');
   }
 };
 
@@ -134,9 +138,9 @@ const onDrop = (event: DragEvent): void => {
 
 const removePart = async (partId: number, mpn: string): Promise<void> => {
   const ok = await confirmDialog({
-    title: '이 부품을 원장에서 지울까요?',
-    message: `${mpn} — 고객 BOM 분석에서 더는 후보로 뜨지 않습니다.`,
-    confirmLabel: '삭제',
+    title: pt('이 부품을 원장에서 지울까요?'),
+    message: pt('{mpn} — 고객 BOM 분석에서 더는 후보로 뜨지 않습니다.', { mpn }),
+    confirmLabel: pt('삭제'),
     tone: 'danger',
   });
   if (!ok) return;
@@ -144,40 +148,40 @@ const removePart = async (partId: number, mpn: string): Promise<void> => {
 };
 
 const fmtQty = (value: number | null): string =>
-  value === null ? '—' : value.toLocaleString('ko-KR');
-const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString('ko-KR');
-const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? flag;
+  value === null ? '—' : pn(value);
+const fmtDate = (iso: string): string => pd(iso);
+const flagLabel = (flag: string): string => pt(PARTNER_PART_FLAG_LABELS[flag] ?? flag);
 </script>
 
 <template>
   <div class="space-y-4">
     <PartnerPageHeader
-      title="보유 부품"
-      subtitle="갖고 계신 재고 목록을 올리면 고객 BOM 분석에서 후보로 뜨고, 담당자가 견적을 요청하기 쉬워집니다."
+      :title="pt('보유 부품')"
+      :subtitle="pt('갖고 계신 재고 목록을 올리면 고객 BOM 분석에서 후보로 뜨고, 담당자가 견적을 요청하기 쉬워집니다.')"
     />
 
     <div
       v-if="noTrack"
       class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"
     >
-      이 조직은 부품 판매 트랙에 참여하지 않습니다. 담당자에게 문의하세요.
+      {{ pt('이 조직은 부품 판매 트랙에 참여하지 않습니다. 담당자에게 문의하세요.') }}
     </div>
 
     <template v-else>
       <!-- 현황 — 만료를 두지 않는 대신 나이를 항상 보인다 -->
       <div class="grid gap-3 sm:grid-cols-3">
         <div class="rounded-xl border border-gray-200 bg-surface p-4">
-          <p class="text-xs text-gray-500">등록된 부품</p>
+          <p class="text-xs text-gray-500"> {{ pt('등록된 부품') }} </p>
           <p class="mt-1 text-2xl font-bold tabular-nums text-gray-900">
             {{ fmtQty(summary?.activeCount ?? 0) }}
           </p>
         </div>
         <div class="rounded-xl border border-gray-200 bg-surface p-4">
-          <p class="text-xs text-gray-500">마지막 업로드</p>
+          <p class="text-xs text-gray-500"> {{ pt('마지막 업로드') }} </p>
           <p class="mt-1 text-sm font-semibold text-gray-900">
             {{ summary?.lastUploadedAt === null || summary === null
-              ? '아직 없음'
-              : `${fmtDate(summary.lastUploadedAt)} · ${String(summary.ageDays ?? 0)}일 전` }}
+              ? pt('아직 없음')
+              : pt('{date} · {days}일 전', { date: fmtDate(summary.lastUploadedAt), days: pn(summary.ageDays ?? 0) }) }}
           </p>
           <p v-if="summary?.lastUploadFileName != null" class="mt-0.5 truncate text-xs text-gray-400">
             {{ summary.lastUploadFileName }}
@@ -189,16 +193,14 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
             ? 'border-amber-300 bg-amber-50'
             : 'border-gray-200 bg-surface'"
         >
-          <p class="text-xs" :class="summary?.stale === true ? 'text-amber-700' : 'text-gray-500'">
-            정보 신선도
-          </p>
+          <p class="text-xs" :class="summary?.stale === true ? 'text-amber-700' : 'text-gray-500'"> {{ pt('정보 신선도') }} </p>
           <p
             class="mt-1 text-sm font-semibold"
             :class="summary?.stale === true ? 'text-amber-800' : 'text-gray-900'"
           >
             {{ summary?.stale === true
-              ? `${String(staleAfterDays)}일이 지났습니다 — 갱신을 권장합니다`
-              : '최신 상태입니다' }}
+              ? pt('{days}일이 지났습니다 — 갱신을 권장합니다', { days: pn(staleAfterDays) })
+              : summary?.lastUploadedAt ? pt('최신 상태입니다') : pt('아직 없음') }}
           </p>
         </div>
       </div>
@@ -212,22 +214,17 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
         @dragleave.prevent="dragging = false"
         @drop.prevent="onDrop"
       >
-        <p class="text-sm font-semibold text-gray-800">재고 목록 파일을 올려 주세요</p>
-        <p class="mt-1 text-xs text-gray-500">
-          품번만 있어도 됩니다. 제조사·재고·데이트 코드·납기가 있으면 함께 읽습니다.
-          형식이 달라도 열 이름을 보고 맞추며, 틀리면 다음 화면에서 고칠 수 있습니다.
-        </p>
+        <p class="text-sm font-semibold text-gray-800"> {{ pt('재고 목록 파일을 올려 주세요') }} </p>
+        <p class="mt-1 text-xs text-gray-500"> {{ pt('품번만 있어도 됩니다. 제조사·재고·데이트 코드·납기가 있으면 함께 읽습니다. 형식이 달라도 열 이름을 보고 맞추며, 틀리면 다음 화면에서 고칠 수 있습니다.') }} </p>
         <button
           type="button"
           class="mt-3 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
           :disabled="createUpload.isPending.value"
           @click="pickFile"
         >
-          {{ createUpload.isPending.value ? '분석 중…' : '파일 선택' }}
+          {{ createUpload.isPending.value ? pt('분석 중…') : pt('파일 선택') }}
         </button>
-        <p class="mt-2 text-[11px] text-gray-400">
-          xlsx · xls · csv · tsv / 최대 50MB · 빈 열이 많으면 지우고 올리면 빨라집니다
-        </p>
+        <p class="mt-2 text-[11px] text-gray-400"> {{ pt('xlsx · xls · csv · tsv / 최대 50MB · 빈 열이 많으면 지우고 올리면 빨라집니다') }} </p>
         <input
           ref="fileInput"
           type="file"
@@ -242,17 +239,17 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
         class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4"
       >
         <div class="min-w-0">
-          <p class="text-sm font-semibold text-amber-900">확인 대기 중인 업로드가 있습니다</p>
+          <p class="text-sm font-semibold text-amber-900"> {{ pt('확인 대기 중인 업로드가 있습니다') }} </p>
           <p class="truncate text-xs text-amber-800">
             {{ pendingUpload.fileName }} ·
-            {{ PARTNER_PART_UPLOAD_STATUS_LABELS[pendingUpload.status] }}
+            {{ pt(PARTNER_PART_UPLOAD_STATUS_LABELS[pendingUpload.status]) }}
           </p>
         </div>
         <RouterLink
           :to="{ name: 'partner-parts-upload', params: { uploadId: String(pendingUpload.uploadId) } }"
           class="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-700"
         >
-          이어서 확인 →
+          {{ pt('이어서 확인 →') }}
         </RouterLink>
       </div>
 
@@ -264,21 +261,21 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
       <div class="rounded-xl border border-gray-200 bg-surface">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 p-3">
           <p class="text-sm font-semibold text-gray-800">
-            등록된 부품 <span class="tabular-nums text-gray-500">{{ fmtQty(total) }}</span>
+            {{ pt('등록된 부품') }} <span class="tabular-nums text-gray-500">{{ fmtQty(total) }}</span>
           </p>
           <input
             v-model="q"
             type="search"
-            placeholder="품번·제조사 검색"
-            aria-label="품번·제조사 검색"
-            class="w-56 rounded-md border border-gray-200 bg-surface px-2.5 py-1.5 text-sm focus:border-amber-400 focus:outline-none"
+            :placeholder="pt('품번·제조사 검색')"
+            :aria-label="pt('품번·제조사 검색')"
+            class="w-full rounded-md border border-gray-200 bg-surface px-2.5 py-1.5 text-sm focus:border-amber-400 focus:outline-none sm:w-80"
           >
         </div>
 
-        <p v-if="listQuery.isLoading.value" class="p-6 text-sm text-gray-400">불러오는 중…</p>
+        <p v-if="listQuery.isLoading.value" class="p-6 text-sm text-gray-400"> {{ pt('불러오는 중…') }} </p>
         <div v-else-if="items.length === 0" class="p-4">
           <PartnerEmpty>
-            {{ q.trim() === '' ? '아직 올린 부품이 없습니다.' : '검색 결과가 없습니다.' }}
+            {{ q.trim() === '' ? pt('아직 올린 부품이 없습니다.') : pt('검색 결과가 없습니다.') }}
           </PartnerEmpty>
         </div>
         <template v-else>
@@ -286,12 +283,12 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
             <table class="w-full min-w-[820px] text-sm">
               <thead class="bg-gray-50 text-left text-xs text-gray-500">
                 <tr>
-                  <th class="px-3 py-2 font-semibold">품번</th>
-                  <th class="px-3 py-2 font-semibold">제조사</th>
-                  <th class="px-3 py-2 text-right font-semibold">재고</th>
-                  <th class="px-3 py-2 font-semibold">D/C</th>
-                  <th class="px-3 py-2 font-semibold">납기</th>
-                  <th class="px-3 py-2 font-semibold">기준일</th>
+                  <th class="px-3 py-2 font-semibold"> {{ pt('품번') }} </th>
+                  <th class="px-3 py-2 font-semibold"> {{ pt('제조사') }} </th>
+                  <th class="px-3 py-2 text-right font-semibold"> {{ pt('재고') }} </th>
+                  <th class="px-3 py-2 font-semibold">{{ pt('D/C') }}</th>
+                  <th class="px-3 py-2 font-semibold"> {{ pt('납기') }} </th>
+                  <th class="px-3 py-2 font-semibold"> {{ pt('기준일') }} </th>
                   <th class="px-3 py-2" />
                 </tr>
               </thead>
@@ -305,13 +302,13 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
                   <td class="px-3 py-2">
                     <p class="font-medium text-gray-900">{{ part.mpn }}</p>
                     <p v-if="part.mpnRaw !== part.mpn" class="text-[11px] text-gray-400">
-                      원문 {{ part.mpnRaw }}
+                      {{ pt('원문 {value}', { value: part.mpnRaw }) }}
                     </p>
                     <span
                       v-if="part.editedAt !== null"
                       class="mr-1 mt-0.5 inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700"
-                      :title="`수정됨 · ${fmtDate(part.editedAt)}`"
-                    >수정됨</span>
+                      :title="pt('수정됨 · {date}', { date: fmtDate(part.editedAt) })"
+                    > {{ pt('수정됨') }} </span>
                     <span
                       v-for="flag in partnerPartVisibleFlags(part.flags)"
                       :key="flag"
@@ -325,7 +322,7 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
                     {{ fmtQty(part.stockQty) }}
                   </td>
                   <td class="px-3 py-2 text-gray-600">{{ part.dateCode ?? '—' }}</td>
-                  <td class="px-3 py-2 text-gray-600">{{ part.leadTime ?? '—' }}</td>
+                  <td class="px-3 py-2 text-gray-600">{{ part.leadTime === 'Stock' ? pt('Stock') : (part.leadTime ?? '—') }}</td>
                   <td class="px-3 py-2 text-xs text-gray-500">{{ fmtDate(part.uploadedAt) }}</td>
                   <td class="whitespace-nowrap px-3 py-2 text-right">
                     <button
@@ -333,14 +330,14 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
                       class="rounded px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
                       @click="editing = part"
                     >
-                      수정
+                      {{ pt('수정') }}
                     </button>
                     <button
                       type="button"
                       class="rounded px-2 py-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600"
                       @click="void removePart(part.partId, part.mpn)"
                     >
-                      삭제
+                      {{ pt('삭제') }}
                     </button>
                   </td>
                 </tr>
@@ -360,7 +357,7 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
 
       <!-- 업로드 이력 -->
       <div v-if="recentUploads.length > 0" class="rounded-xl border border-gray-200 bg-surface p-3">
-        <p class="mb-2 text-sm font-semibold text-gray-800">최근 업로드</p>
+        <p class="mb-2 text-sm font-semibold text-gray-800"> {{ pt('최근 업로드') }} </p>
         <ul class="divide-y divide-gray-100 text-sm">
           <li
             v-for="upload in recentUploads"
@@ -371,10 +368,9 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
               <p class="truncate text-gray-800">{{ upload.fileName }}</p>
               <p class="text-xs text-gray-400">
                 {{ fmtDate(upload.createdAt) }} ·
-                {{ upload.uploadedBy === 'ADMIN' ? '담당자 대행' : '직접 업로드' }}
+                {{ upload.uploadedBy === 'ADMIN' ? pt('담당자 대행') : pt('직접 업로드') }}
                 <span v-if="upload.stats !== null">
-                  · {{ fmtQty(upload.stats.rowCount) }}행
-                </span>
+                  · {{ pt('{count}행', { count: fmtQty(upload.stats.rowCount) }) }} </span>
               </p>
             </div>
             <span
@@ -385,7 +381,7 @@ const flagLabel = (flag: string): string => PARTNER_PART_FLAG_LABELS[flag] ?? fl
                   ? 'bg-red-50 text-red-600'
                   : 'bg-gray-100 text-gray-600'"
             >
-              {{ PARTNER_PART_UPLOAD_STATUS_LABELS[upload.status] }}
+              {{ pt(PARTNER_PART_UPLOAD_STATUS_LABELS[upload.status]) }}
             </span>
           </li>
         </ul>

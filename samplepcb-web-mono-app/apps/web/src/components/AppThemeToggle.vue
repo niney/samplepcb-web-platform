@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../partner/i18n';
+const { pt } = usePartnerI18n();
 import { useTheme } from '../bom/useTheme';
 
 // 테마 전환 버튼 — 관리자·기본·협력사 셸이 같은 SVG 를 세 벌 들고 있던 것을 모았다.
@@ -13,8 +15,8 @@ const { isDark, toggleTheme } = useTheme();
   <button
     type="button"
     class="grid size-[30px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand"
-    :aria-label="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
-    :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
+    :aria-label="pt(isDark ? '라이트 모드로 전환' : '다크 모드로 전환')"
+    :title="pt(isDark ? '라이트 모드로 전환' : '다크 모드로 전환')"
     @click="toggleTheme"
   >
     <svg v-if="isDark" viewBox="0 0 24 24" :class="iconClass" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">

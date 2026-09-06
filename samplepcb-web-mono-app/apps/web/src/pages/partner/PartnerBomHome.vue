@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed, onMounted } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import { usePartnerBomWork } from '../../partner/usePartnerWork';
@@ -9,6 +10,8 @@ import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vu
 import PartnerBomRfqRow from '../../components/partner/PartnerBomRfqRow.vue';
 import PartnerBomPoRow from '../../components/partner/PartnerBomPoRow.vue';
 import PartnerEmpty from '../../components/partner/PartnerEmpty.vue';
+
+const { pt } = usePartnerI18n();
 
 // BOM 부품 모듈 홈(포털 재설계 R1·R3) — "오늘 할 일" 중심: ① 회신할 견적 ② 확인할 발주
 // ③ 보낼 물건([📦 보내기]) ④ 진행 중 발송(핑퐁). BOM 트랙 어휘만 쓴다 — PCB 는
@@ -55,20 +58,15 @@ const nothingTodo = computed(
 <template>
   <div class="space-y-6">
     <PartnerPageHeader
-      title="BOM 부품"
-      :subtitle="partnerName !== null ? `${partnerName} 님, 오늘 처리할 일입니다.` : null"
+      :title="pt('BOM 부품')"
+      :subtitle="partnerName !== null ? pt('{value1} 님, 오늘 처리할 일입니다.', { value1: partnerName }) : null"
     />
 
-    <div v-if="notPartner" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
-      승인된 파트너 계정이 아닙니다. 파트너 등록·계정 연결은 샘플피씨비 담당자에게 문의해 주세요.
-    </div>
+    <div v-if="notPartner" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"> {{ pt('승인된 파트너 계정이 아닙니다. 파트너 등록·계정 연결은 샘플피씨비 담당자에게 문의해 주세요.') }} </div>
     <div v-else-if="noTrack" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
-      이 조직은 BOM 부품 트랙에 참여하지 않습니다.
-      <RouterLink v-if="hasPcbTrack" :to="{ name: 'partner-pcb' }" class="font-semibold underline">
-        PCB 제작으로 이동 →
-      </RouterLink>
+      {{ pt('이 조직은 BOM 부품 트랙에 참여하지 않습니다.') }} <RouterLink v-if="hasPcbTrack" :to="{ name: 'partner-pcb' }" class="font-semibold underline"> {{ pt('PCB 제작으로 이동 →') }} </RouterLink>
     </div>
-    <p v-else-if="isLoading" class="text-sm text-gray-400">불러오는 중…</p>
+    <p v-else-if="isLoading" class="text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
 
     <template v-else>
       <!-- 오늘 할 일 — 카드 4개(이 화면의 섹션 또는 보내기 화면으로) -->
@@ -78,9 +76,9 @@ const nothingTodo = computed(
           class="min-w-0 rounded-xl border bg-surface p-4 hover:border-blue-300"
           :class="pendingRfqs.length > 0 ? 'border-blue-200' : 'border-gray-200'"
         >
-          <p class="text-sm text-gray-500">회신할 견적</p>
+          <p class="text-sm text-gray-500">{{ pt('회신할 견적') }}</p>
           <p class="mt-1 text-2xl font-bold" :class="pendingRfqs.length > 0 ? 'text-blue-700' : 'text-gray-300'">
-            {{ pendingRfqs.length }}<span class="text-sm font-semibold">건</span>
+            {{ pendingRfqs.length }}
           </p>
         </a>
         <a
@@ -88,9 +86,9 @@ const nothingTodo = computed(
           class="min-w-0 rounded-xl border bg-surface p-4 hover:border-emerald-300"
           :class="toConfirm.length > 0 ? 'border-emerald-200' : 'border-gray-200'"
         >
-          <p class="text-sm text-gray-500">확인할 발주</p>
+          <p class="text-sm text-gray-500">{{ pt('확인할 발주') }}</p>
           <p class="mt-1 text-2xl font-bold" :class="toConfirm.length > 0 ? 'text-emerald-700' : 'text-gray-300'">
-            {{ toConfirm.length }}<span class="text-sm font-semibold">건</span>
+            {{ toConfirm.length }}
           </p>
         </a>
         <RouterLink
@@ -98,40 +96,36 @@ const nothingTodo = computed(
           class="min-w-0 rounded-xl border bg-surface p-4 hover:border-indigo-300"
           :class="toShip.length > 0 || preparingCount > 0 ? 'border-indigo-200' : 'border-gray-200'"
         >
-          <p class="text-sm text-gray-500">📦 보낼 물건</p>
+          <p class="text-sm text-gray-500">{{ pt('📦 보낼 물건') }}</p>
           <p class="mt-1 text-2xl font-bold" :class="toShip.length > 0 ? 'text-indigo-700' : 'text-gray-300'">
-            {{ toShip.length }}<span class="text-sm font-semibold">건</span>
+            {{ toShip.length }}
           </p>
-          <p v-if="preparingCount > 0" class="mt-0.5 text-xs font-bold text-indigo-600">
-            준비 중인 박스 {{ preparingCount }}건 — 계속하기 →
-          </p>
-          <p v-else-if="countryBlockedCount > 0" class="mt-0.5 text-xs font-semibold text-red-600">
-            국가 정보 필요 {{ countryBlockedCount }}건
-          </p>
-          <p v-else-if="toShip.length > 0" class="mt-0.5 text-xs font-semibold text-indigo-600">보내기 →</p>
+          <p v-if="preparingCount > 0" class="mt-0.5 text-xs font-bold text-indigo-600"> {{ pt('준비 중인 박스 {value1}건 — 계속하기 →', { value1: preparingCount }) }} </p>
+          <p v-else-if="countryBlockedCount > 0" class="mt-0.5 text-xs font-semibold text-red-600"> {{ pt('국가 정보 필요 {value1}건', { value1: countryBlockedCount }) }} </p>
+          <p v-else-if="toShip.length > 0" class="mt-0.5 text-xs font-semibold text-indigo-600">{{ pt('보내기 →') }}</p>
         </RouterLink>
         <a
           href="#shipments"
           class="min-w-0 rounded-xl border bg-surface p-4 hover:border-blue-300"
           :class="myTurnCount > 0 ? 'border-blue-300' : 'border-gray-200'"
         >
-          <p class="text-sm text-gray-500">진행 중 발송</p>
+          <p class="text-sm text-gray-500">{{ pt('진행 중 발송') }}</p>
           <p class="mt-1 text-2xl font-bold" :class="activeShipments.length > 0 ? 'text-gray-800' : 'text-gray-300'">
-            {{ activeShipments.length }}<span class="text-sm font-semibold">건</span>
+            {{ activeShipments.length }}
           </p>
-          <p v-if="myTurnCount > 0" class="mt-0.5 text-xs font-bold text-blue-600">내 차례 {{ myTurnCount }}건!</p>
+          <p v-if="myTurnCount > 0" class="mt-0.5 text-xs font-bold text-blue-600">{{ pt('내 차례 {value1}건!', { value1: myTurnCount }) }}</p>
         </a>
       </div>
 
       <!-- ① 회신할 견적 -->
       <section v-if="pendingRfqs.length > 0" id="reply">
         <div class="flex items-baseline justify-between gap-3">
-          <h2 class="text-sm font-bold text-gray-700">회신할 견적 ({{ pendingRfqs.length }})</h2>
+          <h2 class="text-sm font-bold text-gray-700">{{ pt('회신할 견적 ({value1})', { value1: pendingRfqs.length }) }}</h2>
           <RouterLink
             :to="{ name: 'partner-bom-rfqs', query: { tab: 'all' } }"
             class="text-xs font-semibold text-gray-400 hover:text-gray-700"
           >
-            모든 견적요청 →
+            {{ pt('모든 견적요청 →') }}
           </RouterLink>
         </div>
         <div class="mt-2 grid gap-2">
@@ -142,12 +136,12 @@ const nothingTodo = computed(
       <!-- ② 확인할 발주 -->
       <section v-if="toConfirm.length > 0" id="confirm">
         <div class="flex items-baseline justify-between gap-3">
-          <h2 class="text-sm font-bold text-gray-700">확인할 발주 ({{ toConfirm.length }})</h2>
+          <h2 class="text-sm font-bold text-gray-700">{{ pt('확인할 발주 ({value1})', { value1: toConfirm.length }) }}</h2>
           <RouterLink
             :to="{ name: 'partner-bom-pos', query: { tab: 'all' } }"
             class="text-xs font-semibold text-gray-400 hover:text-gray-700"
           >
-            모든 발주서 →
+            {{ pt('모든 발주서 →') }}
           </RouterLink>
         </div>
         <div class="mt-2 grid gap-2">
@@ -157,13 +151,13 @@ const nothingTodo = computed(
 
       <!-- ④ 진행 중 발송 — 발송(박스) 단위 추적·핑퐁 -->
       <section v-if="activeShipments.length > 0" id="shipments">
-        <h2 class="text-sm font-bold text-gray-700">진행 중 발송 ({{ activeShipments.length }})</h2>
+        <h2 class="text-sm font-bold text-gray-700">{{ pt('진행 중 발송 ({value1})', { value1: activeShipments.length }) }}</h2>
         <div class="mt-2 space-y-3">
           <PartnerShipmentCard v-for="s in activeShipments" :key="s.shipmentId" :shipment="s" />
         </div>
       </section>
 
-      <PartnerEmpty v-if="nothingTodo">지금 처리할 일이 없습니다 🎉</PartnerEmpty>
+      <PartnerEmpty v-if="nothingTodo">{{ pt('지금 처리할 일이 없습니다 🎉') }}</PartnerEmpty>
     </template>
   </div>
 </template>

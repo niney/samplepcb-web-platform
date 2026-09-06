@@ -1,11 +1,16 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { PCB_PO_STATUS_LABELS, PCB_REMITTANCE_STATUS_LABELS, type PcbRemittanceStatusType } from '@sp/api-contract';
-import { fmtKstDate as dateOnly } from '@sp/utils';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import { usePartnerPcbRemittances } from '../../partner/usePartnerPcbPos';
-import { fmtPcbAmount } from '../../lib/pcb-money';
+
+const { pt, pm, pd, pn } = usePartnerI18n();
+const dateOnly = pd;
+const fmtPcbAmount = (currency: string, value: number | null): string =>
+  value === null ? '—' : pm(value, currency);
+
 
 // 협력사 수금 현황(P3.11) — 관리자 [송금] 워크큐의 협력사 버전.
 // 발주서 상세에도 같은 내용이 있지만, **완료된 발주서는 포털 홈의 '진행할 발주'에 뜨지
@@ -40,20 +45,18 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
   paid: '입금 완료',
   over: '초과 입금',
 };
+
 </script>
 
 <template>
   <div class="pcb-readable space-y-5">
     <PartnerPageHeader
-      title="수금 현황"
-      subtitle="받은 발주서별 입금 내역입니다. 금액이 다르면 발주처에 문의해 주세요."
+      :title="pt('수금 현황')"
+      :subtitle="pt('받은 발주서별 입금 내역입니다. 금액이 다르면 발주처에 문의해 주세요.')"
     />
 
     <!-- 통화별 미수금 총계 — 이 화면의 결론 -->
-    <p v-if="totals.length > 0" class="text-xs text-gray-500">
-      아래 총계는 <b class="text-gray-700">무상 A/S 재생산 건을 제외</b>한 금액입니다 —
-      표에는 그 건도 보이지만 받을 돈이 아니라 총계에 넣지 않습니다.
-    </p>
+    <p v-if="totals.length > 0" class="text-xs text-gray-500">{{ pt('무상 A/S에 따른 재생산 발주는 표에 표시되지만 입금 대상이 아니므로 총계에서 제외합니다.') }}</p>
     <section v-if="totals.length > 0" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
       <div
         v-for="t in totals"
@@ -62,7 +65,7 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
         :class="t.balance > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'"
       >
         <p class="text-xs" :class="t.balance > 0 ? 'text-amber-700' : 'text-emerald-700'">
-          {{ t.currency }} 미수금 <span class="text-gray-400">({{ t.poCount }}건)</span>
+          {{ pt('{value1} 미수금', { value1: t.currency }) }} <span class="text-gray-400">{{ pt('({value1}건)', { value1: pn(t.poCount) }) }}</span>
         </p>
         <p
           class="mt-1 text-xl font-extrabold tabular-nums"
@@ -71,29 +74,27 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
           {{ fmtPcbAmount(t.currency, t.balance) }}
         </p>
         <p class="mt-0.5 text-[11px] text-gray-500">
-          발주 {{ fmtPcbAmount(t.currency, t.poAmount) }} · 입금 {{ fmtPcbAmount(t.currency, t.paidAmount) }}
+          {{ pt('발주 {value1} · 입금 {value2}', { value1: fmtPcbAmount(t.currency, t.poAmount), value2: fmtPcbAmount(t.currency, t.paidAmount) }) }}
         </p>
       </div>
     </section>
 
     <label v-if="items.length > 0" class="flex items-center gap-2 text-sm text-gray-600">
-      <input v-model="onlyUnpaid" type="checkbox" class="size-4 accent-amber-600">
-      미수금 있는 건만 ({{ unpaidCount }})
-    </label>
+      <input v-model="onlyUnpaid" type="checkbox" class="size-4 accent-amber-600">{{ pt('미수금 있는 건만 ({value1})', { value1: pn(unpaidCount) }) }}</label>
 
     <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface">
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
           <tr>
-            <th class="px-4 py-2.5">프로젝트</th>
-            <th class="px-4 py-2.5">발주처</th>
-            <th class="whitespace-nowrap px-4 py-2.5">진행</th>
-            <th class="whitespace-nowrap px-4 py-2.5">입금 예정</th>
-            <th class="whitespace-nowrap px-4 py-2.5 text-right">발주가</th>
-            <th class="whitespace-nowrap px-4 py-2.5 text-right">입금액</th>
-            <th class="whitespace-nowrap px-4 py-2.5 text-right">미수금</th>
-            <th class="whitespace-nowrap px-4 py-2.5">상태</th>
-            <th class="whitespace-nowrap px-4 py-2.5">최근 입금</th>
+            <th class="px-4 py-2.5">{{ pt('프로젝트') }}</th>
+            <th class="px-4 py-2.5">{{ pt('발주처') }}</th>
+            <th class="whitespace-nowrap px-4 py-2.5">{{ pt('진행') }}</th>
+            <th class="whitespace-nowrap px-4 py-2.5">{{ pt('입금 예정') }}</th>
+            <th class="whitespace-nowrap px-4 py-2.5 text-right">{{ pt('발주가') }}</th>
+            <th class="whitespace-nowrap px-4 py-2.5 text-right">{{ pt('입금액') }}</th>
+            <th class="whitespace-nowrap px-4 py-2.5 text-right">{{ pt('미수금') }}</th>
+            <th class="whitespace-nowrap px-4 py-2.5">{{ pt('상태') }}</th>
+            <th class="whitespace-nowrap px-4 py-2.5">{{ pt('최근 입금') }}</th>
             <th class="px-4 py-2.5" />
           </tr>
         </thead>
@@ -103,14 +104,12 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
               <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900" :title="it.projectName">
                 {{ it.projectName }}
                 <!-- A/S 회차 — 같은 프로젝트가 두 줄로 서면 어느 것이 새 회차인지 알 수 없다 -->
-                <span v-if="it.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[10px] font-semibold text-rose-700">
-                  A/S {{ it.reorderRound }}차
-                </span>
+                <span v-if="it.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[10px] font-semibold text-rose-700">{{ pt('A/S {value1}차', { value1: it.reorderRound }) }}</span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ it.ordererName }}</td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                  {{ PCB_PO_STATUS_LABELS[it.poTrack][it.poStatus] }}
+                  {{ pt(PCB_PO_STATUS_LABELS[it.poTrack][it.poStatus]) }}
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
@@ -121,7 +120,7 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-gray-700">
                 {{ fmtPcbAmount(it.summary.currency, it.summary.paidAmount) }}
-                <span v-if="it.summary.count > 1" class="ml-1 text-[11px] text-gray-400">{{ it.summary.count }}회</span>
+                <span v-if="it.summary.count > 1" class="ml-1 text-[11px] text-gray-400">{{ pt('{value1}회', { value1: pn(it.summary.count) }) }}</span>
               </td>
               <td
                 class="whitespace-nowrap px-4 py-2.5 text-right font-bold tabular-nums"
@@ -134,11 +133,11 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
                 <span
                   v-if="it.isFreeAs"
                   class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700"
-                  title="무상 A/S 재생산 — 수금 대상이 아닙니다"
-                >무상 A/S</span>
-                <span v-if="it.isFreeAs" class="ml-1 text-[10px] text-gray-400">총계 제외</span>
+                  :title="pt('무상 A/S 재생산 — 수금 대상이 아닙니다')"
+                >{{ pt('무상 A/S') }}</span>
+                <span v-if="it.isFreeAs" class="ml-1 text-[10px] text-gray-400">{{ pt('총계 제외') }}</span>
                 <span v-else class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[it.summary.status]">
-                  {{ STATUS_TEXT[it.summary.status] }}
+                  {{ pt(STATUS_TEXT[it.summary.status]) }}
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">
@@ -150,7 +149,7 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
                   class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50"
                   @click.stop
                 >
-                  발주서
+                  {{ pt('발주서') }}
                 </RouterLink>
               </td>
             </tr>
@@ -167,12 +166,12 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
               </td>
             </tr>
             <tr v-else-if="expanded === it.poId" class="bg-gray-50/60">
-              <td colspan="10" class="px-6 py-3 text-xs text-gray-400">아직 입금 내역이 없습니다.</td>
+              <td colspan="10" class="px-6 py-3 text-xs text-gray-400">{{ pt('아직 입금 내역이 없습니다.') }}</td>
             </tr>
           </template>
           <tr v-if="visible.length === 0">
             <td colspan="10" class="px-4 py-10 text-center text-sm text-gray-400">
-              {{ query.isFetching.value ? '불러오는 중…' : onlyUnpaid ? '미수금이 없습니다.' : '받은 발주가 없습니다.' }}
+              {{ query.isFetching.value ? pt('불러오는 중…') : onlyUnpaid ? pt('미수금이 없습니다.') : pt('받은 발주가 없습니다.') }}
             </td>
           </tr>
         </tbody>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { usePartnerI18n } from '../../partner/i18n';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -36,14 +37,23 @@ import {
   usePartnerPcbShipmentReceive,
   useUploadPartnerPcbEqFile,
 } from '../../partner/usePartnerPcbPos';
-import { fmtKstDate as dateOnly } from '@sp/utils';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
-import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
-import { pcbSpecEntries } from '../../lib/pcb-spec';
+import { pcbSpecEntries, pcbSpecFormFields } from '../../lib/pcb-spec';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbEqTimeline from '../../components/pcb/PcbEqTimeline.vue';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
+
+const { pt, pm, locale, pd, pn } = usePartnerI18n();
+const dateOnly = pd;
+const fmtPcbAmount = (currency: string, value: number | null): string =>
+  value === null ? '—' : pm(value, currency);
+const pcbMoneyWithSub = (currency: string, value: number | null, subCurrency: string | null, subValue: number | null): string => {
+  const main = fmtPcbAmount(currency, value);
+  return value !== null && subCurrency !== null && subValue !== null
+    ? `${main} (${fmtPcbAmount(subCurrency, subValue)})` : main;
+};
+
 
 // PCB 발주서 상세(협력사 포털, P2) — EQ 5단계 진행: 발주접수(EQ 선택·Working 권장)
 // → EQ 승인요청 → (관리자 승인) → 생산 시작 → 생산 완료. 되돌리기는 직전 전이 주체만.
@@ -61,16 +71,16 @@ const asRounds = computed(() => detail.value?.asRounds ?? []);
 
 const actionError = ref('');
 const surfaceError = (e: unknown, fallback: string): void => {
-  actionError.value = e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
+  actionError.value = locale.value === 'ko' && e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
 };
 
 // ── 수금 상태(P3.11) — 부분 송금이 있으므로 '완료/대기' 두 값으로는 부족하다 ─────
 const remitSummary = computed(() => detail.value?.remittanceSummary ?? null);
 const remitStatusText = computed<string>(() => {
   const s = remitSummary.value;
-  if (s === null || s.count === 0) return '입금 전';
-  if (s.balance <= 0) return `완료 (${dateOnly(s.lastRemittedOn)})`;
-  return `부분 입금 — 미수 ${fmtPcbAmount(s.currency, s.balance)}`;
+  if (s === null || s.count === 0) return pt('입금 전');
+  if (s.balance <= 0) return pt('완료 ({value1})', { value1: dateOnly(s.lastRemittedOn) });
+  return pt('부분 입금 — 미수 {value1}', { value1: fmtPcbAmount(s.currency, s.balance) });
 });
 const remitStatusCls = computed<string>(() => {
   const s = remitSummary.value;
@@ -136,10 +146,10 @@ const submitBlockers = computed(() =>
 );
 
 const forwardLabel = computed(() =>
-  detail.value === null ? '' : pcbEqForwardLabel(detail.value.status, track.value),
+  detail.value === null ? '' : pt(pcbEqForwardLabel(detail.value.status, track.value)),
 );
 const revertLabel = computed(() =>
-  detail.value === null ? '' : pcbEqRevertLabel(detail.value.status, track.value),
+  detail.value === null ? '' : pt(pcbEqRevertLabel(detail.value.status, track.value)),
 );
 
 /** 타임라인의 파일 클릭 — poId 좁히기를 템플릿에 두지 않는다(콜백 안에서는 안 좁혀진다). */
@@ -156,8 +166,8 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
   if (d === null) return { title: '', hint: '' };
   if (d.eq.myRole !== 'RECEIVER') {
     return {
-      title: '진행 상황을 확인해 주세요.',
-      hint: `이 발주의 ${isStencil.value ? '확인·생산' : 'EQ'} 진행은 수주 조직이 합니다.`,
+      title: pt('진행 상황을 확인해 주세요.'),
+      hint: pt('이 발주의 {value1} 진행은 수주 조직이 합니다.', { value1: isStencil.value ? pt('확인·생산') : 'EQ' }),
     };
   }
   // MD 관전(하위 발주 열람) — 같은 fallback RECEIVER 라도 주어가 다르다. 협력사 문구를
@@ -165,81 +175,81 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
   if (d.direction === 'issued') {
     // 2026-08-28 @sp/shared apiGet 이 출력 타입(default 적용 후)을 주므로 빈값 통일이 불필요해졌다.
     const counterparty = d.counterpartyName;
-    const sub = counterparty === '' ? '하위 협력사' : `하위 협력사(${counterparty})`;
+    const sub = counterparty === '' ? pt('하위 협력사') : pt('하위 협력사({value1})', { value1: counterparty });
     // 트랙별 어휘 — 스텐실에는 EQ 왕복이 없어 'EQ 승인'이라는 말 자체가 뜻이 안 통한다.
     const st = isStencil.value;
-    const askWord = st ? '확인 요청' : '승인요청';
-    const doneWord = st ? '확인이 끝났습니다' : 'EQ가 승인됐습니다';
+    const askWord = st ? pt('확인 요청') : pt('승인요청');
+    const doneWord = st ? pt('확인이 끝났습니다') : pt('EQ가 승인됐습니다');
     if (d.status === 'issued') {
       return eqRejection.value !== null
         ? {
-            title: `${st ? '보완 요청을 받은' : '반려된'} 건입니다 — ${sub}가 보완 후 다시 ${askWord}해야 합니다.`,
-            hint: '보완이 늦어지면 아래 버튼으로 MD가 파일을 올리고 대행 진행할 수도 있습니다.',
+            title: pt('{value1} 건입니다 — {value2}가 보완 후 다시 {value3}해야 합니다.', { value1: st ? pt('보완 요청을 받은') : pt('반려된'), value2: sub, value3: askWord }),
+            hint: pt('보완이 늦어지면 아래 버튼으로 MD가 파일을 올리고 대행 진행할 수도 있습니다.'),
           }
         : {
-            title: `${sub}가 ${st ? '좌표파일' : 'EQ 자료'}을 올리고 ${askWord}할 차례입니다.`,
-            hint: `필요하면 MD가 파일 업로드·${askWord}을 대행할 수 있습니다.`,
+            title: pt('{value1}가 {value2}을 올리고 {value3}할 차례입니다.', { value1: sub, value2: st ? pt('좌표파일') : pt('EQ 자료'), value3: askWord }),
+            hint: pt('필요하면 MD가 파일 업로드·{value1}을 대행할 수 있습니다.', { value1: askWord }),
           };
     }
     if (d.status === 'eq_requested')
-      return { title: `샘플피씨비 관리자의 ${st ? '확인' : 'EQ 승인'}을 기다리고 있습니다.`, hint: '' };
+      return { title: st ? pt('샘플피씨비 관리자의 확인을 기다리고 있습니다.') : pt('샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.'), hint: '' };
     if (d.status === 'eq_done')
-      return { title: `${doneWord} — ${sub}가 생산을 시작합니다.`, hint: '필요하면 MD 대행으로 진행할 수 있습니다.' };
+      return { title: pt('{value1} — {value2}가 생산을 시작합니다.', { value1: doneWord, value2: sub }), hint: pt('필요하면 MD 대행으로 진행할 수 있습니다.') };
     if (d.status === 'producing')
-      return { title: `${sub}가 생산 중입니다.`, hint: '완료 처리가 늦어지면 MD 대행으로 [생산 완료]를 누를 수 있습니다.' };
-    return { title: `생산이 끝났습니다 — ${sub}가 발송을 시작합니다.`, hint: '물건이 도착하면 아래 발송 카드에서 [입고 확인]을 해주세요.' };
+      return { title: pt('{value1}가 생산 중입니다.', { value1: sub }), hint: pt('완료 처리가 늦어지면 MD 대행으로 [생산 완료]를 누를 수 있습니다.') };
+    return { title: pt('생산이 끝났습니다 — {value1}가 발송을 시작합니다.', { value1: sub }), hint: pt('물건이 도착하면 아래 발송 카드에서 [입고 확인]을 해주세요.') };
   }
   // 스텐실 트랙 — EQ 왕복이 없다. 낼 것이 정해져 있으므로 문구도 그것만 말한다.
   if (isStencil.value) {
     if (d.status === 'issued') {
       return eqRejection.value !== null
         ? {
-            title: '보완 요청을 받은 건입니다 — 고쳐서 다시 확인 요청해 주세요.',
+            title: pt('보완 요청을 받은 건입니다 — 고쳐서 다시 확인 요청해 주세요.'),
             hint: hasFixAfterReject.value
-              ? '보완 요청 후 새 파일을 올렸습니다 — 확인 요청을 진행해 주세요.'
-              : '아직 보완 요청 후 새로 올린 파일이 없습니다. 같은 파일로 다시 요청하면 같은 사유로 되돌아올 수 있습니다.',
+              ? pt('보완 요청 후 새 파일을 올렸습니다 — 확인 요청을 진행해 주세요.')
+              : pt('아직 보완 요청 후 새로 올린 파일이 없습니다. 같은 파일로 다시 요청하면 같은 사유로 되돌아올 수 있습니다.'),
           }
         : {
-            title: '좌표파일을 올린 뒤 확인 요청해 주세요.',
-            hint: '고객에게 확인할 사항이 있으면 고객문의사항과 사진을 함께 남길 수 있습니다(선택). 좌표파일은 확인이 끝난 뒤 고객도 주문내역에서 내려받을 수 있으며, 확인 요청 후에는 파일과 문의사항을 바꿀 수 없습니다.',
+            title: pt('좌표파일을 올린 뒤 확인 요청해 주세요.'),
+            hint: pt('고객에게 확인할 사항이 있으면 고객문의사항과 사진을 함께 남길 수 있습니다(선택). 좌표파일은 확인이 끝난 뒤 고객도 주문내역에서 내려받을 수 있으며, 확인 요청 후에는 파일과 문의사항을 바꿀 수 없습니다.'),
           };
     }
     if (d.status === 'eq_requested') {
       return {
-        title: '샘플피씨비 관리자의 확인을 기다리고 있습니다.',
-        hint: '확인 요청 중에는 첨부·문의사항을 바꿀 수 없습니다 — 바꾸려면 요청을 취소한 뒤 올려 주세요.',
+        title: pt('샘플피씨비 관리자의 확인을 기다리고 있습니다.'),
+        hint: pt('확인 요청 중에는 첨부·문의사항을 바꿀 수 없습니다 — 바꾸려면 요청을 취소한 뒤 올려 주세요.'),
       };
     }
-    if (d.status === 'eq_done') return { title: '확인이 끝났습니다 — 생산을 시작해 주세요.', hint: '' };
+    if (d.status === 'eq_done') return { title: pt('확인이 끝났습니다 — 생산을 시작해 주세요.'), hint: '' };
     if (d.status === 'producing')
-      return { title: '생산 중입니다 — 끝나면 [생산 완료]를 눌러 주세요.', hint: '' };
-    return { title: '생산이 끝났습니다 — 발송을 시작해 주세요.', hint: '' };
+      return { title: pt('생산 중입니다 — 끝나면 [생산 완료]를 눌러 주세요.'), hint: '' };
+    return { title: pt('생산이 끝났습니다 — 발송을 시작해 주세요.'), hint: '' };
   }
   if (d.status === 'issued') {
     return eqRejection.value !== null
       ? {
-          title: '반려된 건입니다 — 보완 파일을 올리고 다시 승인요청해 주세요.',
+          title: pt('반려된 건입니다 — 보완 파일을 올리고 다시 승인요청해 주세요.'),
           hint: hasFixAfterReject.value
-            ? '반려 후 새 파일을 올렸습니다 — 승인요청을 진행해 주세요.'
-            : '아직 반려 후 새로 올린 파일이 없습니다. 같은 파일로 다시 요청하면 같은 사유로 반려될 수 있습니다.',
+            ? pt('반려 후 새 파일을 올렸습니다 — 승인요청을 진행해 주세요.')
+            : pt('아직 반려 후 새로 올린 파일이 없습니다. 같은 파일로 다시 요청하면 같은 사유로 반려될 수 있습니다.'),
         }
       : {
-          title: 'EQ 질의서·Working 데이터를 올리고 승인요청해 주세요.',
+          title: pt('EQ 질의서·Working 데이터를 올리고 승인요청해 주세요.'),
           hint: hasWorkingFile.value
             ? ''
-            : 'Working 파일은 생산에 쓰는 자료입니다 — 승인요청 후에는 추가·교체할 수 없으니 지금 올리시길 권합니다(없이도 요청은 가능합니다).',
+            : pt('Working 파일은 생산에 쓰는 자료입니다 — 승인요청 후에는 추가·교체할 수 없으니 지금 올리시길 권합니다(없이도 요청은 가능합니다).'),
         };
   }
   if (d.status === 'eq_requested') {
     return {
-      title: '샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.',
-      hint: '승인요청 중에는 첨부를 바꿀 수 없습니다 — 바꾸려면 요청을 취소한 뒤 올려 주세요.',
+      title: pt('샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.'),
+      hint: pt('승인요청 중에는 첨부를 바꿀 수 없습니다 — 바꾸려면 요청을 취소한 뒤 올려 주세요.'),
     };
   }
-  if (d.status === 'eq_done') return { title: 'EQ가 승인됐습니다 — 생산을 시작해 주세요.', hint: '' };
+  if (d.status === 'eq_done') return { title: pt('EQ가 승인됐습니다 — 생산을 시작해 주세요.'), hint: '' };
   if (d.status === 'producing')
-    return { title: '생산 중입니다 — 끝나면 [생산 완료]를 눌러 주세요.', hint: '' };
-  return { title: '생산이 끝났습니다 — 발송을 시작해 주세요.', hint: '' };
+    return { title: pt('생산 중입니다 — 끝나면 [생산 완료]를 눌러 주세요.'), hint: '' };
+  return { title: pt('생산이 끝났습니다 — 발송을 시작해 주세요.'), hint: '' };
 });
 
 // ── 파일 업로드 ──────────────────────────────────────────────────────────────
@@ -269,13 +279,13 @@ function pickAndUpload(
         await upload.mutateAsync({ poId: poId.value ?? 0, file, fileType });
       } catch (e) {
         failed.push(file.name);
-        if (e instanceof ApiRequestError && e.message !== '') lastMessage = e.message;
+        if (locale.value === 'ko' && e instanceof ApiRequestError && e.message !== '') lastMessage = e.message;
       }
     }
     if (failed.length > 0) {
       actionError.value =
-        `파일 ${String(failed.length)}건 업로드 실패: ${failed.join(', ')}` +
-        (lastMessage === '' ? ' — 다시 올려 주세요.' : ` — ${lastMessage}`);
+        pt('파일 {value1}건 업로드 실패: {value2}', { value1: String(failed.length), value2: failed.join(', ') }) +
+        (lastMessage === '' ? pt(' — 다시 올려 주세요.') : ` — ${lastMessage}`);
     }
   };
   input.click();
@@ -286,7 +296,7 @@ async function deleteFile(fileId: number): Promise<void> {
   try {
     await removeFile.mutateAsync({ poId: poId.value, fileId });
   } catch (e) {
-    surfaceError(e, '파일 삭제에 실패했습니다.');
+    surfaceError(e, pt('파일 삭제에 실패했습니다.'));
   }
 }
 
@@ -313,17 +323,17 @@ async function runForward(): Promise<void> {
     else if (status === 'eq_done') await prodStart.mutateAsync({ poId: poId.value });
     else if (status === 'producing') await prodComplete.mutateAsync({ poId: poId.value });
   } catch (e) {
-    surfaceError(e, '진행에 실패했습니다.');
+    surfaceError(e, pt('진행에 실패했습니다.'));
   }
 }
 async function runRevert(): Promise<void> {
   if (poId.value === null || revert.value === null) return;
-  if (!(await confirmDialog({ message: `'${revert.value.label}' — 한 단계 되돌릴까요?`, confirmLabel: '되돌리기', tone: 'danger' }))) return;
+  if (!(await confirmDialog({ message: pt('\'{value1}\' — 한 단계 되돌릴까요?', { value1: revertLabel.value }), confirmLabel: pt('되돌리기'), tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await eqRevert.mutateAsync({ poId: poId.value });
   } catch (e) {
-    surfaceError(e, '되돌리기에 실패했습니다.');
+    surfaceError(e, pt('되돌리기에 실패했습니다.'));
   }
 }
 
@@ -339,7 +349,7 @@ async function issueChildPo(): Promise<void> {
       body: { childRfqId: childRfqPick.value },
     });
   } catch (e) {
-    surfaceError(e, '하위 발주에 실패했습니다.');
+    surfaceError(e, pt('하위 발주에 실패했습니다.'));
   }
 }
 const selectableChildRfqs = computed(
@@ -366,19 +376,19 @@ async function issueChildPoFromOrigin(target: {
 }): Promise<void> {
   if (poId.value === null || detail.value === null) return;
   const ok = await confirmDialog({
-    title: '원발주 조건으로 하위 발주',
+    title: pt('원발주 조건으로 하위 발주'),
     message:
-      `${target.partnerName}에게 A/S ${String(detail.value.reorderRound)}차 하위 발주를 발행합니다.\n` +
-      `원주문 하위 발주 조건 그대로 — 발주가 ${pcbMoneyWithSub(target.currency, target.priceOriginal, target.subCurrency, target.subPriceOriginal)}.\n` +
-      `납기는 비워집니다(협력사와 협의 후 입력).`,
-    confirmLabel: '하위 발주',
+      pt('{value1}에게 A/S {value2}차 하위 발주를 발행합니다.\n', { value1: target.partnerName, value2: String(detail.value.reorderRound) }) +
+      pt('원주문 하위 발주 조건 그대로 — 발주가 {value1}.\n', { value1: pcbMoneyWithSub(target.currency, target.priceOriginal, target.subCurrency, target.subPriceOriginal) }) +
+      pt('납기는 비워집니다(협력사와 협의 후 입력).'),
+    confirmLabel: pt('하위 발주'),
   });
   if (!ok) return;
   actionError.value = '';
   try {
     await childPo.mutateAsync({ poId: poId.value, body: { partnerId: target.partnerId } });
   } catch (e) {
-    surfaceError(e, '하위 발주에 실패했습니다.');
+    surfaceError(e, pt('하위 발주에 실패했습니다.'));
   }
 }
 
@@ -447,7 +457,7 @@ async function runReceiverAdvance(): Promise<void> {
   try {
     await shipAdvance.mutateAsync({ poId: poId.value, body: {} });
   } catch (e) {
-    surfaceError(e, '진행에 실패했습니다.');
+    surfaceError(e, pt('진행에 실패했습니다.'));
   }
 }
 
@@ -460,7 +470,7 @@ async function submitShipReceive(values: Record<string, string>): Promise<void> 
     await shipReceive.mutateAsync({ poId: poId.value, note: note === '' ? null : note });
     receivePromptOpen.value = false;
   } catch (e) {
-    surfaceError(e, '입고 확인에 실패했습니다.');
+    surfaceError(e, pt('입고 확인에 실패했습니다.'));
   }
 }
 const SHIP_STATUS_CLS: Record<string, string> = {
@@ -485,19 +495,32 @@ const STATUS_CLS: Record<string, string> = {
 // 항목 이름·순서는 거버 앱이 정본 — 카테고리 세트를 골라야 맞는다(lib/pcb-spec.ts).
 const specEntries = computed(() => {
   const json = detail.value?.spec.specJson ?? {};
-  return pcbSpecEntries(json, {
+  const context = {
     category: detail.value?.spec.category,
     orderCategory: detail.value?.spec.orderCategory,
     kindPcb: typeof json.kindPcb === 'string' ? json.kindPcb : null,
+  };
+  const fields = pcbSpecFormFields(context);
+  return pcbSpecEntries(json, context).map((entry) => {
+    const field = fields.find((candidate) => candidate.key === entry.key);
+    const listed = field?.options.some((option) =>
+      option.value.toLowerCase() === entry.value.toLowerCase() || option.name === entry.value,
+    ) ?? false;
+    return { ...entry, display: listed || entry.display !== entry.value ? pt(entry.display) : entry.display };
   });
+});
+
+// Clear transient feedback on language changes; preserve entered form values.
+watch(locale, () => {
+  actionError.value = '';
 });
 </script>
 
 <template>
   <div class="pcb-readable space-y-5">
-    <PartnerPageHeader :back="{ to: { name: 'partner-pcb-pos' }, label: '발주서' }" />
+    <PartnerPageHeader :back="{ to: { name: 'partner-pcb-pos' }, label: pt('발주서') }" />
 
-    <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
+    <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
 
     <template v-else-if="detail !== null">
       <div class="flex flex-wrap items-center gap-3">
@@ -505,22 +528,22 @@ const specEntries = computed(() => {
         <span
           v-if="detail.reorderRound > 0"
           class="rounded bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700"
-          :title="`A/S 재생산 회차 발주 — ${isStencil ? '확인 절차부터' : 'EQ부터'} 다시 진행합니다`"
-        >A/S {{ detail.reorderRound }}차</span>
+          :title="pt('A/S 재생산 회차 발주 — {value1} 다시 진행합니다', { value1: isStencil ? pt('확인 절차부터') : pt('EQ부터') })"
+        >{{ pt('A/S {value1}차', { value1: detail.reorderRound }) }}</span>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="STATUS_CLS[detail.status]">
-          {{ PCB_PO_STATUS_LABELS[detail.track][detail.status] }}
+          {{ pt(PCB_PO_STATUS_LABELS[detail.track][detail.status]) }}
         </span>
         <span
           v-if="detail.direction === 'received'"
           class="rounded px-2 py-0.5 text-xs font-semibold"
           :class="detail.fulfillmentMode === 'self' ? 'bg-teal-100 text-teal-700' : 'bg-indigo-100 text-indigo-700'"
         >
-          {{ PCB_PO_FULFILLMENT_MODE_LABELS[detail.fulfillmentMode] }}
+          {{ pt(PCB_PO_FULFILLMENT_MODE_LABELS[detail.fulfillmentMode]) }}
         </span>
         <!-- 상대는 counterpartyName — issued(하위 발주)에서 requesterName 은 **내 조직**이라
              "하위 발주: 마스터딜러"처럼 자기 이름이 상대 자리에 서 있었다(MD 실주행 확정). -->
         <span class="text-sm text-gray-500">
-          {{ detail.direction === 'received' ? '발주처' : '하위 협력사' }}: {{ detail.counterpartyName }}
+          {{ detail.direction === 'received' ? pt('발주처') : pt('하위 협력사') }}: {{ detail.counterpartyName }}
         </span>
       </div>
 
@@ -530,14 +553,13 @@ const specEntries = computed(() => {
         v-if="asRounds.length > 0"
         class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800"
       >
-        🔧 이 사양의 A/S 회차 발주 {{ asRounds.length }}건 —
-        <template v-for="(r, i) in asRounds" :key="r.poId">
+        {{ pt('🔧 이 사양의 A/S 회차 발주 {value1}건 —', { value1: pn(asRounds.length) }) }}<template v-for="(r, i) in asRounds" :key="r.poId">
           <template v-if="i > 0"> · </template>
           <RouterLink
             :to="{ name: 'partner-pcb-po', params: { id: String(r.poId) } }"
             class="font-bold underline hover:text-rose-900"
           >
-            {{ r.reorderRound }}차(PO-{{ r.poId }} · {{ PCB_PO_STATUS_LABELS[detail.track][r.status] }}) 열기 →
+            {{ pt('{value1}차(PO-{value2} · {value3}) 열기 →', { value1: r.reorderRound, value2: r.poId, value3: pt(PCB_PO_STATUS_LABELS[detail.track][r.status]) }) }}
           </RouterLink>
         </template>
       </p>
@@ -546,19 +568,19 @@ const specEntries = computed(() => {
 
       <!-- 발주 조건 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4">
-        <h2 class="text-sm font-bold text-gray-700">발주 조건</h2>
+        <h2 class="text-sm font-bold text-gray-700">{{ pt('발주 조건') }}</h2>
         <dl class="mt-2 grid gap-x-8 gap-y-1.5 text-sm sm:grid-cols-2">
           <div class="flex justify-between">
-            <dt class="text-gray-500">발주가</dt>
+            <dt class="text-gray-500">{{ pt('발주가') }}</dt>
             <dd class="font-bold tabular-nums">{{ pcbMoneyWithSub(detail.currency, detail.priceOriginal, detail.subCurrency, detail.subPriceOriginal) }}</dd>
           </div>
-          <div class="flex justify-between"><dt class="text-gray-500">결제조건</dt><dd>{{ detail.paymentTerms ?? '—' }}</dd></div>
-          <div class="flex justify-between"><dt class="text-gray-500">송금 예정</dt><dd>{{ dateOnly(detail.remittanceDueOn) }}</dd></div>
+          <div class="flex justify-between"><dt class="text-gray-500">{{ pt('결제조건') }}</dt><dd>{{ detail.paymentTerms ?? '—' }}</dd></div>
+          <div class="flex justify-between"><dt class="text-gray-500">{{ pt('송금 예정') }}</dt><dd>{{ dateOnly(detail.remittanceDueOn) }}</dd></div>
           <div class="flex justify-between">
-            <dt class="text-gray-500">수금</dt>
+            <dt class="text-gray-500">{{ pt('수금') }}</dt>
             <dd :class="remitStatusCls">{{ remitStatusText }}</dd>
           </div>
-          <div class="flex justify-between"><dt class="text-gray-500">납기</dt><dd>{{ dateOnly(detail.deliveryDate) }}</dd></div>
+          <div class="flex justify-between"><dt class="text-gray-500">{{ pt('납기일') }}</dt><dd>{{ dateOnly(detail.deliveryDate) }}</dd></div>
         </dl>
         <p v-if="detail.memo !== null && detail.memo !== ''" class="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-600">{{ detail.memo }}</p>
 
@@ -567,9 +589,9 @@ const specEntries = computed(() => {
           <table class="min-w-full divide-y divide-gray-100 text-sm">
             <thead class="bg-gray-50 text-left text-[11px] uppercase text-gray-500">
               <tr>
-                <th class="px-3 py-1.5">입금일</th>
-                <th class="px-3 py-1.5 text-right">금액</th>
-                <th class="px-3 py-1.5">메모</th>
+                <th class="px-3 py-1.5">{{ pt('입금일') }}</th>
+                <th class="px-3 py-1.5 text-right">{{ pt('금액') }}</th>
+                <th class="px-3 py-1.5">{{ pt('메모') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
@@ -583,7 +605,7 @@ const specEntries = computed(() => {
             </tbody>
             <tfoot v-if="remitSummary !== null && remitSummary.balance > 0" class="border-t border-gray-200 bg-amber-50">
               <tr>
-                <td class="px-3 py-1.5 text-xs font-semibold text-amber-800">미수금</td>
+                <td class="px-3 py-1.5 text-xs font-semibold text-amber-800">{{ pt('미수금') }}</td>
                 <td class="whitespace-nowrap px-3 py-1.5 text-right font-bold tabular-nums text-amber-800">
                   {{ fmtPcbAmount(remitSummary.currency, remitSummary.balance) }}
                 </td>
@@ -597,7 +619,7 @@ const specEntries = computed(() => {
       <!-- EQ(스텐실: 고객문의사항·좌표파일 확인) 진행 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4">
         <h2 class="text-sm font-bold text-gray-700">
-          {{ isStencil ? '고객문의사항 · 생산 진행' : 'EQ · 생산 진행' }}
+          {{ isStencil ? pt('고객문의사항 · 생산 진행') : pt('EQ · 생산 진행') }}
         </h2>
 
         <!-- 스텝퍼 -->
@@ -607,27 +629,20 @@ const specEntries = computed(() => {
               class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
               :class="i < stepIndex ? 'bg-emerald-50 text-emerald-700' : i === stepIndex ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'"
             >
-              <span v-if="i < stepIndex">✓</span>{{ PCB_PO_STATUS_LABELS[detail.track][step] }}
+              <span v-if="i < stepIndex">✓</span>{{ pt(PCB_PO_STATUS_LABELS[detail.track][step]) }}
             </li>
             <span v-if="i < steps.length - 1" class="text-gray-300">→</span>
           </template>
         </ol>
 
         <!-- 경유/차단 안내 -->
-        <p v-if="detail.eq.delegatePoId !== null" class="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
-          MD 경유 발주 건입니다 — {{ isStencil ? '확인·생산' : 'EQ·생산' }} 진행은
-          <RouterLink :to="{ name: 'partner-pcb-po', params: { id: String(detail.eq.delegatePoId) } }" class="font-bold underline">
-            하위 발주서
-          </RouterLink>에서 진행됩니다(이 문서는 자동 반영).
-        </p>
-        <p v-else-if="detail.eq.blocked" class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          하위 협력사에 발주하면 {{ isStencil ? '확인 절차가' : 'EQ가' }} 시작됩니다 — 아래 [하위 발주]를 진행해 주세요.
-        </p>
+        <p v-if="detail.eq.delegatePoId !== null" class="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">{{ pt('MD 경유 발주입니다. {workflow} 진행은 하위 발주서에서 처리되며 이 문서에 자동 반영됩니다.', { workflow: isStencil ? pt('확인·생산') : pt('EQ·생산') }) }} <RouterLink :to="{ name: 'partner-pcb-po', params: { id: String(detail.eq.delegatePoId) } }" class="font-bold underline">{{ pt('하위 발주서') }}</RouterLink></p>
+        <p v-else-if="detail.eq.blocked" class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ pt('하위 협력사에 발주하면 {value1} 시작됩니다 — 아래 [하위 발주]를 진행해 주세요.', { value1: isStencil ? pt('확인 절차가') : pt('EQ가') }) }}</p>
         <p
           v-else-if="detail.direction === 'received' && detail.fulfillmentMode === 'self' && detail.status === 'issued'"
           class="mt-3 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-800"
         >
-          직접 제작 발주입니다 — 이 발주서에서 {{ isStencil ? '확인 요청' : 'EQ 승인요청' }}과 생산을 진행해 주세요.
+          {{ pt('직접 제작 발주입니다 — 이 발주서에서 {value1}과 생산을 진행해 주세요.', { value1: isStencil ? pt('확인 요청') : pt('EQ 승인요청') }) }}
         </p>
 
 
@@ -658,15 +673,14 @@ const specEntries = computed(() => {
                  한 몸이라 여기 둔다(제출 뒤엔 첨부와 같이 잠긴다 — 따로 저장 버튼을 두면
                  잠금이 거짓말이 된다). -->
             <template v-if="isStencil && filesEditable && detail.eq.myRole === 'RECEIVER'">
-              <label class="mt-3 block text-xs font-bold text-blue-900" for="stencil-note">
-                고객문의사항 <span class="font-normal text-blue-400">(선택)</span>
+              <label class="mt-3 block text-xs font-bold text-blue-900" for="stencil-note">{{ pt('고객문의사항') }} <span class="font-normal text-blue-400">{{ pt('(선택)') }}</span>
               </label>
               <textarea
                 id="stencil-note"
                 v-model="noteDraft"
                 rows="3"
                 maxlength="2000"
-                placeholder="고객에게 확인할 사항이나 전달할 내용이 있으면 적어 주세요."
+                :placeholder="pt('고객에게 확인할 사항이나 전달할 내용이 있으면 적어 주세요.')"
                 class="mt-1 w-full rounded-md border border-blue-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
               />
               <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -677,7 +691,7 @@ const specEntries = computed(() => {
                   :disabled="upload.isPending.value"
                   @click="pickAndUpload('coord')"
                 >
-                  ＋ 좌표파일{{ coordFiles.length > 0 ? ` (${coordFiles.length})` : ' *' }}
+                  {{ pt('＋ 좌표파일{value1}', { value1: coordFiles.length > 0 ? ` (${pn(coordFiles.length)})` : ' *' }) }}
                 </button>
                 <!-- 문의 사진 — 문의사항이 말로 다 못 하는 부분을 사진이 잇는다(여러 장 가능) -->
                 <button
@@ -686,11 +700,9 @@ const specEntries = computed(() => {
                   :disabled="upload.isPending.value"
                   @click="pickAndUpload('inquiry', { accept: 'image/*', multiple: true })"
                 >
-                  ＋ 문의 사진{{ inquiryFiles.length > 0 ? ` (${inquiryFiles.length})` : '' }}
+                  {{ pt('＋ 문의 사진{value1}', { value1: inquiryFiles.length > 0 ? ` (${pn(inquiryFiles.length)})` : '' }) }}
                 </button>
-                <span v-if="coordFiles.length === 0" class="text-[11px] text-amber-700">
-                  좌표파일이 있어야 확인 요청을 보낼 수 있습니다.
-                </span>
+                <span v-if="coordFiles.length === 0" class="text-[11px] text-amber-700">{{ pt('좌표파일이 있어야 확인 요청을 보낼 수 있습니다.') }}</span>
               </div>
             </template>
 
@@ -704,7 +716,7 @@ const specEntries = computed(() => {
                 :disabled="upload.isPending.value"
                 @click="pickAndUpload('eq')"
               >
-                ＋ EQ 질의서
+                {{ pt('＋ EQ 질의서') }}
               </button>
               <button
                 type="button"
@@ -713,7 +725,7 @@ const specEntries = computed(() => {
                 :disabled="upload.isPending.value"
                 @click="pickAndUpload('working')"
               >
-                ＋ Working 데이터
+                {{ pt('＋ Working 데이터') }}
               </button>
             </div>
           </div>
@@ -729,12 +741,12 @@ const specEntries = computed(() => {
             :disabled="busy || submitBlockers.length > 0"
             @click="void runForward()"
           >
-            {{ detail.eq.fallback ? `(MD 대행) ${forwardLabel}` : forwardLabel }}
+            {{ detail.eq.fallback ? pt('(MD 대행) {value1}', { value1: forwardLabel }) : forwardLabel }}
           </button>
           <!-- 못 보내는 이유는 버튼 옆에 적는다 — 비활성 버튼만 두면 왜 안 눌리는지 모른다.
                판정은 서버 게이트와 같은 계약 함수라 화면과 서버가 다른 말을 하지 않는다. -->
           <span v-if="canForward && submitBlockers.length > 0" class="text-xs font-semibold text-amber-700">
-            {{ submitBlockers.map((b) => PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES[b]).join(' · ') }}
+            {{ submitBlockers.map((b) => pt(PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES[b])).join(' · ') }}
           </span>
           <!-- 안내 문구는 위 '지금 할 일' 한 곳으로 모았다(같은 말을 두 번 하지 않는다). -->
           <button
@@ -744,7 +756,7 @@ const specEntries = computed(() => {
             :disabled="busy"
             @click="void runRevert()"
           >
-            ↩ {{ detail.eq.fallback ? `(MD 대행) ${revertLabel}` : revertLabel }}
+            ↩ {{ detail.eq.fallback ? pt('(MD 대행) {value1}', { value1: revertLabel }) : revertLabel }}
           </button>
         </div>
       </section>
@@ -755,19 +767,15 @@ const specEntries = computed(() => {
         class="rounded-xl border border-teal-200 bg-surface p-4"
       >
         <h2 class="text-sm font-bold text-teal-700">
-          발송 · 선적
-          <span v-if="ship !== null" class="ml-2 rounded px-1.5 py-0.5 text-xs font-semibold" :class="SHIP_STATUS_CLS[ship.status]">
-            {{ bomShipmentStatusLabel(ship.mode, ship.status) }}
+          {{ pt('발송 · 선적') }} <span v-if="ship !== null" class="ml-2 rounded px-1.5 py-0.5 text-xs font-semibold" :class="SHIP_STATUS_CLS[ship.status]">
+            {{ pt(bomShipmentStatusLabel(ship.mode, ship.status)) }}
           </span>
           <span v-if="ship !== null" class="ml-1 text-xs font-normal text-gray-400">
-            {{ ship.mode === 'domestic' ? '국내(택배)' : '국제' }} · 받는 곳 {{ ship.receiverName }}
-            <template v-if="ship.destinationCountry !== null"> · 직송 {{ ship.destinationCountry }}</template>
+            {{ pt('{value1} · 받는 곳 {value2}', { value1: ship.mode === 'domestic' ? pt('국내(택배)') : pt('국제'), value2: ship.receiverName }) }}<template v-if="ship.destinationCountry !== null">{{ pt('· 직송 {value1}', { value1: ship.destinationCountry }) }}</template>
           </span>
         </h2>
 
-        <p v-if="detail.outboundBlocked" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          하위 협력사 물품의 입고 확인이 끝나야 출고할 수 있습니다.
-        </p>
+        <p v-if="detail.outboundBlocked" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ pt('하위 협력사 물품의 입고 확인이 끝나야 출고할 수 있습니다.') }}</p>
 
         <!-- 담기·발송 조작은 보드가 단일 창구(§9 재구성 후속) — 여기서는 안내만 -->
         <RouterLink
@@ -775,7 +783,7 @@ const specEntries = computed(() => {
           :to="{ name: 'partner-pcb-ship' }"
           class="mt-3 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700"
         >
-          📦 PCB 보내기에서 담아 발송 →
+          {{ pt('📦 PCB 보내기에서 담아 발송 →') }}
         </RouterLink>
 
         <template v-if="ship !== null">
@@ -786,31 +794,28 @@ const specEntries = computed(() => {
                 class="rounded-full px-2.5 py-1 text-xs font-semibold"
                 :class="bomShipmentStatusesOf(ship.mode).indexOf(ship.status) > i ? 'bg-emerald-50 text-emerald-700' : bomShipmentStatusesOf(ship.mode).indexOf(ship.status) === i ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-400'"
               >
-                {{ bomShipmentStatusLabel(ship.mode, step) }}
+                {{ pt(bomShipmentStatusLabel(ship.mode, step)) }}
               </li>
               <span v-if="i < bomShipmentStatusesOf(ship.mode).length - 1" class="text-gray-300">→</span>
             </template>
           </ol>
           <p v-if="ship.receivedAt !== null" class="mt-1.5 text-xs font-semibold text-emerald-700">
-            입고 확인 완료 {{ dateOnly(ship.receivedAt) }}
-            <template v-if="ship.receivedNote !== null && ship.receivedNote !== ''"> — 메모: {{ ship.receivedNote }}</template>
+            {{ pt('입고 확인 완료 {value1}', { value1: dateOnly(ship.receivedAt) }) }}<template v-if="ship.receivedNote !== null && ship.receivedNote !== ''">{{ pt('— 메모: {value1}', { value1: ship.receivedNote }) }}</template>
           </p>
           <p v-if="ship.trackingNumber !== null" class="mt-1 text-xs text-gray-500">
-            운송장: {{ ship.carrier ?? '' }} {{ ship.trackingNumber }}
+            {{ pt('운송장: {value1} {value2}', { value1: ship.carrier ?? '', value2: ship.trackingNumber }) }}
           </p>
 
           <!-- 이 발송의 묶음 구성(읽기) — 담기·꺼내기·전이·서류는 [📦 PCB 보내기]에서 -->
           <div class="mt-3 rounded-lg border border-gray-100 p-3">
-            <p class="text-xs font-semibold text-gray-500">
-              이 발송에 담긴 발주서 ({{ ship.groupPos.length }})
-            </p>
+            <p class="text-xs font-semibold text-gray-500">{{ pt('이 발송에 담긴 발주서 ({value1})', { value1: pn(ship.groupPos.length) }) }}</p>
             <ul class="mt-1.5 space-y-1">
               <li v-for="g in ship.groupPos" :key="g.poId" class="flex items-center gap-2 text-xs">
                 <span
                   class="min-w-0 flex-1 truncate"
                   :class="g.poId === detail.poId ? 'font-bold text-gray-900' : 'text-gray-700'"
                 >
-                  {{ g.projectName }}<span v-if="g.poId === detail.poId" class="font-normal text-gray-400"> — 이 발주서</span>
+                  {{ g.projectName }} <span v-if="g.poId === detail.poId" class="font-normal text-gray-400">{{ pt('— 이 발주서') }}</span>
                 </span>
                 <span class="shrink-0 text-gray-400">{{ fmtPcbAmount(g.currency, g.priceOriginal) }}</span>
               </li>
@@ -823,7 +828,7 @@ const specEntries = computed(() => {
             :to="{ name: 'partner-pcb-ship' }"
             class="mt-3 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700"
           >
-            📦 발송 진행·서류는 PCB 보내기에서 →
+            {{ pt('📦 발송 진행·서류는 PCB 보내기에서 →') }}
           </RouterLink>
 
           <!-- MD 받는측 — 전이·입고확인 -->
@@ -835,7 +840,7 @@ const specEntries = computed(() => {
               :disabled="shipAdvance.isPending.value"
               @click="void runReceiverAdvance()"
             >
-              {{ bomShipmentStatusLabel(ship.mode, shipNext) }} 처리
+              {{ pt('{value1} 처리', { value1: pt(bomShipmentStatusLabel(ship.mode, shipNext)) }) }}
             </button>
             <button
               v-if="receiverCanReceive"
@@ -844,7 +849,7 @@ const specEntries = computed(() => {
               :disabled="shipReceive.isPending.value"
               @click="receivePromptOpen = true"
             >
-              입고 확인(수령)
+              {{ pt('입고 확인(수령)') }}
             </button>
           </div>
 
@@ -856,7 +861,7 @@ const specEntries = computed(() => {
                 class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
                 @click="void downloadPartnerPcbShipmentFile(detail.poId, f.fileId, f.name)"
               >
-                ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+                ⬇ {{ pt(PCB_SHIPMENT_FILE_LABELS[f.fileType]) }}
               </button>
             </template>
           </div>
@@ -868,16 +873,16 @@ const specEntries = computed(() => {
         v-if="detail.direction === 'received' && detail.fulfillmentMode === 'delegated' && (detail.children.length > 0 || selectableChildRfqs.length > 0 || originChildTargets.length > 0)"
         class="rounded-xl border border-indigo-200 bg-surface p-4"
       >
-        <h2 class="text-sm font-bold text-indigo-700">하위 협력사 발주 (마스터딜러)</h2>
+        <h2 class="text-sm font-bold text-indigo-700">{{ pt('하위 협력사 발주 (마스터딜러)') }}</h2>
 
         <div v-if="detail.children.length > 0" class="mt-3 overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-100 text-sm">
             <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
               <tr>
-                <th class="px-3 py-2">하위 협력사</th>
-                <th class="px-3 py-2">상태</th>
-                <th class="whitespace-nowrap px-3 py-2">발주가</th>
-                <th class="whitespace-nowrap px-3 py-2">납기</th>
+                <th class="px-3 py-2">{{ pt('하위 협력사') }}</th>
+                <th class="px-3 py-2">{{ pt('상태') }}</th>
+                <th class="whitespace-nowrap px-3 py-2">{{ pt('발주가') }}</th>
+                <th class="whitespace-nowrap px-3 py-2">{{ pt('납기일') }}</th>
                 <th class="px-3 py-2" />
               </tr>
             </thead>
@@ -886,7 +891,7 @@ const specEntries = computed(() => {
                 <td class="px-3 py-2 font-medium text-gray-800">{{ child.partnerName }}</td>
                 <td class="px-3 py-2">
                   <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[child.status]">
-                    {{ PCB_PO_STATUS_LABELS[child.track][child.status] }}
+                    {{ pt(PCB_PO_STATUS_LABELS[child.track][child.status]) }}
                   </span>
                 </td>
                 <td class="whitespace-nowrap px-3 py-2 tabular-nums">
@@ -900,7 +905,7 @@ const specEntries = computed(() => {
                     :to="{ name: 'partner-pcb-po', params: { id: String(child.poId) } }"
                     class="rounded-md border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
                   >
-                    {{ child.status === 'produced' ? '생산 완료 — 보기' : child.track === 'stencil' ? '확인 진행 →' : 'EQ 진행 →' }}
+                    {{ child.status === 'produced' ? pt('생산 완료 — 보기') : child.track === 'stencil' ? pt('확인 진행 →') : pt('EQ 진행 →') }}
                   </RouterLink>
                 </td>
               </tr>
@@ -910,10 +915,10 @@ const specEntries = computed(() => {
 
         <div v-if="detail.children.length === 0 && selectableChildRfqs.length > 0" class="mt-3 flex flex-wrap items-center gap-2">
           <select v-model="childRfqPick" class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none">
-            <option :value="null" disabled>발주할 하위 회신 선택</option>
+            <option :value="null" disabled>{{ pt('발주할 하위 회신 선택') }}</option>
             <option v-for="rfq in selectableChildRfqs" :key="rfq.rfqId" :value="rfq.rfqId">
               {{ rfq.partnerName }} — {{ fmtPcbAmount(rfq.currency, rfq.priceOriginal) }}
-              ({{ PCB_RFQ_STATUS_LABELS[rfq.status] }})
+              ({{ pt(PCB_RFQ_STATUS_LABELS[rfq.status]) }})
             </option>
           </select>
           <button
@@ -922,9 +927,9 @@ const specEntries = computed(() => {
             :disabled="childPo.isPending.value || childRfqPick === null"
             @click="void issueChildPo()"
           >
-            하위 발주
+            {{ pt('하위 발주') }}
           </button>
-          <span class="text-xs text-gray-400">선정(selected) 회신이 기본 후보입니다 — 발주 시 {{ isStencil ? '확인 절차가' : 'EQ가' }} 하위에서 시작됩니다.</span>
+          <span class="text-xs text-gray-400">{{ pt('선정(selected) 회신이 기본 후보입니다 — 발주 시 {value1} 하위에서 시작됩니다.', { value1: isStencil ? pt('확인 절차가') : pt('EQ가') }) }}</span>
         </div>
 
         <!-- A/S 회차(A′) — 회차 하위 RFQ 가 없어도 원회차(round 0) 하위 발주 조건을 복사해
@@ -947,28 +952,24 @@ const specEntries = computed(() => {
               :disabled="childPo.isPending.value"
               @click="void issueChildPoFromOrigin(t)"
             >
-              원발주 조건으로 하위 발주
+              {{ pt('원발주 조건으로 하위 발주') }}
             </button>
           </div>
-          <p class="text-xs text-gray-400">
-            A/S {{ detail.reorderRound }}차 — 원주문(round 0) 하위 발주 조건을 복사해 발주합니다.
-            납기는 비워지니 협력사와 협의 후 입력하세요. 발주하면 {{ isStencil ? '확인 절차가' : 'EQ가' }} 하위에서 다시 시작됩니다.
-          </p>
+          <p class="text-xs text-gray-400">{{ pt('A/S {value1}차 — 원주문(round 0) 하위 발주 조건을 복사해 발주합니다. 납기는 비워지니 협력사와 협의 후 입력하세요. 발주하면 {value2} 하위에서 다시 시작됩니다.', { value1: detail.reorderRound, value2: isStencil ? pt('확인 절차가') : pt('EQ가') }) }}</p>
         </div>
       </section>
 
       <!-- 제작 사양 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4">
-        <h2 class="text-sm font-bold text-gray-700">제작 사양</h2>
+        <h2 class="text-sm font-bold text-gray-700">{{ pt('제작 사양') }}</h2>
         <!-- 제품군 배지 — 관리자 Case 상세와 같은 사전(공정·단가가 다른 물건을 갈라 준다). -->
         <p class="mt-1 text-sm text-gray-500">
           <span
             class="mr-1 rounded px-1.5 py-0.5 text-xs font-semibold"
             :class="pcbCategoryBadge(detail.spec.category).cls"
           >
-            {{ pcbCategoryBadge(detail.spec.category).label }}
-          </span>
-          {{ detail.spec.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.spec.qty }}매
+            {{ pt(pcbCategoryBadge(detail.spec.category).label) }}
+          </span>{{ pt('{value1} · {value2}매', { value1: detail.spec.orderCategory === 'mass' ? pt('양산') : pt('샘플'), value2: pn(detail.spec.qty) }) }}
         </p>
         <div v-if="detail.spec.files.length > 0" class="mt-3 flex flex-wrap gap-2">
           <button
@@ -983,8 +984,8 @@ const specEntries = computed(() => {
         </div>
         <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
           <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
-            <dt class="text-gray-400">{{ entry.label }}</dt>
-            <dd class="truncate font-medium text-gray-700" :title="`저장값 ${entry.value}`">{{ entry.display }}</dd>
+            <dt class="text-gray-400">{{ pt(entry.label) }}</dt>
+            <dd class="truncate font-medium text-gray-700" :title="pt('저장값 {value1}', { value1: entry.value })">{{ entry.display }}</dd>
           </div>
         </dl>
         <p v-if="detail.spec.message !== null && detail.spec.message !== ''" class="mt-3 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
@@ -993,21 +994,19 @@ const specEntries = computed(() => {
       </section>
     </template>
 
-    <div v-else class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
-      발주서를 찾을 수 없습니다.
-    </div>
+    <div v-else class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">{{ pt('발주서를 찾을 수 없습니다.') }}</div>
 
     <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) -->
     <UiPromptModal
-      :title="receivePromptOpen ? '입고 확인(수령)' : null"
+      :title="receivePromptOpen ? pt('입고 확인(수령)') : null"
       :fields="[{
         name: 'note',
-        label: '검수 메모 (선택)',
+        label: pt('검수 메모 (선택)'),
         type: 'textarea',
-        placeholder: '수량 부족·불량 등 특이사항이 있으면 적어 주세요.',
+        placeholder: pt('수량 부족·불량 등 특이사항이 있으면 적어 주세요.'),
       }]"
-      description="실물 검수를 기록합니다 — 하위 발송이 모두 확인되면 상위 출고가 열립니다."
-      confirm-label="입고 확인"
+      :description="pt('실물 검수를 기록합니다 — 하위 발송이 모두 확인되면 상위 출고가 열립니다.')"
+      :confirm-label="pt('입고 확인')"
       :busy="shipReceive.isPending.value"
       @close="receivePromptOpen = false"
       @confirm="(v) => void submitShipReceive(v)"

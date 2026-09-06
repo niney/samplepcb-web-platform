@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
+import { usePartnerI18n } from '../../partner/i18n';
+const route = useRoute();
+const { pt, locale } = usePartnerI18n(computed(() => route.matched.some((record) => record.path === '/partner')));
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { pendingConfirm, settleConfirm } from '../../lib/confirmDialog';
 
@@ -26,6 +31,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="pendingConfirm !== null"
+      :lang="locale"
       class="fixed inset-0 z-[60] grid place-items-center bg-black/30 p-4"
       @click.self="settleConfirm(false)"
     >
@@ -49,7 +55,7 @@ onBeforeUnmount(() => {
             class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-50"
             @click="settleConfirm(false)"
           >
-            {{ pendingConfirm.cancelLabel ?? '취소' }}
+            {{ pendingConfirm.cancelLabel ?? pt('취소') }}
           </button>
           <button
             ref="confirmBtn"
@@ -58,7 +64,7 @@ onBeforeUnmount(() => {
             :class="pendingConfirm.tone === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'"
             @click="settleConfirm(true)"
           >
-            {{ pendingConfirm.confirmLabel ?? '확인' }}
+            {{ pendingConfirm.confirmLabel ?? pt('확인') }}
           </button>
         </div>
       </div>

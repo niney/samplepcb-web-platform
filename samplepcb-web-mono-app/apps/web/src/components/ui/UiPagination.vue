@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+const { pt, pn } = usePartnerI18n();
 import { computed } from 'vue';
 
 const props = defineProps<{ page: number; pageSize: number; total: number }>();
@@ -21,10 +23,11 @@ const go = (p: number): void => {
 </script>
 
 <template>
-  <nav class="flex items-center justify-center gap-1 text-sm" aria-label="pagination">
+  <nav class="flex items-center justify-center gap-1 text-sm" :aria-label="pt('페이지 이동')">
     <button
       type="button"
       class="rounded-md px-2 py-1 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+      :aria-label="pt('이전 페이지')"
       :disabled="props.page <= 1"
       @click="go(props.page - 1)"
     >
@@ -42,11 +45,12 @@ const go = (p: number): void => {
       "
       @click="go(p)"
     >
-      {{ p }}
+      {{ pn(p) }}
     </button>
     <button
       type="button"
       class="rounded-md px-2 py-1 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+      :aria-label="pt('다음 페이지')"
       :disabled="props.page >= lastPage"
       @click="go(props.page + 1)"
     >

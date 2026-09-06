@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
@@ -10,12 +11,21 @@ import {
   usePartnerPcbRfqDetail,
   usePartnerPcbRfqReply,
 } from '../../partner/usePartnerPcbRfqs';
-import { fmtKstDate as dateOnly } from '@sp/utils';
 import { pcbCategoryBadge } from '../../lib/pcb-category';
-import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
-import { pcbSpecEntries } from '../../lib/pcb-spec';
+import { pcbSpecEntries, pcbSpecFormFields } from '../../lib/pcb-spec';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
+
+const { pt, pm, locale, pd, pn } = usePartnerI18n();
+const dateOnly = pd;
+const fmtPcbAmount = (currency: string, value: number | null): string =>
+  value === null ? '—' : pm(value, currency);
+const pcbMoneyWithSub = (currency: string, value: number | null, subCurrency: string | null, subValue: number | null): string => {
+  const main = fmtPcbAmount(currency, value);
+  return value !== null && subCurrency !== null && subValue !== null
+    ? `${main} (${fmtPcbAmount(subCurrency, subValue)})` : main;
+};
+
 
 // PCB 견적요청 상세(협력사 포털) — 사양 확인 → 견적가+예상 배송일 회신.
 // MD(마스터딜러)면 하위 협력사 재요청·하위 선정(마진 박제)으로 회신을 구성할 수도 있다
@@ -32,7 +42,7 @@ const detail = computed(() => detailQuery.data.value?.data ?? null);
 const actionError = ref('');
 const savedNote = ref('');
 const surfaceError = (e: unknown, fallback: string): void => {
-  actionError.value = e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
+  actionError.value = locale.value === 'ko' && e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
 };
 
 const readOnly = computed(
@@ -43,10 +53,18 @@ const readOnly = computed(
 // 항목 이름·순서는 거버 앱이 정본 — 카테고리 세트를 골라야 맞는다(lib/pcb-spec.ts).
 const specEntries = computed(() => {
   const json = detail.value?.spec.specJson ?? {};
-  return pcbSpecEntries(json, {
+  const context = {
     category: detail.value?.spec.category,
     orderCategory: detail.value?.spec.orderCategory,
     kindPcb: typeof json.kindPcb === 'string' ? json.kindPcb : null,
+  };
+  const fields = pcbSpecFormFields(context);
+  return pcbSpecEntries(json, context).map((entry) => {
+    const field = fields.find((candidate) => candidate.key === entry.key);
+    const listed = field?.options.some((option) =>
+      option.value.toLowerCase() === entry.value.toLowerCase() || option.name === entry.value,
+    ) ?? false;
+    return { ...entry, display: listed || entry.display !== entry.value ? pt(entry.display) : entry.display };
   });
 });
 
@@ -58,9 +76,9 @@ async function submitReply(body: PcbRfqReplyBodyType): Promise<void> {
   savedNote.value = '';
   try {
     await reply.mutateAsync({ rfqId: rfqId.value, body });
-    savedNote.value = '회신이 저장되었습니다 — 선정 전까지 다시 수정할 수 있습니다.';
+    savedNote.value = pt('회신이 저장되었습니다 — 선정 전까지 다시 수정할 수 있습니다.');
   } catch (e) {
-    surfaceError(e, '회신 저장에 실패했습니다.');
+    surfaceError(e, pt('회신 저장에 실패했습니다.'));
   }
 }
 
@@ -91,7 +109,7 @@ async function submitChildAssign(): Promise<void> {
       body: { partnerIds: [...childAssignSelected.value] },
     });
   } catch (e) {
-    surfaceError(e, '하위 견적요청 발송에 실패했습니다.');
+    surfaceError(e, pt('하위 견적요청 발송에 실패했습니다.'));
   }
 }
 
@@ -110,12 +128,12 @@ async function submitChildSelect(): Promise<void> {
   if (rfqId.value === null) return;
   actionError.value = '';
   if (selectedChildRadio.value === null) {
-    actionError.value = '선정할 하위 회신을 선택해 주세요.';
+    actionError.value = pt('선정할 하위 회신을 선택해 주세요.');
     return;
   }
   const margin = Number(marginText.value);
   if (!Number.isInteger(margin) || margin < 0) {
-    actionError.value = '마진율(정수 %)을 입력해 주세요.';
+    actionError.value = pt('마진율(정수 %)을 입력해 주세요.');
     return;
   }
   try {
@@ -123,9 +141,9 @@ async function submitChildSelect(): Promise<void> {
       rfqId: rfqId.value,
       body: { childRfqId: selectedChildRadio.value, marginRate: margin },
     });
-    savedNote.value = '하위 선정이 저장되고 회신가가 계산·박제되었습니다.';
+    savedNote.value = pt('하위 선정이 저장되고 회신가가 계산·박제되었습니다.');
   } catch (e) {
-    surfaceError(e, '하위 선정에 실패했습니다.');
+    surfaceError(e, pt('하위 선정에 실패했습니다.'));
   }
 }
 async function clearChildSelect(): Promise<void> {
@@ -134,9 +152,9 @@ async function clearChildSelect(): Promise<void> {
   try {
     await childSelect.mutateAsync({ rfqId: rfqId.value, body: { childRfqId: null } });
     selectedChildRadio.value = null;
-    savedNote.value = '하위 선정을 해제했습니다 — 회신도 함께 초기화되었습니다.';
+    savedNote.value = pt('하위 선정을 해제했습니다 — 회신도 함께 초기화되었습니다.');
   } catch (e) {
-    surfaceError(e, '선정 해제에 실패했습니다.');
+    surfaceError(e, pt('선정 해제에 실패했습니다.'));
   }
 }
 
@@ -146,21 +164,27 @@ const STATUS_CLS: Record<string, string> = {
   selected: 'bg-violet-100 text-violet-700',
   unselected: 'bg-gray-200 text-gray-500',
 };
+
+// Clear transient feedback on language changes; preserve entered form values.
+watch(locale, () => {
+  actionError.value = '';
+  savedNote.value = '';
+});
 </script>
 
 <template>
   <div class="pcb-readable space-y-5">
-    <PartnerPageHeader :back="{ to: { name: 'partner-pcb-rfqs' }, label: '견적요청' }" />
+    <PartnerPageHeader :back="{ to: { name: 'partner-pcb-rfqs' }, label: pt('견적요청') }" />
 
-    <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
+    <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
 
     <template v-else-if="detail !== null">
       <div class="flex flex-wrap items-center gap-3">
         <h1 class="text-xl font-bold">{{ detail.spec.projectName }}</h1>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="STATUS_CLS[detail.status]">
-          {{ PCB_RFQ_STATUS_LABELS[detail.status] }}
+          {{ pt(PCB_RFQ_STATUS_LABELS[detail.status]) }}
         </span>
-        <span class="text-sm text-gray-500">발주처: {{ detail.requesterName }}</span>
+        <span class="text-sm text-gray-500">{{ pt('발주처: {value1}', { value1: detail.requesterName }) }}</span>
       </div>
 
       <p v-if="actionError !== ''" class="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{{ actionError }}</p>
@@ -168,18 +192,16 @@ const STATUS_CLS: Record<string, string> = {
 
       <!-- 제작 사양 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4">
-        <h2 class="text-sm font-bold text-gray-700">제작 사양</h2>
+        <h2 class="text-sm font-bold text-gray-700">{{ pt('제작 사양') }}</h2>
         <!-- 제품군 배지 — 관리자 Case 상세와 같은 사전(공정·단가가 다른 물건을 갈라 준다). -->
         <p class="mt-1 text-sm text-gray-500">
           <span
             class="mr-1 rounded px-1.5 py-0.5 text-xs font-semibold"
             :class="pcbCategoryBadge(detail.spec.category).cls"
           >
-            {{ pcbCategoryBadge(detail.spec.category).label }}
-          </span>
-          {{ detail.spec.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.spec.qty }}매
-          <template v-if="detail.suggestedDeliveryDate !== null">
-            · 희망 납기 {{ dateOnly(detail.suggestedDeliveryDate) }}
+            {{ pt(pcbCategoryBadge(detail.spec.category).label) }}
+          </span>{{ pt('{value1} · {value2}매', { value1: detail.spec.orderCategory === 'mass' ? pt('양산') : pt('샘플'), value2: pn(detail.spec.qty) }) }}<template v-if="detail.suggestedDeliveryDate !== null">
+            {{ pt('· 희망 납기 {value1}', { value1: dateOnly(detail.suggestedDeliveryDate) }) }}
           </template>
         </p>
         <div v-if="detail.spec.files.length > 0" class="mt-3 flex flex-wrap gap-2">
@@ -195,8 +217,8 @@ const STATUS_CLS: Record<string, string> = {
         </div>
         <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
           <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
-            <dt class="text-gray-400">{{ entry.label }}</dt>
-            <dd class="truncate font-medium text-gray-700" :title="`저장값 ${entry.value}`">{{ entry.display }}</dd>
+            <dt class="text-gray-400">{{ pt(entry.label) }}</dt>
+            <dd class="truncate font-medium text-gray-700" :title="pt('저장값 {value1}', { value1: entry.value })">{{ entry.display }}</dd>
           </div>
         </dl>
         <p v-if="detail.spec.message !== null && detail.spec.message !== ''" class="mt-3 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
@@ -207,12 +229,9 @@ const STATUS_CLS: Record<string, string> = {
       <!-- 회신 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4">
         <h2 class="text-sm font-bold text-gray-700">
-          견적 회신
-          <span class="ml-1 text-xs font-normal text-gray-400">결제통화 {{ detail.currency }}</span>
+          {{ pt('견적 회신') }} <span class="ml-1 text-xs font-normal text-gray-400">{{ pt('결제통화 {value1}', { value1: detail.currency }) }}</span>
         </h2>
-        <p v-if="readOnly" class="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-500">
-          선정 절차가 끝난 견적요청입니다 — 수정이 필요하면 발주처에 문의해 주세요.
-        </p>
+        <p v-if="readOnly" class="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-500">{{ pt('선정 절차가 끝난 견적요청입니다 — 수정이 필요하면 발주처에 문의해 주세요.') }}</p>
         <div class="mt-3">
           <PcbRfqReplyForm
             :key="detail.rfqId"
@@ -235,14 +254,11 @@ const STATUS_CLS: Record<string, string> = {
 
       <!-- MD — 하위 협력사 재요청·선정 -->
       <section v-if="isMd" class="rounded-xl border border-indigo-200 bg-surface p-4">
-        <h2 class="text-sm font-bold text-indigo-700">하위 협력사 견적 (마스터딜러)</h2>
-        <p class="mt-1 text-xs text-gray-500">
-          하위 회신을 선정하고 마진(%)을 붙이면 위 회신가가 자동 계산·박제됩니다
-          (환율·원본은 감사용으로 함께 저장). 직접 회신을 저장하면 하위 선정은 초기화됩니다.
-        </p>
+        <h2 class="text-sm font-bold text-indigo-700">{{ pt('하위 협력사 견적 (마스터딜러)') }}</h2>
+        <p class="mt-1 text-xs text-gray-500">{{ pt('하위 회신을 선정하고 마진(%)을 붙이면 위 회신가가 자동 계산·박제됩니다 (환율·원본은 감사용으로 함께 저장). 직접 회신을 저장하면 하위 선정은 초기화됩니다.') }}</p>
 
         <div v-if="detail.myChildPartners.length > 0" class="mt-3 rounded-lg border border-gray-100 p-3">
-          <p class="text-xs font-semibold text-gray-500">하위 배정(체크 해제 = 미회신 회수)</p>
+          <p class="text-xs font-semibold text-gray-500">{{ pt('하위 배정(체크 해제 = 미회신 회수)') }}</p>
           <div class="mt-2 flex flex-wrap gap-2">
             <label
               v-for="child in detail.myChildPartners"
@@ -260,7 +276,7 @@ const STATUS_CLS: Record<string, string> = {
             :disabled="childAssign.isPending.value || readOnly"
             @click="void submitChildAssign()"
           >
-            하위 견적요청 발송
+            {{ pt('하위 견적요청 발송') }}
           </button>
         </div>
 
@@ -268,12 +284,12 @@ const STATUS_CLS: Record<string, string> = {
           <table class="min-w-full divide-y divide-gray-100 text-sm">
             <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
               <tr>
-                <th class="px-3 py-2">선정</th>
-                <th class="px-3 py-2">하위 협력사</th>
-                <th class="px-3 py-2">상태</th>
-                <th class="whitespace-nowrap px-3 py-2">회신가</th>
-                <th class="whitespace-nowrap px-3 py-2">납기</th>
-                <th class="px-3 py-2">메모</th>
+                <th class="px-3 py-2">{{ pt('선정') }}</th>
+                <th class="px-3 py-2">{{ pt('하위 협력사') }}</th>
+                <th class="px-3 py-2">{{ pt('상태') }}</th>
+                <th class="whitespace-nowrap px-3 py-2">{{ pt('회신가') }}</th>
+                <th class="whitespace-nowrap px-3 py-2">{{ pt('납기일') }}</th>
+                <th class="px-3 py-2">{{ pt('메모') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
@@ -291,7 +307,7 @@ const STATUS_CLS: Record<string, string> = {
                 <td class="px-3 py-2 font-medium text-gray-800">{{ child.partnerName }}</td>
                 <td class="px-3 py-2">
                   <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[child.status]">
-                    {{ PCB_RFQ_STATUS_LABELS[child.status] }}
+                    {{ pt(PCB_RFQ_STATUS_LABELS[child.status]) }}
                   </span>
                 </td>
                 <td class="whitespace-nowrap px-3 py-2 tabular-nums">
@@ -303,9 +319,7 @@ const STATUS_CLS: Record<string, string> = {
             </tbody>
           </table>
           <div class="mt-2 flex flex-wrap items-center gap-2">
-            <label class="flex items-center gap-1.5 text-sm text-gray-600">
-              마진
-              <input v-model="marginText" type="text" inputmode="numeric" class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm tabular-nums focus:border-violet-500 focus:outline-none" placeholder="8">
+            <label class="flex items-center gap-1.5 text-sm text-gray-600">{{ pt('마진') }}<input v-model="marginText" type="text" inputmode="numeric" class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm tabular-nums focus:border-violet-500 focus:outline-none" placeholder="8">
               %
             </label>
             <button
@@ -314,7 +328,7 @@ const STATUS_CLS: Record<string, string> = {
               :disabled="childSelect.isPending.value || readOnly"
               @click="void submitChildSelect()"
             >
-              하위 선정 저장
+              {{ pt('하위 선정 저장') }}
             </button>
             <button
               type="button"
@@ -322,19 +336,16 @@ const STATUS_CLS: Record<string, string> = {
               :disabled="childSelect.isPending.value || readOnly"
               @click="void clearChildSelect()"
             >
-              선정 해제
+              {{ pt('선정 해제') }}
             </button>
-            <span v-if="detail.priceOriginal !== null" class="text-xs text-gray-500">
-              현재 회신가: <b class="tabular-nums">{{ fmtPcbAmount(detail.currency, detail.priceOriginal) }}</b>
+            <span v-if="detail.priceOriginal !== null" class="text-xs text-gray-500">{{ pt('현재 회신가:') }} <b class="tabular-nums">{{ fmtPcbAmount(detail.currency, detail.priceOriginal) }}</b>
             </span>
           </div>
         </div>
       </section>
     </template>
 
-    <div v-else class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
-      견적요청을 찾을 수 없습니다.
-    </div>
+    <div v-else class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">{{ pt('견적요청을 찾을 수 없습니다.') }}</div>
   </div>
 </template>
 

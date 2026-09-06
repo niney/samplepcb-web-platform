@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+const { pt, locale } = usePartnerI18n();
+
 import { computed, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import type { PartnerPartRowType, PartnerPartUpdateBodyType } from '@sp/api-contract';
@@ -44,6 +47,7 @@ const empty = (): Draft => ({
 
 const draft = ref<Draft>(empty());
 const error = ref<string | null>(null);
+watch(locale, () => { error.value = null; });
 
 const numText = (value: number | null): string => (value === null ? '' : String(value));
 
@@ -89,22 +93,22 @@ async function submit(): Promise<void> {
 
   const mpn = draft.value.mpn.trim();
   if (mpn === '') {
-    error.value = '품번은 비울 수 없습니다.';
+    error.value = pt('품번은 비울 수 없습니다.');
     return;
   }
   const stockQty = parseNumber(draft.value.stockQty, true);
   const moq = parseNumber(draft.value.moq, true);
   const unitPrice = parseNumber(draft.value.unitPrice, false);
   if (stockQty === 'invalid') {
-    error.value = '재고는 0 이상의 정수로 입력해 주세요.';
+    error.value = pt('재고는 0 이상의 정수로 입력해 주세요.');
     return;
   }
   if (moq === 'invalid' || moq === 0) {
-    error.value = '최소 주문은 1 이상의 정수로 입력해 주세요.';
+    error.value = pt('최소 주문은 1 이상의 정수로 입력해 주세요.');
     return;
   }
   if (unitPrice === 'invalid') {
-    error.value = '단가는 0 이상의 숫자로 입력해 주세요.';
+    error.value = pt('단가는 0 이상의 숫자로 입력해 주세요.');
     return;
   }
 
@@ -123,9 +127,9 @@ async function submit(): Promise<void> {
     emit('saved');
   } catch (caught) {
     error.value =
-      caught instanceof ApiRequestError
-        ? (caught.payload?.message ?? '저장하지 못했습니다.')
-        : '저장하지 못했습니다.';
+      caught instanceof ApiRequestError && locale.value === 'ko'
+        ? (caught.payload?.message ?? pt('저장하지 못했습니다.'))
+        : pt('저장하지 못했습니다.');
   }
 }
 
@@ -141,54 +145,52 @@ const FIELD_CLS =
   >
     <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface p-5 shadow-2xl">
       <div class="mb-3">
-        <h2 class="text-base font-bold text-gray-900">부품 수정</h2>
-        <p class="mt-0.5 text-xs text-gray-500">
-          이 한 줄만 고칩니다. 파일 원문은 그대로 남습니다.
-        </p>
+        <h2 class="text-base font-bold text-gray-900"> {{ pt('부품 수정') }} </h2>
+        <p class="mt-0.5 text-xs text-gray-500"> {{ pt('이 한 줄만 고칩니다. 파일 원문은 그대로 남습니다.') }} </p>
       </div>
 
       <p
         v-if="part.mpnRaw !== part.mpn"
         class="mb-3 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600"
       >
-        파일 원문 <span class="font-mono font-semibold">{{ part.mpnRaw }}</span>
+        {{ pt('파일 원문') }} <span class="font-mono font-semibold">{{ part.mpnRaw }}</span>
       </p>
 
       <div class="grid gap-3 sm:grid-cols-2">
         <label class="sm:col-span-2">
-          <span class="mb-1 block text-xs font-semibold text-gray-700">품번</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('품번') }} </span>
           <input v-model="draft.mpn" type="text" :class="FIELD_CLS" maxlength="191">
         </label>
         <label>
-          <span class="mb-1 block text-xs font-semibold text-gray-700">제조사</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('제조사') }} </span>
           <input v-model="draft.manufacturer" type="text" :class="FIELD_CLS" maxlength="191">
         </label>
         <label>
-          <span class="mb-1 block text-xs font-semibold text-gray-700">재고 수량</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('재고 수량') }} </span>
           <input v-model="draft.stockQty" type="text" inputmode="numeric" :class="FIELD_CLS">
         </label>
         <label>
-          <span class="mb-1 block text-xs font-semibold text-gray-700">데이트 코드</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('데이트 코드') }} </span>
           <input v-model="draft.dateCode" type="text" :class="FIELD_CLS" maxlength="100">
         </label>
         <label>
-          <span class="mb-1 block text-xs font-semibold text-gray-700">납기</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('납기') }} </span>
           <input v-model="draft.leadTime" type="text" :class="FIELD_CLS" maxlength="100">
         </label>
         <label>
-          <span class="mb-1 block text-xs font-semibold text-gray-700">단가</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('단가') }} </span>
           <input v-model="draft.unitPrice" type="text" inputmode="decimal" :class="FIELD_CLS">
         </label>
         <label>
-          <span class="mb-1 block text-xs font-semibold text-gray-700">통화</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('통화') }} </span>
           <input v-model="draft.currency" type="text" :class="FIELD_CLS" maxlength="8" placeholder="USD">
         </label>
         <label>
-          <span class="mb-1 block text-xs font-semibold text-gray-700">최소 주문</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('최소 주문') }} </span>
           <input v-model="draft.moq" type="text" inputmode="numeric" :class="FIELD_CLS">
         </label>
         <label class="sm:col-span-2">
-          <span class="mb-1 block text-xs font-semibold text-gray-700">설명</span>
+          <span class="mb-1 block text-xs font-semibold text-gray-700"> {{ pt('설명') }} </span>
           <input v-model="draft.description" type="text" :class="FIELD_CLS" maxlength="500">
         </label>
       </div>
@@ -197,12 +199,9 @@ const FIELD_CLS =
         v-if="mpnChanged"
         class="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800"
       >
-        품번을 바꾸면 BOM 검색에 걸리는 조회 키도 새 품번으로 다시 만듭니다.
+        {{ pt('품번을 바꾸면 BOM 검색에 걸리는 조회 키도 새 품번으로 다시 만듭니다.') }}
       </p>
-      <p class="mt-2 text-[11px] text-gray-400">
-        다음에 <b>전체 교체</b>로 파일을 올리면 이 수정도 함께 사라집니다 — 원본 파일을 고쳐
-        올리시면 더 오래갑니다.
-      </p>
+      <p class="mt-2 text-[11px] text-gray-400"> {{ pt('다음에 전체 교체로 파일을 올리면 이 수정도 함께 사라집니다 — 원본 파일을 고쳐 올리시면 더 오래갑니다.') }} </p>
 
       <p v-if="error !== null" role="alert" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
         {{ error }}
@@ -214,7 +213,7 @@ const FIELD_CLS =
           class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50"
           @click="emit('close')"
         >
-          취소
+          {{ pt('취소') }}
         </button>
         <button
           type="button"
@@ -222,7 +221,7 @@ const FIELD_CLS =
           :disabled="busy === true"
           @click="void submit()"
         >
-          {{ busy === true ? '저장 중…' : '저장' }}
+          {{ busy === true ? pt('저장 중…') : pt('저장') }}
         </button>
       </div>
     </div>

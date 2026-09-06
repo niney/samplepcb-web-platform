@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed, ref } from 'vue';
 import {
   PCB_EQ_REVERT_NOTE,
@@ -10,6 +11,9 @@ import {
   type PcbPoTrackType,
 } from '@sp/api-contract';
 import { formatBytes } from '../../lib/format';
+
+const { pt, pn, pd, locale, enabled } = usePartnerI18n();
+
 
 // EQ 진행을 **대화 한 줄기**로 보여 준다.
 //
@@ -57,7 +61,7 @@ const ROLE_LABEL: Record<string, string> = {
   PARTNER: '협력사',
   MASTER_DEALER: '중개 조직',
 };
-const roleLabel = (r: string): string => ROLE_LABEL[r] ?? r;
+const roleLabel = (r: string): string => pt(ROLE_LABEL[r] ?? r);
 const isMine = (r: string): boolean => r === props.meRole;
 // 발신자 이름칩 색 — MD 관전처럼 **상대가 둘**(관리자·하위 협력사)이면 전부 왼쪽에 서므로
 // 이름 텍스트만으로는 누가 말했는지 스캔이 안 된다(2026-08-13 사용자 관찰). 말풍선 색은
@@ -74,7 +78,7 @@ const roleChipCls = (r: string): string => ROLE_CHIP[r] ?? 'bg-gray-100 text-gra
 // isPcbEqRejectionEvent 하나를 쓴다(같은 규칙을 여기 복제해 뒀던 것이 되돌리기를 반려로
 // 읽던 결함의 조건이었다 — 2026-08-16 교정 · 트랙 어휘는 2026-08-17).
 const eventLabel = (item: { fromStatus?: string; toStatus?: string; note?: string | null }): string =>
-  pcbEqEventLabel(item, props.track ?? 'eq');
+  pt(pcbEqEventLabel(item, props.track ?? 'eq'));
 const isReject = isPcbEqRejectionEvent;
 
 /** 되돌리기가 남긴 레거시 표식은 사유가 아니다 — 말풍선에 '되돌리기'만 뜨면 안 읽힌다. */
@@ -96,7 +100,16 @@ const FILE_LABEL: Record<string, string> = {
   // 고객문의사항에 곁들이는 사진(선택·누적) — 스텐실 트랙.
   inquiry: '문의 사진',
 };
-const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
+const when = (at: string): string => {
+  if (!enabled.value) return at.slice(0, 16).replace('T', ' ');
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return '—';
+  const time = new Intl.DateTimeFormat(locale.value === 'ko' ? 'ko-KR' : locale.value, {
+    timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(date);
+  return `${pd(at)} ${time}`;
+};
+
 </script>
 
 <template>
@@ -108,15 +121,14 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
       class="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-50"
       @click="showPast = !showPast"
     >
-      {{ showPast ? '이전 회차 숨기기' : `▸ 이전 회차 ${openFrom}건 보기` }}
+      {{ showPast ? pt('이전 회차 숨기기') : pt('▸ 이전 회차 {value1}건 보기', { value1: pn(openFrom) }) }}
     </button>
 
     <template v-for="(round, ri) in rounds" :key="round.index">
       <section v-if="showPast || ri >= openFrom" class="space-y-2">
         <div v-if="rounds.length > 1" class="flex items-center gap-2">
           <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-bold text-gray-500">
-            {{ round.index }}차 요청
-          </span>
+            {{ pt('{value1}차 요청', { value1: round.index }) }}</span>
           <span class="h-px flex-1 bg-gray-100" />
         </div>
 
@@ -152,9 +164,7 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
             >
               <p class="font-semibold">{{ eventLabel(item) }}</p>
               <template v-if="shownNote(item.note) !== ''">
-                <p v-if="isStencilInquiry(item)" class="mt-1 text-[11px] font-semibold opacity-70">
-                  고객문의사항
-                </p>
+                <p v-if="isStencilInquiry(item)" class="mt-1 text-[11px] font-semibold opacity-70">{{ pt('고객문의사항') }}</p>
                 <p class="mt-1 whitespace-pre-wrap">
                   {{ shownNote(item.note) }}
                 </p>
@@ -181,7 +191,7 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
                     class="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold"
                     :class="f.fileType === 'reply' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'"
                   >
-                    {{ FILE_LABEL[f.fileType] ?? f.fileType }}
+                    {{ pt(FILE_LABEL[f.fileType] ?? f.fileType) }}
                   </span>
                   <button
                     type="button"
@@ -194,13 +204,13 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
                   <span
                     v-if="!f.isLatest"
                     class="shrink-0 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700"
-                    title="같은 종류로 더 나중 파일이 있습니다 — 이건 이전 것입니다."
-                  >이전</span>
+                    :title="pt('같은 종류로 더 나중 파일이 있습니다 — 이건 이전 것입니다.')"
+                  >{{ pt('이전') }}</span>
                   <button
                     v-if="editable === true && isMine(item.byRole)"
                     type="button"
                     class="shrink-0 text-gray-300 hover:text-red-600"
-                    aria-label="파일 삭제"
+                    :aria-label="pt('파일 삭제')"
                     @click="emit('delete', f.fileId)"
                   >
                     ✕
@@ -211,9 +221,7 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
           </div>
         </div>
 
-        <p v-if="round.items.length === 0" class="text-xs text-gray-400">
-          아직 이 회차에 오간 것이 없습니다.
-        </p>
+        <p v-if="round.items.length === 0" class="text-xs text-gray-400">{{ pt('아직 이 회차에 오간 것이 없습니다.') }}</p>
       </section>
     </template>
   </div>

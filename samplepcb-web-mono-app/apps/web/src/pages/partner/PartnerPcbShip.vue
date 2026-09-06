@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { usePartnerI18n } from '../../partner/i18n';
+import { computed, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import {
   BOM_SHIPMENT_MODE_LABELS,
@@ -13,8 +14,12 @@ import {
 } from '../../partner/usePartnerPcbPos';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import PcbShipmentCard from '../../components/pcb/PcbShipmentCard.vue';
-import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
+
+const { pt, pn, pm, locale } = usePartnerI18n();
+const fmtPcbAmount = (currency: string, value: number | null): string =>
+  value === null ? '—' : pm(value, currency);
+
 
 // [📦 PCB 보내기](§9 묶음 재구성) — BOM §6.11 두 칸 이동 UI 의 PCB 일반화.
 // BOM 과 달리 받는 곳이 갈릴 수 있어(관리자/직송 KR·CN·VN/MD) 박스는 컨텍스트당
@@ -22,6 +27,13 @@ import { confirmDialog } from '../../lib/confirmDialog';
 // 규칙은 하나 — "발송 전(preparing)엔 자유"(꺼내면 승계·비면 소멸, 대표 개념 은닉).
 // 발송 서류(Invoice)·전이·진행 추적까지 **이 화면이 발송 조작의 단일 창구**다
 // (BOM 동형 — 상세는 읽기 요약만). 박스 확정 → 같은 화면에서 카드로 전개.
+
+// Server-derived recipients retain organization names; only fixed UI wording is translated.
+const receiverLabel = (label: string): string => {
+  if (label === '샘플피씨비') return 'SamplePCB';
+  const direct = /^직송 (KR|CN|VN)$/.exec(label);
+  return direct?.[1] === undefined ? label : pt('직송 {country}', { country: direct[1] });
+};
 
 const boardQuery = usePartnerPcbShipBoard();
 const boxMut = usePartnerPcbShipBox();
@@ -53,7 +65,7 @@ async function putIn(poId: number): Promise<void> {
   try {
     await boxMut.mutateAsync({ poId });
   } catch (e) {
-    error.value = e instanceof ApiRequestError ? e.message : '담기에 실패했습니다.';
+    error.value = locale.value === 'ko' && e instanceof ApiRequestError ? e.message : pt('담기에 실패했습니다.');
   }
 }
 
@@ -66,11 +78,11 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
     const docs = box.files.length;
     const ok = await confirmDialog({
       message:
-        `마지막 한 건입니다 — 꺼내면 이 박스가 사라집니다.` +
+        pt('마지막 한 건입니다 — 꺼내면 이 박스가 사라집니다.') +
         (docs > 0
-          ? ` 첨부한 서류 ${String(docs)}건도 함께 삭제되며 되돌릴 수 없습니다.`
-          : ' 다시 담으면 처음부터 준비하게 됩니다.'),
-      confirmLabel: '꺼내고 박스 없애기',
+          ? pt(' 첨부한 서류 {value1}건도 함께 삭제되며 되돌릴 수 없습니다.', { value1: String(docs) })
+          : pt(' 다시 담으면 처음부터 준비하게 됩니다.')),
+      confirmLabel: pt('꺼내고 박스 없애기'),
       tone: 'danger',
     });
     if (!ok) return;
@@ -79,27 +91,30 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
   try {
     await detachMut.mutateAsync({ poId });
   } catch (e) {
-    error.value = e instanceof ApiRequestError ? e.message : '꺼내기에 실패했습니다.';
+    error.value = locale.value === 'ko' && e instanceof ApiRequestError ? e.message : pt('꺼내기에 실패했습니다.');
   }
 }
+
+// Clear transient feedback on language changes; preserve entered form values.
+watch(locale, () => {
+  error.value = '';
+});
 </script>
 
 <template>
   <div class="space-y-5">
     <PartnerPageHeader
-      title="📦 PCB 보내기"
-      subtitle="생산완료된 발주서를 박스로 옮기고, 다 담았으면 발송을 진행하세요. 받는 곳이 같은 것끼리 묶입니다."
+      :title="pt('📦 PCB 보내기')"
+      :subtitle="pt('생산완료된 발주서를 박스로 옮기고, 다 담았으면 발송을 진행하세요. 받는 곳이 같은 것끼리 묶입니다.')"
     />
 
     <p v-if="error !== ''" class="text-sm font-semibold text-red-600">{{ error }}</p>
 
-    <div v-if="board === null" class="py-10 text-center text-sm text-gray-400">불러오는 중…</div>
+    <div v-if="board === null" class="py-10 text-center text-sm text-gray-400">{{ pt('불러오는 중…') }}</div>
     <template v-else>
       <!-- 서류·발송 단계 — 박스 확정 후 같은 화면에서 카드 전개(BOM readyMode 미러) -->
       <template v-if="readyBox !== null">
-        <button type="button" class="text-sm text-teal-700 underline" @click="readyBoxId = null">
-          ← 박스에 더 담기 / 꺼내기
-        </button>
+        <button type="button" class="text-sm text-teal-700 underline" @click="readyBoxId = null">{{ pt('← 박스에 더 담기 / 꺼내기') }}</button>
         <PcbShipmentCard :shipment="readyBox" />
       </template>
 
@@ -108,7 +123,7 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
         <!-- 선반 -->
         <section class="min-w-0 rounded-xl border border-gray-200 bg-surface p-4">
           <h2 class="text-sm font-bold text-gray-700">
-            보낼 물건 <span class="font-normal text-gray-400">({{ shelf.length }}건)</span>
+            {{ pt('보낼 물건') }} <span class="font-normal text-gray-400">{{ pt('({value1}건)', { value1: pn(shelf.length) }) }}</span>
           </h2>
           <div class="mt-2 space-y-2">
             <div
@@ -122,19 +137,15 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                   {{ po.projectName }}
                 </p>
                 <p class="text-sm text-gray-500">
-                  {{ po.qty.toLocaleString('ko-KR') }}pcs · {{ fmtPcbAmount(po.currency, po.priceOriginal) }}
+                  {{ pn(po.qty) }}pcs · {{ fmtPcbAmount(po.currency, po.priceOriginal) }}
                   <span class="ml-1 rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">
-                    → {{ po.receiverLabel }}
+                    → {{ receiverLabel(po.receiverLabel) }}
                   </span>
                   <!-- 어휘는 박스 헤더·포털 전반과 같은 'A/S N차'(구 'N회차' 혼용 정리) -->
-                  <span v-if="po.reorderRound > 0" class="ml-1 text-[11px] text-gray-400">A/S {{ po.reorderRound }}차</span>
+                  <span v-if="po.reorderRound > 0" class="ml-1 text-[11px] text-gray-400">{{ pt('A/S {value1}차', { value1: po.reorderRound }) }}</span>
                 </p>
-                <p v-if="!po.countryReady" class="mt-0.5 text-xs font-semibold text-red-600">
-                  국가 정보 필요 — 샘플피씨비 담당자에게 문의해 주세요.
-                </p>
-                <p v-else-if="po.outboundBlocked" class="mt-0.5 text-xs font-semibold text-amber-600">
-                  하위 협력사 입고 확인이 끝나야 담을 수 있습니다.
-                </p>
+                <p v-if="!po.countryReady" class="mt-0.5 text-xs font-semibold text-red-600">{{ pt('국가 정보 필요 — 샘플피씨비 담당자에게 문의해 주세요.') }}</p>
+                <p v-else-if="po.outboundBlocked" class="mt-0.5 text-xs font-semibold text-amber-600">{{ pt('하위 협력사 입고 확인이 끝나야 담을 수 있습니다.') }}</p>
               </div>
               <button
                 type="button"
@@ -142,14 +153,14 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                 :disabled="busy || !po.countryReady || po.outboundBlocked"
                 @click="putIn(po.poId)"
               >
-                담기 →
+                {{ pt('담기 →') }}
               </button>
             </div>
             <p
               v-if="shelf.length === 0"
               class="rounded-xl border border-dashed border-gray-200 px-4 py-8 text-center text-sm text-gray-400"
             >
-              {{ boxes.length === 0 ? '보낼 수 있는 발주서가 없습니다 — 생산완료 후 여기에 나타납니다.' : '전부 박스에 담겼습니다.' }}
+              {{ boxes.length === 0 ? pt('보낼 수 있는 발주서가 없습니다 — 생산완료 후 여기에 나타납니다.') : pt('전부 박스에 담겼습니다.') }}
             </p>
           </div>
 
@@ -157,7 +168,7 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                확인~생산완료 구간의 발송 가시성을 여기서 준다(일관성 보완). -->
           <div v-if="producing.length > 0" class="mt-4 border-t border-gray-100 pt-3">
             <p class="text-xs font-semibold text-gray-500">
-              곧 보낼 물건 <span class="font-normal text-gray-400">({{ producing.length }}건 생산 진행 중 — 생산완료되면 위로 올라옵니다)</span>
+              {{ pt('곧 보낼 물건') }} <span class="font-normal text-gray-400">{{ pt('({value1}건 생산 진행 중 — 생산완료되면 위로 올라옵니다)', { value1: pn(producing.length) }) }}</span>
             </p>
             <ul class="mt-1.5 space-y-1">
               <li v-for="po in producing" :key="po.poId" class="flex items-center gap-2 text-xs">
@@ -167,9 +178,9 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                 >
                   {{ po.projectName }}
                 </RouterLink>
-                <span class="shrink-0 text-gray-400">{{ po.qty.toLocaleString('ko-KR') }}pcs</span>
+                <span class="shrink-0 text-gray-400">{{ pn(po.qty) }}pcs</span>
                 <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500">
-                  {{ PCB_PO_STATUS_LABELS[po.track][po.status] }}
+                  {{ pt(PCB_PO_STATUS_LABELS[po.track][po.status]) }}
                 </span>
               </li>
             </ul>
@@ -182,15 +193,14 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
           :class="boxes.length === 0 ? 'border-gray-200 bg-gray-50/50' : 'border-teal-300 bg-teal-50/40'"
         >
           <h2 class="text-sm font-bold" :class="boxes.length === 0 ? 'text-gray-500' : 'text-teal-800'">
-            📦 박스 (이번 발송)
-            <span v-if="boxes.length > 1" class="font-normal text-teal-600">— 받는 곳별 {{ boxes.length }}개</span>
+            {{ pt('📦 PCB 출하 목록') }} <span v-if="boxes.length > 1" class="font-normal text-teal-600">{{ pt('— 받는 곳별 {value1}개', { value1: pn(boxes.length) }) }}</span>
           </h2>
 
           <p
             v-if="boxes.length === 0"
             class="mt-2 rounded-xl border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-400"
           >
-            비어 있습니다 — 왼쪽에서 [담기 →]를 눌러 옮겨 주세요.
+            {{ pt('비어 있습니다 — 왼쪽에서 [담기 →]를 눌러 옮겨 주세요.') }}
           </p>
 
           <div v-for="box in boxes" :key="box.shipmentId" class="mt-2 rounded-xl border border-teal-200 bg-surface p-3">
@@ -198,16 +208,17 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                  **회차**가 같은 것끼리만 합류한다(contextKey). 회차가 빠지면 r0 박스와 r1
                  박스의 헤더가 글자까지 같아 갈린 이유를 읽을 수 없다(여정 11호 X7). -->
             <p class="text-xs font-bold text-teal-800">
+              <span class="mr-1 font-mono">#{{ box.shipmentId }}</span>
               → {{ box.receiverName }}
-              <template v-if="box.destinationCountry !== null"> · 직송 {{ box.destinationCountry }}</template>
+              <template v-if="box.destinationCountry !== null">{{ pt('· 직송 {value1}', { value1: box.destinationCountry }) }}</template>
               <span
                 v-if="box.reorderRound > 0"
                 class="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700"
-              >A/S {{ box.reorderRound }}차</span>
+              >{{ pt('A/S {value1}차', { value1: box.reorderRound }) }}</span>
               <span class="ml-1 rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">
-                {{ BOM_SHIPMENT_MODE_LABELS[box.mode] }}
+                {{ pt(BOM_SHIPMENT_MODE_LABELS[box.mode]) }}
               </span>
-              <span class="ml-1 font-normal text-gray-400">{{ box.groupPos.length }}건 담김</span>
+              <span class="ml-1 font-normal text-gray-400">{{ pt('{value1}건 담김', { value1: pn(box.groupPos.length) }) }}</span>
             </p>
             <div class="mt-2 space-y-1.5">
               <div
@@ -224,7 +235,7 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                     {{ po.projectName }}
                   </p>
                   <p class="text-xs text-gray-500">
-                    {{ po.qty.toLocaleString('ko-KR') }}pcs · {{ fmtPcbAmount(po.currency, po.priceOriginal) }}
+                    {{ pn(po.qty) }}pcs · {{ fmtPcbAmount(po.currency, po.priceOriginal) }}
                   </p>
                 </div>
                 <button
@@ -233,21 +244,20 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
                   :disabled="busy"
                   @click="takeOut(box, po.poId)"
                 >
-                  ← 꺼내기
+                  {{ pt('← 꺼내기') }}
                 </button>
               </div>
             </div>
             <div class="mt-2 flex items-center justify-between border-t border-teal-100 pt-2">
               <p class="text-sm text-gray-600">
-                합계 <b>{{ boxTotal(box) }}</b>
+                {{ pt('합계') }} <b>{{ boxTotal(box) }}</b>
               </p>
               <button
                 type="button"
                 class="rounded-lg bg-teal-600 px-3.5 py-2 text-sm font-bold text-white hover:bg-teal-700"
                 @click="readyBoxId = box.shipmentId"
               >
-                이 박스로 발송 준비 →
-                {{ box.mode === 'domestic' ? '(택배 정보)' : '(Invoice·출고예정일)' }}
+                {{ pt('이 박스로 발송 준비 → {value1}', { value1: box.mode === 'domestic' ? pt('(택배 정보)') : pt('(Invoice·출고예정일)') }) }}
               </button>
             </div>
           </div>
@@ -256,7 +266,7 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
 
       <!-- 진행 중 발송 — 카드에서 바로 전이·서류·되돌리기 -->
       <section v-if="active.length > 0">
-        <h2 class="text-sm font-bold text-gray-700">진행 중 발송 ({{ active.length }})</h2>
+        <h2 class="text-sm font-bold text-gray-700">{{ pt('진행 중 발송 ({value1})', { value1: pn(active.length) }) }}</h2>
         <div class="mt-2 space-y-3">
           <PcbShipmentCard v-for="s in active" :key="s.shipmentId" :shipment="s" />
         </div>
@@ -268,7 +278,7 @@ async function takeOut(box: PartnerPcbShipBoxType, poId: number): Promise<void> 
         :to="{ name: 'partner-pcb-shipments-done' }"
         class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
       >
-        완료된 발송 {{ board.doneCount }}건 보기 →
+        {{ pt('완료된 발송 {value1}건 보기 →', { value1: pn(board.doneCount) }) }}
       </RouterLink>
     </template>
   </div>

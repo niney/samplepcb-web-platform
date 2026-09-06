@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed } from 'vue';
 import {
   PCB_PO_FULFILLMENT_MODE_LABELS,
   PCB_PO_STATUS_LABELS,
   type PartnerPcbPoListItemType,
 } from '@sp/api-contract';
+
+const { pt, pn } = usePartnerI18n();
+
 
 // PCB 발주서 한 줄(R3) — 홈 '진행할 발주'·'진행 중 발주(관전)'와 발주서 목록이 같은 줄을 쓴다.
 // 내 차례(myTurn)는 CTA [진행하기]. '내 차례'만으로는 **왜** 내 차례인지 모른다 — 첫 EQ 요청과
@@ -23,6 +27,7 @@ const rejected = computed(
   () => props.po.status === 'issued' && (props.po.rejectedAt ?? null) !== null,
 );
 const eqBlocked = computed(() => props.po.eqBlocked === true);
+
 </script>
 
 <template>
@@ -37,32 +42,27 @@ const eqBlocked = computed(() => props.po.eqBlocked === true);
         <span
           v-if="po.direction === 'issued'"
           class="mr-1 rounded bg-indigo-100 px-1 text-[11px] font-bold text-indigo-700"
-        >하위 발주</span>
+        >{{ pt('하위 발주') }}</span>
         {{ po.projectName }}
-        <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-700">
-          A/S {{ po.reorderRound }}차
-        </span>
+        <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-700">{{ pt('A/S {value1}차', { value1: po.reorderRound }) }}</span>
         <span v-if="rejected" class="ml-1 rounded bg-red-100 px-1 text-[11px] font-bold text-red-700">
-          {{ po.direction === 'issued' ? '반려 — 보완 대기' : '반려됨 — 보완 필요' }}
+          {{ po.direction === 'issued' ? pt('반려 — 보완 대기') : pt('반려됨 — 보완 필요') }}
         </span>
         <!-- MD 수주의 하위 발주 대기 — EQ 를 열려면 먼저 하위에 발주해야 한다 -->
-        <span v-if="eqBlocked" class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-bold text-indigo-700">
-          하위 발주 필요
-        </span>
+        <span v-if="eqBlocked" class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-bold text-indigo-700">{{ pt('하위 발주 필요') }}</span>
         <span
           v-else-if="po.direction === 'received' && po.fulfillmentMode === 'self'"
           class="ml-1 rounded bg-teal-100 px-1 text-[11px] font-bold text-teal-700"
-        >{{ PCB_PO_FULFILLMENT_MODE_LABELS.self }}</span>
+        >{{ pt(PCB_PO_FULFILLMENT_MODE_LABELS.self) }}</span>
       </p>
       <p class="mt-0.5 text-sm text-gray-500">
-        {{ po.qty }}매 · {{ po.counterpartyName }} ·
-        <span class="tabular-nums">{{ po.priceOriginal.toLocaleString('en-US') }} {{ po.currency }}</span>
+        {{ pt('{value1}매 · {value2} ·', { value1: pn(po.qty), value2: po.counterpartyName }) }} <span class="tabular-nums">{{ pn(po.priceOriginal) }} {{ po.currency }}</span>
       </p>
     </div>
     <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-gray-600">
-      {{ PCB_PO_STATUS_LABELS[po.track][po.status] }}
+      {{ pt(PCB_PO_STATUS_LABELS[po.track][po.status]) }}
     </span>
-    <span v-if="todo" class="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-bold text-white">진행하기</span>
-    <span v-else class="shrink-0 text-sm text-gray-400">보기 →</span>
+    <span v-if="todo" class="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-bold text-white">{{ pt('진행하기') }}</span>
+    <span v-else class="shrink-0 text-sm text-gray-400">{{ pt('보기 →') }}</span>
   </RouterLink>
 </template>

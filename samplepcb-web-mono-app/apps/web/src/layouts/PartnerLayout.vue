@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { providePartnerI18n, setPartnerLocale } from '../partner/i18n';
+const { pt, locale } = providePartnerI18n();
+const changeLocale = (event: Event): void => { setPartnerLocale((event.target as HTMLSelectElement).value); };
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { RouteLocationRaw } from 'vue-router';
@@ -16,6 +19,15 @@ import {
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 import AppThemeToggle from '../components/AppThemeToggle.vue';
+
+const MENU_LABELS: Record<string, string> = {
+  'partner.modules.bom': 'BOM 부품', 'partner.modules.pcb': 'PCB 제작',
+  'partner.menu.home': '홈 · 오늘 할 일', 'partner.menu.rfqs': '견적요청',
+  'partner.menu.pos': '발주 관리', 'partner.menu.ship': '출하 준비',
+  'partner.menu.pcbShip': '출하 준비', 'partner.menu.shipmentsDone': '출하 완료 내역',
+  'partner.menu.as': 'A/S', 'partner.menu.remittances': '수금 현황', 'partner.menu.parts': '보유 부품',
+};
+const menuLabel = (key: string): string => MENU_LABELS[key] ?? key;
 
 // 협력사 포털 셸(포털 재설계 R3) — 관리자 콘솔 셸의 미러: 좌측 사이드바(모듈 메뉴 + 공통
 // 그룹 + 배지) + 헤더(모듈 스위처·테마·프로필). 포털의 기존 방식(모듈 홈 = 오늘 할 일
@@ -124,12 +136,12 @@ watch(
 </script>
 
 <template>
-  <div class="relative flex min-h-screen bg-gray-50 text-gray-900">
+  <div :lang="locale" class="relative flex min-h-screen bg-gray-50 text-gray-900">
     <button
       v-if="mobileMenuOpen"
       type="button"
       class="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
-      :aria-label="$t('partner.shell.closeMenu')"
+      :aria-label="pt('메뉴 닫기')"
       @click="mobileMenuOpen = false"
     />
 
@@ -146,13 +158,13 @@ watch(
           <button
             type="button"
             class="grid size-8 place-items-center rounded-md text-lg text-gray-500 hover:bg-gray-100 lg:hidden"
-            :aria-label="$t('partner.shell.closeMenu')"
+            :aria-label="pt('메뉴 닫기')"
             @click="mobileMenuOpen = false"
           >
             ×
           </button>
         </div>
-        <p class="mt-0.5 text-xs text-gray-400">{{ $t('partner.title') }}</p>
+        <p class="mt-0.5 text-xs text-gray-400">{{ pt('파트너 포털') }}</p>
         <p
           v-if="partnerName !== null"
           class="mt-1 truncate text-sm font-semibold text-gray-700"
@@ -162,7 +174,7 @@ watch(
         </p>
       </div>
 
-      <nav class="flex-1 space-y-5 overflow-y-auto p-3" :aria-label="$t('partner.title')">
+      <nav class="flex-1 space-y-5 overflow-y-auto p-3" :aria-label="pt('파트너 포털')">
         <!-- 접근 판정 전 — 메뉴 자리를 비워 두지 않고 흔들림을 막는다 -->
         <div v-if="access === null" class="space-y-2 px-3 py-1" aria-hidden="true">
           <div v-for="i in 4" :key="i" class="h-4 animate-pulse rounded bg-gray-100" />
@@ -170,7 +182,7 @@ watch(
         <template v-else>
           <div v-if="activeModule !== null && activeMenu.length > 0">
             <p class="px-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">
-              {{ $t(activeModule.labelKey) }}
+              {{ pt(menuLabel(activeModule.labelKey)) }}
             </p>
             <div class="space-y-0.5">
               <RouterLink
@@ -180,7 +192,7 @@ watch(
                 :class="[MENU_BASE_CLS, isMenuActive(item) ? MODULE_ACTIVE_CLS[activeModule.key] : '']"
                 :aria-current="isMenuActive(item) ? 'page' : undefined"
               >
-                <span class="truncate">{{ $t(item.labelKey) }}</span>
+                <span class="truncate">{{ pt(menuLabel(item.labelKey)) }}</span>
                 <span v-if="item.badge !== undefined && badgeValue(item.badge) > 0" :class="BADGE_CLS">
                   {{ badgeValue(item.badge) }}
                 </span>
@@ -191,7 +203,7 @@ watch(
           <!-- 공통 영역 — 모듈 소속이 아닌 화면(현재 데이터는 PCB 발주 대금) -->
           <div v-if="showCommon">
             <p class="px-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">
-              {{ $t('partner.common') }}
+              {{ pt('공통') }}
             </p>
             <div class="space-y-0.5">
               <RouterLink
@@ -201,11 +213,11 @@ watch(
                 :class="[MENU_BASE_CLS, isMenuActive(item) ? COMMON_ACTIVE_CLS : '']"
                 :aria-current="isMenuActive(item) ? 'page' : undefined"
               >
-                <span class="truncate">{{ $t(item.labelKey) }}</span>
+                <span class="truncate">{{ pt(menuLabel(item.labelKey)) }}</span>
                 <span
                   v-if="item.badge !== undefined && badgeValue(item.badge) > 0"
                   :class="BADGE_CLS"
-                  title="미수금이 남은 발주 수"
+                  :title="pt('미수금이 남은 발주 수')"
                 >
                   {{ badgeValue(item.badge) }}
                 </span>
@@ -224,7 +236,7 @@ watch(
         <button
           type="button"
           class="grid size-9 shrink-0 place-items-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 lg:hidden"
-          :aria-label="$t('partner.shell.openMenu')"
+          :aria-label="pt('메뉴 열기')"
           :aria-expanded="mobileMenuOpen"
           @click="mobileMenuOpen = true"
         >
@@ -237,7 +249,7 @@ watch(
         <nav
           v-if="showSwitcher"
           class="flex min-w-0 overflow-x-auto rounded-lg border border-gray-200 bg-surface-sunken p-0.5 text-xs font-semibold [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          :aria-label="$t('partner.shell.modules')"
+          :aria-label="pt('업무 모듈')"
         >
           <RouterLink
             v-for="mod in ownedModules"
@@ -246,7 +258,7 @@ watch(
             class="whitespace-nowrap rounded-md px-3 py-1.5"
             :class="activeModuleKey === mod.key ? SWITCH_ACTIVE_CLS[mod.key] : 'text-gray-500 hover:text-gray-800'"
           >
-            {{ $t(mod.labelKey) }}
+            {{ pt(menuLabel(mod.labelKey)) }}
           </RouterLink>
         </nav>
         <!-- 1트랙·좁은 화면 — 드로어가 닫혀 있어도 어느 모듈인지 헤더가 말한다 -->
@@ -254,11 +266,22 @@ watch(
           v-else-if="activeModule !== null && activeMenu.length > 0"
           class="truncate text-sm font-semibold text-gray-700 lg:hidden"
         >
-          {{ $t(activeModule.labelKey) }}
+          {{ pt(menuLabel(activeModule.labelKey)) }}
         </p>
 
         <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
           <!-- 테마 전환 — 관리자·BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
+          <select
+            :value="locale"
+            :aria-label="pt('언어')"
+            class="max-w-28 rounded-md border border-gray-200 bg-surface px-2 py-1.5 text-xs text-gray-700 sm:max-w-none"
+            data-testid="partner-language"
+            @change="changeLocale"
+          >
+            <option value="ko" lang="ko">한국어</option>
+            <option value="en" lang="en">English</option>
+            <option value="zh-CN" lang="zh-CN">简体中文</option>
+          </select>
           <AppThemeToggle />
           <AppSiteHomeButton />
           <AppProfileMenu :show-admin="auth.me?.isAdmin === true" />
@@ -278,10 +301,9 @@ watch(
             v-if="access !== null && !access.isPartner"
             class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"
           >
-            <p class="font-semibold">포털을 이용할 수 없는 계정입니다.</p>
+            <p class="font-semibold">{{ pt('포털을 이용할 수 없는 계정입니다.') }}</p>
             <p class="mt-1">
-              거래가 중지되었거나 아직 승인되지 않은 조직입니다 — 진행 중인 건은 샘플피씨비
-              담당자가 대신 처리합니다. 문의는 담당자에게 부탁드립니다.
+              {{ pt('거래가 중지되었거나 아직 승인되지 않은 조직입니다 — 진행 중인 건은 샘플피씨비 담당자가 대신 처리합니다. 문의는 담당자에게 부탁드립니다.') }}
             </p>
           </div>
           <RouterView v-else />

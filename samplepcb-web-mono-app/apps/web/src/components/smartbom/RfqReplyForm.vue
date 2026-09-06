@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { nextTick, ref, watch } from 'vue';
 import {
   BomRfqReplyBody,
@@ -6,6 +7,8 @@ import {
   type BomRfqReplyBodyType,
 } from '@sp/api-contract';
 import { effectiveRfqReplyQty, kstDateInput } from '@sp/utils';
+
+const { pt, pn, locale } = usePartnerI18n();
 
 // 협력사 회신 폼 — 포털 회신·관리자 대리 입력 공용(docs/SMARTBOM_PARTNER_RFQ.md §4).
 // 행별 단가·재고·D/C·납기·메모 입력. 단가가 비어 있는 행은 미회신으로 제출에서 제외된다.
@@ -80,6 +83,7 @@ const editRows = ref<EditRow[]>([]);
 const deliveryDateInput = ref('');
 const memoInput = ref('');
 const validationIssue = ref<{ key: string; message: string } | null>(null);
+watch(locale, () => { validationIssue.value = null; });
 
 const initRows = (): void => {
   editRows.value = props.rows.map((row) => {
@@ -168,7 +172,7 @@ const grandTotal = (): number =>
 const partLabel = (row: EditRow): string =>
   row.mpn.trim() !== ''
     ? row.mpn
-    : (row.manufacturerName ?? row.description ?? `품목 ${row.quoteItemId}`);
+    : (row.manufacturerName ?? row.description ?? pt('품목 {value1}', { value1: row.quoteItemId }));
 
 const tableScroll = ref<HTMLElement | null>(null);
 type NumericField = 'unitPrice' | 'replyQty' | 'moq' | 'stock';
@@ -203,7 +207,7 @@ function validateInteger(
   if (parsed !== null && Number.isInteger(parsed) && parsed >= minimum) return true;
   return rejectInput(
     fieldKey(row, field),
-    `${partLabel(row)} ${label}은 ${String(minimum)} 이상의 정수로 입력해 주세요.`,
+    pt('{value1} {value2}은 {value3} 이상의 정수로 입력해 주세요.', { value1: partLabel(row), value2: label, value3: String(minimum) }),
   );
 }
 
@@ -221,7 +225,7 @@ function validateRows(): boolean {
       if (hasReplyDetail) {
         return rejectInput(
           fieldKey(row, 'unitPrice'),
-          `${partLabel(row)}의 회신 내용을 저장하려면 단가를 입력해 주세요.`,
+          pt('{value1}의 회신 내용을 저장하려면 단가를 입력해 주세요.', { value1: partLabel(row) }),
         );
       }
       continue;
@@ -231,32 +235,32 @@ function validateRows(): boolean {
     if (price === null || price < 0) {
       return rejectInput(
         fieldKey(row, 'unitPrice'),
-        `${partLabel(row)} 단가는 0 이상의 숫자로 입력해 주세요.`,
+        pt('{value1} 단가는 0 이상의 숫자로 입력해 주세요.', { value1: partLabel(row) }),
       );
     }
-    if (!validateInteger(row, 'replyQty', '회신수량', 1)) return false;
+    if (!validateInteger(row, 'replyQty', pt('회신수량'), 1)) return false;
     if (!validateInteger(row, 'moq', 'MOQ', 1)) return false;
     const replyQty = num(row.replyQty);
     const moq = num(row.moq);
     if (replyQty !== null && moq !== null && replyQty < moq) {
       return rejectInput(
         fieldKey(row, 'replyQty'),
-        `${partLabel(row)} 회신수량은 MOQ(${moq.toLocaleString('ko-KR')}) 이상이어야 합니다.`,
+        pt('{value1} 회신수량은 MOQ({value2}) 이상이어야 합니다.', { value1: partLabel(row), value2: pn(moq) }),
       );
     }
-    if (!validateInteger(row, 'stock', '재고', 0)) return false;
+    if (!validateInteger(row, 'stock', pt('재고'), 0)) return false;
     if (row.dateCode.trim().length > 100) {
-      return rejectInput(fieldKey(row, 'dateCode'), `${partLabel(row)} Date Code는 100자 이내로 입력해 주세요.`);
+      return rejectInput(fieldKey(row, 'dateCode'), pt('{value1} Date Code는 100자 이내로 입력해 주세요.', { value1: partLabel(row) }));
     }
     if (row.leadTime.trim().length > 64) {
-      return rejectInput(fieldKey(row, 'leadTime'), `${partLabel(row)} 납기는 64자 이내로 입력해 주세요.`);
+      return rejectInput(fieldKey(row, 'leadTime'), pt('{value1} 납기는 64자 이내로 입력해 주세요.', { value1: partLabel(row) }));
     }
     if (row.memo.trim().length > 500) {
-      return rejectInput(fieldKey(row, 'memo'), `${partLabel(row)} 회신 메모는 500자 이내로 입력해 주세요.`);
+      return rejectInput(fieldKey(row, 'memo'), pt('{value1} 회신 메모는 500자 이내로 입력해 주세요.', { value1: partLabel(row) }));
     }
   }
   if (memoInput.value.trim().length > 2000) {
-    return rejectInput('rfq:memo', '전체 회신 메모는 2,000자 이내로 입력해 주세요.');
+    return rejectInput('rfq:memo', pt('전체 회신 메모는 2,000자 이내로 입력해 주세요.'));
   }
   return true;
 }
@@ -289,7 +293,7 @@ function submit(): void {
     memo: strOrNull(memoInput.value),
   });
   if (!result.success) {
-    rejectInput('rfq:memo', '입력값을 다시 확인해 주세요. 숫자와 글자 수가 허용 범위여야 합니다.');
+    rejectInput('rfq:memo', pt('입력값을 다시 확인해 주세요. 숫자와 글자 수가 허용 범위여야 합니다.'));
     return;
   }
   emit('submit', result.data);
@@ -303,11 +307,11 @@ function submit(): void {
       class="overflow-x-auto rounded-lg border border-gray-200 [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]"
     >
       <div class="sticky left-0 z-[1] flex items-center gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-1.5 text-[10px] font-medium text-blue-700 min-[1280px]:hidden">
-        <span class="min-w-0 flex-1">좌우로 이동해 회신수량·재고·D/C·납기·메모와 금액을 확인하세요.</span>
+        <span class="min-w-0 flex-1">{{ pt('좌우로 이동해 회신수량·재고·D/C·납기·메모와 금액을 확인하세요.') }}</span>
         <button
           type="button"
           class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100"
-          aria-label="RFQ 회신 표 왼쪽으로 이동"
+          :aria-label="pt('RFQ 회신 표 왼쪽으로 이동')"
           @click="moveTable(-1)"
         >
           ←
@@ -315,7 +319,7 @@ function submit(): void {
         <button
           type="button"
           class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100"
-          aria-label="RFQ 회신 표 오른쪽으로 이동"
+          :aria-label="pt('RFQ 회신 표 오른쪽으로 이동')"
           @click="moveTable(1)"
         >
           →
@@ -324,34 +328,34 @@ function submit(): void {
       <table class="min-w-[960px] divide-y divide-gray-100 text-xs">
         <thead class="bg-gray-50 text-left text-gray-500">
           <tr class="whitespace-nowrap">
-            <th class="px-2 py-2">부품</th>
-            <th class="px-2 py-2 text-right">필요수량</th>
-            <th class="px-2 py-2 text-right">단가({{ currency }})</th>
-            <th class="px-2 py-2 text-right">회신수량</th>
+            <th class="px-2 py-2">{{ pt('부품') }}</th>
+            <th class="px-2 py-2 text-right">{{ pt('필요수량') }}</th>
+            <th class="px-2 py-2 text-right">{{ pt('단가({value1})', { value1: currency }) }}</th>
+            <th class="px-2 py-2 text-right">{{ pt('회신수량') }}</th>
             <th class="px-2 py-2 text-right">MOQ</th>
-            <th class="px-2 py-2 text-right">재고</th>
+            <th class="px-2 py-2 text-right">{{ pt('재고') }}</th>
             <th class="px-2 py-2">D/C</th>
-            <th class="px-2 py-2">납기</th>
-            <th class="px-2 py-2">메모</th>
-            <th class="px-2 py-2 text-right">금액</th>
+            <th class="px-2 py-2">{{ pt('납기') }}</th>
+            <th class="px-2 py-2">{{ pt('메모') }}</th>
+            <th class="px-2 py-2 text-right">{{ pt('금액') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-50">
           <tr v-for="row in editRows" :key="row.quoteItemId">
             <td class="max-w-56 px-2 py-1.5">
-              <div class="truncate font-medium">{{ row.mpn === '' ? '품번 미기재' : row.mpn }}</div>
+              <div class="truncate font-medium">{{ row.mpn === '' ? pt('품번 미기재') : row.mpn }}</div>
               <div class="truncate text-gray-400">{{ row.manufacturerName ?? row.description ?? '' }}</div>
               <!-- 보유 부품에서 채운 행 — 값은 제안이므로 확인하고 고칠 수 있게 알린다 -->
               <div
                 v-if="row.prefilled"
                 class="mt-0.5 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-                title="올려 두신 보유 부품 목록에서 재고·D/C·납기를 채웠습니다. 확인하고 고쳐 주세요 (단가는 채우지 않습니다)."
+                :title="pt('올려 두신 보유 부품 목록에서 재고·D/C·납기를 채웠습니다. 확인하고 고쳐 주세요 (단가는 채우지 않습니다).')"
               >
-                보유 목록에서 채움
+                {{ pt('보유 목록에서 채움') }}
               </div>
             </td>
             <td class="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
-              {{ row.orderQty.toLocaleString('ko-KR') }}
+              {{ pn(row.orderQty) }}
             </td>
             <td class="px-2 py-1.5">
               <input
@@ -360,7 +364,7 @@ function submit(): void {
                 min="0"
                 step="any"
                 :disabled="readOnly"
-                :aria-label="`${partLabel(row)} 단가(${currency})`"
+                :aria-label="pt('{value1} 단가({value2})', { value1: partLabel(row), value2: currency })"
                 :aria-invalid="isInvalid(row, 'unitPrice')"
                 :aria-describedby="isInvalid(row, 'unitPrice') ? 'rfq-reply-validation-error' : undefined"
                 :data-rfq-key="fieldKey(row, 'unitPrice')"
@@ -376,11 +380,11 @@ function submit(): void {
                 step="1"
                 :disabled="readOnly"
                 :placeholder="String(row.orderQty)"
-                :aria-label="`${partLabel(row)} 회신수량`"
+                :aria-label="pt('{value1} 회신수량', { value1: partLabel(row) })"
                 :aria-invalid="isInvalid(row, 'replyQty')"
                 :aria-describedby="isInvalid(row, 'replyQty') ? 'rfq-reply-validation-error' : undefined"
                 :data-rfq-key="fieldKey(row, 'replyQty')"
-                :title="row.replyQtyAuto ? 'MOQ에 맞춰 자동으로 채운 수량입니다. 직접 고칠 수 있습니다.' : undefined"
+                :title="row.replyQtyAuto ? pt('MOQ에 맞춰 자동으로 채운 수량입니다. 직접 고칠 수 있습니다.') : undefined"
                 class="w-20 rounded border border-gray-300 px-1.5 py-1 text-right tabular-nums"
                 :class="{
                   'border-red-500 ring-1 ring-red-200': isInvalid(row, 'replyQty'),
@@ -412,7 +416,7 @@ function submit(): void {
                 min="0"
                 step="1"
                 :disabled="readOnly"
-                :aria-label="`${partLabel(row)} 재고`"
+                :aria-label="pt('{value1} 재고', { value1: partLabel(row) })"
                 :aria-invalid="isInvalid(row, 'stock')"
                 :aria-describedby="isInvalid(row, 'stock') ? 'rfq-reply-validation-error' : undefined"
                 :data-rfq-key="fieldKey(row, 'stock')"
@@ -440,8 +444,8 @@ function submit(): void {
                 type="text"
                 maxlength="64"
                 :disabled="readOnly"
-                placeholder="예: 2주"
-                :aria-label="`${partLabel(row)} 납기`"
+                :placeholder="pt('예: 2주')"
+                :aria-label="pt('{value1} 납기', { value1: partLabel(row) })"
                 :aria-invalid="isInvalid(row, 'leadTime')"
                 :aria-describedby="isInvalid(row, 'leadTime') ? 'rfq-reply-validation-error' : undefined"
                 :data-rfq-key="fieldKey(row, 'leadTime')"
@@ -455,7 +459,7 @@ function submit(): void {
                 type="text"
                 maxlength="500"
                 :disabled="readOnly"
-                :aria-label="`${partLabel(row)} 회신 메모`"
+                :aria-label="pt('{value1} 회신 메모', { value1: partLabel(row) })"
                 :aria-invalid="isInvalid(row, 'memo')"
                 :aria-describedby="isInvalid(row, 'memo') ? 'rfq-reply-validation-error' : undefined"
                 :data-rfq-key="fieldKey(row, 'memo')"
@@ -464,11 +468,11 @@ function submit(): void {
               >
             </td>
             <td class="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
-              {{ lineTotal(row) === null ? '—' : `${(lineTotal(row) ?? 0).toLocaleString('ko-KR')}` }}
+              {{ lineTotal(row) === null ? '—' : `${pn(lineTotal(row) ?? 0)}` }}
             </td>
           </tr>
           <tr v-if="editRows.length === 0">
-            <td colspan="10" class="px-2 py-8 text-center text-gray-400">요청 부품행이 없습니다.</td>
+            <td colspan="10" class="px-2 py-8 text-center text-gray-400">{{ pt('요청 부품행이 없습니다.') }}</td>
           </tr>
         </tbody>
       </table>
@@ -484,25 +488,23 @@ function submit(): void {
     </p>
 
     <div class="flex flex-wrap items-end gap-3 text-xs">
-      <label class="text-gray-500">납기(전체)
-        <input v-model="deliveryDateInput" type="date" :disabled="readOnly" class="mt-1 block h-8 rounded border border-gray-300 px-2">
+      <label class="text-gray-500">{{ pt('납기(전체)') }} <input v-model="deliveryDateInput" type="date" :disabled="readOnly" class="mt-1 block h-8 rounded border border-gray-300 px-2">
       </label>
-      <label class="min-w-56 flex-1 text-gray-500">회신 메모
-        <input
-          v-model="memoInput"
-          type="text"
-          maxlength="2000"
-          :disabled="readOnly"
-          :aria-invalid="isGlobalInvalid('rfq:memo')"
-          :aria-describedby="isGlobalInvalid('rfq:memo') ? 'rfq-reply-validation-error' : undefined"
-          data-rfq-key="rfq:memo"
-          class="mt-1 block h-8 w-full rounded border border-gray-300 px-2"
-          :class="{ 'border-red-500 ring-1 ring-red-200': isGlobalInvalid('rfq:memo') }"
-        >
+      <label class="min-w-56 flex-1 text-gray-500">{{ pt('회신 메모') }} <input
+        v-model="memoInput"
+        type="text"
+        maxlength="2000"
+        :disabled="readOnly"
+        :aria-invalid="isGlobalInvalid('rfq:memo')"
+        :aria-describedby="isGlobalInvalid('rfq:memo') ? 'rfq-reply-validation-error' : undefined"
+        data-rfq-key="rfq:memo"
+        class="mt-1 block h-8 w-full rounded border border-gray-300 px-2"
+        :class="{ 'border-red-500 ring-1 ring-red-200': isGlobalInvalid('rfq:memo') }"
+      >
       </label>
       <div class="ml-auto text-right">
-        <p class="text-gray-500">회신 {{ repliedCount() }} / {{ editRows.length }}행</p>
-        <p class="font-bold tabular-nums">합계(참고) {{ grandTotal().toLocaleString('ko-KR') }} {{ currency }}</p>
+        <p class="text-gray-500">{{ pt('회신 {value1} / {value2}행', { value1: repliedCount(), value2: editRows.length }) }}</p>
+        <p class="font-bold tabular-nums">{{ pt('합계(참고) {value1} {value2}', { value1: pn(grandTotal()), value2: currency }) }}</p>
       </div>
       <button
         v-if="!readOnly"
@@ -511,7 +513,7 @@ function submit(): void {
         :disabled="busy === true"
         @click="submit"
       >
-        회신 저장
+        {{ pt('회신 저장') }}
       </button>
     </div>
   </div>

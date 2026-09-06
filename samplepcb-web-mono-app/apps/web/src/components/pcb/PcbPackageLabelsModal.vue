@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { toDataURL } from 'qrcode';
 import { ApiRequestError } from '@sp/shared';
@@ -8,11 +10,15 @@ import {
   bomShipmentStatusLabel,
   type PcbShipmentPackageListType,
 } from '@sp/api-contract';
-import { fmtKstDate } from '@sp/utils';
+import { fmtKstDate as originalDate } from '@sp/utils';
 import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 // PCB Case QR — BOM 포장 편집기를 복제하지 않는다. 합배송 박스의 현재 PO마다 서버가
 // 라벨 1개를 자동 보장하고, 이 모달은 안전한 표시 정보만 미리보기·일괄 인쇄한다.
+
+const { pt, pn, pd, enabled, locale } = usePartnerI18n();
+
+const displayDate = (value: string | null | undefined): string => enabled.value ? pd(value) : originalDate(value);
 
 const props = defineProps<{
   open: boolean;
@@ -25,6 +31,8 @@ const data = ref<PcbShipmentPackageListType | null>(null);
 const loading = ref(false);
 const printing = ref(false);
 const error = ref('');
+// Transient feedback belongs to the selected language; preserve all editable document data.
+watch(locale, () => { error.value = ''; });
 const qrImages = ref<Record<string, string>>({});
 
 const qrTarget = (token: string): string =>
@@ -58,7 +66,7 @@ async function loadLabels(): Promise<void> {
     await rebuildQrImages();
   } catch (cause) {
     error.value =
-      cause instanceof ApiRequestError ? cause.message : 'PCB QR 라벨을 불러오지 못했습니다.';
+      !enabled.value && cause instanceof ApiRequestError ? cause.message : pt('PCB QR 라벨을 불러오지 못했습니다.');
   } finally {
     loading.value = false;
   }
@@ -89,7 +97,7 @@ async function printLabels(): Promise<void> {
     await nextTick();
     window.print();
   } catch (cause) {
-    error.value = cause instanceof ApiRequestError ? cause.message : '인쇄 준비에 실패했습니다.';
+    error.value = !enabled.value && cause instanceof ApiRequestError ? cause.message : pt('인쇄 준비에 실패했습니다.');
   } finally {
     printing.value = false;
   }
@@ -154,6 +162,7 @@ const PRINT_CSS = `
 }
 `;
 usePrintIsolation('sp-pcb-label-print-style', PRINT_CSS, () => props.open);
+
 </script>
 
 <template>
@@ -167,9 +176,9 @@ usePrintIsolation('sp-pcb-label-print-style', PRINT_CSS, () => props.open);
           class="no-print mb-3 flex w-full max-w-5xl flex-wrap items-center gap-2 rounded-xl bg-white p-3 shadow-xl"
         >
           <div class="mr-auto">
-            <h2 class="text-sm font-extrabold text-gray-900">PCB QR 라벨</h2>
+            <h2 class="text-sm font-extrabold text-gray-900">{{ pt('PCB QR 라벨') }}</h2>
             <p v-if="data !== null" class="text-[11px] text-gray-500">
-              {{ data.labelNo }} · SH-{{ data.shipmentId }} · {{ data.totalLabels }}장
+              {{ pt('{p0} · SH-{p1} · {p2}장', { p0: data.labelNo, p1: data.shipmentId, p2: data.totalLabels }) }}
             </p>
           </div>
           <button
@@ -178,14 +187,14 @@ usePrintIsolation('sp-pcb-label-print-style', PRINT_CSS, () => props.open);
             :disabled="!canPrint || printing"
             @click="void printLabels()"
           >
-            {{ printing ? '인쇄 준비 중…' : 'QR 라벨 인쇄' }}
+            {{ printing ? pt('인쇄 준비 중…') : pt('QR 라벨 인쇄') }}
           </button>
           <button
             type="button"
             class="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             @click="emit('close')"
           >
-            닫기
+            {{ pt('닫기') }}
           </button>
           <p v-if="error !== ''" class="basis-full text-xs font-semibold text-red-600">
             {{ error }}
@@ -196,7 +205,7 @@ usePrintIsolation('sp-pcb-label-print-style', PRINT_CSS, () => props.open);
           v-if="loading"
           class="no-print w-full max-w-5xl rounded-xl bg-white px-5 py-16 text-center text-sm text-gray-400"
         >
-          QR 라벨을 준비하는 중…
+          {{ pt('QR 라벨을 준비하는 중…') }}
         </p>
 
         <section v-else-if="data !== null" class="pcb-label-print w-[794px] max-w-full">
@@ -204,21 +213,18 @@ usePrintIsolation('sp-pcb-label-print-style', PRINT_CSS, () => props.open);
             <header class="mb-5 border-b-2 border-gray-900 pb-3">
               <div class="flex items-end justify-between gap-4">
                 <div>
-                  <h2 class="text-xl font-black">PCB CASE QR LABELS</h2>
+                  <h2 class="text-xl font-black">{{ pt('PCB CASE QR LABELS') }}</h2>
                   <p class="mt-1 text-[10px] text-gray-500">
                     {{ data.labelNo }} · {{ data.senderName }} → {{ data.receiverName }}
                   </p>
                 </div>
                 <div class="text-right text-[9px] leading-4 text-gray-500">
-                  <p>{{ BOM_SHIPMENT_MODE_LABELS[data.mode] }}</p>
-                  <p>{{ bomShipmentStatusLabel(data.mode, data.shipmentStatus) }}</p>
-                  <p v-if="data.shipDate !== null">출고예정 {{ fmtKstDate(data.shipDate) }}</p>
+                  <p>{{ pt(BOM_SHIPMENT_MODE_LABELS[data.mode]) }}</p>
+                  <p>{{ pt(enabled && data.shipmentStatus === 'delivered' ? '배송 완료' : bomShipmentStatusLabel(data.mode, data.shipmentStatus)) }}</p>
+                  <p v-if="data.shipDate !== null">{{ pt('출고예정 {p0}', { p0: displayDate(data.shipDate) }) }}</p>
                 </div>
               </div>
-              <p class="mt-2 text-[9px] leading-4 text-gray-500">
-                박스 안 각 PCB 주문/견적 건에 맞는 라벨을 부착하세요. 고객명·연락처·가격은
-                라벨에 표시되지 않습니다.
-              </p>
+              <p class="mt-2 text-[9px] leading-4 text-gray-500">{{ pt('박스 안 각 PCB 주문/견적 건에 맞는 라벨을 부착하세요. 고객명·연락처·가격은 라벨에 표시되지 않습니다.') }}</p>
             </header>
 
             <div class="grid grid-cols-2 gap-3">
@@ -244,13 +250,13 @@ usePrintIsolation('sp-pcb-label-print-style', PRINT_CSS, () => props.open);
                   <p class="mt-1 line-clamp-2 text-[12px] font-extrabold leading-4">
                     {{ pkg.projectName }}
                   </p>
-                  <p class="mt-2"><b>QTY</b> {{ pkg.qty.toLocaleString('ko-KR') }} PCS</p>
-                  <p v-if="pkg.reorderRound > 0"><b>A/S</b> {{ pkg.reorderRound }}차</p>
-                  <p><b>SHIPMENT</b> SH-{{ data.shipmentId }}</p>
+                  <p class="mt-2"><b>{{ pt('QTY') }}</b> {{ pn(pkg.qty) }} PCS</p>
+                  <p v-if="pkg.reorderRound > 0"><b>{{ pt('A/S') }}</b>{{ pt('{p0}차', { p0: pkg.reorderRound }) }}</p>
+                  <p><b>{{ pt('SHIPMENT') }}</b> SH-{{ data.shipmentId }}</p>
                   <p v-if="data.trackingNumber !== null" class="truncate">
-                    <b>TRACKING</b> {{ data.carrier ?? '' }} {{ data.trackingNumber }}
+                    <b>{{ pt('TRACKING') }}</b> {{ data.carrier ?? '' }} {{ data.trackingNumber }}
                   </p>
-                  <p><b>STATUS</b> {{ PCB_PACKAGE_STATUS_LABELS[pkg.status] }}</p>
+                  <p><b>{{ pt('STATUS') }}</b> {{ pt(PCB_PACKAGE_STATUS_LABELS[pkg.status]) }}</p>
                 </div>
               </article>
             </div>

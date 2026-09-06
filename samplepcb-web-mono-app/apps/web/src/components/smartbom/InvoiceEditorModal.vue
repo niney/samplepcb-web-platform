@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+
 import { reactive, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import type { BomInvoiceDataType, BomInvoiceItemType } from '@sp/api-contract';
@@ -8,6 +10,8 @@ import { confirmDialog } from '../../lib/confirmDialog';
 // 자동 초안(발주 스냅샷·사업자정보)을 편집(HS CODE·중량·주소는 직접 입력) 후
 // PDF(미리보기 DOM 캡처 — jspdf/html2canvas 지연 로딩)로 만들어 Invoice 로 자동
 // 첨부하거나, 엑셀(서버 렌더)로 내려받는다. 포털·관리자 공용 — API 는 콜백 주입.
+
+const { pt, enabled, locale } = usePartnerI18n();
 
 const props = defineProps<{
   open: boolean;
@@ -29,6 +33,8 @@ const emit = defineEmits<{ close: [] }>();
 const loading = ref(false);
 const busy = ref<'' | 'xlsx' | 'pdf' | 'save'>('');
 const error = ref('');
+// Transient feedback belongs to the selected language; preserve all editable document data.
+watch(locale, () => { error.value = ''; });
 const previewEl = ref<HTMLElement | null>(null);
 
 const blank = (): BomInvoiceDataType => ({
@@ -61,7 +67,7 @@ async function load(fresh: boolean): Promise<void> {
   try {
     Object.assign(inv, blank(), await props.loadDraft(fresh));
   } catch (e) {
-    error.value = e instanceof ApiRequestError ? e.message : '인보이스 정보를 불러오지 못했습니다.';
+    error.value = !enabled.value && e instanceof ApiRequestError ? e.message : pt('인보이스 정보를 불러오지 못했습니다.');
   } finally {
     loading.value = false;
   }
@@ -78,8 +84,8 @@ watch(
 async function refill(): Promise<void> {
   if (
     !(await confirmDialog({
-      message: '편집 중인 내용을 버리고 발주 데이터로 다시 채울까요?',
-      confirmLabel: '다시 채우기',
+      message: pt('편집 중인 내용을 버리고 발주 데이터로 다시 채울까요?'),
+      confirmLabel: pt('다시 채우기'),
       tone: 'danger',
     }))
   ) {
@@ -101,7 +107,7 @@ const rowTotal = (it: BomInvoiceItemType): number => {
 };
 const grandTotal = (): number => inv.items.reduce((s, it) => s + rowTotal(it), 0);
 const fmtMoney = (n: number): string =>
-  n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n.toLocaleString(enabled.value ? locale.value === 'ko' ? 'ko-KR' : locale.value : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const addItem = (): void => {
   inv.items.push({
@@ -131,7 +137,7 @@ async function save(): Promise<void> {
   try {
     await props.saveDraft(buildPayload());
   } catch (e) {
-    error.value = e instanceof ApiRequestError ? e.message : '저장에 실패했습니다.';
+    error.value = !enabled.value && e instanceof ApiRequestError ? e.message : pt('저장에 실패했습니다.');
   } finally {
     busy.value = '';
   }
@@ -154,7 +160,7 @@ async function genXlsx(): Promise<void> {
       URL.revokeObjectURL(url);
     }
   } catch (e) {
-    error.value = e instanceof ApiRequestError ? e.message : '엑셀 생성에 실패했습니다.';
+    error.value = !enabled.value && e instanceof ApiRequestError ? e.message : pt('엑셀 생성에 실패했습니다.');
   } finally {
     busy.value = '';
   }
@@ -174,7 +180,7 @@ async function genAttachXlsx(): Promise<void> {
     );
     emit('close');
   } catch (e) {
-    error.value = e instanceof ApiRequestError ? e.message : '엑셀 첨부에 실패했습니다.';
+    error.value = !enabled.value && e instanceof ApiRequestError ? e.message : pt('엑셀 첨부에 실패했습니다.');
   } finally {
     busy.value = '';
   }
@@ -212,11 +218,12 @@ async function genPdf(): Promise<void> {
     await attachPdf(new File([blob], `${fileBase()}.pdf`, { type: 'application/pdf' }));
     emit('close');
   } catch (e) {
-    error.value = e instanceof ApiRequestError ? e.message : 'PDF 생성에 실패했습니다.';
+    error.value = !enabled.value && e instanceof ApiRequestError ? e.message : pt('PDF 생성에 실패했습니다.');
   } finally {
     busy.value = '';
   }
 }
+
 </script>
 
 <template>
@@ -227,24 +234,24 @@ async function genPdf(): Promise<void> {
   >
     <div class="w-full max-w-4xl rounded-2xl bg-surface shadow-2xl">
       <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-5 py-3">
-        <h2 class="text-sm font-bold">{{ title ?? '상업송장(Commercial Invoice) 생성' }}</h2>
+        <h2 class="text-sm font-bold">{{ pt(title ?? '상업송장(Commercial Invoice) 생성') }}</h2>
         <button
           type="button"
           class="ml-auto rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="busy !== '' || loading"
-          title="편집 내용을 버리고 발주 품목·기준정보로 다시 채웁니다"
+          :title="pt('편집 내용을 버리고 발주 품목·기준정보로 다시 채웁니다')"
           @click="refill"
         >
-          발주 데이터로 다시 채우기
+          {{ pt('발주 데이터로 다시 채우기') }}
         </button>
         <button
           type="button"
           class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="busy !== '' || loading"
-          title="편집 내용만 보관합니다(파일 생성·첨부 없음) — 다음에 열면 이어서 작성"
+          :title="pt('편집 내용만 보관합니다(파일 생성·첨부 없음) — 다음에 열면 이어서 작성')"
           @click="save"
         >
-          {{ busy === 'save' ? '저장 중…' : '임시 저장' }}
+          {{ busy === 'save' ? pt('저장 중…') : pt('임시 저장') }}
         </button>
         <button
           type="button"
@@ -252,17 +259,17 @@ async function genPdf(): Promise<void> {
           :disabled="busy !== '' || loading"
           @click="genXlsx"
         >
-          {{ busy === 'xlsx' ? '생성 중…' : '엑셀 다운로드' }}
+          {{ busy === 'xlsx' ? pt('생성 중…') : pt('엑셀 다운로드') }}
         </button>
         <button
           v-if="attachXlsx !== undefined"
           type="button"
           class="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-40"
           :disabled="busy !== '' || loading"
-          title="엑셀 파일을 Invoice 로 첨부합니다 — 샘플피씨비가 내려받아 수정 후 재첨부할 수 있습니다."
+          :title="pt('엑셀 파일을 Invoice 로 첨부합니다 — 샘플피씨비가 내려받아 수정 후 재첨부할 수 있습니다.')"
           @click="genAttachXlsx"
         >
-          {{ busy === 'xlsx' ? '생성 중…' : '엑셀 생성·첨부' }}
+          {{ busy === 'xlsx' ? pt('생성 중…') : pt('엑셀 생성·첨부') }}
         </button>
         <button
           v-else-if="attachPdf !== undefined"
@@ -271,80 +278,67 @@ async function genPdf(): Promise<void> {
           :disabled="busy !== '' || loading"
           @click="genPdf"
         >
-          {{ busy === 'pdf' ? '생성 중…' : 'PDF 생성·첨부' }}
+          {{ busy === 'pdf' ? pt('생성 중…') : pt('PDF 생성·첨부') }}
         </button>
-        <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
+        <button type="button" class="text-gray-400 hover:text-gray-700" :aria-label="pt('닫기')" @click="emit('close')">✕</button>
       </div>
 
       <p v-if="error !== ''" class="px-5 pt-3 text-xs font-semibold text-red-600">{{ error }}</p>
-      <p v-if="loading" class="px-5 py-16 text-center text-sm text-gray-400">불러오는 중…</p>
+      <p v-if="loading" class="px-5 py-16 text-center text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
 
       <div v-else class="max-h-[78vh] overflow-y-auto">
         <div class="space-y-3 p-4">
           <fieldset class="rounded-xl border border-gray-200 p-3">
-            <legend class="px-1 text-xs font-bold text-emerald-700">발송인 SHIPPER</legend>
+            <legend class="px-1 text-xs font-bold text-emerald-700">{{ pt('발송인 SHIPPER') }}</legend>
             <div class="grid grid-cols-2 gap-2 text-[11px] text-gray-600">
-              <label class="col-span-2">회사명(문서 헤더)
-                <input v-model="inv.companyName" class="inv-in"></label>
-              <label>담당자
-                <input v-model="inv.shipperName" class="inv-in"></label>
-              <label>전화
-                <input v-model="inv.shipperTel" class="inv-in"></label>
-              <label class="col-span-2">주소 <span class="text-amber-600">(직접 입력)</span>
+              <label class="col-span-2">{{ pt('회사명(문서 헤더)') }}<input v-model="inv.companyName" class="inv-in"></label>
+              <label>{{ pt('담당자') }}<input v-model="inv.shipperName" class="inv-in"></label>
+              <label>{{ pt('전화') }}<input v-model="inv.shipperTel" class="inv-in"></label>
+              <label class="col-span-2">{{ pt('주소') }}<span class="text-amber-600">{{ pt('(직접 입력)') }}</span>
                 <input v-model="inv.shipperAddress" class="inv-in"></label>
-              <label>원산지국
-                <input v-model="inv.countryOfOrigin" class="inv-in"></label>
-              <label>목적지국
-                <input v-model="inv.countryOfDestination" class="inv-in"></label>
+              <label>{{ pt('원산지국') }}<input v-model="inv.countryOfOrigin" class="inv-in"></label>
+              <label>{{ pt('목적지국') }}<input v-model="inv.countryOfDestination" class="inv-in"></label>
             </div>
           </fieldset>
 
           <fieldset class="rounded-xl border border-gray-200 p-3">
-            <legend class="px-1 text-xs font-bold text-amber-700">수하인 CONSIGNEE</legend>
+            <legend class="px-1 text-xs font-bold text-amber-700">{{ pt('수하인 CONSIGNEE') }}</legend>
             <div class="grid grid-cols-2 gap-2 text-[11px] text-gray-600">
-              <label>회사명
-                <input v-model="inv.consigneeCompany" class="inv-in"></label>
-              <label>담당자
-                <input v-model="inv.consigneeContact" class="inv-in"></label>
-              <label>전화
-                <input v-model="inv.consigneeTel" class="inv-in"></label>
-              <label>FAX
+              <label>{{ pt('회사명') }}<input v-model="inv.consigneeCompany" class="inv-in"></label>
+              <label>{{ pt('담당자') }}<input v-model="inv.consigneeContact" class="inv-in"></label>
+              <label>{{ pt('전화') }}<input v-model="inv.consigneeTel" class="inv-in"></label>
+              <label>{{ pt('FAX') }}
                 <input v-model="inv.consigneeFax" class="inv-in"></label>
-              <label>이메일
-                <input v-model="inv.consigneeEmail" class="inv-in"></label>
-              <label>제조국
-                <input v-model="inv.countryOfManufacture" class="inv-in"></label>
-              <label class="col-span-2">주소
-                <input v-model="inv.consigneeAddress" class="inv-in"></label>
+              <label>{{ pt('이메일') }}<input v-model="inv.consigneeEmail" class="inv-in"></label>
+              <label>{{ pt('제조국') }}<input v-model="inv.countryOfManufacture" class="inv-in"></label>
+              <label class="col-span-2">{{ pt('주소') }}<input v-model="inv.consigneeAddress" class="inv-in"></label>
             </div>
           </fieldset>
 
           <fieldset class="rounded-xl border border-gray-200 p-3">
-            <legend class="px-1 text-xs font-bold text-indigo-700">송장 정보</legend>
+            <legend class="px-1 text-xs font-bold text-indigo-700">{{ pt('송장 정보') }}</legend>
             <div class="grid grid-cols-3 gap-2 text-[11px] text-gray-600">
-              <label>Invoice No.
+              <label>{{ pt('Invoice No.') }}
                 <input v-model="inv.invoiceNo" class="inv-in"></label>
-              <label>통화
-                <input v-model="inv.currency" class="inv-in" placeholder="KRW / USD / CNY"></label>
-              <label>날짜
-                <input v-model="inv.invoiceDate" type="date" class="inv-in"></label>
-              <label>순중량(NET) <span class="text-amber-600">*</span>
-                <input v-model="inv.netWeight" placeholder="예: 17.05KG" class="inv-in"></label>
-              <label>총중량(Gross) <span class="text-amber-600">*</span>
-                <input v-model="inv.grossWeight" placeholder="예: 17.5KG" class="inv-in"></label>
+              <label>{{ pt('통화') }}<input v-model="inv.currency" class="inv-in" placeholder="KRW / USD / CNY"></label>
+              <label>{{ pt('날짜') }}<input v-model="inv.invoiceDate" type="date" class="inv-in"></label>
+              <label>{{ pt('순중량(NET)') }}<span class="text-amber-600">*</span>
+                <input v-model="inv.netWeight" :placeholder="pt('예: 17.05KG')" class="inv-in"></label>
+              <label>{{ pt('총중량(Gross)') }}<span class="text-amber-600">*</span>
+                <input v-model="inv.grossWeight" :placeholder="pt('예: 17.5KG')" class="inv-in"></label>
             </div>
           </fieldset>
 
           <fieldset class="rounded-xl border border-gray-200 p-3">
-            <legend class="px-1 text-xs font-bold text-violet-700">품목</legend>
+            <legend class="px-1 text-xs font-bold text-violet-700">{{ pt('품목') }}</legend>
             <table class="w-full text-[11px]">
               <thead>
                 <tr class="text-gray-500">
-                  <th class="pb-1 text-left font-medium">DESCRIPTION</th>
-                  <th class="w-24 pb-1 font-medium">HS CODE <span class="text-amber-600">*</span></th>
-                  <th class="w-16 pb-1 font-medium">수량</th>
-                  <th class="w-24 pb-1 font-medium">단가</th>
-                  <th class="w-24 pb-1 text-right font-medium">금액</th>
+                  <th class="pb-1 text-left font-medium">{{ pt('DESCRIPTION') }}</th>
+                  <th class="w-24 pb-1 font-medium">{{ pt('HS CODE') }} <span class="text-amber-600">*</span></th>
+                  <th class="w-16 pb-1 font-medium">{{ pt('수량') }}</th>
+                  <th class="w-24 pb-1 font-medium">{{ pt('단가') }}</th>
+                  <th class="w-24 pb-1 text-right font-medium">{{ pt('금액') }}</th>
                   <th class="w-6" />
                 </tr>
               </thead>
@@ -356,39 +350,32 @@ async function genPdf(): Promise<void> {
                   <td class="px-1 py-0.5"><input v-model.number="it.unitValue" type="number" step="0.01" class="inv-in text-right"></td>
                   <td class="px-1 py-0.5 text-right tabular-nums">{{ fmtMoney(rowTotal(it)) }}</td>
                   <td class="text-center">
-                    <button type="button" class="text-gray-400 hover:text-red-600" @click="removeItem(i)">✕</button>
+                    <button type="button" class="text-gray-400 hover:text-red-600" :aria-label="pt('품목 삭제')" @click="removeItem(i)">✕</button>
                   </td>
                 </tr>
                 <tr v-if="inv.items.length === 0">
-                  <td colspan="6" class="py-2 text-center text-gray-400">품목이 없습니다.</td>
+                  <td colspan="6" class="py-2 text-center text-gray-400">{{ pt('품목이 없습니다.') }}</td>
                 </tr>
               </tbody>
             </table>
             <div class="mt-2 flex items-center justify-between">
-              <button type="button" class="text-[11px] text-indigo-600 hover:underline" @click="addItem">+ 품목 추가</button>
-              <span class="text-xs font-bold">합계: {{ inv.currency }} {{ fmtMoney(grandTotal()) }}</span>
+              <button type="button" class="text-[11px] text-indigo-600 hover:underline" @click="addItem">{{ pt('+ 품목 추가') }}</button>
+              <span class="text-xs font-bold">{{ pt('합계: {p0} {p1}', { p0: inv.currency, p1: fmtMoney(grandTotal()) }) }}</span>
             </div>
           </fieldset>
 
           <p class="text-[11px] text-amber-600">
-            * HS CODE·순중량·총중량은 직접 입력하세요.
-            <template v-if="attachXlsx === undefined">PDF는 아래 미리보기를 그대로 캡처합니다.</template>
+            {{ pt('* HS CODE·순중량·총중량은 직접 입력하세요.') }}<template v-if="attachXlsx === undefined">{{ pt('PDF는 아래 미리보기를 그대로 캡처합니다.') }}</template>
           </p>
           <!-- 첨부 경로는 갈래마다 다르다 — 안내가 없는 버튼을 가리키면 사용자는
                "첨부했는데 안 붙었다"로 읽는다(PCB 는 엑셀-온리, BOM 은 PDF). -->
-          <p v-if="attachXlsx !== undefined" class="text-[11px] text-gray-400">
-            [임시 저장]은 편집 내용만 보관합니다 — 선적 서류로 첨부하려면
-            <b class="text-teal-700">[엑셀 생성·첨부]</b>를 눌러 주세요([엑셀 다운로드]는 내려받기만 합니다).
-          </p>
-          <p v-else class="text-[11px] text-gray-400">
-            [임시 저장]은 편집 내용만 보관합니다 — 선적 서류로 첨부하려면
-            <b class="text-rose-600">[PDF 생성·첨부]</b>를 눌러 주세요(엑셀은 다운로드 전용).
-          </p>
+          <p v-if="attachXlsx !== undefined" class="text-[11px] text-gray-400">{{ pt('[임시 저장]은 편집 내용만 보관합니다 — 선적 서류로 첨부하려면') }} <b class="text-teal-700">{{ pt('[엑셀 생성·첨부]') }}</b>{{ pt('를 눌러 주세요([엑셀 다운로드]는 내려받기만 합니다).') }}</p>
+          <p v-else class="text-[11px] text-gray-400">{{ pt('[임시 저장]은 편집 내용만 보관합니다 — 선적 서류로 첨부하려면') }} <b class="text-rose-600">{{ pt('[PDF 생성·첨부]') }}</b>{{ pt('를 눌러 주세요(엑셀은 다운로드 전용).') }}</p>
         </div>
 
         <!-- 미리보기(PDF 캡처 대상) — 흰 문서 고정, 인라인 스타일(테마 무관) -->
         <div class="px-4 pb-5">
-          <div class="mb-1 text-[11px] text-gray-400">미리보기</div>
+          <div class="mb-1 text-[11px] text-gray-400">{{ pt('미리보기') }}</div>
           <div class="overflow-x-auto rounded border border-gray-200">
             <div
               ref="previewEl"

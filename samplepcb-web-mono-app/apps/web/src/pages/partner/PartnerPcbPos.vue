@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
 import { computed, ref, watch } from 'vue';
 import { usePartnerAccess } from '../../partner/usePartnerAccess';
 import { usePartnerPcbWork } from '../../partner/usePartnerWork';
@@ -10,6 +11,9 @@ import PartnerWorkqueueTabs, {
 import PartnerPcbPoRow from '../../components/partner/PartnerPcbPoRow.vue';
 import PartnerEmpty from '../../components/partner/PartnerEmpty.vue';
 import UiPagination from '../../components/ui/UiPagination.vue';
+
+const { pt, pn } = usePartnerI18n();
+
 
 // PCB 발주서 워크큐(포털 재설계 R3) — 홈의 '진행할 발주(내 차례)' + '진행 중 발주(관전)'를
 // 탭으로 연다: 내 차례 / 진행 중(내 차례 아님 — MD 의 하위 진행·수주 위임 관전 포함) / 전체.
@@ -53,48 +57,47 @@ watch([tab, q], () => {
 });
 
 const tabs = computed<PartnerWorkqueueTab<TabKey>[]>(() => [
-  { key: 'todo', label: '내 차례', count: work.myTurnPos.value.length, emphasize: true },
-  { key: 'watching', label: '진행 중', count: work.watchingPos.value.length },
-  { key: 'all', label: '전체', count: work.poItems.value.length },
+  { key: 'todo', label: pt('내 차례'), count: work.myTurnPos.value.length, emphasize: true },
+  { key: 'watching', label: pt('진행 중'), count: work.watchingPos.value.length },
+  { key: 'all', label: pt('전체'), count: work.poItems.value.length },
 ]);
 const emptyText = computed(() => {
-  if (q.value.trim() !== '') return '검색 결과가 없습니다.';
-  if (tab.value === 'todo') return '내 차례인 발주가 없습니다 🎉';
-  if (tab.value === 'watching') return '진행 중인 발주가 없습니다.';
-  return '받은 발주서가 없습니다.';
+  if (q.value.trim() !== '') return pt('검색 결과가 없습니다.');
+  if (tab.value === 'todo') return pt('내 차례인 발주가 없습니다 🎉');
+  if (tab.value === 'watching') return pt('진행 중인 발주가 없습니다.');
+  return pt('받은 발주서가 없습니다.');
 });
+
 </script>
 
 <template>
   <div class="space-y-4">
     <PartnerPageHeader
-      title="발주서"
-      subtitle="받은 발주서의 EQ·생산 진행입니다. 내 차례인 건부터 처리해 주세요 — 발송은 📦 PCB 보내기에서."
+      :title="pt('발주 관리')"
+      :subtitle="pt('받은 발주서의 EQ·생산 진행입니다. 내 차례인 건부터 처리해 주세요 — 발송은 📦 PCB 보내기에서.')"
     />
 
-    <div v-if="noTrack" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
-      이 조직은 PCB 제작 트랙에 참여하지 않습니다.
-    </div>
+    <div v-if="noTrack" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">{{ pt('이 조직은 PCB 제작 트랙에 참여하지 않습니다.') }}</div>
 
     <template v-else>
       <PartnerWorkqueueTabs v-model="tab" :tabs="tabs" accent="teal">
         <input
           v-model="q"
           type="search"
-          placeholder="프로젝트명·상대·PO 번호 검색"
-          aria-label="프로젝트명·상대·PO 번호 검색"
+          :placeholder="pt('프로젝트명·상대·PO 번호 검색')"
+          :aria-label="pt('프로젝트명·상대·PO 번호 검색')"
           class="w-56 rounded-md border border-gray-200 bg-surface px-2.5 py-1.5 text-sm focus:border-teal-400 focus:outline-none"
         >
       </PartnerWorkqueueTabs>
 
-      <p v-if="work.posQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
+      <p v-if="work.posQuery.isLoading.value" class="text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
       <PartnerEmpty v-else-if="filtered.length === 0">{{ emptyText }}</PartnerEmpty>
       <template v-else>
         <div class="grid gap-2">
           <PartnerPcbPoRow v-for="po in paged" :key="po.poId" :po="po" />
         </div>
         <div v-if="filtered.length > PAGE_SIZE" class="flex items-center justify-between">
-          <p class="text-sm text-gray-500">총 {{ filtered.length }}건</p>
+          <p class="text-sm text-gray-500">{{ pt('총 {value1}건', { value1: pn(filtered.length) }) }}</p>
           <UiPagination
             :page="page"
             :page-size="PAGE_SIZE"

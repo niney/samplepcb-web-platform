@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+const { pt, locale } = usePartnerI18n();
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 // 값을 받아야 하는 확인창 — window.prompt 를 대신한다.
@@ -51,9 +53,11 @@ const SELECT_CUSTOM = '__custom__';
 const selectChoices = ref<Record<string, string>>({});
 
 watch(
-  () => props.title,
-  (title) => {
+  [() => props.title, locale],
+  ([title, language], previous) => {
     if (title === null) return;
+    // A translated title is not a new prompt: keep the user's draft on language changes.
+    if (previous[0] != null && previous[1] !== language) return;
     values.value = Object.fromEntries(props.fields.map((f) => [f.name, f.value ?? '']));
     selectChoices.value = Object.fromEntries(
       props.fields
@@ -109,15 +113,15 @@ onBeforeUnmount(() => {
     >
       <div class="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div class="flex items-start justify-between gap-3">
-          <h2 class="text-base font-bold text-gray-800">{{ title }}</h2>
+          <h2 class="text-base font-bold text-gray-800">{{ pt(title ?? '') }}</h2>
           <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
         </div>
-        <p v-if="description !== ''" class="mt-1.5 text-xs leading-5 text-gray-500">{{ description }}</p>
+        <p v-if="description !== ''" class="mt-1.5 text-xs leading-5 text-gray-500">{{ pt(description) }}</p>
 
         <div class="mt-3 grid gap-3">
           <label v-for="(f, i) in fields" :key="f.name" class="block">
             <span class="text-xs font-semibold text-gray-500">
-              {{ f.label }}<span v-if="f.required === true" class="text-red-500"> *</span>
+              {{ pt(f.label) }}<span v-if="f.required === true" class="text-red-500"> *</span>
             </span>
             <textarea
               v-if="f.type === 'textarea'"
@@ -125,7 +129,7 @@ onBeforeUnmount(() => {
               v-model="values[f.name]"
               rows="3"
               :maxlength="f.maxlength ?? 2000"
-              :placeholder="f.placeholder"
+              :placeholder="f.placeholder === undefined ? undefined : pt(f.placeholder)"
               class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
             />
             <template v-else-if="f.type === 'select'">
@@ -135,16 +139,16 @@ onBeforeUnmount(() => {
                 class="mt-1 h-9 w-full rounded-md border border-gray-300 bg-surface px-2 text-sm focus:border-blue-500 focus:outline-none"
                 @change="onSelectChange(f, $event)"
               >
-                <option value="">{{ f.required === true ? '선택' : '선택 안 함' }}</option>
-                <option v-for="opt in f.options ?? []" :key="opt" :value="opt">{{ opt }}</option>
-                <option v-if="f.allowCustom !== false" :value="SELECT_CUSTOM">직접입력</option>
+                <option value="">{{ pt(f.required === true ? '선택' : '선택 안 함') }}</option>
+                <option v-for="opt in f.options ?? []" :key="opt" :value="opt">{{ pt(opt) }}</option>
+                <option v-if="f.allowCustom !== false" :value="SELECT_CUSTOM">{{ pt('직접입력') }}</option>
               </select>
               <input
                 v-if="selectChoices[f.name] === SELECT_CUSTOM"
                 v-model="values[f.name]"
                 type="text"
                 :maxlength="f.maxlength ?? 200"
-                :placeholder="f.placeholder ?? '직접 입력'"
+                :placeholder="pt(f.placeholder ?? '직접 입력')"
                 class="mt-1.5 h-9 w-full rounded-md border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
               >
             </template>
@@ -154,10 +158,10 @@ onBeforeUnmount(() => {
               v-model="values[f.name]"
               :type="f.type === 'date' ? 'date' : 'text'"
               :maxlength="f.maxlength ?? 200"
-              :placeholder="f.placeholder"
+              :placeholder="f.placeholder === undefined ? undefined : pt(f.placeholder)"
               class="mt-1 h-9 w-full rounded-md border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
             >
-            <span v-if="f.hint !== undefined" class="mt-1 block text-[11px] text-gray-400">{{ f.hint }}</span>
+            <span v-if="f.hint !== undefined" class="mt-1 block text-[11px] text-gray-400">{{ pt(f.hint) }}</span>
           </label>
         </div>
 
@@ -167,7 +171,7 @@ onBeforeUnmount(() => {
             class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-50"
             @click="emit('close')"
           >
-            취소
+            {{ pt('취소') }}
           </button>
           <button
             type="button"
@@ -176,7 +180,7 @@ onBeforeUnmount(() => {
             :disabled="!canConfirm || busy"
             @click="submit"
           >
-            {{ confirmLabel }}
+            {{ pt(confirmLabel) }}
           </button>
         </div>
       </div>

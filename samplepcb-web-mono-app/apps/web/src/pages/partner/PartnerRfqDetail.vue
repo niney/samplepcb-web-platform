@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { usePartnerI18n } from '../../partner/i18n';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { BOM_RFQ_STATUS_LABELS, type BomRfqReplyBodyType } from '@sp/api-contract';
 import { usePartnerRfqDetail, usePartnerRfqReply } from '../../partner/usePartnerRfqs';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
-import { fmtKstDate } from '@sp/utils';
+
+const { pt, pd, locale } = usePartnerI18n();
 
 // 파트너 포털 회신 폼 — 행별 단가·재고·D/C·납기 입력(마감 전 재회신 허용).
 // 노출은 부품행과 내 회신뿐(고객 정보·목표단가 없음 — 서버 계약이 보장, D8).
@@ -21,6 +23,7 @@ const detailQuery = usePartnerRfqDetail(rfqId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
 const reply = usePartnerRfqReply();
 const saveError = ref('');
+watch(locale, () => { saveError.value = ''; });
 const saved = ref(false);
 
 const rows = computed<RfqReplyFormRow[]>(() =>
@@ -44,7 +47,7 @@ async function submit(body: BomRfqReplyBodyType): Promise<void> {
     await reply.mutateAsync({ rfqId: rfqId.value, body });
     saved.value = true;
   } catch (e) {
-    saveError.value = e instanceof ApiRequestError ? e.message : '저장에 실패했습니다.';
+    saveError.value = e instanceof ApiRequestError && locale.value === 'ko' ? e.message : pt('저장에 실패했습니다.');
   }
 }
 
@@ -60,22 +63,21 @@ const statusCls = (s: string): string =>
   <div class="space-y-4">
     <PartnerPageHeader
       :title="detail?.quoteTitle ?? null"
-      :back="{ to: { name: 'partner-bom-rfqs' }, label: '견적요청' }"
+      :back="{ to: { name: 'partner-bom-rfqs' }, label: pt('견적요청') }"
     >
       <template v-if="detail !== null" #badges>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(detail.status)">
-          {{ BOM_RFQ_STATUS_LABELS[detail.status] }}
+          {{ pt(BOM_RFQ_STATUS_LABELS[detail.status]) }}
         </span>
       </template>
     </PartnerPageHeader>
 
-    <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
-    <p v-else-if="detail === null" class="text-sm text-gray-400">견적요청을 찾을 수 없습니다.</p>
+    <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
+    <p v-else-if="detail === null" class="text-sm text-gray-400">{{ pt('견적요청을 찾을 수 없습니다.') }}</p>
 
     <template v-else>
       <p class="text-sm text-gray-500">
-        {{ detail.items.length }}개 품목 · 요청일 {{ fmtKstDate(detail.requestedAt) }}
-        <template v-if="detail.status === 'closed'"> · 마감된 요청입니다(수정 불가)</template>
+        {{ pt('{value1}개 품목 · 요청일 {value2}', { value1: detail.items.length, value2: pd(detail.requestedAt) }) }} <template v-if="detail.status === 'closed'"> {{ pt('· 마감된 요청입니다(수정 불가)') }}</template>
       </p>
 
       <div class="rounded-xl border border-gray-200 bg-surface p-4">
@@ -89,9 +91,7 @@ const statusCls = (s: string): string =>
           @submit="submit"
         />
         <p v-if="saveError !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ saveError }}</p>
-        <p v-else-if="saved" class="mt-2 text-sm font-semibold text-emerald-600">
-          회신이 저장되었습니다. 마감 전까지 다시 수정할 수 있습니다.
-        </p>
+        <p v-else-if="saved" class="mt-2 text-sm font-semibold text-emerald-600"> {{ pt('회신이 저장되었습니다. 마감 전까지 다시 수정할 수 있습니다.') }} </p>
       </div>
     </template>
   </div>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../partner/i18n';
+const { pt } = usePartnerI18n();
 import { computed } from 'vue';
 import { useTheme } from '../bom/useTheme';
 import icHomeBom from '../assets/bom/ic-home.svg';
@@ -20,8 +22,8 @@ const homeIcon = computed(() => (isDark.value ? icHomeBomDark : icHomeBom));
     href="/"
     class="grid place-items-center rounded-md text-ink-muted hover:bg-surface-raised hover:text-brand"
     :class="variant === 'bom' ? 'size-[26px]' : 'size-[32px]'"
-    :aria-label="$t('common.siteHome')"
-    :title="$t('common.siteHome')"
+    :aria-label="pt($t('common.siteHome'))"
+    :title="pt($t('common.siteHome'))"
   >
     <span v-if="variant === 'bom'" class="relative block size-[20px] overflow-hidden" aria-hidden="true">
       <span class="absolute inset-[8.33%_12.5%_12.5%_12.5%]">

@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { usePartnerI18n } from '../../partner/i18n';
+import { computed, ref, watch } from 'vue';
 import { PCB_CURRENCIES, type PcbCurrencyType, type PcbRfqReplyBodyType } from '@sp/api-contract';
 import { kstDateInput } from '@sp/utils';
-import { fmtPcbAmount } from '../../lib/pcb-money';
+import { fmtPcbAmount as originalFmtPcbAmount } from '../../lib/pcb-money';
+
+const { pt, pm, enabled, locale } = usePartnerI18n();
+const fmtPcbAmount = (currency: string, value: number | null): string =>
+  enabled.value ? (value === null ? '—' : pm(value, currency)) : originalFmtPcbAmount(currency, value);
+
 
 // PCB 견적 회신 폼 — 포털·매직링크·관리자 대리 입력 3곳 공용(저장 경로 단일 원칙).
 // 금액은 "입력통화" 기준 원본으로 제출하고 환산·박제는 서버 몫(§5.2). 예상 배송일은
@@ -70,11 +76,11 @@ function submit(): void {
   error.value = '';
   const price = Number(priceText.value.replaceAll(',', ''));
   if (!Number.isFinite(price) || price <= 0) {
-    error.value = '견적가를 입력해 주세요.';
+    error.value = pt('견적가를 입력해 주세요.');
     return;
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate.value)) {
-    error.value = '예상 배송일을 선택해 주세요(필수).';
+    error.value = pt('예상 배송일을 선택해 주세요(필수).');
     return;
   }
   const inputCcy =
@@ -86,13 +92,18 @@ function submit(): void {
     memo: memo.value.trim() === '' ? null : memo.value.trim(),
   });
 }
+
+// Clear transient feedback on language changes; preserve entered form values.
+watch(locale, () => {
+  error.value = '';
+});
 </script>
 
 <template>
   <div class="space-y-3">
     <!-- 통화 토글 — 입력통화 설정이 결제통화와 다를 때만(위안화 입력 관행) -->
     <div v-if="inputOption !== null" class="flex items-center gap-2 text-sm">
-      <span class="text-gray-500">입력 통화</span>
+      <span class="text-gray-500">{{ pt('입력 통화') }}</span>
       <div class="flex rounded-lg border border-gray-200 p-0.5 text-xs font-semibold">
         <button
           type="button"
@@ -101,7 +112,7 @@ function submit(): void {
           :disabled="readOnly"
           @click="useInputCurrency = false"
         >
-          {{ settlementCurrency }} (결제통화)
+          {{ pt('{value1} (결제통화)', { value1: settlementCurrency }) }}
         </button>
         <button
           type="button"
@@ -110,32 +121,28 @@ function submit(): void {
           :disabled="readOnly"
           @click="useInputCurrency = true"
         >
-          {{ inputOption }} 로 입력
+          {{ pt('{value1} 로 입력', { value1: inputOption }) }}
         </button>
       </div>
-      <span v-if="useInputCurrency" class="text-xs text-gray-400">
-        제출 시 결제통화({{ settlementCurrency }})로 환산·박제됩니다
-      </span>
+      <span v-if="useInputCurrency" class="text-xs text-gray-400">{{ pt('제출 시 결제통화({value1})로 환산·박제됩니다', { value1: settlementCurrency }) }}</span>
     </div>
 
     <div class="grid gap-3 sm:grid-cols-2">
       <label class="block">
-        <span class="text-xs font-semibold text-gray-500">견적가 ({{ activeCurrency }}) *</span>
+        <span class="text-xs font-semibold text-gray-500">{{ pt('견적가 ({value1}) *', { value1: activeCurrency }) }}</span>
         <input
           v-model="priceText"
           type="text"
           inputmode="decimal"
           class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
-          :placeholder="activeCurrency === 'KRW' ? '예) 1500000' : '예) 1080.50'"
+          :placeholder="activeCurrency === 'KRW' ? pt('예) 1500000') : pt('예) 1080.50')"
           :disabled="readOnly || busy"
         >
       </label>
       <label class="block">
-        <span class="text-xs font-semibold text-gray-500">
-          예상 배송일 *
-          <template v-if="suggestedDeliveryDate !== null && suggestedDeliveryDate !== ''">
-            <span class="ml-1 font-normal text-gray-400">(요청: {{ dateOnly(suggestedDeliveryDate) }})</span>
-          </template>
+        <span class="text-xs font-semibold text-gray-500">{{ pt('예상 배송일 *') }}<template v-if="suggestedDeliveryDate !== null && suggestedDeliveryDate !== ''">
+          <span class="ml-1 font-normal text-gray-400">{{ pt('(요청: {value1})', { value1: dateOnly(suggestedDeliveryDate) }) }}</span>
+        </template>
         </span>
         <input
           v-model="deliveryDate"
@@ -147,21 +154,18 @@ function submit(): void {
     </div>
 
     <label class="block">
-      <span class="text-xs font-semibold text-gray-500">메모</span>
+      <span class="text-xs font-semibold text-gray-500">{{ pt('메모') }}</span>
       <textarea
         v-model="memo"
         rows="2"
         class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
-        placeholder="재질/납기 조건 등 참고 사항"
+        :placeholder="pt('재질/납기 조건 등 참고 사항')"
         :disabled="readOnly || busy"
       />
     </label>
 
     <p v-if="initial?.priceOriginal != null" class="text-xs text-gray-400">
-      현재 회신: {{ fmtPcbAmount(settlementCurrency, initial.priceOriginal) }}
-      <template v-if="initial.subCurrency !== null && initial.subPriceOriginal !== null">
-        (입력 원본 {{ fmtPcbAmount(initial.subCurrency, initial.subPriceOriginal) }})
-      </template>
+      {{ pt('현재 회신: {value1}', { value1: fmtPcbAmount(settlementCurrency, initial.priceOriginal) }) }}<template v-if="initial.subCurrency !== null && initial.subPriceOriginal !== null">{{ pt('(입력 원본 {value1})', { value1: fmtPcbAmount(initial.subCurrency, initial.subPriceOriginal) }) }}</template>
     </p>
 
     <p v-if="error !== ''" class="text-sm font-semibold text-red-600">{{ error }}</p>
@@ -173,7 +177,7 @@ function submit(): void {
       :disabled="busy"
       @click="submit"
     >
-      {{ busy ? '저장 중…' : '회신 저장' }}
+      {{ busy ? pt('저장 중…') : pt('회신 저장') }}
     </button>
   </div>
 </template>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+
 import { computed } from 'vue';
 import type {
   BomPartnerQuotationItemType,
@@ -6,18 +8,22 @@ import type {
   BomTradeDocumentType,
   BomTradePartyType,
 } from '@sp/api-contract';
-import { fmtKstDate } from '@sp/utils';
+import { fmtKstDate as originalDate } from '@sp/utils';
 
 // 협력사 견적서·거래명세서 공용 A4 표시 컴포넌트. 데이터 조회와 상태 변경 없이
 // 서버가 고정한 문서 스냅샷만 렌더링해 관리자/협력사 출력 결과를 동일하게 유지한다.
 
+const { pt, pn, pd, enabled, locale } = usePartnerI18n();
+
+const displayDate = (value: string | null | undefined): string => enabled.value ? pd(value) : originalDate(value);
+
 const props = defineProps<{ data: BomTradeDocumentType }>();
 
-const title = computed(() => (props.data.kind === 'quotation' ? '견 적 서' : '거 래 명 세 서'));
+const title = computed(() => (props.data.kind === 'quotation' ? pt('견 적 서') : pt('거 래 명 세 서')));
 const documentNo = computed(() =>
   props.data.kind === 'quotation' ? props.data.quotationNo : props.data.statementNo,
 );
-const issuedDate = computed(() => fmtKstDate(props.data.issuedAt));
+const issuedDate = computed(() => displayDate(props.data.issuedAt));
 const isDraft = computed(() => props.data.kind === 'statement' && props.data.isDraft);
 
 const partyAddress = (party: BomTradePartyType): string =>
@@ -27,13 +33,13 @@ const businessLine = (party: BomTradePartyType): string =>
 const contactLine = (party: BomTradePartyType): string =>
   [party.contactName, party.tel, party.email].filter(Boolean).join(' · ');
 const money = (value: number): string =>
-  `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 4 }).format(value)} ${props.data.currency}`;
+  `${new Intl.NumberFormat(locale.value === 'ko' ? 'ko-KR' : locale.value, { maximumFractionDigits: 4 }).format(value)} ${props.data.currency}`;
 const quoteTerms = (item: BomPartnerQuotationItemType): string =>
   [
-    item.moq === null ? '' : `MOQ ${item.moq.toLocaleString('ko-KR')}`,
-    item.stock === null ? '' : `재고 ${item.stock.toLocaleString('ko-KR')}`,
+    item.moq === null ? '' : `MOQ ${pn(item.moq)}`,
+    item.stock === null ? '' : pt('재고 {p0}', { p0: pn(item.stock) }),
     item.dateCode === null || item.dateCode === '' ? '' : `D/C ${item.dateCode}`,
-    item.leadTime === null || item.leadTime === '' ? '' : `납기 ${item.leadTime}`,
+    item.leadTime === null || item.leadTime === '' ? '' : pt('납기 {p0}', { p0: item.leadTime }),
     item.memo ?? '',
   ]
     .filter(Boolean)
@@ -45,63 +51,64 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
   ]
     .filter(Boolean)
     .join(' · ');
+
 </script>
 
 <template>
   <article class="trade-sheet">
     <h1>{{ title }}</h1>
-    <p v-if="isDraft" class="draft">초안 — 선적 리스트 확정 전</p>
+    <p v-if="isDraft" class="draft">{{ pt('초안 — 선적 리스트 확정 전') }}</p>
 
     <div class="meta">
-      <div><span>문서번호</span>{{ documentNo }}</div>
-      <div><span>발행일</span>{{ issuedDate }}</div>
+      <div><span>{{ pt('문서번호') }}</span>{{ documentNo }}</div>
+      <div><span>{{ pt('발행일') }}</span>{{ issuedDate }}</div>
     </div>
 
     <div class="parties">
       <section class="party">
-        <h2>공급자</h2>
-        <div class="party-name">{{ data.issuer.companyName || '—' }} <small>(인)</small></div>
+        <h2>{{ pt('공급자') }}</h2>
+        <div class="party-name">{{ data.issuer.companyName || '—' }} <small>{{ pt('(인)') }}</small></div>
         <dl>
           <template v-if="data.issuer.businessNo !== ''">
-            <dt>등록번호</dt>
+            <dt>{{ pt('등록번호') }}</dt>
             <dd>{{ data.issuer.businessNo }}</dd>
           </template>
           <template v-if="data.issuer.ownerName !== ''">
-            <dt>대표자</dt>
+            <dt>{{ pt('대표자') }}</dt>
             <dd>{{ data.issuer.ownerName }}</dd>
           </template>
           <template v-if="partyAddress(data.issuer) !== ''">
-            <dt>주소</dt>
+            <dt>{{ pt('주소') }}</dt>
             <dd>{{ partyAddress(data.issuer) }}</dd>
           </template>
           <template v-if="businessLine(data.issuer) !== ''">
-            <dt>업태/종목</dt>
+            <dt>{{ pt('업태/종목') }}</dt>
             <dd>{{ businessLine(data.issuer) }}</dd>
           </template>
           <template v-if="contactLine(data.issuer) !== ''">
-            <dt>연락처</dt>
+            <dt>{{ pt('연락처') }}</dt>
             <dd>{{ contactLine(data.issuer) }}</dd>
           </template>
         </dl>
       </section>
       <section class="party">
-        <h2>공급받는 자</h2>
+        <h2>{{ pt('공급받는 자') }}</h2>
         <div class="party-name">{{ data.recipient.companyName || '—' }}</div>
         <dl>
           <template v-if="data.recipient.businessNo !== ''">
-            <dt>등록번호</dt>
+            <dt>{{ pt('등록번호') }}</dt>
             <dd>{{ data.recipient.businessNo }}</dd>
           </template>
           <template v-if="data.recipient.ownerName !== ''">
-            <dt>대표자</dt>
+            <dt>{{ pt('대표자') }}</dt>
             <dd>{{ data.recipient.ownerName }}</dd>
           </template>
           <template v-if="partyAddress(data.recipient) !== ''">
-            <dt>주소</dt>
+            <dt>{{ pt('주소') }}</dt>
             <dd>{{ partyAddress(data.recipient) }}</dd>
           </template>
           <template v-if="contactLine(data.recipient) !== ''">
-            <dt>연락처</dt>
+            <dt>{{ pt('연락처') }}</dt>
             <dd>{{ contactLine(data.recipient) }}</dd>
           </template>
         </dl>
@@ -109,18 +116,18 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
     </div>
 
     <div v-if="data.kind === 'quotation'" class="subject">
-      <b>견적 건</b><span>{{ data.quoteTitle }}</span>
+      <b>{{ pt('견적 건') }}</b><span>{{ data.quoteTitle }}</span>
       <template v-if="data.deliveryDate !== null">
-        <b>납기 예정</b><span>{{ data.deliveryDate }}</span>
+        <b>{{ pt('납기 예정') }}</b><span>{{ enabled ? displayDate(data.deliveryDate) : data.deliveryDate }}</span>
       </template>
     </div>
     <div v-else class="subject">
-      <b>발송 번호</b><span>#{{ data.shipmentId }} · Packing List R{{ data.packingRevision }}</span>
+      <b>{{ pt('발송 번호') }}</b><span>#{{ data.shipmentId }} · Packing List R{{ data.packingRevision }}</span>
       <template v-if="data.shipDate !== null">
-        <b>출고 예정</b><span>{{ data.shipDate }}</span>
+        <b>{{ pt('출고 예정') }}</b><span>{{ enabled ? displayDate(data.shipDate) : data.shipDate }}</span>
       </template>
       <template v-if="data.carrier !== null || data.trackingNumber !== null">
-        <b>운송 정보</b><span>{{ [data.carrier, data.trackingNumber].filter(Boolean).join(' · ') }}</span>
+        <b>{{ pt('운송 정보') }}</b><span>{{ [data.carrier, data.trackingNumber].filter(Boolean).join(' · ') }}</span>
       </template>
     </div>
 
@@ -128,10 +135,10 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
       <thead>
         <tr>
           <th class="no">No</th>
-          <th>품명(MPN) / 규격</th>
-          <th class="qty">수량</th>
-          <th class="price">단가</th>
-          <th class="price">금액</th>
+          <th>{{ pt('품명(MPN) / 규격') }}</th>
+          <th class="qty">{{ pt('수량') }}</th>
+          <th class="price">{{ pt('단가') }}</th>
+          <th class="price">{{ pt('금액') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -144,7 +151,7 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
             </div>
             <div v-if="quoteTerms(item) !== ''" class="terms">{{ quoteTerms(item) }}</div>
           </td>
-          <td class="num">{{ item.qty.toLocaleString('ko-KR') }}</td>
+          <td class="num">{{ pn(item.qty) }}</td>
           <td class="num">{{ money(item.unitPrice) }}</td>
           <td class="num">{{ money(item.lineTotal) }}</td>
         </tr>
@@ -155,11 +162,11 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
       <thead>
         <tr>
           <th class="no">No</th>
-          <th>PO / 품명(MPN)</th>
-          <th class="qty">발주</th>
-          <th class="qty">출고</th>
-          <th class="price">단가</th>
-          <th class="price">금액</th>
+          <th>{{ pt('PO / 품명(MPN)') }}</th>
+          <th class="qty">{{ pt('발주') }}</th>
+          <th class="qty">{{ pt('출고') }}</th>
+          <th class="price">{{ pt('단가') }}</th>
+          <th class="price">{{ pt('금액') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -173,8 +180,8 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
             </div>
             <div v-if="statementTrace(item) !== ''" class="terms">{{ statementTrace(item) }}</div>
           </td>
-          <td class="num">{{ item.orderedQty.toLocaleString('ko-KR') }}</td>
-          <td class="num">{{ item.shippedQty.toLocaleString('ko-KR') }}</td>
+          <td class="num">{{ pn(item.orderedQty) }}</td>
+          <td class="num">{{ pn(item.shippedQty) }}</td>
           <td class="num">{{ money(item.unitPrice) }}</td>
           <td class="num">{{ money(item.lineTotal) }}</td>
         </tr>
@@ -183,20 +190,20 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
 
     <div class="summary-wrap">
       <p v-if="data.kind === 'statement'">
-        총 출고수량 <b>{{ data.totalQuantity.toLocaleString('ko-KR') }}</b>
+        {{ pt('총 출고수량') }}<b>{{ pn(data.totalQuantity) }}</b>
       </p>
       <table class="amounts">
         <tbody>
           <tr>
-            <th>공급가액</th>
+            <th>{{ pt('공급가액') }}</th>
             <td>{{ money(data.supplyAmount) }}</td>
           </tr>
           <tr>
-            <th>부가세{{ data.issuer.country === 'KR' ? ' (10%)' : '' }}</th>
+            <th>{{ pt('부가세{p0}', { p0: data.issuer.country === 'KR' ? ' (10%)' : '' }) }}</th>
             <td>{{ money(data.vatAmount) }}</td>
           </tr>
           <tr class="total">
-            <th>합계</th>
+            <th>{{ pt('합계') }}</th>
             <td>{{ money(data.totalAmount) }}</td>
           </tr>
         </tbody>
@@ -205,12 +212,10 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
 
     <div class="notes">
       <p v-if="data.kind === 'quotation' && data.memo !== null && data.memo !== ''">
-        비고: {{ data.memo }}
+        {{ pt('비고: {p0}', { p0: data.memo }) }}
       </p>
-      <p v-if="data.kind === 'statement' && data.isDraft">
-        확정 전 Packing List 수량을 기준으로 작성된 초안입니다.
-      </p>
-      <p>본 문서는 {{ fmtKstDate(data.snapshotAt) }} 기준으로 생성되었습니다.</p>
+      <p v-if="data.kind === 'statement' && data.isDraft">{{ pt('확정 전 Packing List 수량을 기준으로 작성된 초안입니다.') }}</p>
+      <p>{{ pt('본 문서는 {p0} 기준으로 생성되었습니다.', { p0: displayDate(data.snapshotAt) }) }}</p>
     </div>
   </article>
 </template>

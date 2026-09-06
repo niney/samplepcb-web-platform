@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { toDataURL } from 'qrcode';
 import { ApiRequestError } from '@sp/shared';
@@ -11,12 +13,14 @@ import {
   type BomShipmentPackingListType,
   type BomShipmentPackingPackageType,
 } from '@sp/api-contract';
-import { fmtKstDate } from '@sp/utils';
+import { fmtKstDate as originalDate } from '@sp/utils';
 import { usePrintIsolation } from '../../lib/usePrintIsolation';
 
 // 선적 리스트·QR 라벨(D24) — 파트너/관리자 공용. 상업송장과 분리된 Packing List이며
 // 릴·트레이·튜브·봉투·박스 같은 실물 관리 단위마다 QR 1개를 생성한다. 저장된 token은
 // 재인쇄해도 바뀌지 않고 관리자 스캔 화면으로 연결된다.
+
+const { pt, pn, pd, enabled, locale } = usePartnerI18n();
 
 const props = defineProps<{
   open: boolean;
@@ -30,6 +34,8 @@ const data = ref<BomShipmentPackingListType | null>(null);
 const loading = ref(false);
 const busy = ref<'' | 'save' | 'print'>('');
 const error = ref('');
+// Transient feedback belongs to the selected language; preserve all editable document data.
+watch(locale, () => { error.value = ''; });
 const view = ref<'edit' | 'preview'>('edit');
 const qrImages = ref<Record<string, string>>({});
 const qrLoading = ref(false);
@@ -83,7 +89,7 @@ async function loadPacking(): Promise<void> {
     await rebuildQrImages();
   } catch (cause) {
     error.value =
-      cause instanceof ApiRequestError ? cause.message : '선적 리스트를 불러오지 못했습니다.';
+      !enabled.value && cause instanceof ApiRequestError ? cause.message : pt('선적 리스트를 불러오지 못했습니다.');
   } finally {
     loading.value = false;
   }
@@ -109,7 +115,7 @@ function addPackage(item: BomShipmentPackingItemType): void {
   if (!data.value?.editable || item.packages.length >= 20) return;
   const donor = [...item.packages].reverse().find((pkg) => pkg.quantity > 1);
   if (donor === undefined) {
-    error.value = '더 나눌 수량이 없습니다.';
+    error.value = pt('더 나눌 수량이 없습니다.');
     return;
   }
   donor.quantity -= 1;
@@ -190,7 +196,7 @@ function saveBody(): BomShipmentPackingListSaveBodyType {
 async function savePacking(): Promise<void> {
   if (busy.value !== '' || data.value?.editable !== true) return;
   if (!allQuantitiesValid.value) {
-    error.value = '각 품목의 포장 수량 합계가 발주 수량과 같아야 합니다.';
+    error.value = pt('각 품목의 포장 수량 합계가 발주 수량과 같아야 합니다.');
     return;
   }
   busy.value = 'save';
@@ -199,7 +205,7 @@ async function savePacking(): Promise<void> {
     data.value = structuredClone(await props.save(saveBody()));
     await rebuildQrImages();
   } catch (cause) {
-    error.value = cause instanceof ApiRequestError ? cause.message : 'QR 저장에 실패했습니다.';
+    error.value = !enabled.value && cause instanceof ApiRequestError ? cause.message : pt('QR 저장에 실패했습니다.');
   } finally {
     busy.value = '';
   }
@@ -215,13 +221,13 @@ async function printDocument(): Promise<void> {
     await nextTick();
     window.print();
   } catch (cause) {
-    error.value = cause instanceof ApiRequestError ? cause.message : '인쇄 준비에 실패했습니다.';
+    error.value = !enabled.value && cause instanceof ApiRequestError ? cause.message : pt('인쇄 준비에 실패했습니다.');
   } finally {
     busy.value = '';
   }
 }
 
-const fmtDate = fmtKstDate;
+const fmtDate = (value: string | null | undefined): string => enabled.value ? pd(value) : originalDate(value);
 
 const onKeydown = (event: KeyboardEvent): void => {
   if (event.key === 'Escape') emit('close');
@@ -293,6 +299,7 @@ const PRINT_CSS = `
 }
 `;
 usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
+
 </script>
 
 <template>
@@ -306,10 +313,9 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
           class="no-print mb-3 flex w-full max-w-6xl flex-wrap items-center gap-2 rounded-xl bg-white p-3 shadow-xl"
         >
           <div class="mr-auto">
-            <h2 class="text-sm font-extrabold text-gray-900">선적 리스트·부품 QR 라벨</h2>
+            <h2 class="text-sm font-extrabold text-gray-900">{{ pt('선적 리스트·부품 QR 라벨') }}</h2>
             <p v-if="data !== null" class="text-[11px] text-gray-500">
-              {{ data.packingNo }} · revision {{ data.revision }} · 실물 포장
-              {{ data.totalPackages }}개
+              {{ pt('{p0} · revision {p1} · 실물 포장 {p2}개', { p0: data.packingNo, p1: data.revision, p2: data.totalPackages }) }}
             </p>
           </div>
           <button
@@ -323,7 +329,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
             :disabled="data === null"
             @click="view = 'edit'"
           >
-            포장 편집
+            {{ pt('포장 편집') }}
           </button>
           <button
             type="button"
@@ -336,7 +342,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
             :disabled="data === null"
             @click="view = 'preview'"
           >
-            인쇄 미리보기
+            {{ pt('인쇄 미리보기') }}
           </button>
           <button
             v-if="data?.editable"
@@ -345,7 +351,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
             :disabled="busy !== '' || !allQuantitiesValid"
             @click="savePacking"
           >
-            {{ busy === 'save' ? '저장 중…' : '저장·QR 생성' }}
+            {{ busy === 'save' ? pt('저장 중…') : pt('저장·QR 생성') }}
           </button>
           <button
             type="button"
@@ -353,7 +359,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
             :disabled="busy !== '' || !canPrint"
             @click="printDocument"
           >
-            {{ busy === 'print' ? '인쇄 준비 중…' : 'Packing List·라벨 인쇄' }}
+            {{ busy === 'print' ? pt('인쇄 준비 중…') : pt('Packing List·라벨 인쇄') }}
           </button>
           <button
             type="button"
@@ -364,7 +370,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
           </button>
         </div>
 
-        <p v-if="loading" class="no-print py-20 text-sm font-semibold text-white">불러오는 중…</p>
+        <p v-if="loading" class="no-print py-20 text-sm font-semibold text-white">{{ pt('불러오는 중…') }}</p>
         <p
           v-else-if="error !== ''"
           class="no-print mb-3 w-full max-w-6xl rounded-lg bg-red-50 px-4 py-2 text-xs font-semibold text-red-700"
@@ -376,16 +382,12 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
           v-if="data !== null && view === 'edit'"
           class="packing-editor no-print w-full max-w-6xl space-y-3 rounded-2xl bg-white p-4 shadow-2xl"
         >
-          <div class="rounded-xl bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-900">
-            QR 1개는 부품 한 알이 아니라 <b>릴·트레이·튜브·봉투·박스 같은 실물 포장 1개</b>를
-            뜻합니다. 포장 수량 합계는 발주 수량과 같아야 하며, 저장 후 재인쇄해도 같은 QR을
-            사용합니다.
-          </div>
+          <div class="rounded-xl bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-900">{{ pt('QR 1개는 부품 한 알이 아니라') }} <b>{{ pt('릴·트레이·튜브·봉투·박스 같은 실물 포장 1개') }}</b>{{ pt('를 뜻합니다. 포장 수량 합계는 발주 수량과 같아야 하며, 저장 후 재인쇄해도 같은 QR을 사용합니다.') }}</div>
           <p
             v-if="!data.editable"
             class="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
           >
-            발송이 진행되어 편집할 수 없습니다. 기존 문서와 QR은 그대로 재인쇄할 수 있습니다.
+            {{ pt('발송이 진행되어 편집할 수 없습니다. 기존 문서와 QR은 그대로 재인쇄할 수 있습니다.') }}
           </p>
 
           <article
@@ -397,11 +399,11 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
               <div>
                 <p class="font-mono text-sm font-extrabold text-gray-900">{{ item.mpn }}</p>
                 <p class="text-xs text-gray-500">
-                  {{ item.manufacturerName ?? '제조사 미상' }} · PO #{{ item.poId }} ·
+                  {{ item.manufacturerName ?? pt('제조사 미상') }} · PO #{{ item.poId }} ·
                   {{ item.quoteTitle }}
                 </p>
                 <p v-if="item.partId !== null" class="mt-0.5 text-[10px] text-gray-400">
-                  카탈로그 partId {{ item.partId }}
+                  {{ pt('카탈로그 partId {p0}', { p0: item.partId }) }}
                 </p>
               </div>
               <p
@@ -412,8 +414,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
                     : 'bg-red-50 text-red-700'
                 "
               >
-                포장 {{ itemPackedQty(item).toLocaleString('ko-KR') }} / 발주
-                {{ item.expectedQty.toLocaleString('ko-KR') }}
+                {{ pt('포장 {p0} / 발주 {p1}', { p0: pn(itemPackedQty(item)), p1: pn(item.expectedQty) }) }}
               </p>
             </div>
 
@@ -421,11 +422,11 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
               <table class="min-w-full text-xs">
                 <thead class="bg-gray-50 text-left text-gray-500">
                   <tr>
-                    <th class="w-12 px-2 py-1.5">포장</th>
-                    <th class="w-32 px-2 py-1.5">수량</th>
-                    <th class="px-2 py-1.5">LOT NO.</th>
-                    <th class="px-2 py-1.5">DATE CODE</th>
-                    <th class="px-2 py-1.5">QR 코드</th>
+                    <th class="w-12 px-2 py-1.5">{{ pt('포장') }}</th>
+                    <th class="w-32 px-2 py-1.5">{{ pt('수량') }}</th>
+                    <th class="px-2 py-1.5">{{ pt('LOT NO.') }}</th>
+                    <th class="px-2 py-1.5">{{ pt('DATE CODE') }}</th>
+                    <th class="px-2 py-1.5">{{ pt('QR 코드') }}</th>
                     <th class="w-20 px-2 py-1.5" />
                   </tr>
                 </thead>
@@ -460,12 +461,12 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
                       >
                     </td>
                     <td class="whitespace-nowrap px-2 py-2 font-mono text-[11px] text-gray-500">
-                      {{ pkg.labelCode ?? '저장 후 생성' }}
+                      {{ pkg.labelCode ?? pt('저장 후 생성') }}
                       <span
                         v-if="pkg.packageId !== null"
                         class="ml-1 rounded bg-gray-100 px-1 py-0.5 font-sans text-[10px]"
                       >
-                        {{ BOM_PART_PACKAGE_STATUS_LABELS[pkg.status] }}
+                        {{ pt(BOM_PART_PACKAGE_STATUS_LABELS[pkg.status]) }}
                       </span>
                     </td>
                     <td class="px-2 py-2 text-right">
@@ -477,7 +478,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
                         "
                         @click="removePackage(item, index)"
                       >
-                        제거
+                        {{ pt('제거') }}
                       </button>
                     </td>
                   </tr>
@@ -490,7 +491,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
               :disabled="!data.editable || item.packages.length >= 20"
               @click="addPackage(item)"
             >
-              + 실물 포장 나누기
+              {{ pt('+ 실물 포장 나누기') }}
             </button>
           </article>
         </section>
@@ -505,42 +506,42 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
             class="sp-packing-sheet min-h-[1123px] bg-white p-8 text-[11px] text-gray-900 shadow-2xl"
           >
             <header class="border-b-2 border-gray-900 pb-4 text-center">
-              <h1 class="text-2xl font-black tracking-[0.18em]">PACKING LIST</h1>
-              <p class="mt-1 text-xs font-semibold text-gray-500">부품 식별·입고 리스트</p>
+              <h1 class="text-2xl font-black tracking-[0.18em]">{{ pt('PACKING LIST') }}</h1>
+              <p class="mt-1 text-xs font-semibold text-gray-500">{{ pt('부품 식별·입고 리스트') }}</p>
             </header>
             <div class="mt-4 grid grid-cols-2 border border-gray-400">
               <div class="border-r border-gray-400 p-3">
-                <p class="text-[9px] font-bold text-gray-500">SHIPPER / PARTNER</p>
+                <p class="text-[9px] font-bold text-gray-500">{{ pt('SHIPPER / PARTNER') }}</p>
                 <p class="mt-1 text-sm font-bold">{{ data.partnerName }}</p>
               </div>
               <div class="p-3">
-                <p class="text-[9px] font-bold text-gray-500">CONSIGNEE</p>
+                <p class="text-[9px] font-bold text-gray-500">{{ pt('CONSIGNEE') }}</p>
                 <p class="mt-1 text-sm font-bold">{{ data.consigneeCompany }}</p>
                 <p class="mt-1 text-[10px] text-gray-600">{{ data.consigneeAddress }}</p>
               </div>
             </div>
             <div class="grid grid-cols-4 border-x border-b border-gray-400">
               <div class="border-r border-gray-300 p-2">
-                <b>PACKING NO.</b><br>{{ data.packingNo }}
+                <b>{{ pt('PACKING NO.') }}</b><br>{{ data.packingNo }}
               </div>
               <div class="border-r border-gray-300 p-2">
-                <b>REVISION</b><br>{{ data.revision }}
+                <b>{{ pt('REVISION') }}</b><br>{{ data.revision }}
               </div>
               <div class="border-r border-gray-300 p-2">
-                <b>MODE</b><br>{{ BOM_SHIPMENT_MODE_LABELS[data.mode] }}
+                <b>{{ pt('MODE') }}</b><br>{{ pt(BOM_SHIPMENT_MODE_LABELS[data.mode]) }}
               </div>
-              <div class="p-2"><b>SHIP DATE</b><br>{{ data.shipDate ?? '—' }}</div>
+              <div class="p-2"><b>{{ pt('SHIP DATE') }}</b><br>{{ enabled ? fmtDate(data.shipDate) : data.shipDate ?? '—' }}</div>
             </div>
 
             <table class="mt-5 w-full border-collapse text-[9px]">
               <thead>
                 <tr class="bg-gray-100">
-                  <th class="border border-gray-400 p-1.5">NO.</th>
-                  <th class="border border-gray-400 p-1.5 text-left">PART / MPN</th>
-                  <th class="border border-gray-400 p-1.5 text-left">MANUFACTURER</th>
-                  <th class="border border-gray-400 p-1.5">PO / CASE</th>
-                  <th class="border border-gray-400 p-1.5">QTY</th>
-                  <th class="border border-gray-400 p-1.5">LOT / DATE</th>
+                  <th class="border border-gray-400 p-1.5">{{ pt('NO.') }}</th>
+                  <th class="border border-gray-400 p-1.5 text-left">{{ pt('PART / MPN') }}</th>
+                  <th class="border border-gray-400 p-1.5 text-left">{{ pt('MANUFACTURER') }}</th>
+                  <th class="border border-gray-400 p-1.5">{{ pt('PO / CASE') }}</th>
+                  <th class="border border-gray-400 p-1.5">{{ pt('QTY') }}</th>
+                  <th class="border border-gray-400 p-1.5">{{ pt('LOT / DATE') }}</th>
                   <th class="w-24 border border-gray-400 p-1.5">QR</th>
                 </tr>
               </thead>
@@ -559,7 +560,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
                       #{{ item.poId }}<br>{{ item.quoteTitle }}
                     </td>
                     <td class="border border-gray-300 p-1.5 text-right font-bold">
-                      {{ pkg.quantity.toLocaleString('ko-KR') }}
+                      {{ pn(pkg.quantity) }}
                     </td>
                     <td class="border border-gray-300 p-1.5 text-center">
                       {{ pkg.lotNo ?? '—' }}<br>{{ pkg.dateCode ?? '—' }}
@@ -572,10 +573,10 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
                         class="mx-auto h-16 w-16"
                       >
                       <div class="mt-0.5 break-all font-mono text-[7px] font-bold">
-                        {{ pkg.labelCode ?? 'SAVE REQUIRED' }}
+                        {{ pkg.labelCode ?? pt('SAVE REQUIRED') }}
                       </div>
                       <div class="mt-0.5 text-[7px] font-bold">
-                        {{ BOM_PART_PACKAGE_STATUS_LABELS[pkg.status] }}
+                        {{ pt(BOM_PART_PACKAGE_STATUS_LABELS[pkg.status]) }}
                       </div>
                     </td>
                   </tr>
@@ -585,23 +586,17 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
             <div
               class="mt-4 flex justify-between border-t border-gray-300 pt-3 text-[9px] text-gray-500"
             >
-              <span>ITEMS {{ data.totalItems }} · PACKAGES {{ data.totalPackages }} · TOTAL QTY
-                {{ data.totalQuantity.toLocaleString('ko-KR') }}</span>
-              <span>{{ bomShipmentStatusLabel(data.mode, data.shipmentStatus) }} · updated
-                {{ fmtDate(data.updatedAt) }}</span>
+              <span>{{ pt('ITEMS {items} · PACKAGES {packages} · TOTAL QTY {quantity}', { items: pn(data.totalItems), packages: pn(data.totalPackages), quantity: pn(data.totalQuantity) }) }}</span>
+              <span>{{ pt('{status} · updated {date}', { status: pt(enabled && data.shipmentStatus === 'delivered' ? '배송 완료' : bomShipmentStatusLabel(data.mode, data.shipmentStatus)), date: fmtDate(data.updatedAt) }) }}</span>
             </div>
-            <p class="mt-3 text-[8px] leading-4 text-gray-500">
-              QR은 포장 식별용이며 내용물 진위를 보증하지 않습니다. 입고 시 제조사
-              라벨·수량·LOT/DATE CODE를 함께 검수해 주세요.
-            </p>
+            <p class="mt-3 text-[8px] leading-4 text-gray-500">{{ pt('QR은 포장 식별용이며 내용물 진위를 보증하지 않습니다. 입고 시 제조사 라벨·수량·LOT/DATE CODE를 함께 검수해 주세요.') }}</p>
           </div>
 
           <div class="sp-packing-sheet sp-packing-labels min-h-[1123px] bg-white p-8 shadow-2xl">
             <header class="mb-4 border-b border-gray-900 pb-2">
-              <h2 class="text-lg font-black">QR PACKAGE LABELS</h2>
+              <h2 class="text-lg font-black">{{ pt('QR PACKAGE LABELS') }}</h2>
               <p class="text-[10px] text-gray-500">
-                {{ data.packingNo }} · revision {{ data.revision }} · 라벨을 해당
-                릴·트레이·튜브·봉투·박스에 부착하세요.
+                {{ pt('{p0} · revision {p1} · 라벨을 해당 릴·트레이·튜브·봉투·박스에 부착하세요.', { p0: data.packingNo, p1: data.revision }) }}
               </p>
             </header>
             <div class="grid grid-cols-3 gap-2">
@@ -618,7 +613,7 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
                     class="mx-auto h-20 w-20"
                   >
                   <p class="mt-0.5 break-all font-mono text-[7px] font-black">
-                    {{ entry.pkg.labelCode ?? 'SAVE REQUIRED' }}
+                    {{ entry.pkg.labelCode ?? pt('SAVE REQUIRED') }}
                   </p>
                 </div>
                 <div class="min-w-0 flex-1 text-[8px] leading-4">
@@ -626,14 +621,14 @@ usePrintIsolation('sp-packing-print-style', PRINT_CSS, () => props.open);
                     {{ entry.item.mpn }}
                   </p>
                   <p class="truncate font-semibold">
-                    {{ entry.item.manufacturerName ?? '제조사 미상' }}
+                    {{ entry.item.manufacturerName ?? pt('제조사 미상') }}
                   </p>
-                  <p class="mt-1"><b>QTY</b> {{ entry.pkg.quantity.toLocaleString('ko-KR') }}</p>
-                  <p><b>LOT</b> {{ entry.pkg.lotNo ?? '—' }}</p>
-                  <p><b>DATE</b> {{ entry.pkg.dateCode ?? '—' }}</p>
-                  <p><b>PO</b> #{{ entry.item.poId }}</p>
-                  <p class="truncate"><b>CASE</b> {{ entry.item.quoteTitle }}</p>
-                  <p><b>STATUS</b> {{ BOM_PART_PACKAGE_STATUS_LABELS[entry.pkg.status] }}</p>
+                  <p class="mt-1"><b>{{ pt('QTY') }}</b> {{ pn(entry.pkg.quantity) }}</p>
+                  <p><b>{{ pt('LOT') }}</b> {{ entry.pkg.lotNo ?? '—' }}</p>
+                  <p><b>{{ pt('DATE') }}</b> {{ entry.pkg.dateCode ?? '—' }}</p>
+                  <p><b>{{ pt('PO') }}</b> #{{ entry.item.poId }}</p>
+                  <p class="truncate"><b>{{ pt('CASE') }}</b> {{ entry.item.quoteTitle }}</p>
+                  <p><b>{{ pt('STATUS') }}</b> {{ pt(BOM_PART_PACKAGE_STATUS_LABELS[entry.pkg.status]) }}</p>
                   <p class="mt-1 text-[7px] text-gray-500">
                     {{ data.packingNo }} / #{{ entry.pkg.packageNo }}
                   </p>

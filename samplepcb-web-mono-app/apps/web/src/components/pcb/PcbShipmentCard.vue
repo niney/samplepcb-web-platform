@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePartnerI18n } from '../../partner/i18n';
+
 import { computed, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -27,7 +29,7 @@ import {
 } from '../../partner/usePartnerPcbPos';
 import InvoiceEditorModal from '../smartbom/InvoiceEditorModal.vue';
 import PcbPackageLabelsModal from './PcbPackageLabelsModal.vue';
-import { fmtKstDate as dateOnly } from '@sp/utils';
+import { fmtKstDate as originalDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
 
@@ -37,6 +39,10 @@ import { confirmDialog } from '../../lib/confirmDialog';
 // 단위로 전이한다. 받는측(MD 입고) 액션은 여기 없다 — 발주한 하위 건 상세가 그 자리.
 
 // readonly = 완료 아카이브처럼 조작이 끝난 자리 — 읽는 정보만 남기고 액션을 걷는다.
+const { pt, pn, pd, pm, enabled, locale } = usePartnerI18n();
+
+const dateOnly = (value: string | null | undefined): string => enabled.value ? pd(value) : originalDate(value);
+
 const props = withDefaults(
   defineProps<{ shipment: PcbShipmentViewType; readonly?: boolean }>(),
   { readonly: false },
@@ -47,7 +53,9 @@ const shipNext = computed(() => bomShipmentNextStatus(props.shipment.mode, props
 // 직송 국제 체인 — 'arrived' 표시를 '국내도착'→'현지도착'으로 치환(실물이 KR 에 안 온다).
 const directShip = computed(() => isPcbDirectShipIntl(props.shipment.destinationCountry));
 const statusLabel = (status: PcbShipmentViewType['status']): string =>
-  pcbShipmentStatusLabel(props.shipment.mode, status, { directShip: directShip.value });
+  enabled.value && status === 'delivered'
+    ? pt('배송 완료')
+    : pt(pcbShipmentStatusLabel(props.shipment.mode, status, { directShip: directShip.value }));
 const canAct = computed(
   () =>
     shipNext.value !== null &&
@@ -72,6 +80,8 @@ const revert = usePartnerPcbShipmentRevert();
 const upload = useUploadPartnerPcbShipmentFile();
 
 const error = ref('');
+// Transient feedback belongs to the selected language; preserve all editable document data.
+watch(locale, () => { error.value = ''; });
 const shipDateInput = ref('');
 // 박제 값 복원(되돌리기 대비) — carrierInput 은 국내 '배송 중' 폼, trackingInput 은 그
 // 폼과 국제 준비 체크리스트(직접 발송 갈래)가 같이 쓴다. 모드가 발송마다 고정이라 안 겹친다.
@@ -156,7 +166,7 @@ const transportView = computed<ShipmentTransportType>(() =>
 );
 /** 이 발송의 운송서류 종류·라벨 — 항공 AWB / 해상 B/L. 서버 게이트와 같은 사전에서 온다. */
 const transportDoc = computed(() => shipmentTransportDocType(transportView.value));
-const transportDocLabel = computed(() => PCB_SHIPMENT_FILE_LABELS[transportDoc.value]);
+const transportDocLabel = computed(() => pt(PCB_SHIPMENT_FILE_LABELS[transportDoc.value]));
 const docFile = computed(
   () => props.shipment.files.find((f) => f.fileType === transportDoc.value) ?? null,
 );
@@ -173,8 +183,8 @@ watch(transportInput, () => {
 });
 const requestBlockReason = computed<string | null>(() => {
   if (shipNext.value !== 'requested') return null;
-  if (invoiceFile.value === null) return '① 인보이스를 첨부해야 진행할 수 있습니다.';
-  if (shipDateInput.value.trim() === '') return '④ 출고예정일을 입력해 주세요.';
+  if (invoiceFile.value === null) return pt('① 인보이스를 첨부해야 진행할 수 있습니다.');
+  if (shipDateInput.value.trim() === '') return pt('④ 출고예정일을 입력해 주세요.');
   return null;
 });
 
@@ -187,7 +197,7 @@ const advanceBlocked = computed(
 );
 
 const surface = (e: unknown, fallback: string): void => {
-  error.value = e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
+  error.value = !enabled.value && e instanceof ApiRequestError && e.message !== '' ? e.message : pt(fallback);
 };
 
 async function runAdvance(): Promise<void> {
@@ -228,17 +238,17 @@ async function runAdvance(): Promise<void> {
       },
     });
   } catch (e) {
-    surface(e, '발송 진행에 실패했습니다.');
+    surface(e, pt('발송 진행에 실패했습니다.'));
   }
 }
 
 async function runRevert(): Promise<void> {
-  if (!(await confirmDialog({ message: '발송을 한 단계 되돌릴까요?', confirmLabel: '되돌리기', tone: 'danger' }))) return;
+  if (!(await confirmDialog({ message: pt('발송을 한 단계 되돌릴까요?'), confirmLabel: pt('되돌리기'), tone: 'danger' }))) return;
   error.value = '';
   try {
     await revert.mutateAsync({ poId: repPoId.value });
   } catch (e) {
-    surface(e, '되돌리기에 실패했습니다.');
+    surface(e, pt('되돌리기에 실패했습니다.'));
   }
 }
 
@@ -246,6 +256,14 @@ async function runRevert(): Promise<void> {
 // 맨 API 호출을 주입하면 서버엔 붙는데 쿼리 캐시가 그대로라 '✓ 첨부됨'이 안 뜬다.
 async function attachInvoiceXlsx(file: File): Promise<void> {
   await upload.mutateAsync({ poId: repPoId.value, file, fileType: 'invoice' });
+}
+
+async function downloadFile(fileId: number, name: string): Promise<void> {
+  try {
+    await downloadPartnerPcbShipmentFile(repPoId.value, fileId, name);
+  } catch (cause) {
+    surface(cause, pt('파일 다운로드에 실패했습니다.'));
+  }
 }
 
 function pickFile(fileType: PcbShipmentFileTypeType): void {
@@ -258,7 +276,7 @@ function pickFile(fileType: PcbShipmentFileTypeType): void {
     try {
       await upload.mutateAsync({ poId: repPoId.value, file, fileType });
     } catch (e) {
-      surface(e, '파일 업로드에 실패했습니다.');
+      surface(e, pt('파일 업로드에 실패했습니다.'));
     }
   };
   input.click();
@@ -274,6 +292,7 @@ const STATUS_CLS: Record<string, string> = {
   shipping: 'bg-indigo-100 text-indigo-700',
   delivered: 'bg-emerald-100 text-emerald-700',
 };
+
 </script>
 
 <template>
@@ -282,25 +301,25 @@ const STATUS_CLS: Record<string, string> = {
       <!-- 발송번호 — 아카이브에 같은 모양의 카드가 쌓이면 무엇을 보는 중인지 알 수 없다. -->
       <span class="mr-1 font-mono text-xs font-normal text-gray-400">SH-{{ shipment.shipmentId }}</span>
       → {{ shipment.receiverName }}
-      <template v-if="shipment.destinationCountry !== null"> · 직송 {{ shipment.destinationCountry }}</template>
+      <template v-if="shipment.destinationCountry !== null">{{ pt('· 직송 {p0}', { p0: shipment.destinationCountry }) }}</template>
       <!-- 회차 — 보드 박스 헤더와 같은 규칙(진행 중 발송이 여러 건 쌓이면 받는곳·직송지가
            같은 카드끼리 회차로만 갈린다. 회차 발주는 원발주 발송에 합류하지 않는다). -->
       <span
         v-if="shipment.reorderRound > 0"
         class="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700"
-      >A/S {{ shipment.reorderRound }}차</span>
+      >{{ pt('A/S {p0}차', { p0: shipment.reorderRound }) }}</span>
       <span class="ml-2 rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[shipment.status]">
         {{ statusLabel(shipment.status) }}
       </span>
       <span class="ml-1 text-xs font-normal text-gray-400">
-        {{ BOM_SHIPMENT_MODE_LABELS[shipment.mode] }}
+        {{ pt(BOM_SHIPMENT_MODE_LABELS[shipment.mode]) }}
       </span>
       <!-- 운송수단 — 박제된 값이 있을 때만. null(이 축 도입 전 발송)을 '항공'으로 그리면
            고른 적 없는 것이 고른 것으로 굳는다(서버 응답도 같은 이유로 null 을 지킨다). -->
       <span
         v-if="shipment.mode === 'international' && shipment.transport !== null"
         class="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700"
-      >{{ SHIPMENT_TRANSPORT_LABELS[shipment.transport] }}</span>
+      >{{ pt(SHIPMENT_TRANSPORT_LABELS[shipment.transport]) }}</span>
     </h2>
 
     <!-- 스텝퍼 -->
@@ -316,19 +335,18 @@ const STATUS_CLS: Record<string, string> = {
       </template>
     </ol>
     <p v-if="shipment.receivedAt !== null" class="mt-1.5 text-xs font-semibold text-emerald-700">
-      입고 확인 완료 {{ dateOnly(shipment.receivedAt) }}
-      <template v-if="shipment.receivedNote !== null && shipment.receivedNote !== ''"> — 메모: {{ shipment.receivedNote }}</template>
+      {{ pt('입고 확인 완료 {p0}', { p0: dateOnly(shipment.receivedAt) }) }}<template v-if="shipment.receivedNote !== null && shipment.receivedNote !== ''">{{ pt('— 메모: {p0}', { p0: shipment.receivedNote }) }}</template>
     </p>
     <!-- 번호의 이름은 운송수단이 정한다 — 국제는 AWB No./B/L No., 국내 택배는 '운송장'.
          국내에 서류 라벨을 쓰면 폴백('air')이 새어 택배 송장이 'AWB No.'로 보인다. -->
     <p v-if="shipment.trackingNumber !== null" class="mt-1 text-xs text-gray-500">
-      {{ shipment.mode === 'international' ? `${transportDocLabel} No.` : '운송장' }}:
+      {{ shipment.mode === 'international' ? `${transportDocLabel} No.` : pt('운송장') }}:
       {{ shipment.carrier ?? '' }} {{ shipment.trackingNumber }}
     </p>
     <!-- 운송장 전 단계 — 선적 요청에 적어 둔 운송회사가 대기 화면에서도 보이게(안 보이면
          "저장됐나?" 를 되돌리기로 확인하게 된다). 운송장이 잡히면 윗줄에 합쳐 나온다. -->
     <p v-else-if="shipment.carrier !== null && shipment.carrier !== ''" class="mt-1 text-xs text-gray-500">
-      운송회사: {{ shipment.carrier }}
+      {{ pt('운송회사: {p0}', { p0: shipment.carrier }) }}
     </p>
 
     <!-- Case ID 갈래 — '내가 제출한 서류'와 '샘플피씨비 처리·회신'을 영역으로 가른다.
@@ -336,7 +354,7 @@ const STATUS_CLS: Record<string, string> = {
          준비 체크리스트 단계에선 숨긴다 — 그 정보(①인보이스·②방식)는 체크리스트 몫. -->
     <template v-if="caseRefBranch && !checklistMode">
       <div class="mt-2 rounded-lg border border-gray-200 p-2.5">
-        <p class="text-[11px] font-bold text-gray-500">내가 제출한 서류</p>
+        <p class="text-[11px] font-bold text-gray-500">{{ pt('내가 제출한 서류') }}</p>
         <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
           <button
             v-for="f in myFiles"
@@ -344,45 +362,40 @@ const STATUS_CLS: Record<string, string> = {
             type="button"
             class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
             :title="f.name"
-            @click="void downloadPartnerPcbShipmentFile(repPoId, f.fileId, f.name)"
+            @click="void downloadFile(f.fileId, f.name)"
           >
-            ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+            ⬇ {{ pt(PCB_SHIPMENT_FILE_LABELS[f.fileType]) }}
           </button>
-          <span v-if="myFiles.length === 0" class="text-gray-300">
-            (관리자 수정본으로 교체되어 회신 영역에 있습니다)
-          </span>
+          <span v-if="myFiles.length === 0" class="text-gray-300">{{ pt('(관리자 수정본으로 교체되어 회신 영역에 있습니다)') }}</span>
           <template v-if="canEditDocs && shipment.shippedAt === null && shipment.receivedAt === null">
             <button
               type="button"
               class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
               @click="invoiceOpen = true"
             >
-              🧾 인보이스 생성기
+              {{ pt('🧾 인보이스 생성기') }}
             </button>
             <button
               type="button"
               class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
               @click="pickFile('invoice')"
             >
-              ⬆ 인보이스 교체
+              {{ pt('⬆ 인보이스 교체') }}
             </button>
           </template>
         </div>
       </div>
       <div v-if="caseRefPending" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        <b>샘플피씨비 처리 대기 중</b> — 인보이스 확인 후 Case ID·운송장·{{ transportDocLabel }} 를 준비합니다.
-        완료되면 메일로 안내됩니다.
-        <span v-if="shipment.caseRefNote !== null && shipment.caseRefNote !== ''" class="mt-0.5 block text-amber-600">
-          요청 메모: {{ shipment.caseRefNote }}
+        <b>{{ pt('샘플피씨비 처리 대기 중') }}</b>{{ pt('— 인보이스 확인 후 Case ID·운송장·{p0} 를 준비합니다. 완료되면 메일로 안내됩니다.', { p0: transportDocLabel }) }}<span v-if="shipment.caseRefNote !== null && shipment.caseRefNote !== ''" class="mt-0.5 block text-amber-600">{{ pt('요청 메모: {p0}', { p0: shipment.caseRefNote }) }}
         </span>
       </div>
       <div
         v-else-if="shipment.caseRef !== null && shipment.caseRef !== ''"
         class="mt-2 rounded-lg border border-teal-200 bg-teal-50 p-2.5 text-xs text-teal-900"
       >
-        <p class="font-bold">샘플피씨비가 준비한 선적 서류 — 확인 후 라벨링·인계해 주세요</p>
+        <p class="font-bold">{{ pt('샘플피씨비가 준비한 선적 서류 — 확인 후 라벨링·인계해 주세요') }}</p>
         <p class="mt-1">
-          발송 참조번호(Case ID): <b class="tracking-wide">{{ shipment.caseRef }}</b>
+          {{ pt('발송 참조번호(Case ID):') }}<b class="tracking-wide">{{ shipment.caseRef }}</b>
           <template v-if="shipment.trackingNumber !== null">
             · {{ transportDocLabel }} No.: {{ shipment.carrier ?? '' }}
             <span class="tabular-nums">{{ shipment.trackingNumber }}</span>
@@ -395,9 +408,9 @@ const STATUS_CLS: Record<string, string> = {
             type="button"
             class="rounded-md border border-teal-300 bg-surface px-2 py-1 font-semibold text-teal-700 hover:bg-teal-100"
             :title="f.name"
-            @click="void downloadPartnerPcbShipmentFile(repPoId, f.fileId, f.name)"
+            @click="void downloadFile(f.fileId, f.name)"
           >
-            ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+            ⬇ {{ pt(PCB_SHIPMENT_FILE_LABELS[f.fileType]) }}
           </button>
         </div>
       </div>
@@ -407,7 +420,7 @@ const STATUS_CLS: Record<string, string> = {
           class="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-400 hover:bg-gray-50"
           @click="void runRevert()"
         >
-          ↩ 되돌리기
+          {{ pt('↩ 되돌리기') }}
         </button>
       </div>
     </template>
@@ -423,7 +436,7 @@ const STATUS_CLS: Record<string, string> = {
           {{ g.projectName }}
         </RouterLink>
         <span class="shrink-0 text-gray-400">
-          {{ g.qty.toLocaleString('ko-KR') }}pcs · {{ fmtPcbAmount(g.currency, g.priceOriginal) }}
+          {{ pn(g.qty) }}pcs · {{ g.priceOriginal === null ? '—' : enabled ? pm(g.priceOriginal, g.currency) : fmtPcbAmount(g.currency, g.priceOriginal) }}
         </span>
       </li>
     </ul>
@@ -433,7 +446,7 @@ const STATUS_CLS: Record<string, string> = {
         class="rounded-md border border-teal-300 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100"
         @click="labelsOpen = true"
       >
-        ▦ PCB QR 라벨 {{ shipment.groupPos.length }}장
+        {{ pt('▦ PCB QR 라벨 {p0}장', { p0: shipment.groupPos.length }) }}
       </button>
     </div>
 
@@ -442,22 +455,22 @@ const STATUS_CLS: Record<string, string> = {
          필수/옵션/갈래별 서류가 자기 자리에 서고, 잠금 사유는 버튼 밑에서 위를 가리킨다. -->
     <div v-if="checklistMode" class="mt-3 space-y-2.5">
       <section class="rounded-lg border border-gray-200 p-3">
-        <p class="text-xs font-bold text-gray-700">① 인보이스 준비 <span class="text-red-500">*</span></p>
+        <p class="text-xs font-bold text-gray-700">{{ pt('① 인보이스 준비') }}<span class="text-red-500">*</span></p>
         <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <button
             type="button"
             class="rounded-md bg-teal-600 px-3 py-1.5 font-bold text-white hover:bg-teal-700"
             @click="invoiceOpen = true"
           >
-            🧾 인보이스 생성기
+            {{ pt('🧾 인보이스 생성기') }}
           </button>
-          <span class="rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">권장</span>
+          <span class="rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">{{ pt('권장') }}</span>
           <button
             type="button"
             class="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 hover:bg-gray-50"
             @click="pickFile('invoice')"
           >
-            ⬆ 직접 업로드
+            {{ pt('⬆ 직접 업로드') }}
           </button>
           <!-- 검사 성적서는 발송 방식과 무관한 제품 서류라 갈래(②) 밖 — 옵션 서류는
                오른쪽 끝(필수 동선과 시선이 섞이지 않게). -->
@@ -466,29 +479,27 @@ const STATUS_CLS: Record<string, string> = {
             type="button"
             :class="testReportFile === null ? 'ml-auto' : ''"
             class="rounded-md border border-gray-200 px-2.5 py-1 font-semibold text-gray-400 hover:bg-gray-50"
-            title="검사 성적서(TEST Report) — 있는 경우에만 첨부"
+            :title="pt('검사 성적서(TEST Report) — 있는 경우에만 첨부')"
             @click="pickFile('test_report')"
           >
-            ⬆ TEST Report <span class="font-normal">(선택)</span>
+            {{ pt('⬆ TEST Report') }} <span class="font-normal">{{ pt('(선택)') }}</span>
           </button>
         </div>
         <p v-if="invoiceFile !== null" class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-          <span class="font-semibold text-emerald-600">✓ 첨부됨</span>
+          <span class="font-semibold text-emerald-600">{{ pt('✓ 첨부됨') }}</span>
           <span class="max-w-[16rem] truncate text-gray-600" :title="invoiceFile.name">{{ invoiceFile.name }}</span>
-          <button type="button" class="text-teal-700 hover:underline" @click="void downloadPartnerPcbShipmentFile(repPoId, invoiceFile.fileId, invoiceFile.name)">내려받기</button>
+          <button type="button" class="text-teal-700 hover:underline" @click="void downloadFile(invoiceFile.fileId, invoiceFile.name)">{{ pt('내려받기') }}</button>
           <span class="text-gray-300">·</span>
-          <button type="button" class="text-gray-500 hover:underline" @click="pickFile('invoice')">교체</button>
+          <button type="button" class="text-gray-500 hover:underline" @click="pickFile('invoice')">{{ pt('교체') }}</button>
         </p>
-        <p v-else class="mt-2 text-xs text-gray-400">
-          생성기를 쓰면 발주 품목·금액이 자동으로 채워집니다(엑셀로 첨부).
-        </p>
+        <p v-else class="mt-2 text-xs text-gray-400">{{ pt('생성기를 쓰면 발주 품목·금액이 자동으로 채워집니다(엑셀로 첨부).') }}</p>
       </section>
 
       <!-- ② 운송수단 — ③(누가 부치나)과 **직교**하는 축이라 섹션을 따로 세운다.
            ③보다 먼저 와야 한다: 이 값이 정해져야 아래 서류 버튼이 AWB 인지 B/L 인지
            정해진다(순서가 곧 의존이다). 국내 체인엔 체크리스트 자체가 없다. -->
       <section class="rounded-lg border border-gray-200 p-3">
-        <p class="text-xs font-bold text-gray-700">② 운송수단 <span class="text-red-500">*</span></p>
+        <p class="text-xs font-bold text-gray-700">{{ pt('② 운송수단') }}<span class="text-red-500">*</span></p>
         <div class="mt-2 flex flex-wrap gap-5">
           <label
             v-for="t in SHIPMENT_TRANSPORTS"
@@ -496,21 +507,18 @@ const STATUS_CLS: Record<string, string> = {
             class="flex cursor-pointer items-center gap-1.5 text-xs text-gray-700"
           >
             <input v-model="transportInput" type="radio" :value="t">
-            <b>{{ SHIPMENT_TRANSPORT_LABELS[t] }}</b>
-            <span class="font-normal text-gray-400">{{ t === 'air' ? '(특송·AWB)' : '(선박·B/L)' }}</span>
+            <b>{{ pt(SHIPMENT_TRANSPORT_LABELS[t]) }}</b>
+            <span class="font-normal text-gray-400">{{ t === 'air' ? pt('(특송·AWB)') : pt('(선박·B/L)') }}</span>
           </label>
         </div>
-        <p class="mt-1.5 text-[11px] text-gray-400">
-          운송서류는 <b class="font-semibold text-gray-500">{{ transportDocLabel }}</b> 입니다 —
-          바꾸면 아래 운송회사·번호 입력이 초기화됩니다.
-        </p>
+        <p class="mt-1.5 text-[11px] text-gray-400">{{ pt('운송서류는') }} <b class="font-semibold text-gray-500">{{ transportDocLabel }}</b>{{ pt('입니다 — 바꾸면 아래 운송회사·번호 입력이 초기화됩니다.') }}</p>
       </section>
 
       <section class="rounded-lg border border-gray-200 p-3">
-        <p class="text-xs font-bold text-gray-700">③ 발송 방식 선택</p>
+        <p class="text-xs font-bold text-gray-700">{{ pt('③ 발송 방식 선택') }}</p>
         <label class="mt-2 flex cursor-pointer items-start gap-2 text-xs text-gray-700">
           <input v-model="shipMethod" type="radio" value="self" class="mt-0.5">
-          <span><b>내 운송 계정으로 직접 발송</b> — {{ transportDocLabel }} 를 직접 첨부합니다.</span>
+          <span><b>{{ pt('내 운송 계정으로 직접 발송') }}</b>{{ pt('— {p0} 를 직접 첨부합니다.', { p0: transportDocLabel }) }}</span>
         </label>
         <div v-if="shipMethod === 'self'" class="ml-6 mt-2 flex flex-wrap items-center gap-2 text-xs">
           <button
@@ -518,7 +526,7 @@ const STATUS_CLS: Record<string, string> = {
             class="rounded-md border border-gray-300 px-2.5 py-1 font-semibold text-gray-600 hover:bg-gray-50"
             @click="pickFile(transportDoc)"
           >
-            ⬆ {{ transportDocLabel }} 첨부
+            {{ pt('⬆ {p0} 첨부', { p0: transportDocLabel }) }}
           </button>
           <span v-if="docFile !== null" class="font-semibold text-emerald-600">✓ {{ docFile.name }}</span>
           <!-- 옵션 서류는 오른쪽 끝 — 필수 동선(왼쪽 열)과 시선이 섞이지 않게. -->
@@ -527,10 +535,10 @@ const STATUS_CLS: Record<string, string> = {
             type="button"
             :class="coFile === null ? 'ml-auto' : ''"
             class="rounded-md border border-gray-200 px-2.5 py-1 font-semibold text-gray-400 hover:bg-gray-50"
-            title="원산지증명원(Certificate of Origin) — 통관에 필요한 경우에만"
+            :title="pt('원산지증명원(Certificate of Origin) — 통관에 필요한 경우에만')"
             @click="pickFile('origin_cert')"
           >
-            ⬆ 원산지증명원 <span class="font-normal">(선택)</span>
+            {{ pt('⬆ 원산지증명원') }}<span class="font-normal">{{ pt('(선택)') }}</span>
           </button>
         </div>
         <!-- 운송회사·번호 — 항공은 정식 표기 셀렉트(표기 흩어짐 방지), 해상은 선사가
@@ -538,28 +546,28 @@ const STATUS_CLS: Record<string, string> = {
              이름도 수단을 따른다(AWB No. / B/L No.) — 둘은 자릿수·형식이 다르다. -->
         <div v-if="shipMethod === 'self'" class="ml-6 mt-2 flex flex-wrap items-center gap-2 text-xs">
           <span class="font-semibold text-gray-500">
-            {{ transportInput === 'sea' ? '선사·포워더' : '운송회사' }}
-            <span class="font-normal text-gray-400">(선택)</span>
+            {{ transportInput === 'sea' ? pt('선사·포워더') : pt('운송회사') }}
+            <span class="font-normal text-gray-400">{{ pt('(선택)') }}</span>
           </span>
           <select
             v-if="transportInput === 'air'"
             v-model="carrierChoice"
             class="h-8 rounded-md border border-gray-300 bg-surface px-2 text-xs focus:border-teal-500 focus:outline-none"
           >
-            <option value="">선택 안 함</option>
+            <option value="">{{ pt('선택 안 함') }}</option>
             <option v-for="c in INTL_CARRIERS" :key="c" :value="c">{{ c }}</option>
-            <option :value="CARRIER_CUSTOM">직접입력</option>
+            <option :value="CARRIER_CUSTOM">{{ pt('직접입력') }}</option>
           </select>
           <input
             v-if="transportInput === 'sea' || carrierChoice === CARRIER_CUSTOM"
             v-model="carrierCustomInput"
             type="text"
             maxlength="50"
-            :placeholder="transportInput === 'sea' ? '선사 또는 포워더명' : '운송회사명'"
+            :placeholder="transportInput === 'sea' ? pt('선사 또는 포워더명') : pt('운송회사명')"
             class="h-8 w-44 rounded-md border border-gray-300 px-2 text-xs focus:border-teal-500 focus:outline-none"
           >
           <span class="font-semibold text-gray-500">
-            {{ transportDocLabel }} No. <span class="font-normal text-gray-400">(선택)</span>
+            {{ transportDocLabel }} No. <span class="font-normal text-gray-400">{{ pt('(선택)') }}</span>
           </span>
           <input
             v-model="trackingInput"
@@ -572,19 +580,16 @@ const STATUS_CLS: Record<string, string> = {
           <label class="mt-2 flex cursor-pointer items-start gap-2 text-xs text-gray-700">
             <input v-model="shipMethod" type="radio" value="caseref" class="mt-0.5">
             <span>
-              <b>샘플피씨비 운송으로 발송 — 발송 참조번호(Case ID) 요청</b>
+              <b>{{ pt('샘플피씨비 운송으로 발송 — 발송 참조번호(Case ID) 요청') }}</b>
             </span>
           </label>
           <div v-if="shipMethod === 'caseref'" class="ml-6 mt-2 space-y-2">
-            <p class="rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
-              Case ID·운송장·{{ transportDocLabel }} 는 샘플피씨비가 처리합니다. 준비되면 메일로
-              안내되며, 그 전까지 발송은 진행되지 않습니다.
-            </p>
+            <p class="rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{{ pt('Case ID·운송장·{p0} 는 샘플피씨비가 처리합니다. 준비되면 메일로 안내되며, 그 전까지 발송은 진행되지 않습니다.', { p0: transportDocLabel }) }}</p>
             <input
               v-model="caseRefNoteInput"
               type="text"
               maxlength="255"
-              placeholder="요청 메모(선택) — 예: DHL 착불 계정번호가 필요합니다"
+              :placeholder="pt('요청 메모(선택) — 예: DHL 착불 계정번호가 필요합니다')"
               class="w-full rounded-md border border-amber-200 bg-surface px-3 py-1.5 text-xs focus:border-amber-400 focus:outline-none"
             >
           </div>
@@ -592,7 +597,7 @@ const STATUS_CLS: Record<string, string> = {
       </section>
 
       <section class="rounded-lg border border-gray-200 p-3">
-        <p class="text-xs font-bold text-gray-700">④ 출고예정일 <span class="text-red-500">*</span></p>
+        <p class="text-xs font-bold text-gray-700">{{ pt('④ 출고예정일') }}<span class="text-red-500">*</span></p>
         <input v-model="shipDateInput" type="date" class="mt-2 w-48 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
       </section>
 
@@ -602,7 +607,7 @@ const STATUS_CLS: Record<string, string> = {
         :disabled="advance.isPending.value || advanceBlocked"
         @click="void runAdvance()"
       >
-        선적 요청 진행
+        {{ pt('선적 요청 진행') }}
       </button>
       <p v-if="requestBlockReason !== null" class="text-xs text-gray-400">ⓘ {{ requestBlockReason }}</p>
     </div>
@@ -613,11 +618,11 @@ const STATUS_CLS: Record<string, string> = {
         <div class="grid gap-2 sm:grid-cols-2">
           <template v-if="shipNext === 'shipping'">
             <label class="block">
-              <span class="text-xs font-semibold text-gray-500">택배사 *</span>
-              <input v-model="carrierInput" type="text" placeholder="CJ대한통운 / SF Express" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
+              <span class="text-xs font-semibold text-gray-500">{{ pt('택배사 *') }}</span>
+              <input v-model="carrierInput" type="text" :placeholder="pt('CJ대한통운 / SF Express')" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
             </label>
             <label class="block">
-              <span class="text-xs font-semibold text-gray-500">송장번호 *</span>
+              <span class="text-xs font-semibold text-gray-500">{{ pt('송장번호 *') }}</span>
               <input v-model="trackingInput" type="text" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-teal-500 focus:outline-none">
             </label>
           </template>
@@ -628,11 +633,11 @@ const STATUS_CLS: Record<string, string> = {
           :disabled="advance.isPending.value || advanceBlocked"
           @click="void runAdvance()"
         >
-          {{ statusLabel(shipNext) }} 진행
+          {{ pt('{p0} 진행', { p0: statusLabel(shipNext) }) }}
         </button>
       </div>
       <p v-else-if="shipNext !== null" class="mt-3 text-sm text-gray-500">
-        {{ shipment.receiverName }} 측 처리를 기다리고 있습니다.
+        {{ pt('{p0} 측 처리를 기다리고 있습니다.', { p0: shipment.receiverName }) }}
       </p>
     </template>
 
@@ -646,14 +651,14 @@ const STATUS_CLS: Record<string, string> = {
         <button
           type="button"
           class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
-          @click="void downloadPartnerPcbShipmentFile(repPoId, f.fileId, f.name)"
+          @click="void downloadFile(f.fileId, f.name)"
         >
-          ⬇ {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
+          ⬇ {{ pt(PCB_SHIPMENT_FILE_LABELS[f.fileType]) }}
         </button>
       </template>
       <template v-if="canEditDocs">
         <button type="button" class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50" @click="pickFile('invoice')">
-          ⬆ Invoice
+          {{ pt('⬆ Invoice') }}
         </button>
         <button
           type="button"
@@ -667,24 +672,24 @@ const STATUS_CLS: Record<string, string> = {
           class="rounded-md border border-teal-300 px-2 py-1 font-semibold text-teal-700 hover:bg-teal-50"
           @click="invoiceOpen = true"
         >
-          🧾 인보이스 생성기
+          {{ pt('🧾 인보이스 생성기') }}
         </button>
         <!-- 옵션 서류는 오른쪽 끝 — 필수 동선과 시선이 섞이지 않게. -->
         <button
           type="button"
           class="ml-auto rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
-          title="검사 성적서(TEST Report) — 있는 경우에만 첨부(선택)"
+          :title="pt('검사 성적서(TEST Report) — 있는 경우에만 첨부(선택)')"
           @click="pickFile('test_report')"
         >
-          ⬆ TEST Report <span class="font-normal">(선택)</span>
+          {{ pt('⬆ TEST Report') }} <span class="font-normal">{{ pt('(선택)') }}</span>
         </button>
         <button
           type="button"
           class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
-          title="원산지증명원(Certificate of Origin) — 통관에 필요한 경우 첨부(선택)"
+          :title="pt('원산지증명원(Certificate of Origin) — 통관에 필요한 경우 첨부(선택)')"
           @click="pickFile('origin_cert')"
         >
-          ⬆ 원산지증명원 <span class="font-normal">(선택)</span>
+          {{ pt('⬆ 원산지증명원') }}<span class="font-normal">{{ pt('(선택)') }}</span>
         </button>
       </template>
       <button
@@ -693,7 +698,7 @@ const STATUS_CLS: Record<string, string> = {
         class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
         @click="void runRevert()"
       >
-        ↩ 되돌리기
+        {{ pt('↩ 되돌리기') }}
       </button>
     </div>
 
@@ -703,7 +708,7 @@ const STATUS_CLS: Record<string, string> = {
          (관리자가 내려받아 수동 수정 후 재첨부하는 왕복이 있어 PDF 는 안 쓴다 — 08-13). -->
     <InvoiceEditorModal
       :open="invoiceOpen"
-      title="인보이스 생성기"
+      :title="pt('인보이스 생성기')"
       :load-draft="invoiceApi.loadDraft"
       :save-draft="invoiceApi.saveDraft"
       :render-xlsx="invoiceApi.renderXlsx"
