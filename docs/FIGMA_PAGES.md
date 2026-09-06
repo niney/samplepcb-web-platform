@@ -9,7 +9,8 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 | 홈 `/` | 2122:5280 웹 메인 + 슬라이드 2122:7989·9271·9557 | `theme/sp-lite/index.php`, `inc/main_slider.php`, `css/home.css`, `js/home.js`, `skin/latest/home-fig/` | 5d7340df3 |
 | 공용 푸터 | 2122:6043 | `theme/sp-lite/inc/footer.php`, `css/default.css` | 5d7340df3 |
 | 회사소개 `/about` | 2122:6136 GNB > 회사소개 | `spcb/pages/about.php`, `css/about.css`, `img/about/` | e71cebaad |
-| 회사 연혁 `/history` | 2122:6658 GNB > 회사 연혁 | `spcb/pages/history.php`, `css/history.css`, `img/history/` | (이번 커밋) |
+| 회사 연혁 `/history` | 2122:6658 GNB > 회사 연혁 | `spcb/pages/history.php`, `css/history.css`, `img/history/` | cc925e72e |
+| 회사 위치 `/location` | 2122:7157 GNB > 회사 위치 (지사 선택 시) — Contact Us 제외 | `spcb/pages/location.php`, `css/location.css`, `img/location/` | (이번 커밋) |
 
 ## 홈 `/` — 미결
 - 히어로 버튼(주문하기·체험하기·자세히 보기)·카드 버튼·서비스 탭 8개·세 가지 방법 버튼: **링크 없음**.
@@ -38,6 +39,19 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 연혁이 **2023년 5월까지**만 있음 — 2024~2026 항목 받으면 `history.php` 의 `$sp_history` 에 추가.
 - 타임라인 배경 사진(luke-jones, 무료 Unsplash)의 방사형 마스크·Linear Burn 은 CSS 근사(multiply + radial mask).
 - 회사소개 서브메뉴는 여전히 미구현(위치 페이지 뒤 일괄).
+
+## 회사 위치 `/location` — 피그마와 다르게 둔 것(사용자 결정 2026-09-06) · 기록만 한 것
+- **Contact Us 폼(2122:7383)은 미구현** — 접수 백엔드(A 게시판 / B PHP / C sp-node, 회원 전용이면 그누보드 1:1문의 모듈)가 정해지면 카드 아래 140px 여백 자리에 붙인다. 정본 `docs/CONTACT_INQUIRY.md`.
+- **지도**(2122:7330)는 네이버 지도 스크린샷 → 사용자 결정으로 **구글 지도 임베드**(레거시 URL, 키 불필요). 네이버 지도로 바꾸려면 NCP Maps 키(Web Dynamic Map, `ncpKeyId`) + 도메인 등록이 필요. `location.php` 의 `$sp_map_src` 만 교체.
+- 첫 프레임(2122:6908, 지사 선택 전 상태)은 폼을 빼면 배너뿐이라 **선택 완료 상태 한 페이지**로만 구현. 대륙·국가 드롭다운은 선택지 하나짜리 실제 `<select>`(동작 없음). 라벨이 둘 다 "Search the office"인 것도 피그마 그대로.
+- 브레드크럼 "회사연혁"(2122:7180) → "회사위치" 로 교정.
+- 카드 모서리: 피그마가 radius 0 흰 배경(2122:7327) 위에 radius 20 테두리(2122:7382)를 겹쳐 놓음 → **카드 전체 radius 20** 으로 통일.
+- 배너 영문 문구 "We have offices worldwide…"(2122:7195)는 지사 한 곳인 실제와 어긋남 — 피그마 그대로. 디자이너 문구 확정 필요.
+- "**공사** A-1407호"(2122:7338) 명칭이 공장 오타인지 불명 — 피그마 그대로. 레거시 위치 페이지에 있던 인천 서구 가좌동 두 번째 지도는 피그마에 없어 미구현.
+- 카드의 전화 "070-8667-1080"은 푸터 "070-8667-1080~1"과 표기가 다름 — 피그마 그대로(`location.php` 의 `$sp_offices`).
+- 점 세계지도는 피그마 벡터(3,792개 점) SVG + 방사형 페이드는 피그마 gradientTransform 을 그대로 옮긴 `world-fade.svg` 알파 마스크. 발광 점 3개는 CSS blur.
+- 회사소개 서브메뉴는 여전히 미구현(회사소개·연혁·위치 세 페이지 일괄).
+- 반응형(1023px 이하)은 피그마에 없어 우리 정의(390px 실측: 넘침·겹침 0).
 
 ## 공통 함정
 - 그누보드 `latest()` 는 1시간 캐시(`data/cache/latest-*.php`) — 홈 게시판 스킨을 고치면 지울 것.
