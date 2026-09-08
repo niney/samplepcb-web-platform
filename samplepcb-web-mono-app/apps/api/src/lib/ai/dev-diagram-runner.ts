@@ -372,7 +372,7 @@ async function runOne(entry: QueueEntry): Promise<void> {
         conn,
         runtime.model,
         prompt,
-        runtime.def.timeoutMs,
+        runtime.timeoutMs, // think 'max' 면 def 의 2배
         [],
         {
           think: toOllamaThink(runtime.think),

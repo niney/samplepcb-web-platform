@@ -141,7 +141,9 @@ const thinkLabel = (level: AiThinkLevelType): string =>
       ? t('admin.settings.ai.devDiagram.thinkLow')
       : level === 'medium'
         ? t('admin.settings.ai.devDiagram.thinkMedium')
-        : t('admin.settings.ai.devDiagram.thinkHigh');
+        : level === 'high'
+          ? t('admin.settings.ai.devDiagram.thinkHigh')
+          : t('admin.settings.ai.devDiagram.thinkMax');
 const canTest = computed(() => !isTestRunning.value && drModel.value.trim() !== '');
 
 const jobStatusLabel = (status: 'running' | 'done' | 'error'): string =>

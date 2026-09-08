@@ -11,9 +11,10 @@ export interface AiConnection {
   apiKey: string | null;
 }
 
-// thinking 제어 — boolean(on/off) 또는 effort 단계(kimi-k3·gpt-oss 계열: low|medium|high).
-// 정밀 구성도 프로빙(§12.11)에서 kimi-k3 는 'high' 에서만 채택 품질이 나왔다.
-export type OllamaThink = boolean | 'low' | 'medium' | 'high';
+// thinking 제어 — boolean(on/off) 또는 effort 단계(kimi-k3·gpt-oss 계열: low|medium|high|max).
+// 정밀 구성도 프로빙(§12.11)에서 kimi-k3 는 'high' 에서만 채택 품질이 나왔다. 'max' 는 서버가 받는 최고 단계
+// (허용값 실측: high|medium|low|max|true|false — 그 밖은 400) — 사고량이 high 의 ~23배라 타임아웃을 늘려 쓴다.
+export type OllamaThink = boolean | 'low' | 'medium' | 'high' | 'max';
 
 export interface OllamaChatExtra {
   // 'json' 또는 JSON 스키마 객체 — 서버가 문법 수준에서 출력 형태를 강제한다.

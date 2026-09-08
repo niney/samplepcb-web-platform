@@ -228,7 +228,7 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
         },
         images: prepared.images,
         inputHash,
-        timeoutMs: runtime.def.timeoutMs,
+        timeoutMs: runtime.timeoutMs,
         log: request.log,
       });
       request.log.info(

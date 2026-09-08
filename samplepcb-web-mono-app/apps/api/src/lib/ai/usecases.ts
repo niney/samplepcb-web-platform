@@ -74,10 +74,15 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
   },
 };
 
-// 관리자 설정값(off|low|medium|high) → ollama think 옵션.
+// 관리자 설정값(off|low|medium|high|max) → ollama think 옵션.
 export const toOllamaThink = (level: AiThinkLevelType): OllamaThink => (level === 'off' ? false : level);
 export const asThinkLevel = (v: string | null | undefined, fallback: AiThinkLevelType): AiThinkLevelType =>
-  v === 'off' || v === 'low' || v === 'medium' || v === 'high' ? v : fallback;
+  v === 'off' || v === 'low' || v === 'medium' || v === 'high' || v === 'max' ? v : fallback;
+// think 'max' 는 사고량이 high 의 ~23배·시간 ~4배(kimi-k3 실측 2026-09-08)라 정밀 구성도(high 566초)가 def.timeoutMs 를
+// 넘길 수 있다 — 2배로 잡는다. 러너는 def.timeoutMs 대신 이 값을 쓴다.
+export const THINK_MAX_TIMEOUT_MULTIPLIER = 2;
+export const usecaseTimeoutMs = (def: AiUsecaseDef, think: AiThinkLevelType): number =>
+  think === 'max' ? def.timeoutMs * THINK_MAX_TIMEOUT_MULTIPLIER : def.timeoutMs;
 
 // ── 연결 설정 — 우선순위: env(.env) > 관리자 저장값(sp_config) > 기본값 ──────
 // 운영은 .env 파일 관리 권장(키가 DB 에 남지 않음). env 가 잡혀 있으면 관리자 화면
@@ -202,17 +207,20 @@ export interface AiUsecaseRuntime {
   model: string;
   think: AiThinkLevelType;
   extraInstructions: string;
+  timeoutMs: number; // def.timeoutMs, think 'max' 면 2배(usecaseTimeoutMs)
   def: AiUsecaseDef;
 }
 
 export async function getAiUsecaseRuntime(key: AiUsecaseKeyType): Promise<AiUsecaseRuntime> {
   const row = await getAiUsecase(key);
   const def = AI_USECASE_DEFS[key];
+  const think = asThinkLevel(row?.think, def.think);
   return {
     enabled: row?.enabled ?? false,
     model: row?.model ?? def.defaultModel,
-    think: asThinkLevel(row?.think, def.think),
+    think,
     extraInstructions: row?.extraInstructions ?? '',
+    timeoutMs: usecaseTimeoutMs(def, think),
     def,
   };
 }

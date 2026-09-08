@@ -590,7 +590,7 @@ MARKET_COMMON_QUESTIONS = [stage, quantity, external]                   // 공�
 | `sp_market_project` | `serviceAreas`(string[]) · `tools`(MarketTools) · `answers`(MarketAnswers, 옛 `interviewAnswers` 개명) · `devReview`(v3) · `devDiagram`(MarketDevDiagram 메타) · `devDiagramHtml`(살균 HTML). 삭제: `specialties`·`cadTools`·`diagramSpec`·`rocMd`·`interviewAnswersSharedAt`·`postings`·`aiGenerationMeta` |
 | `sp_market_expert` | `serviceAreas` · `tools`. 삭제: `categories`·`cadTools` |
 | `sp_file` | `area`·`slot`(nullable — 의뢰 슬롯 첨부만) |
-| `sp_ai_usecase` | `think`(off\|low\|medium\|high) 추가. 유스케이스 2종 `market.dev-review`·`market.dev-diagram` |
+| `sp_ai_usecase` | `think`(off|low|medium|high|max — max 는 §13.13) 추가. 유스케이스 2종 `market.dev-review`·`market.dev-diagram` |
 
 계약: `MarketProjectCreatePayload` = `{ title, serviceAreas, tools, description, answers, aiConsent, devReviewJobId?, ndaRequired, budgetRange, deadline, method, targetExpertId? }`. multipart 파트 = `attachment`(일반) + `attachment:<area>:<slot>`(슬롯, 레지스트리·선택 분야 검증 → 400 `ATTACHMENT_FIELD_INVALID`). 검토서 입력 해시의 첨부 항목은 **`attachment`(1스텝 참고 자료)만** `${파트명}:${sha256}` 정렬 앞 10개(`routes/ai.ts devReviewAttachmentHashes` — 등록 라우트와 공유). 슬롯 첨부는 AI 분석 대상이 아니라 해시에서 뺀다(§13.10).
 
@@ -753,3 +753,22 @@ market 타입체크·eslint 0.
 
 검증(2026-09-04): 7종 전환 실브라우저 확인(완성은 sandbox iframe + `7분 소요` 메타까지, 13분은 초과 문구), 콘솔 0,
 market 타입체크·eslint 0.
+
+### 13.13 thinking 단계 `max` 추가 (2026-09-08)
+
+**질문** — 설정 > AI 연동 > 정밀 시스템 구성도의 kimi-k3 에 high 위 단계가 있는가.
+
+**실측** (ollama.com 직결 + 로컬 데몬 0.33.3 `kimi-k3:cloud`, 같은 프롬프트 · temperature 0 · seed 42 · 2회씩)
+
+| think | 사고 글자 | 출력 토큰 | 소요 |
+|---|---|---|---|
+| high | 451 / 474 | 958 / 1,171 | 12.7s / 21.9s |
+| max | 11,233 / 10,544 | 4,193 / 3,906 | 54.9s / 73.2s |
+
+- 서버가 허용값을 명시한다: `invalid think value: "ultra" (must be "high", "medium", "low", "max", true, or false)`. Ollama 문서도 `max` = 최고 사고 단계.
+- 사고량 ~23배 · 시간 ~4배. 정밀 구성도는 high 에서 이미 566초·14만 자(§12.11)라 max 는 900초를 넘길 수 있다.
+
+**구현** — `AI_THINK_LEVELS` 에 `max` 추가(계약 → 서버 `OllamaThink`·`asThinkLevel` → 설정 화면 select·i18n `thinkMax`). DB 는 `VarChar(10)` 그대로.
+타임아웃은 `getAiUsecaseRuntime().timeoutMs` 로 일원화 — `think === "max"` 면 `def.timeoutMs × 2`(`usecaseTimeoutMs`,
+`THINK_MAX_TIMEOUT_MULTIPLIER`). 정밀 구성도·개발의뢰 검토서·후속 질문 러너가 `def.timeoutMs` 대신 이 값을 쓴다.
+기본값은 바꾸지 않았다(구성도 high 유지) — max 채택은 §13.6 픽스처로 품질 대비 시간을 재고 정한다.

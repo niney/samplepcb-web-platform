@@ -81,7 +81,8 @@ export const AiDevReviewSettings = z.object({
 export type AiDevReviewSettingsType = z.infer<typeof AiDevReviewSettings>;
 
 // 정밀 구성도 생성 설정 — 모델·thinking 단계·추가 지침. think 는 프로빙 결정값(high)이 기본.
-export const AI_THINK_LEVELS = ['off', 'low', 'medium', 'high'] as const;
+// 'max' 는 Ollama 의 최고 사고 단계(kimi-k3 실측 2026-09-08: high 대비 사고 ~23배·시간 ~4배).
+export const AI_THINK_LEVELS = ['off', 'low', 'medium', 'high', 'max'] as const;
 export const AiThinkLevel = z.enum(AI_THINK_LEVELS);
 export type AiThinkLevelType = z.infer<typeof AiThinkLevel>;
 

@@ -413,7 +413,7 @@ model SpAiUsecase {
   promptTemplate String @db.Text
   /// 관리자가 프롬프트 끝에 덧붙이는 운영 지침(≤2000자). 스키마·출력 규칙은 코드가 정본.
   extraInstructions String?  @db.Text
-  /// thinking 단계 off|low|medium|high — null 이면 코드 기본값(AI_USECASE_DEFS)
+  /// thinking 단계 off|low|medium|high|max — null 이면 코드 기본값(AI_USECASE_DEFS)
   think             String?  @db.VarChar(10)
   updatedAt         DateTime @updatedAt
 

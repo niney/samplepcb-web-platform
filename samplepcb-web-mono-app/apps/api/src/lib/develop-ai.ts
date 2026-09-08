@@ -69,7 +69,7 @@ export async function startDevelopAiDrafts(
       log,
       useCase: DEVELOP_REVIEW_USECASE,
       target: { kind: 'develop', requestId: request.id },
-      timeoutMs: reviewRuntime.def.timeoutMs,
+      timeoutMs: reviewRuntime.timeoutMs,
       reuseCompleted: options.force !== true,
     });
     await prisma.spDevelopRequest.update({
