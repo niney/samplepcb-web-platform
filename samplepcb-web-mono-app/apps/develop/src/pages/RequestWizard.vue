@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useCreateDevelopRequest } from '../api/useDevelopRequests';
+import { useFollowupJob } from '../composables/useFollowupJob';
 import { useRequestForm } from '../composables/useRequestForm';
 import { developPath, loginUrl } from '../lib/auth-urls';
 import { errorMessage } from '../lib/error-msg';
@@ -14,9 +15,10 @@ import StepReview from '../components/request/StepReview.vue';
 import WizardAside from '../components/request/WizardAside.vue';
 
 // 개발의뢰 위저드 v2 — 5스텝(개발 메뉴 → 의뢰 내용 → 세부 질문 → 제작 계획 → 검토·접수).
-// 마켓 위저드와 달리 **AI 가 없다**: 검토서·구성도는 등록 뒤 서버가 관리자용 초안으로 만들고,
-// 담당자가 검토한 뒤 공개한다. 그래서 이 화면에는 기다림도, 잡 상태도 없다.
-// 셸이 하는 일 = 로그인 게이트 · 스텝 내비 · 임시저장 · 제출 · 완료 화면. 폼 값은 useRequestForm 이 소유한다.
+// 검토서·구성도는 등록 뒤 서버가 관리자용 초안으로 만들고 담당자가 검토한 뒤 공개한다 — 여기서 기다리지 않는다.
+// 고객이 기다리는 잡은 **하나뿐**이다: 시스템개발 3스텝의 AI 후속 질문(§7.2.2, useFollowupJob).
+// 2→3 전환에서 시작해 3스텝이 진행을 보이고, 실패·시간 초과면 고정 3문항으로 조용히 폴백한다.
+// 셸이 하는 일 = 로그인 게이트 · 스텝 내비 · 잡 시작 신호 · 임시저장 · 제출 · 완료 화면. 폼 값은 useRequestForm 이 소유한다.
 // 확인 대화는 전부 인라인 패널이다(네이티브 confirm 금지).
 
 const auth = useAuthStore();
@@ -52,6 +54,10 @@ const {
   resetAll,
 } = form;
 
+// AI 후속 질문 잡 — 3스텝에 들어설 때 시작하고, 진행 중에는 "다음 단계"를 막는다(질문이 나오기 전에 지나치지 않게).
+const followup = useFollowupJob(form);
+const nextBlocked = computed(() => currentStep.value === 'questions' && followup.running.value);
+
 const savedLabel = computed(() => {
   const at = draftSavedAt.value;
   if (at === null) return '';
@@ -70,6 +76,15 @@ const draftSavedDateLabel = computed(() => {
 watch(stepIndex, () => {
   tried.value = false;
 });
+
+// 3스텝에 들어서면 잡을 확인한다 — 같은 입력이면 기존 잡으로 폴링만 하고, 바뀐 입력이면 다시 읽는다.
+watch(
+  currentStep,
+  (key) => {
+    if (key === 'questions') followup.ensure();
+  },
+  { immediate: true },
+);
 
 // 회원 정보 프리필 — 그누보드 브리지가 주는 것은 mbId·mbNick 뿐이라 이름 자리만 채운다(나머지는 직접 입력).
 watch(
@@ -98,6 +113,7 @@ function goLogin(): void {
   window.location.assign(loginUrl(developPath(route.fullPath)));
 }
 function goNext(): void {
+  if (nextBlocked.value) return;
   if (!stepValid.value) {
     tried.value = true;
     return;
@@ -273,7 +289,7 @@ async function submit(): Promise<void> {
 
         <StepMenu v-if="currentStep === 'menu'" :form="form" />
         <StepDescribe v-else-if="currentStep === 'describe'" :form="form" />
-        <StepQuestions v-else-if="currentStep === 'questions'" :form="form" />
+        <StepQuestions v-else-if="currentStep === 'questions'" :form="form" :followup="followup" />
         <StepProduction v-else-if="currentStep === 'production'" :form="form" />
         <StepReview v-else :form="form" />
 
@@ -306,10 +322,11 @@ async function submit(): Promise<void> {
           v-if="!isLastStep"
           type="button"
           class="ml-auto h-11 rounded-lg px-7 text-body font-bold text-white transition"
-          :class="stepValid ? 'bg-ink-950 hover:bg-brand-600' : 'bg-line-2 text-tx-3'"
+          :class="stepValid && !nextBlocked ? 'bg-ink-950 hover:bg-brand-600' : 'bg-line-2 text-tx-3'"
+          :disabled="nextBlocked"
           @click="goNext"
         >
-          다음 단계 →
+          {{ nextBlocked ? '질문 준비 중…' : '다음 단계 →' }}
         </button>
         <button
           v-else

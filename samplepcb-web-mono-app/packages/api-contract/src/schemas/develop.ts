@@ -9,6 +9,7 @@ import {
   sortDevelopAreas,
 } from './develop-areas';
 import { DEV_REVIEW_TIMELINE_WISH_CODES, DevReviewSchedule, MarketDevReview } from './market-dev-review';
+import { DevelopAiQuestions, DevelopFollowupAnswersInput, DevelopFollowupAnswersPatch } from './develop-followup';
 import type { DevReviewTimelineWishCodeType } from './market-dev-review';
 import { MARKET_DEV_DIAGRAM_STATUSES, MarketDevDiagram } from './market-dev-diagram';
 
@@ -386,6 +387,8 @@ const developEditableShape = {
   production: DevelopProductionPlan,
   ndaWanted: z.boolean().default(false), // 비밀유지 계약 희망 — 당사가 NDA 문서를 준비한다(오프라인)
 } as const;
+// 시스템개발 AI 후속 질문 답(§7.2.2) — 잡 id + 답. 서버가 잡에서 질문을 되읽어 박제한다. 폴백(고정 3문항)이면 null.
+const developAiQuestionsInput = DevelopFollowupAnswersInput.nullable().default(null);
 
 interface DevelopEditableCheck {
   requestMode: DevelopRequestModeType;
@@ -417,6 +420,7 @@ function developEditableIssues(p: DevelopEditableCheck, ctx: z.RefinementCtx): v
 export const DevelopRequestCreatePayload = z
   .object({
     ...developEditableShape,
+    aiQuestions: developAiQuestionsInput,
     // 참고 자료가 외부 LLM 으로 나간다 — 미동의면 관리자 AI 버튼이 잠긴다(사유 표시).
     aiConsent: z.boolean().default(false),
     contact: DevelopContact,
@@ -445,6 +449,7 @@ export const DevelopRequestUpdateBody = z
     production: DevelopProductionPlan,
     ndaWanted: z.boolean(),
     contact: DevelopContact,
+    aiQuestions: DevelopFollowupAnswersPatch, // 저장된 AI 질문의 답만(질문 불변). 저장분이 없으면 409 NO_AI_QUESTIONS
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, { message: '최소 한 개 필드가 필요합니다' });
@@ -595,6 +600,7 @@ export const DevelopWizardFields = z.object({
   wishNote: z.string().nullable(),
   expertDelegate: z.boolean(),
   production: DevelopProductionPlan.nullable(),
+  aiQuestions: DevelopAiQuestions.nullable(), // 시스템개발 AI 후속 질문·답(§7.2.2). 폴백·맡김·개별 견적은 null
 });
 export type DevelopWizardFieldsType = z.infer<typeof DevelopWizardFields>;
 

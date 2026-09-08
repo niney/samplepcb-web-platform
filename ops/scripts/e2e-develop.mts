@@ -26,7 +26,7 @@ const IDS_FILE = join(tmpdir(), 'sp-develop-e2e-ids.json');
 const MODE = process.argv[2] ?? 'run';
 const ANCHOR_IT_ID = 'sp-develop-svc';
 const CART_BUCKET = '7777000002'; // 마켓 하네스(…001)와 다른 합성 버킷
-const USECASES = ['develop.dev-review', 'develop.dev-diagram'];
+const USECASES = ['develop.dev-review', 'develop.dev-diagram', 'develop.followup'];
 
 const secret = process.env.JWT_SECRET;
 if (!secret) throw new Error('JWT_SECRET 없음 (apps/api/.env — 실행법 주석 참조)');
@@ -341,6 +341,27 @@ async function run() {
   save();
   const sysAnsweredDetail = await req('GET', `/api/develop/requests/${sysAnswered.json.data.requestId}`, { token: tClient });
   assert(sysAnsweredDetail.json.data.answers.length === 1 && sysAnsweredDetail.json.data.answers[0].note.startsWith('온도'), '시스템개발 서술 답변 저장', sysAnsweredDetail.json?.data?.answers);
+  // AI 후속 질문(§7.2.2) 폴백 경로 — 유스케이스가 꺼져 있으면 상태 false·run 409, 없는 잡으로 등록하면 400.
+  const fuStatus = await req('GET', '/api/ai/develop.followup/status');
+  assert(fuStatus.status === 200 && fuStatus.json?.data?.enabled === false, '후속 질문 상태: 하네스 중 비활성', fuStatus.json);
+  const fuRun = await req('POST', '/api/ai/develop.followup/run', { token: tClient, form: createForm({ title: '[e2e] 후속', description: '열 글자가 넘는 설명입니다 정말로' }) });
+  assert(fuRun.status === 409 && fuRun.json?.error === 'USECASE_DISABLED', '후속 질문 run: 비활성 409', fuRun);
+  const fuBad = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 없는 잡', { requestMode: 'system', serviceAreas: [], answers: [], aiQuestions: { jobId: '11111111-1111-4111-8111-111111111111', answers: [] } })),
+  });
+  assert(fuBad.status === 400 && fuBad.json?.error === 'FOLLOWUP_JOB_INVALID', '등록: 없는 후속 질문 잡이면 400', fuBad);
+  const fuIgnored = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 맡김이면 잡 무시', { requestMode: 'system', serviceAreas: [], answers: [], expertDelegate: true, aiQuestions: { jobId: '11111111-1111-4111-8111-111111111111', answers: [] } })),
+  });
+  assert(fuIgnored.status === 200 && fuIgnored.json?.data?.requestId > 0, '등록: 맡김이면 aiQuestions 는 무시(200)', fuIgnored);
+  ids.requestIds.push(fuIgnored.json.data.requestId);
+  save();
+  const fuPatch = await req('PATCH', `/api/develop/requests/${fuIgnored.json.data.requestId}`, { token: tClient, body: { aiQuestions: { answers: [] } } });
+  assert(fuPatch.status === 409 && fuPatch.json?.error === 'NO_AI_QUESTIONS', '수정: 저장된 AI 질문이 없으면 409', fuPatch);
+  const fuDetail = await req('GET', `/api/develop/requests/${fuIgnored.json.data.requestId}`, { token: tClient });
+  assert(fuDetail.json?.data?.aiQuestions === null, '상세: aiQuestions null', fuDetail.json?.data?.aiQuestions);
   const badContact = await req('POST', '/api/develop/requests', { token: tClient, form: createForm({ ...basePayload('[e2e] 연락처 누락'), contact: undefined }) });
   assert(badContact.status === 400 && badContact.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 연락처 누락 400', badContact);
   const noAuth = await req('POST', '/api/develop/requests', { form: createForm(basePayload('[e2e] 비로그인')) });

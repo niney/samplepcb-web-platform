@@ -19,7 +19,10 @@ import {
   developArea,
   developAreaBadge,
   developAreaQuestionsFor,
+  developFollowupAnswerText,
   developQuestionsFor,
+  isDevelopFollowupAnswered,
+  isDevelopFollowupUnknown,
   isMarketAnswered,
   isTextQuestion,
   normalizeDevelopProduction,
@@ -27,10 +30,15 @@ import {
   sortDevelopAreas,
 } from '@sp/api-contract';
 import type {
+  DevelopAiAnswerType,
+  DevelopAiQuestionType,
   DevelopBudgetRangeType,
   DevelopContactType,
   DevelopCurrentStageType,
   DevelopDeliveryFormType,
+  DevelopFollowupAnswerType,
+  DevelopFollowupAnswersInputType,
+  DevelopFollowupQuestionType,
   DevelopPriorityType,
   DevelopProductionPlanType,
   DevelopProductionScopeType,
@@ -48,10 +56,11 @@ import type { QuestionState } from '@sp/ui';
 
 // 개발의뢰 폼 상태 — 위저드 v2 5스텝(2026-09-08)과 수정 화면이 **같은 상태**를 쓴다.
 //   ① 개발 메뉴   시스템개발(배타) 또는 개별 견적(PCB·기구·앱·서버 복수)
-//   ② 의뢰 내용   제목·목적·현재/목표 단계·희망 시기·예산·참고 자료(+시스템개발 후속 질문 방식)
-//   ③ 세부 질문   시스템개발 서술 3+협업 3 또는 고른 분야의 전문 질문(희망 툴·분야별 자료 슬롯은 2026-09-08 간소화로 뺐다)
+//   ② 의뢰 내용   제목·목적·현재/목표 단계·희망 시기·예산·참고 자료 + 자료 사용 동의(aiConsent, 필수)
+//                 (+시스템개발 후속 질문 방식) — 자료가 AI 로 나가는 시점이 2→3 전환이라 동의를 여기서 받는다
+//   ③ 세부 질문   시스템개발 = AI 후속 질문(§7.2.2, 폴백은 고정 서술 3문항) + 협업 3, 개별 견적 = 고른 분야의 전문 질문
 //   ④ 제작 계획   시제품 수량·제작 범위·연간 수량·우선순위(+범위가 있으면 조달·납품 형태)
-//   ⑤ 검토·접수  연락처 + 요약 + 동의(AI 사전 검토 동의 = aiConsent) + 비밀유지
+//   ⑤ 검토·접수  연락처 + 요약 + 비밀유지(NDA)
 // 분야·질문·라벨의 정본은 개발의뢰 레지스트리(DEVELOP_REGISTRY)라 이 파일에 분야 코드나
 // 한글 라벨을 박지 않는다. 마켓 사전(MARKET_*)은 다른 상품이라 여기서 쓰지 않는다.
 // 상태는 전부 이 컴포저블이 소유한다 — 스텝 컴포넌트는 그리기만 하므로 스텝을 오가도 답변이 남는다.
@@ -82,7 +91,7 @@ export interface DevelopFormFields {
   expertDelegate: boolean; // 시스템개발 "전문가에게 맡김"
   production: DevelopProductionFields;
   ndaWanted: boolean;
-  aiConsent: boolean; // 5스텝 동의 체크 — 입력 내용·자료를 견적 검토와 AI 사전 검토에 쓰는 데 동의(외부 LLM 전송 동의)
+  aiConsent: boolean; // 2스텝 동의 체크 — 입력 내용·자료를 견적 검토와 AI 사전 검토에 쓰는 데 동의(외부 LLM 전송 동의)
 }
 
 export interface DevelopContactFields {
@@ -174,6 +183,94 @@ export function useRequestForm() {
     else state.choices.push(choice);
   }
 
+  // ── AI 후속 질문(§7.2.2) — 질문은 서버가 만들고, 이 폼은 **답만** 든다 ──────────────
+  // 질문의 출처는 둘이다: 위저드는 잡 결과(useFollowupJob), 수정 화면은 저장분(detail.aiQuestions).
+  // 답 상태를 레지스트리 문항(questionState)과 섞지 않는다 — 코드 공간이 다르고(레지스트리 'system.use'
+  // vs 잡이 준 'q1'), 잡이 바뀌면 통째로 버려야 하는 값이라 수명도 다르다.
+  const aiJobId = ref<string | null>(null);
+  const aiUnderstood = ref('');
+  const aiQuestions = ref<DevelopFollowupQuestionType[]>([]);
+  const aiQuestionState = reactive<Record<string, QuestionState>>({});
+  // AI 질문을 쓰는 중 — 질문이 0개여도(자료가 충분해 물을 것이 없음) 참이다. 폴백이면 거짓.
+  const aiFollowupUsed = computed(() => aiJobId.value !== null);
+
+  function aiStateOf(id: string): QuestionState {
+    const found = aiQuestionState[id];
+    if (found !== undefined) return found;
+    const created: QuestionState = { choices: [], note: '' };
+    aiQuestionState[id] = created;
+    // 갓 만든 **원본**이 아니라 reactive 프록시로 되읽어 돌려준다 — 원본을 그대로 주면 그 화면이 원본을 붙들어
+    // 첫 선택이 화면에 안 나타난다(칩은 눌렸는데 색이 안 바뀐다). 레지스트리 문항은 noteMissingCodes 가
+    // 같은 상태를 프록시로 읽어 주는 덕에 가려져 있던 함정이다 — AI 질문에는 그 우회로가 없다.
+    return aiQuestionState[id] ?? created;
+  }
+  // AI 질문은 전부 단일 선택이다(계약이 choice 하나만 싣는다) — 같은 칩을 다시 누르면 해제.
+  function toggleAiChoice(id: string, choice: string): void {
+    const state = aiStateOf(id);
+    state.choices = state.choices[0] === choice ? [] : [choice];
+  }
+  function resetAiAnswers(): void {
+    for (const key of Object.keys(aiQuestionState)) Reflect.deleteProperty(aiQuestionState, key);
+  }
+  // 잡 결과·저장분을 받는다. 같은 잡이면 답을 지킨다(폴링이 done 응답을 여러 번 준다).
+  function setAiFollowup(jobId: string, understood: string, questions: readonly DevelopFollowupQuestionType[]): void {
+    const changedJob = aiJobId.value !== jobId;
+    aiJobId.value = jobId;
+    aiUnderstood.value = understood;
+    aiQuestions.value = questions.map((q) => ({ id: q.id, question: q.question, why: q.why, options: [...q.options] }));
+    if (changedJob) resetAiAnswers();
+  }
+  function clearAiFollowup(): void {
+    aiJobId.value = null;
+    aiUnderstood.value = '';
+    aiQuestions.value = [];
+    resetAiAnswers();
+  }
+
+  const answerOfAi = (q: DevelopFollowupQuestionType): DevelopAiAnswerType | null => {
+    const state = aiQuestionState[q.id];
+    if (state === undefined) return null;
+    const choice = q.options.length > 0 ? (state.choices[0] ?? null) : null;
+    const text = state.note.trim();
+    return choice === null && text === '' ? null : { choice, text };
+  };
+  // 검토 카드·상세와 **같은 규칙**으로 답 문자열을 만들기 위해 계약 저장분 모양으로 합친다.
+  const aiAnsweredQuestions = computed<DevelopAiQuestionType[]>(() =>
+    aiQuestions.value.map((q) => ({ ...q, answer: answerOfAi(q) })),
+  );
+  const aiAnswerRows = computed(() =>
+    aiAnsweredQuestions.value.filter(isDevelopFollowupAnswered).map((q) => ({
+      id: q.id,
+      label: q.question,
+      value: developFollowupAnswerText(q),
+      unknown: isDevelopFollowupUnknown(q),
+    })),
+  );
+  function buildAiAnswers(): DevelopFollowupAnswerType[] {
+    return aiAnsweredQuestions.value.flatMap((q) => (q.answer === null ? [] : [{ id: q.id, choice: q.answer.choice, text: q.answer.text }]));
+  }
+  // 수정 화면용 — **모든** 문항을 싣는다. 서버는 보내지 않은 문항의 답을 그대로 두므로(applyDevelopFollowupAnswers),
+  // 답한 것만 보내면 "지운 답"이 지워지지 않는다. 빈 답은 서버가 미응답(null)으로 정규화한다.
+  function buildAiAnswersAll(): DevelopFollowupAnswerType[] {
+    return aiAnsweredQuestions.value.map((q) => ({ id: q.id, choice: q.answer?.choice ?? null, text: q.answer?.text ?? '' }));
+  }
+
+  // AI 질문을 공용 QuestionField 로 그리기 위한 변환 — 선택지가 비면 서술형(kind:'text').
+  const AI_TEXT_PLACEHOLDER = '아는 만큼만 적어 주세요';
+  const toAiQuestionDef = (q: DevelopFollowupQuestionType): MarketQuestionDef => {
+    const isText = q.options.length === 0;
+    return {
+      code: `ai:${q.id}`,
+      label: q.question,
+      short: q.question.slice(0, 20),
+      multi: false,
+      options: q.options.map((o) => ({ code: o.code, label: o.label })),
+      ...(isText ? { kind: 'text' as const, notePlaceholder: AI_TEXT_PLACEHOLDER } : {}),
+      ...(q.why === '' ? {} : { why: q.why }),
+    };
+  };
+  const aiQuestionDefs = computed(() => aiQuestions.value.map((q) => ({ id: q.id, def: toAiQuestionDef(q) })));
+
   // ── 1스텝 메뉴 ─────────────────────────────────────────────────────────────
   const isSystem = computed(() => fields.requestMode === 'system');
   const individualAreas = DEVELOP_INDIVIDUAL_AREAS;
@@ -212,8 +309,11 @@ export function useRequestForm() {
   const areaQuestionsOf = (area: string): MarketQuestionDef[] => developAreaQuestionsFor([area]);
   // 전문가에게 맡김이면 기술 문항은 건너뛰고 역할·협업 문항(askOnDelegate)만 남긴다(서버도 같은 규칙으로 버린다).
   const skipQuestions = computed(() => isSystem.value && fields.expertDelegate);
+  // 고정 서술 3문항을 감추는 조건 — 맡김(담당자가 정한다) 또는 AI 질문을 쓰는 중(그 질문이 대신한다).
+  // 감춘 문항은 답변에서도 빠진다(임시저장 복원으로 옛 답이 남아 있어도 등록 payload 에 실리지 않는다).
+  const hideSystemQuestions = computed(() => skipQuestions.value || (isSystem.value && aiFollowupUsed.value));
   const askedQuestions = computed<MarketQuestionDef[]>(() =>
-    skipQuestions.value ? activeQuestions.value.filter((q) => q.askOnDelegate === true) : activeQuestions.value,
+    hideSystemQuestions.value ? activeQuestions.value.filter((q) => q.askOnDelegate === true) : activeQuestions.value,
   );
 
   // 메모 필수(noteRequiredFor 선택지를 고른 문항) 미충족 목록.
@@ -257,6 +357,13 @@ export function useRequestForm() {
       hours: contact.hours.trim() === '' ? null : contact.hours.trim(),
     };
   }
+  // 등록 payload 의 AI 질문 조각 — 시스템개발 + 맡김 아님 + AI 질문을 쓴 경우만. 폴백이면 null 이고
+  // 고정 3문항 답은 지금처럼 answers 로 간다. 질문 본문은 싣지 않는다(서버가 jobId 로 되읽는다).
+  function buildAiQuestionsInput(): DevelopFollowupAnswersInputType | null {
+    const jobId = aiJobId.value;
+    if (jobId === null || !isSystem.value || skipQuestions.value) return null;
+    return { jobId, answers: buildAiAnswers() };
+  }
   function buildPayload(): DevelopRequestCreatePayloadType {
     const wishNote = fields.wishNote.trim();
     return {
@@ -266,6 +373,7 @@ export function useRequestForm() {
       tools: EMPTY_MARKET_TOOLS, // 희망 툴 UI 는 뺐다(PCB 설계 툴은 문항 pcb.tool)
       description: fields.description.trim(),
       answers: buildAnswers(),
+      aiQuestions: buildAiQuestionsInput(),
       currentStage: fields.currentStage ?? 'idea',
       targetStage: fields.targetStage ?? 'spec_fixed',
       wishDate: fields.wishDate === '' ? null : fields.wishDate,
@@ -316,16 +424,19 @@ export function useRequestForm() {
       (fields.wishDate !== '' || fields.wishNote.trim() !== '') &&
       fields.budgetRange !== null,
   );
+  // 2스텝 게이트는 동의 체크까지 본다 — 자료가 외부 AI 로 나가는 시점이 2→3 전환이기 때문이다.
+  // (describeValid 자체는 수정 화면도 쓴다 — 이미 접수한 의뢰에 동의를 다시 묻지 않는다.)
+  const describeStepValid = computed(() => describeValid.value && fields.aiConsent);
   const questionsValid = computed(() => noteMissingCodes.value.length === 0);
   const productionValid = computed(
     () =>
       fields.production.prototype !== null &&
       (fields.production.prototype !== 'count' || fields.production.prototypeQty !== null),
   );
-  const reviewValid = computed(() => contactValid.value && fields.aiConsent);
+  const reviewValid = computed(() => contactValid.value);
   const formValid = computed(
     () =>
-      menuValid.value && describeValid.value && questionsValid.value && productionValid.value && reviewValid.value,
+      menuValid.value && describeStepValid.value && questionsValid.value && productionValid.value && reviewValid.value,
   );
 
   // 스텝 오류 문구 — 하단 바가 그대로 읽는다(어느 항목이 남았는지 순서대로).
@@ -336,6 +447,7 @@ export function useRequestForm() {
       if (fields.currentStage === null || fields.targetStage === null) return '현재 단계와 목표 단계를 선택해 주세요.';
       if (fields.wishDate === '' && fields.wishNote.trim() === '') return '희망 완료일 또는 기간을 입력해 주세요.';
       if (fields.budgetRange === null) return '예상 개발 예산을 선택해 주세요.';
+      if (!fields.aiConsent) return '입력 내용과 자료를 견적 검토와 AI 사전 검토에 사용하는 데 동의해 주세요.';
       return '';
     }
     if (key === 'questions') return questionsValid.value ? '' : '선택하신 항목에 내용을 적어 주세요.';
@@ -345,7 +457,8 @@ export function useRequestForm() {
       return '';
     }
     if (!contactValid.value) return '연락처를 입력해 주세요.';
-    if (!fields.aiConsent) return '입력 내용과 자료를 견적 검토와 AI 사전 검토에 사용하는 데 동의해 주세요.';
+    // 동의는 2스텝에서 받는다 — 초안 복원으로 마지막 스텝에 바로 선 경우에만 여기서 걸린다.
+    if (!fields.aiConsent) return '2단계에서 자료 사용 동의에 체크해 주세요.';
     return '';
   }
 
@@ -364,7 +477,7 @@ export function useRequestForm() {
   const stepValid = computed<boolean>(() => {
     const key = currentStep.value;
     if (key === 'menu') return menuValid.value;
-    if (key === 'describe') return describeValid.value;
+    if (key === 'describe') return describeStepValid.value;
     if (key === 'questions') return questionsValid.value;
     if (key === 'production') return productionValid.value;
     return formValid.value;
@@ -438,6 +551,17 @@ export function useRequestForm() {
     contact.hours = detail.contact.hours ?? '';
     resetQuestions();
     for (const a of detail.answers) questionState[a.code] = { choices: [...a.choices], note: a.note ?? '' };
+    // AI 후속 질문 저장분 — 질문은 못 바꾸고 답만 고친다(재생성 없음).
+    const stored = detail.aiQuestions;
+    clearAiFollowup();
+    if (stored !== null) {
+      setAiFollowup(stored.jobId, stored.understood, stored.questions);
+      for (const q of stored.questions) {
+        if (q.answer !== null) {
+          aiQuestionState[q.id] = { choices: q.answer.choice === null ? [] : [q.answer.choice], note: q.answer.text };
+        }
+      }
+    }
   }
 
   // 처음부터 — 폼을 비운다(초안 삭제는 호출자가 clearDraft 로).
@@ -461,6 +585,7 @@ export function useRequestForm() {
     contact.email = '';
     contact.hours = '';
     resetQuestions();
+    clearAiFollowup();
     clearFiles();
     stepIndex.value = 0;
   }
@@ -594,6 +719,8 @@ export function useRequestForm() {
       const state = asRecord(value);
       questionState[code] = { choices: asStringList(state.choices), note: asString(state.note) };
     }
+    // AI 질문·답은 초안에 담지 않는다 — 3스텝에 들어가면 같은 입력의 잡을 다시 받아 온다.
+    clearAiFollowup();
     const savedStep = asIntOrNull(obj.stepIndex) ?? 0;
     stepIndex.value = Math.min(Math.max(savedStep, 0), steps.length - 1);
     draftSavedAt.value = asString(obj.savedAt);
@@ -621,10 +748,25 @@ export function useRequestForm() {
     askedQuestions,
     areaQuestionsOf,
     skipQuestions,
+    hideSystemQuestions,
     noteMissingCodes,
     questionState,
     stateOf,
     toggleChoice,
+    aiJobId,
+    aiUnderstood,
+    aiQuestions,
+    aiQuestionDefs,
+    aiQuestionState,
+    aiFollowupUsed,
+    aiAnswerRows,
+    aiStateOf,
+    toggleAiChoice,
+    setAiFollowup,
+    clearAiFollowup,
+    buildAiAnswers,
+    buildAiAnswersAll,
+    buildAiQuestionsInput,
     buildAnswers,
     buildProduction,
     buildContact,
@@ -638,6 +780,7 @@ export function useRequestForm() {
     contactValid,
     menuValid,
     describeValid,
+    describeStepValid,
     questionsValid,
     productionValid,
     reviewValid,

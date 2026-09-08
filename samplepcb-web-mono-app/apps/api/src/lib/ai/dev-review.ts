@@ -62,6 +62,8 @@ export interface DevReviewSource {
   conditionLines?: readonly string[];
   // 희망 완료 시점 코드 — undefined 면 answers 의 timeline 에서(마켓), null 이면 "없음"(개발의뢰 자유문만).
   wishCode?: DevReviewTimelineWishCodeType | null;
+  // 레지스트리 밖 질문 답변 줄("- 질문 → 답") — 개발의뢰 AI 후속 질문(§7.2.2)의 답이 프롬프트 "질문 답변"과 근거 코퍼스에 합류한다.
+  extraAnswerLines?: readonly string[];
 }
 const regOf = (source: Pick<DevReviewSource, 'registry'>): AreaRegistry => source.registry ?? MARKET_REGISTRY;
 
@@ -160,7 +162,10 @@ export function buildDevReviewPrompt(
     ...(source.conditionLines ?? []),
     ...source.answers.filter((a) => isConditionCode(a.code, reg)).map((a) => answerLine(a, reg)),
   ].join('\n');
-  const answers = source.answers.filter((a) => !isConditionCode(a.code, reg)).map((a) => answerLine(a, reg)).join('\n');
+  const answers = [
+    ...source.answers.filter((a) => !isConditionCode(a.code, reg)).map((a) => answerLine(a, reg)),
+    ...(source.extraAnswerLines ?? []),
+  ].join('\n');
   const attachments = source.attachmentContext.trim();
   return [
     DEV_REVIEW_RULES,
@@ -372,7 +377,13 @@ export interface SourceConflict { unit: string; label: string; primary: string[]
 
 export function detectSourceConflicts(source: DevReviewSource): SourceConflict[] {
   const reg = regOf(source);
-  const primaryText = [source.title, source.description, ...(source.conditionLines ?? []), ...source.answers.map(reg.answerText)].join('\n');
+  const primaryText = [
+    source.title,
+    source.description,
+    ...(source.conditionLines ?? []),
+    ...(source.extraAnswerLines ?? []),
+    ...source.answers.map(reg.answerText),
+  ].join('\n');
   const group = (tokens: readonly NumericToken[]): Map<string, Set<string>> => {
     const m = new Map<string, Set<string>>();
     for (const t of tokens) {
@@ -441,6 +452,7 @@ export function devReviewSourceText(source: DevReviewSource): string {
     reg.sortAreas(source.serviceAreas).map(reg.areaLabel).join(', '),
     source.description,
     ...(source.conditionLines ?? []),
+    ...(source.extraAnswerLines ?? []),
     answers,
     source.attachmentContext,
   ].join('\n');

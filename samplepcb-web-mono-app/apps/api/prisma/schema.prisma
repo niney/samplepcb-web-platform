@@ -1958,6 +1958,7 @@ model SpDevelopRequest {
   wishNote       String? @db.VarChar(200)
   expertDelegate Boolean @default(false) // 시스템개발 "전문가에게 맡김" — 3스텝 질문 생략
   production     Json? // DevelopProductionPlan(시제품 수량·제작 범위·연간 수량·우선순위·조달·납품 형태)
+  aiQuestions    Json? // DevelopAiQuestions — 시스템개발 AI 후속 질문·답(§7.2.2). 폴백·맡김·개별 견적은 null
   ndaWanted      Boolean @default(false) // 비밀유지 계약 희망(당사가 문서 준비, 오프라인)
   aiConsent      Boolean @default(false) // 참고 자료 외부 LLM 전송 동의 — 미동의면 관리자 AI 잠금
   status         String  @default("received") @db.VarChar(20) // received|reviewing|quoted|accepted|in_progress|delivered|completed|cancelled|declined

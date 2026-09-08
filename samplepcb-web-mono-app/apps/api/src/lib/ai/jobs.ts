@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { DevDiagramJobResult, MarketDevReview } from '@sp/api-contract';
+import { DevDiagramJobResult, DevelopFollowupResult, MarketDevReview } from '@sp/api-contract';
 import type {
   AiJobStageType,
   AiJobStatusType,
   AiUsecaseKeyType,
+  DevelopFollowupResultType,
   MarketDevDiagramType,
   MarketDevReviewType,
 } from '@sp/api-contract';
@@ -27,6 +28,7 @@ export interface AiJob {
   review: MarketDevReviewType | null; // dev-review 가 done 이고 파손이 아닐 때만
   diagram: MarketDevDiagramType | null; // dev-diagram 의 메타(done 이면 결과, running 이면 진행 메타)
   diagramHtml: string | null; // dev-diagram 이 done 일 때
+  followup: DevelopFollowupResultType | null; // develop.followup 이 done 일 때(질문 목록)
   error: string | null;
   startedAt: Date;
   finishedAt: Date | null;
@@ -53,7 +55,7 @@ const asStatus = (v: string): AiJobStatusType =>
   v === 'done' || v === 'error' ? v : 'running';
 
 const asStage = (v: string | null): AiJobStageType | null =>
-  v === 'attachments' || v === 'review' || v === 'diagram' ? v : null;
+  v === 'attachments' || v === 'review' || v === 'diagram' || v === 'followup' ? v : null;
 
 const parseJson = (json: string): unknown => {
   try {
@@ -71,9 +73,15 @@ const toAiJob = (row: AiJobRow): AiJob => {
   let review: MarketDevReviewType | null = null;
   let diagram: MarketDevDiagramType | null = null;
   let diagramHtml: string | null = null;
+  let followup: DevelopFollowupResultType | null = null;
   let corrupted = false;
   if (row.resultJson !== null) {
     const raw = parseJson(row.resultJson);
+    if (row.useCase.endsWith('.followup') && status === 'done') {
+      const parsed = DevelopFollowupResult.safeParse(raw);
+      if (parsed.success) followup = parsed.data;
+      else corrupted = true;
+    }
     // market.* 와 develop.* 가 같은 결과 모양을 쓴다 — 접미(.dev-review/.dev-diagram)로 가른다.
     if (row.useCase.endsWith('.dev-review') && status === 'done') {
       const parsed = MarketDevReview.safeParse(raw);
@@ -101,6 +109,7 @@ const toAiJob = (row: AiJobRow): AiJob => {
     review,
     diagram,
     diagramHtml,
+    followup,
     error: corrupted ? 'RESULT_CORRUPTED' : row.error,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
@@ -150,9 +159,20 @@ export async function updateAiJobResult(id: string, resultJson: string): Promise
 
 export async function finishAiJob(
   id: string,
-  result: { review: MarketDevReviewType } | { diagram: MarketDevDiagramType; html: string } | { error: string; diagram?: MarketDevDiagramType },
+  result:
+    | { review: MarketDevReviewType }
+    | { diagram: MarketDevDiagramType; html: string }
+    | { followup: DevelopFollowupResultType }
+    | { error: string; diagram?: MarketDevDiagramType },
 ): Promise<void> {
   const finishedAt = new Date();
+  if ('followup' in result) {
+    await prisma.spAiJob.updateMany({
+      where: { id },
+      data: { status: 'done', stage: null, resultJson: JSON.stringify(result.followup), error: null, finishedAt },
+    });
+    return;
+  }
   if ('review' in result) {
     await prisma.spAiJob.updateMany({
       where: { id },

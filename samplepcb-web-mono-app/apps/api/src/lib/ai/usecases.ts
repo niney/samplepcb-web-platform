@@ -2,6 +2,7 @@ import { AI_USECASES } from '@sp/api-contract';
 import type { AiThinkLevelType, AiUsecaseKeyType } from '@sp/api-contract';
 import { DEV_REVIEW_PROMPT_VERSION } from './dev-review';
 import { DEV_DIAGRAM_PROMPT_VERSION } from './dev-diagram';
+import { DEVELOP_FOLLOWUP_PROMPT_VERSION } from './develop-followup';
 import type { OllamaThink } from './ollama';
 import { prisma } from '../prisma';
 
@@ -16,6 +17,8 @@ export const DEV_DIAGRAM_USECASE = 'market.dev-diagram' as const;
 // 개발의뢰(docs/DEVELOP_FLOW.md §6) — 같은 프롬프트·러너, 별도 행. 관리자가 대기하므로 정밀 모델을 기본으로 둔다.
 export const DEVELOP_REVIEW_USECASE = 'develop.dev-review' as const;
 export const DEVELOP_DIAGRAM_USECASE = 'develop.dev-diagram' as const;
+// 개발의뢰 위저드 AI 후속 질문(docs/DEVELOP_FLOW.md §7.2.2) — 고객이 3스텝에서 기다리는 유일한 잡.
+export const DEVELOP_FOLLOWUP_USECASE = 'develop.followup' as const;
 
 // 유스케이스 키의 "종류"(검토서/구성도) — 잡 저장소·러너가 market/develop 을 가르지 않고 이걸 본다.
 export const isReviewUsecase = (key: string): boolean => key.endsWith('.dev-review');
@@ -61,6 +64,13 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
     temperature: 0,
     seed: 42,
     timeoutMs: 900_000,
+  },
+  // 위저드 후속 질문 — 고객 대기라 thinking 은 낮게. 기본 모델은 사용자 결정(kimi-k3), 관리자 설정에서 바꿀 수 있다.
+  'develop.followup': {
+    defaultModel: 'kimi-k3',
+    promptVersion: DEVELOP_FOLLOWUP_PROMPT_VERSION,
+    think: 'low',
+    timeoutMs: 300_000,
   },
 };
 

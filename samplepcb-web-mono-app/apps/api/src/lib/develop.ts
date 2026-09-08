@@ -12,10 +12,12 @@ import {
   DEVELOP_REQUEST_STATUSES,
   DEVELOP_TARGET_STAGES,
   DEVELOP_VAT_MODES,
+  DevelopAiQuestions,
   DevelopProductionPlan,
   sortDevelopAreas,
 } from '@sp/api-contract';
 import type {
+  DevelopAiQuestionsType,
   DevelopBudgetRangeType,
   DevelopContactType,
   DevelopCurrentStageType,
@@ -81,6 +83,12 @@ export const toDevelopAreaCodes = (json: unknown): string[] => {
   const known = sortDevelopAreas(raw);
   return [...known, ...raw.filter((c) => !known.includes(c))];
 };
+// AI 후속 질문·답(Json) — 형태가 어긋난 저장분은 null.
+export const toDevelopAiQuestions = (json: unknown): DevelopAiQuestionsType | null => {
+  if (json === null || json === undefined) return null;
+  const r = DevelopAiQuestions.safeParse(json);
+  return r.success ? r.data : null;
+};
 export const developWizardFieldsOf = (r: SpDevelopRequest): DevelopWizardFieldsType => ({
   currentStage: asDevelopCurrentStage(r.currentStage),
   targetStage: asDevelopTargetStage(r.targetStage),
@@ -88,6 +96,7 @@ export const developWizardFieldsOf = (r: SpDevelopRequest): DevelopWizardFieldsT
   wishNote: r.wishNote,
   expertDelegate: r.expertDelegate,
   production: toDevelopProduction(r.production),
+  aiQuestions: toDevelopAiQuestions(r.aiQuestions),
 });
 
 export const toDevelopContact = (r: SpDevelopRequest): DevelopContactType => ({

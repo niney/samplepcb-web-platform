@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MarketDevReview } from './market-dev-review';
 import { MarketDevDiagram } from './market-dev-diagram';
+import { DevelopFollowupResult } from './develop-followup';
 
 // ── AI 유스케이스 계약 ───────────────────────────────────────────────────────
 // 2026-08-28 재작성(docs/AI_DEV_REVIEW.md): 4산출물 체계(구성도·명세·ROC·포스팅)와 rnd
@@ -13,7 +14,8 @@ import { MarketDevDiagram } from './market-dev-diagram';
 // market.dev-review = AI 사전 검토서(즉시, 위저드 대기) · market.dev-diagram = 정밀 시스템 구성도
 // (비동기, 등록 뒤 — docs/AI_DEV_REVIEW.md §13.5). 둘 다 sp_ai_usecase 한 행(사용·모델·추가 지침).
 // develop.* = 개발의뢰(docs/DEVELOP_FLOW.md §6) — 같은 프롬프트·러너, 별도 행(관리자 대기라 정밀 모델을 기본으로 둘 수 있다).
-export const AI_USECASES = ['market.dev-review', 'market.dev-diagram', 'develop.dev-review', 'develop.dev-diagram'] as const;
+// develop.followup = 개발의뢰 위저드 AI 후속 질문(docs/DEVELOP_FLOW.md §7.2.2) — 고객이 기다리는 유일한 잡(빠른 설정 기본).
+export const AI_USECASES = ['market.dev-review', 'market.dev-diagram', 'develop.dev-review', 'develop.dev-diagram', 'develop.followup'] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
 
@@ -46,7 +48,7 @@ export const AiJobStatus = z.enum(['running', 'done', 'error']);
 export type AiJobStatusType = z.infer<typeof AiJobStatus>;
 
 // 진행 표시("첨부 확인 중 → 검토서 작성 중")의 원천. 완료 잡은 null.
-export const AiJobStage = z.enum(['attachments', 'review', 'diagram']);
+export const AiJobStage = z.enum(['attachments', 'review', 'diagram', 'followup']);
 export type AiJobStageType = z.infer<typeof AiJobStage>;
 
 export const AiJobResponse = z.object({
@@ -57,6 +59,7 @@ export const AiJobResponse = z.object({
     stage: AiJobStage.nullable(),
     review: MarketDevReview.nullable(), // dev-review 가 done 일 때만 — 후처리까지 끝난 검토서
     diagram: MarketDevDiagram.nullable(), // dev-diagram 잡의 메타(본문 HTML 은 프로젝트에 붙은 뒤 상세에서)
+    followup: DevelopFollowupResult.nullable(), // develop.followup 이 done 일 때만 — 후처리까지 끝난 질문 목록
     error: z.string().nullable(),
     elapsedSecs: z.number(),
   }),
@@ -108,6 +111,8 @@ export const AiSettingsResponse = z.object({
     // 개발의뢰(develop.*) — 검토서도 think 단계를 가진다(관리자 대기라 정밀 모델 허용).
     developReview: AiDevDiagramSettings,
     developDiagram: AiDevDiagramSettings,
+    // 개발의뢰 위저드 AI 후속 질문(고객 대기) — 빠른 모델·낮은 thinking 이 기본.
+    developFollowup: AiDevDiagramSettings,
   }),
 });
 export type AiSettingsResponseType = z.infer<typeof AiSettingsResponse>;
@@ -141,6 +146,14 @@ export const AiSettingsUpdate = z.object({
     })
     .optional(),
   developDiagram: z
+    .object({
+      enabled: z.boolean(),
+      model: z.string().trim().min(1).max(100),
+      think: AiThinkLevel,
+      extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
+    })
+    .optional(),
+  developFollowup: z
     .object({
       enabled: z.boolean(),
       model: z.string().trim().min(1).max(100),

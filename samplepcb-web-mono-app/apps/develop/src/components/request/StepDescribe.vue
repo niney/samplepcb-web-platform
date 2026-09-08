@@ -13,9 +13,10 @@ import type { DevelopRequestForm } from '../../composables/useRequestForm';
 
 // 위저드 2스텝 — 의뢰 내용(2026-09-08 v2).
 // 제목 · 개발 목적(≥10자) · 현재/목표 개발단계 · 희망 완료 시기(날짜 또는 자유문) · 예상 예산
-// · 참고 자료 + AI 사전 검토 동의 · 비밀유지 계약 · (시스템개발일 때) 후속 질문 방식.
+// · 참고 자료 + 자료 사용 동의(필수) · (시스템개발일 때) 후속 질문 방식.
+// 동의 체크가 여기 있는 이유: 시스템개발 AI 후속 질문(§7.2.2)이 2→3 전환에서 설명문과 첨부를 외부 AI 로 보낸다.
 // 단계·예산 라벨은 계약 사전(DEVELOP_*_LABELS)에서만 온다.
-// 수정 화면도 이 컴포넌트를 쓴다 — 다만 첨부는 거기서 서버에 즉시 반영하므로 그 블록을 끈다.
+// 수정 화면도 이 컴포넌트를 쓴다 — 다만 첨부는 거기서 서버에 즉시 반영하므로 그 블록을 끈다(동의도 접수 때 이미 받았다).
 const props = withDefaults(defineProps<{ form: DevelopRequestForm; showAttachments?: boolean }>(), {
   showAttachments: true,
 });
@@ -162,9 +163,22 @@ const chipClass = (on: boolean): string =>
         @add="addAttachments"
         @remove="removeAttachment"
       />
+
+      <!-- 자료 사용 동의 — 다음 단계에서 설명문과 이 자료가 AI 로 나간다. 그래서 체크가 여기(업로드 존 아래)에 있다. -->
+      <label class="flex items-start gap-3 rounded-xl border-2 bg-white p-4" :class="fields.aiConsent ? 'border-brand-500' : 'border-line'">
+        <input v-model="fields.aiConsent" type="checkbox" class="mt-0.5 h-4.5 w-4.5 shrink-0 accent-[var(--color-brand-500)]">
+        <span class="grid gap-1">
+          <span class="text-body font-bold text-tx-1">
+            입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다. <span class="text-red-500">*</span>
+          </span>
+          <span class="text-label leading-relaxed text-tx-3">
+            시스템개발에서 'AI 가 자료를 보고 몇 가지만 묻기'를 고르면 다음 단계에서 AI 가 자료를 읽고 질문을 고릅니다.
+          </span>
+        </span>
+      </label>
     </section>
 
-    <!-- 후속 질문 방식 — 시스템개발에서만. AI 동의·비밀유지 체크는 5스텝(검토·접수)으로 옮겼다(2026-09-08 간소화). -->
+    <!-- 후속 질문 방식 — 시스템개발에서만. 비밀유지(NDA) 체크는 5스텝(검토·접수)에 있다. -->
     <section v-if="isSystem" class="grid gap-3 rounded-2xl border border-line bg-white p-5 sm:p-6">
       <h2 class="text-title font-extrabold text-tx-1">후속 질문 방식</h2>
       <button
@@ -179,8 +193,10 @@ const chipClass = (on: boolean): string =>
           :class="fields.expertDelegate ? 'border-line-2 bg-white' : 'border-brand-500 bg-brand-500'"
         ><span class="h-1.5 w-1.5 rounded-full bg-white" /></span>
         <span class="grid gap-1">
-          <span class="text-body font-bold text-tx-1">몇 가지 질문에 답하기</span>
-          <span class="text-label leading-relaxed text-tx-3">사용 상황·입출력·장애 시 동작 3가지만 묻습니다.</span>
+          <span class="text-body font-bold text-tx-1">AI 가 자료를 보고 몇 가지만 묻기</span>
+          <span class="text-label leading-relaxed text-tx-3">
+            설명과 첨부에서 확인되지 않는 것만 묻습니다. 자료를 읽는 데 30초~3분 걸립니다.
+          </span>
         </span>
       </button>
       <button

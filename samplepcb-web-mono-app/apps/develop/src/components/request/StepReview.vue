@@ -19,6 +19,8 @@ import type { DevelopRequestForm } from '../../composables/useRequestForm';
 // 연락처를 여기서 받고(접수 뒤 통화·미팅으로 요구사항을 좁히는 것이 실무다), 앞 네 스텝의 입력을 한 장으로
 // 되짚는다. 여기서 고치지 않고 "고치기" 로 해당 스텝에 돌아간다 — 값의 정본은 언제나 그 스텝이다.
 // 답변 행은 검토서·관리자 화면과 **같은 함수**(buildDevReviewBriefRows)로 만든다(라벨이 어긋나지 않게).
+// AI 후속 질문의 답도 같은 자리에 실린다(문구 규칙은 계약 developFollowupAnswerText — 폼이 만들어 준다).
+// 자료 사용 동의는 2스텝으로 옮겼다(§7.2.2) — 자료가 AI 로 나가는 시점이 2→3 전환이기 때문이다.
 const props = defineProps<{ form: DevelopRequestForm }>();
 const {
   fields,
@@ -28,12 +30,16 @@ const {
   menuBadge,
   pickedAreaDefs,
   attachments,
+  aiAnswerRows,
+  aiFollowupUsed,
   buildAnswers,
   buildProduction,
   goToStep,
 } = props.form;
 
 const briefRows = computed(() => buildDevReviewBriefRows(buildAnswers(), DEVELOP_REGISTRY));
+// AI 질문 답 + 레지스트리 문항 답 — 둘 다 비면 "답한 항목이 없습니다".
+const answerRowCount = computed(() => aiAnswerRows.value.length + briefRows.value.length);
 const fileNames = computed(() => attachments.value.map((f) => f.name));
 const wishLabel = computed(() =>
   developWishLabel(fields.wishDate === '' ? null : fields.wishDate, fields.wishNote.trim() === '' ? null : fields.wishNote.trim()),
@@ -143,13 +149,19 @@ const contactLine = computed(() => {
         <p v-else class="text-body text-tx-3">등록된 파일 없음</p>
       </div>
 
-      <!-- 세부 질문 답변 -->
+      <!-- 세부 질문 답변 — AI 가 고른 질문의 답(있으면)과 레지스트리 문항의 답을 한 곳에 모은다 -->
       <div class="grid gap-2 border-t border-line pt-5">
-        <div class="flex items-baseline gap-2">
+        <div class="flex flex-wrap items-baseline gap-2">
           <h3 class="text-label font-bold text-tx-3">세부 질문 답변</h3>
+          <span v-if="aiFollowupUsed" class="rounded-full bg-brand-50 px-2.5 py-0.5 text-micro font-bold text-brand-700">AI 질문</span>
           <button type="button" class="ml-auto text-label font-bold text-brand-600 hover:underline" @click="goToStep('questions')">고치기</button>
         </div>
-        <dl v-if="briefRows.length > 0" class="grid gap-px overflow-hidden rounded-xl bg-line">
+        <dl v-if="answerRowCount > 0" class="grid gap-px overflow-hidden rounded-xl bg-line">
+          <!-- AI 질문은 문장이 길어 라벨을 한 줄 위에 둔다(잘라 쓰면 무엇을 물었는지 사라진다) -->
+          <div v-for="row in aiAnswerRows" :key="row.id" class="grid gap-1 bg-white px-4 py-3">
+            <dt class="text-label font-semibold text-tx-3">{{ row.label }}</dt>
+            <dd class="whitespace-pre-wrap text-body" :class="row.unknown ? 'text-tx-3' : 'text-tx-1'">{{ row.value }}</dd>
+          </div>
           <div v-for="row in briefRows" :key="row.code" class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
             <dt class="text-label font-semibold text-tx-3">{{ row.label }}</dt>
             <dd class="whitespace-pre-wrap text-body" :class="row.unknown ? 'text-tx-3' : 'text-tx-1'">{{ row.value }}</dd>
@@ -185,19 +197,9 @@ const contactLine = computed(() => {
           </div>
         </dl>
       </div>
-
     </section>
 
-    <!-- 동의 — 이 체크 하나가 aiConsent(외부 LLM 사전 검토 전송 동의)다. 비밀유지 희망은 선택. -->
-    <label class="flex items-start gap-3 rounded-xl border-2 bg-white p-4" :class="fields.aiConsent ? 'border-brand-500' : 'border-line'">
-      <input v-model="fields.aiConsent" type="checkbox" class="mt-0.5 h-4.5 w-4.5 shrink-0 accent-[var(--color-brand-500)]">
-      <span class="grid gap-1">
-        <span class="text-body font-bold text-tx-1">
-          입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다. <span class="text-red-500">*</span>
-        </span>
-        <span class="text-label leading-relaxed text-tx-3">AI 사전 검토서는 담당자가 검토한 뒤 공개됩니다.</span>
-      </span>
-    </label>
+    <!-- 자료 사용 동의(aiConsent)는 2스텝에서 받았다 — 여기 남는 체크는 비밀유지 희망(선택)뿐이다. -->
     <label class="flex items-start gap-3 rounded-xl border border-line bg-white p-4">
       <input v-model="fields.ndaWanted" type="checkbox" class="mt-0.5 h-4.5 w-4.5 shrink-0 accent-[var(--color-brand-500)]">
       <span class="grid gap-1">

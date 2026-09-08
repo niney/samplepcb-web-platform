@@ -8,15 +8,18 @@ import {
   DEVELOP_SOURCING_MODE_LABELS,
   DEVELOP_TARGET_STAGE_LABELS,
   MARKET_ATTACHMENT_FIELD,
+  developFollowupAnswerText,
   developProductionSummary,
   developWishCode,
   developWishLabel,
+  isDevelopFollowupAnswered,
 } from '@sp/api-contract';
 import {
   REF_DEVELOP_REQUEST,
   asDevelopCurrentStage,
   asDevelopRequestMode,
   asDevelopTargetStage,
+  toDevelopAiQuestions,
   toDevelopAreaCodes,
   toDevelopProduction,
 } from './develop';
@@ -59,7 +62,15 @@ type SourceColumns = Pick<
   | 'wishNote'
   | 'expertDelegate'
   | 'production'
+  | 'aiQuestions'
 >;
+
+// AI 후속 질문(§7.2.2)의 답 줄 — 프롬프트 "질문 답변"과 근거 코퍼스에 합류(답한 것만).
+export function developAiAnswerLines(r: Pick<SpDevelopRequest, 'aiQuestions'>): string[] {
+  const stored = toDevelopAiQuestions(r.aiQuestions);
+  if (stored === null) return [];
+  return stored.questions.filter(isDevelopFollowupAnswered).map((q) => `- ${q.question} → ${developFollowupAnswerText(q)}`);
+}
 
 // 프로젝트 조건 줄 — 프롬프트 "■ 프로젝트 조건" 과 근거 코퍼스(R1 인용 대조)에 같은 문자열로 들어간다.
 export function developConditionLines(r: SourceColumns): string[] {
@@ -90,6 +101,7 @@ export const developSourceSignature = (r: SourceColumns, files: readonly Pick<Sp
     description: r.description,
     answers: toAnswers(r.answers),
     conditions: developConditionLines(r),
+    aiAnswers: developAiAnswerLines(r),
     files: files.map((f) => [f.id.toString(), f.size.toString()]),
     supplement: (r.aiSupplement ?? '').trim(),
   });
@@ -130,6 +142,7 @@ export async function buildDevelopReviewSource(request: SpDevelopRequest): Promi
       registry: DEVELOP_REGISTRY,
       conditionLines: developConditionLines(request),
       wishCode: developWishCode(request.wishDate, request.createdAt),
+      extraAnswerLines: developAiAnswerLines(request),
     },
     images: prepared.images,
     attachmentHashes: devReviewAttachmentHashes(

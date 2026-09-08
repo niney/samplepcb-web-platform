@@ -13,6 +13,7 @@ import {
   DevelopReviewDecisionBody,
   DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_REGISTRY,
+  applyDevelopFollowupAnswers,
   developMergedIssues,
   developQuestionsFor,
   developRequiredMissing,
@@ -20,6 +21,7 @@ import {
   isDevelopCustomerCancellable,
   isDevelopEditable,
   keepDevelopDelegateAnswers,
+  mergeDevelopFollowupAnswers,
   needsServerPreview,
   normalizeDevelopProduction,
   normalizeDevelopTools,
@@ -27,6 +29,7 @@ import {
   resolveFileMime,
 } from '@sp/api-contract';
 import type {
+  DevelopAiQuestionsType,
   DevelopMilestoneViewType,
   DevelopQuoteViewType,
   DevelopRequestDetailType,
@@ -52,6 +55,7 @@ import {
   developEventFileGate,
   developEventFiles,
   developWizardFieldsOf,
+  toDevelopAiQuestions,
   toDevelopAreaCodes,
   toDevelopContact,
   toDevelopEventView,
@@ -59,6 +63,8 @@ import {
   transitionDevelopStatus,
 } from '../lib/develop';
 import { startDevelopAiDrafts } from '../lib/develop-ai';
+import { getAiJob } from '../lib/ai/jobs';
+import { DEVELOP_FOLLOWUP_USECASE } from '../lib/ai/usecases';
 import {
   buildAdminNewRequestEmail,
   buildAdminQuoteAcceptedEmail,
@@ -364,6 +370,15 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     // 시스템개발 "전문가에게 맡김"은 기술 문항을 건너뛴다 — 역할·협업 문항(askOnDelegate)만 남기고 나머지는 버린다(화면 상태 잔재).
     const expertDelegate = payload.requestMode === 'system' && payload.expertDelegate;
     const answers = expertDelegate ? keepDevelopDelegateAnswers(payload.answers) : payload.answers;
+    // AI 후속 질문(§7.2.2) — 잡에서 질문을 되읽어(클라이언트가 문항을 지어내지 못한다) 답만 합친다. 본인 잡·완료 잡만.
+    let aiQuestions: DevelopAiQuestionsType | null = null;
+    if (payload.requestMode === 'system' && !expertDelegate && payload.aiQuestions !== null) {
+      const job = await getAiJob(payload.aiQuestions.jobId);
+      if (job?.mbId !== mbId || job.useCase !== DEVELOP_FOLLOWUP_USECASE || job.status !== 'done' || job.followup === null) {
+        return reply.status(400).send({ result: false, error: 'FOLLOWUP_JOB_INVALID' });
+      }
+      aiQuestions = mergeDevelopFollowupAnswers(job.followup, payload.aiQuestions.answers);
+    }
 
     let uploaded: UploadedFileType[] = [];
     if (attachments.length > 0) {
@@ -396,6 +411,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
           wishNote: payload.wishNote === '' ? null : payload.wishNote,
           expertDelegate,
           production: normalizeDevelopProduction(payload.production),
+          aiQuestions: aiQuestions ?? Prisma.DbNull,
           contactName: payload.contact.name,
           contactCompany: payload.contact.company,
           contactPhone: payload.contact.phone,
@@ -572,6 +588,14 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       }
       if (b.expertDelegate !== undefined && expertDelegate !== r.expertDelegate) { data.expertDelegate = expertDelegate; changed.push('expertDelegate'); }
       if (b.production !== undefined) { data.production = normalizeDevelopProduction(b.production); changed.push('production'); }
+      // AI 후속 질문 답(§7.2.2) — 질문은 불변, 답만 갱신. 맡김으로 바꾸거나 개별 견적으로 바꾸면 통째로 비운다.
+      if (b.aiQuestions !== undefined) {
+        const stored = toDevelopAiQuestions(r.aiQuestions);
+        if (stored === null) return reply.status(409).send({ result: false, error: 'NO_AI_QUESTIONS' });
+        data.aiQuestions = applyDevelopFollowupAnswers(stored, b.aiQuestions.answers);
+        changed.push('aiQuestions');
+      }
+      if ((expertDelegate || mode !== 'system') && r.aiQuestions !== null) { data.aiQuestions = Prisma.DbNull; }
       if (b.budgetRange !== undefined && b.budgetRange !== r.budgetRange) { data.budgetRange = b.budgetRange; changed.push('budgetRange'); }
       if (b.ndaWanted !== undefined && b.ndaWanted !== r.ndaWanted) { data.ndaWanted = b.ndaWanted; changed.push('ndaWanted'); }
       if (b.contact !== undefined) {

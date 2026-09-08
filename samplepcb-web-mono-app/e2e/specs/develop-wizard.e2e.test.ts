@@ -58,20 +58,34 @@ async function fillDescribe(s: E2eSession, title: string): Promise<void> {
   await s.page.getByRole('button', { name: '시제품 완성', exact: true }).click();
   await s.page.getByPlaceholder('계약 후 3개월').fill('계약 후 3개월');
   await s.page.locator('select').first().selectOption({ label: '1천만~3천만원' });
+  // AI 동의는 2스텝 업로드 존 아래(자료가 AI 로 나가는 시점 앞, §7.2.2).
+  await s.page.getByText('입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다.').click();
 }
 
-// 5스텝 — 연락처 + 동의 + 접수.
+// 5스텝 — 연락처 + 접수(동의는 2스텝에서 받았다).
 async function fillReviewAndSubmit(s: E2eSession): Promise<void> {
   await s.page.getByPlaceholder('홍길동').fill('위저드 고객');
   await s.page.getByPlaceholder('010-0000-0000').fill('010-1234-5678');
   await s.page.getByPlaceholder('name@company.com').fill('e2e-develop-wizard@example.com');
-  await s.page.getByText('입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다.').click();
   await s.page.getByRole('button', { name: '개발의뢰 접수' }).click();
   await s.page.getByText('개발의뢰가 접수되었습니다').waitFor({ timeout: 15_000 });
 }
 
+// develop.followup 유스케이스 토글 — AI 경로 테스트 전후로 켜고 원복한다(실 LLM 호출, FOLLOWUP_LLM=1 게이트).
+async function setFollowupEnabled(enabled: boolean): Promise<boolean> {
+  const prisma = getPrisma();
+  const row = await prisma.spAiUsecase.findUnique({ where: { useCase: 'develop.followup' } });
+  const prev: boolean = row?.enabled ?? false;
+  if (row === null) {
+    await prisma.spAiUsecase.create({ data: { useCase: 'develop.followup', enabled, model: 'kimi-k3', think: 'low', promptTemplate: '', extraInstructions: null } });
+  } else {
+    await prisma.spAiUsecase.update({ where: { useCase: 'develop.followup' }, data: { enabled } });
+  }
+  return prev;
+}
+
 describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', () => {
-  const titles = { system: '[e2e] 위저드 v2 시스템개발', individual: '[e2e] 위저드 v2 개별 PCB+기구' };
+  const titles = { system: '[e2e] 위저드 v2 시스템개발', individual: '[e2e] 위저드 v2 개별 PCB+기구', ai: '[e2e] 위저드 v2 AI 질문' };
 
   beforeAll(async () => {
     await mustReach(`${API_URL}/api/health`, 'API 서버를 켜세요: pnpm dev:api (127.0.0.1:3333)');
@@ -174,6 +188,61 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();
+    }
+  });
+
+  // 시스템개발 + "몇 가지 질문에 답하기" — 유스케이스가 꺼져 있으면(기본) 고정 서술 3문항으로 즉시 폴백한다.
+  test('시스템개발 — AI 질문 유스케이스 꺼짐 → 고정 3문항 폴백', async () => {
+    const prev = await setFollowupEnabled(false);
+    const s = await newSession(identity);
+    try {
+      await s.page.goto('/develop/request');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      await s.page.getByText('시스템개발', { exact: true }).first().click();
+      await next(s);
+      await fillDescribe(s, '[e2e] 위저드 v2 폴백');
+      await next(s);
+      await s.page.getByText('제품은 누가, 어디에서, 어떻게 사용하나요?').waitFor({ timeout: 15_000 });
+      expect(await s.page.getByText('기본 질문').count()).toBeGreaterThan(0);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+      await setFollowupEnabled(prev);
+    }
+  });
+
+  // 실 LLM 경로(kimi-k3, 10초 안팎) — FOLLOWUP_LLM=1 일 때만. 질문이 뜨고 답이 저장되는지까지 본다.
+  test.skipIf(process.env.FOLLOWUP_LLM !== '1')('시스템개발 — AI 가 자료를 읽고 고른 질문 → 답 저장', async () => {
+    const prev = await setFollowupEnabled(true);
+    const s = await newSession(identity);
+    try {
+      await s.page.goto('/develop/request');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      await s.page.getByText('시스템개발', { exact: true }).first().click();
+      await next(s);
+      await fillDescribe(s, titles.ai);
+      await s.page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill(
+        '[e2e] 매장용 자동 음료 디스펜서. 4종 음료를 정해진 양만큼 따르고, 스마트폰 앱에서 남은 양과 판매 횟수를 확인합니다. 실내 카운터, 콘센트 전원. 케이스 3D 파일은 이미 있습니다.',
+      );
+      await next(s);
+      // 진행 패널 → 질문. 5분 안에 끝나야 한다.
+      await s.page.getByText('AI 가 이해한 내용', { exact: false }).waitFor({ timeout: 300_000 });
+      const chips = s.page.getByRole('button', { name: '잘 모르겠음', exact: true });
+      expect(await chips.count()).toBeGreaterThan(0);
+      await chips.first().click();
+      await next(s);
+      await s.page.getByText('수량 미정', { exact: true }).click();
+      await next(s);
+      await fillReviewAndSubmit(s);
+      const d = (await apiGet(`/api/develop/requests/${String((await findByTitle(titles.ai)).requestId)}`)).json as {
+        data: { aiQuestions: { questions: { answer: { choice: string | null } | null }[] } | null };
+      };
+      expect(d.data.aiQuestions).not.toBeNull();
+      expect(d.data.aiQuestions?.questions.some((q) => q.answer?.choice === 'unknown')).toBe(true);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+      await setFollowupEnabled(prev);
     }
   });
 

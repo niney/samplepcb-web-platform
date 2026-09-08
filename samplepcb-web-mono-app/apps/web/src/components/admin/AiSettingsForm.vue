@@ -16,10 +16,11 @@ import {
 import DevReviewSummary from './DevReviewSummary.vue';
 import UiPagination from '../ui/UiPagination.vue';
 
-// AI 연동 폼 — 여섯 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
+// AI 연동 폼 — 일곱 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
 // 추가 지침·프롬프트 버전·샘플 테스트) ③ 정밀 시스템 구성도(사용·모델·thinking 단계·추가 지침·
 // 프롬프트 버전 — docs/AI_DEV_REVIEW.md §13.5) ④·⑤ 개발의뢰 검토서·구성도(docs/DEVELOP_FLOW.md §7.3 —
-// 마켓과 모델·지침이 갈린다. 검토서도 관리자 대기라 thinking 단계를 가진다) ⑥ 실행 이력(sp_ai_job). 프롬프트 본문은 코드
+// 마켓과 모델·지침이 갈린다. 검토서도 관리자 대기라 thinking 단계를 가진다) ⑥ 개발의뢰 후속 질문
+// (docs/DEVELOP_FLOW.md §7.2.2 — 고객이 위저드에서 기다리는 유일한 잡이라 빠른 설정이 기본) ⑦ 실행 이력(sp_ai_job). 프롬프트 본문은 코드
 // 정본(docs/AI_DEV_REVIEW.md §6)이라 화면에 textarea 가 없다. 샘플 테스트는 검토서용만 있다.
 // apiKey 는 서버가 마스킹만 돌려주므로 입력칸은 항상 빈 값에서 시작: 입력=교체, 비움=유지,
 // 삭제 체크=제거. "연결 테스트"는 /api/tags 프록시 — 성공 시 모델 목록을 datalist 로 제공.
@@ -50,6 +51,11 @@ const devdEnabled = ref(false);
 const devdModel = ref('');
 const devdThink = ref<AiThinkLevelType>('high');
 const devdExtra = ref('');
+// 위저드 AI 후속 질문 — 고객이 화면에서 기다린다(정밀 모델·높은 thinking 은 폴백만 부른다).
+const devfEnabled = ref(false);
+const devfModel = ref('');
+const devfThink = ref<AiThinkLevelType>('low');
+const devfExtra = ref('');
 const models = ref<string[]>([]);
 
 const testJobId = ref<string | null>(null);
@@ -108,20 +114,25 @@ watch(
     devdModel.value = d.developDiagram.model;
     devdThink.value = d.developDiagram.think;
     devdExtra.value = d.developDiagram.extraInstructions;
+    devfEnabled.value = d.developFollowup.enabled;
+    devfModel.value = d.developFollowup.model;
+    devfThink.value = d.developFollowup.think;
+    devfExtra.value = d.developFollowup.extraInstructions;
     apiKeyInput.value = '';
     clearApiKey.value = false;
   },
   { immediate: true },
 );
 
-// 네 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
+// 다섯 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
 const canSubmit = computed(
   () =>
     !save.isPending.value &&
     drModel.value.trim() !== '' &&
     ddModel.value.trim() !== '' &&
     devrModel.value.trim() !== '' &&
-    devdModel.value.trim() !== '',
+    devdModel.value.trim() !== '' &&
+    devfModel.value.trim() !== '',
 );
 const thinkLabel = (level: AiThinkLevelType): string =>
   level === 'off'
@@ -147,7 +158,9 @@ const jobStageLabel = (stage: string | null): string =>
       ? t('admin.settings.ai.jobs.stageReview')
       : stage === 'diagram'
         ? t('admin.settings.ai.jobs.stageDiagram')
-        : '-';
+        : stage === 'followup'
+          ? t('admin.settings.ai.jobs.stageFollowup')
+          : '-';
 
 function onTest(): void {
   modelsTest.mutate(undefined, {
@@ -213,6 +226,12 @@ function onSubmit(): void {
       model: devdModel.value.trim(),
       think: devdThink.value,
       extraInstructions: devdExtra.value.trim(),
+    },
+    developFollowup: {
+      enabled: devfEnabled.value,
+      model: devfModel.value.trim(),
+      think: devfThink.value,
+      extraInstructions: devfExtra.value.trim(),
     },
   });
 }
@@ -561,6 +580,63 @@ function onSubmit(): void {
         </div>
       </div>
 
+      <!-- ⑥ 개발의뢰 후속 질문 — 고객이 위저드 3스텝에서 기다리는 잡이라 빠른 모델·낮은 thinking 이 기본이다. -->
+      <div class="space-y-3 rounded-md border border-gray-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-800">
+            {{ t('admin.settings.ai.developFollowup.title') }}
+            <span class="ml-1 font-mono text-xs font-normal text-gray-400">develop.followup</span>
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input v-model="devfEnabled" type="checkbox">
+            {{ t('admin.settings.ai.developFollowup.enabled') }}
+          </label>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.ai.developFollowup.enabledHint') }}</p>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developFollowup.model') }}</span>
+          <input v-model="devfModel" type="text" list="ai-models" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm">
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.developFollowup.modelHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developFollowup.think') }}</span>
+          <select v-model="devfThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
+          </select>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.thinkHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developFollowup.extraInstructions') }}</span>
+          <textarea
+            v-model="devfExtra"
+            rows="4"
+            :maxlength="AI_EXTRA_INSTRUCTIONS_MAX"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          />
+          <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {{ t('admin.settings.ai.developFollowup.extraInstructionsHint') }}
+            <span class="ml-auto font-mono text-[11px] text-gray-400">
+              {{ t('admin.settings.ai.devDiagram.extraInstructionsCount', { count: devfExtra.length, max: AI_EXTRA_INSTRUCTIONS_MAX }) }}
+            </span>
+          </span>
+        </label>
+
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.promptVersion') }}</span>
+          <p class="font-mono text-sm text-gray-700">{{ data?.data.developFollowup.promptVersion }}</p>
+          <span class="text-xs text-gray-500">
+            {{ t('admin.settings.ai.devDiagram.promptVersionHint') }}
+            <template v-if="data !== undefined">
+              · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
+              {{ formatDateTime(data.data.developFollowup.updatedAt) }}
+            </template>
+          </span>
+        </div>
+      </div>
+
       <datalist id="ai-models">
         <option v-for="m in models" :key="m" :value="m" />
       </datalist>
@@ -576,7 +652,7 @@ function onSubmit(): void {
         <span v-if="save.isSuccess.value" class="text-sm text-green-600">{{ t('admin.settings.saved') }}</span>
       </div>
 
-      <!-- ⑥ 실행 이력 -->
+      <!-- ⑦ 실행 이력 -->
       <div class="space-y-3 rounded-md border border-gray-200 p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-gray-800">{{ t('admin.settings.ai.jobs.title') }}</h3>

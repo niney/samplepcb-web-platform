@@ -24,6 +24,8 @@ import StepQuestions from '../components/request/StepQuestions.vue';
 // 의뢰 수정 — 견적이 나가기 전(received·reviewing)까지만 열린다.
 // 위저드와 **같은 폼 상태**(useRequestForm)를 쓰되 스텝이 없다: 이미 쓴 글을 고치러 온 사람에게
 // 5단계를 다시 걷게 하지 않는다. 대신 한 화면에 위저드 1~4스텝 컴포넌트를 이어 붙이고 연락처를 더한다.
+// 시스템개발 AI 후속 질문(§7.2.2)이 붙은 의뢰는 3스텝 자리에 **저장된 질문**이 그대로 나온다 — 여기서 다시
+// 생성하지 않는다(질문 불변, 답만 PATCH). 그래서 StepQuestions 에 잡(followup)을 넘기지 않는다.
 // 저장은 세 갈래다 — 본문 필드는 PATCH(바뀐 것만), 새 첨부는 POST files(multipart), 삭제는 DELETE files/:id.
 // 첨부는 서버에 이미 있는 실체라 "저장" 을 기다리지 않고 즉시 반영된다(그게 파일에 대한 사용자의 기대다).
 
@@ -54,6 +56,7 @@ const {
   effectiveAreas,
   pickedAreas,
   buildAnswers,
+  buildAiAnswersAll,
   buildContact,
   buildProduction,
   hydrate,
@@ -120,6 +123,12 @@ function changedBody(): DevelopRequestUpdateBodyType {
   if (skipQuestions.value !== d.expertDelegate) body.expertDelegate = skipQuestions.value;
   if (JSON.stringify(production) !== JSON.stringify(d.production)) body.production = production;
   if (JSON.stringify(answers) !== JSON.stringify(d.answers)) body.answers = answers;
+  // AI 후속 질문 — 질문은 못 바꾸고 답만 고친다. 저장분이 있을 때만 보낸다(없으면 서버가 409).
+  if (d.aiQuestions !== null) {
+    const aiAnswers = buildAiAnswersAll();
+    const savedAnswers = d.aiQuestions.questions.map((q) => ({ id: q.id, choice: q.answer?.choice ?? null, text: q.answer?.text ?? '' }));
+    if (JSON.stringify(aiAnswers) !== JSON.stringify(savedAnswers)) body.aiQuestions = { answers: aiAnswers };
+  }
   // 희망 툴은 화면에서 뺐다(2026-09-08 간소화) — 저장분은 건드리지 않는다.
   if (JSON.stringify(contact) !== JSON.stringify(d.contact)) body.contact = contact;
   return body;

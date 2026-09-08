@@ -188,6 +188,17 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 
 **P2 구현(2026-09-05)** — 고객 행동이 붙었다: 신규 조각 `components/detail/{CommentComposer,DecisionPanel}.vue`, `QuoteCard.vue` 에 수락 패널·거절·마일스톤 결제 버튼, `Timeline.vue` 에 `event-actions` 스코프 슬롯, `api/useDevelopRequests.ts` 에 훅 6종(`useAcceptQuote`·`useDeclineQuote`·`usePostComment`·`useCheckoutMilestone`·`useDeliveryDecision`·`useReviewRequestDecision`). 결정 넷: ① 수락은 **표준 조건 동의 체크 + 이름**이 둘 다 있어야 열린다(서버가 시각·IP·이름을 기록해 계약을 갈음하므로 동의가 클릭 한 번에 묻히면 안 된다). ② `payable` 은 서버 파생이라 화면이 다시 계산하지 않고, 그 마일스톤 행에만 결제 버튼을 세운다 — 나머지 행은 상태·결제일·주문번호와 무통장 "입금 확인 중" 배지를 보여 준다. ③ **미응답 판정은 타임라인 부모가 한다**(어떤 `review_request` 가 아직 안 끝났는지는 뒤따르는 `review_approved`/`review_changes` 의 `payload.eventId` 를 봐야 알 수 있다) — `Timeline` 은 슬롯만 내주고 판정을 모른다. ④ 결제는 주입 직전 `auth.bootstrap()` 으로 JWT `cartId` 스테일을 막고, 그래도 `NO_CART_ID` 면 한 번 더 부트스트랩하고 재시도한 뒤 영카트 주문서(`/shop/orderform.php`)로 `window.location.assign` 한다. 목록에서 "지금 할 일" 칩이 있는 행은 상세의 해당 섹션 앵커(`#quotes`·`#timeline`)로 바로 보낸다 — 칩만 링크로 만들면 카드 링크 안에 링크가 들어가므로 카드 자체에 앵커를 건다.
 
+#### 7.2.2 AI 후속 질문 — 시스템개발 3스텝 (2026-09-08 밤, 사용자 결정)
+
+시스템개발의 「몇 가지 질문에 답하기」를 고정 서술 3문항에서 **AI 가 설명문·첨부를 읽고 견적 산출에 꼭 필요한데 자료에서 확인되지 않는 것만 묻는 질문**으로 바꿨다. 결정 3("위저드에서 AI 제거")의 예외 — 검토서가 아니라 질문 고르기 한 번이며, 폴백이 있어 위저드가 LLM 에 인질 잡히지 않는다. 사용자 결정: 모델은 설정에서 고르되 기본 kimi-k3 · 질문 개수·형태는 정하지 않고 AI 에 맡긴다(폭주 방어 상한 8) · 읽을 수 있는 첨부는 전부 읽는다(문서 텍스트 + 이미지·스캔 비전 판독) · AI 동의는 2스텝 업로드 존 아래(모든 의뢰 공통 — 자료가 나가는 시점 앞).
+
+- **유스케이스 `develop.followup`**(`sp_ai_usecase` 행, 기본 kimi-k3 · think low · 300초). 프롬프트는 코드 정본 `lib/ai/develop-followup.ts`(`develop-followup.v1`): 비전문가 전제, "견적 산출에 영향 주는 항목" 7개 목록 안에서만·자료에 답이 있으면 묻지 않음·기술값(전압·임피던스·층수·품번) 금지·2·4스텝에서 이미 받은 것(단계·시기·예산·수량·디자인/기구 주체) 제외·선택지 2~6 또는 서술·`understood`(자료에서 파악한 제품 한 문장). 파서가 결정적으로 정리: 빈 질문 삭제·중복 접기·상한 8·선택지 중복 제거·모델이 준 "모름" 류 제거 후 서버가 `unknown`/"잘 모르겠음" 부착·선택지 1개면 서술형·id `q1…`·옵션 코드 `o1…`.
+- **흐름**: 2→3스텝 전환 때 `POST /api/ai/develop.followup/run`(multipart `payload {title, description}` + `attachment[]`) → 잡(검토서와 같은 2단: 이미지 판독 → 질문 생성, `sp_ai_job`, 같은 입력 1시간 재사용) → `GET /api/ai/jobs/:id` 폴링(`stage` attachments/followup, done 이면 `followup`) → 질문 표시. `GET /api/ai/develop.followup/status` 가 꺼져 있거나 error·시간 초과면 **고정 서술 3문항으로 폴백**. 진행 중엔 "기다리지 않고 전문가에게 맡김으로 진행" 탈출 버튼. 협업 범위 3문항은 그대로 아래에.
+- **저장**: 등록 payload `aiQuestions { jobId, answers[{id, choice, text}] }` → 서버가 **잡에서 질문을 되읽어**(본인·완료 잡만, 아니면 400 `FOLLOWUP_JOB_INVALID`) 답만 합쳐 `sp_develop_request.aiQuestions`(`DevelopAiQuestions`: jobId·model·generatedAt·understood·questions[+answer])에 박제. 레지스트리 `answers` 와 분리(문항이 고정이 아니다). 수정 `PATCH aiQuestions {answers}` 는 답만(저장분 없으면 409 `NO_AI_QUESTIONS`), 맡김·개별 견적으로 바꾸면 통째로 비운다.
+- **검토서 코퍼스**: 답한 AI 질문은 `DevReviewSource.extraAnswerLines`("- 질문 → 답")로 프롬프트 "질문 답변"·근거 코퍼스·원천 서명에 합류한다.
+- **관리자**: AI 설정 탭 ⑥ 개발의뢰 후속 질문 카드(사용·모델·thinking·추가 지침), 의뢰 상세 "AI 추가 질문" 블록(understood + 질문/답).
+- 폴백 경로는 하네스가(유스케이스 꺼진 상태 409·잡 없는 등록 400·저장분 없는 PATCH 409), 실 LLM 경로는 프로빙(`develop-followup` 샘플 실행)으로 본다.
+
 ### 7.3 관리자 (`apps/web` `/app/admin/develop`)
 
 | 경로 | 화면 |
@@ -206,7 +217,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 
 ## 8. API 지도
 
-회원(prefix `/api`, 소유자만): `POST /develop/requests`(multipart) · `GET /develop/my/requests` · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3).
+회원(prefix `/api`, 소유자만): `GET /ai/develop.followup/status`·`POST /ai/develop.followup/run`(multipart, §7.2.2)·`GET /ai/jobs/:jobId` · `POST /develop/requests`(multipart) · `GET /develop/my/requests` · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3).
 
 관리자(prefix `/api/admin`, requireAdmin): `GET /develop/requests`(+counts) · `GET|PATCH /develop/requests/:id` · `POST …/status` · `POST …/ai/review`·`POST …/ai/diagram` · `PUT …/review`·`POST …/review/publish|unpublish|reset` · `POST …/diagram/publish|unpublish|upload` · `POST …/quotes`·`PATCH /develop/quotes/:qid`·`POST …/send|withdraw` · `POST …/events`(multipart) · `POST /develop/milestones/:mid/mark-paid` · `GET …/review/versions`·`GET …/review/versions/:seq`·`POST …/review/versions/:seq/restore`(§6.2 버전 원장) · `GET /develop/files/:fileId(/preview)`(의뢰·이벤트·견적 파일 한 번호 체계, 미리보기는 고객 라우트와 같은 buildFilePreview) · `GET|PATCH /develop/settings`.
 

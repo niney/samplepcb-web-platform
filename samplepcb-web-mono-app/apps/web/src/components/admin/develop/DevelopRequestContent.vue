@@ -11,19 +11,22 @@ import {
   DEVELOP_TARGET_STAGE_LABELS,
   developAnswerText,
   developAreaLabel,
+  developFollowupAnswerText,
   developProductionSummary,
   developQuestionsFor,
   developSlotLabel,
   developWishLabel,
+  isDevelopFollowupAnswered,
+  isDevelopFollowupUnknown,
   isMarketAnswerUnknown,
 } from '@sp/api-contract';
 import type { AdminDevelopRequestDetailType } from '@sp/api-contract';
 import { apiErrorMessage, canPreview } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
-import { formatBytes } from '../../../lib/format';
+import { formatBytes, formatDateTime } from '../../../lib/format';
 import { downloadAdminDevelopFile } from './develop-files';
 
-// 의뢰 내용 — 설명 · 의뢰 방식/예산/단계/희망 시기 · 시제품·생산 계획 · 질문 답변 · 연락처 · 첨부(희망 툴 표시는 2026-09-08 간소화로 뺐다).
+// 의뢰 내용 — 설명 · 의뢰 방식/예산/단계/희망 시기 · 시제품·생산 계획 · 연락처 · AI 추가 질문 · 질문 답변 · 첨부(희망 툴 표시는 2026-09-08 간소화로 뺐다).
 // 사전은 전부 개발의뢰 레지스트리(DEVELOP_*·develop*)다 — 마켓 사전을 쓰면 기구(mech)가 "mech(종료)" 로,
 // 예산 구간이 다른 사전 값으로 어긋난다(위저드 v2, 2026-09-08).
 // 문항 라벨·순서는 레지스트리(developQuestionsFor)가 정본이라, 답변 배열이 아니라 문항 순서로 표를 만든다.
@@ -60,6 +63,21 @@ const answerRows = computed(() => {
     text: false,
   }));
   return [...known, ...rest];
+});
+
+// AI 후속 질문(위저드 3스텝, §7.2.2) — 문항은 잡에서 서버가 박제한 것이고 답만 고객 것이다.
+// 고정 3문항 폴백·전문가 맡김·개별 견적은 aiQuestions 가 null 이라 블록 자체가 없다.
+const aiQuestionRows = computed(() => {
+  const ai = props.detail.aiQuestions;
+  if (ai === null) return [];
+  return ai.questions.map((q) => ({
+    id: q.id,
+    question: q.question,
+    why: q.why,
+    value: developFollowupAnswerText(q),
+    answered: isDevelopFollowupAnswered(q),
+    unknown: isDevelopFollowupUnknown(q), // '잘 모르겠음' — 답은 받았지만 견적 근거가 아니라 상담 거리다
+  }));
 });
 
 
@@ -170,6 +188,34 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
         <template v-if="detail.contact.hours !== null">
           <dt class="text-gray-500">{{ t('admin.develop.content.contactHours') }}</dt>
           <dd>{{ detail.contact.hours }}</dd>
+        </template>
+      </dl>
+    </div>
+
+    <!-- AI 추가 질문 — 조건 답변 표보다 앞에 둔다(질문 자체가 이 의뢰 고유라 견적 근거로 먼저 읽힌다). -->
+    <div v-if="detail.aiQuestions !== null" class="mt-4">
+      <p class="flex flex-wrap items-baseline gap-2 text-sm font-bold text-gray-500">
+        {{ t('admin.develop.content.aiQuestions', { count: aiQuestionRows.length }) }}
+        <span class="font-mono text-[11px] font-normal text-gray-400">{{ detail.aiQuestions.model }}</span>
+        <span class="text-[11px] font-normal text-gray-400">{{ formatDateTime(detail.aiQuestions.generatedAt) }}</span>
+      </p>
+      <p v-if="detail.aiQuestions.understood !== ''" class="mt-1.5 text-xs leading-relaxed text-gray-500">
+        <span class="font-semibold">{{ t('admin.develop.content.aiUnderstood') }}</span> · {{ detail.aiQuestions.understood }}
+      </p>
+      <dl
+        v-if="aiQuestionRows.length > 0"
+        class="mt-1.5 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border border-gray-100 px-3 py-2 text-sm"
+      >
+        <template v-for="row in aiQuestionRows" :key="row.id">
+          <dt class="text-gray-500" :title="row.why">{{ row.question }}</dt>
+          <dd
+            v-if="row.answered"
+            class="whitespace-pre-line font-semibold"
+            :class="row.unknown ? 'text-amber-700' : 'text-gray-800'"
+          >
+            {{ row.value }}
+          </dd>
+          <dd v-else class="text-gray-400" :title="t('admin.develop.content.aiUnanswered')">—</dd>
         </template>
       </dl>
     </div>
