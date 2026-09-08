@@ -42,14 +42,16 @@ const toggleScope = (code: DevelopProductionScopeType): void => {
 };
 
 // 수량 두 칸 — 입력 중 글자를 지우거나 다시 치는 동안에도 화면 문자열을 그대로 두고, 폼 값만 정규화한다.
-const parseQty = (text: string, min: number): number | null => {
-  const trimmed = text.trim();
+// ⚠ type="number" 인풋에 v-model 을 걸면 Vue 가 값을 number 로 캐스팅해 넘기므로(빈 칸은 ''),
+// 문자열·숫자 둘 다 받는다 — string 만 가정하면 `text.trim is not a function` 으로 watcher 가 죽는다.
+const parseQty = (text: string | number, min: number): number | null => {
+  const trimmed = String(text).trim();
   if (trimmed === '') return null;
   const n = Number(trimmed);
   return Number.isInteger(n) && n >= min ? n : null;
 };
-const protoQtyText = ref(plan.prototypeQty === null ? '' : String(plan.prototypeQty));
-const annualQtyText = ref(plan.annualQty === null ? '' : String(plan.annualQty));
+const protoQtyText = ref<string | number>(plan.prototypeQty === null ? '' : String(plan.prototypeQty));
+const annualQtyText = ref<string | number>(plan.annualQty === null ? '' : String(plan.annualQty));
 watch(protoQtyText, (text) => {
   plan.prototypeQty = parseQty(text, 1);
 });
