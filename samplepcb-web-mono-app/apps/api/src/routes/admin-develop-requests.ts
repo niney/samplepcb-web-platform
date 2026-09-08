@@ -37,8 +37,12 @@ import {
   REF_DEVELOP_QUOTE,
   REF_DEVELOP_REQUEST,
   addDevelopEvent,
+  asDevelopBudgetRange,
+  asDevelopRequestMode,
   asDevelopStatus,
   developEventFiles,
+  developWizardFieldsOf,
+  toDevelopAreaCodes,
   toDevelopContact,
   toDevelopEventView,
   toDevelopFileMeta,
@@ -57,7 +61,7 @@ import {
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
-import { asBudgetRange, collectMultipart, toAnswers, toAreaCodes, toDevDiagram, toDevReview, toTools } from '../lib/market';
+import { collectMultipart, toAnswers, toDevDiagram, toDevReview, toTools } from '../lib/market';
 import { prisma } from '../lib/prisma';
 import { buildDevelopRequestDetail, customerEmailOf, toQuoteView } from './develop-requests';
 
@@ -120,9 +124,10 @@ const toItem = async (
   return {
     requestId: Number(r.id),
     title: r.title,
-    serviceAreas: toAreaCodes(r.serviceAreas),
+    requestMode: asDevelopRequestMode(r.requestMode),
+    serviceAreas: toDevelopAreaCodes(r.serviceAreas),
     status: asDevelopStatus(r.status),
-    budgetRange: asBudgetRange(r.budgetRange),
+    budgetRange: asDevelopBudgetRange(r.budgetRange),
     owner,
     contact: toDevelopContact(r),
     assigneeMbId: r.assigneeMbId,
@@ -203,6 +208,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       e.byAdmin ? (e.actorMbId === null ? '시스템' : members.get(e.actorMbId)?.name ?? e.actorMbId) : (members.get(r.mbId)?.name ?? '고객');
     return {
       ...item,
+      ...developWizardFieldsOf(r),
       description: r.description,
       tools: toTools(r.tools),
       answers: toAnswers(r.answers),
@@ -355,7 +361,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       const ok = await transitionDevelopStatus(r.id, from[to], to, { mbId, byAdmin: true }, extra, reason ?? null);
       if (!ok) return reply.status(409).send({ error: 'INVALID_TRANSITION', message: '지금 상태에서는 바꿀 수 없습니다' });
       if (to === 'cancelled' || to === 'declined') await cancelPendingMilestones({ requestId: r.id });
-      const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas) };
+      const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
       if (to === 'declined' || to === 'cancelled' || to === 'in_progress') {
         void sendDevelopMail(request.log, await customerEmailOf(r), buildStatusChangedEmail({ ...brief, status: to, reason: reason ?? null }), {
           kind: `develop_${to}`,
@@ -680,7 +686,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       void sendDevelopMail(
         request.log,
         await customerEmailOf(r),
-        buildDeliveredEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas), reviewDays: r.reviewDays, autoConfirmAt }),
+        buildDeliveredEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas), reviewDays: r.reviewDays, autoConfirmAt }),
         { kind: 'develop_delivered', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: r.mbId },
       );
     }

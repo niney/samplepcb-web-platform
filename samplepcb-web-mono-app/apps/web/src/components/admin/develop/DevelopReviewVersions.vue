@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { DEVELOP_REGISTRY } from '@sp/api-contract';
 import type { AdminDevelopReviewVersionListResponseType, DevelopReviewVersionMetaType } from '@sp/api-contract';
 import { DevReviewView, apiErrorMessage } from '@sp/ui';
 import { useAdminDevelopReviewRestore, useAdminDevelopReviewVersion } from '../../../admin/useAdminDevelop';
@@ -164,7 +165,13 @@ async function onRestore(seq: number): Promise<void> {
               {{ t('admin.develop.review.versions.hideView') }}
             </button>
           </div>
-          <DevReviewView v-if="viewing.data.value !== undefined" :review="viewing.data.value.data.review" :title="title" :version-label="`v${String(viewSeq)}`" />
+          <DevReviewView
+            v-if="viewing.data.value !== undefined"
+            :review="viewing.data.value.data.review"
+            :title="title"
+            :version-label="`v${String(viewSeq)}`"
+            :registry="DEVELOP_REGISTRY"
+          />
           <p v-else class="py-6 text-center text-sm text-gray-400">{{ t('admin.develop.review.versions.loading') }}</p>
         </div>
         <template v-else>

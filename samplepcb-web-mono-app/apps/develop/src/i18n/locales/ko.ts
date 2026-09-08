@@ -3,7 +3,7 @@
 export const ko = {
   app: {
     name: 'SAMPLEPCB 개발의뢰',
-    tagline: '아이디어를 회로·PCB·펌웨어·앱·서버까지, 샘플피씨비가 직접 개발합니다',
+    tagline: '아이디어를 회로·PCB·펌웨어·기구·앱·서버까지, 샘플피씨비가 직접 개발합니다',
     tel: '070-8667-1080',
   },
   auth: {

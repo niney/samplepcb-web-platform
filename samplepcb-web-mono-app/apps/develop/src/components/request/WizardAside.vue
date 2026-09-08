@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { MARKET_BUDGET_RANGE_LABELS, marketAreaBadge } from '@sp/api-contract';
 import type { DevelopRequestForm } from '../../composables/useRequestForm';
 
-// 위저드 사이드(≥lg) — 진행 3칸 + 지금까지 적은 것. 스텝을 되짚는 유일한 내비다.
+// 위저드 사이드(≥lg) — 5스텝 내비 + 도움 카드(프로토타입 그대로, 2026-09-08 간소화로 초안 요약 카드는 뺐다).
+// 내비는 **지나온 스텝으로만** 간다(앞 스텝의 필수 입력을 건너뛰지 못하게). 임시저장 시각만 내비 아래 한 줄.
 const props = defineProps<{ form: DevelopRequestForm }>();
-const { fields, steps, stepIndex, goToStep, buildAnswers, totalAttachmentCount } = props.form;
+const { steps, stepIndex, goToStep, draftSavedAt } = props.form;
 
-const areaBadge = computed(() => marketAreaBadge(fields.serviceAreas));
-const budgetLabel = computed(() => (fields.budgetRange === null ? '미선택' : MARKET_BUDGET_RANGE_LABELS[fields.budgetRange]));
-const answeredCount = computed(() => buildAnswers().length);
+const savedLabel = computed(() => {
+  const at = draftSavedAt.value;
+  if (at === null) return '';
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+});
 </script>
 
 <template>
@@ -27,33 +30,21 @@ const answeredCount = computed(() => buildAnswers().length);
             class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-micro font-bold"
             :class="i === stepIndex ? 'bg-brand-500 text-white' : i < stepIndex ? 'bg-brand-50 text-brand-700' : 'bg-paper text-tx-3'"
           >{{ i < stepIndex ? '✓' : i + 1 }}</span>
-          <span class="text-body font-bold">{{ s.label }}</span>
+          <span class="grid min-w-0 gap-0.5">
+            <span class="text-body font-bold">{{ s.label }}</span>
+            <span class="truncate text-micro" :class="i === stepIndex ? 'text-dk-tx-2' : 'text-tx-3'">{{ s.sub }}</span>
+          </span>
         </button>
       </li>
+      <li v-if="savedLabel !== ''" class="px-3 pt-1 text-micro text-tx-3">임시저장됨 · {{ savedLabel }}</li>
     </ol>
 
-    <dl class="grid gap-3 rounded-2xl border border-line bg-white p-4 text-label">
-      <p class="font-mono text-micro tracking-[.14em] text-tx-3">DRAFT</p>
-      <div class="grid gap-0.5">
-        <dt class="text-tx-3">개발 분야</dt>
-        <dd class="font-bold text-tx-1">{{ areaBadge === '' ? '아직 안 골랐습니다' : areaBadge }}</dd>
-      </div>
-      <div class="grid gap-0.5">
-        <dt class="text-tx-3">제목</dt>
-        <dd class="truncate font-bold text-tx-1">{{ fields.title.trim() === '' ? '—' : fields.title }}</dd>
-      </div>
-      <div class="grid gap-0.5">
-        <dt class="text-tx-3">예산</dt>
-        <dd class="text-tx-1">{{ budgetLabel }}</dd>
-      </div>
-      <div class="grid gap-0.5">
-        <dt class="text-tx-3">답변 · 첨부</dt>
-        <dd class="tabular-nums text-tx-1">{{ answeredCount }}개 · {{ totalAttachmentCount }}개</dd>
-      </div>
-    </dl>
-
-    <p class="rounded-2xl bg-ink-950 px-4 py-3.5 text-label leading-relaxed text-dk-tx-2">
-      회로·PCB·펌웨어·앱·서버를 <b class="font-bold text-white">한 곳에서</b> 개발하고, 그대로 양산까지 이어 갑니다.
-    </p>
+    <div class="flex items-start gap-3 rounded-2xl border border-line bg-white p-4">
+      <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-paper text-label font-black text-tx-2" aria-hidden="true">?</span>
+      <p class="text-label leading-relaxed text-tx-2">
+        <b class="font-bold text-tx-1">기술 내용을 잘 모르시나요?</b><br>
+        아는 내용만 작성하고 '전문가에게 맡김'을 선택하셔도 됩니다.
+      </p>
+    </div>
   </aside>
 </template>

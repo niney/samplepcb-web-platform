@@ -5,6 +5,7 @@ import {
   EMPTY_MARKET_TOOLS,
   MARKET_ATTACHMENT_FIELD,
   MARKET_BUDGET_RANGES,
+  MARKET_REGISTRY,
   MARKET_CAREER_RANGES,
   MARKET_REQUEST_TYPES,
   MARKET_REGIONS,
@@ -13,11 +14,10 @@ import {
   MarketDevDiagram,
   MarketDevReview,
   MarketTools,
-  marketSlotLabel,
-  parseMarketAttachmentField,
   sortMarketAreas,
 } from '@sp/api-contract';
 import type {
+  AreaRegistry,
   MarketAnswersType,
   MarketDevDiagramType,
   MarketDevDiagramViewType,
@@ -252,15 +252,17 @@ export interface MarketAttachmentInput extends MarketReceivedFile {
   slot: string | null;
   labeledName: string; // 추출기 헤더용 "[슬롯 라벨] 파일명" — 근거 코퍼스에 분야 표기가 남는다
 }
+// 슬롯 사전은 레지스트리별(마켓 기본 · 개발의뢰는 DEVELOP_REGISTRY — 기구 슬롯).
 export const splitMarketAttachments = (
   files: readonly MarketReceivedFile[],
   areas: readonly string[],
+  registry: AreaRegistry = MARKET_REGISTRY,
 ): { accepted: MarketAttachmentInput[]; invalid: string[] } => {
   const accepted: MarketAttachmentInput[] = [];
   const invalid: string[] = [];
   for (const f of files) {
     if (!f.field.startsWith(MARKET_ATTACHMENT_FIELD)) continue;
-    const ref = parseMarketAttachmentField(f.field);
+    const ref = registry.parseAttachmentField(f.field);
     if (ref === undefined || (ref !== null && !areas.includes(ref.area))) {
       invalid.push(f.field);
       continue;
@@ -269,7 +271,7 @@ export const splitMarketAttachments = (
       ...f,
       area: ref?.area ?? null,
       slot: ref?.slot ?? null,
-      labeledName: ref === null ? f.filename : `[${marketSlotLabel(ref.area, ref.slot)}] ${f.filename}`,
+      labeledName: ref === null ? f.filename : `[${registry.slotLabel(ref.area, ref.slot)}] ${f.filename}`,
     });
   }
   return { accepted, invalid };

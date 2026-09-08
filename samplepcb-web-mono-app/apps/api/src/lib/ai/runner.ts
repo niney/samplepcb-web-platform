@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { DEV_REVIEW_LLM_JSON_SCHEMA, DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE } from '@sp/api-contract';
+import { DEV_REVIEW_LLM_JSON_SCHEMA, MARKET_REGISTRY, buildDevReviewLlmJsonSchema } from '@sp/api-contract';
 import type { DevReviewMetaType, MarketDevReviewType } from '@sp/api-contract';
 import { ollamaChatDetailed } from './ollama';
 import type { AiConnection, OllamaChatExtra, OllamaChatResult, OllamaThink } from './ollama';
@@ -208,8 +208,11 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
     // 전부 v5 그대로다. 갈림길은 여기 한 곳뿐이다.
     const features: DevReviewFeatures = { schedule: options.target?.kind === 'develop' };
     const prompt = buildDevReviewPrompt(effective, extraInstructions, features);
+    // 분야 enum 은 소스의 레지스트리(개발의뢰 = 6분야, 기구 포함)로 — 마켓은 상수 그대로(바이트 동일).
     const extra: OllamaChatExtra = {
-      format: features.schedule ? DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE : DEV_REVIEW_LLM_JSON_SCHEMA,
+      format: features.schedule
+        ? buildDevReviewLlmJsonSchema((effective.registry ?? MARKET_REGISTRY).codes, true)
+        : DEV_REVIEW_LLM_JSON_SCHEMA,
       think,
     };
     let lastError: unknown;

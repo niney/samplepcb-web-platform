@@ -2,11 +2,10 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { SpDevelopMilestone, SpDevelopRequest } from '@prisma/client';
 import type { MarketContractPaymentType } from '@sp/api-contract';
 import { kstToday } from '@sp/utils';
-import { addDevelopEvent, transitionDevelopStatus } from './develop';
+import { addDevelopEvent, toDevelopAreaCodes, transitionDevelopStatus } from './develop';
 import { buildCompletedEmail, buildPaymentConfirmedEmail, sendDevelopMail, sendDevelopMailToAdmins } from './develop-email';
 import { getDevelopSettings } from './develop-settings';
 import { PAID_ORDER_STATUSES, deleteCartRowsByIoId, deleteQuoteOption, getMembersByIds, getOrderInfoByCtId, DEVELOP_ANCHOR_IT_ID } from './g5-db';
-import { toAreaCodes } from './market';
 import { prisma } from './prisma';
 
 // ── 개발의뢰 결제·검수 lazy 승격(docs/DEVELOP_FLOW.md §4.2) — 마켓 ensureContractLazy 동형 ─────────────
@@ -59,7 +58,7 @@ export const markMilestonePaid = async (
   const started = await transitionDevelopStatus(m.requestId, ['accepted'], 'in_progress', { mbId: actorMbId, byAdmin: by === 'admin' }, { startedAt: now });
   const r = await prisma.spDevelopRequest.findUnique({ where: { id: m.requestId } });
   if (r !== null) {
-    const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas) };
+    const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
     void sendDevelopMail(log, await customerEmail(r), buildPaymentConfirmedEmail({ ...brief, milestoneTitle: m.title, amount: m.amount, started }), {
       kind: 'develop_paid',
       refType: 'develop_request',
@@ -99,7 +98,7 @@ const ensureAutoConfirmLazy = async (r: SpDevelopRequest, log: FastifyBaseLogger
   if (auto === null || auto.getTime() > Date.now()) return;
   const ok = await transitionDevelopStatus(r.id, ['delivered'], 'completed', { mbId: null, byAdmin: false }, { completedAt: auto }, '검수 기간 경과 — 자동 확정');
   if (!ok) return;
-  const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas) };
+  const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
   void sendDevelopMail(log, await customerEmail(r), buildCompletedEmail({ ...brief, confirmedBy: 'auto', forAdmin: false }), {
     kind: 'develop_completed',
     refType: 'develop_request',

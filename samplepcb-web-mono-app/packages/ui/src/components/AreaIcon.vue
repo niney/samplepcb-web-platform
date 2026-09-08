@@ -2,10 +2,10 @@
 import { computed } from 'vue';
 
 // 분야 아이콘 타일(docs/AI_DEV_REVIEW.md §13.9) — 분야 색은 이 타일에만 싣는다(카드 왼쪽 띠 폐기).
-// 레지스트리 코드 5종(circuit·pcb·firmware·app·server)에 선 아이콘 하나씩, 그 외 코드는 점 하나(분야가 늘면 여기에 추가).
-// 색은 style.css 의 --color-area-<code> 토큰, 없는 코드는 잉크색.
+// 레지스트리 코드 6종(circuit·pcb·firmware·mech·app·server)에 선 아이콘 하나씩, 그 외 코드는 점 하나(분야가 늘면 여기에 추가).
+// mech(기구설계)는 개발의뢰 레지스트리(2026-09-08)에만 있다. 색은 style.css 의 --color-area-<code> 토큰, 없는 코드는 잉크색.
 const props = withDefaults(defineProps<{ code: string; size?: 'sm' | 'md' }>(), { size: 'md' });
-const KNOWN = new Set(['circuit', 'pcb', 'firmware', 'app', 'server']);
+const KNOWN = new Set(['circuit', 'pcb', 'firmware', 'mech', 'app', 'server']);
 const bg = computed(() => (KNOWN.has(props.code) ? `var(--color-area-${props.code})` : 'var(--color-ink-900)'));
 const box = computed(() => (props.size === 'sm' ? 'h-8 w-8 rounded-lg' : 'h-10 w-10 rounded-xl'));
 const glyph = computed(() => (props.size === 'sm' ? 'h-4 w-4' : 'h-5 w-5'));
@@ -27,6 +27,11 @@ const glyph = computed(() => (props.size === 'sm' ? 'h-4 w-4' : 'h-5 w-5'));
     <svg v-else-if="code === 'firmware'" :class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
       <rect x="7" y="7" width="10" height="10" rx="1.5" />
       <path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4" />
+    </svg>
+    <!-- 기구: 육면체(케이스) -->
+    <svg v-else-if="code === 'mech'" :class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3 4 7v10l8 4 8-4V7l-8-4Z" />
+      <path d="M4 7l8 4 8-4M12 11v10" />
     </svg>
     <!-- 앱: 휴대폰 -->
     <svg v-else-if="code === 'app'" :class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

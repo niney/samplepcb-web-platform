@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { marketSlotLabel } from '@sp/api-contract';
+import { developSlotLabel } from '@sp/api-contract';
 import type { DevelopFileMetaType } from '@sp/api-contract';
 import { canPreview } from '@sp/ui';
 import { fileSize } from '../../lib/format';
@@ -11,7 +11,7 @@ const props = defineProps<{ files: DevelopFileMetaType[] }>();
 const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType] }>();
 
 const slotLabel = (f: DevelopFileMetaType): string =>
-  f.area !== null && f.slot !== null ? marketSlotLabel(f.area, f.slot) : '';
+  f.area !== null && f.slot !== null ? developSlotLabel(f.area, f.slot) : '';
 const sorted = computed(() => [...props.files].sort((a, b) => Number(a.area !== null) - Number(b.area !== null)));
 </script>
 

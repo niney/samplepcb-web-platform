@@ -1,4 +1,5 @@
-import { MARKET_AREAS, marketArea, marketAreaLabel, sortMarketAreas } from '@sp/api-contract';
+import { MARKET_AREAS, MARKET_REGISTRY } from '@sp/api-contract';
+import type { AreaRegistry } from '@sp/api-contract';
 import type { MarketDevDiagramAuditType } from '@sp/api-contract';
 import { buildDevReviewCorpus, devReviewSourceText, normalizeForMatch, ungroundedTokens } from './dev-review';
 import type { DevReviewSource } from './dev-review';
@@ -77,8 +78,8 @@ const DIAGRAM_RULES_COMMON = `[연결선]
 - 사고 과정·설명 문장·코드 펜스 밖 텍스트는 출력하지 않습니다.`;
 
 // 도면 뒤 검토 섹션 제목 — 공통 3개 + 분야마다 하나(프로빙 R4 의 "6개 제목" 을 분야 수에 맞게 일반화).
-const buildSectionRule = (areas: readonly string[]): string => {
-  const titles = ['확정된 구성', '미확정 항목', '고객 추가 확인사항', ...sortMarketAreas(areas).map((c) => `${marketAreaLabel(c)} 검토사항`)];
+const buildSectionRule = (areas: readonly string[], reg: AreaRegistry): string => {
+  const titles = ['확정된 구성', '미확정 항목', '고객 추가 확인사항', ...reg.sortAreas(areas).map((c) => `${reg.areaLabel(c)} 검토사항`)];
   return `[도면 뒤 정리]\n- 도면 뒤에 정확히 다음 ${String(titles.length)}개 제목으로 정리합니다: ${titles.join(', ')}.`;
 };
 
@@ -88,23 +89,25 @@ const DIAGRAM_RULES_SOFTWARE = `[시스템 토폴로지(앱·서버 포함)]
 - 앱·서버의 내부 구성(화면·API·DB·권한)은 자료에 적힌 것만 상자 안 2~3줄로 씁니다.`;
 
 // [개발 분야] 블록 — 레지스트리 정의 + 이 도면에서 각 분야가 맡는 검토 시선.
-function buildDiagramAreaBlock(areas: readonly string[]): string {
-  const lines = sortMarketAreas(areas).map((code) => {
-    const def = marketArea(code);
+function buildDiagramAreaBlock(areas: readonly string[], reg: AreaRegistry): string {
+  const lines = reg.sortAreas(areas).map((code) => {
+    const def = reg.area(code);
     return def === undefined ? `- ${code}` : `- ${def.label}(${code}): ${def.prompt.what}. 검토사항 예: ${def.prompt.checks.join(' / ')}`;
   });
   return `[개발 분야]\n${lines.join('\n')}`;
 }
 
-const hasSoftwareArea = (areas: readonly string[]): boolean =>
-  areas.some((a) => marketArea(a)?.kind === 'software');
-const hasHardwareArea = (areas: readonly string[]): boolean =>
-  areas.some((a) => marketArea(a)?.kind === 'hardware');
+const hasSoftwareArea = (areas: readonly string[], reg: AreaRegistry): boolean =>
+  areas.some((a) => reg.area(a)?.kind === 'software');
+const hasHardwareArea = (areas: readonly string[], reg: AreaRegistry): boolean =>
+  areas.some((a) => reg.area(a)?.kind === 'hardware');
 
 export function buildDevDiagramPrompt(source: DevReviewSource, extraInstructions = ''): string {
   const extra = extraInstructions.trim();
-  const software = hasSoftwareArea(source.serviceAreas);
-  const hardware = hasHardwareArea(source.serviceAreas) || !software;
+  // 분야·라벨은 소스의 레지스트리(개발의뢰 = 기구 포함 6분야)로 — 마켓은 생략 = MARKET_REGISTRY(바이트 동일).
+  const reg = source.registry ?? MARKET_REGISTRY;
+  const software = hasSoftwareArea(source.serviceAreas, reg);
+  const hardware = hasHardwareArea(source.serviceAreas, reg) || !software;
   const head = [
     '아래 [고객 자료]만 근거로 완전한 HTML 문서를 작성하세요. 먼저 요구사항에서 확인한 내용을 짧게 요약하고,',
     software && hardware
@@ -118,16 +121,19 @@ export function buildDevDiagramPrompt(source: DevReviewSource, extraInstructions
   const attachments = source.attachmentContext.trim();
   return [
     head,
-    buildDiagramAreaBlock(source.serviceAreas),
+    buildDiagramAreaBlock(source.serviceAreas, reg),
     hardware ? DIAGRAM_RULES_HARDWARE : '',
     software ? DIAGRAM_RULES_SOFTWARE : '',
     DIAGRAM_RULES_COMMON,
-    buildSectionRule(source.serviceAreas),
+    buildSectionRule(source.serviceAreas, reg),
     `[추가 지침]\n${extra === '' ? '(없음)' : extra}`,
     '[고객 자료]',
     `■ 제목: ${source.title}`,
-    `■ 개발 분야: ${sortMarketAreas(source.serviceAreas).map(marketAreaLabel).join(', ')}`,
+    `■ 개발 분야: ${reg.sortAreas(source.serviceAreas).map(reg.areaLabel).join(', ')}`,
     `■ 설명:\n${source.description}`,
+    ...(source.conditionLines === undefined || source.conditionLines.length === 0
+      ? []
+      : [`■ 프로젝트 조건:\n${source.conditionLines.join('\n')}`]),
     `■ 질문 답변:\n${answers}`,
     `■ 첨부 자료:\n${attachments === '' ? '(없음)' : attachments}`,
   ].filter((b) => b !== '').join('\n\n');

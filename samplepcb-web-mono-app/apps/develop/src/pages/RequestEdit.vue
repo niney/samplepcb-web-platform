@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { isDevelopEditable, sortMarketAreas } from '@sp/api-contract';
+import { isDevelopEditable, sortDevelopAreas } from '@sp/api-contract';
 import type { DevelopFileMetaType, DevelopRequestUpdateBodyType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import { FileDropZone } from '@sp/ui';
@@ -16,12 +16,14 @@ import { developPath, loginUrl } from '../lib/auth-urls';
 import { errorMessage } from '../lib/error-msg';
 import { fileSize } from '../lib/format';
 import ContactFields from '../components/request/ContactFields.vue';
-import StepConditions from '../components/request/StepConditions.vue';
 import StepDescribe from '../components/request/StepDescribe.vue';
+import StepMenu from '../components/request/StepMenu.vue';
+import StepProduction from '../components/request/StepProduction.vue';
+import StepQuestions from '../components/request/StepQuestions.vue';
 
-// 의뢰 수정(docs/DEVELOP_FLOW.md §7.2) — 견적이 나가기 전(received·reviewing)까지만 열린다.
+// 의뢰 수정 — 견적이 나가기 전(received·reviewing)까지만 열린다.
 // 위저드와 **같은 폼 상태**(useRequestForm)를 쓰되 스텝이 없다: 이미 쓴 글을 고치러 온 사람에게
-// 3단계를 다시 걷게 하지 않는다. 대신 한 화면에 위저드 1·2스텝 컴포넌트를 이어 붙이고 연락처를 더한다.
+// 5단계를 다시 걷게 하지 않는다. 대신 한 화면에 위저드 1~4스텝 컴포넌트를 이어 붙이고 연락처를 더한다.
 // 저장은 세 갈래다 — 본문 필드는 PATCH(바뀐 것만), 새 첨부는 POST files(multipart), 삭제는 DELETE files/:id.
 // 첨부는 서버에 이미 있는 실체라 "저장" 을 기다리지 않고 즉시 반영된다(그게 파일에 대한 사용자의 기대다).
 
@@ -44,7 +46,29 @@ const editable = computed(() => {
 });
 
 const form = useRequestForm();
-const { fields, attachments, buildAnswers, buildTools, buildContact, hydrate, formValid, clearFiles } = form;
+const {
+  fields,
+  attachments,
+  isSystem,
+  skipQuestions,
+  effectiveAreas,
+  pickedAreas,
+  buildAnswers,
+  buildContact,
+  buildProduction,
+  hydrate,
+  menuValid,
+  describeValid,
+  questionsValid,
+  productionValid,
+  contactValid,
+  clearFiles,
+} = form;
+
+// 수정 화면은 5스텝 동의 체크(agree)를 묻지 않는다 — 접수 시점에 이미 받았다.
+const editValid = computed(
+  () => menuValid.value && describeValid.value && questionsValid.value && productionValid.value && contactValid.value,
+);
 
 // 프리필 — 상세가 도착하면 한 번만(입력 중 refetch 가 사용자의 편집을 덮어쓰지 않게).
 const hydrated = ref(false);
@@ -63,9 +87,9 @@ const update = useUpdateDevelopRequest(requestId);
 const saveError = ref('');
 
 // 분야는 고른 순서가 뜻을 갖지 않는다 — 정렬해 비교해야 "카드를 껐다 켰다"가 수정으로 안 잡힌다.
-const sameAreas = (a: string[], b: string[]): boolean => {
-  const x = sortMarketAreas(a);
-  const y = sortMarketAreas(b);
+const sameAreas = (a: readonly string[], b: readonly string[]): boolean => {
+  const x = sortDevelopAreas(a);
+  const y = sortDevelopAreas(b);
   return x.length === y.length && x.every((v, i) => v === y[i]);
 };
 
@@ -76,15 +100,27 @@ function changedBody(): DevelopRequestUpdateBodyType {
   const title = fields.title.trim();
   const description = fields.description.trim();
   const answers = buildAnswers();
-  const tools = buildTools();
   const contact = buildContact();
+  const production = buildProduction();
+  const wishDate = fields.wishDate === '' ? null : fields.wishDate;
+  const wishNote = fields.wishNote.trim() === '' ? null : fields.wishNote.trim();
   if (title !== d.title) body.title = title;
   if (description !== d.description) body.description = description;
-  if (!sameAreas(fields.serviceAreas, d.serviceAreas)) body.serviceAreas = sortMarketAreas(fields.serviceAreas);
+  // 의뢰 방식과 분야는 한 쌍이다 — 서버가 둘을 같이 보고 저장 분야를 정한다(시스템개발이면 6분야로 채운다).
+  if (fields.requestMode !== d.requestMode || !sameAreas(effectiveAreas.value, d.serviceAreas)) {
+    body.requestMode = fields.requestMode ?? d.requestMode;
+    body.serviceAreas = isSystem.value ? [] : [...pickedAreas.value];
+  }
+  if (fields.currentStage !== null && fields.currentStage !== d.currentStage) body.currentStage = fields.currentStage;
+  if (fields.targetStage !== null && fields.targetStage !== d.targetStage) body.targetStage = fields.targetStage;
+  if (wishDate !== d.wishDate) body.wishDate = wishDate;
+  if (wishNote !== d.wishNote) body.wishNote = wishNote;
   if (fields.budgetRange !== null && fields.budgetRange !== d.budgetRange) body.budgetRange = fields.budgetRange;
   if (fields.ndaWanted !== d.ndaWanted) body.ndaWanted = fields.ndaWanted;
+  if (skipQuestions.value !== d.expertDelegate) body.expertDelegate = skipQuestions.value;
+  if (JSON.stringify(production) !== JSON.stringify(d.production)) body.production = production;
   if (JSON.stringify(answers) !== JSON.stringify(d.answers)) body.answers = answers;
-  if (JSON.stringify(tools) !== JSON.stringify(d.tools)) body.tools = tools;
+  // 희망 툴은 화면에서 뺐다(2026-09-08 간소화) — 저장분은 건드리지 않는다.
   if (JSON.stringify(contact) !== JSON.stringify(d.contact)) body.contact = contact;
   return body;
 }
@@ -203,13 +239,22 @@ function goLogin(): void {
       </p>
 
       <div class="mt-7 grid gap-7">
+        <StepMenu :form="form" />
         <StepDescribe :form="form" :show-attachments="false" />
-        <StepConditions :form="form" :show-slots="false" />
+        <StepQuestions :form="form" />
+        <StepProduction :form="form" />
 
-        <!-- 연락처 -->
+        <!-- 연락처 · 비밀유지 -->
         <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6">
           <h2 class="text-title font-extrabold text-tx-1">연락처</h2>
           <ContactFields :form="form" />
+          <label class="flex items-start gap-3 rounded-xl border border-line bg-paper p-4">
+            <input v-model="fields.ndaWanted" type="checkbox" class="mt-0.5 h-4.5 w-4.5 shrink-0 accent-[var(--color-brand-500)]">
+            <span class="grid gap-1">
+              <span class="text-body font-bold text-tx-1">비밀유지 계약(NDA)을 맺고 싶습니다 <span class="font-normal text-tx-3">선택</span></span>
+              <span class="text-label leading-relaxed text-tx-3">담당자가 계약서를 준비해 연락드립니다.</span>
+            </span>
+          </label>
         </section>
 
         <!-- 이미 올린 첨부 -->
@@ -283,7 +328,7 @@ function goLogin(): void {
           <button
             type="button"
             class="ml-auto h-11 rounded-lg bg-brand-500 px-7 text-body font-bold text-white transition hover:bg-brand-600 disabled:bg-line-2 disabled:text-tx-3"
-            :disabled="!formValid || !dirty || update.isPending.value"
+            :disabled="!editValid || !dirty || update.isPending.value"
             @click="void save()"
           >
             {{ update.isPending.value ? '저장 중…' : '저장' }}

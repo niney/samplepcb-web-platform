@@ -1,5 +1,5 @@
-import { marketAreaLabel } from '@sp/api-contract';
-import type { MarketDevReviewType } from '@sp/api-contract';
+import { MARKET_REGISTRY } from '@sp/api-contract';
+import type { AreaRegistry, MarketDevReviewType } from '@sp/api-contract';
 
 // AI 사전 검토서 두 판의 **구조 비교**(docs/DEVELOP_FLOW.md §6.2) — 글자 diff 가 아니라 항목 단위다.
 // 검토서는 구조화 JSON 이라 "요구사항 한 줄이 빠졌다", "명세 '전원' 행의 문장이 바뀌었다"처럼 말해야
@@ -58,7 +58,8 @@ function pairByKey<T>(a: readonly T[], b: readonly T[], keyOf: (x: T) => string)
   return out;
 }
 
-export function diffDevReview(a: MarketDevReviewType, b: MarketDevReviewType): DevReviewDiff {
+// 분야 라벨은 레지스트리별(마켓 기본 · 개발의뢰는 DEVELOP_REGISTRY — 기구 분야·개발의뢰 표기).
+export function diffDevReview(a: MarketDevReviewType, b: MarketDevReviewType, reg: AreaRegistry = MARKET_REGISTRY): DevReviewDiff {
   const entries: DevReviewDiffEntry[] = [];
   const push = (section: DevReviewDiffSection, label: string, before: string | null, after: string | null): void => {
     const x = text(before);
@@ -80,7 +81,7 @@ export function diffDevReview(a: MarketDevReviewType, b: MarketDevReviewType): D
 
   // 분야별 — area 코드
   for (const area of pairByKey(a.areas, b.areas, (x) => x.area)) {
-    const name = marketAreaLabel(area.key);
+    const name = reg.areaLabel(area.key);
     if (area.a === null && area.b !== null) {
       push('areas', `${name} › 분야`, null, area.b.summary === '' ? '(분야 추가)' : area.b.summary);
       for (const s of area.b.spec) push('areas', `${name} › 명세 › ${s.item}`, null, s.text);

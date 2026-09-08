@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { createAreaRegistry, withUnknown, MARKET_EXPERT_PICK_LABEL, MARKET_NEGOTIATE_LABEL } from './area-registry';
+import type { MarketAreaDef, MarketQuestionDef, MarketToolOption, MarketToolsType } from './area-registry';
 
 // ── 재능마켓 분야 레지스트리 (docs/AI_DEV_REVIEW.md §13, 2026-09-04 v3) ─────────────
 // **분야·질문·희망 툴·추가자료 슬롯·프롬프트 조각의 단일 정본.** 위저드 2단계, 전문가 등록 폼,
@@ -7,71 +9,43 @@ import { z } from 'zod';
 // 더하는 일 = 해당 분야 항목만 고친다. 다른 파일에 분야 코드를 문자열로 박지 않는다.
 //
 // 저장 스키마는 z.enum 이 아니라 **문자열 + 레지스트리 검증**이다: 분야를 빼도 옛 저장분 파싱이
-// 깨지지 않고 라벨만 "(종료)" 로 바뀐다. 이 파일은 leaf 다 — zod 외에 아무것도 import 하지 않는다
-// (market.ts ↔ market-dev-review.ts 순환 참조를 끊는 자리).
+// 깨지지 않고 라벨만 "(종료)" 로 바뀐다.
+// 2026-09-08: 자료형·파생 함수는 area-registry.ts(팩토리)로 옮겼다 — 개발의뢰(develop-areas.ts)가 같은 모양의
+// 레지스트리를 자기 분야·질문으로 만든다. 이 파일의 export 이름·시그니처는 그대로다(MARKET_REGISTRY 바인딩).
 
-export interface MarketQuestionOption {
-  readonly code: string;
-  readonly label: string;
-}
-
-// 질문 하나 — 공통 질문과 분야별 질문이 같은 모양이다. 분야별 질문의 code 는 `${area}.${name}`
-// 으로 네임스페이스를 갖는다(답변 저장은 평면 배열 하나, 분야는 code 접두로 알 수 있다).
-export interface MarketQuestionDef {
-  readonly code: string;
-  readonly label: string; // 질문 문장(쉬운 말)
-  readonly short: string; // 브리프 행 라벨
-  readonly multi: boolean;
-  readonly options: readonly MarketQuestionOption[]; // '잘 모르겠어요' 는 자동 부착
-  readonly notePlaceholder?: string;
-  readonly noteRequiredFor?: readonly string[]; // 이 선택지를 고르면 메모 필수
-  readonly required?: boolean; // 등록 전 답해야 한다(모르면 탈출구 선택지) — 공통 조건이 쓴다
-  readonly promptHint?: string; // 검토서 프롬프트에 주는 "이 답이 개발에서 뜻하는 것" 한 줄
-  readonly why?: string; // 위저드 문항 아래 "왜 묻나요" 한 줄(고객용 — promptHint 와 다르다)
-}
-
-export interface MarketToolOption {
-  readonly code: string;
-  readonly label: string;
-}
-
-// 분야별 추가자료 슬롯 — "이 분야에는 이런 자료가 있으면 좋다"는 안내이자 저장 시 sp_file.slot.
-export interface MarketAttachmentSlotDef {
-  readonly code: string;
-  readonly label: string;
-  readonly hint: string;
-}
-
-export type MarketAreaKind = 'hardware' | 'software';
-
-export interface MarketAreaDef {
-  readonly code: string;
-  readonly label: string; // '회로 개발'
-  readonly short: string; // '회로' — 배지·칩
-  readonly hint: string; // 비전문가용 한 줄 설명(위저드 카드)
-  readonly kind: MarketAreaKind;
-  readonly questions: readonly MarketQuestionDef[]; // 분야별 맞춤 질문 2~3개 — 배열 순서 = 우선순위(풀 개발이면 앞 MARKET_FULL_AREA_QUESTION_CAP 개만 묻는다)
-  readonly tools: { readonly label: string; readonly options: readonly MarketToolOption[] };
-  readonly attachmentSlots: readonly MarketAttachmentSlotDef[];
-  // 검토서·구성도 프롬프트 조각 — 분야가 늘어도 프롬프트 본문은 안 바뀐다.
-  readonly prompt: {
-    readonly what: string; // 이 분야에서 무엇을 만드는가(모델에게 주는 정의)
-    readonly specItems: readonly string[]; // 개발명세서 항목명 예시
-    readonly checks: readonly string[]; // 해당하는 경우에만 묻는 상의 항목 규칙
-  };
-}
-
-export const MARKET_UNKNOWN_CHOICE = 'unknown';
-export const MARKET_UNKNOWN_LABEL = '잘 모르겠어요';
-export const MARKET_EXPERT_PICK_LABEL = '전문가 추천';
-export const MARKET_NEGOTIATE_LABEL = '협의해서 정할게요';
-
-// 탈출구 선택지 — 코드는 언제나 'unknown'(검토서가 상의 항목으로 흘린다), 라벨만 문항 성격에 맞춘다:
-// 공통 질문 "잘 모르겠어요" · 분야 질문 "전문가 추천" · 프로젝트 조건 "협의해서 정할게요".
-const withUnknown = (options: readonly MarketQuestionOption[], label: string = MARKET_UNKNOWN_LABEL): readonly MarketQuestionOption[] => [
-  ...options,
-  { code: MARKET_UNKNOWN_CHOICE, label },
-];
+export type {
+  AreaRegistry,
+  AreaRegistryConfig,
+  MarketAreaDef,
+  MarketAreaKind,
+  MarketAttachmentSlotDef,
+  MarketAttachmentSlotRef,
+  MarketQuestionDef,
+  MarketQuestionOption,
+  MarketToolOption,
+  MarketToolRow,
+  MarketAnswerType,
+  MarketAnswersType,
+  MarketToolsType,
+} from './area-registry';
+export {
+  createAreaRegistry,
+  EMPTY_MARKET_TOOLS,
+  MARKET_ATTACHMENT_FIELD,
+  MARKET_EXPERT_PICK_LABEL,
+  MARKET_NEGOTIATE_LABEL,
+  MARKET_TOOLS_VERSION,
+  MARKET_UNKNOWN_CHOICE,
+  MARKET_UNKNOWN_LABEL,
+  MarketAnswer,
+  MarketAnswers,
+  MarketTools,
+  isMarketAnswerUnknown,
+  isMarketAnswered,
+  isTextQuestion,
+  marketAttachmentField,
+  withUnknown,
+} from './area-registry';
 
 // ── 프로젝트 공통 조건 — 답변(answers)에 저장되는 것 3개(2026-09-04 v5, 참고 사이트 "프로젝트 공통 조건"
 // 7항목 중 컬럼이 아닌 것). 예산·견적 방식·NDA 는 sp_market_project 컬럼이라 여기 없다. 전부 필수 —
@@ -451,182 +425,55 @@ export const MARKET_AREAS: readonly MarketAreaDef[] = [
   },
 ];
 
-// ── 파생 사전·판정 ─────────────────────────────────────────────────────────
-export const MARKET_AREA_CODES: readonly string[] = MARKET_AREAS.map((a) => a.code);
-export const MARKET_AREA_MAP: ReadonlyMap<string, MarketAreaDef> = new Map(MARKET_AREAS.map((a) => [a.code, a]));
-
-export const isMarketAreaCode = (code: string): boolean => MARKET_AREA_MAP.has(code);
-export const marketArea = (code: string): MarketAreaDef | undefined => MARKET_AREA_MAP.get(code);
-// 라벨 — 레지스트리에서 빠진 옛 코드는 "(종료)" 표기로 남는다(파싱은 안 깨진다).
-export const marketAreaLabel = (code: string): string => MARKET_AREA_MAP.get(code)?.label ?? `${code}(종료)`;
-export const marketAreaShort = (code: string): string => MARKET_AREA_MAP.get(code)?.short ?? code;
-// 레지스트리 순서로 정렬 + 미지 코드 제거.
-export const sortMarketAreas = (codes: readonly string[]): string[] =>
-  MARKET_AREA_CODES.filter((c) => codes.includes(c));
-
-// 분야 배지 — 1개=분야명, 2~4개="회로 + PCB", 전부="풀 개발(회로·PCB·펌웨어·앱·서버)".
-export function marketAreaBadge(codes: readonly string[]): string {
-  const sorted = sortMarketAreas(codes);
-  if (sorted.length === 0) return '';
-  if (sorted.length === MARKET_AREA_CODES.length) return `풀 개발(${sorted.map(marketAreaShort).join('·')})`;
-  if (sorted.length >= 2) return sorted.map(marketAreaShort).join(' + ');
-  return marketAreaLabel(sorted[0] ?? '');
-}
-
-// 분야 코드 스키마 — 문자열 + 레지스트리 검증(신규 입력용). 읽기는 MarketAreaCodeLoose.
-export const MarketAreaCode = z.string().refine(isMarketAreaCode, { message: 'UNKNOWN_AREA' });
-export const MarketAreaCodeLoose = z.string().max(32);
-export const MarketAreaCodes = z.array(MarketAreaCode).min(1).max(MARKET_AREAS.length)
-  .refine((a) => new Set(a).size === a.length, { message: 'DUPLICATE_AREA' });
-
-// ── 질문 사전(공통 + 분야별) ────────────────────────────────────────────────
-export const MARKET_QUESTIONS: readonly MarketQuestionDef[] = [
-  ...MARKET_COMMON_CONDITIONS,
-  ...MARKET_COMMON_QUESTIONS,
-  ...MARKET_AREAS.flatMap((a) => a.questions),
-];
+// ── 레지스트리 바인딩 — 파생 사전·판정 함수는 area-registry.ts 의 팩토리가 만든다 ──────────
 // 풀 개발(전 분야)일 때 분야당 묻는 질문 수 상한 — 5분야 × 3 = 15 는 너무 길다. 배열 앞 순서가 우선순위.
 export const MARKET_FULL_AREA_QUESTION_CAP = 2;
-export const isFullMarketAreas = (areas: readonly string[]): boolean =>
-  MARKET_AREA_CODES.every((c) => areas.includes(c));
-export const MARKET_QUESTION_MAP: ReadonlyMap<string, MarketQuestionDef> = new Map(MARKET_QUESTIONS.map((q) => [q.code, q]));
-export const marketQuestion = (code: string): MarketQuestionDef | undefined => MARKET_QUESTION_MAP.get(code);
-// 분야별 질문의 분야 — 공통 질문은 null.
-export const marketQuestionArea = (code: string): string | null => {
-  const dot = code.indexOf('.');
-  return dot > 0 ? code.slice(0, dot) : null;
-};
-// 선택 분야에서 물을 분야별 질문 — 풀 개발이면 분야당 앞 MARKET_FULL_AREA_QUESTION_CAP 개만.
-export const marketAreaQuestionsFor = (areas: readonly string[]): MarketQuestionDef[] => {
-  const cap = isFullMarketAreas(areas) ? MARKET_FULL_AREA_QUESTION_CAP : Number.POSITIVE_INFINITY;
-  return sortMarketAreas(areas).flatMap((c) => (MARKET_AREA_MAP.get(c)?.questions ?? []).slice(0, cap));
-};
-// 선택 분야에서 물을 질문 전체(조건 → 공통 → 분야 순) — 답변 검증·브리프 순서·프롬프트가 같은 목록을 쓴다.
-export const marketQuestionsFor = (areas: readonly string[]): MarketQuestionDef[] => [
-  ...MARKET_COMMON_CONDITIONS,
-  ...MARKET_COMMON_QUESTIONS,
-  ...marketAreaQuestionsFor(areas),
-];
-// 필수 문항 중 미응답 코드 — 등록 라우트와 위저드 2스텝 "다음" 게이트가 같은 함수를 쓴다.
-export function marketRequiredMissing(answers: readonly { code: string; choices: readonly string[] }[], areas: readonly string[]): string[] {
-  const answered = new Set(answers.filter((a) => a.choices.length > 0).map((a) => a.code));
-  return marketQuestionsFor(areas).filter((q) => q.required === true && !answered.has(q.code)).map((q) => q.code);
-}
 
-// 답변 하나 — 미응답 문항은 배열에서 빠진다. 옛 사전에서 사라진 문항 코드는 읽기에서 조용히 지난다.
-export const MarketAnswer = z.object({
-  code: z.string().min(1).max(40),
-  choices: z.array(z.string().trim().min(1).max(40)).min(1).max(12),
-  note: z.string().trim().max(500).optional(),
+export const MARKET_REGISTRY = createAreaRegistry({
+  areas: MARKET_AREAS,
+  conditions: MARKET_COMMON_CONDITIONS,
+  common: MARKET_COMMON_QUESTIONS,
+  fullAreaQuestionCap: MARKET_FULL_AREA_QUESTION_CAP,
+  // 분야 배지 — 전부="풀 개발(회로·PCB·펌웨어·앱·서버)".
+  fullBadge: (shorts) => `풀 개발(${shorts.join('·')})`,
 });
-export type MarketAnswerType = z.infer<typeof MarketAnswer>;
 
-// 저장·읽기용 — 형태만 본다(사전 검증 없음). 신규 입력은 MarketAnswersFor(areas) 로 사전 검증.
-export const MarketAnswers = z.array(MarketAnswer).max(MARKET_QUESTIONS.length + 8);
-export type MarketAnswersType = z.infer<typeof MarketAnswers>;
+export const MARKET_AREA_CODES: readonly string[] = MARKET_REGISTRY.codes;
+export const MARKET_AREA_MAP: ReadonlyMap<string, MarketAreaDef> = MARKET_REGISTRY.map;
 
-// 신규 입력 검증 — 코드 중복·사전에 없는 문항·선택 분야 밖 문항·미지 선택지·단일 선택 위반·메모 필수.
-export function marketAnswerIssues(answers: readonly MarketAnswerType[], areas: readonly string[]): string[] {
-  const issues: string[] = [];
-  const allowed = new Set(marketQuestionsFor(areas).map((q) => q.code));
-  const seen = new Set<string>();
-  answers.forEach((answer, index) => {
-    const at = `answers[${String(index)}]`;
-    if (seen.has(answer.code)) issues.push(`${at}: DUPLICATE_CODE`);
-    seen.add(answer.code);
-    const question = MARKET_QUESTION_MAP.get(answer.code);
-    if (question === undefined || !allowed.has(answer.code)) {
-      issues.push(`${at}: UNKNOWN_QUESTION`);
-      return;
-    }
-    const valid = new Set(question.options.map((o) => o.code));
-    if (answer.choices.some((c) => !valid.has(c))) issues.push(`${at}: INVALID_CHOICE`);
-    if (!question.multi && answer.choices.length > 1) issues.push(`${at}: SINGLE_CHOICE`);
-    const noteRequired = question.noteRequiredFor?.some((c) => answer.choices.includes(c)) ?? false;
-    if (noteRequired && (answer.note ?? '') === '') issues.push(`${at}: NOTE_REQUIRED`);
-  });
-  return issues;
-}
+export const isMarketAreaCode = MARKET_REGISTRY.isAreaCode;
+export const marketArea = MARKET_REGISTRY.area;
+export const marketAreaLabel = MARKET_REGISTRY.areaLabel;
+export const marketAreaShort = MARKET_REGISTRY.areaShort;
+export const sortMarketAreas = MARKET_REGISTRY.sortAreas;
+export const marketAreaBadge = MARKET_REGISTRY.areaBadge;
 
-export const isMarketAnswerUnknown = (answer: MarketAnswerType): boolean =>
-  answer.choices.length === 1 && answer.choices[0] === MARKET_UNKNOWN_CHOICE;
+// 분야 코드 스키마 — 문자열 + 레지스트리 검증(신규 입력용). 읽기는 MarketAreaCodeLoose.
+export const MarketAreaCode = MARKET_REGISTRY.AreaCode;
+export const MarketAreaCodeLoose = z.string().max(32);
+export const MarketAreaCodes = MARKET_REGISTRY.AreaCodes;
 
-// 선택 라벨(+메모) 문자열 — 브리프 행·프롬프트·근거 코퍼스가 같은 문자열을 쓴다.
-export function marketAnswerText(answer: MarketAnswerType): string {
-  const question = MARKET_QUESTION_MAP.get(answer.code);
-  const labels = answer.choices
-    .map((c) => question?.options.find((o) => o.code === c)?.label ?? c)
-    .join(', ');
-  const note = answer.note?.trim() ?? '';
-  return note === '' ? labels : `${labels} (${note})`;
-}
+// ── 질문 사전(공통 + 분야별) ────────────────────────────────────────────────
+export const MARKET_QUESTIONS: readonly MarketQuestionDef[] = MARKET_REGISTRY.questions;
+export const isFullMarketAreas = MARKET_REGISTRY.isFull;
+export const MARKET_QUESTION_MAP: ReadonlyMap<string, MarketQuestionDef> = MARKET_REGISTRY.questionMap;
+export const marketQuestion = MARKET_REGISTRY.question;
+export const marketQuestionArea = MARKET_REGISTRY.questionArea;
+export const marketAreaQuestionsFor = MARKET_REGISTRY.areaQuestionsFor;
+export const marketQuestionsFor = MARKET_REGISTRY.questionsFor;
+export const marketRequiredMissing = MARKET_REGISTRY.requiredMissing;
+export const marketAnswerIssues = MARKET_REGISTRY.answerIssues;
+export const marketAnswerText = MARKET_REGISTRY.answerText;
 
-// ── 희망 툴 — 분야별 코드 배열, 빈 배열·미기재 = "전문가 추천" ───────────────────────
-export const MARKET_TOOLS_VERSION = 1 as const;
-export const MarketTools = z.object({
-  version: z.literal(MARKET_TOOLS_VERSION).catch(MARKET_TOOLS_VERSION),
-  byArea: z.record(z.string().max(32), z.array(z.string().trim().min(1).max(32)).max(16)).catch({}),
-});
-export type MarketToolsType = z.infer<typeof MarketTools>;
-export const EMPTY_MARKET_TOOLS: MarketToolsType = { version: MARKET_TOOLS_VERSION, byArea: {} };
-
-export const marketToolLabel = (area: string, code: string): string =>
-  MARKET_AREA_MAP.get(area)?.tools.options.find((o) => o.code === code)?.label ?? code;
-
-// 신규 입력 검증 — 미지 분야·그 분야 사전에 없는 코드.
-export function marketToolIssues(tools: MarketToolsType): string[] {
-  const issues: string[] = [];
-  for (const [area, codes] of Object.entries(tools.byArea)) {
-    const def = MARKET_AREA_MAP.get(area);
-    if (def === undefined) {
-      issues.push(`tools.byArea.${area}: UNKNOWN_AREA`);
-      continue;
-    }
-    const valid = new Set(def.tools.options.map((o) => o.code));
-    for (const c of codes) if (!valid.has(c)) issues.push(`tools.byArea.${area}: UNKNOWN_TOOL:${c}`);
-  }
-  return issues;
-}
-
-// 저장 정규화 — 선택 분야에 속하는 항목만, 빈 배열은 버린다(빈 배열 = 전문가 추천과 같은 뜻).
-export function normalizeMarketTools(tools: MarketToolsType, areas: readonly string[]): MarketToolsType {
-  const byArea: Record<string, string[]> = {};
-  for (const area of sortMarketAreas(areas)) {
-    const codes = [...new Set(tools.byArea[area] ?? [])];
-    if (codes.length > 0) byArea[area] = codes;
-  }
-  return { version: MARKET_TOOLS_VERSION, byArea };
-}
-
-// 표시용 — 분야별 "라벨 · 라벨" 또는 "전문가 추천".
-export interface MarketToolRow { area: string; areaLabel: string; labels: string[] }
-export function marketToolRows(tools: MarketToolsType, areas: readonly string[]): MarketToolRow[] {
-  return sortMarketAreas(areas).map((area) => ({
-    area,
-    areaLabel: marketAreaLabel(area),
-    labels: (tools.byArea[area] ?? []).map((c) => marketToolLabel(area, c)),
-  }));
-}
-// 전체 툴 코드 → 라벨(분야 무관, 필터 옵션·전문가 카드용). 같은 코드는 같은 라벨이다.
-export const MARKET_TOOL_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
-  MARKET_AREAS.flatMap((a) => a.tools.options.map((o) => [o.code, o.label] as const)),
-);
+// ── 희망 툴 ───────────────────────────────────────────────────────────────
+export const marketToolLabel = MARKET_REGISTRY.toolLabel;
+export const marketToolIssues = MARKET_REGISTRY.toolIssues;
+export const normalizeMarketTools = MARKET_REGISTRY.normalizeTools;
+export const marketToolRows = MARKET_REGISTRY.toolRows;
+export const MARKET_TOOL_LABELS: Readonly<Record<string, string>> = MARKET_REGISTRY.toolLabels;
 export const marketToolCodesOf = (tools: MarketToolsType): string[] =>
   [...new Set(Object.values(tools.byArea).flat())];
 
-// ── 첨부 슬롯 — multipart 파트 이름 `attachment:<area>:<slot>` ↔ sp_file(area, slot) ─────
-export const MARKET_ATTACHMENT_FIELD = 'attachment';
-export const marketAttachmentField = (area: string, slot: string): string => `${MARKET_ATTACHMENT_FIELD}:${area}:${slot}`;
-export interface MarketAttachmentSlotRef { area: string; slot: string }
-// 파트 이름 → 슬롯(일반 첨부는 null). 사전에 없는 분야·슬롯은 undefined(거절 대상).
-export function parseMarketAttachmentField(field: string): MarketAttachmentSlotRef | null | undefined {
-  if (field === MARKET_ATTACHMENT_FIELD) return null;
-  const m = /^attachment:([a-z0-9_-]+):([a-z0-9_-]+)$/.exec(field);
-  if (m === null) return undefined;
-  const area = m[1] ?? '';
-  const slot = m[2] ?? '';
-  const ok = MARKET_AREA_MAP.get(area)?.attachmentSlots.some((s) => s.code === slot) ?? false;
-  return ok ? { area, slot } : undefined;
-}
-export const marketSlotLabel = (area: string, slot: string): string =>
-  MARKET_AREA_MAP.get(area)?.attachmentSlots.find((s) => s.code === slot)?.label ?? slot;
+// ── 첨부 슬롯 ─────────────────────────────────────────────────────────────
+export const parseMarketAttachmentField = MARKET_REGISTRY.parseAttachmentField;
+export const marketSlotLabel = MARKET_REGISTRY.slotLabel;

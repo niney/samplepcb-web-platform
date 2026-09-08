@@ -1,21 +1,201 @@
 import { z } from 'zod';
-import { MarketBudgetRange, MarketContractPayment, MarketFileMeta } from './market';
+import { MarketContractPayment, MarketFileMeta } from './market';
+import { EMPTY_MARKET_TOOLS, MarketAnswers, MarketAreaCodeLoose, MarketTools } from './market-areas';
 import {
-  EMPTY_MARKET_TOOLS,
-  MarketAnswers,
-  MarketAreaCodeLoose,
-  MarketAreaCodes,
-  MarketTools,
-  marketAnswerIssues,
-  marketToolIssues,
-} from './market-areas';
-import { DevReviewSchedule, MarketDevReview } from './market-dev-review';
+  DEVELOP_INDIVIDUAL_AREA_CODES,
+  DEVELOP_SYSTEM_AREA_CODES,
+  developAnswerIssues,
+  developToolIssues,
+  sortDevelopAreas,
+} from './develop-areas';
+import { DEV_REVIEW_TIMELINE_WISH_CODES, DevReviewSchedule, MarketDevReview } from './market-dev-review';
+import type { DevReviewTimelineWishCodeType } from './market-dev-review';
 import { MARKET_DEV_DIAGRAM_STATUSES, MarketDevDiagram } from './market-dev-diagram';
 
 // ── 개발의뢰(sp-develop) 계약 — 정본 docs/DEVELOP_FLOW.md ───────────────────────────
 // 의뢰자 ↔ 샘플피씨비 직접 개발 용역. 마켓(market.ts)과 **테이블·상태 어휘가 다르다**(전문가·입찰·공개 목록 없음,
-// 관리자가 AI 를 돌리고 항목별 견적을 낸다). 분야·질문·툴·첨부 슬롯·검토서·구성도 JSON 은 마켓 레지스트리를 그대로 쓴다.
+// 관리자가 AI 를 돌리고 항목별 견적을 낸다). 분야·질문·툴·첨부 슬롯은 개발의뢰 전용 레지스트리(develop-areas.ts),
+// 검토서·구성도 JSON 은 마켓 스키마를 그대로 쓴다.
 // 라벨 정본은 이 파일(DEVELOP_*_LABELS) — sp-develop·sp-vue·sp-node 메일 빌더가 공유한다.
+
+// ── 위저드 v2 사전(2026-09-08, 프로토타입 samplepcb-development-request 기준) ─────────────
+// 의뢰 방식 — 시스템개발(전 분야 통합, 회로·펌웨어 포함) / 개별 견적(PCB·기구·앱·서버 복수).
+export const DEVELOP_REQUEST_MODES = ['system', 'individual'] as const;
+export type DevelopRequestModeType = (typeof DEVELOP_REQUEST_MODES)[number];
+export const DevelopRequestMode = z.enum(DEVELOP_REQUEST_MODES);
+export const DEVELOP_REQUEST_MODE_LABELS = {
+  system: '시스템개발',
+  individual: '개별 견적',
+} as const satisfies Record<DevelopRequestModeType, string>;
+
+// 예산 구간 — 마켓 사전(500만 단위)과 분리(개발 용역 실무 구간). 저장은 코드.
+export const DEVELOP_BUDGET_RANGES = ['under1000', 'r1000_3000', 'r3000_5000', 'r5000_10000', 'over10000', 'after_quote'] as const;
+export type DevelopBudgetRangeType = (typeof DEVELOP_BUDGET_RANGES)[number];
+export const DevelopBudgetRange = z.enum(DEVELOP_BUDGET_RANGES);
+export const DEVELOP_BUDGET_RANGE_LABELS = {
+  under1000: '1천만원 미만',
+  r1000_3000: '1천만~3천만원',
+  r3000_5000: '3천만~5천만원',
+  r5000_10000: '5천만~1억원',
+  over10000: '1억원 이상',
+  after_quote: '견적 후 결정',
+} as const satisfies Record<DevelopBudgetRangeType, string>;
+
+export const DEVELOP_CURRENT_STAGES = ['idea', 'requirements', 'design', 'prototype', 'testing', 'mass_prep'] as const;
+export type DevelopCurrentStageType = (typeof DEVELOP_CURRENT_STAGES)[number];
+export const DevelopCurrentStage = z.enum(DEVELOP_CURRENT_STAGES);
+export const DEVELOP_CURRENT_STAGE_LABELS = {
+  idea: '아이디어',
+  requirements: '요구사항 정리',
+  design: '설계 진행',
+  prototype: '시제품 제작',
+  testing: '시험·검증',
+  mass_prep: '양산 준비',
+} as const satisfies Record<DevelopCurrentStageType, string>;
+
+export const DEVELOP_TARGET_STAGES = ['spec_fixed', 'function_verified', 'prototype_done', 'mass_ready', 'first_production'] as const;
+export type DevelopTargetStageType = (typeof DEVELOP_TARGET_STAGES)[number];
+export const DevelopTargetStage = z.enum(DEVELOP_TARGET_STAGES);
+export const DEVELOP_TARGET_STAGE_LABELS = {
+  spec_fixed: '사양 확정',
+  function_verified: '기능 검증',
+  prototype_done: '시제품 완성',
+  mass_ready: '양산 준비 완료',
+  first_production: '초도 생산',
+} as const satisfies Record<DevelopTargetStageType, string>;
+
+// 시제품·생산 계획(4스텝) — 당사 PCB/BOM 트랙과 직결되는 정보라 견적서 '별도 실비' 의 근거가 된다.
+export const DEVELOP_PROTOTYPE_MODES = ['none', 'undecided', 'count'] as const;
+export type DevelopPrototypeModeType = (typeof DEVELOP_PROTOTYPE_MODES)[number];
+export const DevelopPrototypeMode = z.enum(DEVELOP_PROTOTYPE_MODES);
+export const DEVELOP_PROTOTYPE_MODE_LABELS = {
+  none: '제작 없음',
+  undecided: '수량 미정',
+  count: '직접 입력',
+} as const satisfies Record<DevelopPrototypeModeType, string>;
+
+export const DEVELOP_PRODUCTION_SCOPES = ['pcb_fab', 'parts', 'smt', 'assembly', 'negotiate'] as const;
+export type DevelopProductionScopeType = (typeof DEVELOP_PRODUCTION_SCOPES)[number];
+export const DevelopProductionScope = z.enum(DEVELOP_PRODUCTION_SCOPES);
+export const DEVELOP_PRODUCTION_SCOPE_LABELS = {
+  pcb_fab: 'PCB 제작',
+  parts: '부품 구매',
+  smt: 'SMT·수삽',
+  assembly: '완제품 조립',
+  negotiate: '범위 협의',
+} as const satisfies Record<DevelopProductionScopeType, string>;
+
+export const DEVELOP_PRIORITIES = ['cost', 'schedule', 'size_weight', 'performance', 'durability', 'certification', 'manufacturability'] as const;
+export type DevelopPriorityType = (typeof DEVELOP_PRIORITIES)[number];
+export const DevelopPriority = z.enum(DEVELOP_PRIORITIES);
+export const DEVELOP_PRIORITY_LABELS = {
+  cost: '비용',
+  schedule: '일정',
+  size_weight: '크기·무게',
+  performance: '성능',
+  durability: '내구성·사용환경',
+  certification: '인증',
+  manufacturability: '양산성·부품수급',
+} as const satisfies Record<DevelopPriorityType, string>;
+
+export const DEVELOP_SOURCING_MODES = ['samplepcb_all', 'partial_customer', 'customer_all', 'negotiate'] as const;
+export type DevelopSourcingModeType = (typeof DEVELOP_SOURCING_MODES)[number];
+export const DevelopSourcingMode = z.enum(DEVELOP_SOURCING_MODES);
+export const DEVELOP_SOURCING_MODE_LABELS = {
+  samplepcb_all: '샘플피씨비 일괄 조달',
+  partial_customer: '일부 고객 지급',
+  customer_all: '전량 고객 지급',
+  negotiate: '협의 필요',
+} as const satisfies Record<DevelopSourcingModeType, string>;
+
+export const DEVELOP_DELIVERY_FORMS = ['pcb', 'parts_separate', 'pcba', 'finished', 'negotiate'] as const;
+export type DevelopDeliveryFormType = (typeof DEVELOP_DELIVERY_FORMS)[number];
+export const DevelopDeliveryForm = z.enum(DEVELOP_DELIVERY_FORMS);
+export const DEVELOP_DELIVERY_FORM_LABELS = {
+  pcb: 'PCB',
+  parts_separate: '부품 별도',
+  pcba: 'PCBA',
+  finished: '완제품',
+  negotiate: '협의 필요',
+} as const satisfies Record<DevelopDeliveryFormType, string>;
+
+// 제작 범위를 하나라도 고르면 조달·납품 형태를 묻는다(프로토타입 "제조 연계 확인"). 아니면 둘 다 null.
+export const DevelopProductionPlan = z
+  .object({
+    prototype: DevelopPrototypeMode,
+    prototypeQty: z.number().int().min(1).max(1_000_000).nullable().default(null),
+    scopes: z.array(DevelopProductionScope).max(DEVELOP_PRODUCTION_SCOPES.length).default([]),
+    annualQty: z.number().int().min(0).max(100_000_000).nullable().default(null),
+    priority: DevelopPriority.nullable().default(null),
+    sourcing: DevelopSourcingMode.nullable().default(null),
+    delivery: DevelopDeliveryForm.nullable().default(null),
+  })
+  .superRefine((p, ctx) => {
+    if (p.prototype === 'count' && p.prototypeQty === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'PROTOTYPE_QTY_REQUIRED', path: ['prototypeQty'] });
+    }
+    if (new Set(p.scopes).size !== p.scopes.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DUPLICATE_SCOPE', path: ['scopes'] });
+    }
+  });
+export type DevelopProductionPlanType = z.infer<typeof DevelopProductionPlan>;
+export const EMPTY_DEVELOP_PRODUCTION: DevelopProductionPlanType = {
+  prototype: 'undecided',
+  prototypeQty: null,
+  scopes: [],
+  annualQty: null,
+  priority: null,
+  sourcing: null,
+  delivery: null,
+};
+// 저장 정규화 — count 가 아니면 수량을 비우고, 제작 범위가 없으면 조달·납품 형태를 비운다.
+export function normalizeDevelopProduction(p: DevelopProductionPlanType): DevelopProductionPlanType {
+  const scopes = [...new Set(p.scopes)];
+  return {
+    prototype: p.prototype,
+    prototypeQty: p.prototype === 'count' ? p.prototypeQty : null,
+    scopes,
+    annualQty: p.annualQty,
+    priority: p.priority,
+    sourcing: scopes.length === 0 ? null : p.sourcing,
+    delivery: scopes.length === 0 ? null : p.delivery,
+  };
+}
+// 표시용 한 줄 — "시제품 5개 · PCB 제작, SMT·수삽 · 연간 5,000" (검토 카드·관리자·메일이 같은 문자열).
+export function developProductionSummary(p: DevelopProductionPlanType | null): string {
+  if (p === null) return '';
+  const proto =
+    p.prototype === 'count'
+      ? `시제품 ${p.prototypeQty === null ? '?' : p.prototypeQty.toLocaleString('ko-KR')}개`
+      : `시제품 ${DEVELOP_PROTOTYPE_MODE_LABELS[p.prototype]}`;
+  const scopes = p.scopes.length === 0 ? '제작 범위 없음' : p.scopes.map((s) => DEVELOP_PRODUCTION_SCOPE_LABELS[s]).join(', ');
+  const annual = p.annualQty === null ? null : `연간 ${p.annualQty.toLocaleString('ko-KR')}개`;
+  return [proto, scopes, annual].filter((s): s is string => s !== null).join(' · ');
+}
+
+// 희망 완료 시기 — 날짜(YYYY-MM-DD) **또는** 자유문("계약 후 3개월") 중 하나 이상.
+export const DEVELOP_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const DevelopWishDate = z.string().regex(DEVELOP_DATE_RE, 'YYYY-MM-DD');
+// 검토서 일정 대조(devReviewScheduleFit)가 쓰는 희망 시점 코드를 날짜에서 파생한다 — 접수일 기준 주 수:
+// ≤4 within_1m · ≤13 m2_3 · ≤26 m4_6 · 그 밖 over_6m. 날짜가 없거나(자유문만) 지났으면 null(= unknown).
+export function developWishCode(wishDate: string | null, from: Date | string): DevReviewTimelineWishCodeType | null {
+  if (wishDate === null || !DEVELOP_DATE_RE.test(wishDate)) return null;
+  const target = Date.parse(`${wishDate}T00:00:00+09:00`);
+  const start = typeof from === 'string' ? Date.parse(from) : from.getTime();
+  if (!Number.isFinite(target) || !Number.isFinite(start)) return null;
+  const weeks = Math.ceil((target - start) / (7 * 24 * 60 * 60 * 1000));
+  if (weeks < 0) return null;
+  const code: DevReviewTimelineWishCodeType = weeks <= 4 ? 'within_1m' : weeks <= 13 ? 'm2_3' : weeks <= 26 ? 'm4_6' : 'over_6m';
+  return DEV_REVIEW_TIMELINE_WISH_CODES.includes(code) ? code : null;
+}
+export const developWishLabel = (wishDate: string | null, wishNote: string | null): string =>
+  wishDate !== null && wishNote !== null && wishNote !== '' ? `${wishDate} · ${wishNote}` : (wishDate ?? wishNote ?? '');
+
+// 의뢰 방식에 따른 저장 분야 — 시스템개발은 전 분야, 개별은 고른 것(개별 메뉴 밖 코드는 버린다).
+export function resolveDevelopServiceAreas(mode: DevelopRequestModeType, areas: readonly string[]): string[] {
+  if (mode === 'system') return [...DEVELOP_SYSTEM_AREA_CODES];
+  return sortDevelopAreas(areas).filter((c) => DEVELOP_INDIVIDUAL_AREA_CODES.includes(c));
+}
 
 // ── 의뢰 상태 ─────────────────────────────────────────────────────────────────
 export const DEVELOP_REQUEST_STATUSES = [
@@ -187,15 +367,52 @@ export const DevelopContact = z.object({
 export type DevelopContactType = z.infer<typeof DevelopContact>;
 
 // ── 의뢰 등록·수정 (multipart payload 파트 — 파일 파트는 마켓과 같은 `attachment` · `attachment:<area>:<slot>`) ──
+// serviceAreas 는 **개별 견적일 때만** 뜻이 있다(개별 메뉴 코드 1개 이상). 시스템개발이면 서버가 전 분야로 채운다
+// (resolveDevelopServiceAreas). 답변·툴 검증은 그렇게 확정된 분야 목록으로 한다.
 const developEditableShape = {
+  requestMode: DevelopRequestMode,
   title: z.string().trim().min(2).max(200),
-  serviceAreas: MarketAreaCodes,
+  serviceAreas: z.array(MarketAreaCodeLoose).max(16).default([]),
   tools: MarketTools.default(EMPTY_MARKET_TOOLS),
   description: z.string().trim().min(10).max(20000),
   answers: MarketAnswers.default([]),
-  budgetRange: MarketBudgetRange,
+  currentStage: DevelopCurrentStage,
+  targetStage: DevelopTargetStage,
+  wishDate: DevelopWishDate.nullable().default(null),
+  wishNote: z.string().trim().max(200).nullable().default(null),
+  budgetRange: DevelopBudgetRange,
+  // 시스템개발에서 "전문가에게 맡김" — 3스텝 질문을 건너뛴다(개별 견적에선 언제나 false).
+  expertDelegate: z.boolean().default(false),
+  production: DevelopProductionPlan,
   ndaWanted: z.boolean().default(false), // 비밀유지 계약 희망 — 당사가 NDA 문서를 준비한다(오프라인)
 } as const;
+
+interface DevelopEditableCheck {
+  requestMode: DevelopRequestModeType;
+  serviceAreas: string[];
+  answers: z.infer<typeof MarketAnswers>;
+  tools: z.infer<typeof MarketTools>;
+  wishDate: string | null;
+  wishNote: string | null;
+}
+function developEditableIssues(p: DevelopEditableCheck, ctx: z.RefinementCtx): void {
+  if (p.requestMode === 'individual') {
+    const bad = p.serviceAreas.filter((c) => !DEVELOP_INDIVIDUAL_AREA_CODES.includes(c));
+    if (bad.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'UNKNOWN_AREA', path: ['serviceAreas'] });
+    if (new Set(p.serviceAreas).size !== p.serviceAreas.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DUPLICATE_AREA', path: ['serviceAreas'] });
+    if (p.serviceAreas.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AREA_REQUIRED', path: ['serviceAreas'] });
+  }
+  const areas = resolveDevelopServiceAreas(p.requestMode, p.serviceAreas);
+  for (const issue of developAnswerIssues(p.answers, areas)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['answers'] });
+  }
+  for (const issue of developToolIssues(p.tools)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['tools'] });
+  }
+  if (p.wishDate === null && (p.wishNote === null || p.wishNote === '')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'WISH_REQUIRED', path: ['wishDate'] });
+  }
+}
 
 export const DevelopRequestCreatePayload = z
   .object({
@@ -205,30 +422,45 @@ export const DevelopRequestCreatePayload = z
     contact: DevelopContact,
   })
   .superRefine((p, ctx) => {
-    for (const issue of marketAnswerIssues(p.answers, p.serviceAreas)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['answers'] });
-    }
-    for (const issue of marketToolIssues(p.tools)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['tools'] });
-    }
+    developEditableIssues(p, ctx);
   });
 export type DevelopRequestCreatePayloadType = z.infer<typeof DevelopRequestCreatePayload>;
 
 // 수정 — received·reviewing 에서만(409 NOT_EDITABLE). 바뀐 필드는 이벤트 `edited` 로 남고 AI 초안은 stale 배지.
+// 분야·답변·툴·희망 시기의 교차 검증은 저장분과 합친 뒤 라우트가 한다(부분 본문만으로는 못 본다).
 export const DevelopRequestUpdateBody = z
   .object({
+    requestMode: developEditableShape.requestMode,
     title: developEditableShape.title,
-    serviceAreas: developEditableShape.serviceAreas,
+    serviceAreas: z.array(MarketAreaCodeLoose).max(16),
     tools: MarketTools,
     description: developEditableShape.description,
     answers: MarketAnswers,
+    currentStage: developEditableShape.currentStage,
+    targetStage: developEditableShape.targetStage,
+    wishDate: DevelopWishDate.nullable(),
+    wishNote: z.string().trim().max(200).nullable(),
     budgetRange: developEditableShape.budgetRange,
+    expertDelegate: z.boolean(),
+    production: DevelopProductionPlan,
     ndaWanted: z.boolean(),
     contact: DevelopContact,
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, { message: '최소 한 개 필드가 필요합니다' });
 export type DevelopRequestUpdateBodyType = z.infer<typeof DevelopRequestUpdateBody>;
+
+// 수정 본문을 저장분과 합친 뒤의 교차 검증 — 라우트가 부른다. 반환은 이슈 문자열(빈 배열 = 통과).
+export function developMergedIssues(merged: DevelopEditableCheck): string[] {
+  const issues: string[] = [];
+  const ctx: Pick<z.RefinementCtx, 'addIssue'> = {
+    addIssue: (issue) => {
+      issues.push(`${(issue.path ?? []).join('.')}: ${issue.message ?? 'INVALID'}`);
+    },
+  };
+  developEditableIssues(merged, ctx as z.RefinementCtx);
+  return issues;
+}
 
 export const DevelopCancelBody = z.object({ reason: z.string().trim().max(500).optional() });
 export type DevelopCancelBodyType = z.infer<typeof DevelopCancelBody>;
@@ -321,9 +553,10 @@ export const DevelopAiReviewState = z.enum(DEVELOP_AI_REVIEW_STATES);
 export const DevelopRequestListItem = z.object({
   requestId: z.number(),
   title: z.string(),
+  requestMode: DevelopRequestMode,
   serviceAreas: z.array(MarketAreaCodeLoose),
   status: DevelopRequestStatus,
-  budgetRange: MarketBudgetRange,
+  budgetRange: DevelopBudgetRange,
   createdAt: z.string(),
   updatedAt: z.string(),
   // 고객이 지금 할 일 — 서버 파생(견적 검토 · 결제 · 검수 · 확인 요청 답변). 없으면 null.
@@ -354,7 +587,19 @@ export const DevelopPublicDiagram = z.object({
 });
 export type DevelopPublicDiagramType = z.infer<typeof DevelopPublicDiagram>;
 
+// 위저드 v2 필드(2026-09-08) — 옛 저장분(v1 위저드)은 단계·계획이 null 이다.
+export const DevelopWizardFields = z.object({
+  currentStage: DevelopCurrentStage.nullable(),
+  targetStage: DevelopTargetStage.nullable(),
+  wishDate: z.string().nullable(),
+  wishNote: z.string().nullable(),
+  expertDelegate: z.boolean(),
+  production: DevelopProductionPlan.nullable(),
+});
+export type DevelopWizardFieldsType = z.infer<typeof DevelopWizardFields>;
+
 export const DevelopRequestDetail = DevelopRequestListItem.extend({
+  ...DevelopWizardFields.shape,
   description: z.string(),
   tools: MarketTools,
   answers: MarketAnswers,
@@ -547,9 +792,10 @@ export type AdminDevelopAiSummaryType = z.infer<typeof AdminDevelopAiSummary>;
 export const AdminDevelopRequestListItem = z.object({
   requestId: z.number(),
   title: z.string(),
+  requestMode: DevelopRequestMode,
   serviceAreas: z.array(MarketAreaCodeLoose),
   status: DevelopRequestStatus,
-  budgetRange: MarketBudgetRange,
+  budgetRange: DevelopBudgetRange,
   owner: z.object({ mbId: z.string(), name: z.string(), email: z.string().nullable() }),
   contact: DevelopContact,
   assigneeMbId: z.string().nullable(),
@@ -604,6 +850,7 @@ export const AdminDevelopDiagramState = z.object({
 export type AdminDevelopDiagramStateType = z.infer<typeof AdminDevelopDiagramState>;
 
 export const AdminDevelopRequestDetail = AdminDevelopRequestListItem.extend({
+  ...DevelopWizardFields.shape,
   description: z.string(),
   tools: MarketTools,
   answers: MarketAnswers,

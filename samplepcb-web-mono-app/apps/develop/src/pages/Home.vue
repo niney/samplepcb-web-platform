@@ -1,14 +1,39 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { MARKET_AREAS } from '@sp/api-contract';
+import { DEVELOP_INDIVIDUAL_AREAS, DEVELOP_INDIVIDUAL_TAG, DEVELOP_SYSTEM_MENU } from '@sp/api-contract';
 import { AreaIcon } from '@sp/ui';
 
-// 개발의뢰 랜딩(docs/DEVELOP_FLOW.md §7.2) — 로그인 여부와 무관한 공개 페이지.
-// 구성: 히어로 → 개발 분야 5(#areas, 레지스트리) → 진행 방식 7단계(#how, 레거시 estimate.php 계승)
+// 개발의뢰 랜딩 — 로그인 여부와 무관한 공개 페이지.
+// 구성: 히어로 → 개발 메뉴 5(#areas) → 진행 방식 7단계(#how, 레거시 estimate.php 계승)
 //      → 왜 직접 개발인가 → 자주 묻는 질문 → 하단 CTA.
-// 분야 카드는 레지스트리(MARKET_AREAS)로만 그린다 — 분야가 늘어도 이 파일은 안 바뀐다.
+// 메뉴는 위저드 1스텝과 **같은 계약**에서 온다(시스템개발 + 개별 견적 4분야) — 분야가 늘어도 이 파일은 안 바뀐다.
 
-const areas = MARKET_AREAS;
+interface MenuCard {
+  key: string;
+  label: string;
+  hint: string;
+  tag: string;
+  what: string;
+  featured: boolean;
+}
+const menus: readonly MenuCard[] = [
+  {
+    key: 'system',
+    label: DEVELOP_SYSTEM_MENU.label,
+    hint: DEVELOP_SYSTEM_MENU.hint,
+    tag: DEVELOP_SYSTEM_MENU.tag,
+    what: '제품 개발에 필요한 전체 업무를 한 번에 분석해 필요한 분야와 순서, 견적 전제를 정리해 드리는 일',
+    featured: true,
+  },
+  ...DEVELOP_INDIVIDUAL_AREAS.map((a) => ({
+    key: a.code,
+    label: a.label,
+    hint: a.hint,
+    tag: DEVELOP_INDIVIDUAL_TAG,
+    what: a.prompt.what,
+    featured: false,
+  })),
+];
 
 interface Step {
   no: string;
@@ -32,7 +57,7 @@ interface Faq {
 const faqs: readonly Faq[] = [
   {
     q: '아이디어만 있는데 의뢰할 수 있나요?',
-    a: '가능합니다. 실제로 가장 많은 형태입니다. "무엇을 하고 싶은지"만 적어 주시면 담당자가 통화로 필요한 조건을 함께 정리합니다. 분야를 모르시면 "전부 맡길게요"를 고르시면 됩니다.',
+    a: '가능합니다. 실제로 가장 많은 형태입니다. "무엇을 하고 싶은지"만 적어 주시면 담당자가 통화로 필요한 조건을 함께 정리합니다. 분야를 모르시면 "시스템개발"을 고르시면 됩니다.',
   },
   {
     q: '견적은 얼마나 걸리나요?',
@@ -75,7 +100,7 @@ const toggleFaq = (i: number): void => {
         <div class="grid gap-5">
           <p class="font-mono text-micro tracking-[.18em] text-brand-300">SAMPLEPCB DEVELOPMENT</p>
           <h1 class="text-h1 font-extrabold leading-tight sm:text-display">
-            아이디어를 회로 · PCB · 펌웨어 · 앱 · 서버까지,<br class="hidden sm:block">
+            아이디어를 회로 · PCB · 펌웨어 · 기구 · 앱 · 서버까지,<br class="hidden sm:block">
             <span class="text-brand-400">샘플피씨비가 직접</span> 개발합니다
           </h1>
           <p class="max-w-xl text-lead leading-relaxed text-dk-tx-2">
@@ -97,10 +122,21 @@ const toggleFaq = (i: number): void => {
         </div>
 
         <ul class="grid gap-2.5">
-          <li v-for="area in areas" :key="area.code" class="flex items-center gap-3 rounded-xl bg-white/[0.06] px-4 py-3 ring-1 ring-white/10">
-            <AreaIcon :code="area.code" size="sm" />
-            <span class="text-body font-bold">{{ area.label }}</span>
-            <span class="ml-auto text-label text-dk-tx-2">{{ area.short }}</span>
+          <li
+            v-for="menu in menus"
+            :key="menu.key"
+            class="flex items-center gap-3 rounded-xl px-4 py-3 ring-1"
+            :class="menu.featured ? 'bg-white/[0.12] ring-white/25' : 'bg-white/[0.06] ring-white/10'"
+          >
+            <span v-if="menu.featured" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white" aria-hidden="true">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+                <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" /><path d="M17.25 13.5v7.5M13.5 17.25h7.5" />
+              </svg>
+            </span>
+            <AreaIcon v-else :code="menu.key" size="sm" />
+            <span class="text-body font-bold">{{ menu.label }}</span>
+            <span class="ml-auto text-label text-dk-tx-2">{{ menu.tag }}</span>
           </li>
         </ul>
       </div>
@@ -111,18 +147,28 @@ const toggleFaq = (i: number): void => {
       <p class="font-mono text-micro tracking-[.14em] text-tx-3">AREAS</p>
       <h2 class="mt-1.5 text-h1 font-extrabold text-tx-1">개발 분야</h2>
       <p class="mt-2 max-w-2xl text-lead leading-relaxed text-tx-2">
-        필요한 분야만 고르셔도 되고, 전부 맡기셔도 됩니다. 여러 분야가 얽힌 제품일수록 한 회사가 맡는 편이 빠릅니다.
+        제품 전체를 맡기시려면 시스템개발, 필요한 분야만 맡기시려면 개별 견적입니다. 여러 분야가 얽힌 제품일수록 한 회사가 맡는 편이 빠릅니다.
       </p>
-      <div class="mt-7 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="mt-7 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
         <article
-          v-for="area in areas"
-          :key="area.code"
-          class="grid content-start gap-3 rounded-2xl border border-line bg-white p-5 transition hover:border-line-2"
+          v-for="menu in menus"
+          :key="menu.key"
+          class="grid content-start gap-3 rounded-2xl bg-white p-5 transition"
+          :class="menu.featured ? 'border-2 border-ink-950 sm:col-span-2 lg:col-span-4' : 'border border-line hover:border-line-2'"
         >
-          <AreaIcon :code="area.code" />
-          <h3 class="text-title font-extrabold text-tx-1">{{ area.label }}</h3>
-          <p class="text-body leading-relaxed text-tx-2">{{ area.hint }}</p>
-          <p class="text-label leading-relaxed text-tx-3">{{ area.prompt.what }}</p>
+          <span v-if="menu.featured" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-950 text-white" aria-hidden="true">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+              <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" /><path d="M17.25 13.5v7.5M13.5 17.25h7.5" />
+            </svg>
+          </span>
+          <AreaIcon v-else :code="menu.key" />
+          <h3 class="flex flex-wrap items-center gap-2 text-title font-extrabold text-tx-1">
+            {{ menu.label }}
+            <span class="rounded-full bg-paper px-2.5 py-0.5 text-micro font-bold text-tx-2">{{ menu.tag }}</span>
+          </h3>
+          <p class="text-body leading-relaxed text-tx-2">{{ menu.hint }}</p>
+          <p class="text-label leading-relaxed text-tx-3">{{ menu.what }}</p>
         </article>
       </div>
     </section>

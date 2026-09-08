@@ -190,7 +190,8 @@ export const DEV_REVIEW_SCHEDULE_CAPTION =
 export const DevReviewLlmOutput = z.object({
   summary: z.string().trim().max(200).catch(''),
   requirements: z.array(DevReviewFact).max(5),
-  areas: z.array(DevReviewAreaReview).max(MARKET_AREAS.length),
+  // 분야 상한은 마켓 5 + 여유 — 개발의뢰 시스템개발은 6분야(기구 포함)를 낸다(실제 개수는 후처리가 선택 분야로 자른다).
+  areas: z.array(DevReviewAreaReview).max(MARKET_AREAS.length + 4),
   openQuestions: z.array(DevReviewOpenQuestion).max(6),
   // 개발의뢰 전용(features.schedule) — 마켓 실행에선 모델이 내지 않고 후처리도 넣지 않는다.
   schedule: DevReviewScheduleLlm.optional(),
@@ -283,51 +284,59 @@ const SCHEDULE_JSON_SCHEMA = {
   },
 } as const;
 
-export const DEV_REVIEW_LLM_JSON_SCHEMA = {
-  type: 'object',
-  required: ['summary', 'requirements', 'areas', 'openQuestions'],
-  properties: {
-    summary: { type: 'string' },
-    requirements: { type: 'array', items: FACT_JSON_SCHEMA },
-    areas: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['area', 'summary', 'spec', 'observations'],
-        properties: {
-          area: { type: 'string', enum: [...MARKET_AREA_CODES] },
-          summary: { type: 'string' },
-          spec: {
-            type: 'array',
-            items: {
-              type: 'object',
-              required: ['item', 'text', 'evidence'],
-              properties: { item: { type: 'string' }, ...FACT_JSON_SCHEMA.properties },
+// 분야 코드 enum 은 레지스트리마다 다르다(마켓 5 · 개발의뢰 6) — 빌더로 만들고, 마켓 상수는 그 결과다(바이트 무변경).
+export function buildDevReviewLlmJsonSchema(areaCodes: readonly string[], withSchedule: boolean) {
+  const base = {
+    type: 'object',
+    required: ['summary', 'requirements', 'areas', 'openQuestions'],
+    properties: {
+      summary: { type: 'string' },
+      requirements: { type: 'array', items: FACT_JSON_SCHEMA },
+      areas: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['area', 'summary', 'spec', 'observations'],
+          properties: {
+            area: { type: 'string', enum: [...areaCodes] },
+            summary: { type: 'string' },
+            spec: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['item', 'text', 'evidence'],
+                properties: { item: { type: 'string' }, ...FACT_JSON_SCHEMA.properties },
+              },
             },
+            observations: { type: 'array', items: FACT_JSON_SCHEMA },
           },
-          observations: { type: 'array', items: FACT_JSON_SCHEMA },
+        },
+      },
+      openQuestions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['question', 'why', 'area'],
+          properties: {
+            question: { type: 'string' },
+            why: { type: 'string' },
+            area: { type: 'string', enum: [...areaCodes, DEV_REVIEW_GENERAL_AREA] },
+          },
         },
       },
     },
-    openQuestions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['question', 'why', 'area'],
-        properties: {
-          question: { type: 'string' },
-          why: { type: 'string' },
-          area: { type: 'string', enum: [...MARKET_AREA_CODES, DEV_REVIEW_GENERAL_AREA] },
-        },
-      },
-    },
-  },
-} as const;
+  } as const;
+  if (!withSchedule) return base;
+  return {
+    ...base,
+    required: [...base.required, 'schedule'],
+    properties: { ...base.properties, schedule: SCHEDULE_JSON_SCHEMA },
+  } as const;
+}
+export type DevReviewLlmJsonSchema = ReturnType<typeof buildDevReviewLlmJsonSchema>;
+
+export const DEV_REVIEW_LLM_JSON_SCHEMA = buildDevReviewLlmJsonSchema(MARKET_AREA_CODES, false);
 
 // 개발의뢰용 — 위 스키마에 개발 일정 블록을 더한 것. `required` 에 schedule 을 넣어 모델이 항상 내게 한다.
-// 마켓은 DEV_REVIEW_LLM_JSON_SCHEMA 를 그대로 쓴다(바이트 무변경).
-export const DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE = {
-  ...DEV_REVIEW_LLM_JSON_SCHEMA,
-  required: [...DEV_REVIEW_LLM_JSON_SCHEMA.required, 'schedule'],
-  properties: { ...DEV_REVIEW_LLM_JSON_SCHEMA.properties, schedule: SCHEDULE_JSON_SCHEMA },
-} as const;
+// 마켓은 DEV_REVIEW_LLM_JSON_SCHEMA 를 그대로 쓴다(바이트 무변경). 분야 enum 은 개발의뢰 레지스트리로 다시 만든다(러너).
+export const DEV_REVIEW_LLM_JSON_SCHEMA_WITH_SCHEDULE = buildDevReviewLlmJsonSchema(MARKET_AREA_CODES, true);

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
-import { DEVELOP_REQUEST_STATUS_LABELS, apiRoutes, marketAreaBadge } from '@sp/api-contract';
+import { DEVELOP_REQUEST_MODE_LABELS, DEVELOP_REQUEST_STATUS_LABELS, apiRoutes, developAreaBadge } from '@sp/api-contract';
 import { FilePreviewModal, apiErrorMessage } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
 import { useAdminDevelopDetail } from '../../admin/useAdminDevelop';
@@ -39,6 +39,14 @@ const requestId = computed(() => {
 
 const { data, isLoading, isError } = useAdminDevelopDetail(requestId);
 const detail = computed(() => data.value?.data);
+
+// 분야 배지 — 시스템개발은 분야가 6개 전부라 배지 문구도 '시스템개발' 이라 의뢰 방식 칩과 겹친다. 겹치면 지운다.
+const areaBadge = computed(() => {
+  const d = detail.value;
+  if (d === undefined) return '';
+  const badge = developAreaBadge(d.serviceAreas);
+  return badge === DEVELOP_REQUEST_MODE_LABELS[d.requestMode] ? '' : badge;
+});
 
 const TABS = ['content', 'review', 'diagram', 'quotes', 'timeline'] as const;
 type Tab = (typeof TABS)[number];
@@ -134,8 +142,14 @@ const badgeClass: Record<Badge['tone'], string> = {
           <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-bold" :class="developStatusBadgeClass(detail.status)">
             {{ DEVELOP_REQUEST_STATUS_LABELS[detail.status] }}
           </span>
-          <span v-if="marketAreaBadge(detail.serviceAreas) !== ''" class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">
-            {{ marketAreaBadge(detail.serviceAreas) }}
+          <span
+            class="rounded-full px-2 py-0.5 text-xs font-bold"
+            :class="detail.requestMode === 'system' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'"
+          >
+            {{ DEVELOP_REQUEST_MODE_LABELS[detail.requestMode] }}
+          </span>
+          <span v-if="areaBadge !== ''" class="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-bold text-indigo-700">
+            {{ areaBadge }}
           </span>
           <span class="text-xs text-gray-400">#{{ detail.requestId }} · {{ formatDateTime(detail.createdAt) }}</span>
         </div>

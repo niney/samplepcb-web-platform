@@ -11,13 +11,19 @@ import {
   DevelopRequestListQuery,
   DevelopRequestUpdateBody,
   DevelopReviewDecisionBody,
-  MARKET_BUDGET_RANGE_LABELS,
+  DEVELOP_BUDGET_RANGE_LABELS,
+  DEVELOP_REGISTRY,
+  developMergedIssues,
+  developQuestionsFor,
+  developRequiredMissing,
   fileViewKind,
   isDevelopCustomerCancellable,
   isDevelopEditable,
-  marketRequiredMissing,
+  keepDevelopDelegateAnswers,
   needsServerPreview,
-  normalizeMarketTools,
+  normalizeDevelopProduction,
+  normalizeDevelopTools,
+  resolveDevelopServiceAreas,
   resolveFileMime,
 } from '@sp/api-contract';
 import type {
@@ -34,6 +40,8 @@ import {
   REF_DEVELOP_QUOTE,
   REF_DEVELOP_REQUEST,
   addDevelopEvent,
+  asDevelopBudgetRange,
+  asDevelopRequestMode,
   asDevelopStatus,
   asMilestoneStatus,
   asMilestoneTrigger,
@@ -43,6 +51,8 @@ import {
   developDeliverablesLocked,
   developEventFileGate,
   developEventFiles,
+  developWizardFieldsOf,
+  toDevelopAreaCodes,
   toDevelopContact,
   toDevelopEventView,
   toDevelopFileMeta,
@@ -79,12 +89,10 @@ import {
   selectCartRows,
 } from '../lib/g5-db';
 import {
-  asBudgetRange,
   collectMultipart,
   deleteMarketFile,
   splitMarketAttachments,
   toAnswers,
-  toAreaCodes,
   toDevDiagram,
   toDevReview,
   toTools,
@@ -220,9 +228,10 @@ const toListItem = (
   return {
     requestId: Number(r.id),
     title: r.title,
-    serviceAreas: toAreaCodes(r.serviceAreas),
+    requestMode: asDevelopRequestMode(r.requestMode),
+    serviceAreas: toDevelopAreaCodes(r.serviceAreas),
     status,
-    budgetRange: asBudgetRange(r.budgetRange),
+    budgetRange: asDevelopBudgetRange(r.budgetRange),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     nextAction: nextActionOf(status, quotes, milestones, events),
@@ -262,6 +271,7 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
   const diagramMeta = toDevDiagram(r.devDiagram);
   return {
     ...toListItem(r, quotes, milestones, events),
+    ...developWizardFieldsOf(r),
     description: r.description,
     tools: toTools(r.tools),
     answers: toAnswers(r.answers),
@@ -341,14 +351,19 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH', issues: parsed.error.issues });
     }
     const payload = parsed.data;
-    const split = splitMarketAttachments(files, payload.serviceAreas);
+    // 저장 분야 — 시스템개발은 전 분야, 개별 견적은 고른 것(계약 superRefine 이 개별 메뉴 밖 코드를 이미 막았다).
+    const serviceAreas = resolveDevelopServiceAreas(payload.requestMode, payload.serviceAreas);
+    const split = splitMarketAttachments(files, serviceAreas, DEVELOP_REGISTRY);
     if (split.invalid.length > 0) return reply.status(400).send({ result: false, error: 'ATTACHMENT_FIELD_INVALID' });
     const attachments = split.accepted;
-    // 프로젝트 공통 조건(완료 시점·목표 단계·인도 범위)은 필수 — 모르면 탈출구(unknown)를 골라야 한다(마켓 §13.8 과 같은 함수).
-    const requiredMissing = marketRequiredMissing(payload.answers, payload.serviceAreas);
+    // 필수 문항(레지스트리 required) 미응답 — 위저드 "다음" 게이트와 같은 함수(지금 개발의뢰 문항엔 필수가 없다).
+    const requiredMissing = developRequiredMissing(payload.answers, serviceAreas);
     if (requiredMissing.length > 0) {
       return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing: requiredMissing });
     }
+    // 시스템개발 "전문가에게 맡김"은 기술 문항을 건너뛴다 — 역할·협업 문항(askOnDelegate)만 남기고 나머지는 버린다(화면 상태 잔재).
+    const expertDelegate = payload.requestMode === 'system' && payload.expertDelegate;
+    const answers = expertDelegate ? keepDevelopDelegateAnswers(payload.answers) : payload.answers;
 
     let uploaded: UploadedFileType[] = [];
     if (attachments.length > 0) {
@@ -370,10 +385,17 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         data: {
           mbId,
           title: payload.title,
-          serviceAreas: payload.serviceAreas,
-          tools: normalizeMarketTools(payload.tools, payload.serviceAreas),
+          requestMode: payload.requestMode,
+          serviceAreas,
+          tools: normalizeDevelopTools(payload.tools, serviceAreas),
           description: payload.description,
-          answers: payload.answers.length > 0 ? payload.answers : Prisma.DbNull,
+          answers: answers.length > 0 ? answers : Prisma.DbNull,
+          currentStage: payload.currentStage,
+          targetStage: payload.targetStage,
+          wishDate: payload.wishDate,
+          wishNote: payload.wishNote === '' ? null : payload.wishNote,
+          expertDelegate,
+          production: normalizeDevelopProduction(payload.production),
           contactName: payload.contact.name,
           contactCompany: payload.contact.company,
           contactPhone: payload.contact.phone,
@@ -412,7 +434,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     });
 
     // 알림(비차단) — 고객 접수 확인 + 관리자 새 의뢰.
-    const brief = { requestId: Number(created.id), title: created.title, serviceAreas: payload.serviceAreas };
+    const brief = { requestId: Number(created.id), title: created.title, serviceAreas };
     void sendDevelopMail(
       request.log,
       await customerEmailOf(created),
@@ -427,7 +449,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         contactName: created.contactName,
         contactCompany: created.contactCompany,
         contactPhone: created.contactPhone,
-        budgetLabel: MARKET_BUDGET_RANGE_LABELS[asBudgetRange(created.budgetRange)],
+        budgetLabel: DEVELOP_BUDGET_RANGE_LABELS[asDevelopBudgetRange(created.budgetRange)],
       }),
       { kind: 'develop_admin_new', refType: 'develop_request', refId: created.id, sentBy: null, toMbId: null },
     );
@@ -514,19 +536,42 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const r = found.request;
       if (!isDevelopEditable(asDevelopStatus(r.status))) return reply.status(409).send({ result: false, error: 'NOT_EDITABLE' });
       const b = request.body;
-      const areas = b.serviceAreas ?? toAreaCodes(r.serviceAreas);
-      if (b.answers !== undefined || b.serviceAreas !== undefined) {
-        const answers = b.answers ?? toAnswers(r.answers);
-        const missing = marketRequiredMissing(answers, areas);
-        if (missing.length > 0) return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing });
-      }
+      // 부분 본문을 저장분과 합친 뒤 등록과 같은 교차 검증(분야·답변·툴·희망 시기)을 한다.
+      const mode = b.requestMode ?? asDevelopRequestMode(r.requestMode);
+      const pickedAreas = b.serviceAreas ?? toDevelopAreaCodes(r.serviceAreas);
+      const areas = resolveDevelopServiceAreas(mode, pickedAreas);
+      const areasChanged = b.requestMode !== undefined || b.serviceAreas !== undefined;
+      const expertDelegate = mode === 'system' && (b.expertDelegate ?? r.expertDelegate);
+      // 답변을 안 보냈는데 분야가 바뀌면 저장분에서 새 분야 밖 문항을 걷어낸다(맡김이면 역할·협업 문항만 남긴다).
+      const allowed = new Set(developQuestionsFor(areas).map((q) => q.code));
+      const merged = b.answers ?? toAnswers(r.answers).filter((a) => allowed.has(a.code));
+      const answers = expertDelegate ? keepDevelopDelegateAnswers(merged) : merged;
+      const tools = b.tools ?? toTools(r.tools);
+      const wishDate = b.wishDate !== undefined ? b.wishDate : r.wishDate;
+      const wishNote = b.wishNote !== undefined ? (b.wishNote === '' ? null : b.wishNote) : r.wishNote;
+      const issues = developMergedIssues({ requestMode: mode, serviceAreas: pickedAreas, answers, tools, wishDate, wishNote });
+      if (issues.length > 0) return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH', issues });
+      const missing = developRequiredMissing(answers, areas);
+      if (missing.length > 0) return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing });
       const data: Prisma.SpDevelopRequestUpdateInput = {};
       const changed: string[] = [];
       if (b.title !== undefined && b.title !== r.title) { data.title = b.title; changed.push('title'); }
-      if (b.serviceAreas !== undefined) { data.serviceAreas = b.serviceAreas; changed.push('serviceAreas'); }
-      if (b.tools !== undefined) { data.tools = normalizeMarketTools(b.tools, areas); changed.push('tools'); }
+      if (areasChanged) { data.requestMode = mode; data.serviceAreas = areas; changed.push('serviceAreas'); }
+      if (b.tools !== undefined || areasChanged) { data.tools = normalizeDevelopTools(tools, areas); if (b.tools !== undefined) changed.push('tools'); }
       if (b.description !== undefined && b.description !== r.description) { data.description = b.description; changed.push('description'); }
-      if (b.answers !== undefined) { data.answers = b.answers; changed.push('answers'); }
+      if (b.answers !== undefined || areasChanged || (b.expertDelegate !== undefined && b.expertDelegate !== r.expertDelegate)) {
+        data.answers = answers.length > 0 ? answers : Prisma.DbNull;
+        if (b.answers !== undefined) changed.push('answers');
+      }
+      if (b.currentStage !== undefined && b.currentStage !== r.currentStage) { data.currentStage = b.currentStage; changed.push('currentStage'); }
+      if (b.targetStage !== undefined && b.targetStage !== r.targetStage) { data.targetStage = b.targetStage; changed.push('targetStage'); }
+      if ((b.wishDate !== undefined || b.wishNote !== undefined) && (wishDate !== r.wishDate || wishNote !== r.wishNote)) {
+        data.wishDate = wishDate;
+        data.wishNote = wishNote;
+        changed.push('wish');
+      }
+      if (b.expertDelegate !== undefined && expertDelegate !== r.expertDelegate) { data.expertDelegate = expertDelegate; changed.push('expertDelegate'); }
+      if (b.production !== undefined) { data.production = normalizeDevelopProduction(b.production); changed.push('production'); }
       if (b.budgetRange !== undefined && b.budgetRange !== r.budgetRange) { data.budgetRange = b.budgetRange; changed.push('budgetRange'); }
       if (b.ndaWanted !== undefined && b.ndaWanted !== r.ndaWanted) { data.ndaWanted = b.ndaWanted; changed.push('ndaWanted'); }
       if (b.contact !== undefined) {
@@ -568,7 +613,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     if (!found.ok) return reply.status(found.status).send({ result: false, error: found.error });
     const r = found.request;
     if (!isDevelopEditable(asDevelopStatus(r.status))) return reply.status(409).send({ result: false, error: 'NOT_EDITABLE' });
-    const split = splitMarketAttachments(files, toAreaCodes(r.serviceAreas));
+    const split = splitMarketAttachments(files, toDevelopAreaCodes(r.serviceAreas), DEVELOP_REGISTRY);
     if (split.invalid.length > 0 || split.accepted.length === 0) {
       return reply.status(400).send({ result: false, error: 'ATTACHMENT_FIELD_INVALID' });
     }
@@ -738,7 +783,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       void sendDevelopMailToAdmins(
         request.log,
         settings.notifyEmails,
-        buildStatusChangedEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas), status: 'cancelled', reason }),
+        buildStatusChangedEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas), status: 'cancelled', reason }),
         { kind: 'develop_admin_cancelled', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
       );
       return { result: true as const, data: { requestId: Number(r.id), status: 'cancelled' as const } };
@@ -784,7 +829,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       void sendDevelopMailToAdmins(
         request.log,
         settings.notifyEmails,
-        buildAdminQuoteAcceptedEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas), version: q.version, totalAmount: q.totalAmount, acceptedName: request.body.name }),
+        buildAdminQuoteAcceptedEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas), version: q.version, totalAmount: q.totalAmount, acceptedName: request.body.name }),
         { kind: 'develop_admin_accepted', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
       );
       const fresh = await prisma.spDevelopRequest.findUniqueOrThrow({ where: { id: r.id } });
@@ -823,7 +868,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       void sendDevelopMailToAdmins(
         request.log,
         settings.notifyEmails,
-        buildCommentEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas), forAdmin: true, excerpt: `견적 v${String(q.version)} 거절${reason === null ? '' : ` — ${reason.slice(0, 200)}`}` }),
+        buildCommentEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas), forAdmin: true, excerpt: `견적 v${String(q.version)} 거절${reason === null ? '' : ` — ${reason.slice(0, 200)}`}` }),
         { kind: 'develop_admin_declined_quote', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
       );
       const fresh = await prisma.spDevelopRequest.findUniqueOrThrow({ where: { id: r.id } });
@@ -894,7 +939,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     void sendDevelopMailToAdmins(
       request.log,
       settings.notifyEmails,
-      buildCommentEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas), forAdmin: true, excerpt: parsed.data.body.slice(0, 200) }),
+      buildCommentEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas), forAdmin: true, excerpt: parsed.data.body.slice(0, 200) }),
       { kind: asRequest ? 'develop_admin_as' : 'develop_admin_comment', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
     );
     const eventFiles = await developEventFiles([event.id]);
@@ -987,7 +1032,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const delivery = await prisma.spDevelopEvent.findFirst({ where: { id: BigInt(request.params.eventId), requestId: r.id, type: 'deliverable' } });
       if (delivery === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
       const note = request.body.note ?? null;
-      const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas) };
+      const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
       if (request.params.decision === 'confirm') {
         const ok = await transitionDevelopStatus(r.id, ['delivered'], 'completed', { mbId: request.user.mbId, byAdmin: false }, { completedAt: new Date() }, note);
         if (!ok) return reply.status(409).send({ result: false, error: 'INVALID_TRANSITION' });
@@ -1042,7 +1087,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       void sendDevelopMailToAdmins(
         request.log,
         settings.notifyEmails,
-        buildCommentEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toAreaCodes(r.serviceAreas), forAdmin: true, excerpt: `${event.title}${note === null ? '' : ` — ${note.slice(0, 200)}`}` }),
+        buildCommentEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas), forAdmin: true, excerpt: `${event.title}${note === null ? '' : ` — ${note.slice(0, 200)}`}` }),
         { kind: 'develop_admin_review', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
       );
       return { result: true as const, data: toDevelopEventView(event, [], '나', false) };

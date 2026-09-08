@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { DEV_DIAGRAM_VERSION, marketAreaBadge } from '@sp/api-contract';
+import { DEVELOP_REGISTRY, DEV_DIAGRAM_VERSION, developAreaBadge } from '@sp/api-contract';
 import type {
   DevelopEventViewType,
   DevelopFileMetaType,
@@ -51,7 +51,7 @@ const requestId = computed<number | null>(() => {
 const detailQ = useDevelopRequest(requestId, loggedIn);
 const detail = computed(() => detailQ.data.value?.data);
 const viewer = computed(() => detail.value?.viewer ?? null);
-const areaBadge = computed(() => (detail.value === undefined ? '' : marketAreaBadge(detail.value.serviceAreas)));
+const areaBadge = computed(() => (detail.value === undefined ? '' : developAreaBadge(detail.value.serviceAreas)));
 const closed = computed(() => detail.value?.status === 'cancelled' || detail.value?.status === 'declined');
 
 // ── AI 산출물(공개본) ───────────────────────────────────────────────────────
@@ -445,6 +445,7 @@ watch(
         <template v-if="detail.review !== null">
           <DevReviewView
             :review="detail.review"
+            :registry="DEVELOP_REGISTRY"
             :diagram="diagramView"
             :version-label="detail.reviewPublicSeq === null ? undefined : `v${String(detail.reviewPublicSeq)} 공개본`"
           />

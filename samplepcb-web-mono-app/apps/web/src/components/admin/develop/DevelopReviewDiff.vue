@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { DEVELOP_REGISTRY } from '@sp/api-contract';
 import type { MarketDevReviewType } from '@sp/api-contract';
 import { DEV_REVIEW_DIFF_SECTION_LABELS, diffDevReview, diffWords } from '@sp/utils';
 import type { DevReviewDiffEntry, DevReviewDiffSection } from '@sp/utils';
@@ -11,7 +12,8 @@ const props = defineProps<{ a: MarketDevReviewType; b: MarketDevReviewType; aLab
 
 const { t } = useI18n();
 
-const diff = computed(() => diffDevReview(props.a, props.b));
+// 개발의뢰 레지스트리로 — 기구 분야 제목과 개발의뢰 분야 표기(PCB설계·앱개발·서버개발)가 나머지 화면과 같아진다.
+const diff = computed(() => diffDevReview(props.a, props.b, DEVELOP_REGISTRY));
 const groups = computed(() =>
   diff.value.changedSections.map((section) => ({
     section,

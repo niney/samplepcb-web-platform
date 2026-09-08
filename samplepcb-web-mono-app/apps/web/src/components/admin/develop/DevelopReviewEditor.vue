@@ -3,9 +3,9 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   DEV_REVIEW_GENERAL_AREA,
+  developAreaLabel,
   devReviewScheduleFit,
   devReviewScheduleTotals,
-  marketAreaLabel,
 } from '@sp/api-contract';
 import type { MarketDevReviewType } from '@sp/api-contract';
 import {
@@ -46,7 +46,7 @@ watch(
 );
 
 const areaTitle = (area: string): string =>
-  area === DEV_REVIEW_GENERAL_AREA ? t('admin.devReview.generalArea') : marketAreaLabel(area);
+  area === DEV_REVIEW_GENERAL_AREA ? t('admin.devReview.generalArea') : developAreaLabel(area);
 
 const addRequirement = (): void => {
   if (local.value.requirements.length >= L.requirements) return;

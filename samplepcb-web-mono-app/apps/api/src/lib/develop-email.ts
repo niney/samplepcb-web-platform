@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { DEVELOP_REQUEST_STATUS_LABELS, marketAreaBadge } from '@sp/api-contract';
+import { DEVELOP_REQUEST_STATUS_LABELS, developAreaBadge } from '@sp/api-contract';
 import type { DevelopRequestStatusType } from '@sp/api-contract';
 import { sendMail } from './mailer';
 import { errorReason, recordMailLog } from './mail-log';
@@ -68,7 +68,7 @@ export function buildRequestReceivedEmail(p: RequestBrief & { contactName: strin
     html: shell(
       '개발의뢰가 접수되었습니다',
       para(`${p.contactName} 님, 의뢰 내용을 담당자가 검토한 뒤 영업일 2~3일 안에 연락드립니다. 필요하면 전화로 요구사항을 함께 정리합니다.`) +
-        table(row('의뢰', p.title) + row('개발 분야', marketAreaBadge(p.serviceAreas)) + row('상태', DEVELOP_REQUEST_STATUS_LABELS.received)),
+        table(row('의뢰', p.title) + row('개발 분야', developAreaBadge(p.serviceAreas)) + row('상태', DEVELOP_REQUEST_STATUS_LABELS.received)),
       customerPath(p.requestId),
       '의뢰 확인',
     ),
@@ -83,7 +83,7 @@ export function buildAdminNewRequestEmail(p: RequestBrief & { contactName: strin
       '새 개발의뢰가 들어왔습니다',
       table(
         row('의뢰', p.title) +
-          row('개발 분야', marketAreaBadge(p.serviceAreas)) +
+          row('개발 분야', developAreaBadge(p.serviceAreas)) +
           row('연락처', `${p.contactName}${p.contactCompany === null ? '' : ` · ${p.contactCompany}`} · ${p.contactPhone}`) +
           row('예산', p.budgetLabel),
       ),

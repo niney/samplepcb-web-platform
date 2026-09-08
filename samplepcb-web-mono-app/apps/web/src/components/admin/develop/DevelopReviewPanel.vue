@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { DEVELOP_REGISTRY } from '@sp/api-contract';
 import type { AdminDevelopReviewStateType, MarketDevReviewType } from '@sp/api-contract';
 import { DevReviewView, apiErrorMessage } from '@sp/ui';
 import {
@@ -332,7 +333,13 @@ const busy = computed(
           :disabled="busy"
           @update="onEditorUpdate"
         />
-        <DevReviewView v-if="tab === 'preview' && previewReview !== null" :review="previewReview" :title="title" :version-label="workingVersionLabel" />
+        <DevReviewView
+          v-if="tab === 'preview' && previewReview !== null"
+          :review="previewReview"
+          :title="title"
+          :version-label="workingVersionLabel"
+          :registry="DEVELOP_REGISTRY"
+        />
         <DevelopReviewVersions
           v-if="tab === 'versions'"
           :request-id="requestId"

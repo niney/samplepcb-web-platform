@@ -59,15 +59,5 @@ const emailOk = computed(() => contact.email.trim() === '' || /^[^\s@]+@[^\s@]+\
       >
       <span v-if="!emailOk" class="text-label font-semibold text-red-500">이메일 형식이 아닙니다.</span>
     </label>
-    <label class="grid gap-2 sm:col-span-2">
-      <span class="text-label font-semibold text-tx-2">통화 가능한 시간 <span class="font-normal text-tx-3">선택</span></span>
-      <input
-        v-model="contact.hours"
-        type="text"
-        maxlength="100"
-        placeholder="예: 평일 오후 2~6시 / 메일이 편합니다"
-        class="h-11 rounded-lg border border-line-2 bg-white px-3.5 text-body text-tx-1 outline-none focus:border-brand-500"
-      >
-    </label>
   </div>
 </template>

@@ -1949,7 +1949,15 @@ model SpDevelopRequest {
   contactPhone   String  @db.VarChar(50)
   contactEmail   String  @db.VarChar(191)
   contactHours   String? @db.VarChar(100)
-  budgetRange    String  @db.VarChar(20) // 예산 구간 코드(마켓 사전)
+  budgetRange    String  @db.VarChar(20) // 예산 구간 코드(개발의뢰 사전 DEVELOP_BUDGET_RANGES — 2026-09-08 마켓 사전과 분리)
+  // 위저드 v2(2026-09-08, docs/DEVELOP_FLOW.md §7.2) — 의뢰 방식·단계·희망 시기·시제품/생산 계획
+  requestMode    String  @default("individual") @db.VarChar(12) // system(전 분야 통합) | individual(PCB·기구·앱·서버 복수)
+  currentStage   String? @db.VarChar(20) // DEVELOP_CURRENT_STAGES
+  targetStage    String? @db.VarChar(20) // DEVELOP_TARGET_STAGES
+  wishDate       String? @db.VarChar(10) // 희망 완료일 YYYY-MM-DD(KST) — 자유문(wishNote)과 둘 중 하나 이상
+  wishNote       String? @db.VarChar(200)
+  expertDelegate Boolean @default(false) // 시스템개발 "전문가에게 맡김" — 3스텝 질문 생략
+  production     Json? // DevelopProductionPlan(시제품 수량·제작 범위·연간 수량·우선순위·조달·납품 형태)
   ndaWanted      Boolean @default(false) // 비밀유지 계약 희망(당사가 문서 준비, 오프라인)
   aiConsent      Boolean @default(false) // 참고 자료 외부 LLM 전송 동의 — 미동의면 관리자 AI 잠금
   status         String  @default("received") @db.VarChar(20) // received|reviewing|quoted|accepted|in_progress|delivered|completed|cancelled|declined

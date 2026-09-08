@@ -2,7 +2,7 @@
 export const en = {
   app: {
     name: 'SAMPLEPCB Development',
-    tagline: 'From idea to circuit, PCB, firmware, app and server — developed directly by SamplePCB',
+    tagline: 'From idea to circuit, PCB, firmware, mechanical, app and server — developed directly by SamplePCB',
     tel: '070-8667-1080',
   },
   auth: {

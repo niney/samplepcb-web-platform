@@ -3,11 +3,11 @@ import { computed } from 'vue';
 import {
   DEV_REVIEW_DISCLAIMER,
   DEV_REVIEW_SCHEDULE_CAPTION,
+  MARKET_REGISTRY,
   devReviewScheduleFit,
   devReviewScheduleTotals,
-  marketAreaLabel,
 } from '@sp/api-contract';
-import type { MarketDevDiagramViewType, MarketDevReviewType } from '@sp/api-contract';
+import type { AreaRegistry, MarketDevDiagramViewType, MarketDevReviewType } from '@sp/api-contract';
 import { buildDevReviewView } from '@sp/utils';
 import AreaIcon from './AreaIcon.vue';
 import DevDiagramSection from './DevDiagramSection.vue';
@@ -31,7 +31,10 @@ const props = withDefaults(defineProps<{
   canRegenerateDiagram?: boolean;
   diagramRegenerating?: boolean;
   diagramRegenerateError?: string;
+  // 분야·질문 레지스트리 — 마켓은 생략(MARKET_REGISTRY), 개발의뢰는 DEVELOP_REGISTRY(기구 분야·시스템개발 문항 라벨).
+  registry?: AreaRegistry;
 }>(), {
+  registry: () => MARKET_REGISTRY,
   title: '',
   diagram: null,
   diagramSkipReason: null,
@@ -43,8 +46,8 @@ const props = withDefaults(defineProps<{
 });
 const emit = defineEmits<{ regenerateDiagram: [] }>();
 
-const view = computed(() => buildDevReviewView(props.review));
-const areaLabel = (area: string): string => marketAreaLabel(area);
+const view = computed(() => buildDevReviewView(props.review, props.registry));
+const areaLabel = (area: string): string => props.registry.areaLabel(area);
 const areaColor = (area: string): string => `var(--color-area-${area})`;
 const diagramView = computed<MarketDevDiagramViewType>(() => props.diagram ?? { meta: null, html: null });
 

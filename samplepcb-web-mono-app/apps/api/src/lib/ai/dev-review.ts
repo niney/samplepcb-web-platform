@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
-  MARKET_COMMON_CONDITIONS,
   DEV_REVIEW_GENERAL_AREA,
   DEV_REVIEW_SCHEDULE_MAX_PHASES,
   DEV_REVIEW_SCHEDULE_MAX_WEEKS,
@@ -14,16 +13,13 @@ import {
   DevReviewScheduleLlm,
   DevReviewSpecRow,
   MARKET_AREAS,
+  MARKET_REGISTRY,
   MarketDevReview,
   isMarketAnswerUnknown,
-  marketAnswerText,
-  marketArea,
-  marketAreaLabel,
   devReviewTimelineWishCode,
-  marketQuestion,
-  sortMarketAreas,
 } from '@sp/api-contract';
 import type {
+  AreaRegistry,
   DevReviewCheckType,
   DevReviewFactType,
   DevReviewLlmOutputType,
@@ -31,6 +27,7 @@ import type {
   DevReviewOpenQuestionType,
   DevReviewScheduleLlmType,
   DevReviewScheduleType,
+  DevReviewTimelineWishCodeType,
   MarketAnswerType,
   MarketDevReviewType,
 } from '@sp/api-contract';
@@ -57,7 +54,16 @@ export interface DevReviewSource {
   answers: readonly MarketAnswerType[]; // 공통 + 분야별 질문
   attachmentContext: string; // 추출 텍스트 + 이미지 판독 결과(둘 다 근거 코퍼스)
   attachmentFiles: readonly string[];
+  // 분야·질문 레지스트리 — 마켓(기본)·개발의뢰(DEVELOP_REGISTRY, 기구 분야·시스템개발 문항). 프롬프트 [개발 분야]·
+  // 답변 라벨·후처리 분야 정렬이 전부 이 레지스트리를 본다. 마켓 호출은 생략 = MARKET_REGISTRY(바이트 동일).
+  registry?: AreaRegistry;
+  // 답변(answers) 밖의 프로젝트 조건 줄("- 라벨 → 값") — 개발의뢰의 컬럼(의뢰 방식·단계·희망 시기·시제품 계획)이
+  // 여기로 들어와 프롬프트 "프로젝트 조건" 블록과 근거 코퍼스에 합류한다.
+  conditionLines?: readonly string[];
+  // 희망 완료 시점 코드 — undefined 면 answers 의 timeline 에서(마켓), null 이면 "없음"(개발의뢰 자유문만).
+  wishCode?: DevReviewTimelineWishCodeType | null;
 }
+const regOf = (source: Pick<DevReviewSource, 'registry'>): AreaRegistry => source.registry ?? MARKET_REGISTRY;
 
 // ── 프롬프트 ────────────────────────────────────────────────────────────────
 
@@ -91,9 +97,9 @@ const DEV_REVIEW_RULES = `당신은 전자제품(회로·PCB·펌웨어)과 그�
   · 분야 검토 체크리스트(해당하는 경우에만, 고객이 이미 답한 것은 묻지 않음): [개발 분야]의 "상의 항목 규칙"을 따릅니다. 이 체크리스트 항목을 구성도 카드나 확정 항목으로 만들지 않고, 고객 자료에서 직접 나온 질문(고객이 모른다고 한 것·자료에 빠진 것) 뒤에 둡니다.`;
 
 // [개발 분야] 블록 — 레지스트리의 prompt 조각(정의·명세 항목 예·상의 항목 규칙)을 선택 분야만 조립한다.
-export function buildDevReviewAreaBlock(areas: readonly string[]): string {
-  const lines = sortMarketAreas(areas).map((code) => {
-    const def = marketArea(code);
+export function buildDevReviewAreaBlock(areas: readonly string[], reg: AreaRegistry = MARKET_REGISTRY): string {
+  const lines = reg.sortAreas(areas).map((code) => {
+    const def = reg.area(code);
     if (def === undefined) return `- ${code}`;
     return [
       `- ${code} = ${def.label}: ${def.prompt.what}`,
@@ -106,22 +112,23 @@ export function buildDevReviewAreaBlock(areas: readonly string[]): string {
 
 // [답변 해석] 블록 — 고객이 실제로 답한 문항 중 promptHint 가 있는 것만(조건·분야 맞춤 질문). 답하지 않은
 // 문항의 해석을 주면 모델이 그 주제를 지어내므로 답한 것만 싣는다.
-export function buildDevReviewAnswerHints(answers: readonly MarketAnswerType[]): string {
+export function buildDevReviewAnswerHints(answers: readonly MarketAnswerType[], reg: AreaRegistry = MARKET_REGISTRY): string {
   const lines = answers.flatMap((a) => {
-    const q = marketQuestion(a.code);
+    const q = reg.question(a.code);
     if (q?.promptHint === undefined || isMarketAnswerUnknown(a)) return [];
     return [`- ${q.short}: ${q.promptHint}`];
   });
   return `[답변 해석]\n${lines.length === 0 ? '(없음)' : lines.join('\n')}`;
 }
 
-const isConditionCode = (code: string): boolean => MARKET_COMMON_CONDITIONS.some((q) => q.code === code);
+const isConditionCode = (code: string, reg: AreaRegistry): boolean => reg.conditions.some((q) => q.code === code);
 
-const answerLine = (a: MarketAnswerType): string => {
-  const q = marketQuestion(a.code);
-  const area = q === undefined ? null : a.code.includes('.') ? a.code.slice(0, a.code.indexOf('.')) : null;
-  const prefix = area === null ? '' : `[${marketAreaLabel(area)}] `;
-  return `- ${prefix}${q?.label ?? a.code} → ${marketAnswerText(a)}`;
+const answerLine = (a: MarketAnswerType, reg: AreaRegistry): string => {
+  const q = reg.question(a.code);
+  const area = q === undefined ? null : reg.questionArea(a.code);
+  // 접두는 레지스트리 분야일 때만 — 개발의뢰 시스템개발 문항(system.*)은 분야가 아니라 접두 없이.
+  const prefix = area === null || !reg.isAreaCode(area) ? '' : `[${reg.areaLabel(area)}] `;
+  return `- ${prefix}${q?.label ?? a.code} → ${reg.answerText(a)}`;
 };
 
 // 프롬프트·후처리의 선택 블록 — 개발의뢰(develop)에서만 켠다. 마켓은 기본값(전부 꺼짐)이라
@@ -136,7 +143,7 @@ export const DEV_REVIEW_FEATURES_OFF: DevReviewFeatures = { schedule: false };
 const DEV_REVIEW_SCHEDULE_BLOCK = `[개발 일정]
 이 검토서에는 개발 일정(예상)을 함께 씁니다. 위 [절대 규칙] 4·5 의 "개발 기간을 쓰지 않는다"는 여기서만 예외이며, 나머지 항목(requirements·spec·observations·openQuestions)에는 여전히 기간·주수를 쓰지 않습니다.
 - schedule.phases 에 개발 단계를 순서대로 3~8개 씁니다. 각 단계는 name(단계명 20자 이내), minWeeks·maxWeeks(정수, 주), output(이 단계가 끝나면 나오는 것), prerequisite(고객이 먼저 줘야 할 자료·결정, 없으면 빈 문자열), note(비고, 없으면 빈 문자열)입니다.
-- 분야(회로·PCB·펌웨어·앱·서버)마다 그 분야의 통상 단계를 씁니다. 다만 **고객 자료에 없는 분야의 단계는 만들지 않습니다** — [개발 분야]에 있는 분야만 다룹니다.
+- 분야(회로·PCB·펌웨어·기구·앱·서버)마다 그 분야의 통상 단계를 씁니다. 다만 **고객 자료에 없는 분야의 단계는 만들지 않습니다** — [개발 분야]에 있는 분야만 다룹니다.
 - 기간은 점 하나가 아니라 최소~최대 범위로 씁니다(minWeeks ≤ maxWeeks). 합계는 쓰지 않습니다 — 서버가 단계에서 계산합니다.
 - 시제품 제작·부품 수급·인증 시험처럼 외부 리드타임이 드는 단계는 note 에 그 이유를 한 마디로 적습니다.
 - 확정 어휘(확정·보장·반드시)를 쓰지 않습니다. 전부 자료만으로 낸 예상입니다.
@@ -148,18 +155,22 @@ export function buildDevReviewPrompt(
   features: DevReviewFeatures = DEV_REVIEW_FEATURES_OFF,
 ): string {
   const extra = extraInstructions.trim();
-  const conditions = source.answers.filter((a) => isConditionCode(a.code)).map(answerLine).join('\n');
-  const answers = source.answers.filter((a) => !isConditionCode(a.code)).map(answerLine).join('\n');
+  const reg = regOf(source);
+  const conditions = [
+    ...(source.conditionLines ?? []),
+    ...source.answers.filter((a) => isConditionCode(a.code, reg)).map((a) => answerLine(a, reg)),
+  ].join('\n');
+  const answers = source.answers.filter((a) => !isConditionCode(a.code, reg)).map((a) => answerLine(a, reg)).join('\n');
   const attachments = source.attachmentContext.trim();
   return [
     DEV_REVIEW_RULES,
     ...(features.schedule ? [DEV_REVIEW_SCHEDULE_BLOCK] : []),
-    buildDevReviewAreaBlock(source.serviceAreas),
-    buildDevReviewAnswerHints(source.answers),
+    buildDevReviewAreaBlock(source.serviceAreas, reg),
+    buildDevReviewAnswerHints(source.answers, reg),
     `[추가 지침]\n${extra === '' ? '(없음)' : extra}`,
     '[고객 자료]',
     `■ 제목: ${source.title}`,
-    `■ 개발 분야: ${sortMarketAreas(source.serviceAreas).map(marketAreaLabel).join(', ')}`,
+    `■ 개발 분야: ${reg.sortAreas(source.serviceAreas).map(reg.areaLabel).join(', ')}`,
     `■ 설명:\n${source.description}`,
     `■ 프로젝트 조건:\n${conditions === '' ? '(없음)' : conditions}`,
     `■ 질문 답변:\n${answers === '' ? '(없음)' : answers}`,
@@ -360,7 +371,8 @@ function numericTokens(text: string): NumericToken[] {
 export interface SourceConflict { unit: string; label: string; primary: string[]; attachment: string[] }
 
 export function detectSourceConflicts(source: DevReviewSource): SourceConflict[] {
-  const primaryText = [source.title, source.description, ...source.answers.map(marketAnswerText)].join('\n');
+  const reg = regOf(source);
+  const primaryText = [source.title, source.description, ...(source.conditionLines ?? []), ...source.answers.map(reg.answerText)].join('\n');
   const group = (tokens: readonly NumericToken[]): Map<string, Set<string>> => {
     const m = new Map<string, Set<string>>();
     for (const t of tokens) {
@@ -416,17 +428,19 @@ export function stripTokens(text: string, tokens: readonly string[]): string {
 // 답변은 프롬프트에 보이는 형식("질문 → 답")과 브리프 형식("라벨: 답") 둘 다 코퍼스에 넣는다 —
 // 모델이 답변 줄을 그대로 인용해도(프로빙 실측) 근거로 인정되게.
 export function devReviewSourceText(source: DevReviewSource): string {
+  const reg = regOf(source);
   const answers = source.answers
     .flatMap((a) => {
-      const q = marketQuestion(a.code);
-      const text = marketAnswerText(a);
+      const q = reg.question(a.code);
+      const text = reg.answerText(a);
       return [`${q?.label ?? a.code} → ${text}`, `${q?.short ?? a.code}: ${text}`];
     })
     .join('\n');
   return [
     source.title,
-    sortMarketAreas(source.serviceAreas).map(marketAreaLabel).join(', '),
+    reg.sortAreas(source.serviceAreas).map(reg.areaLabel).join(', '),
     source.description,
+    ...(source.conditionLines ?? []),
     answers,
     source.attachmentContext,
   ].join('\n');
@@ -495,7 +509,7 @@ export function detectAnswerChecks(source: DevReviewSource): DevReviewCheckType[
   if (stage?.choices.length === 1 && (stage.choices[0] === 'idea' || stage.choices[0] === 'unknown')) {
     const found = findClues(material, DESIGN_ARTIFACT_RE);
     if (found.length > 0) {
-      const answer = marketAnswerText(stage);
+      const answer = MARKET_REGISTRY.answerText(stage);
       checks.push({
         code: 'stage',
         answer,
@@ -508,7 +522,7 @@ export function detectAnswerChecks(source: DevReviewSource): DevReviewCheckType[
   if (external?.choices.length === 1 && external.choices[0] === 'none') {
     const found = findClues(material, EXTERNAL_LINK_RE);
     if (found.length > 0) {
-      const answer = marketAnswerText(external);
+      const answer = MARKET_REGISTRY.answerText(external);
       checks.push({
         code: 'external',
         answer,
@@ -598,7 +612,7 @@ export function parseDevReviewLlmOutput(raw: string): DevReviewLlmOutputType {
     summary: typeof o.summary === 'string' ? o.summary : '',
     ...(schedule === undefined ? {} : { schedule }),
     requirements: parseEach(DevReviewFact, asArray(o.requirements), 5),
-    areas: parseEach(DevReviewAreaReview, areasRaw, MARKET_AREAS.length),
+    areas: parseEach(DevReviewAreaReview, areasRaw, MARKET_AREAS.length + 4),
     openQuestions: parseEach(DevReviewOpenQuestion, asArray(o.openQuestions), DEV_REVIEW_MAX_OPEN_QUESTIONS),
   });
 }
@@ -684,7 +698,7 @@ export function normalizeDevReviewSchedule(
   if (phases.length === 0) return null;
   return {
     phases,
-    wishCode: devReviewTimelineWishCode(source.answers),
+    wishCode: source.wishCode !== undefined ? source.wishCode : devReviewTimelineWishCode(source.answers),
     assumptions: trimTo(raw?.assumptions ?? '', 300),
   };
 }
@@ -712,7 +726,7 @@ export function postProcessDevReview(
   const requirements = facts(output.requirements);
   const byArea = new Map(output.areas.map((a) => [a.area, a]));
   // 분야는 선택 분야만·전부 존재한다(모델이 빠뜨린 분야는 빈 명세 → R6 "상담 후 작성").
-  const selectedAreas = sortMarketAreas(source.serviceAreas);
+  const selectedAreas = regOf(source).sortAreas(source.serviceAreas);
   const areas = selectedAreas.map((area) => {
     const src = byArea.get(area);
     const spec = facts(src?.spec ?? []).map((row) => {

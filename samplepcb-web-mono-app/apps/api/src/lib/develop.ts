@@ -1,25 +1,37 @@
 import { Prisma } from '@prisma/client';
 import type { SpDevelopEvent, SpDevelopRequest, SpFile } from '@prisma/client';
 import {
+  DEVELOP_BUDGET_RANGES,
+  DEVELOP_CURRENT_STAGES,
   DEVELOP_EVENT_TYPES,
   DEVELOP_MILESTONE_STATUSES,
   DEVELOP_MILESTONE_TRIGGERS,
   DEVELOP_QUOTE_KINDS,
   DEVELOP_QUOTE_STATUSES,
+  DEVELOP_REQUEST_MODES,
   DEVELOP_REQUEST_STATUSES,
+  DEVELOP_TARGET_STAGES,
   DEVELOP_VAT_MODES,
+  DevelopProductionPlan,
+  sortDevelopAreas,
 } from '@sp/api-contract';
 import type {
+  DevelopBudgetRangeType,
   DevelopContactType,
+  DevelopCurrentStageType,
   DevelopEventTypeType,
   DevelopEventViewType,
   DevelopFileMetaType,
   DevelopMilestoneStatusType,
   DevelopMilestoneTriggerType,
+  DevelopProductionPlanType,
   DevelopQuoteKindType,
   DevelopQuoteStatusType,
+  DevelopRequestModeType,
   DevelopRequestStatusType,
+  DevelopTargetStageType,
   DevelopVatModeType,
+  DevelopWizardFieldsType,
 } from '@sp/api-contract';
 import { toFileMeta } from './market';
 import { prisma } from './prisma';
@@ -48,6 +60,35 @@ export const asVatMode = (v: string): DevelopVatModeType => narrow(DEVELOP_VAT_M
 export const asMilestoneTrigger = (v: string): DevelopMilestoneTriggerType => narrow(DEVELOP_MILESTONE_TRIGGERS, v, 'manual');
 export const asMilestoneStatus = (v: string): DevelopMilestoneStatusType => narrow(DEVELOP_MILESTONE_STATUSES, v, 'draft');
 export const asEventType = (v: string): DevelopEventTypeType => narrow(DEVELOP_EVENT_TYPES, v, 'note');
+
+// 위저드 v2 사전(2026-09-08) — 예산은 개발의뢰 전용 사전(마켓 코드가 남아 있으면 '견적 후 결정'으로).
+export const asDevelopBudgetRange = (v: string): DevelopBudgetRangeType => narrow(DEVELOP_BUDGET_RANGES, v, 'after_quote');
+export const asDevelopRequestMode = (v: string): DevelopRequestModeType => narrow(DEVELOP_REQUEST_MODES, v, 'individual');
+const narrowOrNull = <T extends string>(values: readonly T[], v: string | null): T | null =>
+  v !== null && (values as readonly string[]).includes(v) ? (v as T) : null;
+export const asDevelopCurrentStage = (v: string | null): DevelopCurrentStageType | null => narrowOrNull(DEVELOP_CURRENT_STAGES, v);
+export const asDevelopTargetStage = (v: string | null): DevelopTargetStageType | null => narrowOrNull(DEVELOP_TARGET_STAGES, v);
+// 시제품·생산 계획(Json) — 형태가 어긋난 저장분은 null(옛 v1 행).
+export const toDevelopProduction = (json: unknown): DevelopProductionPlanType | null => {
+  if (json === null || json === undefined) return null;
+  const r = DevelopProductionPlan.safeParse(json);
+  return r.success ? r.data : null;
+};
+// 분야 코드 배열 — 개발의뢰 레지스트리 순서로 정렬, 레지스트리에 없는 옛 코드는 뒤에 그대로.
+export const toDevelopAreaCodes = (json: unknown): string[] => {
+  if (!Array.isArray(json)) return [];
+  const raw = [...new Set(json.filter((v): v is string => typeof v === 'string' && v !== ''))];
+  const known = sortDevelopAreas(raw);
+  return [...known, ...raw.filter((c) => !known.includes(c))];
+};
+export const developWizardFieldsOf = (r: SpDevelopRequest): DevelopWizardFieldsType => ({
+  currentStage: asDevelopCurrentStage(r.currentStage),
+  targetStage: asDevelopTargetStage(r.targetStage),
+  wishDate: r.wishDate,
+  wishNote: r.wishNote,
+  expertDelegate: r.expertDelegate,
+  production: toDevelopProduction(r.production),
+});
 
 export const toDevelopContact = (r: SpDevelopRequest): DevelopContactType => ({
   name: r.contactName,

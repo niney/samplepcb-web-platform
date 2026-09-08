@@ -1,44 +1,88 @@
 import { computed, reactive, ref } from 'vue';
 import {
+  DEVELOP_BUDGET_RANGES,
+  DEVELOP_CURRENT_STAGES,
+  DEVELOP_DELIVERY_FORMS,
+  DEVELOP_INDIVIDUAL_AREAS,
+  DEVELOP_INDIVIDUAL_AREA_CODES,
+  DEVELOP_PRIORITIES,
+  DEVELOP_PRODUCTION_SCOPES,
+  DEVELOP_PROTOTYPE_MODES,
+  DEVELOP_REGISTRY,
+  DEVELOP_REQUEST_MODES,
+  DEVELOP_SOURCING_MODES,
+  DEVELOP_SYSTEM_MENU,
+  DEVELOP_TARGET_STAGES,
   DevelopContact,
-  MARKET_AREAS,
-  MARKET_AREA_CODES,
-  MARKET_COMMON_CONDITIONS,
-  MARKET_COMMON_QUESTIONS,
-  MARKET_TOOLS_VERSION,
-  marketArea,
-  marketAttachmentField,
-  marketQuestionsFor,
-  marketRequiredMissing,
-  sortMarketAreas,
+  EMPTY_DEVELOP_PRODUCTION,
+  EMPTY_MARKET_TOOLS,
+  developArea,
+  developAreaBadge,
+  developAreaQuestionsFor,
+  developQuestionsFor,
+  isMarketAnswered,
+  isTextQuestion,
+  normalizeDevelopProduction,
+  resolveDevelopServiceAreas,
+  sortDevelopAreas,
 } from '@sp/api-contract';
 import type {
+  DevelopBudgetRangeType,
   DevelopContactType,
+  DevelopCurrentStageType,
+  DevelopDeliveryFormType,
+  DevelopPriorityType,
+  DevelopProductionPlanType,
+  DevelopProductionScopeType,
+  DevelopPrototypeModeType,
+  DevelopRequestCreatePayloadType,
   DevelopRequestDetailType,
+  DevelopRequestModeType,
+  DevelopSourcingModeType,
+  DevelopTargetStageType,
   MarketAnswerType,
   MarketAreaDef,
-  MarketBudgetRangeType,
   MarketQuestionDef,
-  MarketToolsType,
 } from '@sp/api-contract';
 import type { QuestionState } from '@sp/ui';
 
-// 개발의뢰 폼 상태(docs/DEVELOP_FLOW.md §7.2) — 위저드 3스텝과 수정 화면이 **같은 상태**를 쓴다.
-//   ① 의뢰 내용(분야·제목·설명·참고 자료·AI 동의)
-//   ② 조건·질문(예산 + 공통 조건 3 + 비밀유지 희망 + 공통 질문 3 + 분야별 맞춤 질문·희망 툴·추가자료 슬롯)
-//   ③ 연락처·확인(이름·회사·전화·이메일·통화 가능 시간 + 요약)
-// 마켓 위저드와 달리 AI 잡 오케스트레이션이 없다 — 검토서는 등록 뒤 서버가 관리자용으로 만든다(§2 결정 3).
-// 분야·질문·툴·슬롯의 정본은 레지스트리(MARKET_AREAS)라 이 파일에 분야 코드를 문자열로 박지 않는다.
+// 개발의뢰 폼 상태 — 위저드 v2 5스텝(2026-09-08)과 수정 화면이 **같은 상태**를 쓴다.
+//   ① 개발 메뉴   시스템개발(배타) 또는 개별 견적(PCB·기구·앱·서버 복수)
+//   ② 의뢰 내용   제목·목적·현재/목표 단계·희망 시기·예산·참고 자료(+시스템개발 후속 질문 방식)
+//   ③ 세부 질문   시스템개발 서술 3+협업 3 또는 고른 분야의 전문 질문(희망 툴·분야별 자료 슬롯은 2026-09-08 간소화로 뺐다)
+//   ④ 제작 계획   시제품 수량·제작 범위·연간 수량·우선순위(+범위가 있으면 조달·납품 형태)
+//   ⑤ 검토·접수  연락처 + 요약 + 동의(AI 사전 검토 동의 = aiConsent) + 비밀유지
+// 분야·질문·라벨의 정본은 개발의뢰 레지스트리(DEVELOP_REGISTRY)라 이 파일에 분야 코드나
+// 한글 라벨을 박지 않는다. 마켓 사전(MARKET_*)은 다른 상품이라 여기서 쓰지 않는다.
+// 상태는 전부 이 컴포저블이 소유한다 — 스텝 컴포넌트는 그리기만 하므로 스텝을 오가도 답변이 남는다.
 
-export type StepKey = 'describe' | 'conditions' | 'contact';
+export type StepKey = 'menu' | 'describe' | 'questions' | 'production' | 'review';
+
+// 시제품 수량은 "아직 안 골랐다"(null)가 있어야 4스텝 필수 검증이 산다 — 저장 직전 계약 모양으로 정규화한다.
+export interface DevelopProductionFields {
+  prototype: DevelopPrototypeModeType | null;
+  prototypeQty: number | null;
+  scopes: DevelopProductionScopeType[];
+  annualQty: number | null;
+  priority: DevelopPriorityType | null;
+  sourcing: DevelopSourcingModeType | null;
+  delivery: DevelopDeliveryFormType | null;
+}
 
 export interface DevelopFormFields {
-  serviceAreas: string[];
+  requestMode: DevelopRequestModeType | null; // null = 1스텝 미선택
+  serviceAreas: string[]; // 개별 견적에서 고른 분야(시스템개발이면 비어 있다)
   title: string;
   description: string;
-  aiConsent: boolean;
+  currentStage: DevelopCurrentStageType | null;
+  targetStage: DevelopTargetStageType | null;
+  wishDate: string; // '' | YYYY-MM-DD
+  wishNote: string;
+  budgetRange: DevelopBudgetRangeType | null;
+  expertDelegate: boolean; // 시스템개발 "전문가에게 맡김"
+  production: DevelopProductionFields;
   ndaWanted: boolean;
-  budgetRange: MarketBudgetRangeType | null; // null = 아직 안 골랐다(2스텝 필수)
+  aiConsent: boolean; // 5스텝 동의 체크 — 입력 내용·자료를 견적 검토와 AI 사전 검토에 쓰는 데 동의(외부 LLM 전송 동의)
 }
 
 export interface DevelopContactFields {
@@ -49,22 +93,66 @@ export interface DevelopContactFields {
   hours: string;
 }
 
-export const slotKey = (area: string, slot: string): string => `${area}:${slot}`;
+export const DEVELOP_DRAFT_KEY = 'sp-develop-request-draft';
+
+// 초안 복원 패널이 보여 줄 요약 — 실제 복원 전에 "무엇이 저장돼 있나"만 읽는다.
+export interface DevelopDraftPeek {
+  savedAt: string; // ISO
+  title: string;
+  menu: string;
+  stepIndex: number;
+}
+
+const emptyProduction = (): DevelopProductionFields => ({
+  prototype: null,
+  prototypeQty: EMPTY_DEVELOP_PRODUCTION.prototypeQty,
+  scopes: [...EMPTY_DEVELOP_PRODUCTION.scopes],
+  annualQty: EMPTY_DEVELOP_PRODUCTION.annualQty,
+  priority: EMPTY_DEVELOP_PRODUCTION.priority,
+  sourcing: EMPTY_DEVELOP_PRODUCTION.sourcing,
+  delivery: EMPTY_DEVELOP_PRODUCTION.delivery,
+});
+
+// ── localStorage 파싱 — 남의 손을 탄 문자열이라 타입을 믿지 않고 좁힌다 ──────────────
+const asRecord = (v: unknown): Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+function asArray(v: unknown): unknown[] {
+  return Array.isArray(v) ? Array.from<unknown>(v) : [];
+}
+const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
+const asBool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+const asNumberOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const asIntOrNull = (v: unknown): number | null => {
+  const n = asNumberOrNull(v);
+  return n === null || !Number.isInteger(n) ? null : n;
+};
+const asMember = <T extends string>(v: unknown, list: readonly T[]): T | null => {
+  if (typeof v !== 'string') return null;
+  const found = list.find((x) => x === v);
+  return found ?? null;
+};
+const asStringList = (v: unknown): string[] => asArray(v).flatMap((x) => (typeof x === 'string' ? [x] : []));
 
 export function useRequestForm() {
   const fields = reactive<DevelopFormFields>({
+    requestMode: null,
     serviceAreas: [],
     title: '',
     description: '',
-    aiConsent: true,
-    ndaWanted: false,
+    currentStage: null,
+    targetStage: null,
+    wishDate: '',
+    wishNote: '',
     budgetRange: null,
+    expertDelegate: false,
+    production: emptyProduction(),
+    ndaWanted: false,
+    aiConsent: false,
   });
   const contact = reactive<DevelopContactFields>({ name: '', company: '', phone: '', email: '', hours: '' });
 
-  // 참고 자료(일반 첨부, 1스텝) + 분야별 추가자료(2스텝, 키 = "area:slot").
+  // 참고 자료(2스텝, 한 번만 등록).
   const attachments = ref<File[]>([]);
-  const slotFiles = reactive<Record<string, File[]>>({});
 
   // 질문 상태 — 코드로 lazy 생성(레지스트리에 문항이 늘어도 여기는 안 바뀐다).
   const questionState = reactive<Record<string, QuestionState>>({});
@@ -86,56 +174,79 @@ export function useRequestForm() {
     else state.choices.push(choice);
   }
 
-  // 희망 툴 — 분야별 코드 배열. 키가 없거나 빈 배열 = 전문가 추천(기본).
-  const tools = reactive<Record<string, string[]>>({});
-  function toggleTool(area: string, code: string): void {
-    const list = tools[area] ?? (tools[area] = []);
-    const i = list.indexOf(code);
-    if (i >= 0) list.splice(i, 1);
-    else list.push(code);
+  // ── 1스텝 메뉴 ─────────────────────────────────────────────────────────────
+  const isSystem = computed(() => fields.requestMode === 'system');
+  const individualAreas = DEVELOP_INDIVIDUAL_AREAS;
+  const isAreaPicked = (code: string): boolean => fields.serviceAreas.includes(code);
+  // 시스템개발은 배타다 — 고르면 개별 선택을 지우고, 개별을 고르면 시스템개발을 놓는다.
+  function selectSystemMenu(): void {
+    fields.requestMode = 'system';
+    fields.serviceAreas = [];
   }
-  function clearTools(area: string): void {
-    tools[area] = [];
+  function toggleIndividualArea(code: string): void {
+    if (fields.requestMode !== 'individual') {
+      fields.requestMode = 'individual';
+      fields.serviceAreas = [code];
+      fields.expertDelegate = false;
+      return;
+    }
+    const i = fields.serviceAreas.indexOf(code);
+    if (i >= 0) fields.serviceAreas.splice(i, 1);
+    else fields.serviceAreas.push(code);
+    if (fields.serviceAreas.length === 0) fields.requestMode = null;
   }
-  const isRecommended = (area: string): boolean => (tools[area]?.length ?? 0) === 0;
 
-  const selectedAreas = computed(() => sortMarketAreas(fields.serviceAreas));
-  const areaDefs = computed<MarketAreaDef[]>(() =>
-    selectedAreas.value.map((c) => marketArea(c)).filter((d): d is MarketAreaDef => d !== undefined),
+  // 저장·검증에 쓰는 분야 — 시스템개발이면 6분야 전부, 개별이면 고른 것(메뉴 미선택이면 빈 배열).
+  const effectiveAreas = computed<string[]>(() =>
+    fields.requestMode === null ? [] : resolveDevelopServiceAreas(fields.requestMode, fields.serviceAreas),
   );
-  const activeQuestions = computed<MarketQuestionDef[]>(() => marketQuestionsFor(fields.serviceAreas));
-  const conditionQuestions = MARKET_COMMON_CONDITIONS;
-  const commonQuestions = MARKET_COMMON_QUESTIONS;
-  // 풀 개발이면 분야당 앞 2개만 묻는다(레지스트리 상한) — 분야 카드는 이 목록으로 그린다.
-  const areaQuestionsOf = (area: string): MarketQuestionDef[] =>
-    activeQuestions.value.filter((q) => q.code.startsWith(`${area}.`));
+  const pickedAreas = computed(() => sortDevelopAreas(fields.serviceAreas));
+  const pickedAreaDefs = computed<MarketAreaDef[]>(() =>
+    pickedAreas.value.map((c) => developArea(c)).filter((d): d is MarketAreaDef => d !== undefined),
+  );
+  // 1스텝 요약·검토 카드 배지 — 전 분야면 '시스템개발', 개별이면 분야명(들).
+  const menuBadge = computed(() => (fields.requestMode === null ? '' : developAreaBadge(effectiveAreas.value)));
+
+  // ── 3스텝 질문 ─────────────────────────────────────────────────────────────
+  const activeQuestions = computed<MarketQuestionDef[]>(() => developQuestionsFor(effectiveAreas.value));
+  const areaQuestionsOf = (area: string): MarketQuestionDef[] => developAreaQuestionsFor([area]);
+  // 전문가에게 맡김이면 기술 문항은 건너뛰고 역할·협업 문항(askOnDelegate)만 남긴다(서버도 같은 규칙으로 버린다).
+  const skipQuestions = computed(() => isSystem.value && fields.expertDelegate);
+  const askedQuestions = computed<MarketQuestionDef[]>(() =>
+    skipQuestions.value ? activeQuestions.value.filter((q) => q.askOnDelegate === true) : activeQuestions.value,
+  );
 
   // 메모 필수(noteRequiredFor 선택지를 고른 문항) 미충족 목록.
-  const noteMissingCodes = computed<string[]>(() =>
-    activeQuestions.value.flatMap((q) => {
+  const noteMissingCodes = computed<string[]>(() => {
+    return askedQuestions.value.flatMap((q) => {
       const state = questionState[q.code];
       if (state === undefined || state.choices.length === 0) return [];
       const required = q.noteRequiredFor?.some((c) => state.choices.includes(c)) ?? false;
       return required && state.note.trim() === '' ? [q.code] : [];
-    }),
-  );
+    });
+  });
 
-  // 등록에 실을 답변 — 응답한 문항만, 선택 분야 밖 문항은 버린다.
+  // 등록에 실을 답변 — 응답한 문항만(서술형은 note, 선택형은 choices). 선택 분야 밖 문항은 버린다.
   function buildAnswers(): MarketAnswerType[] {
-    return activeQuestions.value.flatMap((q) => {
+    return askedQuestions.value.flatMap((q) => {
       const state = questionState[q.code];
-      if (state === undefined || state.choices.length === 0) return [];
+      if (state === undefined || !isMarketAnswered(q, state)) return [];
       const note = state.note.trim();
+      if (isTextQuestion(q)) return [{ code: q.code, choices: [], note }];
       return [{ code: q.code, choices: [...state.choices], ...(note !== '' ? { note } : {}) }];
     });
   }
-  function buildTools(): MarketToolsType {
-    const byArea: Record<string, string[]> = {};
-    for (const area of selectedAreas.value) {
-      const codes = tools[area] ?? [];
-      if (codes.length > 0) byArea[area] = [...codes];
-    }
-    return { version: MARKET_TOOLS_VERSION, byArea };
+  function buildProduction(): DevelopProductionPlanType {
+    const p = fields.production;
+    return normalizeDevelopProduction({
+      prototype: p.prototype ?? 'undecided', // 4스텝 게이트가 null 을 막는다 — 타입 방어
+      prototypeQty: p.prototypeQty,
+      scopes: [...p.scopes],
+      annualQty: p.annualQty,
+      priority: p.priority,
+      sourcing: p.sourcing,
+      delivery: p.delivery,
+    });
   }
   function buildContact(): DevelopContactType {
     return {
@@ -146,16 +257,30 @@ export function useRequestForm() {
       hours: contact.hours.trim() === '' ? null : contact.hours.trim(),
     };
   }
+  function buildPayload(): DevelopRequestCreatePayloadType {
+    const wishNote = fields.wishNote.trim();
+    return {
+      requestMode: fields.requestMode ?? 'individual', // 1스텝 게이트가 null 을 막는다 — 타입 방어
+      title: fields.title.trim(),
+      serviceAreas: isSystem.value ? [] : [...pickedAreas.value],
+      tools: EMPTY_MARKET_TOOLS, // 희망 툴 UI 는 뺐다(PCB 설계 툴은 문항 pcb.tool)
+      description: fields.description.trim(),
+      answers: buildAnswers(),
+      currentStage: fields.currentStage ?? 'idea',
+      targetStage: fields.targetStage ?? 'spec_fixed',
+      wishDate: fields.wishDate === '' ? null : fields.wishDate,
+      wishNote: wishNote === '' ? null : wishNote,
+      budgetRange: fields.budgetRange ?? 'after_quote',
+      expertDelegate: skipQuestions.value,
+      production: buildProduction(),
+      ndaWanted: fields.ndaWanted,
+      aiConsent: fields.aiConsent,
+      contact: buildContact(),
+    };
+  }
 
-  // 필수 문항(공통 조건 3) 미응답 — 등록 라우트와 같은 함수를 쓴다.
-  const requiredMissingCodes = computed<string[]>(() => marketRequiredMissing(buildAnswers(), fields.serviceAreas));
-  // 2스텝 "프로젝트 조건" 진행(n/5): 예산 + 조건 3 + 비밀유지(체크박스라 언제나 답).
-  const conditionProgress = computed(() => ({
-    done: conditionQuestions.length - requiredMissingCodes.value.length + (fields.budgetRange === null ? 0 : 1) + 1,
-    total: conditionQuestions.length + 2,
-  }));
-
-  // 첨부 — 누적(드래그앤드롭·파일 선택을 여러 번 나눠 하는 것이 정상 동작). 같은 파일만 중복으로 거른다.
+  // ── 첨부 ──────────────────────────────────────────────────────────────────
+  // 누적(드래그앤드롭·파일 선택을 여러 번 나눠 하는 것이 정상 동작). 같은 파일만 중복으로 거른다.
   const sameFile = (a: File, b: File): boolean => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
   function mergeFiles(current: File[], incoming: File[]): File[] {
     const next = [...current];
@@ -168,92 +293,83 @@ export function useRequestForm() {
   function removeAttachment(index: number): void {
     attachments.value = attachments.value.filter((_, i) => i !== index);
   }
-  function addSlotFiles(area: string, slot: string, files: File[]): void {
-    const key = slotKey(area, slot);
-    slotFiles[key] = mergeFiles(slotFiles[key] ?? [], files);
-  }
-  function removeSlotFile(area: string, slot: string, index: number): void {
-    const key = slotKey(area, slot);
-    slotFiles[key] = (slotFiles[key] ?? []).filter((_, i) => i !== index);
-  }
-  const filesOfSlot = (area: string, slot: string): File[] => slotFiles[slotKey(area, slot)] ?? [];
+  const totalAttachmentCount = computed(() => attachments.value.length);
 
-  // 선택 분야의 슬롯 첨부만(분야를 해제하면 그 슬롯 파일은 보내지 않는다).
-  const activeSlotFiles = computed<{ field: string; file: File }[]>(() =>
-    selectedAreas.value.flatMap((area) =>
-      (marketArea(area)?.attachmentSlots ?? []).flatMap((slot) =>
-        filesOfSlot(area, slot.code).map((file) => ({ field: marketAttachmentField(area, slot.code), file })),
-      ),
-    ),
-  );
-  const totalAttachmentCount = computed(() => attachments.value.length + activeSlotFiles.value.length);
-  const hasAnyFile = computed(() => totalAttachmentCount.value > 0);
-
-  // 첨부 전체(일반 + 슬롯) — 등록·첨부 추가 multipart 가 쓴다.
   function appendAttachments(fd: FormData): void {
     for (const f of attachments.value) fd.append('attachment', f);
-    for (const { field, file } of activeSlotFiles.value) fd.append(field, file);
   }
   function clearFiles(): void {
     attachments.value = [];
-    for (const key of Object.keys(slotFiles)) slotFiles[key] = [];
   }
 
-  function toggleServiceArea(code: string): void {
-    const i = fields.serviceAreas.indexOf(code);
-    if (i >= 0) fields.serviceAreas.splice(i, 1);
-    else fields.serviceAreas.push(code);
-  }
-  // "잘 모르겠어요 — 전부 맡길게요": 분야를 모르는 의뢰자는 전 분야(풀 개발)로 등록한다.
-  const allServiceAreasSelected = computed(() => MARKET_AREA_CODES.every((a) => fields.serviceAreas.includes(a)));
-  function selectAllServiceAreas(): void {
-    fields.serviceAreas = [...MARKET_AREA_CODES];
-  }
-
-  // 수정 화면 프리필 — 상세 응답을 그대로 폼 상태로 되돌린다(첨부는 서버에 있으므로 여기서 안 채운다).
-  function hydrate(detail: DevelopRequestDetailType): void {
-    fields.serviceAreas = sortMarketAreas(detail.serviceAreas);
-    fields.title = detail.title;
-    fields.description = detail.description;
-    fields.aiConsent = detail.aiConsent;
-    fields.ndaWanted = detail.ndaWanted;
-    fields.budgetRange = detail.budgetRange;
-    contact.name = detail.contact.name;
-    contact.company = detail.contact.company ?? '';
-    contact.phone = detail.contact.phone;
-    contact.email = detail.contact.email;
-    contact.hours = detail.contact.hours ?? '';
-    // Reflect.deleteProperty 는 reactive 프록시의 deleteProperty 트랩을 그대로 타면서 동적 delete 문법을 피한다.
-    for (const key of Object.keys(questionState)) Reflect.deleteProperty(questionState, key);
-    for (const a of detail.answers) questionState[a.code] = { choices: [...a.choices], note: a.note ?? '' };
-    for (const key of Object.keys(tools)) Reflect.deleteProperty(tools, key);
-    for (const [area, codes] of Object.entries(detail.tools.byArea)) tools[area] = [...codes];
-  }
-
+  // ── 검증 ──────────────────────────────────────────────────────────────────
   const contactValid = computed(() => DevelopContact.safeParse(buildContact()).success);
+  const menuValid = computed(
+    () => fields.requestMode === 'system' || (fields.requestMode === 'individual' && fields.serviceAreas.length > 0),
+  );
   const describeValid = computed(
-    () => fields.serviceAreas.length > 0 && fields.title.trim().length >= 2 && fields.description.trim().length >= 10,
+    () =>
+      fields.title.trim().length >= 2 &&
+      fields.description.trim().length >= 10 &&
+      fields.currentStage !== null &&
+      fields.targetStage !== null &&
+      (fields.wishDate !== '' || fields.wishNote.trim() !== '') &&
+      fields.budgetRange !== null,
   );
-  const conditionsValid = computed(
-    () => fields.budgetRange !== null && requiredMissingCodes.value.length === 0 && noteMissingCodes.value.length === 0,
+  const questionsValid = computed(() => noteMissingCodes.value.length === 0);
+  const productionValid = computed(
+    () =>
+      fields.production.prototype !== null &&
+      (fields.production.prototype !== 'count' || fields.production.prototypeQty !== null),
   );
-  const formValid = computed(() => describeValid.value && conditionsValid.value && contactValid.value);
+  const reviewValid = computed(() => contactValid.value && fields.aiConsent);
+  const formValid = computed(
+    () =>
+      menuValid.value && describeValid.value && questionsValid.value && productionValid.value && reviewValid.value,
+  );
 
-  // ── 위저드 스텝(수정 화면은 안 쓴다) ───────────────────────────────────────
+  // 스텝 오류 문구 — 하단 바가 그대로 읽는다(어느 항목이 남았는지 순서대로).
+  function errorMessageOfStep(key: StepKey): string {
+    if (key === 'menu') return menuValid.value ? '' : '견적을 요청할 개발 메뉴를 선택해 주세요.';
+    if (key === 'describe') {
+      if (fields.title.trim().length < 2 || fields.description.trim().length < 10) return '의뢰 제목과 개발 목적을 입력해 주세요.';
+      if (fields.currentStage === null || fields.targetStage === null) return '현재 단계와 목표 단계를 선택해 주세요.';
+      if (fields.wishDate === '' && fields.wishNote.trim() === '') return '희망 완료일 또는 기간을 입력해 주세요.';
+      if (fields.budgetRange === null) return '예상 개발 예산을 선택해 주세요.';
+      return '';
+    }
+    if (key === 'questions') return questionsValid.value ? '' : '선택하신 항목에 내용을 적어 주세요.';
+    if (key === 'production') {
+      if (fields.production.prototype === null) return '시제품 제작 수량을 선택해 주세요.';
+      if (fields.production.prototype === 'count' && fields.production.prototypeQty === null) return '시제품 수량을 입력해 주세요.';
+      return '';
+    }
+    if (!contactValid.value) return '연락처를 입력해 주세요.';
+    if (!fields.aiConsent) return '입력 내용과 자료를 견적 검토와 AI 사전 검토에 사용하는 데 동의해 주세요.';
+    return '';
+  }
+
+  // ── 스텝(수정 화면은 안 쓴다) ────────────────────────────────────────────────
   const steps = [
-    { key: 'describe', label: '의뢰 내용' },
-    { key: 'conditions', label: '조건 · 질문' },
-    { key: 'contact', label: '연락처 · 확인' },
+    { key: 'menu', label: '개발 메뉴', sub: '필요한 업무 선택' },
+    { key: 'describe', label: '의뢰 내용', sub: '목적·단계·자료' },
+    { key: 'questions', label: '세부 질문', sub: '선택 분야 확인' },
+    { key: 'production', label: '제작 계획', sub: '시제품·생산' },
+    { key: 'review', label: '검토·접수', sub: '입력 내용 확인' },
   ] as const;
 
   const stepIndex = ref(0);
-  const currentStep = computed<StepKey>(() => steps[stepIndex.value]?.key ?? 'describe');
+  const currentStep = computed<StepKey>(() => steps[stepIndex.value]?.key ?? 'menu');
   const isLastStep = computed(() => stepIndex.value === steps.length - 1);
   const stepValid = computed<boolean>(() => {
-    if (currentStep.value === 'describe') return describeValid.value;
-    if (currentStep.value === 'conditions') return conditionsValid.value;
+    const key = currentStep.value;
+    if (key === 'menu') return menuValid.value;
+    if (key === 'describe') return describeValid.value;
+    if (key === 'questions') return questionsValid.value;
+    if (key === 'production') return productionValid.value;
     return formValid.value;
   });
+  const currentError = computed(() => errorMessageOfStep(currentStep.value));
   function next(): void {
     if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
   }
@@ -265,57 +381,283 @@ export function useRequestForm() {
     if (i >= 0) stepIndex.value = i;
   }
 
+  // ── 수정 화면 프리필 ────────────────────────────────────────────────────────
+  // production 은 객체를 **갈아 끼우지 않는다** — 스텝 컴포넌트가 fields.production 을 별칭으로 잡아 두기 때문에
+  // 새 객체를 넣으면 그 화면의 v-model 이 옛 객체를 계속 붙든다. 그래서 제자리에서 필드만 채운다.
+  function applyProduction(next: DevelopProductionFields): void {
+    const p = fields.production;
+    p.prototype = next.prototype;
+    p.prototypeQty = next.prototypeQty;
+    p.scopes = [...next.scopes];
+    p.annualQty = next.annualQty;
+    p.priority = next.priority;
+    p.sourcing = next.sourcing;
+    p.delivery = next.delivery;
+  }
+
+  function resetQuestions(): void {
+    // Reflect.deleteProperty 는 reactive 프록시의 deleteProperty 트랩을 그대로 타면서 동적 delete 문법을 피한다.
+    for (const key of Object.keys(questionState)) Reflect.deleteProperty(questionState, key);
+  }
+  // 상세 응답을 그대로 폼 상태로 되돌린다(첨부는 서버에 있으므로 여기서 안 채운다).
+  function hydrate(detail: DevelopRequestDetailType): void {
+    fields.requestMode = detail.requestMode;
+    // 시스템개발은 저장분이 6분야 전부라 "개별 선택"에 담지 않는다 — 개별로 바꾸면 다시 고른다.
+    fields.serviceAreas =
+      detail.requestMode === 'individual'
+        ? sortDevelopAreas(detail.serviceAreas).filter((c) => DEVELOP_INDIVIDUAL_AREA_CODES.includes(c))
+        : [];
+    fields.title = detail.title;
+    fields.description = detail.description;
+    fields.currentStage = detail.currentStage;
+    fields.targetStage = detail.targetStage;
+    fields.wishDate = detail.wishDate ?? '';
+    fields.wishNote = detail.wishNote ?? '';
+    fields.budgetRange = detail.budgetRange;
+    fields.expertDelegate = detail.expertDelegate;
+    fields.aiConsent = detail.aiConsent; // 이미 접수한 의뢰다(동의는 접수 시점에 받았고 수정에서 바꾸지 않는다)
+    fields.ndaWanted = detail.ndaWanted;
+    const plan = detail.production;
+    applyProduction(
+      plan === null
+        ? emptyProduction()
+        : {
+          prototype: plan.prototype,
+          prototypeQty: plan.prototypeQty,
+          scopes: [...plan.scopes],
+          annualQty: plan.annualQty,
+          priority: plan.priority,
+          sourcing: plan.sourcing,
+          delivery: plan.delivery,
+        },
+    );
+    contact.name = detail.contact.name;
+    contact.company = detail.contact.company ?? '';
+    contact.phone = detail.contact.phone;
+    contact.email = detail.contact.email;
+    contact.hours = detail.contact.hours ?? '';
+    resetQuestions();
+    for (const a of detail.answers) questionState[a.code] = { choices: [...a.choices], note: a.note ?? '' };
+  }
+
+  // 처음부터 — 폼을 비운다(초안 삭제는 호출자가 clearDraft 로).
+  function resetAll(): void {
+    fields.requestMode = null;
+    fields.serviceAreas = [];
+    fields.title = '';
+    fields.description = '';
+    fields.currentStage = null;
+    fields.targetStage = null;
+    fields.wishDate = '';
+    fields.wishNote = '';
+    fields.budgetRange = null;
+    fields.expertDelegate = false;
+    applyProduction(emptyProduction());
+    fields.ndaWanted = false;
+    fields.aiConsent = false;
+    contact.name = '';
+    contact.company = '';
+    contact.phone = '';
+    contact.email = '';
+    contact.hours = '';
+    resetQuestions();
+    clearFiles();
+    stepIndex.value = 0;
+  }
+
+  // ── 임시저장(localStorage) — 파일은 담지 않는다 ─────────────────────────────
+  const draftSavedAt = ref<string | null>(null);
+  const draftFound = ref<DevelopDraftPeek | null>(null);
+
+  function readRaw(): Record<string, unknown> | null {
+    try {
+      const raw = window.localStorage.getItem(DEVELOP_DRAFT_KEY);
+      if (raw === null || raw === '') return null;
+      const parsed: unknown = JSON.parse(raw);
+      const obj = asRecord(parsed);
+      return Object.keys(obj).length === 0 ? null : obj;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveDraft(): void {
+    const questions: Record<string, { choices: string[]; note: string }> = {};
+    for (const [code, state] of Object.entries(questionState)) {
+      if (state.choices.length > 0 || state.note.trim() !== '') questions[code] = { choices: [...state.choices], note: state.note };
+    }
+    const savedAt = new Date().toISOString();
+    const draft = {
+      v: 2,
+      savedAt,
+      stepIndex: stepIndex.value,
+      fields: {
+        requestMode: fields.requestMode,
+        serviceAreas: [...fields.serviceAreas],
+        title: fields.title,
+        description: fields.description,
+        currentStage: fields.currentStage,
+        targetStage: fields.targetStage,
+        wishDate: fields.wishDate,
+        wishNote: fields.wishNote,
+        budgetRange: fields.budgetRange,
+        expertDelegate: fields.expertDelegate,
+        production: { ...fields.production, scopes: [...fields.production.scopes] },
+        ndaWanted: fields.ndaWanted,
+        aiConsent: fields.aiConsent,
+      },
+      contact: { ...contact },
+      questions,
+    };
+    try {
+      window.localStorage.setItem(DEVELOP_DRAFT_KEY, JSON.stringify(draft));
+      draftSavedAt.value = savedAt;
+    } catch {
+      draftSavedAt.value = null;
+    }
+  }
+
+  function clearDraft(): void {
+    try {
+      window.localStorage.removeItem(DEVELOP_DRAFT_KEY);
+    } catch {
+      // 저장소가 막혀 있으면 지울 것도 없다
+    }
+    draftSavedAt.value = null;
+    draftFound.value = null;
+  }
+
+  // 위저드 진입 — 초안이 있으면 복원 패널에 띄울 요약만 만든다(적용은 restoreDraft).
+  function checkDraft(): void {
+    const obj = readRaw();
+    if (obj === null) {
+      draftFound.value = null;
+      return;
+    }
+    const f = asRecord(obj.fields);
+    const mode = asMember(f.requestMode, DEVELOP_REQUEST_MODES);
+    const areas = asStringList(f.serviceAreas);
+    const menu =
+      mode === 'system'
+        ? DEVELOP_SYSTEM_MENU.label
+        : mode === 'individual' && areas.length > 0
+          ? developAreaBadge(areas)
+          : '메뉴 미선택';
+    draftFound.value = {
+      savedAt: asString(obj.savedAt),
+      title: asString(f.title),
+      menu,
+      stepIndex: asIntOrNull(obj.stepIndex) ?? 0,
+    };
+  }
+
+  function restoreDraft(): boolean {
+    const obj = readRaw();
+    if (obj === null) {
+      draftFound.value = null;
+      return false;
+    }
+    const f = asRecord(obj.fields);
+    fields.requestMode = asMember(f.requestMode, DEVELOP_REQUEST_MODES);
+    fields.serviceAreas = asStringList(f.serviceAreas).filter((c) => DEVELOP_INDIVIDUAL_AREA_CODES.includes(c));
+    fields.title = asString(f.title);
+    fields.description = asString(f.description);
+    fields.currentStage = asMember(f.currentStage, DEVELOP_CURRENT_STAGES);
+    fields.targetStage = asMember(f.targetStage, DEVELOP_TARGET_STAGES);
+    fields.wishDate = asString(f.wishDate);
+    fields.wishNote = asString(f.wishNote);
+    fields.budgetRange = asMember(f.budgetRange, DEVELOP_BUDGET_RANGES);
+    fields.expertDelegate = asBool(f.expertDelegate, false);
+    fields.ndaWanted = asBool(f.ndaWanted, false);
+    fields.aiConsent = false; // 동의는 다시 받는다
+    const p = asRecord(f.production);
+    applyProduction({
+      prototype: asMember(p.prototype, DEVELOP_PROTOTYPE_MODES),
+      prototypeQty: asIntOrNull(p.prototypeQty),
+      scopes: asStringList(p.scopes).flatMap((code) => {
+        const hit = asMember(code, DEVELOP_PRODUCTION_SCOPES);
+        return hit === null ? [] : [hit];
+      }),
+      annualQty: asIntOrNull(p.annualQty),
+      priority: asMember(p.priority, DEVELOP_PRIORITIES),
+      sourcing: asMember(p.sourcing, DEVELOP_SOURCING_MODES),
+      delivery: asMember(p.delivery, DEVELOP_DELIVERY_FORMS),
+    });
+    const c = asRecord(obj.contact);
+    contact.name = asString(c.name);
+    contact.company = asString(c.company);
+    contact.phone = asString(c.phone);
+    contact.email = asString(c.email);
+    contact.hours = asString(c.hours);
+    resetQuestions();
+    for (const [code, value] of Object.entries(asRecord(obj.questions))) {
+      const state = asRecord(value);
+      questionState[code] = { choices: asStringList(state.choices), note: asString(state.note) };
+    }
+    const savedStep = asIntOrNull(obj.stepIndex) ?? 0;
+    stepIndex.value = Math.min(Math.max(savedStep, 0), steps.length - 1);
+    draftSavedAt.value = asString(obj.savedAt);
+    draftFound.value = null;
+    return true;
+  }
+
   return {
     fields,
     contact,
     attachments,
-    slotFiles,
-    filesOfSlot,
-    activeSlotFiles,
     totalAttachmentCount,
-    hasAnyFile,
-    areas: MARKET_AREAS,
-    selectedAreas,
-    areaDefs,
-    conditionQuestions,
-    commonQuestions,
-    areaQuestionsOf,
+    individualAreas,
+    systemMenu: DEVELOP_SYSTEM_MENU,
+    isSystem,
+    isAreaPicked,
+    selectSystemMenu,
+    toggleIndividualArea,
+    effectiveAreas,
+    pickedAreas,
+    pickedAreaDefs,
+    menuBadge,
+    registry: DEVELOP_REGISTRY,
     activeQuestions,
-    requiredMissingCodes,
+    askedQuestions,
+    areaQuestionsOf,
+    skipQuestions,
     noteMissingCodes,
-    conditionProgress,
     questionState,
     stateOf,
     toggleChoice,
-    tools,
-    toggleTool,
-    clearTools,
-    isRecommended,
     buildAnswers,
-    buildTools,
+    buildProduction,
     buildContact,
+    buildPayload,
     appendAttachments,
     clearFiles,
     addAttachments,
     removeAttachment,
-    addSlotFiles,
-    removeSlotFile,
-    toggleServiceArea,
-    allServiceAreasSelected,
-    selectAllServiceAreas,
     hydrate,
+    resetAll,
     contactValid,
+    menuValid,
     describeValid,
-    conditionsValid,
+    questionsValid,
+    productionValid,
+    reviewValid,
     formValid,
+    errorMessageOfStep,
     steps,
     stepIndex,
     currentStep,
     isLastStep,
     stepValid,
+    currentError,
     next,
     prev,
     goToStep,
+    draftSavedAt,
+    draftFound,
+    checkDraft,
+    saveDraft,
+    restoreDraft,
+    clearDraft,
   };
 }
 

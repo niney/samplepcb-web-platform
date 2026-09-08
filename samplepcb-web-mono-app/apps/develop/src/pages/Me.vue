@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { marketAreaBadge } from '@sp/api-contract';
+import { developAreaBadge } from '@sp/api-contract';
 import type { DevelopRequestListItemType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import { UiPagination } from '@sp/ui';
@@ -111,7 +111,7 @@ const detailTo = (r: DevelopRequestListItemType): string =>
                 </div>
                 <p class="truncate text-title font-extrabold text-tx-1">{{ r.title }}</p>
                 <p class="text-label text-tx-3">
-                  {{ marketAreaBadge(r.serviceAreas) }} · 접수 {{ dateShort(r.createdAt) }}
+                  {{ developAreaBadge(r.serviceAreas) }} · 접수 {{ dateShort(r.createdAt) }}
                 </p>
               </div>
               <span class="font-mono text-micro tabular-nums text-tx-3 sm:text-right">#{{ r.requestId }}</span>

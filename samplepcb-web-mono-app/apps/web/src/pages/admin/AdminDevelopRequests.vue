@@ -5,13 +5,14 @@ import { useRouter } from 'vue-router';
 import {
   DEVELOP_ADMIN_TABS,
   DEVELOP_ADMIN_TAB_LABELS,
+  DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_QUOTE_KIND_LABELS,
   DEVELOP_QUOTE_STATUS_LABELS,
+  DEVELOP_REQUEST_MODE_LABELS,
   DEVELOP_REQUEST_STATUS_LABELS,
-  MARKET_BUDGET_RANGE_LABELS,
-  marketAreaBadge,
+  developAreaBadge,
 } from '@sp/api-contract';
-import type { DevelopAdminTabType } from '@sp/api-contract';
+import type { AdminDevelopRequestListItemType, DevelopAdminTabType } from '@sp/api-contract';
 import { UiPagination } from '@sp/ui';
 import { useAdminDevelopList, emptyDevelopFilters } from '../../admin/useAdminDevelop';
 import DevelopAiChips from '../../components/admin/develop/DevelopAiChips.vue';
@@ -33,6 +34,12 @@ const setTab = (tab: DevelopAdminTabType): void => {
 };
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: qInput.value, page: 1 };
+};
+// 분야 배지 — 시스템개발은 분야가 6개 전부라 배지 문구도 '시스템개발' 이다(레지스트리 fullBadge).
+// 의뢰 방식 칩과 같은 말을 두 번 쓰지 않도록, 겹치면 분야 배지를 지운다.
+const areaBadge = (r: AdminDevelopRequestListItemType): string => {
+  const badge = developAreaBadge(r.serviceAreas);
+  return badge === DEVELOP_REQUEST_MODE_LABELS[r.requestMode] ? '' : badge;
 };
 const openDetail = (requestId: number): void => {
   void router.push({ name: 'admin-develop-request', params: { id: String(requestId) } });
@@ -94,9 +101,15 @@ const openDetail = (requestId: number): void => {
           >
             <td class="max-w-72 px-4 py-3">
               <p class="truncate font-semibold text-gray-900">{{ r.title }}</p>
-              <p class="mt-0.5 text-xs text-gray-500">
-                <span v-if="marketAreaBadge(r.serviceAreas) !== ''">{{ marketAreaBadge(r.serviceAreas) }} · </span>
-                {{ MARKET_BUDGET_RANGE_LABELS[r.budgetRange] }}
+              <p class="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-gray-500">
+                <span
+                  class="rounded-full px-1.5 py-0.5 text-[11px] font-bold"
+                  :class="r.requestMode === 'system' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'"
+                >
+                  {{ DEVELOP_REQUEST_MODE_LABELS[r.requestMode] }}
+                </span>
+                <span v-if="areaBadge(r) !== ''">{{ areaBadge(r) }} ·</span>
+                <span>{{ DEVELOP_BUDGET_RANGE_LABELS[r.budgetRange] }}</span>
               </p>
             </td>
             <td class="px-4 py-3">

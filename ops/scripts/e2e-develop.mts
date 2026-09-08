@@ -140,19 +140,27 @@ const cartRowsByIoId = (ioId) =>
   g5q(`SELECT ct_id, CAST(od_id AS CHAR) AS od_id, ct_status, io_id, io_price, ct_qty, ct_price, it_id, ct_select FROM g5_shop_cart WHERE io_id = ? ORDER BY ct_id`, ioId);
 const optionRowsByIoId = (ioId) => g5q(`SELECT io_id, io_price FROM g5_shop_item_option WHERE it_id = ? AND io_id = ?`, ANCHOR_IT_ID, ioId);
 
-// 등록 payload — 공통 조건 3(필수) + 공통 질문 1 + 연락처.
-const requiredAnswers = [
-  { code: 'timeline', choices: ['m2_3'] },
-  { code: 'target_stage', choices: ['working_proto'] },
-  { code: 'deliverable_scope', choices: ['full_source'] },
+// 등록 payload(위저드 v2, docs/DEVELOP_FLOW.md §7.2) — 개별 견적(PCB+앱) + 분야 질문(선택지 1·서술 1) + 단계·희망 시기·
+// 시제품 계획 + 연락처. 시스템개발 등록은 §1 에서 따로 한 건 만든다.
+const baseAnswers = [
+  { code: 'pcb.type', choices: ['new'] },
+  { code: 'app.flow', choices: [], note: '로그인 → 제품 등록 → 상태 확인 → 제어' },
 ];
+const baseProduction = { prototype: 'count', prototypeQty: 5, scopes: ['pcb_fab', 'smt'], annualQty: 5000, priority: 'cost', sourcing: 'samplepcb_all', delivery: 'pcba' };
 const basePayload = (title, extra = {}) => ({
   title,
-  serviceAreas: ['circuit', 'firmware'],
+  requestMode: 'individual',
+  serviceAreas: ['pcb', 'app'],
   tools: { version: 1, byArea: {} },
   description: '[e2e] BLE 온습도 로거. 배터리 구동, 스마트폰 앱 연동. 개발의뢰 하네스 픽스처입니다.',
-  answers: [...requiredAnswers, { code: 'stage', choices: ['idea'] }],
-  budgetRange: 'r500_2000',
+  answers: baseAnswers,
+  currentStage: 'idea',
+  targetStage: 'prototype_done',
+  wishDate: null,
+  wishNote: '계약 후 3개월',
+  budgetRange: 'r1000_3000',
+  expertDelegate: false,
+  production: baseProduction,
   ndaWanted: true,
   aiConsent: true,
   contact: { name: '이투이', company: '이투이랩', phone: '010-1234-5678', email: 'e2e-develop@example.com', hours: '오후 2~6시' },
@@ -168,11 +176,11 @@ const eventForm = (payload, files = []) => createForm(payload, files);
 
 const minimalReview = (areas) => ({
   version: 4,
-  brief: { serviceAreas: areas, answers: requiredAnswers },
+  brief: { serviceAreas: areas, answers: baseAnswers },
   summary: '[e2e] 담당자 작업본 요약',
   requirements: [{ text: 'BLE 5.0 광고 주기 1초', evidence: 'e2e' }],
   areas: areas.map((area) => ({ area, summary: `${area} 한 줄`, spec: [{ item: '전원', text: '리튬 3.7V', evidence: 'e2e' }], observations: [] })),
-  openQuestions: [{ question: '외장은 정해졌나요?', why: '안테나 배치', area: 'circuit', resolution: '상담 결과: 3D 프린팅 외장' }],
+  openQuestions: [{ question: '외장은 정해졌나요?', why: '안테나 배치', area: 'pcb', resolution: '상담 결과: 3D 프린팅 외장' }],
   checks: [],
   // generatedAt 은 고정 — 같은 내용을 두 번 저장했을 때 버전이 안 늘어나는지(§6.2 중복 규칙) 보려면 meta 도 같아야 한다.
   meta: { jobId: 'e2e', model: 'e2e-model', promptVersion: 'dev-review.v5', inputHash: 'e2e', generatedAt: '2026-09-05T00:00:00.000Z', attachmentFiles: [] },
@@ -291,8 +299,48 @@ async function run() {
   let mail = await drainMail();
 
   // ── 1. 등록 ──────────────────────────────────────────────────────────────────
-  const bad = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 필수 조건 누락', { answers: [] })) });
-  assert(bad.status === 400 && bad.json?.error === 'ANSWERS_REQUIRED', '등록: 필수 조건 누락 400 ANSWERS_REQUIRED', bad);
+  const bad = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 희망 시기 누락', { wishDate: null, wishNote: null })) });
+  assert(bad.status === 400 && bad.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 희망 완료 시기(날짜·자유문) 둘 다 없으면 400', bad);
+  const badArea = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 개별 메뉴 밖 분야', { serviceAreas: ['circuit'] })) });
+  assert(badArea.status === 400 && badArea.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 개별 견적에 회로(개별 메뉴 밖)는 400', badArea);
+  const badText = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 서술 문항에 선택지', { answers: [{ code: 'app.flow', choices: ['x'] }] })) });
+  assert(badText.status === 400 && badText.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 서술(text) 문항에 선택지를 실으면 400', badText);
+  const badQty = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 시제품 수량 누락', { production: { ...baseProduction, prototypeQty: null } })) });
+  assert(badQty.status === 400 && badQty.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 시제품 직접입력인데 수량 없으면 400', badQty);
+  // 시스템개발 — 분야는 서버가 전 분야(6)로 채우고, 전문가 맡김이면 서술 문항 답변은 버리되 협업 범위(역할) 답변은 남긴다.
+  const sys = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 시스템개발 통합', {
+      requestMode: 'system', serviceAreas: [], expertDelegate: true,
+      answers: [
+        { code: 'system.use', choices: [], note: '공장 라인, 하루 종일, 실내' },
+        { code: 'system.collab', choices: ['all_samplepcb'] },
+      ],
+    })),
+  });
+  assert(sys.status === 200 && sys.json?.data?.status === 'received', '시스템개발 등록 200', sys);
+  ids.requestIds.push(sys.json.data.requestId);
+  save();
+  const sysDetail = await req('GET', `/api/develop/requests/${sys.json.data.requestId}`, { token: tClient });
+  assert(
+    sysDetail.status === 200 && sysDetail.json.data.requestMode === 'system' && sysDetail.json.data.serviceAreas.length === 6
+      && sysDetail.json.data.serviceAreas.includes('mech') && sysDetail.json.data.expertDelegate === true
+      && sysDetail.json.data.answers.length === 1 && sysDetail.json.data.answers[0].code === 'system.collab'
+      && sysDetail.json.data.production.prototypeQty === 5 && sysDetail.json.data.currentStage === 'idea',
+    '시스템개발 상세: 전 분야 6(기구 포함)·맡김이라 서술 답변은 버리고 협업 답변만 남음·계획·단계 저장',
+    sysDetail.json?.data,
+  );
+  const sysAnswered = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 시스템개발 문항 답변', {
+      requestMode: 'system', serviceAreas: [], answers: [{ code: 'system.io', choices: [], note: '온도 3점 → 임계 초과 시 펌프 정지' }],
+    })),
+  });
+  assert(sysAnswered.status === 200, '시스템개발(문항 답변) 등록 200', sysAnswered);
+  ids.requestIds.push(sysAnswered.json.data.requestId);
+  save();
+  const sysAnsweredDetail = await req('GET', `/api/develop/requests/${sysAnswered.json.data.requestId}`, { token: tClient });
+  assert(sysAnsweredDetail.json.data.answers.length === 1 && sysAnsweredDetail.json.data.answers[0].note.startsWith('온도'), '시스템개발 서술 답변 저장', sysAnsweredDetail.json?.data?.answers);
   const badContact = await req('POST', '/api/develop/requests', { token: tClient, form: createForm({ ...basePayload('[e2e] 연락처 누락'), contact: undefined }) });
   assert(badContact.status === 400 && badContact.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 연락처 누락 400', badContact);
   const noAuth = await req('POST', '/api/develop/requests', { form: createForm(basePayload('[e2e] 비로그인')) });
@@ -302,7 +350,7 @@ async function run() {
     token: tClient,
     form: createForm(basePayload('[e2e] BLE 온습도 로거'), [
       { field: 'attachment', name: 'spec.txt', body: '[e2e] 요구사항 텍스트. BLE 5.0, 3.7V 배터리.' },
-      { field: 'attachment:circuit:schematic', name: 'sch.txt', body: '[e2e] 슬롯 첨부(회로도 자리)' },
+      { field: 'attachment:pcb:schematic', name: 'sch.txt', body: '[e2e] 슬롯 첨부(회로도 자리)' },
     ]),
   });
   assert(created.status === 200 && created.json?.data?.status === 'received', '등록 200 received', created);
@@ -340,8 +388,16 @@ async function run() {
   assert(patched.json.data.events.some((e) => e.type === 'edited'), '수정 이벤트 기록');
   const patchStranger = await req('PATCH', `/api/develop/requests/${rid}`, { token: tStranger, body: { title: '[e2e] 제3자 수정 시도' } });
   assert(patchStranger.status === 403, '제3자 수정 403');
-  const patchAnswers = await req('PATCH', `/api/develop/requests/${rid}`, { token: tClient, body: { answers: [] } });
-  assert(patchAnswers.status === 400 && patchAnswers.json?.error === 'ANSWERS_REQUIRED', '수정: 필수 조건 빼면 400');
+  const patchWish = await req('PATCH', `/api/develop/requests/${rid}`, { token: tClient, body: { wishDate: null, wishNote: null } });
+  assert(patchWish.status === 400 && patchWish.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '수정: 희망 시기를 둘 다 비우면 400');
+  const patchAreas = await req('PATCH', `/api/develop/requests/${rid}`, { token: tClient, body: { serviceAreas: ['pcb'] } });
+  assert(
+    patchAreas.status === 200 && patchAreas.json.data.serviceAreas.length === 1 && patchAreas.json.data.answers.every((a) => a.code.startsWith('pcb.')),
+    '수정: 분야를 줄이면 답변을 안 보내도 분야 밖 문항 답변이 걷힌다',
+    patchAreas.json?.data?.answers,
+  );
+  const patchBack = await req('PATCH', `/api/develop/requests/${rid}`, { token: tClient, body: { serviceAreas: ['pcb', 'app'], answers: baseAnswers } });
+  assert(patchBack.status === 200 && patchBack.json.data.answers.length === 2, '수정: 분야·답변 복구', patchBack.json?.data?.answers);
 
   // ── 4. 관리자 워크큐·상세·메모 ─────────────────────────────────────────────
   const list = await req('GET', '/api/admin/develop/requests?tab=received&q=%5Be2e%5D', { token: tAdmin });
@@ -361,13 +417,13 @@ async function run() {
   assert(resetNoDraft.status === 409 && resetNoDraft.json?.error === 'DRAFT_EMPTY', '초안 없음 → reset 409');
   const pubEmpty = await req('POST', `/api/admin/develop/requests/${rid}/review/publish`, { token: tAdmin });
   assert(pubEmpty.status === 409 && pubEmpty.json?.error === 'REVIEW_EMPTY', '작업본 없음 → publish 409');
-  const put = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: minimalReview(['circuit', 'firmware']) } });
+  const put = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: minimalReview(['pcb', 'app']) } });
   assert(put.status === 200 && put.json.data.review.working?.adminComment?.startsWith('담당자 의견') && put.json.data.review.editedAt !== null, '작업본 저장(담당자 의견·확인 결과)', put.json?.data?.review);
   assert(put.json.data.review.working.openQuestions[0].resolution === '상담 결과: 3D 프린팅 외장', '상의 항목 확인 결과 보존');
   assert(put.json.data.review.working.schedule?.phases?.length === 2 && put.json.data.review.working.schedule.wishCode === 'm2_3', '작업본 저장: 개발 일정 2단계·희망 시점', put.json?.data?.review?.working?.schedule);
   const badWeeks = await req('PUT', `/api/admin/develop/requests/${rid}/review`, {
     token: tAdmin,
-    body: { review: { ...minimalReview(['circuit', 'firmware']), schedule: { phases: [{ name: '회로 설계', minWeeks: 0, maxWeeks: 200, output: '', prerequisite: '', note: '' }], wishCode: 'm2_3', assumptions: '' } } },
+    body: { review: { ...minimalReview(['pcb', 'app']), schedule: { phases: [{ name: '회로 설계', minWeeks: 0, maxWeeks: 200, output: '', prerequisite: '', note: '' }], wishCode: 'm2_3', assumptions: '' } } },
   });
   assert(badWeeks.status === 400, '개발 일정 잘못된 주(0·200) → 400', badWeeks.json);
   const stillTwo = await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin });
@@ -381,7 +437,7 @@ async function run() {
   assert(custAfter.json.data.review?.summary === '[e2e] 담당자 작업본 요약' && custAfter.json.data.reviewPublished === true, '공개 후: 고객 검토서 보임');
   assert(custAfter.json.data.review.schedule?.phases?.length === 2, '고객 공개본에도 개발 일정(예상)');
   assert(custAfter.json.data.reviewPublicSeq === 2, '고객 상세 reviewPublicSeq = 공개 판 v2', custAfter.json?.data?.reviewPublicSeq);
-  const put2 = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: { ...minimalReview(['circuit', 'firmware']), summary: '수정본' } } });
+  const put2 = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: { ...minimalReview(['pcb', 'app']), summary: '수정본' } } });
   assert(put2.json.data.review.publishedStale === true, '공개 뒤 편집 → publishedStale');
   const custStale = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   assert(custStale.json.data.review?.summary === '[e2e] 담당자 작업본 요약', '공개본은 스냅샷(편집이 고객 화면을 안 흔든다)');
@@ -394,7 +450,7 @@ async function run() {
   );
   assert(vers.json.data.current.workingSeq === 3 && vers.json.data.current.publicSeq === 2 && vers.json.data.current.draftSeq === null, '현재 포인터: 작업본 v3 · 공개 v2 · 초안 없음', vers.json?.data?.current);
   assert(vers.json.data.items[0].author === 'admin' && vers.json.data.items[0].counts.phases === 2, '버전 메타: 작성자·일정 단계 수', vers.json?.data?.items?.[0]);
-  const putSame = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: { ...minimalReview(['circuit', 'firmware']), summary: '수정본' } } });
+  const putSame = await req('PUT', `/api/admin/develop/requests/${rid}/review`, { token: tAdmin, body: { review: { ...minimalReview(['pcb', 'app']), summary: '수정본' } } });
   const versSame = await req('GET', `/api/admin/develop/requests/${rid}/review/versions`, { token: tAdmin });
   assert(putSame.status === 200 && versSame.json.data.items.length === 3, '같은 내용 저장은 버전을 늘리지 않는다', versSame.json?.data?.items?.length);
   const ver1 = await req('GET', `/api/admin/develop/requests/${rid}/review/versions/1`, { token: tAdmin });

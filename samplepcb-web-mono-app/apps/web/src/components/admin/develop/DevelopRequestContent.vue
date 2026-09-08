@@ -2,13 +2,20 @@
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
-  MARKET_BUDGET_RANGE_LABELS,
+  DEVELOP_BUDGET_RANGE_LABELS,
+  DEVELOP_CURRENT_STAGE_LABELS,
+  DEVELOP_DELIVERY_FORM_LABELS,
+  DEVELOP_PRIORITY_LABELS,
+  DEVELOP_REQUEST_MODE_LABELS,
+  DEVELOP_SOURCING_MODE_LABELS,
+  DEVELOP_TARGET_STAGE_LABELS,
+  developAnswerText,
+  developAreaLabel,
+  developProductionSummary,
+  developQuestionsFor,
+  developSlotLabel,
+  developWishLabel,
   isMarketAnswerUnknown,
-  marketAnswerText,
-  marketAreaLabel,
-  marketQuestionsFor,
-  marketSlotLabel,
-  marketToolRows,
 } from '@sp/api-contract';
 import type { AdminDevelopRequestDetailType } from '@sp/api-contract';
 import { apiErrorMessage, canPreview } from '@sp/ui';
@@ -16,8 +23,10 @@ import type { PreviewTarget } from '@sp/ui';
 import { formatBytes } from '../../../lib/format';
 import { downloadAdminDevelopFile } from './develop-files';
 
-// 의뢰 내용 — 설명 · 조건/질문 답변 · 희망 툴 · 연락처 · 비밀유지 · 첨부 · AI 동의.
-// 문항 라벨·순서는 레지스트리(marketQuestionsFor)가 정본이라, 답변 배열이 아니라 문항 순서로 표를 만든다.
+// 의뢰 내용 — 설명 · 의뢰 방식/예산/단계/희망 시기 · 시제품·생산 계획 · 질문 답변 · 연락처 · 첨부(희망 툴 표시는 2026-09-08 간소화로 뺐다).
+// 사전은 전부 개발의뢰 레지스트리(DEVELOP_*·develop*)다 — 마켓 사전을 쓰면 기구(mech)가 "mech(종료)" 로,
+// 예산 구간이 다른 사전 값으로 어긋난다(위저드 v2, 2026-09-08).
+// 문항 라벨·순서는 레지스트리(developQuestionsFor)가 정본이라, 답변 배열이 아니라 문항 순서로 표를 만든다.
 const props = defineProps<{ detail: AdminDevelopRequestDetailType }>();
 // 미리보기 모달은 상세 페이지 한 곳에 있다 — 여기선 대상만 올린다(옆 보기 패널에서도 같은 모달을 쓴다).
 const emit = defineEmits<{ preview: [file: PreviewTarget] }>();
@@ -26,27 +35,60 @@ const { t } = useI18n();
 
 const answerRows = computed(() => {
   const byCode = new Map(props.detail.answers.map((a) => [a.code, a]));
-  const known = marketQuestionsFor(props.detail.serviceAreas).flatMap((q) => {
+  const known = developQuestionsFor(props.detail.serviceAreas).flatMap((q) => {
     const answer = byCode.get(q.code);
     if (answer === undefined) return [];
     byCode.delete(q.code);
-    return [{ code: q.code, label: q.short, question: q.label, value: marketAnswerText(answer), unknown: isMarketAnswerUnknown(answer) }];
+    return [
+      {
+        code: q.code,
+        label: q.short,
+        question: q.label,
+        value: developAnswerText(answer),
+        unknown: isMarketAnswerUnknown(answer),
+        text: q.kind === 'text', // 서술 문항 — 줄바꿈을 그대로 보인다
+      },
+    ];
   });
-  // 사전에서 사라졌거나 분야 밖 문항(옛 저장분) — 코드 그대로 뒤에 붙인다.
+  // 사전에서 사라졌거나 분야 밖 문항(옛 저장분 v1: timeline·stage…) — 코드 그대로 뒤에 붙인다.
   const rest = [...byCode.values()].map((a) => ({
     code: a.code,
     label: a.code,
     question: '',
-    value: marketAnswerText(a),
+    value: developAnswerText(a),
     unknown: isMarketAnswerUnknown(a),
+    text: false,
   }));
   return [...known, ...rest];
 });
 
-const toolRows = computed(() => marketToolRows(props.detail.tools, props.detail.serviceAreas));
+
+// 현재 단계 → 목표 단계. 옛 저장분(v1 위저드)은 둘 다 null 이라 행이 "—" 로 남는다.
+const stageLabel = computed(() => {
+  const from = props.detail.currentStage === null ? null : DEVELOP_CURRENT_STAGE_LABELS[props.detail.currentStage];
+  const to = props.detail.targetStage === null ? null : DEVELOP_TARGET_STAGE_LABELS[props.detail.targetStage];
+  if (from === null && to === null) return '';
+  return `${from ?? '—'} → ${to ?? '—'}`;
+});
+
+const wishLabel = computed(() => developWishLabel(props.detail.wishDate, props.detail.wishNote));
+
+// 시제품·생산 계획 — 요약 한 줄(계약 함수)과 우선순위·조달·납품 행. 제작 범위가 없으면 조달·납품은 null 이다.
+const productionSummary = computed(() => developProductionSummary(props.detail.production));
+const productionRows = computed(() => {
+  const p = props.detail.production;
+  if (p === null) return [];
+  return [
+    { key: 'priority', label: t('admin.develop.content.priority'), value: p.priority === null ? '' : DEVELOP_PRIORITY_LABELS[p.priority] },
+    { key: 'sourcing', label: t('admin.develop.content.sourcing'), value: p.sourcing === null ? '' : DEVELOP_SOURCING_MODE_LABELS[p.sourcing] },
+    { key: 'delivery', label: t('admin.develop.content.delivery'), value: p.delivery === null ? '' : DEVELOP_DELIVERY_FORM_LABELS[p.delivery] },
+  ];
+});
+// 시스템개발에서 "전문가에게 맡김"을 고르면 기술 사양 문항이 통째로 비어 있다 — 답변 표가 얇은 이유를 배지로 밝힌다.
+const expertDelegate = computed(() => props.detail.requestMode === 'system' && props.detail.expertDelegate);
 
 const slotLabel = (area: string | null, slot: string | null): string =>
-  area === null || slot === null ? '' : `${marketAreaLabel(area)} · ${marketSlotLabel(area, slot)}`;
+  area === null || slot === null ? '' : `${developAreaLabel(area)} · ${developSlotLabel(area, slot)}`;
 
 const downloadError = ref('');
 
@@ -69,25 +111,48 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
     </p>
 
     <dl class="mt-4 grid grid-cols-[104px_1fr] gap-y-2 text-sm">
+      <dt class="text-gray-500">{{ t('admin.develop.content.requestMode') }}</dt>
+      <dd>
+        <span
+          class="rounded-full px-2 py-0.5 text-xs font-bold"
+          :class="detail.requestMode === 'system' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'"
+        >
+          {{ DEVELOP_REQUEST_MODE_LABELS[detail.requestMode] }}
+        </span>
+      </dd>
       <dt class="text-gray-500">{{ t('admin.develop.content.budget') }}</dt>
-      <dd class="font-semibold text-gray-800">{{ MARKET_BUDGET_RANGE_LABELS[detail.budgetRange] }}</dd>
+      <dd class="font-semibold text-gray-800">{{ DEVELOP_BUDGET_RANGE_LABELS[detail.budgetRange] }}</dd>
+      <dt class="text-gray-500">{{ t('admin.develop.content.stage') }}</dt>
+      <dd :class="stageLabel === '' ? 'text-gray-400' : 'text-gray-800'">{{ stageLabel === '' ? '—' : stageLabel }}</dd>
+      <dt class="text-gray-500">{{ t('admin.develop.content.wish') }}</dt>
+      <dd :class="wishLabel === '' ? 'text-gray-400' : 'text-gray-800'">{{ wishLabel === '' ? '—' : wishLabel }}</dd>
       <dt class="text-gray-500">{{ t('admin.develop.content.nda') }}</dt>
       <dd>{{ detail.ndaWanted ? t('admin.develop.content.ndaWanted') : t('admin.develop.content.ndaNone') }}</dd>
       <dt class="text-gray-500">{{ t('admin.develop.content.aiConsent') }}</dt>
       <dd :class="detail.aiConsent ? 'text-gray-800' : 'font-semibold text-amber-700'">
         {{ detail.aiConsent ? t('admin.develop.content.aiConsentYes') : t('admin.develop.content.aiConsentNo') }}
       </dd>
-      <dt class="text-gray-500">{{ t('admin.develop.content.tools') }}</dt>
-      <dd>
-        <template v-if="toolRows.length === 0">—</template>
-        <ul v-else class="grid gap-0.5">
-          <li v-for="row in toolRows" :key="row.area">
-            <span class="text-gray-500">{{ row.areaLabel }}:</span>
-            {{ row.labels.length > 0 ? row.labels.join(' · ') : t('admin.develop.content.toolsAny') }}
-          </li>
-        </ul>
-      </dd>
     </dl>
+
+    <!-- 시제품·생산 계획(4스텝) — 당사 PCB/BOM 트랙과 직결돼 견적 '별도 실비'의 근거가 된다. -->
+    <div class="mt-4">
+      <p class="flex flex-wrap items-center gap-2 text-sm font-bold text-gray-500">
+        {{ t('admin.develop.content.production') }}
+        <span v-if="expertDelegate" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+          {{ t('admin.develop.content.expertDelegate') }}
+        </span>
+      </p>
+      <p v-if="detail.production === null" class="mt-1.5 text-sm text-gray-400">{{ t('admin.develop.content.productionNone') }}</p>
+      <div v-else class="mt-1.5 rounded-lg border border-gray-100 px-3 py-2">
+        <p class="text-sm font-semibold text-gray-800">{{ productionSummary }}</p>
+        <dl class="mt-1.5 grid grid-cols-[104px_1fr] gap-y-1.5 text-sm">
+          <template v-for="row in productionRows" :key="row.key">
+            <dt class="text-gray-500">{{ row.label }}</dt>
+            <dd :class="row.value === '' ? 'text-gray-400' : 'text-gray-800'">{{ row.value === '' ? '—' : row.value }}</dd>
+          </template>
+        </dl>
+      </div>
+    </div>
 
     <!-- 연락처 — 접수 뒤 전화·미팅으로 요구사항을 좁히는 것이 실무라 필수 항목이다. -->
     <div class="mt-4 rounded-lg border border-gray-200 p-3">
@@ -114,7 +179,9 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
       <dl class="mt-1.5 grid grid-cols-[112px_1fr] gap-y-1.5 rounded-lg border border-gray-100 px-3 py-2 text-sm">
         <template v-for="row in answerRows" :key="row.code">
           <dt class="text-gray-500" :title="row.question">{{ row.label }}</dt>
-          <dd :class="row.unknown ? 'text-amber-700' : 'text-gray-800'">{{ row.value }}</dd>
+          <dd :class="[row.unknown ? 'text-amber-700' : 'text-gray-800', row.text ? 'whitespace-pre-line leading-relaxed' : '']">
+            {{ row.value }}
+          </dd>
         </template>
       </dl>
     </div>

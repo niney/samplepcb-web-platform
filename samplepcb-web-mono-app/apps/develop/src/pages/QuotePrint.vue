@@ -19,7 +19,7 @@ import { dateShort, won } from '../lib/format';
 
 const SUPPLIER = {
   name: '샘플피씨비',
-  desc: '회로 · PCB · 펌웨어 · 앱 · 서버 개발',
+  desc: '회로 · PCB · 펌웨어 · 기구 · 앱 · 서버 개발',
   site: 'samplepcb.co.kr',
 } as const;
 
