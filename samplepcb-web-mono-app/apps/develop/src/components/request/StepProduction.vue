@@ -3,8 +3,6 @@ import { computed, ref, watch } from 'vue';
 import {
   DEVELOP_DELIVERY_FORMS,
   DEVELOP_DELIVERY_FORM_LABELS,
-  DEVELOP_PRIORITIES,
-  DEVELOP_PRIORITY_LABELS,
   DEVELOP_PRODUCTION_SCOPES,
   DEVELOP_PRODUCTION_SCOPE_LABELS,
   DEVELOP_PROTOTYPE_MODES,
@@ -27,8 +25,6 @@ const prototypeModes = DEVELOP_PROTOTYPE_MODES;
 const prototypeLabels = DEVELOP_PROTOTYPE_MODE_LABELS;
 const scopes = DEVELOP_PRODUCTION_SCOPES;
 const scopeLabels = DEVELOP_PRODUCTION_SCOPE_LABELS;
-const priorities = DEVELOP_PRIORITIES;
-const priorityLabels = DEVELOP_PRIORITY_LABELS;
 const sourcingModes = DEVELOP_SOURCING_MODES;
 const sourcingLabels = DEVELOP_SOURCING_MODE_LABELS;
 const deliveryForms = DEVELOP_DELIVERY_FORMS;
@@ -133,7 +129,7 @@ const chipClass = (on: boolean): string =>
     </section>
 
     <!-- 생산 계획 -->
-    <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6 md:grid-cols-2">
+    <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6">
       <label class="grid content-start gap-2">
         <span class="text-label font-bold text-tx-2">개발 완료 후 예상 연간 생산수량</span>
         <input
@@ -143,17 +139,6 @@ const chipClass = (on: boolean): string =>
           placeholder="예: 5,000"
           class="h-11 rounded-lg border border-line-2 bg-white px-3.5 text-body text-tx-1 outline-none focus:border-brand-500"
         >
-      </label>
-      <label class="grid content-start gap-2">
-        <span class="text-label font-bold text-tx-2">가장 중요한 우선순위</span>
-        <select
-          v-model="plan.priority"
-          class="h-11 rounded-lg border bg-white px-3 text-body text-tx-1 outline-none focus:border-brand-500"
-          :class="plan.priority === null ? 'border-line-2' : 'border-ink-900'"
-        >
-          <option :value="null" disabled>선택해 주세요</option>
-          <option v-for="p in priorities" :key="p" :value="p">{{ priorityLabels[p] }}</option>
-        </select>
       </label>
     </section>
 
