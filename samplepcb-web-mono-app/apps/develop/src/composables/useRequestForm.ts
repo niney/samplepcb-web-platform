@@ -58,7 +58,7 @@ import type { QuestionState } from '@sp/ui';
 //   ① 개발 메뉴   시스템개발(배타) 또는 개별 견적(PCB·기구·앱·서버 복수)
 //   ② 의뢰 내용   제목·목적·현재/목표 단계·희망 시기·예산·참고 자료 + 자료 사용 동의(aiConsent, 필수)
 //                 (+시스템개발 후속 질문 방식) — 자료가 AI 로 나가는 시점이 2→3 전환이라 동의를 여기서 받는다
-//   ③ 세부 질문   시스템개발 = AI 후속 질문(§7.2.2, 폴백은 고정 서술 3문항) + 협업 3, 개별 견적 = 고른 분야의 전문 질문
+//   ③ 세부 질문   시스템개발 = AI 후속 질문(§7.2.2, 폴백은 고정 서술 3문항) + 디자인·기구 범위 2, 개별 견적 = 고른 분야의 전문 질문
 //   ④ 제작 계획   시제품 수량·제작 범위·연간 수량·우선순위(+범위가 있으면 조달·납품 형태)
 //   ⑤ 검토·접수  연락처 + 요약 + 비밀유지(NDA)
 // 분야·질문·라벨의 정본은 개발의뢰 레지스트리(DEVELOP_REGISTRY)라 이 파일에 분야 코드나
@@ -331,7 +331,9 @@ export function useRequestForm() {
     return askedQuestions.value.flatMap((q) => {
       const state = questionState[q.code];
       if (state === undefined || !isMarketAnswered(q, state)) return [];
-      const note = state.note.trim();
+      // 선택을 바꿔 숨겨진 외부 업체 메모는 접수에 싣지 않는다. 다시 선택하면 입력은 복원된다.
+      const noteVisible = q.noteVisibleFor === undefined || q.noteVisibleFor.some((code) => state.choices.includes(code));
+      const note = noteVisible ? state.note.trim() : '';
       if (isTextQuestion(q)) return [{ code: q.code, choices: [], note }];
       return [{ code: q.code, choices: [...state.choices], ...(note !== '' ? { note } : {}) }];
     });

@@ -26,6 +26,7 @@ export interface MarketQuestionDef {
   // 시스템개발 "전문가에게 맡김"에서도 묻는 문항(역할·협업 범위처럼 기술값이 아닌 것). 기본 false = 맡김이면 생략.
   readonly askOnDelegate?: boolean;
   readonly notePlaceholder?: string;
+  readonly noteVisibleFor?: readonly string[]; // 지정한 선택지에서만 메모 표시·폼 전송(생략하면 항상)
   readonly noteRequiredFor?: readonly string[]; // 이 선택지를 고르면 메모 필수
   readonly required?: boolean; // 등록 전 답해야 한다(모르면 탈출구 선택지) — 공통 조건이 쓴다
   readonly promptHint?: string; // 검토서 프롬프트에 주는 "이 답이 개발에서 뜻하는 것" 한 줄

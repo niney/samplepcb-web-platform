@@ -1,4 +1,4 @@
-import { MARKET_EXPERT_PICK_LABEL, MARKET_UNKNOWN_CHOICE, createAreaRegistry, withUnknown } from './area-registry';
+import { MARKET_EXPERT_PICK_LABEL, createAreaRegistry, withUnknown } from './area-registry';
 import type { MarketAreaDef, MarketQuestionDef, MarketToolOption } from './area-registry';
 import { MARKET_AREA_MAP } from './market-areas';
 
@@ -37,43 +37,38 @@ const MCAD_TOOLS: readonly MarketToolOption[] = [
   { code: 'creo', label: 'Creo' },
 ];
 
-// ── 시스템개발 전용 문항 — 서술 3(프로토타입 "쉬운 질문") + 협업 범위 3(선택지, 2026-09-08 프로토타입 2판) ────
-// 협업 범위 3문항은 "디자인·기구를 누가 하나"라는 견적 전제라 **전문가에게 맡김을 골라도 묻는다**(askOnDelegate).
+// ── 시스템개발 전용 문항 — 서술 3 + 디자인·기구 범위 2(선택지) ────
+// 디자인·기구의 담당을 각각 묻고, 같은 내용을 합쳐 묻던 system.collab 은 제거했다.
+// 범위 2문항은 견적 전제라 **전문가에게 맡김을 골라도 묻는다**(askOnDelegate).
 const DELEGATE_UNKNOWN_LABEL = '잘 모르겠음·전문가 판단 요청';
 export const DEVELOP_SYSTEM_COLLAB_QUESTIONS: readonly MarketQuestionDef[] = [
   {
-    code: 'system.product_design', label: '제품디자인 자료와 진행 상태를 알려주세요.', short: '제품디자인', multi: false, askOnDelegate: true,
-    why: '제품 외관·사용성 디자인의 준비 여부에 따라 기구·시제품 범위가 달라집니다.',
+    code: 'system.product_design', label: '제품 외관 디자인은 어떻게 준비하시나요?', short: '제품디자인', multi: false, askOnDelegate: true,
+    why: '제품의 외관·형태·사용성을 정하는 디자인입니다.',
     options: withUnknown([
       { code: 'ready', label: '디자인 파일과 사양이 준비됨' },
       { code: 'other_vendor', label: '다른 업체가 진행 중·진행 예정' },
       { code: 'request', label: '샘플피씨비에 제품디자인부터 의뢰' },
+      { code: 'modify', label: '기존 디자인을 바탕으로 샘플피씨비에 수정 의뢰' },
       { code: 'none', label: '제품디자인은 필요 없음' },
     ], DELEGATE_UNKNOWN_LABEL),
+    notePlaceholder: '업체가 맡는 범위와 자료 전달 예정 시기 (선택)',
+    noteVisibleFor: ['other_vendor'],
     promptHint: '제품디자인이 준비됐는지·누가 하는지는 기구·시제품 항목이 이번 범위인지 정한다',
   },
   {
-    code: 'system.mech_design', label: '기구설계 자료와 진행 상태를 알려주세요.', short: '기구설계', multi: false, askOnDelegate: true,
-    why: '3D·2D 도면, 케이스 자료 또는 협업 상태를 선택합니다.',
+    code: 'system.mech_design', label: '기구설계는 어떻게 준비하시나요?', short: '기구설계', multi: false, askOnDelegate: true,
+    why: '케이스 구조·부품 배치·조립 방법을 정하는 설계입니다.',
     options: withUnknown([
       { code: 'ready', label: '기구설계 파일이 준비됨' },
       { code: 'other_vendor', label: '다른 업체가 진행 중·진행 예정' },
       { code: 'request', label: '샘플피씨비에 기구설계부터 의뢰' },
+      { code: 'modify', label: '기존 기구자료를 바탕으로 샘플피씨비에 수정 의뢰' },
       { code: 'none', label: '기구설계는 필요 없음' },
     ], DELEGATE_UNKNOWN_LABEL),
+    notePlaceholder: '업체가 맡는 범위와 자료 전달 예정 시기 (선택)',
+    noteVisibleFor: ['other_vendor'],
     promptHint: '기구설계 자료의 유무·주체는 PCB 외형 제약과 기구 항목의 범위를 정한다',
-  },
-  {
-    code: 'system.collab', label: '제품디자인·기구설계 업무를 어떤 방식으로 진행할까요?', short: '협업 방식', multi: false, askOnDelegate: true,
-    why: '샘플피씨비와 외부 업체의 역할을 선택합니다.',
-    options: [
-      { code: 'all_samplepcb', label: '샘플피씨비에 일괄 의뢰' },
-      { code: 'with_vendor', label: '고객 지정업체와 샘플피씨비가 협업' },
-      { code: 'customer_provides', label: '완료된 디자인·기구자료를 고객이 제공' },
-      { code: 'partial', label: '일부 업무만 샘플피씨비에 의뢰' },
-      { code: MARKET_UNKNOWN_CHOICE, label: '상담 후 역할 분담 결정' },
-    ],
-    promptHint: '역할 분담은 견적 항목과 별도 실비(디자인·기구·시제품)의 경계다',
   },
 ];
 export const DEVELOP_SYSTEM_QUESTIONS: readonly MarketQuestionDef[] = [

@@ -1,6 +1,6 @@
 // 개발의뢰 위저드 v2(docs/DEVELOP_FLOW.md §7.2.1) 브라우저 스모크 — 실 Vue(5177, nginx /develop/) + 실 Node API.
 // 로그인은 /spcb/api/me 스텁(helpers/browser.ts). 두 여정:
-//   ① 시스템개발 → 전문가 맡김 → 5스텝 완주 → 접수 → API 로 저장값 대조(전 분야 6·기구 포함·답변 0)
+//   ① 시스템개발 → 전문가 맡김 → 5스텝 완주 → 접수 → API 로 저장값 대조(전 분야 6·기구 포함·범위 답변 2)
 //   ② 개별 견적(PCB+기구) → 3스텝 기구설계 서술 문항 → 접수 → 답변에 mech 서술이 남는다
 // 만든 의뢰는 afterAll 이 지운다(공유 DB — 스스로 만들고 스스로 지운다). pageErrors 0 이 게이트.
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard
@@ -112,11 +112,20 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await fillDescribe(s, titles.system);
       await s.page.getByText('전문가에게 맡김', { exact: false }).first().click();
       await next(s);
-      // ③ 맡김 박스 + 협업 범위 3문항(선택지)만, 서술 textarea 없음.
+      // ③ 맡김 박스 + 디자인·기구 범위 2문항. 외부 업체 메모는 해당 선택에서만 보인다.
       await s.page.getByText('전문가 검토로 접수합니다').waitFor();
-      await s.page.getByText('제품디자인·기구설계 및 협업 범위').waitFor();
+      await s.page.getByText('제품 외관·기구 개발 범위').waitFor();
       expect(await s.page.locator('textarea').count()).toBe(0);
-      await s.page.getByRole('button', { name: '샘플피씨비에 일괄 의뢰', exact: true }).click();
+      expect(await s.page.getByText('제품디자인·기구설계 업무를 어떤 방식으로 진행할까요?').count()).toBe(0);
+      const vendorNote = s.page.getByPlaceholder('업체가 맡는 범위와 자료 전달 예정 시기 (선택)');
+      expect(await vendorNote.count()).toBe(0);
+      await s.page.getByRole('button', { name: '다른 업체가 진행 중·진행 예정', exact: true }).first().click();
+      await vendorNote.fill('외관 디자인 담당, 다음 달 도면 전달');
+      // 외부 업체에서 수정 의뢰로 바꾸면 감춘 메모가 저장되지 않는다.
+      await s.page.getByRole('button', { name: '기존 디자인을 바탕으로 샘플피씨비에 수정 의뢰', exact: true }).click();
+      expect(await vendorNote.count()).toBe(0);
+      await s.page.getByRole('button', { name: '다른 업체가 진행 중·진행 예정', exact: true }).nth(1).click();
+      await vendorNote.fill('기구설계 업체, 10월 초 도면 전달');
       await next(s);
       // ④ 시제품 수량 미정 + 제작 범위 하나 → 제조 연계 확인이 열린다.
       await s.page.getByText('시제품과 생산 계획').waitFor();
@@ -134,7 +143,10 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(d.serviceAreas).toHaveLength(6);
       expect(d.serviceAreas).toContain('mech');
       expect(d.expertDelegate).toBe(true);
-      expect(d.answers).toEqual([{ code: 'system.collab', choices: ['all_samplepcb'] }]);
+      expect(d.answers).toEqual([
+        { code: 'system.product_design', choices: ['modify'] },
+        { code: 'system.mech_design', choices: ['other_vendor'], note: '기구설계 업체, 10월 초 도면 전달' },
+      ]);
       expect(d.production?.prototype).toBe('undecided');
       expect(d.production?.scopes).toEqual(['pcb_fab']);
       expect(d.currentStage).toBe('idea');

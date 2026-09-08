@@ -17,6 +17,8 @@ const props = defineProps<{
 const emit = defineEmits<{ toggle: [choice: string]; note: [value: string] }>();
 const unknown = MARKET_UNKNOWN_CHOICE;
 const textKind = computed(() => isTextQuestion(props.question));
+const noteVisible = computed(() => props.question.noteVisibleFor === undefined
+  || props.question.noteVisibleFor.some((code) => props.state.choices.includes(code)));
 // 서술형은 담당자 제안이 가능하다는 것을 placeholder 끝에 붙인다(프로토타입 관례).
 const textPlaceholder = computed(() => `${props.question.notePlaceholder ?? ''} / 담당자 제안 필요`.replace(/^ \/ /, ''));
 </script>
@@ -61,7 +63,7 @@ const textPlaceholder = computed(() => `${props.question.notePlaceholder ?? ''} 
       </div>
     </template>
     <p v-if="question.why !== undefined" class="text-label text-tx-3">{{ question.why }}</p>
-    <label v-if="!textKind && question.notePlaceholder !== undefined" class="grid gap-1">
+    <label v-if="!textKind && noteVisible && question.notePlaceholder !== undefined" class="grid gap-1">
       <input
         :value="state.note"
         type="text"

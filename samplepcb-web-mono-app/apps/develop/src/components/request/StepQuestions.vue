@@ -6,9 +6,9 @@ import type { DevelopRequestForm } from '../../composables/useRequestForm';
 import type { FollowupJob } from '../../composables/useFollowupJob';
 
 // 위저드 3스텝 — 세부 질문(2026-09-08 v2 + AI 후속 질문 §7.2.2).
-// 시스템개발: AI 가 설명문과 첨부를 읽고 고른 질문(선택지형·서술형 섞임, 최대 8) + 협업 범위 3문항(선택지).
+// 시스템개발: AI 가 설명문과 첨부를 읽고 고른 질문(선택지형·서술형 섞임, 최대 8) + 디자인·기구 범위 2문항(선택지).
 //   AI 가 꺼져 있거나 실패·시간 초과면 고정 서술 3문항(사용 상황·입출력·장애 시 동작)으로 조용히 폴백한다.
-//   "전문가에게 맡김"이면 기술 질문을 통째로 건너뛰고 안내 박스 + 협업 범위 3문항만 남는다.
+//   "전문가에게 맡김"이면 기술 질문을 통째로 건너뛰고 안내 박스 + 디자인·기구 범위 2문항만 남는다.
 // 개별 견적: 고른 분야마다 문항을 그대로 나열한다(AI 질문은 시스템개발 전용이다).
 // 전부 선택 사항이라 이 스텝에는 필수 검증이 없다 — 다만 선택지가 메모를 요구하면(noteRequiredFor) 막는다.
 // 답변 상태는 폼 컴포저블이 들고 있으므로 스텝을 오갔다 돌아와도 그대로 남는다(AI 답도 마찬가지).
@@ -153,11 +153,11 @@ const leadText = computed(() => {
         </section>
       </template>
 
-      <!-- 협업 범위 3문항 — 맡김이어도, AI 질문을 써도 묻는다 -->
+      <!-- 디자인·기구 범위 2문항 — 맡김이어도, AI 질문을 써도 묻는다 -->
       <section v-if="systemCollabQuestions.length > 0" class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6">
         <div class="grid gap-1">
-          <h3 class="text-body font-extrabold text-tx-1">제품디자인·기구설계 및 협업 범위</h3>
-          <p class="text-label leading-relaxed text-tx-3">디자인과 기구를 누가 맡는지에 따라 견적에 들어가는 항목이 달라집니다.</p>
+          <h3 class="text-body font-extrabold text-tx-1">제품 외관·기구 개발 범위</h3>
+          <p class="text-label leading-relaxed text-tx-3">디자인과 기구설계는 각각 다른 곳에 맡길 수 있습니다. 분야별로 준비 방식을 알려주세요.</p>
         </div>
         <QuestionField
           v-for="q in systemCollabQuestions"

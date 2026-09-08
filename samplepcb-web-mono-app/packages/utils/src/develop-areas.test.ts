@@ -47,20 +47,22 @@ describe('개발의뢰 레지스트리 정합성', () => {
       else expect(q.options.some((o) => o.code === 'unknown')).toBe(true);
     }
     expect(DEVELOP_SYSTEM_QUESTIONS.filter(isTextQuestion).length).toBe(3);
-    expect(DEVELOP_SYSTEM_QUESTIONS.filter((q) => q.askOnDelegate === true).length).toBe(3);
+    expect(DEVELOP_SYSTEM_QUESTIONS.filter((q) => q.askOnDelegate === true).length).toBe(2);
     // 회로·펌웨어는 개별 메뉴가 없으니 분야별 질문도 없다(시스템개발 3문항이 대신한다).
     expect(DEVELOP_AREAS.find((a) => a.code === 'circuit')?.questions).toEqual([]);
     expect(DEVELOP_AREAS.find((a) => a.code === 'firmware')?.questions).toEqual([]);
     expect(DEVELOP_AREAS.find((a) => a.code === 'mech')?.questions.length).toBe(7);
   });
 
-  it('시스템개발(전 분야)이면 분야별 질문 대신 시스템 6문항(서술 3 + 협업 범위 3), 개별이면 고른 분야 문항만', () => {
+  it('시스템개발(전 분야)이면 분야별 질문 대신 시스템 5문항(서술 3 + 디자인·기구 범위 2), 개별이면 고른 분야 문항만', () => {
     expect(developQuestionsFor(DEVELOP_SYSTEM_AREA_CODES).map((q) => q.code)).toEqual([
-      'system.use', 'system.io', 'system.safety', 'system.product_design', 'system.mech_design', 'system.collab',
+      'system.use', 'system.io', 'system.safety', 'system.product_design', 'system.mech_design',
     ]);
-    // 전문가에게 맡김에서도 남는 것 = 협업 범위 3(역할 질문) — 서술 3은 버려진다.
-    expect(DEVELOP_DELEGATE_KEPT_CODES).toEqual(['system.product_design', 'system.mech_design', 'system.collab']);
-    expect(keepDevelopDelegateAnswers([{ code: 'system.use' }, { code: 'system.collab' }]).map((a) => a.code)).toEqual(['system.collab']);
+    // 전문가에게 맡김에서도 디자인·기구 범위는 남고, 서술·폐기된 협업 문항은 버려진다.
+    expect(DEVELOP_DELEGATE_KEPT_CODES).toEqual(['system.product_design', 'system.mech_design']);
+    expect(keepDevelopDelegateAnswers([
+      { code: 'system.use' }, { code: 'system.collab' }, { code: 'system.product_design' }, { code: 'system.mech_design' },
+    ]).map((a) => a.code)).toEqual(['system.product_design', 'system.mech_design']);
     // PCB 는 프로토타입처럼 설계 툴을 문항으로 묻는다(희망 툴 UI 는 개발의뢰에서 뺐다, 2026-09-08 간소화).
     expect(developQuestionsFor(['pcb']).map((q) => q.code)).toEqual([
       'pcb.type', 'pcb.tool', 'pcb.source', 'pcb.board', 'pcb.mech', 'pcb.signal', 'pcb.deliver',
