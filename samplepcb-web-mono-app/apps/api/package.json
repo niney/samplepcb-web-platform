@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --env-file=.env --import tsx src/server.ts",
+    "dev": "pnpm db:generate && node --watch --env-file=.env --import tsx src/server.ts",
     "build": "tsup src/server.ts --format esm --clean",
     "start": "node --env-file=.env dist/server.js",
     "typecheck": "tsc --noEmit",
