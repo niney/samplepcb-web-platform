@@ -200,6 +200,33 @@ import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql
 import { deliveryCompanyForMethod, isParcelDeliveryMethod } from '@sp/api-contract';
 import type { DeliveryMethodType } from '@sp/api-contract';
 import { kstDateStr, kstDateTimeStr } from './kst';
+import { requireLocalGSmoke } from './local-g-smoke';
+
+// 로컬 G 스모크 픽스처: g5_member INSERT(mb_id/password/name/nick/email/level/date,
+// 필수 빈 텍스트·mb_memo 표식), SELECT(mb_id/mb_memo만). 비밀번호 읽기/기존 계정 갱신 없음.
+// 가입 포인트·마케팅 동의·외부 메일을 만들지 않는 전용 로컬 계정이다. 정리 시 계정은 보존한다.
+export async function ensureLocalGSmokeMember(id: string, passwordHash: string): Promise<void> {
+  requireLocalGSmoke();
+  if (!/^g_smoke_[a-f0-9]{8}$/.test(id) || !/^sha256:12000:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(passwordHash)) throw new Error('스모크 전용 계정 형식을 확인해 주세요.');
+  const marker = 'local-develop-g-smoke-v1';
+  const [rows] = await getG5Pool().query<(RowDataPacket & { mb_memo: string })[]>('SELECT mb_memo FROM g5_member WHERE mb_id = ?', [id]);
+  if (rows[0] !== undefined) {
+    if (rows[0].mb_memo !== marker) throw new Error('다른 용도의 계정은 테스트에 사용할 수 없습니다.');
+    return;
+  }
+  await getG5Pool().execute(
+    `INSERT INTO g5_member (mb_id, mb_password, mb_name, mb_nick, mb_email, mb_level,
+      mb_nick_date, mb_datetime, mb_today_login, mb_email_certify, mb_signature, mb_profile,
+      mb_memo, mb_lost_certify, mb_agree_log, mb_mailling, mb_sms, mb_open)
+     VALUES (?, ?, ?, ?, ?, 2, CURDATE(), NOW(), NOW(), NOW(), '', '', ?, '', '', 0, 0, 0)`,
+    [id, passwordHash, '개발G 시험 고객', `G시험${id.slice(-8)}`, `${id}@example.invalid`, marker],
+  );
+}
+
+export async function closeLocalGSmokeMemberConnection(): Promise<void> {
+  requireLocalGSmoke();
+  if (pool !== null) { await pool.end(); pool = null; }
+}
 
 let pool: Pool | null = null;
 

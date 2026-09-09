@@ -211,6 +211,7 @@ export async function sendDevelopMail(
     const variant = meta.refType === 'develop_request' && /^\d+$/.test(String(meta.refId)) ? await getDevelopPrototype(BigInt(meta.refId)) : 'g';
     const html = variant === 'c' ? mail.html.replaceAll('/app/admin/develop/requests/', '/app/admin/develop-c/requests/').replaceAll('/develop/requests/', '/develop/c/requests/') : mail.html;
     await sendMail({
+      ...(meta.refType === 'develop_request' && /^\d+$/.test(String(meta.refId)) ? { developRequestId: BigInt(meta.refId) } : {}),
       to: recipient,
       subject: mail.subject,
       html,

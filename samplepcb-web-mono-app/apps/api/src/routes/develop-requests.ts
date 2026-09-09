@@ -1,4 +1,5 @@
 import { addDevelopPrototypeGuard, developPrototypeWhere } from '../lib/develop-prototype';
+import { localGSmokeRun } from '../lib/local-g-smoke';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { Prisma } from '@prisma/client';
 import type { SpDevelopEvent, SpDevelopMilestone, SpDevelopQuote, SpDevelopQuoteItem, SpDevelopRequest, SpFile } from '@prisma/client';
@@ -995,6 +996,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       if (m === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
       if (m.status === 'paid') return reply.status(409).send({ result: false, error: 'ALREADY_PAID' });
       if (!milestonePayable(m, asDevelopStatus(r.status), await openedWorkflowMilestones(r.id))) return reply.status(409).send({ result: false, error: 'NOT_PAYABLE' });
+      if (await localGSmokeRun(r.id)) return reply.status(409).send({ result: false, error: 'LOCAL_SMOKE_PAYMENT', message: '보존 테스트 의뢰는 실결제를 진행하지 않습니다. 관리자 입금 확인으로 테스트하세요.' });
       const cartId = request.user.cartId;
       if (cartId === undefined || cartId === '') return reply.status(409).send({ result: false, error: 'NO_CART_ID' });
 

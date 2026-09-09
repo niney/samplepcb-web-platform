@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import { captureGSmokeMail } from './local-g-smoke';
 
 // ── SMTP 메일 전송 (sp-node 직송) ────────────────────────────────────────────
 // 견적 메일 발송용 전송 계층. 로컬은 SMTP_HOST/PORT 미설정 시 127.0.0.1:25 = Mailpit 가
@@ -34,6 +35,7 @@ export interface SendMailAttachment {
 }
 
 export interface SendMailParams {
+  developRequestId?: bigint;
   to: string;
   subject: string;
   html: string;
@@ -46,6 +48,7 @@ export interface SendMailParams {
 // 성공이면 정상 반환, 실패면 throw(nodemailer 가 reject). 라우트가 try/catch 로 잡아
 // mail:'failed' 로 표면화한다. (전송 결과 상세는 서버 로그 계층에 맡기고 여기선 성패만.)
 export async function sendMail(params: SendMailParams): Promise<void> {
+  if (params.developRequestId !== undefined && await captureGSmokeMail(params.developRequestId, params)) return;
   await getTransporter().sendMail({
     from: { name: params.fromName, address: params.fromAddress },
     to: params.to,

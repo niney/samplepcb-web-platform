@@ -18,6 +18,7 @@ const CODE_MESSAGES: Record<string, string> = {
   ALREADY_PAID: '이미 결제된 항목입니다.',
   ORDER_PENDING: '입금 대기 중인 주문이 있습니다. 입금이 확인되면 자동으로 반영됩니다.',
   NO_CART_ID: '결제 세션이 만료되었습니다. 새로고침 후 다시 시도해 주세요.',
+  LOCAL_SMOKE_PAYMENT: '보존 테스트 의뢰는 실결제를 진행하지 않습니다. 관리자 입금 확인으로 테스트하세요.',
   ANCHOR_ITEM_MISSING: '결제 준비가 되지 않았습니다. 담당자에게 문의해 주세요.',
 };
 

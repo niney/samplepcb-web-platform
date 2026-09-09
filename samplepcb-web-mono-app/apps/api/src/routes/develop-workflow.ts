@@ -180,7 +180,7 @@ function makeWorkflowRoutes(admin: boolean): FastifyPluginCallbackZod {
           workAssert(doc.draft.fileIds.length + files.length <= 30, 'FILE_LIMIT', '한 문서에는 30개까지 첨부할 수 있습니다');
           const added: number[] = [];
           for (const inputFile of files) {
-            const [f] = await uploadToFileServer([{ buffer: inputFile.buffer, filename: inputFile.filename, mimetype: inputFile.mimetype }], DEVELOP_FILE_SERVICE_TYPE);
+            const [f] = await uploadToFileServer([{ buffer: inputFile.buffer, filename: inputFile.filename, mimetype: inputFile.mimetype }], DEVELOP_FILE_SERVICE_TYPE, r.id);
             workAssert(f, 'FILE_UPLOAD_FAILED', '파일 업로드 결과가 없습니다');
             const record = await prisma.spFile.create({
               data: {
@@ -299,6 +299,7 @@ function makeWorkflowRoutes(admin: boolean): FastifyPluginCallbackZod {
           };
           try {
             await sendMail({
+              developRequestId: r.id,
               to: email,
               subject: request.body.subject,
               html,

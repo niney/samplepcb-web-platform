@@ -196,6 +196,8 @@
 
 2026-09-10 카탈로그 ⑤ 확장: 개발의뢰 기본값을 위한 `GET /api/me/contact`는 관리자 권한 없이 **JWT 본인만** 조회한다. `g5-db.ts getMemberContactRow`가 `mb_name·mb_email·mb_hp·mb_tel·mb_2`만 SELECT하며 `mb_id` 바인딩과 탈퇴·차단 제외 조건을 둔다. 회사명은 sp 프로필 → `mb_2`, 전화는 휴대전화 → 일반전화 순서로 응답한다. `Cache-Control: no-store`, 회원정보 쓰기·JWT/DB 구조 변경 없음. 상세 `DEVELOP_FLOW.md` §7.2, HANDOFF 결정 #20.
 
+로컬 검증 예외 **S1(2026-09-10)**: `g5-db.ts/ensureLocalGSmokeMember`가 개발(G) 보존 스모크 전용 `g_smoke_<8hex>` 계정을 만든다. SELECT는 `mb_memo`로 소유 표식을 확인하며, INSERT는 ID·입력 비밀번호 해시·이름/닉네임·시험 이메일·레벨 2·날짜·필수 빈 텍스트·메모 표식·미동의 플래그만 사용한다. 기존 회원 갱신/비밀번호 조회·포인트 지급·외부 메일은 없다. 계정은 정리 시 삭제하지 않는다. 운영·원격 DB 실행은 거부한다. 상세는 [보존 스모크](develop-g-smoke.md), 결정 기록은 HANDOFF 6장이다.
+
 > **방침(2026-07-04 개정, HANDOFF 결정 로그 #11)**: sp-php(그누보드/영카트)에서 이 프로젝트
 > 업무에 필요한 기능은 모노레포로 **점진 마이그레이션**한다(최적화·커스텀 목적). 따라서 아래
 > g5_* 행은 "금지의 예외"가 아니라 sp-node 의 **접근 카탈로그**다 — 필요하면 확장하되,
