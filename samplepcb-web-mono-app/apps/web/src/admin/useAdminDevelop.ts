@@ -26,6 +26,7 @@ import type {
   AdminDevelopRequestPatchBodyType,
   AdminDevelopSettingsUpdateType,
   AdminDevelopStatusBodyType,
+  DevelopAdminSignalType,
   DevelopAdminTabType,
   DevelopTaskInputType,
   MarketDevReviewType,
@@ -53,6 +54,8 @@ export interface AdminDevelopFilters {
   pageSize: number;
   tab: DevelopAdminTabType;
   q: string;
+  /** 신호 필터(§14) — 탭 안에서 "지금 관리자 차례"인 행만. null 이면 안 보낸다. */
+  signal: DevelopAdminSignalType | null;
 }
 
 export const emptyDevelopFilters = (): AdminDevelopFilters => ({
@@ -60,6 +63,7 @@ export const emptyDevelopFilters = (): AdminDevelopFilters => ({
   pageSize: 20,
   tab: 'all',
   q: '',
+  signal: null,
 });
 
 const listPath = (f: AdminDevelopFilters): string => {
@@ -68,6 +72,7 @@ const listPath = (f: AdminDevelopFilters): string => {
   params.set('pageSize', String(f.pageSize));
   params.set('tab', f.tab);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
+  if (f.signal !== null) params.set('signal', f.signal);
   return `${base}?${params.toString()}`;
 };
 
@@ -79,13 +84,15 @@ export function useAdminDevelopList(filters: Ref<AdminDevelopFilters>) {
   });
 }
 
-// 사이드바 배지 — 접수 탭 counts 하나(목록 본문은 pageSize=1 로 버린다).
-export function useDevelopReceivedCount(enabled: Ref<boolean>) {
+// 개발 모듈 메뉴 배지(§14) — 단계별 워크큐 6개가 각각 "지금 관리자 차례" 수 하나를 단다.
+// 목록 호출 하나(pageSize=1, 본문은 버린다)에 counts(탭별)와 signals(활성 의뢰 전체)가 같이
+// 실려 오므로 배지마다 요청을 따로 내지 않는다. 60초 refetch 는 다른 모듈 배지 관례와 동일.
+export function useDevelopModuleSignals(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'develop', 'received-count'],
-    queryFn: () => apiGet(`${base}?page=1&pageSize=1&tab=received`, AdminDevelopRequestListResponse),
+    queryKey: ['admin', 'develop', 'module-signals'],
+    queryFn: () => apiGet(`${base}?page=1&pageSize=1&tab=all`, AdminDevelopRequestListResponse),
     enabled,
-    select: (response) => response.data.counts.received,
+    select: (response) => ({ counts: response.data.counts, signals: response.data.signals }),
     refetchInterval: 60_000,
   });
 }

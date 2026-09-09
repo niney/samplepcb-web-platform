@@ -242,7 +242,39 @@ const routes: RouteRecordRaw[] = [
       { path: 'market/projects', name: 'admin-market-projects', component: AdminMarketProjects },
       { path: 'market/contracts', name: 'admin-market-contracts', component: AdminMarketContracts },
       { path: 'market/settings', name: 'admin-market-settings', component: AdminMarketSettings },
-      // 개발의뢰(/develop, sp-develop) 관리 — 워크큐·전면 상세·설정(docs/DEVELOP_FLOW.md §7.3)
+      // 개발의뢰(/develop, sp-develop) 관리 — 독립 모듈 「개발」(docs/DEVELOP_FLOW.md §14):
+      // 진행현황(모듈 홈) + 단계별 워크큐 5개 + 전체 의뢰(기존 워크큐)·전면 상세·설정.
+      // 모듈 판정은 라우트 이름 접두 `admin-develop`(admin/menu.ts resolveAdminModuleKey).
+      {
+        path: 'develop',
+        name: 'admin-develop-home',
+        component: () => import('./pages/admin/AdminDevelopHome.vue'),
+      },
+      {
+        path: 'develop/intake',
+        name: 'admin-develop-intake',
+        component: () => import('./pages/admin/AdminDevelopIntake.vue'),
+      },
+      {
+        path: 'develop/contracts',
+        name: 'admin-develop-contracts',
+        component: () => import('./pages/admin/AdminDevelopContracts.vue'),
+      },
+      {
+        path: 'develop/projects',
+        name: 'admin-develop-projects',
+        component: () => import('./pages/admin/AdminDevelopProjects.vue'),
+      },
+      {
+        path: 'develop/deliveries',
+        name: 'admin-develop-deliveries',
+        component: () => import('./pages/admin/AdminDevelopDeliveries.vue'),
+      },
+      {
+        path: 'develop/inquiries',
+        name: 'admin-develop-inquiries',
+        component: () => import('./pages/admin/AdminDevelopInquiries.vue'),
+      },
       {
         path: 'develop/requests',
         name: 'admin-develop-requests',

@@ -20,12 +20,17 @@ export interface AdminMenuItem {
     | 'pcbOrdersAwaiting'
     | 'pcbRemittancePending'
     | 'pcbClaimsPending'
-    | 'developReceived';
+    | 'developReceived'
+    | 'developAccepted'
+    | 'developDocsAwaiting'
+    | 'developDelivered'
+    | 'developInquiries'
+    | 'developReplyOverdue';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
 
-export type AdminModuleKey = 'core' | 'smartbom' | 'pcb';
+export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'develop';
 
 export interface AdminModule {
   key: AdminModuleKey;
@@ -49,14 +54,8 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
   { to: { name: 'admin-market-contracts' }, labelKey: 'admin.menu.marketContracts' },
   { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
-  // 개발의뢰(/develop, sp-develop) 관리 — 워크큐(상세는 형제 라우트)·설정
-  {
-    to: { name: 'admin-develop-requests' },
-    labelKey: 'admin.menu.developRequests',
-    badge: 'developReceived',
-    activeRouteNames: ['admin-develop-request'],
-  },
-  { to: { name: 'admin-develop-settings' }, labelKey: 'admin.menu.developSettings' },
+  // 개발의뢰(/develop, sp-develop) 관리는 독립 모듈 「개발」로 옮겼다(§14, 2026-09-09).
+  // AI 설정은 모듈 횡단이라 통합(코어)의 설정 화면에 그대로 남는다.
   {
     to: { name: 'admin-bom' },
     labelKey: 'admin.menu.bom',
@@ -161,8 +160,53 @@ const pcbMenu: AdminMenuItem[] = [
   },
 ];
 
-// 모듈 사전 — core(통합) = 공용 기준정보와 기존 관리 기능, pcb·smartbom = 업무 모듈.
-// 확장 자리(PCBA주문·기술개발)는 각 모듈이 실제로 생길 때 추가한다.
+// 개발(기술개발) 모듈(docs/DEVELOP_FLOW.md §14) — 접수→A/S 까지 단계가 가장 긴 트랙이라
+// PCB·BOM 과 같은 단계별 워크큐로 편다. 배지는 각 단계가 "지금 움직여야 하는 수" 하나씩:
+// 접수 수(counts.received) · 결제 대기(counts.accepted) · 회신 대기(signals.docsAwaiting) ·
+// 검수 중(counts.delivered) · 미답변 문의(signals.inquiriesOpen) · 홈은 기한 초과(signals.replyOverdue).
+// 건별 상세(admin-develop-request)는 한 장 허브를 유지하고 각 큐가 ?tab= 으로 딥링크하므로,
+// 활성 메뉴는 진입 큐를 기억하지 않고 '전체 의뢰' 하나로 둔다.
+const developMenu: AdminMenuItem[] = [
+  {
+    to: { name: 'admin-develop-home' },
+    labelKey: 'admin.menu.developHome',
+    badge: 'developReplyOverdue',
+  },
+  {
+    to: { name: 'admin-develop-intake' },
+    labelKey: 'admin.menu.developIntake',
+    badge: 'developReceived',
+  },
+  {
+    to: { name: 'admin-develop-contracts' },
+    labelKey: 'admin.menu.developContracts',
+    badge: 'developAccepted',
+  },
+  {
+    to: { name: 'admin-develop-projects' },
+    labelKey: 'admin.menu.developProjects',
+    badge: 'developDocsAwaiting',
+  },
+  {
+    to: { name: 'admin-develop-deliveries' },
+    labelKey: 'admin.menu.developDeliveries',
+    badge: 'developDelivered',
+  },
+  {
+    to: { name: 'admin-develop-inquiries' },
+    labelKey: 'admin.menu.developInquiries',
+    badge: 'developInquiries',
+  },
+  {
+    to: { name: 'admin-develop-requests' },
+    labelKey: 'admin.menu.developRequests',
+    activeRouteNames: ['admin-develop-request'],
+  },
+  { to: { name: 'admin-develop-settings' }, labelKey: 'admin.menu.developSettings' },
+];
+
+// 모듈 사전 — core(통합) = 공용 기준정보와 기존 관리 기능, pcb·smartbom·develop = 업무 모듈.
+// 확장 자리(PCBA주문)는 그 모듈이 실제로 생길 때 추가한다.
 export const adminModules: readonly AdminModule[] = [
   { key: 'core', labelKey: 'admin.modules.core', homeTo: { name: 'admin' }, menu: adminMenu },
   {
@@ -177,6 +221,12 @@ export const adminModules: readonly AdminModule[] = [
     homeTo: { name: 'admin-smartbom' },
     menu: smartbomMenu,
   },
+  {
+    key: 'develop',
+    labelKey: 'admin.modules.develop',
+    homeTo: { name: 'admin-develop-home' },
+    menu: developMenu,
+  },
 ];
 
 // 라우트 이름 → 소속 모듈. 스위처 활성 상태는 이 파생이 단일 진실 — 북마크·새로고침
@@ -186,4 +236,6 @@ export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
     ? 'smartbom'
     : routeName.startsWith('admin-pcb')
       ? 'pcb'
-      : 'core';
+      : routeName.startsWith('admin-develop')
+        ? 'develop'
+        : 'core';

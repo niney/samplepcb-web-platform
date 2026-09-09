@@ -14,7 +14,7 @@ import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
 import { usePcbClaimsPendingCount } from '../admin/useAdminPcbClaims';
-import { useDevelopReceivedCount } from '../admin/useAdminDevelop';
+import { useDevelopModuleSignals } from '../admin/useAdminDevelop';
 import {
   pcbAdminEntryTo,
   pcbAdminSectionTo,
@@ -135,36 +135,53 @@ const pcbRemittancePending = usePcbRemittancePendingCount(isAdminUser);
 const { data: pcbClaimsPending } = usePcbClaimsPendingCount(isAdminUser);
 // PCB 대기 큐 — 각 역할이 "아직 시작하지 않은" 수(요청 대기·발주 대기).
 const { todoRfq: pcbTodoRfq, todoPo: pcbTodoPo } = useAdminPcbTodoCounts(isAdminUser);
-// 개발의뢰 — 아직 검토를 시작하지 않은 접수 건(docs/DEVELOP_FLOW.md §7.3).
-const { data: developReceived } = useDevelopReceivedCount(isAdminUser);
+// 개발 모듈(docs/DEVELOP_FLOW.md §14) — 목록 호출 하나에서 counts(탭별)와 signals
+// (활성 의뢰 전체 기준 회신 대기·미답변·기한 초과)를 같이 받아 단계별 배지 6개에 나눈다.
+const { data: developModule } = useDevelopModuleSignals(isAdminUser);
 // PCB 배지는 합산이다 — SmartBOM 과 달리 시작 전(대기 큐)과 진행 중 내 차례가 모두
 // 관리자 몫이라, 하나만 세면 나머지가 묻힌다("이 역할이 지금 움직여야 하는 수").
-const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefined =>
-  badge === 'rfqCount'
-    ? rfqCount.value
-    : badge === 'bomQuotesRequested'
-      ? bomQuotesRequested.value
-      : badge === 'bomOrdersAwaiting'
-        ? bomOrdersAwaiting.value
-        : badge === 'bomPosAwaiting'
-          ? bomPosAwaiting.value
-          : badge === 'bomClaimsPending'
-            ? bomClaimsPending.value
-          : badge === 'pcbRfqPending'
-            ? pcbTodoRfq.value + (pcbRfqPending.value ?? 0)
-            : badge === 'pcbPosPending'
-              ? pcbTodoPo.value + pcbEqPending.value
-              : badge === 'pcbShipmentPending'
-                ? pcbToShip.value + (pcbShipmentPending.value ?? 0) + (pcbCustomerToShip.value ?? 0)
-                : badge === 'pcbOrdersAwaiting'
-                  ? pcbOrdersAwaiting.value
-                  : badge === 'pcbRemittancePending'
-                    ? pcbRemittancePending.value
-                    : badge === 'pcbClaimsPending'
-                      ? pcbClaimsPending.value
-                      : badge === 'developReceived'
-                        ? developReceived.value
-                        : bomShipmentPending.value;
+const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefined => {
+  switch (badge) {
+    case 'rfqCount':
+      return rfqCount.value;
+    case 'bomQuotesRequested':
+      return bomQuotesRequested.value;
+    case 'bomOrdersAwaiting':
+      return bomOrdersAwaiting.value;
+    case 'bomPosAwaiting':
+      return bomPosAwaiting.value;
+    case 'bomClaimsPending':
+      return bomClaimsPending.value;
+    case 'bomShipmentPending':
+      return bomShipmentPending.value;
+    case 'pcbRfqPending':
+      return pcbTodoRfq.value + (pcbRfqPending.value ?? 0);
+    case 'pcbPosPending':
+      return pcbTodoPo.value + pcbEqPending.value;
+    case 'pcbShipmentPending':
+      return pcbToShip.value + (pcbShipmentPending.value ?? 0) + (pcbCustomerToShip.value ?? 0);
+    case 'pcbOrdersAwaiting':
+      return pcbOrdersAwaiting.value;
+    case 'pcbRemittancePending':
+      return pcbRemittancePending.value;
+    case 'pcbClaimsPending':
+      return pcbClaimsPending.value;
+    case 'developReceived':
+      return developModule.value?.counts.received;
+    case 'developAccepted':
+      return developModule.value?.counts.accepted;
+    case 'developDelivered':
+      return developModule.value?.counts.delivered;
+    case 'developDocsAwaiting':
+      return developModule.value?.signals.docsAwaiting;
+    case 'developInquiries':
+      return developModule.value?.signals.inquiriesOpen;
+    case 'developReplyOverdue':
+      return developModule.value?.signals.replyOverdue;
+    default:
+      return undefined;
+  }
+};
 </script>
 
 <template>
