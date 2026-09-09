@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRoute, useRouter } from 'vue-router';
 import {
   DEVELOP_ADMIN_EVENT_TYPES,
   DEVELOP_EVENT_TYPE_LABELS,
@@ -23,7 +24,25 @@ const props = defineProps<{
 const emit = defineEmits<{ preview: [file: PreviewTarget] }>();
 
 const { t } = useI18n();
+const route = useRoute();
+const router = useRouter();
 const create = useAdminDevelopEventCreate();
+
+// 문서 이벤트(document_sent·document_decided, docs/DEVELOP_FLOW.md §13) — payload 의 문서번호를
+// 제목 옆 칩으로 띄우고, 누르면 프로젝트 문서 탭의 그 카드로 데려간다(탭 패널은 v-show 라 이미 마운트되어 있다).
+const docChip = (payload: Record<string, unknown> | null): { docNo: string; documentId: number } | null => {
+  if (payload === null) return null;
+  const { docNo, documentId } = payload;
+  if (typeof docNo !== 'string' || typeof documentId !== 'number') return null;
+  return { docNo, documentId };
+};
+
+function openDocument(documentId: number): void {
+  void router.replace({ query: { ...route.query, tab: 'documents' } }).then(async () => {
+    await nextTick();
+    document.getElementById(`develop-doc-${String(documentId)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
 
 const type = ref<(typeof DEVELOP_ADMIN_EVENT_TYPES)[number]>('note');
 const title = ref('');
@@ -215,6 +234,14 @@ const payloadRows = (payload: Record<string, unknown> | null): { key: string; va
           <span v-if="!e.visibleToCustomer" class="rounded-full bg-gray-300 px-2 py-0.5 text-[11px] font-bold text-gray-700">
             {{ t('admin.develop.timeline.internal') }}
           </span>
+          <button
+            v-if="docChip(e.payload) !== null"
+            type="button"
+            class="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-700 hover:bg-blue-100"
+            @click="openDocument(docChip(e.payload)?.documentId ?? 0)"
+          >
+            {{ docChip(e.payload)?.docNo }}
+          </button>
           <b class="min-w-0 truncate text-gray-800">{{ e.title }}</b>
           <span class="ml-auto shrink-0 text-xs text-gray-400">{{ e.actorName }} · {{ formatDateTime(e.createdAt) }}</span>
         </div>

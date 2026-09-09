@@ -259,7 +259,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 | 검증 | e2e-develop **110/0**(run→cleanup 잔여 0) · e2e-market **148/0** · api 단위 999 · utils 152(견적 순수 함수 8 포함) · 8워크스페이스 typecheck 0 · lint 0(기존 `order-progress.ts`·`bom-claims.ts`·`pcb-claims.ts` 의 prefer-optional-chain 3건은 이 작업 전부터 있던 것) · 실브라우저: 고객 위저드 완주·상세·수정·인쇄 / 관리자 4화면 / 견적 작성→발송→수락→수동 입금→in_progress·철회·삭제, pageErrors 0 |
 | 운영 반영 | 앵커 `sp-develop-svc` 시드 · PHP 사전(`sp_develop_it_ids` union·cart 배지) · 라이브 nginx `/develop/`(폐지된 `/rnd` 5177 블록 재활용) 반영·재시작 완료(로컬). **운영 배포**는 `deploy.sh`(2026-09-05 갱신: 5번에 develop 빌드, 9번=sp-develop 단독, 2·5번 마이그레이션 뒤 앵커 시드 자동) — 첫 배포 순서: main 병합 → `./deploy.sh 5`(추가형이라 N) → 운영 nginx 는 로컬 보관본 `ops/nginx-live/sites-enabled/centrafab`(gitignore; 2026-09-05 `/develop/` alias·`= /develop` 301·`/rnd` 제거 반영)을 서버 `/etc/nginx/sites-enabled/centrafab` 에 올림 → 7 → 6(PHP) → 관리자 AI 설정에서 develop 유스케이스 켜기 → 첨부 업로드 1회 실측(파일서버 serviceType `develop`) |
 
-| 프로젝트 문서·업무표(P4, 2026-09-09, 브랜치 `feat/develop-workflow-docs`) | 백엔드 완료 — 계약 `develop-docs.ts` · migration `20260909120000_develop_workflow_docs`(+`down.sql`) · lib `develop-docs.ts` · 라우트 `admin-develop-docs.ts` + 고객 `documents/:docId/decide` · AI `develop.doc-mail`(`develop-doc-mail.ts`·`doc-mail-runner.ts`) · 메일 2종 · 하네스 §10b·§11b(**170/0**) · 단위(doc-mail 3·contract 5). 화면은 §13.5 |
+| 프로젝트 문서·업무표(P4, 2026-09-09, 브랜치 `feat/develop-workflow-docs`) | 백엔드 완료 — 계약 `develop-docs.ts` · migration `20260909120000_develop_workflow_docs`(+`down.sql`) · lib `develop-docs.ts` · 라우트 `admin-develop-docs.ts` + 고객 `documents/:docId/decide` · AI `develop.doc-mail`(`develop-doc-mail.ts`·`doc-mail-runner.ts`) · 메일 2종 · 하네스 §10b·§11b(**170/0**) · 단위(doc-mail 3·contract 6). 화면 완료(§13.5 — 고객·관리자 워커 2본 + 전수 감사, 9워크스페이스 typecheck 0 · web/develop lint 0 · 실브라우저 pageErrors 0, 스크린샷 `.tmp/develop/shots/`) |
 
 남은 것: 파일서버 serviceType `develop` 운영 수용 실측 · 알림톡 템플릿 · 실 LLM 초안 육안 1회(관리자 상세에서 `초안 다시 만들기`) · 위키 재컴파일 · 발주서(PO) 첨부 라우트(계약 `poFile` 자리만 있음) · 마일스톤 `manual` 트리거의 청구 열기 플래그.
 
@@ -297,6 +297,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 - 문서 8종은 한 테이블 `sp_develop_document` — `type` + **필드 스펙**(`DEVELOP_DOC_FIELDS[type]`: key·label·kind(text/textarea/date/datetime/select/checklist/table)·options·columns·meta) + 본문 JSON(`DevelopDocContent`: key → string | 코드 배열 | 행 배열). 폼·읽기 뷰·메일 본문이 같은 스펙으로 그려지고, 서버는 `developDocContentIssues` 로 400(`CONTENT_INVALID`)을 낸다. 부분 본문 허용, 빈 문서 발송은 400 `EMPTY_DOCUMENT`.
 - 문서번호 `docNo` = 종류 코드 + 종류별 일련번호(`DR-01`·`CR-02`). **재발송은 새 판**(`revise` → 같은 종류·번호, version+1 draft, 본문 복사) → 발송 시 이전 판 `superseded`. 고객은 보낸 판만 보고(`draft` 는 어떤 응답에도 없다) `isCurrent` 가 현재 판.
 - 상태 `draft → sent → 결정(approved·conditional·changes_requested·discuss_requested·rejected) | superseded`. 결정 선택지는 종류별(`DEVELOP_DOC_DECISION_OPTIONS`: 기본 4택 / 변경요청 「변경 적용 승인·기존 범위 유지·내용 수정 후 재검토·담당자 협의 필요」 / 납품확인 「납품 승인·보완 후 승인·추가 협의」). 공유형(plan·test_report·progress_report)은 결정 없음(409 `NOT_APPROVAL_DOC`). 결정 = 동의 기록(시각·IP·이름, 견적 수락 패턴), sent 에서 한 번(409 `DOC_NOT_OPEN`).
+- 새 판은 본문·회신 요청일·내부 메모만 복사하고 **첨부는 복사하지 않는다**(파일 행 복제 → 한쪽 삭제가 실파일을 지움). 상태 라벨은 `developDocStatusLabel(type, status)` — 공유형 sent 는 '공유됨'.
 - 발송 = 판 고정 + `mailSubject/Body`(관리자가 확인한 그대로) 저장 + 이벤트 `document_sent`(고객 노출) + 고객 메일(`sendMail` 끄면 화면 공개만). 결정 = 이벤트 `document_decided` + 관리자 메일 + 부수효과(납품확인·변경요청). 문서 생성은 `accepted` 이후(`DEVELOP_DOC_ALLOWED_STATUSES`), 납품확인서는 delivered·completed 에서만(409 `DOC_TYPE_NOT_ALLOWED`).
 - 고객 `nextAction` 에 `answer_document`(승인형 sent 문서, 결제·검수보다 뒤 순위). 첨부는 draft 에서만 붙이고 고객 다운로드는 보낸 판의 첨부만(기존 파일 라우트가 refType 을 하나 더 안다).
 
@@ -322,6 +323,6 @@ sudo mysql samplepcb < samplepcb-web-mono-app/apps/api/prisma/migrations/2026090
 
 ### 13.5 화면
 
-- 관리자(`apps/web`): 상세 여섯 번째 탭 「프로젝트 문서」 — 현황 띠(달성도·7단계·확인 대기) · 업무표 편집(기본 업무·검토서 일정 시드·가중치·간트는 실제 날짜) · 문서 목록·필드 스펙 편집기·첨부·발송 패널(결정적 초안 → AI 다듬기 → 확인 → 발송) · 읽기 뷰·새 판·인쇄. AI 설정 탭에 `develop.doc-mail` 카드. 워커 지시서 `docs/prompts/develop-workflow-b-admin.md`.
+- 관리자(`apps/web`): 상세 여섯 번째 탭 「프로젝트 문서」(진행 타임라인 뒤, `?tab=documents`) — 현황 띠(달성도·7단계·확인 대기) · 업무표 편집(기본 업무·검토서 일정 시드·가중치·간트는 실제 날짜) · 문서 목록·필드 스펙 편집기·첨부·발송 패널(결정적 초안 → AI 다듬기 → 확인 → 발송) · 읽기 뷰·새 판·인쇄(인쇄 순간에만 `html.sp-doc-printing` + 카드 `.sp-doc-print-target` 로 그 카드만 남김). 순수 모듈 `develop-doc-edit.ts`(본문 복사·폼 정규화·업무 행 변환·간트 모델). AI 설정 탭에 `develop.doc-mail` 카드(⑦). AI 잡 폴링은 설정 화면의 `useAiJob` 재사용. 워커 지시서 `docs/prompts/develop-workflow-b-admin.md`.
 - 고객(`apps/develop`): 상세 「진행 현황·문서」 섹션(`#documents`) — 현황 카드·공개 업무표·확인 대기 배너·문서 목록(현재 판·이전 판 접힘)·읽기·결정 패널(종류별 라디오+의견+이름+확인 체크)·문서 인쇄 라우트 · 견적 인쇄 `?mode=contract` 계약서 보기 · 목록 칩 「문서 확인·회신」. 워커 지시서 `docs/prompts/develop-workflow-a-app.md`.
 - 검증: 하네스 §10b(업무표·문서 생성/검증/발송/결정/새 판/변경요청→change 견적/삭제)·§11b(납품확인서 보완→재납품→승인 completed) **170/0** · 단위 `develop-doc-mail.test.ts`(3)·`packages/utils/src/develop-docs.test.ts`(5) · 8워크스페이스 typecheck.

@@ -7,6 +7,7 @@ import {
   developDocContentIssues,
   developDocContentRows,
   developDocNo,
+  developDocStatusLabel,
   developProgressSummary,
   emptyDevelopDocContent,
 } from '@sp/api-contract';
@@ -79,6 +80,14 @@ describe('develop-docs contract', () => {
     expect(share.body).toContain('홍길동 담당자님');
     expect(share.body).toContain('계획된 일정에 따라');
     expect(share.body).not.toContain('회신 요청일');
+  });
+
+  it('상태 라벨 — 공유형 sent 는 공유됨, 결정은 종류별 문안', () => {
+    expect(developDocStatusLabel('design_review', 'sent')).toBe('고객 확인 대기');
+    expect(developDocStatusLabel('progress_report', 'sent')).toBe('공유됨');
+    expect(developDocStatusLabel('change_request', 'rejected')).toBe('기존 범위 유지');
+    expect(developDocStatusLabel('delivery_confirm', 'changes_requested')).toBe('보완 후 승인');
+    expect(developDocStatusLabel('kickoff', 'superseded')).toBe('이전 버전');
   });
 
   it('진행 요약 — 가중 달성도·현재 단계·7단계 상태', () => {

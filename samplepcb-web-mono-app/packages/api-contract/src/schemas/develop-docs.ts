@@ -105,6 +105,13 @@ export const DEVELOP_DOC_DECISION_OPTIONS: Record<DevelopDocTypeType, readonly D
 export const developDocDecisionLabel = (type: DevelopDocTypeType, decision: DevelopDocDecisionType): string =>
   DEVELOP_DOC_DECISION_OPTIONS[type].find((o) => o.code === decision)?.label ?? DEVELOP_DOC_STATUS_LABELS[decision];
 
+// 상태 라벨(종류 반영) — 공유형 문서의 sent 는 고객 결정을 받지 않으므로 '고객 확인 대기'가 아니라 '공유됨'. 결정 상태는 종류별 문안.
+export function developDocStatusLabel(type: DevelopDocTypeType, status: DevelopDocStatusType): string {
+  if (status === 'sent') return isDevelopDocApproval(type) ? DEVELOP_DOC_STATUS_LABELS.sent : '공유됨';
+  if (status === 'draft' || status === 'superseded') return DEVELOP_DOC_STATUS_LABELS[status];
+  return developDocDecisionLabel(type, status);
+}
+
 // ── 필드 스펙 — 문서 8종의 폼·뷰·메일 본문을 한 스펙으로 그린다 ────────────────────────────
 export type DevelopDocFieldKind = 'text' | 'textarea' | 'date' | 'datetime' | 'select' | 'checklist' | 'table';
 export interface DevelopDocOption {

@@ -157,6 +157,8 @@ export const adminDevelopDocRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
   );
 
   // ── POST /admin/develop/documents/:docId/revise — 새 판(version+1 draft) ───────────
+  // 본문·회신 요청일·내부 메모만 복사한다. **첨부는 복사하지 않는다** — sp_file 행을 복제하면 두 행이 같은 pathToken 을
+  // 가리키고, 한쪽 초안 삭제(deleteMarketFile = 실파일 먼저)가 다른 판의 파일을 지운다. 새 판엔 다시 붙인다.
   fastify.post(
     '/develop/documents/:docId/revise',
     { schema: { params: DocIdParams, response: { 200: AdminDevelopDocumentResponse, 404: ApiError, 409: ApiError } } },

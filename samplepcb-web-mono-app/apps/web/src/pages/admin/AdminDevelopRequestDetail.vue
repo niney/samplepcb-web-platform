@@ -7,6 +7,7 @@ import { FilePreviewModal, apiErrorMessage } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
 import { useAdminDevelopDetail } from '../../admin/useAdminDevelop';
 import DevelopDiagramPanel from '../../components/admin/develop/DevelopDiagramPanel.vue';
+import DevelopDocsPanel from '../../components/admin/develop/DevelopDocsPanel.vue';
 import DevelopOpsStrip from '../../components/admin/develop/DevelopOpsStrip.vue';
 import DevelopQuoteSection from '../../components/admin/develop/DevelopQuoteSection.vue';
 import DevelopRequestContent from '../../components/admin/develop/DevelopRequestContent.vue';
@@ -48,7 +49,7 @@ const areaBadge = computed(() => {
   return badge === DEVELOP_REQUEST_MODE_LABELS[d.requestMode] ? '' : badge;
 });
 
-const TABS = ['content', 'review', 'diagram', 'quotes', 'timeline'] as const;
+const TABS = ['content', 'review', 'diagram', 'quotes', 'timeline', 'documents'] as const;
 type Tab = (typeof TABS)[number];
 const isTab = (value: unknown): value is Tab => typeof value === 'string' && (TABS as readonly string[]).includes(value);
 
@@ -72,6 +73,7 @@ const sideOpen = computed(() => sideWanted.value && tab.value !== 'content');
 // 탭 배지 — 열어보지 않고도 할 일이 보이게. 편집 중 표시는 자식이 올려준다(저장 누락 방지).
 const reviewDirty = ref(false);
 const quoteEditing = ref(false);
+const docsDirty = ref(false);
 
 interface Badge {
   text: string;
@@ -79,7 +81,7 @@ interface Badge {
 }
 const badges = computed<Record<Tab, Badge[]>>(() => {
   const d = detail.value;
-  const empty: Record<Tab, Badge[]> = { content: [], review: [], diagram: [], quotes: [], timeline: [] };
+  const empty: Record<Tab, Badge[]> = { content: [], review: [], diagram: [], quotes: [], timeline: [], documents: [] };
   if (d === undefined) return empty;
   const review: Badge[] = [];
   if (d.review.draftRunning) review.push({ text: t('admin.develop.nav.badge.running'), tone: 'blue' });
@@ -101,7 +103,17 @@ const badges = computed<Record<Tab, Badge[]>>(() => {
   if (quoteEditing.value) quotes.push({ text: t('admin.develop.nav.badge.editing'), tone: 'amber' });
 
   const timeline: Badge[] = d.events.length > 0 ? [{ text: String(d.events.length), tone: 'gray' }] : [];
-  return { content: [], review, diagram, quotes, timeline };
+
+  // 프로젝트 문서(§13) — 고객 확인 대기가 먼저(할 일), 그 다음 작성 중 초안, 편집 중 표시.
+  const documents: Badge[] = [];
+  if (d.progress.pendingApprovals > 0) {
+    documents.push({ text: t('admin.develop.nav.badge.awaiting', { count: d.progress.pendingApprovals }), tone: 'amber' });
+  }
+  const drafts = d.documents.filter((doc) => doc.status === 'draft').length;
+  if (drafts > 0) documents.push({ text: t('admin.develop.nav.badge.drafting', { count: drafts }), tone: 'gray' });
+  if (docsDirty.value) documents.push({ text: t('admin.develop.nav.badge.editing'), tone: 'amber' });
+
+  return { content: [], review, diagram, quotes, timeline, documents };
 });
 
 // 첨부 미리보기 — 의뢰 첨부·타임라인 첨부·옆 보기 패널이 한 모달을 쓴다(고객 앱과 같은 @sp/ui FilePreviewModal).
@@ -222,6 +234,9 @@ const badgeClass: Record<Badge['tone'], string> = {
           <div v-show="tab === 'quotes'" role="tabpanel"><DevelopQuoteSection :detail="detail" @editing="quoteEditing = $event" /></div>
           <div v-show="tab === 'timeline'" role="tabpanel">
             <DevelopTimeline :request-id="detail.requestId" :events="detail.events" :status="detail.status" @preview="previewFile = $event" />
+          </div>
+          <div v-show="tab === 'documents'" role="tabpanel">
+            <DevelopDocsPanel :detail="detail" @dirty="docsDirty = $event" @preview="previewFile = $event" />
           </div>
         </div>
 
