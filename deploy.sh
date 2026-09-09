@@ -37,6 +37,7 @@ MONO="$ROOT/samplepcb-web-mono-app"
 
 [[ -d "$MONO" ]] || { echo "경로 없음: $MONO"; exit 1; }
 cd "$MONO"
+PRE_DEPLOY_CODE_REF="$(git -C "$ROOT" rev-parse HEAD)"
 
 # ── 헬퍼 ────────────────────────────────────────────────
 step()         { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
@@ -49,7 +50,7 @@ clean_stale()  { step "스테일 emit 정리";
     | while IFS= read -r f; do rm -f "$ROOT/$f" && echo "  삭제: $f"; done || true; }
 pull()         { step "코드 받기";             git -C "$ROOT" pull --ff-only; clean_stale; pnpm install --frozen-lockfile; }
 gen()          { step "prisma generate";       pnpm --filter api db:generate; }
-migrate()      { step "prisma migrate deploy"; pnpm --filter api exec prisma migrate deploy; }
+migrate()      { step "DB 원복 백업 · 변경 확인 · prisma migrate deploy"; pnpm --filter api db:prepare --always-backup --code-ref "$PRE_DEPLOY_CODE_REF"; }
 build_api()    { step "sp-api 빌드";           pnpm --filter api build; }
 build_web()    { step "sp-vue(web) 빌드";      pnpm --filter web build; }
 build_market() { step "sp-market 빌드";        pnpm --filter market build; }

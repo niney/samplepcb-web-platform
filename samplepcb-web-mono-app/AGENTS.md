@@ -69,3 +69,5 @@ pnpm typecheck    # turbo typecheck (모든 워크스페이스)
 pnpm lint
 ```
 nginx(`../ops/nginx/local-web.conf`)가 `/app`→5173, `/market`→5176, `/develop`→5177, `/api`→3333 프록시.
+
+`pnpm dev`의 API 단계는 미적용 migration이 있을 때 DB 스냅샷을 먼저 만들고 `migrate deploy`를 실행한다. 수행관리용 환경변수는 필요 없다. 운영 배포와 DB 원복 명령은 [`../docs/db-snapshot-rollback.md`](../docs/db-snapshot-rollback.md)를 따른다.
