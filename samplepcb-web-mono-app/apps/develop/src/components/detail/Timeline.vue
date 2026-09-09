@@ -13,6 +13,14 @@ const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFil
 
 const label = (t: DevelopEventTypeType): string => DEVELOP_EVENT_TYPE_LABELS[t];
 
+// 문서 사건(§13)의 문서번호 칩 — payload 는 계약상 Record<string, unknown> 이라 좁혀 읽는다.
+// 칩은 "진행 현황·문서" 섹션으로 보내는 앵커다(문서 본문은 그 섹션이 정본이라 여기서 다시 그리지 않는다).
+const docNo = (e: DevelopEventViewType): string => {
+  if (e.type !== 'document_sent' && e.type !== 'document_decided') return '';
+  const v = e.payload?.docNo;
+  return typeof v === 'string' ? v : '';
+};
+
 // 타입별 점 색 — 상태·산출물처럼 흐름이 바뀌는 사건만 브랜드색을 쓴다.
 const dotClass = (t: DevelopEventTypeType): string => {
   switch (t) {
@@ -46,6 +54,13 @@ const dotClass = (t: DevelopEventTypeType): string => {
       <div class="grid gap-1.5 pb-6">
         <div class="flex flex-wrap items-baseline gap-2">
           <span class="rounded-full bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">{{ label(e.type) }}</span>
+          <a
+            v-if="docNo(e) !== ''"
+            href="#documents"
+            class="rounded-full bg-brand-50 px-2 py-0.5 font-mono text-micro font-bold tabular-nums text-brand-700 transition hover:bg-brand-100"
+          >
+            {{ docNo(e) }}
+          </a>
           <span class="text-body font-bold text-tx-1">{{ e.title }}</span>
           <span class="ml-auto font-mono text-micro tabular-nums text-tx-3">{{ dateTimeKst(e.createdAt) }}</span>
         </div>

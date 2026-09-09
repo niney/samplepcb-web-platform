@@ -15,6 +15,12 @@ const children: RouteRecordRaw[] = [
     component: () => import('./pages/QuotePrint.vue'),
     meta: { bare: true }, // 인쇄용 — 헤더·푸터 없이
   },
+  {
+    path: 'requests/:id(\\d+)/documents/:docId(\\d+)/print',
+    name: 'document-print',
+    component: () => import('./pages/DocumentPrint.vue'),
+    meta: { bare: true }, // 프로젝트 문서 인쇄용 — 견적서 인쇄 라우트와 같은 관례
+  },
 ];
 
 const routes: RouteRecordRaw[] = [{ path: '/', component: DevelopLayout, children }];

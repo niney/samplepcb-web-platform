@@ -10,7 +10,12 @@ import {
   DevelopRequestStatusResponse,
   apiRoutes,
 } from '@sp/api-contract';
-import type { DevelopQuoteAcceptBodyType, DevelopRequestDetailResponseType, DevelopRequestUpdateBodyType } from '@sp/api-contract';
+import type {
+  DevelopDocDecisionType,
+  DevelopQuoteAcceptBodyType,
+  DevelopRequestDetailResponseType,
+  DevelopRequestUpdateBodyType,
+} from '@sp/api-contract';
 import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 
 // 개발의뢰 고객 서버 상태 훅(docs/DEVELOP_FLOW.md §8) — 계약은 @sp/api-contract(develop.ts),
@@ -200,6 +205,27 @@ export function useDeliveryDecision(requestId: Ref<number | null>) {
         note.trim() === '' ? {} : { note: note.trim() },
         DevelopRequestDetailResponse,
       ),
+    onSuccess: (data) => {
+      setDetail(qc, requestId, data);
+    },
+  });
+}
+
+// 프로젝트 문서 결정(§13) — 승인형 문서의 sent 판에만. 결정 = 동의 기록(서버가 시각·IP·이름을 남긴다).
+// 응답이 **상세 전체**라 캐시를 갈아 끼운다: 납품확인서 승인이면 상태가 completed 로, 보완 요청이면
+// in_progress 로 같이 바뀌어 스텝퍼·nextAction 이 한 번에 따라온다.
+export function useDecideDocument(requestId: Ref<number | null>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ documentId, decision, note, name }: { documentId: number; decision: DevelopDocDecisionType; note: string; name: string }) => {
+      const trimmed = note.trim();
+      return apiSend(
+        'POST',
+        `${developRequestPath(requestId.value ?? 0)}/documents/${String(documentId)}/decide`,
+        trimmed === '' ? { decision, name: name.trim() } : { decision, name: name.trim(), note: trimmed },
+        DevelopRequestDetailResponse,
+      );
+    },
     onSuccess: (data) => {
       setDetail(qc, requestId, data);
     },
