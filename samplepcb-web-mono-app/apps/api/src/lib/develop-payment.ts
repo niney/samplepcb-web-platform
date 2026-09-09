@@ -7,6 +7,8 @@ import { buildCompletedEmail, buildPaymentConfirmedEmail, sendDevelopMail, sendD
 import { getDevelopSettings } from './develop-settings';
 import { PAID_ORDER_STATUSES, deleteCartRowsByIoId, deleteQuoteOption, getMembersByIds, getOrderInfoByCtId, DEVELOP_ANCHOR_IT_ID } from './g5-db';
 import { prisma } from './prisma';
+import { Prisma } from '@prisma/client';
+import { syncWorkflowAutoConfirm } from './develop-workflow';
 
 // ── 개발의뢰 결제·검수 lazy 승격(docs/DEVELOP_FLOW.md §4.2) — 마켓 ensureContractLazy 동형 ─────────────
 // cron 없음. 의뢰를 읽거나 전이 가드를 대는 모든 지점이 `ensureDevelopLazy(request)` 를 먼저 부른다.
@@ -55,7 +57,14 @@ export const markMilestonePaid = async (
   });
   if (!promoted) return false;
   // 착수 — accepted 에서 첫 결제가 확인되면 in_progress. 이미 진행 중이면 그대로.
-  const started = await transitionDevelopStatus(m.requestId, ['accepted'], 'in_progress', { mbId: actorMbId, byAdmin: by === 'admin' }, { startedAt: now });
+  const started = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM sp_develop_request WHERE id = ${m.requestId} FOR UPDATE`);
+    if ((await tx.spDevelopWorkflow.findUnique({ where: { requestId: m.requestId }, select: { enabled: true } }))?.enabled === true) return false;
+    const update = await tx.spDevelopRequest.updateMany({ where: { id: m.requestId, status: 'accepted' }, data: { status: 'in_progress', startedAt: now } });
+    if (update.count !== 1) return false;
+    await addDevelopEvent(tx, m.requestId, { type: 'status_changed', actorMbId, byAdmin: by === 'admin', title: '상태가 바뀌었습니다', payload: { from: ['accepted'], to: 'in_progress' } });
+    return true;
+  });
   const r = await prisma.spDevelopRequest.findUnique({ where: { id: m.requestId } });
   if (r !== null) {
     const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
@@ -129,7 +138,9 @@ export const ensureDevelopLazy = async (r: SpDevelopRequest, log: FastifyBaseLog
   await ensureQuoteExpiryLazy(r.id);
   const mid = (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? r;
   await ensureAutoConfirmLazy(mid, log);
-  return (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? mid;
+  const current = (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? mid;
+  if (current.status === 'completed' && current.completedAt !== null) await syncWorkflowAutoConfirm(current.id, current.completedAt);
+  return current;
 };
 
 // 견적 철회·의뢰 취소 시 대기 마일스톤 정리 — 잔존 '쇼핑' 카트행은 코어 buy 경로로 취소된 건을 결제할 수 있는 구멍.

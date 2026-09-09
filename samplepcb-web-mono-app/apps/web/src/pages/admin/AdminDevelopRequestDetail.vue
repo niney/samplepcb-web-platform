@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRoute, useRouter } from 'vue-router';
-import { DEVELOP_REQUEST_MODE_LABELS, DEVELOP_REQUEST_STATUS_LABELS, apiRoutes, developAreaBadge } from '@sp/api-contract';
-import { FilePreviewModal, apiErrorMessage } from '@sp/ui';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
+import { useQueryClient } from '@tanstack/vue-query';
+import { DEVELOP_REQUEST_MODE_LABELS, DEVELOP_REQUEST_STATUS_LABELS, WORK_DOCUMENT_KINDS, apiRoutes, developAreaBadge } from '@sp/api-contract';
+import type { WorkDocumentKind } from '@sp/api-contract';
+import { DevelopWorkflowPanel, FilePreviewModal, apiErrorMessage } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
 import { useAdminDevelopDetail } from '../../admin/useAdminDevelop';
+import { developBackTo } from '../../admin/develop-navigation';
 import DevelopDiagramPanel from '../../components/admin/develop/DevelopDiagramPanel.vue';
 import DevelopOpsStrip from '../../components/admin/develop/DevelopOpsStrip.vue';
 import DevelopQuoteSection from '../../components/admin/develop/DevelopQuoteSection.vue';
@@ -48,14 +51,36 @@ const areaBadge = computed(() => {
   return badge === DEVELOP_REQUEST_MODE_LABELS[d.requestMode] ? '' : badge;
 });
 
-const TABS = ['content', 'review', 'diagram', 'quotes', 'timeline'] as const;
+const workflowAvailable = ref(false);
+const qc = useQueryClient();
+function workflowChanged(): void { void qc.invalidateQueries({ queryKey: ['admin', 'develop'] }); }
+function workflowDocumentSelected(id: string): void {
+  void router.replace({ query: { ...route.query, tab: route.query.tab === 'delivery' ? 'delivery' : 'documents', doc: id } });
+}
+const TABS = ['content', 'review', 'diagram', 'quotes', 'workflow', 'plan', 'documents', 'delivery', 'timeline'] as const;
+const workflowTabs: readonly string[] = ['workflow', 'plan', 'documents', 'delivery'];
+const visibleTabs = computed(() => TABS.filter((key) => !workflowTabs.includes(key) || workflowAvailable.value));
 type Tab = (typeof TABS)[number];
 const isTab = (value: unknown): value is Tab => typeof value === 'string' && (TABS as readonly string[]).includes(value);
 
-const tab = computed<Tab>(() => (isTab(route.query.tab) ? route.query.tab : 'content'));
+const tab = computed<Tab>(() => (isTab(route.query.tab) && (!workflowTabs.includes(route.query.tab) || workflowAvailable.value) ? route.query.tab : 'content'));
+const workflowSection = computed(() => tab.value === 'plan' ? 'plan' : tab.value === 'documents' || tab.value === 'delivery' ? 'documents' : 'overview');
+const documentKind = computed<WorkDocumentKind | null>(() => {
+  if (tab.value === 'delivery') return 'delivery';
+  return tab.value === 'documents' ? WORK_DOCUMENT_KINDS.find((kind) => kind === route.query.kind) ?? null : null;
+});
+const documentId = computed(() => typeof route.query.doc === 'string' ? route.query.doc : null);
+const workflowDirty = ref(false);
+const hasEdits = computed(() => workflowDirty.value || reviewDirty.value || quoteEditing.value);
+onBeforeRouteLeave(() => !hasEdits.value || window.confirm(t('admin.develop.workspace.leaveConfirm')));
+onBeforeRouteUpdate((to, from) => to.params.id === from.params.id || !hasEdits.value || window.confirm(t('admin.develop.workspace.leaveConfirm')));
+const tabLabel = (key: Tab): string => key === 'plan' || key === 'documents' || key === 'delivery'
+  ? t(`admin.develop.workspace.${key}Tab`) : t(`admin.develop.nav.${key}`);
 function selectTab(next: Tab): void {
   if (next === tab.value) return;
   const query = { ...route.query };
+  delete query.doc;
+  delete query.kind;
   if (next === 'content') delete query.tab;
   else query.tab = next;
   void router.replace({ query });
@@ -79,7 +104,7 @@ interface Badge {
 }
 const badges = computed<Record<Tab, Badge[]>>(() => {
   const d = detail.value;
-  const empty: Record<Tab, Badge[]> = { content: [], review: [], diagram: [], quotes: [], timeline: [] };
+  const empty: Record<Tab, Badge[]> = { content: [], review: [], diagram: [], quotes: [], timeline: [], workflow: [], plan: [], documents: [], delivery: [] };
   if (d === undefined) return empty;
   const review: Badge[] = [];
   if (d.review.draftRunning) review.push({ text: t('admin.develop.nav.badge.running'), tone: 'blue' });
@@ -101,7 +126,7 @@ const badges = computed<Record<Tab, Badge[]>>(() => {
   if (quoteEditing.value) quotes.push({ text: t('admin.develop.nav.badge.editing'), tone: 'amber' });
 
   const timeline: Badge[] = d.events.length > 0 ? [{ text: String(d.events.length), tone: 'gray' }] : [];
-  return { content: [], review, diagram, quotes, timeline };
+  return { ...empty, review, diagram, quotes, timeline };
 });
 
 // 첨부 미리보기 — 의뢰 첨부·타임라인 첨부·옆 보기 패널이 한 모달을 쓴다(고객 앱과 같은 @sp/ui FilePreviewModal).
@@ -127,7 +152,7 @@ const badgeClass: Record<Badge['tone'], string> = {
 
 <template>
   <div class="w-full space-y-4" :class="sideOpen ? 'max-w-[1560px]' : 'max-w-[1120px]'">
-    <RouterLink :to="{ name: 'admin-develop-requests' }" class="inline-block text-sm font-semibold text-blue-600 hover:underline">
+    <RouterLink :to="developBackTo(route.query)" class="inline-block text-sm font-semibold text-blue-600 hover:underline">
       ← {{ t('admin.develop.backToList') }}
     </RouterLink>
 
@@ -174,7 +199,7 @@ const badgeClass: Record<Badge['tone'], string> = {
       <div class="flex flex-wrap items-end gap-2 border-b border-gray-200">
         <nav class="-mb-px flex flex-wrap gap-1" role="tablist">
           <button
-            v-for="key in TABS"
+            v-for="key in visibleTabs"
             :key="key"
             type="button"
             role="tab"
@@ -183,7 +208,7 @@ const badgeClass: Record<Badge['tone'], string> = {
             :class="tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-800'"
             @click="selectTab(key)"
           >
-            {{ t(`admin.develop.nav.${key}`) }}
+            {{ tabLabel(key) }}
             <span
               v-for="b in badges[key]"
               :key="b.text"
@@ -222,6 +247,14 @@ const badgeClass: Record<Badge['tone'], string> = {
           <div v-show="tab === 'quotes'" role="tabpanel"><DevelopQuoteSection :detail="detail" @editing="quoteEditing = $event" /></div>
           <div v-show="tab === 'timeline'" role="tabpanel">
             <DevelopTimeline :request-id="detail.requestId" :events="detail.events" :status="detail.status" @preview="previewFile = $event" />
+          </div>
+          <div v-show="workflowTabs.includes(tab)" role="tabpanel">
+            <DevelopWorkflowPanel
+              :request-id="detail.requestId" admin focused :base-path="apiRoutes.adminDevelopRequests"
+              :active-section="workflowSection" :document-kind="documentKind" :document-id="documentId"
+              @available="workflowAvailable = $event" @changed="workflowChanged" @dirty="workflowDirty = $event"
+              @document-selected="workflowDocumentSelected"
+            />
           </div>
         </div>
 

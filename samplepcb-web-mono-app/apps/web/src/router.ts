@@ -242,7 +242,13 @@ const routes: RouteRecordRaw[] = [
       { path: 'market/projects', name: 'admin-market-projects', component: AdminMarketProjects },
       { path: 'market/contracts', name: 'admin-market-contracts', component: AdminMarketContracts },
       { path: 'market/settings', name: 'admin-market-settings', component: AdminMarketSettings },
-      // 개발의뢰(/develop, sp-develop) 관리 — 워크큐·전면 상세·설정(docs/DEVELOP_FLOW.md §7.3)
+      // 개발 모듈 — 업무별 목록은 독립 URL, 기존 의뢰 상세 URL은 유지한다.
+      ...(['overview', 'quotes', 'schedule', 'documents', 'delivery', 'payments'] as const).map((section) => ({
+        path: section === 'overview' ? 'develop' : `develop/${section}`,
+        name: section === 'overview' ? 'admin-develop' : `admin-develop-${section}`,
+        component: () => import('./pages/admin/AdminDevelopWorkspace.vue'),
+        props: { section },
+      })),
       {
         path: 'develop/requests',
         name: 'admin-develop-requests',

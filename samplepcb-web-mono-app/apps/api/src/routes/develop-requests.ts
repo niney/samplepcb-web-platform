@@ -104,6 +104,8 @@ import {
   toTools,
 } from '../lib/market';
 import { prisma } from '../lib/prisma';
+import { openedWorkflowMilestones, workflowEnrolled, workflowHints } from '../lib/develop-workflow-controls';
+import type { WorkflowHint } from '../lib/develop-workflow-controls';
 
 // ── /api/develop/requests — 개발의뢰 회원 라우트(docs/DEVELOP_FLOW.md §8) ──────────────────
 // 공개 목록이 없다: 모든 조회는 **소유자**(request.mbId === JWT mbId)만. 관리자는 admin-develop-* 라우트를 쓴다.
@@ -129,7 +131,7 @@ const requestFilesOf = (requestId: bigint): Promise<SpFile[]> =>
 type QuoteWithChildren = SpDevelopQuote & { items: SpDevelopQuoteItem[]; milestones: SpDevelopMilestone[] };
 
 // 결제 가능 판정 — pending ∧ trigger 조건. 서버 파생값이라 화면은 계산하지 않는다.
-export const milestonePayable = (m: SpDevelopMilestone, status: DevelopRequestStatusType): boolean => {
+export const milestonePayable = (m: SpDevelopMilestone, status: DevelopRequestStatusType, opened: ReadonlySet<number> = new Set()): boolean => {
   if (m.status !== 'pending') return false;
   switch (m.trigger) {
     case 'on_accept':
@@ -139,11 +141,11 @@ export const milestonePayable = (m: SpDevelopMilestone, status: DevelopRequestSt
     case 'on_completion':
       return status === 'completed';
     default:
-      return false; // manual — 관리자가 pending 으로 열어 둔 것만(P2: 별도 플래그)
+      return m.trigger === 'manual' && opened.has(Number(m.id));
   }
 };
 
-export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestStatusType): DevelopMilestoneViewType => ({
+export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestStatusType, opened: ReadonlySet<number> = new Set()): DevelopMilestoneViewType => ({
   milestoneId: Number(m.id),
   quoteId: Number(m.quoteId),
   seq: m.seq,
@@ -152,7 +154,7 @@ export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestSta
   amount: m.amount,
   trigger: asMilestoneTrigger(m.trigger),
   status: asMilestoneStatus(m.status),
-  payable: milestonePayable(m, status),
+  payable: milestonePayable(m, status, opened),
   unlocksDeliverables: m.unlocksDeliverables,
   paidAt: m.paidAt?.toISOString() ?? null,
   paidBy: m.paidBy === 'lazy' || m.paidBy === 'admin' ? m.paidBy : null,
@@ -162,7 +164,7 @@ export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestSta
 const toDeliverables = (json: Prisma.JsonValue | null): string[] =>
   Array.isArray(json) ? json.filter((v): v is string => typeof v === 'string') : [];
 
-export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusType, poFile: SpFile | null): DevelopQuoteViewType => ({
+export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusType, poFile: SpFile | null, opened: ReadonlySet<number> = new Set()): DevelopQuoteViewType => ({
   quoteId: Number(q.id),
   requestId: Number(q.requestId),
   version: q.version,
@@ -201,7 +203,7 @@ export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusTy
   milestones: q.milestones
     .slice()
     .sort((a, b) => a.seq - b.seq)
-    .map((m) => toMilestoneView(m, status)),
+    .map((m) => toMilestoneView(m, status, opened)),
   poFile: poFile === null ? null : toDevelopFileMeta(poFile),
 });
 
@@ -211,17 +213,21 @@ const nextActionOf = (
   quotes: readonly SpDevelopQuote[],
   milestones: readonly SpDevelopMilestone[],
   events: readonly SpDevelopEvent[],
+  workflow?: WorkflowHint,
 ): DevelopRequestListItemType['nextAction'] => {
   if (quotes.some((q) => q.status === 'sent')) return 'review_quote';
-  if (milestones.some((m) => milestonePayable(m, status))) return 'pay';
+  if (milestones.some((m) => milestonePayable(m, status, workflow?.opened))) return 'pay';
   if (status === 'delivered') return 'inspect';
-  // 마지막 확인 요청 뒤에 승인/수정 요청이 없으면 답변 차례.
-  let pendingReview = false;
+  // 요청별 응답을 연결한다. 한 문서 응답이 다른 미결 요청까지 지우지 않는다.
+  const pendingReviews = new Set<number>();
   for (const e of events) {
-    if (e.type === 'review_request') pendingReview = true;
-    else if (e.type === 'review_approved' || e.type === 'review_changes') pendingReview = false;
+    if (e.type === 'review_request') pendingReviews.add(Number(e.id));
+    else if (e.type === 'review_approved' || e.type === 'review_changes') {
+      const payload = e.payload;
+      if (payload !== null && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.eventId === 'number') pendingReviews.delete(payload.eventId);
+    }
   }
-  return pendingReview ? 'answer_review' : null;
+  return pendingReviews.size > 0 || workflow?.pendingApproval === true ? 'answer_review' : null;
 };
 
 const toListItem = (
@@ -229,6 +235,7 @@ const toListItem = (
   quotes: readonly SpDevelopQuote[],
   milestones: readonly SpDevelopMilestone[],
   events: readonly SpDevelopEvent[],
+  workflow?: WorkflowHint,
 ): DevelopRequestListItemType => {
   const status = asDevelopStatus(r.status);
   return {
@@ -240,7 +247,7 @@ const toListItem = (
     budgetRange: asDevelopBudgetRange(r.budgetRange),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
-    nextAction: nextActionOf(status, quotes, milestones, events),
+    nextAction: nextActionOf(status, quotes, milestones, events, workflow),
     reviewPublished: r.devReviewPublic !== null,
     diagramPublished: r.devDiagramPublicHtml !== null,
   };
@@ -249,6 +256,8 @@ const toListItem = (
 // 상세 — 소유자용. 공개본만·visibleToCustomer 이벤트만·draft 견적 제외.
 export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<DevelopRequestDetailType> {
   const status = asDevelopStatus(r.status);
+  const workflow = (await workflowHints([r.id])).get(String(r.id));
+  const opened = workflow?.opened ?? new Set<number>();
   const [files, quotes, events, locked] = await Promise.all([
     requestFilesOf(r.id),
     prisma.spDevelopQuote.findMany({
@@ -276,7 +285,7 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
   });
   const diagramMeta = toDevDiagram(r.devDiagram);
   return {
-    ...toListItem(r, quotes, milestones, events),
+    ...toListItem(r, quotes, milestones, events, workflow),
     ...developWizardFieldsOf(r),
     description: r.description,
     tools: toTools(r.tools),
@@ -297,7 +306,7 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
             source: r.devDiagramSource === 'upload' ? 'upload' : 'ai',
             meta: diagramMeta,
           },
-    quotes: quotes.map((q) => withPayment(toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null))),
+    quotes: quotes.map((q) => withPayment(toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null, opened))),
     // 고객에게 담당자는 이름을 가르지 않는다 — "담당자". 고객 자신의 글은 "나".
     events: events.map((e) => toDevelopEventView(e, eventFiles.get(e.id.toString()) ?? [], e.byAdmin ? '담당자' : '나', locked)),
     reviewDays: r.reviewDays,
@@ -495,6 +504,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         prisma.spDevelopRequest.count({ where }),
       ]);
       const ids = rows.map((r) => r.id);
+      const workflows = await workflowHints(ids);
       const [quotes, milestones, events] = await Promise.all([
         prisma.spDevelopQuote.findMany({ where: { requestId: { in: ids }, status: { not: 'draft' } } }),
         prisma.spDevelopMilestone.findMany({ where: { requestId: { in: ids } } }),
@@ -519,7 +529,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         data: {
           items: rows.map((r) => {
             const k = r.id.toString();
-            return toListItem(r, qm.get(k) ?? [], mm.get(k) ?? [], em.get(k) ?? []);
+            return toListItem(r, qm.get(k) ?? [], mm.get(k) ?? [], em.get(k) ?? [], workflows.get(k));
           }),
           total,
           page,
@@ -982,7 +992,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const m = await prisma.spDevelopMilestone.findFirst({ where: { id: BigInt(request.params.mid), requestId: r.id } });
       if (m === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
       if (m.status === 'paid') return reply.status(409).send({ result: false, error: 'ALREADY_PAID' });
-      if (!milestonePayable(m, asDevelopStatus(r.status))) return reply.status(409).send({ result: false, error: 'NOT_PAYABLE' });
+      if (!milestonePayable(m, asDevelopStatus(r.status), await openedWorkflowMilestones(r.id))) return reply.status(409).send({ result: false, error: 'NOT_PAYABLE' });
       const cartId = request.user.cartId;
       if (cartId === undefined || cartId === '') return reply.status(409).send({ result: false, error: 'NO_CART_ID' });
 
@@ -1055,6 +1065,9 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       if (asDevelopStatus(r.status) !== 'delivered') return reply.status(409).send({ result: false, error: 'INVALID_TRANSITION' });
       const delivery = await prisma.spDevelopEvent.findFirst({ where: { id: BigInt(request.params.eventId), requestId: r.id, type: 'deliverable' } });
       if (delivery === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
+      if (await workflowEnrolled(r.id) && delivery.payload !== null && typeof delivery.payload === 'object' && !Array.isArray(delivery.payload) && typeof delivery.payload.workflowDocumentId === 'string') {
+        return reply.status(409).send({ result: false, error: 'WORKFLOW_ACTION_REQUIRED', message: '수행관리의 납품 문서에서 응답해 주세요' });
+      }
       const note = request.body.note ?? null;
       const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
       if (request.params.decision === 'confirm') {

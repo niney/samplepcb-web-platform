@@ -207,13 +207,25 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 
 ### 7.3 관리자 (`apps/web` `/app/admin/develop`)
 
+**개발 독립 모듈(2026-09-09)**: 상단 `통합 | PCB | BOM | 개발`에서 선택한다. 기존 통합 메뉴의 개발의뢰·설정은 개발 모듈로 이동했다. 업무별 목록은 프로젝트 단위로 검색·상태 필터·페이지를 제공하고, 선택한 업무의 상세 탭으로 연결한다. 메뉴 변경에 따른 DB migration은 없다.
+
 | 경로 | 화면 |
 |---|---|
-| `requests` | 워크큐 — 탭(접수·검토 중·견적 발송·결제 대기·진행 중·납품·완료·전체) counts, 검색, 담당자 |
+| 루트 | 진행현황 — 전체 프로젝트 상태, 작업 진척도, 지연 작업·승인 대기 바로가기 |
+| `requests` | 의뢰·검토 — 탭(접수·검토 중·견적 발송·결제 대기·진행 중·납품·완료·전체) counts, 검색, 담당자 |
+| `quotes` | 견적·계약 — 검토/견적/수락 단계 또는 견적이 있는 의뢰, 견적 버전·금액·상태, 계약서 바로가기 |
+| `schedule` | 수행·일정 — 수락 이후 또는 수행관리 이력이 있는 의뢰, 진척도·지연 작업·완료 예정일·착수 준비 |
+| `documents` | 문서·승인 — 수락 이후 또는 수행관리 이력이 있는 의뢰, 문서별 현재 공개 버전·고객 응답·회신 요청일 |
+| `delivery` | 납품·검수 — 진행/납품/완료 의뢰, 납품일·검수 기간·납품 완료확인서 |
+| `payments` | 청구·결제 — 수락한 견적의 결제 단계, 수납·미수납 금액, 기존 입금 확인·수동 청구 연결 |
 | `requests/:id` | **전면 상세**(드로어 아님) — 헤더(상태·전이·담당자) · 의뢰 내용·연락처 · AI 패널(초안 상태·재생성·보충 메모·구조 편집·공개) · 구성도 패널 · 견적서 목록·작성(붙여넣기)·발송 · 마일스톤·결제(od 파생·수동 확인) · 타임라인(메모·문의·확인 요청·납품·세금계산서) · 내부 메모 |
 | `settings` | 표준 조건·기본 마일스톤·검수/하자/유효기간·수신 메일·AI 자동 초안 |
 
 AI 모델·think·추가 지침은 기존 `/app/admin/settings` AI 탭에 `develop.*` 블록 추가.
+
+업무 목록 조회는 `GET /api/admin/develop/workspace`(`section`, `tab`, `q`, `page`, `pageSize`)이며 `requireAdmin`으로 보호한다. DB에서 업무 범위와 검색·상태 조건을 적용한 뒤 페이지를 나누고, 해당 페이지의 수행관리 JSON에서 요약만 반환한다. 문서 본문·과거 버전·AI 결과는 목록 응답에서 제외한다. 고객 승인 집계는 현재 공개 버전 기준이고, 미수납은 수락 견적의 `pending` 결제 단계만 합산한다. 결제·만료·자동검수의 lazy 동기화는 기존 상세 조회 흐름을 유지한다.
+
+기존 `requests/:id` 주소는 유지한다. `from`은 진입 업무 메뉴, `listTab/listQ/listPage`는 복귀 조건, `tab`은 상세 기능, `doc/kind`는 문서 선택·유형이다. 문서를 직접 선택해도 URL을 갱신한다. 상세의 일정·문서 패널은 재사용해 탭 이동 시 작성 중인 내용을 보존하며, 페이지를 떠날 때는 미저장 내용 확인을 거친다. 고객 `/develop`의 메뉴 구조는 유지한다. PCB·BOM 주문과의 정식 데이터 연결은 후속 범위다.
 
 P1 구현(2026-09-05): 신규 `apps/web/src/admin/useAdminDevelop.ts`(목록·상세 폴링·patch·status·aiRun·review PUT/액션·diagram 액션/업로드·이벤트 생성·설정·배지 카운트) · 페이지 `pages/admin/AdminDevelop{Requests,RequestDetail,Settings}.vue` · 조각 `components/admin/develop/`(StatusBar·RequestContent·ReviewPanel·ReviewEditor·DiagramPanel·Timeline·SideCards·AiChips + 순수 모듈 `develop-review-edit.ts`·`develop-badge.ts`). 기존 파일은 `layouts/AdminLayout.vue`(배지 `developReceived` 분기)·`components/admin/AiSettingsForm.vue`(develop 카드 2장)·`i18n/locales/ko.ts`·`en.ts`(`admin.develop.*` 237키)만 건드렸다. 결정 셋: ① 상태·이벤트·견적 라벨은 계약 사전(`DEVELOP_*_LABELS`)이 정본이라 i18n 으로 복제하지 않고 화면 고유 문구만 키로 둔다. ② 검토서 편집기는 서버 응답을 필드별로 새로 만들어(`cloneDevelopReview` — `structuredClone` 은 reactive proxy 에서 던진다) 로컬 상태로 들고, 행 상한(`DEVELOP_REVIEW_LIMITS`)은 계약 zod `.max()` 와 같은 값을 복제해 초과 추가를 UI 에서 막는다. ③ 타임라인 등록 게이트는 종류별로 갈린다 — 세금계산서는 발행일만 채우면 열리고(원장 성격, 서버도 payload 만으로 받는다), 나머지는 제목·본문·첨부 중 하나를 요구한다. ④ 확인이 필요한 자리(초안 가져오기·상태 사유)는 전부 인라인 패널이다(네이티브 `confirm` 없음).
 
@@ -261,6 +273,8 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 남은 것: 파일서버 serviceType `develop` 운영 수용 실측 · 알림톡 템플릿 · 실 LLM 초안 육안 1회(관리자 상세에서 `초안 다시 만들기`) · 위키 재컴파일 · 발주서(PO) 첨부 라우트(계약 `poFile` 자리만 있음) · 마일스톤 `manual` 트리거의 청구 열기 플래그.
 
 ## 12. 결정 로그
+
+- 2026-09-09 수행관리 프로토타입(`prototype/develop-workflow`): 기존 접수·견적·결제에 계약 후 일정·문서·승인 관리를 연결했다. 의뢰별 적용, 관리자 착수 확인, 수락 견적 기반 계약 문서, 승인 대상 후속 작업 제한을 사용자 확정했다. 이후 사용자 요청으로 환경변수 게이트를 제거해 기본 제공하며, `pnpm dev`와 운영 배포에서 자동 백업·마이그레이션한다. 새 테이블은 2개다. 구현·검증은 [수행관리 프로토타입](develop-workflow-prototype.md), 운영 DB의 시점 원복은 [DB 스냅샷과 원복](db-snapshot-rollback.md)이 보충 정본이다. 위의 `manual` 청구 미구현 항목은 **수행관리를 시작한 의뢰에서는 해결**되었다(수동 청구 열기 → 기존 견적서 결제).
 
 - 2026-09-08 위저드 v2(사용자): 프로토타입 5스텝 이식 · 개별 메뉴에서 회로·펌웨어 제외(시스템개발 안에서만) · 분야별 질문은 선택지+서술 혼합 · 예산 사전 분리(`DEVELOP_BUDGET_RANGES`). 같은 날 v1.9 질문서(244문항) main 되돌림(강제 푸시, 로컬 브랜치에만 잔존). 로컬 DB 에 남아 있던 v1.9 migration 컬럼 12개는 수동 drop + `_prisma_migrations` 행 삭제로 정리했다(운영 미반영이라 무해). 상세 §7.2.1.
 

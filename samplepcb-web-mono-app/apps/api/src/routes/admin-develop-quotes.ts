@@ -17,6 +17,7 @@ import { buildQuoteSentEmail, sendDevelopMail } from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy, markMilestonePaid } from '../lib/develop-payment';
 import { toAreaCodes } from '../lib/market';
 import { prisma } from '../lib/prisma';
+import { openedWorkflowMilestones } from '../lib/develop-workflow-controls';
 import { customerEmailOf, toQuoteView } from './develop-requests';
 
 // ── /api/admin/develop/{requests/:id/quotes, quotes/:qid, milestones/:mid} — 견적서·마일스톤(docs/DEVELOP_FLOW.md §5) ──
@@ -39,7 +40,7 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
       prisma.spDevelopRequest.findUniqueOrThrow({ where: { id: q.requestId } }),
       prisma.spFile.findFirst({ where: { refType: REF_DEVELOP_QUOTE, refId: q.id, fileType: 'po' } }),
     ]);
-    return { ...toQuoteView(full, asDevelopStatus(request.status), po), internalNote: full.internalNote };
+    return { ...toQuoteView(full, asDevelopStatus(request.status), po, await openedWorkflowMilestones(request.id)), internalNote: full.internalNote };
   };
 
   // 항목·마일스톤 행을 통째로 갈아 끼운다(draft 전용). 금액은 발송 시 확정하지만 화면 표시용으로 미리 계산해 둔다.

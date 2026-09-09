@@ -63,6 +63,7 @@ import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
 import { collectMultipart, toAnswers, toDevDiagram, toDevReview, toTools } from '../lib/market';
 import { prisma } from '../lib/prisma';
+import { openedWorkflowMilestones, workflowEnrolled } from '../lib/develop-workflow-controls';
 import { buildDevelopRequestDetail, customerEmailOf, toQuoteView } from './develop-requests';
 
 // ── /api/admin/develop/requests — 개발의뢰 관리자(docs/DEVELOP_FLOW.md §7.3·§8) ────────────
@@ -186,6 +187,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
 
   // 상세 — 고객 상세(공개본·visible 이벤트) 위에 관리자 전용 층(3층 검토서·현재본 구성도·내부 메모·전 이벤트·전 견적)을 얹는다.
   const buildAdminDetail = async (r: SpDevelopRequest): Promise<AdminDevelopRequestDetailType> => {
+    const opened = await openedWorkflowMilestones(r.id);
     const [customerDetail, members, files, quotes, events] = await Promise.all([
       buildDevelopRequestDetail(r),
       getMembersByIds([r.mbId, ...(r.assigneeMbId === null ? [] : [r.assigneeMbId])]),
@@ -239,7 +241,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         publishedAt: r.devDiagramPublishedAt?.toISOString() ?? null,
         publishedStale: r.devDiagramPublicHtml !== null && r.devDiagramHtml !== null && r.devDiagramPublicHtml !== r.devDiagramHtml,
       },
-      quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null), internalNote: q.internalNote })),
+      quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null, opened), internalNote: q.internalNote })),
       events: events.map((e) => toDevelopEventView(e, eventFiles.get(e.id.toString()) ?? [], actorName(e), false)),
       reviewDays: customerDetail.reviewDays,
       startedAt: customerDetail.startedAt,
@@ -336,6 +338,9 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       const r = await load(request.params.id);
       if (r === null) return reply.status(404).send(notFound);
       const { to, reason } = request.body;
+      if ((to === 'in_progress' || to === 'completed') && await workflowEnrolled(r.id)) {
+        return reply.status(409).send({ error: 'WORKFLOW_ACTION_REQUIRED', message: '수행관리에서 착수 준비 또는 납품 문서를 확인해 주세요' });
+      }
       const mbId = request.user.mbId;
       const now = new Date();
       const from: Record<typeof to, readonly DevelopRequestStatusType[]> = {
@@ -619,6 +624,9 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
     if (!parsed.success) return reply.status(400).send({ error: 'PAYLOAD_SCHEMA_MISMATCH', message: '입력값 형식이 올바르지 않습니다' });
     const p = parsed.data;
     const status = asDevelopStatus(r.status);
+    if (p.type === 'deliverable' && p.final && await workflowEnrolled(r.id)) {
+      return reply.status(409).send({ error: 'WORKFLOW_ACTION_REQUIRED', message: '수행관리의 납품 완료확인서에서 공개·납품해 주세요' });
+    }
     if (p.type === 'deliverable' && p.final && status !== 'in_progress' && status !== 'delivered') {
       return reply.status(409).send({ error: 'INVALID_TRANSITION', message: '진행 중인 의뢰만 납품할 수 있습니다' });
     }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   DEVELOP_ADMIN_TABS,
   DEVELOP_ADMIN_TAB_LABELS,
@@ -14,7 +14,8 @@ import {
 } from '@sp/api-contract';
 import type { AdminDevelopRequestListItemType, DevelopAdminTabType } from '@sp/api-contract';
 import { UiPagination } from '@sp/ui';
-import { useAdminDevelopList, emptyDevelopFilters } from '../../admin/useAdminDevelop';
+import { useAdminDevelopList } from '../../admin/useAdminDevelop';
+import { developDetailTo, developListFilters } from '../../admin/develop-navigation';
 import DevelopAiChips from '../../components/admin/develop/DevelopAiChips.vue';
 import { developStatusBadgeClass } from '../../components/admin/develop/develop-badge';
 import { formatDate, formatKrw } from '../../lib/format';
@@ -25,15 +26,21 @@ import { formatDate, formatKrw } from '../../lib/format';
 const { t } = useI18n();
 const router = useRouter();
 
-const filters = ref(emptyDevelopFilters());
-const qInput = ref('');
-const { data, isFetching } = useAdminDevelopList(filters);
+const route = useRoute();
+const filters = computed(() => developListFilters(route.query));
+const qInput = ref(filters.value.q);
+watch(() => filters.value.q, (value) => { qInput.value = value; });
+const { data, isFetching, isError } = useAdminDevelopList(filters);
+const updateFilters = (patch: Partial<typeof filters.value>): void => {
+  const next = { ...filters.value, ...patch };
+  void router.replace({ query: { tab: next.tab, page: String(next.page), ...(next.q === '' ? {} : { q: next.q }) } });
+};
 
 const setTab = (tab: DevelopAdminTabType): void => {
-  filters.value = { ...filters.value, tab, page: 1 };
+  updateFilters({ tab, page: 1 });
 };
 const applySearch = (): void => {
-  filters.value = { ...filters.value, q: qInput.value, page: 1 };
+  updateFilters({ q: qInput.value, page: 1 });
 };
 // 분야 배지 — 시스템개발은 분야가 6개 전부라 배지 문구도 '시스템개발' 이다(레지스트리 fullBadge).
 // 의뢰 방식 칩과 같은 말을 두 번 쓰지 않도록, 겹치면 분야 배지를 지운다.
@@ -42,13 +49,13 @@ const areaBadge = (r: AdminDevelopRequestListItemType): string => {
   return badge === DEVELOP_REQUEST_MODE_LABELS[r.requestMode] ? '' : badge;
 };
 const openDetail = (requestId: number): void => {
-  void router.push({ name: 'admin-develop-request', params: { id: String(requestId) } });
+  void router.push(developDetailTo(requestId, 'requests', route.query, { tab: 'content' }));
 };
 </script>
 
 <template>
   <div class="space-y-4">
-    <h1 class="text-2xl font-bold">{{ t('admin.develop.title') }}</h1>
+    <h1 class="text-2xl font-bold">{{ t('admin.menu.developRequests') }}</h1>
 
     <div class="flex flex-wrap items-center gap-2">
       <div class="flex flex-wrap rounded-lg border border-gray-200 bg-white p-1 text-sm font-semibold">
@@ -78,7 +85,8 @@ const openDetail = (requestId: number): void => {
       </div>
     </div>
 
-    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+    <p v-if="isError" role="alert" class="text-sm text-red-600">{{ t('admin.develop.workspace.loadError') }}</p>
+    <div v-else class="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table class="w-full text-left text-base">
         <thead class="border-b border-gray-200 text-sm text-gray-500">
           <tr>
@@ -97,7 +105,9 @@ const openDetail = (requestId: number): void => {
             v-for="r in data?.data.items ?? []"
             :key="r.requestId"
             class="cursor-pointer border-b border-gray-100 align-top hover:bg-blue-50/40"
+            tabindex="0"
             @click="openDetail(r.requestId)"
+            @keydown.enter="openDetail(r.requestId)"
           >
             <td class="max-w-72 px-4 py-3">
               <p class="truncate font-semibold text-gray-900">{{ r.title }}</p>
@@ -156,7 +166,7 @@ const openDetail = (requestId: number): void => {
         :page="filters.page"
         :page-size="filters.pageSize"
         :total="data.data.total"
-        @update:page="(p: number) => (filters = { ...filters, page: p })"
+        @update:page="(p: number) => updateFilters({ page: p })"
       />
     </div>
   </div>

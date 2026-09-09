@@ -1997,6 +1997,7 @@ model SpDevelopRequest {
   events         SpDevelopEvent[]
   milestones     SpDevelopMilestone[]
   reviewVersions SpDevelopReviewVersion[]
+  workflow       SpDevelopWorkflow?
 
   @@index([status, createdAt])
   @@index([mbId, createdAt])
@@ -2127,6 +2128,35 @@ model SpDevelopMilestone {
 }
 
 // 설정 싱글턴(id=1) — GET 폴백/PATCH upsert, 시드 불요(마켓 settings 관례).
+// 수행관리 프로토타입. 기존 의뢰/견적 컬럼을 변경하지 않는 추가 테이블.
+model SpDevelopWorkflow {
+  requestId BigInt @id
+  enabled Boolean @default(true)
+  revision Int @default(1)
+  state Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  request SpDevelopRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  audits SpDevelopWorkflowAudit[]
+
+  @@map("sp_develop_workflow")
+}
+
+model SpDevelopWorkflowAudit {
+  id BigInt @id @default(autoincrement())
+  requestId BigInt
+  revision Int
+  action String @db.VarChar(40)
+  actorMbId String @db.VarChar(191)
+  byAdmin Boolean
+  payload Json
+  createdAt DateTime @default(now())
+  workflow SpDevelopWorkflow @relation(fields: [requestId], references: [requestId], onDelete: Restrict)
+
+  @@index([requestId, createdAt])
+  @@map("sp_develop_workflow_audit")
+}
+
 model SpDevelopSettings {
   id                  Int      @id @default(1)
   defaultTerms        String   @db.Text

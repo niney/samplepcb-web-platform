@@ -15,6 +15,7 @@ import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
 import { usePcbClaimsPendingCount } from '../admin/useAdminPcbClaims';
 import { useDevelopReceivedCount } from '../admin/useAdminDevelop';
+import { developAdminSection, developSectionRoute } from '../admin/develop-navigation';
 import {
   pcbAdminEntryTo,
   pcbAdminSectionTo,
@@ -55,6 +56,7 @@ const CASE_FROM_MENU: Record<string, Record<string, string>> = {
   },
 };
 const effectiveRouteName = computed(() => {
+  if (currentRouteName.value === 'admin-develop-request') return developSectionRoute(developAdminSection(currentRouteName.value, route.query.from));
   const map = CASE_FROM_MENU[currentRouteName.value];
   if (map === undefined) return currentRouteName.value;
   const from = route.query.from;
@@ -237,7 +239,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
           </svg>
         </button>
         <!-- 모듈 스위처 — 활성 모듈은 라우트에서 파생(클릭 = 모듈 홈 이동).
-             확장 자리(PCB주문·PCBA주문·기술개발)는 모듈이 실제로 생길 때 추가. -->
+             각 업무 모듈의 독립 메뉴와 연결한다. -->
         <nav class="flex min-w-0 overflow-x-auto rounded-lg border border-gray-200 bg-surface-sunken p-0.5 text-xs font-semibold [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <RouterLink
             v-for="mod in adminModules"

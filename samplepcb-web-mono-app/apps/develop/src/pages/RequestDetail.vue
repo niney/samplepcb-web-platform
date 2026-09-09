@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { DEVELOP_REGISTRY, DEV_DIAGRAM_VERSION, developAreaBadge } from '@sp/api-contract';
+import { useQueryClient } from '@tanstack/vue-query';
+import { DEVELOP_REGISTRY, DEV_DIAGRAM_VERSION, developAreaBadge, apiRoutes } from '@sp/api-contract';
 import type {
   DevelopEventViewType,
   DevelopFileMetaType,
@@ -10,7 +11,7 @@ import type {
   MarketDevDiagramViewType,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
-import { DevDiagramSection, DevReviewView, FilePreviewModal } from '@sp/ui';
+import { DevelopWorkflowPanel, DevDiagramSection, DevReviewView, FilePreviewModal } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
 import {
   developFilesPath,
@@ -41,6 +42,9 @@ import DecisionPanel from '../components/detail/DecisionPanel.vue';
 // 레이아웃: 헤더(상태·스텝퍼·소유자 액션) → sticky 섹션 내비(사이트 헤더 64px 아래) → 섹션 6.
 
 const auth = useAuthStore();
+const workflowEnabled = ref(false);
+const qc = useQueryClient();
+function workflowChanged(): void { void qc.invalidateQueries({ queryKey: ['develop'] }); }
 const route = useRoute();
 const loggedIn = computed(() => auth.isLoggedIn);
 const requestId = computed<number | null>(() => {
@@ -108,6 +112,7 @@ const sections = computed<SectionLink[]>(() => {
   const d = detail.value;
   if (d === undefined) return [];
   const list: SectionLink[] = [{ id: 'content', label: '의뢰 내용' }];
+  if (workflowEnabled.value) list.unshift({ id: 'workflow', label: '수행관리' });
   list.push({ id: 'review', label: 'AI 사전 검토서' });
   if (diagramView.value !== null) list.push({ id: standaloneDiagram.value ? 'diagram' : 'review', label: '시스템 구성도' });
   list.push({ id: 'quotes', label: '견적서' });
@@ -260,7 +265,7 @@ const deliveryEventId = computed<number | null>(() => {
   const deliverables = d.events.filter((e) => e.type === 'deliverable');
   const finals = deliverables.filter((e) => payloadFlag(e, 'final'));
   const target = finals.length > 0 ? finals[finals.length - 1] : deliverables[deliverables.length - 1];
-  return target === undefined ? null : target.eventId;
+  return target === undefined || (workflowEnabled.value && typeof target.payload?.workflowDocumentId === 'string') ? null : target.eventId;
 });
 
 const autoConfirmOn = computed(() => {
@@ -435,6 +440,7 @@ watch(
       <p v-if="fileError !== ''" class="mt-5 rounded-xl bg-red-50 px-4 py-3 text-body font-semibold text-red-700">{{ fileError }}</p>
 
       <!-- 의뢰 내용 -->
+      <DevelopWorkflowPanel :request-id="detail.requestId" :base-path="apiRoutes.developRequests" @enabled="workflowEnabled = $event" @changed="workflowChanged" />
       <section id="content" class="mt-8 scroll-mt-32 rounded-2xl border border-line bg-white p-5 sm:p-6">
         <h2 class="mb-5 text-title font-extrabold text-tx-1">의뢰 내용</h2>
         <RequestContent :detail="detail" />

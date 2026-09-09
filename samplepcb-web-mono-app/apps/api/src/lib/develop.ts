@@ -191,6 +191,11 @@ export const transitionDevelopStatus = async (
   note: string | null = null,
 ): Promise<boolean> =>
   prisma.$transaction(async (tx) => {
+    // 수행관리 적용과 기존 관리자 전이를 같은 의뢰 잠금으로 직렬화한다.
+    if (actor.byAdmin && (to === 'completed' || (to === 'in_progress' && from.includes('accepted')))) {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM sp_develop_request WHERE id = ${requestId} FOR UPDATE`);
+      if ((await tx.spDevelopWorkflow.findUnique({ where: { requestId }, select: { enabled: true } }))?.enabled === true) return false;
+    }
     const res = await tx.spDevelopRequest.updateMany({
       where: { id: requestId, status: { in: [...from] } },
       data: { status: to, ...extra },
