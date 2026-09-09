@@ -1,3 +1,4 @@
+import { addDevelopPrototypeGuard, developPrototypeWhere } from '../lib/develop-prototype';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { Prisma } from '@prisma/client';
 import type { SpDevelopRequest, SpFile } from '@prisma/client';
@@ -178,6 +179,7 @@ const wrapUploadedDiagram = (mimetype: string, filename: string, buffer: Buffer)
 };
 
 export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
+  addDevelopPrototypeGuard(fastify, 'g');
   fastify.addHook('preHandler', fastify.requireAdmin);
 
   const load = async (id: string): Promise<SpDevelopRequest | null> =>
@@ -256,7 +258,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
   // ── GET /admin/develop/requests — 워크큐 ──────────────────────────────────────
   fastify.get('/develop/requests', { schema: { querystring: AdminDevelopRequestListQuery } }, async (request) => {
     const { page, pageSize, tab, q } = request.query;
-    const search: Prisma.SpDevelopRequestWhereInput =
+    const searchBase: Prisma.SpDevelopRequestWhereInput =
       q === undefined || q === ''
         ? {}
         : {
@@ -267,6 +269,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
               { contactCompany: { contains: q } },
             ],
           };
+    const search: Prisma.SpDevelopRequestWhereInput = { AND: [searchBase, developPrototypeWhere('g')] };
     const where: Prisma.SpDevelopRequestWhereInput = { ...search, status: { in: [...TAB_STATUSES[tab]] } };
     const [rows, total, grouped] = await Promise.all([
       prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),

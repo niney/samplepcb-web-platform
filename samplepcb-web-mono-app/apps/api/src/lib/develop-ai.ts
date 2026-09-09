@@ -4,7 +4,7 @@ import { requestDevDiagramForDevelop } from './ai/dev-diagram-runner';
 import { startDevReviewJob } from './ai/runner';
 import { DEVELOP_DIAGRAM_USECASE, DEVELOP_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from './ai/usecases';
 import { buildDevelopReviewSource } from './develop-ai-source';
-import { getDevelopSettings } from './develop-settings';
+import { getDevelopSettingsForRequest } from './develop-settings';
 import { prisma } from './prisma';
 
 // ── 개발의뢰 AI 오케스트레이션(docs/DEVELOP_FLOW.md §6) ─────────────────────────────
@@ -33,7 +33,7 @@ export async function startDevelopAiDrafts(
   const result: DevelopAiStartResult = { review: { skipped: 'DISABLED' }, diagram: { skipped: 'DISABLED' } };
   if (!request.aiConsent) return { review: { skipped: 'CONSENT' }, diagram: { skipped: 'CONSENT' } };
 
-  const settings = options.auto ? await getDevelopSettings() : null;
+  const settings = options.auto ? await getDevelopSettingsForRequest(request.id) : null;
   const wantReview = options.review && (settings === null || settings.aiAutoDraft);
   const wantDiagram = options.diagram && (settings === null || settings.aiDiagramAutoDraft);
   if (!wantReview) result.review = { skipped: 'AUTO_OFF' };

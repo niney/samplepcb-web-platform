@@ -37,6 +37,7 @@ export * from './schemas/develop-followup';
 export * from './schemas/develop';
 export * from './schemas/develop-workflow';
 export * from './schemas/develop-workspace';
+export * from './schemas/develop-docs';
 export * from './schemas/admin-mail';
 export * from './schemas/file-preview';
 export * from './routes';

@@ -85,6 +85,7 @@ describe('개발 업무 목록 API', () => {
                   { contactCompany: { contains: 'alpha' } }, { mbId: { contains: 'alpha' } },
                   { assigneeMbId: { contains: 'alpha' } },
                 ] },
+                { OR: [{ prototype: { is: null } }, { prototype: { is: { variant: 'g' } } }] },
               ],
             },
             { status: { in: ['in_progress'] } },

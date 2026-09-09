@@ -1,3 +1,4 @@
+import { developC } from './develop-c-ko';
 // 실서비스 기준 로케일. 다른 로케일(en 등)은 이 shape 를 따른다.
 export const ko = {
   app: {
@@ -96,14 +97,25 @@ export const ko = {
     },
   },
   admin: {
+    prototypeRequest: '개발({variant}) 의뢰하기',
     title: '관리자',
     modules: {
       core: '통합',
       pcb: 'PCB',
       smartbom: 'BOM',
-      develop: '개발',
+      develop: '개발(G)',
+      developC: '개발(C)',
     },
     menu: {
+      developCHome: "진행현황",
+      developCIntake: "접수·검토",
+      developCContracts: "견적·계약",
+      developCProjects: "진행 프로젝트",
+      developCDeliveries: "납품·검수",
+      developCInquiries: "문의·A/S",
+      developCRequests: "전체 의뢰",
+      developCSettings: "설정",
+
       dashboard: '대시보드',
       quotes: '견적 관리',
       orders: '주문내역',
@@ -334,6 +346,7 @@ export const ko = {
           promptVersionHint: '프롬프트 본문은 코드가 정본이라 화면에서 바꿀 수 없습니다.',
           updatedAt: '마지막 저장',
         },
+        developDocMail: {"title":"개발의뢰 문서 메일 초안","enabled":"사용","enabledHint":"켜면 프로젝트 문서 발송 패널의 「AI 로 다듬기」가 열립니다. 꺼져 있으면 규칙으로 만든 기본 초안만 씁니다. 관리자가 화면에서 기다리는 짧은 잡이라 빠른 설정을 권합니다.","model":"모델","modelHint":"메일 문안을 다듬는 텍스트 모델.","think":"thinking 단계","extraInstructions":"추가 지침","extraInstructionsHint":"프롬프트 끝에 붙는 운영 지침입니다. 문서 내용·회신 선택지는 코드가 넣습니다."},
         developReview: {
           title: '개발의뢰 검토서',
           enabled: '사용',
@@ -366,6 +379,7 @@ export const ko = {
           extraInstructionsHint: '프롬프트 끝에 붙는 운영 지침입니다. 질문 개수 상한·출력 형식은 코드가 고정합니다.',
         },
         jobs: {
+          stageDocmail: '메일 초안 작성',
           title: '실행 이력',
           refresh: '새로고침',
           empty: '실행 이력이 없습니다.',
@@ -456,6 +470,7 @@ export const ko = {
       requestFail: '생성 요청에 실패했습니다. AI 연동 설정과 실행 이력을 확인해 주세요.',
     },
     // 개발의뢰(sp-develop) 관리 화면 — 상태·이벤트·견적 라벨은 계약 사전(DEVELOP_*_LABELS)이 정본이라 여기 복제하지 않는다.
+    developC,
     develop: {
       workspace: {
         description: {

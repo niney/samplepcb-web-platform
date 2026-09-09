@@ -1,3 +1,4 @@
+import { developCMenu } from './develop-c-menu';
 import type { RouteLocationRaw } from 'vue-router';
 import { DEVELOP_ADMIN_SECTIONS } from './develop-navigation';
 
@@ -21,12 +22,13 @@ export interface AdminMenuItem {
     | 'pcbOrdersAwaiting'
     | 'pcbRemittancePending'
     | 'pcbClaimsPending'
-    | 'developReceived';
+    | 'developReceived'
+    | 'developCReceived' | 'developCAccepted' | 'developCDelivered' | 'developCDocsAwaiting' | 'developCInquiries' | 'developCReplyOverdue';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
 
-export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'develop';
+export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'develop' | 'develop-c';
 
 export interface AdminModule {
   key: AdminModuleKey;
@@ -177,11 +179,13 @@ export const adminModules: readonly AdminModule[] = [
       ...(section.key === 'requests' ? { badge: 'developReceived' as const } : {}),
     })),
   },
+  { key: 'develop-c', labelKey: 'admin.modules.developC', homeTo: { name: 'admin-develop-c-home' }, menu: developCMenu },
 ];
 
 // 라우트 이름 → 소속 모듈. 스위처 활성 상태는 이 파생이 단일 진실 — 북마크·새로고침
 // 진입에서도 메뉴가 어긋나지 않는다(레거시 useAppMode gotcha 회수).
 export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
+  routeName.startsWith('admin-develop-c-') ? 'develop-c' :
   routeName === 'admin-develop' || routeName.startsWith('admin-develop-')
     ? 'develop'
     : routeName.startsWith('admin-smartbom')

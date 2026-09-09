@@ -264,6 +264,51 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-develop-settings',
         component: () => import('./pages/admin/AdminDevelopSettings.vue'),
       },
+      {
+        path: 'develop-c',
+        name: 'admin-develop-c-home',
+        component: () => import('./pages/admin/AdminDevelopCHome.vue'),
+      },
+      {
+        path: 'develop-c/intake',
+        name: 'admin-develop-c-intake',
+        component: () => import('./pages/admin/AdminDevelopCIntake.vue'),
+      },
+      {
+        path: 'develop-c/contracts',
+        name: 'admin-develop-c-contracts',
+        component: () => import('./pages/admin/AdminDevelopCContracts.vue'),
+      },
+      {
+        path: 'develop-c/projects',
+        name: 'admin-develop-c-projects',
+        component: () => import('./pages/admin/AdminDevelopCProjects.vue'),
+      },
+      {
+        path: 'develop-c/deliveries',
+        name: 'admin-develop-c-deliveries',
+        component: () => import('./pages/admin/AdminDevelopCDeliveries.vue'),
+      },
+      {
+        path: 'develop-c/inquiries',
+        name: 'admin-develop-c-inquiries',
+        component: () => import('./pages/admin/AdminDevelopCInquiries.vue'),
+      },
+      {
+        path: 'develop-c/requests',
+        name: 'admin-develop-c-requests',
+        component: () => import('./pages/admin/AdminDevelopCRequests.vue'),
+      },
+      {
+        path: 'develop-c/requests/:id(\\d+)',
+        name: 'admin-develop-c-request',
+        component: () => import('./pages/admin/AdminDevelopCRequestDetail.vue'),
+      },
+      {
+        path: 'develop-c/settings',
+        name: 'admin-develop-c-settings',
+        component: () => import('./pages/admin/AdminDevelopCSettings.vue'),
+      },
       { path: 'slides', name: 'admin-slides', component: AdminSlides },
       { path: 'seo', name: 'admin-seo', component: AdminSeo },
       {

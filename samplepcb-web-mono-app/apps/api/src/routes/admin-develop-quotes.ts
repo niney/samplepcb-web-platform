@@ -1,3 +1,4 @@
+import { addDevelopPrototypeGuard } from '../lib/develop-prototype';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { randomUUID } from 'node:crypto';
 import type { SpDevelopQuote } from '@prisma/client';
@@ -32,6 +33,7 @@ const MilestoneIdParams = z.object({ mid: z.string().regex(/^\d+$/) });
 const notFound = { error: 'NOT_FOUND', message: '대상이 없습니다' };
 
 export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
+  addDevelopPrototypeGuard(fastify, 'g');
   fastify.addHook('preHandler', fastify.requireAdmin);
 
   const quoteView = async (q: SpDevelopQuote): Promise<AdminDevelopQuoteResponseType['data']> => {

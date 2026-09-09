@@ -1,3 +1,8 @@
+import { developRequestRoutes as developCRequestRoutes } from './routes/develop-c-requests';
+import { adminDevelopRequestRoutes as adminDevelopCRequestRoutes } from './routes/admin-develop-c-requests';
+import { adminDevelopQuoteRoutes as adminDevelopCQuoteRoutes } from './routes/admin-develop-c-quotes';
+import { adminDevelopSettingsRoutes as adminDevelopCSettingsRoutes } from './routes/admin-develop-c-settings';
+import { adminDevelopDocRoutes as adminDevelopCDocRoutes } from './routes/admin-develop-c-docs';
 import Fastify from 'fastify';
 import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
@@ -198,6 +203,12 @@ await app.register(adminDevelopSettingsRoutes, { prefix: '/api/admin' });
 await app.register(adminDevelopQuoteRoutes, { prefix: '/api/admin' });
 await app.register(developWorkflowRoutes, { prefix: '/api' });
 await app.register(adminDevelopWorkflowRoutes, { prefix: '/api/admin' });
+
+await app.register(developCRequestRoutes, { prefix: '/api' });
+await app.register(adminDevelopCRequestRoutes, { prefix: '/api/admin' });
+await app.register(adminDevelopCQuoteRoutes, { prefix: '/api/admin' });
+await app.register(adminDevelopCSettingsRoutes, { prefix: '/api/admin' });
+await app.register(adminDevelopCDocRoutes, { prefix: '/api/admin' });
 
 // ES sp-parts 부트스트랩 + 색인 실패 큐 드레인 — ES 다운이어도 앱은 뜬다(검색만 축퇴).
 // 기동 시 1회에 그치면 장기 실행 서버의 일시 실패가 재시작 전까지 남으므로 1분마다 수렴시킨다.

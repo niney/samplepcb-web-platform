@@ -1,3 +1,4 @@
+import { developPrototypeWhere } from '../lib/develop-prototype';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { Prisma } from '@prisma/client';
 import {
@@ -38,7 +39,7 @@ export const adminDevelopWorkspaceRoutes: FastifyPluginCallbackZod = (fastify, _
                 { assigneeMbId: { contains: q } },
               ],
             };
-      const scope: Prisma.SpDevelopRequestWhereInput = { AND: [workspaceScope(section), search] };
+      const scope: Prisma.SpDevelopRequestWhereInput = { AND: [workspaceScope(section), search, developPrototypeWhere('g')] };
       // 검색/업무 범위/상태를 DB에서 먼저 적용하고 페이지를 나눈다. 빈 페이지를 만드는 클라이언트 필터는 쓰지 않는다.
       const where: Prisma.SpDevelopRequestWhereInput = {
         AND: [scope, { status: { in: [...workspaceStatuses(tab)] } }],

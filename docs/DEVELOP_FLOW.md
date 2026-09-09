@@ -207,6 +207,8 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 
 ### 7.3 관리자 (`apps/web` `/app/admin/develop`)
 
+2026-09-09 비교 브랜치 `prototype/develop-g-c`에서는 이 모듈을 **개발(G)**로 표시하고, `origin/feat/develop-workflow-docs`의 구현을 **개발(C)**(`/app/admin/develop-c`, 고객 `/develop/c`)로 함께 제공한다. 의뢰 소속·목록·API·개발 설정을 분리하며 기존 의뢰는 G로 유지한다. 정본: [G/C 공존 프로토타입](develop-prototypes.md).
+
 **개발 독립 모듈(2026-09-09)**: 상단 `통합 | PCB | BOM | 개발`에서 선택한다. 기존 통합 메뉴의 개발의뢰·설정은 개발 모듈로 이동했다. 업무별 목록은 프로젝트 단위로 검색·상태 필터·페이지를 제공하고, 선택한 업무의 상세 탭으로 연결한다. 메뉴 변경에 따른 DB migration은 없다.
 
 | 경로 | 화면 |

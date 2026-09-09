@@ -78,6 +78,7 @@ const detailTo = (id: number, extra: Record<string, string> = {}) =>
 
 <template>
   <div class="space-y-5" :aria-busy="isFetching">
+    <a href="/develop/request" target="_blank" rel="noopener" class="inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">{{ t('admin.prototypeRequest', { variant: 'G' }) }}</a>
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p class="mb-1 text-xs font-semibold text-blue-600">{{ t('admin.modules.develop') }}</p>

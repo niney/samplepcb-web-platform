@@ -27,9 +27,10 @@ function goLogout(): void {
       <div class="mx-auto flex h-16 w-full max-w-[1280px] items-center gap-6 px-6">
         <RouterLink :to="{ name: 'home' }" class="flex shrink-0 items-center gap-2">
           <span class="font-mono text-lg font-bold tracking-tight text-ink-950">SAMPLEPCB</span>
-          <span class="rounded-md bg-brand-500 px-1.5 py-0.5 text-[11px] font-extrabold text-white">개발의뢰</span>
+          <span class="rounded-md bg-brand-500 px-1.5 py-0.5 text-[11px] font-extrabold text-white">개발(G)</span>
         </RouterLink>
 
+        <a href="/develop/c/request" class="text-xs font-semibold text-brand-600">개발(C) 의뢰하기</a>
         <nav class="hidden items-center gap-5 text-sm font-semibold text-tx-2 md:flex">
           <RouterLink :to="{ name: 'home', hash: '#how' }" class="hover:text-tx-1">{{ $t('nav.how') }}</RouterLink>
           <RouterLink :to="{ name: 'home', hash: '#areas' }" class="hover:text-tx-1">{{ $t('nav.areas') }}</RouterLink>

@@ -1,3 +1,4 @@
+import { addDevelopPrototypeGuard, developPrototypeWhere } from '../lib/develop-prototype';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { Prisma } from '@prisma/client';
 import type { SpDevelopEvent, SpDevelopMilestone, SpDevelopQuote, SpDevelopQuoteItem, SpDevelopRequest, SpFile } from '@prisma/client';
@@ -333,6 +334,7 @@ export const customerEmailOf = async (r: SpDevelopRequest): Promise<string | und
 };
 
 export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
+  addDevelopPrototypeGuard(fastify, 'g');
   // 소유자 로드 — 없으면 404, 남의 것이면 403.
   const loadOwned = async (
     id: string,
@@ -498,7 +500,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     { schema: { querystring: DevelopRequestListQuery }, preHandler: fastify.authenticate },
     async (request) => {
       const { page, pageSize } = request.query;
-      const where = { mbId: request.user.mbId };
+      const where = { mbId: request.user.mbId, ...developPrototypeWhere('g') };
       const [rows, total] = await Promise.all([
         prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
         prisma.spDevelopRequest.count({ where }),

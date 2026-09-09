@@ -1,3 +1,5 @@
+import { developCChildren } from './develop-c-routes';
+import DevelopCLayout from './c/layouts/DevelopLayout.vue';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import DevelopLayout from './layouts/DevelopLayout.vue';
 
@@ -17,7 +19,7 @@ const children: RouteRecordRaw[] = [
   },
 ];
 
-const routes: RouteRecordRaw[] = [{ path: '/', component: DevelopLayout, children }];
+const routes: RouteRecordRaw[] = [{ path: '/c', component: DevelopCLayout, children: developCChildren }, { path: '/', component: DevelopLayout, children }];
 
 export const router = createRouter({
   history: createWebHistory('/develop/'),

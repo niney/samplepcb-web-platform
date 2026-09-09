@@ -1,3 +1,4 @@
+import { addDevelopPrototypeGuard } from '../lib/develop-prototype';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -40,6 +41,7 @@ const escapeHtml = (v: string): string =>
 
 function makeWorkflowRoutes(admin: boolean): FastifyPluginCallbackZod {
   return (app, _opts, done) => {
+    addDevelopPrototypeGuard(app, 'g');
     app.addHook('preHandler', admin ? app.requireAdmin : app.authenticate);
     app.setErrorHandler((error, request, reply) => {
       if (error instanceof WorkflowError) {

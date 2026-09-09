@@ -3,6 +3,7 @@ import type { AiThinkLevelType, AiUsecaseKeyType } from '@sp/api-contract';
 import { DEV_REVIEW_PROMPT_VERSION } from './dev-review';
 import { DEV_DIAGRAM_PROMPT_VERSION } from './dev-diagram';
 import { DEVELOP_FOLLOWUP_PROMPT_VERSION } from './develop-followup';
+import { DEVELOP_DOC_MAIL_PROMPT_VERSION } from './develop-doc-mail';
 import type { OllamaThink } from './ollama';
 import { prisma } from '../prisma';
 
@@ -19,6 +20,8 @@ export const DEVELOP_REVIEW_USECASE = 'develop.dev-review' as const;
 export const DEVELOP_DIAGRAM_USECASE = 'develop.dev-diagram' as const;
 // 개발의뢰 위저드 AI 후속 질문(docs/DEVELOP_FLOW.md §7.2.2) — 고객이 3스텝에서 기다리는 유일한 잡.
 export const DEVELOP_FOLLOWUP_USECASE = 'develop.followup' as const;
+// 개발의뢰 프로젝트 문서 → 고객 메일 초안(docs/DEVELOP_FLOW.md §13) — 관리자가 확인 뒤 발송.
+export const DEVELOP_DOC_MAIL_USECASE = 'develop.doc-mail' as const;
 
 // 유스케이스 키의 "종류"(검토서/구성도) — 잡 저장소·러너가 market/develop 을 가르지 않고 이걸 본다.
 export const isReviewUsecase = (key: string): boolean => key.endsWith('.dev-review');
@@ -69,6 +72,13 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
   'develop.followup': {
     defaultModel: 'kimi-k3',
     promptVersion: DEVELOP_FOLLOWUP_PROMPT_VERSION,
+    think: 'low',
+    timeoutMs: 300_000,
+  },
+  // 문서 → 메일 초안 — 관리자가 상세에서 기다리는 짧은 잡. 후속 질문과 같은 기본(사용자 결정 6: kimi-k3).
+  'develop.doc-mail': {
+    defaultModel: 'kimi-k3',
+    promptVersion: DEVELOP_DOC_MAIL_PROMPT_VERSION,
     think: 'low',
     timeoutMs: 300_000,
   },

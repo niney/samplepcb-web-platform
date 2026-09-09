@@ -1,3 +1,4 @@
+import { getDevelopPrototype } from './develop-prototype';
 import type { FastifyBaseLogger } from 'fastify';
 import { DEVELOP_REQUEST_STATUS_LABELS, developAreaBadge } from '@sp/api-contract';
 import type { DevelopRequestStatusType } from '@sp/api-contract';
@@ -207,10 +208,12 @@ export async function sendDevelopMail(
     return;
   }
   try {
+    const variant = meta.refType === 'develop_request' && /^\d+$/.test(String(meta.refId)) ? await getDevelopPrototype(BigInt(meta.refId)) : 'g';
+    const html = variant === 'c' ? mail.html.replaceAll('/app/admin/develop/requests/', '/app/admin/develop-c/requests/').replaceAll('/develop/requests/', '/develop/c/requests/') : mail.html;
     await sendMail({
       to: recipient,
       subject: mail.subject,
-      html: mail.html,
+      html,
       fromName: '샘플피씨비 개발의뢰',
       fromAddress: process.env.MAIL_FROM ?? 'sales@samplepcb.co.kr',
     });

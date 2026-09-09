@@ -4,7 +4,7 @@ import type { MarketContractPaymentType } from '@sp/api-contract';
 import { kstToday } from '@sp/utils';
 import { addDevelopEvent, toDevelopAreaCodes, transitionDevelopStatus } from './develop';
 import { buildCompletedEmail, buildPaymentConfirmedEmail, sendDevelopMail, sendDevelopMailToAdmins } from './develop-email';
-import { getDevelopSettings } from './develop-settings';
+import { getDevelopSettingsForRequest } from './develop-settings';
 import { PAID_ORDER_STATUSES, deleteCartRowsByIoId, deleteQuoteOption, getMembersByIds, getOrderInfoByCtId, DEVELOP_ANCHOR_IT_ID } from './g5-db';
 import { prisma } from './prisma';
 import { Prisma } from '@prisma/client';
@@ -75,7 +75,7 @@ export const markMilestonePaid = async (
       sentBy: actorMbId,
       toMbId: r.mbId,
     });
-    const settings = await getDevelopSettings();
+    const settings = await getDevelopSettingsForRequest(r.id);
     void sendDevelopMailToAdmins(log, settings.notifyEmails, buildPaymentConfirmedEmail({ ...brief, milestoneTitle: m.title, amount: m.amount, started }), {
       kind: 'develop_admin_paid',
       refType: 'develop_request',
@@ -115,7 +115,7 @@ const ensureAutoConfirmLazy = async (r: SpDevelopRequest, log: FastifyBaseLogger
     sentBy: null,
     toMbId: r.mbId,
   });
-  const settings = await getDevelopSettings();
+  const settings = await getDevelopSettingsForRequest(r.id);
   void sendDevelopMailToAdmins(log, settings.notifyEmails, buildCompletedEmail({ ...brief, confirmedBy: 'auto', forAdmin: true }), {
     kind: 'develop_admin_completed',
     refType: 'develop_request',

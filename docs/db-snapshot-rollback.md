@@ -2,6 +2,8 @@
 
 개발의뢰 프로토타입을 운영에서 사용한 뒤 **이전 코드와 배포 전 DB로 돌아가는 방법**이다. 기능용 `.env` 설정은 없다. 기존 `DATABASE_URL`을 사용한다.
 
+`prototype/develop-g-c`의 [G/C 공존](develop-prototypes.md)에도 같은 절차를 사용한다. 공존 DB를 전체 복원하면 G와 C 양쪽이 함께 백업 시점으로 돌아간다.
+
 ## 평소 실행·배포
 
 - 개발: 모노레포에서 `pnpm dev`. API 기동 전에 미적용 migration이 있으면 스냅샷 → `prisma migrate deploy` → 서버 시작 순서로 진행한다.

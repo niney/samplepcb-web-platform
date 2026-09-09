@@ -14,6 +14,7 @@ import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
 import { usePcbClaimsPendingCount } from '../admin/useAdminPcbClaims';
+import { useDevelopModuleSignals } from '../admin/useAdminDevelopC';
 import { useDevelopReceivedCount } from '../admin/useAdminDevelop';
 import { developAdminSection, developSectionRoute } from '../admin/develop-navigation';
 import {
@@ -139,9 +140,15 @@ const { data: pcbClaimsPending } = usePcbClaimsPendingCount(isAdminUser);
 const { todoRfq: pcbTodoRfq, todoPo: pcbTodoPo } = useAdminPcbTodoCounts(isAdminUser);
 // 개발의뢰 — 아직 검토를 시작하지 않은 접수 건(docs/DEVELOP_FLOW.md §7.3).
 const { data: developReceived } = useDevelopReceivedCount(isAdminUser);
+const { data: developCModule } = useDevelopModuleSignals(isAdminUser);
+const developCBadges = computed<Record<string, number | undefined>>(() => ({
+  developCReceived: developCModule.value?.counts.received, developCAccepted: developCModule.value?.counts.accepted, developCDelivered: developCModule.value?.counts.delivered,
+  developCDocsAwaiting: developCModule.value?.signals.docsAwaiting, developCInquiries: developCModule.value?.signals.inquiriesOpen, developCReplyOverdue: developCModule.value?.signals.replyOverdue,
+}));
 // PCB 배지는 합산이다 — SmartBOM 과 달리 시작 전(대기 큐)과 진행 중 내 차례가 모두
 // 관리자 몫이라, 하나만 세면 나머지가 묻힌다("이 역할이 지금 움직여야 하는 수").
 const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefined =>
+  badge.startsWith('developC') ? developCBadges.value[badge] :
   badge === 'rfqCount'
     ? rfqCount.value
     : badge === 'bomQuotesRequested'

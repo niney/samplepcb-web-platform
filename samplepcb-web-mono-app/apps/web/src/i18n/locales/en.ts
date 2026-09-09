@@ -1,3 +1,4 @@
+import { developC } from './develop-c-en';
 // 준비용 스텁(도입 예정). ko 와 동일 shape 유지. 실번역은 추후.
 export const en = {
   app: {
@@ -95,14 +96,25 @@ export const en = {
     },
   },
   admin: {
+    prototypeRequest: 'New development ({variant}) request',
     title: 'Admin',
     modules: {
       core: 'Integration',
       pcb: 'PCB',
       smartbom: 'BOM',
-      develop: 'Development',
+      develop: 'Development (G)',
+      developC: 'Development (C)',
     },
     menu: {
+      developCHome: "Overview",
+      developCIntake: "Intake · Review",
+      developCContracts: "Quote · Contract",
+      developCProjects: "Projects",
+      developCDeliveries: "Delivery · Acceptance",
+      developCInquiries: "Inquiries · A/S",
+      developCRequests: "All requests",
+      developCSettings: "Settings",
+
       dashboard: 'Dashboard',
       quotes: 'Quotes',
       orders: 'Orders',
@@ -334,6 +346,7 @@ export const en = {
           promptVersionHint: 'The prompt body lives in code and cannot be edited here.',
           updatedAt: 'Last saved',
         },
+        developDocMail: {"title":"Development request document mail draft","enabled":"Enabled","enabledHint":"When on, \"Polish with AI\" appears in the project document send panel. When off, only the rule-based default draft is used. The admin waits on this job, so favour a fast setup.","model":"Model","modelHint":"Text model that polishes the mail copy.","think":"Thinking level","extraInstructions":"Extra instructions","extraInstructionsHint":"Operational guidance appended to the end of the prompt. The document body and reply options are supplied by code."},
         developReview: {
           title: 'Development request review',
           enabled: 'Enabled',
@@ -366,6 +379,7 @@ export const en = {
           extraInstructionsHint: 'Operational guidance appended to the end of the prompt. The question limit and output format stay fixed in code.',
         },
         jobs: {
+          stageDocmail: 'Drafting email',
           title: 'Run history',
           refresh: 'Refresh',
           empty: 'No runs yet.',
@@ -457,6 +471,7 @@ export const en = {
     },
     // Development requests (sp-develop) admin screens. Status/event/quote labels come from the
     // contract dictionaries (DEVELOP_*_LABELS), so they are not duplicated here.
+    developC,
     develop: {
       workspace: {
         description: {

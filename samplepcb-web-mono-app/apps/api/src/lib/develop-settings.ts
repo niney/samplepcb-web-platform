@@ -4,6 +4,8 @@ import type { AdminDevelopSettingsType, AdminDevelopSettingsUpdateType } from '@
 import { z } from 'zod';
 import { asVatMode } from './develop';
 import { prisma } from './prisma';
+import { getDevelopPrototype } from './develop-prototype';
+import type { DevelopPrototype } from './develop-prototype';
 
 // ── 개발의뢰 설정 싱글턴(id=1, docs/DEVELOP_FLOW.md §3) ───────────────────────────────
 // GET 은 행이 없으면 코드 기본값으로 답하고, PATCH 가 upsert 한다(마켓 settings 관례 — 시드 불요).
@@ -49,13 +51,17 @@ const toSettings = (row: SpDevelopSettings): AdminDevelopSettingsType => {
   };
 };
 
-export async function getDevelopSettings(): Promise<AdminDevelopSettingsType> {
-  const row = await prisma.spDevelopSettings.findUnique({ where: { id: 1 } });
+export async function getDevelopSettings(variant: DevelopPrototype = 'g'): Promise<AdminDevelopSettingsType> {
+  const row = await prisma.spDevelopSettings.findUnique({ where: { id: variant === 'c' ? 2 : 1 } });
   return row === null ? developSettingsDefaults() : toSettings(row);
 }
 
-export async function updateDevelopSettings(patch: AdminDevelopSettingsUpdateType): Promise<AdminDevelopSettingsType> {
-  const current = await getDevelopSettings();
+export async function getDevelopSettingsForRequest(requestId: bigint): Promise<AdminDevelopSettingsType> {
+  return getDevelopSettings(await getDevelopPrototype(requestId));
+}
+
+export async function updateDevelopSettings(patch: AdminDevelopSettingsUpdateType, variant: DevelopPrototype = 'g'): Promise<AdminDevelopSettingsType> {
+  const current = await getDevelopSettings(variant);
   // zod partial 은 `key?: T | undefined` — 스프레드하면 undefined 가 덮어쓴다. 보낸 필드만 갱신.
   const next: AdminDevelopSettingsType = {
     defaultTerms: patch.defaultTerms ?? current.defaultTerms,
@@ -71,9 +77,9 @@ export async function updateDevelopSettings(patch: AdminDevelopSettingsUpdateTyp
     updatedAt: current.updatedAt,
   };
   const row = await prisma.spDevelopSettings.upsert({
-    where: { id: 1 },
+    where: { id: variant === 'c' ? 2 : 1 },
     create: {
-      id: 1,
+      id: variant === 'c' ? 2 : 1,
       defaultTerms: next.defaultTerms,
       defaultExclusions: next.defaultExclusions,
       defaultWarrantyDays: next.defaultWarrantyDays,
