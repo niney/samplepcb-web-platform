@@ -326,3 +326,13 @@ sudo mysql samplepcb < samplepcb-web-mono-app/apps/api/prisma/migrations/2026090
 - 관리자(`apps/web`): 상세 여섯 번째 탭 「프로젝트 문서」(진행 타임라인 뒤, `?tab=documents`) — 현황 띠(달성도·7단계·확인 대기) · 업무표 편집(기본 업무·검토서 일정 시드·가중치·간트는 실제 날짜) · 문서 목록·필드 스펙 편집기·첨부·발송 패널(결정적 초안 → AI 다듬기 → 확인 → 발송) · 읽기 뷰·새 판·인쇄(인쇄 순간에만 `html.sp-doc-printing` + 카드 `.sp-doc-print-target` 로 그 카드만 남김). 순수 모듈 `develop-doc-edit.ts`(본문 복사·폼 정규화·업무 행 변환·간트 모델). AI 설정 탭에 `develop.doc-mail` 카드(⑦). AI 잡 폴링은 설정 화면의 `useAiJob` 재사용. 워커 지시서 `docs/prompts/develop-workflow-b-admin.md`.
 - 고객(`apps/develop`): 상세 「진행 현황·문서」 섹션(`#documents`) — 현황 카드·공개 업무표·확인 대기 배너·문서 목록(현재 판·이전 판 접힘)·읽기·결정 패널(종류별 라디오+의견+이름+확인 체크)·문서 인쇄 라우트 · 견적 인쇄 `?mode=contract` 계약서 보기 · 목록 칩 「문서 확인·회신」. 워커 지시서 `docs/prompts/develop-workflow-a-app.md`.
 - 검증: 하네스 §10b(업무표·문서 생성/검증/발송/결정/새 판/변경요청→change 견적/삭제)·§11b(납품확인서 보완→재납품→승인 completed) **170/0** · 단위 `develop-doc-mail.test.ts`(3)·`packages/utils/src/develop-docs.test.ts`(5) · 8워크스페이스 typecheck.
+
+## 14. 관리자 「개발」 모듈 — 스위처·단계별 워크큐·진행현황 (2026-09-09, 사용자 결정)
+
+개발의뢰가 통합 모듈의 메뉴 2개(워크큐·설정)와 상세 한 장의 탭 6개에 갇혀 있어(접수→A/S 까지 단계가 가장 긴 트랙), PCB·BOM 과 같은 **독립 모듈**로 올린다. 라벨은 「개발」(en `DEV`). `admin/menu.ts` 가 예고해 둔 기술개발 모듈 자리다. 모듈 판정은 라우트 이름 접두 `admin-develop`.
+
+- 메뉴(순서 고정): 진행현황(모듈 홈) · 접수·검토(`intake`=received+reviewing) · 견적·계약(`contract`=quoted+accepted) · 진행 프로젝트(in_progress) · 납품·검수(delivered) · 문의·A/S(signal `inquiries_open`) · 전체 의뢰(기존 워크큐) · 설정(통합에서 이동). AI 설정은 모듈 횡단이라 통합에 남는다.
+- 배지 = "지금 관리자 차례" 하나씩: 접수 n(counts.received) · 결제 대기 n(counts.accepted) · 회신 대기 n(signals.docsAwaiting) · 검수 중 n(counts.delivered) · 미답변 n(signals.inquiriesOpen) · 홈은 기한 초과 n(signals.replyOverdue).
+- 서식(§13)은 건 안의 도구이고 메뉴는 단계별 워크큐다 — 관리자가 매일 여는 것은 "내 차례인 건" 목록이기 때문. 건별 상세는 한 장 허브를 유지하고 각 큐가 해당 탭(`?tab=`)으로 딥링크한다.
+- 서버(목록 API, 추가형): `DEVELOP_ADMIN_TABS` 에 `intake`·`contract` · query `signal`(`docs_awaiting`·`inquiries_open`·`reply_overdue`, 문서·이벤트 파생이라 DB 로 못 자르므로 탭 전 행을 읽어 메모리에서 페이지를 자른다) · 행별 `ops`(`developOpsFor` — 업무표 진행률·현재 단계, sent 승인형 문서 수·가장 이른 회신 요청일·기한 초과, 마지막 담당자 답변 뒤 고객 문의·A/S 수와 마지막 문의 발췌) · 응답 `signals`(검색어 무관, 활성 의뢰 전체). 미답변 판정은 이벤트가 진실(저장 없음).
+- 화면 지시서 `docs/prompts/develop-workflow-c-module.md`. 검증: 하네스 §4·§10b·§13 에 신호 단언 5건(**175/0**).
