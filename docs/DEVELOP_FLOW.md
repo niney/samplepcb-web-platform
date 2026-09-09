@@ -61,6 +61,8 @@ nginx: `ops/nginx/local-web.conf` 에 `upstream vite_develop 127.0.0.1:5177` + `
 | `sp_develop_quote_item` | 견적 항목 | `quoteId`+`seq` unique · `title` · `description` · `amount`(공급가) · `durationDays` |
 | `sp_develop_milestone` | 결제 단위 | `quoteId`·`requestId`·`seq` · `title`(계약금·잔금…) · `ratioBp`(입력 보조) · `amount`(VAT 포함 결제액) · `trigger`(on_accept\|on_delivery\|on_completion\|manual) · `status`(draft\|pending\|paid\|cancelled) · **`paymentKey`**(uuid = 영카트 io_id) · `ctId` · `paidOdId` · `paidAt` · `paidBy`(lazy\|admin) · `unlocksDeliverables` |
 | `sp_develop_settings` | 설정 싱글턴(id=1) | `defaultTerms` · `defaultExclusions` · `defaultWarrantyDays`(180) · `defaultReviewDays`(7) · `defaultValidDays`(30) · `defaultVatMode` · `defaultMilestones`(JSON) · `notifyEmails`(관리자 수신) · `aiAutoDraft`·`aiDiagramAutoDraft` |
+| `sp_develop_document` | **프로젝트 문서**(§13, 2026-09-09) | `requestId`·`type`(8종)·`seq`(종류별 번호)·`version`·`status`(draft\|sent\|결정 5종\|superseded)·`title`·`content`(필드 스펙 JSON)·`replyDueOn`·`internalNote`·`mailSubject/Body`(발송 확인본)·`sentAt/By`·`decision`·`decisionNote`·`decidedAt/Name/Ip`·`createdBy`. unique(requestId,type,seq,version). 첨부 `sp_file(refType='sp_develop_document')` |
+| `sp_develop_task` | **업무표(WBS)**(§13) | `requestId`·`seq`·`phase`(7단계)·`name`·`status`(6종)·`startOn`·`endOn`·`weightBp`·`progressPct`·`note`·`visibleToCustomer`. 달성도·현재 단계는 저장하지 않고 계산 |
 
 - 첨부는 `sp_file` 폴리모픽: `sp_develop_request`(attachment, `area/slot` 슬롯 포함 · `diagram` 교체 업로드) · `sp_develop_quote`(`po` 발주서) · `sp_develop_event`(`deliverable`·`review`·`comment`). pathToken 비노출·`uploadedBy` 에 mbId 금지 불변식 유지. 파일서버 serviceType 은 env `DEVELOP_FILE_SERVICE_TYPE`(기본 `develop`, 운영 전 수용 1회 실측).
 - 세금계산서는 컬럼이 아니라 이벤트(`tax_invoice`, payload {issuedAt, supplyAmount, vatAmount, memo}) — 발행은 홈택스 수동, 여기엔 사실만.
@@ -98,7 +100,7 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 
 ### 4.3 이벤트 `type`
 
-`status_changed` · `edited`(고객 수정) · `note`(관리자 진행 메모, 공개 토글) · `comment`(문의, 양방향, 첨부) · `review_request`(중간 확인 요청, 첨부) · `review_approved` · `review_changes` · `deliverable`(납품, `final`·`locked`) · `quote_sent` · `quote_accepted` · `quote_declined` · `payment_confirmed` · `ai_drafted` · `published`(검토서·구성도 공개) · `tax_invoice` · `as_request`(완료 후 A/S, comment 의 태그).
+`status_changed` · `edited`(고객 수정) · `note`(관리자 진행 메모, 공개 토글) · `comment`(문의, 양방향, 첨부) · `review_request`(중간 확인 요청, 첨부) · `review_approved` · `review_changes` · `deliverable`(납품, `final`·`locked`) · `quote_sent` · `quote_accepted` · `quote_declined` · `payment_confirmed` · `ai_drafted` · `published`(검토서·구성도 공개) · `tax_invoice` · `as_request`(완료 후 A/S, comment 의 태그) · `document_sent`·`document_decided`(프로젝트 문서 발송·고객 결정, §13 — payload 에 documentId·docNo).
 
 ## 5. 견적서
 
@@ -219,9 +221,11 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 
 ## 8. API 지도
 
-회원(prefix `/api`, 소유자만): `GET /ai/develop.followup/status`·`POST /ai/develop.followup/run`(multipart, §7.2.2)·`GET /ai/jobs/:jobId` · `POST /develop/requests`(multipart) · `GET /develop/my/requests` · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3).
+회원(prefix `/api`, 소유자만): `GET /ai/develop.followup/status`·`POST /ai/develop.followup/run`(multipart, §7.2.2)·`GET /ai/jobs/:jobId` · `POST /develop/requests`(multipart) · `GET /develop/my/requests` · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3) · `POST …/documents/:docId/decide`(§13 — 승인형 sent 문서 결정, 응답은 상세).
 
 관리자(prefix `/api/admin`, requireAdmin): `GET /develop/requests`(+counts) · `GET|PATCH /develop/requests/:id` · `POST …/status` · `POST …/ai/review`·`POST …/ai/diagram` · `PUT …/review`·`POST …/review/publish|unpublish|reset` · `POST …/diagram/publish|unpublish|upload` · `POST …/quotes`·`PATCH /develop/quotes/:qid`·`POST …/send|withdraw` · `POST …/events`(multipart) · `POST /develop/milestones/:mid/mark-paid` · `GET …/review/versions`·`GET …/review/versions/:seq`·`POST …/review/versions/:seq/restore`(§6.2 버전 원장) · `GET /develop/files/:fileId(/preview)`(의뢰·이벤트·견적 파일 한 번호 체계, 미리보기는 고객 라우트와 같은 buildFilePreview) · `GET|PATCH /develop/settings`.
+
+프로젝트 문서·업무표(§13, prefix `/api/admin`): `POST /develop/requests/:id/documents`(초안) · `PATCH|DELETE /develop/documents/:docId`(draft 만) · `POST …/revise`(새 판) · `POST …/send`(발송 = 판 고정·이벤트·메일) · `POST|DELETE …/files(/:fileId)`(draft 첨부) · `POST …/ai-mail`(메일 초안 잡 → `GET /api/ai/jobs/:jobId` 의 `docMail`) · `PUT /develop/requests/:id/tasks`(업무표 통째 교체 → `{tasks, progress}`). 상세 응답에 `documents`·`progress` 가 실린다(고객은 보낸 판·공개 행만).
 
 에러 봉투: 회원 `{result:false,error:'CODE'}` · 관리자 `ApiError` — 마켓 관례 그대로. 코드→메시지는 각 앱 `lib/error-msg.ts`.
 
@@ -241,6 +245,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 | P1 | 의뢰 등록·목록·상세·수정(고객) · 관리자 워크큐·상세 · AI 자동 초안·재생성(보충 메모)·구조 편집·공개 · 상태 전이 · 메일 | 계약·서버 직접 → 화면 2워커(고객 앱 ∥ 관리자) 위임 + 전수 감사 |
 | P2 | 견적서 CRUD·붙여넣기·발송·인쇄 · 수락/거절 · 마일스톤·checkout·lazy 승격 · 문의 스레드 | 같음 |
 | P3 | 확인 요청·납품·검수·자동확정·잠금 해제 · 추가 견적 · 세금계산서 기록 · A/S | 같음 |
+| P4 | **프로젝트 문서·업무표**(§13, 2026-09-09) — 착수 뒤 수행 구간의 서식 8종·WBS·현황·AI 메일 초안·계약서 보기 | 계약·서버·DB·하네스 직접 → 화면 2워커(고객 ∥ 관리자) 위임 + 전수 감사 |
 | 검증 | `ops/scripts/e2e-develop.mts`(API 하네스, 마켓 하네스 관례: run → cleanup) · 실브라우저 워크 · `pnpm -r typecheck/lint` · e2e-market 회귀(러너 일반화 영향) | |
 
 ### 11.1 구현 상태 (2026-09-05, 브랜치 `feat/develop-mvp`)
@@ -254,11 +259,69 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 | 검증 | e2e-develop **110/0**(run→cleanup 잔여 0) · e2e-market **148/0** · api 단위 999 · utils 152(견적 순수 함수 8 포함) · 8워크스페이스 typecheck 0 · lint 0(기존 `order-progress.ts`·`bom-claims.ts`·`pcb-claims.ts` 의 prefer-optional-chain 3건은 이 작업 전부터 있던 것) · 실브라우저: 고객 위저드 완주·상세·수정·인쇄 / 관리자 4화면 / 견적 작성→발송→수락→수동 입금→in_progress·철회·삭제, pageErrors 0 |
 | 운영 반영 | 앵커 `sp-develop-svc` 시드 · PHP 사전(`sp_develop_it_ids` union·cart 배지) · 라이브 nginx `/develop/`(폐지된 `/rnd` 5177 블록 재활용) 반영·재시작 완료(로컬). **운영 배포**는 `deploy.sh`(2026-09-05 갱신: 5번에 develop 빌드, 9번=sp-develop 단독, 2·5번 마이그레이션 뒤 앵커 시드 자동) — 첫 배포 순서: main 병합 → `./deploy.sh 5`(추가형이라 N) → 운영 nginx 는 로컬 보관본 `ops/nginx-live/sites-enabled/centrafab`(gitignore; 2026-09-05 `/develop/` alias·`= /develop` 301·`/rnd` 제거 반영)을 서버 `/etc/nginx/sites-enabled/centrafab` 에 올림 → 7 → 6(PHP) → 관리자 AI 설정에서 develop 유스케이스 켜기 → 첨부 업로드 1회 실측(파일서버 serviceType `develop`) |
 
+| 프로젝트 문서·업무표(P4, 2026-09-09, 브랜치 `feat/develop-workflow-docs`) | 백엔드 완료 — 계약 `develop-docs.ts` · migration `20260909120000_develop_workflow_docs`(+`down.sql`) · lib `develop-docs.ts` · 라우트 `admin-develop-docs.ts` + 고객 `documents/:docId/decide` · AI `develop.doc-mail`(`develop-doc-mail.ts`·`doc-mail-runner.ts`) · 메일 2종 · 하네스 §10b·§11b(**170/0**) · 단위(doc-mail 3·contract 5). 화면은 §13.5 |
+
 남은 것: 파일서버 serviceType `develop` 운영 수용 실측 · 알림톡 템플릿 · 실 LLM 초안 육안 1회(관리자 상세에서 `초안 다시 만들기`) · 위키 재컴파일 · 발주서(PO) 첨부 라우트(계약 `poFile` 자리만 있음) · 마일스톤 `manual` 트리거의 청구 열기 플래그.
 
 ## 12. 결정 로그
+
+- 2026-09-09 프로젝트 문서·업무표(사용자, §13): 프로토타입 「개발프로젝트 업무관리 서식」을 계약 이후 문서 층으로 옮긴다. 결정 9건 — ① 계약서(01)는 별도 문서가 아니라 수락 견적서 인쇄 뷰(서명란·동의 기록·발주서) ② 승인형 5(착수회의록·중간검토·제작승인·변경요청·납품확인)+공유형 2(수행계획·시험검토)+정기 진행보고 ③ 고객 응답 4택(승인·수정 후 재검토·협의 필요·조건부, 변경요청·납품확인은 문안 다름) ④ 승인 기록 = 시각·IP·이름(전자서명 없음) ⑤ 발송 버튼이 메일도 보낸다 ⑥ AI 메일 초안은 실제 LLM 유스케이스 `develop.doc-mail`(기본 kimi-k3, 관리자 확인 뒤 발송) ⑦ 업무표는 단계 요약·달성도만 공개, 세부 행은 행별 공개 플래그 ⑧ 변경요청 승인 → change 견적 초안 자동 ⑨ 제작 승인 뒤 PCB·BOM 트랙은 링크만. 프로토타입 롤백 조건(운영 트라이얼 뒤 되돌리기): 새 테이블만·기존 ALTER 없음·계약 additive·`down.sql` 동봉·PHP/nginx 무변경.
+- 2026-09-09 `sp-development`(이 맥의 stash, 2026-09-05 별도 프로토타입 `apps/development`) 는 **무시**(사용자). main 의 sp-develop 이 정본. 로컬 DB 의 `sp_development_*` 6 테이블·`_prisma_migrations` 행 1개는 폴더에 없는 DB 전용 잔재로 남아 있으며(`migrate deploy` 는 통과 — 실측), 정리는 §13.4 의 SQL.
 
 - 2026-09-08 위저드 v2(사용자): 프로토타입 5스텝 이식 · 개별 메뉴에서 회로·펌웨어 제외(시스템개발 안에서만) · 분야별 질문은 선택지+서술 혼합 · 예산 사전 분리(`DEVELOP_BUDGET_RANGES`). 같은 날 v1.9 질문서(244문항) main 되돌림(강제 푸시, 로컬 브랜치에만 잔존). 로컬 DB 에 남아 있던 v1.9 migration 컬럼 12개는 수동 drop + `_prisma_migrations` 행 삭제로 정리했다(운영 미반영이라 무해). 상세 §7.2.1.
 
 - 2026-09-05 기획 확정(사용자): 마켓과 분리·이름·관리자 주도 AI·항목별 견적·마일스톤·회원 전용·실무 보강 6건(연락처·조건 문서 견적서·동의 기록·추가 견적·확인 요청·잔금 후 해제) 채택. 디자인은 새로.
 - 2026-09-05 구현 중 결정: `develop.dev-review` 기본 모델 kimi-k3 think medium(관리자 대기라 정밀, §12.8 프로빙 근거) · 하네스는 develop.* 유스케이스를 끄고 돈다(관리자 재생성은 force 라 부르지 않음) · 세금계산서 이벤트는 payload 만으로 등록 허용 · `DevelopOkResponse`·`paidBy` 계약 additive · 관리자 워커가 세션 강제 종료로 끊겨 i18n 230키를 재스폰 워커가 보충(키 누락 검사 스크립트 관례 확립).
+
+## 13. 프로젝트 문서·업무표 — 계약 이후 수행 구간 (2026-09-09, 브랜치 `feat/develop-workflow-docs`)
+
+사용자가 준 프로토타입 「샘플피씨비 개발프로젝트 업무관리 서식」(보관본 `docs/prototypes/develop-workflow-prototype.html`, 10장: 현황·계약서·착수회의록·수행계획·중간검토·제작승인·시험검토·변경요청·납품확인·AI 메일)을 sp-develop 의 **착수 뒤(`in_progress`) 구간**에 얹은 문서 층. 기존 상태 머신(§4)은 그대로이고, 그 안에서 문서·업무표가 오간다. 프로토타입에서 일부러 안 가져온 것: localStorage 저장, 키워드 조합 가짜 AI, input 인덱스 기반 복원, 순서 기반 가짜 간트 위치.
+
+### 13.1 프로토타입 ↔ 기존 대응
+
+| 서식 | 대응 | 구현 |
+|---|---|---|
+| 00 현황 | 상태 스텝퍼는 상태 단위뿐 | **파생**: 달성도(업무표 가중 평균)·현재 단계(7단계, 업무에서)·예상 완료일(최신 발송 수행계획)·확인 대기(sent 승인형 수). 저장 없음 |
+| 01 계약서 | 수락 견적서(결정 11) | 문서 아님 — 견적 인쇄 뷰 `?mode=contract`(서명란·동의 기록·발주서) |
+| 02 착수회의록 | 없음 | 승인형 문서 `kickoff` |
+| 03 수행계획 | 검토서 일정(예상)·견적 기간(약속) | 공유형 문서 `plan`(기준 착수·계획·예상 완료일) + **업무표 `sp_develop_task`**(프로토타입 15행 기본값 `DEVELOP_DEFAULT_TASKS` — 코드 상수) |
+| 04 중간 개발검토서 | `review_request` 이벤트(2택) | 승인형 문서 `design_review`(4택). 옛 이벤트는 읽기 호환 |
+| 05 제작 진행 승인서 | 위저드 `production` 계획 | 승인형 `production_approval`(승인 범위 체크리스트). 실제 제작은 PCB·BOM 트랙 링크만 |
+| 06 시제품 시험검토서 | 없음 | 공유형 `test_report`(시험결과 표) |
+| 07 변경요청서 | `kind=change` 견적(결정 12) | 승인형 `change_request` — 승인되면 change 견적 초안 자동(`createChangeQuoteDraft`, 금액 0·기본 마일스톤, 관리자가 채워 발송) |
+| 08 납품 완료확인서 | `deliverable(final)`·검수 확정·자동확정·잠금 해제 | 승인형 `delivery_confirm`(납품물 표 4행 프리셋) — delivered 에서 승인=`completed`, 보완 후 승인=`in_progress`(재납품), 추가 협의=이벤트만 |
+| 09 AI 정리·메일 | 메일 10종·`sp_ai_usecase` | 결정적 초안 `buildDevelopDocMailDraft`(계약) + 유스케이스 `develop.doc-mail`(잡, 관리자 확인 뒤 발송). 공유형 `progress_report` 가 00 의 세 칸(완료·현재·다음 업무) |
+
+### 13.2 문서 모델
+
+- 문서 8종은 한 테이블 `sp_develop_document` — `type` + **필드 스펙**(`DEVELOP_DOC_FIELDS[type]`: key·label·kind(text/textarea/date/datetime/select/checklist/table)·options·columns·meta) + 본문 JSON(`DevelopDocContent`: key → string | 코드 배열 | 행 배열). 폼·읽기 뷰·메일 본문이 같은 스펙으로 그려지고, 서버는 `developDocContentIssues` 로 400(`CONTENT_INVALID`)을 낸다. 부분 본문 허용, 빈 문서 발송은 400 `EMPTY_DOCUMENT`.
+- 문서번호 `docNo` = 종류 코드 + 종류별 일련번호(`DR-01`·`CR-02`). **재발송은 새 판**(`revise` → 같은 종류·번호, version+1 draft, 본문 복사) → 발송 시 이전 판 `superseded`. 고객은 보낸 판만 보고(`draft` 는 어떤 응답에도 없다) `isCurrent` 가 현재 판.
+- 상태 `draft → sent → 결정(approved·conditional·changes_requested·discuss_requested·rejected) | superseded`. 결정 선택지는 종류별(`DEVELOP_DOC_DECISION_OPTIONS`: 기본 4택 / 변경요청 「변경 적용 승인·기존 범위 유지·내용 수정 후 재검토·담당자 협의 필요」 / 납품확인 「납품 승인·보완 후 승인·추가 협의」). 공유형(plan·test_report·progress_report)은 결정 없음(409 `NOT_APPROVAL_DOC`). 결정 = 동의 기록(시각·IP·이름, 견적 수락 패턴), sent 에서 한 번(409 `DOC_NOT_OPEN`).
+- 발송 = 판 고정 + `mailSubject/Body`(관리자가 확인한 그대로) 저장 + 이벤트 `document_sent`(고객 노출) + 고객 메일(`sendMail` 끄면 화면 공개만). 결정 = 이벤트 `document_decided` + 관리자 메일 + 부수효과(납품확인·변경요청). 문서 생성은 `accepted` 이후(`DEVELOP_DOC_ALLOWED_STATUSES`), 납품확인서는 delivered·completed 에서만(409 `DOC_TYPE_NOT_ALLOWED`).
+- 고객 `nextAction` 에 `answer_document`(승인형 sent 문서, 결제·검수보다 뒤 순위). 첨부는 draft 에서만 붙이고 고객 다운로드는 보낸 판의 첨부만(기존 파일 라우트가 refType 을 하나 더 안다).
+
+### 13.3 업무표·현황
+
+- `sp_develop_task` 행 = 업무명·단계(`DEVELOP_TASK_PHASES` 7: 계약·착수/요구사항/설계·개발/제작·입고/조립·시험/인증·검토/납품·완료)·상태 6·시작/완료일·가중치(bp)·진행률·비고·고객 공개. `PUT …/tasks` 가 통째 교체(taskId 가 바뀐다). 기본 15행·가중치는 프로토타입 값(코드 상수 — 설정 테이블에 넣으면 ALTER 라 롤백 조건을 깬다).
+- 진행 요약 `developProgressSummary(tasks, contractDone)`(계약 순수 함수, 서버·화면 공용): 달성도 = Σ(가중치×진행률)/Σ가중치(합 0 이면 단순 평균) · 현재 단계 = 업무가 있고 다 끝나지 않은 첫 단계 · 단계 상태 done/now/todo(업무 없는 '계약·착수' 는 착수 뒤면 done). 고객에겐 공개 행만 주되 달성도는 전 행 기준(사용자 결정 7).
+- 예상 완료일·계획 완료일·기준 착수일은 **최신 발송 수행계획(plan) 문서**에서 파생.
+
+### 13.4 프로토타입 롤백 절차 (운영 트라이얼 뒤)
+
+설계 조건: 새 테이블 2개만·기존 `sp_develop_*` ALTER 없음·계약 additive(새 이벤트 타입은 옛 코드에서 `note` 로 좁혀 읽힘)·PHP·nginx·.env 무변경·유스케이스 행은 옛 코드가 무시. 그래서 롤백은 두 걸음이다.
+
+```
+mariadb-dump --single-transaction samplepcb sp_develop_document sp_develop_task > ~/workflow-trial-$(date +%F).sql   # 트라이얼 데이터 보존(선택)
+git checkout main && ./deploy.sh 5      # 코드·정적 빌드·api 되돌림(추가형 → N). 폴더에 없는 마이그레이션 행은 deploy 가 무시한다(실측)
+sudo mysql samplepcb < samplepcb-web-mono-app/apps/api/prisma/migrations/20260909120000_develop_workflow_docs/down.sql
+```
+
+`down.sql` 은 문서 첨부 `sp_file` 행·`document_*` 이벤트·`develop.doc-mail` 잡/유스케이스 행·테이블 2개·`_prisma_migrations` 행을 지운다. 되돌릴 수 없는 것: 발송된 메일·`sp_mail_log`·파일서버 고아 파일(무해). 배포는 서버에서 브랜치 체크아웃(`git checkout feat/develop-workflow-docs && ./deploy.sh 5`) — main 무오염, 트라이얼 중 핫픽스가 필요하면 브랜치에 main 을 머지해 올린다.
+
+로컬 잔재 정리(선택 — sp-development 스태시 시절 DB 전용): `DROP TABLE sp_development_ai_run, sp_development_refund, sp_development_payment_attempt, sp_development_charge, sp_development_record, sp_development_project; DELETE FROM _prisma_migrations WHERE migration_name='20260905090000_development_service'; DELETE FROM g5_shop_item WHERE it_id='sp-development-svc';`
+
+### 13.5 화면
+
+- 관리자(`apps/web`): 상세 여섯 번째 탭 「프로젝트 문서」 — 현황 띠(달성도·7단계·확인 대기) · 업무표 편집(기본 업무·검토서 일정 시드·가중치·간트는 실제 날짜) · 문서 목록·필드 스펙 편집기·첨부·발송 패널(결정적 초안 → AI 다듬기 → 확인 → 발송) · 읽기 뷰·새 판·인쇄. AI 설정 탭에 `develop.doc-mail` 카드. 워커 지시서 `docs/prompts/develop-workflow-b-admin.md`.
+- 고객(`apps/develop`): 상세 「진행 현황·문서」 섹션(`#documents`) — 현황 카드·공개 업무표·확인 대기 배너·문서 목록(현재 판·이전 판 접힘)·읽기·결정 패널(종류별 라디오+의견+이름+확인 체크)·문서 인쇄 라우트 · 견적 인쇄 `?mode=contract` 계약서 보기 · 목록 칩 「문서 확인·회신」. 워커 지시서 `docs/prompts/develop-workflow-a-app.md`.
+- 검증: 하네스 §10b(업무표·문서 생성/검증/발송/결정/새 판/변경요청→change 견적/삭제)·§11b(납품확인서 보완→재납품→승인 completed) **170/0** · 단위 `develop-doc-mail.test.ts`(3)·`packages/utils/src/develop-docs.test.ts`(5) · 8워크스페이스 typecheck.

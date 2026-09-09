@@ -49,6 +49,7 @@ import {
   transitionDevelopStatus,
 } from '../lib/develop';
 import { developReviewDraftRunning, startDevelopAiDrafts } from '../lib/develop-ai';
+import { REF_DEVELOP_DOCUMENT, buildDevelopProgress, loadDevelopDocuments, loadDevelopTasks, toAdminDevelopDocumentView } from '../lib/develop-docs';
 import { developReferenceFiles, developSourceSignature } from '../lib/develop-ai-source';
 import { buildCompletedEmail, buildDeliveredEmail, buildStatusChangedEmail, sendDevelopMail } from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy } from '../lib/develop-payment';
@@ -186,12 +187,14 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
 
   // 상세 — 고객 상세(공개본·visible 이벤트) 위에 관리자 전용 층(3층 검토서·현재본 구성도·내부 메모·전 이벤트·전 견적)을 얹는다.
   const buildAdminDetail = async (r: SpDevelopRequest): Promise<AdminDevelopRequestDetailType> => {
-    const [customerDetail, members, files, quotes, events] = await Promise.all([
+    const [customerDetail, members, files, quotes, events, documents, tasks] = await Promise.all([
       buildDevelopRequestDetail(r),
       getMembersByIds([r.mbId, ...(r.assigneeMbId === null ? [] : [r.assigneeMbId])]),
       developReferenceFiles(r.id),
       prisma.spDevelopQuote.findMany({ where: { requestId: r.id }, include: { items: true, milestones: true }, orderBy: { version: 'asc' } }),
       prisma.spDevelopEvent.findMany({ where: { requestId: r.id }, orderBy: { id: 'asc' } }),
+      loadDevelopDocuments(r.id, { includeDrafts: true }),
+      loadDevelopTasks(r.id),
     ]);
     const [eventFiles, poFiles, allFiles] = await Promise.all([
       developEventFiles(events.map((e) => e.id)),
@@ -241,6 +244,9 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       },
       quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null), internalNote: q.internalNote })),
       events: events.map((e) => toDevelopEventView(e, eventFiles.get(e.id.toString()) ?? [], actorName(e), false)),
+      // 프로젝트 문서(§13) — draft·이전 판·메일 확인본까지. 진행 현황은 전 업무 행.
+      documents: documents.rows.map((d) => toAdminDevelopDocumentView(d, documents.files.get(d.id.toString()) ?? [], documents.current.has(d.id.toString()))),
+      progress: buildDevelopProgress(r, tasks, documents.rows, false),
       reviewDays: customerDetail.reviewDays,
       startedAt: customerDetail.startedAt,
       deliveredAt: customerDetail.deliveredAt,
@@ -700,7 +706,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
   // ── 관리자 파일 조회 — 의뢰·이벤트·견적 파일을 한 번호 체계로 본다. 다운로드·미리보기가 같은 판정을 쓴다.
   const findDevelopFile = (fileId: string): Promise<SpFile | null> =>
     prisma.spFile.findFirst({
-      where: { id: BigInt(fileId), refType: { in: [REF_DEVELOP_REQUEST, REF_DEVELOP_EVENT, REF_DEVELOP_QUOTE] } },
+      where: { id: BigInt(fileId), refType: { in: [REF_DEVELOP_REQUEST, REF_DEVELOP_EVENT, REF_DEVELOP_QUOTE, REF_DEVELOP_DOCUMENT] } },
     });
 
   // ── GET /admin/develop/files/:fileId — 관리자 다운로드(의뢰·이벤트·견적 파일 전부) ─────

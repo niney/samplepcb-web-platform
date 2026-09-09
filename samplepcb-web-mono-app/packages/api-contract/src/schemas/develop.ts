@@ -12,6 +12,7 @@ import { DEV_REVIEW_TIMELINE_WISH_CODES, DevReviewSchedule, MarketDevReview } fr
 import { DevelopAiQuestions, DevelopFollowupAnswersInput, DevelopFollowupAnswersPatch } from './develop-followup';
 import type { DevReviewTimelineWishCodeType } from './market-dev-review';
 import { MARKET_DEV_DIAGRAM_STATUSES, MarketDevDiagram } from './market-dev-diagram';
+import { AdminDevelopDocumentView, DevelopDocumentView, DevelopProgressView } from './develop-docs';
 
 // ── 개발의뢰(sp-develop) 계약 — 정본 docs/DEVELOP_FLOW.md ───────────────────────────
 // 의뢰자 ↔ 샘플피씨비 직접 개발 용역. 마켓(market.ts)과 **테이블·상태 어휘가 다르다**(전문가·입찰·공개 목록 없음,
@@ -325,6 +326,8 @@ export const DEVELOP_EVENT_TYPES = [
   'published',
   'tax_invoice',
   'as_request',
+  'document_sent', // 프로젝트 문서 발송(§13) — payload {documentId,type,seq,version,docNo,replyDueOn}
+  'document_decided', // 고객 문서 결정 — payload {documentId,docNo,decision}
 ] as const;
 export type DevelopEventTypeType = (typeof DEVELOP_EVENT_TYPES)[number];
 export const DevelopEventType = z.enum(DEVELOP_EVENT_TYPES);
@@ -345,6 +348,8 @@ export const DEVELOP_EVENT_TYPE_LABELS = {
   published: '공개',
   tax_invoice: '세금계산서',
   as_request: 'A/S 요청',
+  document_sent: '문서 발송',
+  document_decided: '문서 회신',
 } as const satisfies Record<DevelopEventTypeType, string>;
 
 // 관리자가 직접 만드는 이벤트(나머지는 서버가 전이·행동의 부수효과로 쓴다).
@@ -565,7 +570,7 @@ export const DevelopRequestListItem = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   // 고객이 지금 할 일 — 서버 파생(견적 검토 · 결제 · 검수 · 확인 요청 답변). 없으면 null.
-  nextAction: z.enum(['review_quote', 'pay', 'inspect', 'answer_review']).nullable(),
+  nextAction: z.enum(['review_quote', 'pay', 'inspect', 'answer_document', 'answer_review']).nullable(),
   reviewPublished: z.boolean(),
   diagramPublished: z.boolean(),
 });
@@ -619,6 +624,8 @@ export const DevelopRequestDetail = DevelopRequestListItem.extend({
   diagram: DevelopPublicDiagram.nullable(), // **공개본만**
   quotes: z.array(DevelopQuoteView), // draft 제외
   events: z.array(DevelopEventView), // visibleToCustomer 만
+  documents: z.array(DevelopDocumentView), // 프로젝트 문서(§13) — 발송된 것만(draft 제외)
+  progress: DevelopProgressView, // 진행 현황(§13) — 공개 업무 행만
   reviewDays: z.number().int(),
   startedAt: z.string().nullable(),
   deliveredAt: z.string().nullable(),
@@ -868,6 +875,8 @@ export const AdminDevelopRequestDetail = AdminDevelopRequestListItem.extend({
   diagram: AdminDevelopDiagramState,
   quotes: z.array(DevelopQuoteView.extend({ internalNote: z.string().nullable() })),
   events: z.array(DevelopEventView),
+  documents: z.array(AdminDevelopDocumentView), // 프로젝트 문서(§13) — draft·이전 버전·메일 확인본 포함
+  progress: DevelopProgressView, // 전 업무 행
   reviewDays: z.number().int(),
   startedAt: z.string().nullable(),
   deliveredAt: z.string().nullable(),

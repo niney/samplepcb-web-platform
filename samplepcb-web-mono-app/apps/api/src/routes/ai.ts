@@ -261,6 +261,7 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
           review: job.review,
           diagram: job.diagram,
           followup: job.followup,
+          docMail: job.docMail,
           error: job.error,
           elapsedSecs: Math.round(
             ((job.finishedAt ?? new Date()).getTime() - job.startedAt.getTime()) / 1000,

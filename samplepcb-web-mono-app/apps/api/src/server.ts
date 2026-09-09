@@ -71,6 +71,7 @@ import { developRequestRoutes } from './routes/develop-requests';
 import { adminDevelopRequestRoutes } from './routes/admin-develop-requests';
 import { adminDevelopSettingsRoutes } from './routes/admin-develop-settings';
 import { adminDevelopQuoteRoutes } from './routes/admin-develop-quotes';
+import { adminDevelopDocRoutes } from './routes/admin-develop-docs';
 import { scheduleKoreaEximExchangeRateRefresh } from './lib/exchange-rate';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
@@ -193,6 +194,8 @@ await app.register(developRequestRoutes, { prefix: '/api' });
 await app.register(adminDevelopRequestRoutes, { prefix: '/api/admin' });
 await app.register(adminDevelopSettingsRoutes, { prefix: '/api/admin' });
 await app.register(adminDevelopQuoteRoutes, { prefix: '/api/admin' });
+// 프로젝트 문서·업무표(docs/DEVELOP_FLOW.md §13) — 관리자 작성·발송·AI 메일 초안
+await app.register(adminDevelopDocRoutes, { prefix: '/api/admin' });
 
 // ES sp-parts 부트스트랩 + 색인 실패 큐 드레인 — ES 다운이어도 앱은 뜬다(검색만 축퇴).
 // 기동 시 1회에 그치면 장기 실행 서버의 일시 실패가 재시작 전까지 남으므로 1분마다 수렴시킨다.

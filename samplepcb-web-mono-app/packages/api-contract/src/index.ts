@@ -34,6 +34,7 @@ export * from './schemas/market-dev-diagram';
 export * from './schemas/market-areas';
 export * from './schemas/develop-areas';
 export * from './schemas/develop-followup';
+export * from './schemas/develop-docs';
 export * from './schemas/develop';
 export * from './schemas/admin-mail';
 export * from './schemas/file-preview';

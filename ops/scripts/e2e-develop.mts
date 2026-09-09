@@ -1,7 +1,8 @@
 // 개발의뢰(sp-develop) API E2E — 등록(필수 조건·연락처·첨부) → 소유자 경계(403) → 수정·이벤트 → 관리자 워크큐·상세 →
 // AI 3층(작업본 저장·공개·초안 없음 409)·구성도 교체 업로드·공개 → 상태 전이 → 견적(초안·대체·발송·NOT_EDITABLE) →
 // 수락(마일스톤 pending·payable) → checkout(카트행·옵션행 DB 실증·재사용·NOT_PAYABLE·NO_CART_ID) → 결제 시뮬 → lazy 승격
-// (in_progress·startedAt) → 납품(잠금 403) → 검수 확정 → 잔금 → 잠금 해제 200 → 문의·A/S → 취소·거절·만료.
+// (in_progress·startedAt) → 프로젝트 문서·업무표(§13: 업무표 PUT·초안·검증·발송·고객 결정·새 판·변경요청→change 견적) → 납품(잠금 403)
+// → 납품확인서(보완→in_progress→재납품, 승인→completed) → 잔금 → 잠금 해제 200 → 문의·A/S → 취소·거절·만료.
 // 실 LLM 호출 0: 시작 시 develop.* 유스케이스를 enabled=0 으로 내리고 끝날 때 원복한다(마켓 하네스 관례).
 // sp-node(3333)가 떠 있어야 하며, 실존 회원 2명(의뢰인/제3자)과 관리자(cf_admin) JWT 를 JWT_SECRET 으로 직접 서명한다.
 // 결제는 코어 orderformupdate 를 DB 직접(prisma raw)으로 최소 시뮬레이션한다. 생성 데이터(의뢰·이벤트·견적·마일스톤·
@@ -26,7 +27,7 @@ const IDS_FILE = join(tmpdir(), 'sp-develop-e2e-ids.json');
 const MODE = process.argv[2] ?? 'run';
 const ANCHOR_IT_ID = 'sp-develop-svc';
 const CART_BUCKET = '7777000002'; // 마켓 하네스(…001)와 다른 합성 버킷
-const USECASES = ['develop.dev-review', 'develop.dev-diagram', 'develop.followup'];
+const USECASES = ['develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.doc-mail'];
 
 const secret = process.env.JWT_SECRET;
 if (!secret) throw new Error('JWT_SECRET 없음 (apps/api/.env — 실행법 주석 참조)');
@@ -226,10 +227,12 @@ async function cleanup() {
   const rids = ids.requestIds.map((id) => BigInt(id));
   const events = await prisma.spDevelopEvent.findMany({ where: { requestId: { in: rids } }, select: { id: true } });
   const quotes = await prisma.spDevelopQuote.findMany({ where: { requestId: { in: rids } }, select: { id: true } });
+  const docs = await prisma.spDevelopDocument.findMany({ where: { requestId: { in: rids } }, select: { id: true } });
   const refPairs = [
     ...rids.map((id) => ({ refType: 'sp_develop_request', refId: id })),
     ...events.map((e) => ({ refType: 'sp_develop_event', refId: e.id })),
     ...quotes.map((q) => ({ refType: 'sp_develop_quote', refId: q.id })),
+    ...docs.map((d) => ({ refType: 'sp_develop_document', refId: d.id })),
   ];
   for (const p of refPairs) {
     const files = await prisma.spFile.findMany({ where: { refType: p.refType, refId: p.refId } });
@@ -314,7 +317,7 @@ async function run() {
       requestMode: 'system', serviceAreas: [], expertDelegate: true,
       answers: [
         { code: 'system.use', choices: [], note: '공장 라인, 하루 종일, 실내' },
-        { code: 'system.collab', choices: ['all_samplepcb'] },
+        { code: 'system.product_design', choices: ['request'] }, // 협업 범위(askOnDelegate) — 맡김에서도 남는다(b9146b75 에서 system.collab 제거)
       ],
     })),
   });
@@ -325,7 +328,7 @@ async function run() {
   assert(
     sysDetail.status === 200 && sysDetail.json.data.requestMode === 'system' && sysDetail.json.data.serviceAreas.length === 6
       && sysDetail.json.data.serviceAreas.includes('mech') && sysDetail.json.data.expertDelegate === true
-      && sysDetail.json.data.answers.length === 1 && sysDetail.json.data.answers[0].code === 'system.collab'
+      && sysDetail.json.data.answers.length === 1 && sysDetail.json.data.answers[0].code === 'system.product_design'
       && sysDetail.json.data.production.prototypeQty === 5 && sysDetail.json.data.currentStage === 'idea',
     '시스템개발 상세: 전 분야 6(기구 포함)·맡김이라 서술 답변은 버리고 협업 답변만 남음·계획·단계 저장',
     sysDetail.json?.data,
@@ -595,6 +598,91 @@ async function run() {
   const cancelLate = await req('POST', `/api/develop/requests/${rid}/cancel`, { token: tClient, body: {} });
   assert(cancelLate.status === 409 && cancelLate.json?.error === 'NOT_CANCELLABLE', '착수 후 고객 취소 409');
 
+  // ── 10b. 프로젝트 문서·업무표(§13) — in_progress 에서 ────────────────────────────
+  const badTasks = await req('PUT', `/api/admin/develop/requests/${rid}/tasks`, { token: tAdmin, body: { tasks: [{ name: 'x', phase: 'design', startOn: '2026-09-10', endOn: '2026-09-01' }] } });
+  assert(badTasks.status === 400, '업무표: 완료일<시작일 400');
+  const tasksPut = await req('PUT', `/api/admin/develop/requests/${rid}/tasks`, { token: tAdmin, body: { tasks: [
+    { name: '착수회의', phase: 'requirements', status: 'done', weightBp: 1000, progressPct: 100, visibleToCustomer: true },
+    { name: '회로설계', phase: 'design', status: 'in_progress', weightBp: 2000, progressPct: 50, visibleToCustomer: true },
+    { name: '부품 선정', phase: 'design', status: 'planned', weightBp: 1000, progressPct: 0, visibleToCustomer: false },
+  ] } });
+  assert(tasksPut.status === 200 && tasksPut.json.data.tasks.length === 3 && tasksPut.json.data.progress.progressPct === 50 && tasksPut.json.data.progress.currentPhase === 'design', '업무표 PUT → 달성도 50%·현재 설계', tasksPut.json?.data?.progress ?? tasksPut.json);
+  const custProg = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
+  assert(custProg.json.data.progress.tasks.length === 2 && custProg.json.data.progress.progressPct === 50 && custProg.json.data.progress.phases[0].state === 'done', '고객: 공개 업무 2행만·달성도 동일·계약 단계 done', custProg.json?.data?.progress);
+  const badDoc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'design_review', content: { stage: 'nope' } } });
+  assert(badDoc.status === 400 && badDoc.json?.error === 'CONTENT_INVALID', '문서: 본문 검증 400');
+  const tooEarlyDc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'delivery_confirm' } });
+  assert(tooEarlyDc.status === 409 && tooEarlyDc.json?.error === 'DOC_TYPE_NOT_ALLOWED', '문서: 납품 전 납품확인서 409');
+  const dr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'design_review' } });
+  assert(dr.status === 200 && dr.json.data.status === 'draft' && dr.json.data.docNo === 'DR-01' && dr.json.data.approval === true && dr.json.data.isCurrent === true, '문서 초안 DR-01', dr.json);
+  const drId = dr.json.data.documentId;
+  const custNoDoc = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
+  assert(custNoDoc.json.data.documents.length === 0 && custNoDoc.json.data.nextAction === null, '고객: 초안 문서 비노출');
+  const emptySend = await req('POST', `/api/admin/develop/documents/${drId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b' } });
+  assert(emptySend.status === 400 && emptySend.json?.error === 'EMPTY_DOCUMENT', '빈 문서 발송 400');
+  const drPatch = await req('PATCH', `/api/admin/develop/documents/${drId}`, { token: tAdmin, body: { content: { stage: 'circuit', purpose: '회로 확정', asks: '배터리 용량 결정' }, replyDueOn: '2099-01-31' } });
+  assert(drPatch.status === 200 && drPatch.json.data.content.stage === 'circuit' && drPatch.json.data.replyDueOn === '2099-01-31', '문서 초안 수정');
+  const drFile = await req('POST', `/api/admin/develop/documents/${drId}/files`, { token: tAdmin, form: createForm({}, [{ field: 'file', name: 'sch-v1.txt', body: '[e2e] 회로도' }]) });
+  assert(drFile.status === 200 && drFile.json.data.files.length === 1, '문서 첨부 1', drFile.json);
+  const aiOff = await req('POST', `/api/admin/develop/documents/${drId}/ai-mail`, { token: tAdmin, body: {} });
+  assert(aiOff.status === 409 && aiOff.json?.error === 'USECASE_DISABLED', 'AI 메일 초안: 유스케이스 꺼짐 409');
+  mail = await drainMail();
+  const drSend = await req('POST', `/api/admin/develop/documents/${drId}/send`, { token: tAdmin, body: { replyDueOn: '2099-01-31', mailSubject: '[샘플피씨비] 중간 검토', mailBody: '검토 부탁드립니다.' } });
+  assert(drSend.status === 200 && drSend.json.data.status === 'sent' && drSend.json.data.sentAt !== null && drSend.json.data.mailSubject === '[샘플피씨비] 중간 검토', '문서 발송', drSend.json);
+  mail = await expectMailDelta(mail, 1, '메일: 문서 발송(고객)');
+  const patchSentDoc = await req('PATCH', `/api/admin/develop/documents/${drId}`, { token: tAdmin, body: { internalNote: 'x' } });
+  assert(patchSentDoc.status === 409 && patchSentDoc.json?.error === 'DOC_NOT_DRAFT', '발송 문서 수정 409');
+  const custDoc = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
+  const custDr = custDoc.json.data.documents.find((d) => d.documentId === drId);
+  assert(custDr?.status === 'sent' && custDr.files.length === 1 && custDoc.json.data.nextAction === 'answer_document' && custDoc.json.data.progress.pendingApprovals === 1 && custDoc.json.data.events.some((e) => e.type === 'document_sent'), '고객: 문서 sent·첨부·nextAction answer_document·이벤트', { nextAction: custDoc.json?.data?.nextAction, doc: custDr });
+  const docFileDl = await fetch(`${API}/api/develop/requests/${rid}/files/${custDr.files[0].fileId}`, { headers: { Authorization: `Bearer ${tClient}` } });
+  assert(docFileDl.status === 200, '고객: 문서 첨부 다운로드 200');
+  const listDoc = await req('GET', '/api/develop/my/requests?page=1&pageSize=10', { token: tClient });
+  assert(listDoc.json.data.items.find((i) => i.requestId === rid)?.nextAction === 'answer_document', '목록: nextAction answer_document');
+  const decideStranger = await req('POST', `/api/develop/requests/${rid}/documents/${drId}/decide`, { token: tStranger, body: { decision: 'approved', name: 'x' } });
+  assert(decideStranger.status === 403, '문서 결정: 제3자 403');
+  const decideBad = await req('POST', `/api/develop/requests/${rid}/documents/${drId}/decide`, { token: tClient, body: { decision: 'rejected', name: '이투이' } });
+  assert(decideBad.status === 400 && decideBad.json?.error === 'DECISION_INVALID', '문서 결정: 종류에 없는 선택지 400');
+  const decided = await req('POST', `/api/develop/requests/${rid}/documents/${drId}/decide`, { token: tClient, body: { decision: 'changes_requested', name: '이투이', note: '배터리는 2000mAh 로' } });
+  const decidedDr = decided.json?.data?.documents?.find((d) => d.documentId === drId);
+  assert(decided.status === 200 && decidedDr?.status === 'changes_requested' && decidedDr.decidedName === '이투이' && decided.json.data.nextAction === null && decided.json.data.events.some((e) => e.type === 'document_decided'), '문서 결정: 수정 후 재검토 → 이벤트', decided.json?.data?.documents ?? decided.json);
+  const decideAgain = await req('POST', `/api/develop/requests/${rid}/documents/${drId}/decide`, { token: tClient, body: { decision: 'approved', name: '이투이' } });
+  assert(decideAgain.status === 409 && decideAgain.json?.error === 'DOC_NOT_OPEN', '문서 결정 재시도 409');
+  const reviseDraft = await req('POST', `/api/admin/develop/documents/${drId}/revise`, { token: tAdmin });
+  assert(reviseDraft.status === 200 && reviseDraft.json.data.version === 2 && reviseDraft.json.data.status === 'draft' && reviseDraft.json.data.content.stage === 'circuit', '새 판 v2 draft(본문 복사)', reviseDraft.json);
+  const reviseDup = await req('POST', `/api/admin/develop/documents/${drId}/revise`, { token: tAdmin });
+  assert(reviseDup.status === 409 && reviseDup.json?.error === 'DOC_DRAFT_EXISTS', '새 판 중복 409');
+  const dr2Id = reviseDraft.json.data.documentId;
+  await req('POST', `/api/admin/develop/documents/${dr2Id}/send`, { token: tAdmin, body: { mailSubject: 's2', mailBody: 'b2', sendMail: false } });
+  const adminDocs = await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin });
+  const docV1 = adminDocs.json.data.documents.find((d) => d.documentId === drId);
+  const docV2 = adminDocs.json.data.documents.find((d) => d.documentId === dr2Id);
+  assert(docV1.status === 'superseded' && docV1.isCurrent === false && docV2.status === 'sent' && docV2.isCurrent === true && docV2.docNo === 'DR-01' && adminDocs.json.data.progress.pendingApprovals === 1, 'v1 superseded·v2 현재 판·관리자 상세 문서', adminDocs.json?.data?.documents);
+  const dr2Ok = await req('POST', `/api/develop/requests/${rid}/documents/${dr2Id}/decide`, { token: tClient, body: { decision: 'conditional', name: '이투이', note: '배터리 확정 조건' } });
+  assert(dr2Ok.status === 200 && dr2Ok.json.data.documents.find((d) => d.documentId === dr2Id)?.status === 'conditional' && dr2Ok.json.data.progress.pendingApprovals === 0, 'v2 조건부 승인 → 확인 대기 0');
+  const pr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'progress_report', content: { doneWork: '회로 설계 완료' } } });
+  await req('POST', `/api/admin/develop/documents/${pr.json.data.documentId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b', sendMail: false } });
+  const decideShare = await req('POST', `/api/develop/requests/${rid}/documents/${pr.json.data.documentId}/decide`, { token: tClient, body: { decision: 'approved', name: 'x' } });
+  assert(decideShare.status === 409 && decideShare.json?.error === 'NOT_APPROVAL_DOC', '공유형 문서 결정 409');
+  const cr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'change_request', content: { change: 'LED 3개 추가', costImpact: '약 30만원' } } });
+  await req('POST', `/api/admin/develop/documents/${cr.json.data.documentId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b', sendMail: false } });
+  const quotesBefore = (await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin })).json.data.quotes.length;
+  mail = await drainMail();
+  const crOk = await req('POST', `/api/develop/requests/${rid}/documents/${cr.json.data.documentId}/decide`, { token: tClient, body: { decision: 'approved', name: '이투이' } });
+  const adminAfterCr = await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin });
+  const changeDraft = adminAfterCr.json.data.quotes.find((q) => q.kind === 'change' && q.status === 'draft');
+  assert(crOk.status === 200 && adminAfterCr.json.data.quotes.length === quotesBefore + 1 && changeDraft !== undefined && changeDraft.items[0].title.includes('LED 3개 추가') && changeDraft.totalAmount === 0, '변경요청 승인 → change 견적 초안 자동', adminAfterCr.json?.data?.quotes?.map((q) => [q.kind, q.status]));
+  const crMs = await prisma.spDevelopMilestone.findMany({ where: { quoteId: BigInt(changeDraft.quoteId) } });
+  ids.paymentKeys.push(...crMs.map((m) => m.paymentKey));
+  save();
+  const tmpDoc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'kickoff' } });
+  await req('POST', `/api/admin/develop/documents/${tmpDoc.json.data.documentId}/files`, { token: tAdmin, form: createForm({}, [{ field: 'file', name: 'agenda.txt', body: '[e2e] 안건' }]) });
+  const delDoc = await req('DELETE', `/api/admin/develop/documents/${tmpDoc.json.data.documentId}`, { token: tAdmin });
+  const delSent = await req('DELETE', `/api/admin/develop/documents/${dr2Id}`, { token: tAdmin });
+  assert(delDoc.status === 200 && delSent.status === 409, '초안 삭제(첨부 포함) 200·발송본 삭제 409');
+  const docsCustomer = await req('GET', `/api/admin/develop/documents/${dr2Id}/revise`, { token: tClient });
+  assert(docsCustomer.status === 403 || docsCustomer.status === 404, '문서 관리자 라우트 비관리자 차단');
+
   // ── 11. 진행 메모·확인 요청·납품(잠금) ────────────────────────────────────────
   const note = await req('POST', `/api/admin/develop/requests/${rid}/events`, { token: tAdmin, form: eventForm({ type: 'note', body: '내부 진행 메모', visibleToCustomer: false }) });
   assert(note.status === 200 && note.json.data.visibleToCustomer === false, '내부 메모 이벤트');
@@ -621,9 +709,24 @@ async function run() {
   const adminPvMissing = await req('GET', '/api/admin/develop/files/999999999/preview', { token: tAdmin });
   assert(adminPvMissing.status === 404, '관리자 파일 미리보기 404(없는 파일)');
 
+  // ── 11b. 납품 확인서(§13) — delivered 에서 보완 요청 → in_progress → 재납품 → 새 판 승인 → completed ────────
+  const dc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'delivery_confirm' } });
+  assert(dc.status === 200 && dc.json.data.content.deliverables.length === 4, '납품확인서 초안(납품물 4행 프리셋)', dc.json);
+  await req('POST', `/api/admin/develop/documents/${dc.json.data.documentId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b', sendMail: false } });
+  const dcChanges = await req('POST', `/api/develop/requests/${rid}/documents/${dc.json.data.documentId}/decide`, { token: tClient, body: { decision: 'changes_requested', name: '이투이', note: '케이스 보완' } });
+  assert(dcChanges.status === 200 && dcChanges.json.data.status === 'in_progress', '납품확인서 보완 요청 → in_progress', dcChanges.json);
+  const redeliver = await req('POST', `/api/admin/develop/requests/${rid}/events`, { token: tAdmin, form: eventForm({ type: 'deliverable', final: true, locked: true, body: '보완 납품' }) });
+  const afterRedeliver = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
+  assert(redeliver.status === 200 && afterRedeliver.json.data.status === 'delivered', '재납품 → delivered');
+  const dc2 = await req('POST', `/api/admin/develop/documents/${dc.json.data.documentId}/revise`, { token: tAdmin });
+  await req('POST', `/api/admin/develop/documents/${dc2.json.data.documentId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b', sendMail: false } });
+  mail = await drainMail();
+  const dcOk = await req('POST', `/api/develop/requests/${rid}/documents/${dc2.json.data.documentId}/decide`, { token: tClient, body: { decision: 'approved', name: '이투이' } });
+  assert(dcOk.status === 200 && dcOk.json.data.status === 'completed' && dcOk.json.data.completedAt !== null && dcOk.json.data.progress.pendingApprovals === 0, '납품확인서 승인 → completed', dcOk.json?.data?.status);
+
   // ── 12. 검수 확정 → 잔금 → 잠금 해제 ─────────────────────────────────────────
   const confirm = await req('POST', `/api/develop/requests/${rid}/deliveries/${delivEvent.eventId}/confirm`, { token: tClient, body: { note: '검수 완료' } });
-  assert(confirm.status === 200 && confirm.json.data.status === 'completed' && confirm.json.data.completedAt !== null, '검수 확정 → completed');
+  assert(confirm.status === 409 && confirm.json?.error === 'INVALID_TRANSITION', '문서로 완료된 뒤 검수 확정 409(이미 completed)');
   const co3 = await req('POST', `/api/develop/requests/${rid}/milestones/${m2.milestoneId}/checkout`, { token: tClient });
   assert(co3.status === 200, '잔금 checkout 200(완료 뒤)');
   const m2Row = msRows.find((m) => Number(m.id) === m2.milestoneId);
@@ -648,6 +751,10 @@ async function run() {
   assert(reply.status === 200 && reply.json.data.type === 'comment' && reply.json.data.byAdmin === true, '담당자 답변');
   const tax = await req('POST', `/api/admin/develop/requests/${rid}/events`, { token: tAdmin, form: eventForm({ type: 'tax_invoice', payload: { issuedAt: '2026-09-05', supplyAmount: 6_800_000, vatAmount: 680_000 } }) });
   assert(tax.status === 200 && tax.json.data.payload?.supplyAmount === 6_800_000, '세금계산서 발행 기록');
+  // 화면 검증 픽스처(§13) — 승인형 sent 문서 1건(PA-01)을 남긴다(completed 에서도 문서는 만들 수 있다). cleanup 이 지운다.
+  const pa = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'production_approval', content: { target: 'BLE 로거 v1.0 보드', qty: '시제품 5대', pcbSpec: '4층, FR-4 1.6t, ENIG', approvalScope: ['pcb_fab', 'smt'] } } });
+  const paSent = await req('POST', `/api/admin/develop/documents/${pa.json.data.documentId}/send`, { token: tAdmin, body: { replyDueOn: '2099-02-28', mailSubject: '[샘플피씨비] 제작 진행 승인 요청', mailBody: '제작 전에 확인 부탁드립니다.', sendMail: false } });
+  assert(paSent.status === 200 && paSent.json.data.status === 'sent', '픽스처: PA-01 sent(화면 검증용, 결정 패널)');
 
   // ── 14. 두 번째 의뢰: 고객 취소 · 종결 뒤 전이 409 ───────────────────────────
   const cancel2 = await req('POST', `/api/develop/requests/${rid2}/cancel`, { token: tClient, body: { reason: '내부 사정' } });

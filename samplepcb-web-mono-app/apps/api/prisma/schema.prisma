@@ -1997,6 +1997,8 @@ model SpDevelopRequest {
   events         SpDevelopEvent[]
   milestones     SpDevelopMilestone[]
   reviewVersions SpDevelopReviewVersion[]
+  documents      SpDevelopDocument[]
+  tasks          SpDevelopTask[]
 
   @@index([status, createdAt])
   @@index([mbId, createdAt])
@@ -2142,4 +2144,58 @@ model SpDevelopSettings {
   updatedAt           DateTime @updatedAt
 
   @@map("sp_develop_settings")
+}
+
+// ── 프로젝트 문서·업무표(docs/DEVELOP_FLOW.md §13, 2026-09-09) — 계약 이후 수행 구간의 문서 층 ────────
+// 프로토타입 「개발프로젝트 업무관리 서식」을 옮긴 것. 문서 8종은 type + 필드 스펙 JSON(계약 DEVELOP_DOC_FIELDS) 한 테이블,
+// 업무표(WBS)는 행 테이블. 기존 sp_develop_* 는 ALTER 하지 않는다(프로토타입 롤백 조건 — migrations/…/down.sql).
+model SpDevelopDocument {
+  id           BigInt    @id @default(autoincrement())
+  requestId    BigInt
+  type         String    @db.VarChar(24) // DEVELOP_DOC_TYPES
+  seq          Int // 종류별 일련번호(문서번호 DR-01 의 01)
+  version      Int       @default(1) // 재발송이면 +1, 이전 판은 superseded
+  status       String    @default("draft") @db.VarChar(20) // DEVELOP_DOC_STATUSES
+  title        String    @db.VarChar(200)
+  content      Json // DevelopDocContent(키 → 값, 스펙 kind 가 형태를 정한다)
+  replyDueOn   String?   @db.VarChar(10) // 회신 요청일 YYYY-MM-DD
+  internalNote String?   @db.Text
+  mailSubject  String?   @db.VarChar(200) // 발송 메일(관리자 확인본)
+  mailBody     String?   @db.Text
+  sentAt       DateTime?
+  sentBy       String?   @db.VarChar(191)
+  decision     String?   @db.VarChar(20) // DEVELOP_DOC_DECISIONS
+  decisionNote String?   @db.VarChar(2000)
+  decidedAt    DateTime?
+  decidedName  String?   @db.VarChar(100)
+  decidedIp    String?   @db.VarChar(64)
+  createdBy    String    @db.VarChar(191)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  request      SpDevelopRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, type, seq, version])
+  @@index([requestId, status])
+  @@map("sp_develop_document")
+}
+
+model SpDevelopTask {
+  id                BigInt   @id @default(autoincrement())
+  requestId         BigInt
+  seq               Int
+  phase             String   @db.VarChar(20) // DEVELOP_TASK_PHASES
+  name              String   @db.VarChar(200)
+  status            String   @default("planned") @db.VarChar(20) // DEVELOP_TASK_STATUSES
+  startOn           String?  @db.VarChar(10)
+  endOn             String?  @db.VarChar(10)
+  weightBp          Int      @default(0)
+  progressPct       Int      @default(0)
+  note              String?  @db.VarChar(500)
+  visibleToCustomer Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  request           SpDevelopRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, seq])
+  @@map("sp_develop_task")
 }

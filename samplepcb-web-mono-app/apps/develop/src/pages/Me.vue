@@ -38,6 +38,7 @@ const ACTION_ANCHOR = {
   review_quote: '#quotes',
   pay: '#quotes',
   inspect: '#timeline',
+  answer_document: '#documents',
   answer_review: '#timeline',
 } as const;
 

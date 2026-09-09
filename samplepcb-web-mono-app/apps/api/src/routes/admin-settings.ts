@@ -41,6 +41,7 @@ import {
   DEV_REVIEW_USECASE,
   DEVELOP_DIAGRAM_USECASE,
   DEVELOP_FOLLOWUP_USECASE,
+  DEVELOP_DOC_MAIL_USECASE,
   DEVELOP_REVIEW_USECASE,
   asThinkLevel,
   ensureAiUsecaseRows,
@@ -155,7 +156,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
   const aiSettingsData = async () => {
     await ensureAiUsecaseRows();
-    const [conn, vision, row, diagramRow, developReviewRow, developDiagramRow, developFollowupRow] = await Promise.all([
+    const [conn, vision, row, diagramRow, developReviewRow, developDiagramRow, developFollowupRow, developDocMailRow] = await Promise.all([
       getAiConnection(),
       getAiVisionModel(),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEV_REVIEW_USECASE } }),
@@ -163,13 +164,14 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_REVIEW_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_DIAGRAM_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_FOLLOWUP_USECASE } }),
+      prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_DOC_MAIL_USECASE } }),
     ]);
     const def = AI_USECASE_DEFS[DEV_REVIEW_USECASE];
     const diagramDef = AI_USECASE_DEFS[DEV_DIAGRAM_USECASE];
     // 개발의뢰(develop.*) 두 유스케이스는 같은 모양(사용·모델·thinking·추가 지침).
     const thinkBlock = (
       r: { enabled: boolean; model: string; think: string | null; extraInstructions: string | null; updatedAt: Date } | null,
-      key: typeof DEVELOP_REVIEW_USECASE | typeof DEVELOP_DIAGRAM_USECASE | typeof DEVELOP_FOLLOWUP_USECASE,
+      key: typeof DEVELOP_REVIEW_USECASE | typeof DEVELOP_DIAGRAM_USECASE | typeof DEVELOP_FOLLOWUP_USECASE | typeof DEVELOP_DOC_MAIL_USECASE,
     ) => {
       const d = AI_USECASE_DEFS[key];
       return {
@@ -206,6 +208,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       developReview: thinkBlock(developReviewRow, DEVELOP_REVIEW_USECASE),
       developDiagram: thinkBlock(developDiagramRow, DEVELOP_DIAGRAM_USECASE),
       developFollowup: thinkBlock(developFollowupRow, DEVELOP_FOLLOWUP_USECASE),
+      developDocMail: thinkBlock(developDocMailRow, DEVELOP_DOC_MAIL_USECASE),
     };
   };
 
@@ -341,6 +344,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         [DEVELOP_REVIEW_USECASE, body.developReview],
         [DEVELOP_DIAGRAM_USECASE, body.developDiagram],
         [DEVELOP_FOLLOWUP_USECASE, body.developFollowup],
+        [DEVELOP_DOC_MAIL_USECASE, body.developDocMail],
       ] as const) {
         if (patch === undefined) continue;
         await ensureAiUsecaseRows();
