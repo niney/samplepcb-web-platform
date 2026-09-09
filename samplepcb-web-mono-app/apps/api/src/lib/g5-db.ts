@@ -14,7 +14,9 @@
 // ① g5_shop_cart INSERT ② g5_shop_item_option INSERT(견적 옵션 행)
 // ③ 템플릿 상품/카트 파생 SELECT ④ g5_shop_cart ct_select/ct_select_time
 // UPDATE(주문 선택 플래그 — 바로 주문) ⑤ g5_member read-only SELECT(관리자
-// 견적 관리의 신청자 표시용 — 최소 컬럼, 쓰기 절대 금지) ⑥ g5_shop_cart 견적 행
+// 견적 관리의 신청자 표시 + 본인 연락처 조회 — 최소 컬럼, 쓰기 절대 금지).
+// getMemberContactRow: mb_name·mb_email·mb_hp·mb_tel·mb_2 SELECT, JWT mbId 로 한정하고
+// mb_leave_date·mb_intercept_date 로 탈퇴·차단 회원을 제외. ⑥ g5_shop_cart 견적 행
 // UPDATE(io_id/io_price/ct_option — 담긴 견적 수량 변경 시 재견적 동기화)·DELETE
 // (장바구니에서 견적 행 제거 — ct_id 단위. Case 강제삭제는 ct_id+기대 it_id/io_id+
 // ct_status='쇼핑'을 단일 DELETE로 가드. 코어 cartupdate 는 it_id 단위라 같은
@@ -1408,6 +1410,32 @@ export interface G5Member {
   email: string;
   hp: string;
   tel: string;
+}
+
+export interface MemberContactRow {
+  name: string;
+  email: string;
+  hp: string;
+  tel: string;
+  legacyCompany: string;
+}
+
+// ⑤ 본인 연락처 — 호출자는 검증된 JWT 의 mbId 만 전달한다. 인증/주소/메모는 읽지 않는다.
+export async function getMemberContactRow(mbId: string): Promise<MemberContactRow | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT mb_name, mb_email, mb_hp, mb_tel, mb_2 FROM g5_member
+      WHERE mb_id = ? AND mb_leave_date = '' AND mb_intercept_date = '' LIMIT 1`,
+    [mbId],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    name: String(row.mb_name ?? ''),
+    email: String(row.mb_email ?? ''),
+    hp: String(row.mb_hp ?? ''),
+    tel: String(row.mb_tel ?? ''),
+    legacyCompany: String(row.mb_2 ?? ''),
+  };
 }
 
 export async function getMembersByIds(mbIds: string[]): Promise<Map<string, G5Member>> {

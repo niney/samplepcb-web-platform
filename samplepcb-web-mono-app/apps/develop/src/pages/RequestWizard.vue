@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { useAuthStore } from '@sp/shared';
+import { apiGet, useAuthStore } from '@sp/shared';
+import { apiRoutes, MeContact, type MeContactType } from '@sp/api-contract';
 import { useCreateDevelopRequest } from '../api/useDevelopRequests';
 import { useFollowupJob } from '../composables/useFollowupJob';
 import { useRequestForm } from '../composables/useRequestForm';
@@ -24,6 +25,7 @@ import WizardAside from '../components/request/WizardAside.vue';
 const auth = useAuthStore();
 const route = useRoute();
 const loggedIn = computed(() => auth.isLoggedIn);
+const memberId = computed(() => loggedIn.value ? auth.me?.mbId ?? null : null);
 const create = useCreateDevelopRequest();
 
 const submitError = ref('');
@@ -32,9 +34,8 @@ const askReset = ref(false);
 // 스텝 오류는 "다음"을 눌러 본 뒤에만 띄운다 — 들어서자마자 빨간 줄이 뜨면 안내가 아니라 잔소리가 된다.
 const tried = ref(false);
 
-const form = useRequestForm();
+const form = useRequestForm(memberId);
 const {
-  contact,
   steps,
   stepIndex,
   currentStep,
@@ -47,7 +48,6 @@ const {
   appendAttachments,
   draftFound,
   draftSavedAt,
-  checkDraft,
   saveDraft,
   restoreDraft,
   clearDraft,
@@ -86,13 +86,29 @@ watch(
   { immediate: true },
 );
 
-// 회원 정보 프리필 — 그누보드 브리지가 주는 것은 mbId·mbNick 뿐이라 이름 자리만 채운다(나머지는 직접 입력).
+// 신규 의뢰 기본값은 회원당 한 번 조회한다. 토큰 갱신/스텝 이동은 재입력을 유발하지 않는다.
+const memberContact = ref<MeContactType | null>(null);
 watch(
-  () => auth.me,
-  (me) => {
-    if (me !== null && contact.name.trim() === '') contact.name = me.mbNick;
+  memberId,
+  async (id, _previous, onCleanup) => {
+    const pending = { active: true };
+    onCleanup(() => { pending.active = false; });
+    memberContact.value = null;
+    createdId.value = null;
+    submitError.value = '';
+    askReset.value = false;
+    tried.value = false;
+    if (id === null) return;
+    try {
+      const profile = await apiGet(apiRoutes.meContact, MeContact);
+      if (!pending.active || memberId.value !== id || profile.mbId !== id) return;
+      memberContact.value = profile;
+      form.prefillContact(profile);
+    } catch {
+      // 미등록/조회 실패여도 수동 입력과 의뢰 작성을 계속할 수 있다.
+    }
   },
-  { immediate: true },
+  { immediate: true, flush: 'sync' },
 );
 
 // 드롭존을 빗나간 파일 드롭 방어 — 기본 동작이면 브라우저가 그 파일을 이 탭에서 열어 작성 중인 의뢰가 사라진다.
@@ -102,7 +118,6 @@ function swallowDrop(e: DragEvent): void {
 onMounted(() => {
   window.addEventListener('dragover', swallowDrop);
   window.addEventListener('drop', swallowDrop);
-  checkDraft();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('dragover', swallowDrop);
@@ -135,6 +150,7 @@ function acceptDraft(): void {
 function confirmReset(): void {
   resetAll();
   clearDraft();
+  if (memberContact.value !== null) form.prefillContact(memberContact.value);
   askReset.value = false;
   tried.value = false;
   submitError.value = '';

@@ -158,6 +158,10 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 
 ### 7.2 고객 (`apps/develop`)
 
+연락처 자동 채움(2026-09-10): 신규 위저드는 `GET /api/me/contact`로 로그인한 본인의 이름·회사·전화·이메일을 한 번 조회한다. 이름은 `mb_name`, 전화는 휴대전화(`mb_hp`) → 일반전화(`mb_tel`), 회사는 `sp_member_profile.companyName` → 레거시 `mb_2` 순서다. 비어 있거나 조회에 실패하면 직접 입력한다. 고객이 입력하거나 지운 칸은 늦게 온 응답으로 덮어쓰지 않으며, 자동 채움 안내를 표시하고 자유롭게 수정할 수 있다. 수정값은 해당 의뢰의 연락처 스냅샷에만 저장하고 회원정보를 갱신하지 않는다. 기존 의뢰 수정·임시저장 복원 시에는 빈칸을 포함해 저장값이 우선한다. "처음부터"는 회원정보 기본값을 다시 적용한다.
+
+임시저장은 `sp-develop-request-draft:{encodeURIComponent(mbId)}` 키와 `v:3, mbId` 소유자 기록으로 회원별 분리한다. 계정이 바뀌면 현재 폼을 비우고 해당 회원의 초안만 확인한다. 구 공용 키의 v2 초안은 소유자를 확인할 수 없어 자동 이관/복원하지 않으며 원본은 삭제하지 않는다. 파일은 종전처럼 저장하지 않는다. API는 JWT의 본인 ID만 사용하며 응답은 `Cache-Control: no-store`, JWT·기존 `/api/me` 계약·DB 구조는 유지한다. 검증: `pnpm --filter api test -- src/routes/me.test.ts`, `pnpm --filter e2e e2e develop-contact`(연락처 API 스텁, DB 쓰기 없는 브라우저 검증).
+
 | 경로 | 화면 |
 |---|---|
 | `/develop` | 랜딩 — 서비스 소개·프로세스(레거시 7단계 계승)·분야 5·CTA·FAQ |

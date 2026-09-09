@@ -33,6 +33,7 @@ import {
 import type { MemberInfoFields, MemberListRow } from '../lib/g5-db';
 import { kstTodayYmd } from '../lib/kst';
 import { prisma } from '../lib/prisma';
+import { resolveMemberCompany } from '../lib/member-company';
 
 // ── /api/admin/members — 관리자 회원 관리 (sp-vue /app/admin/members) ─────────
 // 레거시 /adm/member_list.php 를 sp-vue 로 마이그레이션. 전 라우트가 requireAdmin(JWT
@@ -50,10 +51,6 @@ const nn = (s: string | null): string | null => (s === null || s === '' ? null :
 // 상태(배타): 탈퇴(leave≠'') > 차단(intercept≠'' AND leave='') > 정상.
 const deriveStatus = (interceptDate: string, leaveDate: string): AdminMemberStatusType =>
   leaveDate !== '' ? 'left' : interceptDate !== '' ? 'intercepted' : 'normal';
-
-// 회사명 해석(2층): sp 프로필 ?? mb_2(레거시) ?? null. 빈 값은 null 로 정규화.
-const resolveMemberCompany = (profileCompany: string | null, legacyMb2: string): string | null =>
-  nn(profileCompany) ?? nn(legacyMb2);
 
 // recentProjects 의 quoteStatus 총함수 내로잉(직렬화 실패 방지).
 const asQuoteStatus = (v: string): 'priced' | 'rfq' | 'quoted' =>

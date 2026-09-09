@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
 import {
   DEVELOP_BUDGET_RANGES,
   DEVELOP_CURRENT_STAGES,
@@ -51,6 +51,7 @@ import type {
   MarketAnswerType,
   MarketAreaDef,
   MarketQuestionDef,
+  MeContactType,
 } from '@sp/api-contract';
 import type { QuestionState } from '@sp/ui';
 
@@ -142,7 +143,7 @@ const asMember = <T extends string>(v: unknown, list: readonly T[]): T | null =>
 };
 const asStringList = (v: unknown): string[] => asArray(v).flatMap((x) => (typeof x === 'string' ? [x] : []));
 
-export function useRequestForm() {
+export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null) {
   const fields = reactive<DevelopFormFields>({
     requestMode: null,
     serviceAreas: [],
@@ -159,6 +160,26 @@ export function useRequestForm() {
     aiConsent: false,
   });
   const contact = reactive<DevelopContactFields>({ name: '', company: '', phone: '', email: '', hours: '' });
+
+  const contactKeys = ['name', 'company', 'phone', 'email'] as const;
+  const editedContact = new Set<(typeof contactKeys)[number]>();
+  const contactPrefilled = ref(false);
+  let contactPrefillApplied = false;
+  // 동기 감시로 입력 후 다시 지운 항목도 기억한다. 늦게 온 회원정보가 빈칸을 되살리지 않는다.
+  for (const key of contactKeys) {
+    watch(() => contact[key], () => editedContact.add(key), { flush: 'sync' });
+  }
+  function prefillContact(profile: MeContactType): void {
+    if (profile.mbId !== toValue(memberId) || contactPrefillApplied) return;
+    contactPrefillApplied = true;
+    for (const key of contactKeys) {
+      const value = profile[key]?.trim() ?? '';
+      if (!editedContact.has(key) && contact[key].trim() === '' && value !== '') {
+        contact[key] = value;
+        contactPrefilled.value = true;
+      }
+    }
+  }
 
   // 참고 자료(2스텝, 한 번만 등록).
   const attachments = ref<File[]>([]);
@@ -546,6 +567,8 @@ export function useRequestForm() {
           delivery: plan.delivery,
         },
     );
+    contactPrefillApplied = true;
+    contactPrefilled.value = false;
     contact.name = detail.contact.name;
     contact.company = detail.contact.company ?? '';
     contact.phone = detail.contact.phone;
@@ -586,6 +609,9 @@ export function useRequestForm() {
     contact.phone = '';
     contact.email = '';
     contact.hours = '';
+    editedContact.clear();
+    contactPrefillApplied = false;
+    contactPrefilled.value = false;
     resetQuestions();
     clearAiFollowup();
     clearFiles();
@@ -595,27 +621,37 @@ export function useRequestForm() {
   // ── 임시저장(localStorage) — 파일은 담지 않는다 ─────────────────────────────
   const draftSavedAt = ref<string | null>(null);
   const draftFound = ref<DevelopDraftPeek | null>(null);
+  const draftKey = computed(() => {
+    const id = toValue(memberId);
+    return id === null ? null : `${DEVELOP_DRAFT_KEY}:${encodeURIComponent(id)}`;
+  });
 
   function readRaw(): Record<string, unknown> | null {
+    const key = draftKey.value;
+    if (key === null) return null;
     try {
-      const raw = window.localStorage.getItem(DEVELOP_DRAFT_KEY);
+      const raw = window.localStorage.getItem(key);
       if (raw === null || raw === '') return null;
       const parsed: unknown = JSON.parse(raw);
       const obj = asRecord(parsed);
-      return Object.keys(obj).length === 0 ? null : obj;
+      // 소유자를 알 수 없는 구버전 공용 초안은 자동 이관/복원하지 않는다.
+      return obj.v === 3 && obj.mbId === toValue(memberId) ? obj : null;
     } catch {
       return null;
     }
   }
 
   function saveDraft(): void {
+    const key = draftKey.value;
+    if (key === null) return;
     const questions: Record<string, { choices: string[]; note: string }> = {};
     for (const [code, state] of Object.entries(questionState)) {
       if (state.choices.length > 0 || state.note.trim() !== '') questions[code] = { choices: [...state.choices], note: state.note };
     }
     const savedAt = new Date().toISOString();
     const draft = {
-      v: 2,
+      v: 3,
+      mbId: toValue(memberId),
       savedAt,
       stepIndex: stepIndex.value,
       fields: {
@@ -637,7 +673,7 @@ export function useRequestForm() {
       questions,
     };
     try {
-      window.localStorage.setItem(DEVELOP_DRAFT_KEY, JSON.stringify(draft));
+      window.localStorage.setItem(key, JSON.stringify(draft));
       draftSavedAt.value = savedAt;
     } catch {
       draftSavedAt.value = null;
@@ -646,7 +682,8 @@ export function useRequestForm() {
 
   function clearDraft(): void {
     try {
-      window.localStorage.removeItem(DEVELOP_DRAFT_KEY);
+      const key = draftKey.value;
+      if (key !== null) window.localStorage.removeItem(key);
     } catch {
       // 저장소가 막혀 있으면 지울 것도 없다
     }
@@ -711,6 +748,9 @@ export function useRequestForm() {
       delivery: asMember(p.delivery, DEVELOP_DELIVERY_FORMS),
     });
     const c = asRecord(obj.contact);
+    // 복원된 빈칸도 고객이 저장한 값이다. 진행 중인 회원정보 조회보다 우선한다.
+    contactPrefillApplied = true;
+    contactPrefilled.value = false;
     contact.name = asString(c.name);
     contact.company = asString(c.company);
     contact.phone = asString(c.phone);
@@ -730,9 +770,21 @@ export function useRequestForm() {
     return true;
   }
 
+  watch(
+    () => toValue(memberId),
+    (_id, previous) => {
+      if (previous !== undefined) resetAll();
+      draftSavedAt.value = null;
+      checkDraft();
+    },
+    { immediate: true, flush: 'sync' },
+  );
+
   return {
     fields,
     contact,
+    contactPrefilled,
+    prefillContact,
     attachments,
     totalAttachmentCount,
     individualAreas,

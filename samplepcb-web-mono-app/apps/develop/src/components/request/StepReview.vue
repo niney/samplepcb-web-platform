@@ -25,6 +25,7 @@ const props = defineProps<{ form: DevelopRequestForm }>();
 const {
   fields,
   contact,
+  contactPrefilled,
   isSystem,
   skipQuestions,
   menuBadge,
@@ -76,6 +77,9 @@ const contactLine = computed(() => {
         </p>
       </div>
       <ContactFields :form="form" />
+      <p v-if="contactPrefilled" class="text-label leading-relaxed text-tx-3" role="status">
+        회원정보로 채웠습니다. 이번 의뢰의 담당자 정보로 수정할 수 있습니다.
+      </p>
     </section>
 
     <!-- 검토 카드 -->
