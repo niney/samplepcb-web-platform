@@ -17,6 +17,7 @@ export const DEVELOP_QUEUE_COLUMNS = [
   'progress',
   'docs',
   'inquiry',
+  'money', // 수납·미수납(수락 견적 마일스톤) + 열어야 할 수동 청구(2026-09-10)
 ] as const;
 export type DevelopQueueColumn = (typeof DEVELOP_QUEUE_COLUMNS)[number];
 
@@ -25,10 +26,10 @@ export const DEVELOP_QUEUE_PRESETS = {
   // 전체 의뢰(기존 워크큐) — 기존 화면과 같은 8열.
   requests: ['title', 'status', 'owner', 'contact', 'ai', 'quote', 'assignee', 'createdAt'],
   intake: ['title', 'status', 'owner', 'contact', 'ai', 'assignee', 'createdAt'],
-  contracts: ['title', 'status', 'quote', 'assignee', 'createdAt'],
-  projects: ['title', 'progress', 'docs', 'inquiry', 'assignee'],
-  // 잔금 마일스톤 상태는 latestQuote 로 알 수 없어 견적 열을 두지 않는다(§3.2).
-  deliveries: ['title', 'status', 'docs', 'createdAt'],
+  contracts: ['title', 'status', 'quote', 'money', 'assignee', 'createdAt'],
+  projects: ['title', 'progress', 'docs', 'money', 'inquiry', 'assignee'],
+  // 잔금 마일스톤 상태는 latestQuote 로 알 수 없어 견적 열 대신 수납·청구 열(ops)을 둔다.
+  deliveries: ['title', 'status', 'docs', 'money', 'createdAt'],
   inquiries: ['title', 'status', 'inquiry', 'assignee'],
 } as const satisfies Record<string, readonly DevelopQueueColumn[]>;
 

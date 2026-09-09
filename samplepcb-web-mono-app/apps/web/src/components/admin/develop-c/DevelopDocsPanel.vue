@@ -113,6 +113,7 @@ const reviewSchedule = computed(
       :tasks="detail.progress.tasks"
       :status="detail.status"
       :schedule="reviewSchedule"
+      :revision="detail.progress.tasksRevision"
       @dirty="onTaskDirty"
     />
 

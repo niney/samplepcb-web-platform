@@ -24,9 +24,13 @@ const ACTIVE_STATUSES: readonly DevelopRequestStatusType[] = [
   'delivered',
 ];
 
-// 정렬 = "내 차례" 순: 기한 초과 → 확인 대기 → 미답변 문의 → 최신.
+// 정렬 = "내 차례" 순: 기한 초과 → 확인 대기 → 열어야 할 청구 → 미답변 문의 → 지연 작업 → 최신.
 const rank = (r: AdminDevelopRequestListItemType): number =>
-  (r.ops.replyOverdue ? 1_000_000 : 0) + r.ops.pendingApprovals * 1_000 + r.ops.openInquiries * 10;
+  (r.ops.replyOverdue ? 1_000_000 : 0) +
+  r.ops.pendingApprovals * 1_000 +
+  r.ops.openableMilestones * 100 +
+  r.ops.openInquiries * 10 +
+  r.ops.overdueTasks;
 const activeItems = computed(() =>
   (data.value?.data.items ?? [])
     .filter((r) => ACTIVE_STATUSES.includes(r.status))

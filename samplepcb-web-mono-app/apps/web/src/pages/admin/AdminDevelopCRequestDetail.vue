@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRoute, useRouter } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { DEVELOP_REQUEST_MODE_LABELS, DEVELOP_REQUEST_STATUS_LABELS, apiRoutes, developAreaBadge } from '@sp/api-contract/develop-c';
 import { FilePreviewModal, apiErrorMessage } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
+import { developCBackTo } from '../../admin/develop-c-navigation';
 import { useAdminDevelopDetail } from '../../admin/useAdminDevelopC';
+import { confirmDialog } from '../../lib/confirmDialog';
 import DevelopDiagramPanel from '../../components/admin/develop-c/DevelopDiagramPanel.vue';
 import DevelopDocsPanel from '../../components/admin/develop-c/DevelopDocsPanel.vue';
 import DevelopOpsStrip from '../../components/admin/develop-c/DevelopOpsStrip.vue';
@@ -27,6 +29,7 @@ import { formatDateTime } from '../../lib/format';
 //   · 검토서·견적을 쓰면서 의뢰 내용을 같이 보도록 **의뢰 내용 옆 보기**(우측 패널, 자기 스크롤)를 둔다.
 //     의뢰 내용 탭에서는 중복이라 숨긴다. 열림 여부는 localStorage 로 기억.
 //   · 본문 최대 너비 1120px, 옆 보기가 열리면 그만큼 넓힌다(본문이 좁아지지 않게).
+//   · 「← 목록으로」는 `?from=`(떠난 큐)와 목록 상태로 돌아간다(2026-09-10, G 이식). 편집 중 이탈은 confirmDialog 로 묻는다.
 // 상세 조회는 AI 잡이 도는 동안만 5초 폴링한다(useAdminDevelopDetail).
 
 const { t } = useI18n();
@@ -74,6 +77,25 @@ const sideOpen = computed(() => sideWanted.value && tab.value !== 'content');
 const reviewDirty = ref(false);
 const quoteEditing = ref(false);
 const docsDirty = ref(false);
+
+// 이탈 가드(2026-09-10, G 이식) — 검토서·문서·업무표 편집 중이거나 견적 편집기가 열려 있으면 떠나기 전에 묻는다.
+// 라우터 이동은 confirmDialog(네이티브 confirm 금지 규율), 탭 닫기·새로고침만 브라우저 beforeunload.
+const backTo = computed(() => developCBackTo(route.query));
+const hasEdits = computed(() => reviewDirty.value || quoteEditing.value || docsDirty.value);
+const askLeave = (): Promise<boolean> =>
+  confirmDialog({ message: t('admin.developC.leaveConfirm'), confirmLabel: t('admin.developC.leaveConfirmOk'), tone: 'danger' });
+onBeforeRouteLeave(async () => !hasEdits.value || (await askLeave()));
+onBeforeRouteUpdate(async (to, from) => to.params.id === from.params.id || !hasEdits.value || (await askLeave()));
+const beforeUnload = (event: BeforeUnloadEvent): void => {
+  if (!hasEdits.value) return;
+  event.preventDefault();
+};
+onMounted(() => {
+  window.addEventListener('beforeunload', beforeUnload);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', beforeUnload);
+});
 
 interface Badge {
   text: string;
@@ -139,7 +161,7 @@ const badgeClass: Record<Badge['tone'], string> = {
 
 <template>
   <div class="w-full space-y-4" :class="sideOpen ? 'max-w-[1560px]' : 'max-w-[1120px]'">
-    <RouterLink :to="{ name: 'admin-develop-c-requests' }" class="inline-block text-sm font-semibold text-blue-600 hover:underline">
+    <RouterLink :to="backTo" class="inline-block text-sm font-semibold text-blue-600 hover:underline">
       ← {{ t('admin.developC.backToList') }}
     </RouterLink>
 

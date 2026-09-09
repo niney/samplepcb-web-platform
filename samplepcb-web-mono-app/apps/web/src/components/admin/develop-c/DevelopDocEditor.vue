@@ -15,6 +15,7 @@ import {
   useAdminDevelopDocumentFileAdd,
   useAdminDevelopDocumentFileDelete,
   useAdminDevelopDocumentPatch,
+  useInvalidateAdminDevelop,
 } from '../../../admin/useAdminDevelopC';
 import { formatBytes } from '../../../lib/format';
 import DevelopDocSendPanel from './DevelopDocSendPanel.vue';
@@ -31,6 +32,7 @@ import {
 // 문서 편집기(draft 전용, docs/DEVELOP_FLOW.md §13) — 폼은 계약 필드 스펙(DEVELOP_DOC_FIELDS)이 그린다.
 // 서버가 400 CONTENT_INVALID 로 막는 자리를 developDocContentIssues 로 먼저 검사해 필드 옆에 붙인다.
 // 본문은 로컬 상태로 든다(상세는 AI 잡·다른 액션으로 재조회되므로 편집 중 초안이 덮이면 안 된다).
+// 저장은 마지막으로 본 updatedAt 을 함께 보내(낙관적 잠금, 2026-09-10) 다른 사람이 먼저 고쳤으면 409 → '새로 불러오기'.
 const props = defineProps<{
   doc: AdminDevelopDocumentViewType;
   requestTitle: string;
@@ -45,6 +47,7 @@ const patch = useAdminDevelopDocumentPatch();
 const remove = useAdminDevelopDocumentDelete();
 const fileAdd = useAdminDevelopDocumentFileAdd();
 const fileDelete = useAdminDevelopDocumentFileDelete();
+const invalidate = useInvalidateAdminDevelop();
 
 const content = ref<DevelopDocContentType>(developDocFormContent(props.doc.type, props.doc.content));
 const internalNote = ref(props.doc.internalNote ?? '');
@@ -55,6 +58,7 @@ const noticeError = ref(false);
 const confirmDelete = ref(false);
 const sendOpen = ref(false);
 const fileError = ref('');
+const conflict = ref(false);
 
 const markDirty = (): void => {
   dirty.value = true;
@@ -140,15 +144,26 @@ const patchBody = () => ({
   content: content.value,
   internalNote: internalNote.value.trim() === '' ? null : internalNote.value.trim(),
   replyDueOn: replyDueOn.value === '' ? null : replyDueOn.value,
+  expectedUpdatedAt: props.doc.updatedAt,
 });
 
 const saveFail = (error: unknown): string =>
   apiErrorMessage(error, t('admin.developC.docs.editor.saveFail'), {
     CONTENT_INVALID: t('admin.developC.docs.editor.errContent'),
     DOC_NOT_DRAFT: t('admin.developC.docs.editor.errNotDraft'),
+    REVISION_CONFLICT: t('admin.developC.docs.editor.errConflict'),
   });
 
+// 충돌 뒤 새로 불러오기 — 로컬 편집을 버리고 서버 판을 다시 받는다(dirty 를 내려야 seedKey watch 가 덮어 준다).
+function reload(): void {
+  conflict.value = false;
+  notice.value = '';
+  clearDirty();
+  invalidate();
+}
+
 async function save(): Promise<boolean> {
+  conflict.value = false;
   if (issues.value.length > 0) {
     noticeError.value = true;
     notice.value = t('admin.developC.docs.editor.saveBlocked');
@@ -163,6 +178,7 @@ async function save(): Promise<boolean> {
   } catch (error) {
     noticeError.value = true;
     notice.value = saveFail(error);
+    conflict.value = (error as { payload?: { error?: string } }).payload?.error === 'REVISION_CONFLICT';
     return false;
   }
 }
@@ -408,7 +424,17 @@ const areaClass = 'w-full rounded border border-gray-300 px-2 py-1.5 text-xs lea
       </button>
     </div>
     <p v-if="isEmpty" class="text-[11px] text-gray-400">{{ t('admin.developC.docs.editor.emptyHint') }}</p>
-    <p v-if="notice !== ''" class="text-xs font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
+    <div v-if="notice !== ''" class="flex flex-wrap items-center gap-2">
+      <p class="text-xs font-semibold" :class="noticeError ? 'text-red-600' : 'text-emerald-700'">{{ notice }}</p>
+      <button
+        v-if="conflict"
+        type="button"
+        class="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+        @click="reload"
+      >
+        {{ t('admin.developC.docs.editor.reload') }}
+      </button>
+    </div>
 
     <div v-if="confirmDelete" class="flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-800">
       <span>{{ t('admin.developC.docs.editor.deleteConfirm', { docNo: doc.docNo }) }}</span>

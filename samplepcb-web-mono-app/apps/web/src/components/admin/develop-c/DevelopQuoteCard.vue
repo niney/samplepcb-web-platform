@@ -12,6 +12,7 @@ import type { DevelopQuoteViewType } from '@sp/api-contract/develop-c';
 import { apiErrorMessage } from '@sp/ui';
 import {
   useAdminDevelopMilestoneMarkPaid,
+  useAdminDevelopMilestoneOpen,
   useAdminDevelopQuoteWithdraw,
 } from '../../../admin/useAdminDevelopC';
 import { formatDateTime, formatKrw } from '../../../lib/format';
@@ -19,6 +20,7 @@ import { formatDateTime, formatKrw } from '../../../lib/format';
 // 견적서 한 장(읽기) — 항목·금액·결제 조건·수락 흔적. 초안이면 편집으로 넘기고,
 // 발송분은 철회만 할 수 있다(고친 값을 보내려면 수정 견적을 새로 만든다).
 // 마일스톤의 `payment` 는 영카트 주문(od) 파생이라 결제 화면 대신 여기서 읽기만 한다.
+// trigger=manual(담당자가 청구할 때) 마일스톤은 「고객 결제 열기」로 열어야 payable 이 된다(2026-09-10, G milestone.open 이식).
 const props = defineProps<{ quote: DevelopQuoteViewType & { internalNote: string | null } }>();
 
 const emit = defineEmits<{ edit: [] }>();
@@ -26,12 +28,14 @@ const emit = defineEmits<{ edit: [] }>();
 const { t } = useI18n();
 const withdraw = useAdminDevelopQuoteWithdraw();
 const markPaid = useAdminDevelopMilestoneMarkPaid();
+const openMilestone = useAdminDevelopMilestoneOpen();
 
 const notice = ref('');
 const noticeError = ref(false);
 const confirmWithdraw = ref(false);
 const payingId = ref<number | null>(null);
 const payNote = ref('');
+const openingId = ref<number | null>(null);
 
 const setNotice = (message: string, isError: boolean): void => {
   notice.value = message;
@@ -68,7 +72,24 @@ const errorCodes = computed(() => ({
   QUOTE_NOT_OPEN: t('admin.developC.quote.errNotOpen'),
   NOT_PAYABLE: t('admin.developC.quote.errNotPayable'),
   ALREADY_PAID: t('admin.developC.quote.errAlreadyPaid'),
+  NOT_MANUAL: t('admin.developC.quote.errNotManual'),
 }));
+
+// 열 수 있는 수동 청구 = manual ∧ pending ∧ 아직 payable 아님(payable 은 서버 파생 — 열리면 true).
+const canOpen = (m: { trigger: string; status: string; payable: boolean }): boolean => m.trigger === 'manual' && m.status === 'pending' && !m.payable;
+const isOpened = (m: { trigger: string; status: string; payable: boolean }): boolean => m.trigger === 'manual' && m.status === 'pending' && m.payable;
+
+async function onOpenMilestone(): Promise<void> {
+  const id = openingId.value;
+  if (id === null) return;
+  try {
+    await openMilestone.mutateAsync(id);
+    openingId.value = null;
+    setNotice(t('admin.developC.quote.openDone'), false);
+  } catch (error) {
+    setNotice(apiErrorMessage(error, t('admin.developC.quote.openFail'), errorCodes.value), true);
+  }
+}
 
 async function onWithdraw(): Promise<void> {
   confirmWithdraw.value = false;
@@ -156,7 +177,38 @@ async function onMarkPaid(): Promise<void> {
             <span class="rounded-full px-1.5 py-0.5 font-bold" :class="milestoneStatusClass(m.status)">
               {{ DEVELOP_MILESTONE_STATUS_LABELS[m.status] }}
             </span>
+            <span v-if="isOpened(m)" class="rounded-full bg-blue-100 px-1.5 py-0.5 font-bold text-blue-700">{{ t('admin.developC.quote.opened') }}</span>
             <span class="ml-auto font-bold text-gray-800">{{ formatKrw(m.amount) }}</span>
+          </div>
+          <!-- 수동 청구 열기 — 고객이 결제할 수 있게 되며 되돌릴 수 없어 인라인 확인을 둔다. -->
+          <div v-if="canOpen(m) && openingId !== m.milestoneId" class="mt-1">
+            <button
+              type="button"
+              class="rounded-md border border-blue-300 bg-white px-2 py-1 text-xs font-bold text-blue-700 hover:bg-blue-50"
+              @click="openingId = m.milestoneId; notice = ''"
+            >
+              {{ t('admin.developC.quote.openMilestone') }}
+            </button>
+          </div>
+          <div v-if="openingId === m.milestoneId" class="mt-1 grid gap-1 rounded-md border border-blue-300 bg-blue-50 p-2">
+            <p class="font-bold text-blue-900">{{ t('admin.developC.quote.openMilestoneConfirm') }}</p>
+            <div class="flex items-center gap-1.5">
+              <button
+                type="button"
+                class="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+                :disabled="openMilestone.isPending.value"
+                @click="onOpenMilestone"
+              >
+                {{ t('admin.developC.quote.confirmYes') }}
+              </button>
+              <button
+                type="button"
+                class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                @click="openingId = null"
+              >
+                {{ t('admin.developC.quote.confirmNo') }}
+              </button>
+            </div>
           </div>
           <p v-if="m.payment !== null" class="mt-0.5 text-gray-500">
             {{ t('admin.developC.quote.payment', {

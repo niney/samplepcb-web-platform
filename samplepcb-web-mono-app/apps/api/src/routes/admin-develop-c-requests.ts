@@ -45,6 +45,7 @@ import {
   asDevelopStatus,
   developEventFiles,
   developWizardFieldsOf,
+  openedDevelopMilestones,
   toDevelopAreaCodes,
   toDevelopContact,
   toDevelopEventView,
@@ -52,7 +53,7 @@ import {
   transitionDevelopStatus,
 } from '../lib/develop-c';
 import { developReviewDraftRunning, startDevelopAiDrafts } from '../lib/develop-ai';
-import { REF_DEVELOP_DOCUMENT, buildDevelopProgress, developOpsFor, emptyDevelopOps, loadDevelopDocuments, loadDevelopTasks, toAdminDevelopDocumentView } from '../lib/develop-docs';
+import { REF_DEVELOP_DOCUMENT, buildDevelopProgress, closeDeliveryConfirmDocs, developOpsFor, emptyDevelopOps, loadDevelopDocuments, loadDevelopTasks, toAdminDevelopDocumentView } from '../lib/develop-docs';
 import { developReferenceFiles, developSourceSignature } from '../lib/develop-ai-source';
 import { buildCompletedEmail, buildDeliveredEmail, buildStatusChangedEmail, sendDevelopMail } from '../lib/develop-c-email';
 import { cancelPendingMilestones, ensureDevelopLazy } from '../lib/develop-payment';
@@ -198,7 +199,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
 
   // 상세 — 고객 상세(공개본·visible 이벤트) 위에 관리자 전용 층(3층 검토서·현재본 구성도·내부 메모·전 이벤트·전 견적)을 얹는다.
   const buildAdminDetail = async (r: SpDevelopRequest): Promise<AdminDevelopRequestDetailType> => {
-    const [customerDetail, members, files, quotes, events, documents, tasks] = await Promise.all([
+    const [customerDetail, members, files, quotes, events, documents, tasks, opened] = await Promise.all([
       buildDevelopRequestDetail(r),
       getMembersByIds([r.mbId, ...(r.assigneeMbId === null ? [] : [r.assigneeMbId])]),
       developReferenceFiles(r.id),
@@ -206,6 +207,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       prisma.spDevelopEvent.findMany({ where: { requestId: r.id }, orderBy: { id: 'asc' } }),
       loadDevelopDocuments(r.id, { includeDrafts: true }),
       loadDevelopTasks(r.id),
+      openedDevelopMilestones(r.id),
     ]);
     const [eventFiles, poFiles, allFiles] = await Promise.all([
       developEventFiles(events.map((e) => e.id)),
@@ -254,7 +256,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         publishedAt: r.devDiagramPublishedAt?.toISOString() ?? null,
         publishedStale: r.devDiagramPublicHtml !== null && r.devDiagramHtml !== null && r.devDiagramPublicHtml !== r.devDiagramHtml,
       },
-      quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null), internalNote: q.internalNote })),
+      quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null, opened), internalNote: q.internalNote })),
       events: events.map((e) => toDevelopEventView(e, eventFiles.get(e.id.toString()) ?? [], actorName(e), false)),
       // 프로젝트 문서(§13) — draft·이전 판·메일 확인본까지. 진행 현황은 전 업무 행.
       documents: documents.rows.map((d) => toAdminDevelopDocumentView(d, documents.files.get(d.id.toString()) ?? [], documents.current.has(d.id.toString()))),
@@ -412,6 +414,8 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         });
       }
       if (to === 'completed') {
+        // 대행 확정으로 끝나면 sent 로 남은 납품확인서를 '납품 승인'으로 닫는다(2026-09-10, G syncWorkflowAutoConfirm 이식).
+        await closeDeliveryConfirmDocs(r.id, { decidedName: '관리자 대행', note: reason ?? null, actorMbId: mbId, byAdmin: true }, now);
         void sendDevelopMail(request.log, await customerEmailOf(r), buildCompletedEmail({ ...brief, confirmedBy: 'admin', forAdmin: false }), {
           kind: 'develop_completed',
           refType: 'develop_request',

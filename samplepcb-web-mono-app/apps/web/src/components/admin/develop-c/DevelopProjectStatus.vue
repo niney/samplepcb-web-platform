@@ -53,6 +53,10 @@ const dotClass: Record<'done' | 'now' | 'todo', string> = {
         <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-200">
           <i class="block h-full rounded-full bg-blue-600" :style="{ width: `${String(progress.progressPct)}%` }" />
         </div>
+        <!-- 지연 = 완료일 경과 ∧ 미완료(서버 파생). -->
+        <p v-if="progress.overdueTasks > 0" class="mt-1 text-xs font-bold text-red-600">
+          {{ t('admin.developC.docs.status.overdueTasks', { n: progress.overdueTasks }) }}
+        </p>
       </div>
       <div class="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
         <p class="text-xs font-semibold text-gray-500">{{ t('admin.developC.docs.status.currentPhase') }}</p>

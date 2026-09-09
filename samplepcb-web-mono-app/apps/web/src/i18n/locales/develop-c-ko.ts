@@ -10,6 +10,8 @@ export const developC = {
   "total": "총 {total}건",
   "backToList": "목록으로",
   "detailFail": "의뢰를 불러오지 못했습니다.",
+  "leaveConfirm": "저장하지 않은 내용이 있습니다. 이 화면을 나가시겠습니까?",
+  "leaveConfirmOk": "나가기",
   "owner": "의뢰인",
   "staleShort": "원천 변경",
   "noAiConsent": "AI 미동의",
@@ -36,7 +38,8 @@ export const developC = {
     "createdAt": "접수일",
     "progress": "달성도",
     "docs": "문서 회신",
-    "inquiry": "문의"
+    "inquiry": "문의",
+    "money": "수납·청구"
   },
   "queue": {
     "filterAll": "전체",
@@ -47,6 +50,10 @@ export const developC = {
     "inquiryOpen": "미답변 {n}",
     "asRequest": "A/S",
     "emptyInquiries": "미답변 문의가 없습니다.",
+    "overdueTasks": "지연 {n}",
+    "openable": "청구 대기 {n}",
+    "paid": "수납 {amount}",
+    "pending": "미수납 {amount}",
     "intake": {
       "title": "접수·검토",
       "desc": "새로 들어온 의뢰와 검토 중인 의뢰 — 검토서를 쓰고 견적으로 넘긴다."
@@ -75,6 +82,9 @@ export const developC = {
     "assignee": "담당",
     "pending": "확인 대기 {n}",
     "noSignal": "대기 중인 회신·문의 없음",
+    "overdueTasks": "지연 작업 {n}",
+    "openable": "열어야 할 청구 {n}",
+    "money": "수납 {paid} · 미수 {pending}",
     "chip": {
       "intake": "접수·검토",
       "contract": "견적·계약",
@@ -415,7 +425,13 @@ export const developC = {
     "errEmpty": "항목과 결제 조건이 필요합니다.",
     "errClosed": "종결된 의뢰입니다.",
     "errNotPayable": "결제 대기 상태가 아닙니다.",
-    "errAlreadyPaid": "이미 처리된 결제입니다."
+    "errAlreadyPaid": "이미 처리된 결제입니다.",
+    "errNotManual": "담당자가 청구하는 조건의 결제만 열 수 있습니다.",
+    "openMilestone": "고객 결제 열기",
+    "openMilestoneConfirm": "고객이 이 결제를 진행할 수 있게 엽니다. 연 뒤에는 닫을 수 없습니다.",
+    "opened": "청구 열림",
+    "openDone": "결제를 열었습니다. 고객 화면 견적서에 결제 버튼이 보입니다.",
+    "openFail": "결제를 열지 못했습니다."
   },
   "docs": {
     "title": "프로젝트 문서",
@@ -437,7 +453,8 @@ export const developC = {
       "pendingNone": "확인을 기다리는 문서가 없습니다.",
       "replyDue": "회신 요청 {date}",
       "decisions": "최근 결정",
-      "decisionsNone": "아직 고객 결정이 없습니다."
+      "decisionsNone": "아직 고객 결정이 없습니다.",
+      "overdueTasks": "지연 작업 {n}"
     },
     "task": {
       "title": "업무표",
@@ -467,6 +484,13 @@ export const developC = {
       "unsaved": "저장하지 않은 변경이 있습니다.",
       "errName": "업무명을 채워 주세요.",
       "errOrder": "완료일이 시작일보다 앞섭니다.",
+      "errCoherence": "완료는 100%, 예정은 0%여야 합니다.",
+      "errRemoveProgress": "진행 이력이 있는 업무는 지울 수 없습니다. 상태를 '제외'로 바꿔 주세요.",
+      "errSeedProgress": "진행 이력이 있는 업무가 있어 표를 통째로 바꿀 수 없습니다.",
+      "errConflict": "다른 사람이 먼저 저장했습니다. 새로 불러온 뒤 다시 고쳐 주세요.",
+      "errNotFound": "없는 업무를 고치려 했습니다. 새로 불러와 주세요.",
+      "reload": "새로 불러오기",
+      "previewOverdue": "지연 {n}",
       "unnamed": "(이름 없는 업무 {seq})"
     },
     "gantt": {
@@ -504,6 +528,8 @@ export const developC = {
       "errDuplicate": "같은 항목이 중복됐습니다.",
       "errField": "값 형식을 확인해 주세요.",
       "errContent": "본문 형식을 확인해 주세요.",
+      "errConflict": "다른 사람이 먼저 저장했습니다. 새로 불러온 뒤 다시 고쳐 주세요.",
+      "reload": "새로 불러오기",
       "errNotDraft": "발송한 문서는 고칠 수 없습니다. 새 판을 만드세요.",
       "errEmptyDocument": "내용이 없는 문서는 보낼 수 없습니다."
     },

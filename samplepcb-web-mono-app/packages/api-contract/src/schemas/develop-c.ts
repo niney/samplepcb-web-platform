@@ -328,6 +328,7 @@ export const DEVELOP_EVENT_TYPES = [
   'as_request',
   'document_sent', // 프로젝트 문서 발송(§13) — payload {documentId,type,seq,version,docNo,replyDueOn}
   'document_decided', // 고객 문서 결정 — payload {documentId,docNo,decision}
+  'milestone_opened', // 수동 청구 열기(2026-09-10, G milestone.open 이식) — payload {milestoneId,quoteId,title,amount}. 열림 판정은 이 이벤트가 진실
 ] as const;
 export type DevelopEventTypeType = (typeof DEVELOP_EVENT_TYPES)[number];
 export const DevelopEventType = z.enum(DEVELOP_EVENT_TYPES);
@@ -350,6 +351,7 @@ export const DEVELOP_EVENT_TYPE_LABELS = {
   as_request: 'A/S 요청',
   document_sent: '문서 발송',
   document_decided: '문서 회신',
+  milestone_opened: '청구 열기',
 } as const satisfies Record<DevelopEventTypeType, string>;
 
 // 관리자가 직접 만드는 이벤트(나머지는 서버가 전이·행동의 부수효과로 쓴다).
@@ -829,6 +831,11 @@ export const AdminDevelopOps = z.object({
   replyOverdue: z.boolean(), // 회신 요청일이 오늘(KST)보다 앞선 대기 문서가 있다
   openInquiries: z.number().int(), // 마지막 담당자 답변 뒤에 온 고객 문의·A/S 수
   lastInquiry: z.object({ at: z.string(), type: z.enum(['comment', 'as_request']), excerpt: z.string() }).nullable(),
+  // 2026-09-10 G 이식 — 지연 작업 수(완료일 경과 ∧ 미완료) · 수락 견적 마일스톤의 수납/미수납(VAT 포함, 원) · 열어야 할 수동 청구 수.
+  overdueTasks: z.number().int(),
+  paidAmount: z.number().int(),
+  pendingAmount: z.number().int(),
+  openableMilestones: z.number().int(), // trigger=manual ∧ pending ∧ 아직 안 열림 — 담당자가 '고객 결제 열기'를 눌러야 결제 가능
 });
 export type AdminDevelopOpsType = z.infer<typeof AdminDevelopOps>;
 

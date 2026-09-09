@@ -38,6 +38,7 @@ const taskTone: Record<DevelopTaskStatusType, string> = {
   on_hold: 'bg-line text-tx-3',
   delayed: 'bg-red-100 text-red-700',
   done: 'bg-emerald-100 text-emerald-700',
+  skipped: 'bg-line text-tx-3', // 서버가 고객 응답에서 제외 행을 빼므로 보통 보이지 않는다
 };
 const taskLabel = (s: DevelopTaskStatusType): string => DEVELOP_TASK_STATUS_LABELS[s];
 const period = (t: DevelopTaskViewType): string =>

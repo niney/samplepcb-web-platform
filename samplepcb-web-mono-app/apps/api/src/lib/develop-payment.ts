@@ -9,6 +9,7 @@ import { PAID_ORDER_STATUSES, deleteCartRowsByIoId, deleteQuoteOption, getMember
 import { prisma } from './prisma';
 import { Prisma } from '@prisma/client';
 import { syncWorkflowAutoConfirm } from './develop-workflow';
+import { closeDeliveryConfirmDocs } from './develop-docs';
 
 // ── 개발의뢰 결제·검수 lazy 승격(docs/DEVELOP_FLOW.md §4.2) — 마켓 ensureContractLazy 동형 ─────────────
 // cron 없음. 의뢰를 읽거나 전이 가드를 대는 모든 지점이 `ensureDevelopLazy(request)` 를 먼저 부른다.
@@ -107,6 +108,8 @@ const ensureAutoConfirmLazy = async (r: SpDevelopRequest, log: FastifyBaseLogger
   if (auto === null || auto.getTime() > Date.now()) return;
   const ok = await transitionDevelopStatus(r.id, ['delivered'], 'completed', { mbId: null, byAdmin: false }, { completedAt: auto }, '검수 기간 경과 — 자동 확정');
   if (!ok) return;
+  // C 납품확인서가 sent 로 남아 있으면 '납품 승인'으로 닫는다(G 의뢰엔 문서 행이 없어 no-op).
+  await closeDeliveryConfirmDocs(r.id, { decidedName: '검수기간 경과', note: '검수 기간 경과 — 자동 확정', actorMbId: null, byAdmin: false }, auto);
   const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
   void sendDevelopMail(log, await customerEmail(r), buildCompletedEmail({ ...brief, confirmedBy: 'auto', forAdmin: false }), {
     kind: 'develop_completed',
@@ -139,7 +142,11 @@ export const ensureDevelopLazy = async (r: SpDevelopRequest, log: FastifyBaseLog
   const mid = (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? r;
   await ensureAutoConfirmLazy(mid, log);
   const current = (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? mid;
-  if (current.status === 'completed' && current.completedAt !== null) await syncWorkflowAutoConfirm(current.id, current.completedAt);
+  if (current.status === 'completed' && current.completedAt !== null) {
+    await syncWorkflowAutoConfirm(current.id, current.completedAt);
+    // 다른 경로(이 교정 전 완료된 건 포함)로 끝났는데 열린 채 남은 C 납품확인서도 읽을 때 닫는다 — 완료된 건에 확인 대기 배지가 남지 않게.
+    await closeDeliveryConfirmDocs(current.id, { decidedName: '의뢰 완료 처리', note: '의뢰가 완료되어 문서를 닫았습니다', actorMbId: null, byAdmin: false }, current.completedAt);
+  }
   return current;
 };
 

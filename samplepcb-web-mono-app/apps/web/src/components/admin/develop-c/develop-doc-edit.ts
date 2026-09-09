@@ -2,7 +2,9 @@ import {
   DEVELOP_DEFAULT_TASKS,
   DEVELOP_DOC_DATE_RE,
   DEVELOP_DOC_FIELDS,
+  developOverdueTaskCount,
   developProgressSummary,
+  developTaskCoherent,
   emptyDevelopDocContent,
 } from '@sp/api-contract/develop-c';
 import type {
@@ -141,6 +143,8 @@ export function parseDevelopDocIssues(issues: readonly string[]): DevelopDocIssu
 // 가중치는 화면이 %, 계약이 bp(1000 = 10%)라 여기서만 환산한다.
 
 export interface DevelopTaskRow {
+  /** 저장된 행의 id — 저장이 upsert 라 바뀌지 않는다. 새 행은 null. */
+  taskId: number | null;
   name: string;
   phase: DevelopTaskPhaseType;
   status: DevelopTaskStatusType;
@@ -155,6 +159,7 @@ export interface DevelopTaskRow {
 export const DEVELOP_TASK_MAX_ROWS = 100; // 계약 AdminDevelopTasksPutBody 의 max(100)
 
 export const emptyDevelopTaskRow = (): DevelopTaskRow => ({
+  taskId: null,
   name: '',
   phase: 'design',
   status: 'planned',
@@ -167,6 +172,7 @@ export const emptyDevelopTaskRow = (): DevelopTaskRow => ({
 });
 
 const rowFromInput = (t: DevelopTaskInputType): DevelopTaskRow => ({
+  taskId: t.taskId,
   name: t.name,
   phase: t.phase,
   status: t.status,
@@ -213,12 +219,13 @@ export const developTaskWeightBp = (row: DevelopTaskRow): number => {
   return Math.min(10_000, Math.max(0, Math.round(n * 100)));
 };
 
-/** 가중치 합(%) — 100 이 아니어도 저장은 막지 않는다(경고만). */
+/** 가중치 합(%) — 100 이 아니어도 저장은 막지 않는다(경고만). 제외 행은 달성도에서 빠지므로 합에서도 뺀다. */
 export const developTaskWeightSum = (rows: readonly DevelopTaskRow[]): number =>
-  rows.reduce((sum, r) => sum + developTaskWeightBp(r), 0) / 100;
+  rows.filter((r) => r.status !== 'skipped').reduce((sum, r) => sum + developTaskWeightBp(r), 0) / 100;
 
 export const developTaskInputs = (rows: readonly DevelopTaskRow[]): DevelopTaskInputType[] =>
   rows.map((r) => ({
+    taskId: r.taskId,
     name: r.name.trim(),
     phase: r.phase,
     status: r.status,
@@ -232,18 +239,43 @@ export const developTaskInputs = (rows: readonly DevelopTaskRow[]): DevelopTaskI
 
 export interface DevelopTaskIssue {
   index: number;
-  code: 'NAME' | 'ORDER';
+  code: 'NAME' | 'ORDER' | 'COHERENCE';
 }
 
-/** 계약 zod 가 400 으로 막는 자리(업무명 필수·완료일 < 시작일)를 저장 전에 같은 규칙으로 검사한다. */
+/** 계약 zod 가 400 으로 막는 자리(업무명 필수·완료일 < 시작일·완료⇔100%/예정⇒0%)를 저장 전에 같은 규칙으로 검사한다. */
 export function developTaskIssues(rows: readonly DevelopTaskRow[]): DevelopTaskIssue[] {
   const issues: DevelopTaskIssue[] = [];
   for (const [index, r] of rows.entries()) {
     if (r.name.trim() === '') issues.push({ index, code: 'NAME' });
     if (r.startOn !== '' && r.endOn !== '' && r.endOn < r.startOn) issues.push({ index, code: 'ORDER' });
+    if (!developTaskCoherent({ status: r.status, progressPct: clampInt(r.progressPct, 0, 100) })) issues.push({ index, code: 'COHERENCE' });
   }
   return issues;
 }
+
+// 상태↔진행률 동기(G 수행관리 taskStatus/taskProgress 이식) — 고른 순간 맞춰 줘서 저장 전 검사에 걸리지 않게 한다.
+/** 상태를 바꿨을 때: 완료 → 100 · 예정 → 0 · 완료에서 다른 상태로 내려오면 100 이던 진행률을 99 로. */
+export function syncDevelopTaskStatus(row: DevelopTaskRow): void {
+  const p = clampInt(row.progressPct, 0, 100);
+  if (row.status === 'done') row.progressPct = '100';
+  else if (row.status === 'planned') row.progressPct = '0';
+  else if (p === 100) row.progressPct = '99';
+}
+/** 진행률을 쳤을 때: 100 → 완료 · 0<p<100 인데 예정/완료면 진행 중 · 0 인데 완료면 진행 중(제외 행은 건드리지 않는다). */
+export function syncDevelopTaskProgress(row: DevelopTaskRow): void {
+  if (row.status === 'skipped') return;
+  const p = clampInt(row.progressPct, 0, 100);
+  if (p === 100) row.status = 'done';
+  else if (p > 0 && (row.status === 'planned' || row.status === 'done')) row.status = 'in_progress';
+  else if (p === 0 && row.status === 'done') row.status = 'in_progress';
+}
+
+/** 지연 작업 수 미리보기 — 서버 ops.overdueTasks 와 같은 계약 함수(완료일 경과 ∧ 미완료, 제외 제외). */
+export const developTaskOverdueCount = (rows: readonly DevelopTaskRow[], today: string): number =>
+  developOverdueTaskCount(
+    rows.map((r) => ({ status: r.status, endOn: DEVELOP_DOC_DATE_RE.test(r.endOn) ? r.endOn : null })),
+    today,
+  );
 
 /** 저장 전 달성도 미리보기 — 서버와 같은 계약 함수를 쓴다. */
 export const developTaskProgressPreview = (rows: readonly DevelopTaskRow[], contractDone: boolean): DevelopProgressSummary =>
@@ -331,6 +363,8 @@ export const developTaskBarClass = (status: DevelopTaskStatusType): string => {
       return 'bg-blue-500';
     case 'delayed':
       return 'bg-red-500';
+    case 'skipped':
+      return 'bg-gray-200';
     default:
       return 'bg-gray-300';
   }

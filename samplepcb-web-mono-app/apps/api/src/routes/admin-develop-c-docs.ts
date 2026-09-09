@@ -37,6 +37,7 @@ import {
   currentDocumentIds,
   developDocTitle,
   developDocumentFiles,
+  developTasksRevision,
   loadDevelopDocuments,
   loadDevelopTasks,
   toAdminDevelopDocumentView,
@@ -52,7 +53,9 @@ import { customerEmailOf } from './develop-c-requests';
 // ── /api/admin/develop/{requests/:id/documents, documents/:docId, requests/:id/tasks} — 프로젝트 문서·업무표(docs/DEVELOP_FLOW.md §13) ──
 // 문서는 draft 에서만 고치고(본문·첨부·메모), 발송이 판을 고정한다(메일 제목·본문은 관리자가 확인한 그대로 저장·발송).
 // 재발송은 "새 판 만들기"(revise → 같은 종류·번호, version+1 draft) → 편집 → 발송이며 이전 판은 superseded.
-// 업무표는 통째 교체(PUT) — 행 편집기가 표 전체를 보낸다. 에러 봉투 ApiError{error,message}(관리자 라우트 관례).
+// 업무표는 PUT 으로 표 전체를 보내되 행은 taskId 로 upsert 한다(2026-09-10, G 수행관리 규칙 이식) — 번호가 안 바뀌고,
+// 진행 이력이 있는 행은 지울 수 없으며(TASK_HAS_PROGRESS → '제외'), revision(행 id·updatedAt 해시)이 다르면 409 REVISION_CONFLICT.
+// 문서 PATCH 도 expectedUpdatedAt 으로 같은 충돌 검사를 한다. 에러 봉투 ApiError{error,message}(관리자 라우트 관례).
 
 const RequestIdParams = z.object({ id: z.string().regex(/^\d+$/) });
 const DocIdParams = z.object({ docId: z.string().regex(/^\d+$/) });
@@ -60,6 +63,7 @@ const DocFileParams = z.object({ docId: z.string().regex(/^\d+$/), fileId: z.str
 
 const notFound = { error: 'NOT_FOUND', message: '대상이 없습니다' };
 const notDraft = { error: 'DOC_NOT_DRAFT', message: '작성 중인 문서만 고칠 수 있습니다' };
+const revisionConflict = { error: 'REVISION_CONFLICT', message: '다른 사람이 먼저 저장했습니다. 최신 내용을 불러온 뒤 다시 고쳐 주세요' };
 
 const docAllowed = (status: DevelopRequestStatusType): boolean => (DEVELOP_DOC_ALLOWED_STATUSES as readonly string[]).includes(status);
 
@@ -127,6 +131,8 @@ export const adminDevelopDocRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       if (found === null) return reply.status(404).send(notFound);
       if (found.doc.status !== 'draft') return reply.status(409).send(notDraft);
       const b = request.body;
+      // 낙관적 잠금 — 화면이 본 updatedAt 과 다르면 다른 편집이 먼저 저장된 것(seedKey 가 같은 값을 쓴다).
+      if (b.expectedUpdatedAt !== undefined && found.doc.updatedAt.toISOString() !== b.expectedUpdatedAt) return reply.status(409).send(revisionConflict);
       if (b.content !== undefined) {
         const issues = contentOr400(asDocType(found.doc.type), b.content);
         if (issues.length > 0) return reply.status(400).send({ error: 'CONTENT_INVALID', message: issues.join(', ') });
@@ -342,31 +348,48 @@ export const adminDevelopDocRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
     },
   );
 
-  // ── PUT /admin/develop/requests/:id/tasks — 업무표 통째 교체 ──────────────────────
+  // ── PUT /admin/develop/requests/:id/tasks — 업무표 저장(taskId upsert · 삭제 가드 · 낙관적 잠금) ──────────
+  // 표 전체를 받되 taskId 가 있는 행은 제자리에서 고치고(번호 유지), 없는 행은 새로 만들고, 빠진 행은 지운다.
+  // 진행 이력(progressPct>0)이 있는 행이 빠지면 409 TASK_HAS_PROGRESS — 삭제 대신 상태 '제외'. revision 이 다르면 409 REVISION_CONFLICT.
   fastify.put(
     '/develop-c/requests/:id/tasks',
-    { schema: { params: RequestIdParams, body: AdminDevelopTasksPutBody, response: { 200: AdminDevelopTasksResponse, 404: ApiError } } },
+    { schema: { params: RequestIdParams, body: AdminDevelopTasksPutBody, response: { 200: AdminDevelopTasksResponse, 404: ApiError, 409: ApiError } } },
     async (request, reply) => {
       const r = await prisma.spDevelopRequest.findUnique({ where: { id: BigInt(request.params.id) } });
       if (r === null) return reply.status(404).send(notFound);
+      const b = request.body;
+      const existing = await loadDevelopTasks(r.id);
+      if (b.revision !== undefined && b.revision !== developTasksRevision(existing)) return reply.status(409).send(revisionConflict);
+      const byId = new Map(existing.map((t) => [Number(t.id), t]));
+      if (b.tasks.some((t) => t.taskId !== null && !byId.has(t.taskId))) {
+        return reply.status(409).send({ error: 'TASK_NOT_FOUND', message: '없는 업무를 고치려 했습니다. 최신 내용을 불러와 주세요' });
+      }
+      const kept = new Set(b.tasks.map((t) => t.taskId).filter((id): id is number => id !== null));
+      const removed = existing.filter((t) => !kept.has(Number(t.id)));
+      const withProgress = removed.find((t) => t.progressPct > 0);
+      if (withProgress !== undefined) {
+        return reply.status(409).send({ error: 'TASK_HAS_PROGRESS', message: `'${withProgress.name}'은(는) 진행 이력이 있어 지울 수 없습니다. 상태를 '제외'로 바꿔 주세요` });
+      }
       await prisma.$transaction(async (tx) => {
-        await tx.spDevelopTask.deleteMany({ where: { requestId: r.id } });
-        if (request.body.tasks.length > 0) {
-          await tx.spDevelopTask.createMany({
-            data: request.body.tasks.map((t, i) => ({
-              requestId: r.id,
-              seq: i + 1,
-              phase: t.phase,
-              name: t.name,
-              status: t.status,
-              startOn: t.startOn,
-              endOn: t.endOn,
-              weightBp: t.weightBp,
-              progressPct: t.progressPct,
-              note: t.note,
-              visibleToCustomer: t.visibleToCustomer,
-            })),
-          });
+        if (removed.length > 0) await tx.spDevelopTask.deleteMany({ where: { id: { in: removed.map((t) => t.id) } } });
+        // (requestId, seq) unique 라 순서를 바꾸면 중간에 충돌한다 — 남는 행을 음수 seq 로 비켜 둔 뒤 최종 순서를 쓴다.
+        const keptRows = existing.filter((t) => kept.has(Number(t.id)));
+        for (const [i, t] of keptRows.entries()) await tx.spDevelopTask.update({ where: { id: t.id }, data: { seq: -(i + 1) } });
+        for (const [i, t] of b.tasks.entries()) {
+          const data = {
+            seq: i + 1,
+            phase: t.phase,
+            name: t.name,
+            status: t.status,
+            startOn: t.startOn,
+            endOn: t.endOn,
+            weightBp: t.weightBp,
+            progressPct: t.progressPct,
+            note: t.note,
+            visibleToCustomer: t.visibleToCustomer,
+          };
+          if (t.taskId === null) await tx.spDevelopTask.create({ data: { requestId: r.id, ...data } });
+          else await tx.spDevelopTask.update({ where: { id: BigInt(t.taskId) }, data });
         }
       });
       const [tasks, documents] = await Promise.all([loadDevelopTasks(r.id), loadDevelopDocuments(r.id, { includeDrafts: true })]);

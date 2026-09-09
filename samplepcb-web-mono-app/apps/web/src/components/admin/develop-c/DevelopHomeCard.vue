@@ -7,8 +7,9 @@ import {
   DEVELOP_TASK_PHASE_LABELS,
 } from '@sp/api-contract/develop-c';
 import type { AdminDevelopRequestListItemType } from '@sp/api-contract/develop-c';
+import { developCDetailTo } from '../../../admin/develop-c-navigation';
 import { developStatusBadgeClass } from './develop-badge';
-import { formatDateTime } from '../../../lib/format';
+import { formatDateTime, formatKrw } from '../../../lib/format';
 
 // 진행현황 홈의 의뢰 카드(docs/DEVELOP_FLOW.md §14) — 건 하나의 00 현황(상세 「프로젝트
 // 문서」 탭 상단 띠)을 횡단으로 압축한 판. 값은 전부 서버 파생(ops)이라 다시 계산하지 않고,
@@ -17,11 +18,15 @@ const props = defineProps<{ item: AdminDevelopRequestListItemType }>();
 
 const { t } = useI18n();
 
-const to = (tab: string) => ({
-  name: 'admin-develop-c-request',
-  params: { id: String(props.item.requestId) },
-  query: { tab },
-});
+// 상세 딥링크 — from=홈이라 「← 목록으로」가 홈으로 돌아온다.
+const to = (tab: string) => developCDetailTo(props.item.requestId, { tab, from: 'admin-develop-c-home' });
+const quiet = computed(
+  () =>
+    props.item.ops.pendingApprovals === 0 &&
+    props.item.ops.openInquiries === 0 &&
+    props.item.ops.overdueTasks === 0 &&
+    props.item.ops.openableMilestones === 0,
+);
 
 // 7단계 미니 점 — currentPhase 앞은 done, 그 칸은 now, 뒤는 todo(업무표가 없으면 전부 todo).
 const phaseIndex = computed(() =>
@@ -92,7 +97,15 @@ const phaseClass = (index: number): string =>
           <span class="text-gray-400">{{ formatDateTime(item.ops.lastInquiry.at) }}</span>
         </p>
       </template>
-      <p v-if="item.ops.pendingApprovals === 0 && item.ops.openInquiries === 0" class="text-gray-400">
+      <!-- 지연 작업 · 열어야 할 청구 · 수납/미수 — 2026-09-10 G 이식(전부 서버 ops). -->
+      <p v-if="item.ops.overdueTasks > 0" class="font-bold text-red-600">{{ t('admin.developC.home.overdueTasks', { n: item.ops.overdueTasks }) }}</p>
+      <p v-if="item.ops.openableMilestones > 0" class="font-bold text-amber-700">
+        {{ t('admin.developC.home.openable', { n: item.ops.openableMilestones }) }}
+      </p>
+      <p v-if="item.ops.paidAmount > 0 || item.ops.pendingAmount > 0" class="text-gray-500">
+        {{ t('admin.developC.home.money', { paid: formatKrw(item.ops.paidAmount), pending: formatKrw(item.ops.pendingAmount) }) }}
+      </p>
+      <p v-if="quiet" class="text-gray-400">
         {{ t('admin.developC.home.noSignal') }}
       </p>
     </div>

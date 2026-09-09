@@ -10,6 +10,8 @@ export const developC = {
   "total": "{total} total",
   "backToList": "Back to list",
   "detailFail": "Could not load the request.",
+  "leaveConfirm": "You have unsaved changes. Leave this page?",
+  "leaveConfirmOk": "Leave",
   "owner": "Requester",
   "staleShort": "Source changed",
   "noAiConsent": "No AI consent",
@@ -36,7 +38,8 @@ export const developC = {
     "createdAt": "Received",
     "progress": "Progress",
     "docs": "Doc reply",
-    "inquiry": "Inquiry"
+    "inquiry": "Inquiry",
+    "money": "Billing"
   },
   "queue": {
     "filterAll": "All",
@@ -47,6 +50,10 @@ export const developC = {
     "inquiryOpen": "{n} unanswered",
     "asRequest": "A/S",
     "emptyInquiries": "No unanswered inquiries.",
+    "overdueTasks": "{n} overdue",
+    "openable": "{n} to open",
+    "paid": "Paid {amount}",
+    "pending": "Unpaid {amount}",
     "intake": {
       "title": "Intake · Review",
       "desc": "New and in-review requests — write the review sheet and move on to quoting."
@@ -75,6 +82,9 @@ export const developC = {
     "assignee": "Assignee",
     "pending": "{n} awaiting customer",
     "noSignal": "No pending reply or inquiry",
+    "overdueTasks": "{n} overdue tasks",
+    "openable": "{n} payments to open",
+    "money": "Paid {paid} · Unpaid {pending}",
     "chip": {
       "intake": "Intake · Review",
       "contract": "Quote · Contract",
@@ -415,7 +425,13 @@ export const developC = {
     "errEmpty": "Line items and payment terms are required.",
     "errClosed": "The request is closed.",
     "errNotPayable": "The milestone is not awaiting payment.",
-    "errAlreadyPaid": "The payment was already recorded."
+    "errAlreadyPaid": "The payment was already recorded.",
+    "errNotManual": "Only milestones billed by the assignee can be opened.",
+    "openMilestone": "Open for customer payment",
+    "openMilestoneConfirm": "The customer will be able to pay this milestone. This cannot be undone.",
+    "opened": "Open for payment",
+    "openDone": "Payment opened. The customer now sees a pay button on the quote.",
+    "openFail": "Could not open the payment."
   },
   "docs": {
     "title": "Project documents",
@@ -437,7 +453,8 @@ export const developC = {
       "pendingNone": "No document is waiting for the customer.",
       "replyDue": "Reply by {date}",
       "decisions": "Recent decisions",
-      "decisionsNone": "No customer decision yet."
+      "decisionsNone": "No customer decision yet.",
+      "overdueTasks": "{n} overdue tasks"
     },
     "task": {
       "title": "Work plan",
@@ -467,6 +484,13 @@ export const developC = {
       "unsaved": "You have unsaved changes.",
       "errName": "Enter a task name.",
       "errOrder": "The finish date is before the start date.",
+      "errCoherence": "Done must be 100% and planned must be 0%.",
+      "errRemoveProgress": "A task with progress cannot be removed. Set its status to Skipped instead.",
+      "errSeedProgress": "The table has tasks with progress, so it cannot be replaced wholesale.",
+      "errConflict": "Someone else saved first. Reload and apply your changes again.",
+      "errNotFound": "A task no longer exists. Reload the table.",
+      "reload": "Reload",
+      "previewOverdue": "{n} overdue",
       "unnamed": "(Unnamed task {seq})"
     },
     "gantt": {
@@ -504,6 +528,8 @@ export const developC = {
       "errDuplicate": "The same item is selected twice.",
       "errField": "Check the value format.",
       "errContent": "Check the document body format.",
+      "errConflict": "Someone else saved first. Reload and apply your changes again.",
+      "reload": "Reload",
       "errNotDraft": "A sent document cannot be edited. Create a new version.",
       "errEmptyDocument": "An empty document cannot be sent."
     },

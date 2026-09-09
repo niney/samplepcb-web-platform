@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   DEVELOP_ADMIN_SIGNAL_LABELS,
   DEVELOP_ADMIN_TAB_LABELS,
@@ -19,6 +19,7 @@ import type {
   DevelopAdminTabType,
 } from '@sp/api-contract/develop-c';
 import { UiPagination } from '@sp/ui';
+import { developCDetailTo, developCQueueQuery, developCQueueState } from '../../../admin/develop-c-navigation';
 import { emptyDevelopFilters, useAdminDevelopList } from '../../../admin/useAdminDevelopC';
 import DevelopAiChips from './DevelopAiChips.vue';
 import { developStatusBadgeClass } from './develop-badge';
@@ -28,6 +29,8 @@ import { formatDate, formatDateTime, formatKrw } from '../../../lib/format';
 // 개발 모듈 워크큐 공용 표(docs/DEVELOP_FLOW.md §14) — 탭 counts · 검색 · 신호 토글 ·
 // 열 프리셋 · 행 클릭 딥링크. 큐 페이지(접수·검토 / 견적·계약 / …)는 이 컴포넌트에
 // 탭·열·신호만 넘기는 얇은 래퍼다. 전체 의뢰 화면도 같은 표를 쓴다(열 8개 그대로).
+// 탭·신호·검색·페이지는 URL 쿼리에 둔다(2026-09-10, G 이식) — 새로고침·뒤로가기에 살고, 행 클릭이 `from`+목록 상태를
+// 상세에 실어 「← 목록으로」가 이 자리로 돌아온다. 기본값과 같은 값은 쿼리에 쓰지 않는다.
 const props = defineProps<{
   /** 탭 바에 그릴 탭(1개면 탭 바를 감춘다). */
   tabs: readonly DevelopAdminTabType[];
@@ -45,14 +48,39 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const router = useRouter();
+const route = useRoute();
 
-const filters = ref({
-  ...emptyDevelopFilters(),
-  tab: props.defaultTab,
-  signal: props.signal ?? null,
-});
-const qInput = ref('');
+// URL → 필터. 이 큐에 없는 탭·토글에 없는 신호는 무시한다(다른 큐의 쿼리가 섞여 들어와도 안전).
+const fromQuery = () => {
+  const state = developCQueueState(route.query);
+  const tab = state.tab !== null && props.tabs.includes(state.tab) ? state.tab : props.defaultTab;
+  const signal =
+    props.signal ?? (state.signal !== null && (props.signalToggles ?? []).includes(state.signal) ? state.signal : null);
+  return { ...emptyDevelopFilters(), tab, signal, q: state.q, page: state.page };
+};
+const filters = ref(fromQuery());
+const qInput = ref(filters.value.q);
 const { data, isFetching } = useAdminDevelopList(filters);
+
+// 필터 → URL(replace — 히스토리를 더럽히지 않는다). 큐 고정 신호(props.signal)는 기본값이라 쓰지 않는다.
+const syncQuery = (): void => {
+  const next = developCQueueQuery(filters.value, { tab: props.defaultTab, signal: props.signal ?? null });
+  const current = developCQueueQuery({ ...fromQuery() }, { tab: props.defaultTab, signal: props.signal ?? null });
+  if (JSON.stringify(next) === JSON.stringify(current)) return;
+  void router.replace({ query: next });
+};
+watch(filters, syncQuery, { deep: true });
+// 뒤로가기 등으로 URL 이 바뀌면 필터를 따라간다.
+watch(
+  () => route.query,
+  () => {
+    const next = fromQuery();
+    if (JSON.stringify(next) !== JSON.stringify(filters.value)) {
+      filters.value = next;
+      qInput.value = next.q;
+    }
+  },
+);
 
 const has = (column: DevelopQueueColumn): boolean => props.columns.includes(column);
 const colCount = computed(() => props.columns.length);
@@ -75,11 +103,13 @@ const areaBadge = (r: AdminDevelopRequestListItemType): string => {
   return badge === DEVELOP_REQUEST_MODE_LABELS[r.requestMode] ? '' : badge;
 };
 const openDetail = (requestId: number): void => {
-  void router.push({
-    name: 'admin-develop-c-request',
-    params: { id: String(requestId) },
-    ...(props.detailTab === undefined ? {} : { query: { tab: props.detailTab } }),
-  });
+  void router.push(
+    developCDetailTo(requestId, {
+      tab: props.detailTab,
+      from: route.name,
+      list: { tab: filters.value.tab, signal: filters.value.signal, q: filters.value.q, page: filters.value.page },
+    }),
+  );
 };
 </script>
 
@@ -204,6 +234,10 @@ const openDetail = (requestId: number): void => {
               <p class="mt-0.5 text-xs text-gray-500">
                 {{ r.ops.currentPhase === null ? '—' : DEVELOP_TASK_PHASE_LABELS[r.ops.currentPhase] }}
                 <span v-if="r.ops.taskCount > 0" class="text-gray-400"> · {{ t('admin.developC.queue.taskCount', { n: r.ops.taskCount }) }}</span>
+                <!-- 지연 = 완료일 경과 ∧ 미완료(날짜 파생, 서버 ops). -->
+                <span v-if="r.ops.overdueTasks > 0" class="ml-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700">
+                  {{ t('admin.developC.queue.overdueTasks', { n: r.ops.overdueTasks }) }}
+                </span>
               </p>
             </td>
             <!-- 고객 회신 대기(sent 승인형 문서) + 가장 이른 회신 요청일. 기한 초과면 빨강. -->
@@ -219,6 +253,19 @@ const openDetail = (requestId: number): void => {
                   {{ t('admin.developC.queue.replyDue', { date: r.ops.nextReplyDueOn }) }}
                   <span v-if="r.ops.replyOverdue"> · {{ t('admin.developC.queue.overdue') }}</span>
                 </p>
+              </template>
+              <span v-else class="text-gray-300">—</span>
+            </td>
+            <!-- 수납·미수납(수락 견적 마일스톤만) + 열어야 할 수동 청구 — 전부 서버 ops. -->
+            <td v-if="has('money')" class="px-4 py-3 text-sm">
+              <template v-if="r.ops.paidAmount > 0 || r.ops.pendingAmount > 0 || r.ops.openableMilestones > 0">
+                <p class="text-xs text-gray-700">{{ t('admin.developC.queue.paid', { amount: formatKrw(r.ops.paidAmount) }) }}</p>
+                <p class="text-xs" :class="r.ops.pendingAmount > 0 ? 'font-semibold text-gray-800' : 'text-gray-400'">
+                  {{ t('admin.developC.queue.pending', { amount: formatKrw(r.ops.pendingAmount) }) }}
+                </p>
+                <span v-if="r.ops.openableMilestones > 0" class="mt-0.5 inline-block whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+                  {{ t('admin.developC.queue.openable', { n: r.ops.openableMilestones }) }}
+                </span>
               </template>
               <span v-else class="text-gray-300">—</span>
             </td>

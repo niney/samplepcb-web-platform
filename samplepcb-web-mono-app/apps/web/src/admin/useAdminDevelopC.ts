@@ -47,6 +47,14 @@ const invalidateDevelop = (qc: ReturnType<typeof useQueryClient>): void => {
   void qc.invalidateQueries({ queryKey: DEVELOP_KEY });
 };
 
+// 화면이 직접 다시 불러올 때(낙관적 잠금 충돌 뒤 '새로 불러오기') — 같은 루트 키를 무효화한다.
+export function useInvalidateAdminDevelop(): () => void {
+  const qc = useQueryClient();
+  return () => {
+    invalidateDevelop(qc);
+  };
+}
+
 // ── 워크큐 ───────────────────────────────────────────────────────────────────
 
 export interface AdminDevelopFilters {
@@ -323,6 +331,17 @@ export function useAdminDevelopQuoteWithdraw() {
   });
 }
 
+// 수동 청구 열기(2026-09-10) — trigger=manual ∧ pending 마일스톤을 고객이 결제할 수 있게 연다. 열림은 milestone_opened 이벤트가 진실.
+export function useAdminDevelopMilestoneOpen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (milestoneId: number) => apiSend('POST', `${milestoneBase}/${String(milestoneId)}/open`, undefined, DevelopOkResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
 // 오프라인 입금(계좌 이체 등) 수동 확인 — pending 마일스톤만. 메모는 내부 노트로 남는다.
 export function useAdminDevelopMilestoneMarkPaid() {
   const qc = useQueryClient();
@@ -431,12 +450,12 @@ export function useAdminDevelopDocMailRun() {
   });
 }
 
-// 업무표 통째 교체 — 행 편집기가 표 전체를 보낸다(taskId 는 매번 새로 발급된다).
+// 업무표 저장 — 표 전체를 보내되 행은 taskId 로 upsert 된다(번호 유지). revision(progress.tasksRevision)이 다르면 409 REVISION_CONFLICT.
 export function useAdminDevelopTasksPut() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ requestId, tasks }: { requestId: number; tasks: readonly DevelopTaskInputType[] }) =>
-      apiSend('PUT', `${base}/${String(requestId)}/tasks`, { tasks }, AdminDevelopTasksResponse),
+    mutationFn: ({ requestId, tasks, revision }: { requestId: number; tasks: readonly DevelopTaskInputType[]; revision: string }) =>
+      apiSend('PUT', `${base}/${String(requestId)}/tasks`, { tasks, revision }, AdminDevelopTasksResponse),
     onSuccess: () => {
       invalidateDevelop(qc);
     },

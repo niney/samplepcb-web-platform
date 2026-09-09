@@ -13,7 +13,7 @@ import {
   splitDevelopMilestoneAmounts,
 } from '@sp/api-contract/develop-c';
 import type { AdminDevelopQuoteBodyType, AdminDevelopQuoteResponseType } from '@sp/api-contract/develop-c';
-import { REF_DEVELOP_QUOTE, addDevelopEvent, asDevelopStatus, transitionDevelopStatus } from '../lib/develop-c';
+import { OPENED_MILESTONE_EVENT, REF_DEVELOP_QUOTE, addDevelopEvent, asDevelopStatus, openedDevelopMilestones, transitionDevelopStatus } from '../lib/develop-c';
 import { buildQuoteSentEmail, sendDevelopMail } from '../lib/develop-c-email';
 import { cancelPendingMilestones, ensureDevelopLazy, markMilestonePaid } from '../lib/develop-payment';
 import { toAreaCodes } from '../lib/market';
@@ -36,12 +36,13 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
   fastify.addHook('preHandler', fastify.requireAdmin);
 
   const quoteView = async (q: SpDevelopQuote): Promise<AdminDevelopQuoteResponseType['data']> => {
-    const [full, request, po] = await Promise.all([
+    const [full, request, po, opened] = await Promise.all([
       prisma.spDevelopQuote.findUniqueOrThrow({ where: { id: q.id }, include: { items: true, milestones: true } }),
       prisma.spDevelopRequest.findUniqueOrThrow({ where: { id: q.requestId } }),
       prisma.spFile.findFirst({ where: { refType: REF_DEVELOP_QUOTE, refId: q.id, fileType: 'po' } }),
+      openedDevelopMilestones(q.requestId),
     ]);
-    return { ...toQuoteView(full, asDevelopStatus(request.status), po), internalNote: full.internalNote };
+    return { ...toQuoteView(full, asDevelopStatus(request.status), po, opened), internalNote: full.internalNote };
   };
 
   // 항목·마일스톤 행을 통째로 갈아 끼운다(draft 전용). 금액은 발송 시 확정하지만 화면 표시용으로 미리 계산해 둔다.
@@ -254,6 +255,34 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
           visibleToCustomer: false,
           title: `${m.title} 수동 확인 메모`,
           body: request.body.note,
+        });
+      }
+      return { result: true as const };
+    },
+  );
+
+  // ── POST /admin/develop/milestones/:mid/open — 수동 청구 열기(2026-09-10, G milestone.open 이식) ─────────
+  // trigger=manual ∧ pending ∧ 수락 견적의 마일스톤만. 열림은 milestone_opened 이벤트(고객 노출)가 진실이라 다시 눌러도 한 번만 남고,
+  // 그 뒤 고객 상세·목록의 payable 이 true 가 되어 결제 버튼이 선다(고객 '다음 할 일' = 결제).
+  fastify.post(
+    '/develop-c/milestones/:mid/open',
+    { schema: { params: MilestoneIdParams, response: { 200: DevelopOkResponse, 404: ApiError, 409: ApiError } } },
+    async (request, reply) => {
+      const m = await prisma.spDevelopMilestone.findUnique({ where: { id: BigInt(request.params.mid) }, include: { quote: { select: { status: true } } } });
+      if (m === null) return reply.status(404).send(notFound);
+      if (m.trigger !== 'manual') return reply.status(409).send({ error: 'NOT_MANUAL', message: '담당자가 청구하는 조건의 결제만 열 수 있습니다' });
+      if (m.status !== 'pending' || m.quote.status !== 'accepted') {
+        return reply.status(409).send({ error: 'NOT_PAYABLE', message: '수락한 견적의 결제 대기 조건만 열 수 있습니다' });
+      }
+      const opened = await openedDevelopMilestones(m.requestId);
+      if (!opened.has(Number(m.id))) {
+        await addDevelopEvent(prisma, m.requestId, {
+          type: OPENED_MILESTONE_EVENT,
+          actorMbId: request.user.mbId,
+          byAdmin: true,
+          title: `${m.title} 결제를 열었습니다`,
+          body: '의뢰 화면의 견적서에서 결제할 수 있습니다.',
+          payload: { milestoneId: Number(m.id), quoteId: Number(m.quoteId), title: m.title, amount: m.amount },
         });
       }
       return { result: true as const };

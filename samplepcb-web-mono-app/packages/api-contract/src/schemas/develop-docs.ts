@@ -504,7 +504,8 @@ export const DEVELOP_TASK_PHASE_LABELS = {
   delivery: '납품·완료',
 } as const satisfies Record<DevelopTaskPhaseType, string>;
 
-export const DEVELOP_TASK_STATUSES = ['planned', 'in_progress', 'customer_review', 'on_hold', 'delayed', 'done'] as const;
+// skipped(제외) — 진행 이력이 있는 행은 지우지 않고 제외한다(G 수행관리 규칙 이식, 2026-09-10). 달성도 가중치·고객 화면에서 빠진다.
+export const DEVELOP_TASK_STATUSES = ['planned', 'in_progress', 'customer_review', 'on_hold', 'delayed', 'done', 'skipped'] as const;
 export type DevelopTaskStatusType = (typeof DEVELOP_TASK_STATUSES)[number];
 export const DevelopTaskStatus = z.enum(DEVELOP_TASK_STATUSES);
 export const DEVELOP_TASK_STATUS_LABELS = {
@@ -514,9 +515,12 @@ export const DEVELOP_TASK_STATUS_LABELS = {
   on_hold: '보류',
   delayed: '지연',
   done: '완료',
+  skipped: '제외',
 } as const satisfies Record<DevelopTaskStatusType, string>;
 
 export const DevelopTaskInput = z.object({
+  // 기존 행이면 그 id(저장이 upsert 라 taskId 가 안 바뀐다) · 새 행은 null. 2026-09-10 전엔 통째 교체라 매번 재발급됐다.
+  taskId: z.number().int().positive().nullable().default(null),
   name: z.string().trim().min(1).max(200),
   phase: DevelopTaskPhase,
   status: DevelopTaskStatus.default('planned'),
@@ -529,13 +533,32 @@ export const DevelopTaskInput = z.object({
 });
 export type DevelopTaskInputType = z.infer<typeof DevelopTaskInput>;
 
-export const AdminDevelopTasksPutBody = z.object({ tasks: z.array(DevelopTaskInput).max(100) }).superRefine((b, ctx) => {
-  for (const [i, t] of b.tasks.entries()) {
-    if (t.startOn !== null && t.endOn !== null && t.endOn < t.startOn) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '완료일이 시작일보다 앞섭니다', path: ['tasks', i, 'endOn'] });
+// 상태↔진행률 정합(G 규칙 이식): 완료 ⇔ 100% · 예정 ⇒ 0%. 그 밖의 상태는 자유. 화면은 developTaskIssues 로 먼저 같은 규칙을 검사한다.
+export const developTaskCoherent = (t: { status: DevelopTaskStatusType; progressPct: number }): boolean =>
+  (t.status === 'done') === (t.progressPct === 100) && (t.status !== 'planned' || t.progressPct === 0);
+
+export const AdminDevelopTasksPutBody = z
+  .object({
+    tasks: z.array(DevelopTaskInput).max(100),
+    // 낙관적 잠금 — 상세 응답 progress.tasksRevision 을 그대로 돌려보낸다. 다르면 409 REVISION_CONFLICT(다른 사람이 먼저 저장).
+    // 없으면 검사하지 않는다(옛 화면 호환).
+    revision: z.string().max(80).optional(),
+  })
+  .superRefine((b, ctx) => {
+    const seen = new Set<number>();
+    for (const [i, t] of b.tasks.entries()) {
+      if (t.startOn !== null && t.endOn !== null && t.endOn < t.startOn) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: '완료일이 시작일보다 앞섭니다', path: ['tasks', i, 'endOn'] });
+      }
+      if (!developTaskCoherent(t)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: '완료는 100%, 예정은 0% 여야 합니다', path: ['tasks', i, 'progressPct'] });
+      }
+      if (t.taskId !== null) {
+        if (seen.has(t.taskId)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '같은 업무가 두 번 들어 있습니다', path: ['tasks', i, 'taskId'] });
+        seen.add(t.taskId);
+      }
     }
-  }
-});
+  });
 export type AdminDevelopTasksPutBodyType = z.infer<typeof AdminDevelopTasksPutBody>;
 
 export const DevelopTaskView = DevelopTaskInput.extend({ taskId: z.number(), seq: z.number().int() });
@@ -543,21 +566,21 @@ export type DevelopTaskViewType = z.infer<typeof DevelopTaskView>;
 
 // 기본 업무 15개(프로토타입 defaultTasks) — 코드 상수. 설정 테이블에 넣으면 ALTER 가 생겨 롤백 조건을 깬다.
 export const DEVELOP_DEFAULT_TASKS: readonly DevelopTaskInputType[] = [
-  { name: '개발착수회의·요구사항 확정', phase: 'requirements', status: 'planned', startOn: null, endOn: null, weightBp: 1000, progressPct: 0, note: '계약 체결 후', visibleToCustomer: true },
-  { name: '시스템 구성·인터페이스 정의', phase: 'requirements', status: 'planned', startOn: null, endOn: null, weightBp: 600, progressPct: 0, note: '착수회의', visibleToCustomer: true },
-  { name: '회로설계', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 1400, progressPct: 0, note: '시스템 구성', visibleToCustomer: true },
-  { name: '펌웨어 개발', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 1400, progressPct: 0, note: '인터페이스 정의 후 병행', visibleToCustomer: true },
-  { name: '주요 부품 선정·발주', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 600, progressPct: 0, note: '회로 주요 부품 확정', visibleToCustomer: false },
-  { name: 'PCB 부품배치', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 500, progressPct: 0, note: '회로 검토', visibleToCustomer: false },
-  { name: 'PCB 배선', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 900, progressPct: 0, note: '부품배치 승인', visibleToCustomer: false },
-  { name: '설계완료·제작승인', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 400, progressPct: 0, note: '회로·PCB 검토', visibleToCustomer: true },
-  { name: 'PCB 제작', phase: 'fabrication', status: 'planned', startOn: null, endOn: null, weightBp: 700, progressPct: 0, note: '제작승인', visibleToCustomer: true },
-  { name: '부품 입고', phase: 'fabrication', status: 'planned', startOn: null, endOn: null, weightBp: 300, progressPct: 0, note: '부품 발주', visibleToCustomer: false },
-  { name: 'SMT·수삽', phase: 'assembly', status: 'planned', startOn: null, endOn: null, weightBp: 500, progressPct: 0, note: 'PCB·부품 입고', visibleToCustomer: true },
-  { name: '검사·조립', phase: 'assembly', status: 'planned', startOn: null, endOn: null, weightBp: 400, progressPct: 0, note: 'SMT', visibleToCustomer: false },
-  { name: '펌웨어 입력·통합테스트', phase: 'assembly', status: 'planned', startOn: null, endOn: null, weightBp: 800, progressPct: 0, note: '조립·펌웨어', visibleToCustomer: true },
-  { name: '인증·보완', phase: 'certification', status: 'planned', startOn: null, endOn: null, weightBp: 400, progressPct: 0, note: '통합테스트', visibleToCustomer: true },
-  { name: '최종 납품', phase: 'delivery', status: 'planned', startOn: null, endOn: null, weightBp: 500, progressPct: 0, note: '시험·인증 완료', visibleToCustomer: true },
+  { taskId: null, name: '개발착수회의·요구사항 확정', phase: 'requirements', status: 'planned', startOn: null, endOn: null, weightBp: 1000, progressPct: 0, note: '계약 체결 후', visibleToCustomer: true },
+  { taskId: null, name: '시스템 구성·인터페이스 정의', phase: 'requirements', status: 'planned', startOn: null, endOn: null, weightBp: 600, progressPct: 0, note: '착수회의', visibleToCustomer: true },
+  { taskId: null, name: '회로설계', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 1400, progressPct: 0, note: '시스템 구성', visibleToCustomer: true },
+  { taskId: null, name: '펌웨어 개발', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 1400, progressPct: 0, note: '인터페이스 정의 후 병행', visibleToCustomer: true },
+  { taskId: null, name: '주요 부품 선정·발주', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 600, progressPct: 0, note: '회로 주요 부품 확정', visibleToCustomer: false },
+  { taskId: null, name: 'PCB 부품배치', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 500, progressPct: 0, note: '회로 검토', visibleToCustomer: false },
+  { taskId: null, name: 'PCB 배선', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 900, progressPct: 0, note: '부품배치 승인', visibleToCustomer: false },
+  { taskId: null, name: '설계완료·제작승인', phase: 'design', status: 'planned', startOn: null, endOn: null, weightBp: 400, progressPct: 0, note: '회로·PCB 검토', visibleToCustomer: true },
+  { taskId: null, name: 'PCB 제작', phase: 'fabrication', status: 'planned', startOn: null, endOn: null, weightBp: 700, progressPct: 0, note: '제작승인', visibleToCustomer: true },
+  { taskId: null, name: '부품 입고', phase: 'fabrication', status: 'planned', startOn: null, endOn: null, weightBp: 300, progressPct: 0, note: '부품 발주', visibleToCustomer: false },
+  { taskId: null, name: 'SMT·수삽', phase: 'assembly', status: 'planned', startOn: null, endOn: null, weightBp: 500, progressPct: 0, note: 'PCB·부품 입고', visibleToCustomer: true },
+  { taskId: null, name: '검사·조립', phase: 'assembly', status: 'planned', startOn: null, endOn: null, weightBp: 400, progressPct: 0, note: 'SMT', visibleToCustomer: false },
+  { taskId: null, name: '펌웨어 입력·통합테스트', phase: 'assembly', status: 'planned', startOn: null, endOn: null, weightBp: 800, progressPct: 0, note: '조립·펌웨어', visibleToCustomer: true },
+  { taskId: null, name: '인증·보완', phase: 'certification', status: 'planned', startOn: null, endOn: null, weightBp: 400, progressPct: 0, note: '통합테스트', visibleToCustomer: true },
+  { taskId: null, name: '최종 납품', phase: 'delivery', status: 'planned', startOn: null, endOn: null, weightBp: 500, progressPct: 0, note: '시험·인증 완료', visibleToCustomer: true },
 ];
 
 // 진행 요약 — 달성도(가중 평균)·현재 단계·7단계 상태. 저장하지 않고 매번 계산한다(서버·화면 공용).
@@ -582,14 +605,18 @@ export interface DevelopProgressSummary {
   currentPhase: DevelopTaskPhaseType | null;
   phases: DevelopPhaseSummaryType[];
 }
-const weighted = (tasks: readonly DevelopProgressInputTask[]): number => {
+// 제외(skipped) 행은 가중치·평균에서 빠진다 — 삭제 대신 제외하라는 규칙의 짝.
+const weighted = (input: readonly DevelopProgressInputTask[]): number => {
+  const tasks = input.filter((t) => t.status !== 'skipped');
   if (tasks.length === 0) return 0;
   const w = tasks.reduce((a, t) => a + t.weightBp, 0);
   if (w === 0) return Math.round(tasks.reduce((a, t) => a + t.progressPct, 0) / tasks.length);
   return Math.round(tasks.reduce((a, t) => a + t.weightBp * t.progressPct, 0) / w);
 };
 // contractDone: 의뢰가 착수 뒤(in_progress 이후)면 '계약·착수' 단계는 업무가 없어도 done — 견적 수락·착수금이 그 단계다.
-export function developProgressSummary(tasks: readonly DevelopProgressInputTask[], contractDone: boolean): DevelopProgressSummary {
+// 제외 행만 남은 단계는 업무가 없는 단계로 본다(현재 단계 판정에서 건너뛴다).
+export function developProgressSummary(input: readonly DevelopProgressInputTask[], contractDone: boolean): DevelopProgressSummary {
+  const tasks = input.filter((t) => t.status !== 'skipped');
   const byPhase = DEVELOP_TASK_PHASES.map((phase) => {
     const list = tasks.filter((t) => t.phase === phase);
     const allDone = list.length > 0 && list.every((t) => t.status === 'done');
@@ -609,6 +636,13 @@ export function developProgressSummary(tasks: readonly DevelopProgressInputTask[
   const current = firstOpen >= 0 ? byPhase[firstOpen] : undefined;
   return { progressPct: weighted(tasks), currentPhase: current?.phase ?? null, phases };
 }
+
+// 지연 작업 수 — 완료일이 오늘(KST)보다 앞선데 끝나지 않은 행(제외 제외). 서버 ops·현황 띠·화면 미리보기가 같은 규칙을 쓴다.
+// C 의 `delayed` 는 사람이 고르는 상태라 별개다 — 이 수치는 날짜에서 파생된다(G 워크스페이스 overdueTasks 이식).
+export const developOverdueTaskCount = (
+  tasks: readonly { status: DevelopTaskStatusType; endOn: string | null }[],
+  today: string,
+): number => tasks.filter((t) => t.endOn !== null && t.endOn < today && t.status !== 'done' && t.status !== 'skipped').length;
 
 // ── 뷰 ────────────────────────────────────────────────────────────────────────
 export const DevelopDocumentView = z.object({
@@ -654,6 +688,9 @@ export const DevelopProgressView = z.object({
   plannedEndOn: z.string().nullable(),
   expectedEndOn: z.string().nullable(),
   pendingApprovals: z.number().int(), // 고객 확인 대기(sent 승인형) 건수
+  overdueTasks: z.number().int(), // 완료일 경과 ∧ 미완료(제외 제외) 행 수 — 날짜 파생
+  // 업무표 낙관적 잠금 토큰 — 행 id·updatedAt 의 해시. PUT …/tasks 가 이 값을 되돌려받아 대조한다(관리자 응답에서만 의미).
+  tasksRevision: z.string(),
 });
 export type DevelopProgressViewType = z.infer<typeof DevelopProgressView>;
 
@@ -670,9 +707,11 @@ export const AdminDevelopDocumentPatchBody = z
     content: DevelopDocContent,
     internalNote: z.string().trim().max(4000).nullable(),
     replyDueOn: z.string().regex(DEVELOP_DOC_DATE_RE).nullable(),
+    // 낙관적 잠금 — 화면이 마지막으로 본 updatedAt(ISO). 서버 값과 다르면 409 REVISION_CONFLICT. 없으면 검사하지 않는다.
+    expectedUpdatedAt: z.string().datetime(),
   })
   .partial()
-  .refine((b) => Object.keys(b).length > 0, { message: '최소 한 개 필드가 필요합니다' });
+  .refine((b) => Object.keys(b).some((k) => k !== 'expectedUpdatedAt'), { message: '최소 한 개 필드가 필요합니다' });
 export type AdminDevelopDocumentPatchBodyType = z.infer<typeof AdminDevelopDocumentPatchBody>;
 
 // 발송 — 관리자가 확인한 메일 제목·본문(plain text)이 그대로 나간다(사용자 결정 5·6: 발송 버튼이 메일도 보낸다, AI 초안은 확인 뒤).

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { SpDevelopDocument, SpDevelopRequest, SpDevelopTask, SpFile } from '@prisma/client';
 import { kstToday } from '@sp/utils';
 import {
@@ -8,7 +9,9 @@ import {
   DEVELOP_TASK_PHASES,
   DEVELOP_TASK_STATUSES,
   DevelopDocContent,
+  developDocDecisionLabel,
   developDocNo,
+  developOverdueTaskCount,
   developProgressSummary,
   isDevelopDocApproval,
 } from '@sp/api-contract/develop-c';
@@ -25,7 +28,7 @@ import type {
   DevelopTaskStatusType,
   DevelopTaskViewType,
 } from '@sp/api-contract/develop-c';
-import { asDevelopStatus } from './develop-c';
+import { addDevelopEvent, asDevelopStatus, openableMilestoneCount, openedDevelopMilestonesFor } from './develop-c';
 import { toFileMeta } from './market';
 import { prisma } from './prisma';
 
@@ -143,8 +146,16 @@ export const toDevelopTaskView = (t: SpDevelopTask): DevelopTaskViewType => ({
 export const loadDevelopTasks = (requestId: bigint): Promise<SpDevelopTask[]> =>
   prisma.spDevelopTask.findMany({ where: { requestId }, orderBy: { seq: 'asc' } });
 
+// 업무표 낙관적 잠금 토큰 — 행 id·updatedAt 해시. 행이 하나라도 바뀌면(추가·삭제·수정) 값이 바뀐다. PUT …/tasks 가 대조한다.
+export const developTasksRevision = (rows: readonly Pick<SpDevelopTask, 'id' | 'updatedAt'>[]): string => {
+  if (rows.length === 0) return 'empty';
+  const h = createHash('sha1');
+  for (const r of [...rows].sort((a, b) => Number(a.id) - Number(b.id))) h.update(`${r.id.toString()}:${String(r.updatedAt.getTime())};`);
+  return h.digest('hex').slice(0, 16);
+};
+
 // 진행 현황(00) — 달성도·현재 단계는 업무에서, 계획 일자는 최신 발송 수행계획(plan)에서, 확인 대기는 sent 승인형 문서 수.
-// customer=true 면 비공개 업무 행을 뺀다(단계 요약·달성도는 전 행 기준 — 숨긴 세부 행도 진행률에는 들어간다).
+// customer=true 면 비공개 업무 행과 제외(skipped) 행을 뺀다(단계 요약·달성도는 전 행 기준 — 숨긴 세부 행도 진행률에는 들어간다).
 export function buildDevelopProgress(
   r: SpDevelopRequest,
   tasks: readonly SpDevelopTask[],
@@ -167,12 +178,45 @@ export function buildDevelopProgress(
     progressPct: summary.progressPct,
     currentPhase: summary.currentPhase,
     phases: summary.phases,
-    tasks: tasks.filter((t) => !customer || t.visibleToCustomer).map(toDevelopTaskView),
+    tasks: tasks.filter((t) => !customer || (t.visibleToCustomer && t.status !== 'skipped')).map(toDevelopTaskView),
     baseStartOn: dateOf('baseStartOn'),
     plannedEndOn: dateOf('plannedEndOn'),
     expectedEndOn: dateOf('expectedEndOn'),
     pendingApprovals: documents.filter((d) => d.status === 'sent' && isDevelopDocApproval(asDocType(d.type))).length,
+    overdueTasks: developOverdueTaskCount(tasks.map((t) => ({ status: asTaskStatus(t.status), endOn: t.endOn })), kstToday()),
+    // 고객 응답엔 잠금 토큰이 필요 없다(고객은 업무표를 고치지 못한다).
+    tasksRevision: customer ? '' : developTasksRevision(tasks),
   };
+}
+
+// 납품확인서 동기화(2026-09-10, G syncWorkflowAutoConfirm 이식) — 검수기간 경과 자동확정·관리자 대행 확정·옛 검수 확정 경로로
+// 의뢰가 completed 가 됐는데 sent 로 남은 납품확인서를 '납품 승인'으로 닫는다. 안 닫으면 끝난 건에 확인 대기 배지·회신 기한
+// 초과 신호가 계속 켜진다. 문서가 없거나 이미 결정된 판은 no-op. 이벤트(document_decided)만 남기고 메일은 보내지 않는다(완료 메일이 따로 나간다).
+export async function closeDeliveryConfirmDocs(
+  requestId: bigint,
+  by: { decidedName: string; note: string | null; actorMbId: string | null; byAdmin: boolean },
+  at: Date,
+): Promise<number> {
+  const open = await prisma.spDevelopDocument.findMany({ where: { requestId, type: 'delivery_confirm', status: 'sent' } });
+  let closed = 0;
+  for (const doc of open) {
+    const upd = await prisma.spDevelopDocument.updateMany({
+      where: { id: doc.id, status: 'sent' },
+      data: { status: 'approved', decision: 'approved', decisionNote: by.note, decidedAt: at, decidedName: by.decidedName },
+    });
+    if (upd.count !== 1) continue;
+    closed += 1;
+    const docNo = developDocNo('delivery_confirm', doc.seq);
+    await addDevelopEvent(prisma, requestId, {
+      type: 'document_decided',
+      actorMbId: by.actorMbId,
+      byAdmin: by.byAdmin,
+      title: `${docNo} ${DEVELOP_DOC_TYPE_LABELS.delivery_confirm} — ${developDocDecisionLabel('delivery_confirm', 'approved')}`,
+      body: by.note,
+      payload: { documentId: Number(doc.id), docNo, type: 'delivery_confirm', decision: 'approved', decidedName: by.decidedName, synced: true },
+    });
+  }
+  return closed;
 }
 
 // ── 운영 신호(§14, 관리자 워크큐) — 행마다 진행률·단계·회신 대기·기한·미답변 문의를 한 번의 배치 조회로 파생 ─────
@@ -187,20 +231,30 @@ export const emptyDevelopOps = (): AdminDevelopOpsType => ({
   replyOverdue: false,
   openInquiries: 0,
   lastInquiry: null,
+  overdueTasks: 0,
+  paidAmount: 0,
+  pendingAmount: 0,
+  openableMilestones: 0,
 });
 
 export async function developOpsFor(rows: readonly Pick<SpDevelopRequest, 'id' | 'status'>[]): Promise<Map<string, AdminDevelopOpsType>> {
   const map = new Map<string, AdminDevelopOpsType>();
   if (rows.length === 0) return map;
   const ids = rows.map((r) => r.id);
-  const [tasks, docs, events] = await Promise.all([
-    prisma.spDevelopTask.findMany({ where: { requestId: { in: ids } }, select: { requestId: true, phase: true, status: true, weightBp: true, progressPct: true } }),
+  const [tasks, docs, events, milestones, openedBy] = await Promise.all([
+    prisma.spDevelopTask.findMany({ where: { requestId: { in: ids } }, select: { requestId: true, phase: true, status: true, weightBp: true, progressPct: true, endOn: true } }),
     prisma.spDevelopDocument.findMany({ where: { requestId: { in: ids }, status: 'sent' }, select: { requestId: true, type: true, replyDueOn: true } }),
     prisma.spDevelopEvent.findMany({
       where: { requestId: { in: ids }, type: { in: ['comment', 'as_request'] } },
       orderBy: { id: 'asc' },
       select: { requestId: true, type: true, byAdmin: true, title: true, body: true, createdAt: true },
     }),
+    // 수납·미수납은 수락 견적의 마일스톤만 합산한다(철회·대체 견적이 미수를 부풀리지 않게 — G 워크스페이스와 같은 규칙).
+    prisma.spDevelopMilestone.findMany({
+      where: { requestId: { in: ids }, quote: { status: 'accepted' } },
+      select: { requestId: true, id: true, status: true, trigger: true, amount: true },
+    }),
+    openedDevelopMilestonesFor(ids),
   ]);
   const today = kstToday();
   const byReq = <T extends { requestId: bigint }>(list: readonly T[]): Map<string, T[]> => {
@@ -214,6 +268,7 @@ export async function developOpsFor(rows: readonly Pick<SpDevelopRequest, 'id' |
   const tasksBy = byReq(tasks);
   const docsBy = byReq(docs);
   const eventsBy = byReq(events);
+  const milestonesBy = byReq(milestones);
   for (const r of rows) {
     const key = r.id.toString();
     const status = asDevelopStatus(r.status);
@@ -239,6 +294,7 @@ export async function developOpsFor(rows: readonly Pick<SpDevelopRequest, 'id' |
         excerpt: (e.body ?? e.title).replace(/\s+/g, ' ').trim().slice(0, 80),
       };
     }
+    const ms = milestonesBy.get(key) ?? [];
     map.set(key, {
       progressPct: summary.progressPct,
       currentPhase: summary.currentPhase,
@@ -248,6 +304,10 @@ export async function developOpsFor(rows: readonly Pick<SpDevelopRequest, 'id' |
       replyOverdue: dues.some((d) => d < today),
       openInquiries,
       lastInquiry,
+      overdueTasks: developOverdueTaskCount(t.map((x) => ({ status: asTaskStatus(x.status), endOn: x.endOn })), today),
+      paidAmount: ms.filter((m) => m.status === 'paid').reduce((a, m) => a + m.amount, 0),
+      pendingAmount: ms.filter((m) => m.status === 'pending').reduce((a, m) => a + m.amount, 0),
+      openableMilestones: openableMilestoneCount(ms, openedBy.get(key) ?? new Set<number>()),
     });
   }
   return map;
