@@ -428,6 +428,7 @@ async function run() {
   assert(list.status === 200 && list.json.data.items.some((i) => i.requestId === rid) && list.json.data.counts.received >= 1, '관리자 워크큐(received·검색)', list.json?.data?.counts);
   const item = list.json.data.items.find((i) => i.requestId === rid);
   assert(item.ai.review === 'none' && item.ai.diagram === null && item.contact.phone === '010-1234-5678', '워크큐 행: AI none·연락처', item);
+  assert(list.json.data.counts.intake === list.json.data.counts.received + list.json.data.counts.reviewing && list.json.data.counts.contract === list.json.data.counts.quoted + list.json.data.counts.accepted && typeof list.json.data.signals.docsAwaiting === 'number' && item.ops.taskCount === 0 && item.ops.openInquiries === 0 && item.ops.currentPhase === null, '워크큐(§14): intake/contract 합산·signals·ops 기본값', { counts: list.json?.data?.counts, ops: item?.ops });
   const listCustomer = await req('GET', '/api/admin/develop/requests', { token: tClient });
   assert(listCustomer.status === 403, '관리자 라우트 비관리자 403');
   const adet = await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin });
@@ -635,6 +636,9 @@ async function run() {
   const custDoc = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   const custDr = custDoc.json.data.documents.find((d) => d.documentId === drId);
   assert(custDr?.status === 'sent' && custDr.files.length === 1 && custDoc.json.data.nextAction === 'answer_document' && custDoc.json.data.progress.pendingApprovals === 1 && custDoc.json.data.events.some((e) => e.type === 'document_sent'), '고객: 문서 sent·첨부·nextAction answer_document·이벤트', { nextAction: custDoc.json?.data?.nextAction, doc: custDr });
+  const qDocs = await req('GET', '/api/admin/develop/requests?tab=in_progress&signal=docs_awaiting', { token: tAdmin });
+  const qItem = qDocs.json?.data?.items?.find((i) => i.requestId === rid);
+  assert(qDocs.status === 200 && qItem?.ops.pendingApprovals === 1 && qItem.ops.nextReplyDueOn === '2099-01-31' && qItem.ops.replyOverdue === false && qItem.ops.progressPct === 50 && qItem.ops.currentPhase === 'design' && qItem.ops.taskCount === 3 && qDocs.json.data.signals.docsAwaiting >= 1, '워크큐 신호(§14): 회신 대기 큐에 있음·ops', qItem?.ops ?? qDocs.json);
   const docFileDl = await fetch(`${API}/api/develop/requests/${rid}/files/${custDr.files[0].fileId}`, { headers: { Authorization: `Bearer ${tClient}` } });
   assert(docFileDl.status === 200, '고객: 문서 첨부 다운로드 200');
   const listDoc = await req('GET', '/api/develop/my/requests?page=1&pageSize=10', { token: tClient });
@@ -646,6 +650,8 @@ async function run() {
   const decided = await req('POST', `/api/develop/requests/${rid}/documents/${drId}/decide`, { token: tClient, body: { decision: 'changes_requested', name: '이투이', note: '배터리는 2000mAh 로' } });
   const decidedDr = decided.json?.data?.documents?.find((d) => d.documentId === drId);
   assert(decided.status === 200 && decidedDr?.status === 'changes_requested' && decidedDr.decidedName === '이투이' && decided.json.data.nextAction === null && decided.json.data.events.some((e) => e.type === 'document_decided'), '문서 결정: 수정 후 재검토 → 이벤트', decided.json?.data?.documents ?? decided.json);
+  const qDocs2 = await req('GET', '/api/admin/develop/requests?tab=in_progress&signal=docs_awaiting', { token: tAdmin });
+  assert(qDocs2.status === 200 && !qDocs2.json.data.items.some((i) => i.requestId === rid), '워크큐 신호: 결정 뒤 회신 대기 큐에서 빠짐');
   const decideAgain = await req('POST', `/api/develop/requests/${rid}/documents/${drId}/decide`, { token: tClient, body: { decision: 'approved', name: '이투이' } });
   assert(decideAgain.status === 409 && decideAgain.json?.error === 'DOC_NOT_OPEN', '문서 결정 재시도 409');
   const reviseDraft = await req('POST', `/api/admin/develop/documents/${drId}/revise`, { token: tAdmin });
@@ -747,8 +753,13 @@ async function run() {
   assert(comment.status === 200 && comment.json.data.type === 'comment' && comment.json.data.actorName === '나', '고객 문의');
   const as = await req('POST', `/api/develop/requests/${rid}/comments`, { token: tClient, form: eventForm({ body: '전원이 안 켜집니다', asRequest: true }, [{ field: 'file', name: 'photo.txt', body: '[e2e] 사진 자리' }]) });
   assert(as.status === 200 && as.json.data.type === 'as_request' && as.json.data.files.length === 1, 'A/S 요청(+파일)');
+  const qInq = await req('GET', '/api/admin/develop/requests?tab=completed&signal=inquiries_open', { token: tAdmin });
+  const qInqItem = qInq.json?.data?.items?.find((i) => i.requestId === rid);
+  assert(qInq.status === 200 && qInqItem?.ops.openInquiries === 2 && qInqItem.ops.lastInquiry?.type === 'as_request' && qInqItem.ops.lastInquiry.excerpt.includes('전원'), '워크큐 신호(§14): 미답변 문의 2(문의+A/S)', qInqItem?.ops ?? qInq.json);
   const reply = await req('POST', `/api/admin/develop/requests/${rid}/events`, { token: tAdmin, form: eventForm({ type: 'comment', body: '확인 후 연락드리겠습니다' }) });
   assert(reply.status === 200 && reply.json.data.type === 'comment' && reply.json.data.byAdmin === true, '담당자 답변');
+  const qInq2 = await req('GET', '/api/admin/develop/requests?tab=completed&signal=inquiries_open', { token: tAdmin });
+  assert(qInq2.status === 200 && !qInq2.json.data.items.some((i) => i.requestId === rid), '워크큐 신호: 답변 뒤 미답변 큐에서 빠짐');
   const tax = await req('POST', `/api/admin/develop/requests/${rid}/events`, { token: tAdmin, form: eventForm({ type: 'tax_invoice', payload: { issuedAt: '2026-09-05', supplyAmount: 6_800_000, vatAmount: 680_000 } }) });
   assert(tax.status === 200 && tax.json.data.payload?.supplyAmount === 6_800_000, '세금계산서 발행 기록');
   // 화면 검증 픽스처(§13) — 승인형 sent 문서 1건(PA-01)을 남긴다(completed 에서도 문서는 만들 수 있다). cleanup 이 지운다.

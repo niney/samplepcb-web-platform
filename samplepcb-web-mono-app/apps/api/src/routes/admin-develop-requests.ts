@@ -22,9 +22,11 @@ import {
 } from '@sp/api-contract';
 import type {
   AdminDevelopAiSummaryType,
+  AdminDevelopOpsType,
   AdminDevelopRequestCountsType,
   AdminDevelopRequestDetailType,
   AdminDevelopRequestListItemType,
+  DevelopAdminSignalType,
   DevelopAdminTabType,
   DevelopRequestStatusType,
   MarketDevReviewType,
@@ -49,7 +51,7 @@ import {
   transitionDevelopStatus,
 } from '../lib/develop';
 import { developReviewDraftRunning, startDevelopAiDrafts } from '../lib/develop-ai';
-import { REF_DEVELOP_DOCUMENT, buildDevelopProgress, loadDevelopDocuments, loadDevelopTasks, toAdminDevelopDocumentView } from '../lib/develop-docs';
+import { REF_DEVELOP_DOCUMENT, buildDevelopProgress, developOpsFor, emptyDevelopOps, loadDevelopDocuments, loadDevelopTasks, toAdminDevelopDocumentView } from '../lib/develop-docs';
 import { developReferenceFiles, developSourceSignature } from '../lib/develop-ai-source';
 import { buildCompletedEmail, buildDeliveredEmail, buildStatusChangedEmail, sendDevelopMail } from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy } from '../lib/develop-payment';
@@ -84,7 +86,12 @@ const TAB_STATUSES: Record<DevelopAdminTabType, readonly DevelopRequestStatusTyp
   delivered: ['delivered'],
   completed: ['completed'],
   closed: ['cancelled', 'declined'],
+  intake: ['received', 'reviewing'],
+  contract: ['quoted', 'accepted'],
 };
+const ACTIVE_STATUSES: readonly DevelopRequestStatusType[] = ['received', 'reviewing', 'quoted', 'accepted', 'in_progress', 'delivered'];
+const hasSignal = (ops: AdminDevelopOpsType, signal: DevelopAdminSignalType): boolean =>
+  signal === 'docs_awaiting' ? ops.pendingApprovals > 0 : signal === 'inquiries_open' ? ops.openInquiries > 0 : ops.replyOverdue;
 
 const toOwner = (mbId: string, m: G5Member | undefined): AdminDevelopRequestListItemType['owner'] => ({
   mbId,
@@ -120,6 +127,7 @@ const toItem = async (
   owner: AdminDevelopRequestListItemType['owner'],
   files: readonly Pick<SpFile, 'id' | 'size'>[],
   quotes: readonly { id: bigint; version: number; kind: string; status: string; totalAmount: number }[],
+  ops: AdminDevelopOpsType,
 ): Promise<AdminDevelopRequestListItemType> => {
   const latest = quotes.slice().sort((a, b) => b.version - a.version)[0];
   return {
@@ -151,6 +159,7 @@ const toItem = async (
           },
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+    ops,
   };
 };
 
@@ -202,7 +211,8 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       prisma.spFile.findMany({ where: { refType: REF_DEVELOP_REQUEST, refId: r.id, fileType: 'attachment' }, orderBy: { id: 'asc' } }),
     ]);
     const poByQuote = new Map(poFiles.map((f) => [f.refId.toString(), f]));
-    const item = await toItem(r, toOwner(r.mbId, members.get(r.mbId)), files, quotes);
+    const opsMap = await developOpsFor([r]);
+    const item = await toItem(r, toOwner(r.mbId, members.get(r.mbId)), files, quotes, opsMap.get(r.id.toString()) ?? emptyDevelopOps());
     const status = asDevelopStatus(r.status);
     const draftJob = r.devReviewDraftJobId === null ? null : await getAiJob(r.devReviewDraftJobId);
     const working = toDevReview(r.devReview);
@@ -259,7 +269,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
 
   // ── GET /admin/develop/requests — 워크큐 ──────────────────────────────────────
   fastify.get('/develop/requests', { schema: { querystring: AdminDevelopRequestListQuery } }, async (request) => {
-    const { page, pageSize, tab, q } = request.query;
+    const { page, pageSize, tab, q, signal } = request.query;
     const search: Prisma.SpDevelopRequestWhereInput =
       q === undefined || q === ''
         ? {}
@@ -272,11 +282,31 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
             ],
           };
     const where: Prisma.SpDevelopRequestWhereInput = { ...search, status: { in: [...TAB_STATUSES[tab]] } };
-    const [rows, total, grouped] = await Promise.all([
-      prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+    // 신호 필터(§14)는 DB 로 못 자른다(문서·이벤트에서 파생) — 탭의 전 행을 읽어 메모리에서 거르고 페이지를 자른다(활성 의뢰 규모에서 충분).
+    const [rowsAll, totalAll, grouped, activeRows] = await Promise.all([
+      signal === undefined
+        ? prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * pageSize, take: pageSize })
+        : prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, take: 1000 }),
       prisma.spDevelopRequest.count({ where }),
       prisma.spDevelopRequest.groupBy({ by: ['status'], where: search, _count: { _all: true } }),
+      // 모듈 배지 수 — 검색어와 무관하게 활성 의뢰 전체.
+      prisma.spDevelopRequest.findMany({ where: { status: { in: [...ACTIVE_STATUSES] } }, select: { id: true, status: true } }),
     ]);
+    const [opsAll, opsActive] = await Promise.all([developOpsFor(rowsAll), developOpsFor(activeRows)]);
+    const opsOf = (id: bigint): AdminDevelopOpsType => opsAll.get(id.toString()) ?? emptyDevelopOps();
+    let rows = rowsAll;
+    let total = totalAll;
+    if (signal !== undefined) {
+      const filtered = rowsAll.filter((r) => hasSignal(opsOf(r.id), signal));
+      total = filtered.length;
+      rows = filtered.slice((page - 1) * pageSize, page * pageSize);
+    }
+    const activeOps = activeRows.map((r) => opsActive.get(r.id.toString()) ?? emptyDevelopOps());
+    const signals = {
+      docsAwaiting: activeOps.filter((o) => o.pendingApprovals > 0).length,
+      inquiriesOpen: activeOps.filter((o) => o.openInquiries > 0).length,
+      replyOverdue: activeOps.filter((o) => o.replyOverdue).length,
+    };
     const byStatus = new Map(grouped.map((g) => [g.status, g._count._all]));
     const counts = Object.fromEntries(
       (Object.keys(TAB_STATUSES) as DevelopAdminTabType[]).map((t) => [t, TAB_STATUSES[t].reduce((n, s) => n + (byStatus.get(s) ?? 0), 0)]),
@@ -297,10 +327,11 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
           toOwner(r.mbId, members.get(r.mbId)),
           files.filter((f) => f.refId === r.id),
           quotes.filter((qq) => qq.requestId === r.id),
+          opsOf(r.id),
         ),
       ),
     );
-    return { result: true as const, data: { items, total, page, pageSize, counts } };
+    return { result: true as const, data: { items, total, page, pageSize, counts, signals } };
   });
 
   // ── GET /admin/develop/requests/:id ──────────────────────────────────────────

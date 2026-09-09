@@ -12,7 +12,7 @@ import { DEV_REVIEW_TIMELINE_WISH_CODES, DevReviewSchedule, MarketDevReview } fr
 import { DevelopAiQuestions, DevelopFollowupAnswersInput, DevelopFollowupAnswersPatch } from './develop-followup';
 import type { DevReviewTimelineWishCodeType } from './market-dev-review';
 import { MARKET_DEV_DIAGRAM_STATUSES, MarketDevDiagram } from './market-dev-diagram';
-import { AdminDevelopDocumentView, DevelopDocumentView, DevelopProgressView } from './develop-docs';
+import { AdminDevelopDocumentView, DevelopDocumentView, DevelopProgressView, DevelopTaskPhase } from './develop-docs';
 
 // ── 개발의뢰(sp-develop) 계약 — 정본 docs/DEVELOP_FLOW.md ───────────────────────────
 // 의뢰자 ↔ 샘플피씨비 직접 개발 용역. 마켓(market.ts)과 **테이블·상태 어휘가 다르다**(전문가·입찰·공개 목록 없음,
@@ -766,6 +766,9 @@ export const DEVELOP_ADMIN_TABS = [
   'delivered',
   'completed',
   'closed', // cancelled + declined
+  // 개발 모듈 워크큐(§14, 2026-09-09) — 두 상태를 한 큐로 본다. 접수·검토 = received+reviewing · 견적·계약 = quoted+accepted.
+  'intake',
+  'contract',
 ] as const;
 export type DevelopAdminTabType = (typeof DEVELOP_ADMIN_TABS)[number];
 export const DevelopAdminTab = z.enum(DEVELOP_ADMIN_TABS);
@@ -779,13 +782,27 @@ export const DEVELOP_ADMIN_TAB_LABELS = {
   delivered: '납품·검수',
   completed: '완료',
   closed: '종결',
+  intake: '접수·검토',
+  contract: '견적·계약',
 } as const satisfies Record<DevelopAdminTabType, string>;
+
+// 워크큐 신호(§14) — 상태가 아니라 "지금 관리자 차례"인 조건. 목록 query `signal` 로 거르고, 응답 `signals` 가 모듈 배지 수.
+export const DEVELOP_ADMIN_SIGNALS = ['docs_awaiting', 'inquiries_open', 'reply_overdue'] as const;
+export type DevelopAdminSignalType = (typeof DEVELOP_ADMIN_SIGNALS)[number];
+export const DevelopAdminSignal = z.enum(DEVELOP_ADMIN_SIGNALS);
+export const DEVELOP_ADMIN_SIGNAL_LABELS = {
+  docs_awaiting: '고객 회신 대기',
+  inquiries_open: '미답변 문의',
+  reply_overdue: '회신 기한 초과',
+} as const satisfies Record<DevelopAdminSignalType, string>;
 
 export const AdminDevelopRequestListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   tab: DevelopAdminTab.default('all'),
   q: z.string().trim().max(100).optional(), // 제목·의뢰인 mbId·연락처 이름·회사 contains
+  // 신호 필터(§14) — 지정하면 탭 안에서 그 신호가 켜진 건만(서버가 전 행을 계산한 뒤 메모리에서 페이지를 자른다).
+  signal: DevelopAdminSignal.optional(),
 });
 export type AdminDevelopRequestListQueryType = z.infer<typeof AdminDevelopRequestListQuery>;
 
@@ -801,6 +818,19 @@ export const AdminDevelopAiSummary = z.object({
   diagramPublished: z.boolean(),
 });
 export type AdminDevelopAiSummaryType = z.infer<typeof AdminDevelopAiSummary>;
+
+// 운영 신호(§14) — 목록 행마다 서버가 파생. 진행률·단계는 업무표, 회신 대기·기한은 sent 승인형 문서, 문의는 comment/as_request 이벤트에서.
+export const AdminDevelopOps = z.object({
+  progressPct: z.number().int(),
+  currentPhase: DevelopTaskPhase.nullable(),
+  taskCount: z.number().int(),
+  pendingApprovals: z.number().int(), // sent 승인형 문서 수(고객 회신 대기)
+  nextReplyDueOn: z.string().nullable(), // 가장 이른 회신 요청일(YYYY-MM-DD)
+  replyOverdue: z.boolean(), // 회신 요청일이 오늘(KST)보다 앞선 대기 문서가 있다
+  openInquiries: z.number().int(), // 마지막 담당자 답변 뒤에 온 고객 문의·A/S 수
+  lastInquiry: z.object({ at: z.string(), type: z.enum(['comment', 'as_request']), excerpt: z.string() }).nullable(),
+});
+export type AdminDevelopOpsType = z.infer<typeof AdminDevelopOps>;
 
 export const AdminDevelopRequestListItem = z.object({
   requestId: z.number(),
@@ -820,8 +850,17 @@ export const AdminDevelopRequestListItem = z.object({
     .nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  ops: AdminDevelopOps,
 });
 export type AdminDevelopRequestListItemType = z.infer<typeof AdminDevelopRequestListItem>;
+
+// 모듈 배지 수(§14) — 검색어와 무관하게 활성 의뢰(completed·cancelled·declined 제외) 전체에서 센다.
+export const AdminDevelopSignals = z.object({
+  docsAwaiting: z.number().int(),
+  inquiriesOpen: z.number().int(),
+  replyOverdue: z.number().int(),
+});
+export type AdminDevelopSignalsType = z.infer<typeof AdminDevelopSignals>;
 
 export const AdminDevelopRequestListResponse = z.object({
   result: z.literal(true),
@@ -831,6 +870,7 @@ export const AdminDevelopRequestListResponse = z.object({
     page: z.number(),
     pageSize: z.number(),
     counts: AdminDevelopRequestCounts,
+    signals: AdminDevelopSignals,
   }),
 });
 export type AdminDevelopRequestListResponseType = z.infer<typeof AdminDevelopRequestListResponse>;

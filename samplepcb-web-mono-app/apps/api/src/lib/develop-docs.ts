@@ -1,4 +1,5 @@
 import type { SpDevelopDocument, SpDevelopRequest, SpDevelopTask, SpFile } from '@prisma/client';
+import { kstToday } from '@sp/utils';
 import {
   DEVELOP_DOC_DECISIONS,
   DEVELOP_DOC_STATUSES,
@@ -13,6 +14,7 @@ import {
 } from '@sp/api-contract';
 import type {
   AdminDevelopDocumentViewType,
+  AdminDevelopOpsType,
   DevelopDocContentType,
   DevelopDocDecisionType,
   DevelopDocStatusType,
@@ -171,6 +173,84 @@ export function buildDevelopProgress(
     expectedEndOn: dateOf('expectedEndOn'),
     pendingApprovals: documents.filter((d) => d.status === 'sent' && isDevelopDocApproval(asDocType(d.type))).length,
   };
+}
+
+// ── 운영 신호(§14, 관리자 워크큐) — 행마다 진행률·단계·회신 대기·기한·미답변 문의를 한 번의 배치 조회로 파생 ─────
+// 문의 판정: comment/as_request 이벤트를 시간순으로 걸어 고객 글(byAdmin=false)이 오면 미답변 +1, 담당자 답변(byAdmin=true comment)이
+// 오면 0 으로 — "마지막 답변 뒤에 온 고객 글 수"다. 저장하지 않는다(이벤트가 진실).
+export const emptyDevelopOps = (): AdminDevelopOpsType => ({
+  progressPct: 0,
+  currentPhase: null,
+  taskCount: 0,
+  pendingApprovals: 0,
+  nextReplyDueOn: null,
+  replyOverdue: false,
+  openInquiries: 0,
+  lastInquiry: null,
+});
+
+export async function developOpsFor(rows: readonly Pick<SpDevelopRequest, 'id' | 'status'>[]): Promise<Map<string, AdminDevelopOpsType>> {
+  const map = new Map<string, AdminDevelopOpsType>();
+  if (rows.length === 0) return map;
+  const ids = rows.map((r) => r.id);
+  const [tasks, docs, events] = await Promise.all([
+    prisma.spDevelopTask.findMany({ where: { requestId: { in: ids } }, select: { requestId: true, phase: true, status: true, weightBp: true, progressPct: true } }),
+    prisma.spDevelopDocument.findMany({ where: { requestId: { in: ids }, status: 'sent' }, select: { requestId: true, type: true, replyDueOn: true } }),
+    prisma.spDevelopEvent.findMany({
+      where: { requestId: { in: ids }, type: { in: ['comment', 'as_request'] } },
+      orderBy: { id: 'asc' },
+      select: { requestId: true, type: true, byAdmin: true, title: true, body: true, createdAt: true },
+    }),
+  ]);
+  const today = kstToday();
+  const byReq = <T extends { requestId: bigint }>(list: readonly T[]): Map<string, T[]> => {
+    const m = new Map<string, T[]>();
+    for (const x of list) {
+      const k = x.requestId.toString();
+      m.set(k, [...(m.get(k) ?? []), x]);
+    }
+    return m;
+  };
+  const tasksBy = byReq(tasks);
+  const docsBy = byReq(docs);
+  const eventsBy = byReq(events);
+  for (const r of rows) {
+    const key = r.id.toString();
+    const status = asDevelopStatus(r.status);
+    const contractDone = status === 'in_progress' || status === 'delivered' || status === 'completed';
+    const t = tasksBy.get(key) ?? [];
+    const summary = developProgressSummary(
+      t.map((x) => ({ phase: asTaskPhase(x.phase), status: asTaskStatus(x.status), weightBp: x.weightBp, progressPct: x.progressPct })),
+      contractDone,
+    );
+    const pending = (docsBy.get(key) ?? []).filter((d) => isDevelopDocApproval(asDocType(d.type)));
+    const dues = pending.map((d) => d.replyDueOn).filter((d): d is string => d !== null).sort();
+    let openInquiries = 0;
+    let lastInquiry: AdminDevelopOpsType['lastInquiry'] = null;
+    for (const e of eventsBy.get(key) ?? []) {
+      if (e.byAdmin) {
+        if (e.type === 'comment') openInquiries = 0;
+        continue;
+      }
+      openInquiries += 1;
+      lastInquiry = {
+        at: e.createdAt.toISOString(),
+        type: e.type === 'as_request' ? 'as_request' : 'comment',
+        excerpt: (e.body ?? e.title).replace(/\s+/g, ' ').trim().slice(0, 80),
+      };
+    }
+    map.set(key, {
+      progressPct: summary.progressPct,
+      currentPhase: summary.currentPhase,
+      taskCount: t.length,
+      pendingApprovals: pending.length,
+      nextReplyDueOn: dues[0] ?? null,
+      replyOverdue: dues.some((d) => d < today),
+      openInquiries,
+      lastInquiry,
+    });
+  }
+  return map;
 }
 
 // 고객이 답할 승인형 문서가 있나(nextAction answer_document).
