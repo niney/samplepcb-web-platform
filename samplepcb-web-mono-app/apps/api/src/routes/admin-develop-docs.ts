@@ -20,7 +20,7 @@ import {
   developDocContentIssues,
   developDocContentRows,
   developDocNo,
-  emptyDevelopDocContent,
+  developDocReadonlyKeys,
   isDevelopDocApproval,
 } from '@sp/api-contract';
 import type { AdminDevelopDocumentResponseType, DevelopDocContentType, DevelopRequestStatusType } from '@sp/api-contract';
@@ -31,12 +31,14 @@ import { DEVELOP_DOC_MAIL_USECASE, getAiUsecaseRuntime, toOllamaThink } from '..
 import { DEVELOP_FILE_SERVICE_TYPE, addDevelopEvent, asDevelopStatus, toDevelopAreaCodes } from '../lib/develop';
 import {
   REF_DEVELOP_DOCUMENT,
+  applyDevelopSchedule,
   asDocType,
   buildDevelopProgress,
   currentDocumentIds,
   developDocTitle,
   developDocumentFiles,
   developTasksRevision,
+  initialDevelopDocContent,
   loadDevelopDocuments,
   loadDevelopTasks,
   toAdminDevelopDocumentView,
@@ -98,7 +100,11 @@ export const adminDevelopDocRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       if (type === 'delivery_confirm' && status !== 'delivered' && status !== 'completed') {
         return reply.status(409).send({ error: 'DOC_TYPE_NOT_ALLOWED', message: '납품 확인서는 납품(delivered) 뒤에 만듭니다' });
       }
-      const content = request.body.content ?? emptyDevelopDocContent(type);
+      // 초기 본문 = 빈 스펙 + 종류별 미리 채움(계약 요약 스냅샷·납품일·하자보수 기간·오늘 날짜). 화면이 본문을 보내면 그 위에 얹되
+      // 읽기 전용(계약 스냅샷) 키는 서버 값이 이긴다 — 손으로 다시 적어 견적과 어긋나지 않게(2026-09-11).
+      const content = await initialDevelopDocContent(r, type);
+      const readonlyKeys = new Set(developDocReadonlyKeys(type));
+      for (const [k, v] of Object.entries(request.body.content ?? {})) if (!readonlyKeys.has(k)) content[k] = v;
       const issues = contentOr400(type, content);
       if (issues.length > 0) return reply.status(400).send({ error: 'CONTENT_INVALID', message: issues.join(', ') });
       const last = await prisma.spDevelopDocument.findFirst({ where: { requestId: r.id, type }, orderBy: { seq: 'desc' }, select: { seq: true } });
@@ -131,14 +137,23 @@ export const adminDevelopDocRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       const b = request.body;
       // 낙관적 잠금 — 화면이 본 updatedAt 과 다르면 다른 편집이 먼저 저장된 것(seedKey 가 같은 값을 쓴다).
       if (b.expectedUpdatedAt !== undefined && found.doc.updatedAt.toISOString() !== b.expectedUpdatedAt) return reply.status(409).send(revisionConflict);
+      let nextContent: DevelopDocContentType | undefined;
       if (b.content !== undefined) {
-        const issues = contentOr400(asDocType(found.doc.type), b.content);
+        const type = asDocType(found.doc.type);
+        // 읽기 전용 키(계약 요약 스냅샷)는 화면이 무엇을 보내든 저장된 원값으로 되돌린다.
+        const stored = toDocContent(found.doc.content);
+        nextContent = { ...b.content };
+        for (const k of developDocReadonlyKeys(type)) {
+          const v = stored[k];
+          if (v !== undefined) nextContent[k] = v;
+        }
+        const issues = contentOr400(type, nextContent);
         if (issues.length > 0) return reply.status(400).send({ error: 'CONTENT_INVALID', message: issues.join(', ') });
       }
       await prisma.spDevelopDocument.update({
         where: { id: found.doc.id },
         data: {
-          ...(b.content === undefined ? {} : { content: b.content }),
+          ...(nextContent === undefined ? {} : { content: nextContent }),
           ...(b.internalNote === undefined ? {} : { internalNote: b.internalNote }),
           ...(b.replyDueOn === undefined ? {} : { replyDueOn: b.replyDueOn }),
         },
@@ -389,9 +404,15 @@ export const adminDevelopDocRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           if (t.taskId === null) await tx.spDevelopTask.create({ data: { requestId: r.id, ...data } });
           else await tx.spDevelopTask.update({ where: { id: BigInt(t.taskId) }, data });
         }
+        // 프로젝트 일정 3개(간편 서식 02 머리)도 같은 저장에 실려 온다 — 바뀐 것만 갱신하고 schedule_changed 이벤트로 이력을 남긴다.
+        if (b.schedule !== undefined) await applyDevelopSchedule(tx, r, b.schedule, { mbId: request.user.mbId, byAdmin: true });
       });
-      const [tasks, documents] = await Promise.all([loadDevelopTasks(r.id), loadDevelopDocuments(r.id, { includeDrafts: true })]);
-      return { result: true as const, data: { tasks: tasks.map(toDevelopTaskView), progress: buildDevelopProgress(r, tasks, documents.rows, false) } };
+      const [fresh, tasks, documents] = await Promise.all([
+        prisma.spDevelopRequest.findUniqueOrThrow({ where: { id: r.id } }),
+        loadDevelopTasks(r.id),
+        loadDevelopDocuments(r.id, { includeDrafts: true }),
+      ]);
+      return { result: true as const, data: { tasks: tasks.map(toDevelopTaskView), progress: buildDevelopProgress(fresh, tasks, documents.rows, false) } };
     },
   );
 

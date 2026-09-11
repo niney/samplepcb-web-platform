@@ -2,6 +2,8 @@ import {
   DEVELOP_DEFAULT_TASKS,
   DEVELOP_DOC_DATE_RE,
   DEVELOP_DOC_FIELDS,
+  developAutoScheduleDates,
+  developDocFieldActive,
   developOverdueTaskCount,
   developProgressSummary,
   developTaskCoherent,
@@ -77,6 +79,9 @@ export function developDocFormContent(type: DevelopDocTypeType, content: Develop
   }
   return out;
 }
+
+/** 조건부 필드(when) 판정 — 계약과 같은 규칙. 편집기·읽기 뷰가 안 보이는 필드에 입력을 그리지 않게. */
+export const developDocFieldVisible = developDocFieldActive;
 
 export const developDocText = (content: DevelopDocContentType, key: string): string => {
   const v = content[key];
@@ -158,10 +163,11 @@ export interface DevelopTaskRow {
 
 export const DEVELOP_TASK_MAX_ROWS = 100; // 계약 AdminDevelopTasksPutBody 의 max(100)
 
-export const emptyDevelopTaskRow = (): DevelopTaskRow => ({
+// 단계 열은 화면에서 숨겨 칩으로만 보이므로(2026-09-11) 새 행은 직전 행의 단계를 물려받는다 — 호출자가 넘긴다. 없으면 설계·개발.
+export const emptyDevelopTaskRow = (phase: DevelopTaskPhaseType = 'design'): DevelopTaskRow => ({
   taskId: null,
   name: '',
-  phase: 'design',
+  phase,
   status: 'planned',
   startOn: '',
   endOn: '',
@@ -188,6 +194,15 @@ export const developTaskRowsFromViews = (tasks: readonly DevelopTaskViewType[]):
   tasks.map(rowFromInput);
 
 export const developTaskRowsFromDefaults = (): DevelopTaskRow[] => DEVELOP_DEFAULT_TASKS.map(rowFromInput);
+
+/**
+ * 착수일 기준 자동배치(간편 서식 autoSchedule) — 날짜만 새로 깐다(이름·상태·진행률은 그대로, 제외 행도 날짜는 받되 상태는 안 건드린다).
+ * 이름이 기본 업무와 같은 행은 그 오프셋·기간, 아니면 직전 행 다음 날부터 5일(계약 developAutoScheduleDates).
+ */
+export function developTaskRowsAutoScheduled(rows: readonly DevelopTaskRow[], baseStartOn: string): DevelopTaskRow[] {
+  const dates = developAutoScheduleDates(rows, baseStartOn);
+  return rows.map((r, i) => ({ ...r, startOn: dates[i]?.startOn ?? r.startOn, endOn: dates[i]?.endOn ?? r.endOn }));
+}
 
 /**
  * 검토서 개발 일정(예상)에서 시드 — 단계 이름을 업무명으로, 가중치는 균등 배분한다.
@@ -277,10 +292,10 @@ export const developTaskOverdueCount = (rows: readonly DevelopTaskRow[], today: 
     today,
   );
 
-/** 저장 전 달성도 미리보기 — 서버와 같은 계약 함수를 쓴다. */
+/** 저장 전 달성도 미리보기 — 서버와 같은 계약 함수를 쓴다(가중치가 전부 0 이면 기간(일수) 가중이라 날짜도 넘긴다). */
 export const developTaskProgressPreview = (rows: readonly DevelopTaskRow[], contractDone: boolean): DevelopProgressSummary =>
   developProgressSummary(
-    developTaskInputs(rows).map((t) => ({ phase: t.phase, status: t.status, weightBp: t.weightBp, progressPct: t.progressPct })),
+    developTaskInputs(rows).map((t) => ({ phase: t.phase, status: t.status, weightBp: t.weightBp, progressPct: t.progressPct, startOn: t.startOn, endOn: t.endOn })),
     contractDone,
   );
 

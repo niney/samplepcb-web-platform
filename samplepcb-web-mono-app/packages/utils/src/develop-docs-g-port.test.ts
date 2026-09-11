@@ -76,7 +76,7 @@ describe('develop tasks — G rules ported', () => {
       ],
     });
     expect(dup.success).toBe(false);
-    // 기본 업무 15개는 그대로 통과한다(taskId null 포함).
+    // 기본 업무 11개는 그대로 통과한다(taskId null 포함).
     expect(AdminDevelopTasksPutBody.safeParse({ tasks: DEVELOP_DEFAULT_TASKS }).success).toBe(true);
   });
 });

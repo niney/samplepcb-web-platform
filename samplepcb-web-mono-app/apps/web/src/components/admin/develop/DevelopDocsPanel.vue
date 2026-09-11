@@ -14,7 +14,7 @@ import DevelopDocCard from './DevelopDocCard.vue';
 import DevelopProjectStatus from './DevelopProjectStatus.vue';
 import DevelopTaskTable from './DevelopTaskTable.vue';
 
-// 프로젝트 문서 탭(docs/DEVELOP_FLOW.md §13) — 00 현황 띠 · 업무표(WBS·간트) · 문서 8종.
+// 프로젝트 문서 탭(docs/DEVELOP_FLOW.md §13) — 00 현황 띠 · 업무표(WBS·간트, 프로젝트 일정 3개 포함) · 문서 5종(2026-09-11 간소화).
 // 문서 목록은 관리자 상세 응답에 draft·이전 판까지 실려 오므로 여기서 따로 조회하지 않는다.
 // 카드 순서는 문서 번호 체계(계약 DEVELOP_DOC_TYPES 순 → seq)다 — 프로토타입의 서식 묶음과 같은 순서.
 const props = defineProps<{ detail: AdminDevelopRequestDetailType }>();
@@ -112,7 +112,8 @@ const reviewSchedule = computed(
       :request-id="detail.requestId"
       :tasks="detail.progress.tasks"
       :status="detail.status"
-      :schedule="reviewSchedule"
+      :schedule="{ baseStartOn: detail.progress.baseStartOn, plannedEndOn: detail.progress.plannedEndOn, expectedEndOn: detail.progress.expectedEndOn }"
+      :review-schedule="reviewSchedule"
       :revision="detail.progress.tasksRevision"
       @dirty="onTaskDirty"
     />

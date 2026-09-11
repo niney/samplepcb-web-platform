@@ -28,6 +28,7 @@ import type {
   AdminDevelopStatusBodyType,
   DevelopAdminSignalType,
   DevelopAdminTabType,
+  DevelopScheduleInputType,
   DevelopTaskInputType,
   MarketDevReviewType,
 } from '@sp/api-contract';
@@ -451,11 +452,22 @@ export function useAdminDevelopDocMailRun() {
 }
 
 // 업무표 저장 — 표 전체를 보내되 행은 taskId 로 upsert 된다(번호 유지). revision(progress.tasksRevision)이 다르면 409 REVISION_CONFLICT.
+// schedule(프로젝트 일정 3개, 2026-09-11)은 같은 저장에 실려 간다 — 없으면 서버가 그대로 둔다.
 export function useAdminDevelopTasksPut() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ requestId, tasks, revision }: { requestId: number; tasks: readonly DevelopTaskInputType[]; revision: string }) =>
-      apiSend('PUT', `${base}/${String(requestId)}/tasks`, { tasks, revision }, AdminDevelopTasksResponse),
+    mutationFn: ({
+      requestId,
+      tasks,
+      revision,
+      schedule,
+    }: {
+      requestId: number;
+      tasks: readonly DevelopTaskInputType[];
+      revision: string;
+      schedule?: DevelopScheduleInputType;
+    }) =>
+      apiSend('PUT', `${base}/${String(requestId)}/tasks`, { tasks, revision, ...(schedule === undefined ? {} : { schedule }) }, AdminDevelopTasksResponse),
     onSuccess: () => {
       invalidateDevelop(qc);
     },

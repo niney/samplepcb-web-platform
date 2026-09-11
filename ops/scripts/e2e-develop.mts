@@ -602,26 +602,48 @@ async function run() {
   // ── 10b. 프로젝트 문서·업무표(§13) — in_progress 에서 ────────────────────────────
   const badTasks = await req('PUT', `/api/admin/develop/requests/${rid}/tasks`, { token: tAdmin, body: { tasks: [{ name: 'x', phase: 'design', startOn: '2026-09-10', endOn: '2026-09-01' }] } });
   assert(badTasks.status === 400, '업무표: 완료일<시작일 400');
-  const tasksPut = await req('PUT', `/api/admin/develop/requests/${rid}/tasks`, { token: tAdmin, body: { tasks: [
-    { name: '착수회의', phase: 'requirements', status: 'done', weightBp: 1000, progressPct: 100, visibleToCustomer: true },
-    { name: '회로설계', phase: 'design', status: 'in_progress', weightBp: 2000, progressPct: 50, visibleToCustomer: true },
+  // 착수 전이(10)가 프로젝트 일정 기본값을 깔았다 — 착수일=오늘(KST). 계획 완료일은 견적 기간이 있을 때만.
+  assert(typeof afterPay.json.data.progress.baseStartOn === 'string' && afterPay.json.data.progress.baseStartOn.length === 10, '착수 전이 → 착수일 자동(일정 컬럼)', afterPay.json?.data?.progress);
+  const baseStartOn = afterPay.json.data.progress.baseStartOn;
+  const tasksPut = await req('PUT', `/api/admin/develop/requests/${rid}/tasks`, { token: tAdmin, body: {
+    tasks: [
+      { name: '착수회의', phase: 'contract', status: 'done', weightBp: 1000, progressPct: 100, visibleToCustomer: true },
+      { name: '회로설계', phase: 'design', status: 'in_progress', weightBp: 2000, progressPct: 50, visibleToCustomer: true },
+      { name: '부품 선정', phase: 'design', status: 'planned', weightBp: 1000, progressPct: 0, visibleToCustomer: false },
+    ],
+    schedule: { baseStartOn, plannedEndOn: '2099-03-01', expectedEndOn: '2099-03-15' },
+  } });
+  assert(tasksPut.status === 200 && tasksPut.json.data.tasks.length === 3 && tasksPut.json.data.progress.progressPct === 50 && tasksPut.json.data.progress.currentPhase === 'design' && tasksPut.json.data.progress.phases.length === 6, '업무표 PUT → 달성도 50%·현재 설계·6단계', tasksPut.json?.data?.progress ?? tasksPut.json);
+  assert(tasksPut.json.data.progress.plannedEndOn === '2099-03-01' && tasksPut.json.data.progress.expectedEndOn === '2099-03-15', '업무표 PUT → 일정 3개 저장(의뢰 컬럼)', tasksPut.json?.data?.progress);
+  // 가중치를 안 적으면 기간(일수) 가중 — 1일(100%) + 18일(0%) = 5%.
+  const durationPut = await req('PUT', `/api/admin/develop/requests/${rid}/tasks`, { token: tAdmin, body: { tasks: [
+    { taskId: tasksPut.json.data.tasks[0].taskId, name: '착수회의', phase: 'contract', status: 'done', progressPct: 100, startOn: '2026-09-01', endOn: '2026-09-01', visibleToCustomer: true },
+    { taskId: tasksPut.json.data.tasks[1].taskId, name: '회로설계', phase: 'design', status: 'planned', progressPct: 0, startOn: '2026-09-02', endOn: '2026-09-19', visibleToCustomer: true },
+  ], revision: tasksPut.json.data.progress.tasksRevision } });
+  assert(durationPut.status === 200 && durationPut.json.data.progress.progressPct === 5, '가중치 없으면 기간 가중 달성도 5%', durationPut.json?.data?.progress ?? durationPut.json);
+  const tasksBack = await req('PUT', `/api/admin/develop/requests/${rid}/tasks`, { token: tAdmin, body: { tasks: [
+    { taskId: tasksPut.json.data.tasks[0].taskId, name: '착수회의', phase: 'contract', status: 'done', weightBp: 1000, progressPct: 100, visibleToCustomer: true },
+    { taskId: tasksPut.json.data.tasks[1].taskId, name: '회로설계', phase: 'design', status: 'in_progress', weightBp: 2000, progressPct: 50, visibleToCustomer: true },
     { name: '부품 선정', phase: 'design', status: 'planned', weightBp: 1000, progressPct: 0, visibleToCustomer: false },
-  ] } });
-  assert(tasksPut.status === 200 && tasksPut.json.data.tasks.length === 3 && tasksPut.json.data.progress.progressPct === 50 && tasksPut.json.data.progress.currentPhase === 'design', '업무표 PUT → 달성도 50%·현재 설계', tasksPut.json?.data?.progress ?? tasksPut.json);
+  ], revision: durationPut.json.data.progress.tasksRevision } });
+  assert(tasksBack.status === 200 && tasksBack.json.data.progress.progressPct === 50, '업무표 복원(달성도 50%)');
   const custProg = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   assert(custProg.json.data.progress.tasks.length === 2 && custProg.json.data.progress.progressPct === 50 && custProg.json.data.progress.phases[0].state === 'done', '고객: 공개 업무 2행만·달성도 동일·계약 단계 done', custProg.json?.data?.progress);
-  const badDoc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'design_review', content: { stage: 'nope' } } });
+  assert(custProg.json.data.progress.expectedEndOn === '2099-03-15' && custProg.json.data.events.some((e) => e.type === 'schedule_changed'), '고객: 예상 완료일·일정 변경 이벤트 노출', custProg.json?.data?.progress);
+  const badDoc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'stage_review', content: { stage: 'nope' } } });
   assert(badDoc.status === 400 && badDoc.json?.error === 'CONTENT_INVALID', '문서: 본문 검증 400');
+  const legacyType = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'design_review' } });
+  assert(legacyType.status === 400, '문서: 옛 종류(design_review) 400');
   const tooEarlyDc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'delivery_confirm' } });
   assert(tooEarlyDc.status === 409 && tooEarlyDc.json?.error === 'DOC_TYPE_NOT_ALLOWED', '문서: 납품 전 납품확인서 409');
-  const dr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'design_review' } });
-  assert(dr.status === 200 && dr.json.data.status === 'draft' && dr.json.data.docNo === 'DR-01' && dr.json.data.approval === true && dr.json.data.isCurrent === true, '문서 초안 DR-01', dr.json);
+  const dr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'stage_review' } });
+  assert(dr.status === 200 && dr.json.data.status === 'draft' && dr.json.data.docNo === 'REV-01' && dr.json.data.approval === true && dr.json.data.isCurrent === true, '문서 초안 REV-01', dr.json);
   const drId = dr.json.data.documentId;
   const custNoDoc = await req('GET', `/api/develop/requests/${rid}`, { token: tClient });
   assert(custNoDoc.json.data.documents.length === 0 && custNoDoc.json.data.nextAction === null, '고객: 초안 문서 비노출');
   const emptySend = await req('POST', `/api/admin/develop/documents/${drId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b' } });
   assert(emptySend.status === 400 && emptySend.json?.error === 'EMPTY_DOCUMENT', '빈 문서 발송 400');
-  const drPatch = await req('PATCH', `/api/admin/develop/documents/${drId}`, { token: tAdmin, body: { content: { stage: 'circuit', purpose: '회로 확정', asks: '배터리 용량 결정' }, replyDueOn: '2099-01-31' } });
+  const drPatch = await req('PATCH', `/api/admin/develop/documents/${drId}`, { token: tAdmin, body: { content: { stage: 'circuit', doneWork: '회로 확정', asks: '배터리 용량 결정' }, replyDueOn: '2099-01-31' } });
   assert(drPatch.status === 200 && drPatch.json.data.content.stage === 'circuit' && drPatch.json.data.replyDueOn === '2099-01-31', '문서 초안 수정');
   const drFile = await req('POST', `/api/admin/develop/documents/${drId}/files`, { token: tAdmin, form: createForm({}, [{ field: 'file', name: 'sch-v1.txt', body: '[e2e] 회로도' }]) });
   assert(drFile.status === 200 && drFile.json.data.files.length === 1, '문서 첨부 1', drFile.json);
@@ -663,14 +685,15 @@ async function run() {
   const adminDocs = await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin });
   const docV1 = adminDocs.json.data.documents.find((d) => d.documentId === drId);
   const docV2 = adminDocs.json.data.documents.find((d) => d.documentId === dr2Id);
-  assert(docV1.status === 'superseded' && docV1.isCurrent === false && docV2.status === 'sent' && docV2.isCurrent === true && docV2.docNo === 'DR-01' && adminDocs.json.data.progress.pendingApprovals === 1, 'v1 superseded·v2 현재 판·관리자 상세 문서', adminDocs.json?.data?.documents);
+  assert(docV1.status === 'superseded' && docV1.isCurrent === false && docV2.status === 'sent' && docV2.isCurrent === true && docV2.docNo === 'REV-01' && adminDocs.json.data.progress.pendingApprovals === 1, 'v1 superseded·v2 현재 판·관리자 상세 문서', adminDocs.json?.data?.documents);
   const dr2Ok = await req('POST', `/api/develop/requests/${rid}/documents/${dr2Id}/decide`, { token: tClient, body: { decision: 'conditional', name: '이투이', note: '배터리 확정 조건' } });
   assert(dr2Ok.status === 200 && dr2Ok.json.data.documents.find((d) => d.documentId === dr2Id)?.status === 'conditional' && dr2Ok.json.data.progress.pendingApprovals === 0, 'v2 조건부 승인 → 확인 대기 0');
   const pr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'progress_report', content: { doneWork: '회로 설계 완료' } } });
   await req('POST', `/api/admin/develop/documents/${pr.json.data.documentId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b', sendMail: false } });
   const decideShare = await req('POST', `/api/develop/requests/${rid}/documents/${pr.json.data.documentId}/decide`, { token: tClient, body: { decision: 'approved', name: 'x' } });
   assert(decideShare.status === 409 && decideShare.json?.error === 'NOT_APPROVAL_DOC', '공유형 문서 결정 409');
-  const cr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'change_request', content: { change: 'LED 3개 추가', costImpact: '약 30만원' } } });
+  const cr = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'change_request', content: { change: 'LED 3개 추가', impact: '약 30만원 · 일정 +5일' } } });
+  assert(cr.status === 200 && cr.json.data.docNo === 'CR-01' && /^\d{4}-\d{2}-\d{2}$/.test(cr.json.data.content.requestedOn), '변경요청서 초안 CR-01(요청일 미리 채움)', cr.json);
   await req('POST', `/api/admin/develop/documents/${cr.json.data.documentId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b', sendMail: false } });
   const quotesBefore = (await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin })).json.data.quotes.length;
   mail = await drainMail();
@@ -681,7 +704,12 @@ async function run() {
   const crMs = await prisma.spDevelopMilestone.findMany({ where: { quoteId: BigInt(changeDraft.quoteId) } });
   ids.paymentKeys.push(...crMs.map((m) => m.paymentKey));
   save();
-  const tmpDoc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'kickoff' } });
+  const tmpDoc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'kickoff', content: { contractAmount: '손으로 적은 금액', goal: '착수 목적' } } });
+  // 계약·착수 확인서 — 계약 요약은 수락 견적 스냅샷(읽기 전용): 생성 본문이 보낸 값은 무시되고, PATCH 로도 못 바꾼다.
+  const koSnap = tmpDoc.json?.data?.content ?? {};
+  assert(tmpDoc.status === 200 && tmpDoc.json.data.docNo === 'KO-01' && koSnap.contractNo === `DEV-${String(rid)}-Q2` && String(koSnap.contractAmount).startsWith('합계 ') && koSnap.goal === '착수 목적' && String(koSnap.contractScope).length > 0, '계약·착수 확인서: 계약 요약 스냅샷(견적 v2)·읽기 전용 키는 서버 값', koSnap);
+  const koPatch = await req('PATCH', `/api/admin/develop/documents/${tmpDoc.json.data.documentId}`, { token: tAdmin, body: { content: { ...koSnap, contractAmount: '바꿔치기', goal: '수정한 목적' } } });
+  assert(koPatch.status === 200 && koPatch.json.data.content.contractAmount === koSnap.contractAmount && koPatch.json.data.content.goal === '수정한 목적', '계약 요약 키는 PATCH 로 못 바꾼다', koPatch.json?.data?.content);
   await req('POST', `/api/admin/develop/documents/${tmpDoc.json.data.documentId}/files`, { token: tAdmin, form: createForm({}, [{ field: 'file', name: 'agenda.txt', body: '[e2e] 안건' }]) });
   const delDoc = await req('DELETE', `/api/admin/develop/documents/${tmpDoc.json.data.documentId}`, { token: tAdmin });
   const delSent = await req('DELETE', `/api/admin/develop/documents/${dr2Id}`, { token: tAdmin });
@@ -717,7 +745,7 @@ async function run() {
 
   // ── 11b. 납품 확인서(§13) — delivered 에서 보완 요청 → in_progress → 재납품 → 새 판 승인 → completed ────────
   const dc = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'delivery_confirm' } });
-  assert(dc.status === 200 && dc.json.data.content.deliverables.length === 4, '납품확인서 초안(납품물 4행 프리셋)', dc.json);
+  assert(dc.status === 200 && dc.json.data.content.deliverables.length === 4 && /^\d{4}-\d{2}-\d{2}$/.test(dc.json.data.content.deliveredOn) && dc.json.data.content.warrantyFrom === dc.json.data.content.deliveredOn, '납품확인서 초안(납품물 4행 프리셋·납품일·하자보수 시작일 미리 채움)', dc.json?.data?.content);
   await req('POST', `/api/admin/develop/documents/${dc.json.data.documentId}/send`, { token: tAdmin, body: { mailSubject: 's', mailBody: 'b', sendMail: false } });
   const dcChanges = await req('POST', `/api/develop/requests/${rid}/documents/${dc.json.data.documentId}/decide`, { token: tClient, body: { decision: 'changes_requested', name: '이투이', note: '케이스 보완' } });
   assert(dcChanges.status === 200 && dcChanges.json.data.status === 'in_progress', '납품확인서 보완 요청 → in_progress', dcChanges.json);
@@ -762,10 +790,11 @@ async function run() {
   assert(qInq2.status === 200 && !qInq2.json.data.items.some((i) => i.requestId === rid), '워크큐 신호: 답변 뒤 미답변 큐에서 빠짐');
   const tax = await req('POST', `/api/admin/develop/requests/${rid}/events`, { token: tAdmin, form: eventForm({ type: 'tax_invoice', payload: { issuedAt: '2026-09-05', supplyAmount: 6_800_000, vatAmount: 680_000 } }) });
   assert(tax.status === 200 && tax.json.data.payload?.supplyAmount === 6_800_000, '세금계산서 발행 기록');
-  // 화면 검증 픽스처(§13) — 승인형 sent 문서 1건(PA-01)을 남긴다(completed 에서도 문서는 만들 수 있다). cleanup 이 지운다.
-  const pa = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'production_approval', content: { target: 'BLE 로거 v1.0 보드', qty: '시제품 5대', pcbSpec: '4층, FR-4 1.6t, ENIG', approvalScope: ['pcb_fab', 'smt'] } } });
+  // 화면 검증 픽스처(§13) — 승인형 sent 문서 1건(제작 단계 검토·승인, 승인 범위 체크리스트 포함)을 남긴다(completed 에서도 문서는 만들 수 있다). cleanup 이 지운다.
+  const pa = await req('POST', `/api/admin/develop/requests/${rid}/documents`, { token: tAdmin, body: { type: 'stage_review', content: { stage: 'fabrication', doneWork: 'BLE 로거 v1.0 보드 · 시제품 5대 · 4층 FR-4 1.6t ENIG', approvalScope: ['pcb_fab', 'smt'] } } });
+  assert(pa.status === 200 && pa.json.data.docNo === 'REV-02', '제작 단계 검토·승인 초안 REV-02(같은 종류 두 번째 번호)', pa.json);
   const paSent = await req('POST', `/api/admin/develop/documents/${pa.json.data.documentId}/send`, { token: tAdmin, body: { replyDueOn: '2099-02-28', mailSubject: '[샘플피씨비] 제작 진행 승인 요청', mailBody: '제작 전에 확인 부탁드립니다.', sendMail: false } });
-  assert(paSent.status === 200 && paSent.json.data.status === 'sent', '픽스처: PA-01 sent(화면 검증용, 결정 패널)');
+  assert(paSent.status === 200 && paSent.json.data.status === 'sent', '픽스처: REV-02 sent(화면 검증용, 결정 패널)');
 
   // ── 14. 두 번째 의뢰: 고객 취소 · 종결 뒤 전이 409 ───────────────────────────
   const cancel2 = await req('POST', `/api/develop/requests/${rid2}/cancel`, { token: tClient, body: { reason: '내부 사정' } });

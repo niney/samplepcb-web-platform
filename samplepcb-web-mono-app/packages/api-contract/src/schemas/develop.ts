@@ -329,6 +329,7 @@ export const DEVELOP_EVENT_TYPES = [
   'document_sent', // 프로젝트 문서 발송(§13) — payload {documentId,type,seq,version,docNo,replyDueOn}
   'document_decided', // 고객 문서 결정 — payload {documentId,docNo,decision}
   'milestone_opened', // 수동 청구 열기(2026-09-10, G milestone.open 이식) — payload {milestoneId,quoteId,title,amount}. 열림 판정은 이 이벤트가 진실
+  'schedule_changed', // 프로젝트 일정 변경(2026-09-11, 옛 plan 문서 대신) — payload {from:{baseStartOn,plannedEndOn,expectedEndOn}, to:{…}}
 ] as const;
 export type DevelopEventTypeType = (typeof DEVELOP_EVENT_TYPES)[number];
 export const DevelopEventType = z.enum(DEVELOP_EVENT_TYPES);
@@ -352,6 +353,7 @@ export const DEVELOP_EVENT_TYPE_LABELS = {
   document_sent: '문서 발송',
   document_decided: '문서 회신',
   milestone_opened: '청구 열기',
+  schedule_changed: '일정 변경',
 } as const satisfies Record<DevelopEventTypeType, string>;
 
 // 관리자가 직접 만드는 이벤트(나머지는 서버가 전이·행동의 부수효과로 쓴다).

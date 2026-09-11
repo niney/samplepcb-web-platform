@@ -285,39 +285,36 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 - 2026-09-05 기획 확정(사용자): 마켓과 분리·이름·관리자 주도 AI·항목별 견적·마일스톤·회원 전용·실무 보강 6건(연락처·조건 문서 견적서·동의 기록·추가 견적·확인 요청·잔금 후 해제) 채택. 디자인은 새로.
 - 2026-09-05 구현 중 결정: `develop.dev-review` 기본 모델 kimi-k3 think medium(관리자 대기라 정밀, §12.8 프로빙 근거) · 하네스는 develop.* 유스케이스를 끄고 돈다(관리자 재생성은 force 라 부르지 않음) · 세금계산서 이벤트는 payload 만으로 등록 허용 · `DevelopOkResponse`·`paidBy` 계약 additive · 관리자 워커가 세션 강제 종료로 끊겨 i18n 230키를 재스폰 워커가 보충(키 누락 검사 스크립트 관례 확립).
 
-## 13. 프로젝트 문서·업무표 — 계약 이후 수행 구간 (2026-09-09 구현 `feat/develop-workflow-docs` · 2026-09-10 정본 승격)
+## 13. 프로젝트 문서·업무표 — 계약 이후 수행 구간 (2026-09-09 구현 `feat/develop-workflow-docs` · 2026-09-10 정본 승격 · **2026-09-11 간소화**)
 
-사용자가 준 프로토타입 「샘플피씨비 개발프로젝트 업무관리 서식」(보관본 `docs/prototypes/develop-workflow-prototype.html`, 10장: 현황·계약서·착수회의록·수행계획·중간검토·제작승인·시험검토·변경요청·납품확인·AI 메일)을 sp-develop 의 **착수 뒤(`in_progress`) 구간**에 얹은 문서 층. 기존 상태 머신(§4)은 그대로이고, 그 안에서 문서·업무표가 오간다. 프로토타입에서 일부러 안 가져온 것: localStorage 저장, 키워드 조합 가짜 AI, input 인덱스 기반 복원, 순서 기반 가짜 간트 위치.
+사용자가 준 프로토타입 「샘플피씨비 개발프로젝트 업무관리 서식」 10장을 sp-develop 의 **착수 뒤(`in_progress`) 구간**에 얹은 문서 층. 기존 상태 머신(§4)은 그대로이고, 그 안에서 문서·업무표가 오간다. 2026-09-11 에 사용자가 같은 서식을 **6장(00 진행현황·01 계약 및 착수·02 업무일정·03 검토 및 승인·04 변경요청·05 납품 및 완료·06 고객 이메일, 보관본 `docs/prototypes/develop-workflow-simple.html`)** 으로 간소화했고, 검토(모순 6·정책 뒤집힘 2)와 결정 3(01 승인형 · 업무 행 요약만 공개 유지 · 변경 승인 → change 견적 자동 유지)을 거쳐 **문서 8종 → 5종**으로 줄였다(§13.6). 프로토타입에서 일부러 안 가져온 것: localStorage 저장, 키워드 조합 가짜 AI, input 인덱스 기반 복원, 순서 기반 가짜 간트 위치, **단순 평균 달성도**(기간 가중으로).
 
-### 13.1 프로토타입 ↔ 기존 대응
+### 13.1 간편 서식 ↔ 구현 대응 (2026-09-11)
 
 | 서식 | 대응 | 구현 |
 |---|---|---|
-| 00 현황 | 상태 스텝퍼는 상태 단위뿐 | **파생**: 달성도(업무표 가중 평균)·현재 단계(7단계, 업무에서)·예상 완료일(최신 발송 수행계획)·확인 대기(sent 승인형 수). 저장 없음 |
-| 01 계약서 | 수락 견적서(결정 11) | 문서 아님 — 견적 인쇄 뷰 `?mode=contract`(서명란·동의 기록·발주서) |
-| 02 착수회의록 | 없음 | 승인형 문서 `kickoff` |
-| 03 수행계획 | 검토서 일정(예상)·견적 기간(약속) | 공유형 문서 `plan`(기준 착수·계획·예상 완료일) + **업무표 `sp_develop_task`**(프로토타입 15행 기본값 `DEVELOP_DEFAULT_TASKS` — 코드 상수) |
-| 04 중간 개발검토서 | `review_request` 이벤트(2택) | 승인형 문서 `design_review`(4택). 옛 이벤트는 읽기 호환 |
-| 05 제작 진행 승인서 | 위저드 `production` 계획 | 승인형 `production_approval`(승인 범위 체크리스트). 실제 제작은 PCB·BOM 트랙 링크만 |
-| 06 시제품 시험검토서 | 없음 | 공유형 `test_report`(시험결과 표) |
-| 07 변경요청서 | `kind=change` 견적(결정 12) | 승인형 `change_request` — 승인되면 change 견적 초안 자동(`createChangeQuoteDraft`, 금액 0·기본 마일스톤, 관리자가 채워 발송) |
-| 08 납품 완료확인서 | `deliverable(final)`·검수 확정·자동확정·잠금 해제 | 승인형 `delivery_confirm`(납품물 표 4행 프리셋) — delivered 에서 승인=`completed`, 보완 후 승인=`in_progress`(재납품), 추가 협의=이벤트만 |
-| 09 AI 정리·메일 | 메일 10종·`sp_ai_usecase` | 결정적 초안 `buildDevelopDocMailDraft`(계약) + 유스케이스 `develop.doc-mail`(잡, 관리자 확인 뒤 발송). 공유형 `progress_report` 가 00 의 세 칸(완료·현재·다음 업무) |
+| 00 진행현황 | 상태 스텝퍼는 상태 단위뿐 | **파생**: 달성도(업무표 가중 평균 — 가중치 없으면 **기간 가중**)·현재 단계(**6단계**, 업무에서)·일정 3개(의뢰 컬럼)·확인 대기(sent 승인형 수). 저장 없음. 여섯 칸(완료·현재·다음 업무·고객 확인사항·문제점·다음 보고일)은 공유형 `progress_report` 문서 — 「진행보고 이메일 작성」= PR-nn 발송이라 "언제 무엇을 보고했나"가 판으로 남는다 |
+| 01 계약 및 개발착수 확인 | 수락 견적(결정 11 "견적 승인이 곧 계약") + 옛 착수회의록 | 승인형 `kickoff`(KO-nn, 결정 1). **계약 부분은 수락 견적 스냅샷·읽기 전용**(`developKickoffContractContent` — 계약일·계약번호 `DEV-{id}-Q{v}`·금액·기간/하자보수·업무범위(항목)·납품 결과물; 생성 때 서버가 채우고 PATCH 는 원값으로 되돌린다). 입력은 착수회의일·방식·개발 목적과 주요 기능·고객 제공사항·착수회의 결정사항. 서식의 '계약상태·착수상태' select 는 죽은 칸이라 안 가져왔다(계약 상태=견적, 착수 상태=이 문서의 결정). 견적 인쇄 뷰 `?mode=contract` 는 그대로 계약서 |
+| 02 업무순서 및 일정 | 옛 수행계획(plan) 문서 + 업무표 | 문서 아님 — **일정 3개는 의뢰 컬럼**(`baseStartOn·plannedEndOn·expectedEndOn`, 착수 전이 때 착수일=오늘·계획 완료일=착수일+견적 기간 자동, 업무표 저장 `schedule` 로 고침, 바뀌면 `schedule_changed` 이벤트가 고객 노출 이력) + **업무표 `sp_develop_task`**(기본 11행 `DEVELOP_DEFAULT_TASK_PLAN` — 착수일 기준 오프셋·기간으로 「착수일 기준 자동배치」 `developAutoScheduleDates`). 단계·가중치 열은 화면에서 숨김(단계는 칩·직전 행 상속, 가중치는 기간 자동) |
+| 03 단계별 검토 및 승인 | 옛 중간검토·제작승인·시험검토 3종 | 승인형 `stage_review`(REV-nn) 1종 — 검토 단계 select 8종(`DEVELOP_DOC_REVIEW_STAGES`: 요구사항·시스템 구성/회로설계/PCB 부품배치·배선/펌웨어·앱·서버/기구설계/PCB·부품 제작/SMT·조립/시험·인증). **제작 단계(fabrication·smt)에서만 승인 범위 체크리스트**(`when` 조건부 필드 — 실비가 걸리는 승인이라 범위를 남긴다). 옛 `review_request` 이벤트는 읽기 호환 |
+| 04 개발 변경요청서 | `kind=change` 견적(결정 12) | 승인형 `change_request`(CR-nn, 필드 5: 요청자·요청일·변경 요청내용과 사유·비용·일정·기술 영향·검토 및 적용방안). 서식의 '적용상태' select(문서 상태 복제)·'고객 결정' 텍스트(동의 기록 소실)는 안 가져오고 03·05 와 같은 결정 블록. 승인되면 change 견적 초안 자동(`createChangeQuoteDraft`, 결정 3) |
+| 05 최종 납품 및 개발완료 확인 | `deliverable(final)`·검수 확정·자동확정·잠금 해제 | 승인형 `delivery_confirm`(DC-nn) — 납품일·**하자보수 시작·종료일**(생성 때 납품일·+견적 하자보수 일수 미리 채움)·완료 결과·납품물 표 4행 프리셋·잔여 사항·후속지원. delivered 에서 승인=`completed`, 보완 후 승인=`in_progress`(재납품), 추가 협의=이벤트만 |
+| 06 고객 이메일 | 메일 10종·`sp_ai_usecase` | 결정적 초안 `buildDevelopDocMailDraft`(계약 — 회신 선택지는 종류별 사전에서 읽어 서식·메일이 같은 말을 한다) + 유스케이스 `develop.doc-mail`(잡, 관리자 확인 뒤 발송). 서식의 '이메일 첨부파일'(실첨부)은 안 가져왔다 — 포털 링크 방식 유지(거버·zip 크기) |
 
 ### 13.2 문서 모델
 
-- 문서 8종은 한 테이블 `sp_develop_document` — `type` + **필드 스펙**(`DEVELOP_DOC_FIELDS[type]`: key·label·kind(text/textarea/date/datetime/select/checklist/table)·options·columns·meta) + 본문 JSON(`DevelopDocContent`: key → string | 코드 배열 | 행 배열). 폼·읽기 뷰·메일 본문이 같은 스펙으로 그려지고, 서버는 `developDocContentIssues` 로 400(`CONTENT_INVALID`)을 낸다. 부분 본문 허용, 빈 문서 발송은 400 `EMPTY_DOCUMENT`.
-- 문서번호 `docNo` = 종류 코드 + 종류별 일련번호(`DR-01`·`CR-02`). **재발송은 새 판**(`revise` → 같은 종류·번호, version+1 draft, 본문 복사) → 발송 시 이전 판 `superseded`. 고객은 보낸 판만 보고(`draft` 는 어떤 응답에도 없다) `isCurrent` 가 현재 판.
-- 상태 `draft → sent → 결정(approved·conditional·changes_requested·discuss_requested·rejected) | superseded`. 결정 선택지는 종류별(`DEVELOP_DOC_DECISION_OPTIONS`: 기본 4택 / 변경요청 「변경 적용 승인·기존 범위 유지·내용 수정 후 재검토·담당자 협의 필요」 / 납품확인 「납품 승인·보완 후 승인·추가 협의」). 공유형(plan·test_report·progress_report)은 결정 없음(409 `NOT_APPROVAL_DOC`). 결정 = 동의 기록(시각·IP·이름, 견적 수락 패턴), sent 에서 한 번(409 `DOC_NOT_OPEN`).
+- 문서 5종은 한 테이블 `sp_develop_document` — `type` + **필드 스펙**(`DEVELOP_DOC_FIELDS[type]`: key·label·kind(text/textarea/date/datetime/select/checklist/table)·options·columns·meta·**readonly**(서버 스냅샷, PATCH 가 원값으로 되돌림)·**when**(조건부 — `developDocFieldActive`, 비활성이면 폼·행·메일에서 빠진다)) + 본문 JSON(`DevelopDocContent`: key → string | 코드 배열 | 행 배열). 폼·읽기 뷰·메일 본문이 같은 스펙으로 그려지고, 서버는 `developDocContentIssues` 로 400(`CONTENT_INVALID`)을 낸다. 부분 본문 허용, 빈 문서 발송은 400 `EMPTY_DOCUMENT`. 새 문서의 초기 본문은 `initialDevelopDocContent`(빈 스펙 + 종류별 미리 채움: kickoff 계약 스냅샷 · delivery_confirm 납품일/하자보수 기간 · change_request 요청일 · progress_report 보고 기준일).
+- 문서번호 `docNo` = 종류 코드 + 종류별 일련번호(`KO-01`·`REV-02`·`CR-01`·`DC-01`·`PR-03`). **재발송은 새 판**(`revise` → 같은 종류·번호, version+1 draft, 본문 복사) → 발송 시 이전 판 `superseded`. 고객은 보낸 판만 보고(`draft` 는 어떤 응답에도 없다) `isCurrent` 가 현재 판. 2026-09-11 전 종류(design_review·production_approval·test_report → stage_review, 단계 requirements → contract)는 마이그레이션 `20260911170000_develop_docs_simplify` 가 옮기고 읽기도 `DEVELOP_DOC_LEGACY_TYPES`·`DEVELOP_TASK_LEGACY_PHASES` 로 같은 표를 본다.
+- 상태 `draft → sent → 결정(approved·conditional·changes_requested·discuss_requested·rejected) | superseded`. **승인형 4종(kickoff·stage_review·change_request·delivery_confirm)은 같은 결정 블록(라디오+의견+이름+확인)**, 선택지 라벨만 종류별(`DEVELOP_DOC_DECISION_OPTIONS`: 기본 4택 / 변경요청 「변경 적용 승인·기존 범위 유지·내용 수정 후 재검토·담당자 협의 필요」 / 납품확인 「납품 승인·보완 후 승인·추가 협의」). 공유형(progress_report)은 결정 없음(409 `NOT_APPROVAL_DOC`). 결정 = 동의 기록(시각·IP·이름, 견적 수락 패턴), sent 에서 한 번(409 `DOC_NOT_OPEN`).
 - 새 판은 본문·회신 요청일·내부 메모만 복사하고 **첨부는 복사하지 않는다**(파일 행 복제 → 한쪽 삭제가 실파일을 지움). 상태 라벨은 `developDocStatusLabel(type, status)` — 공유형 sent 는 '공유됨'.
 - 발송 = 판 고정 + `mailSubject/Body`(관리자가 확인한 그대로) 저장 + 이벤트 `document_sent`(고객 노출) + 고객 메일(`sendMail` 끄면 화면 공개만). 결정 = 이벤트 `document_decided` + 관리자 메일 + 부수효과(납품확인·변경요청). 문서 생성은 `accepted` 이후(`DEVELOP_DOC_ALLOWED_STATUSES`), 납품확인서는 delivered·completed 에서만(409 `DOC_TYPE_NOT_ALLOWED`).
 - 고객 `nextAction` 에 `answer_document`(승인형 sent 문서, 결제·검수보다 뒤 순위). 첨부는 draft 에서만 붙이고 고객 다운로드는 보낸 판의 첨부만(기존 파일 라우트가 refType 을 하나 더 안다).
 
 ### 13.3 업무표·현황
 
-- `sp_develop_task` 행 = 업무명·단계(`DEVELOP_TASK_PHASES` 7: 계약·착수/요구사항/설계·개발/제작·입고/조립·시험/인증·검토/납품·완료)·상태 7(제외 포함)·시작/완료일·가중치(bp)·진행률·비고·고객 공개. `PUT …/tasks` 는 행을 `taskId` 로 upsert 한다(2026-09-10 — 번호 유지, 진행 이력 행 삭제 409 `TASK_HAS_PROGRESS` → 상태 `skipped`(제외), `revision` 불일치 409 `REVISION_CONFLICT`, 완료⇔100%·예정⇒0% 정합). 기본 15행·가중치는 프로토타입 값(코드 상수 — 설정 테이블에 넣으면 ALTER 라 롤백 조건을 깬다).
-- 진행 요약 `developProgressSummary(tasks, contractDone)`(계약 순수 함수, 서버·화면 공용): 달성도 = Σ(가중치×진행률)/Σ가중치(합 0 이면 단순 평균) · 현재 단계 = 업무가 있고 다 끝나지 않은 첫 단계 · 단계 상태 done/now/todo(업무 없는 '계약·착수' 는 착수 뒤면 done). 고객에겐 공개 행만 주되 달성도는 전 행 기준(사용자 결정 7).
-- 예상 완료일·계획 완료일·기준 착수일은 **최신 발송 수행계획(plan) 문서**에서 파생.
+- `sp_develop_task` 행 = 업무명·단계(`DEVELOP_TASK_PHASES` **6**: 계약·착수/설계·개발/제작·입고/조립·시험/인증·보완/납품·완료)·상태 7(제외 포함)·시작/완료일·가중치(bp, 화면은 안 묻는다)·진행률·비고·고객 공개. `PUT …/tasks` 는 행을 `taskId` 로 upsert 한다(2026-09-10 — 번호 유지, 진행 이력 행 삭제 409 `TASK_HAS_PROGRESS` → 상태 `skipped`(제외 — 관리자 화면의 삭제 버튼이 진행된 저장 행이면 제외로 분기), `revision` 불일치 409 `REVISION_CONFLICT`, 완료⇔100%·예정⇒0% 정합). 같은 PUT 의 `schedule`(일정 3개)은 바뀐 것만 갱신하고 `schedule_changed` 이벤트를 남긴다. 기본 11행은 간편 서식 값(`DEVELOP_DEFAULT_TASK_PLAN`, 코드 상수).
+- 진행 요약 `developProgressSummary(tasks, contractDone)`(계약 순수 함수, 서버·화면 공용): 달성도 = Σ(무게×진행률)/Σ무게 — 무게는 가중치를 적었으면 그 값, **하나도 안 적었으면 행의 기간(일수)**(`developTaskWeights`; 날짜 없는 행은 날짜 있는 행들의 평균 기간, 아무 행에도 날짜가 없으면 단순 평균 — 착수회의 1일과 펌웨어 18일이 같은 무게로 세어지지 않게) · 현재 단계 = 업무가 있고 다 끝나지 않은 첫 단계 · 단계 상태 done/now/todo(업무 없는 '계약·착수' 는 착수 뒤면 done). 고객에겐 공개 행만 주되 달성도는 전 행 기준(사용자 결정 7, 2026-09-11 재확인).
+- 착수일·계획 완료일·예상 완료일은 **의뢰 컬럼**(`sp_develop_request.baseStartOn/plannedEndOn/expectedEndOn`). 착수 전이(`transitionDevelopStatus` → in_progress)가 비어 있을 때 착수일=오늘(KST)·계획/예상 완료일=착수일+수락 견적 기간을 깔고, 이후엔 업무표 저장이 고친다.
 
 ### 13.4 원복
 
@@ -325,9 +322,22 @@ C 구현은 2026-09-10 정본으로 승격됐고, 옛 트라이얼용 `down.sql`
 
 ### 13.5 화면
 
-- 관리자(`apps/web`): 상세 여섯 번째 탭 「프로젝트 문서」(진행 타임라인 뒤, `?tab=documents`) — 현황 띠(달성도·7단계·확인 대기) · 업무표 편집(기본 업무·검토서 일정 시드·가중치·간트는 실제 날짜) · 문서 목록·필드 스펙 편집기·첨부·발송 패널(결정적 초안 → AI 다듬기 → 확인 → 발송) · 읽기 뷰·새 판·인쇄(인쇄 순간에만 `html.sp-doc-printing` + 카드 `.sp-doc-print-target` 로 그 카드만 남김). 순수 모듈 `develop-doc-edit.ts`(본문 복사·폼 정규화·업무 행 변환·간트 모델). AI 설정 탭에 `develop.doc-mail` 카드(⑦). AI 잡 폴링은 설정 화면의 `useAiJob` 재사용. 워커 지시서 `docs/prompts/develop-workflow-b-admin.md`.
-- 고객(`apps/develop`): 상세 「진행 현황·문서」 섹션(`#documents`) — 현황 카드·공개 업무표·확인 대기 배너·문서 목록(현재 판·이전 판 접힘)·읽기·결정 패널(종류별 라디오+의견+이름+확인 체크)·문서 인쇄 라우트 · 견적 인쇄 `?mode=contract` 계약서 보기 · 목록 칩 「문서 확인·회신」. 워커 지시서 `docs/prompts/develop-workflow-a-app.md`.
-- 검증: 하네스 §10b(업무표·문서 생성/검증/발송/결정/새 판/변경요청→change 견적/삭제)·§11b(납품확인서 보완→재납품→승인 completed) **170/0** · 단위 `develop-doc-mail.test.ts`(3)·`packages/utils/src/develop-docs.test.ts`(5) · 8워크스페이스 typecheck.
+- 관리자(`apps/web`): 상세 여섯 번째 탭 「프로젝트 문서」(진행 타임라인 뒤, `?tab=documents`) — 현황 띠(달성도·6단계·확인 대기) · 업무표 편집(일정 3개 머리 · 기본 업무 11 · 착수일 기준 자동배치 · 검토서 일정 시드 · 단계는 칩·직전 행 상속 · 가중치 열 없음 · 간트는 실제 날짜 · 진행된 행의 삭제=제외+되돌리기) · 문서 목록·필드 스펙 편집기(읽기 전용 스냅샷은 값만, 조건부 필드는 단계가 맞을 때만)·첨부·발송 패널(결정적 초안 → AI 다듬기 → 확인 → 발송) · 읽기 뷰·새 판·인쇄(인쇄 순간에만 `html.sp-doc-printing` + 카드 `.sp-doc-print-target` 로 그 카드만 남김). 순수 모듈 `develop-doc-edit.ts`(본문 복사·폼 정규화·업무 행 변환·자동배치·간트 모델). AI 설정 탭에 `develop.doc-mail` 카드(⑦). AI 잡 폴링은 설정 화면의 `useAiJob` 재사용. 워커 지시서 `docs/prompts/develop-workflow-b-admin.md`.
+- 고객(`apps/develop`): 상세 「진행 현황·문서」 섹션(`#documents`) — 현황 카드(6단계)·공개 업무표·확인 대기 배너·문서 목록(현재 판·이전 판 접힘)·읽기·결정 패널(종류별 라디오+의견+이름+확인 체크)·문서 인쇄 라우트 · 견적 인쇄 `?mode=contract` 계약서 보기 · 목록 칩 「문서 확인·회신」. 워커 지시서 `docs/prompts/develop-workflow-a-app.md`.
+- 검증: 하네스 §10b(업무표·일정·기간 가중·문서 생성/검증/발송/결정/새 판/계약 스냅샷 읽기 전용/변경요청→change 견적/삭제)·§11b(납품확인서 미리 채움·보완→재납품→승인 completed) · 단위 `develop-doc-mail.test.ts`(3)·`packages/utils/src/develop-docs.test.ts`(9)·`develop-docs-g-port.test.ts`(5) · 8워크스페이스 typecheck.
+
+### 13.6 2026-09-11 간소화 — 검토에서 걸린 것과 처리
+
+간편 서식(6장)을 현행과 대조해 **모순 6·정책 뒤집힘 2** 를 찾았고 사용자가 결정 3(①01 승인형 ②업무 행 요약만 공개 유지 ③변경 승인 → change 견적 자동 유지)을 내렸다. 처리:
+
+1. 회신 세트 불일치(01·04 에 결정 칸 없음, 03 4택·05 3택, 메일은 고정 3택) → 승인형 4종 같은 결정 블록 + 종류별 라벨 사전, 메일 초안도 같은 사전.
+2. 01 계약상태 select 는 항상 '서명 완료'(문서는 accepted 뒤에만) → 계약 부분은 견적 스냅샷·읽기 전용, select 제거.
+3. 6단계 스텝퍼의 재료(업무표에 단계 열 없음) → 단계는 데이터로 유지·화면에서 숨김(기본 업무·직전 행 상속·칩).
+4. 달성도 단순 평균(1일 = 18일) → 가중치 없으면 기간 가중.
+5. 04 '적용상태'(문서 상태 복제)·고객 결정 텍스트(동의 기록 소실) → 제거, 결정 블록.
+6. 삭제 버튼 vs 진행 행 삭제 금지 → 진행된 저장 행의 삭제는 '제외'로 분기 + 되돌리기.
+- 정책 A(전 행 고객 공개)는 **뒤집지 않았다**(결정 2) — 02 첨부(외부업체 일정)도 그래서 문서 첨부 밖. 정책 B(수행계획 판 소멸)는 받아들여 plan 문서를 없애고 의뢰 컬럼 3개 + `schedule_changed` 이벤트가 "언제 어떤 완료일을 약속했나"의 기록.
+- 구조 손실로 받아들인 것: 시험결과 표·착수회의 결정사항 표 → 텍스트. 제작 승인 범위 체크리스트만 조건부로 살렸다.
 
 ## 14. 관리자 「개발」 모듈 — 스위처·단계별 워크큐·진행현황 (2026-09-09, 사용자 결정)
 

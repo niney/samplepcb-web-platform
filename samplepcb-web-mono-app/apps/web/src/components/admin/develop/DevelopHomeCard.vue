@@ -28,7 +28,7 @@ const quiet = computed(
     props.item.ops.openableMilestones === 0,
 );
 
-// 7단계 미니 점 — currentPhase 앞은 done, 그 칸은 now, 뒤는 todo(업무표가 없으면 전부 todo).
+// 6단계 미니 점 — currentPhase 앞은 done, 그 칸은 now, 뒤는 todo(업무표가 없으면 전부 todo).
 const phaseIndex = computed(() =>
   props.item.ops.currentPhase === null ? -1 : DEVELOP_TASK_PHASES.indexOf(props.item.ops.currentPhase),
 );
@@ -69,7 +69,7 @@ const phaseClass = (index: number): string =>
       </span>
     </div>
 
-    <!-- 7단계 미니 점 -->
+    <!-- 6단계 미니 점 -->
     <ol class="flex items-center gap-1">
       <li
         v-for="(phase, index) in DEVELOP_TASK_PHASES"

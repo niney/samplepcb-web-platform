@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { SpDevelopMilestone, SpDevelopRequest } from '@prisma/client';
 import type { MarketContractPaymentType } from '@sp/api-contract';
 import { kstToday } from '@sp/utils';
-import { addDevelopEvent, toDevelopAreaCodes, transitionDevelopStatus } from './develop';
+import { addDevelopEvent, seedDevelopScheduleOnStart, toDevelopAreaCodes, transitionDevelopStatus } from './develop';
 import { buildCompletedEmail, buildPaymentConfirmedEmail, sendDevelopMail, sendDevelopMailToAdmins } from './develop-email';
 import { getDevelopSettings } from './develop-settings';
 import { PAID_ORDER_STATUSES, deleteCartRowsByIoId, deleteQuoteOption, getMembersByIds, getOrderInfoByCtId, DEVELOP_ANCHOR_IT_ID } from './g5-db';
@@ -61,6 +61,7 @@ export const markMilestonePaid = async (
     await tx.$queryRaw(Prisma.sql`SELECT id FROM sp_develop_request WHERE id = ${m.requestId} FOR UPDATE`);
     const update = await tx.spDevelopRequest.updateMany({ where: { id: m.requestId, status: 'accepted' }, data: { status: 'in_progress', startedAt: now } });
     if (update.count !== 1) return false;
+    await seedDevelopScheduleOnStart(tx, m.requestId); // 착수 일정 기본값(관리자 「착수」 전이와 같은 규칙)
     await addDevelopEvent(tx, m.requestId, { type: 'status_changed', actorMbId, byAdmin: by === 'admin', title: '상태가 바뀌었습니다', payload: { from: ['accepted'], to: 'in_progress' } });
     return true;
   });

@@ -10,7 +10,7 @@ import {
 import type { AdminDevelopDocumentViewType, DevelopProgressViewType } from '@sp/api-contract';
 import { formatDateTime } from '../../../lib/format';
 
-// 00 프로젝트 현황(docs/DEVELOP_FLOW.md §13) — 달성도·7단계·확인 대기·최근 결정 한 띠.
+// 00 프로젝트 현황(docs/DEVELOP_FLOW.md §13) — 달성도·6단계·확인 대기·최근 결정 한 띠.
 // 값은 전부 서버 파생(progress)이라 여기서 계산하지 않는다. 단계 라벨·문서 라벨은 계약 사전이 정본.
 const props = defineProps<{
   progress: DevelopProgressViewType;
@@ -78,8 +78,8 @@ const dotClass: Record<'done' | 'now' | 'todo', string> = {
       </div>
     </div>
 
-    <!-- 7단계 — 업무표에서 파생된다(의뢰 status 를 늘리지 않는다는 계약 결정). -->
-    <ol class="mt-4 grid grid-cols-4 gap-1.5 sm:grid-cols-7">
+    <!-- 6단계 — 업무표에서 파생된다(의뢰 status 를 늘리지 않는다는 계약 결정). -->
+    <ol class="mt-4 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
       <li v-for="phase in DEVELOP_TASK_PHASES" :key="phase" class="grid justify-items-center gap-1 text-center">
         <span class="h-2.5 w-2.5 rounded-full" :class="dotClass[phaseState(phase)]" />
         <span

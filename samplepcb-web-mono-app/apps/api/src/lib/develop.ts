@@ -14,6 +14,7 @@ import {
   DEVELOP_VAT_MODES,
   DevelopAiQuestions,
   DevelopProductionPlan,
+  developAddDays,
   sortDevelopAreas,
 } from '@sp/api-contract';
 import type {
@@ -35,6 +36,7 @@ import type {
   DevelopVatModeType,
   DevelopWizardFieldsType,
 } from '@sp/api-contract';
+import { kstToday } from '@sp/utils';
 import { toFileMeta } from './market';
 import { prisma } from './prisma';
 
@@ -181,6 +183,18 @@ export const addDevelopEvent = async (
     },
   });
 
+// 착수 시점의 프로젝트 일정 기본값(2026-09-11, 옛 수행계획 문서 대신) — 착수일=오늘(KST), 계획·예상 완료일=착수일+수락 견적 기간.
+// 이미 적혀 있으면 두고, 이후엔 업무표 저장(schedule)이 고친다. 착수 경로가 둘(관리자 「착수」 전이 · 첫 마일스톤 lazy 결제)이라 둘 다 이걸 부른다.
+export const seedDevelopScheduleOnStart = async (tx: Prisma.TransactionClient | typeof prisma, requestId: bigint): Promise<void> => {
+  const cur = await tx.spDevelopRequest.findUnique({ where: { id: requestId }, select: { baseStartOn: true } });
+  if (cur?.baseStartOn !== null) return; // 없거나(null) 이미 적혀 있으면 두고 간다
+  const q = await tx.spDevelopQuote.findFirst({ where: { requestId, status: 'accepted' }, orderBy: { version: 'desc' }, select: { durationDays: true } });
+  const baseStartOn = kstToday();
+  const days = q?.durationDays ?? null;
+  const plannedEndOn = days === null ? null : developAddDays(baseStartOn, days);
+  await tx.spDevelopRequest.update({ where: { id: requestId }, data: { baseStartOn, plannedEndOn, expectedEndOn: plannedEndOn } });
+};
+
 // 상태 전이 — 조건부 updateMany(count==1 게이트)로 경합을 막고 이벤트를 남긴다. 0건이면 false(호출자가 409).
 export const transitionDevelopStatus = async (
   requestId: bigint,
@@ -196,6 +210,7 @@ export const transitionDevelopStatus = async (
       data: { status: to, ...extra },
     });
     if (res.count !== 1) return false;
+    if (to === 'in_progress') await seedDevelopScheduleOnStart(tx, requestId);
     await addDevelopEvent(tx, requestId, {
       type: 'status_changed',
       actorMbId: actor.mbId,

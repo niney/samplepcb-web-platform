@@ -1983,6 +1983,10 @@ model SpDevelopRequest {
   devDiagramPublicHtml  String?   @db.MediumText
   devDiagramPublishedAt DateTime?
 
+  // 프로젝트 일정(2026-09-11, 옛 수행계획 문서 대신) — 착수 전이 때 착수일·계획 완료일(착수일+견적 기간)을 자동으로 채우고, 업무표 저장이 고친다. 변경은 schedule_changed 이벤트.
+  baseStartOn    String?   @db.VarChar(10)
+  plannedEndOn   String?   @db.VarChar(10)
+  expectedEndOn  String?   @db.VarChar(10)
   reviewDays     Int       @default(7) // 검수 기간(일) — 수락 견적에서 복사
   startedAt      DateTime? // 착수(첫 결제 확인 또는 관리자 착수)
   deliveredAt    DateTime?

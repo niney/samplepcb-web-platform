@@ -81,8 +81,8 @@ const period = (t: DevelopTaskViewType): string =>
       </dl>
     </div>
 
-    <!-- 7단계 -->
-    <ol class="grid grid-cols-4 gap-x-2 gap-y-3 sm:grid-cols-7">
+    <!-- 6단계(간편 서식 진행단계, 2026-09-11) — 업무표에서 파생 -->
+    <ol class="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-6">
       <li v-for="p in phases" :key="p.phase" class="grid gap-1.5">
         <span class="h-1.5 rounded-full" :class="phaseBarClass(p.state)" />
         <span class="text-micro font-bold leading-tight" :class="phaseTextClass(p.state)">{{ phaseLabel(p.phase) }}</span>

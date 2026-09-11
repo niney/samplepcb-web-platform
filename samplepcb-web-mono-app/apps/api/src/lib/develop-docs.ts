@@ -1,18 +1,23 @@
 import { createHash } from 'node:crypto';
-import type { SpDevelopDocument, SpDevelopRequest, SpDevelopTask, SpFile } from '@prisma/client';
+import type { Prisma, SpDevelopDocument, SpDevelopRequest, SpDevelopTask, SpFile } from '@prisma/client';
 import { kstToday } from '@sp/utils';
 import {
   DEVELOP_DOC_DECISIONS,
+  DEVELOP_DOC_LEGACY_TYPES,
   DEVELOP_DOC_STATUSES,
   DEVELOP_DOC_TYPES,
   DEVELOP_DOC_TYPE_LABELS,
+  DEVELOP_TASK_LEGACY_PHASES,
   DEVELOP_TASK_PHASES,
   DEVELOP_TASK_STATUSES,
   DevelopDocContent,
+  developAddDays,
   developDocDecisionLabel,
   developDocNo,
+  developKickoffContractContent,
   developOverdueTaskCount,
   developProgressSummary,
+  emptyDevelopDocContent,
   isDevelopDocApproval,
 } from '@sp/api-contract';
 import type {
@@ -24,6 +29,7 @@ import type {
   DevelopDocTypeType,
   DevelopDocumentViewType,
   DevelopProgressViewType,
+  DevelopScheduleInputType,
   DevelopTaskPhaseType,
   DevelopTaskStatusType,
   DevelopTaskViewType,
@@ -42,11 +48,92 @@ const narrow = <T extends string>(values: readonly T[], v: string, fallback: T):
 const narrowOrNull = <T extends string>(values: readonly T[], v: string | null): T | null =>
   v !== null && (values as readonly string[]).includes(v) ? (v as T) : null;
 
-export const asDocType = (v: string): DevelopDocTypeType => narrow(DEVELOP_DOC_TYPES, v, 'progress_report');
+// 2026-09-11 간소화 전 저장분(옛 종류·단계)은 새 사전으로 읽는다 — 마이그레이션이 옮기지만 읽기도 같은 표를 본다.
+export const asDocType = (v: string): DevelopDocTypeType => DEVELOP_DOC_LEGACY_TYPES[v] ?? narrow(DEVELOP_DOC_TYPES, v, 'progress_report');
 export const asDocStatus = (v: string): DevelopDocStatusType => narrow(DEVELOP_DOC_STATUSES, v, 'draft');
 export const asDocDecision = (v: string | null): DevelopDocDecisionType | null => narrowOrNull(DEVELOP_DOC_DECISIONS, v);
-export const asTaskPhase = (v: string): DevelopTaskPhaseType => narrow(DEVELOP_TASK_PHASES, v, 'design');
+export const asTaskPhase = (v: string): DevelopTaskPhaseType => DEVELOP_TASK_LEGACY_PHASES[v] ?? narrow(DEVELOP_TASK_PHASES, v, 'design');
 export const asTaskStatus = (v: string): DevelopTaskStatusType => narrow(DEVELOP_TASK_STATUSES, v, 'planned');
+
+// ── 새 문서의 초기 본문 — 빈 스펙 + 종류별 미리 채움(간편 서식 간소화, 2026-09-11) ──────────────────
+// kickoff: 계약 요약을 수락 견적에서 스냅샷(읽기 전용 — 손으로 다시 적어 견적과 어긋나는 일이 없게).
+// delivery_confirm: 납품일(deliveredAt)·하자보수 시작일=납품일·종료일=+하자보수 일수(수락 견적, 없으면 의뢰 기본).
+// change_request: 요청일=오늘 · progress_report: 보고 기준일=오늘. 관리자가 고칠 수 있는 제안값이다.
+const KST_OFFSET_MS = 9 * 3_600_000;
+const kstDateOf = (d: Date | null): string | null => (d === null ? null : new Date(d.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10));
+
+export async function initialDevelopDocContent(r: SpDevelopRequest, type: DevelopDocTypeType): Promise<DevelopDocContentType> {
+  const content = emptyDevelopDocContent(type);
+  const today = kstToday();
+  if (type === 'kickoff') {
+    const q = await prisma.spDevelopQuote.findFirst({
+      where: { requestId: r.id, status: 'accepted' },
+      orderBy: { version: 'desc' },
+      include: { items: { orderBy: { seq: 'asc' } } },
+    });
+    const snapshot = developKickoffContractContent(
+      q === null
+        ? null
+        : {
+            requestId: Number(r.id),
+            quoteVersion: q.version,
+            acceptedOn: kstDateOf(q.acceptedAt),
+            vatMode: q.vatMode === 'included' || q.vatMode === 'exempt' ? q.vatMode : 'separate',
+            supplyAmount: q.supplyAmount,
+            vatAmount: q.vatAmount,
+            totalAmount: q.totalAmount,
+            durationDays: q.durationDays,
+            warrantyDays: q.warrantyDays,
+            items: q.items.map((it) => ({ title: it.title })),
+            deliverables: Array.isArray(q.deliverables) ? q.deliverables.filter((d): d is string => typeof d === 'string') : [],
+          },
+    );
+    Object.assign(content, snapshot);
+  } else if (type === 'delivery_confirm') {
+    const q = await prisma.spDevelopQuote.findFirst({ where: { requestId: r.id, status: 'accepted' }, orderBy: { version: 'desc' }, select: { warrantyDays: true } });
+    const deliveredOn = kstDateOf(r.deliveredAt) ?? today;
+    const warrantyDays = q?.warrantyDays ?? null;
+    content.deliveredOn = deliveredOn;
+    content.warrantyFrom = deliveredOn;
+    content.warrantyTo = warrantyDays === null ? '' : developAddDays(deliveredOn, warrantyDays);
+  } else if (type === 'change_request') {
+    content.requestedOn = today;
+  } else if (type === 'progress_report') {
+    content.reportOn = today;
+  }
+  return content;
+}
+
+// ── 프로젝트 일정 3개(의뢰 컬럼) — 업무표 저장과 함께 오면 바뀐 것만 갱신하고 schedule_changed 이벤트로 이력을 남긴다 ─────
+// 옛 수행계획(plan) 문서의 "보낸 판" 대신 이 이벤트가 "언제 어떤 완료일을 약속했나"의 기록이다(고객에게도 보인다).
+export const developScheduleOf = (r: Pick<SpDevelopRequest, 'baseStartOn' | 'plannedEndOn' | 'expectedEndOn'>): DevelopScheduleInputType => ({
+  baseStartOn: r.baseStartOn,
+  plannedEndOn: r.plannedEndOn,
+  expectedEndOn: r.expectedEndOn,
+});
+export async function applyDevelopSchedule(
+  tx: Prisma.TransactionClient,
+  r: SpDevelopRequest,
+  next: DevelopScheduleInputType,
+  actor: { mbId: string | null; byAdmin: boolean },
+): Promise<boolean> {
+  const prev = developScheduleOf(r);
+  if (prev.baseStartOn === next.baseStartOn && prev.plannedEndOn === next.plannedEndOn && prev.expectedEndOn === next.expectedEndOn) return false;
+  await tx.spDevelopRequest.update({ where: { id: r.id }, data: next });
+  const fmt = (v: string | null): string => v ?? '미정';
+  const changed = (['baseStartOn', 'plannedEndOn', 'expectedEndOn'] as const).filter((k) => prev[k] !== next[k]);
+  const labels = { baseStartOn: '착수일', plannedEndOn: '계획 완료일', expectedEndOn: '예상 완료일' } as const;
+  await addDevelopEvent(tx, r.id, {
+    type: 'schedule_changed',
+    actorMbId: actor.mbId,
+    byAdmin: actor.byAdmin,
+    visibleToCustomer: true,
+    title: `일정 변경 — ${changed.map((k) => `${labels[k]} ${fmt(prev[k])} → ${fmt(next[k])}`).join(' · ')}`,
+    body: null,
+    payload: { from: prev, to: next },
+  });
+  return true;
+}
 
 export const toDocContent = (json: unknown): DevelopDocContentType => {
   const r = DevelopDocContent.safeParse(json);
@@ -154,7 +241,7 @@ export const developTasksRevision = (rows: readonly Pick<SpDevelopTask, 'id' | '
   return h.digest('hex').slice(0, 16);
 };
 
-// 진행 현황(00) — 달성도·현재 단계는 업무에서, 계획 일자는 최신 발송 수행계획(plan)에서, 확인 대기는 sent 승인형 문서 수.
+// 진행 현황(00) — 달성도·현재 단계는 업무에서(가중치 없으면 기간 가중), 계획 일자 3개는 의뢰 컬럼, 확인 대기는 sent 승인형 문서 수.
 // customer=true 면 비공개 업무 행과 제외(skipped) 행을 뺀다(단계 요약·달성도는 전 행 기준 — 숨긴 세부 행도 진행률에는 들어간다).
 export function buildDevelopProgress(
   r: SpDevelopRequest,
@@ -165,23 +252,17 @@ export function buildDevelopProgress(
   const status = asDevelopStatus(r.status);
   const contractDone = status === 'in_progress' || status === 'delivered' || status === 'completed';
   const summary = developProgressSummary(
-    tasks.map((t) => ({ phase: asTaskPhase(t.phase), status: asTaskStatus(t.status), weightBp: t.weightBp, progressPct: t.progressPct })),
+    tasks.map((t) => ({ phase: asTaskPhase(t.phase), status: asTaskStatus(t.status), weightBp: t.weightBp, progressPct: t.progressPct, startOn: t.startOn, endOn: t.endOn })),
     contractDone,
   );
-  const plans = documents.filter((d) => d.type === 'plan' && d.status !== 'draft' && d.sentAt !== null).sort((a, b) => (b.sentAt?.getTime() ?? 0) - (a.sentAt?.getTime() ?? 0));
-  const plan = plans[0] === undefined ? {} : toDocContent(plans[0].content);
-  const dateOf = (key: string): string | null => {
-    const v = plan[key];
-    return typeof v === 'string' && v !== '' ? v : null;
-  };
   return {
     progressPct: summary.progressPct,
     currentPhase: summary.currentPhase,
     phases: summary.phases,
     tasks: tasks.filter((t) => !customer || (t.visibleToCustomer && t.status !== 'skipped')).map(toDevelopTaskView),
-    baseStartOn: dateOf('baseStartOn'),
-    plannedEndOn: dateOf('plannedEndOn'),
-    expectedEndOn: dateOf('expectedEndOn'),
+    baseStartOn: r.baseStartOn,
+    plannedEndOn: r.plannedEndOn,
+    expectedEndOn: r.expectedEndOn,
     pendingApprovals: documents.filter((d) => d.status === 'sent' && isDevelopDocApproval(asDocType(d.type))).length,
     overdueTasks: developOverdueTaskCount(tasks.map((t) => ({ status: asTaskStatus(t.status), endOn: t.endOn })), kstToday()),
     // 고객 응답엔 잠금 토큰이 필요 없다(고객은 업무표를 고치지 못한다).
@@ -242,7 +323,7 @@ export async function developOpsFor(rows: readonly Pick<SpDevelopRequest, 'id' |
   if (rows.length === 0) return map;
   const ids = rows.map((r) => r.id);
   const [tasks, docs, events, milestones, openedBy] = await Promise.all([
-    prisma.spDevelopTask.findMany({ where: { requestId: { in: ids } }, select: { requestId: true, phase: true, status: true, weightBp: true, progressPct: true, endOn: true } }),
+    prisma.spDevelopTask.findMany({ where: { requestId: { in: ids } }, select: { requestId: true, phase: true, status: true, weightBp: true, progressPct: true, startOn: true, endOn: true } }),
     prisma.spDevelopDocument.findMany({ where: { requestId: { in: ids }, status: 'sent' }, select: { requestId: true, type: true, replyDueOn: true } }),
     prisma.spDevelopEvent.findMany({
       where: { requestId: { in: ids }, type: { in: ['comment', 'as_request'] } },
@@ -275,7 +356,7 @@ export async function developOpsFor(rows: readonly Pick<SpDevelopRequest, 'id' |
     const contractDone = status === 'in_progress' || status === 'delivered' || status === 'completed';
     const t = tasksBy.get(key) ?? [];
     const summary = developProgressSummary(
-      t.map((x) => ({ phase: asTaskPhase(x.phase), status: asTaskStatus(x.status), weightBp: x.weightBp, progressPct: x.progressPct })),
+      t.map((x) => ({ phase: asTaskPhase(x.phase), status: asTaskStatus(x.status), weightBp: x.weightBp, progressPct: x.progressPct, startOn: x.startOn, endOn: x.endOn })),
       contractDone,
     );
     const pending = (docsBy.get(key) ?? []).filter((d) => isDevelopDocApproval(asDocType(d.type)));

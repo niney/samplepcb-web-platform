@@ -22,6 +22,7 @@ import DevelopDocSendPanel from './DevelopDocSendPanel.vue';
 import { downloadAdminDevelopFile } from './develop-files';
 import {
   developDocCodes,
+  developDocFieldVisible,
   developDocFormContent,
   developDocRows,
   developDocText,
@@ -31,6 +32,8 @@ import {
 
 // 문서 편집기(draft 전용, docs/DEVELOP_FLOW.md §13) — 폼은 계약 필드 스펙(DEVELOP_DOC_FIELDS)이 그린다.
 // 서버가 400 CONTENT_INVALID 로 막는 자리를 developDocContentIssues 로 먼저 검사해 필드 옆에 붙인다.
+// 2026-09-11 간소화: 읽기 전용 필드(계약 요약 스냅샷 — 서버가 수락 견적에서 채운다)는 입력 없이 값만 보여 주고,
+// 조건부 필드(when — 제작 단계에서만 뜨는 승인 범위 체크리스트)는 조건이 맞을 때만 그린다.
 // 본문은 로컬 상태로 든다(상세는 AI 잡·다른 액션으로 재조회되므로 편집 중 초안이 덮이면 안 된다).
 // 저장은 마지막으로 본 updatedAt 을 함께 보내(낙관적 잠금, 2026-09-10) 다른 사람이 먼저 고쳤으면 409 → '새로 불러오기'.
 const props = defineProps<{
@@ -78,9 +81,15 @@ watch(seedKey, () => {
   replyDueOn.value = props.doc.replyDueOn ?? '';
 });
 
-const fields = computed(() => DEVELOP_DOC_FIELDS[props.doc.type]);
+// 조건부 필드는 본문 값(예: 검토 단계)에 따라 나타나므로 content 를 읽는 computed 다.
+const fields = computed(() => DEVELOP_DOC_FIELDS[props.doc.type].filter((f) => developDocFieldVisible(f, content.value)));
 const metaFields = computed(() => fields.value.filter((f) => f.meta === true));
 const bodyFields = computed(() => fields.value.filter((f) => f.meta !== true));
+// 읽기 전용 값 표시 — 비어 있으면(견적 없이 관리자 착수) 그 사실을 적는다.
+const readonlyText = (key: string): string => {
+  const v = textOf(key);
+  return v === '' ? t('admin.develop.docs.editor.noContract') : v;
+};
 
 const issues = computed(() => parseDevelopDocIssues(developDocContentIssues(props.doc.type, content.value)));
 const issueCodeText = (code: string): string => {
@@ -252,7 +261,14 @@ const areaClass = 'w-full rounded border border-gray-300 px-2 py-1.5 text-xs lea
     <div v-if="metaFields.length > 0" class="grid gap-2 rounded-lg border border-gray-200 bg-gray-50/60 p-2.5 sm:grid-cols-2 xl:grid-cols-4">
       <label v-for="f in metaFields" :key="f.key" class="grid gap-0.5 text-[11px] font-semibold text-gray-600">
         {{ f.label }}
-        <select v-if="f.kind === 'select'" :value="textOf(f.key)" class="h-8 w-full rounded border border-gray-300 bg-white px-1.5 text-xs" @change="onInput(f.key, $event)">
+        <!-- 읽기 전용(계약 요약 스냅샷) — 입력을 그리지 않는다. -->
+        <span
+          v-if="f.readonly === true"
+          class="flex h-8 items-center truncate rounded border border-dashed border-gray-300 bg-white px-2 text-xs font-normal"
+          :class="textOf(f.key) === '' ? 'text-gray-400' : 'text-gray-800'"
+          :title="t('admin.develop.docs.editor.fromQuote')"
+        >{{ readonlyText(f.key) }}</span>
+        <select v-else-if="f.kind === 'select'" :value="textOf(f.key)" class="h-8 w-full rounded border border-gray-300 bg-white px-1.5 text-xs" @change="onInput(f.key, $event)">
           <option value="">{{ t('admin.develop.docs.editor.selectEmpty') }}</option>
           <option v-for="o in f.options ?? []" :key="o.code" :value="o.code">{{ o.label }}</option>
         </select>
@@ -273,8 +289,19 @@ const areaClass = 'w-full rounded border border-gray-300 px-2 py-1.5 text-xs lea
       <div v-for="f in bodyFields" :key="f.key" class="grid gap-0.5" :class="f.kind === 'table' ? 'lg:col-span-2' : ''">
         <span class="text-[11px] font-semibold text-gray-600">{{ f.label }}</span>
 
+        <!-- 읽기 전용(계약 요약 스냅샷) — 값만 보여 준다. -->
+        <template v-if="f.readonly === true">
+          <div
+            class="whitespace-pre-line rounded border border-dashed border-gray-300 bg-white px-2 py-1.5 text-xs leading-relaxed"
+            :class="textOf(f.key) === '' ? 'text-gray-400' : 'text-gray-800'"
+          >
+            {{ readonlyText(f.key) }}
+          </div>
+          <span class="text-[11px] text-gray-400">{{ t('admin.develop.docs.editor.fromQuote') }}</span>
+        </template>
+
         <!-- 체크박스 격자 -->
-        <div v-if="f.kind === 'checklist'" class="grid grid-cols-2 gap-1 rounded border border-gray-200 p-2 sm:grid-cols-3">
+        <div v-else-if="f.kind === 'checklist'" class="grid grid-cols-2 gap-1 rounded border border-gray-200 p-2 sm:grid-cols-3">
           <label v-for="o in f.options ?? []" :key="o.code" class="inline-flex items-center gap-1.5 text-xs text-gray-700">
             <input type="checkbox" class="h-3.5 w-3.5" :checked="codesOf(f.key).includes(o.code)" @change="toggleCode(f.key, o.code, $event)">
             {{ o.label }}

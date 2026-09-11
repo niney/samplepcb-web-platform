@@ -163,6 +163,6 @@ function togglePrev(id: number): void {
   </div>
 
   <p v-else class="rounded-2xl border border-dashed border-line-2 bg-white px-6 py-10 text-center text-body text-tx-3">
-    아직 받으신 프로젝트 문서가 없습니다. 담당자가 착수회의록·검토서·승인서를 보내면 여기에 모입니다.
+    아직 받으신 프로젝트 문서가 없습니다. 담당자가 착수 확인서·검토·승인서·진행보고를 보내면 여기에 모입니다.
   </p>
 </template>
