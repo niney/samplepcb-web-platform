@@ -3,7 +3,8 @@
 
 // vue-router 의 fullPath 는 base(/develop)를 제외하므로 되돌아올 절대 경로로 복원한다.
 export function developPath(routeFullPath: string): string {
-  return `/develop${routeFullPath.startsWith('/') ? routeFullPath : `/${routeFullPath}`}`;
+  const path = routeFullPath.startsWith('/') ? routeFullPath : `/${routeFullPath}`;
+  return `/develop${path === '/c' || path.startsWith('/c/') ? path : `/c${path}`}`;
 }
 
 export function loginUrl(returnPath: string): string {

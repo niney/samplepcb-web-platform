@@ -207,13 +207,27 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 
 ### 7.3 관리자 (`apps/web` `/app/admin/develop`)
 
+2026-09-09~10 두 프로토타입(G 수행관리·C 문서/워크큐)을 `prototype/develop-g-c`에서 나란히 비교한 뒤 **C 를 정본으로 승격하고 G 를 제거**했다(2026-09-10). 관리자 「개발」 모듈의 화면·API·문서 모델은 아래 §13·§14 가 정본이다. 정리 기록: [개발 프로토타입 정리](develop-prototypes.md).
+
+**개발 독립 모듈(2026-09-09)**: 상단 `통합 | PCB | BOM | 개발`에서 선택한다. 기존 통합 메뉴의 개발의뢰·설정은 개발 모듈로 이동했다. 업무별 목록은 프로젝트 단위로 검색·상태 필터·페이지를 제공하고, 선택한 업무의 상세 탭으로 연결한다. 메뉴 변경에 따른 DB migration은 없다.
+
 | 경로 | 화면 |
 |---|---|
-| `requests` | 워크큐 — 탭(접수·검토 중·견적 발송·결제 대기·진행 중·납품·완료·전체) counts, 검색, 담당자 |
+| 루트 | 진행현황 — 전체 프로젝트 상태, 작업 진척도, 지연 작업·승인 대기 바로가기 |
+| `requests` | 의뢰·검토 — 탭(접수·검토 중·견적 발송·결제 대기·진행 중·납품·완료·전체) counts, 검색, 담당자 |
+| `quotes` | 견적·계약 — 검토/견적/수락 단계 또는 견적이 있는 의뢰, 견적 버전·금액·상태, 계약서 바로가기 |
+| `schedule` | 수행·일정 — 수락 이후 또는 수행관리 이력이 있는 의뢰, 진척도·지연 작업·완료 예정일·착수 준비 |
+| `documents` | 문서·승인 — 수락 이후 또는 수행관리 이력이 있는 의뢰, 문서별 현재 공개 버전·고객 응답·회신 요청일 |
+| `delivery` | 납품·검수 — 진행/납품/완료 의뢰, 납품일·검수 기간·납품 완료확인서 |
+| `payments` | 청구·결제 — 수락한 견적의 결제 단계, 수납·미수납 금액, 기존 입금 확인·수동 청구 연결 |
 | `requests/:id` | **전면 상세**(드로어 아님) — 헤더(상태·전이·담당자) · 의뢰 내용·연락처 · AI 패널(초안 상태·재생성·보충 메모·구조 편집·공개) · 구성도 패널 · 견적서 목록·작성(붙여넣기)·발송 · 마일스톤·결제(od 파생·수동 확인) · 타임라인(메모·문의·확인 요청·납품·세금계산서) · 내부 메모 |
 | `settings` | 표준 조건·기본 마일스톤·검수/하자/유효기간·수신 메일·AI 자동 초안 |
 
 AI 모델·think·추가 지침은 기존 `/app/admin/settings` AI 탭에 `develop.*` 블록 추가.
+
+업무 목록 조회는 `GET /api/admin/develop/workspace`(`section`, `tab`, `q`, `page`, `pageSize`)이며 `requireAdmin`으로 보호한다. DB에서 업무 범위와 검색·상태 조건을 적용한 뒤 페이지를 나누고, 해당 페이지의 수행관리 JSON에서 요약만 반환한다. 문서 본문·과거 버전·AI 결과는 목록 응답에서 제외한다. 고객 승인 집계는 현재 공개 버전 기준이고, 미수납은 수락 견적의 `pending` 결제 단계만 합산한다. 결제·만료·자동검수의 lazy 동기화는 기존 상세 조회 흐름을 유지한다.
+
+기존 `requests/:id` 주소는 유지한다. `from`은 진입 업무 메뉴, `listTab/listQ/listPage`는 복귀 조건, `tab`은 상세 기능, `doc/kind`는 문서 선택·유형이다. 문서를 직접 선택해도 URL을 갱신한다. 상세의 일정·문서 패널은 재사용해 탭 이동 시 작성 중인 내용을 보존하며, 페이지를 떠날 때는 미저장 내용 확인을 거친다. 고객 `/develop`의 메뉴 구조는 유지한다. PCB·BOM 주문과의 정식 데이터 연결은 후속 범위다.
 
 P1 구현(2026-09-05): 신규 `apps/web/src/admin/useAdminDevelop.ts`(목록·상세 폴링·patch·status·aiRun·review PUT/액션·diagram 액션/업로드·이벤트 생성·설정·배지 카운트) · 페이지 `pages/admin/AdminDevelop{Requests,RequestDetail,Settings}.vue` · 조각 `components/admin/develop/`(StatusBar·RequestContent·ReviewPanel·ReviewEditor·DiagramPanel·Timeline·SideCards·AiChips + 순수 모듈 `develop-review-edit.ts`·`develop-badge.ts`). 기존 파일은 `layouts/AdminLayout.vue`(배지 `developReceived` 분기)·`components/admin/AiSettingsForm.vue`(develop 카드 2장)·`i18n/locales/ko.ts`·`en.ts`(`admin.develop.*` 237키)만 건드렸다. 결정 셋: ① 상태·이벤트·견적 라벨은 계약 사전(`DEVELOP_*_LABELS`)이 정본이라 i18n 으로 복제하지 않고 화면 고유 문구만 키로 둔다. ② 검토서 편집기는 서버 응답을 필드별로 새로 만들어(`cloneDevelopReview` — `structuredClone` 은 reactive proxy 에서 던진다) 로컬 상태로 들고, 행 상한(`DEVELOP_REVIEW_LIMITS`)은 계약 zod `.max()` 와 같은 값을 복제해 초과 추가를 UI 에서 막는다. ③ 타임라인 등록 게이트는 종류별로 갈린다 — 세금계산서는 발행일만 채우면 열리고(원장 성격, 서버도 payload 만으로 받는다), 나머지는 제목·본문·첨부 중 하나를 요구한다. ④ 확인이 필요한 자리(초안 가져오기·상태 사유)는 전부 인라인 패널이다(네이티브 `confirm` 없음).
 
@@ -262,7 +276,74 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 
 ## 12. 결정 로그
 
+- 2026-09-10 프로토타입 정리(사용자): 개발(G) 제거·개발(C) 를 「개발」 정본으로 승격, 경로를 `/develop`·`/app/admin/develop`·`/api/develop` 으로 되돌림. G 테이블 DROP 은 운영 확인 뒤 B단계.
+
+- 2026-09-09 수행관리 프로토타입(G, `prototype/develop-workflow`): 일정·문서·승인 관리를 JSON 상태 한 통(`sp_develop_workflow`)으로 구현해 비교했다. 2026-09-10 C(문서 8종·업무표·단계별 워크큐)를 정본으로 택하고 G 코드를 제거했다 — G 에서 가져온 규칙은 수동 청구 열기(`milestone_opened` 이벤트)·납품확인서 자동 동기화·업무표 upsert/낙관적 잠금/제외 상태·큐 URL 보존·이탈 가드·수납 시야·지연 작업 수. G 테이블 3개(`sp_develop_workflow`·`_audit`·`sp_develop_prototype`)는 코드에서만 떼고 DROP 은 운영 확인 뒤 별도 마이그레이션으로 한다([정리 기록](develop-prototypes.md)).
+
 - 2026-09-08 위저드 v2(사용자): 프로토타입 5스텝 이식 · 개별 메뉴에서 회로·펌웨어 제외(시스템개발 안에서만) · 분야별 질문은 선택지+서술 혼합 · 예산 사전 분리(`DEVELOP_BUDGET_RANGES`). 같은 날 v1.9 질문서(244문항) main 되돌림(강제 푸시, 로컬 브랜치에만 잔존). 로컬 DB 에 남아 있던 v1.9 migration 컬럼 12개는 수동 drop + `_prisma_migrations` 행 삭제로 정리했다(운영 미반영이라 무해). 상세 §7.2.1.
 
 - 2026-09-05 기획 확정(사용자): 마켓과 분리·이름·관리자 주도 AI·항목별 견적·마일스톤·회원 전용·실무 보강 6건(연락처·조건 문서 견적서·동의 기록·추가 견적·확인 요청·잔금 후 해제) 채택. 디자인은 새로.
 - 2026-09-05 구현 중 결정: `develop.dev-review` 기본 모델 kimi-k3 think medium(관리자 대기라 정밀, §12.8 프로빙 근거) · 하네스는 develop.* 유스케이스를 끄고 돈다(관리자 재생성은 force 라 부르지 않음) · 세금계산서 이벤트는 payload 만으로 등록 허용 · `DevelopOkResponse`·`paidBy` 계약 additive · 관리자 워커가 세션 강제 종료로 끊겨 i18n 230키를 재스폰 워커가 보충(키 누락 검사 스크립트 관례 확립).
+
+## 13. 프로젝트 문서·업무표 — 계약 이후 수행 구간 (2026-09-09 구현 `feat/develop-workflow-docs` · 2026-09-10 정본 승격)
+
+사용자가 준 프로토타입 「샘플피씨비 개발프로젝트 업무관리 서식」(보관본 `docs/prototypes/develop-workflow-prototype.html`, 10장: 현황·계약서·착수회의록·수행계획·중간검토·제작승인·시험검토·변경요청·납품확인·AI 메일)을 sp-develop 의 **착수 뒤(`in_progress`) 구간**에 얹은 문서 층. 기존 상태 머신(§4)은 그대로이고, 그 안에서 문서·업무표가 오간다. 프로토타입에서 일부러 안 가져온 것: localStorage 저장, 키워드 조합 가짜 AI, input 인덱스 기반 복원, 순서 기반 가짜 간트 위치.
+
+### 13.1 프로토타입 ↔ 기존 대응
+
+| 서식 | 대응 | 구현 |
+|---|---|---|
+| 00 현황 | 상태 스텝퍼는 상태 단위뿐 | **파생**: 달성도(업무표 가중 평균)·현재 단계(7단계, 업무에서)·예상 완료일(최신 발송 수행계획)·확인 대기(sent 승인형 수). 저장 없음 |
+| 01 계약서 | 수락 견적서(결정 11) | 문서 아님 — 견적 인쇄 뷰 `?mode=contract`(서명란·동의 기록·발주서) |
+| 02 착수회의록 | 없음 | 승인형 문서 `kickoff` |
+| 03 수행계획 | 검토서 일정(예상)·견적 기간(약속) | 공유형 문서 `plan`(기준 착수·계획·예상 완료일) + **업무표 `sp_develop_task`**(프로토타입 15행 기본값 `DEVELOP_DEFAULT_TASKS` — 코드 상수) |
+| 04 중간 개발검토서 | `review_request` 이벤트(2택) | 승인형 문서 `design_review`(4택). 옛 이벤트는 읽기 호환 |
+| 05 제작 진행 승인서 | 위저드 `production` 계획 | 승인형 `production_approval`(승인 범위 체크리스트). 실제 제작은 PCB·BOM 트랙 링크만 |
+| 06 시제품 시험검토서 | 없음 | 공유형 `test_report`(시험결과 표) |
+| 07 변경요청서 | `kind=change` 견적(결정 12) | 승인형 `change_request` — 승인되면 change 견적 초안 자동(`createChangeQuoteDraft`, 금액 0·기본 마일스톤, 관리자가 채워 발송) |
+| 08 납품 완료확인서 | `deliverable(final)`·검수 확정·자동확정·잠금 해제 | 승인형 `delivery_confirm`(납품물 표 4행 프리셋) — delivered 에서 승인=`completed`, 보완 후 승인=`in_progress`(재납품), 추가 협의=이벤트만 |
+| 09 AI 정리·메일 | 메일 10종·`sp_ai_usecase` | 결정적 초안 `buildDevelopDocMailDraft`(계약) + 유스케이스 `develop.doc-mail`(잡, 관리자 확인 뒤 발송). 공유형 `progress_report` 가 00 의 세 칸(완료·현재·다음 업무) |
+
+### 13.2 문서 모델
+
+- 문서 8종은 한 테이블 `sp_develop_document` — `type` + **필드 스펙**(`DEVELOP_DOC_FIELDS[type]`: key·label·kind(text/textarea/date/datetime/select/checklist/table)·options·columns·meta) + 본문 JSON(`DevelopDocContent`: key → string | 코드 배열 | 행 배열). 폼·읽기 뷰·메일 본문이 같은 스펙으로 그려지고, 서버는 `developDocContentIssues` 로 400(`CONTENT_INVALID`)을 낸다. 부분 본문 허용, 빈 문서 발송은 400 `EMPTY_DOCUMENT`.
+- 문서번호 `docNo` = 종류 코드 + 종류별 일련번호(`DR-01`·`CR-02`). **재발송은 새 판**(`revise` → 같은 종류·번호, version+1 draft, 본문 복사) → 발송 시 이전 판 `superseded`. 고객은 보낸 판만 보고(`draft` 는 어떤 응답에도 없다) `isCurrent` 가 현재 판.
+- 상태 `draft → sent → 결정(approved·conditional·changes_requested·discuss_requested·rejected) | superseded`. 결정 선택지는 종류별(`DEVELOP_DOC_DECISION_OPTIONS`: 기본 4택 / 변경요청 「변경 적용 승인·기존 범위 유지·내용 수정 후 재검토·담당자 협의 필요」 / 납품확인 「납품 승인·보완 후 승인·추가 협의」). 공유형(plan·test_report·progress_report)은 결정 없음(409 `NOT_APPROVAL_DOC`). 결정 = 동의 기록(시각·IP·이름, 견적 수락 패턴), sent 에서 한 번(409 `DOC_NOT_OPEN`).
+- 새 판은 본문·회신 요청일·내부 메모만 복사하고 **첨부는 복사하지 않는다**(파일 행 복제 → 한쪽 삭제가 실파일을 지움). 상태 라벨은 `developDocStatusLabel(type, status)` — 공유형 sent 는 '공유됨'.
+- 발송 = 판 고정 + `mailSubject/Body`(관리자가 확인한 그대로) 저장 + 이벤트 `document_sent`(고객 노출) + 고객 메일(`sendMail` 끄면 화면 공개만). 결정 = 이벤트 `document_decided` + 관리자 메일 + 부수효과(납품확인·변경요청). 문서 생성은 `accepted` 이후(`DEVELOP_DOC_ALLOWED_STATUSES`), 납품확인서는 delivered·completed 에서만(409 `DOC_TYPE_NOT_ALLOWED`).
+- 고객 `nextAction` 에 `answer_document`(승인형 sent 문서, 결제·검수보다 뒤 순위). 첨부는 draft 에서만 붙이고 고객 다운로드는 보낸 판의 첨부만(기존 파일 라우트가 refType 을 하나 더 안다).
+
+### 13.3 업무표·현황
+
+- `sp_develop_task` 행 = 업무명·단계(`DEVELOP_TASK_PHASES` 7: 계약·착수/요구사항/설계·개발/제작·입고/조립·시험/인증·검토/납품·완료)·상태 7(제외 포함)·시작/완료일·가중치(bp)·진행률·비고·고객 공개. `PUT …/tasks` 는 행을 `taskId` 로 upsert 한다(2026-09-10 — 번호 유지, 진행 이력 행 삭제 409 `TASK_HAS_PROGRESS` → 상태 `skipped`(제외), `revision` 불일치 409 `REVISION_CONFLICT`, 완료⇔100%·예정⇒0% 정합). 기본 15행·가중치는 프로토타입 값(코드 상수 — 설정 테이블에 넣으면 ALTER 라 롤백 조건을 깬다).
+- 진행 요약 `developProgressSummary(tasks, contractDone)`(계약 순수 함수, 서버·화면 공용): 달성도 = Σ(가중치×진행률)/Σ가중치(합 0 이면 단순 평균) · 현재 단계 = 업무가 있고 다 끝나지 않은 첫 단계 · 단계 상태 done/now/todo(업무 없는 '계약·착수' 는 착수 뒤면 done). 고객에겐 공개 행만 주되 달성도는 전 행 기준(사용자 결정 7).
+- 예상 완료일·계획 완료일·기준 착수일은 **최신 발송 수행계획(plan) 문서**에서 파생.
+
+### 13.4 원복
+
+C 구현은 2026-09-10 정본으로 승격됐고, 옛 트라이얼용 `down.sql`(문서·업무 테이블 삭제)은 더 쓰지 않는다. 운영 원복은 [DB 스냅샷과 원복](db-snapshot-rollback.md)(코드 되돌리기 + 배포 전 스냅샷 복원)을 따른다. G 프로토타입 시절 테이블 정리와 코드 원복 지점은 [개발 프로토타입 정리](develop-prototypes.md)에 있다.
+
+### 13.5 화면
+
+- 관리자(`apps/web`): 상세 여섯 번째 탭 「프로젝트 문서」(진행 타임라인 뒤, `?tab=documents`) — 현황 띠(달성도·7단계·확인 대기) · 업무표 편집(기본 업무·검토서 일정 시드·가중치·간트는 실제 날짜) · 문서 목록·필드 스펙 편집기·첨부·발송 패널(결정적 초안 → AI 다듬기 → 확인 → 발송) · 읽기 뷰·새 판·인쇄(인쇄 순간에만 `html.sp-doc-printing` + 카드 `.sp-doc-print-target` 로 그 카드만 남김). 순수 모듈 `develop-doc-edit.ts`(본문 복사·폼 정규화·업무 행 변환·간트 모델). AI 설정 탭에 `develop.doc-mail` 카드(⑦). AI 잡 폴링은 설정 화면의 `useAiJob` 재사용. 워커 지시서 `docs/prompts/develop-workflow-b-admin.md`.
+- 고객(`apps/develop`): 상세 「진행 현황·문서」 섹션(`#documents`) — 현황 카드·공개 업무표·확인 대기 배너·문서 목록(현재 판·이전 판 접힘)·읽기·결정 패널(종류별 라디오+의견+이름+확인 체크)·문서 인쇄 라우트 · 견적 인쇄 `?mode=contract` 계약서 보기 · 목록 칩 「문서 확인·회신」. 워커 지시서 `docs/prompts/develop-workflow-a-app.md`.
+- 검증: 하네스 §10b(업무표·문서 생성/검증/발송/결정/새 판/변경요청→change 견적/삭제)·§11b(납품확인서 보완→재납품→승인 completed) **170/0** · 단위 `develop-doc-mail.test.ts`(3)·`packages/utils/src/develop-docs.test.ts`(5) · 8워크스페이스 typecheck.
+
+## 14. 관리자 「개발」 모듈 — 스위처·단계별 워크큐·진행현황 (2026-09-09, 사용자 결정)
+
+개발의뢰가 통합 모듈의 메뉴 2개(워크큐·설정)와 상세 한 장의 탭 6개에 갇혀 있어(접수→A/S 까지 단계가 가장 긴 트랙), PCB·BOM 과 같은 **독립 모듈**로 올린다. 라벨은 「개발」(en `DEV`). `admin/menu.ts` 가 예고해 둔 기술개발 모듈 자리다. 모듈 판정은 라우트 이름 접두 `admin-develop`.
+
+- 메뉴(순서 고정): 진행현황(모듈 홈) · 접수·검토(`intake`=received+reviewing) · 견적·계약(`contract`=quoted+accepted) · 진행 프로젝트(in_progress) · 납품·검수(delivered) · 문의·A/S(signal `inquiries_open`) · 전체 의뢰(기존 워크큐) · 설정(통합에서 이동). AI 설정은 모듈 횡단이라 통합에 남는다.
+- 배지 = "지금 관리자 차례" 하나씩: 접수 n(counts.received) · 결제 대기 n(counts.accepted) · 회신 대기 n(signals.docsAwaiting) · 검수 중 n(counts.delivered) · 미답변 n(signals.inquiriesOpen) · 홈은 기한 초과 n(signals.replyOverdue).
+- 서식(§13)은 건 안의 도구이고 메뉴는 단계별 워크큐다 — 관리자가 매일 여는 것은 "내 차례인 건" 목록이기 때문. 건별 상세는 한 장 허브를 유지하고 각 큐가 해당 탭(`?tab=`)으로 딥링크한다.
+- 서버(목록 API, 추가형): `DEVELOP_ADMIN_TABS` 에 `intake`·`contract` · query `signal`(`docs_awaiting`·`inquiries_open`·`reply_overdue`, 문서·이벤트 파생이라 DB 로 못 자르므로 탭 전 행을 읽어 메모리에서 페이지를 자른다) · 행별 `ops`(`developOpsFor` — 업무표 진행률·현재 단계, sent 승인형 문서 수·가장 이른 회신 요청일·기한 초과, 마지막 담당자 답변 뒤 고객 문의·A/S 수와 마지막 문의 발췌) · 응답 `signals`(검색어 무관, 활성 의뢰 전체). 미답변 판정은 이벤트가 진실(저장 없음).
+- 화면 지시서 `docs/prompts/develop-workflow-c-module.md`. 검증: 하네스 §4·§10b·§13 에 신호 단언 5건(**175/0**) · web typecheck/lint 0 · i18n 1536/1536 · 실브라우저(스텁 관리자, pageErrors 0) — 빈 상태(워커)와 신호가 전부 켜진 상태(감사자: 픽스처를 in_progress 로 올려 회신 기한 초과·미답변 문의를 만들어 홈 카드 정렬·배지 6개·진행 프로젝트/문의 큐 열 확인, `.tmp/develop/shots/admin-module-signals-*.png`).
+- 화면 구현 결정(워커 보고): 공용 표 `DevelopQueueTable.vue` + 열 프리셋 순수 모듈 `develop-queue.ts`(전체 의뢰 화면도 같은 표, 합산 탭 intake·contract 는 숨김) · 접수·검토/견적·계약 큐는 합산 탭 옆에 하위 상태 탭 · 홈은 `tab=all&pageSize=100` 뒤 클라이언트 필터(활성 100건 넘으면 서버 탭 `active` 로 바꿀 것) · 홈 요약 칩 7개는 큐 링크 · 배지 훅 `useDevelopModuleSignals` 하나(60초).
+
+### 14.1 2026-09-10 이식 규칙(G 비교에서 채택)
+
+- **수동 청구 열기** — `POST /api/admin/develop/milestones/:mid/open` 이 `milestone_opened` 이벤트(고객 노출)를 남기고, `milestonePayable` 은 `manual` 마일스톤을 열린 것만 결제 가능으로 본다. 견적 카드 「고객 결제 열기」(인라인 확인)·「청구 열림」. 워크큐 ops `openableMilestones`.
+- **납품확인서 동기화** — 검수기간 경과 자동확정·관리자 「완료」·옛 검수 확정·완료 건 읽기에서 `sent` 납품확인서를 승인으로 닫고 `document_decided` 이벤트를 남긴다(`closeDeliveryConfirmDocs`).
+- **큐 URL 보존·목록 복귀** — 큐 표가 탭·신호·검색·페이지를 쿼리에 두고, 상세 `?from=`+`lt/ls/lq/lp` 로 「← 목록으로」가 떠난 자리로(`admin/develop-navigation.ts`).
+- **이탈 가드** — 상세에서 검토서·문서·업무표 편집 중이거나 견적 편집기가 열려 있으면 confirmDialog(라우터)·beforeunload(탭 닫기).
+- **수납 시야·지연 작업 수** — ops `paidAmount`/`pendingAmount`(수락 견적 마일스톤만)·`overdueTasks`(완료일 경과 ∧ 미완료, 제외 제외) → 큐 `money` 열·달성도 열·홈 카드·현황 띠.

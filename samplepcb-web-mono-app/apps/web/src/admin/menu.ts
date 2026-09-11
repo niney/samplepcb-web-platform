@@ -1,3 +1,4 @@
+import { developMenu } from './develop-menu';
 import type { RouteLocationRaw } from 'vue-router';
 
 // 관리자 사이드바 메뉴 — 헤더 모듈 스위처로 모듈별 메뉴를 전환한다
@@ -20,12 +21,12 @@ export interface AdminMenuItem {
     | 'pcbOrdersAwaiting'
     | 'pcbRemittancePending'
     | 'pcbClaimsPending'
-    | 'developReceived';
+    | 'developReceived' | 'developAccepted' | 'developDelivered' | 'developDocsAwaiting' | 'developInquiries' | 'developReplyOverdue';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
 
-export type AdminModuleKey = 'core' | 'smartbom' | 'pcb';
+export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'develop';
 
 export interface AdminModule {
   key: AdminModuleKey;
@@ -49,14 +50,6 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
   { to: { name: 'admin-market-contracts' }, labelKey: 'admin.menu.marketContracts' },
   { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
-  // 개발의뢰(/develop, sp-develop) 관리 — 워크큐(상세는 형제 라우트)·설정
-  {
-    to: { name: 'admin-develop-requests' },
-    labelKey: 'admin.menu.developRequests',
-    badge: 'developReceived',
-    activeRouteNames: ['admin-develop-request'],
-  },
-  { to: { name: 'admin-develop-settings' }, labelKey: 'admin.menu.developSettings' },
   {
     to: { name: 'admin-bom' },
     labelKey: 'admin.menu.bom',
@@ -162,7 +155,7 @@ const pcbMenu: AdminMenuItem[] = [
 ];
 
 // 모듈 사전 — core(통합) = 공용 기준정보와 기존 관리 기능, pcb·smartbom = 업무 모듈.
-// 확장 자리(PCBA주문·기술개발)는 각 모듈이 실제로 생길 때 추가한다.
+// 개발은 의뢰 접수부터 수행·납품·결제까지 별도 업무 모듈로 제공한다.
 export const adminModules: readonly AdminModule[] = [
   { key: 'core', labelKey: 'admin.modules.core', homeTo: { name: 'admin' }, menu: adminMenu },
   {
@@ -177,12 +170,16 @@ export const adminModules: readonly AdminModule[] = [
     homeTo: { name: 'admin-smartbom' },
     menu: smartbomMenu,
   },
+  // 개발의뢰 모듈(docs/DEVELOP_FLOW.md §14) — 단계별 워크큐. 2026-09-10 G 프로토타입 제거로 C 구현이 정본.
+  { key: 'develop', labelKey: 'admin.modules.develop', homeTo: { name: 'admin-develop' }, menu: developMenu },
 ];
 
 // 라우트 이름 → 소속 모듈. 스위처 활성 상태는 이 파생이 단일 진실 — 북마크·새로고침
 // 진입에서도 메뉴가 어긋나지 않는다(레거시 useAppMode gotcha 회수).
 export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
-  routeName.startsWith('admin-smartbom')
+  routeName === 'admin-develop' || routeName.startsWith('admin-develop-')
+    ? 'develop'
+    : routeName.startsWith('admin-smartbom')
     ? 'smartbom'
     : routeName.startsWith('admin-pcb')
       ? 'pcb'

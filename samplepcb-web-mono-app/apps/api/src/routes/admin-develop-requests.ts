@@ -22,9 +22,11 @@ import {
 } from '@sp/api-contract';
 import type {
   AdminDevelopAiSummaryType,
+  AdminDevelopOpsType,
   AdminDevelopRequestCountsType,
   AdminDevelopRequestDetailType,
   AdminDevelopRequestListItemType,
+  DevelopAdminSignalType,
   DevelopAdminTabType,
   DevelopRequestStatusType,
   MarketDevReviewType,
@@ -42,6 +44,7 @@ import {
   asDevelopStatus,
   developEventFiles,
   developWizardFieldsOf,
+  openedDevelopMilestones,
   toDevelopAreaCodes,
   toDevelopContact,
   toDevelopEventView,
@@ -49,6 +52,7 @@ import {
   transitionDevelopStatus,
 } from '../lib/develop';
 import { developReviewDraftRunning, startDevelopAiDrafts } from '../lib/develop-ai';
+import { REF_DEVELOP_DOCUMENT, buildDevelopProgress, closeDeliveryConfirmDocs, developOpsFor, emptyDevelopOps, loadDevelopDocuments, loadDevelopTasks, toAdminDevelopDocumentView } from '../lib/develop-docs';
 import { developReferenceFiles, developSourceSignature } from '../lib/develop-ai-source';
 import { buildCompletedEmail, buildDeliveredEmail, buildStatusChangedEmail, sendDevelopMail } from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy } from '../lib/develop-payment';
@@ -83,7 +87,12 @@ const TAB_STATUSES: Record<DevelopAdminTabType, readonly DevelopRequestStatusTyp
   delivered: ['delivered'],
   completed: ['completed'],
   closed: ['cancelled', 'declined'],
+  intake: ['received', 'reviewing'],
+  contract: ['quoted', 'accepted'],
 };
+const ACTIVE_STATUSES: readonly DevelopRequestStatusType[] = ['received', 'reviewing', 'quoted', 'accepted', 'in_progress', 'delivered'];
+const hasSignal = (ops: AdminDevelopOpsType, signal: DevelopAdminSignalType): boolean =>
+  signal === 'docs_awaiting' ? ops.pendingApprovals > 0 : signal === 'inquiries_open' ? ops.openInquiries > 0 : ops.replyOverdue;
 
 const toOwner = (mbId: string, m: G5Member | undefined): AdminDevelopRequestListItemType['owner'] => ({
   mbId,
@@ -119,6 +128,7 @@ const toItem = async (
   owner: AdminDevelopRequestListItemType['owner'],
   files: readonly Pick<SpFile, 'id' | 'size'>[],
   quotes: readonly { id: bigint; version: number; kind: string; status: string; totalAmount: number }[],
+  ops: AdminDevelopOpsType,
 ): Promise<AdminDevelopRequestListItemType> => {
   const latest = quotes.slice().sort((a, b) => b.version - a.version)[0];
   return {
@@ -150,6 +160,7 @@ const toItem = async (
           },
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+    ops,
   };
 };
 
@@ -186,12 +197,15 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
 
   // 상세 — 고객 상세(공개본·visible 이벤트) 위에 관리자 전용 층(3층 검토서·현재본 구성도·내부 메모·전 이벤트·전 견적)을 얹는다.
   const buildAdminDetail = async (r: SpDevelopRequest): Promise<AdminDevelopRequestDetailType> => {
-    const [customerDetail, members, files, quotes, events] = await Promise.all([
+    const [customerDetail, members, files, quotes, events, documents, tasks, opened] = await Promise.all([
       buildDevelopRequestDetail(r),
       getMembersByIds([r.mbId, ...(r.assigneeMbId === null ? [] : [r.assigneeMbId])]),
       developReferenceFiles(r.id),
       prisma.spDevelopQuote.findMany({ where: { requestId: r.id }, include: { items: true, milestones: true }, orderBy: { version: 'asc' } }),
       prisma.spDevelopEvent.findMany({ where: { requestId: r.id }, orderBy: { id: 'asc' } }),
+      loadDevelopDocuments(r.id, { includeDrafts: true }),
+      loadDevelopTasks(r.id),
+      openedDevelopMilestones(r.id),
     ]);
     const [eventFiles, poFiles, allFiles] = await Promise.all([
       developEventFiles(events.map((e) => e.id)),
@@ -199,7 +213,8 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       prisma.spFile.findMany({ where: { refType: REF_DEVELOP_REQUEST, refId: r.id, fileType: 'attachment' }, orderBy: { id: 'asc' } }),
     ]);
     const poByQuote = new Map(poFiles.map((f) => [f.refId.toString(), f]));
-    const item = await toItem(r, toOwner(r.mbId, members.get(r.mbId)), files, quotes);
+    const opsMap = await developOpsFor([r]);
+    const item = await toItem(r, toOwner(r.mbId, members.get(r.mbId)), files, quotes, opsMap.get(r.id.toString()) ?? emptyDevelopOps());
     const status = asDevelopStatus(r.status);
     const draftJob = r.devReviewDraftJobId === null ? null : await getAiJob(r.devReviewDraftJobId);
     const working = toDevReview(r.devReview);
@@ -239,8 +254,11 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         publishedAt: r.devDiagramPublishedAt?.toISOString() ?? null,
         publishedStale: r.devDiagramPublicHtml !== null && r.devDiagramHtml !== null && r.devDiagramPublicHtml !== r.devDiagramHtml,
       },
-      quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null), internalNote: q.internalNote })),
+      quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null, opened), internalNote: q.internalNote })),
       events: events.map((e) => toDevelopEventView(e, eventFiles.get(e.id.toString()) ?? [], actorName(e), false)),
+      // 프로젝트 문서(§13) — draft·이전 판·메일 확인본까지. 진행 현황은 전 업무 행.
+      documents: documents.rows.map((d) => toAdminDevelopDocumentView(d, documents.files.get(d.id.toString()) ?? [], documents.current.has(d.id.toString()))),
+      progress: buildDevelopProgress(r, tasks, documents.rows, false),
       reviewDays: customerDetail.reviewDays,
       startedAt: customerDetail.startedAt,
       deliveredAt: customerDetail.deliveredAt,
@@ -253,8 +271,8 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
 
   // ── GET /admin/develop/requests — 워크큐 ──────────────────────────────────────
   fastify.get('/develop/requests', { schema: { querystring: AdminDevelopRequestListQuery } }, async (request) => {
-    const { page, pageSize, tab, q } = request.query;
-    const search: Prisma.SpDevelopRequestWhereInput =
+    const { page, pageSize, tab, q, signal } = request.query;
+    const searchBase: Prisma.SpDevelopRequestWhereInput =
       q === undefined || q === ''
         ? {}
         : {
@@ -265,12 +283,33 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
               { contactCompany: { contains: q } },
             ],
           };
+    const search: Prisma.SpDevelopRequestWhereInput = searchBase;
     const where: Prisma.SpDevelopRequestWhereInput = { ...search, status: { in: [...TAB_STATUSES[tab]] } };
-    const [rows, total, grouped] = await Promise.all([
-      prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+    // 신호 필터(§14)는 DB 로 못 자른다(문서·이벤트에서 파생) — 탭의 전 행을 읽어 메모리에서 거르고 페이지를 자른다(활성 의뢰 규모에서 충분).
+    const [rowsAll, totalAll, grouped, activeRows] = await Promise.all([
+      signal === undefined
+        ? prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * pageSize, take: pageSize })
+        : prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, take: 1000 }),
       prisma.spDevelopRequest.count({ where }),
       prisma.spDevelopRequest.groupBy({ by: ['status'], where: search, _count: { _all: true } }),
+      // 모듈 배지 수 — 검색어와 무관하게 활성 의뢰 전체.
+      prisma.spDevelopRequest.findMany({ where: { status: { in: [...ACTIVE_STATUSES] } }, select: { id: true, status: true } }),
     ]);
+    const [opsAll, opsActive] = await Promise.all([developOpsFor(rowsAll), developOpsFor(activeRows)]);
+    const opsOf = (id: bigint): AdminDevelopOpsType => opsAll.get(id.toString()) ?? emptyDevelopOps();
+    let rows = rowsAll;
+    let total = totalAll;
+    if (signal !== undefined) {
+      const filtered = rowsAll.filter((r) => hasSignal(opsOf(r.id), signal));
+      total = filtered.length;
+      rows = filtered.slice((page - 1) * pageSize, page * pageSize);
+    }
+    const activeOps = activeRows.map((r) => opsActive.get(r.id.toString()) ?? emptyDevelopOps());
+    const signals = {
+      docsAwaiting: activeOps.filter((o) => o.pendingApprovals > 0).length,
+      inquiriesOpen: activeOps.filter((o) => o.openInquiries > 0).length,
+      replyOverdue: activeOps.filter((o) => o.replyOverdue).length,
+    };
     const byStatus = new Map(grouped.map((g) => [g.status, g._count._all]));
     const counts = Object.fromEntries(
       (Object.keys(TAB_STATUSES) as DevelopAdminTabType[]).map((t) => [t, TAB_STATUSES[t].reduce((n, s) => n + (byStatus.get(s) ?? 0), 0)]),
@@ -291,10 +330,11 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
           toOwner(r.mbId, members.get(r.mbId)),
           files.filter((f) => f.refId === r.id),
           quotes.filter((qq) => qq.requestId === r.id),
+          opsOf(r.id),
         ),
       ),
     );
-    return { result: true as const, data: { items, total, page, pageSize, counts } };
+    return { result: true as const, data: { items, total, page, pageSize, counts, signals } };
   });
 
   // ── GET /admin/develop/requests/:id ──────────────────────────────────────────
@@ -372,6 +412,8 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         });
       }
       if (to === 'completed') {
+        // 대행 확정으로 끝나면 sent 로 남은 납품확인서를 '납품 승인'으로 닫는다(2026-09-10, G syncWorkflowAutoConfirm 이식).
+        await closeDeliveryConfirmDocs(r.id, { decidedName: '관리자 대행', note: reason ?? null, actorMbId: mbId, byAdmin: true }, now);
         void sendDevelopMail(request.log, await customerEmailOf(r), buildCompletedEmail({ ...brief, confirmedBy: 'admin', forAdmin: false }), {
           kind: 'develop_completed',
           refType: 'develop_request',
@@ -700,7 +742,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
   // ── 관리자 파일 조회 — 의뢰·이벤트·견적 파일을 한 번호 체계로 본다. 다운로드·미리보기가 같은 판정을 쓴다.
   const findDevelopFile = (fileId: string): Promise<SpFile | null> =>
     prisma.spFile.findFirst({
-      where: { id: BigInt(fileId), refType: { in: [REF_DEVELOP_REQUEST, REF_DEVELOP_EVENT, REF_DEVELOP_QUOTE] } },
+      where: { id: BigInt(fileId), refType: { in: [REF_DEVELOP_REQUEST, REF_DEVELOP_EVENT, REF_DEVELOP_QUOTE, REF_DEVELOP_DOCUMENT] } },
     });
 
   // ── GET /admin/develop/files/:fileId — 관리자 다운로드(의뢰·이벤트·견적 파일 전부) ─────

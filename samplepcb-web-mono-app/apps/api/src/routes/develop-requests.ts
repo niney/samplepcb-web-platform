@@ -1,10 +1,15 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { SpDevelopEvent, SpDevelopMilestone, SpDevelopQuote, SpDevelopQuoteItem, SpDevelopRequest, SpFile } from '@prisma/client';
+import type { SpDevelopDocument, SpDevelopEvent, SpDevelopMilestone, SpDevelopQuote, SpDevelopQuoteItem, SpDevelopRequest, SpFile } from '@prisma/client';
+import { kstToday } from '@sp/utils';
 import { z } from 'zod';
 import {
+  DEVELOP_DOC_DECISION_OPTIONS,
+  DEVELOP_DOC_TYPE_LABELS,
   DevelopCancelBody,
   DevelopCommentBody,
+  DevelopDocumentDecideBody,
   DevelopQuoteAcceptBody,
   DevelopQuoteDeclineBody,
   DevelopRequestCreatePayload,
@@ -14,11 +19,15 @@ import {
   DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_REGISTRY,
   applyDevelopFollowupAnswers,
+  computeDevelopQuoteAmounts,
+  developDocDecisionLabel,
+  developDocNo,
   developMergedIssues,
   developQuestionsFor,
   developRequiredMissing,
   fileViewKind,
   isDevelopCustomerCancellable,
+  isDevelopDocApproval,
   isDevelopEditable,
   keepDevelopDelegateAnswers,
   mergeDevelopFollowupAnswers,
@@ -27,6 +36,7 @@ import {
   normalizeDevelopTools,
   resolveDevelopServiceAreas,
   resolveFileMime,
+  splitDevelopMilestoneAmounts,
 } from '@sp/api-contract';
 import type {
   DevelopAiQuestionsType,
@@ -55,6 +65,9 @@ import {
   developEventFileGate,
   developEventFiles,
   developWizardFieldsOf,
+  milestonePayable,
+  openedDevelopMilestones,
+  openedDevelopMilestonesFor,
   toDevelopAiQuestions,
   toDevelopAreaCodes,
   toDevelopContact,
@@ -63,9 +76,21 @@ import {
   transitionDevelopStatus,
 } from '../lib/develop';
 import { startDevelopAiDrafts } from '../lib/develop-ai';
+import {
+  REF_DEVELOP_DOCUMENT,
+  asDocType,
+  buildDevelopProgress,
+  closeDeliveryConfirmDocs,
+  hasPendingDocumentDecision,
+  loadDevelopDocuments,
+  loadDevelopTasks,
+  toDevelopDocumentView,
+  toDocContent,
+} from '../lib/develop-docs';
 import { getAiJob } from '../lib/ai/jobs';
 import { DEVELOP_FOLLOWUP_USECASE } from '../lib/ai/usecases';
 import {
+  buildAdminDocumentDecidedEmail,
   buildAdminNewRequestEmail,
   buildAdminQuoteAcceptedEmail,
   buildCommentEmail,
@@ -115,6 +140,7 @@ const RequestFileParams = z.object({ id: z.string().regex(/^\d+$/), fileId: z.st
 const RequestQuoteParams = z.object({ id: z.string().regex(/^\d+$/), qid: z.string().regex(/^\d+$/) });
 const RequestMilestoneParams = z.object({ id: z.string().regex(/^\d+$/), mid: z.string().regex(/^\d+$/) });
 const RequestEventParams = z.object({ id: z.string().regex(/^\d+$/), eventId: z.string().regex(/^\d+$/) });
+const RequestDocParams = z.object({ id: z.string().regex(/^\d+$/), docId: z.string().regex(/^\d+$/) });
 
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'https://local-web.samplepcb.co.kr';
 // 취소류 카트 라인(마켓 checkout 관례) — 이 상태면 재주입 대상.
@@ -128,22 +154,10 @@ const requestFilesOf = (requestId: bigint): Promise<SpFile[]> =>
 
 type QuoteWithChildren = SpDevelopQuote & { items: SpDevelopQuoteItem[]; milestones: SpDevelopMilestone[] };
 
-// 결제 가능 판정 — pending ∧ trigger 조건. 서버 파생값이라 화면은 계산하지 않는다.
-export const milestonePayable = (m: SpDevelopMilestone, status: DevelopRequestStatusType): boolean => {
-  if (m.status !== 'pending') return false;
-  switch (m.trigger) {
-    case 'on_accept':
-      return true;
-    case 'on_delivery':
-      return status === 'delivered' || status === 'completed';
-    case 'on_completion':
-      return status === 'completed';
-    default:
-      return false; // manual — 관리자가 pending 으로 열어 둔 것만(P2: 별도 플래그)
-  }
-};
+// 결제 가능 판정은 lib/develop.ts milestonePayable — manual 은 담당자가 연 것(milestone_opened 이벤트)만(2026-09-10).
+export { milestonePayable };
 
-export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestStatusType): DevelopMilestoneViewType => ({
+export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestStatusType, opened: ReadonlySet<number> = new Set()): DevelopMilestoneViewType => ({
   milestoneId: Number(m.id),
   quoteId: Number(m.quoteId),
   seq: m.seq,
@@ -152,7 +166,7 @@ export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestSta
   amount: m.amount,
   trigger: asMilestoneTrigger(m.trigger),
   status: asMilestoneStatus(m.status),
-  payable: milestonePayable(m, status),
+  payable: milestonePayable(m, status, opened),
   unlocksDeliverables: m.unlocksDeliverables,
   paidAt: m.paidAt?.toISOString() ?? null,
   paidBy: m.paidBy === 'lazy' || m.paidBy === 'admin' ? m.paidBy : null,
@@ -162,7 +176,7 @@ export const toMilestoneView = (m: SpDevelopMilestone, status: DevelopRequestSta
 const toDeliverables = (json: Prisma.JsonValue | null): string[] =>
   Array.isArray(json) ? json.filter((v): v is string => typeof v === 'string') : [];
 
-export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusType, poFile: SpFile | null): DevelopQuoteViewType => ({
+export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusType, poFile: SpFile | null, opened: ReadonlySet<number> = new Set()): DevelopQuoteViewType => ({
   quoteId: Number(q.id),
   requestId: Number(q.requestId),
   version: q.version,
@@ -201,7 +215,7 @@ export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusTy
   milestones: q.milestones
     .slice()
     .sort((a, b) => a.seq - b.seq)
-    .map((m) => toMilestoneView(m, status)),
+    .map((m) => toMilestoneView(m, status, opened)),
   poFile: poFile === null ? null : toDevelopFileMeta(poFile),
 });
 
@@ -211,10 +225,14 @@ const nextActionOf = (
   quotes: readonly SpDevelopQuote[],
   milestones: readonly SpDevelopMilestone[],
   events: readonly SpDevelopEvent[],
+  documents: readonly SpDevelopDocument[] = [],
+  opened: ReadonlySet<number> = new Set(),
 ): DevelopRequestListItemType['nextAction'] => {
   if (quotes.some((q) => q.status === 'sent')) return 'review_quote';
-  if (milestones.some((m) => milestonePayable(m, status))) return 'pay';
+  if (milestones.some((m) => milestonePayable(m, status, opened))) return 'pay';
   if (status === 'delivered') return 'inspect';
+  // 승인형 프로젝트 문서(§13)가 고객 확인 대기면 그것이 할 일.
+  if (hasPendingDocumentDecision(documents)) return 'answer_document';
   // 마지막 확인 요청 뒤에 승인/수정 요청이 없으면 답변 차례.
   let pendingReview = false;
   for (const e of events) {
@@ -229,6 +247,8 @@ const toListItem = (
   quotes: readonly SpDevelopQuote[],
   milestones: readonly SpDevelopMilestone[],
   events: readonly SpDevelopEvent[],
+  documents: readonly SpDevelopDocument[] = [],
+  opened: ReadonlySet<number> = new Set(),
 ): DevelopRequestListItemType => {
   const status = asDevelopStatus(r.status);
   return {
@@ -240,7 +260,7 @@ const toListItem = (
     budgetRange: asDevelopBudgetRange(r.budgetRange),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
-    nextAction: nextActionOf(status, quotes, milestones, events),
+    nextAction: nextActionOf(status, quotes, milestones, events, documents, opened),
     reviewPublished: r.devReviewPublic !== null,
     diagramPublished: r.devDiagramPublicHtml !== null,
   };
@@ -249,7 +269,7 @@ const toListItem = (
 // 상세 — 소유자용. 공개본만·visibleToCustomer 이벤트만·draft 견적 제외.
 export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<DevelopRequestDetailType> {
   const status = asDevelopStatus(r.status);
-  const [files, quotes, events, locked] = await Promise.all([
+  const [files, quotes, events, locked, documents, tasks, opened] = await Promise.all([
     requestFilesOf(r.id),
     prisma.spDevelopQuote.findMany({
       where: { requestId: r.id, status: { not: 'draft' } },
@@ -258,6 +278,9 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
     }),
     prisma.spDevelopEvent.findMany({ where: { requestId: r.id, visibleToCustomer: true }, orderBy: { id: 'asc' } }),
     developDeliverablesLocked(r.id),
+    loadDevelopDocuments(r.id, { includeDrafts: false }),
+    loadDevelopTasks(r.id),
+    openedDevelopMilestones(r.id),
   ]);
   const [eventFiles, poFiles] = await Promise.all([
     developEventFiles(events.map((e) => e.id)),
@@ -276,7 +299,7 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
   });
   const diagramMeta = toDevDiagram(r.devDiagram);
   return {
-    ...toListItem(r, quotes, milestones, events),
+    ...toListItem(r, quotes, milestones, events, documents.rows, opened),
     ...developWizardFieldsOf(r),
     description: r.description,
     tools: toTools(r.tools),
@@ -297,9 +320,12 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
             source: r.devDiagramSource === 'upload' ? 'upload' : 'ai',
             meta: diagramMeta,
           },
-    quotes: quotes.map((q) => withPayment(toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null))),
+    quotes: quotes.map((q) => withPayment(toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null, opened))),
     // 고객에게 담당자는 이름을 가르지 않는다 — "담당자". 고객 자신의 글은 "나".
     events: events.map((e) => toDevelopEventView(e, eventFiles.get(e.id.toString()) ?? [], e.byAdmin ? '담당자' : '나', locked)),
+    // 프로젝트 문서(§13) — 보낸 판만(draft 는 어떤 응답에도 없다). 진행 현황은 공개 업무 행만.
+    documents: documents.rows.map((d) => toDevelopDocumentView(d, documents.files.get(d.id.toString()) ?? [], documents.current.has(d.id.toString()))),
+    progress: buildDevelopProgress(r, tasks, documents.rows, true),
     reviewDays: r.reviewDays,
     startedAt: r.startedAt?.toISOString() ?? null,
     deliveredAt: r.deliveredAt?.toISOString() ?? null,
@@ -495,13 +521,15 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         prisma.spDevelopRequest.count({ where }),
       ]);
       const ids = rows.map((r) => r.id);
-      const [quotes, milestones, events] = await Promise.all([
+      const [quotes, milestones, events, documents, openedBy] = await Promise.all([
         prisma.spDevelopQuote.findMany({ where: { requestId: { in: ids }, status: { not: 'draft' } } }),
         prisma.spDevelopMilestone.findMany({ where: { requestId: { in: ids } } }),
         prisma.spDevelopEvent.findMany({
           where: { requestId: { in: ids }, type: { in: ['review_request', 'review_approved', 'review_changes'] } },
           orderBy: { id: 'asc' },
         }),
+        prisma.spDevelopDocument.findMany({ where: { requestId: { in: ids }, status: 'sent' } }),
+        openedDevelopMilestonesFor(ids),
       ]);
       const byReq = <T extends { requestId: bigint }>(list: T[]): Map<string, T[]> => {
         const m = new Map<string, T[]>();
@@ -514,12 +542,13 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const qm = byReq(quotes);
       const mm = byReq(milestones);
       const em = byReq(events);
+      const dm = byReq(documents);
       return {
         result: true as const,
         data: {
           items: rows.map((r) => {
             const k = r.id.toString();
-            return toListItem(r, qm.get(k) ?? [], mm.get(k) ?? [], em.get(k) ?? []);
+            return toListItem(r, qm.get(k) ?? [], mm.get(k) ?? [], em.get(k) ?? [], dm.get(k) ?? [], openedBy.get(k) ?? new Set<number>());
           }),
           total,
           page,
@@ -730,6 +759,11 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     if (file.refType === REF_DEVELOP_EVENT) {
       const gate = await developEventFileGate(found.request.id, file, false);
       return gate.ok ? { ok: true, file } : { ok: false, status: gate.status, error: gate.error };
+    }
+    // 프로젝트 문서 첨부(§13) — 보낸 판의 첨부만(draft 첨부는 고객에게 없다).
+    if (file.refType === REF_DEVELOP_DOCUMENT) {
+      const doc = await prisma.spDevelopDocument.findFirst({ where: { id: file.refId, requestId: found.request.id }, select: { status: true } });
+      return doc === null || doc.status === 'draft' ? { ok: false, status: 404, error: 'NOT_FOUND' } : { ok: true, file };
     }
     return { ok: false, status: 404, error: 'NOT_FOUND' };
   };
@@ -982,7 +1016,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const m = await prisma.spDevelopMilestone.findFirst({ where: { id: BigInt(request.params.mid), requestId: r.id } });
       if (m === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
       if (m.status === 'paid') return reply.status(409).send({ result: false, error: 'ALREADY_PAID' });
-      if (!milestonePayable(m, asDevelopStatus(r.status))) return reply.status(409).send({ result: false, error: 'NOT_PAYABLE' });
+      if (!milestonePayable(m, asDevelopStatus(r.status), await openedDevelopMilestones(r.id))) return reply.status(409).send({ result: false, error: 'NOT_PAYABLE' });
       const cartId = request.user.cartId;
       if (cartId === undefined || cartId === '') return reply.status(409).send({ result: false, error: 'NO_CART_ID' });
 
@@ -1058,9 +1092,12 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const note = request.body.note ?? null;
       const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
       if (request.params.decision === 'confirm') {
-        const ok = await transitionDevelopStatus(r.id, ['delivered'], 'completed', { mbId: request.user.mbId, byAdmin: false }, { completedAt: new Date() }, note);
+        const confirmedAt = new Date();
+        const ok = await transitionDevelopStatus(r.id, ['delivered'], 'completed', { mbId: request.user.mbId, byAdmin: false }, { completedAt: confirmedAt }, note);
         if (!ok) return reply.status(409).send({ result: false, error: 'INVALID_TRANSITION' });
         await addDevelopEvent(prisma, r.id, { type: 'review_approved', actorMbId: request.user.mbId, byAdmin: false, title: '납품을 검수 확정했습니다', body: note, payload: { eventId: Number(delivery.id) } });
+        // 옛 검수 확정 경로로 끝나도 sent 로 남은 납품확인서를 같이 닫는다(2026-09-10).
+        await closeDeliveryConfirmDocs(r.id, { decidedName: request.user.mbNick, note, actorMbId: request.user.mbId, byAdmin: false }, confirmedAt);
         const settings = await getDevelopSettings();
         void sendDevelopMailToAdmins(request.log, settings.notifyEmails, buildCompletedEmail({ ...brief, confirmedBy: 'client', forAdmin: true }), {
           kind: 'develop_admin_completed',
@@ -1118,5 +1155,129 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     },
   );
 
+  // ── POST /develop/requests/:id/documents/:docId/decide — 프로젝트 문서 결정(§13, 승인형·sent 만) ─────
+  // 결정 = 동의 기록(시각·IP·이름). 납품확인서는 delivered 에서 승인=검수 확정(completed)·보완=재작업(in_progress),
+  // 변경요청서 승인은 change 견적 초안을 자동으로 깐다(금액은 관리자가 채운다). 그 밖은 이벤트·관리자 메일뿐.
+  fastify.post(
+    '/develop/requests/:id/documents/:docId/decide',
+    { schema: { params: RequestDocParams, body: DevelopDocumentDecideBody }, preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const found = await loadOwned(request.params.id, request.user.mbId);
+      if (!found.ok) return reply.status(found.status).send({ result: false, error: found.error });
+      const r = await ensureDevelopLazy(found.request, request.log);
+      const doc = await prisma.spDevelopDocument.findFirst({ where: { id: BigInt(request.params.docId), requestId: r.id } });
+      if (doc === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
+      const type = asDocType(doc.type);
+      if (!isDevelopDocApproval(type)) return reply.status(409).send({ result: false, error: 'NOT_APPROVAL_DOC' });
+      if (doc.status !== 'sent') return reply.status(409).send({ result: false, error: 'DOC_NOT_OPEN' });
+      const { decision, name } = request.body;
+      if (!DEVELOP_DOC_DECISION_OPTIONS[type].some((o) => o.code === decision)) return reply.status(400).send({ result: false, error: 'DECISION_INVALID' });
+      const note = request.body.note === undefined || request.body.note === '' ? null : request.body.note;
+      const now = new Date();
+      const updated = await prisma.spDevelopDocument.updateMany({
+        where: { id: doc.id, status: 'sent' },
+        data: { status: decision, decision, decisionNote: note, decidedAt: now, decidedName: name, decidedIp: request.ip },
+      });
+      if (updated.count !== 1) return reply.status(409).send({ result: false, error: 'DOC_NOT_OPEN' });
+      const docNo = developDocNo(type, doc.seq);
+      const decisionLabel = developDocDecisionLabel(type, decision);
+      await addDevelopEvent(prisma, r.id, {
+        type: 'document_decided',
+        actorMbId: request.user.mbId,
+        byAdmin: false,
+        title: `${docNo} ${DEVELOP_DOC_TYPE_LABELS[type]} — ${decisionLabel}`,
+        body: note,
+        payload: { documentId: Number(doc.id), docNo, type, decision, decidedName: name },
+      });
+      const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
+      const settings = await getDevelopSettings();
+      const status = asDevelopStatus(r.status);
+      if (type === 'delivery_confirm' && status === 'delivered') {
+        if (decision === 'approved') {
+          const ok = await transitionDevelopStatus(r.id, ['delivered'], 'completed', { mbId: request.user.mbId, byAdmin: false }, { completedAt: now }, note);
+          if (ok) {
+            void sendDevelopMailToAdmins(request.log, settings.notifyEmails, buildCompletedEmail({ ...brief, confirmedBy: 'client', forAdmin: true }), {
+              kind: 'develop_admin_completed',
+              refType: 'develop_request',
+              refId: r.id,
+              sentBy: request.user.mbId,
+              toMbId: null,
+            });
+          }
+        } else if (decision === 'changes_requested') {
+          await transitionDevelopStatus(r.id, ['delivered'], 'in_progress', { mbId: request.user.mbId, byAdmin: false }, {}, note);
+        }
+      }
+      if (type === 'change_request' && decision === 'approved') {
+        try {
+          await createChangeQuoteDraft(r, doc, docNo);
+        } catch (err) {
+          request.log.error({ err, documentId: Number(doc.id) }, 'change quote draft auto-create failed');
+        }
+      }
+      void sendDevelopMailToAdmins(
+        request.log,
+        settings.notifyEmails,
+        buildAdminDocumentDecidedEmail({ ...brief, docNo, docLabel: DEVELOP_DOC_TYPE_LABELS[type], decisionLabel, decidedName: name, note }),
+        { kind: 'develop_admin_document', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
+      );
+      const fresh = await prisma.spDevelopRequest.findUniqueOrThrow({ where: { id: r.id } });
+      return { result: true as const, data: await buildDevelopRequestDetail(fresh) };
+    },
+  );
+
   done();
 };
+
+// 변경요청서 승인 → change 견적 초안(사용자 결정 8, docs/DEVELOP_FLOW.md §13). 항목 한 줄·금액 0·기본 마일스톤으로 깔고
+// 관리자가 편집기에서 채운 뒤 발송한다. 착수 뒤(accepted·in_progress·delivered)에만 — 견적 라우트의 KIND_MISMATCH 규칙과 같다.
+async function createChangeQuoteDraft(r: SpDevelopRequest, doc: SpDevelopDocument, docNo: string): Promise<void> {
+  const status = asDevelopStatus(r.status);
+  if (status !== 'accepted' && status !== 'in_progress' && status !== 'delivered') return;
+  const settings = await getDevelopSettings();
+  const content = toDocContent(doc.content);
+  const change = typeof content.change === 'string' ? content.change.trim().replace(/\s+/g, ' ') : '';
+  const last = await prisma.spDevelopQuote.findFirst({ where: { requestId: r.id }, orderBy: { version: 'desc' }, select: { version: true } });
+  const validUntil = kstToday(new Date(Date.now() + settings.defaultValidDays * 86_400_000));
+  const amounts = computeDevelopQuoteAmounts([0], settings.defaultVatMode);
+  const split = splitDevelopMilestoneAmounts(amounts.totalAmount, settings.defaultMilestones.map((m) => m.ratioBp));
+  await prisma.$transaction(async (tx) => {
+    const q = await tx.spDevelopQuote.create({
+      data: {
+        requestId: r.id,
+        version: (last?.version ?? 0) + 1,
+        kind: 'change',
+        title: `추가 견적 — ${docNo} 변경요청`,
+        vatMode: settings.defaultVatMode,
+        supplyAmount: amounts.supplyAmount,
+        vatAmount: amounts.vatAmount,
+        totalAmount: amounts.totalAmount,
+        deliverables: [],
+        exclusions: settings.defaultExclusions,
+        terms: settings.defaultTerms,
+        warrantyDays: settings.defaultWarrantyDays,
+        reviewDays: settings.defaultReviewDays,
+        validUntil,
+        internalNote: `변경요청서 ${docNo} 승인으로 자동 생성된 초안 — 항목·금액을 채운 뒤 발송`,
+        createdBy: r.assigneeMbId ?? 'system',
+      },
+    });
+    await tx.spDevelopQuoteItem.create({
+      data: { quoteId: q.id, seq: 1, title: change === '' ? '변경 작업' : `변경 작업 — ${change.slice(0, 120)}`, description: null, amount: 0, durationDays: null },
+    });
+    await tx.spDevelopMilestone.createMany({
+      data: settings.defaultMilestones.map((m, i) => ({
+        quoteId: q.id,
+        requestId: r.id,
+        seq: i + 1,
+        title: m.title,
+        ratioBp: m.ratioBp,
+        amount: split[i] ?? 0,
+        trigger: m.trigger,
+        status: 'draft',
+        paymentKey: randomUUID(),
+        unlocksDeliverables: false,
+      })),
+    });
+  });
+}

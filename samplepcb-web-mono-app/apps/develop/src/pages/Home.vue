@@ -109,7 +109,7 @@ const toggleFaq = (i: number): void => {
           </p>
           <div class="mt-1 flex flex-wrap items-center gap-3">
             <RouterLink
-              to="/request"
+              to="/c/request"
               class="h-12 rounded-lg bg-brand-500 px-7 text-body font-bold leading-[3rem] text-white transition hover:bg-brand-400"
             >
               개발 의뢰하기
@@ -257,13 +257,13 @@ const toggleFaq = (i: number): void => {
         </p>
         <div class="flex flex-wrap justify-center gap-3">
           <RouterLink
-            to="/request"
+            to="/c/request"
             class="h-12 rounded-lg bg-brand-500 px-8 text-body font-bold leading-[3rem] text-white transition hover:bg-brand-400"
           >
             개발 의뢰하기
           </RouterLink>
           <RouterLink
-            to="/me"
+            to="/c/me"
             class="h-12 rounded-lg border border-white/25 px-6 text-body font-bold leading-[3rem] text-white transition hover:border-white/60"
           >
             내 의뢰 보기

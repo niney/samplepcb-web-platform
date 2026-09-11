@@ -19,6 +19,9 @@ const CODE_MESSAGES: Record<string, string> = {
   ORDER_PENDING: '입금 대기 중인 주문이 있습니다. 입금이 확인되면 자동으로 반영됩니다.',
   NO_CART_ID: '결제 세션이 만료되었습니다. 새로고침 후 다시 시도해 주세요.',
   ANCHOR_ITEM_MISSING: '결제 준비가 되지 않았습니다. 담당자에게 문의해 주세요.',
+  NOT_APPROVAL_DOC: '이 문서는 공유용이라 회신이 필요하지 않습니다. 의견은 문의로 남겨 주세요.',
+  DOC_NOT_OPEN: '이미 회신한 문서입니다. 새로고침 후 다시 확인해 주세요.',
+  DECISION_INVALID: '이 문서에서 고를 수 없는 선택지입니다. 새로고침 후 다시 시도해 주세요.',
 };
 
 export function errorMessage(err: unknown, fallback = '요청에 실패했습니다. 잠시 후 다시 시도해 주세요.'): string {

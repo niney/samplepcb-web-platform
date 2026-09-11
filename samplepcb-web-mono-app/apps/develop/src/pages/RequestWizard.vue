@@ -232,7 +232,7 @@ async function submit(): Promise<void> {
           의뢰 보기
         </RouterLink>
         <RouterLink
-          to="/me"
+          to="/c/me"
           class="h-11 rounded-lg border border-line-2 bg-white px-6 text-body font-bold leading-[2.75rem] text-tx-2 transition hover:border-tx-3"
         >
           내 의뢰

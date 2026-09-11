@@ -27,25 +27,26 @@ function goLogout(): void {
       <div class="mx-auto flex h-16 w-full max-w-[1280px] items-center gap-6 px-6">
         <RouterLink :to="{ name: 'home' }" class="flex shrink-0 items-center gap-2">
           <span class="font-mono text-lg font-bold tracking-tight text-ink-950">SAMPLEPCB</span>
-          <span class="rounded-md bg-brand-500 px-1.5 py-0.5 text-[11px] font-extrabold text-white">개발의뢰</span>
+          <span class="rounded-md bg-brand-500 px-1.5 py-0.5 text-[11px] font-extrabold text-white">개발(C)</span>
         </RouterLink>
 
+        <a href="/develop/request" class="text-xs font-semibold text-brand-600">개발(G) 의뢰하기</a>
         <nav class="hidden items-center gap-5 text-sm font-semibold text-tx-2 md:flex">
           <RouterLink :to="{ name: 'home', hash: '#how' }" class="hover:text-tx-1">{{ $t('nav.how') }}</RouterLink>
           <RouterLink :to="{ name: 'home', hash: '#areas' }" class="hover:text-tx-1">{{ $t('nav.areas') }}</RouterLink>
-          <RouterLink v-if="auth.isLoggedIn" to="/me" class="hover:text-tx-1" active-class="text-brand-600">{{ $t('nav.me') }}</RouterLink>
+          <RouterLink v-if="auth.isLoggedIn" to="/c/me" class="hover:text-tx-1" active-class="text-brand-600">{{ $t('nav.me') }}</RouterLink>
         </nav>
 
         <div class="ml-auto flex items-center gap-3">
           <template v-if="auth.isLoggedIn">
-            <RouterLink to="/me" class="hidden text-sm font-medium text-tx-2 hover:text-tx-1 sm:block">
+            <RouterLink to="/c/me" class="hidden text-sm font-medium text-tx-2 hover:text-tx-1 sm:block">
               {{ $t('auth.greeting', { nick: auth.me?.mbNick ?? '' }) }}
             </RouterLink>
             <button type="button" class="hidden text-xs text-tx-3 hover:text-tx-1 sm:block" @click="goLogout">{{ $t('auth.logout') }}</button>
           </template>
           <button v-else type="button" class="text-sm font-medium text-tx-2 hover:text-tx-1" @click="goLogin">{{ $t('auth.login') }}</button>
           <RouterLink
-            to="/request"
+            to="/c/request"
             class="rounded-lg bg-ink-950 px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-600"
           >
             {{ $t('nav.request') }}
@@ -58,7 +59,7 @@ function goLogout(): void {
         <nav class="mx-auto flex w-full max-w-[1280px] flex-col px-6 py-2 text-sm font-semibold text-tx-2">
           <RouterLink :to="{ name: 'home', hash: '#how' }" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.how') }}</RouterLink>
           <RouterLink :to="{ name: 'home', hash: '#areas' }" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.areas') }}</RouterLink>
-          <RouterLink v-if="auth.isLoggedIn" to="/me" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.me') }}</RouterLink>
+          <RouterLink v-if="auth.isLoggedIn" to="/c/me" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.me') }}</RouterLink>
           <button v-if="auth.isLoggedIn" type="button" class="py-2.5 text-left" @click="goLogout">{{ $t('auth.logout') }}</button>
           <button v-else type="button" class="py-2.5 text-left" @click="goLogin">{{ $t('auth.login') }}</button>
         </nav>
@@ -79,8 +80,8 @@ function goLogout(): void {
           <p class="mb-2 font-semibold text-tx-2">{{ $t('footer.service') }}</p>
           <ul class="space-y-1.5">
             <li><RouterLink :to="{ name: 'home', hash: '#how' }" class="hover:text-brand-600">{{ $t('nav.how') }}</RouterLink></li>
-            <li><RouterLink to="/request" class="hover:text-brand-600">{{ $t('nav.request') }}</RouterLink></li>
-            <li><RouterLink to="/me" class="hover:text-brand-600">{{ $t('nav.me') }}</RouterLink></li>
+            <li><RouterLink to="/c/request" class="hover:text-brand-600">{{ $t('nav.request') }}</RouterLink></li>
+            <li><RouterLink to="/c/me" class="hover:text-brand-600">{{ $t('nav.me') }}</RouterLink></li>
           </ul>
         </div>
         <div class="text-xs text-tx-3">

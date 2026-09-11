@@ -221,7 +221,7 @@ function goLogin(): void {
 
     <div v-else-if="detailQ.isError.value || detail === undefined" class="mt-8 rounded-2xl border border-line bg-white p-12 text-center">
       <p class="text-body font-semibold text-red-700">{{ errorMessage(detailQ.error.value, '의뢰를 불러오지 못했습니다.') }}</p>
-      <RouterLink to="/me" class="mt-5 inline-block h-11 rounded-lg border border-line-2 px-6 text-body font-bold leading-[2.75rem] text-tx-2">
+      <RouterLink to="/c/me" class="mt-5 inline-block h-11 rounded-lg border border-line-2 px-6 text-body font-bold leading-[2.75rem] text-tx-2">
         내 의뢰로
       </RouterLink>
     </div>

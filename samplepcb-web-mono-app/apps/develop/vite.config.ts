@@ -17,7 +17,7 @@ export default defineConfig({
     allowedHosts: ['local-web.samplepcb.co.kr'],
     proxy: {
       '/api': process.env.SP_API_TARGET ?? 'http://127.0.0.1:3333',
-      '/spcb': 'http://127.0.0.1:8888',
+      '/spcb': process.env.SP_AUTH_TARGET ?? 'http://127.0.0.1:8888',
     },
   },
 });

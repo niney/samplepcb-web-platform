@@ -2,25 +2,33 @@ import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   AdminDevelopAiRunResponse,
+  AdminDevelopDocMailRunResponse,
+  AdminDevelopDocumentResponse,
   AdminDevelopQuoteResponse,
   AdminDevelopRequestDetailResponse,
   AdminDevelopRequestListResponse,
   AdminDevelopReviewVersionListResponse,
   AdminDevelopReviewVersionResponse,
   AdminDevelopSettingsResponse,
+  AdminDevelopTasksResponse,
   DevelopEventResponse,
   DevelopOkResponse,
   DevelopRequestStatusResponse,
   apiRoutes,
 } from '@sp/api-contract';
 import type {
+  AdminDevelopDocumentCreateBodyType,
+  AdminDevelopDocumentPatchBodyType,
+  AdminDevelopDocumentSendBodyType,
   AdminDevelopEventPayloadType,
   AdminDevelopMilestoneMarkPaidBodyType,
   AdminDevelopQuoteBodyType,
   AdminDevelopRequestPatchBodyType,
   AdminDevelopSettingsUpdateType,
   AdminDevelopStatusBodyType,
+  DevelopAdminSignalType,
   DevelopAdminTabType,
+  DevelopTaskInputType,
   MarketDevReviewType,
 } from '@sp/api-contract';
 import { apiGet, apiSend, apiSendForm } from '@sp/shared';
@@ -32,11 +40,20 @@ import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 const base = apiRoutes.adminDevelopRequests;
 const quoteBase = apiRoutes.adminDevelopQuotes;
 const milestoneBase = apiRoutes.adminDevelopMilestones;
+const docBase = apiRoutes.adminDevelopDocuments;
 const DEVELOP_KEY = ['admin', 'develop'] as const;
 
 const invalidateDevelop = (qc: ReturnType<typeof useQueryClient>): void => {
   void qc.invalidateQueries({ queryKey: DEVELOP_KEY });
 };
+
+// 화면이 직접 다시 불러올 때(낙관적 잠금 충돌 뒤 '새로 불러오기') — 같은 루트 키를 무효화한다.
+export function useInvalidateAdminDevelop(): () => void {
+  const qc = useQueryClient();
+  return () => {
+    invalidateDevelop(qc);
+  };
+}
 
 // ── 워크큐 ───────────────────────────────────────────────────────────────────
 
@@ -45,6 +62,8 @@ export interface AdminDevelopFilters {
   pageSize: number;
   tab: DevelopAdminTabType;
   q: string;
+  /** 신호 필터(§14) — 탭 안에서 "지금 관리자 차례"인 행만. null 이면 안 보낸다. */
+  signal: DevelopAdminSignalType | null;
 }
 
 export const emptyDevelopFilters = (): AdminDevelopFilters => ({
@@ -52,6 +71,7 @@ export const emptyDevelopFilters = (): AdminDevelopFilters => ({
   pageSize: 20,
   tab: 'all',
   q: '',
+  signal: null,
 });
 
 const listPath = (f: AdminDevelopFilters): string => {
@@ -60,6 +80,7 @@ const listPath = (f: AdminDevelopFilters): string => {
   params.set('pageSize', String(f.pageSize));
   params.set('tab', f.tab);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
+  if (f.signal !== null) params.set('signal', f.signal);
   return `${base}?${params.toString()}`;
 };
 
@@ -71,13 +92,15 @@ export function useAdminDevelopList(filters: Ref<AdminDevelopFilters>) {
   });
 }
 
-// 사이드바 배지 — 접수 탭 counts 하나(목록 본문은 pageSize=1 로 버린다).
-export function useDevelopReceivedCount(enabled: Ref<boolean>) {
+// 개발 모듈 메뉴 배지(§14) — 단계별 워크큐 6개가 각각 "지금 관리자 차례" 수 하나를 단다.
+// 목록 호출 하나(pageSize=1, 본문은 버린다)에 counts(탭별)와 signals(활성 의뢰 전체)가 같이
+// 실려 오므로 배지마다 요청을 따로 내지 않는다. 60초 refetch 는 다른 모듈 배지 관례와 동일.
+export function useDevelopModuleSignals(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'develop', 'received-count'],
-    queryFn: () => apiGet(`${base}?page=1&pageSize=1&tab=received`, AdminDevelopRequestListResponse),
+    queryKey: ['admin', 'develop', 'module-signals'],
+    queryFn: () => apiGet(`${base}?page=1&pageSize=1&tab=all`, AdminDevelopRequestListResponse),
     enabled,
-    select: (response) => response.data.counts.received,
+    select: (response) => ({ counts: response.data.counts, signals: response.data.signals }),
     refetchInterval: 60_000,
   });
 }
@@ -308,12 +331,131 @@ export function useAdminDevelopQuoteWithdraw() {
   });
 }
 
+// 수동 청구 열기(2026-09-10) — trigger=manual ∧ pending 마일스톤을 고객이 결제할 수 있게 연다. 열림은 milestone_opened 이벤트가 진실.
+export function useAdminDevelopMilestoneOpen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (milestoneId: number) => apiSend('POST', `${milestoneBase}/${String(milestoneId)}/open`, undefined, DevelopOkResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
 // 오프라인 입금(계좌 이체 등) 수동 확인 — pending 마일스톤만. 메모는 내부 노트로 남는다.
 export function useAdminDevelopMilestoneMarkPaid() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ milestoneId, body }: { milestoneId: number; body: AdminDevelopMilestoneMarkPaidBodyType }) =>
       apiSend('POST', `${milestoneBase}/${String(milestoneId)}/mark-paid`, body, DevelopOkResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+// ── 프로젝트 문서·업무표(docs/DEVELOP_FLOW.md §13) ─────────────────────────────
+// 문서 목록·업무표는 관리자 상세 응답(documents·progress — draft·이전 판 포함)에 실려 온다.
+// 여기 훅은 전부 쓰기 전용이고, 성공하면 ['admin','develop'] 를 무효화해 상세·현황을 같이 되살린다.
+// 문서는 draft 에서만 고칠 수 있고(본문·첨부·메모), 발송이 판을 고정한다. 재발송은 revise(새 판) → 발송.
+
+export function useAdminDevelopDocumentCreate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, body }: { requestId: number; body: AdminDevelopDocumentCreateBodyType }) =>
+      apiSend('POST', `${base}/${String(requestId)}/documents`, body, AdminDevelopDocumentResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+export function useAdminDevelopDocumentPatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ docId, body }: { docId: number; body: AdminDevelopDocumentPatchBodyType }) =>
+      apiSend('PATCH', `${docBase}/${String(docId)}`, body, AdminDevelopDocumentResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+export function useAdminDevelopDocumentDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (docId: number) => apiSend('DELETE', `${docBase}/${String(docId)}`, undefined, DevelopOkResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+// 새 판 — 같은 종류·번호로 version+1 draft 를 뜬다(본문·회신 요청일·내부 메모 복사). 발송본에서만.
+export function useAdminDevelopDocumentRevise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (docId: number) =>
+      apiSend('POST', `${docBase}/${String(docId)}/revise`, undefined, AdminDevelopDocumentResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+// 발송 — 관리자가 확인한 메일 제목·본문이 그대로 나간다(sendMail=false 면 기록만 남기고 메일은 안 보낸다).
+export function useAdminDevelopDocumentSend() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ docId, body }: { docId: number; body: AdminDevelopDocumentSendBodyType }) =>
+      apiSend('POST', `${docBase}/${String(docId)}/send`, body, AdminDevelopDocumentResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+// 첨부 추가 — multipart(파일 파트 이름은 서버가 안 본다). draft 전용.
+export function useAdminDevelopDocumentFileAdd() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ docId, files }: { docId: number; files: readonly File[] }) => {
+      const form = new FormData();
+      for (const file of files) form.append('files', file);
+      return apiSendForm('POST', `${docBase}/${String(docId)}/files`, form, AdminDevelopDocumentResponse);
+    },
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+export function useAdminDevelopDocumentFileDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ docId, fileId }: { docId: number; fileId: number }) =>
+      apiSend('DELETE', `${docBase}/${String(docId)}/files/${String(fileId)}`, undefined, AdminDevelopDocumentResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
+// AI 메일 초안(develop.doc-mail) — 비동기 잡을 띄우고 jobId 를 돌려준다. 폴링은 useAiJob(설정 화면과 공용).
+// 유스케이스가 꺼져 있으면 409 USECASE_DISABLED — 화면은 계약 buildDevelopDocMailDraft(결정적 초안)를 그대로 쓴다.
+export function useAdminDevelopDocMailRun() {
+  return useMutation({
+    mutationFn: ({ docId, instructions }: { docId: number; instructions: string }) =>
+      apiSend('POST', `${docBase}/${String(docId)}/ai-mail`, { instructions }, AdminDevelopDocMailRunResponse),
+  });
+}
+
+// 업무표 저장 — 표 전체를 보내되 행은 taskId 로 upsert 된다(번호 유지). revision(progress.tasksRevision)이 다르면 409 REVISION_CONFLICT.
+export function useAdminDevelopTasksPut() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, tasks, revision }: { requestId: number; tasks: readonly DevelopTaskInputType[]; revision: string }) =>
+      apiSend('PUT', `${base}/${String(requestId)}/tasks`, { tasks, revision }, AdminDevelopTasksResponse),
     onSuccess: () => {
       invalidateDevelop(qc);
     },

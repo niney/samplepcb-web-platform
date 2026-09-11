@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { deleteGSmokeFile, readGSmokeFile, writeGSmokeFiles } from './local-g-smoke';
 
 // file.samplepcb.kr 업로드 대행 클라이언트.
 // 거버 뷰어는 파일을 sp-node 로만 보내고(pathToken 클라이언트 미노출),
@@ -64,7 +65,12 @@ const uploadOne = async (file: UploadTarget, serviceType: string): Promise<Uploa
 export const uploadToFileServer = async (
   files: UploadTarget[],
   serviceType = 'gerber',
+  developRequestId?: bigint,
 ): Promise<UploadedFileType[]> => {
+  if (developRequestId !== undefined) {
+    const local = await writeGSmokeFiles(developRequestId, files);
+    if (local !== null) return local;
+  }
   const uploaded: UploadedFileType[] = [];
   for (const f of files) {
     uploaded.push(await uploadOne(f, serviceType));
@@ -82,6 +88,7 @@ export interface DownloadedFile {
  * 파일서버가 content-type 을 안 주면 octet-stream 으로 두고 호출측에서 보정한다.
  */
 export const downloadFromFileServer = async (pathToken: string): Promise<DownloadedFile | null> => {
+  if (pathToken.startsWith('local-g-smoke:')) return readGSmokeFile(pathToken);
   const res = await fetch(`${FILE_SERVER_URL}/api/download/${encodeURIComponent(pathToken)}`);
   if (res.status === 404) return null;
   if (!res.ok) {
@@ -106,6 +113,7 @@ const DeleteResponse = z.object({
  *   (docs/GERBER_ORDER_FLOW.md 보안 메모 참조).
  */
 export const deleteFromFileServer = async (pathToken: string): Promise<void> => {
+  if (pathToken.startsWith('local-g-smoke:')) return deleteGSmokeFile(pathToken);
   const res = await fetch(`${FILE_SERVER_URL}/api/delete/${encodeURIComponent(pathToken)}`);
   if (res.status === 404) return;
   if (!res.ok) {

@@ -77,6 +77,7 @@ export const apiRoutes = {
   adminDevelopRequests: '/api/admin/develop/requests',
   adminDevelopQuotes: '/api/admin/develop/quotes',
   adminDevelopMilestones: '/api/admin/develop/milestones',
+  adminDevelopDocuments: '/api/admin/develop/documents',
   adminDevelopFiles: '/api/admin/develop/files',
   adminDevelopSettings: '/api/admin/develop/settings',
 } as const;

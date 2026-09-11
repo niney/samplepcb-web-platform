@@ -88,14 +88,26 @@ const awaitingDeposit = (m: DevelopMilestoneViewType): boolean => m.payment !== 
         </div>
         <h3 class="text-title font-extrabold text-tx-1">{{ q.title }}</h3>
       </div>
-      <a
-        :href="printPath"
-        target="_blank"
-        rel="noopener"
-        class="ml-auto h-10 shrink-0 rounded-lg border border-line-2 bg-white px-4 text-label font-bold leading-10 text-tx-2 transition hover:border-tx-3"
-      >
-        인쇄용 보기
-      </a>
+      <div class="ml-auto flex shrink-0 flex-wrap gap-2">
+        <!-- 계약서 = 수락 견적서의 인쇄 뷰(§2 결정 11) — 수락된 견적에만 뜻이 있다. -->
+        <a
+          v-if="q.status === 'accepted'"
+          :href="`${printPath}?mode=contract`"
+          target="_blank"
+          rel="noopener"
+          class="h-10 rounded-lg border border-line-2 bg-white px-4 text-label font-bold leading-10 text-tx-2 transition hover:border-tx-3"
+        >
+          계약서 보기 · 인쇄
+        </a>
+        <a
+          :href="printPath"
+          target="_blank"
+          rel="noopener"
+          class="h-10 rounded-lg border border-line-2 bg-white px-4 text-label font-bold leading-10 text-tx-2 transition hover:border-tx-3"
+        >
+          인쇄용 보기
+        </a>
+      </div>
     </header>
 
     <!-- 항목표 -->

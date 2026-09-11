@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { SpDevelopEvent, SpDevelopRequest, SpFile } from '@prisma/client';
+import type { SpDevelopEvent, SpDevelopMilestone, SpDevelopRequest, SpFile } from '@prisma/client';
 import {
   DEVELOP_BUDGET_RANGES,
   DEVELOP_CURRENT_STAGES,
@@ -238,3 +238,58 @@ export const developEventFileGate = async (
   }
   return { ok: true };
 };
+
+// ── 수동 청구 열기(2026-09-10, G 수행관리 milestone.open 이식) ──────────────────────────────
+// trigger=manual 마일스톤은 담당자가 열어 줘야 고객이 결제할 수 있다(견적 편집기의 중간 결제 기본값이 manual 인데 열 길이 없어
+// 영영 결제 불가였던 결함 교정). 열림은 `milestone_opened` 이벤트가 진실 — 기존 sp_develop_milestone 은 ALTER 하지 않는다(롤백 조건).
+export const OPENED_MILESTONE_EVENT = 'milestone_opened';
+const collectOpened = (into: Set<number>, payload: Prisma.JsonValue | null): void => {
+  const id = toPayload(payload)?.milestoneId;
+  if (typeof id === 'number' && Number.isInteger(id)) into.add(id);
+};
+export const openedDevelopMilestones = async (requestId: bigint): Promise<Set<number>> => {
+  const rows = await prisma.spDevelopEvent.findMany({ where: { requestId, type: OPENED_MILESTONE_EVENT }, select: { payload: true } });
+  const out = new Set<number>();
+  for (const e of rows) collectOpened(out, e.payload);
+  return out;
+};
+export const openedDevelopMilestonesFor = async (ids: readonly bigint[]): Promise<Map<string, Set<number>>> => {
+  const map = new Map<string, Set<number>>();
+  if (ids.length === 0) return map;
+  const rows = await prisma.spDevelopEvent.findMany({
+    where: { requestId: { in: [...ids] }, type: OPENED_MILESTONE_EVENT },
+    select: { requestId: true, payload: true },
+  });
+  for (const e of rows) {
+    const k = e.requestId.toString();
+    const set = map.get(k) ?? new Set<number>();
+    collectOpened(set, e.payload);
+    map.set(k, set);
+  }
+  return map;
+};
+
+// 결제 가능 판정 — pending ∧ trigger 조건. manual 은 열린 것만. 서버 파생값이라 화면은 계산하지 않는다.
+export const milestonePayable = (
+  m: Pick<SpDevelopMilestone, 'id' | 'status' | 'trigger'>,
+  status: DevelopRequestStatusType,
+  opened: ReadonlySet<number> = new Set(),
+): boolean => {
+  if (m.status !== 'pending') return false;
+  switch (m.trigger) {
+    case 'on_accept':
+      return true;
+    case 'on_delivery':
+      return status === 'delivered' || status === 'completed';
+    case 'on_completion':
+      return status === 'completed';
+    default:
+      return m.trigger === 'manual' && opened.has(Number(m.id));
+  }
+};
+
+// 열어야 할 수동 청구 수 — manual ∧ pending ∧ 안 열림. 워크큐 '청구 대기' 배지 근거(철회·대체 견적의 행은 cancelled 라 자연히 빠진다).
+export const openableMilestoneCount = (
+  milestones: readonly Pick<SpDevelopMilestone, 'id' | 'status' | 'trigger'>[],
+  opened: ReadonlySet<number>,
+): number => milestones.filter((m) => m.trigger === 'manual' && m.status === 'pending' && !opened.has(Number(m.id))).length;

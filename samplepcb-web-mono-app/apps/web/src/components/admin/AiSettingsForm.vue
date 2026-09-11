@@ -16,11 +16,13 @@ import {
 import DevReviewSummary from './DevReviewSummary.vue';
 import UiPagination from '../ui/UiPagination.vue';
 
-// AI 연동 폼 — 일곱 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
+// AI 연동 폼 — 여덟 블록: ① 연결(baseUrl·apiKey) ② 검토서 생성(사용·주모델·첨부 판독 모델·
 // 추가 지침·프롬프트 버전·샘플 테스트) ③ 정밀 시스템 구성도(사용·모델·thinking 단계·추가 지침·
 // 프롬프트 버전 — docs/AI_DEV_REVIEW.md §13.5) ④·⑤ 개발의뢰 검토서·구성도(docs/DEVELOP_FLOW.md §7.3 —
 // 마켓과 모델·지침이 갈린다. 검토서도 관리자 대기라 thinking 단계를 가진다) ⑥ 개발의뢰 후속 질문
-// (docs/DEVELOP_FLOW.md §7.2.2 — 고객이 위저드에서 기다리는 유일한 잡이라 빠른 설정이 기본) ⑦ 실행 이력(sp_ai_job). 프롬프트 본문은 코드
+// (docs/DEVELOP_FLOW.md §7.2.2 — 고객이 위저드에서 기다리는 유일한 잡이라 빠른 설정이 기본)
+// ⑦ 개발의뢰 문서 메일 초안(docs/DEVELOP_FLOW.md §13 — 발송 패널의 "AI 로 다듬기", 꺼져 있으면 결정적 초안만)
+// ⑧ 실행 이력(sp_ai_job). 프롬프트 본문은 코드
 // 정본(docs/AI_DEV_REVIEW.md §6)이라 화면에 textarea 가 없다. 샘플 테스트는 검토서용만 있다.
 // apiKey 는 서버가 마스킹만 돌려주므로 입력칸은 항상 빈 값에서 시작: 입력=교체, 비움=유지,
 // 삭제 체크=제거. "연결 테스트"는 /api/tags 프록시 — 성공 시 모델 목록을 datalist 로 제공.
@@ -56,6 +58,11 @@ const devfEnabled = ref(false);
 const devfModel = ref('');
 const devfThink = ref<AiThinkLevelType>('low');
 const devfExtra = ref('');
+// 프로젝트 문서 → 고객 메일 초안(develop.doc-mail) — 관리자가 발송 패널에서 기다리는 짧은 잡.
+const devmEnabled = ref(false);
+const devmModel = ref('');
+const devmThink = ref<AiThinkLevelType>('low');
+const devmExtra = ref('');
 const models = ref<string[]>([]);
 
 const testJobId = ref<string | null>(null);
@@ -118,13 +125,17 @@ watch(
     devfModel.value = d.developFollowup.model;
     devfThink.value = d.developFollowup.think;
     devfExtra.value = d.developFollowup.extraInstructions;
+    devmEnabled.value = d.developDocMail.enabled;
+    devmModel.value = d.developDocMail.model;
+    devmThink.value = d.developDocMail.think;
+    devmExtra.value = d.developDocMail.extraInstructions;
     apiKeyInput.value = '';
     clearApiKey.value = false;
   },
   { immediate: true },
 );
 
-// 다섯 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
+// 여섯 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
 const canSubmit = computed(
   () =>
     !save.isPending.value &&
@@ -132,7 +143,8 @@ const canSubmit = computed(
     ddModel.value.trim() !== '' &&
     devrModel.value.trim() !== '' &&
     devdModel.value.trim() !== '' &&
-    devfModel.value.trim() !== '',
+    devfModel.value.trim() !== '' &&
+    devmModel.value.trim() !== '',
 );
 const thinkLabel = (level: AiThinkLevelType): string =>
   level === 'off'
@@ -162,7 +174,9 @@ const jobStageLabel = (stage: string | null): string =>
         ? t('admin.settings.ai.jobs.stageDiagram')
         : stage === 'followup'
           ? t('admin.settings.ai.jobs.stageFollowup')
-          : '-';
+          : stage === 'docmail'
+            ? t('admin.settings.ai.jobs.stageDocmail')
+            : '-';
 
 function onTest(): void {
   modelsTest.mutate(undefined, {
@@ -234,6 +248,12 @@ function onSubmit(): void {
       model: devfModel.value.trim(),
       think: devfThink.value,
       extraInstructions: devfExtra.value.trim(),
+    },
+    developDocMail: {
+      enabled: devmEnabled.value,
+      model: devmModel.value.trim(),
+      think: devmThink.value,
+      extraInstructions: devmExtra.value.trim(),
     },
   });
 }
@@ -634,6 +654,64 @@ function onSubmit(): void {
             <template v-if="data !== undefined">
               · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
               {{ formatDateTime(data.data.developFollowup.updatedAt) }}
+            </template>
+          </span>
+        </div>
+      </div>
+
+      <!-- ⑦ 개발의뢰 문서 메일 초안 — 관리자가 발송 패널에서 기다리는 짧은 잡이라 빠른 설정이 기본이다.
+           꺼져 있으면 발송 패널은 계약의 결정적 초안(buildDevelopDocMailDraft)만 쓴다. -->
+      <div class="space-y-3 rounded-md border border-gray-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-800">
+            {{ t('admin.settings.ai.developDocMail.title') }}
+            <span class="ml-1 font-mono text-xs font-normal text-gray-400">develop.doc-mail</span>
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input v-model="devmEnabled" type="checkbox">
+            {{ t('admin.settings.ai.developDocMail.enabled') }}
+          </label>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.ai.developDocMail.enabledHint') }}</p>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developDocMail.model') }}</span>
+          <input v-model="devmModel" type="text" list="ai-models" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm">
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.developDocMail.modelHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developDocMail.think') }}</span>
+          <select v-model="devmThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
+          </select>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.thinkHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developDocMail.extraInstructions') }}</span>
+          <textarea
+            v-model="devmExtra"
+            rows="4"
+            :maxlength="AI_EXTRA_INSTRUCTIONS_MAX"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          />
+          <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {{ t('admin.settings.ai.developDocMail.extraInstructionsHint') }}
+            <span class="ml-auto font-mono text-[11px] text-gray-400">
+              {{ t('admin.settings.ai.devDiagram.extraInstructionsCount', { count: devmExtra.length, max: AI_EXTRA_INSTRUCTIONS_MAX }) }}
+            </span>
+          </span>
+        </label>
+
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.promptVersion') }}</span>
+          <p class="font-mono text-sm text-gray-700">{{ data?.data.developDocMail.promptVersion }}</p>
+          <span class="text-xs text-gray-500">
+            {{ t('admin.settings.ai.devDiagram.promptVersionHint') }}
+            <template v-if="data !== undefined">
+              · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
+              {{ formatDateTime(data.data.developDocMail.updatedAt) }}
             </template>
           </span>
         </div>

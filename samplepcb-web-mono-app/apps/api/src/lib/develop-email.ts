@@ -194,6 +194,36 @@ export function buildCommentEmail(p: RequestBrief & { forAdmin: boolean; excerpt
   };
 }
 
+// 프로젝트 문서 발송(§13) — 제목·본문은 관리자가 확인한 그대로(plain text → 문단). 링크는 상세의 문서 섹션.
+export function buildDocumentSentEmail(p: RequestBrief & { docNo: string; docLabel: string; subject: string; body: string; replyDueOn: string | null }): DevelopEmail {
+  const paragraphs = p.body
+    .split(/\n{2,}/)
+    .map((block) => `<p style="margin:0 0 10px;font-size:14px;line-height:1.7;color:#334155;white-space:pre-wrap;">${esc(block)}</p>`)
+    .join('');
+  return {
+    subject: p.subject,
+    html: shell(
+      `${p.docLabel} (${p.docNo})`,
+      paragraphs + table(row('의뢰', p.title) + row('문서', `${p.docNo} ${p.docLabel}`) + (p.replyDueOn === null ? '' : row('회신 요청일', p.replyDueOn))),
+      `${customerPath(p.requestId)}#documents`,
+      '문서 확인·회신',
+    ),
+  };
+}
+
+// 관리자 — 고객이 문서에 회신했다.
+export function buildAdminDocumentDecidedEmail(p: RequestBrief & { docNo: string; docLabel: string; decisionLabel: string; decidedName: string; note: string | null }): DevelopEmail {
+  return {
+    subject: `[개발의뢰 문서 회신] ${p.title} — ${p.docNo} ${p.decisionLabel}`,
+    html: shell(
+      '고객이 문서에 회신했습니다',
+      table(row('의뢰', p.title) + row('문서', `${p.docNo} ${p.docLabel}`) + row('결정', `${p.decisionLabel} · ${p.decidedName}`) + (p.note === null ? '' : row('의견', p.note))),
+      `${adminPath(p.requestId)}?tab=documents`,
+      '관리자에서 열기',
+    ),
+  };
+}
+
 // 비차단 발송 — 실패는 로그만. 발송 시도는 성패·스킵 불문 sp_mail_log 에 남긴다.
 export async function sendDevelopMail(
   log: FastifyBaseLogger,

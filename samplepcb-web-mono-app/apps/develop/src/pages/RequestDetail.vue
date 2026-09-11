@@ -3,11 +3,13 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { DEVELOP_REGISTRY, DEV_DIAGRAM_VERSION, developAreaBadge } from '@sp/api-contract';
 import type {
+  DevelopDocDecisionType,
   DevelopEventViewType,
   DevelopFileMetaType,
   DevelopPublicDiagramType,
   MarketDevDiagramType,
   MarketDevDiagramViewType,
+  MarketFileMetaType,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import { DevDiagramSection, DevReviewView, FilePreviewModal } from '@sp/ui';
@@ -18,6 +20,7 @@ import {
   useCancelDevelopRequest,
   useCheckoutMilestone,
   useDeclineQuote,
+  useDecideDocument,
   useDeliveryDecision,
   useDevelopRequest,
   usePostComment,
@@ -34,6 +37,8 @@ import Timeline from '../components/detail/Timeline.vue';
 import AttachmentList from '../components/detail/AttachmentList.vue';
 import CommentComposer from '../components/detail/CommentComposer.vue';
 import DecisionPanel from '../components/detail/DecisionPanel.vue';
+import ProjectProgress from '../components/detail/ProjectProgress.vue';
+import DocumentList from '../components/detail/DocumentList.vue';
 
 // 의뢰 상세(docs/DEVELOP_FLOW.md §7.2) — 소유자 전용. 서버가 **공개본만** 내려주므로(초안·작업본은 어떤
 // 응답에도 없다) 화면은 온 것을 그대로 그린다. P2 에서 고객 행동이 붙었다: 견적 수락·거절(QuoteCard),
@@ -111,6 +116,7 @@ const sections = computed<SectionLink[]>(() => {
   list.push({ id: 'review', label: 'AI 사전 검토서' });
   if (diagramView.value !== null) list.push({ id: standaloneDiagram.value ? 'diagram' : 'review', label: '시스템 구성도' });
   list.push({ id: 'quotes', label: '견적서' });
+  if (!closed.value) list.push({ id: 'documents', label: '진행 현황 · 문서' });
   list.push({ id: 'timeline', label: '진행 · 문의' });
   if (d.files.length > 0) list.push({ id: 'files', label: '첨부' });
   return list;
@@ -130,6 +136,18 @@ async function download(f: DevelopFileMetaType): Promise<void> {
   }
 }
 function openPreview(f: DevelopFileMetaType): void {
+  previewFile.value = { fileId: f.fileId, name: f.name, size: f.size };
+}
+// 문서 첨부는 MarketFileMeta(잠금 개념이 없다) — 같은 파일 라우트를 쓰므로 최소 필드만 넘긴다.
+async function downloadDocFile(f: MarketFileMetaType): Promise<void> {
+  fileError.value = '';
+  try {
+    await downloadAuthedFile(`${filesPath.value}/${String(f.fileId)}`, f.name);
+  } catch (err) {
+    fileError.value = errorMessage(err);
+  }
+}
+function previewDocFile(f: MarketFileMetaType): void {
   previewFile.value = { fileId: f.fileId, name: f.name, size: f.size };
 }
 function downloadFromPreview(fileId: number, name: string): void {
@@ -304,6 +322,33 @@ async function onReviewAnswer(eventId: number, kind: 'primary' | 'secondary', no
   }
 }
 
+// ── 프로젝트 문서(§13) ──────────────────────────────────────────────────────
+// 결정 응답은 **상세 전체**라(납품확인서 승인이면 completed 로 바뀐다) 훅이 캐시를 갈아 끼우고
+// 스텝퍼·nextAction 이 함께 따라온다 — 여기서는 어느 문서에서 난 오류인지만 들고 있으면 된다.
+const decideDocument = useDecideDocument(requestId);
+const decidingDocId = ref<number | null>(null);
+const documentError = ref('');
+
+// 회신 대기(승인형 sent) 문서 — 배너의 "확인하러 가기" 대상이자 건수.
+const pendingDocs = computed(() => (detail.value?.documents ?? []).filter((d) => d.approval && d.status === 'sent'));
+
+async function onDecideDocument(p: { documentId: number; decision: DevelopDocDecisionType; note: string; name: string }): Promise<void> {
+  decidingDocId.value = p.documentId;
+  documentError.value = '';
+  try {
+    await decideDocument.mutateAsync(p);
+  } catch (err) {
+    documentError.value = errorMessage(err);
+    void detailQ.refetch(); // DOC_NOT_OPEN 은 이미 답한 문서라 재조회로 화면을 맞춘다
+  }
+}
+
+function scrollToPendingDoc(): void {
+  const first = pendingDocs.value[0];
+  const el = first === undefined ? null : document.getElementById(`document-${String(first.documentId)}`);
+  (el ?? document.getElementById('documents'))?.scrollIntoView({ behavior: 'smooth' });
+}
+
 // 목록에서 "지금 할 일" 칩으로 들어오면 해당 섹션으로 — 데이터가 온 뒤라야 앵커가 존재한다.
 watch(
   () => detailQ.isSuccess.value,
@@ -332,7 +377,7 @@ watch(
 
     <div v-else-if="detailQ.isError.value || detail === undefined" class="rounded-2xl border border-line bg-white p-12 text-center">
       <p class="text-body font-semibold text-red-700">{{ errorMessage(detailQ.error.value, '의뢰를 불러오지 못했습니다.') }}</p>
-      <RouterLink to="/me" class="mt-5 inline-block h-11 rounded-lg border border-line-2 px-6 text-body font-bold leading-[2.75rem] text-tx-2">
+      <RouterLink to="/c/me" class="mt-5 inline-block h-11 rounded-lg border border-line-2 px-6 text-body font-bold leading-[2.75rem] text-tx-2">
         내 의뢰로
       </RouterLink>
     </div>
@@ -498,6 +543,42 @@ watch(
             <template v-else>담당자에게 문의해 주세요.</template>
           </p>
         </div>
+      </section>
+
+      <!-- 진행 현황 · 프로젝트 문서 -->
+      <section v-if="!closed" id="documents" class="mt-8 scroll-mt-32 grid gap-4">
+        <h2 class="text-title font-extrabold text-tx-1">진행 현황 · 프로젝트 문서</h2>
+
+        <!-- 확인 대기 배너 -->
+        <div
+          v-if="detail.progress.pendingApprovals > 0"
+          class="flex flex-wrap items-center gap-3 rounded-2xl border-2 border-brand-500 bg-brand-50 px-5 py-4"
+        >
+          <p class="text-body font-extrabold text-tx-1">
+            담당자가 확인을 요청한 문서 {{ detail.progress.pendingApprovals }}건이 있습니다
+          </p>
+          <button
+            type="button"
+            class="ml-auto h-10 rounded-lg bg-ink-950 px-5 text-label font-bold text-white transition hover:bg-brand-600"
+            @click="scrollToPendingDoc"
+          >
+            확인하러 가기
+          </button>
+        </div>
+
+        <ProjectProgress :progress="detail.progress" :status="detail.status" />
+
+        <DocumentList
+          :documents="detail.documents"
+          :request-id="detail.requestId"
+          :contact-name="detail.contact.name"
+          :deciding-doc-id="decidingDocId"
+          :decide-pending="decideDocument.isPending.value"
+          :decide-error="documentError"
+          @decide="void onDecideDocument($event)"
+          @download="void downloadDocFile($event)"
+          @preview="previewDocFile"
+        />
       </section>
 
       <!-- 진행 · 문의 -->

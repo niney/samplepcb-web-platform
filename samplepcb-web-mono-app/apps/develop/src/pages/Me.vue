@@ -38,6 +38,7 @@ const ACTION_ANCHOR = {
   review_quote: '#quotes',
   pay: '#quotes',
   inspect: '#timeline',
+  answer_document: '#documents',
   answer_review: '#timeline',
 } as const;
 
@@ -54,7 +55,7 @@ const detailTo = (r: DevelopRequestListItemType): string =>
       </div>
       <RouterLink
         v-if="loggedIn"
-        to="/request"
+        to="/c/request"
         class="ml-auto h-11 rounded-lg bg-ink-950 px-5 text-body font-bold leading-[2.75rem] text-white transition hover:bg-brand-600"
       >
         새 의뢰
@@ -84,7 +85,7 @@ const detailTo = (r: DevelopRequestListItemType): string =>
           자료가 없어도, 분야를 몰라도 괜찮습니다. 무엇을 만들고 싶은지만 적어 주시면 담당자가 함께 정리해 드립니다.
         </p>
         <RouterLink
-          to="/request"
+          to="/c/request"
           class="mt-6 inline-block h-11 rounded-lg bg-brand-500 px-6 text-body font-bold leading-[2.75rem] text-white transition hover:bg-brand-600"
         >
           개발 의뢰하기

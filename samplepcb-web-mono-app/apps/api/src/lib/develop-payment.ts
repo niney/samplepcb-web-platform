@@ -7,6 +7,8 @@ import { buildCompletedEmail, buildPaymentConfirmedEmail, sendDevelopMail, sendD
 import { getDevelopSettings } from './develop-settings';
 import { PAID_ORDER_STATUSES, deleteCartRowsByIoId, deleteQuoteOption, getMembersByIds, getOrderInfoByCtId, DEVELOP_ANCHOR_IT_ID } from './g5-db';
 import { prisma } from './prisma';
+import { Prisma } from '@prisma/client';
+import { closeDeliveryConfirmDocs } from './develop-docs';
 
 // ── 개발의뢰 결제·검수 lazy 승격(docs/DEVELOP_FLOW.md §4.2) — 마켓 ensureContractLazy 동형 ─────────────
 // cron 없음. 의뢰를 읽거나 전이 가드를 대는 모든 지점이 `ensureDevelopLazy(request)` 를 먼저 부른다.
@@ -55,7 +57,13 @@ export const markMilestonePaid = async (
   });
   if (!promoted) return false;
   // 착수 — accepted 에서 첫 결제가 확인되면 in_progress. 이미 진행 중이면 그대로.
-  const started = await transitionDevelopStatus(m.requestId, ['accepted'], 'in_progress', { mbId: actorMbId, byAdmin: by === 'admin' }, { startedAt: now });
+  const started = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM sp_develop_request WHERE id = ${m.requestId} FOR UPDATE`);
+    const update = await tx.spDevelopRequest.updateMany({ where: { id: m.requestId, status: 'accepted' }, data: { status: 'in_progress', startedAt: now } });
+    if (update.count !== 1) return false;
+    await addDevelopEvent(tx, m.requestId, { type: 'status_changed', actorMbId, byAdmin: by === 'admin', title: '상태가 바뀌었습니다', payload: { from: ['accepted'], to: 'in_progress' } });
+    return true;
+  });
   const r = await prisma.spDevelopRequest.findUnique({ where: { id: m.requestId } });
   if (r !== null) {
     const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
@@ -98,6 +106,8 @@ const ensureAutoConfirmLazy = async (r: SpDevelopRequest, log: FastifyBaseLogger
   if (auto === null || auto.getTime() > Date.now()) return;
   const ok = await transitionDevelopStatus(r.id, ['delivered'], 'completed', { mbId: null, byAdmin: false }, { completedAt: auto }, '검수 기간 경과 — 자동 확정');
   if (!ok) return;
+  // 납품확인서가 sent 로 남아 있으면 '납품 승인'으로 닫는다.
+  await closeDeliveryConfirmDocs(r.id, { decidedName: '검수기간 경과', note: '검수 기간 경과 — 자동 확정', actorMbId: null, byAdmin: false }, auto);
   const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
   void sendDevelopMail(log, await customerEmail(r), buildCompletedEmail({ ...brief, confirmedBy: 'auto', forAdmin: false }), {
     kind: 'develop_completed',
@@ -129,7 +139,12 @@ export const ensureDevelopLazy = async (r: SpDevelopRequest, log: FastifyBaseLog
   await ensureQuoteExpiryLazy(r.id);
   const mid = (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? r;
   await ensureAutoConfirmLazy(mid, log);
-  return (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? mid;
+  const current = (await prisma.spDevelopRequest.findUnique({ where: { id: r.id } })) ?? mid;
+  if (current.status === 'completed' && current.completedAt !== null) {
+    // 다른 경로(이 교정 전 완료된 건 포함)로 끝났는데 열린 채 남은 납품확인서도 읽을 때 닫는다 — 완료된 건에 확인 대기 배지가 남지 않게.
+    await closeDeliveryConfirmDocs(current.id, { decidedName: '의뢰 완료 처리', note: '의뢰가 완료되어 문서를 닫았습니다', actorMbId: null, byAdmin: false }, current.completedAt);
+  }
+  return current;
 };
 
 // 견적 철회·의뢰 취소 시 대기 마일스톤 정리 — 잔존 '쇼핑' 카트행은 코어 buy 경로로 취소된 건을 결제할 수 있는 구멍.

@@ -41,6 +41,7 @@ export const NEXT_ACTION_LABELS = {
   review_quote: '견적 확인',
   pay: '결제하기',
   inspect: '검수하기',
+  answer_document: '문서 확인·회신',
   answer_review: '확인 요청 답변',
 } as const satisfies Record<NonNullable<DevelopRequestListItemType['nextAction']>, string>;
 

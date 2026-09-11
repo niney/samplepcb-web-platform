@@ -49,6 +49,7 @@ const toSettings = (row: SpDevelopSettings): AdminDevelopSettingsType => {
   };
 };
 
+// 2026-09-10 G/C 공존 기간의 변형별 행(id=1 G·id=2 C)을 단일 행 id=1 로 되돌렸다(사용자 설정이 든 행).
 export async function getDevelopSettings(): Promise<AdminDevelopSettingsType> {
   const row = await prisma.spDevelopSettings.findUnique({ where: { id: 1 } });
   return row === null ? developSettingsDefaults() : toSettings(row);
