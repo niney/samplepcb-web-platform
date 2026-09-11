@@ -2273,7 +2273,7 @@
     top: 20px;
 }
 
-/* 머리: 이름 + [정보수정 | 로그아웃] 알약 */
+/* 머리: 이름 + [정보수정 | 로그아웃] — Figma 2246:5511 */
 .smb_nav .nav_head { margin-bottom: 22px; }
 .smb_nav .nav_name {
     display: block;
@@ -2282,30 +2282,38 @@
     color: var(--acc-ink);
     line-height: 1.3;
     word-break: keep-all;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
 }
 .smb_nav .nav_name:hover { text-decoration: underline; }
 .smb_nav .nav_acts {
     display: flex;
     align-items: center;
+    width: 169px;
+    max-width: 100%;
     height: 34px;
-    border: 1px solid var(--acc-line);
+    background: #f3f3f3;
     border-radius: 6px;
 }
 .smb_nav .nav_acts a {
     flex: 1;
+    min-width: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
+    height: 100%;
+    padding: 0 10px;
     font-size: 14px;
-    color: var(--acc-muted);
+    font-weight: 400;
+    line-height: 1.3;
+    white-space: nowrap;
+    color: var(--acc-ink);
     transition: color .13s;
 }
 .smb_nav .nav_acts a:hover { color: var(--acc-primary); }
 .smb_nav .nav_acts a:hover .nav_ai { opacity: .75; }
-.smb_nav .nav_ai { width: 14px; height: 14px; object-fit: contain; }
-.smb_nav .nav_acts_sep { width: 1px; height: 18px; background: var(--acc-line); }
+.smb_nav .nav_ai { flex: none; width: 14px; height: 14px; object-fit: contain; }
+.smb_nav .nav_acts_sep { flex: 0 0 1px; height: 18px; background: var(--acc-line); }
 
 /* 그룹 메뉴 */
 .smb_nav .nav_group { padding: 0; }

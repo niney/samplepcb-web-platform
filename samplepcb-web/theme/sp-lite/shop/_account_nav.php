@@ -2,7 +2,7 @@
 if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
 /*
  * 공용 계정 사이드바 — 마이페이지·주문내역·주문상세·장바구니·견적관리·제조확인·A/S 접수 공유(SSOT).
- * 진입점이 $sp_account_active 로 활성 메뉴 지정(home|orders|cart|wish|quotes|eq|as|point|coupon|memo|scrap).
+ * 진입점이 $sp_account_active 로 활성 메뉴 지정(home|orders|cart|wish|quotes|eq|as|point|coupon).
  *   · 쇼핑 페이지: 테마 shop.head.php 가 SCRIPT_NAME 으로 자동 판별해 #aside 에 include.
  *   · 커스텀 페이지(/shop/quotes·/shop/eq·/shop/as): 다른 head(theme/head.php)라
  *     페이지가 .account-layout 로 직접 감싸 include.
@@ -16,14 +16,12 @@ if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
  *   (단위는 .nav_unit 형제) — 테스트가 textContent 를 Number() 로 파싱한다.
  */
 if (!isset($sp_account_active)) $sp_account_active = '';
-$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'eq' => '', 'as' => '', 'point' => '', 'coupon' => '', 'memo' => '', 'scrap' => '');
+$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'eq' => '', 'as' => '', 'point' => '', 'coupon' => '');
 if (isset($cur[$sp_account_active])) $cur[$sp_account_active] = ' aria-current="page"';
 
 $sp_ico   = G5_THEME_URL . '/img/account'; // theme/sp-lite/img/account (라인 아이콘 SVG)
 $sp_esc   = function_exists('sql_real_escape_string') ? sql_real_escape_string($member['mb_id']) : addslashes($member['mb_id']);
 $sp_cp    = function_exists('get_shop_member_coupon_count') ? (int) get_shop_member_coupon_count($member['mb_id'], true) : 0;
-$sp_memo  = isset($member['mb_memo_cnt'])  ? (int) $member['mb_memo_cnt']  : 0;
-$sp_scrap = isset($member['mb_scrap_cnt']) ? (int) $member['mb_scrap_cnt'] : 0;
 $tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_order_table']} where mb_id = '{$sp_esc}' ");
 $sp_od = (int) $tmp['cnt'];
 // 장바구니(담김) 행 수 — 헤더 카트 배지와 같은 모수(ct_status='쇼핑').
@@ -45,9 +43,9 @@ $sp_as = (function_exists('sp_pcb_claim_active_count') ? sp_pcb_claim_active_cou
     <div class="nav_head">
         <a class="nav_name" href="<?php echo G5_SHOP_URL ?>/mypage.php"><?php echo $member['mb_name']; ?>님</a>
         <div class="nav_acts">
-            <a href="<?php echo G5_BBS_URL ?>/member_confirm.php?url=register_form.php"><img class="nav_ai" src="<?php echo $sp_ico ?>/ico-edit.svg" alt="">정보수정</a>
+            <a href="<?php echo G5_BBS_URL ?>/member_confirm.php?url=register_form.php"><img class="nav_ai" src="<?php echo $sp_ico ?>/ico-edit.svg?ver=<?php echo G5_CSS_VER ?>" alt="">정보수정</a>
             <span class="nav_acts_sep" aria-hidden="true"></span>
-            <a href="<?php echo G5_BBS_URL ?>/logout.php"><img class="nav_ai" src="<?php echo $sp_ico ?>/ico-logout.svg" alt="">로그아웃</a>
+            <a href="<?php echo G5_BBS_URL ?>/logout.php"><img class="nav_ai" src="<?php echo $sp_ico ?>/ico-logout.svg?ver=<?php echo G5_CSS_VER ?>" alt="">로그아웃</a>
         </div>
     </div>
 
@@ -80,13 +78,6 @@ $sp_as = (function_exists('sp_pcb_claim_active_count') ? sp_pcb_claim_active_cou
             </ul>
         </div>
         <div class="nav_group">
-            <p class="nav_glabel">활동</p>
-            <ul>
-                <li><a href="<?php echo G5_BBS_URL ?>/memo.php"<?php echo $cur['memo']; ?>><img class="nav_ico" src="<?php echo $sp_ico ?>/ico-memo.svg" alt=""><span class="lbl">쪽지</span><?php if ($sp_memo) { ?><span class="nav_badge on"><?php echo number_format($sp_memo); ?></span><span class="nav_unit on">건</span><?php } ?></a></li>
-                <li><a href="<?php echo G5_BBS_URL ?>/scrap.php"<?php echo $cur['scrap']; ?>><img class="nav_ico" src="<?php echo $sp_ico ?>/ico-scrap.svg" alt=""><span class="lbl">스크랩</span><?php if ($sp_scrap) { ?><span class="nav_badge"><?php echo number_format($sp_scrap); ?></span><span class="nav_unit">건</span><?php } ?></a></li>
-            </ul>
-        </div>
-        <div class="nav_group">
             <p class="nav_glabel">문의</p>
             <ul>
                 <?php /* "요청"이 아니라 "접수" — 확인 요청은 자사→고객, 이쪽은 고객→자사다.
@@ -96,5 +87,5 @@ $sp_as = (function_exists('sp_pcb_claim_active_count') ? sp_pcb_claim_active_cou
         </div>
     </div>
 
-    <?php // 회원탈퇴는 사이드바에서 뺐다 — 미배치 링크 패널(inc/quicklinks.php '계정')에 보관(사용자 결정 08-25). ?>
+    <?php // 쪽지·스크랩·회원탈퇴는 미배치 링크 패널(inc/quicklinks.php '계정')에 보관. ?>
 </aside>
