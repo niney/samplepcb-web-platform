@@ -48,6 +48,11 @@ if ((int) $config['cf_point_term'] > 0) {
                 <?php foreach ((array) $list as $row) {
                     $sp_point_amount = (int) $row['po_point'];
                     $sp_point_date = substr($row['po_datetime'], 0, 10);
+                    $sp_point_content = $row['po_content'];
+                    // 코어의 일일 로그인 문구만 정리해 날짜 열과의 중복을 없앤다. 원장은 유지한다.
+                    if ($sp_point_content === $sp_point_date.' 첫로그인') {
+                        $sp_point_content = '첫 로그인';
+                    }
                     $sp_point_detail = $row['po_datetime'];
                     if ($sp_point_amount > 0 && (int) $row['po_expired'] === 1) {
                         $sp_point_detail .= ' · 만료됨';
@@ -57,7 +62,7 @@ if ((int) $config['cf_point_term'] > 0) {
                 ?>
                 <tr>
                     <td class="sp-point-table__date"><time datetime="<?php echo htmlspecialchars($sp_point_date, ENT_QUOTES, 'UTF-8'); ?>" title="<?php echo htmlspecialchars($sp_point_detail, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars(str_replace('-', '.', $sp_point_date), ENT_QUOTES, 'UTF-8'); ?></time></td>
-                    <td class="sp-point-table__content"><?php echo get_text($row['po_content']); ?></td>
+                    <td class="sp-point-table__content"><?php echo get_text($sp_point_content); ?></td>
                     <td class="sp-point-table__amount<?php echo $sp_point_amount < 0 ? ' is-use' : ''; ?>"><?php echo ($sp_point_amount > 0 ? '+' : '').number_format($sp_point_amount); ?>원</td>
                 </tr>
                 <?php } ?>
