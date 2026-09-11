@@ -1,74 +1,77 @@
 <?php
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
-// sp-lite: 계정 레이아웃 인라인 스킨 (팝업 아님). 스타일은 default_shop.css 의 .sp-acc-* 사용.
-// 데이터($list·$member·get_paging)는 코어 bbs/point.php 가 준비 — 여기선 표현만.
+// Figma 2254:9041 — 요약 2칸 + 날짜/내역/상태 표. 목록·보유액·페이지 이동은 코어 데이터 사용.
+// 소멸 예정은 오늘부터 30일 이내의 미사용 잔여액. 코어의 유효기간 설정과 원장을 읽기만 한다.
+$sp_point_expire_until = date('Y-m-d', strtotime('+30 days', strtotime(G5_TIME_YMD)));
+$sp_point_expiring = 0;
+if ((int) $config['cf_point_term'] > 0) {
+    $sp_point_member_id = sql_real_escape_string($member['mb_id']);
+    $sp_point_expiry = sql_fetch(" select coalesce(sum(po_point - po_use_point), 0) as amount
+        from {$g5['point_table']}
+        where mb_id = '{$sp_point_member_id}'
+          and po_expired = 0 and po_point > po_use_point
+          and po_expire_date <> '9999-12-31'
+          and po_expire_date between '".G5_TIME_YMD."' and '{$sp_point_expire_until}' ", false);
+    $sp_point_expiring = $sp_point_expiry ? (int) $sp_point_expiry['amount'] : null;
+}
 ?>
 
 <!-- 포인트 내역 { -->
 <div class="sp-acc sp-acc-point">
-    <section class="sp-acc-panel">
+    <dl class="sp-point-summary" aria-label="포인트 요약">
+        <div class="sp-point-summary__cell">
+            <dt>사용 가능 포인트</dt>
+            <dd><strong><?php echo number_format((int) $member['mb_point']); ?></strong>P</dd>
+        </div>
+        <div class="sp-point-summary__cell" title="<?php echo G5_TIME_YMD; ?>부터 <?php echo $sp_point_expire_until; ?>까지 소멸 예정인 잔여 포인트">
+            <dt>소멸 예정 포인트<span class="sound_only"> (30일 이내)</span></dt>
+            <dd><?php if ($sp_point_expiring !== null) { ?><strong><?php echo number_format($sp_point_expiring); ?></strong>P<?php } else { ?><span class="sp-point-summary__unavailable">조회 불가</span><?php } ?></dd>
+        </div>
+    </dl>
+
+    <section class="sp-point-history" aria-labelledby="sp-point-history-title">
         <div class="smb_panel_h">
-            <h2>포인트 내역</h2>
-            <a class="smb_panel_more" href="<?php echo G5_SHOP_URL ?>/mypage.php">마이페이지</a>
+            <h2 id="sp-point-history-title">포인트 현황</h2>
         </div>
+        <table class="sp-point-table">
+            <caption class="sound_only">포인트 적립 및 사용 내역</caption>
+            <colgroup>
+                <col class="sp-point-table__date-col">
+                <col>
+                <col class="sp-point-table__amount-col">
+            </colgroup>
+            <thead>
+                <tr><th scope="col">날짜</th><th scope="col">내역</th><th scope="col">상태</th></tr>
+            </thead>
+            <tbody>
+                <?php foreach ((array) $list as $row) {
+                    $sp_point_amount = (int) $row['po_point'];
+                    $sp_point_date = substr($row['po_datetime'], 0, 10);
+                    $sp_point_detail = $row['po_datetime'];
+                    if ($sp_point_amount > 0 && (int) $row['po_expired'] === 1) {
+                        $sp_point_detail .= ' · 만료됨';
+                    } else if ($sp_point_amount > 0 && $row['po_expire_date'] && $row['po_expire_date'] !== '9999-12-31') {
+                        $sp_point_detail .= ' · '.$row['po_expire_date'].' 만료';
+                    }
+                ?>
+                <tr>
+                    <td class="sp-point-table__date"><time datetime="<?php echo htmlspecialchars($sp_point_date, ENT_QUOTES, 'UTF-8'); ?>" title="<?php echo htmlspecialchars($sp_point_detail, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars(str_replace('-', '.', $sp_point_date), ENT_QUOTES, 'UTF-8'); ?></time></td>
+                    <td class="sp-point-table__content"><?php echo get_text($row['po_content']); ?></td>
+                    <td class="sp-point-table__amount<?php echo $sp_point_amount < 0 ? ' is-use' : ''; ?>"><?php echo ($sp_point_amount > 0 ? '+' : '').number_format($sp_point_amount); ?>원</td>
+                </tr>
+                <?php } ?>
+                <?php if (empty($list)) { ?>
+                <tr><td colspan="3" class="sp-acc-empty">포인트 내역이 없습니다.</td></tr>
+                <?php } ?>
+            </tbody>
+        </table>
 
-        <div class="sp-acc-sum">
-            <span class="sp-acc-sum__label">보유 포인트</span>
-            <span class="sp-acc-sum__value"><?php echo number_format($member['mb_point']); ?><small>P</small></span>
-        </div>
-
-        <ul class="sp-acc-plist">
-            <?php
-            $sum_point1 = $sum_point2 = 0;
-            $i = 0;
-            foreach ((array) $list as $row) {
-                $point1 = $point2 = 0;
-                $is_use = false;
-                if ($row['po_point'] > 0) {
-                    $point1 = '+'.number_format($row['po_point']);
-                    $sum_point1 += $row['po_point'];
-                } else {
-                    $point2 = number_format($row['po_point']);
-                    $sum_point2 += $row['po_point'];
-                    $is_use = true;
-                }
-                $expired = ($row['po_expired'] == 1);
-            ?>
-            <li class="sp-acc-plist__li<?php echo $is_use ? ' is-use' : ''; ?><?php echo $expired ? ' is-expired' : ''; ?>">
-                <div class="sp-acc-plist__main">
-                    <span class="sp-acc-plist__title"><?php echo $row['po_content']; ?></span>
-                    <span class="sp-acc-plist__num"><?php echo $point1 ? $point1 : $point2; ?><small>P</small></span>
-                </div>
-                <div class="sp-acc-plist__meta">
-                    <span class="sp-acc-plist__date"><i class="fa fa-clock-o" aria-hidden="true"></i> <?php echo $row['po_datetime']; ?></span>
-                    <?php if ($expired) { ?>
-                    <span class="sp-acc-plist__exp">만료됨</span>
-                    <?php } else if ($row['po_expire_date'] && $row['po_expire_date'] != '9999-12-31') { ?>
-                    <span class="sp-acc-plist__exp"><?php echo $row['po_expire_date']; ?> 만료</span>
-                    <?php } ?>
-                </div>
-            </li>
-            <?php $i++; } // end foreach ?>
-
-            <?php if ($i == 0) { ?>
-            <li class="sp-acc-empty">포인트 내역이 없습니다.</li>
-            <?php } ?>
-        </ul>
-
-        <?php if ($i > 0) { ?>
-        <div class="sp-acc-subtotal">
-            <span class="sp-acc-subtotal__label">이 페이지 소계</span>
-            <span class="sp-acc-subtotal__nums">
-                <strong class="up"><?php echo $sum_point1 > 0 ? '+'.number_format($sum_point1) : '0'; ?></strong>
-                <strong class="down"><?php echo number_format($sum_point2); ?></strong>
-            </span>
-        </div>
-        <?php } ?>
-
+        <?php if ($total_page > 1) { ?>
         <div class="sp-acc-paging">
             <?php echo get_paging($config['cf_write_pages'], $page, $total_page, $_SERVER['SCRIPT_NAME'].'?'.$qstr.'&amp;page='); ?>
         </div>
+        <?php } ?>
     </section>
 </div>
 <!-- } 포인트 내역 -->
