@@ -169,7 +169,7 @@ const applyScheduleDuration = (): void => {
 };
 
 const onScheduleDurationClick = (): void => {
-  if (form.value.durationDays.trim() === '') {
+  if (String(form.value.durationDays).trim() === '') {
     applyScheduleDuration();
     return;
   }

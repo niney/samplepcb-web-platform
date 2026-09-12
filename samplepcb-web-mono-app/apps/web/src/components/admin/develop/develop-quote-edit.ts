@@ -38,12 +38,12 @@ export interface DevelopQuoteItemRow {
   title: string;
   description: string;
   amount: string;
-  durationDays: string;
+  durationDays: string | number; // type="number" 입력은 Vue 가 number 로 캐스팅
 }
 
 export interface DevelopQuoteMilestoneRow {
   title: string;
-  percent: string;
+  percent: string | number; // type="number" 입력은 Vue 가 number 로 캐스팅
   trigger: DevelopMilestoneTriggerType;
   unlocksDeliverables: boolean;
 }
@@ -52,13 +52,13 @@ export interface DevelopQuoteForm {
   kind: DevelopQuoteKindType;
   title: string;
   vatMode: DevelopVatModeType;
-  durationDays: string;
+  durationDays: string | number; // type="number" 입력은 Vue 가 number 로 캐스팅
   scheduleNote: string;
   deliverables: string; // 줄 단위
   exclusions: string;
   terms: string;
-  warrantyDays: string;
-  reviewDays: string;
+  warrantyDays: string | number;
+  reviewDays: string | number;
   validUntil: string; // YYYY-MM-DD(KST)
   note: string;
   internalNote: string;
@@ -87,8 +87,9 @@ export function formatAmountInput(raw: string): string {
   return Math.round(n).toLocaleString('ko-KR');
 }
 
-const parseIntOrNull = (raw: string): number | null => {
-  const trimmed = raw.trim();
+/** `type="number"` v-model 은 Vue 가 값을 number 로 캐스팅하므로 문자열·숫자 둘 다 받는다. */
+const parseIntOrNull = (raw: string | number): number | null => {
+  const trimmed = String(raw).trim();
   if (trimmed === '') return null;
   const n = Number(trimmed);
   return Number.isFinite(n) ? Math.round(n) : Number.NaN;
