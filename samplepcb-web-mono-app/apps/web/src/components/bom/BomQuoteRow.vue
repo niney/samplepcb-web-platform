@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { BOM_QUOTE_MAX_ITEM_QTY, type BomQuoteItemType } from '@sp/api-contract';
 import {
   isBomQuoteAlternativePendingReview,
@@ -41,15 +42,13 @@ const emit = defineEmits<{
   'open-search': [];
 }>();
 
-const quantityDraft = ref(props.item.bomQty);
+const { t } = useI18n();
+const quantityDraft = ref<number | null>(null);
 const quantityAdjustmentMessage = ref('');
-
-watch(
-  () => props.item.bomQty,
-  (value) => {
-    quantityDraft.value = value;
-  },
-);
+watch(() => [props.item.id, props.item.quantityState] as const, () => {
+  quantityDraft.value = null;
+  quantityAdjustmentMessage.value = '';
+});
 
 const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
 
@@ -547,19 +546,20 @@ const selectedLifecycleForDisplay = computed(() => {
 function onQtyInput(event: Event): void {
   const input = event.target as HTMLInputElement;
   const raw = input.value;
+  if (quantityMissing.value) {
+    const value = raw.trim() === '' ? NaN : Number(raw);
+    quantityDraft.value = Number.isSafeInteger(value) && value > 0 && value <= BOM_QUOTE_MAX_ITEM_QTY ? value : null;
+    return;
+  }
   const parsed = raw.trim() === '' ? 1 : Number(raw);
   const qty = Number.isFinite(parsed)
     ? Math.min(BOM_QUOTE_MAX_ITEM_QTY, Math.max(1, Math.round(parsed)))
     : 1;
   input.value = String(qty);
-  const label = quantityMissing.value ? 'BOM 수량' : '주문 수량';
+  const label = '주문 수량';
   quantityAdjustmentMessage.value = raw.trim() === String(qty)
     ? ''
     : `${label} 조정: ${qty.toLocaleString('ko-KR')}`;
-  if (quantityMissing.value) {
-    quantityDraft.value = qty;
-    return;
-  }
   if (props.item.orderQty === qty) return;
   emit('qty-change', qty);
 }
@@ -682,12 +682,14 @@ function onQtyInput(event: Event): void {
       <div class="mt-[8px] flex h-[38px] w-[150px] items-center justify-between rounded-[6px] border border-bom-control-border bg-bom-control pl-1 pr-3">
         <input
           :value="quantityMissing ? quantityDraft : item.orderQty"
+          :placeholder="quantityMissing ? t('bomQuantity.placeholder') : undefined"
+          :data-missing-quantity="quantityMissing ? item.id : undefined"
           type="number"
           min="1"
           :max="BOM_QUOTE_MAX_ITEM_QTY"
           step="1"
           inputmode="numeric"
-          class="w-[70px] bg-transparent px-2 text-right text-[16px] font-bold tabular-nums text-bom-row-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          class="w-[90px] bg-transparent px-2 text-right text-[16px] font-bold tabular-nums text-bom-row-primary placeholder:text-[11px] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="!isDraft || editingLocked || (!quantityMissing && item.selectedOffer === null)"
           :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
           :aria-label="quantityMissing ? `${partLabel} BOM 수량` : `${partLabel} 주문 수량`"
@@ -697,6 +699,15 @@ function onQtyInput(event: Event): void {
         >
         <span class="text-[11px] text-ink-subtle">/ {{ quantityMissing ? 'BOM 수량' : catalogInquiry ? '확인' : (item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—') }}</span>
       </div>
+      <button
+        v-if="quantityMissing"
+        type="button"
+        class="mt-1.5 h-[26px] w-[150px] rounded border border-amber-300 bg-amber-100 text-[11px] font-bold text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+        :disabled="!isDraft || editingLocked || quantityDraft === null"
+        @click="quantityDraft !== null && emit('confirm-quantity', quantityDraft)"
+      >
+        {{ quantityDraft === null ? t('bomQuantity.confirm') : t('bomQuantity.confirmValue', { quantity: quantityDraft }) }}
+      </button>
       <p
         v-if="quantityAdjustmentMessage !== ''"
         :id="`bom-row-quantity-adjustment-${item.id}`"
@@ -706,16 +717,6 @@ function onQtyInput(event: Event): void {
       >
         {{ quantityAdjustmentMessage }}
       </p>
-      <button
-        v-if="quantityMissing"
-        type="button"
-        class="mt-1.5 h-[26px] w-[150px] rounded border border-amber-300 bg-amber-100 text-[11px] font-bold text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="!isDraft || editingLocked"
-        :title="editingLocked ? EDIT_LOCK_TITLE : `${quantityDraft.toLocaleString('ko-KR')}개로 확인하고 견적에 포함`"
-        @click="emit('confirm-quantity', quantityDraft)"
-      >
-        {{ quantityDraft.toLocaleString('ko-KR') }}개로 수량 확인
-      </button>
       <p v-if="severeOrderSurplus" class="mt-1.5 w-[150px] text-right text-[10px] font-bold leading-4 text-orange-700" :title="severeOrderSurplusLabel">
         필요 {{ needed.toLocaleString('ko-KR') }} · 초과 {{ surplusQty.toLocaleString('ko-KR') }} ({{ orderRatio.toLocaleString('ko-KR', { maximumFractionDigits: 1 }) }}배)
       </p>
@@ -732,6 +733,7 @@ function onQtyInput(event: Event): void {
           <span v-if="totalStatusPresentation.pulse" class="size-1.5 animate-pulse rounded-full bg-blue-500" />
           {{ totalStatusPresentation.label }}
         </span>
+        <span v-if="quantityMissing" class="text-[10px] font-semibold leading-4 text-amber-800">{{ t('bomQuantity.needsConfirmation') }}</span>
         <span
           v-if="partnerStockLabel !== null"
           class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
@@ -750,7 +752,8 @@ function onQtyInput(event: Event): void {
         <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="evidenceTitle">일부 확인 필요</span>
         <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 구매 조건 — 수량이 바뀌어도 유지">고정</span>
         <span class="text-[14px] leading-normal tabular-nums" :class="totalStatusPresentation.priceClass">
-          <template v-if="item.lineTotalKrw !== null">
+          <span v-if="quantityMissing" class="block text-[11px] leading-4">{{ t('bomQuantity.linePending') }}</span>
+          <template v-else-if="item.lineTotalKrw !== null">
             <b>{{ Math.round(item.lineTotalKrw).toLocaleString('ko-KR') }}</b><span class="font-normal">원</span>
           </template>
           <span v-else class="font-normal">{{ catalogInquiry ? '문의 견적' : '—' }}</span>

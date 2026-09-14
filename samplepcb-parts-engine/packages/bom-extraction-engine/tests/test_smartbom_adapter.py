@@ -20,6 +20,36 @@ def _adapt(case):
     return components, headers
 
 
+@pytest.mark.parametrize("spec_header", [
+    "Number of Outputs", "Output Count", "Number of Channels",
+    "Pin Count", "출력 수", "채널 개수",
+])
+@pytest.mark.parametrize("with_quantity", [False, True])
+def test_technical_counts_do_not_become_purchase_quantity(spec_header, with_quantity):
+    labels = ["MPN", "Reference", spec_header]
+    cells = [
+        ["LTV-357T-C", "U1", 1],
+        ["MOC3021S-TA1", "U2", 1],
+        ["NCP1117ST33T3G", "U3", 1],
+    ]
+    if with_quantity:
+        labels.append("Quantity")
+        for row in cells:
+            row.append(1)
+    case = _case(labels, [
+        {"row_id": i + 1, "cells": row} for i, row in enumerate(cells)
+    ])
+    components, _ = _adapt(case)
+    assert len(components) == 3
+    for component in components:
+        assert component["quantity"] == (1 if with_quantity else None)
+        assert component["quantity_resolution"] == ("verified" if with_quantity else "missing")
+        if with_quantity:
+            assert component["field_states"]["quantity"]["evidence"][0]["cell"].startswith("D")
+        else:
+            assert component["procurement_disposition"] == "quantity_confirmation_required"
+
+
 def _case(labels, rows, header_rows=(0,), column_indices=None):
     return {
         "file": "unit.xlsx",

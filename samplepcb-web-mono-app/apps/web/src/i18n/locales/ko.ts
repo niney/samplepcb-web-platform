@@ -1,6 +1,24 @@
 import { develop } from './develop-ko';
 // 실서비스 기준 로케일. 다른 로케일(en 등)은 이 shape 를 따른다.
 export const ko = {
+  bomQuantity: {
+    allMissing: 'BOM에 수량 정보가 없습니다.',
+    someMissing: '{count}개 부품의 수량을 확인해 주세요.',
+    description: '정확한 견적을 받으려면 부품별 수량이 필요합니다. BOM 파일에 수량 열을 추가한 뒤 다시 업로드해 주세요.',
+    reupload: '파일 다시 업로드',
+    ignore: '무시하고 계속',
+    close: '수량 안내 닫기',
+    ignoreDescription: '닫은 뒤 부품 검색 결과를 확인하고 각 행에 수량을 직접 입력할 수도 있습니다. 수량이 없는 부품은 견적 금액에 포함되지 않습니다.',
+    placeholder: '수량 미입력',
+    confirm: '수량 확인',
+    confirmValue: '{quantity}개로 수량 확인',
+    needsConfirmation: '수량 확인 필요',
+    linePending: '수량 없어 산정 대기',
+    pending: '산정 대기',
+    pendingDescription: '행별 수량을 직접 입력하거나 수량이 포함된 파일을 다시 업로드해 주세요.',
+    partialTotal: '부분 합계',
+    partialDescription: '입력된 수량 기준 부분 합계입니다. 수량 미입력 {count}개 부품은 포함되지 않았습니다.',
+  },
   app: {
     name: 'SAMPLEPCB',
   },

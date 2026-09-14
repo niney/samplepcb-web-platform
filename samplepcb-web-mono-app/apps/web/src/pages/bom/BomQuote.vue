@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useVirtualizer } from '@tanstack/vue-virtual';
 import { ApiRequestError, apiGet, apiGetBlob } from '@sp/shared';
 import {
   BOM_QUOTE_CUSTOMER_STATUS_LABELS,
+  BOM_QUOTE_MAX_ITEM_QTY,
   BOM_QUOTE_MAX_SET_OR_SPARE_QTY,
   BomQuotePrintResponse,
   apiRoutes,
@@ -21,6 +23,7 @@ import {
 } from '@sp/api-contract';
 import {
   bomQuoteItemMatchGroup,
+  isBomQuoteEngineSearchExcluded,
   fmtKstDate,
   neededQty,
   pickBreak,
@@ -62,6 +65,7 @@ import BomQuoteCheckbox from '../../components/bom/BomQuoteCheckbox.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRequestModal from '../../components/bom/BomQuoteRequestModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
+import BomQuantityWarningModal from '../../components/bom/BomQuantityWarningModal.vue';
 import BomClaimPanel from '../../components/bom/BomClaimPanel.vue';
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
 import icBomCompareEye from '../../assets/bom/ic-bom-compare-eye.svg';
@@ -84,6 +88,7 @@ import icUploadOutline from '../../assets/bom/ic-upload-outline.svg';
 // 미구현 요소(행 정렬 핸들)는 디자인만.
 
 const route = useRoute();
+const { t } = useI18n();
 const router = useRouter();
 const qc = useQueryClient();
 const quoteId = computed(() => String(route.params.id ?? ''));
@@ -508,9 +513,9 @@ function toggleInclude(item: BomQuoteItemType): void {
 
 function confirmQuantity(item: BomQuoteItemType, qty: number): void {
   if (!isDraft.value || editingLocked.value || item.quantityState !== 'missing') return;
-  const confirmedQty = Math.max(1, Math.round(qty));
-  item.bomQty = confirmedQty;
-  item.orderQty = neededQty(confirmedQty, setQty.value, spareQty.value);
+  if (!Number.isSafeInteger(qty) || qty < 1 || qty > BOM_QUOTE_MAX_ITEM_QTY) return;
+  item.bomQty = qty;
+  item.orderQty = neededQty(qty, setQty.value, spareQty.value);
   item.quantityState = 'confirmed';
   item.included = true;
   recalcLine(item);
@@ -838,6 +843,25 @@ watch(quoteId, () => {
 // 분석 카드는 현재 탭 기준, 금액·견적요청 가능 여부는 전체 견적 기준이다.
 const stats = computed(() => summarizeBomQuoteItems(sheetItems.value));
 const quoteStats = computed(() => summarizeBomQuoteItems(items.value));
+// Display the engine's quantity state; never infer quantities from source cells here.
+const quantityRelevantItems = computed(() => items.value.filter((item) => item.quantityState !== 'excluded' && !isBomQuoteEngineSearchExcluded(item)));
+const missingQuantityItems = computed(() => quantityRelevantItems.value.filter((item) => item.quantityState === 'missing'));
+const allQuantitiesMissing = computed(() => missingQuantityItems.value.length > 0
+  && missingQuantityItems.value.length === quantityRelevantItems.value.length);
+const dismissedQuantityWarnings = ref(new Set<string>());
+const quantityWarningOpen = computed(() => isDraft.value
+  && detail.value?.buildStatus === 'ready'
+  && missingQuantityItems.value.length > 0
+  && !dismissedQuantityWarnings.value.has(quoteId.value));
+
+function dismissQuantityWarning(): void {
+  dismissedQuantityWarnings.value.add(quoteId.value);
+}
+
+function reuploadForQuantity(): void {
+  dismissQuantityWarning();
+  void router.push('/bom');
+}
 function resultPercent(count: number): number {
   return stats.value.total === 0 ? 0 : Math.round((count / stats.value.total) * 100);
 }
@@ -2526,9 +2550,11 @@ function fmtWon(v: number | null): string {
             <p class="mt-0.5 truncate text-[12px] font-bold tabular-nums text-brand">
               {{ orderedSupportVisible
                 ? '배송 후 문제 접수 · 처리 이력'
-                : pricingPending
-                  ? '가격 확인 중…'
-                  : `${confirmedQuoteVisible ? '확정' : '예상'} ${fmtWon(displayedFinalTotal)}` }}
+                : allQuantitiesMissing && !confirmedQuoteVisible
+                  ? t('bomQuantity.pending')
+                  : pricingPending
+                    ? '가격 확인 중…'
+                    : `${confirmedQuoteVisible ? '확정' : missingQuantityItems.length > 0 ? t('bomQuantity.partialTotal') : '예상'} ${fmtWon(displayedFinalTotal)}` }}
             </p>
           </div>
           <button
@@ -2610,6 +2636,14 @@ function fmtWon(v: number | null): string {
             제외 {{ stats.excluded }}
           </button>
         </div>
+
+        <BomQuantityWarningModal
+          :open="quantityWarningOpen"
+          :all-missing="allQuantitiesMissing"
+          :count="missingQuantityItems.length"
+          @close="dismissQuantityWarning"
+          @reupload="reuploadForQuantity"
+        />
 
         <!-- 자동 보강 진행 배너 — 완료되면 서버가 재매칭한 결과가 폴링으로 자동 반영된다 -->
         <div v-if="enriching" class="mt-3 rounded-lg bg-blue-50 px-4 py-2.5 ring-1 ring-blue-100">
@@ -3184,12 +3218,17 @@ function fmtWon(v: number | null): string {
               {{ confirmedQuoteVisible ? '확정 견적' : '예상 견적' }}
               <span v-if="showResultSheetTabs" class="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">전체 견적</span>
             </h2>
-            <div v-if="pricingPending" class="mt-[10px] rounded-[8px] border border-line-brand bg-surface-brand-soft px-3 py-4 text-center" aria-live="polite">
+            <div v-if="allQuantitiesMissing && !confirmedQuoteVisible" class="mt-[10px] rounded-[8px] border border-amber-200 bg-amber-50 px-3 py-4 text-center" role="status">
+              <p class="text-sm font-bold text-amber-900">{{ t('bomQuantity.pending') }}</p>
+              <p class="mt-2 text-xs leading-5 text-amber-800">{{ t('bomQuantity.pendingDescription') }}</p>
+            </div>
+            <div v-else-if="pricingPending" class="mt-[10px] rounded-[8px] border border-line-brand bg-surface-brand-soft px-3 py-4 text-center" aria-live="polite">
               <span class="mx-auto block size-[7px] animate-pulse rounded-full bg-brand-soft" />
               <p class="mt-2 text-[12px] font-semibold text-brand-deep">공급사 가격을 확인하고 있습니다</p>
               <p class="mt-1 text-[10px] leading-[15px] text-ink-subtle">모든 결과가 반영되면 합계를 표시합니다.</p>
             </div>
             <div v-else class="mt-[9px]">
+              <p v-if="missingQuantityItems.length > 0 && !confirmedQuoteVisible" class="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs leading-5 text-amber-900" role="status">{{ t('bomQuantity.partialDescription', { count: missingQuantityItems.length }) }}</p>
               <div class="h-[129px] space-y-[13px] rounded-[8px] border border-bom-panel-card-border bg-bom-panel-card px-[11px] pb-[13px] pt-[15px] text-[12px] leading-[14px] [&>:last-child]:-translate-y-px">
                 <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="font-noto tracking-[-0.48px] text-bom-panel-label">단가</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtWon(displayedAverageSetUnitPrice) }}</span></div>
                 <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">부품 합계</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtWon(displayedItemsTotal) }}</span></div>
@@ -3197,7 +3236,7 @@ function fmtWon(v: number | null): string {
                 <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">관리비</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtWon(displayedManagementFee) }}</span></div>
               </div>
               <div class="relative mt-[12px] h-[74px] rounded-[8px] border border-bom-panel-total-border bg-bom-panel-total px-[11px] py-[11px]">
-                <span class="font-noto text-[12px] font-medium leading-[14px] text-bom-panel-heading">최종합계 <span class="text-[10px] font-normal text-bom-panel-vat">(VAT 별도)</span></span>
+                <span class="font-noto text-[12px] font-medium leading-[14px] text-bom-panel-heading">{{ missingQuantityItems.length > 0 && !confirmedQuoteVisible ? t('bomQuantity.partialTotal') : '최종합계' }} <span class="text-[10px] font-normal text-bom-panel-vat">(VAT 별도)</span></span>
                 <span class="absolute bottom-[12px] right-[11px] text-[19px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtWon(displayedFinalTotal) }}</span>
               </div>
               <ul v-if="confirmedQuoteVisible" class="mt-[11px] list-disc pl-[14px] text-[11px] leading-[16px] text-bom-estimate-notice">

@@ -1,6 +1,24 @@
 import { develop } from './develop-en';
 // 준비용 스텁(도입 예정). ko 와 동일 shape 유지. 실번역은 추후.
 export const en = {
+  bomQuantity: {
+    allMissing: 'No BOM quantities are available.',
+    someMissing: 'Confirm quantities for {count} parts.',
+    description: 'Part quantities are required for an accurate quote. Add a quantity column to your BOM file and upload it again.',
+    reupload: 'Upload another file',
+    ignore: 'Ignore and continue',
+    close: 'Close quantity notice',
+    ignoreDescription: 'Close this notice to view part search results and enter quantities directly in each row. Parts without quantities are excluded from the quote amount.',
+    placeholder: 'Quantity missing',
+    confirm: 'Confirm quantity',
+    confirmValue: 'Confirm quantity: {quantity}',
+    needsConfirmation: 'Quantity required',
+    linePending: 'Awaiting quantity',
+    pending: 'Awaiting quantities',
+    pendingDescription: 'Enter quantities in each row or upload a file containing part quantities.',
+    partialTotal: 'Partial total',
+    partialDescription: 'Partial total based on entered quantities. Excludes {count} parts with missing quantities.',
+  },
   app: {
     name: 'SAMPLEPCB',
   },

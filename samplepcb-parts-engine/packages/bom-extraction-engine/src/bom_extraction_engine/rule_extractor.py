@@ -62,6 +62,14 @@ _MANUFACTURER_SCOPE = re.compile(
 )
 _DESIG_PAT = re.compile(r"designator|reference|location|ref\s*des|^refs?\b")
 _QTY_PAT = re.compile(r"q['`]?n?ty|quantity|수량|소요량|\bcount\b|개수")
+# Technical counts describe one part, not the number of parts to procure.
+# Also exclude them from reference/count correlation and numeric inference.
+_TECHNICAL_COUNT_PAT = re.compile(
+    r"^(?:(?:number|no\.?)\s+of\s+)?"
+    r"(?:outputs?|inputs?|channels?|circuits?|gates?|elements?|pins?|positions?|contacts?)"
+    r"(?:\s+(?:count|quantity|number|qty))?$"
+    r"|^(?:출력|입력|채널|회로|핀|접점)\s*(?:수|개수)$"
+)
 _QTY_NEG = re.compile(  # 구매/재고성 수량 열 — 보드당 수량이 아님 (gpt 증류)
     r"purchase|order|required|total|stock|spare"
     r"|구매|필요|소요|잔여|재고|예비|셋트|세트|견적|합계|총")
@@ -207,6 +215,8 @@ def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
             role = "pin_count"
         elif _PITCH_PAT.fullmatch(lab):
             role = "pitch_mm"
+        elif _TECHNICAL_COUNT_PAT.search(lab):
+            role = "ignore"
         elif _QTY_PAT.search(lab):
             # 네거티브(구매/재고성)는 일단 보류 — 다른 양성 수량 열이 없으면
             # 뒤에서 승격한다 ("Quantity Required"만 있는 파일)
@@ -3052,8 +3062,14 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
         / len(values)
         >= 0.6
     }
+    technical_count_columns = {
+        i for i, label in enumerate(labels)
+        if _TECHNICAL_COUNT_PAT.search(_norm_label(label))
+    }
     pair = reference_quantity_pair(
-        [row.get("cells") or [] for row in rows], len(labels))
+        [[None if i in technical_count_columns else value
+          for i, value in enumerate(row.get("cells") or [])]
+         for row in rows], len(labels))
     if pair is not None and (
         not valid_explicit_designators or pair[0] in valid_explicit_designators
     ):
@@ -3095,6 +3111,7 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
         if (
             _DIST_PAT.search(normalized_label)
             or _CONTENT_INFERENCE_BLOCK.search(normalized_label)
+            or _TECHNICAL_COUNT_PAT.search(normalized_label)
         ):
             continue   # 유통 코드 열("N° Mouser")은 내용이 PN형이어도
             #            제조사 PN이 아니다 — 승격 금지
