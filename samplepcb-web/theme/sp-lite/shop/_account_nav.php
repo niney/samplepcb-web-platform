@@ -8,7 +8,8 @@ if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
  *     페이지가 .account-layout 로 직접 감싸 include.
  * $member 로그인 전제(호출 측이 로그인 게이트). 배지 건수는 여기서 1회 조회.
  *
- * 디자인(2026-08-25, Figma 103:2361): 상단 프로필 카드(아바타·스탯 타일) 폐기 →
+ * 디자인(2026-09-15, Figma 2243:2386): 전 페이지 공용 카드형 사이드바. 메뉴 간격은 CSS 공통 규칙.
+ * 상단 프로필 카드(아바타·스탯 타일) 폐기 →
  * 이름 + [정보수정 | 로그아웃] 알약. 건수는 pill 이 아니라 우측 정렬 굵은 텍스트(.nav_badge
  * 숫자 + .nav_unit 단위) — 제조 확인만 파랑(고객 차례). 아이콘은 라인 SVG(<img>, 회색 baked).
  * ⚠ 클래스 훅(nav_group·nav_glabel·lbl·nav_badge·aria-current)은 e2e(customer-eq-menu·
