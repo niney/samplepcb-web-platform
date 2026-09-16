@@ -85,7 +85,7 @@ import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/Rf
 import { confirmDialog } from '../../lib/confirmDialog';
 
 // 스마트 BOM Case 상세 — 고객 견적요청 1건의 운영 화면(docs/SMARTBOM_PARTNER_RFQ.md §3.4).
-// 데이터·검토 로직은 /api/admin/bom-quotes 그대로(BOM 견적요청 화면과 동일 계약).
+// 데이터·검토 로직은 BOM 모듈 공통 /api/admin/bom-quotes 계약을 사용한다.
 // 협력사 RFQ 패널·발송 모달·비교 뷰는 이 화면 위에 단계적으로 확장한다(§5-4~6).
 
 const route = useRoute();

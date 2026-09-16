@@ -308,11 +308,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminBomQuote.vue'),
         meta: { adminContentFlush: true },
       },
-      {
-        path: 'bom-quotes',
-        name: 'admin-bom-quotes',
-        component: () => import('./pages/admin/AdminBomQuotes.vue'),
-      },
       { path: 'parts', name: 'admin-parts', component: AdminParts },
       { path: 'settings', name: 'admin-settings', component: AdminSettings },
       // 스마트 BOM 모듈(docs/SMARTBOM_PARTNER_RFQ.md §3) — 헤더 모듈 스위처의 두 번째

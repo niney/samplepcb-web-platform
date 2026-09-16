@@ -33,7 +33,7 @@ status: active
 - **sp-node (`apps/api`)**: `routes/pcb-projects.ts`·`me.ts`·`health.ts`, 관리자 라우트(`admin-*.ts`), **BOM/부품 6파일**(`bom.ts`·`bom-quotes.ts`·`admin-bom.ts`·`admin-bom-quotes.ts`·`admin-parts.ts`·`rnd-ai.ts`), 재능마켓 6파일, AI 라우트(`routes/ai.ts` + `lib/ai/` 레지스트리), `plugins/auth.ts`(`JwtClaims`)에서 import — Zod type-provider 로 요청 검증과 응답 타입에 사용.
 - **sp-engine(`samplepcb-parts-engine`, Python)**: `bom.ts`가 엔진 pydantic 출력(`BomResult`·`BomSupplierResult`·`BomSupplierPlan`·`BomEngineCapabilities`)을 그대로 미러. 계약은 엔진을 호출하지 않고 **형태만 고정**한다.
 - **`@sp/shared`**: `api-client.ts`(`ApiError`를 throw 가능한 Error 로 래핑, 회원/관리자 두 에러 봉투를 `ApiMemberError`로 정규화), `auth.ts`(`Me`), `queries.ts`(`apiRoutes` + 스키마).
-- **sp-vue (`apps/web`)**: 관리자 `/app/admin`(견적·회원·주문·설정·슬라이드·SEO·마켓 + `AdminParts.vue`·`AdminBomQuotes.vue`)와 **회원 `/app/bom` 고객 화면**(`BomQuoteRow.vue`·`BomCandidateDrawer.vue`·`BomCompareModal.vue`·`BomPartSearchPanel.vue` 등 20+ 컴포넌트)이 최대 소비자.
+- **sp-vue (`apps/web`)**: 관리자 `/app/admin`(견적·회원·주문·설정·슬라이드·SEO·마켓 + `AdminParts.vue`·`AdminSmartbomQuotes.vue`·`AdminSmartbomCase.vue`)와 **회원 `/app/bom` 고객 화면**(`BomQuoteRow.vue`·`BomCandidateDrawer.vue`·`BomCompareModal.vue`·`BomPartSearchPanel.vue` 등 20+ 컴포넌트)이 최대 소비자.
 - **sp-market (`apps/market`, `/market`)**: 의뢰 위저드(`MARKET_AREA_*`, `AI_INTERVIEW_QUESTIONS`), 전문가 등록, 블라인드 입찰, 계약 카드.
 - **거버 뷰어(별도 repo `samplepcb_gerber`)**: `toProjectPayload.ts`가 `PcbProjectPayload` multipart `payload` 파트(JSON) 전송. **sp-php `/shop/quotes`**: `PcbProjectList*`·`PcbProjectOrder*` 소비.
 

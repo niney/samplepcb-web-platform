@@ -73,6 +73,14 @@ const activeModuleKey = computed(() => resolveAdminModuleKey(currentRouteName.va
 const activeModule = computed(
   () => adminModules.find((m) => m.key === activeModuleKey.value) ?? adminModules[0],
 );
+const hasBottomMenu = computed(() => activeModule.value?.menu.some((item) => item.placement === 'bottom') === true);
+const menuGroups = computed(() => {
+  const items = activeModule.value?.menu ?? [];
+  return [
+    { key: 'main', items: items.filter((item) => item.placement !== 'bottom') },
+    { key: 'bottom', items: items.filter((item) => item.placement === 'bottom') },
+  ].filter((group) => group.items.length > 0);
+});
 const pcbMemory = ref(readPcbAdminMemory(auth.me?.mbId));
 watch(
   () => auth.me?.mbId,
@@ -184,10 +192,13 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
     />
     <!-- 좌측 사이드바 -->
     <aside
-      :class="mobileMenuOpen ? 'flex' : 'hidden lg:flex'"
-      class="fixed inset-y-0 left-0 z-50 w-60 shrink-0 flex-col border-r border-gray-200 bg-surface shadow-2xl lg:static lg:z-auto lg:shadow-none"
+      :class="[
+        mobileMenuOpen ? 'flex' : 'hidden lg:flex',
+        hasBottomMenu ? 'lg:sticky lg:top-0 lg:h-dvh lg:self-start' : 'lg:static',
+      ]"
+      class="fixed inset-y-0 left-0 z-50 w-60 shrink-0 flex-col border-r border-gray-200 bg-surface shadow-2xl lg:z-auto lg:shadow-none"
     >
-      <div class="border-b border-gray-200 px-5 py-4">
+      <div class="shrink-0 border-b border-gray-200 px-5 py-4">
         <div class="flex items-center justify-between gap-2">
           <RouterLink to="/" class="text-lg font-bold text-blue-600">{{ $t('app.name') }}</RouterLink>
           <button
@@ -201,11 +212,19 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
         </div>
         <p class="mt-0.5 text-xs text-gray-400">{{ $t('admin.title') }}</p>
       </div>
-      <nav class="flex-1 space-y-1 overflow-y-auto p-3">
+      <!-- 하단 보조 메뉴는 업무 메뉴와 분리해 화면 아래에 유지한다. -->
+      <nav
+        v-for="group in menuGroups"
+        :key="group.key"
+        class="space-y-1 p-3"
+        :class="group.key === 'bottom'
+          ? 'shrink-0 border-t border-gray-200'
+          : 'min-h-0 flex-1 overflow-y-auto'"
+      >
         <!-- exact-active 사용: 대시보드는 /admin 의 빈 경로 자식이라 기본(포함) 매칭으로는
              /admin/* 어디서나 활성 처리된다. 상세 형제 라우트는 activeRouteNames 로 보완. -->
         <RouterLink
-          v-for="item in activeModule?.menu ?? []"
+          v-for="item in group.items"
           :key="item.labelKey"
           :to="menuTo(item)"
           class="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
@@ -239,8 +258,9 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
             <path d="M3 5h14M3 10h14M3 15h14" stroke-linecap="round" />
           </svg>
         </button>
-        <!-- 모듈 스위처 — 활성 모듈은 라우트에서 파생(클릭 = 모듈 홈 이동).
-             각 업무 모듈의 독립 메뉴와 연결한다. -->
+        <!-- 상단 업무 메뉴: 업무 영역 전환 메뉴(Module Switcher).
+             통합·PCB·BOM·개발·마켓을 선택하면 해당 영역의 사이드 메뉴와 작업 화면으로 전환한다.
+             활성 모듈은 현재 라우트에서 파생하며, 클릭하면 해당 모듈 홈으로 이동한다. -->
         <nav class="flex min-w-0 overflow-x-auto rounded-lg border border-gray-200 bg-surface-sunken p-0.5 text-xs font-semibold [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <RouterLink
             v-for="mod in adminModules"

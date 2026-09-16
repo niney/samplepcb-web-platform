@@ -409,8 +409,18 @@ const progressTone = (item: { orderedQty: number; scannedQty: number }): string 
               <td class="py-1 pr-3 font-mono text-gray-500">{{ row.lotCode ?? '—' }} / {{ row.dateCode ?? '—' }}</td>
               <td class="py-1 pr-3">
                 <template v-if="row.poId !== null">
-                  <RouterLink :to="{ name: 'admin-smartbom-case', params: { id: row.quoteId ?? '' }, query: { from: 'logistics' } }" class="text-blue-700 underline">{{ row.quoteTitle }}</RouterLink>
-                  <span class="text-gray-500"> · {{ row.poItemMpn }} ({{ row.orderedQty }})</span>
+                  <!-- 발주번호는 이력에 남지만 품목 삭제 시 견적 연결은 없어질 수 있다. -->
+                  <RouterLink
+                    v-if="row.quoteId !== null && row.quoteId.trim() !== ''"
+                    :to="{ name: 'admin-smartbom-case', params: { id: row.quoteId }, query: { from: 'logistics' } }"
+                    class="text-blue-700 underline"
+                  >
+                    {{ row.quoteTitle ?? `PO #${row.poId}` }}
+                  </RouterLink>
+                  <span v-else class="text-gray-500">PO #{{ row.poId }} · 견적 연결 없음</span>
+                  <span v-if="row.poItemMpn !== null" class="text-gray-500">
+                    · {{ row.poItemMpn }}<template v-if="row.orderedQty !== null"> ({{ row.orderedQty }})</template>
+                  </span>
                 </template>
                 <span v-else class="text-amber-700">미매칭</span>
               </td>

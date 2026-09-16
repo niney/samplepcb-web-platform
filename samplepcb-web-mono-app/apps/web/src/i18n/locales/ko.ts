@@ -119,6 +119,7 @@ export const ko = {
     title: '관리자',
     modules: {
       core: '통합',
+      market: '마켓',
       pcb: 'PCB',
       smartbom: 'BOM',
       develop: '개발',
@@ -144,7 +145,6 @@ export const ko = {
       marketContracts: '마켓 계약·정산',
       marketSettings: '마켓 설정',
       bom: 'BOM 업로드',
-      bomQuotes: 'BOM 견적요청',
       parts: '부품 검색',
       slides: '메인 슬라이드',
       seo: 'SEO 설정',

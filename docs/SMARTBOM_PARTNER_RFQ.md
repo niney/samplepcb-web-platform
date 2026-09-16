@@ -267,8 +267,12 @@ GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 �
 (2차) + 주문·결제   (3차) + 입고·배송, 완료·클레임                — 등장 시점에 메뉴 추가
 ```
 
-- 기존 `/admin/bom`·`/admin/bom-quotes`는 통합 관리 모듈에 그대로 병존(같은 상세 컴포넌트
-  공유). smartbom 모듈 안정 후 정리 여부만 후속 결정.
+- 관리자 BOM 업로드·작업 화면(`/admin/bom`·`/admin/bom/:id`)은 BOM 업무 메뉴에 둔다.
+  2026-09-16 통합에서 BOM > BOM 업로드로 이동했으며 기존 URL은 유지한다.
+  사용 빈도가 낮은 BOM 업로드는 일반 업무 메뉴와 분리해 사이드바의 화면 하단에 배치한다.
+  고객 견적요청 검토는 BOM > 견적관리(`/admin/smartbom/quotes`)와 Case 상세로 통일했다.
+  중복된 `/admin/bom-quotes` 메뉴·화면·라우트는 2026-09-16 제거했으며 리다이렉트도 두지 않는다.
+  공통 `/api/admin/bom-quotes` API와 조회·저장 훅은 BOM 모듈에서 계속 사용한다.
 - Case 표시 번호: `CASE-P-YYMMDD-NNN` 형태의 **표시용 파생 채번**(시안 채택 — 저장 키 아님).
 
 ### 3.3 진행현황 (신규 — 시안 형식 채택)

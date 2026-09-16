@@ -22,7 +22,7 @@ status: active
 - **src 구조**:
   - `main.ts` — pinia → i18n → vue-query 설치, **마운트 전 `useAuthStore(pinia).bootstrap()`** 후 router 설치(순서 필수 — 딥링크가 빈 auth 가드에 튕김).
   - `router.ts` — `createWebHistory('/app/')`. 레이아웃 3종: `DefaultLayout`(홈 셸)·`AdminLayout`(`meta.requiresAdmin`)·**`BomLayout`**(고객 BOM 전용 셸, `meta.requiresMember`). `/bom` 하위는 **정적 세그먼트(`search`·`history`)를 `:id` 보다 먼저** 선언해 견적 id 로 오매칭되지 않게 한다.
-  - `pages/admin/` 15종 — 기존 11종 + `AdminBom`(공급사 검색 잡 목록)·`AdminBomJob`(잡 상세)·`AdminBomQuotes`(BOM 견적 검토)·`AdminParts`(부품 카탈로그).
+  - `pages/admin/` — BOM 견적 검토는 `AdminSmartbomQuotes`(견적관리)·`AdminSmartbomCase`(상세)가 담당한다. 초기 `AdminBomQuotes` 화면·메뉴·라우트는 2026-09-16 제거했다. 부품 카탈로그는 `AdminParts`.
   - `pages/bom/` 4종 — `BomHome`(업로드)·`BomHistory`(내 견적 전체 목록·검색·선택 삭제)·`BomSearch`(단일 부품 검색)·`BomQuote`(견적 워크벤치, 2,185줄로 최대 화면).
   - `components/bom/` 11종 — `BomQuoteRow`(행 단위 렌더 격리)·**`BomCandidateDrawer`**(후보 비교 패널, 2,849줄로 앱 최대 컴포넌트)·`BomCompareModal`·`BomPartSearchModal/Panel/Notice`·`BomPartOfferOptions`·`BomPriceBreaks`·`BomSearchRow`·`BomOfferModal`·`BomQuoteOfferModal`.
   - `bom/` 헬퍼 5종 — `useBom`(vue-query 훅)·`extraction-display.ts`(엔진 payload→화면 필드 라벨·근거·확신도 매핑)·`supplier-meta.ts`(공급사 배지)·`format.ts`(fmtAge 등)·`usePanels.ts`.
@@ -61,8 +61,8 @@ sp-vue 자체는 API 를 노출하지 않는 소비자다. 노출 표면은 **�
 | `/admin/market/*` | 마켓 관리 4종 | experts(심사)·projects(모니터)·contracts(계약·정산 — lazy paid 승격·7일 자동확정 겸함)·settings(feeRateBp) |
 | `/admin/slides` | 메인 슬라이드 | g5_shop_banner '메인' CRUD(multipart), 홈 owl 슬라이더가 소비 |
 | `/admin/seo` | SEO 관리 | sp_seo upsert/DELETE, 소비는 sp-php SSR |
-| `/admin/bom`, `/admin/bom/:id` | 공급사 검색 잡 | 엔진 잡 목록·상세(202→폴링), 자동 인제스트 확인 |
-| `/admin/bom-quotes` | BOM 견적 검토 | 목록(기본 draft 제외)·상태 전이·확정가·회신 메모·원본 다운로드(서버 스트리밍)·라인 [후보·근거] 읽기 전용 |
+| `/admin/bom`, `/admin/bom/:id` | 관리자 BOM 업로드·작업 화면 | BOM > BOM 업로드 메뉴. 업로드·상세 모두 BOM 업무 영역과 업로드 메뉴 활성화 |
+| `/admin/smartbom/quotes` | BOM 견적관리 | 고객 요청 검토 목록·협력사 회신 현황. Case 상세(`/admin/smartbom/cases/:id`)에서 품목 확인·확정가·고객 회신·후속 업무 처리 |
 | **`/admin/parts`** | 부품 카탈로그 | ES 검색(2트랙 SI+specVariants)+패싯+구매 조건 확장·부품 이미지·specConflicts 배지·단건 삭제(연결 시 409 `PART_IN_USE`)·**[필터 결과 전체 삭제]**(서버 미리보기 hash·`DELETE N` 확인·견적 연결분 보호)·[카탈로그 초기화](연결 BOM 견적 강제 삭제 경고) |
 | `/admin/settings` | 설정 | 탭 4종: 사업자정보 / 거버 가격 / AI 연동(연결·유스케이스·샘플 테스트) / **BOM 견적 비용 정책 + 공급사 검색 운영** |
 

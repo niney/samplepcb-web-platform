@@ -401,13 +401,16 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   접수 완료 선택**을 공유한다. 단일검색도 요청 성공 직후 상세로 강제 이동하지 않고 `부품 검색
   계속하기 / 견적관리에서 보기` 중 다음 행선지를 고른다. 요청한 quoteId는
   활성 검색 바구니가 무효화된 뒤에도 완료 모달이 보존하며, 서버 요청 실패는 같은 자리에서 재시도한다.
-- 관리자 BOM: `/app/admin/bom`과 `/app/admin/bom/:id`는 2026-07-28 시점 고객 업로드·
+- 관리자 BOM: BOM > BOM 업로드 메뉴에 배치하며 업로드·상세 모두 BOM 업무 영역을 활성화한다.
+  `/app/admin/bom`과 `/app/admin/bom/:id`는 2026-07-28 시점 고객 업로드·
   워크벤치를 페이지·표시 컴포넌트·에셋·라우트까지 별도로 복제한 독립 스냅샷이다. 기존
   `AdminLayout`의 왼쪽 관리자 패널은 유지하되 고객 `BomLayout`의 BOM·검색·최근 파일
   사이드바는 사용하지 않으므로, 일반 화면의 후속 UI 변경이 관리자 작업 화면에 전파되지
   않는다. API 계약·저장 훅은 같은 견적 원본을 다루기 위해 공통으로 유지하며, 업로드는 같은
   `POST /api/bom/quotes`로 관리자 계정 소유 draft를 만든 뒤 `/app/admin/bom/:id`로 이동한다.
-  기존 관리자 원시 잡 UI는 제거하고 `/app/admin/bom-quotes` 검토 화면은 유지한다.
+  기존 관리자 원시 잡 UI는 제거했다. 고객 요청 검토는 BOM 모듈의
+  `/app/admin/smartbom/quotes`와 `/app/admin/smartbom/cases/:id`에서 처리한다.
+  통합의 별도 BOM 견적요청 메뉴·화면·라우트는 2026-09-16 제거했다.
 - 워크북에 BOM으로 인식된 시트가 하나면 자동 선택하고, 둘 이상이면 계산 전 체크박스
   다중 선택 단계를 표시한다. `not_bom`·`error` 시트는 사유와 함께 비활성화한다. 선택값은
   `sp_bom_quote_sheet`, 전체 추출 정본은 분석 run/sheet/component에 영속한다.
@@ -498,7 +501,7 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   범위를 몰래 넓히지 않으며 관리자가 필요 시 별도 발송한다. 강제 제거는 영향 RFQ에서 해당 회신과
   명시 범위 ID를 제거하고, 남은 범위가 있으면 재요청·없으면 마감한다. 기존 주문·PO는 생성 당시
   스냅샷을 보존한다. `admin-add` 선택 이유와 기존 nullable 행 필드를 재사용하므로 DB 마이그레이션은 없다.
-- 관리자: `/app/admin/bom-quotes` + 설정 탭. 디자인 고도화는 후속(1차는 기본 구조).
+- 관리자: BOM > 견적관리(`/app/admin/smartbom/quotes`) → Case 상세(`/app/admin/smartbom/cases/:id`) + 설정 탭.
 
 ## 검증 기록 (2026-07-20)
 

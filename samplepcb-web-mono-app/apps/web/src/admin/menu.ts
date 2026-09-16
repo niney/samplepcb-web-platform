@@ -8,6 +8,8 @@ import type { RouteLocationRaw } from 'vue-router';
 export interface AdminMenuItem {
   to: RouteLocationRaw;
   labelKey: string;
+  /** 사용 빈도가 낮은 메뉴는 사이드바의 화면 하단에 배치한다. */
+  placement?: 'bottom';
   badge?:
     | 'rfqCount'
     | 'bomOrdersAwaiting'
@@ -26,7 +28,7 @@ export interface AdminMenuItem {
   activeRouteNames?: readonly string[];
 }
 
-export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'develop';
+export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'develop' | 'market';
 
 export interface AdminModule {
   key: AdminModuleKey;
@@ -45,18 +47,6 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-members' }, labelKey: 'admin.menu.members' },
   { to: { name: 'admin-partners' }, labelKey: 'admin.menu.partners' },
   { to: { name: 'admin-partner-parts' }, labelKey: 'admin.menu.partnerParts' },
-  // 재능마켓(/market, sp-market) 관리
-  { to: { name: 'admin-market-experts' }, labelKey: 'admin.menu.marketExperts' },
-  { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
-  { to: { name: 'admin-market-contracts' }, labelKey: 'admin.menu.marketContracts' },
-  { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
-  {
-    to: { name: 'admin-bom' },
-    labelKey: 'admin.menu.bom',
-    // admin-bom 자체는 RouterLink exact-active가 처리하고 상세 형제 라우트만 보완한다.
-    activeRouteNames: ['admin-bom-quote'],
-  },
-  { to: { name: 'admin-bom-quotes' }, labelKey: 'admin.menu.bomQuotes' },
   { to: { name: 'admin-parts' }, labelKey: 'admin.menu.parts' },
   { to: { name: 'admin-slides' }, labelKey: 'admin.menu.slides' },
   { to: { name: 'admin-seo' }, labelKey: 'admin.menu.seo' },
@@ -65,7 +55,15 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];
 
-// 스마트 BOM 모듈 — 역할별 업무 메뉴(관리자 메뉴 재편): 진행현황(총괄 조감) +
+// 재능마켓(/market, sp-market) 전용 관리 메뉴.
+const marketMenu: AdminMenuItem[] = [
+  { to: { name: 'admin-market-experts' }, labelKey: 'admin.menu.marketExperts' },
+  { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
+  { to: { name: 'admin-market-contracts' }, labelKey: 'admin.menu.marketContracts' },
+  { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
+];
+
+// 스마트 BOM 모듈 — 진행현황(총괄 조감) + BOM 업로드(관리자 작성) +
 // 견적관리(견적 담당)/주문·결제(경리)/발주(구매)/선적·배송(물류) 워크큐.
 // 배지 = 각 역할이 "지금 움직여야 하는 수" 하나씩.
 const smartbomMenu: AdminMenuItem[] = [
@@ -103,6 +101,13 @@ const smartbomMenu: AdminMenuItem[] = [
     to: { name: 'admin-smartbom-claims' },
     labelKey: 'admin.menu.smartbomClaims',
     badge: 'bomClaimsPending',
+  },
+  {
+    to: { name: 'admin-bom' },
+    labelKey: 'admin.menu.bom',
+    placement: 'bottom',
+    // 업로드 후 작업 화면에서도 BOM 업로드 메뉴를 활성 표시한다.
+    activeRouteNames: ['admin-bom-quote'],
   },
 ];
 
@@ -172,6 +177,12 @@ export const adminModules: readonly AdminModule[] = [
   },
   // 개발의뢰 모듈(docs/DEVELOP_FLOW.md §14) — 단계별 워크큐. 2026-09-10 G 프로토타입 제거로 C 구현이 정본.
   { key: 'develop', labelKey: 'admin.modules.develop', homeTo: { name: 'admin-develop' }, menu: developMenu },
+  {
+    key: 'market',
+    labelKey: 'admin.modules.market',
+    homeTo: { name: 'admin-market-experts' },
+    menu: marketMenu,
+  },
 ];
 
 // 라우트 이름 → 소속 모듈. 스위처 활성 상태는 이 파생이 단일 진실 — 북마크·새로고침
@@ -179,8 +190,10 @@ export const adminModules: readonly AdminModule[] = [
 export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
   routeName === 'admin-develop' || routeName.startsWith('admin-develop-')
     ? 'develop'
-    : routeName.startsWith('admin-smartbom')
+    : routeName.startsWith('admin-smartbom') || routeName === 'admin-bom' || routeName === 'admin-bom-quote'
     ? 'smartbom'
     : routeName.startsWith('admin-pcb')
       ? 'pcb'
-      : 'core';
+      : routeName.startsWith('admin-market-')
+        ? 'market'
+        : 'core';

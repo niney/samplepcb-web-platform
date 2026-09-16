@@ -118,6 +118,7 @@ export const en = {
     title: 'Admin',
     modules: {
       core: 'Integration',
+      market: 'Market',
       pcb: 'PCB',
       smartbom: 'BOM',
       develop: 'Development',
@@ -143,7 +144,6 @@ export const en = {
       marketContracts: 'Market contracts',
       marketSettings: 'Market settings',
       bom: 'BOM upload',
-      bomQuotes: 'BOM quote requests',
       parts: 'Parts search',
       slides: 'Main slides',
       seo: 'SEO',
