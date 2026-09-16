@@ -103,9 +103,11 @@ pnpm migrate:run     # 덤프 전량 실행 (--phase=members,shop,boards,misc,re
 pnpm migrate:sync    # ★ 증분 동기화 — 운영 레거시 직결 델타 반영(--dry-run --window=90 --final)
 pnpm migrate:verify  # 검증 리포트(행수·금액 항등·참조 정합·센서스 / --light = 행수+금액만)
 pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록 출력, --yes 로 실제 삭제
+pnpm migrate:reset-data # 설정 외 PCB·BOM·개발·마켓·회원 전체 초기화 미리보기(실행 절차는 아래 링크)
 ```
 
 - 원장/리포트: `<플랫폼>/.tmp/migrate/ledger-<타깃DB>.json`, `report-*.json`, `verify-*.json` — 타깃 DB별 분리.
+- `gate/dry/run/verify`는 DB 초기화 명령이 아니다. 전체 업무 초기화는 [운영 DB 초기화·재이관](legacy-production-reimport.md)의 `migrate:reset-data -- --yes --confirm-database <DB명>`으로 실행한다. 사이트·가격·AI·SEO·마켓/개발 설정과 결제 앵커는 보존하고 회원·거래·의뢰·게시글은 지운다. 자동 백업 검증과 원장 보관이 선행된다.
 - **멱등 재실행이 원자성의 대체**(g5 무트랜잭션 전제): od 단위 완료 마커 + 자연키 존재검사
   (mb_id / od_id / (od_id, io_id=quoteId) / (it_id, io_id) / quoteId / bo_table+wr_id / qa_id).
   quoteId는 **UUIDv5(`od_id:ct_id`, 고정 네임스페이스)** — 결정적이라 재실행·파일 원장·연결이 전부 이 키로 수렴.

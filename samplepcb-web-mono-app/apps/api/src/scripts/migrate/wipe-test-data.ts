@@ -6,6 +6,7 @@
 //
 // 실행: pnpm migrate:wipe            → 대상 목록만 출력(안전)
 //       pnpm migrate:wipe -- --yes   → 실제 삭제
+// PCB·BOM·개발·마켓·회원 전체 초기화(설정 보존)는 migrate:reset-data를 사용한다.
 import { parseArgs } from 'node:util';
 import { PrismaClient } from '@prisma/client';
 import { TEMPLATE_ITEMS } from '../../lib/g5-db';
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient();
   try {
     console.log(`══ 테스트 거래 데이터 정리 — 타깃 DB: ${g5.dbName} ══`);
+    console.log('이 명령은 거래 일부만 정리합니다. 설정 외 전체 업무·회원 초기화는 migrate:reset-data를 사용하세요.');
 
     const quotes = await prisma.spQuote.findMany({ select: { id: true, priceVersion: true } });
     const specs = await prisma.spOrderSpec.findMany({

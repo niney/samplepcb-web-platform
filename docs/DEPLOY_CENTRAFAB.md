@@ -362,7 +362,7 @@ pnpm migrate:verify    # 검증 (행수·금액 항등·참조 정합)
 ```
 
 **재이관(초기화 후 다시)이 필요하면:**
-[운영 DB 초기화·재이관 절차](legacy-production-reimport.md)를 따른다. 운영 접근 차단·API 중지 → 전체 백업 → 스키마·사이트 설정을 보존한 데이터 초기화 → 원장 보관 → 앵커 시드 → gate/dry/run/verify 순서다. `migrate:wipe`는 회원·게시판 등을 남기는 거래 전용 도구라 전체 재이관 초기화 용도로 사용하지 않는다. `prisma migrate reset`은 사용하지 않는다.
+[운영 DB 초기화·재이관 절차](legacy-production-reimport.md)를 따른다. 운영 접근 차단·API 중지 → `pnpm migrate:reset-data` 미리보기 → `pnpm migrate:reset-data -- --yes --confirm-database samplepcb`(전체 백업 검증·설정/앵커 보존 초기화·원장 보관·0건 검증) → 누락 앵커 시드 → gate/dry/run/verify 순서다. `migrate:wipe`는 회원·게시판 등을 남기는 거래 전용 도구라 전체 재이관 초기화 용도로 사용하지 않는다. `prisma migrate reset`은 사용하지 않는다.
 
 - 거버 실파일: `pnpm migrate:files`.
 
