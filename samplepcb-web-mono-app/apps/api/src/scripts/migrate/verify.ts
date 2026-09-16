@@ -15,6 +15,7 @@ import { G5Writer } from './lib/g5-writer';
 import { asInt, asStr, resolveMigrateTmpDir } from './lib/util';
 import { ACTIVE_ORDER_STATUSES, CANCEL_STATUSES } from './lib/status-map';
 import { MIGRATE_BOARDS } from './manifest';
+import { planExistingAdminUpdate, protectedMbIds } from './lib/member-policy';
 
 interface CheckResult {
   name: string;
@@ -101,6 +102,26 @@ async function main(): Promise<void> {
       const t = asInt((await g5.select(targetSql))[0]?.c);
       check(`행수 ${label}`, t >= l || label.startsWith('회원'), `레거시 ${String(l)} → 타깃 ${String(t)}`);
     }
+
+    const adminCols = ['mb_id', 'mb_name', 'mb_level', 'mb_password'];
+    const legacyAdmin = (await legacySelect(
+      `SELECT ${adminCols.join(', ')} FROM g5_member WHERE mb_id = ?`, ['admin'],
+    ))[0];
+    if (legacyAdmin !== undefined && !protectedMbIds().has('admin')) {
+      const targetAdmin = (await g5.select(
+        `SELECT ${adminCols.join(', ')}, mb_password2 FROM g5_member WHERE mb_id = ?`, ['admin'],
+      ))[0];
+      const changes = targetAdmin === undefined ? null
+        : planExistingAdminUpdate(legacyAdmin, targetAdmin, adminCols, new Set());
+      check('admin 레거시 정보·비밀번호 반영', changes !== null && Object.keys(changes).length === 0,
+        targetAdmin === undefined ? '타깃 admin 누락'
+          : `상이 컬럼: ${Object.keys(changes ?? {}).join(', ') || '없음'} (같은 비밀번호의 재해시는 보존)`);
+    }
+    const configuredAdmins = await g5.select(
+      'SELECT c.cf_admin, m.mb_id FROM g5_config c LEFT JOIN g5_member m ON m.mb_id = c.cf_admin',
+    );
+    check('최고관리자 회원 존재', configuredAdmins.length === 1 && asStr(configuredAdmins[0]?.mb_id) !== '',
+      `cf_admin=${asStr(configuredAdmins[0]?.cf_admin) || '(없음)'}`);
 
     // 소셜 프로필: 레거시에서 회원 행이 삭제된 고아(연결 대상 없음)는 스킵이 정책 — 고아 제외 대조.
     if (!light) {

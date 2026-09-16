@@ -6,7 +6,7 @@
 // - 비밀번호는 별도 앵커 규칙: 타깃이 'sha256:'(코어 자동 재해시)이고 mb_password2 == 레거시
 //   구해시면 보존(재해시 유지). 불일치 = 재해시 후 레거시에서 비번 변경 → 레거시 해시 채택 +
 //   mb_password2 초기화(다음 로그인 때 코어가 다시 재해시).
-// - 보호 계정(admin·kpeter — 신규 플랫폼 정본)은 상이해도 리포트만.
+// - 보호 계정(kpeter + 환경변수 추가 계정)은 상이해도 리포트만. admin은 레거시 정본으로 반영.
 // - 프로필(sp_member_profile)은 buildProfileInput 재실행 결과와 대조해 upsert(회사명 덮음 리포트).
 // - 포인트 원장은 append-only 전제의 tail-append(OFFSET 타깃 카운트) — 계획 P2-9.
 import { Prisma } from '@prisma/client';
@@ -16,38 +16,11 @@ import type { Row } from '../g5-writer';
 import { buildProfileInput } from '../../phases/01-members';
 import { asInt, asStr, canonicalJson, chunk } from '../util';
 import { diffCols } from './row-diff';
+import { protectedMbIds, resolvePasswordSync } from '../member-policy';
+export { protectedMbIds, resolvePasswordSync } from '../member-policy';
 
 const SPARE_MB_COLS = /^mb_([1-9]|10)$/; // phases/01-members 와 동일 규칙(여분필드 미복사)
 export const MEMBER_NOISE_COLS: readonly string[] = ['mb_today_login', 'mb_login_ip'];
-
-export function protectedMbIds(): Set<string> {
-  const extra = (process.env.MIGRATE_PROTECTED_MB_IDS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
-  return new Set(['admin', 'kpeter', ...extra]);
-}
-
-export interface PasswordSyncDecision {
-  /** null = 비번 관련 변경 없음. 아니면 SET 에 병합할 필드. */
-  set: { mb_password: string; mb_password2: string } | null;
-}
-
-/** 비밀번호 동기 규칙(순수 — 단위테스트 대상). */
-export function resolvePasswordSync(
-  legacyPw: string,
-  targetPw: string,
-  targetPw2: string,
-): PasswordSyncDecision {
-  if (targetPw.startsWith('sha256:')) {
-    // 코어가 자동 재해시한 계정 — 구해시 앵커(mb_password2)가 레거시와 같으면 비번 무변경.
-    if (targetPw2 === legacyPw) return { set: null };
-    // 레거시에서 비번이 바뀜(새 구해시) → 레거시 채택, 앵커 초기화(재로그인 시 재해시).
-    return { set: { mb_password: legacyPw, mb_password2: '' } };
-  }
-  if (targetPw !== legacyPw) return { set: { mb_password: legacyPw, mb_password2: '' } };
-  return { set: null };
-}
 
 export interface MemberResyncOptions {
   /** --final: 노이즈 컬럼까지 최종 반영(컷오버 마지막 1회) */
@@ -65,7 +38,7 @@ export async function resyncMembers(ctx: MigrateCtx, opts: MemberResyncOptions =
   });
   const noise = new Set(opts.final === true ? [] : MEMBER_NOISE_COLS);
   const compareCols = plan.cols.filter(
-    (c) => c !== 'mb_id' && c !== 'mb_password' && !noise.has(c),
+    (c) => c !== 'mb_id' && c !== 'mb_password' && c !== 'mb_password2' && !noise.has(c),
   );
 
   const legacyMembers = await legacy(`SELECT * FROM g5_member`);

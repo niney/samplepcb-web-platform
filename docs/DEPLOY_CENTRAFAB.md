@@ -104,7 +104,7 @@ mv /home/samplepcb/samplepcb-web-platform/samplepcb-web/data/dbconfig.php ~/dbco
 ```
 브라우저에서 **명시적으로**: `http://<도메인 또는 서버IP>/install/index.php`
 → DB(`samplepcb`/`samplepcb`/비번)·**최고관리자 id/pw** 입력.
-- ⚠ 최고관리자 id는 **레거시 최고관리자 id와 동일하게**(운영 `SELECT cf_admin FROM g5_config`로 확인). 그래야 마이그레이션이 그 계정을 존재검사로 스킵하고 주문/글이 자연 귀속됨.
+- 최고관리자 id는 **레거시 최고관리자 id와 동일하게**(레거시 `SELECT cf_admin FROM g5_config`로 확인). `admin`은 설치 과정에서 이미 만들어졌어도 최초 이관에서 레거시 정보·비밀번호로 갱신된다(2026-09-16 정책). `cf_admin` 자체는 신규 사이트 설정으로 유지된다.
 - 설치 후 보안상: `rm -rf /home/samplepcb/samplepcb-web-platform/samplepcb-web/install`
 
 ## STEP 5 — 시크릿 & 환경변수 (⚠ 어긋나면 로그인/401)
@@ -362,13 +362,7 @@ pnpm migrate:verify    # 검증 (행수·금액 항등·참조 정합)
 ```
 
 **재이관(초기화 후 다시)이 필요하면:**
-```bash
-# 완전 초기화: 백업 → DB 재생성 → 클린설치(STEP4) → 환경설정(STEP5) → prisma deploy+초기시드·템플릿/사업자/무통장 검증(STEP6) → 원장삭제 → gate/run
-mysqldump --default-character-set=utf8 samplepcb > ~/samplepcb-backup-$(date +%F).sql
-sudo mysql -e "DROP DATABASE samplepcb; CREATE DATABASE samplepcb CHARACTER SET utf8;"
-rm -f /home/samplepcb/samplepcb-web-platform/.tmp/migrate/ledger-samplepcb.json   # ★ 안 지우면 재이관이 스킵됨
-# 거래만 초기화(회원·게시판·설정 유지): pnpm migrate:wipe -- --yes  후 위 원장 삭제 → migrate:run
-```
+[운영 DB 초기화·재이관 절차](legacy-production-reimport.md)를 따른다. 운영 접근 차단·API 중지 → 전체 백업 → 스키마·사이트 설정을 보존한 데이터 초기화 → 원장 보관 → 앵커 시드 → gate/dry/run/verify 순서다. `migrate:wipe`는 회원·게시판 등을 남기는 거래 전용 도구라 전체 재이관 초기화 용도로 사용하지 않는다. `prisma migrate reset`은 사용하지 않는다.
 
 - 거버 실파일: `pnpm migrate:files`.
 
@@ -394,7 +388,7 @@ pnpm migrate:sync -- --final && pnpm migrate:verify
 
 **동작(매 실행)**: 게이트(스키마 드리프트 시 중단) → 신규분(레거시∖타깃 차집합) → 재대조(비종결 주문·헤더 지문 상이·window 내 = 사후 수납·송장·가격확인 포착) → 삭제/이상 리포트.
 
-**리포트만(자동조치 X — 수동 판단)**: 주문/게시글 삭제 검출 · 보호계정(admin·kpeter) 상이 · 포인트 타깃 초과 · 파일 교체(→`migrate:files --sideload`) · **금액 항등 불일치(0이 정상, 나오면 즉시 조사)**. 리포트: `.tmp/migrate/sync-report-<DB>-<시각>.json`.
+**리포트만(자동조치 X — 수동 판단)**: 주문/게시글 삭제 검출 · 보호계정(kpeter + `MIGRATE_PROTECTED_MB_IDS` 추가 계정) 상이 · 포인트 타깃 초과 · 파일 교체(→`migrate:files --sideload`) · **금액 항등 불일치(0이 정상, 나오면 즉시 조사)**. admin은 기본 보호 대상이 아니다. 리포트: `.tmp/migrate/sync-report-<DB>-<시각>.json`.
 
 **주의**:
 - 컷오버 전 신규 플랫폼은 **조회 전용** 전제 — 신규에서 바꾼 데이터는 다음 sync가 레거시 기준으로 **원복**(단방향 정본).

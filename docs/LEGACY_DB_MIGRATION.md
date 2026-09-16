@@ -5,6 +5,7 @@
 > 작성 2026-07-07 · **P1(2020 덤프)·P2(운영 풀 덤프 20260702)·P3(로컬 실 DB 컷오버) 전부 verify 그린** +
 > 서비스 레벨(admin API·PHP 페이지) 실동작 검증 완료(§6-B). **파일(거버·첨부·회원이미지)은 전면 미이관 결정(2026-08-05, §2.4)** — 개방 항목 없음. 컷오버 준비 완료.
 > 구현: `samplepcb-web-mono-app/apps/api/src/scripts/migrate/` · 계획 원본: 플랜 cuddly-wiggling-perlis(승인 2026-07-06)
+> **2026-09-16 관리자 정책 변경**: `admin`도 레거시 정본으로 이관한다. 최초 이관에서는 기존 설치 admin을 갱신하고 프로필·포인트를 이관하며, 증분에서도 기본 보호하지 않는다. `kpeter`와 `MIGRATE_PROTECTED_MB_IDS` 추가 계정 보호는 유지한다. 운영 재이관은 [운영 DB 초기화·재이관 절차](legacy-production-reimport.md)를 따른다.
 >
 > **덤프 소재**: `D:\work\workspace_other\samplepcb_dump\` — `hyoh9150-20201221.dump.zip`(2020-12-21 백업),
 > `hyoh9150-20260702.dump`(운영 풀 덤프, 666MB → 로컬 `samplepcb_legacy_full` 임포트),
@@ -124,7 +125,7 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 - **상태**: 동일 문자열 통과 + `전체취소→취소` 매핑 + od `부분취소`는 활성 라인 최전진 상태로 해소. 미지 상태는 게이트 중단(`status-map.ts` — g5-db.ts 비공개 상수 미러, 변경 시 동기).
 - **EAV→spec**: **subj 문자열 기준**(슬롯 무관 — 세대별 슬롯 충돌 대응), 1세대 별칭·오탈자 정규화, menu 오염 정규화(+it_name 접두 폴백), 미지 subj는 `_legacy.rawSpec` 격리(`eav-mapper.ts`). `_legacy`에 itId/ctId/odId/원본명/공급가/연락처/설문 보존.
 - **cart 재작성 한정**: `it_id·it_name("템플릿명 · 파일명")·ct_price=0·io_id·io_price·io_type=0·ct_option(buildOptionSummary)`만 재작성, **나머지 전부 보존**(ct_status·ct_qty·ct_notax·ct_send_cost·it_sc_*·ct_point·ct_history·ct_time/ip·**ct_stock_use(재고 판정 입력 — 0 강제 금지)**·ct_select=1).
-- **회원**: 교집합 복사(+NOT NULL 무default 명시 채움), mb_1~10 제외, admin/kpeter 등 타깃 기존재 스킵(주소록은 예외 — 타깃 0건이면 이관). 프로필 승격 매핑은 schema.prisma 주석 참조.
+- **회원**: 교집합 복사(+NOT NULL 무default 명시 채움), mb_1~10 제외. 기존 `admin`은 교집합의 상이 컬럼·비밀번호를 레거시 기준으로 갱신하고 프로필·포인트도 이관한다. 같은 레거시 비밀번호에서 생성한 `sha256:` 재해시는 보존한다. 그 외 타깃 기존 회원은 스킵(주소록은 예외 — 타깃 0건이면 이관). `MIGRATE_PROTECTED_MB_IDS`에 `admin`을 명시하면 기존 회원 갱신을 보호하므로 admin 이관 시 목록에서 제거한다. 프로필 승격 매핑은 schema.prisma 주석 참조.
 - **처리 순서(od 단위)**: 헤더 → 라인마다 [옵션행 → cart(ct_id 확보) → SpQuote → SpOrderSpec(**ctId 포함 생성** — 반쪽 상태 창 없음) → SpFile(원장 pathToken)] → SpOrderBizInfo.
 - **quoteStatus**: 주문까지 간 견적이므로 전건 `quoted` + `finalPrice`(VAT 포함), `pricedBy='legacy-migration'`, `priceVersion='legacy-migration'`.
 
@@ -234,7 +235,7 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 반복 반영. 레거시엔 수정시각 컬럼이 없어(**wr_last 조차 글 수정 시 미갱신 실측**) **대조(diff) 기반**.
 
 **정책(사용자 확정)**: 컷오버 전 신규 플랫폼 조회 전용(레거시 정본 단방향 — 테스트 변경은 다음
-sync 가 원복) · 삭제는 리포트만 · 수동 명령. 보호 계정(admin·kpeter, `MIGRATE_PROTECTED_MB_IDS`
+sync 가 원복) · 삭제는 리포트만 · 수동 명령. 보호 계정(kpeter, `MIGRATE_PROTECTED_MB_IDS`
 확장)은 상이해도 리포트만.
 
 **파이프라인**: 매회 gate → (a) 신규분: 기존 phase 멱등 재사용(주문은 레거시∖타깃 차집합 +
@@ -288,7 +289,7 @@ pnpm migrate:verify               # 전량 검증(--light = 행수+금액 항등
 **3) 리포트 읽는 법** — 콘솔 요약 + `.tmp/migrate/sync-report-<DB>-<시각>.json` 저장.
 `sync.* 갱신/삽입` = 실반영. 다음은 **리포트-온리(자동 조치 없음, 수동 판단)**:
 - `주문/게시글 삭제 검출` — 레거시에서 지워진 이관 데이터(신규 자체 주문은 v4 quoteId 로 자동 제외)
-- `보호 계정 상이` — admin·kpeter(ENV `MIGRATE_PROTECTED_MB_IDS` 확장)는 신규가 정본이라 미반영
+- `보호 계정 상이` — kpeter(ENV `MIGRATE_PROTECTED_MB_IDS` 확장)는 신규가 정본이라 미반영. admin은 기본 보호 대상이 아니므로 레거시 변경을 반영한다.
 - `포인트 타깃 초과` — 신규 플랫폼에서 자체 적립 발생(컷오버 전 조회 전용 전제 위반 신호)
 - `파일 교체 감지` — 가격확인 때 거버 재업로드된 라인(rsync+`migrate:files --sideload` 재실행 대상)
 - `금액 항등 불일치` — 0 이 정상. 나오면 즉시 조사(단일 산식 공유가 깨진 것)

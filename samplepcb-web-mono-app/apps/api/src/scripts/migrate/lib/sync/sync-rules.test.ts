@@ -11,6 +11,10 @@ describe('resolvePasswordSync — 비번 앵커 규칙(계획 P1-6)', () => {
     expect(resolvePasswordSync(OLD, OLD, '').set).toBeNull();
   });
 
+  it('레거시와 타깃이 동일한 sha256 해시이면 앵커를 초기화하지 않는다', () => {
+    expect(resolvePasswordSync(REHASHED, REHASHED, OLD).set).toBeNull();
+  });
+
   it('타깃 미재해시 + 레거시 비번 변경 → 레거시 해시 채택', () => {
     expect(resolvePasswordSync(NEW_OLD, OLD, '').set).toEqual({
       mb_password: NEW_OLD,
@@ -41,9 +45,10 @@ describe('회원 대조 상수', () => {
     expect(MEMBER_NOISE_COLS).toEqual(['mb_today_login', 'mb_login_ip']);
   });
 
-  it('보호 계정: 기본(admin·kpeter) + ENV 확장', () => {
+  it('보호 계정: admin은 이관하고 kpeter + ENV 추가 계정은 보호', () => {
     delete process.env.MIGRATE_PROTECTED_MB_IDS;
-    expect([...protectedMbIds()].sort()).toEqual(['admin', 'kpeter']);
+    expect([...protectedMbIds()].sort()).toEqual(['kpeter']);
+    expect(protectedMbIds().has('admin')).toBe(false);
     process.env.MIGRATE_PROTECTED_MB_IDS = 'ops@samplepcb.co.kr, tester ';
     expect(protectedMbIds().has('ops@samplepcb.co.kr')).toBe(true);
     expect(protectedMbIds().has('tester')).toBe(true);

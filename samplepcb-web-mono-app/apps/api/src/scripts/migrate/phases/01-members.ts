@@ -3,15 +3,17 @@
 // 정책(계획 문서 §회원):
 // - g5_member 교집합 복사, 단 여분필드 mb_1~mb_10 은 **복사하지 않는다**(여분필드 단절 —
 //   내용은 sp_member_profile 명시 컬럼/legacyJson 으로 승격).
-// - 충돌: 타깃에 이미 있는 mb_id(admin·kpeter)는 스킵 — 동일 mb_id 라 주문/글 참조는 정합.
+// - 충돌: 기존 admin은 레거시 값으로 갱신하고 자산도 이관한다. 그 외 기존 회원은 보존한다.
 // - 비밀번호: 구형 41자 해시 원문 복사(코어 login_password_check 가 첫 로그인 때 자동 재해시,
 //   common.lib.php:4080-4091). 재해시가 런타임 ALTER 를 유발하지 않도록 mb_password2 를 선-ALTER.
 // - 포인트 원장: 회원 단위 카운트 대조(0건→전체 삽입 / 동수→스킵 / 불일치→보고만).
+import { Prisma } from '@prisma/client';
 import type { LegacyRow } from '../../../lib/legacy-db';
 import { buildCopyPlan, rowFromLegacy } from '../lib/context';
 import type { MigrateCtx } from '../lib/context';
 import type { Row } from '../lib/g5-writer';
 import { asInt, asStr, chunk } from '../lib/util';
+import { planExistingAdminUpdate, protectedMbIds } from '../lib/member-policy';
 
 const SPARE_MB_COLS = /^mb_([1-9]|10)$/; // mb_1~mb_10 — 타깃에 복사 금지(여분필드 단절)
 
@@ -122,27 +124,43 @@ export async function runMembersPhase(ctx: MigrateCtx): Promise<void> {
   const targetIds = new Set(
     (await g5.select(`SELECT mb_id FROM g5_member`)).map((r) => asStr(r.mb_id)),
   );
+  const protectedIds = protectedMbIds();
+  const targetAdmin = targetIds.has('admin')
+    ? (await g5.select('SELECT * FROM g5_member WHERE mb_id = ?', ['admin']))[0]
+    : undefined;
   const legacyMembers = await legacy(`SELECT * FROM g5_member ORDER BY mb_no`);
   const toInsert: Row[] = [];
   const insertedIds: string[] = [];
+  const migratedIds = new Set<string>();
   for (const row of legacyMembers) {
     const mbId = asStr(row.mb_id);
     if (mbId === '') continue;
     if (targetIds.has(mbId)) {
+      if (mbId === 'admin' && targetAdmin !== undefined) {
+        const set = planExistingAdminUpdate(row, targetAdmin, plan.cols, protectedIds);
+        if (set !== null) {
+          if (Object.keys(set).length > 0) {
+            if (!ctx.dryRun) await g5.updateRow('g5_member', set, { mb_id: mbId });
+            report.count('members.기존 admin 갱신');
+          }
+          migratedIds.add(mbId);
+          continue;
+        }
+      }
       report.note('members.스킵(타깃 기존재)', mbId, 50);
       continue;
     }
     toInsert.push(rowFromLegacy(row, plan));
     insertedIds.push(mbId);
+    migratedIds.add(mbId);
   }
   if (!ctx.dryRun && toInsert.length > 0) {
     await g5.insertMany('g5_member', plan.insertCols, toInsert);
   }
   report.count('members.g5_member 삽입', toInsert.length);
-  const migratedIds = new Set(insertedIds);
   const allTargetIds = new Set([...targetIds, ...insertedIds]);
 
-  // 2) sp_member_profile 승격(이관 회원만 — 타깃 기존 계정의 프로필은 건드리지 않음)
+  // 2) sp_member_profile 승격(신규 이관 회원 + 레거시 정본으로 갱신한 기존 admin)
   let profileCount = 0;
   for (const row of legacyMembers) {
     const mbId = asStr(row.mb_id);
@@ -151,7 +169,7 @@ export async function runMembersPhase(ctx: MigrateCtx): Promise<void> {
     if (profile === null) continue;
     if (!ctx.dryRun) {
       const { legacyJson, ...rest } = profile.data;
-      const data = { ...rest, ...(legacyJson === null ? {} : { legacyJson }) };
+      const data = { ...rest, legacyJson: legacyJson ?? Prisma.DbNull };
       await prisma.spMemberProfile.upsert({
         where: { mbId: profile.mbId },
         create: { mbId: profile.mbId, ...data },
