@@ -6,19 +6,58 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 
 | 페이지 | 피그마 노드 | 파일 | 커밋 |
 |---|---|---|---|
-| 홈 `/` | 2122:5280 웹 메인 + 슬라이드 2122:7989·9271·9557 | `theme/sp-lite/index.php`, `inc/main_slider.php`, `css/home.css`, `js/home.js`, `skin/latest/home-fig/` | 5d7340df3 |
-| 공용 푸터 | 2122:6043 | `theme/sp-lite/inc/footer.php`, `css/default.css` | 5d7340df3 |
+| 홈 `/` (2026-09-18 재구현) | 2286:1275 웹 메인(디자이너 9/17 "웹메인 컨텐츠 업데이트") + 히어로 banner 01~05 = 2286:5331·5332·27009·27054·5165 + 배경 리소스 2286:60998·61007·60963 | `theme/sp-lite/index.php`, `inc/main_slider.php`, `inc/home/{10-onestop,20-eyes,30-idea,40-stats,41-network,42-help}.php`, `css/home.css`, `js/home.js` + `js/home/{hero,onestop,portfolio}.js`, `img/home/{hero,onestop,eyes,idea,network,help}/`, `skin/latest/home-help/` | (이번 커밋) |
+| 공용 헤더 (2026-09-18) | 2286:1435 top(컴포넌트 2239:1851, 디자이너 9/9 "GNB 높이·텍스트/아이콘 크기·드롭다운") + 드롭다운 2286:1436 | `theme/sp-lite/inc/header.php`, `css/default.css` 헤더 블록, `img/header/` | (이번 커밋) |
+| 공용 푸터 | 2286:2238 (= 옛 2122:6043 과 동일 디자인, 변경 없음) | `theme/sp-lite/inc/footer.php`, `css/default.css` | 5d7340df3 |
 | 회사소개 `/about` | 2122:6136 GNB > 회사소개 | `spcb/pages/about.php`, `css/about.css`, `img/about/` | e71cebaad |
 | 회사 연혁 `/history` | 2122:6658 GNB > 회사 연혁 | `spcb/pages/history.php`, `css/history.css`, `img/history/` | cc925e72e |
-| 회사 위치 `/location` | 2122:7157 GNB > 회사 위치 (지사 선택 시) — Contact Us 제외 | `spcb/pages/location.php`, `css/location.css`, `img/location/` | (이번 커밋) |
+| 회사 위치 `/location` | 2122:7157 GNB > 회사 위치 (지사 선택 시) — Contact Us 제외 | `spcb/pages/location.php`, `css/location.css`, `img/location/` | 0fd2c43b8 이전 |
 
-## 홈 `/` — 미결
-- 히어로 버튼(주문하기·체험하기·자세히 보기)·카드 버튼·서비스 탭 8개·세 가지 방법 버튼: **링크 없음**.
-- '왜 우리를 선택' 영상 블록: 피그마가 타사 사이트 스크린샷(재생 버튼·'Platform Walkthrough' 문구 포함)이라 **정적 이미지**로 둠. 실제 영상·썸네일 필요.
-- 히어로 슬라이드 관리자 2단계: `/app/admin/slides` 목록에서 템플릿 4장과 업로드 이미지를 **섞어 순서·노출 제어**(계약 kind/templateKey). 지금은 템플릿이 항상 앞, `sp_config.home_slides` 로만 on/off.
-- 세 가지 방법 카드 2·3 문구는 피그마가 1번 복제 상태라 우리가 씀(부품 구매 / SMT 조립) — 디자이너 확인.
-- 특징 카드 3 의 "CircuitFlow" 타사명은 "샘플피씨비"로 바꿈.
-- 푸터 SNS 4개·전화·이메일 링크 없음. 팩스는 쇼핑몰 설정에 항목이 없어 고정값.
+옛 홈(2122:5280, 커밋 5d7340df3)은 피그마에서 노드가 삭제됐고 새 「웹 메인」이 히어로부터 푸터 앞까지 전면 교체라, 옛 섹션(서비스 탭·왜 우리를 선택·특징 카드·세 가지 방법·FAQ 아코디언)과 자산·스킨(`skin/latest/home-fig`)은 제거했다.
+
+## 홈 `/` — 구조(2026-09-18)
+- 데스크톱(≥1280)은 피그마 1920 좌표 그대로(섹션 y: 히어로 72~666 · One-Stop 666~2052 · 3 EYES 2052~4856 · 프로세스+포트폴리오 4855~7095 · 통계 7095~7606 · 네트워크 7606~8326 · 도움말 8326~9049 · 푸터 9049~9395, 실측 ±2px). 1024~1279 는 간격·크기 축소, 1023 이하는 피그마에 없어 우리 정의(390px 실측 가로 넘침 0).
+- 섹션은 `inc/home/NN-*.php` 부분 파일(번호 = 피그마 순서)을 `index.php` 가 순서대로 include, 스타일은 `css/home.css` 하나(구현 때 `css/home/NN-*.css` 로 나눴다가 병합 — `index.php` 는 `css/home/` 이 있으면 부분 파일을 로드하므로 다시 나눠 작업해도 된다), 스크립트는 `js/home.js` 가 `js/home/*.js` 를 동적 import 해 `init()`.
+- 히어로 = 코드 템플릿 5장(`gerber-eyes`·`order-now`·`korlinx`·`one-stop`·`rapid-proto`) + 배너관리('메인') 이미지가 뒤에 붙는 하이브리드 유지. 템플릿 on/off·순서는 `sp_config.home_slides` JSON `{"templates":[...]}`(행 없으면 5장 전부).
+
+## 홈 `/` — 피그마와 다르게 둔 것 · 이상 징후 · 미결(2026-09-18)
+### 히어로(banner 01~05)
+- **배경 애니메이션 배정(사용자 확인 필요)**: 01 은 프로빙에서 채택한 **연속 회전(center-swap)** 을 유지(윤곽은 새 Vector 2286:60907 export, 디자이너의 3720폭 리소스 61013 은 안 씀). 02~04 는 디자이너 3720폭 bg(60998·61007·60963)를 60s ±600px 왕복 팬. 05 는 정지 사진. reduced-motion·화면 밖·탭 숨김이면 전부 정지.
+- 02·03·04 제목은 피그마에서 **벡터 아웃라인**(숨긴 원본 TEXT 는 stale 복사본) → 실제 텍스트로(02·04 = 50px/lh65/−2%, 03 = 숨긴 원본 36876 대로 KORLINX Lexend 50 Medium + Pretendard 53). 04 제목 "제품 개발"·"PCB설계" 는 그라데이션 위에 단색 #5e4cd7 이 덮여 있어 **단색**. 텍스트 그라데이션 transform 90° → `180deg`.
+- 04 설명문이 KORLINX 문장("디바이스 연결부터 … AIoT …") 복제 — 피그마대로. 04 의 숨김 한글 태그 5개는 무시(보이는 영문 4개 사용).
+- **05 배경 = 1024×573 스크린샷을 1920 으로 늘린 것**(흐릿, "Screenshot 2026-09-15 …") → 영상 자리로 보임. 정지 이미지로 둠 — 영상 필요.
+- 02 "NEW STEP" 알약만 그림자 없음 · 03·04 버튼은 그라데이션 위 1.5px #1e64fd 테두리 · 02 카드 버튼이 카드 밑으로 18px 삐져나옴 · 05 어두운 사진 위 점 색 #2f4a6e(대비 낮음) — 전부 피그마대로.
+- 사진 라이선스 확인: One-Stop 카드 4장 바닥 레이어 "ChatGPT Image 2026년 7월 2일", 02·04 카드 "KakaoTalk_Photo_…", 03 "_U4A5292"(DSLR).
+- 히어로 슬라이드 관리자 2단계(템플릿·이미지 섞어 순서·노출)는 여전히 미착수.
+
+### 소개 + One-Stop Manufacturing(2286:2483 · 드롭다운 2294:90517)
+- "Smarter. Faster. Connected." 는 Bradley Hand Bold(웹폰트 없음) → 글리프 SVG(`img/home/onestop/smarter-faster-connected.svg`) + `.sound_only` 텍스트.
+- PCB 사진(2286:2514 "스크린샷 2026-09-16 …")은 노드 export 가 흰 배경으로 구워져 원본 알파 이미지를 피그마 crop 값대로 잘라 WebP 로 — 출처·라이선스 불명(스크린샷 파생 3D 렌더).
+- 탭 문구 "PCBS"(대문자 S)·"MetalMask"(붙여쓰기) 피그마 그대로. "Turnkey Service" 텍스트의 빈 둘째 줄(ZWSP)은 무시.
+- **피그마엔 PCBS/FR-4 패널만 있음** → 나머지 탭 5개·드롭다운 Flexible/Rigid-Flex 는 콘텐츠 없음(클릭 시 활성 표시만). 탭·PCB 종류별 사진/카드 내용 필요.
+- 드롭다운 실제 스타일(테두리 없음·r8·그림자 0 10 10·py10·항목 h35)은 헤더 드롭다운과 달라 노드대로. 피그마엔 열린 상태로 그려져 있으나 기본은 닫힘(호버·클릭·키보드로 열림).
+- FR-4 카드 높이 460 중 내용 ~200 — 피그마대로(빈 공간 큼).
+
+### 3 EYES(2286:1276·1444·1455·1784·1686)
+- Gerber·Parts 화면은 피그마에 든 **애니메이션 GIF**(0.9MB·4.7MB) 그대로, `loading="lazy"`. 디자이너 메모 "3EYES gif 영상은 어떻게 전달드리면 될까요?" — 영상으로 바꾸려면 `.sp-eyes__media` 안 `<img>` → `<video>`. ⚠ 4.7MB 는 무거워 mp4/webm 변환 권장(로컬엔 ffmpeg 없음).
+- 피그마 모션 노드 2286:1460·1461 은 **숨김 그룹**(Gerber 화면 위 말풍선 6개) 안 → 보이는 디자인이 아니라 미구현(JS 없음).
+- 기능 행 3행 아이콘이 2행과 동일한 복제(세 블록 모두) — 그대로. GIF 에 완전히 덮인 "DFM 분석 화면 3"·SMT iMac 목업은 미사용.
+- Parts 블록 둘째 버튼 "파트너사 등록하기 →", SMT 제목만 lh 1.4·버튼만 #d9d9d9 테두리·797/23/460 분할 — 피그마대로.
+
+### Your Idea. Our Expertise. + Development Portfolio(2286:2333)
+- 단계 카드 설명 3줄이 5장 모두 "제품 아이디어와 요구사항을 / 함께 정리하고, 최적의 개발 / 방향을 제안합니다." 복제 — 그대로. 제목 굵기가 01·02 SemiBold, 03~05 Bold 로 불일치 — 피그마대로. 둘째 줄 화살표 y·x 가 첫째 줄과 다름 — 피그마대로. 03 카드 안 보이는 원(2286:2543) 무시. 제목 블록 중심 x=964 → 960.
+- **포트폴리오 = 무한 마퀴**(디자이너 메모 "korlinx-main-website.pages.dev 참고" 의 `.home-case-stories` 방식: 카드 복제 + CSS keyframes, 55px/s, 호버·reduced-motion 정지). 카드 5·6(Forklift Fork Height Detection Sensor / Rooftop Tent Perimeter Detection Radar — 1920 프레임 밖, 태그 없이 파트너 표기 줄·회색 덮개 변형)도 트랙에 있어 포함 — 디자이너 의도 확인. 카드 좌표 1~3px 들쭉날쭉 → 21·345·400 으로 통일.
+- 라이선스: 상단 사진 띠("Screenshot 2026-09-09 …")는 **Unsplash+ 워터마크 프리뷰** → 구매·교체. 단계 아이콘은 Flaticon 계열 파일명(chat_667092·test_7097110·security_11204997) → 출처 표기 필요. 포트폴리오 사진 4장은 korlinx 사이트와 같은 이미지(자사 자산 추정).
+
+### 숫자로 보는 SamplePCB · Our Network · 도움이 필요하신가요?(2286:2319·2046·2134)
+- 수치 6,600+ · 17,000+ · 70% 와 부제 "over 6,600" 은 자리표시 → `inc/home/40-stats.php` 의 `$sp_home_stats`(연혁 페이지 `$sp_stats` 관례). ⚠ 운영 전 실수치.
+- 로고 20종은 2줄 **무한 마퀴**(위 ← 70s / 아래 → 50s, 속도 임의, 호버·reduced-motion 정지). 피그마 마스크는 페이드가 아니라 하드 클립이라 페이드 없음. **로고 사용 허락 확인**: 유니탑·인지니어스(RADAR by INZINIOUS)·NuEyne·삼성중공업·RORZE·Nordic·INCERASOLUTION·BUGANG·TELECONS·EKPOWER·멀티·글로벌코넷 / 세종대·한양대·성균관대·고려대·서울대·KAIST·POSTECH·단국대. 노드명≠로고("Screenshot … 2.48 PM"=유니탑, "intro"=EKPOWER 등), POSTECH 은 원본 JPEG(불투명 근백색, 피그마도 같음).
+- Q&A 목록은 피그마 **3행**, 공지 1건, FAQ 는 문구 카드(목록 없음) — 게시판 qa·notice 를 새 스킨 `skin/latest/home-help` 로. 더보기 3개는 `<span>`(`42-help.php` 의 `$sp_help_more` 에 URL 을 넣으면 `<a>`). FAQ 문구 끝 공백("찾아보세요. ") 피그마 그대로. 글 제목은 글 보기 링크.
+
+### 공용 헤더(2286:1435)
+- 72px(옛 94), 로그인 검정 알약 + 회원가입 회색 알약(13px), 아이콘 3개 gap 8, GNB 는 로고·우측 사이 space-between, 하위메뉴 있는 1차에 ▾ + 드롭다운(흰 150폭·r12·그림자, 항목 120폭·활성 #f5f8fb). 피그마 메뉴 문구(개발·PCB·전자 부품·PCBA·회사소개▾·블로그)는 예시 — 실제 항목은 관리자 메뉴설정(g5_menu).
+- 로그인 상태(피그마 없음): 알약 자리에 '로그아웃' 회색 알약(회원가입과 같은 모양), 파트너 포탈·관리자·시스템 관리자는 밑줄 텍스트(2026-08-27 결정 유지).
+- 회사소개 서브메뉴(About Us · History · Customer · Certification · Location)는 이 드롭다운으로 종결(DB 하위메뉴).
 
 ## 회사소개 `/about` — 피그마 그대로 두고 나중에 고칠 것
 - **배너 부제**(2122:6484)가 `PCB는 모든 산업에서 사용되고 ` 에서 끝남 — 피그마 텍스트 자체가 미완성. 제안: "PCB는 모든 산업에서 사용되는 필수 소재입니다."
@@ -27,7 +66,7 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - **로고 사용 허락 확인**: 서울대·고려대·KAIST·POSTECH·성균관대·삼성중공업·NuEyne·RORZE(고객), 유니키·Avnet·DigiKey·Mouser·Nordic(유통). 운영 배포 전 권리 확인 항목.
 - 다이어그램 04 카드는 피그마가 01 복제("회로설계 / 회로 및 PCB 설계")라 사용자 결정으로 **"PCBA(SMT) / 부품 실장·조립"**으로 씀 — 디자이너 확인.
 - 다이어그램 링(원형 화살표·아이콘 노드)은 벡터·래스터 혼합이라 **2배율 PNG 로 구움**(img/about/ring-2x.png). 링을 고치려면 피그마 2122:6297 을 다시 export.
-- 헤더 피그마에 숨겨진 회사소개 서브메뉴(About Us · History · Customer · Certification · Location)는 미구현 — 연혁·위치 페이지와 함께.
+- 회사소개 서브메뉴는 2026-09-18 헤더 드롭다운(DB 하위메뉴)으로 구현됨.
 - 반응형(1023px 이하)은 피그마에 없어 우리 정의.
 
 ## 회사 연혁 `/history` — 피그마와 다르게 둔 것(사용자 승인 2026-09-06) · 확인 필요
@@ -38,7 +77,6 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - **인증서**(2122:6859~6893)는 같은 특허증 7장 복제 → 레거시 사이트 실물 6종(특허증 SMT 견적산출·스마트 BOM 특허증·상표등록증·연구개발전담부서 인정서·여성기업확인서·벤처기업확인서, 276×376 원본)으로, 가로 스크롤 띠 + 양끝 흐림. 고해상도 스캔본 받으면 교체.
 - 연혁이 **2023년 5월까지**만 있음 — 2024~2026 항목 받으면 `history.php` 의 `$sp_history` 에 추가.
 - 타임라인 배경 사진(luke-jones, 무료 Unsplash)의 방사형 마스크·Linear Burn 은 CSS 근사(multiply + radial mask).
-- 회사소개 서브메뉴는 여전히 미구현(위치 페이지 뒤 일괄).
 
 ## 회사 위치 `/location` — 피그마와 다르게 둔 것(사용자 결정 2026-09-06) · 기록만 한 것
 - **Contact Us 폼(2122:7383)은 미구현** — 접수 백엔드(A 게시판 / B PHP / C sp-node, 회원 전용이면 그누보드 1:1문의 모듈)가 정해지면 카드 아래 140px 여백 자리에 붙인다. 정본 `docs/CONTACT_INQUIRY.md`.
@@ -50,11 +88,13 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - "**공사** A-1407호"(2122:7338) 명칭이 공장 오타인지 불명 — 피그마 그대로. 레거시 위치 페이지에 있던 인천 서구 가좌동 두 번째 지도는 피그마에 없어 미구현.
 - 카드의 전화 "070-8667-1080"은 푸터 "070-8667-1080~1"과 표기가 다름 — 피그마 그대로(`location.php` 의 `$sp_offices`).
 - 점 세계지도는 피그마 벡터(3,792개 점) SVG + 방사형 페이드는 피그마 gradientTransform 을 그대로 옮긴 `world-fade.svg` 알파 마스크. 발광 점 3개는 CSS blur.
-- 회사소개 서브메뉴는 여전히 미구현(회사소개·연혁·위치 세 페이지 일괄).
 - 반응형(1023px 이하)은 피그마에 없어 우리 정의(390px 실측: 넘침·겹침 0).
 
 ## 공통 함정
-- 그누보드 `latest()` 는 1시간 캐시(`data/cache/latest-*.php`) — 홈 게시판 스킨을 고치면 지울 것.
-- CSS/JS 는 `extend/version.extend.php` 의 `G5_CSS_VER`/`G5_JS_VER` 를 올려야 반영.
-- Figma MCP: `get_design_context` 의 이미지 asset URL 이 빈 PNG(2,374B)로 오면 `download_assets`(scale 2) export 를 쓴다.
-- Figma export 는 레이어 **블렌드 모드를 버린다**(불투명도는 알파로 남음). 홈 슬라이드 2 물결 점(2122:7992, 점 1,100개 Color Dodge)이 회색 구슬로 나온 원인 — `mix-blend-mode: color-dodge` 로 되돌리되, 블렌드는 같은 스태킹 컨텍스트의 배경과만 섞이므로 슬라이드 프레임에 히어로와 같은 배경을 깔아야 한다(2026-09-06 교정). 패턴 레이어를 옮길 땐 `use_figma` 로 `blendMode` 를 먼저 확인할 것.
+- 그누보드 `latest()` 는 1시간 캐시(`data/cache/latest-*.php`) — 홈 게시판 스킨(`home-help`)을 고치면 지울 것.
+- CSS/JS 는 `extend/version.extend.php` 의 `G5_CSS_VER`/`G5_JS_VER` 를 올려야 반영. `js/home.js` 는 자기 `?ver` 를 섹션 모듈·`motion-path.js` 에 그대로 넘긴다.
+- 홈 `index.php` 는 부분 파일마다 `$sp_hi` 를 `img/home` 으로 되돌린다 — `inc/main_slider.php` 가 `img/home/hero` 로 바꿔 쓰기 때문(안 되돌리면 뒤 섹션 이미지가 404).
+- 화면 대조는 `node ops/scripts/shot.mjs <url> <out.png> [--selector=.sp-eyes] [--full] [--scroll=Y] [--hover=CSS] [--click=CSS] [--width=390 --height=844 --mobile]`(헤드리스 Edge, 콘솔·4xx 요청 목록 출력). ⚠ `--full` 전체 캡처는 `loading="lazy"` 이미지가 빈 상자로 보인다 — 뷰포트 + `--scroll` 로 다시 볼 것.
+- Figma MCP: `get_design_context` 의 이미지 asset URL 이 빈 PNG(2,374B)로 오면 `download_assets`(scale 2) export 를 쓴다. 단 **`download_assets` 의 PNG export 는 흰 배경이 구워져(알파 없음) 나오고 SVG export 는 페이지 배경 rect·필터가 섞인다** → 투명이 필요하면 design-context 의 원본(rawImages)을 피그마 crop 값대로 자르거나 `use_figma` 의 `exportAsync` 로 뽑는다. 이 PC 엔 python·ImageMagick·ffmpeg 가 없어 이미지 가공은 헤드리스 Edge 캔버스(node)로 했다.
+- Figma export 는 레이어 **블렌드 모드를 버린다**(불투명도는 알파로 남음). 패턴 레이어를 옮길 땐 `use_figma` 로 `blendMode` 를 먼저 확인할 것.
+- 셸에서 `cd X && curl … &` 처럼 백그라운드(`&`)를 붙이면 `cd` 가 서브셸에만 적용돼 다음 명령의 파일이 원래 cwd(리포)에 떨어진다.

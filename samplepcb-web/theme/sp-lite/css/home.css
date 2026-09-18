@@ -1,15 +1,24 @@
+@charset "utf-8";
 /* ==========================================================================
-   sp-lite 홈(/) — Figma 「웹 메인」(2122:5280) + 히어로 슬라이드 4장(2122:9447·7989·9271·9557)
+   sp-lite 홈(/) — Figma 「웹 메인」(2286:1275, 1920×9395) 2026-09-18 — 공통
    ---------------------------------------------------------------------------
-   · 데스크톱 1920 기준 픽셀 좌표를 그대로 옮겼다. 히어로는 1920 프레임을 가운데 두고 넘치는 부분을 자른다.
-   · 컨테이너 1280(= .sp-inner: 1320 − 좌우 20). 폰트: Pretendard(전역) + Lexend(히어로 영문, index.php 가 로드).
-   · 1023px 이하 = 피그마에 없는 구간이라 우리 정의(세로 흐름·축소).
-   · 헤더 94px 는 공용(inc/header.php). 히어로 좌표 = 피그마 y − 94.
+   · 데스크톱 1920 기준 좌표를 그대로 옮긴다. 콘텐츠 폭 1280(= .sp-inner 1320 − 좌우 20), 피그마 x=320~1600.
+   · 폰트: Pretendard(전역 --sp-font) + Lexend 300~700(영문 제목, index.php 가 로드).
+   · 1024~1279 는 간격·크기만 줄이고, 1023px 이하는 피그마에 없어 우리 정의(세로 흐름·축소). 390px 에서 가로 넘침 0.
+   · 헤더 72px(공용 inc/header.php, --sp-header-h). 히어로 좌표 = 피그마 y − 72.
+   · 섹션 순서 = 파일 번호: 05-hero · 10-onestop · 20-eyes · 30-idea · 40-stats · 41-network · 42-help
+     (구현은 css/home/NN-*.css 부분 파일로 나눠 하고 이 파일로 병합했다 — index.php 는 css/home/ 이 있으면 부분 파일을, 없으면 이 파일을 로드)
    ========================================================================== */
 
 /* 홈은 전폭 섹션이라 #wrapper 의 컨테이너 패딩을 끈다(:has 는 2023+ 브라우저 전부 지원) */
 #wrapper:has(.sp-home) { max-width: none; padding: 0; }
-.sp-home { --sp-blue: #1e64fd; --sp-ink-2: #1a2129; --sp-muted-2: rgba(0, 0, 0, .6); }
+
+.sp-home {
+    --sp-blue: #1e64fd;          /* 주 파랑(버튼·태그·강조) */
+    --sp-ink-2: #1a2129;         /* 본문 진한 잉크 */
+    --sp-muted-2: rgba(0, 0, 0, .6);
+    overflow-x: clip;            /* 전폭 장식(2635px 그룹 등)이 가로 스크롤을 만들지 않게 — 스크롤 컨테이너는 만들지 않는다 */
+}
 .sp-home img { max-width: none; }
 .sp-home a { text-decoration: none; }
 
@@ -21,63 +30,106 @@
     color: transparent;
 }
 
+/* 섹션 공통: 전폭 배경 + 안쪽 1280 은 .sp-inner 로 */
+.sp-home > section { position: relative; }
+
+
+/* ────────────────────────────── 05-hero ────────────────────────────── */
 /* ==========================================================================
-   1. 히어로 슬라이더 (1920×988 = 프레임 1082 − 헤더 94)
+   05. 히어로 슬라이더 — Figma banner 01~05 (2286:5331 · 5332 · 27009 · 27054 · 5165), 각 1920×666(헤더 72 포함) → 594px
+   ---------------------------------------------------------------------------
+   · 배경 장식 = 1920 프레임 기준(.sp-hero__frame / .sp-slide__bg: 가운데 정렬, 넘침 잘림), y = 피그마 y − 72
+   · 텍스트·카드 = 1280 콘텐츠 박스 기준(.sp-inner > .sp-slide__in, 절대 좌표 left = 피그마 x − 320), y = 피그마 y − 72
+   · 1024~1319: .sp-slide__in 을 (뷰포트 − 40)/1280 배율로 축소(--sp-hero-scale, js/home/hero.js 가 정확한 값으로 갱신)
+   · ≤1023: 피그마에 없는 구간 — 세로 흐름(우리 정의)
+   · 배경 애니메이션: 01 윤곽 연속 회전(JS) · 02~04 3720 폭 "bg img" 팬(CSS) · 05 정지 사진. 마크업 inc/main_slider.php
    ========================================================================== */
 .sp-hero {
+    --sp-hero-h: 594px;
     position: relative;
-    height: 988px;
+    height: calc(var(--sp-hero-h) * var(--sp-hero-scale, 1));
     overflow: hidden;
-    /* 프레임 배경(Rectangle 1, 세로 그라데이션 1082px, 헤더 94 만큼 위로) */
+    /* banner 01 프레임 배경(Rectangle 1: 세로 그라데이션 666px, 헤더 72 만큼 위로) — 다른 배너는 불투명 배경 이미지로 덮는다 */
     background: linear-gradient(180deg, #f5f7f8 0%, #f1f5f8 27.3%, #eff7f9 69.8%, #f5f7f8 100%);
-    background-size: 100% 1082px;
-    background-position: 0 -94px;
+    background-size: 100% 666px;
+    background-position: 0 -72px;
 }
 .sp-hero__frame,
-.sp-slide__frame {
+.sp-slide__bg {
     position: absolute;
     left: 50%;
     top: 0;
     width: 1920px;
-    height: 988px;
+    height: 594px;
     margin-left: -960px;
-}
-
-/* 애니메이션 배경(블롭 + 원본 윤곽 연속 회전) — Gerber Eyes 슬라이드에서만 켠다 */
-.sp-hero__anim {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    transition: opacity .7s ease;
     pointer-events: none;
 }
+.sp-slide__bg > * { position: absolute; }
+
+/* 애니메이션 배경(블롭 + 윤곽 연속 회전) — Gerber Eyes 슬라이드에서만 켠다 */
+.sp-hero__anim { position: absolute; inset: 0; opacity: 0; transition: opacity .7s ease; }
 .sp-hero.is-anim .sp-hero__anim { opacity: 1; }
-.sp-hero__blob   { position: absolute; left: 345px; top: 78px; width: 1230px; height: 1230px; }   /* 950 원 + 블러 여백 140 */
-.sp-hero__lines  { position: absolute; left: -65px; top: 154px; width: 2382.01px; height: 868.02px; } /* 정지 폴백 */
-.sp-hero__organic{ position: absolute; left: -254px; top: 153px; width: 2740px; height: 1124px; display: none; overflow: visible; }
+.sp-hero__blob    { position: absolute; left: 345px; top: 101px; width: 1230px; height: 1230px; } /* Ellipse 4: 950 원(485,313) + 블러 여백 140 */
+.sp-hero__lines   { position: absolute; left: 59px; top: 23px; width: 1680px; height: 613px; }    /* Vector 2286:60907 — 정지 폴백 */
+.sp-hero__organic { position: absolute; left: 59px; top: 23px; width: 1680px; height: 613px; display: none; overflow: visible; }
 .sp-hero.is-organic .sp-hero__lines   { display: none; }
 .sp-hero.is-organic .sp-hero__organic { display: block; }
 
-/* 슬라이드 — 겹쳐 두고 크로스페이드 */
-.sp-hero__slides { position: absolute; inset: 0; }
+/* 슬라이드 — 활성 슬라이드만 흐름에(높이를 정함), 나머지는 같은 자리에 겹쳐 두고 크로스페이드
+   (모바일은 슬라이드마다 높이가 달라 grid 겹치기 대신 이 방식) */
+.sp-hero__slides { position: relative; }
 .sp-hero__slide {
     position: absolute;
     inset: 0;
+    min-width: 0;
     opacity: 0;
     visibility: hidden;
     transition: opacity .7s ease, visibility 0s linear .7s;
 }
-.sp-hero__slide.is-active { opacity: 1; visibility: visible; transition: opacity .7s ease; z-index: 1; }
-.sp-slide__frame > * { position: absolute; }
-.sp-slide__pattern { pointer-events: none; }
+.sp-hero__slide.is-active { position: relative; opacity: 1; visibility: visible; transition: opacity .7s ease; z-index: 1; }
 
-/* 공통: 상단 텍스트 스택(가운데 정렬) */
-.sp-slide__text { left: 0; right: 0; text-align: center; }
+/* 배경 팬(banner 02~04): 3720×666 리소스를 가운데(−900) 두고 ±600px 을 60초에 천천히 왕복 */
+.sp-slide__pan {
+    left: -900px;
+    top: -72px;
+    width: 3720px;
+    height: 666px;
+    animation: sp-hero-pan 60s ease-in-out infinite;
+    will-change: transform;
+}
+@keyframes sp-hero-pan {
+    0%, 100% { transform: translateX(0); }
+    25%      { transform: translateX(-600px); }
+    75%      { transform: translateX(600px); }
+}
+.sp-hero__slide:not(.is-active) .sp-slide__pan,
+.sp-hero.is-offscreen .sp-slide__pan { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .sp-slide__pan { animation: none; } }
+
+/* 콘텐츠 박스(1280) — 자식은 피그마 좌표 절대 배치 */
+.sp-slide__in {
+    position: relative;
+    width: 1280px;
+    height: var(--sp-hero-h);
+    margin: 0 auto;
+    transform-origin: 0 0;
+}
+.sp-slide__in > * { position: absolute; margin: 0; }
+/* 1024~1319: 카드 3장(banner 02)·사진(03)이 컨테이너 오른쪽으로 40px 나가는 디자인이라 1320 기준으로 축소 */
+@media (min-width: 1024px) and (max-width: 1319.98px) {
+    .sp-hero { --sp-hero-scale: .78; } /* JS 가 (뷰포트 − 40)/1320 로 갱신 */
+    .sp-slide__in { transform: scale(var(--sp-hero-scale)); }
+}
+/* 1320~1399: 축소는 없지만 40px 오버행이 뷰포트를 넘으니 그만큼 왼쪽으로 */
+@media (min-width: 1320px) and (max-width: 1399.98px) {
+    .sp-s2__cards { left: 520px; }
+    .sp-s3__photo { left: 682px; }
+}
+
+/* — 공통 조각 */
 .sp-tags {
     display: flex;
-    justify-content: center;
     gap: 14px;
-    margin: 0;
     padding: 0;
     list-style: none;
     font-family: Lexend, var(--sp-font);
@@ -89,19 +141,51 @@
 }
 .sp-tags li { display: inline-flex; align-items: center; gap: 4px; }
 .sp-tags svg { width: 11px; height: 12px; flex: 0 0 auto; }
+
+.sp-dtags {
+    display: flex;
+    gap: 20px;
+    padding: 0;
+    list-style: none;
+    font-family: Lexend, var(--sp-font);
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 20px;
+    white-space: nowrap;
+}
+.sp-dtags li { display: inline-flex; align-items: center; gap: 8px; }
+.sp-dtags li::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+
+.sp-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 40px;
+    border-radius: 60px;
+    background: #fff;
+    font-family: Lexend, var(--sp-font);
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 20px;
+    white-space: nowrap;
+}
+.sp-pill--star { gap: 4px; padding: 0 12px; color: #3442f2; }
+.sp-pill--star svg { width: 11px; height: 12px; flex: 0 0 auto; }
+.sp-pill--dot { gap: 6px; padding: 0 12px 0 14px; }
+.sp-pill--dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+
 .sp-hero__desc {
-    margin: 0;
     font-size: 20px;
     font-weight: 500;
     line-height: 34px;
     letter-spacing: -.4px;
     color: var(--sp-muted-2);
 }
-.sp-hero__btns { display: flex; justify-content: center; gap: 24px; }
+.sp-hero__btns { display: flex; gap: 24px; }
 .sp-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     width: 200px;
     height: 64px;
     border-radius: 8px;
@@ -118,105 +202,129 @@
 .sp-btn--outline { border: 1.5px solid var(--sp-blue); color: var(--sp-blue); }
 .sp-btn--outline:hover { background: rgba(30, 100, 253, .06); color: var(--sp-blue); }
 
-/* — 슬라이드 1: Gerber Eyes 4.0 */
-.sp-s1 .sp-slide__text { top: 73px; }
+/* — banner 01: Gerber Eyes 4.0 (2286:5331) */
+.sp-s1 .sp-tags { left: 1px; top: 91px; }
 .sp-s1__title {
+    left: 1px;
+    top: 125px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 19px;                  /* "Gerber Eyes" 끝(1065)→"4.0"(1084) */
-    margin: 14px 0 0;
+    gap: 19px;                  /* "Gerber Eyes" 끝(634) → "4.0"(653) */
     font-family: Lexend, var(--sp-font);
     font-size: 54px;
     font-weight: 500;
     line-height: 68px;
     letter-spacing: -1.08px;
     color: #000;
+    white-space: nowrap;
 }
 .sp-s1__title img { display: block; width: 83px; height: 41.4px; }
 .sp-s1__sub {
-    margin: 4px 0 0;
+    left: 1px;
+    top: 197px;
     font-family: Lexend, var(--sp-font);
     font-size: 36px;
     font-weight: 300;
     line-height: 45px;
     letter-spacing: -.72px;
     color: rgba(0, 0, 0, .9);
+    white-space: nowrap;
 }
-.sp-s1 .sp-hero__desc { margin-top: 22px; }
-.sp-s1 .sp-hero__btns { margin-top: 30px; }
-.sp-s1__monitor { left: 644px; top: 458px; width: 632.49px; height: 626px; }
-.sp-s1__screen  { left: 657.59px; top: 474.06px; width: 593.57px; height: 400.24px; }
+.sp-s1 .sp-hero__desc { left: 1px; top: 264px; width: 488px; }
+.sp-s1 .sp-hero__btns { left: 0; top: 426px; }
+.sp-s1__visual { left: 681px; top: 74px; width: 587.5px; height: 581.5px; }
+.sp-s1__monitor { position: absolute; left: 0; top: 0; width: 587.5px; height: 581.5px; }
+.sp-s1__screen  { position: absolute; left: 12.6px; top: 14.9px; width: 551.3px; height: 371.8px; }
 
-/* — 슬라이드 2: 제작까지 바로 (카드 3장) */
-/* 물결 점 패턴(피그마 2122:7992): 점 1,100개가 전부 Color Dodge 블렌드 + 개별 불투명도라 export PNG(회색 구슬)에 블렌드를 CSS 로 되돌린다.
-   블렌드는 같은 스태킹 컨텍스트 안의 배경과만 섞이므로 슬라이드 프레임에 히어로와 같은 그라데이션을 깐다(색 동일 → 이음새 없음). */
-.sp-s2 .sp-slide__frame {
-    background: linear-gradient(180deg, #f5f7f8 0%, #f1f5f8 27.3%, #eff7f9 69.8%, #f5f7f8 100%);
-    background-size: 100% 1082px;
-    background-position: 0 -94px;
-}
-.sp-s2 .sp-slide__pattern { left: -51px; top: 596px; width: 2268px; height: 521px; mix-blend-mode: color-dodge; }
-.sp-s2 .sp-slide__text { top: 104px; }
+/* — banner 02: 제작까지 바로 (2286:5332) — 카드 3장 */
+.sp-s2 .sp-pill { left: 0; top: 152px; }
 .sp-s2__title {
-    margin: 14px 0 0;
+    left: 0;
+    top: 202px;
     font-size: 50px;
     font-weight: 700;
-    line-height: 69px;
+    line-height: 65px;
     letter-spacing: -1px;
     color: #000;
+    white-space: nowrap;
 }
-.sp-s2__title .sp-grad { --g: linear-gradient(90deg, #3978ff 0%, #333cf0 58%, #4e5ee9 100%); }
+.sp-s2__title .sp-grad { --g: linear-gradient(180deg, #3978ff 0%, #333cf0 58%, #4e5ee9 100%); }
 .sp-s2__sub {
-    margin: 10px 0 0;
-    font-size: 24px;
+    left: 0;
+    top: 344px;
+    width: 420px;
+    font-size: 20px;
     font-weight: 500;
     line-height: 34px;
-    letter-spacing: -.48px;
+    letter-spacing: -.4px;
     color: var(--sp-muted-2);
 }
-.sp-s2__cards { left: 455px; top: 404px; display: flex; gap: 27px; }
-.sp-pcard {
-    position: relative;
-    width: 318px;
-    height: 444px;
+.sp-s2__cards { left: 560px; top: 121px; display: flex; gap: 20px; }
+.sp-pcard { position: relative; width: 240px; height: 344px; flex: 0 0 auto; }
+.sp-pcard__body {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 240px;
+    height: 326px;
     border-radius: 10px;
     background: #fff;
-    box-shadow: 0 8px 24px rgba(31, 45, 80, .08);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .1);
+}
+.sp-pcard__media {
+    display: block;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 240px;
+    height: 160px;
+    border-radius: 10px 10px 0 0;
     overflow: hidden;
+    background: #e6edf7;
 }
-.sp-pcard__media { display: block; width: 318px; height: 210px; background: #e6edf7; }
-.sp-pcard__media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sp-pcard__media img { display: block; width: 100%; height: 100%; }
 .sp-pcard__title {
-    margin: 23px 0 0 30px;
-    font-size: 30px;
-    font-weight: 600;
-    line-height: 32px;
-    letter-spacing: -.6px;
-    color: #000;
-}
-.sp-pcard__price {
-    margin: 10px 0 0 30px;
+    position: absolute;
+    left: 22px;
+    top: 176px;
+    margin: 0;
     font-size: 26px;
     font-weight: 600;
     line-height: 32px;
     letter-spacing: -.52px;
+    color: #000;
+    white-space: nowrap;
+}
+.sp-pcard__price {
+    position: absolute;
+    left: 22px;
+    top: 208px;
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 32px;
+    letter-spacing: -.44px;
     color: #3442f2;
+    white-space: nowrap;
 }
 .sp-pcard__meta {
+    position: absolute;
+    left: 22px;
+    top: 244px;
+    margin: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 26px 0 0 29px;
+    gap: 6px;
     font-size: 16px;
     font-weight: 500;
-    line-height: 1.2;
+    line-height: 32px;
     letter-spacing: -.32px;
     color: var(--sp-muted-2);
+    white-space: nowrap;
 }
-.sp-pcard__cal { position: relative; width: 14px; height: 14px; border: 1.5px solid #666; border-radius: 2px; flex: 0 0 auto; }
-.sp-pcard__cal::after { content: ""; position: absolute; left: -1.5px; right: -1.5px; top: 2.5px; height: 1px; background: #666; }
-.sp-pcard__dot { width: 3px; height: 3px; border-radius: 50%; background: rgba(0, 0, 0, .6); margin: 0 -2px; }
+.sp-pcard__cal { position: relative; box-sizing: border-box; width: 12px; height: 12px; border: 1.5px solid #666; border-radius: 2px; flex: 0 0 auto; }
+.sp-pcard__cal::after { content: ""; position: absolute; left: -1.5px; right: -1.5px; top: 2px; height: 1px; background: #666; }
+.sp-pcard__dot { width: 2px; height: 2px; border-radius: 50%; background: #666; margin: 0 -3px; flex: 0 0 auto; }
 .sp-pcard__btn {
     position: absolute;
     left: 0;
@@ -226,79 +334,74 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    height: 62px;
+    height: 56px;
+    border-radius: 0 0 10px 10px;
     background: #3442f2;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .1);
     color: #fff;
     font-size: 20px;
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 32px;
     letter-spacing: -.4px;
+    white-space: nowrap;
 }
-.sp-pcard__btn:hover { color: #fff; background: #2b37d8; }
+.sp-pcard__btn:hover { background: #2b37d8; color: #fff; }
 .sp-pcard__btn svg { width: 8px; height: 16px; }
 
-/* — 슬라이드 3: KORLINX */
-.sp-s3 .sp-slide__pattern { left: -80px; top: 175px; width: 1957px; height: 784px; }
-.sp-s3 .sp-slide__text { top: 74px; }
-.sp-s3 .sp-tags { color: #028ede; }
-.sp-s3__brand {
-    margin: 30px 0 0;
-    font-family: Lexend, var(--sp-font);
-    font-size: 46px;
-    font-weight: 600;
-    line-height: 36px;
-    letter-spacing: -.5px;
-    color: #000;
-}
+/* — banner 03: KORLINX (2286:27009) */
+.sp-s3 .sp-pill { left: 0; top: 102px; width: 145px; color: #01a0d5; box-shadow: 0 4px 14px #e1f5ff; }
 .sp-s3__title {
-    margin: 27px 0 0;
-    font-size: 50px;
-    font-weight: 700;
-    line-height: 47px;
-    letter-spacing: -1px;
-    color: #000;
-}
-.sp-s3__title .sp-grad { --g: linear-gradient(90deg, #00c4ff 0%, #00a0f1 63%, #008bd6 100%); }
-.sp-s3 .sp-hero__desc { margin-top: 33px; }
-.sp-s3 .sp-hero__btns { margin-top: 40px; }
-.sp-s3__btn { background: linear-gradient(57.7deg, #018ede 19.4%, #00d0ff 100%); color: #f9fcfe; }
-.sp-s3__btn:hover { color: #f9fcfe; }
-.sp-s3__photo { left: 538px; top: 377px; width: 844px; height: 563px; }
-
-/* — 슬라이드 4: One-Stop 제조서비스 */
-.sp-s4 .sp-slide__pattern { left: -375px; top: -596px; width: 2849px; height: 2294px; }
-.sp-s4 .sp-slide__text { top: 74px; }
-.sp-s4 .sp-tags { color: #4770f4; }
-.sp-s4__title {
-    margin: 27px 0 0;
-    font-size: 50px;
-    font-weight: 700;
+    left: -1px;
+    top: 151px;
+    font-size: 53px;
+    font-weight: 500;
     line-height: 70px;
+    letter-spacing: -1.06px;
+    color: #000;
+    white-space: nowrap;
+}
+.sp-s3__brand { font-family: Lexend, var(--sp-font); font-size: 50px; font-weight: 500; letter-spacing: -1px; }
+.sp-s3__title b { font-weight: 700; --g: linear-gradient(180deg, #00c4ff 0%, #00a0f1 63%, #008bd6 100%); }
+.sp-s3 .sp-hero__desc { left: 0; top: 301px; width: 542px; white-space: nowrap; }
+.sp-s3 .sp-hero__btns { left: 0; top: 365px; }
+.sp-s3__btn { background: linear-gradient(57.7deg, #018ede 19.4%, #00d0ff 100%); color: #f9fcfe; border: 1.5px solid #1e64fd; }
+.sp-s3__btn:hover { color: #f9fcfe; }
+.sp-s3 .sp-dtags { left: 0; top: 449px; color: #028ede; }
+.sp-s3__photo { left: 722px; top: 22px; width: 598px; height: 541px; }
+
+/* — banner 04: One-Stop 제조서비스 (2286:27054) — 카드 4장 + 원 */
+.sp-s4 .sp-pill { left: 1px; top: 102px; width: 135px; color: #4770f4; box-shadow: 0 4px 14px #e1e3ff; }
+.sp-s4__title {
+    left: 0;
+    top: 152px;
+    font-size: 50px;
+    font-weight: 500;
+    line-height: 65px;
     letter-spacing: -1px;
     color: #000;
+    white-space: nowrap;
 }
-.sp-s4__title .sp-grad { --g: linear-gradient(90deg, #1e8eff 0%, #0048ff 100%); }
-.sp-s4 .sp-hero__desc { margin-top: 26px; }
-.sp-s4__cards {
-    left: 565px;
-    top: 345px;
-    display: grid;
-    grid-template-columns: 376px 376px;
-    gap: 38px;
-}
+.sp-s4__title b { font-weight: 700; color: #5e4cd7; }
+.sp-s4 .sp-hero__desc { left: 1px; top: 294px; width: 542px; white-space: nowrap; }
+.sp-s4 .sp-hero__btns { left: 1px; top: 358px; }
+.sp-s4__btn { background: linear-gradient(90deg, #6c43d5 0%, #3165ff 100%); color: #f9fcfe; border: 1.5px solid #1e64fd; }
+.sp-s4__btn:hover { color: #f9fcfe; }
+.sp-s4 .sp-dtags { left: 1px; top: 442px; color: #4770f4; }
+.sp-s4__cards { left: 590px; top: 50px; display: grid; grid-template-columns: 320px 320px; gap: 50px; }
 .sp-ocard {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    width: 376px;
-    height: 256px;
-    padding: 14px 0 0;
+    position: relative;
+    width: 320px;
+    height: 218px;
     border-radius: 10px;
     background: #fff;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .1);
     overflow: hidden;
 }
-.sp-ocard--bottom { padding: 0 0 14px; }
 .sp-ocard__title {
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    top: 14px;
     margin: 0;
     text-align: center;
     font-size: 24px;
@@ -306,33 +409,43 @@
     line-height: 32px;
     letter-spacing: -.48px;
     color: #000;
+    white-space: nowrap;
 }
-.sp-ocard__media { display: block; width: 376px; height: 198px; }
-.sp-ocard__media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sp-ocard--bottom .sp-ocard__title { top: 172px; }
+.sp-ocard__media { display: block; position: absolute; left: 0; top: 58px; width: 320px; height: 160px; }
+.sp-ocard--bottom .sp-ocard__media { top: 0; }
+.sp-ocard__media img { display: block; width: 100%; height: 100%; }
+/* 원: Ellipse 6633(278, 흰 30% + 배경 블러 40 + 레이어 블러 5, 각도 그라데이션 테두리 4) 위에 Ellipse 6634(220, 흰, 블러 2) */
 .sp-s4__circle {
-    left: 805px;
-    top: 465px;
-    width: 310px;
-    height: 310px;
+    left: 796px;
+    top: 154px;
+    width: 278px;
+    height: 278px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, .3);
-    -webkit-backdrop-filter: blur(20px);
-            backdrop-filter: blur(20px);
     z-index: 1;
 }
-.sp-s4__circle::before {
+.sp-s4__ring, .sp-s4__core { position: absolute; border-radius: 50%; }
+.sp-s4__ring {
+    inset: 0;
+    background: rgba(255, 255, 255, .3);
+    -webkit-backdrop-filter: blur(40px);
+            backdrop-filter: blur(40px);
+    filter: blur(5px);
+}
+.sp-s4__core { left: 29px; top: 29px; width: 220px; height: 220px; background: #fff; filter: blur(2px); }
+.sp-s4__ring::after, .sp-s4__core::after {
     content: "";
     position: absolute;
-    left: 30px;
-    top: 30px;
-    width: 250px;
-    height: 250px;
+    inset: 0;
     border-radius: 50%;
-    background: #fff;
-    filter: blur(1px);
+    padding: 4px;
+    background: conic-gradient(from 180deg, #263e9e 16%, #6a44d6 48%, #fff 50%, #fff 59%, #2384ff 84%, #263e9e 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask-composite: exclude;
 }
 .sp-s4__circle p {
     position: relative;
@@ -346,12 +459,42 @@
 }
 .sp-s4__circle p b { font-weight: 900; }
 
-/* — 이미지 슬라이드(관리자 업로드): 1920×988 커버 */
-.sp-hero__slide--image .sp-slide__frame { left: 0; margin-left: 0; width: 100%; }
-.sp-hero__slide--image a, .sp-hero__slide--image span { position: absolute; inset: 0; display: block; }
-.sp-hero__slide--image img { width: 100%; height: 100%; object-fit: cover; }
+/* — banner 05: RAPID PROTOTYPING (2286:5165) — 사진 1920×1074 를 267 위로 올려 보이는 구간(피그마), 왼쪽이 어두운 그늘 */
+.sp-s5__photo { left: 0; top: -339px; width: 1920px; height: 1074px; object-fit: cover; }
+.sp-s5__shade { left: 0; top: 0; width: 1920px; height: 594px; background: linear-gradient(-90deg, rgba(142, 143, 157, .49) 0%, rgba(29, 29, 29, .595) 90%); }
+.sp-s5__title {
+    left: 0;
+    top: 125px;
+    font-family: Lexend, var(--sp-font);
+    font-size: 54px;
+    font-weight: 500;
+    line-height: 68px;
+    letter-spacing: -1.08px;
+    color: #fff;
+    white-space: nowrap;
+}
+.sp-s5__sub {
+    left: 0;
+    top: 197px;
+    font-family: Lexend, var(--sp-font);
+    font-size: 36px;
+    font-weight: 300;
+    line-height: 45px;
+    letter-spacing: -.72px;
+    color: #fff;
+    white-space: nowrap;
+}
+.sp-s5 .sp-hero__desc { left: 1px; top: 264px; width: 496px; color: #fff; }
+.sp-s5 .sp-hero__btns { left: 0; top: 426px; }
+.sp-s5__btn { background: #0bff95; color: #11131a; }
+.sp-s5__btn:hover { color: #11131a; }
 
-/* — 점 내비게이션 */
+/* — 이미지 슬라이드(관리자 업로드): 1920×594 커버 */
+.sp-hero__slide--image { min-height: calc(var(--sp-hero-h) * var(--sp-hero-scale, 1)); }
+.sp-hero__image { position: absolute; inset: 0; display: block; }
+.sp-hero__image img { width: 100%; height: 100%; object-fit: cover; }
+
+/* — 점 내비게이션 (Group 24: 918,628 → 가운데, 아래 30) */
 .sp-hero__dots {
     position: absolute;
     left: 0;
@@ -377,408 +520,1009 @@
 .sp-hero[data-count="1"] .sp-hero__dots { display: none; }
 
 /* ==========================================================================
-   2. 서비스 탭 8개 (Group 28: 히어로 아래 160px)
+   ≤1023: 세로 흐름(우리 정의) — 텍스트 → 버튼 → 태그 → 이미지/카드
    ========================================================================== */
-.sp-home-tabs { padding: 160px 0 0; }
-.sp-home-tabs__row { display: flex; justify-content: center; gap: 10px; margin: 0 0 12px; padding: 0; list-style: none; }
-.sp-home-tab {
+@media (max-width: 1023.98px) {
+    .sp-hero { height: auto; background-size: 100% 100%; background-position: 0 0; }
+    .sp-hero__frame { height: 100%; }
+    .sp-hero.is-organic .sp-hero__organic { display: none; } /* 연속 회전은 데스크톱만 — 정지 윤곽으로 */
+    .sp-hero.is-organic .sp-hero__lines   { display: block; }
+    .sp-slide__bg { left: 0; width: 100%; height: 100%; margin: 0; }
+    .sp-slide__pan { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; animation: none; }
+    .sp-s5__photo, .sp-s5__shade { top: 0; width: 100%; height: 100%; }
+
+    .sp-slide__in {
+        width: auto;
+        height: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 36px 0 60px;
+        transform: none;
+    }
+    .sp-slide__in > * { position: static; }
+    .sp-hero__slide--image { min-height: 56vw; }
+
+    .sp-tags, .sp-dtags { flex-wrap: wrap; gap: 8px 14px; }
+    .sp-tags { margin-bottom: 14px; }
+    .sp-pill { margin-bottom: 16px; }
+    .sp-hero__desc { margin-top: 12px; font-size: 16px; line-height: 26px; letter-spacing: -.32px; width: auto !important; white-space: normal !important; }
+    .sp-hero__btns { margin-top: 22px; gap: 12px; }
+    .sp-btn { width: 150px; height: 52px; font-size: 16px; line-height: 24px; }
+    .sp-dtags { margin-top: 16px; }
+
+    .sp-s1__title { font-size: 34px; line-height: 44px; letter-spacing: -.68px; gap: 10px; }
+    .sp-s1__title img { width: 52px; height: 26px; }
+    .sp-s1__sub { margin-top: 4px; font-size: 22px; line-height: 30px; letter-spacing: -.44px; }
+    .sp-s1__visual { position: relative; left: auto; top: auto; width: 100%; max-width: 480px; height: auto; margin: 28px auto 0; }
+    .sp-s1__monitor { position: static; width: 100%; height: auto; }
+    .sp-s1__screen { left: 2.14%; top: 2.56%; width: 93.84%; height: auto; }
+
+    .sp-s2__title, .sp-s3__title, .sp-s4__title { font-size: 30px; line-height: 40px; letter-spacing: -.6px; white-space: normal; }
+    .sp-s3__brand { font-size: 28px; letter-spacing: -.56px; }
+    .sp-s2__sub { margin-top: 12px; width: auto; font-size: 16px; line-height: 26px; letter-spacing: -.32px; }
+    .sp-s2__cards { width: 100%; margin-top: 28px; flex-direction: column; align-items: center; gap: 20px; }
+    .sp-s3__photo { width: 100%; max-width: 480px; height: auto; margin: 28px auto 0; }
+    .sp-s4__cards { width: 100%; margin-top: 24px; grid-template-columns: minmax(0, 320px); justify-content: center; gap: 20px; order: 2; }
+    .sp-s4__circle { position: relative; left: auto; top: auto; width: 200px; height: 200px; margin: 28px auto 0; order: 1; }
+    .sp-s4__core { left: 21px; top: 21px; width: 158px; height: 158px; }
+    .sp-s4__circle p { font-size: 20px; line-height: 28px; }
+    .sp-s5__title { font-size: 34px; line-height: 44px; letter-spacing: -.68px; white-space: normal; }
+    .sp-s5__sub { margin-top: 4px; font-size: 22px; line-height: 30px; letter-spacing: -.44px; }
+
+    .sp-hero__dots { bottom: 18px; }
+}
+
+
+/* ────────────────────────────── 10-onestop ────────────────────────────── */
+/* ==========================================================================
+   2. Transforming Electronics Manufacturing + One-Stop Manufacturing — Figma 2286:2483 (y 666~2052, 1386px)
+   ---------------------------------------------------------------------------
+   좌표는 섹션 상단(피그마 y 666) 기준. 콘텐츠 x 320~1600(.sp-inner).
+   소개(2286:2515): 손글씨 y140(60px 줄, SVG 26px 잉크 가운데) · 제목 y224(44 Bold, lh1.4) · 부제 y302(31 Regular)
+   One-Stop(2286:2485): 제목 y521(34 Bold) · 설명 y577(22) · 탭 y658(22, lh30, gap32, x325) · 밑줄 y696(검정 3px, 폭93) / 회색 1px y697
+   패널: 사진 (364,763) 632×507 · 카드 (1133,786) 400×460 · 드롭다운 (291,709) 150×135
+   ========================================================================== */
+.sp-onestop {
+    height: 1386px;
+    background: linear-gradient(180deg, #fcfdff 0%, #f3f9ff 100%);
+    color: #1b2b39;
+}
+.sp-onestop .sp-inner { position: relative; height: 100%; }
+
+/* — 소개 */
+.sp-onestop__intro { padding-top: 140px; text-align: center; }
+.sp-onestop__hand { margin: 0; height: 60px; line-height: 60px; }
+.sp-onestop__hand img { display: inline-block; width: 435px; height: 26px; vertical-align: middle; }
+.sp-onestop__headline {
+    margin: 24px 0 0;
+    font-size: 44px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: #1b2b39;
+}
+.sp-onestop__lead {
+    margin: 16px 0 0;
+    font-size: 31px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: #484c52;
+}
+
+/* — One-Stop 제목·설명 */
+.sp-onestop__title {
+    margin: 176px 0 0;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #1a2129;
+}
+.sp-onestop__desc {
+    max-width: 943px;
+    margin: 12px 0 0;
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1.3;
+    color: #555;
+}
+
+/* — 탭 */
+.sp-onestop__tabs {
+    display: flex;
+    gap: 32px;
+    margin: 52px 0 0;
+    padding: 0 0 9px 5px;
+    list-style: none;
+    border-bottom: 1px solid #d9d9d9;
+}
+.sp-onestop__tab { position: relative; }
+.sp-onestop__tab-btn {
     display: inline-flex;
     align-items: center;
-    height: 46px;
-    padding: 6px 20px;
-    border-radius: 6px;
-    background: #f0f2f6;
-    color: #666;
-    font-size: 20px;
-    font-weight: 500;
-    line-height: 34px;
-    letter-spacing: -.4px;
-    white-space: nowrap;
-    transition: background .15s, color .15s;
-}
-.sp-home-tab:hover { background: #e4e8ef; color: #333; }
-.sp-home-tab.is-active, .sp-home-tab.is-active:hover { background: var(--sp-blue); color: #fff; }
-
-/* ==========================================================================
-   3. 왜 우리를 선택 (Group 30: y 1406, 탭 하단 1346 → 60px 아래)
-   ========================================================================== */
-.sp-why {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-top: 60px;
-}
-.sp-why__text { width: 488px; padding-top: 80px; }
-.sp-why__title {
+    gap: 10px;
     margin: 0;
-    font-size: 54px;
-    font-weight: 700;
-    line-height: 1.2;
-    letter-spacing: -1.08px;
-    color: var(--sp-ink-2);
-}
-.sp-why__title .sp-grad { --g: linear-gradient(90deg, #2268fe 0%, #0095ff 85%); }
-.sp-why__desc {
-    margin: 40px 0 0;
-    font-size: 20px;
-    font-weight: 500;
-    line-height: 1.5;
-    letter-spacing: -.4px;
-    color: var(--sp-muted-2);
-}
-.sp-why__media {
-    display: block;
-    width: 728px;
-    height: 410px;
-    border-radius: 20px;
-    overflow: hidden;
-    background: #0f172a;
-}
-.sp-why__media img { display: block; width: 100%; height: 100%; object-fit: cover; }
-
-/* ==========================================================================
-   4. 특징 카드 3장 (y 1916, 위 섹션 하단 1816 → 100px 아래)
-   ========================================================================== */
-.sp-feats { display: flex; gap: 31px; margin-top: 100px; }
-.sp-feat {
-    position: relative;
-    width: 406px;
-    height: 224px;
-    border: 1px solid rgba(217, 217, 217, .62);
-    border-radius: 20px;
-    background: linear-gradient(160.8deg, #e9f5ff .94%, #fff 69.09%);
-    overflow: hidden;
-}
-.sp-feat__title {
-    position: absolute;
-    left: 39px;
-    top: 38px;
-    margin: 0;
-    font-size: 26px;
-    font-weight: 700;
-    line-height: 34px;
-    letter-spacing: -.52px;
-    color: var(--sp-ink-2);
-}
-.sp-feat__desc {
-    position: absolute;
-    left: 39px;
-    top: 90px;
-    width: 213px;
-    margin: 0;
-    font-size: 16px;
-    font-weight: 400;
-    line-height: 1.5;
-    letter-spacing: -.32px;
-    color: var(--sp-muted-2);
-}
-.sp-feat__icon { position: absolute; top: 42px; height: 140px; overflow: hidden; }
-.sp-feat__icon img { position: absolute; top: -32.1px; width: 294.5px; height: 195.8px; }
-.sp-feat--1 .sp-feat__icon { left: 280px; width: 93px; }  .sp-feat--1 .sp-feat__icon img { left: -91.9px; }
-.sp-feat--2 .sp-feat__icon { left: 275px; width: 106px; } .sp-feat--2 .sp-feat__icon img { left: -188.1px; }
-.sp-feat--3 .sp-feat__icon { left: 282px; width: 91px; }  .sp-feat--3 .sp-feat__icon img { left: -4.1px; }
-
-/* ==========================================================================
-   5. 세 가지 방법 (Group 1000008823: y 2280~3301, 카드 하단 2140 → 140px 아래)
-   ========================================================================== */
-.sp-ways {
-    margin-top: 140px;
-    padding: 140px 0 141px;
-    background: linear-gradient(180deg, #f8fafc 0%, rgba(255, 255, 255, 0) 100%);
-}
-.sp-ways__title {
-    position: relative;
-    margin: 0;
-    text-align: center;
-    font-size: 42px;
-    font-weight: 700;
-    line-height: 1.5;
-    letter-spacing: -.84px;
-    color: #000;
-}
-.sp-ways__title span { position: relative; z-index: 1; }
-.sp-ways__hl {
-    position: absolute;
-    left: calc(50% - 176px);
-    top: 41px;
-    width: 624px;
-    height: 21px;
-    z-index: 0;
-}
-.sp-ways__desc {
-    width: 932px;
-    margin: 13px auto 0;
-    text-align: center;
-    font-size: 20px;
-    font-weight: 500;
-    line-height: 1.5;
-    letter-spacing: -.4px;
-    color: var(--sp-muted-2);
-}
-.sp-ways__grid { display: flex; gap: 34px; margin-top: 60px; }
-.sp-way {
-    position: relative;
-    width: 404px;
-    height: 544px;
-    border: 1px solid #d9d9d9;
-    border-radius: 24px;
-    overflow: hidden;
-    --way-c: #199b5b;
-    --way-bg: #eaf9ee;
-    --way-btn: #eaf9ee;
-    background: linear-gradient(180deg, var(--way-bg) 20.52%, #fff 52.31%);
-}
-.sp-way--parts { --way-c: #168e9f; --way-bg: #e3f9ff; --way-btn: rgba(0, 211, 243, .2); }
-.sp-way--smt   { --way-c: #1e64fd; --way-bg: #dde7fc; --way-btn: rgba(30, 100, 253, .2); }
-.sp-way__media { display: block; width: 100%; height: 180px; overflow: hidden; }
-.sp-way__media img { display: block; width: 100%; height: 221px; margin-top: -20px; object-fit: cover; }
-.sp-way__body { position: absolute; left: 30px; top: 210px; width: 342.5px; }
-.sp-way__title {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 700;
-    line-height: 1.5;
-    letter-spacing: -.48px;
-    color: var(--way-c);
-}
-.sp-way__desc {
-    margin: 8px 0 0;
-    font-size: 16px;
-    font-weight: 400;
-    line-height: 1.5;
-    letter-spacing: -.32px;
-    color: var(--sp-muted-2);
-}
-.sp-way__list { position: absolute; left: 30px; top: 332px; margin: 0; padding: 0; list-style: none; }
-.sp-way__list li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 10px;
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 1.5;
-    letter-spacing: -.28px;
-    color: var(--sp-ink-2);
-    white-space: nowrap;
-}
-.sp-way__list li:first-child { margin-top: 0; }
-.sp-way__list img { width: 24px; height: 24px; flex: 0 0 auto; }
-.sp-way__btn {
-    position: absolute;
-    left: 30px;
-    top: 454px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 342.5px;
-    height: 60px;
-    border: 1px solid var(--way-c);
-    border-radius: 30px;
-    background: var(--way-btn);
-    color: var(--way-c);
-    font-size: 20px;
-    font-weight: 700;
-    line-height: 1.5;
-    letter-spacing: -.4px;
-    white-space: pre;
-    transition: filter .15s;
-}
-.sp-way__btn:hover { color: var(--way-c); filter: brightness(.97); }
-
-/* ==========================================================================
-   6. FAQ · 공지사항 · Q&A (Group 1000008814: y 3301~4559, 1258px)
-   ========================================================================== */
-.sp-boards {
-    min-height: 1258px;
-    padding: 140px 0 120px;
-    background: #fbfbfb url(../img/home/faq-bg.svg) center top / 1920px 1258px no-repeat;
-}
-.sp-boards__h {
-    margin: 0;
-    font-size: 42px;
-    font-weight: 600;
-    line-height: 1.4;
-    color: #000;
-    white-space: nowrap;
-}
-.sp-boards__faq { display: flex; gap: 120px; align-items: flex-start; }
-.sp-boards__faq .sp-boards__h { width: 238px; flex: 0 0 auto; }
-.sp-boards__faq-body { width: 922px; }
-.sp-card {
-    background: rgba(255, 255, 255, .8);
-    border: 1px solid #eee;
-    border-radius: 12px;
-    padding: 28px 30px;
-}
-.sp-boards__row2 { display: flex; gap: 60px; margin-top: 90px; }
-.sp-boards__col { width: 610px; }
-.sp-boards__col .sp-card { margin-top: 24px; }
-
-/* FAQ 카테고리 탭 */
-.sp-faq-tabs { display: flex; gap: 14px; margin: 0 0 24px; padding: 0; list-style: none; }
-.sp-faq-tabs button {
-    position: relative;
     padding: 0;
     border: 0;
     background: none;
     font: inherit;
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 500;
-    line-height: 1.4;
-    color: #000;
+    line-height: 30px;
+    color: #444;
+    white-space: nowrap;
     cursor: pointer;
+    transition: color .15s;
 }
-.sp-faq-tabs button.is-active { font-weight: 800; }
-.sp-faq-tabs button.is-active::after { content: ""; position: absolute; left: 50%; bottom: -2px; width: 38px; height: 2px; margin-left: -19px; background: #000; }
+.sp-onestop__tab-btn:hover { color: #000; }
+.sp-onestop__tab.is-active .sp-onestop__tab-btn { font-weight: 800; color: #000; }
+.sp-onestop__tab.is-active::after {
+    content: "";
+    position: absolute;
+    left: -5px;
+    right: -4px;
+    bottom: -11px;
+    height: 3px;
+    background: #000;
+}
+.sp-onestop__chev { display: block; width: 14px; height: 14px; transition: transform .2s; }
+.sp-onestop__tab.is-open .sp-onestop__chev { transform: rotate(180deg); }
 
-/* FAQ 아코디언 */
-.sp-faq__item { border-bottom: 1px solid #d9d9d9; padding-bottom: 16px; margin-bottom: 16px; }
-.sp-faq__item:last-child, .sp-faq__item.is-last { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
-.sp-faq__item[hidden] { display: none; }
-.sp-faq__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+/* — PCBS 드롭다운(2294:90517) */
+.sp-onestop__menu {
+    position: absolute;
+    left: -34px;
+    top: calc(100% + 21px);
+    z-index: 5;
+    width: 150px;
+    padding: 10px 0;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 10px 10px rgba(0, 0, 0, .1);
+}
+.sp-onestop__menu[hidden] { display: none; }
+.sp-onestop__menu-item {
+    display: block;
     width: 100%;
-    height: 40px;
-    padding: 0 14px 0 0;
+    height: 35px;
+    margin: 0;
+    padding: 8px 16px;
     border: 0;
     background: none;
     font: inherit;
-    text-align: left;
-    cursor: pointer;
-    color: #1b2b39;
-}
-.sp-faq__lead { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.sp-faq__badge {
-    flex: 0 0 auto;
-    padding: 2px 8px;
-    border: 1px solid #bceaf1;
-    border-radius: 4px;
-    background: #d7f5fa;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 500;
-    line-height: 1.4;
+    line-height: 1.3;
+    text-align: left;
+    color: #0a151e;
+    cursor: pointer;
+}
+.sp-onestop__menu-item:hover,
+.sp-onestop__menu-item.is-active { background: #f5f8fb; }
+
+/* — 패널: 사진 + 카드 */
+.sp-onestop__panel {
+    display: flex;
+    align-items: flex-start;
+    margin-top: 65px;
+}
+.sp-onestop__photo { flex: 0 0 auto; margin-left: 44px; }
+.sp-onestop__photo img { display: block; width: 632px; height: 507px; }
+.sp-onestop__card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    flex: 0 0 400px;
+    box-sizing: border-box;
+    width: 400px;
+    height: 460px;
+    margin: 23px 67px 0 auto;
+    padding: 32px 36px;
+    background: #fff;
+    border: 1px solid #ededed;
+    border-radius: 14px;
+}
+.sp-onestop__card-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.3;
     color: #1b2b39;
 }
-.sp-faq__q { font-size: 18px; font-weight: 400; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-faq__toggle { position: relative; flex: 0 0 auto; width: 16px; height: 16px; }
-.sp-faq__toggle::before, .sp-faq__toggle::after {
-    content: "";
+.sp-onestop__card-hr { height: 1px; margin: 20px 0; border: 0; background: #ebebeb; }
+.sp-onestop__card-list {
+    margin: 0;
+    padding: 0 0 0 27px;
+    list-style: disc;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.7;
+    color: #1b2b39;
+}
+.sp-onestop__card-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 32px;
+    border-radius: 6px;
+    background: #05f;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 20px;
+    color: #fff;
+    white-space: nowrap;
+    transition: filter .15s;
+}
+.sp-onestop__card-btn:hover { filter: brightness(1.08); }
+
+/* ── 좁은 데스크톱(1024~1279): 간격·크기만 줄인다 ───────────────────────── */
+@media (max-width: 1279.98px) {
+    .sp-onestop { height: auto; padding-bottom: 100px; }
+    .sp-onestop__intro { padding-top: 110px; }
+    .sp-onestop__headline { font-size: 40px; }
+    .sp-onestop__lead { font-size: 26px; }
+    .sp-onestop__title { margin-top: 130px; }
+    .sp-onestop__tabs { flex-wrap: wrap; gap: 14px 24px; }
+    .sp-onestop__tab-btn { font-size: 20px; }
+    .sp-onestop__panel { gap: 24px; margin-top: 56px; }
+    .sp-onestop__photo { flex: 0 1 632px; min-width: 0; margin-left: 0; }
+    .sp-onestop__photo img { width: 100%; height: auto; }
+    .sp-onestop__card { flex: 0 0 360px; width: 360px; height: auto; min-height: 420px; margin: 23px 0 0 auto; padding: 28px 30px; }
+}
+
+/* ── 태블릿·모바일(≤1023): 세로 흐름 — 피그마에 없어 우리 정의 ─────────────── */
+@media (max-width: 1023.98px) {
+    .sp-onestop { padding-bottom: 72px; }
+    .sp-onestop__intro { padding-top: 80px; }
+    .sp-onestop__hand { height: 44px; line-height: 44px; }
+    .sp-onestop__hand img { width: 320px; height: 19px; }
+    .sp-onestop__headline { margin-top: 16px; font-size: 32px; }
+    .sp-onestop__lead { margin-top: 12px; font-size: 20px; }
+    .sp-onestop__title { margin-top: 88px; font-size: 28px; }
+    .sp-onestop__desc { font-size: 18px; }
+    .sp-onestop__tabs {
+        flex-wrap: nowrap;
+        gap: 24px;
+        margin-top: 32px;
+        padding-bottom: 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .sp-onestop__tabs::-webkit-scrollbar { display: none; }
+    .sp-onestop__tab { flex: 0 0 auto; }
+    .sp-onestop__tab-btn { font-size: 18px; }
+    .sp-onestop__tab.is-active::after { bottom: -9px; }
+    .sp-onestop__panel { flex-direction: column; align-items: center; gap: 32px; margin-top: 40px; }
+    .sp-onestop__photo { flex: 0 0 auto; width: 100%; max-width: 632px; }
+    .sp-onestop__card { flex: 0 0 auto; width: 100%; max-width: 400px; min-height: 0; margin: 0; padding: 28px 30px; }
+    .sp-onestop__card-btn { margin-top: 32px; }
+}
+
+/* ── 소형(≤599) ─────────────────────────────────────────────────────────── */
+@media (max-width: 599.98px) {
+    .sp-onestop__intro { padding-top: 60px; }
+    .sp-onestop__hand img { width: 260px; height: 16px; }
+    .sp-onestop__headline { font-size: 26px; }
+    .sp-onestop__lead { font-size: 17px; }
+    .sp-onestop__title { margin-top: 64px; font-size: 24px; }
+    .sp-onestop__desc { font-size: 16px; }
+    .sp-onestop__tab-btn { font-size: 16px; }
+    .sp-onestop__card { padding: 24px; }
+    .sp-onestop__card-list { font-size: 16px; }
+    .sp-onestop__card-btn { font-size: 16px; }
+}
+
+
+/* ────────────────────────────── 20-eyes ────────────────────────────── */
+/* ==========================================================================
+   20. 3 EYES — Smarter Manufacturing with AI (피그마 y 2052~4856, 높이 2804)
+   ---------------------------------------------------------------------------
+   · 배경 Rectangle 7190(2286:1276): 위 336px 동안 투명→#f6f8fb 로 차오르는 세로 그라데이션(피그마 gradientTransform 8.35 = 1/12%).
+   · 제목 그룹(2286:1444): "3 EYES"(Lexend Bold 54) + 눈 아이콘 65 → 그라데이션 제목(Pretendard 800 44) → 부제(26/1.4 #484c52).
+   · 블록 3개(각 1280×670, 간격 100): [미디어 772 | 카드 484](24) · [카드 484 | 미디어 772] · [사진 797 | 카드 460](23).
+   · 카드 = 흰 80% + blur 7 + 그림자 0 14 30 rgba(107,124,149,.1), 패딩 46/40, 위 본문·아래 버튼(space-between).
+   · ≥1320 은 피그마 픽셀 그대로, 1024~1319 는 같은 비율로 유동, ≤1023 은 세로 흐름(미디어 위·카드 아래).
+   ========================================================================== */
+.sp-eyes {
+    padding: 140px 0 141px;
+    background: linear-gradient(180deg, rgba(246, 248, 251, 0) 0, #f6f8fb 336px);
+    color: var(--sp-ink-2);
+}
+
+/* — 제목 */
+.sp-eyes__head { text-align: center; }
+.sp-eyes__brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0;
+    font-family: Lexend, var(--sp-font);
+    font-size: 54px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #000;
+}
+.sp-eyes__brand img { width: 65px; height: 65px; margin-left: 2px; flex: 0 0 auto; } /* "EYES" 끝 1016 → 아이콘 1026 */
+.sp-eyes__title {
+    --g: linear-gradient(90deg, #2268fe 0%, #0095ff 85%);
+    margin: 0;
+    font-size: 44px;
+    font-weight: 800;
+    line-height: 1.3;
+}
+.sp-eyes__sub {
+    margin: 30px 0 0;
+    font-size: 26px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: #484c52;
+}
+
+/* — 블록 */
+.sp-eyes__block {
+    display: grid;
+    grid-template-columns: 772px 484px;
+    column-gap: 24px;
+    height: 670px;
+    margin-top: 100px;
+}
+.sp-eyes__head + .sp-eyes__block { margin-top: 120px; }   /* 부제 아래(333) → 첫 블록(453) */
+.sp-eyes__block--parts { grid-template-columns: 484px 772px; }
+.sp-eyes__block--smt   { grid-template-columns: 797px 460px; column-gap: 23px; }
+
+/* 미디어 — 화면 GIF/사진 자리(영상으로 교체 시 <img> 만 <video> 로) */
+.sp-eyes__media {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    background: #daf3ee;
+}
+.sp-eyes__media img { position: absolute; display: block; }
+.sp-eyes__media--gerber img { left: 35px; top: 133px; width: 702px; height: 395px; border-radius: 8px; }  /* 355,2638 → 블록 기준 */
+.sp-eyes__media--parts { background: linear-gradient(180deg, #e6efff 0%, #e3e7f0 100%); }
+.sp-eyes__media--parts img { left: -211px; top: -1px; width: 1191px; height: 670px; }                     /* 1191 폭 화면을 가운데 772 만 */
+.sp-eyes__media--smt { background: linear-gradient(180deg, #e1dfe9 79%, #eae9f0 80.3%, #d5d3e1 100%); }
+.sp-eyes__media--smt img { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* 카드 */
+.sp-eyes__card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-width: 0;
+    padding: 46px 40px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .8);
+    -webkit-backdrop-filter: blur(7px);
+            backdrop-filter: blur(7px);
+    box-shadow: 0 14px 30px rgba(107, 124, 149, .1);
+}
+.sp-eyes__card--narrow .sp-eyes__card-body { max-width: 380px; }   /* Parts·SMT 카드는 본문 380 */
+
+.sp-eyes__tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border: 1px solid #1a2129;
+    border-radius: 50px;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: -.32px;
+    color: #1a2129;
+}
+.sp-eyes__tag img { width: 6px; height: 6px; }
+.sp-eyes__name {
+    margin: 12px 0 0;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #1a2129;
+    white-space: nowrap;
+}
+.sp-eyes__name--smt { line-height: 1.4; }   /* 피그마 SMT 제목만 140% */
+.sp-eyes__desc {
+    margin: 20px 0 0;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.5;
+    letter-spacing: -.36px;
+    color: rgba(0, 0, 0, .6);
+}
+
+.sp-eyes__feats {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 40px 0 0;
+    padding: 0;
+    list-style: none;
+}
+.sp-eyes__feats li {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 14px 18px 14px 14px;
+    border: 1px solid #e7e7e7;
+    border-radius: 16px;
+    background: #fff;
+}
+.sp-eyes__ico { position: relative; flex: 0 0 54px; width: 54px; height: 54px; }
+.sp-eyes__ico img { display: block; width: 54px; height: 54px; }                      /* 피그마 export(배경·테두리 포함, 2x) */
+.sp-eyes__ico .sp-eyes__ico-img--tall { height: 57px; margin-top: -1.5px; }            /* SMT 1행 아이콘은 54 상자 밖으로 1.5px 씩 넘침 */
+.sp-eyes__feat {
+    width: 266px;
+    padding: 10px 0;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: -.4px;
+    color: #1a2129;
+}
+
+.sp-eyes__btns { display: flex; gap: 12px; margin-top: 30px; }
+.sp-eyes__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 20px;
+    border-radius: 8px;
+    background: #050505;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #fdfefe;
+    white-space: nowrap;
+    cursor: default;
+}
+.sp-eyes__btn--outline  { background: transparent; border: 1px solid #afafaf; color: #050505; }
+.sp-eyes__btn--bordered { border: 1px solid #d9d9d9; }   /* 피그마 SMT 버튼만 테두리 */
+
+/* ── 1024~1319: 같은 비율로 유동(높이는 내용에 맞춤) ─────────────────────── */
+@media (max-width: 1319.98px) {
+    .sp-eyes__block { grid-template-columns: minmax(0, 772fr) minmax(0, 484fr); height: auto; }
+    .sp-eyes__block--parts { grid-template-columns: minmax(0, 484fr) minmax(0, 772fr); }
+    .sp-eyes__block--smt   { grid-template-columns: minmax(0, 797fr) minmax(0, 460fr); }
+    .sp-eyes__media { aspect-ratio: 772 / 670; }
+    .sp-eyes__media--smt { aspect-ratio: 797 / 670; }
+    .sp-eyes__media--gerber img { left: 4.53%; top: 19.85%; width: 90.93%; height: auto; }
+    .sp-eyes__media--parts img { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; }
+    .sp-eyes__card { padding: 32px 28px; }
+    .sp-eyes__card--narrow .sp-eyes__card-body { max-width: none; }
+    .sp-eyes__name { font-size: 30px; }
+    .sp-eyes__feat { width: auto; min-width: 0; font-size: 18px; }
+    .sp-eyes__btns { margin-top: 24px; }
+}
+
+/* ── ≤1023: 세로 흐름 — 미디어 위, 카드 아래 (피그마에 없어 우리 정의) ────── */
+@media (max-width: 1023.98px) {
+    .sp-eyes { padding: 80px 0; background: linear-gradient(180deg, rgba(246, 248, 251, 0) 0, #f6f8fb 160px); }
+    .sp-eyes__brand { font-size: 40px; gap: 6px; }
+    .sp-eyes__brand img { width: 48px; height: 48px; }
+    .sp-eyes__title { font-size: 32px; }
+    .sp-eyes__sub { margin-top: 16px; font-size: 18px; }
+    .sp-eyes__block,
+    .sp-eyes__block--parts,
+    .sp-eyes__block--smt { grid-template-columns: minmax(0, 1fr); row-gap: 16px; height: auto; margin-top: 48px; }
+    .sp-eyes__head + .sp-eyes__block { margin-top: 56px; }
+    .sp-eyes__block--parts .sp-eyes__media { order: -1; }   /* 카드보다 미디어를 먼저 */
+    .sp-eyes__card { padding: 28px 20px; }
+    .sp-eyes__name { font-size: 26px; white-space: normal; }
+    .sp-eyes__desc { font-size: 16px; }
+    .sp-eyes__desc br { display: none; }
+    .sp-eyes__feats { margin-top: 24px; gap: 10px; }
+    .sp-eyes__feats li { padding: 10px 14px 10px 10px; gap: 14px; }
+    .sp-eyes__feat { font-size: 16px; padding: 6px 0; }
+    .sp-eyes__btns { flex-wrap: wrap; }
+    .sp-eyes__btn { font-size: 16px; }
+}
+
+
+/* ────────────────────────────── 30-idea ────────────────────────────── */
+/* ==========================================================================
+   30. Your Idea. Our Expertise. — 프로세스 5단계 + Development Portfolio
+   Figma Group 173(2286:2333) y 4855~7095 = 2240px. 좌표는 피그마 y − 4855. 안쪽 1280(.sp-inner).
+   · 단계 카드 306×288: 첫째 줄 3장(x 405·807·1209) + 둘째 줄 2장(606·1008, 가운데 정렬) — 카드 간 96 · 줄 간 78, 점선 화살표 71×15
+   · 포트폴리오 카드 329×496(간격 30) 트랙 = 무한 마퀴. js/home/portfolio.js 가 세트를 복제하고 --sp-pf-shift(세트 폭)·--sp-pf-duration 을 준다.
+     좌/우 가장자리 페이드 = 세로 그라데이션(#f8f9fa→#f4f6f7) 280 + 가로로 흐려지는 88 (Group 180 · 2286:2475)
+   · 1024~1279 는 카드 288·간격 48 로 줄이고, 1023 이하는 세로 흐름(화살표는 아래로 90° 회전).
+   ========================================================================== */
+.sp-idea {
+    position: relative;
+    padding: 281px 0 105px;
+    background: linear-gradient(180deg, rgba(248, 249, 249, 0) 0%, #f3f5f7 100%);   /* Rectangle 5123 */
+}
+
+/* 상단 사진 띠(2286:2389): 1920×321. 아래로 투명해지는 마스크·흰 51% 덮개는 export 에 구워져 있다 */
+.sp-idea__photo {
+    position: absolute;
+    left: 50%;
+    top: 1px;
+    width: 1920px;
+    height: 321px;
+    margin-left: -960px;
+    pointer-events: none;
+}
+.sp-idea__photo img { display: block; width: 1920px; height: 321px; }
+.sp-idea .sp-inner { position: relative; }
+
+/* 제목(2286:2480) — 44 Bold 두 줄, "Our Expertise." 만 ExtraBold 그라데이션 */
+.sp-idea__head { text-align: center; }
+.sp-idea__title { margin: 0; font-size: 44px; font-weight: 700; line-height: 1.4; color: #000; }
+.sp-idea__title-grad { --g: linear-gradient(90deg, #2268fe 0%, #0095ff 85%); font-weight: 800; }
+.sp-idea__sub { margin: 31px 0 0; font-size: 26px; font-weight: 400; line-height: 1.3; color: #555; }
+
+/* 단계 카드(2286:2522 · 2286:2551) */
+.sp-idea__steps {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 78px 96px;
+    width: 1110px;
+    max-width: 100%;
+    margin: 142px auto 0;
+    padding: 0;
+    list-style: none;
+}
+.sp-idea__step {
+    position: relative;
+    width: 306px;
+    height: 288px;
+    border: 1px solid #e7e7e7;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .8);
+    -webkit-backdrop-filter: blur(7px);
+            backdrop-filter: blur(7px);
+    box-shadow: 0 14px 30px rgba(107, 124, 149, .1);
+}
+/* 번호 배지 62×62 — 카드 왼쪽 위 모서리(왼쪽 위·오른쪽 아래만 둥글게) */
+.sp-idea__no {
+    position: absolute;
+    left: -1px;
+    top: -1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 62px;
+    height: 62px;
+    border-radius: 16px 0 16px 0;
+    background: #383838;
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+/* 안쪽 좌표는 패딩 박스 기준이라 테두리 1px 만큼 뺀다(피그마 y 는 카드 바깥 기준) */
+.sp-idea__ico { position: absolute; left: 0; right: 0; top: calc(var(--ico-top, 36px) - 1px); text-align: center; line-height: 0; }
+.sp-idea__ico img { display: inline-block; }
+.sp-idea__step-body {
     position: absolute;
     left: 0;
-    top: 7px;
-    width: 16px;
-    height: 2px;
-    border-radius: 9px;
-    background: #1b2b39;
-    transition: transform .2s;
+    right: 0;
+    top: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    text-align: center;
 }
-.sp-faq__toggle::after { transform: rotate(90deg); }
-.sp-faq__item.is-open .sp-faq__toggle::after { transform: rotate(0); }
-.sp-faq__body { display: none; padding-top: 10px; }
-.sp-faq__item.is-open .sp-faq__body { display: block; }
-.sp-faq__a { margin: 0; font-size: 16px; font-weight: 400; line-height: 1.5; color: #626363; }
-.sp-faq__more { display: inline-block; margin-top: 4px; font-size: 14px; line-height: 1.5; color: #1b2b39; }
-.sp-faq__more:hover { text-decoration: underline; color: #1b2b39; }
-
-/* 공지·Q&A 목록 */
-.sp-bl { margin: 0; padding: 0; list-style: none; }
-.sp-bl__item { display: flex; align-items: center; justify-content: space-between; gap: 14px; height: 30px; }
-.sp-bl__item + .sp-bl__item { margin-top: 16px; padding-top: 16px; border-top: 1px solid #d9d9d9; box-sizing: content-box; }
-.sp-bl__link { display: flex; align-items: center; gap: 10px; min-width: 0; color: #1b2b39; }
-.sp-bl__link:hover { color: #1b2b39; }
-.sp-bl__link:hover .sp-bl__subj { text-decoration: underline; }
-.sp-bl__q { flex: 0 0 28px; font-size: 28px; font-weight: 600; line-height: 1.2; }
-.sp-bl__subj { font-size: 18px; font-weight: 400; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-bl__date { flex: 0 0 auto; font-size: 18px; line-height: 1.4; color: #626363; white-space: nowrap; }
-.sp-bl__empty { font-size: 16px; color: #626363; }
-
-/* ==========================================================================
-   반응형 — 피그마 정의 밖(1023px 이하): 세로 흐름
-   ========================================================================== */
-@media (max-width: 1319.98px) {
-    .sp-why { flex-direction: column; gap: 32px; }
-    .sp-why__text { padding-top: 0; width: auto; }
-    .sp-why__media { width: 100%; max-width: 728px; height: auto; aspect-ratio: 728 / 410; }
-    .sp-feats { flex-wrap: wrap; justify-content: center; }
-    .sp-ways__grid { flex-wrap: wrap; justify-content: center; }
-    .sp-ways__desc { width: auto; }
-    .sp-boards__faq { flex-direction: column; gap: 24px; }
-    .sp-boards__faq-body { width: 100%; }
-    .sp-boards__row2 { flex-direction: column; gap: 48px; }
-    .sp-boards__col { width: 100%; }
-    .sp-boards { background-size: 1920px auto; }
+.sp-idea__step-title { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.2; color: #000; white-space: nowrap; }
+.sp-idea__step-title--semi { font-weight: 600; }
+.sp-idea__step-title--semi .sp-idea__dot { font-weight: 400; }
+.sp-idea__step-desc { margin: 0; font-size: 18px; font-weight: 400; line-height: 1.5; color: #666; white-space: nowrap; }
+/* 점선 화살표 — 카드 오른쪽 바깥 9px(피그마 x 720 = 카드 끝 711 + 9). 첫째 줄은 카드 세로 가운데(144), 둘째 줄은 피그마대로 121 */
+.sp-idea__arrow {
+    position: absolute;
+    right: -81px;
+    top: 135.5px;
+    width: 71px;
+    height: 15px;
+    pointer-events: none;
+}
+.sp-idea__step--row2 .sp-idea__arrow { right: -85px; top: 112.5px; }   /* 둘째 줄은 피그마가 카드 끝 912 + 13 = 925 */
+@media (min-width: 1024px) {
+    .sp-idea__step:nth-child(3) .sp-idea__arrow { display: none; }   /* 첫째 줄 끝(03) — 세로 흐름에서만 보인다 */
 }
 
+/* Development Portfolio(2286:2393) */
+.sp-idea__pf { margin-top: 157px; text-align: center; }
+.sp-idea__pf-title { margin: 0; font-size: 36px; font-weight: 700; line-height: 1.3; color: #1b2b39; }
+.sp-idea__pf-desc { max-width: 686px; margin: 22px auto 0; font-size: 22px; font-weight: 400; line-height: 1.3; color: #555; }
+
+.sp-idea__pf-viewport {
+    --fade-solid: 280px;   /* 불투명 구간(피그마 280) */
+    --fade-ramp: 88px;     /* 흐려지는 구간(피그마 88) */
+    position: relative;
+    height: 564px;         /* 페이드 높이 = 카드 496 + 위 33 · 아래 35 */
+    margin-top: 52px;
+    padding-top: 33px;
+    overflow: hidden;
+}
+.sp-idea__pf-track {
+    display: flex;
+    gap: 30px;
+    width: max-content;
+    margin-left: max(0px, calc(50% - 640px));   /* 1920 에서 피그마 x=320 부터 시작 */
+    will-change: transform;
+}
+.sp-idea__pf-track.is-animated { animation: sp-pf-loop var(--sp-pf-duration, 40s) linear infinite; }
+.sp-idea__pf-viewport:hover .sp-idea__pf-track { animation-play-state: paused; }
+@keyframes sp-pf-loop {
+    from { transform: translateX(0); }
+    to   { transform: translateX(var(--sp-pf-shift, -50%)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .sp-idea__pf-track.is-animated { animation: none; }
+}
+
+.sp-idea__pf-fade {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 2;
+    width: calc(var(--fade-solid) + var(--fade-ramp));
+    background: linear-gradient(180deg, #f8f9fa 0%, #f4f6f7 100%);
+    pointer-events: none;
+}
+.sp-idea__pf-fade--l {
+    left: 0;
+    -webkit-mask-image: linear-gradient(to right, #000 var(--fade-solid), transparent 100%);
+            mask-image: linear-gradient(to right, #000 var(--fade-solid), transparent 100%);
+}
+.sp-idea__pf-fade--r {
+    right: 0;
+    -webkit-mask-image: linear-gradient(to left, #000 var(--fade-solid), transparent 100%);
+            mask-image: linear-gradient(to left, #000 var(--fade-solid), transparent 100%);
+}
+
+/* 카드 329×496 — 흰 배경·#e3e3e3 테두리(바깥 링)·radius 20·그림자 0 5 20 */
+.sp-idea__card {
+    position: relative;
+    flex: 0 0 329px;
+    width: 329px;
+    height: 496px;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 0 0 1px #e3e3e3, 0 5px 20px rgba(0, 0, 0, .1);
+    overflow: hidden;
+    text-align: left;
+}
+.sp-idea__card-media { position: absolute; left: 0; top: 0; width: 329px; height: 320px; display: block; }
+.sp-idea__card-media img { display: block; width: 329px; height: 320px; object-fit: cover; }
+.sp-idea__card-media::after {            /* 5·6번 카드의 회색 덮개(rgba(164,164,164,.2/.3)) */
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: #a4a4a4;
+    opacity: var(--tint, 0);
+    pointer-events: none;
+}
+.sp-idea__tag {
+    position: absolute;
+    left: 21px;
+    top: 345px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border: 1px solid currentColor;
+    border-radius: 46px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+.sp-idea__tag i { display: block; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.sp-idea__tag--ble { color: #0055ff; }
+.sp-idea__tag--lte { color: #0090ff; }
+.sp-idea__card-body { position: absolute; left: 21px; top: 400px; width: 287px; }
+.sp-idea__card-code { margin: 0; font-size: 16px; font-weight: 400; line-height: 22px; color: #181818; }
+.sp-idea__card-title { margin: 13px 0 0; font-size: 20px; font-weight: 600; line-height: 1.3; color: #1b2b39; }
+.sp-idea__card--partner .sp-idea__card-body { top: 342px; }
+.sp-idea__card-partner { display: block; margin-top: 20px; font-size: 16px; font-weight: 500; line-height: 22px; color: #999; white-space: nowrap; }
+
+/* 좁은 데스크톱(1024~1279): 카드 288·간격 48, 화살표 40 으로 축소, 페이드는 짧게 */
+@media (max-width: 1279.98px) {
+    .sp-idea__steps { width: 960px; gap: 60px 48px; }
+    .sp-idea__step { width: 288px; }
+    .sp-idea__arrow { right: -45px; width: 40px; height: 8.5px; }
+    .sp-idea__pf-viewport { --fade-solid: 40px; }
+}
+@media (max-width: 1599.98px) and (min-width: 1280px) {
+    .sp-idea__pf-viewport { --fade-solid: 120px; }
+}
+
+/* 1023 이하 — 피그마에 없어 우리 정의: 세로 흐름, 화살표는 카드 아래로 */
 @media (max-width: 1023.98px) {
-    .sp-hero { height: auto; background-size: 100% 100%; background-position: 0 0; }
-    .sp-hero__frame { display: none; }
-    .sp-hero__slides { position: relative; }
-    .sp-hero__slide { position: relative; inset: auto; display: none; }
-    .sp-hero__slide.is-active { display: block; }
-    .sp-slide__frame { position: relative; left: 0; margin: 0; width: auto; height: auto; padding: 40px 20px 64px; overflow: hidden; }
-    .sp-slide__frame > * { position: static; }
-    .sp-slide__pattern { display: none; }
-    .sp-tags { flex-wrap: wrap; gap: 8px 12px; font-size: 14px; }
-    .sp-hero__desc { font-size: 16px; line-height: 1.6; }
-    .sp-hero__desc br { display: none; }
-    .sp-hero__btns { flex-wrap: wrap; gap: 12px; }
-    .sp-btn { width: calc(50% - 6px); min-width: 140px; height: 52px; font-size: 17px; }
-    .sp-s1__title { font-size: 36px; line-height: 1.2; gap: 10px; }
-    .sp-s1__title img { width: 56px; height: 28px; }
-    .sp-s1__sub { font-size: 22px; line-height: 1.3; }
-    .sp-s1__monitor { display: block; width: 100%; max-width: 480px; height: auto; margin: 32px auto 0; }
-    .sp-s1__screen { display: none; }
-    .sp-s2__title, .sp-s3__title, .sp-s4__title { font-size: 30px; line-height: 1.3; letter-spacing: -.6px; }
-    .sp-s2__sub { font-size: 16px; line-height: 1.5; }
-    .sp-s2__cards { flex-direction: column; align-items: center; gap: 16px; margin-top: 28px; }
-    .sp-pcard { width: 100%; max-width: 360px; }
-    .sp-pcard__media { width: 100%; }
-    .sp-s3__brand { font-size: 30px; line-height: 1.2; margin-top: 20px; }
-    .sp-s3__photo { display: block; width: 100%; max-width: 560px; height: auto; margin: 28px auto 0; }
-    .sp-s4__cards { grid-template-columns: 1fr; justify-items: center; gap: 16px; margin-top: 28px; }
-    .sp-ocard { width: 100%; max-width: 376px; }
-    .sp-ocard__media { width: 100%; }
-    .sp-s4__circle { position: relative; width: 200px; height: 200px; margin: 20px auto 0; }
-    .sp-s4__circle::before { left: 20px; top: 20px; width: 160px; height: 160px; }
-    .sp-hero__slide--image .sp-slide__frame { padding: 0; }
-    .sp-hero__slide--image a, .sp-hero__slide--image span { position: relative; }
-    .sp-hero__slide--image img { height: auto; aspect-ratio: 1920 / 988; }
-    .sp-hero__dots { bottom: 24px; }
+    .sp-idea { padding: 200px 0 80px; }
+    .sp-idea__title { font-size: 32px; }
+    .sp-idea__sub { margin-top: 20px; font-size: 20px; }
+    .sp-idea__steps { flex-direction: column; align-items: center; width: auto; gap: 56px; margin-top: 80px; }
+    .sp-idea__arrow,
+    .sp-idea__step--row2 .sp-idea__arrow {
+        right: auto;
+        left: 50%;
+        top: auto;
+        bottom: -36px;
+        width: 71px;
+        height: 15px;
+        transform: translateX(-50%) rotate(90deg);
+    }
+    .sp-idea__pf { margin-top: 100px; }
+    .sp-idea__pf-title { font-size: 26px; }
+    .sp-idea__pf-desc { margin: 14px 20px 0; font-size: 18px; }
+    .sp-idea__pf-viewport { --fade-solid: 0px; --fade-ramp: 60px; margin-top: 30px; }
+}
+@media (max-width: 767.98px) {
+    .sp-idea { padding-top: 160px; }
+    .sp-idea__title { font-size: 26px; }
+    .sp-idea__sub { font-size: 17px; }
+    .sp-idea__pf-title { font-size: 24px; }
+}
 
-    .sp-home-tabs { padding-top: 48px; }
-    .sp-home-tabs__row { flex-wrap: wrap; gap: 8px; }
-    .sp-home-tab { height: 38px; padding: 4px 14px; font-size: 15px; line-height: 30px; }
-    .sp-why { margin-top: 40px; }
-    .sp-why__title { font-size: 32px; letter-spacing: -.64px; }
-    .sp-why__desc { margin-top: 20px; font-size: 16px; }
-    .sp-feats { margin-top: 48px; gap: 16px; }
-    .sp-feat { width: 100%; max-width: 406px; }
-    .sp-feat--1 .sp-feat__icon { left: auto; right: 33px; }   /* 카드가 좁아져도 아이콘은 오른쪽 여백 기준 */
-    .sp-feat--2 .sp-feat__icon { left: auto; right: 25px; }
-    .sp-feat--3 .sp-feat__icon { left: auto; right: 33px; }
-    .sp-feat__title { right: 135px; font-size: 22px; line-height: 30px; }        /* 아이콘 영역(오른쪽 135px) 안 침범 */
-    .sp-feat__desc { top: 100px; right: 135px; width: auto; font-size: 14px; } /* 제목이 두 줄로 접혀도 안 겹치게 */
-    .sp-ways { margin-top: 64px; padding: 64px 0; }
-    .sp-ways__title { font-size: 26px; letter-spacing: -.52px; }
-    .sp-ways__hl { display: none; }
-    .sp-ways__desc { font-size: 16px; }
-    .sp-ways__desc br { display: none; }
-    .sp-ways__grid { gap: 20px; margin-top: 36px; }
-    .sp-way { width: 100%; max-width: 404px; }
-    .sp-way { height: auto; padding-bottom: 24px; }              /* 절대 배치 → 흐름 배치(폭에 따라 줄바꿈) */
-    .sp-way__body, .sp-way__list, .sp-way__btn { position: static; width: auto; margin: 16px 20px 0; }
-    .sp-way__body { margin-top: 20px; }
-    .sp-way__list li { white-space: normal; }
-    .sp-faq__head { height: auto; min-height: 40px; }
-    .sp-faq__q { white-space: normal; }
-    .sp-boards { min-height: 0; padding: 64px 0; }
-    .sp-boards__h { font-size: 28px; }
-    .sp-card { padding: 20px 18px; }
-    .sp-faq__q, .sp-bl__subj, .sp-bl__date { font-size: 16px; }
-    .sp-faq__badge { font-size: 14px; }
-    .sp-bl__date { font-size: 14px; }
-    .sp-bl__q { flex-basis: 24px; font-size: 22px; }
+
+/* ────────────────────────────── 40-stats ────────────────────────────── */
+/* ==========================================================================
+   5. 숫자로 보는 SamplePCB (2286:2319: y 7095~7606, 511px, 흰 배경)
+   제목 y+146 · 수치 y+284(64px) · 라벨 y+379(28px) — 라벨 왼쪽 x 370·845·1267(= 컨테이너 +50·+525·+947), 수치는 라벨 위 가운데
+   ========================================================================== */
+.sp-stats { height: 511px; background: #fff; }
+.sp-stats .sp-inner { height: 100%; }
+.sp-stats__body { position: relative; height: 100%; }   /* .sp-inner 패딩(20) 안쪽 = 피그마 x 320 기준 */
+
+.sp-stats__title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 146px;
+    margin: 0;
+    font-size: 40px;
+    font-weight: 400;
+    line-height: 1.2;
+    color: #000;
+    text-align: center;
+    white-space: nowrap;
+}
+.sp-stats__title b { font-weight: 700; }
+
+.sp-stats__list {
+    position: absolute;
+    left: 0;
+    top: 284px;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.sp-stats__item {
+    position: absolute;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;                  /* 수치 박스(83) 끝 → 라벨 시작(95) */
+    text-align: center;
+    white-space: nowrap;
+}
+.sp-stats__item:nth-child(1) { left: 50px; }
+.sp-stats__item:nth-child(2) { left: 525px; }
+.sp-stats__item:nth-child(3) { left: 947px; }
+.sp-stats__num   { display: block; font-size: 64px; font-weight: 500; line-height: 1.3; color: #000; }
+.sp-stats__label { display: block; font-size: 28px; font-weight: 400; line-height: 1.3; color: #2e2e2e; }
+
+/* 좁은 데스크톱(1024~1279): 절대 좌표 대신 3칸 균등 */
+@media (max-width: 1279.98px) {
+    .sp-stats { height: auto; padding: 110px 0 100px; }
+    .sp-stats__body { height: auto; }
+    .sp-stats__title { position: static; }
+    .sp-stats__list { position: static; display: flex; justify-content: space-around; margin-top: 56px; }
+    .sp-stats__item { position: static; }
+    .sp-stats__num { font-size: 56px; }
+    .sp-stats__label { font-size: 24px; }
+}
+
+/* 피그마 밖(1023px 이하): 축소, 좁으면 세로 */
+@media (max-width: 1023.98px) {
+    .sp-stats { padding: 72px 0 64px; }
+    .sp-stats__title { font-size: 30px; white-space: normal; }
+    .sp-stats__list { flex-wrap: wrap; gap: 32px 24px; margin-top: 36px; }
+    .sp-stats__item { flex: 1 1 160px; gap: 6px; }
+    .sp-stats__num { font-size: 40px; }
+    .sp-stats__label { font-size: 17px; white-space: normal; }
+}
+
+
+/* ────────────────────────────── 41-network ────────────────────────────── */
+/* ==========================================================================
+   6. Our Network (2286:2046: y 7606~8326, 720px, 배경 #f6f7f8)
+   제목 y+140(54px) · 부제 y+217(36px) · 위줄 y+382(높이 92, gap 100) · 아랫줄 y+534(높이 46, gap 80)
+   피그마는 화면보다 넓은 두 줄이 양끝에서 잘린 스냅샷 → 무한 마퀴(위 ←, 아래 →), 호버 정지
+   ========================================================================== */
+.sp-network {
+    position: relative;
+    height: 720px;
+    background: #f6f7f8;
+    overflow: hidden;
+}
+.sp-network__title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 140px;
+    margin: 0;
+    font-size: 54px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #1b2b39;
+    text-align: center;
+    white-space: nowrap;
+}
+.sp-network__sub {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 217px;
+    margin: 0;
+    padding: 0 20px;
+    font-size: 36px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: #181818;
+    text-align: center;
+}
+
+/* 마퀴 줄 — 트랙 = 같은 목록 2벌, 목록마다 오른쪽 패딩 = gap 이라 -50% 이동이 이음새 없이 맞물린다 */
+.sp-network__row { position: absolute; left: 0; width: 100%; overflow: hidden; }
+.sp-network__row--top    { --gap: 100px; --dur: 70s; top: 382px; height: 92px; }
+.sp-network__row--bottom { --gap: 80px;  --dur: 50s; top: 534px; height: 46px; }
+.sp-network__track {
+    display: flex;
+    width: max-content;
+    height: 100%;
+    animation: sp-net-marquee var(--dur) linear infinite;
+    will-change: transform;
+}
+.sp-network__row--bottom .sp-network__track { animation-direction: reverse; }
+.sp-network__row:hover .sp-network__track { animation-play-state: paused; }
+.sp-network__list {
+    display: flex;
+    align-items: center;
+    gap: var(--gap);
+    height: 100%;
+    margin: 0;
+    padding: 0 var(--gap) 0 0;
+    list-style: none;
+}
+.sp-network__list li { flex: 0 0 auto; display: flex; }
+.sp-network__list img { display: block; object-fit: cover; }   /* 피그마 박스 크기(width/height 속성) 에 cover */
+@keyframes sp-net-marquee {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .sp-network__track { animation: none; }
+}
+
+/* 좁은 데스크톱(1024~1279) */
+@media (max-width: 1279.98px) {
+    .sp-network__title { font-size: 46px; }
+    .sp-network__sub { font-size: 30px; }
+}
+
+/* 피그마 밖(1023px 이하): 흐름 배치, 글자 축소 — 로고는 원 크기 그대로 흐른다 */
+@media (max-width: 1023.98px) {
+    .sp-network { height: auto; padding: 72px 0 64px; }
+    .sp-network__title { position: static; font-size: 32px; }
+    .sp-network__sub { position: static; margin-top: 12px; font-size: 20px; line-height: 1.5; }
+    .sp-network__row { position: static; }
+    .sp-network__row--top { margin-top: 48px; }
+    .sp-network__row--bottom { margin-top: 40px; }
+}
+
+
+/* ────────────────────────────── 42-help ────────────────────────────── */
+/* ==========================================================================
+   7. 도움이 필요하신가요? (2286:2134: y 8326~9049, 723px, 흰 배경)
+   내용 y+120 · 제목 42px → 24 → [FAQ 카드 332 | Q&A 카드] → 24 → 공지 한 줄. 카드 = 테두리 #d9d9d9·radius 12·안쪽 28/30
+   ========================================================================== */
+.sp-help { height: 723px; padding-top: 120px; background: #fff; box-sizing: border-box; }
+.sp-help__title {
+    margin: 0 0 24px;
+    font-size: 42px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: #000;
+}
+.sp-help__row { display: flex; align-items: stretch; gap: 24px; }
+.sp-help__card {
+    box-sizing: border-box;
+    padding: 28px 30px;
+    border: 1px solid #d9d9d9;
+    border-radius: 12px;
+    background: #fff;
+}
+.sp-help__faq {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 332px;
+    width: 332px;
+}
+.sp-help__qa { flex: 1 1 auto; min-width: 0; }
+.sp-help__notice { margin-top: 24px; }
+
+/* 카드 머리: 아이콘 + 제목(32px Bold) */
+.sp-help__head { display: flex; align-items: center; gap: 12px; }
+.sp-help__head--between { justify-content: space-between; }
+.sp-help__head-l { display: flex; align-items: center; gap: 12px; }
+.sp-help__head img { display: block; flex: 0 0 auto; }
+.sp-help__h { margin: 0; font-size: 32px; font-weight: 700; line-height: 1.4; color: #1b2b39; white-space: nowrap; }
+.sp-help__desc { margin: 14px 0 0; font-size: 18px; font-weight: 400; line-height: 1.4; color: #1b2b39; }
+.sp-help__more {
+    display: inline-block;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: #1b2b39;
+    white-space: nowrap;
+}
+a.sp-help__more:hover { color: #1b2b39; text-decoration: underline; }
+.sp-help__faq .sp-help__more { margin-top: auto; padding-top: 20px; align-self: flex-start; }
+
+/* Q&A 목록 — 행 30 · 아래 16 + 구분선 + 위 14 */
+.sp-help__list { margin: 20px 0 0; padding: 0; list-style: none; }
+.sp-help__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    box-sizing: content-box;    /* 전역 border-box 무시 — 행 30 + 아래 16 + 선 1 + 위 14 = 피그마 61 간격 */
+    height: 30px;               /* 피그마 행 30 고정("Q." 33.6 은 가운데 맞춰 넘침) */
+    padding-bottom: 16px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #d9d9d9;
+}
+.sp-help__item:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
+.sp-help__item--empty { height: auto; }
+.sp-help__link { display: flex; align-items: center; gap: 10px; height: 30px; min-width: 0; color: #1b2b39; }
+.sp-help__link:hover { color: #1b2b39; }
+.sp-help__link:hover .sp-help__subj { text-decoration: underline; }
+.sp-help__q { display: flex; align-items: center; flex: 0 0 28px; height: 30px; font-size: 28px; font-weight: 600; line-height: 1.2; }
+.sp-help__subj { font-size: 18px; font-weight: 400; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-help__date { flex: 0 0 auto; font-size: 18px; font-weight: 400; line-height: 1.4; color: #626363; white-space: nowrap; }
+.sp-help__empty { font-size: 18px; line-height: 1.4; color: #626363; }
+
+/* 공지 한 줄: "공지"(24px Bold) 30 제목… 30 날짜 30 더보기 */
+.sp-help__nt { display: flex; align-items: center; gap: 30px; min-height: 34px; }
+.sp-help__nt-label { flex: 0 0 auto; font-size: 24px; font-weight: 700; line-height: 1.4; color: #1b2b39; }
+.sp-help__nt-body { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+.sp-help__nt-link { display: block; min-width: 0; color: #1b2b39; }
+.sp-help__nt-link:hover { color: #1b2b39; }
+.sp-help__nt-link:hover .sp-help__subj { text-decoration: underline; }
+.sp-help__nt-link .sp-help__subj { display: block; }
+
+/* 좁은 데스크톱(1024~1279) */
+@media (max-width: 1279.98px) {
+    .sp-help { height: auto; padding: 100px 0 96px; }
+    .sp-help__faq { flex-basis: 300px; width: 300px; }
+}
+
+/* 피그마 밖(1023px 이하): 세로 흐름 */
+@media (max-width: 1023.98px) {
+    .sp-help { padding: 64px 0 56px; }
+    .sp-help__title { font-size: 30px; margin-bottom: 20px; }
+    .sp-help__row { flex-direction: column; gap: 16px; }
+    .sp-help__faq { flex-basis: auto; width: auto; }
+    .sp-help__card { padding: 22px 20px; }
+    .sp-help__h { font-size: 24px; }
+    .sp-help__head img { width: 44px; height: 44px; }
+    .sp-help__desc, .sp-help__more, .sp-help__subj, .sp-help__date, .sp-help__empty { font-size: 16px; }
+    .sp-help__q { flex-basis: 24px; font-size: 22px; }
+    .sp-help__notice { margin-top: 16px; }
+    .sp-help__nt { flex-wrap: wrap; gap: 8px 16px; }
+    .sp-help__nt-label { font-size: 20px; }
+    .sp-help__nt-body { flex-basis: 100%; order: 1; }   /* 좁으면 제목이 다음 줄 전체 폭 */
+    .sp-help__nt-label { order: 0; }
+    .sp-help__nt .sp-help__date { order: 0; margin-left: auto; }
+    .sp-help__nt .sp-help__more { order: 0; }
 }
