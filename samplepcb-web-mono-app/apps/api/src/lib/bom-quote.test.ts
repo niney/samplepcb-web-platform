@@ -36,6 +36,7 @@ import {
   resolveBomQuoteItemImageUrl,
   resolveQuoteIdentityPreview,
   resolvePartDataStatus,
+  resolvePartSearchCatalogItems,
   rfqRequestsQuoteItem,
   rfqUsesDynamicFullScope,
   selectEngineMatch,
@@ -1823,6 +1824,63 @@ describe('BOM 엔진 후보 결정 투영', () => {
       }],
     });
     expect(result).toMatchObject({ apiCalls: 1, cacheHits: 2, warnings: ['cached-result'] });
+  });
+
+  it('검색어와 다른 공급사 후보를 원래 검색어 재조회 없이 실제 카탈로그 ID에 연결한다', async () => {
+    const found = candidate('unverified', 'BLM15KD300SN1D', 'unikeyic', 1, 50, {
+      manufacturer: 'Murata Manufacturing',
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      identityKey: 'ik1:search-candidate',
+      technicalEvidenceKey: 'ek1:search-candidate',
+      selectionMode: 'review',
+      eligibility: 'blocked',
+    });
+    const result = projectEnginePartSearchResult({
+      procurement_decision_contract_status: 'current',
+      search: {
+        components: [{
+          component_id: 'single-search',
+          status: 'unverified',
+          candidates: [found],
+          procurement_decision: componentProcurementDecision('automatic_recommended', 'ok2:missing', 1),
+          search_trace: {
+            version: 'supplier-search-trace-v1',
+            primary_query: 'BLM15KD300SN1G',
+            fallback_used: false,
+            attempts: [{
+              sequence: 1, stage: 'primary', supplier: 'mouser', strategy: 'keyword',
+              query: 'BLM15KD300SN1G', source: 'live_api', outcome: 'error',
+              result_count: 0, api_calls: 1, http_attempt_count: 1, elapsed_ms: 10,
+            }],
+          },
+        }],
+      },
+    }, 1);
+    if (result === null) throw new Error('expected projected supplier result');
+    const lookup = vi.spyOn(prisma.spPart, 'findMany').mockResolvedValue([
+      { id: 70790n, mpnNorm: 'BLM15KD300SN1D', manufacturerNorm: 'murata' },
+    ] as never);
+    try {
+      const items = await resolvePartSearchCatalogItems(result);
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ id: '70790', mpn: 'BLM15KD300SN1D', searchMatch: 'review' });
+      expect(items[0]?.offerOptions).toEqual(result.items[0]?.offerOptions);
+      expect(lookup).toHaveBeenCalledWith({
+        where: { OR: [{ mpnNorm: 'BLM15KD300SN1D', manufacturerNorm: 'murata' }] },
+        select: { id: true, mpnNorm: true, manufacturerNorm: true },
+      });
+      expect(result.incompleteSuppliers).toEqual(['mouser']);
+      lookup.mockResolvedValue([]);
+      await expect(resolvePartSearchCatalogItems(result)).rejects.toThrow('missing from catalog');
+      // 구매 조건이 없는 후보는 저장되지 않더라도 열람 결과에서 없애지 않는다.
+      const first = result.items[0];
+      if (first === undefined) throw new Error('expected candidate');
+      first.offerOptions = [];
+      expect(await resolvePartSearchCatalogItems(result)).toEqual(result.items);
+    } finally {
+      lookup.mockRestore();
+    }
   });
 
   it('제조사 카탈로그 정확 후보는 가격·재고 없이 부품과 partId만 선정한다', async () => {

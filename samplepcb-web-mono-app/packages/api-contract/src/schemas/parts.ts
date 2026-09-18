@@ -162,6 +162,8 @@ export type BomPartSearchQueryType = z.infer<typeof BomPartSearchQuery>;
 export const BomPartHit = PartHit.extend({
   /** catalog=DB/ES 즉시 결과, supplier=현재 공급사 검색 결과. */
   source: z.enum(['catalog', 'supplier']),
+  /** 현재 검색어와의 관계. 공급사 엔진 판정을 그대로 표시하며 카탈로그 단독 조회에는 없다. */
+  searchMatch: z.enum(['exact', 'variant', 'spec-compatible', 'review']).optional(),
   /** 공급사 즉시 결과는 DB 상세 저장을 기다리지 않고 구매 조건을 함께 제공한다. */
   inlineOffers: z.array(PartOfferView).nullable(),
   /** 공급사별 가격·재고 행. 제조사 카탈로그 문의 견적 채널은 applied=null이다. */
@@ -192,7 +194,7 @@ export type BomPartSearchResponseType = z.infer<typeof BomPartSearchResponse>;
 export const BomPartSearchSupplementBody = z.object({
   q: z.string().trim().min(1).max(200),
   needed: z.number().int().min(1).max(1_000_000).default(1),
-  /** 부품 변경 화면은 partId가 필요하므로 카탈로그 반영까지 기다린다. */
+  /** 단일 검색·부품 변경은 반영 완료를 기다린 뒤 실제 partId에 연결한 후보를 받는다. */
   waitForCatalog: z.boolean().default(false),
 });
 export type BomPartSearchSupplementBodyType = z.infer<typeof BomPartSearchSupplementBody>;
@@ -207,6 +209,8 @@ export const BomPartSearchSupplementResponse = z.object({
       apiCalls: z.number().int().min(0),
       cacheHits: z.number().int().min(0),
       warnings: z.array(z.string()),
+      /** 오류·한도·오래된 캐시 등으로 일부 조회를 완료하지 못한 공급사. */
+      incompleteSuppliers: z.array(z.string()).optional(),
     }),
     catalog: z.object({
       status: z.enum(['queued', 'completed']),

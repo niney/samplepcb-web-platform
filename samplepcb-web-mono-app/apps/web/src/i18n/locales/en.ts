@@ -1,6 +1,21 @@
 import { develop } from './develop-en';
 // 준비용 스텁(도입 예정). ko 와 동일 shape 유지. 실번역은 추후.
 export const en = {
+  bomPartSearch: {
+    checking: 'Checking parts and purchase options with suppliers.',
+    completed: 'Search complete · {count} parts',
+    failed: 'Search could not be completed.',
+    incompleteSuppliers: 'Some checks for {suppliers} could not be completed. Available results are shown. Please search again.',
+    catalogFallback: 'Supplier checks failed. Showing saved catalog results. Please search again above.',
+    supplierFallback: 'Catalog search could not be completed. Showing confirmed supplier results.',
+    noOffers: 'Candidates requiring purchase option confirmation',
+    match: {
+      exact: 'Exact MPN',
+      variant: 'Different MPN · variant candidate',
+      'spec-compatible': 'Specification-compatible candidate',
+      review: 'Match requires review',
+    },
+  },
   bomQuantity: {
     allMissing: 'No BOM quantities are available.',
     someMissing: 'Confirm quantities for {count} parts.',

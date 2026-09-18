@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type {
   BomPartHitType,
   BomPartOfferOptionType,
@@ -121,6 +122,13 @@ function toOfferInput(offer: BomPartOfferOptionType): BomOfferInput {
 function pickFor(row: SearchOfferRow): OfferPick | null {
   if (row.offer.offerKind === 'manufacturer_catalog') return null;
   return applyQtyToOffer(toOfferInput(row.offer), requiredQuantityFor(row), props.usdKrwRate);
+}
+
+const { t } = useI18n();
+const unpricedParts = computed(() => props.items.filter((part) => part.offerOptions.length === 0 && !part.hasPartnerStock));
+
+function matchLabel(part: BomPartHitType): string {
+  return part.searchMatch === undefined ? '' : t(`bomPartSearch.match.${part.searchMatch}`);
 }
 
 function canSelect(row: SearchOfferRow): boolean {
@@ -296,6 +304,13 @@ function partnerActionLabel(part: BomPartHitType): string {
 
 <template>
   <div class="space-y-[12px] pb-8 font-noto">
+    <section v-if="unpricedParts.length > 0" class="rounded-[10px] border border-line-search-strong bg-search-row p-[14px]">
+      <h3 class="text-[13px] font-medium text-ink-neutral">{{ t('bomPartSearch.noOffers') }}</h3>
+      <div v-for="part in unpricedParts" :key="part.id" class="mt-3 text-[12px] text-ink-subtle">
+        <strong class="text-ink-strong">{{ part.mpn }}</strong> · {{ part.manufacturerName }}
+        <p v-if="matchLabel(part) !== ''" class="text-state-review">{{ matchLabel(part) }}</p>
+      </div>
+    </section>
     <section class="overflow-hidden rounded-[10px] border border-line-search-strong bg-search-row">
       <div class="flex h-[40px] items-center border-b border-line-search-strong bg-search-section px-[14px]">
         <h3 class="text-[13px] font-medium leading-[16px] text-ink-neutral">
@@ -346,6 +361,7 @@ function partnerActionLabel(part: BomPartHitType): string {
                   <PartImage :src="row.part.imageUrl" class="size-[64px] shrink-0 rounded-[8px] bg-surface-neutral" />
                   <div class="min-w-0">
                     <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="row.part.mpn">{{ row.part.mpn }}</p>
+                    <p v-if="matchLabel(row.part) !== ''" class="mt-1 text-[10px] font-medium" :class="row.part.searchMatch === 'exact' ? 'text-state-matched' : 'text-state-review'">{{ matchLabel(row.part) }}</p>
                     <p class="truncate text-[12px] font-normal leading-[16px] text-ink-subtle" :title="row.part.manufacturerName">{{ row.part.manufacturerName }}</p>
                   </div>
                 </div>

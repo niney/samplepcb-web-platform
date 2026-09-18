@@ -2344,6 +2344,9 @@ export interface ProjectEnginePartSearchResult {
   apiCalls: number;
   cacheHits: number;
   warnings: string[];
+  incompleteSuppliers: string[];
+  /** 표시용 제조사 대체 문구를 정체성 키로 사용하지 않도록 원본에서 보존한다. */
+  catalogIdentities: (NormalizedStoredCandidateIdentity & { candidateKey: string })[];
 }
 
 /**
@@ -2368,6 +2371,8 @@ export function projectEnginePartSearchResult(
       apiCalls: parsed.data.search.api_calls,
       cacheHits: parsed.data.search.cache_hits,
       warnings: [],
+      incompleteSuppliers: [],
+      catalogIdentities: [],
     };
   }
   if (component.procurement_decision === null || component.procurement_decision === undefined) return null;
@@ -2455,6 +2460,7 @@ export function projectEnginePartSearchResult(
       partnerStock: null,
       score: snapshot.specificationConfidence,
       source: 'supplier' as const,
+      searchMatch: snapshot.selectionMode,
       inlineOffers,
       offerOptions,
       applied: partAppliedOffer(pick),
@@ -2467,7 +2473,46 @@ export function projectEnginePartSearchResult(
     apiCalls: parsed.data.search.api_calls,
     cacheHits: parsed.data.search.cache_hits,
     warnings: component.warnings,
+    incompleteSuppliers: uniqueStrings(
+      (parseEngineSearchTrace(component.search_trace).trace?.attempts ?? [])
+        .filter((attempt) => attempt.outcome === 'error'
+          || attempt.outcome === 'budget_exhausted'
+          || attempt.outcome === 'skipped'
+          || attempt.source === 'stale_cache')
+        .map((attempt) => attempt.supplier),
+    ),
+    catalogIdentities: visibleGroups.map(({ snapshot }) => ({
+      candidateKey: snapshot.candidateKey,
+      mpnNorm: normalizeMpn(snapshot.mpn),
+      manufacturerNorm: resolveManufacturer(snapshot.manufacturerName).norm,
+    })),
   };
+}
+
+/** 인제스트 완료 후 후보 자체의 정체성으로 연결한다. 원래 검색어로 재검색하면 다른 품번 후보가 사라진다. */
+export async function resolvePartSearchCatalogItems(
+  result: ProjectEnginePartSearchResult,
+): Promise<BomPartHitType[]> {
+  if (result.items.length === 0) return [];
+  const parts = await prisma.spPart.findMany({
+    where: { OR: result.catalogIdentities.map(({ mpnNorm, manufacturerNorm }) => ({ mpnNorm, manufacturerNorm })) },
+    select: { id: true, mpnNorm: true, manufacturerNorm: true },
+  });
+  const partsByIdentity = new Map(parts.map((part) => [
+    `${part.mpnNorm}\u0000${part.manufacturerNorm}`, String(part.id),
+  ]));
+  const identities = new Map(result.catalogIdentities.map((identity) => [identity.candidateKey, identity]));
+  return result.items.map((item) => {
+    const identity = identities.get(item.id);
+    const partId = identity === undefined ? undefined
+      : partsByIdentity.get(`${identity.mpnNorm}\u0000${identity.manufacturerNorm}`);
+    // 구매 조건 없는 후보는 카탈로그에 저장되지 않아도 열람할 수 있다. 담기 동작은 없다.
+    if (partId === undefined) {
+      if (item.offerOptions.length === 0) return item;
+      throw new Error(`supplier search candidate is missing from catalog: ${item.mpn}`);
+    }
+    return { ...item, id: partId };
+  });
 }
 
 function publicRequirementFieldName(field: string): string {

@@ -1,6 +1,21 @@
 import { develop } from './develop-ko';
 // 실서비스 기준 로케일. 다른 로케일(en 등)은 이 shape 를 따른다.
 export const ko = {
+  bomPartSearch: {
+    checking: '공급사에서 부품과 구매 조건을 확인하고 있습니다.',
+    completed: '조회 완료 · {count}개 부품',
+    failed: '검색을 완료하지 못했습니다.',
+    incompleteSuppliers: '{suppliers}의 일부 조회를 완료하지 못했습니다. 확인된 결과를 표시합니다. 다시 검색해 주세요.',
+    catalogFallback: '공급사 확인에 실패하여 저장된 카탈로그 결과를 표시합니다. 상단에서 다시 검색해 주세요.',
+    supplierFallback: '카탈로그 검색을 완료하지 못해 공급사에서 확인된 결과를 표시합니다.',
+    noOffers: '구매 조건 확인이 필요한 후보',
+    match: {
+      exact: '품번 일치',
+      variant: '다른 품번 · 변형 후보',
+      'spec-compatible': '규격 호환 후보',
+      review: '일치 여부 확인 필요',
+    },
+  },
   bomQuantity: {
     allMissing: 'BOM에 수량 정보가 없습니다.',
     someMissing: '{count}개 부품의 수량을 확인해 주세요.',

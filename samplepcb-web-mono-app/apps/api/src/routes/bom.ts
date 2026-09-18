@@ -16,6 +16,7 @@ import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPo
 import {
   partAppliedOffer,
   projectEnginePartSearchResult,
+  resolvePartSearchCatalogItems,
   refreshQuotesForJob,
   toOfferInputs,
 } from '../lib/bom-quote';
@@ -285,8 +286,8 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
     };
   });
 
-  // 공급사 캐시/API 검색 결과를 즉시 반환한다. 단일 검색은 DB/ES 반영을 백그라운드로
-  // 넘기고, partId가 필요한 부품 변경 화면만 waitForCatalog=true로 완료까지 기다린다.
+  // 단일 검색·부품 변경은 waitForCatalog=true로 공급사 조회와 DB/ES 반영을 기다린다.
+  // 완료 응답의 후보는 실제 partId로 연결해 원래 검색어에 안 걸리는 후보도 유지한다.
   fastify.post(
     '/bom/parts-search/supplement',
     {
@@ -347,16 +348,18 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
       if (request.body.waitForCatalog) {
         try {
           const stats = await ingestSupplierSearchResult(body);
+          const items = await resolvePartSearchCatalogItems(projected);
           return {
             result: true as const,
             data: {
-              items: projected.items,
-              total: projected.total,
+              items,
+              total: items.length,
               pricingContext,
               engine: {
                 apiCalls: projected.apiCalls,
                 cacheHits: projected.cacheHits,
                 warnings: projected.warnings,
+                incompleteSuppliers: projected.incompleteSuppliers,
               },
               catalog: { status: 'completed' as const, stats },
             },
@@ -379,6 +382,7 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
             apiCalls: projected.apiCalls,
             cacheHits: projected.cacheHits,
             warnings: projected.warnings,
+            incompleteSuppliers: projected.incompleteSuppliers,
           },
           catalog: { status: 'queued' as const, stats: null },
         },

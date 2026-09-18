@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { BomPartSearchSupplementResponseType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import { useBomPartsSupplement } from '../../bom/useBom';
@@ -13,12 +14,15 @@ const props = withDefaults(defineProps<{
   waitForCatalog?: boolean;
   compact?: boolean;
   disabled?: boolean;
+  /** 단일 검색 작업공간은 최종 목록과 같은 개수를 표시한다. */
+  resultCount?: number | null;
 }>(), {
   needed: 1,
   auto: false,
   waitForCatalog: false,
   compact: false,
   disabled: false,
+  resultCount: null,
 });
 
 const emit = defineEmits<{
@@ -28,6 +32,7 @@ const emit = defineEmits<{
 }>();
 
 const supplement = useBomPartsSupplement();
+const { t } = useI18n();
 const lastAutoKey = ref<string | null>(null);
 const canSupplement = computed(() => props.query.trim() !== '');
 const errorMessage = computed(() => {
@@ -84,7 +89,7 @@ function requestSupplement(automatic = false): void {
       공급사 검색 중…
     </span>
     <span v-else-if="supplement.isError.value" class="max-w-[300px] truncate text-state-danger" :title="errorMessage">{{ errorMessage }}</span>
-    <span v-else-if="supplement.isSuccess.value" class="whitespace-nowrap text-ink-subtle">공급사 후보 {{ supplement.data.value?.data.total ?? 0 }}개 확인</span>
+    <span v-else-if="supplement.isSuccess.value" class="whitespace-nowrap text-ink-subtle">{{ resultCount === null ? `공급사 후보 ${supplement.data.value?.data.total ?? 0}개 확인` : t('bomPartSearch.completed', { count: resultCount }) }}</span>
     <button
       v-if="canSupplement && (!auto || supplement.isSuccess.value || supplement.isError.value)"
       type="button"
