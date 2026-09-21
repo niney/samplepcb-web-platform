@@ -1,241 +1,125 @@
-/* ==========================================================================
-   회사 연혁(/history) — Figma 「GNB > 회사 연혁」(2122:6658) 2026-09-06
-   ---------------------------------------------------------------------------
-   · 데스크톱 1920 기준. 컨테이너 1280. 좌표는 피그마 x−320, y−94(헤더).
-   · 배너·브레드크럼은 회사소개(about.css)와 같은 구조. 1023px 이하는 세로 흐름.
-   · 배경: 연혁 구간 = 옅은 파랑 그라데이션 + 광섬유 사진(불투명 .63, multiply, 좌하단 방사형 마스크)
-   ========================================================================== */
+/* 회사 연혁 — Figma 2122:6658, 2026-09-21. 1920px 기준, 공용 헤더 72px.
+   연혁 1360px 가로 뷰포트 + 수동 이동 막대, 인증 자료 5열×2행. */
 #wrapper:has(.sp-hist) { max-width: none; padding: 0; }
 #wrapper:has(.sp-hist) #container_title { display: none; }
 body:has(.sp-hist) .sp-footer { margin-top: 0; }
-
-.sp-hist { --ink: #1b2b39; --ink-2: #484c52; --blue: #1e64fd; color: var(--ink); }
-.sp-hist img { max-width: none; }
-.sp-hist a { text-decoration: none; }
+.sp-hist { --hist-ink: #1b2b39; --hist-muted: #484c52; --hist-blue: #1e64fd; color: var(--hist-ink); }
 .sp-hist p, .sp-hist h1, .sp-hist h2, .sp-hist h3 { margin: 0; }
-.sp-hist .sp-hist__box { position: relative; }
-.sp-hist .sp-hist__box.sp-inner { max-width: 1280px; padding-left: 0; padding-right: 0; }
-.sp-hist__box > * { position: absolute; }
+.sp-hist img { display: block; max-width: 100%; }
+.sp-hist__inner { position: relative; width: min(1360px, calc(100% - 40px)); height: 100%; margin: 0 auto; }
 
-/* ── 1. 배너 (회사소개와 동일 사진 — 피그마의 Unsplash+ 사진은 라이선스 전이라 대체) ── */
-.sp-hist__banner {
-    position: relative;
-    height: 326px;
-    overflow: hidden;
-    background: #0f1c2b url(../img/about/banner.jpg) center / cover no-repeat;
+/* 배너: Figma 2337:36845 export는 상위 프레임에 잘린 1920×982 이미지.
+   프레임 y72~398 구간을 사용한다(원본 레이어 좌표를 다시 적용하면 이중 크롭). */
+.sp-hist__banner { position: relative; height: 326px; overflow: hidden; background: #0f1c2b; }
+.sp-hist__banner::before {
+    content: ""; position: absolute; inset: 0;
+    background: url(../img/history/banner-buildings.png) no-repeat;
+    background-size: max(1920px, 100vw) max(982px, 51.145833vw);
+    background-position: center min(-72px, -3.75vw);
 }
 .sp-hist__banner .sp-inner { position: relative; height: 100%; }
-.sp-hist__crumb {
-    position: absolute;
-    left: 20px;
-    top: 16px;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    font-size: 14px;
-    line-height: 1.3;
-    color: #fff;
-}
-.sp-hist__crumb a { color: #fff; font-weight: 400; }
-.sp-hist__crumb a:hover { color: #fff; text-decoration: underline; }
+.sp-hist__crumb { position: absolute; left: 20px; top: 16px; display: flex; align-items: center; gap: 9px; margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.3; color: #fff; }
+.sp-hist__crumb a { color: #fff; text-decoration: none; }
+.sp-hist__crumb a:hover { text-decoration: underline; }
 .sp-hist__crumb li:last-child { font-weight: 500; }
-.sp-hist__crumb img { display: block; width: 4px; height: 8px; }
-.sp-hist__title {
-    position: absolute;
-    left: 80px;
-    top: 162px;          /* 256 − 94 */
-    font-size: 52px;
-    font-weight: 600;
-    line-height: 1.2;
-    color: #fff;
-    white-space: nowrap;
-}
-.sp-hist__sub {
-    position: absolute;
-    left: 80px;
-    top: 234px;          /* 328 − 94 */
-    font-size: 23px;
-    line-height: 1.4;
-    color: #feffff;
-    white-space: nowrap;
-}
+.sp-hist__crumb img { width: 4px; height: 8px; }
+.sp-hist__title { position: absolute; left: 80px; top: 160.2px; font-size: 52px; font-weight: 600; line-height: 1.2; color: #fff; }
+.sp-hist__sub { position: absolute; left: 80px; top: 234px; font-size: 23px; line-height: 1.4; color: #feffff; }
 .sp-hist__sub b { font-weight: 700; }
 
-/* ── 2. Company History (frame 420 → 1916, 1496px) ─────────────────────── */
-.sp-hist__history {
-    position: relative;
-    height: 1496px;
-    overflow: hidden;
-    background: linear-gradient(180deg, rgba(248, 250, 251, 0) 0%, rgba(174, 203, 222, .07) 100%);
+/* SamplePCB History — y398~1221. */
+.sp-hist__history { height: 823px; overflow: hidden; background: #fff; }
+.sp-hist__head { position: absolute; left: 0; top: 140px; display: grid; grid-template-columns: 401px 531px; }
+.sp-hist__head h2 { font-size: 50px; font-weight: 700; line-height: 1.2; color: #000; }
+.sp-hist__head p { margin-top: 44px; font-size: 24px; line-height: 1.6; }
+.sp-hist__viewport {
+    position: absolute; left: -10px; top: 350px; width: calc(100% + 20px); height: 322px;
+    padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 50px, #000 calc(100% - 50px), transparent);
+            mask-image: linear-gradient(90deg, transparent, #000 50px, #000 calc(100% - 50px), transparent);
 }
-.sp-hist__photo {
-    position: absolute;
-    left: 0;
-    top: 645px;          /* 1065 − 420 */
-    width: 100%;
-    height: 851px;
-    background: url(../img/history/fiber.jpg) center top / 1922px 851px no-repeat;
-    opacity: .63;
-    mix-blend-mode: multiply;
-    -webkit-mask-image: radial-gradient(ellipse 1300px 800px at 0 100%, #000 0%, rgba(0, 0, 0, .55) 40%, transparent 100%);
-            mask-image: radial-gradient(ellipse 1300px 800px at 0 100%, #000 0%, rgba(0, 0, 0, .55) 40%, transparent 100%);
-    pointer-events: none;
-}
-.sp-hist__history .sp-hist__box { height: 1496px; }
-.sp-hist__head { left: 0; right: 0; top: 100px; text-align: center; }
-.sp-hist__head h2 { font-size: 40px; font-weight: 700; line-height: 1.2; color: #000; }
-.sp-hist__head p { margin-top: 12px; font-size: 23px; line-height: 1.4; color: var(--ink); }
-.sp-hist__head p b { font-weight: 700; }
+.sp-hist__viewport::-webkit-scrollbar { display: none; }
+.sp-hist__viewport:focus-visible { outline: 2px solid var(--hist-blue); outline-offset: 4px; }
+.sp-hist__viewport.is-dragging { cursor: grabbing; user-select: none; }
+.sp-hist__track { display: flex; align-items: flex-start; gap: 60px; width: max-content; }
+.sp-hist__group { flex: none; width: 560px; }
+.sp-hist__group--1, .sp-hist__group--3 { width: 626px; }
+.sp-hist__group--2 { width: 562px; }
+.sp-hist__year-block { display: grid; grid-template-columns: 165px max-content; padding: 0 0 10px 30px; border-left: 4px solid #ccc; }
+.sp-hist__year-block + .sp-hist__year-block { margin-top: 40px; }
+.sp-hist__year-block h3 { font-size: 50px; font-weight: 800; line-height: 1.3; color: var(--hist-blue); }
+.sp-hist__year-block ul { margin: 0; padding: 20px 0 0; list-style: none; font-size: 20px; font-weight: 500; line-height: 1.5; color: #333; white-space: nowrap; }
+.sp-hist__year-block li::before { content: "- "; }
+.sp-hist__event-note { display: block; font-weight: 400; color: #666; }
+.sp-hist__group--3 .sp-hist__year-block { grid-template-columns: 215px max-content; padding-bottom: 0; }
+.sp-hist__group--3 .sp-hist__year-block ul { padding-top: 30px; }
 
-/* 타임라인 (frame y 764 → 1776) — 가운데 선 x 960, 왼쪽 열은 오른끝 892 정렬, 오른쪽 열 x 1032 */
-.sp-hist__tl { left: 0; top: 344px; width: 1280px; height: 1012px; }
-.sp-hist__tl-line { position: absolute; left: 640px; top: 49px; width: 1px; height: 896px; background: #d9d9d9; }
-.sp-hist__tl-dot {
-    position: absolute;
-    left: 628px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: #accaf6;
-}
-.sp-hist__tl-dot::after { content: ""; position: absolute; left: 8px; top: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
-.sp-hist__tl-dot--top { top: 19px; }
-.sp-hist__tl-dot--bottom { top: 955px; }
-.sp-hist__decade {
-    position: absolute;
-    font-size: 52px;
-    font-weight: 800;
-    line-height: 1.2;
-    color: #000;
-    white-space: nowrap;
-}
-.sp-hist__decade--top { right: 708px; top: 0; }       /* 오른끝 892 = 1280 − 708 + 320 */
-.sp-hist__decade--bottom { left: 712px; top: 936px; }
-.sp-hist__years { position: absolute; left: 712px; top: 0; width: 560px; }
-.sp-hist__year { font-size: 30px; font-weight: 700; line-height: 1.2; color: var(--blue); }
-.sp-hist__year + .sp-hist__rows { margin-top: 16px; }
-.sp-hist__rows + .sp-hist__year { margin-top: 40px; }
-.sp-hist__rows { margin: 0; padding: 0; list-style: none; }
-.sp-hist__rows li {
-    display: flex;
-    gap: 14px;
-    font-size: 20px;
-    line-height: 1.2;
-    color: var(--ink-2);
-}
-.sp-hist__rows li + li { margin-top: 12px; }
-.sp-hist__rows li.is-month { margin-top: 16px; }
-.sp-hist__rows li:first-child { margin-top: 0; }
-.sp-hist__rows i { flex: 0 0 25px; font-style: normal; font-weight: 500; color: #000; }
-.sp-hist__y2019 { position: absolute; right: 712px; top: 936px; text-align: right; white-space: nowrap; }  /* 오른끝 888 */
-.sp-hist__y2019 .sp-hist__year { padding-right: 4px; }
-.sp-hist__y2019 p { display: flex; justify-content: flex-end; gap: 14px; margin-top: 16px; font-size: 20px; line-height: 1.2; color: var(--ink-2); }
-.sp-hist__y2019 p i { font-style: normal; font-weight: 500; color: #000; }
+/* 시안의 3px 검정 막대를 range로 구현해 마우스·키보드로 연혁을 탐색한다. */
+.sp-hist__scroll { -webkit-appearance: none; appearance: none; position: absolute; left: 0; top: 669.5px; width: 100%; height: 24px; margin: 0; padding: 0; border: 0; background: transparent; cursor: ew-resize; }
+.sp-hist__scroll::-webkit-slider-runnable-track { height: 1px; background: #d9d9d9; }
+.sp-hist__scroll::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: min(314px, 25vw); height: 3px; margin-top: -1px; border: 0; border-radius: 0; background: #000; }
+.sp-hist__scroll::-moz-range-track { height: 1px; background: #d9d9d9; }
+.sp-hist__scroll::-moz-range-thumb { width: min(314px, 25vw); height: 3px; border: 0; border-radius: 0; background: #000; }
+.sp-hist__scroll:focus-visible { outline: 2px solid var(--hist-blue); outline-offset: 4px; }
+.sp-hist__scroll:disabled { opacity: .35; cursor: default; }
 
-/* ── 3. 숫자로 보는 SamplePCB (frame 1916 → 2423, 507px) — 피그마는 타사 스크린샷, 수치는 자리표시 ── */
-.sp-hist__stats { position: relative; height: 507px; background: #fff; }
-.sp-hist__stats .sp-hist__box { height: 507px; }
-.sp-hist__stats h2 { left: 0; right: 0; top: 140px; text-align: center; font-size: 40px; font-weight: 400; line-height: 1.2; color: #000; }
-.sp-hist__stats h2 b { font-weight: 700; }
-.sp-hist__stat-list {
-    left: -20px;
-    top: 300px;
-    display: grid;
-    grid-template-columns: repeat(4, 350px);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-.sp-hist__stat-list b { display: block; font-size: 52px; font-weight: 300; line-height: 1.2; letter-spacing: -1px; color: #000; }
-.sp-hist__stat-list span { display: block; margin-top: 8px; font-size: 20px; line-height: 1.3; color: var(--ink-2); }
-
-/* ── 4. Certification (frame 2423 → 3233, 810px, bg #f3f6f8) ────────────── */
-.sp-hist__cert { position: relative; height: 810px; overflow: hidden; background: #f3f6f8; }
-.sp-hist__cert .sp-hist__box { height: 810px; }
-.sp-hist__cert-head { left: 0; right: 0; top: 140px; text-align: center; }
+/* Patents & Certifications — y1221~2436. */
+.sp-hist__cert { position: relative; height: 1215px; overflow: hidden; background: #f3f6f8; }
+.sp-hist__cert-head { position: absolute; left: 20px; right: 20px; top: 140px; text-align: center; }
 .sp-hist__cert-head h2 { font-size: 40px; font-weight: 700; line-height: 1.2; color: #000; }
-.sp-hist__cert-head p { margin-top: 30px; font-size: 23px; line-height: 1.4; color: var(--ink); }
-.sp-hist__cert-head p b { font-weight: 700; }
-/* 카드 띠: 컨테이너 밖까지 이어지고 양끝이 배경색으로 잠긴다(피그마 dim) — 가로 스크롤 */
-.sp-hist__strip {
-    position: absolute;
-    left: 50%;
-    top: 352px;
-    width: 1920px;
-    height: 340px;
-    margin-left: -960px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    -webkit-mask-image: linear-gradient(90deg, transparent 14.6%, #000 19.2%, #000 80.8%, transparent 85.4%);
-            mask-image: linear-gradient(90deg, transparent 14.6%, #000 19.2%, #000 80.8%, transparent 85.4%);
-}
-.sp-hist__strip::-webkit-scrollbar { display: none; }
-.sp-hist__cards {
-    display: flex;
-    gap: 100px;
-    width: max-content;
-    margin: 0 auto;
-    padding: 0 152px;   /* 6장(1616px)을 1920 가운데에 */
-    list-style: none;
-}
-.sp-hist__cards li { width: 186px; text-align: center; }
-.sp-hist__cards figure { margin: 0; }
-.sp-hist__cards .sp-hist__paper {
-    display: block;
-    width: 186px;
-    height: 260px;
-    border: 1px solid #d9d9d9;
-    background: #fff;
-    overflow: hidden;
-}
-.sp-hist__cards .sp-hist__paper img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
-.sp-hist__cards figcaption { margin-top: 22px; font-size: 16px; font-weight: 500; line-height: 1.2; color: #000; white-space: nowrap; }
-.sp-hist__cards figcaption small { display: block; font-size: 14px; font-weight: 400; color: var(--ink-2); }
+.sp-hist__cert-head p { margin-top: 30px; font-size: 23px; line-height: 1.4; }
+.sp-hist__cards { position: absolute; left: 50%; top: 352px; display: grid; grid-template-columns: repeat(5, 286px); grid-auto-rows: 412px; width: 1430px; margin: 0 0 0 -715px; padding: 0; list-style: none; }
+.sp-hist__cards figure { margin: 0; text-align: center; }
+.sp-hist__paper { display: flex; align-items: center; justify-content: center; width: 184px; height: 260px; margin: 0 auto; overflow: hidden; border: 1px solid #d9d9d9; }
+.sp-hist__paper img { width: 100%; height: 100%; object-fit: fill; }
+.sp-hist__paper.is-mark img { width: 117.28px; height: 167.99px; object-fit: contain; }
+.sp-hist__cards figcaption { margin-top: 22px; padding: 0 2px; font-size: 16px; font-weight: 500; line-height: 1.2; color: #000; overflow-wrap: anywhere; }
+.sp-hist__cards figcaption small { display: block; font-size: 14px; font-weight: 400; line-height: 1.2; color: var(--hist-muted); }
+/* 시안의 양끝 dim은 두 번째 행 이미지 하단까지, 마지막 행 캡션에는 걸치지 않는다. */
+.sp-hist__cert::before, .sp-hist__cert::after { content: ""; position: absolute; z-index: 1; top: 352px; width: max(88px, calc((100% - 1360px) / 2 + 88px)); height: 672px; pointer-events: none; }
+.sp-hist__cert::before { left: 0; background: linear-gradient(90deg, #f3f6f8 calc(100% - 88px), rgba(243,246,248,0)); }
+.sp-hist__cert::after { right: 0; background: linear-gradient(270deg, #f3f6f8 calc(100% - 88px), rgba(243,246,248,0)); }
 
-/* ── 반응형(피그마 밖) ────────────────────────────────────────────────── */
-@media (max-width: 1319.98px) {
-    .sp-hist__stat-list { left: 0; grid-template-columns: repeat(4, 1fr); width: 100%; }
+@media (max-width: 1399.98px) {
+    .sp-hist__history { height: auto; padding: 72px 0 88px; }
+    .sp-hist__head { position: static; grid-template-columns: minmax(220px, 1fr) minmax(0, 1.4fr); gap: 40px; }
+    .sp-hist__head h2 { font-size: 40px; }
+    .sp-hist__head p { margin-top: 24px; font-size: 20px; }
+    .sp-hist__viewport { position: relative; top: 0; height: 322px; margin-top: 64px; }
+    .sp-hist__scroll { position: relative; top: 0; display: block; margin-top: 8px; }
+    .sp-hist__cert { height: auto; padding: 88px 20px; }
+    .sp-hist__cert-head { position: static; }
+    .sp-hist__cert-head h2 { font-size: 34px; }
+    .sp-hist__cert-head p { font-size: 20px; }
+    .sp-hist__cards { position: static; width: min(1100px, 100%); margin: 72px auto 0; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: auto; gap: 56px 20px; }
+    .sp-hist__paper { width: min(184px, 100%); height: auto; aspect-ratio: 184 / 260; }
+    .sp-hist__paper.is-mark img { width: 64%; height: auto; }
+    .sp-hist__cert::before, .sp-hist__cert::after { display: none; }
 }
 @media (max-width: 1023.98px) {
-    .sp-hist__box { height: auto !important; }
-    .sp-hist__box > * { position: static; }
-    .sp-hist .sp-hist__box.sp-inner { padding-left: 20px; padding-right: 20px; }
     .sp-hist__banner { height: 260px; }
     .sp-hist__title { left: 20px; top: 118px; font-size: 36px; }
-    .sp-hist__sub { left: 20px; top: 180px; font-size: 16px; white-space: normal; }
-    .sp-hist__history { height: auto; padding: 56px 0 64px; }
-    .sp-hist__photo { top: auto; bottom: 0; height: 60%; background-size: cover; }
-    .sp-hist__head h2 { font-size: 30px; }
-    .sp-hist__head p { font-size: 16px; }
-    /* 타임라인: 왼쪽 선 하나에 순서대로 — 2020’s → 2023…2020 → 2019 → 2010’s */
-    .sp-hist__tl { display: flex; flex-direction: column; width: auto; height: auto; margin-top: 40px; padding-left: 36px; border-left: 1px solid #d9d9d9; }
-    .sp-hist__tl-line, .sp-hist__tl-dot { display: none; }
-    .sp-hist__decade, .sp-hist__years, .sp-hist__y2019 { position: static; }   /* 데스크톱 절대 배치 해제 */
-    .sp-hist__decade { font-size: 32px; }
-    .sp-hist__decade--top { order: 1; }
-    .sp-hist__years { order: 2; width: auto; margin-top: 16px; }
-    .sp-hist__y2019 { order: 3; margin-top: 40px; text-align: left; white-space: normal; }
-    .sp-hist__y2019 p { justify-content: flex-start; }
-    .sp-hist__decade--bottom { order: 4; margin-top: 40px; }
-    .sp-hist__year { font-size: 24px; }
-    .sp-hist__rows li { font-size: 16px; }
-    .sp-hist__rows i { flex-basis: 22px; }
-    .sp-hist__stats { height: auto; padding: 56px 0; }
-    .sp-hist__stats h2 { font-size: 28px; }
-    .sp-hist__stat-list { grid-template-columns: repeat(2, 1fr); gap: 28px 16px; margin-top: 32px; }
-    .sp-hist__stat-list b { font-size: 40px; }
-    .sp-hist__stat-list span { font-size: 15px; }
-    .sp-hist__cert { height: auto; padding: 56px 0 48px; }
-    .sp-hist__cert-head h2 { font-size: 30px; }
-    .sp-hist__cert-head p { margin-top: 14px; font-size: 16px; }
-    .sp-hist__strip { position: relative; left: 0; width: auto; height: auto; margin: 32px -20px 0; mask-image: none; -webkit-mask-image: none; }
-    .sp-hist__cards { gap: 24px; padding: 0 20px; }
-    .sp-hist__cards li { width: 150px; }
-    .sp-hist__cards .sp-hist__paper { width: 150px; height: 210px; }
-    .sp-hist__cards figcaption { margin-top: 12px; font-size: 14px; white-space: normal; }
+    .sp-hist__sub { left: 20px; right: 20px; top: 180px; font-size: 16px; }
+    .sp-hist__cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 639.98px) {
+    .sp-hist__history { padding: 56px 0 64px; }
+    .sp-hist__head { display: block; }
+    .sp-hist__head h2 { font-size: 36px; }
+    .sp-hist__head p { margin-top: 20px; font-size: 17px; line-height: 1.6; }
+    .sp-hist__viewport { left: 0; width: 100%; height: auto; padding: 0; margin-top: 40px; -webkit-mask-image: none; mask-image: none; }
+    .sp-hist__track { gap: 24px; }
+    .sp-hist__group { width: calc(100vw - 40px); }
+    .sp-hist__year-block, .sp-hist__group--3 .sp-hist__year-block { display: block; padding: 0 10px 12px 16px; }
+    .sp-hist__year-block h3 { font-size: 36px; }
+    .sp-hist__year-block ul, .sp-hist__group--3 .sp-hist__year-block ul { padding-top: 16px; font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
+    .sp-hist__year-block + .sp-hist__year-block { margin-top: 28px; }
+    .sp-hist__scroll { margin-top: 20px; }
+    .sp-hist__cert { padding: 64px 20px; }
+    .sp-hist__cert-head h2 { font-size: 28px; }
+    .sp-hist__cert-head p { margin-top: 20px; font-size: 16px; line-height: 1.5; }
+    .sp-hist__cards { margin-top: 40px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 20px; }
+    .sp-hist__cards figcaption { margin-top: 16px; font-size: 14px; overflow-wrap: anywhere; }
     .sp-hist__cards figcaption small { font-size: 12px; }
+    .sp-hist__cards figcaption br { display: none; }
 }
