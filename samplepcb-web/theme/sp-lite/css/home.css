@@ -40,11 +40,11 @@
    ---------------------------------------------------------------------------
    · 배경 장식 = 1920 프레임 기준(.sp-hero__frame / .sp-slide__bg: 가운데 정렬, 넘침 잘림), y = 피그마 y − 72
      — 단 02~04 의 3720 팬은 상자 밖으로 넘쳐 1920 초과 화면 양옆도 채운다(진폭 --sp-pan).
-       02~04 는 Figma 좌우 확장색을 전폭으로 이어 3720 초과도 채운다. 05 사진은 1920 프레임 그대로.
+       02~04 는 Figma 좌우 확장색을 전폭으로 이어 3720 초과도 채운다. 05 영상·폴백 사진은 전폭 cover.
    · 텍스트·카드 = 1280 콘텐츠 박스 기준(.sp-inner > .sp-slide__in, 절대 좌표 left = 피그마 x − 320), y = 피그마 y − 72
    · 1024~1319: .sp-slide__in 을 (뷰포트 − 40)/1280 배율로 축소(--sp-hero-scale, js/home/hero.js 가 정확한 값으로 갱신)
    · ≤1023: 피그마에 없는 구간 — 세로 흐름(우리 정의)
-   · 배경 애니메이션: 01 윤곽 연속 회전(JS) · 02~04 3720 폭 "bg img" 팬(CSS) · 05 정지 사진. 마크업 inc/main_slider.php
+   · 배경 애니메이션: 01 윤곽 연속 회전(JS) · 02~04 3720 폭 "bg img" 팬(CSS) · 05 광명공장 영상. 마크업 inc/main_slider.php
    ========================================================================== */
 .sp-hero {
     --sp-hero-h: 594px;
@@ -469,10 +469,14 @@
 }
 .sp-s4__circle p b { font-weight: 900; }
 
-/* — banner 05: RAPID PROTOTYPING (2286:5165) — 사진 1920×1074 를 267 위로 올려 보이는 구간(피그마), 왼쪽이 어두운 그늘 */
-/* 사진은 1920 프레임 안에서 피그마 크롭(339~933) 그대로 — 1920 초과 화면 양옆은 히어로 배경(사용자 결정 2026-09-18: cover·거울 반전 모두 보류) */
-.sp-s5__photo { left: 0; top: -339px; width: 1920px; height: 1074px; object-fit: cover; }
-.sp-s5__shade { left: 0; top: 0; width: 1920px; height: 594px; background: linear-gradient(-90deg, rgba(142, 143, 157, .49) 0%, rgba(29, 29, 29, .595) 90%); }
+/* — banner 05: RAPID PROTOTYPING — 광명공장 영상(2026-09-21 사용자 제공).
+   재생 전·실패·reduced-motion 은 기존 사진. 배경은 전폭 cover, 텍스트는 기존 1280 컨테이너. */
+.sp-s5 .sp-slide__bg { left: 0; width: 100%; height: 100%; margin-left: 0; background: #11131a; }
+.sp-s5__photo, .sp-s5__video { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; }
+.sp-s5__video { opacity: 0; transition: opacity .3s ease; }
+.sp-s5__video.is-playing { opacity: 1; }
+.sp-s5__shade { inset: 0; background: linear-gradient(-90deg, rgba(142, 143, 157, .49) 0%, rgba(29, 29, 29, .595) 90%); }
+@media (prefers-reduced-motion: reduce) { .sp-s5__video { display: none; } }
 .sp-s5__title {
     left: 0;
     top: 125px;
@@ -540,7 +544,6 @@
     .sp-hero.is-organic .sp-hero__lines   { display: block; }
     .sp-slide__bg { left: 0; width: 100%; height: 100%; margin: 0; }
     .sp-slide__pan { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; animation: none; }
-    .sp-s5__photo, .sp-s5__shade { top: 0; width: 100%; height: 100%; }
 
     .sp-slide__in {
         width: auto;

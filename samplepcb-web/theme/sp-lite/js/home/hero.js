@@ -4,6 +4,7 @@
 //     프리셋 o-center-swap: period 16s · intensity 100 · density 1 · lag 50 · pivot 50% · flow out). 30fps, 화면 밖·탭 숨김·reduced-motion 이면 정지.
 //  3) banner 02~04 배경 팬(CSS 애니메이션)은 비활성 슬라이드·화면 밖에서 CSS 로 멈춘다(.is-offscreen)
 //  4) 1024~1319px: 1280 콘텐츠 박스를 (뷰포트 − 40)/1320 배율로 축소(--sp-hero-scale, 40 = 카드·사진 오버행) — CSS 기본값을 정확한 값으로 갱신
+//  5) banner 05 영상: 활성·화면 내·보이는 탭에서만 지연 로드/음소거 반복재생. 실패·reduced-motion 은 사진.
 var VER = new URL(import.meta.url).searchParams.get('ver') || '';
 
 export function init() {
@@ -14,7 +15,38 @@ export function init() {
     var dots = Array.prototype.slice.call(root.querySelectorAll('.sp-hero__dot'));
     var count = slides.length;
     var cur = 0, timer = 0, INTERVAL = 6000;
-    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var motionQuery = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+    var reduced = motionQuery && motionQuery.matches;
+    var heroVideo = root.querySelector('.sp-s5__video');
+
+    function shouldPlayVideo() {
+        return heroVideo && slides[cur].contains(heroVideo) && !reduced && !document.hidden && !root.classList.contains('is-offscreen');
+    }
+    function syncVideo() {
+        if (!heroVideo) return;
+        if (!shouldPlayVideo()) {
+            heroVideo.pause();
+            if (reduced) heroVideo.classList.remove('is-playing');
+            return;
+        }
+        if (heroVideo.error) return;
+        // src 를 활성 시점에만 붙여 초기 홈 진입 시 영상을 요청하지 않는다.
+        if (!heroVideo.getAttribute('src')) heroVideo.src = heroVideo.getAttribute('data-src');
+        heroVideo.muted = true;
+        if (!heroVideo.paused) return;
+        var request = heroVideo.play();
+        if (request && request.catch) request.catch(function (error) {
+            // 슬라이드 전환/스크롤 중 pause가 취소한 play는 정상. 재생 거부 시 사진을 유지한다.
+            if (error.name !== 'AbortError') heroVideo.classList.remove('is-playing');
+        });
+    }
+    if (heroVideo) {
+        heroVideo.addEventListener('playing', function () {
+            if (shouldPlayVideo()) heroVideo.classList.add('is-playing');
+            else heroVideo.pause();
+        });
+        heroVideo.addEventListener('error', function () { heroVideo.classList.remove('is-playing'); });
+    }
 
     /* ───────── 슬라이더 ───────── */
     function show(i) {
@@ -24,9 +56,10 @@ export function init() {
         var anim = slides[cur].getAttribute('data-anim') === '1';
         root.classList.toggle('is-anim', anim);
         if (anim) startOrganic(); else stopOrganic();
+        syncVideo();
     }
     function next() { show(cur + 1); }
-    function play() { stop(); if (count > 1 && !reduced) timer = setInterval(next, INTERVAL); }
+    function play() { stop(); if (count > 1 && !reduced && !document.hidden && !root.classList.contains('is-offscreen')) timer = setInterval(next, INTERVAL); }
     function stop() { if (timer) { clearInterval(timer); timer = 0; } }
 
     dots.forEach(function (d, k) { d.addEventListener('click', function () { show(k); play(); }); });
@@ -43,6 +76,7 @@ export function init() {
     document.addEventListener('visibilitychange', function () {
         if (document.hidden) stop();
         else { play(); if (root.classList.contains('is-anim')) startOrganic(); }
+        syncVideo();
     });
     // 히어로가 화면 밖이면 자동재생·배경 애니메이션을 쉰다(스크롤 성능)
     if ('IntersectionObserver' in window) {
@@ -51,7 +85,16 @@ export function init() {
             root.classList.toggle('is-offscreen', !inView);
             if (!inView) { stop(); stopOrganic(); }
             else { play(); if (root.classList.contains('is-anim')) startOrganic(); }
+            syncVideo();
         }, { threshold: 0.05 }).observe(root);
+    }
+    if (motionQuery && motionQuery.addEventListener) {
+        motionQuery.addEventListener('change', function (event) {
+            reduced = event.matches;
+            if (reduced) { stop(); stopOrganic(); }
+            else { play(); if (root.classList.contains('is-anim')) startOrganic(); }
+            syncVideo();
+        });
     }
 
     /* ───────── 1024~1319 축소 배율 ───────── */
@@ -95,7 +138,7 @@ export function init() {
         if (now - org.lastPaint >= 1000 / 30) { organicPath.setAttribute('d', org.render(org.phase, SETTINGS)); org.lastPaint = now; }
         org.raf = requestAnimationFrame(tick);
     }
-    function startOrganic() { if (org.ready && !org.raf) { org.last = null; org.raf = requestAnimationFrame(tick); } }
+    function startOrganic() { if (org.ready && !org.raf && !reduced && !document.hidden && !root.classList.contains('is-offscreen')) { org.last = null; org.raf = requestAnimationFrame(tick); } }
     function stopOrganic() { if (org.raf) { cancelAnimationFrame(org.raf); org.raf = 0; } org.last = null; }
 
     show(0);

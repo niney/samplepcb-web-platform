@@ -12,7 +12,7 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
  *   각 1920×666 프레임의 위 72px 는 헤더 자리 → 화면 594px, 좌표 = 피그마 y − 72. 텍스트·카드는 1280 컨테이너 기준(x − 320),
  *   배경 장식은 1920 프레임 기준(가운데 정렬·넘침 잘림). 스타일 css/home/05-hero.css, 동작 js/home/hero.js.
  *   배경: 01 = 프로빙 채택안 연속 회전(center-swap) 유지 — 윤곽 Vector(2286:60907) + 블롭(Ellipse 4). 02~04 = 디자이너 "bg img"
- *   3720×666 리소스(2286:60998 · 60963 · 61007)를 아주 느리게 좌우로 팬. 05 = 정지 사진.
+ *   3720×666 리소스(2286:60998 · 60963 · 61007)를 아주 느리게 좌우로 팬. 05 = 광명공장 영상(정지 사진 폴백).
  * 하이브리드(2026-09-06 결정) 유지:
  *   · 템플릿 슬라이드 = 코드(이 파일). 관리자 /app/admin/slides(= 영카트 배너관리 '메인', g5_shop_banner) 이미지는 템플릿 **뒤에** 붙는다.
  *   · 템플릿 on/off·순서 = sp_config key 'home_slides' (JSON {"templates":["gerber-eyes","order-now","korlinx","one-stop","rapid-proto"]}).
@@ -212,6 +212,7 @@ $sp_chev = '<svg viewBox="0 0 8 16" aria-hidden="true"><path d="M1 1l6 7-6 7" fi
         <article class="sp-hero__slide sp-s5<?php echo $sp_first ? ' is-active' : ''; $sp_first = false; ?>" aria-label="RAPID PROTOTYPING In-House SMT Line">
             <div class="sp-slide__bg" aria-hidden="true">
                 <img class="sp-s5__photo" src="<?php echo $sp_hi; ?>/rapid-photo.png" alt="" width="1920" height="1074">
+                <video class="sp-s5__video" data-src="<?php echo G5_THEME_URL; ?>/video/home/hero/gwangmyeong-factory-3-20.mp4" muted loop playsinline preload="none" tabindex="-1" disablepictureinpicture></video>
                 <i class="sp-s5__shade"></i>
             </div>
             <div class="sp-inner"><div class="sp-slide__in">
