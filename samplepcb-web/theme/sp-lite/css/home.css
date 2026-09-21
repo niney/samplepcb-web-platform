@@ -1231,8 +1231,23 @@
 .sp-stats__item:nth-child(1) { left: 50px; }
 .sp-stats__item:nth-child(2) { left: 525px; }
 .sp-stats__item:nth-child(3) { left: 947px; }
-.sp-stats__num   { display: block; font-size: 64px; font-weight: 500; line-height: 1.3; color: #000; }
+.sp-stats__num   { position: relative; display: block; font-size: 64px; font-weight: 500; line-height: 1.3; color: #000; }
 .sp-stats__label { display: block; font-size: 28px; font-weight: 400; line-height: 1.3; color: #2e2e2e; }
+
+/* 최종 문자열로 너비를 예약하고, 스크린리더에서 제외한 카운터만 위에 겹친다. */
+.sp-stats__num.is-counting .sp-stats__value { opacity: 0; }
+.sp-stats__count { position: absolute; inset: 0; text-align: center; }
+.sp-stats .is-reveal-ready {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity .3s ease-in-out var(--sp-stat-delay, 0ms), transform .3s ease-in-out var(--sp-stat-delay, 0ms);
+}
+.sp-stats .is-reveal-ready.is-revealed { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+    .sp-stats .is-reveal-ready { opacity: 1; transform: none; transition: none; }
+    .sp-stats__num.is-counting .sp-stats__value { opacity: 1; }
+    .sp-stats__count { display: none; }
+}
 
 /* 좁은 데스크톱(1024~1279): 절대 좌표 대신 3칸 균등 */
 @media (max-width: 1279.98px) {
