@@ -115,7 +115,7 @@ $sp_chev = '<svg viewBox="0 0 8 16" aria-hidden="true"><path d="M1 1l6 7-6 7" fi
                     <?php echo sp_hero_link('', 'sp-btn sp-btn--outline', '체험하기'); ?>
                 </div>
                 <div class="sp-s1__visual">
-                    <img class="sp-s1__monitor" src="<?php echo $sp_hi; ?>/gerber-monitor.png" alt="" width="587" height="581">
+                    <img class="sp-s1__monitor" src="<?php echo $sp_hi; ?>/gerber-monitor.png?ver=<?php echo G5_CSS_VER; ?>" alt="" width="2048" height="2027">
                     <img class="sp-s1__screen" src="<?php echo $sp_hi; ?>/gerber-screen.png" alt="Gerber Eyes 4.0 화면" width="551" height="372">
                 </div>
             </div></div>
@@ -169,7 +169,7 @@ $sp_chev = '<svg viewBox="0 0 8 16" aria-hidden="true"><path d="M1 1l6 7-6 7" fi
                     <?php echo sp_hero_link('', 'sp-btn sp-s3__btn', '자세히 보기'); ?>
                 </div>
                 <?php echo sp_hero_dtags(array('LTE-M', 'BLE', 'Gateway', 'GNSS', 'IoT Platform')); ?>
-                <img class="sp-s3__photo" src="<?php echo $sp_hi; ?>/korlinx-photo.jpg" alt="KORLINX 통신 모듈·게이트웨이·안테나" width="598" height="541">
+                <div class="sp-s3__photo"><img src="<?php echo $sp_hi; ?>/korlinx-photo.png" alt="KORLINX 통신 모듈·게이트웨이·안테나" width="3600" height="2400"></div>
             </div></div>
         </article>
         <?php } else if ($sp_tpl === 'one-stop') { ?>

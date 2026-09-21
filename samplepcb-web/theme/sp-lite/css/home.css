@@ -123,10 +123,10 @@
     .sp-hero { --sp-hero-scale: .78; } /* JS 가 (뷰포트 − 40)/1320 로 갱신 */
     .sp-slide__in { transform: scale(var(--sp-hero-scale)); }
 }
-/* 1320~1399: 축소는 없지만 40px 오버행이 뷰포트를 넘으니 그만큼 왼쪽으로 */
+/* 1320~1399: 콘텐츠 오른쪽 오버행 보완. 배너 03은 사진 폭을 줄여 글자와의 간격을 유지한다. */
 @media (min-width: 1320px) and (max-width: 1399.98px) {
     .sp-s2__cards { left: 520px; }
-    .sp-s3__photo { left: 682px; }
+    .sp-s3 .sp-s3__photo { width: 558px; height: auto; }
 }
 
 /* — 공통 조각 */
@@ -235,9 +235,11 @@
 }
 .sp-s1 .sp-hero__desc { left: 1px; top: 264px; width: 488px; }
 .sp-s1 .sp-hero__btns { left: 0; top: 426px; }
-.sp-s1__visual { left: 681px; top: 74px; width: 587.5px; height: 581.5px; }
-.sp-s1__monitor { position: absolute; left: 0; top: 0; width: 587.5px; height: 581.5px; }
-.sp-s1__screen  { position: absolute; left: 12.6px; top: 14.9px; width: 551.3px; height: 371.8px; }
+/* 투명 원본(2048×2027)을 사용한다. 기존 중심을 유지하며 11.5% 축소해 받침 아래 23px 확보.
+   화면 오버레이도 같은 비율로 줄여 모니터와 맞춘다(모바일까지 한 좌표계). */
+.sp-s1__visual { left: 714.75px; top: 56px; width: 520px; aspect-ratio: 2048 / 2027; }
+.sp-s1__monitor { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.sp-s1__screen  { position: absolute; left: 2.14468%; top: 2.56234%; width: 93.8383%; height: 63.93809%; }
 
 /* — banner 02: 제작까지 바로 (2286:5332) — 카드 3장 */
 /* Figma 2286:60998: 중앙 1920 + 좌우 900. 원본 크기·팬을 유지하고 바깥은 양끝 색으로 연장한다.
@@ -375,7 +377,9 @@
 .sp-s3__btn { background: linear-gradient(57.7deg, #018ede 19.4%, #00d0ff 100%); color: #f9fcfe; border: 1.5px solid #1e64fd; }
 .sp-s3__btn:hover { color: #f9fcfe; }
 .sp-s3 .sp-dtags { left: 0; top: 449px; color: #028ede; }
-.sp-s3__photo { left: 722px; top: 22px; width: 598px; height: 541px; }
+/* Figma 2286:36815의 투명 원본·크롭. 흰 배경이 합쳐진 JPG 대신 원본 PNG를 사용한다. */
+.sp-s3__photo { left: 722px; top: 22px; width: 598px; aspect-ratio: 598 / 541; overflow: hidden; }
+.sp-s3__photo img { position: absolute; left: -15.47%; top: 0; width: 135.77%; height: 100%; max-width: none; }
 
 /* — banner 04: One-Stop 제조서비스 (2286:27054) — 카드 4장 + 원 */
 /* Figma 2286:61007의 좌우 확장색(61001 / 61003)을 이미지 바깥까지 이어 준다. */
@@ -570,13 +574,12 @@
     .sp-s1__sub { margin-top: 4px; font-size: 22px; line-height: 30px; letter-spacing: -.44px; }
     .sp-s1__visual { position: relative; left: auto; top: auto; width: 100%; max-width: 480px; height: auto; margin: 28px auto 0; }
     .sp-s1__monitor { position: static; width: 100%; height: auto; }
-    .sp-s1__screen { left: 2.14%; top: 2.56%; width: 93.84%; height: auto; }
 
     .sp-s2__title, .sp-s3__title, .sp-s4__title { font-size: 30px; line-height: 40px; letter-spacing: -.6px; white-space: normal; }
     .sp-s3__brand { font-size: 28px; letter-spacing: -.56px; }
     .sp-s2__sub { margin-top: 12px; width: auto; font-size: 16px; line-height: 26px; letter-spacing: -.32px; }
     .sp-s2__cards { width: 100%; margin-top: 28px; flex-direction: column; align-items: center; gap: 20px; }
-    .sp-s3__photo { width: 100%; max-width: 480px; height: auto; margin: 28px auto 0; }
+    .sp-slide__in > .sp-s3__photo { position: relative; left: auto; top: auto; width: 100%; max-width: 480px; height: auto; margin: 28px auto 0; }
     .sp-s4__cards { width: 100%; margin-top: 24px; grid-template-columns: minmax(0, 320px); justify-content: center; gap: 20px; order: 2; }
     .sp-s4__circle { position: relative; left: auto; top: auto; width: 200px; height: 200px; margin: 28px auto 0; order: 1; }
     .sp-s4__core { left: 21px; top: 21px; width: 158px; height: 158px; }
