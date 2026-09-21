@@ -73,7 +73,7 @@ $sp_eyes = G5_THEME_URL.'/img/home/eyes';
                     <ul class="sp-eyes__feats">
                         <li><span class="sp-eyes__ico"><img class="sp-eyes__ico-img--tall" src="<?php echo $sp_eyes; ?>/ico-smt-3d.png" alt="" width="54" height="57"></span><span class="sp-eyes__feat">3D 조립 미리보기</span></li>
                         <li><span class="sp-eyes__ico"><img src="<?php echo $sp_eyes; ?>/ico-smt-part.png" alt="" width="54" height="54"></span><span class="sp-eyes__feat">부품 정보 즉시 확인</span></li>
-                        <li><span class="sp-eyes__ico"><img src="<?php echo $sp_eyes; ?>/ico-smt-part.png" alt="" width="54" height="54"></span><span class="sp-eyes__feat">위치·간격 정밀 검토</span></li>
+                        <li><span class="sp-eyes__ico"><img src="<?php echo $sp_eyes; ?>/ico-smt-review.png" alt="" width="54" height="54"></span><span class="sp-eyes__feat">위치·간격 정밀 검토</span></li>
                     </ul>
                 </div>
                 <div class="sp-eyes__btns"><span class="sp-eyes__btn sp-eyes__btn--bordered">자세히 보기 →</span></div>
