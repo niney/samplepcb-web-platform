@@ -55,7 +55,8 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 ### 3 EYES(2286:1276·1444·1455·1784·1686)
 - Gerber·Parts 화면은 피그마에 든 **애니메이션 GIF**(0.9MB·4.7MB) 그대로, `loading="lazy"`. 디자이너 메모 "3EYES gif 영상은 어떻게 전달드리면 될까요?" — 영상으로 바꾸려면 `.sp-eyes__media` 안 `<img>` → `<video>`. ⚠ 4.7MB 는 무거워 mp4/webm 변환 권장(로컬엔 ffmpeg 없음).
 - 피그마 모션 노드 2286:1460·1461 은 **숨김 그룹**(Gerber 화면 위 말풍선 6개) 안 → 보이는 디자인이 아니라 미구현(JS 없음).
-- 기능 행 3행 아이콘이 2행과 동일한 복제(세 블록 모두) — 그대로. GIF 에 완전히 덮인 "DFM 분석 화면 3"·SMT iMac 목업은 미사용.
+- **Gerber Eyes 실시간 견적 아이콘 교정(2026-09-21)**: 지정 행 `2286:1663`이 DFM 분석 아이콘을 중복 사용하던 상태를 최신 시안의 동전·가격 아이콘으로 교체. `2337:39295`의 배경·테두리가 포함된 54×54 PNG export를 `ico-gerber-quote.png`로 그대로 사용하고 기존 행 배치를 유지한다. 1920/390px 캡처에서 시안 아이콘과 크기·정렬 확인, PHP 문법 검사 통과.
+- Parts·SMT의 기능 3행 아이콘은 2행과 동일한 복제 상태를 유지. GIF 에 완전히 덮인 "DFM 분석 화면 3"·SMT iMac 목업은 미사용.
 - Parts 블록 둘째 버튼 "파트너사 등록하기 →", SMT 제목만 lh 1.4·버튼만 #d9d9d9 테두리·797/23/460 분할 — 피그마대로.
 
 ### Your Idea. Our Expertise. + Development Portfolio(2286:2333)

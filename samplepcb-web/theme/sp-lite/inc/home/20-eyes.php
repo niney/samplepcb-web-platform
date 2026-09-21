@@ -33,7 +33,7 @@ $sp_eyes = G5_THEME_URL.'/img/home/eyes';
                     <ul class="sp-eyes__feats">
                         <li><span class="sp-eyes__ico"><img src="<?php echo $sp_eyes; ?>/ico-gerber-fast.png" alt="" width="54" height="54"></span><span class="sp-eyes__feat">더 빠른 Gerber 파일 확인</span></li>
                         <li><span class="sp-eyes__ico"><img src="<?php echo $sp_eyes; ?>/ico-gerber-dfm.png" alt="" width="54" height="54"></span><span class="sp-eyes__feat">DFM 오류 자동 분석</span></li>
-                        <li><span class="sp-eyes__ico"><img src="<?php echo $sp_eyes; ?>/ico-gerber-dfm.png" alt="" width="54" height="54"></span><span class="sp-eyes__feat">실시간 견적 확인</span></li>
+                        <li><span class="sp-eyes__ico"><img src="<?php echo $sp_eyes; ?>/ico-gerber-quote.png" alt="" width="54" height="54"></span><span class="sp-eyes__feat">실시간 견적 확인</span></li>
                     </ul>
                 </div>
                 <div class="sp-eyes__btns"><span class="sp-eyes__btn">자세히 보기 →</span></div>
