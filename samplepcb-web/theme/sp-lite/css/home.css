@@ -1107,8 +1107,8 @@
     overflow: hidden;
     text-align: left;
 }
-.sp-idea__card-media { position: absolute; left: 0; top: 0; width: 329px; height: 320px; display: block; }
-.sp-idea__card-media img { display: block; width: 329px; height: 320px; object-fit: cover; }
+.sp-idea__card-media { position: absolute; left: 0; top: var(--pf-media-y, .5px); width: 329px; height: var(--pf-media-h, 320px); display: block; }
+.sp-idea__card-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .sp-idea__card-media::after {            /* 5·6번 카드의 회색 덮개(rgba(164,164,164,.2/.3)) */
     content: "";
     position: absolute;
@@ -1119,8 +1119,8 @@
 }
 .sp-idea__tag {
     position: absolute;
-    left: 21px;
-    top: 345px;
+    left: var(--pf-tag-x, 21px);
+    top: var(--pf-tag-y, 348px);
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -1129,17 +1129,21 @@
     border-radius: 46px;
     font-size: 18px;
     font-weight: 700;
-    line-height: 1.2;
+    line-height: 22px;
     white-space: nowrap;
 }
 .sp-idea__tag i { display: block; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
 .sp-idea__tag--ble { color: #0055ff; }
 .sp-idea__tag--lte { color: #0090ff; }
-.sp-idea__card-body { position: absolute; left: 21px; top: 400px; width: 287px; }
+.sp-idea__card-body { position: absolute; left: var(--pf-body-x, 21px); top: var(--pf-body-y, 400px); width: var(--pf-body-w, 286.548px); }
 .sp-idea__card-code { margin: 0; font-size: 16px; font-weight: 400; line-height: 22px; color: #181818; }
-.sp-idea__card-title { margin: 13px 0 0; font-size: 20px; font-weight: 600; line-height: 1.3; color: #1b2b39; }
-.sp-idea__card--partner .sp-idea__card-body { top: 342px; }
-.sp-idea__card-partner { display: block; margin-top: 20px; font-size: 16px; font-weight: 500; line-height: 22px; color: #999; white-space: nowrap; }
+.sp-idea__card-title { margin: var(--pf-title-gap, 13px) 0 0; font-size: 20px; font-weight: 600; line-height: 1.3; color: #1b2b39; }
+/* Figma 2286:2397: 카드마다 다른 태그·본문·사진의 좌표를 복제 카드에도 적용한다. */
+.sp-idea__card[data-project="mppt"] { --pf-tag-x: 24px; --pf-tag-y: 345px; --pf-body-x: 24px; --pf-body-y: 403px; --pf-body-w: 281px; --pf-title-gap: 10px; }
+.sp-idea__card[data-project="cabinet"] { --pf-media-y: 0px; --pf-media-h: 319.356px; --pf-tag-y: 343.972px; }
+.sp-idea__card[data-project="pdd"] { --pf-body-x: 21.227px; }
+.sp-idea__card[data-project="forklift"] { --pf-tag-x: 21.228px; --pf-tag-y: 342.5px; --pf-body-x: 21.228px; --pf-body-y: 392.5px; }
+.sp-idea__card[data-project="rooftop"] { --pf-media-y: 0px; --pf-tag-x: 21.228px; --pf-tag-y: 342px; --pf-body-x: 21.228px; --pf-body-y: 392px; }
 
 /* 좁은 데스크톱(1024~1279): 카드 288·간격 48, 화살표 40 으로 축소, 페이드는 짧게 */
 @media (max-width: 1279.98px) {

@@ -62,7 +62,10 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 
 ### Your Idea. Our Expertise. + Development Portfolio(2286:2333)
 - 단계 카드 설명 3줄이 5장 모두 "제품 아이디어와 요구사항을 / 함께 정리하고, 최적의 개발 / 방향을 제안합니다." 복제 — 그대로. 제목 굵기가 01·02 SemiBold, 03~05 Bold 로 불일치 — 피그마대로. 둘째 줄 화살표 y·x 가 첫째 줄과 다름 — 피그마대로. 03 카드 안 보이는 원(2286:2543) 무시. 제목 블록 중심 x=964 → 960.
-- **포트폴리오 = 무한 마퀴**(디자이너 메모 "korlinx-main-website.pages.dev 참고" 의 `.home-case-stories` 방식: 카드 복제 + CSS keyframes, 55px/s, 호버·reduced-motion 정지). 카드 5·6(Forklift Fork Height Detection Sensor / Rooftop Tent Perimeter Detection Radar — 1920 프레임 밖, 태그 없이 파트너 표기 줄·회색 덮개 변형)도 트랙에 있어 포함 — 디자이너 의도 확인. 카드 좌표 1~3px 들쭉날쭉 → 21·345·400 으로 통일.
+- **포트폴리오 = 무한 마퀴**(디자이너 메모 "korlinx-main-website.pages.dev 참고" 의 `.home-case-stories` 방식: 카드 복제 + CSS keyframes, 55px/s, 호버·reduced-motion 정지). MPPT Optimizer·Smart Cabinet·Partial Discharge Detector·Back Care Device·Forklift Fork Height Detection Sensor·Rooftop Tent Perimeter Detection Radar의 6개 카드 구성.
+- **포트폴리오 시안 반영(2026-09-21)**: 1~4번은 메인 `2286:2393`/트랙 `2286:2397`, 5~6번은 사용자가 지정한 별도 업데이트 `2341:39596`/`2341:39614`를 정본으로 사용한다. 지게차·루프탑 카드에 BLE 태그를 추가하고 UNITOP/TEDS 표기를 제거한다. 지게차 모델은 `BLE - NX15`에서 `NX15`로 분리하며 두 카드 본문은 y392.5/392, 태그는 y342.5/342, x21.228로 맞춘다. 두 사진의 원본 imageHash·크롭·회색 덮개가 기존 시안과 같아 이미지 파일은 재사용한다.
+- 카드별 정밀 배치: MPPT 태그/본문 x24, 본문 y403·제목 간격10, Cabinet 태그 y343.972·사진 높이319.356, PDD/Back Care 태그 y348 및 각 사진의 0/0.5px 상단 좌표를 반영한다. 태그 높이는 30px이며 카드별 `data-project`와 CSS 변수로 마퀴 복제에도 동일하게 적용한다. CSS 버전 `26092115`.
+- 포트폴리오 검증: PHP 문법 및 `git diff --check` 통과. 1920/1280/390/320px에서 원본 6개와 애니메이션 시 복제 포함 18개 카드의 시안 좌표 오차 0.1px 미만·사진 로드·본문 잘림/페이지 가로 넘침 없음 확인. 신규 BLE 태그·NX15/NX40 모델·파트너 표기 제거, reduced-motion 시 복제 없음, pageerror·관련 이미지 오류 0, 1920/390px 캡처 육안 확인.
 - 라이선스: 상단 사진 띠("Screenshot 2026-09-09 …")는 **Unsplash+ 워터마크 프리뷰** → 구매·교체. 단계 아이콘은 Flaticon 계열 파일명(chat_667092·test_7097110·security_11204997) → 출처 표기 필요. 포트폴리오 사진 4장은 korlinx 사이트와 같은 이미지(자사 자산 추정).
 
 ### 숫자로 보는 SamplePCB · Our Network · 도움이 필요하신가요?(2286:2319·2046·2134)
