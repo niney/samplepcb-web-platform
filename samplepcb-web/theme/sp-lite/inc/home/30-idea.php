@@ -4,7 +4,7 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 /*
  * 홈 섹션 — "Your Idea. Our Expertise." 프로세스 5단계 + Development Portfolio
  *   Figma 「웹 메인」(2286:1275) Group 173(2286:2333) — y 4855~7095(높이 2240). 아래 좌표는 피그마 y − 4855.
- *   · 상단 사진 띠 2286:2389: 1~322px, 아래로 투명해지는 마스크 + 흰 51% 덮개 → export JPG 에 구움(img/home/idea/photo-strip.jpg)
+ *   · 상단 사진 띠 2286:2389: 0~321px(사용자 요청으로 상단 1px 틈 제거), 아래로 투명해지는 마스크 + 흰 51% 덮개 → export JPG 에 구움(img/home/idea/photo-strip.jpg)
  *   · 제목 2286:2480(281px) · 단계 카드 2286:2522(01~03, 611px) · 2286:2551(04~05, 977px): 306×288, 점선 화살표 2286:2549(71×15)
  *   · Development Portfolio 2286:2393: 제목 1422 · 카드 트랙 1604(329×496, 간격 30, 6장) · 좌/우 가장자리 페이드 2289:90439 · 2286:2475
  *   · 트랙 동작은 디자이너 메모("Development Portfolio 구현 부분은 korlinx 참고 사이트")대로 무한 가로 마퀴 —

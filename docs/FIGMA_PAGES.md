@@ -61,6 +61,8 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - Parts 블록 둘째 버튼 "파트너사 등록하기 →", SMT 제목만 lh 1.4·버튼만 #d9d9d9 테두리·797/23/460 분할 — 피그마대로.
 
 ### Your Idea. Our Expertise. + Development Portfolio(2286:2333)
+- **배경 위 빈 여백 제거(사용자 요청, 2026-09-21)**: 3 EYES 마지막 SMT 블록 아래의 하단 패딩 141px(1023px 이하 80px)을 제거하고 `.sp-idea__photo`의 top을 1px→0으로 맞춘다. SMT 블록 끝과 Your Idea 사진 배경을 바로 연결하며, 사진 원본·321px 높이·제목과 개발 단계의 섹션 내부 간격은 유지한다. 이전에 기록한 Figma 절대 y 좌표보다 이후 섹션이 제거한 패딩만큼 위로 이동한다. CSS 버전 `26092118`.
+- 여백 검증: 1974/1920/1280/1024/768/390/320px에서 SMT 블록 끝→사진 시작 간격 0px, 섹션 사이 간격 0px, 사진 높이321 및 제목의 기존 내부 위치 유지 확인. 가로 넘침·pageerror 없음, 1974/390px 경계 캡처 육안 확인, PHP 2파일 문법 및 `git diff --check` 통과.
 - 단계 카드 설명 3줄이 5장 모두 "제품 아이디어와 요구사항을 / 함께 정리하고, 최적의 개발 / 방향을 제안합니다." 복제 — 그대로. 제목 굵기가 01·02 SemiBold, 03~05 Bold 로 불일치 — 피그마대로. 둘째 줄 화살표 y·x 가 첫째 줄과 다름 — 피그마대로. 03 카드 안 보이는 원(2286:2543) 무시. 제목 블록 중심 x=964 → 960.
 - **포트폴리오 = 무한 마퀴**(디자이너 메모 "korlinx-main-website.pages.dev 참고" 의 `.home-case-stories` 방식: 카드 복제 + CSS keyframes, 55px/s, 호버·reduced-motion 정지). MPPT Optimizer·Smart Cabinet·Partial Discharge Detector·Back Care Device·Forklift Fork Height Detection Sensor·Rooftop Tent Perimeter Detection Radar의 6개 카드 구성.
 - **포트폴리오 시안 반영(2026-09-21)**: 1~4번은 메인 `2286:2393`/트랙 `2286:2397`, 5~6번은 사용자가 지정한 별도 업데이트 `2341:39596`/`2341:39614`를 정본으로 사용한다. 지게차·루프탑 카드에 BLE 태그를 추가하고 UNITOP/TEDS 표기를 제거한다. 지게차 모델은 `BLE - NX15`에서 `NX15`로 분리하며 두 카드 본문은 y392.5/392, 태그는 y342.5/342, x21.228로 맞춘다. 두 사진의 원본 imageHash·크롭·회색 덮개가 기존 시안과 같아 이미지 파일은 재사용한다.
