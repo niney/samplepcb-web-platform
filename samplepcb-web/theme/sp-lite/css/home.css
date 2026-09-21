@@ -590,12 +590,12 @@
 
 /* ────────────────────────────── 10-onestop ────────────────────────────── */
 /* ==========================================================================
-   2. Transforming Electronics Manufacturing + One-Stop Manufacturing — Figma 2286:2483 (y 666~2052, 1386px)
+   2. Transforming Electronics Manufacturing + One-Stop Manufacturing — Figma 2337:32387 (y 666~2052, 1386px)
    ---------------------------------------------------------------------------
    좌표는 섹션 상단(피그마 y 666) 기준. 콘텐츠 x 320~1600(.sp-inner).
    소개(2286:2515): 손글씨 y140(60px 줄, SVG 26px 잉크 가운데) · 제목 y224(44 Bold, lh1.4) · 부제 y302(31 Regular)
-   One-Stop(2286:2485): 제목 y521(34 Bold) · 설명 y577(22) · 탭 y658(22, lh30, gap32, x325) · 밑줄 y696(검정 3px, 폭93) / 회색 1px y697
-   패널: 사진 (364,763) 632×507 · 카드 (1133,786) 400×460 · 드롭다운 (291,709) 150×135
+   One-Stop: 제목 y521(34 Bold) · 설명 y577(22) · 탭 y658(22, lh30, gap32, x325) · 밑줄 y696(검정 3px) / 회색 1px y697
+   패널: PCB 4종 + 서비스 4종, 사진은 각 시안 좌표 · 카드 (1133,786) 400×460 · 드롭다운(2341:39363) 150×160
    ========================================================================== */
 .sp-onestop {
     height: 1386px;
@@ -640,150 +640,60 @@
     color: #555;
 }
 
-/* — 탭 */
-.sp-onestop__tabs {
-    display: flex;
-    gap: 32px;
-    margin: 52px 0 0;
-    padding: 0 0 9px 5px;
-    list-style: none;
-    border-bottom: 1px solid #d9d9d9;
-}
-.sp-onestop__tab { position: relative; }
-.sp-onestop__tab-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: none;
-    font: inherit;
-    font-size: 22px;
-    font-weight: 500;
-    line-height: 30px;
-    color: #444;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: color .15s;
-}
+/* — 서비스 탭과 PCB 종류 드롭다운 */
+.sp-onestop__tabs-wrap { position: relative; margin-top: 52px; z-index: 3; }
+.sp-onestop__tabs { display: flex; gap: 32px; margin: 0; padding: 0 0 9px 5px; list-style: none; border-bottom: 1px solid #d9d9d9; }
+.sp-onestop__tab { position: relative; flex: none; }
+.sp-onestop__tab-btn { display: inline-flex; align-items: center; gap: 10px; margin: 0; padding: 0; border: 0; background: none; font: inherit; font-size: 22px; font-weight: 500; line-height: 30px; color: #444; white-space: nowrap; cursor: pointer; }
 .sp-onestop__tab-btn:hover { color: #000; }
 .sp-onestop__tab.is-active .sp-onestop__tab-btn { font-weight: 800; color: #000; }
-.sp-onestop__tab.is-active::after {
-    content: "";
-    position: absolute;
-    left: -5px;
-    right: -4px;
-    bottom: -11px;
-    height: 3px;
-    background: #000;
-}
-.sp-onestop__chev { display: block; width: 14px; height: 14px; transition: transform .2s; }
+.sp-onestop__tab.is-active::after { content: ""; position: absolute; left: -5px; right: -5px; bottom: -11px; height: 3px; background: #000; }
+.sp-onestop__chev { display: block; width: 14px; height: 14px; }
 .sp-onestop__tab.is-open .sp-onestop__chev { transform: rotate(180deg); }
+.sp-onestop__tab-btn:focus-visible, .sp-onestop__menu-item:focus-visible { outline: 2px solid #05f; outline-offset: 3px; }
 
-/* — PCBS 드롭다운(2294:90517) */
-.sp-onestop__menu {
-    position: absolute;
-    left: -34px;
-    top: calc(100% + 21px);
-    z-index: 5;
-    width: 150px;
-    padding: 10px 0;
-    background: #fff;
-    border-radius: 8px;
-    box-shadow: 0 10px 10px rgba(0, 0, 0, .1);
-}
+/* 메뉴는 가로 스크롤 tablist 바깥에 두어 모바일에서도 잘리지 않게 한다. */
+.sp-onestop__menu { position: absolute; left: -29px; top: 51px; z-index: 5; width: 150px; padding: 10px 0; background: #fff; border-radius: 8px; box-shadow: 0 10px 10px rgba(0,0,0,.1); }
 .sp-onestop__menu[hidden] { display: none; }
-.sp-onestop__menu-item {
-    display: block;
-    width: 100%;
-    height: 35px;
-    margin: 0;
-    padding: 8px 16px;
-    border: 0;
-    background: none;
-    font: inherit;
-    font-size: 15px;
-    font-weight: 500;
-    line-height: 1.3;
-    text-align: left;
-    color: #0a151e;
-    cursor: pointer;
-}
-.sp-onestop__menu-item:hover,
-.sp-onestop__menu-item.is-active { background: #f5f8fb; }
+.sp-onestop__menu-item { display: block; width: 100%; height: 35px; margin: 0; padding: 8px 16px; border: 0; background: none; font: inherit; font-size: 15px; font-weight: 500; line-height: 1.3; text-align: left; color: #0a151e; cursor: pointer; }
+.sp-onestop__menu-item:hover, .sp-onestop__menu-item.is-active { background: #f5f8fb; }
 
-/* — 패널: 사진 + 카드 */
-.sp-onestop__panel {
-    display: flex;
-    align-items: flex-start;
-    margin-top: 65px;
-}
-.sp-onestop__photo { flex: 0 0 auto; margin-left: 44px; }
-.sp-onestop__photo img { display: block; width: 632px; height: 507px; }
-.sp-onestop__card {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    flex: 0 0 400px;
-    box-sizing: border-box;
-    width: 400px;
-    height: 460px;
-    margin: 23px 67px 0 auto;
-    padding: 32px 36px;
-    background: #fff;
-    border: 1px solid #ededed;
-    border-radius: 14px;
-}
-.sp-onestop__card-title {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 600;
-    line-height: 1.3;
-    color: #1b2b39;
-}
+/* 시안별 이미지 좌표만 바꾸고, 카드 위치(x1133/y1452)와 선택 영역 높이는 고정한다. */
+.sp-onestop__panels { position: absolute; left: 20px; top: 674px; width: calc(100% - 40px); height: 684px; }
+.sp-onestop__panel { position: absolute; inset: 0; }
+.sp-onestop__panel[hidden] { display: none; }
+.sp-onestop__panel:focus-visible { outline: 2px solid #05f; outline-offset: 4px; }
+.sp-onestop__photo { position: absolute; left: var(--os-x); top: var(--os-y); width: var(--os-w); height: var(--os-h); }
+.sp-onestop__photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sp-onestop__photo--metal-mask img { position: absolute; left: 50%; top: 50%; width: 94.228%; height: 62.306%; transform: translate(-50%, -50%) rotate(-68.76627deg); }
+.sp-onestop__photo--parts-sourcing { border: 1px solid #000; }
+.sp-onestop__card { position: absolute; left: 813px; top: 112px; display: flex; flex-direction: column; justify-content: space-between; width: 400px; height: 460px; padding: 32px 36px; background: #fff; border: 1px solid #ededed; border-radius: 14px; }
+.sp-onestop__card-title { margin: 0; font-size: 24px; font-weight: 600; line-height: 1.3; color: #1b2b39; }
 .sp-onestop__card-hr { height: 1px; margin: 20px 0; border: 0; background: #ebebeb; }
-.sp-onestop__card-list {
-    margin: 0;
-    padding: 0 0 0 27px;
-    list-style: disc;
-    font-size: 18px;
-    font-weight: 500;
-    line-height: 1.7;
-    color: #1b2b39;
-}
-.sp-onestop__card-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px 32px;
-    border-radius: 6px;
-    background: #05f;
-    font-size: 18px;
-    font-weight: 700;
-    line-height: 20px;
-    color: #fff;
-    white-space: nowrap;
-    transition: filter .15s;
-}
-.sp-onestop__card-btn:hover { filter: brightness(1.08); }
+.sp-onestop__card-list { margin: 0; padding-left: 27px; list-style: disc; font-size: 18px; font-weight: 500; line-height: 31px; color: #1b2b39; }
+.sp-onestop__panel[data-service="rigid-flex"] .sp-onestop__card-list li:first-child { font-size: 17px; }
+.sp-onestop__prices { margin-top: 12px; font-size: 22px; font-weight: 700; line-height: 1.5; color: #000; }
+.sp-onestop__prices p { margin: 0; }
+.sp-onestop__prices strong { font-weight: inherit; color: #05f; }
+.sp-onestop__card-btn { display: flex; align-items: center; justify-content: center; flex: none; padding: 16px 32px; border-radius: 6px; background: #05f; font-size: 18px; font-weight: 700; line-height: 20px; color: #fff; white-space: nowrap; }
+.sp-onestop__note { position: absolute; left: 853px; top: 1266px; width: 360px; margin: 0; font-size: 14px; line-height: 1.4; color: #75889e; }
 
-/* ── 좁은 데스크톱(1024~1279): 간격·크기만 줄인다 ───────────────────────── */
 @media (max-width: 1279.98px) {
     .sp-onestop { height: auto; padding-bottom: 100px; }
     .sp-onestop__intro { padding-top: 110px; }
     .sp-onestop__headline { font-size: 40px; }
     .sp-onestop__lead { font-size: 26px; }
     .sp-onestop__title { margin-top: 130px; }
-    .sp-onestop__tabs { flex-wrap: wrap; gap: 14px 24px; }
+    .sp-onestop__tabs { gap: 24px; }
     .sp-onestop__tab-btn { font-size: 20px; }
-    .sp-onestop__panel { gap: 24px; margin-top: 56px; }
-    .sp-onestop__photo { flex: 0 1 632px; min-width: 0; margin-left: 0; }
-    .sp-onestop__photo img { width: 100%; height: auto; }
-    .sp-onestop__card { flex: 0 0 360px; width: 360px; height: auto; min-height: 420px; margin: 23px 0 0 auto; padding: 28px 30px; }
+    .sp-onestop__panels { position: static; width: auto; height: auto; margin-top: 56px; }
+    .sp-onestop__panel { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; }
+    .sp-onestop__panel[hidden] { display: none; }
+    .sp-onestop__photo { position: relative; left: auto; top: auto; align-self: center; width: min(100%, var(--os-w)); height: auto; aspect-ratio: var(--os-ratio); margin: 0 auto; }
+    .sp-onestop__card { position: static; grid-column: 2; width: 360px; height: auto; min-height: 460px; padding: 28px 30px; }
+    .sp-onestop__card-btn { margin-top: 28px; }
+    .sp-onestop__note { position: static; width: 360px; max-width: 100%; margin: 20px 0 0 auto; }
 }
-
-/* ── 태블릿·모바일(≤1023): 세로 흐름 — 피그마에 없어 우리 정의 ─────────────── */
 @media (max-width: 1023.98px) {
     .sp-onestop { padding-bottom: 72px; }
     .sp-onestop__intro { padding-top: 80px; }
@@ -793,25 +703,18 @@
     .sp-onestop__lead { margin-top: 12px; font-size: 20px; }
     .sp-onestop__title { margin-top: 88px; font-size: 28px; }
     .sp-onestop__desc { font-size: 18px; }
-    .sp-onestop__tabs {
-        flex-wrap: nowrap;
-        gap: 24px;
-        margin-top: 32px;
-        padding-bottom: 8px;
-        overflow-x: auto;
-        scrollbar-width: none;
-    }
+    .sp-onestop__tabs-wrap { margin-top: 32px; }
+    .sp-onestop__tabs { gap: 24px; padding-bottom: 8px; overflow-x: auto; scrollbar-width: none; }
     .sp-onestop__tabs::-webkit-scrollbar { display: none; }
-    .sp-onestop__tab { flex: 0 0 auto; }
     .sp-onestop__tab-btn { font-size: 18px; }
     .sp-onestop__tab.is-active::after { bottom: -9px; }
-    .sp-onestop__panel { flex-direction: column; align-items: center; gap: 32px; margin-top: 40px; }
-    .sp-onestop__photo { flex: 0 0 auto; width: 100%; max-width: 632px; }
-    .sp-onestop__card { flex: 0 0 auto; width: 100%; max-width: 400px; min-height: 0; margin: 0; padding: 28px 30px; }
+    .sp-onestop__panels { margin-top: 40px; }
+    .sp-onestop__panel { display: flex; flex-direction: column; align-items: center; gap: 32px; }
+    .sp-onestop__photo { max-width: 632px; }
+    .sp-onestop__card { grid-column: auto; width: 100%; max-width: 400px; min-height: 0; margin: 0; padding: 28px 30px; }
     .sp-onestop__card-btn { margin-top: 32px; }
+    .sp-onestop__note { width: 100%; max-width: 400px; margin: 20px auto 0; }
 }
-
-/* ── 소형(≤599) ─────────────────────────────────────────────────────────── */
 @media (max-width: 599.98px) {
     .sp-onestop__intro { padding-top: 60px; }
     .sp-onestop__hand img { width: 260px; height: 16px; }
@@ -821,7 +724,9 @@
     .sp-onestop__desc { font-size: 16px; }
     .sp-onestop__tab-btn { font-size: 16px; }
     .sp-onestop__card { padding: 24px; }
-    .sp-onestop__card-list { font-size: 16px; }
+    .sp-onestop__card-list { font-size: 16px; line-height: 1.7; }
+    .sp-onestop__panel[data-service="rigid-flex"] .sp-onestop__card-list li:first-child { font-size: 16px; }
+    .sp-onestop__prices { font-size: 20px; }
     .sp-onestop__card-btn { font-size: 16px; }
 }
 

@@ -41,13 +41,16 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - **배경 애니메이션 저사양 대응(2026-09-21, 제보 "배경 움직임 적용 시 화면 wide 하게 조정하면 배경 끊김")**: 헤드리스 Chrome + CDP CPU 스로틀 실측(`ops/scripts/hero-perf.mjs perf`)으로 원인을 둘로 갈랐다. ① **끊김(프레임 드롭)의 주범은 배너 01 SVG 윤곽 회전** — 매 프레임 46,575점·404KB `d` 문자열을 setAttribute 해 cpu×4 에서 메인스레드 68% 점유(02~04 팬·04 backdrop 은 컴포지터 몫이라 메인스레드 0). ② **"wide 로 조정하면"은 별개 결함** — `--sp-pan` 이 `100vw` 로 계산돼 창 폭이 바뀌는 순간 키프레임 진폭이 바뀌어 translateX 가 점프(1920→3400 실측 146px). 조치: (a) `.sp-hero.is-lite` 라이트 모드 — hero.js 가 기기 신호(deviceMemory ≤4·코어 ≤2·saveData)와 실측(회전 중 1.5초 창 프레임 평균 40ms 초과 또는 50ms 초과 20%)로 강등해 팬·회전·backdrop-filter·영상을 전부 정지 배경으로, sessionStorage 로 같은 탭 다음 페이지도 처음부터 라이트(감시 창은 **시간 기준**이어야 한다 — 배너 01 이 6초만 머물러 프레임 60개 세기는 판정 전에 넘어갔다). (b) 회전 경량화 — `motion-path.js` 접힘 구간 샘플 4→8px(12 위상 래스터 대조 알파차 128 초과 15픽셀뿐)·좌표 소수 2자리·30→24fps: 점 25,853·`d` 207KB, cpu×4 메인스레드 초과분 4.7→1.3ms. (c) 팬 진폭 상수 600px — 3720 리소스 양끝 색이 각 슬라이드 전폭 배경색과 같아(02 #fefeff/#e3eefb·03 #dff3fb/#fcfefe(1단계 차)·04 #e0e6fe/#bcceff) 2520 초과 화면에서 가장자리가 드러나도 이음새 점프 ≤3. (d) 배너 04 backdrop-filter 는 라이트에서만 해제(디자인 유지). (e) 팬 배경 3장 PNG(완전 불투명, 265/374/819KB)→WebP q0.9(30/28/46KB, 최대 채널 차 ≤28) — 헤드리스 캔버스 변환, 원본 PNG 는 git 이력(51cac5cc8); `will-change` 는 활성 팬만. (f) 윤곽 SVG `<img>` 에 `?ver` 을 붙여 hero.js fetch 와 URL 통일(89KB 두 번 받던 것). 회귀 점검은 `ops/scripts/hero-perf.mjs verify`(라이트·감시 강등 cpu×20 2.2s·리사이즈 Δ0·이음새 6조합 전부 통과). CSS 26092112 · JS 26092103. 한계: 팬·backdrop 의 GPU 쪽 부담은 실측 감시가 못 잡는다(기기 신호·reduced-motion 몫).
 - 히어로 슬라이드 관리자 2단계(템플릿·이미지 섞어 순서·노출)는 여전히 미착수.
 
-### 소개 + One-Stop Manufacturing(2286:2483 · 드롭다운 2294:90517)
+### 소개 + One-Stop Manufacturing(2026-09-21 갱신, 2337:32387 · 드롭다운 2341:39363)
 - "Smarter. Faster. Connected." 는 Bradley Hand Bold(웹폰트 없음) → 글리프 SVG(`img/home/onestop/smarter-faster-connected.svg`) + `.sound_only` 텍스트.
-- PCB 사진(2286:2514 "스크린샷 2026-09-16 …")은 노드 export 가 흰 배경으로 구워져 원본 알파 이미지를 피그마 crop 값대로 잘라 WebP 로 — 출처·라이선스 불명(스크린샷 파생 3D 렌더).
-- 탭 문구 "PCBS"(대문자 S)·"MetalMask"(붙여쓰기) 피그마 그대로. "Turnkey Service" 텍스트의 빈 둘째 줄(ZWSP)은 무시.
-- **피그마엔 PCBS/FR-4 패널만 있음** → 나머지 탭 5개·드롭다운 Flexible/Rigid-Flex 는 콘텐츠 없음(클릭 시 활성 표시만). 탭·PCB 종류별 사진/카드 내용 필요.
-- 드롭다운 실제 스타일(테두리 없음·r8·그림자 0 10 10·py10·항목 h35)은 헤더 드롭다운과 달라 노드대로. 피그마엔 열린 상태로 그려져 있으나 기본은 닫힘(호버·클릭·키보드로 열림).
-- FR-4 카드 높이 460 중 내용 ~200 — 피그마대로(빈 공간 큼).
+- 상위 탭은 **PCBs · Metal Mask · Parts Sourcing · PCB Assembly · Turnkey Service**. PCBs 드롭다운은 FR-4 · Flexible · Rigid-Flex · Aluminum 4종이며, 선택 시 사진·제목·사양·가격·납기를 함께 전환한다. PCB 종류는 다른 서비스에 다녀와도 유지하며 FR-4 이외의 PCB 선택 시 탭 이름에도 종류를 표시한다.
+- 시안 매핑: FR-4 카드/사진 `2337:32412`/`2337:32423`, Metal Mask `2337:32446`, Aluminum `2341:39692`, Flexible `2341:39752`, Rigid-Flex `2341:39796`, PCB Assembly `2341:39834`, Parts Sourcing `2341:40011`, Turnkey `2344:29842`.
+- **사용자 확정**: Parts Sourcing 카드의 복사된 제목 "PCB Assembly"는 "Parts Sourcing"으로 교정. Turnkey 왼쪽 이미지는 추후 업데이트를 위해 비움. Metal Mask는 프레임 사진과 "국내 제작 Non-Frame 타입" 설명을 시안 그대로 함께 사용.
+- Figma 원본 이미지 7장을 알파 보존 WebP로 변환해 `img/home/onestop/`에 둔다. 최초 FR-4만 로드하고 다른 이미지는 해당 항목 첫 선택 시 로드한다. Metal Mask의 원본 회전 및 Parts Sourcing의 1px 검정 테두리도 반영한다.
+- 데스크톱 카드 400×460, 화면 x1133/섹션 y786 및 섹션 높이 1386 유지. 공통 가격·납기 안내문(`2341:39360`)을 카드 아래에 추가. 1279px 이하부터 유동 배치, 1023px 이하에서는 이미지·카드를 세로로 표시하며 Turnkey는 빈 이미지 높이를 만들지 않는다.
+- 드롭다운은 테두리 없음·r8·그림자 0 10 10·py10·항목 h35, 총 150×160. 기본 닫힘이며 호버·클릭·터치·키보드로 선택한다. 선택한 PCB 이름에 따라 달라지는 탭 너비의 중앙에 메뉴를 맞추고, 화면 가장자리에서는 8px 여백을 확보한다. 모바일 가로 스크롤 탭 목록 바깥에 메뉴를 배치해 잘림을 방지한다. 방향키/Home/End 선택, Escape 닫기, 선택 탭/패널 ARIA 연결을 적용한다.
+- 견적 요청 버튼은 기존 결정대로 미연결. 안내 가격·생산기간은 시안 문구이며 DB/API·견적 계산·주문 정책 변경 없음. CSS/JS 버전 `26092113`/`26092105`.
+- 검증: PHP/JS 문법 및 `git diff --check` 통과. 1920/1280/1024/768/390/320px에서 8개 상태의 제목·가격·이미지·단일 활성 패널·카드 겹침/가로 넘침 없음, PCB 선택 유지·키보드 이동·메뉴 화면 내 배치 확인. 390/320px 터치 환경에서 선택·메뉴 토글·바깥 터치 닫기·PCB 선택 유지, 데스크톱에서 메뉴 호버 진입·이탈 확인. 초기 이미지 1장만 요청하고 전체 선택 후 7장 로드, 페이지 JS 오류·관련 에셋 오류 0. 1920/390px 캡처 육안 확인.
 
 ### 3 EYES(2286:1276·1444·1455·1784·1686)
 - Gerber·Parts 화면은 피그마에 든 **애니메이션 GIF**(0.9MB·4.7MB) 그대로, `loading="lazy"`. 디자이너 메모 "3EYES gif 영상은 어떻게 전달드리면 될까요?" — 영상으로 바꾸려면 `.sp-eyes__media` 안 `<img>` → `<video>`. ⚠ 4.7MB 는 무거워 mp4/webm 변환 권장(로컬엔 ffmpeg 없음).
