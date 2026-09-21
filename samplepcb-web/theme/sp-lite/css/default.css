@@ -130,12 +130,12 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 }
 
 /* ==========================================================================
-   헤더 — Figma 「웹 메인」(2286:1275) top(2286:1435 = 컴포넌트 2239:1851) 2026-09-18
+   헤더 — Figma 「웹 메인」(2286:1275) top(2331:30387) 2026-09-21
    (디자이너 9/9 "GNB 높이·텍스트/아이콘 크기 변경, 드롭다운 추가")
    72px 흰 바(blur 4·그림자 0 8 10 rgba(168,185,205,.1)) · 안쪽 1280(= --sp-container 1320 − 패딩 40) 을 space-between 으로
-   [로고 175×28] … [GNB 16 Medium #0a151e, gap 30, 하위메뉴 있으면 ▾ 8×4] … [로그인 검정 알약 + 회원가입 회색 알약(13 Medium,
+   [로고 177×30] … [GNB 16 Medium #0a151e, gap 24, 펼치면 Bold + ▴ 8×4] … [로그인 검정 알약 + 회원가입 회색 알약(13 Medium,
    패딩 6/10, r48), gap 10] +20+ [아이콘 3개 30px, gap 8].
-   드롭다운(2286:1436): 흰 150폭·#d9d9d9 테두리·r12·그림자 0 16 15 rgba(0,0,0,.1)·패딩 16/15, 항목 120폭 8/10 r8 15 Medium,
+   드롭다운(2286:1436): 흰 150×139·#d9d9d9 테두리·r12·그림자 0 16 15 rgba(0,0,0,.1)·항목 120×35, r8 15 Medium,
    활성·호버 #f5f8fb, 바 위 y59 에서 시작(바 72 와 13px 겹침).
    로그인 상태(피그마 없음, 2026-08-27 결정 유지): 알약 자리에 '로그아웃' 회색 알약(회원가입과 같은 모양) + 승인 파트너 '파트너 포탈',
    super '관리자'·'시스템 관리자' 밑줄 텍스트. 건수 배지는 견적관리 화면(103:2659) 헤더의 파란 pill(아이콘 오른쪽).
@@ -158,9 +158,9 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
     height: var(--sp-header-h);
 }
 
-/* 로고 — 심볼 28 + SAMPLEPCB 워드마크(img/logo-header.png, 2x 350×56) */
+/* 로고 — Figma 2331:30389 원본 export, 심볼 30 + 워드마크 147 */
 .sp-logo { display: inline-flex; align-items: center; flex-shrink: 0; }
-.sp-logo img { display: block; width: 175px; height: 28px; }
+.sp-logo img { display: block; width: 177px; height: 30px; }
 
 /* 우측 유틸: [인증 알약] +20+ [아이콘 3개] */
 .sp-util {
@@ -180,11 +180,12 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
     border-radius: 48px;
     font-size: 13px;
     font-weight: 500;
-    line-height: 1.3;
+    line-height: 17px;
     white-space: nowrap;
     text-decoration: none;
 }
-.sp-util__login { background: var(--sp-header-ink); color: #fcfdfd; }
+.sp-util__login { min-width: 54px; background: var(--sp-header-ink); color: #fcfdfd; }
+.sp-util__signup { min-width: 65px; }
 .sp-util__login:hover { background: #22303b; color: #fcfdfd; }
 .sp-util__link { background: #f0f3f5; color: var(--sp-header-muted); }
 .sp-util__link:hover { background: #e3e8ec; color: var(--sp-header-ink); }
@@ -206,6 +207,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
     padding: 0;
     list-style: none;
 }
+.sp-util__icons li { display: flex; }
 .sp-util__icons a { display: inline-flex; align-items: center; gap: 2px; }
 .sp-util__icons img { display: block; width: 30px; height: 30px; transition: opacity .15s; }
 .sp-util__icons a:hover img { opacity: .55; }
@@ -242,65 +244,77 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 
 .sp-gnb__list {
     display: flex;
-    gap: 30px;
+    gap: 24px;
     margin: 0;
     padding: 0;
     list-style: none;
 }
 
 .sp-gnb__item { position: relative; }
+.sp-gnb__item[data-menu="develop"] { min-width: 28px; }
+.sp-gnb__item[data-menu="pcb"] { min-width: 32px; }
+.sp-gnb__item[data-menu="parts"] { min-width: 60px; }
+.sp-gnb__item[data-menu="pcba"], .sp-gnb__item[data-menu="blog"] { min-width: 42px; }
+.sp-gnb__item[data-menu="company"] { min-width: 70px; }
 
 .sp-gnb__link {
-    display: block;
-    padding: 25px 0;              /* 22 + 50 = 72 = 바 높이 → 링크가 바를 채워 드롭다운까지 hover 가 안 끊긴다 */
+    display: flex;
+    align-items: center;
+    height: var(--sp-header-h);
+    padding: 0;                  /* 바 높이 전체를 히트 영역으로 유지 */
     font-size: 16px;
     font-weight: 500;
-    line-height: 22px;
+    line-height: 1.3;
     color: var(--sp-header-ink);
     white-space: nowrap;
 }
-.sp-gnb__item:hover > .sp-gnb__link { color: var(--sp-primary); }
+.sp-gnb__item:hover > .sp-gnb__link { color: var(--sp-header-ink); }
+.sp-gnb__item.is-open > .sp-gnb__link { font-weight: 700; }
 
 /* 하위메뉴 있는 1차: 텍스트 오른쪽 6px 에 ▾(피그마 Vector 1, 8×4 #39404D) */
 .sp-gnb__item.has-sub > .sp-gnb__link { display: inline-flex; align-items: center; gap: 6px; }
-.sp-gnb__item.has-sub > .sp-gnb__link::after {
-    content: "";
+.sp-gnb__chevron {
+    position: relative;
     flex: 0 0 auto;
-    width: 10px;
-    height: 6px;
-    background: url(../img/header/ico-chevron.svg) center / contain no-repeat;
+    width: 8px;
+    height: 4px;
 }
+.sp-gnb__chevron img { position: absolute; left: -.75px; top: -.75px; width: 9.5px; height: 5.81066px; max-width: none; }
+.sp-gnb__item.is-open .sp-gnb__chevron { transform: rotate(180deg); }
 
 .sp-gnb__sub {
     display: none;
     position: absolute;
     top: 59px;                    /* 피그마 y59 — 바(72) 아래 13px 겹쳐 시작 */
-    left: calc(50% - 8px);        /* 피그마: 드롭다운 왼쪽 = 항목 가운데 − 8 */
+    left: calc(50% - 67px);       /* 드롭다운 중심 = 항목 중심 + 8, 1920 화면에서 x950 */
     z-index: 1001;
-    min-width: 150px;
+    width: 150px;
     margin: 0;
-    padding: 16px 15px;
+    padding: 16px 14px;
     list-style: none;
     background: #fff;
     border: 1px solid #d9d9d9;
     border-radius: 12px;
     box-shadow: 0 16px 15px rgba(0, 0, 0, .1);
 }
-.sp-gnb__item:hover .sp-gnb__sub { display: block; }
+.sp-gnb__item.is-open .sp-gnb__sub { display: block; }
 
 .sp-gnb__sub a {
     display: block;
-    min-width: 120px;
+    width: 120px;
+    height: 35px;
     padding: 8px 10px;
     border-radius: 8px;
     font-size: 15px;
     font-weight: 500;
-    line-height: 1.3;
+    line-height: 19px;
     color: var(--sp-header-ink);
     white-space: nowrap;
 }
 .sp-gnb__sub a:hover,
-.sp-gnb__sub a.is-active { color: var(--sp-header-ink); background: #f5f8fb; }
+.sp-gnb__sub a:focus-visible,
+.sp-gnb__sub a[aria-current="page"],
+.sp-gnb__sub:not(:has(a:hover, a:focus-visible)) a.is-default { color: var(--sp-header-ink); background: #f5f8fb; }
 
 .sp-gnb__empty {
     padding: 13px 0;
@@ -491,7 +505,7 @@ body:has(.sp-home) .sp-footer { margin-top: 0; } /* 홈은 게시판 섹션에 �
 
     .sp-gnb-toggle { display: inline-flex; align-items: center; justify-content: center; margin-right: 6px; }
 
-    .sp-logo img { width: 150px; height: 24px; }
+    .sp-logo img { width: 150px; height: auto; }
 
     .sp-util { gap: 14px; margin-left: auto; } /* 모바일: [토글][로고] … [유틸] */
     .sp-util__auth { gap: 12px; }
@@ -519,12 +533,13 @@ body:has(.sp-home) .sp-footer { margin-top: 0; } /* 홈은 게시판 섹션에 �
 
     .sp-gnb__list { flex-direction: column; gap: 0; }
 
-    .sp-gnb__link { padding: 12px 8px; font-size: 16px; line-height: 1.3; border-bottom: 1px solid var(--sp-bg-soft); }
+    .sp-gnb__link { height: auto; padding: 12px 8px; font-size: 16px; line-height: 1.3; border-bottom: 1px solid var(--sp-bg-soft); }
     .sp-gnb__item.has-sub > .sp-gnb__link { display: flex; }
 
     /* 하위메뉴: 드롭다운 → 인라인 목록(탭으로 펼침) */
     .sp-gnb__sub {
         position: static;
+        width: auto;
         min-width: 0;
         border: 0;
         border-radius: 0;
@@ -532,9 +547,8 @@ body:has(.sp-home) .sp-footer { margin-top: 0; } /* 홈은 게시판 섹션에 �
         background: var(--sp-bg-soft);
         padding: 4px 0;
     }
-    .sp-gnb__item:hover .sp-gnb__sub { display: none; }
     .sp-gnb__item.is-open .sp-gnb__sub { display: block; }
-    .sp-gnb__sub a { padding: 9px 20px; }
+    .sp-gnb__sub a { width: auto; height: auto; padding: 9px 20px; }
 
     #wrapper { padding: 20px 16px 48px; }
 
@@ -544,13 +558,23 @@ body:has(.sp-home) .sp-footer { margin-top: 0; } /* 홈은 게시판 섹션에 �
 
 /* 초소형(<600px): 회원가입·로그아웃 텍스트는 숨기고 로고·아이콘 축소 — 375px 에서 한 줄 유지 */
 @media (max-width: 599.98px) {
-    .sp-logo img { width: 120px; height: 19px; }
+    .sp-logo img { width: 120px; height: auto; }
     .sp-gnb-toggle { width: 36px; margin-right: 2px; }
     .sp-util { gap: 10px; }
     .sp-util__auth .sp-util__link { display: none; } /* 회원가입·로그아웃은 로그인/마이페이지 화면에서 */
     .sp-util__login { padding: 5px 9px; font-size: 12px; }
     .sp-util__icons { gap: 8px; }
     .sp-util__icons img { width: 24px; height: 24px; }
+}
+
+/* 320px 기기에서도 메뉴 버튼·로고·로그인·계정 아이콘을 한 줄에 유지한다. */
+@media (max-width: 359.98px) {
+    .sp-header__bar { gap: 8px; }
+    .sp-gnb-toggle { flex: none; width: 28px; margin-right: 0; }
+    .sp-logo img { width: 100px; }
+    .sp-util { gap: 8px; }
+    .sp-util__icons { gap: 6px; }
+    .sp-util__icons img { width: 22px; height: 22px; }
 }
 
 /* ── sp-dialog — 공용 커스텀 팝업(네이티브 alert/confirm 대체) ───────────────── */

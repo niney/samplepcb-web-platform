@@ -8,7 +8,7 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 |---|---|---|---|
 | 마이페이지 쿠폰 `/shop/coupon.php` (2026-09-21) | 2334:30444 | `theme/sp-lite/shop/coupon.php`, `head.sub.php`, `shop/_account_nav.php`, `css/default_shop.css`, `img/account/ico-*coupon*.svg` | (이번 변경) |
 | 홈 `/` (2026-09-18 재구현) | 2286:1275 웹 메인(디자이너 9/17 "웹메인 컨텐츠 업데이트") + 히어로 banner 01~05 = 2286:5331·5332·27009·27054·5165 + 배경 리소스 2286:60998·61007·60963 | `theme/sp-lite/index.php`, `inc/main_slider.php`, `inc/home/{10-onestop,20-eyes,30-idea,40-stats,41-network,42-help}.php`, `css/home.css`, `js/home.js` + `js/home/{hero,onestop,portfolio}.js`, `img/home/{hero,onestop,eyes,idea,network,help}/`, `skin/latest/home-help/` | (이번 커밋) |
-| 공용 헤더 (2026-09-18) | 2286:1435 top(컴포넌트 2239:1851, 디자이너 9/9 "GNB 높이·텍스트/아이콘 크기·드롭다운") + 드롭다운 2286:1436 | `theme/sp-lite/inc/header.php`, `css/default.css` 헤더 블록, `img/header/` | (이번 커밋) |
+| 공용 헤더 (2026-09-21 정밀 반영) | 2331:30387 top(옛 2286:1435는 삭제) + 드롭다운 2286:1436 | `theme/sp-lite/inc/header.php`, `css/default.css` 헤더 블록, `img/header/` | (이번 변경) |
 | 공용 푸터 | 2286:2238 (= 옛 2122:6043 과 동일 디자인, 변경 없음) | `theme/sp-lite/inc/footer.php`, `css/default.css` | 5d7340df3 |
 | 회사소개 `/about` | 2122:6136 GNB > 회사소개 | `spcb/pages/about.php`, `css/about.css`, `img/about/` | e71cebaad |
 | 회사 연혁 `/history` | 2122:6658 GNB > 회사 연혁 | `spcb/pages/history.php`, `css/history.css`, `img/history/` | cc925e72e |
@@ -61,10 +61,14 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 로고 20종은 2줄 **무한 마퀴**(위 ← 70s / 아래 → 50s, 속도 임의, 호버·reduced-motion 정지). 피그마 마스크는 페이드가 아니라 하드 클립이라 페이드 없음. **로고 사용 허락 확인**: 유니탑·인지니어스(RADAR by INZINIOUS)·NuEyne·삼성중공업·RORZE·Nordic·INCERASOLUTION·BUGANG·TELECONS·EKPOWER·멀티·글로벌코넷 / 세종대·한양대·성균관대·고려대·서울대·KAIST·POSTECH·단국대. 노드명≠로고("Screenshot … 2.48 PM"=유니탑, "intro"=EKPOWER 등), POSTECH 은 원본 JPEG(불투명 근백색, 피그마도 같음).
 - Q&A 목록은 피그마 **3행**, 공지 1건, FAQ 는 문구 카드(목록 없음) — 게시판 qa·notice 를 새 스킨 `skin/latest/home-help` 로. 더보기 3개는 `<span>`(`42-help.php` 의 `$sp_help_more` 에 URL 을 넣으면 `<a>`). FAQ 문구 끝 공백("찾아보세요. ") 피그마 그대로. 글 제목은 글 보기 링크.
 
-### 공용 헤더(2286:1435)
-- 72px(옛 94), 로그인 검정 알약 + 회원가입 회색 알약(13px), 아이콘 3개 gap 8, GNB 는 로고·우측 사이 space-between, 하위메뉴 있는 1차에 ▾ + 드롭다운(흰 150폭·r12·그림자, 항목 120폭·활성 #f5f8fb). 피그마 메뉴 문구(개발·PCB·전자 부품·PCBA·회사소개▾·블로그)는 예시 — 실제 항목은 관리자 메뉴설정(g5_menu).
+### 공용 헤더(2331:30387, 2026-09-21)
+- 사용자 요청으로 상단 메뉴·회사소개 서브메뉴를 시안과 통일. 72px 높이, 1280px 내부 폭, 로고 177×30(Figma 2331:30389 원본 PNG), GNB 16px Medium·간격 24px, 로그인/회원가입 54×29·65×29, 아이콘 30px·간격 8px. 비회원 1920px 실측: 로고 x320/y21, 메뉴 x724/폭394, 우측 버튼 x1345/폭255 — Figma 값과 일치.
+- g5_menu의 링크·노출 순서는 유지하면서 기존 표시명 「PCB 설계/PCB 주문/부품 주문/PCBA 주문」을 테마에서 「개발/PCB/전자 부품/PCBA」로 매핑한다. 회사소개 하위는 기존 링크 중 **About US / History / Location** 3항목만 표시(사용자 요청으로 시안에 없는 Customer/Certification 진입점을 상단 메뉴에서 제외, 해당 페이지 섹션·DB 메뉴 원본은 유지).
+- 펼친 회사소개는 검정 Bold·화살표 180° 회전. 드롭다운은 x950/y59·150×139, 테두리 #d9d9d9·r12·그림자 0 16 15 rgba(0,0,0,.1), 내부 항목 120×35·r8·배경 #f5f8fb. 해당 페이지의 항목은 aria-current로 표시하고 홈에서는 첫 항목을 기본 강조한다.
+- 마우스·키보드 포커스로 펼치기, Esc/바깥 클릭으로 닫기, 모바일 첫 탭 펼치기와 화면 폭 전환 시 상태 초기화를 지원한다. CSS 버전 26092106. 원본의 모션 2개는 본문 3 EYES 영역이므로 헤더에는 추가 애니메이션을 넣지 않는다.
+- 검증: PHP 2파일 문법, 비회원 1920px 좌표·드롭다운 치수·메뉴명 단언, 마우스/Tab/Esc/History·Location 실제 이동, 1280/1024/768/390/320px 메뉴 동작·넘침 0 통과. 실로그인 관리자 링크 보존 및 로그인 HTML 1920/1280/1024/390/320px에서 겹침·넘침 없음 확인. 데스크톱·모바일 캡처 육안 확인.
 - 로그인 상태(피그마 없음): 알약 자리에 '로그아웃' 회색 알약(회원가입과 같은 모양), 파트너 포탈·관리자·시스템 관리자는 밑줄 텍스트(2026-08-27 결정 유지).
-- 회사소개 서브메뉴(About Us · History · Customer · Certification · Location)는 이 드롭다운으로 종결(DB 하위메뉴).
+- 회사소개 서브메뉴는 이 드롭다운으로 종결하며, 현재 노출 항목은 위의 3항목 기준을 따른다.
 
 ## 회사소개 `/about` — 피그마 그대로 두고 나중에 고칠 것
 - **배너 부제**(2122:6484)가 `PCB는 모든 산업에서 사용되고 ` 에서 끝남 — 피그마 텍스트 자체가 미완성. 제안: "PCB는 모든 산업에서 사용되는 필수 소재입니다."
