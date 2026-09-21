@@ -5,7 +5,7 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
  * 홈 — Our Network (Figma 「웹 메인」 2286:2046 Group 1000008858, y 7606~8326 · 720px, 배경 #f6f7f8)
  *   제목 "Our Network"(54px Bold) + 부제(36px Medium) + 로고 두 줄(위 기업·파트너 12개 gap 100 / 아래 대학 8개 gap 80)
  *   피그마는 두 줄이 화면보다 넓어 양끝이 잘린 스냅샷(마스크 = 섹션 사각형, 페이드 없음) → 무한 마퀴로 구현
- *   (트랙 = 목록 2벌, CSS keyframes linear infinite, 위줄 왼쪽·아랫줄 오른쪽, 호버 일시정지, reduced-motion 정지).
+ *   (트랙 = 목록 2벌, CSS keyframes linear infinite, 위줄 왼쪽·아랫줄 오른쪽, 호버 중 계속 재생, reduced-motion 정지).
  *   로고 파일 img/home/network/ — 피그마 원본(투명 PNG) 을 표시 크기 2배로 자르고 줄인 것. 크기는 피그마 박스(px).
  *   ⚠ 로고 사용 허락 확인 항목(운영 배포 전): 아래 alt 목록 전부.
  *   스타일: css/home/41-network.css

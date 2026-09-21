@@ -1275,7 +1275,7 @@
 /* ==========================================================================
    6. Our Network (2286:2046: y 7606~8326, 720px, 배경 #f6f7f8)
    제목 y+140(54px) · 부제 y+217(36px) · 위줄 y+382(높이 92, gap 100) · 아랫줄 y+534(높이 46, gap 80)
-   피그마는 화면보다 넓은 두 줄이 양끝에서 잘린 스냅샷 → 무한 마퀴(위 ←, 아래 →), 호버 정지
+   피그마는 화면보다 넓은 두 줄이 양끝에서 잘린 스냅샷 → 무한 마퀴(위 ←, 아래 →), 호버 중에도 계속 재생
    ========================================================================== */
 .sp-network {
     position: relative;
@@ -1322,7 +1322,6 @@
     will-change: transform;
 }
 .sp-network__row--bottom .sp-network__track { animation-direction: reverse; }
-.sp-network__row:hover .sp-network__track { animation-play-state: paused; }
 .sp-network__list {
     display: flex;
     align-items: center;
