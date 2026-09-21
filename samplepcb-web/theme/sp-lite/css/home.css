@@ -45,10 +45,12 @@
    · 1024~1319: .sp-slide__in 을 (뷰포트 − 40)/1280 배율로 축소(--sp-hero-scale, js/home/hero.js 가 정확한 값으로 갱신)
    · ≤1023: 피그마에 없는 구간 — 세로 흐름(우리 정의)
    · 배경 애니메이션: 01 윤곽 연속 회전(JS) · 02~04 3720 폭 "bg img" 팬(CSS) · 05 광명공장 영상. 마크업 inc/main_slider.php
+   · 저사양 라이트(.is-lite, hero.js 가 기기 신호·실측 프레임으로 판정): 팬·회전·backdrop-filter·영상을 끄고 reduced-motion 과 같은 정지 배경
    ========================================================================== */
 .sp-hero {
     --sp-hero-h: 594px;
-    --sp-pan: clamp(0px, calc((3720px - 100vw) / 2), 600px); /* 팬 진폭: 3720 리소스가 화면 양끝을 못 벗어나는 만큼만(1920→600, 2560→580, 3720→0) */
+    --sp-pan: 600px; /* 팬 진폭. 상수 — 100vw 로 계산하면 창 폭이 바뀌는 순간 키프레임 값이 바뀌어 배경이 점프한다(1920→3400 실측 146px).
+                       3720 리소스 양끝(#fefeff·#e3eefb 등)은 각 슬라이드의 전폭 배경색과 같아 2520px 초과 화면에서 가장자리가 드러나도 색으로 이어진다 */
     position: relative;
     height: calc(var(--sp-hero-h) * var(--sp-hero-scale, 1));
     overflow: hidden;
@@ -98,8 +100,8 @@
     width: 3720px;
     height: 666px;
     animation: sp-hero-pan 60s ease-in-out infinite;
-    will-change: transform;
 }
+.sp-hero__slide.is-active .sp-slide__pan { will-change: transform; } /* 레이어 승격은 보이는 슬라이드만(3720×666 = 디코드 9.9MB, DPR 1.5 면 22MB) */
 @keyframes sp-hero-pan {
     0%, 100% { transform: translateX(0); }
     25%      { transform: translateX(calc(-1 * var(--sp-pan))); }
@@ -108,6 +110,9 @@
 .sp-hero__slide:not(.is-active) .sp-slide__pan,
 .sp-hero.is-offscreen .sp-slide__pan { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .sp-slide__pan { animation: none; } }
+.sp-hero.is-lite .sp-slide__pan { animation: none; }
+.sp-hero.is-lite.is-organic .sp-hero__lines   { display: block; } /* 라이트는 정지 윤곽(JS 가 is-organic 을 떼지만 CSS 도 같은 뜻) */
+.sp-hero.is-lite.is-organic .sp-hero__organic { display: none; }
 
 /* 콘텐츠 박스(1280) — 자식은 피그마 좌표 절대 배치 */
 .sp-slide__in {
@@ -449,6 +454,8 @@
             backdrop-filter: blur(20px);
     filter: blur(2.5px);
 }
+/* 라이트: 팬이 움직이는 배경 위 backdrop-filter 는 매 프레임 백드롭을 다시 샘플링한다(내장 GPU 병목) — 반투명 흰색만 남긴다 */
+.sp-hero.is-lite .sp-s4__ring { -webkit-backdrop-filter: none; backdrop-filter: none; }
 .sp-s4__core { left: 29px; top: 29px; width: 220px; height: 220px; background: #fff; filter: blur(1px); }
 .sp-s4__circle p {
     position: relative;
@@ -470,6 +477,7 @@
 .sp-s5__video.is-playing { opacity: 1; }
 .sp-s5__shade { inset: 0; background: linear-gradient(-90deg, rgba(142, 143, 157, .49) 0%, rgba(29, 29, 29, .595) 90%); }
 @media (prefers-reduced-motion: reduce) { .sp-s5__video { display: none; } }
+.sp-hero.is-lite .sp-s5__video { display: none; }
 .sp-s5__title {
     left: 0;
     top: 125px;

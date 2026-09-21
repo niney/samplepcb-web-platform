@@ -4,7 +4,9 @@
 // Continuous deformations of the original Figma outline. A shared deformation
 // field keeps merged/intersecting contours together, instead of assigning
 // unrelated motion to the arbitrary subpaths of the flattened vector.
+// 홈 적용(2026-09-21, 프로빙 폴더와 갈라짐): 접힘 구간 샘플 간격 8(CROSSING_SPACING) · 좌표 소수 2자리(0.005px 는 래스터에 안 보이고 d 문자열 −12%).
 const TAU = Math.PI * 2;
+const CROSSING_SPACING = 8;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const delta = (phase, offset) => Math.sin(phase + offset) - Math.sin(offset);
 
@@ -155,8 +157,10 @@ export function preparePath(source, sampleSpacing = 8) {
         if (settings.intensity === 0 || (phase === 0 && settings.effect !== 'right-swap')) return source;
         // Thin outline sides need denser sampling during a full two-wing fold.
         // Keep the other effects' original sampling and initialize this lazily.
-        if ((settings.effect === 'right-swap' || settings.effect === 'center-swap') && sampleSpacing > 4) {
-            detailedCrossing ??= preparePath(source, 4);
+        // 2026-09-21: 4px 촘촘 샘플을 8px(기본)로 — 12 위상 × 1680×613 래스터 대조에서 알파차 128 초과 픽셀이 15개뿐인데
+        // 점 46,575 → 25,853, 프레임 JS 4.9 → 2.9ms(저사양은 메인스레드가 병목). 접힘 구간이 각져 보이면 CROSSING_SPACING 을 4~6 으로 내린다.
+        if ((settings.effect === 'right-swap' || settings.effect === 'center-swap') && sampleSpacing > CROSSING_SPACING) {
+            detailedCrossing ??= preparePath(source, CROSSING_SPACING);
             return detailedCrossing(phase, settings);
         }
         const amount = settings.intensity;
@@ -178,7 +182,7 @@ export function preparePath(source, sampleSpacing = 8) {
                 // pass on opposite sides, so the second half never retraces
                 // the first half as a flat up/down motion would.
                 const x = p.x + 82 * gain * p.flowBand * Math.sin(theta);
-                return `${x.toFixed(3)} ${y.toFixed(3)}`;
+                return `${x.toFixed(2)} ${y.toFixed(2)}`;
             }
             if (settings.effect === 'center-swap') {
                 // Continuous ribbon twist. The bundle rotates about its smoothed
@@ -199,7 +203,7 @@ export function preparePath(source, sampleSpacing = 8) {
                 const y = p.flowCenter + (p.y - p.flowCenter) * scale;
                 // Oblique depth cue: the "far" side of the ribbon slides sideways.
                 const x = p.x + 26 * gain * Math.sin(theta) * p.flowBand;
-                return `${x.toFixed(3)} ${y.toFixed(3)}`;
+                return `${x.toFixed(2)} ${y.toFixed(2)}`;
             }
             const strength = amount * p.edge;
             const offset = -TAU * p.u * density + p.band * lag * 3;
@@ -243,7 +247,7 @@ export function preparePath(source, sampleSpacing = 8) {
             // Soften extreme settings near the canvas edges, preserving the crop.
             const budget = Math.max(0, (dy < 0 ? p.y - 80 : 1044 - p.y) * .8);
             const shiftY = budget > 0 ? budget * Math.tanh(dy / budget) : 0;
-            return `${(p.x + dx).toFixed(3)} ${(p.y + shiftY).toFixed(3)}`;
+            return `${(p.x + dx).toFixed(2)} ${(p.y + shiftY).toFixed(2)}`;
         }
         return segments.map(({ command, points }) => command + points.map(deform).join(' ')).join('');
     };

@@ -12,7 +12,8 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
  *   각 1920×666 프레임의 위 72px 는 헤더 자리 → 화면 594px, 좌표 = 피그마 y − 72. 텍스트·카드는 1280 컨테이너 기준(x − 320),
  *   배경 장식은 1920 프레임 기준(가운데 정렬·넘침 잘림). 스타일 css/home/05-hero.css, 동작 js/home/hero.js.
  *   배경: 01 = 프로빙 채택안 연속 회전(center-swap) 유지 — 윤곽 Vector(2286:60907) + 블롭(Ellipse 4). 02~04 = 디자이너 "bg img"
- *   3720×666 리소스(2286:60998 · 60963 · 61007)를 아주 느리게 좌우로 팬. 05 = 광명공장 영상(정지 사진 폴백).
+ *   3720×666 리소스(2286:60998 · 60963 · 61007)를 아주 느리게 좌우로 팬(전송은 WebP q0.9 — 완전 불투명 PNG 원본 265~819KB → 28~47KB,
+ *   원본 PNG 는 git 이력 51cac5cc8). 05 = 광명공장 영상(정지 사진 폴백). 저사양은 hero.js 가 .is-lite 로 강등해 전부 정지.
  * 하이브리드(2026-09-06 결정) 유지:
  *   · 템플릿 슬라이드 = 코드(이 파일). 관리자 /app/admin/slides(= 영카트 배너관리 '메인', g5_shop_banner) 이미지는 템플릿 **뒤에** 붙는다.
  *   · 템플릿 on/off·순서 = sp_config key 'home_slides' (JSON {"templates":["gerber-eyes","order-now","korlinx","one-stop","rapid-proto"]}).
@@ -88,7 +89,7 @@ $sp_chev = '<svg viewBox="0 0 8 16" aria-hidden="true"><path d="M1 1l6 7-6 7" fi
     <div class="sp-hero__frame" aria-hidden="true">
         <div class="sp-hero__anim">
             <img class="sp-hero__blob" src="<?php echo $sp_hi; ?>/gerber-blob.svg" alt="" width="1230" height="1230">
-            <img class="sp-hero__lines" src="<?php echo $sp_hi; ?>/gerber-outline.svg" alt="" width="1680" height="613">
+            <img class="sp-hero__lines" src="<?php echo $sp_hi; ?>/gerber-outline.svg?ver=<?php echo G5_CSS_VER; ?>" alt="" width="1680" height="613"><!-- data-outline 과 같은 URL — hero.js 의 fetch 가 캐시를 탄다(89KB 한 번) -->
             <svg class="sp-hero__organic" viewBox="0 0 1680 613" fill="none">
                 <defs>
                     <linearGradient id="sp-og" gradientUnits="userSpaceOnUse" x1="1680" y1="545.149" x2="-207.448" y2="271.528">
@@ -122,7 +123,7 @@ $sp_chev = '<svg viewBox="0 0 8 16" aria-hidden="true"><path d="M1 1l6 7-6 7" fi
         </article>
         <?php } else if ($sp_tpl === 'order-now') { ?>
         <article class="sp-hero__slide sp-s2<?php echo $sp_first ? ' is-active' : ''; $sp_first = false; ?>" aria-label="Gerber Eyes로 확인하고, 제작까지 바로 진행하세요">
-            <div class="sp-slide__bg" aria-hidden="true"><img class="sp-slide__pan" src="<?php echo $sp_hi; ?>/bg-order.png" alt="" width="3720" height="666"></div>
+            <div class="sp-slide__bg" aria-hidden="true"><img class="sp-slide__pan" src="<?php echo $sp_hi; ?>/bg-order.webp" alt="" width="3720" height="666" decoding="async"></div>
             <div class="sp-inner"><div class="sp-slide__in">
                 <span class="sp-pill sp-pill--star"><?php echo sp_hero_star(); ?><span>NEW STEP</span></span>
                 <h2 class="sp-s2__title">Gerber Eyes로 확인하고,<br><span class="sp-grad">제작까지 바로</span> 진행하세요</h2>
@@ -160,7 +161,7 @@ $sp_chev = '<svg viewBox="0 0 8 16" aria-hidden="true"><path d="M1 1l6 7-6 7" fi
         </article>
         <?php } else if ($sp_tpl === 'korlinx') { ?>
         <article class="sp-hero__slide sp-s3<?php echo $sp_first ? ' is-active' : ''; $sp_first = false; ?>" aria-label="KORLINX AIoT 제품 개발을 위한 통신 솔루션">
-            <div class="sp-slide__bg" aria-hidden="true"><img class="sp-slide__pan" src="<?php echo $sp_hi; ?>/bg-korlinx.png" alt="" width="3720" height="666"></div>
+            <div class="sp-slide__bg" aria-hidden="true"><img class="sp-slide__pan" src="<?php echo $sp_hi; ?>/bg-korlinx.webp" alt="" width="3720" height="666" decoding="async"></div>
             <div class="sp-inner"><div class="sp-slide__in">
                 <span class="sp-pill sp-pill--dot">AIoT Solution</span>
                 <h2 class="sp-s3__title"><span class="sp-s3__brand">KORLINX</span><br>AIoT 제품 개발을 위한 <b class="sp-grad">통신 솔루션</b></h2>
@@ -174,7 +175,7 @@ $sp_chev = '<svg viewBox="0 0 8 16" aria-hidden="true"><path d="M1 1l6 7-6 7" fi
         </article>
         <?php } else if ($sp_tpl === 'one-stop') { ?>
         <article class="sp-hero__slide sp-s4<?php echo $sp_first ? ' is-active' : ''; $sp_first = false; ?>" aria-label="제품 개발 및 PCB설계가 필요하신가요? One-Stop 제조서비스">
-            <div class="sp-slide__bg" aria-hidden="true"><img class="sp-slide__pan" src="<?php echo $sp_hi; ?>/bg-onestop.png" alt="" width="3720" height="666"></div>
+            <div class="sp-slide__bg" aria-hidden="true"><img class="sp-slide__pan" src="<?php echo $sp_hi; ?>/bg-onestop.webp" alt="" width="3720" height="666" decoding="async"></div>
             <div class="sp-inner"><div class="sp-slide__in">
                 <span class="sp-pill sp-pill--dot">Quick Order</span>
                 <h2 class="sp-s4__title"><b>제품 개발</b> 및 <b>PCB설계</b>가<br>필요하신가요?</h2>
