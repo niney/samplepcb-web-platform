@@ -22,7 +22,7 @@ if (isset($cur[$sp_account_active])) $cur[$sp_account_active] = ' aria-current="
 
 $sp_ico   = G5_THEME_URL . '/img/account'; // theme/sp-lite/img/account (라인 아이콘 SVG)
 $sp_esc   = function_exists('sql_real_escape_string') ? sql_real_escape_string($member['mb_id']) : addslashes($member['mb_id']);
-$sp_cp    = function_exists('get_shop_member_coupon_count') ? (int) get_shop_member_coupon_count($member['mb_id'], true) : 0;
+$sp_cp    = isset($sp_coupon_count) ? $sp_coupon_count : (function_exists('get_shop_member_coupon_count') ? (int) get_shop_member_coupon_count($member['mb_id'], true) : 0);
 $tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_order_table']} where mb_id = '{$sp_esc}' ");
 $sp_od = (int) $tmp['cnt'];
 // 장바구니(담김) 행 수 — 헤더 카트 배지와 같은 모수(ct_status='쇼핑').

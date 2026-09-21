@@ -6,6 +6,7 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 
 | 페이지 | 피그마 노드 | 파일 | 커밋 |
 |---|---|---|---|
+| 마이페이지 쿠폰 `/shop/coupon.php` (2026-09-21) | 2334:30444 | `theme/sp-lite/shop/coupon.php`, `head.sub.php`, `shop/_account_nav.php`, `css/default_shop.css`, `img/account/ico-*coupon*.svg` | (이번 변경) |
 | 홈 `/` (2026-09-18 재구현) | 2286:1275 웹 메인(디자이너 9/17 "웹메인 컨텐츠 업데이트") + 히어로 banner 01~05 = 2286:5331·5332·27009·27054·5165 + 배경 리소스 2286:60998·61007·60963 | `theme/sp-lite/index.php`, `inc/main_slider.php`, `inc/home/{10-onestop,20-eyes,30-idea,40-stats,41-network,42-help}.php`, `css/home.css`, `js/home.js` + `js/home/{hero,onestop,portfolio}.js`, `img/home/{hero,onestop,eyes,idea,network,help}/`, `skin/latest/home-help/` | (이번 커밋) |
 | 공용 헤더 (2026-09-18) | 2286:1435 top(컴포넌트 2239:1851, 디자이너 9/9 "GNB 높이·텍스트/아이콘 크기·드롭다운") + 드롭다운 2286:1436 | `theme/sp-lite/inc/header.php`, `css/default.css` 헤더 블록, `img/header/` | (이번 커밋) |
 | 공용 푸터 | 2286:2238 (= 옛 2122:6043 과 동일 디자인, 변경 없음) | `theme/sp-lite/inc/footer.php`, `css/default.css` | 5d7340df3 |
@@ -89,6 +90,16 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 카드의 전화 "070-8667-1080"은 푸터 "070-8667-1080~1"과 표기가 다름 — 피그마 그대로(`location.php` 의 `$sp_offices`).
 - 점 세계지도는 피그마 벡터(3,792개 점) SVG + 방사형 페이드는 피그마 gradientTransform 을 그대로 옮긴 `world-fade.svg` 알파 마스크. 발광 점 3개는 CSS blur.
 - 반응형(1023px 이하)은 피그마에 없어 우리 정의(390px 실측: 넘침·겹침 0).
+
+## 마이페이지 쿠폰 — 사용자 승인 조정(2026-09-21)
+
+- 시안의 복사 흔적(「포인트 현황」·포인트 메뉴 활성화)은 「쿠폰 현황」·쿠폰 활성화로 교정. 공용 계정 셸과 기존 메뉴 간격을 유지한다.
+- 날짜 열은 제거하고 **내역 / 사용 기한** 2열로 표시. 사용 기한은 실제 `cp_end` 당일 `23:59까지`(코어가 날짜 단위로 유효성을 판정).
+- 사용 가능 = 회원 또는 전체회원 대상, 현재 유효기간 내, 미사용 쿠폰. 목록과 요약·사이드바는 같은 조회 결과의 수량을 사용한다.
+- 소멸 예정 = 사용 가능한 쿠폰 중 오늘부터 30일 후까지(양 끝 포함) 만료되는 쿠폰. 「30일 이내」를 화면에 표시한다.
+- 할인율·정액과 쿠폰명 아래 적용 대상·최소 구매금액·최대 할인금액을 표시한다. 시안의 「무료배송」 별도 표기는 추가하지 않는다. 쿠폰 발급 정책·결제 할인 로직·DB 구조 변경 없음.
+- 제목·요약 아이콘 3종은 해당 Figma 노드의 원본 SVG를 저장. 포인트 요약 스타일을 공유하고 모바일에서는 기한을 두 줄로 표시한다.
+- 검증: PHP 4파일 문법 검사, 로그인 화면의 목록·요약·사이드바 수량 일치, 로그인 HTML을 이용한 1920/390/320px 렌더(가로 넘침 0·아이콘 로드), 격리 PHP 렌더에서 오늘/+30일/+31일·사용 완료 제외·4종 적용 대상·조건·이스케이프·빈 목록 확인. DB 변경 없는 검증.
 
 ## 공통 함정
 - 그누보드 `latest()` 는 1시간 캐시(`data/cache/latest-*.php`) — 홈 게시판 스킨(`home-help`)을 고치면 지울 것.

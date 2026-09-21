@@ -2639,9 +2639,9 @@
 .sp-acc-paging { margin-top: 18px; }
 
 /* ---- 포인트 — Figma 2254:9041 ---- */
-.is-point #wrapper_title.sp-title-lg { margin: 0 0 20px; line-height: 1.3; letter-spacing: 0; }
-.is-point .sp-title-ico { flex: none; }
-.sp-point-summary {
+:is(.is-point, .is-coupon) #wrapper_title.sp-title-lg { margin: 0 0 20px; line-height: 1.3; letter-spacing: 0; }
+:is(.is-point, .is-coupon) .sp-title-ico { flex: none; }
+.sp-point-summary, .sp-coupon-summary {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 30px;
@@ -2654,11 +2654,11 @@
     color: var(--acc-ink);
     line-height: 1.3;
 }
-.sp-point-summary__cell { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; min-height: 100px; gap: 16px; }
-.sp-point-summary__cell:first-child { padding-right: 30px; border-right: 1px solid var(--acc-band-line); }
-.sp-point-summary dt { font-size: 17px; font-weight: 500; }
-.sp-point-summary dd { margin: 0; text-align: right; font-size: 31px; font-weight: 400; overflow-wrap: anywhere; }
-.sp-point-summary strong { font-weight: 800; }
+.sp-point-summary__cell, .sp-coupon-summary__cell { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; min-height: 100px; gap: 16px; }
+.sp-point-summary__cell:first-child, .sp-coupon-summary__cell:first-child { padding-right: 30px; border-right: 1px solid var(--acc-band-line); }
+:is(.sp-point-summary, .sp-coupon-summary) dt { font-size: 17px; font-weight: 500; }
+:is(.sp-point-summary, .sp-coupon-summary) dd { margin: 0; text-align: right; font-size: 31px; font-weight: 400; overflow-wrap: anywhere; }
+:is(.sp-point-summary, .sp-coupon-summary) strong { font-weight: 800; }
 .sp-point-summary__unavailable { font-size: 17px; color: var(--acc-muted); }
 .sp-point-history .smb_panel_h { margin-bottom: 16px; }
 .sp-point-history .smb_panel_h h2 { line-height: 1.3; }
@@ -2679,36 +2679,40 @@
 .sp-point-history .pg_page:hover { color: var(--acc-primary); }
 
 @media (max-width: 640px) {
-    .is-point #wrapper_title.sp-title-lg { font-size: 28px; }
-    .sp-point-summary { gap: 16px; padding: 20px; margin-bottom: 32px; }
-    .sp-point-summary__cell { min-height: 90px; }
-    .sp-point-summary__cell:first-child { padding-right: 16px; }
-    .sp-point-summary dt { font-size: 14px; }
-    .sp-point-summary dd { font-size: 28px; }
+    :is(.is-point, .is-coupon) #wrapper_title.sp-title-lg { font-size: 28px; }
+    .sp-point-summary, .sp-coupon-summary { gap: 16px; padding: 20px; margin-bottom: 32px; }
+    .sp-point-summary__cell, .sp-coupon-summary__cell { min-height: 90px; }
+    .sp-point-summary__cell:first-child, .sp-coupon-summary__cell:first-child { padding-right: 16px; }
+    :is(.sp-point-summary, .sp-coupon-summary) dt { font-size: 14px; }
+    :is(.sp-point-summary, .sp-coupon-summary) dd { font-size: 28px; }
     .sp-point-table__date-col { width: 86px; }
     .sp-point-table__amount-col { width: 96px; }
     .sp-point-table th, .sp-point-table td { padding: 12px 8px; font-size: 13px; }
 }
 
-/* ---- 쿠폰 카드 ---- */
-.sp-acc-coupons { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.sp-acc-coupon-card {
-    display: flex; align-items: stretch;
-    border: 1px solid var(--sp-line); border-radius: var(--sp-radius); overflow: hidden;
+/* ---- 쿠폰 — Figma 2334:30444(날짜 열 제외, 실제 할인 조건 표시) ---- */
+.sp-coupon-summary dt small { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--acc-muted); }
+.sp-coupon-summary dd { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sp-coupon-summary dd img { flex: none; width: 30px; height: 30px; }
+.sp-coupon-history .smb_panel_h { margin-bottom: 16px; }
+.sp-coupon-history .smb_panel_h h2 { line-height: 1.3; }
+.sp-coupon-table { width: 100%; border-collapse: collapse; table-layout: fixed; border-top: 1px solid var(--acc-ink); color: var(--acc-text); line-height: 1.3; }
+.sp-coupon-table__expiry-col { width: 210px; }
+.sp-coupon-table th { padding: 16px 18px; border-bottom: 1px solid var(--acc-line); font-size: 15px; font-weight: 400; color: var(--acc-muted); text-align: center; }
+.sp-coupon-table td { padding: 14px 18px; border-bottom: 1px solid var(--acc-line); font-size: 14px; }
+.sp-coupon-table__content { overflow-wrap: anywhere; }
+.sp-coupon-table__discount { display: block; font-size: 18px; font-weight: 700; }
+.sp-coupon-table__subject { display: block; margin-top: 8px; font-weight: 500; }
+.sp-coupon-table__conditions { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; color: var(--acc-muted); }
+.sp-coupon-table__expiry { text-align: center; font-weight: 700; }
+.sp-coupon-table__expiry span { white-space: nowrap; }
+.sp-coupon-table td.sp-acc-empty { padding: 44px 12px; }
+@media (max-width: 640px) {
+    .sp-coupon-table__expiry-col { width: 112px; }
+    .sp-coupon-table th, .sp-coupon-table td { padding: 12px 8px; font-size: 13px; }
+    .sp-coupon-table__expiry span { display: block; margin-top: 4px; }
+    .sp-coupon-summary dd img { width: 24px; height: 24px; }
 }
-.sp-acc-coupon-card__amt {
-    flex: none; width: 120px;
-    display: grid; place-items: center;
-    padding: 16px 10px;
-    background: var(--sp-primary); color: #fff;
-    font-size: 20px; font-weight: 800; text-align: center; word-break: keep-all;
-}
-.sp-acc-coupon-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; }
-.sp-acc-coupon-card__tit { font-size: 15px; font-weight: 700; color: var(--sp-ink); }
-.sp-acc-coupon-card__target,
-.sp-acc-coupon-card__date { font-size: 12px; color: var(--sp-muted); }
-.sp-acc-coupon-card__target i,
-.sp-acc-coupon-card__date i { color: var(--sp-primary); margin-right: 3px; }
 
 /* ---- 탭(쪽지) ---- */
 .sp-acc-tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--sp-line); }
@@ -2810,7 +2814,6 @@
 /* ---- 계정 콘텐츠 반응형 ---- */
 @media (max-width: 640px) {
     .sp-acc-panel { padding: 18px 16px; }
-    .sp-acc-coupon-card__amt { width: 92px; font-size: 17px; }
     .sp-acc-tabs__write { padding-left: 8px; padding-right: 8px; }
 }
 

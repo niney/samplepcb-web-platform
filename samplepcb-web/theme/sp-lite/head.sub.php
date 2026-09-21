@@ -5,6 +5,7 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 $g5_debug['php']['begin_time'] = $begin_time = get_microtime();
 
 $sp_is_point_page = basename($_SERVER['SCRIPT_NAME']) === 'point.php';
+$sp_is_coupon_page = basename($_SERVER['SCRIPT_NAME']) === 'coupon.php';
 if ($sp_is_point_page) $g5['title'] = '포인트';
 
 if (!isset($g5['title'])) {
@@ -145,13 +146,15 @@ if ($sp_inline_account) {
     define('SP_INLINE_ACCOUNT', true);
 ?>
 <div id="wrapper">
-    <div id="container" class="is-account<?php echo $sp_is_point_page ? ' is-point' : ''; ?>">
+    <div id="container" class="is-account<?php echo $sp_is_point_page ? ' is-point' : ($sp_is_coupon_page ? ' is-coupon' : ''); ?>">
         <div id="aside" class="account-aside">
             <?php include G5_THEME_SHOP_PATH.'/_account_nav.php'; ?>
         </div>
         <div class="shop-content account-main">
             <?php if ($sp_is_point_page) { ?>
             <h1 id="wrapper_title" class="sp-title-lg"><img class="sp-title-ico" src="<?php echo G5_THEME_URL ?>/img/account/ico-title-point.svg" width="36" height="36" alt="">포인트</h1>
+            <?php } else if ($sp_is_coupon_page) { ?>
+            <h1 id="wrapper_title" class="sp-title-lg"><img class="sp-title-ico" src="<?php echo G5_THEME_URL ?>/img/account/ico-title-coupon.svg" width="36" height="36" alt="">쿠폰</h1>
             <?php } else { ?>
             <div id="wrapper_title"><?php echo $g5['title']; ?></div>
             <?php } ?>
