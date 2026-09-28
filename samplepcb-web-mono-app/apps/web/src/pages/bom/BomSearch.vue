@@ -171,7 +171,7 @@ async function submitCartRequest(title: string): Promise<void> {
     <!-- search card (2595:10378) — 카드 프레임·글로우·텍스트는 BomLandingCard, 탭별
          일러스트는 슬롯으로 겹친다. BOM 분석 탭과 텍스트 위치를 공유하고 검색 폼만 다르다. -->
     <!-- mt 는 BOM 분석 탭과 동일한 50px 고정 — 탭 전환 때 카드·타이틀 위치가 흔들리면 안 된다. -->
-    <section class="relative mt-[50px] h-[524px] w-full max-w-[640px] shrink-0 overflow-hidden rounded-[8px] border border-[#d1e9f9] shadow-[0px_10px_30px_0px_var(--color-bom-landing-card-shadow)]" aria-label="부품 단일 검색">
+    <section class="relative mt-[46px] h-[524px] w-full max-w-[640px] shrink-0 overflow-hidden rounded-[8px] border border-[#d1e9f9]" aria-label="부품 단일 검색">
       <BomLandingCard subtitle="Enter the MPN or part name, and you can start right away">
         <!-- 부품 카드 일러스트(2595:10414 — 1024x683 원본을 시안 프레임에 비율 무시
              스트레치, Figma fill 과 동일) -->

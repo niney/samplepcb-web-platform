@@ -11,34 +11,27 @@ import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 import { isPositiveBigIntId } from '../lib/route-ids';
 import logoPartseyes from '../assets/bom/logo-partseyes.svg';
-import icFold from '../assets/bom/ic-fold.svg';
-import icFoldDark from '../assets/bom/ic-fold-dark.svg';
-import icMenuBomActive from '../assets/bom/ic-menu-bom.svg';
-import icMenuBomActiveDark from '../assets/bom/ic-menu-bom-dark.svg';
-import icMenuBomInactive from '../assets/bom/ic-menu-bom-inactive.svg';
-import icMenuBomInactiveDark from '../assets/bom/ic-menu-bom-inactive-dark.svg';
-import icMenuSearchActive from '../assets/bom/ic-menu-search-active.svg';
-import icMenuSearchActiveDark from '../assets/bom/ic-menu-search-active-dark.svg';
-import icMenuSearchInactive from '../assets/bom/ic-menu-search.svg';
-import icMenuSearchInactiveDark from '../assets/bom/ic-menu-search-dark.svg';
-import icMenuUploadActive from '../assets/bom/ic-menu-upload.svg';
-import icMenuUploadActiveDark from '../assets/bom/ic-menu-upload-dark.svg';
-import icMenuUploadInactive from '../assets/bom/ic-menu-upload-inactive.svg';
-import icMenuUploadInactiveDark from '../assets/bom/ic-menu-upload-inactive-dark.svg';
-import icTrailSearchActive from '../assets/bom/ic-trail-search-active.svg';
-import icTrailSearchActiveDark from '../assets/bom/ic-trail-search-active-dark.svg';
-import icTrailSearchInactive from '../assets/bom/ic-trail-search.svg';
-import icTrailSearchInactiveDark from '../assets/bom/ic-trail-search-dark.svg';
-import icFile from '../assets/bom/ic-file.svg';
-import icFileDark from '../assets/bom/ic-file-dark.svg';
-import icRecentSearch from '../assets/bom/ic-recent-search.svg';
-import icRecentSearchDark from '../assets/bom/ic-recent-search-dark.svg';
+import icGlobe from '../assets/bom/ic-globe.svg';
+// 크롬 아이콘은 어두운 크롬용(2751:19710 원본과 바이트 동일) — 활성 #4DAAFF·비활성 흰색,
+// 글리프가 배경색으로 뚫린다.
+import icFold from '../assets/bom/ic-fold-dark.svg';
+import icMenuBomActive from '../assets/bom/ic-menu-bom-dark.svg';
+import icMenuBomInactive from '../assets/bom/ic-menu-bom-inactive-dark.svg';
+import icMenuSearchActive from '../assets/bom/ic-menu-search-active-dark.svg';
+import icMenuSearchInactive from '../assets/bom/ic-menu-search-dark.svg';
+import icMenuUploadActive from '../assets/bom/ic-menu-upload-dark.svg';
+import icMenuUploadInactive from '../assets/bom/ic-menu-upload-inactive-dark.svg';
+import icTrailSearchActive from '../assets/bom/ic-trail-search-active-dark.svg';
+import icTrailSearchInactive from '../assets/bom/ic-trail-search-dark.svg';
+import icFile from '../assets/bom/ic-file-dark.svg';
+import icRecentSearch from '../assets/bom/ic-recent-search-dark.svg';
 import promoZip from '../assets/bom/promo-zip.png';
 import promoVideo from '../assets/bom/promo-video.png';
 
-// 스마트 BOM 전용 앱 셸 — Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(87:9037) 이식.
-// 시안의 다크 배경(상단바·사이드바)은 사용자 결정으로 라이트 모드 치환, 구조·치수는 동일.
-// 미구현(표시만): 프로모 카드 링크.
+// 스마트 BOM 전용 앱 셸 — Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(2751:18829) 이식.
+// 단일 모드: 크롬(상단바·좌우 사이드바)은 어둡고 본문은 밝다. 라이트/다크 전환은 없고,
+// 관리자·파트너에서 고른 테마는 저장된 채로 이 셸에서만 무시된다(pinTheme).
+// 미구현(표시만): 프로모 카드 링크, EN 언어 전환.
 
 const route = useRoute();
 const router = useRouter();
@@ -47,38 +40,21 @@ const auth = useAuthStore();
 // 사이드바 접기 — 좌(메뉴)/우(페이지별 우측 패널) 토글. 상세 페이지의 정보 패널
 // (AI 분석결과·주문 정보·예상 견적)도 같은 rightOpen 을 공유한다(usePanels 싱글턴).
 const { leftOpen, rightOpen, compactLeftOpen, compactRightOpen } = useBomPanels();
-const { isDark, toggleTheme } = useTheme();
 
-// 좌측 탐색 아이콘 — 색이 베이크된 SVG 라 CSS 변수로는 못 갈아입어 테마로 스왑한다.
-// 다크(2282:53603)는 활성 #4DAAFF·비활성 흰색이고 글리프가 배경색으로 뚫린다.
-const navIcons = computed(() =>
-  isDark.value
-    ? {
-        fold: icFoldDark,
-        bomActive: icMenuBomActiveDark,
-        bomInactive: icMenuBomInactiveDark,
-        searchActive: icMenuSearchActiveDark,
-        searchInactive: icMenuSearchInactiveDark,
-        uploadActive: icMenuUploadActiveDark,
-        uploadInactive: icMenuUploadInactiveDark,
-        trailSearchActive: icTrailSearchActiveDark,
-        trailSearchInactive: icTrailSearchInactiveDark,
-        file: icFileDark,
-        recentSearch: icRecentSearchDark,
-      }
-    : {
-        fold: icFold,
-        bomActive: icMenuBomActive,
-        bomInactive: icMenuBomInactive,
-        searchActive: icMenuSearchActive,
-        searchInactive: icMenuSearchInactive,
-        uploadActive: icMenuUploadActive,
-        uploadInactive: icMenuUploadInactive,
-        trailSearchActive: icTrailSearchActive,
-        trailSearchInactive: icTrailSearchInactive,
-        file: icFile,
-        recentSearch: icRecentSearch,
-      });
+// 첫 렌더 전에 고정해야 저장된 다크 테마로 한 번 그려지지 않는다(index.html 부팅 스크립트와 같은 규칙).
+const { pinTheme } = useTheme();
+pinTheme('light');
+
+// EN 언어 전환 — 시안 모양만 둔다. 누르면 준비 중 안내를 잠깐 띄운다.
+const langNoticeOpen = ref(false);
+let langNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+function showLangNotice(): void {
+  langNoticeOpen.value = true;
+  clearTimeout(langNoticeTimer);
+  langNoticeTimer = setTimeout(() => {
+    langNoticeOpen.value = false;
+  }, 2000);
+}
 
 // 1600px 미만에서는 좌측 탐색을 먼저 드로어로 전환해 표와 우측 분석 패널에 공간을 준다.
 // 우측 정보 패널은 1280px까지 본문에 유지하고, 그 미만에서만 드로어/바텀시트가 된다.
@@ -196,6 +172,8 @@ onBeforeUnmount(() => {
   rightPanelWideMedia.removeEventListener('change', onRightPanelWideChange);
   window.removeEventListener('keydown', onShellPanelKeydown);
   recentResizeObserver?.disconnect();
+  clearTimeout(langNoticeTimer);
+  pinTheme(null);
   if (recentDeleteTarget.value !== null) document.body.style.overflow = recentDeleteBodyOverflow;
 });
 
@@ -326,8 +304,8 @@ watch(() => route.fullPath, () => {
 <template>
   <!-- 앱형 고정 레이아웃 — 문서 스크롤 없이 각 영역(테이블·패널)이 내부 스크롤한다 -->
   <div class="bom-app flex h-screen flex-col overflow-hidden bg-bom-chrome text-ink-strong [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
-    <!-- top (87:9560) — 시안 다크 → 라이트 치환 -->
-    <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-bom-chrome-border bg-bom-chrome">
+    <!-- top (2751:19786) — 어두운 크롬 -->
+    <header data-theme="dark" class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-bom-chrome-border bg-bom-chrome">
       <!-- 작은 화면에서는 프로필까지 한 줄에 남기고, sm 이상에서 시안의 220px 정렬을 복원한다. -->
       <div class="flex w-[176px] shrink-0 items-center pl-[12px] sm:w-[220px] sm:pl-[24px]">
         <RouterLink :to="{ name: 'bom' }" class="relative top-[1.5px] block h-[26px] w-[150px] shrink-0">
@@ -343,7 +321,7 @@ watch(() => route.fullPath, () => {
         aria-controls="bom-left-navigation"
         @click="toggleLeftPanel"
       >
-        <img :src="navIcons.fold" alt="" class="size-[18px] transition-transform" :class="effectiveLeftOpen ? '' : '-scale-x-100'">
+        <img :src="icFold" alt="" class="size-[18px] transition-transform" :class="effectiveLeftOpen ? '' : '-scale-x-100'">
       </button>
       <AppSiteHomeButton variant="bom" class="ml-[12px] shrink-0" />
       <!-- 견적별 조달 모드 — 기술 적합성은 동일하고 양산에서만 안전한 Reel 구매 조건을 우선한다. -->
@@ -375,37 +353,43 @@ watch(() => route.fullPath, () => {
 
       <!-- 중앙 태그라인 (2282:79899) — 접힘 시안(2282:54200)에서 뷰포트 정중앙이라 left-1/2 고정.
            1280px 미만은 좌측 그룹(로고~조달 스위치 ≈400px)과 겹쳐 숨긴다. -->
-      <p class="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-noto text-[18px] font-medium leading-[24px] text-ink-strong min-[1280px]:block">
+      <p class="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-noto text-[18px] font-medium leading-[24px] text-ink-soft min-[1280px]:block">
         AI 기반 전자부품 검색 엔진
       </p>
 
-      <div class="ml-auto flex items-center gap-[8px] pr-[8px] sm:gap-[12px] sm:pr-[18px]">
-        <!-- 테마 전환 — 고르기 전까지는 OS 설정을 따르고, 한 번 고르면 그 선택이 유지된다 -->
+      <!-- 우측 묶음(2751:19825·19788·19799) — 패널 접기 → 프로필(24px) → EN(16px). 시안의 테마
+           전환 아이콘(19810)은 단일 모드라 두지 않는다. -->
+      <div class="ml-auto flex items-center gap-[8px] pr-[8px] sm:gap-[16px] sm:pr-[18px]">
         <button
           type="button"
-          class="hidden size-[32px] place-items-center rounded-md text-bom-chrome-icon hover:bg-surface-raised hover:text-brand sm:grid"
-          :aria-label="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
-          :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
-          @click="toggleTheme"
-        >
-          <svg v-if="isDark" viewBox="0 0 24 24" class="size-[22px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" class="size-[22px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <path d="M20 13.5A8 8 0 0 1 10.5 4a8.5 8.5 0 1 0 9.5 9.5Z" stroke-linejoin="round" />
-          </svg>
-        </button>
-        <AppProfileMenu :show-admin="auth.me?.isAdmin === true" />
-        <button
-          type="button"
-          class="hidden size-[26px] place-items-center rounded-md hover:bg-surface-raised min-[1280px]:grid"
+          class="hidden size-[26px] place-items-center rounded-md hover:bg-surface-raised min-[1280px]:mr-[8px] min-[1280px]:grid"
           :title="effectiveRightOpen ? '패널 접기' : '패널 펼치기'"
           :aria-expanded="effectiveRightOpen"
           @click="toggleRightPanel"
         >
-          <img :src="navIcons.fold" alt="" class="size-[18px] transition-transform" :class="effectiveRightOpen ? '-scale-x-100' : ''">
+          <img :src="icFold" alt="" class="size-[18px] transition-transform" :class="effectiveRightOpen ? '-scale-x-100' : ''">
         </button>
+        <AppProfileMenu variant="bom" :show-admin="auth.me?.isAdmin === true" />
+        <div class="relative hidden sm:block">
+          <button
+            type="button"
+            class="flex h-[32px] items-center gap-[2px] rounded-[6px] bg-white/10 px-[12px] font-noto text-[13px] font-medium text-[#f7f7f7] hover:bg-white/15"
+            aria-describedby="bom-lang-notice"
+            title="영문 화면 준비 중"
+            @click="showLangNotice"
+          >
+            <img :src="icGlobe" alt="" class="size-[16px]">
+            EN
+          </button>
+          <p
+            v-show="langNoticeOpen"
+            id="bom-lang-notice"
+            role="status"
+            class="absolute right-0 top-[calc(100%+8px)] z-[70] whitespace-nowrap rounded-lg bg-surface px-3 py-2 text-[12px] font-medium text-ink shadow-lg ring-1 ring-line"
+          >
+            영문 화면은 준비 중입니다
+          </p>
+        </div>
       </div>
     </header>
 
@@ -416,14 +400,15 @@ watch(() => route.fullPath, () => {
         aria-hidden="true"
         @click="closeCompactLeftPanel"
       />
-      <!-- left side bar (87:9485) — 라이트 치환 -->
+      <!-- left side bar (2751:19710) — 어두운 크롬 -->
       <aside
         id="bom-left-navigation"
+        data-theme="dark"
         :class="[
           compactLeftOpen ? 'flex' : 'hidden',
           leftOpen ? 'min-[1600px]:flex' : 'min-[1600px]:hidden',
         ]"
-        class="fixed bottom-0 left-0 top-[58px] z-50 w-[220px] shrink-0 flex-col border-r border-bom-sidebar-border bg-bom-sidebar pt-[35px] shadow-[8px_0_28px_rgba(15,23,42,0.18)] min-[1600px]:static min-[1600px]:z-auto min-[1600px]:shadow-none"
+        class="fixed bottom-0 left-0 top-[58px] z-50 w-[220px] shrink-0 flex-col bg-bom-sidebar pt-[35px] shadow-[8px_0_28px_rgba(15,23,42,0.18)] min-[1600px]:static min-[1600px]:z-auto min-[1600px]:shadow-none"
         :role="compactLeftOpen ? 'dialog' : 'complementary'"
         :aria-modal="compactLeftOpen ? 'true' : undefined"
         aria-label="BOM 탐색 메뉴"
@@ -452,18 +437,18 @@ watch(() => route.fullPath, () => {
         </button>
         <RouterLink :to="{ name: 'bom' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onBomPrimary ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
           <span class="relative size-[18px] shrink-0" aria-hidden="true">
-            <img :src="onBomPrimary ? navIcons.bomActive : navIcons.bomInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
+            <img :src="onBomPrimary ? icMenuBomActive : icMenuBomInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
           </span>
           <span class="ml-[6px] font-sans text-[16px] font-medium leading-[19px]" :class="onBomPrimary ? 'text-bom-nav-active' : 'text-bom-nav-inactive'">BOM 분석</span>
-          <img :src="onBomPrimary ? navIcons.uploadActive : navIcons.uploadInactive" alt="" class="absolute right-[16px] top-[16px] size-[14px]">
+          <img :src="onBomPrimary ? icMenuUploadActive : icMenuUploadInactive" alt="" class="absolute right-[16px] top-[16px] size-[14px]">
         </RouterLink>
         <RouterLink :to="{ name: 'bom-search' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onSearch ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
           <span class="relative size-[18px] shrink-0" aria-hidden="true">
-            <img :src="onSearch ? navIcons.searchActive : navIcons.searchInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
+            <img :src="onSearch ? icMenuSearchActive : icMenuSearchInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
           </span>
           <span class="ml-[6px] font-sans text-[16px] font-medium leading-[19px]" :class="onSearch ? 'text-bom-nav-active' : 'text-bom-nav-inactive'">단일 검색</span>
           <span class="absolute right-[16px] top-[15px] size-[14px] overflow-hidden" aria-hidden="true">
-            <img :src="onSearch ? navIcons.trailSearchActive : navIcons.trailSearchInactive" alt="" class="absolute left-[0.4px] top-[0.4px] h-[13.2001px] w-[13.2002px] max-w-none">
+            <img :src="onSearch ? icTrailSearchActive : icTrailSearchInactive" alt="" class="absolute left-[0.4px] top-[0.4px] h-[13.2001px] w-[13.2002px] max-w-none">
           </span>
         </RouterLink>
 
@@ -483,18 +468,18 @@ watch(() => route.fullPath, () => {
                 <span class="relative size-[15px] shrink-0 opacity-60" aria-hidden="true">
                   <img
                     v-if="q.sourceKind === 'single_search'"
-                    :src="navIcons.recentSearch"
+                    :src="icRecentSearch"
                     alt=""
                     class="absolute left-[2.25px] top-[2.25px] size-[10.5px] max-w-none"
                   >
-                  <img v-else :src="navIcons.file" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
+                  <img v-else :src="icFile" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
                 </span>
                 <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-recent-text">{{ recentDisplayName(q) }}</span>
               </RouterLink>
               <button
                 v-if="canDeleteRecent(q)"
                 type="button"
-                class="absolute right-[2px] top-[2px] z-10 grid size-[23px] place-items-center rounded-[4px] text-ink-faint transition hover:bg-rose-50 hover:text-rose-600 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-rose-400"
+                class="absolute right-[2px] top-[2px] z-10 grid size-[23px] place-items-center rounded-[4px] text-ink-faint transition hover:bg-rose-500/15 hover:text-rose-400 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-rose-400"
                 :class="leftPanelWide ? 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100' : 'opacity-70'"
                 :aria-label="`${recentDisplayName(q)} 삭제`"
                 title="Recent file 삭제"
@@ -510,8 +495,8 @@ watch(() => route.fullPath, () => {
           <div class="mt-1 h-[30px] w-[179px] shrink-0" style="margin-left: 21px">
             <RouterLink
               :to="{ name: 'bom-history' }"
-              class="flex h-full items-center justify-between rounded-[4px] px-[8px] text-[12px] font-semibold text-brand hover:bg-blue-50"
-              :class="onHistory ? 'bg-blue-50' : ''"
+              class="flex h-full items-center justify-between rounded-[4px] px-[8px] text-[12px] font-semibold text-brand hover:bg-surface-raised"
+              :class="onHistory ? 'bg-surface-raised' : ''"
             >
               <span>모두 보기</span>
               <span class="tabular-nums text-ink-subtle">{{ recentTotal }}개 ›</span>
@@ -534,9 +519,9 @@ watch(() => route.fullPath, () => {
         </div>
       </main>
 
-      <!-- right side bar (87:21445) — 라이트 치환, 프로모 카드는 시안(2282:60172) 좌표·색 그대로.
+      <!-- right side bar (2751:18832) — 어두운 크롬 위에 밝은 프로모 카드(프로모 토큰은 다크 값이 없다).
            상세(bom-quote)에서는 페이지 자체 우측 패널(주문 정보·예상 견적)이 대신한다. -->
-      <aside v-show="rightOpen && showLandingPromos" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
+      <aside v-show="rightOpen && showLandingPromos" data-theme="dark" class="hidden w-[334px] shrink-0 flex-col gap-[12px] bg-bom-chrome px-[24px] pt-[24px] xl:flex">
         <!-- con01: Parts Eyes 튜토리얼 — 링크 미구현 -->
         <!-- 그라데이션은 /srgb 고정 — 피그마는 sRGB 보간이라 Tailwind v4 기본(oklab)과 중간톤이 어긋난다 -->
         <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-linear-to-l/srgb from-bom-promo-tuto-bg1 to-bom-promo-tuto-bg2 font-noto" title="튜토리얼 (준비 중)">

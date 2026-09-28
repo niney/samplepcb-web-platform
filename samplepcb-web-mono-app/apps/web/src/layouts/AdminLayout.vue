@@ -274,7 +274,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
             {{ $t(mod.labelKey) }}
           </RouterLink>
         </nav>
-        <!-- 테마 전환 — BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
+        <!-- 테마 전환 — 파트너 셸과 같은 상태를 공유한다(useTheme 싱글턴, BOM 셸은 단일 모드) -->
         <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
           <AppThemeToggle icon-class="size-[22px]" />
           <AppSiteHomeButton />

@@ -7,13 +7,18 @@ import { useAuthStore } from '@sp/shared';
 import { appPath, loginUrl, logoutUrl, memberInfoUrl, systemAdminUrl } from '../lib/auth-urls';
 import { usePartnerAccess } from '../partner/usePartnerAccess';
 import icProfile from '../assets/bom/ic-profile.svg';
+import icProfileChevron from '../assets/bom/ic-profile-chevron.svg';
 
+// bom variant 는 BOM 셸의 어두운 상단바 전용(단일 모드 2751:19788) — 파란 원 아바타,
+// 11px 굵은 이름, 시안 화살표 SVG.
 const props = withDefaults(defineProps<{
   showBom?: boolean;
   showAdmin?: boolean;
+  variant?: 'default' | 'bom';
 }>(), {
   showBom: true,
   showAdmin: false,
+  variant: 'default',
 });
 
 const auth = useAuthStore();
@@ -69,6 +74,28 @@ onBeforeUnmount(() => {
 <template>
   <div ref="root" class="relative shrink-0">
     <button
+      v-if="props.variant === 'bom'"
+      type="button"
+      class="flex h-8 items-center gap-[4px] rounded-lg transition hover:opacity-80"
+      :aria-expanded="menuOpen"
+      aria-haspopup="menu"
+      :aria-label="pt(auth.isLoggedIn ? '프로필 메뉴 열기' : '로그인')"
+      @click="toggleMenu"
+    >
+      <span class="grid size-8 place-items-center overflow-hidden rounded-[28px] bg-brand">
+        <img :src="icProfile" alt="" class="size-8">
+      </span>
+      <span class="hidden items-center gap-[4px] sm:flex">
+        <span class="max-w-[120px] truncate font-noto text-[11px] font-bold text-ink-strong">{{ auth.isLoggedIn ? displayNick : pt($t('auth.login')) }}</span>
+        <span v-if="auth.isLoggedIn" class="relative h-[3.5px] w-[7px] shrink-0" aria-hidden="true">
+          <span class="absolute inset-[-21.43%_-10.71%_-30.3%_-10.71%]">
+            <img :src="icProfileChevron" alt="" class="block size-full max-w-none">
+          </span>
+        </span>
+      </span>
+    </button>
+    <button
+      v-else
       type="button"
       class="flex h-9 items-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold text-ink-muted transition hover:bg-gray-100 hover:text-brand"
       :aria-expanded="menuOpen"

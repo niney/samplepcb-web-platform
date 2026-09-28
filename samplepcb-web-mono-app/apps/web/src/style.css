@@ -116,13 +116,10 @@
   --color-bom-landing-toggle: #ffffff;
   --color-bom-landing-toggle-active: #061023;
   --color-bom-landing-toggle-inactive: #27292e;
-  /* 랜딩 카드 그림자 — 카드는 다크에서도 라이트 그대로이고 그림자 색만 갈린다
-     (라이트 2593:7911 #d8e4f5 · 다크 2595:9754 #16181c). */
-  --color-bom-landing-card-shadow: #d8e4f5;
+  /* 랜딩 토글 외곽선(2751:20486) */
+  --color-bom-landing-toggle-border: #cdd7e5;
   --color-bom-chrome: #fdfdff;
   --color-bom-chrome-border: #e1e6ef;
-  /* 상단바 아이콘(폴드·홈·테마 토글) — 라이트 #727680, 다크 시안(2584:1920)은 #B6B6B8. */
-  --color-bom-chrome-icon: #727680;
   --color-bom-workbench: #fdfdff;
   /* 이미지 없는 부품 타일(2282:80418) — 시안은 다크에서도 같은 밝은 타일이라 오버라이드가 없다. */
   --color-bom-thumb-empty: #fbfbfb;
@@ -287,7 +284,6 @@
   /* BOM 좌측 탐색 — 다크 모드에서도 같은 역할과 대비를 유지한다. */
   --color-bom-sidebar: #0d0d11;
   --color-bom-sidebar-border: #2f3949;
-  --color-bom-canvas: #252a31;
   --color-bom-nav-active-bg: #172437;
   --color-bom-nav-active: #4daaff;
   --color-bom-nav-inactive: #ffffff;
@@ -299,15 +295,8 @@
   --color-bom-mode-border: #2d3a4d;
   --color-bom-mode-active: #0e6efd;
   --color-bom-mode-inactive: #b2b4c3;
-  /* 랜딩 토글 다크(2456:853) — 활성 탭이 라이트(검정)와 달리 파랑이다. */
-  --color-bom-landing-toggle: #2d3a4d;
-  --color-bom-landing-toggle-active: #0e6efd;
-  --color-bom-landing-toggle-inactive: #fdfdff;
-  --color-bom-landing-card-shadow: #16181c;
   --color-bom-chrome: #0d0d11;
   --color-bom-chrome-border: #2f3949;
-  --color-bom-chrome-icon: #b6b6b8;
-  --color-bom-workbench: #191b20;
   --color-bom-table-row: #131519;
   /* 표 헤더는 sticky 라 반투명(37 42 49 / .3)이면 지나가는 행이 비친다. 시안(2282:63171)
      은 같은 식을 캔버스 위에 얹어 #1d2025 로 앉으니 그 렌더값을 불투명으로 박는다. */
@@ -356,24 +345,8 @@
   --color-bom-delivery: #00cdf1;
   --color-bom-estimate-notice: #b6c0ce;
 
-  /* BOM 랜딩 프로모 카드 — 다크 카드 시안이 없어, 토큰화 전 다크에서 실제로
-     그리던 면 팔레트(raised/sunken/brand 계열)를 그대로 승계한다. */
-  --color-bom-promo-tuto-bg1: #1f2632;
-  --color-bom-promo-tuto-bg2: #0f131b;
-  --color-bom-promo-tuto-glow1: #16233c;
-  --color-bom-promo-tuto-glow2: #0f131b;
-  --color-bom-promo-video-bg1: #131b2c;
-  --color-bom-promo-video-bg2: #1f2632;
-  --color-bom-promo-video-glow1: #16233c;
-  --color-bom-promo-video-glow2: #1f2632;
-  --color-bom-promo-ink: #dde4ee;
-  --color-bom-promo-tuto-title: #5c9bff;
-  --color-bom-promo-pick: #5c9bff;
-  --color-bom-promo-line: #2c3441;
-  --color-bom-promo-badge: #171c26;
-  --color-bom-promo-badge-glow: #232a35;
-  --color-bom-promo-new-bg1: #171c26;
-  --color-bom-promo-new-bg2: rgb(23 28 38 / 0.5);
+  /* BOM 랜딩 프로모 카드는 다크 오버라이드가 없다 — 단일 모드 시안(2751:18832)은 어두운
+     우측 크롬 위에 밝은 카드 그대로라, 크롬에 data-theme="dark" 가 붙어도 라이트 값을 쓴다. */
 
   /* 단일검색 다크 시안(2285:95005)의 원본 면·입력·외곽선 값. */
   --color-search-row: #131519;
@@ -591,10 +564,11 @@
     --color-sky-950: oklch(97.7% 0.013 236.62);
 }
 
-/* BOM 다크 시안(2282:63171)은 관리자·일반 화면의 공용 다크 팔레트보다 더 중성적이고
-   대비 단계가 촘촘하다. BOM 레이아웃 안에서만 공용 역할 토큰을 시안값으로 좁혀,
-   모달·드로어를 포함한 BOM 하위 화면이 같은 색 체계를 상속하게 한다. */
-[data-theme="dark"] .bom-app {
+/* BOM 셸은 단일 모드(2751:18829) — 문서는 라이트로 고정(pinTheme)하고, 크롬(상단바·
+   좌우 사이드바)만 data-theme="dark" 로 어둡게 칠한다. BOM 다크 팔레트(2282:63171)는
+   관리자·일반 화면의 공용 다크 팔레트보다 더 중성적이라, 크롬 안에서만 공용 역할 토큰을
+   시안값으로 좁힌다. */
+.bom-app [data-theme="dark"] {
   --color-ink-strong: #ffffff;
   --color-ink: #e1e4e8;
   --color-ink-soft: #b6c0ce;
@@ -642,16 +616,8 @@
 }
 
 /* 패널 아이콘 원본은 라이트용 진회색과 다크용 흰색 SVG가 섞여 있다.
-   동일 필터를 적용해 테마와 무관하게 한 톤으로 정렬한다. */
+   동일 필터를 적용해 한 톤으로 정렬한다. */
 .bom-panel-icon {
   filter: brightness(0);
   opacity: 0.75;
-}
-
-[data-theme="dark"] .bom-app .bom-panel-icon {
-  filter: brightness(0) invert(1);
-}
-
-[data-theme="dark"] .bom-app .bom-compare-icon {
-  filter: brightness(0) invert(1);
 }

@@ -4,8 +4,8 @@ const { pt } = usePartnerI18n();
 import { useTheme } from '../bom/useTheme';
 
 // 테마 전환 버튼 — 관리자·기본·협력사 셸이 같은 SVG 를 세 벌 들고 있던 것을 모았다.
-// 상태는 useTheme 싱글턴이라 어느 셸에서 바꿔도 함께 바뀐다. (BOM 셸은 Figma 크롬 색을
-// 따로 쓰므로 자체 버튼 유지.)
+// 상태는 useTheme 싱글턴이라 어느 셸에서 바꿔도 함께 바뀐다. (BOM 셸은 단일 모드라
+// 전환 버튼이 없고 저장된 선택을 무시한다 — pinTheme.)
 withDefaults(defineProps<{ iconClass?: string }>(), { iconClass: 'size-[17px]' });
 
 const { isDark, toggleTheme } = useTheme();

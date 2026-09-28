@@ -270,7 +270,7 @@ watch(
         </p>
 
         <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
-          <!-- 테마 전환 — 관리자·BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
+          <!-- 테마 전환 — 관리자 셸과 같은 상태를 공유한다(useTheme 싱글턴, BOM 셸은 단일 모드) -->
           <select
             :value="locale"
             :aria-label="pt('언어')"

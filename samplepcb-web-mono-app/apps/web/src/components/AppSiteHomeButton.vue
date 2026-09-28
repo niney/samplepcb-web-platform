@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { usePartnerI18n } from '../partner/i18n';
 const { pt } = usePartnerI18n();
-import { computed } from 'vue';
-import { useTheme } from '../bom/useTheme';
-import icHomeBom from '../assets/bom/ic-home.svg';
-import icHomeBomDark from '../assets/bom/ic-home-dark.svg';
+import icHomeBom from '../assets/bom/ic-home-dark.svg';
 
 withDefaults(defineProps<{
   variant?: 'default' | 'bom';
@@ -12,9 +9,7 @@ withDefaults(defineProps<{
   variant: 'default',
 });
 
-// bom variant 아이콘은 색이 베이크된 SVG 라 테마로 스왑한다(라이트 #727680 · 다크 #B6B6B8).
-const { isDark } = useTheme();
-const homeIcon = computed(() => (isDark.value ? icHomeBomDark : icHomeBom));
+// bom variant 는 BOM 셸의 어두운 상단바 전용(단일 모드 2751:19965) — 색이 베이크된 #B6B6B8 SVG.
 </script>
 
 <template>
@@ -28,7 +23,7 @@ const homeIcon = computed(() => (isDark.value ? icHomeBomDark : icHomeBom));
     <span v-if="variant === 'bom'" class="relative block size-[20px] overflow-hidden" aria-hidden="true">
       <span class="absolute inset-[8.33%_12.5%_12.5%_12.5%]">
         <span class="absolute inset-[-4.74%_-5%]">
-          <img :src="homeIcon" alt="" class="block size-full max-w-none">
+          <img :src="icHomeBom" alt="" class="block size-full max-w-none">
         </span>
       </span>
     </span>
