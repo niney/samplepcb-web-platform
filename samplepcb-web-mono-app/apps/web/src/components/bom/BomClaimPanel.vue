@@ -220,7 +220,7 @@ const statusClass = (status: BomClaimStatusType): string =>
       접수 이력을 불러오지 못했습니다. 새로고침 후 다시 확인해 주세요.
     </p>
     <template v-else-if="eligibility !== null">
-      <p v-if="eligibility.order !== null" class="mt-2 rounded-md bg-white/80 px-2 py-1.5 text-orange-800">
+      <p v-if="eligibility.order !== null" class="mt-2 rounded-md bg-surface/80 px-2 py-1.5 text-orange-800">
         주문 {{ eligibility.order.odId }} · {{ eligibility.order.odStatus }}
       </p>
       <p
@@ -232,7 +232,7 @@ const statusClass = (status: BomClaimStatusType): string =>
     </template>
 
     <div v-if="claims.length > 0" class="mt-3 space-y-2">
-      <article v-for="claim in claims" :key="claim.id" class="rounded-lg border border-orange-200 bg-white p-2.5">
+      <article v-for="claim in claims" :key="claim.id" class="rounded-lg border border-orange-200 bg-surface p-2.5">
         <div class="flex flex-wrap items-center gap-1.5">
           <span class="rounded-full px-2 py-0.5 font-bold" :class="statusClass(claim.status)">
             {{ BOM_CLAIM_STATUS_LABELS[claim.status] }}
@@ -266,83 +266,87 @@ const statusClass = (status: BomClaimStatusType): string =>
     </div>
   </section>
 
-  <div v-if="formOpen" class="fixed inset-0 z-[90] grid place-items-center p-3 sm:p-6">
-    <button type="button" class="absolute inset-0 bg-slate-950/55" aria-label="문제 접수 닫기" @click="closeForm" />
-    <section
-      ref="dialogEl"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="bom-claim-form-title"
-      tabindex="-1"
-      class="relative flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none"
-    >
-      <header class="border-b border-orange-100 bg-orange-50 px-4 py-4 sm:px-6">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-orange-600">배송 후 고객 대응</p>
-        <h2 id="bom-claim-form-title" class="mt-1 text-lg font-bold text-gray-950">BOM 부품 문제 접수</h2>
-        <p class="mt-1 text-xs leading-5 text-orange-900">접수만으로 주문 취소·환불·재발송이 자동 실행되지는 않습니다. 담당자가 확인 후 답변합니다.</p>
-      </header>
+  <!-- 접수 창은 body 로 내보낸다 — 패널이 어두운 크롬(data-theme="dark") 안에 있어도 다른 모달처럼
+       밝은 본문 색으로 뜬다. -->
+  <Teleport to="body">
+    <div v-if="formOpen" class="fixed inset-0 z-[90] grid place-items-center p-3 sm:p-6">
+      <button type="button" class="absolute inset-0 bg-slate-950/55" aria-label="문제 접수 닫기" @click="closeForm" />
+      <section
+        ref="dialogEl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bom-claim-form-title"
+        tabindex="-1"
+        class="relative flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none"
+      >
+        <header class="border-b border-orange-100 bg-orange-50 px-4 py-4 sm:px-6">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-orange-600">배송 후 고객 대응</p>
+          <h2 id="bom-claim-form-title" class="mt-1 text-lg font-bold text-gray-950">BOM 부품 문제 접수</h2>
+          <p class="mt-1 text-xs leading-5 text-orange-900">접수만으로 주문 취소·환불·재발송이 자동 실행되지는 않습니다. 담당자가 확인 후 답변합니다.</p>
+        </header>
 
-      <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
-        <label class="block text-sm font-semibold text-gray-800">
-          문제 유형
-          <select v-model="kind" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
-            <option v-for="(label, value) in BOM_CLAIM_KIND_LABELS" :key="value" :value="value">{{ label }}</option>
-          </select>
-        </label>
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+          <label class="block text-sm font-semibold text-gray-800">
+            문제 유형
+            <select v-model="kind" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+              <option v-for="(label, value) in BOM_CLAIM_KIND_LABELS" :key="value" :value="value">{{ label }}</option>
+            </select>
+          </label>
 
-        <fieldset>
-          <legend class="text-sm font-semibold text-gray-800">문제가 있는 부품과 수량</legend>
-          <div class="mt-2 max-h-60 space-y-2 overflow-y-auto rounded-xl border border-gray-200 p-2">
-            <label
-              v-for="item in claimableItems"
-              :key="item.id"
-              class="flex min-w-0 items-center gap-2 rounded-lg p-2 hover:bg-gray-50"
-            >
-              <input
-                type="checkbox"
-                :checked="selectedQuantities[item.id] !== undefined"
-                :aria-label="`${item.mpn} 문제 부품 선택`"
-                @change="toggleItem(item.id)"
+          <fieldset>
+            <legend class="text-sm font-semibold text-gray-800">문제가 있는 부품과 수량</legend>
+            <div class="mt-2 max-h-60 space-y-2 overflow-y-auto rounded-xl border border-gray-200 p-2">
+              <label
+                v-for="item in claimableItems"
+                :key="item.id"
+                class="flex min-w-0 items-center gap-2 rounded-lg p-2 hover:bg-gray-50"
               >
-              <span class="min-w-0 flex-1">
-                <b class="block truncate text-sm text-gray-900">{{ item.mpn }}</b>
-                <span class="block truncate text-xs text-gray-500">{{ item.manufacturerName ?? '제조사 미확인' }} · 주문 {{ item.orderQty }}개</span>
-              </span>
-              <input
-                v-if="selectedQuantities[item.id] !== undefined"
-                v-model.number="selectedQuantities[item.id]"
-                type="number"
-                min="1"
-                :max="item.orderQty"
-                class="w-20 rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm"
-                :aria-label="`${item.mpn} 문제 수량`"
-                @blur="clampQuantity(item.id, item.orderQty)"
-              >
-            </label>
-          </div>
-        </fieldset>
+                <input
+                  type="checkbox"
+                  :checked="selectedQuantities[item.id] !== undefined"
+                  :aria-label="`${item.mpn} 문제 부품 선택`"
+                  @change="toggleItem(item.id)"
+                >
+                <span class="min-w-0 flex-1">
+                  <b class="block truncate text-sm text-gray-900">{{ item.mpn }}</b>
+                  <span class="block truncate text-xs text-gray-500">{{ item.manufacturerName ?? '제조사 미확인' }} · 주문 {{ item.orderQty }}개</span>
+                </span>
+                <input
+                  v-if="selectedQuantities[item.id] !== undefined"
+                  v-model.number="selectedQuantities[item.id]"
+                  type="number"
+                  min="1"
+                  :max="item.orderQty"
+                  class="w-20 rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm"
+                  :aria-label="`${item.mpn} 문제 수량`"
+                  @blur="clampQuantity(item.id, item.orderQty)"
+                >
+              </label>
+            </div>
+          </fieldset>
 
-        <label class="block text-sm font-semibold text-gray-800">
-          제목
-          <input v-model="subject" maxlength="120" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="예: 커넥터 2개가 누락되었습니다">
-        </label>
-        <label class="block text-sm font-semibold text-gray-800">
-          상세 내용
-          <textarea v-model="description" maxlength="2000" rows="5" class="mt-1 w-full resize-y rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="포장 상태와 확인한 수량을 구체적으로 적어 주세요." />
-        </label>
-        <label class="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs leading-5 text-orange-950">
-          <input v-model="acknowledgeNoAutomaticRefund" type="checkbox" class="mt-1 shrink-0">
-          <span>이 접수는 주문 취소·환불을 자동 처리하지 않으며, 담당자 확인과 별도 안내가 필요함을 확인했습니다.</span>
-        </label>
-        <p v-if="formError !== ''" role="alert" class="text-sm font-semibold text-red-600">{{ formError }}</p>
-      </div>
+          <label class="block text-sm font-semibold text-gray-800">
+            제목
+            <input v-model="subject" maxlength="120" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="예: 커넥터 2개가 누락되었습니다">
+          </label>
+          <label class="block text-sm font-semibold text-gray-800">
+            상세 내용
+            <textarea v-model="description" maxlength="2000" rows="5" class="mt-1 w-full resize-y rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="포장 상태와 확인한 수량을 구체적으로 적어 주세요." />
+          </label>
+          <label class="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs leading-5 text-orange-950">
+            <input v-model="acknowledgeNoAutomaticRefund" type="checkbox" class="mt-1 shrink-0">
+            <span>이 접수는 주문 취소·환불을 자동 처리하지 않으며, 담당자 확인과 별도 안내가 필요함을 확인했습니다.</span>
+          </label>
+          <p v-if="formError !== ''" role="alert" class="text-sm font-semibold text-red-600">{{ formError }}</p>
+        </div>
 
-      <footer class="flex flex-wrap justify-end gap-2 border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-6">
-        <button type="button" class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700" :disabled="createClaim.isPending.value" @click="closeForm">취소</button>
-        <button type="button" class="rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40" :disabled="!canSubmit" @click="submit">
-          {{ createClaim.isPending.value ? '접수 중…' : '문제 접수' }}
-        </button>
-      </footer>
-    </section>
-  </div>
+        <footer class="flex flex-wrap justify-end gap-2 border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-6">
+          <button type="button" class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700" :disabled="createClaim.isPending.value" @click="closeForm">취소</button>
+          <button type="button" class="rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40" :disabled="!canSubmit" @click="submit">
+            {{ createClaim.isPending.value ? '접수 중…' : '문제 접수' }}
+          </button>
+        </footer>
+      </section>
+    </div>
+  </Teleport>
 </template>

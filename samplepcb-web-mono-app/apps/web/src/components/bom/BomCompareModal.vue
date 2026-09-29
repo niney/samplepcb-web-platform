@@ -818,13 +818,15 @@ function statusLabel(item: ComparisonItem): string {
   background: #ebeef2;
   font-family: "Noto Sans KR", Pretendard, sans-serif;
 }
+/* 헤더는 셸 크롬과 같은 어두운 띠(단일 모드 2751:6335), 필터·비교 표는 밝은 본문 그대로. */
 .compare-header {
   position: relative;
   min-height: 172px;
   flex: 0 0 172px;
   padding: 15px 24px 0;
-  border: 1px solid #d3d5dc;
-  background: #f2f7fc;
+  border: 1px solid #2f3949;
+  background: #0d0d11;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 5%);
 }
 .compare-heading {
   min-width: 0;
@@ -835,20 +837,21 @@ function statusLabel(item: ComparisonItem): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: rgb(6 16 35 / 70%);
+  color: #838b9d;
+  opacity: 0.7;
   font-size: 14px;
   font-weight: 500;
   line-height: 18px;
 }
 .compare-kicker img {
-  width: 16px;
-  height: 11px;
+  width: 15.499px;
+  height: 10.2439px;
   flex: 0 0 auto;
 }
 .compare-heading h2 {
   margin: 6px 0 0;
   overflow: hidden;
-  color: #061023;
+  color: #ffffff;
   font-size: 20px;
   font-weight: 700;
   line-height: 24px;
@@ -873,7 +876,7 @@ function statusLabel(item: ComparisonItem): string {
   display: block;
 }
 .close-button:hover {
-  background: rgb(70 69 76 / 8%);
+  background: rgb(255 255 255 / 8%);
 }
 .close-button:focus-visible {
   outline: 2px solid #4798ff;
@@ -885,7 +888,7 @@ function statusLabel(item: ComparisonItem): string {
   right: 24px;
   left: 24px;
   height: 1px;
-  background: #b8cbdb;
+  background: #414b5a;
 }
 .summary-strip {
   position: absolute;
@@ -902,19 +905,19 @@ function statusLabel(item: ComparisonItem): string {
   display: grid;
   align-content: start;
   gap: 3px;
-  border-right: 1px solid #b8cbdb;
+  border-right: 1px solid #414b5a;
 }
 .summary-strip article + article {
   padding-left: 20px;
 }
 .summary-strip span {
-  color: #5f6777;
+  color: #838b9d;
   font-size: 14px;
   font-weight: 500;
   line-height: 16px;
 }
 .summary-strip strong {
-  color: #061023;
+  color: #ffffff;
   font-size: 32px;
   font-weight: 700;
   line-height: 36px;

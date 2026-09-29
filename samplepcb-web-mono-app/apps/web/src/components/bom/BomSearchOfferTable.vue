@@ -331,7 +331,7 @@ function partnerActionLabel(part: BomPartHitType): string {
             <col class="w-[80px]">
           </colgroup>
           <thead>
-            <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[10px] font-normal uppercase leading-[24px] text-ink-subtle">
+            <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[12px] font-normal uppercase leading-[24px] text-ink-subtle [&_th]:font-normal">
               <th class="px-[14px] text-center"><span class="sr-only">선택</span></th>
               <th class="px-[8px]">MPN</th>
               <th class="px-[8px]">Distributor</th>
@@ -433,17 +433,19 @@ function partnerActionLabel(part: BomPartHitType): string {
       </div>
       <div class="overflow-x-auto">
         <table class="w-full min-w-[900px] table-fixed border-collapse 2xl:min-w-[1140px]">
+          <!-- 직접견적·협력사 보유 표 공통 열 — 1920 화면에서 4·5열 머리글이 시안 직접견적 표(2761:24427)의
+               x 769·984 에 온다. 두 표가 위아래로 붙어 같은 열 격자를 쓴다. -->
           <colgroup>
             <col class="w-[3%]">
             <col class="w-[24%]">
-            <col class="w-[31%]">
-            <col class="w-[14%]">
+            <col class="w-[28.8%]">
+            <col class="w-[15.8%]">
             <col class="w-[11%]">
             <col class="w-[96px]">
             <col class="w-[80px]">
           </colgroup>
           <thead>
-            <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[10px] font-normal uppercase leading-[24px] text-ink-subtle">
+            <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[12px] font-normal uppercase leading-[24px] text-ink-subtle [&_th]:font-normal">
               <th class="px-[14px] text-center"><span class="sr-only">선택</span></th>
               <th class="px-[8px]">MPN</th>
               <th class="px-[8px]">Distributor</th>
@@ -517,17 +519,19 @@ function partnerActionLabel(part: BomPartHitType): string {
       </div>
       <div class="overflow-x-auto">
         <table class="w-full min-w-[900px] table-fixed border-collapse 2xl:min-w-[1140px]">
+          <!-- 직접견적·협력사 보유 표 공통 열 — 1920 화면에서 4·5열 머리글이 시안 직접견적 표(2761:24427)의
+               x 769·984 에 온다. 두 표가 위아래로 붙어 같은 열 격자를 쓴다. -->
           <colgroup>
             <col class="w-[3%]">
             <col class="w-[24%]">
-            <col class="w-[31%]">
-            <col class="w-[14%]">
+            <col class="w-[28.8%]">
+            <col class="w-[15.8%]">
             <col class="w-[11%]">
             <col class="w-[96px]">
             <col class="w-[80px]">
           </colgroup>
           <thead>
-            <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[10px] font-normal uppercase leading-[24px] text-ink-subtle">
+            <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[12px] font-normal uppercase leading-[24px] text-ink-subtle [&_th]:font-normal">
               <th class="px-[14px] text-center"><span class="sr-only">선택</span></th>
               <th class="px-[8px]">MPN</th>
               <th class="px-[8px]">Distributor</th>

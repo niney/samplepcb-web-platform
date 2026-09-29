@@ -2805,7 +2805,7 @@ function fmtWon(v: number | null): string {
                 <col class="w-[90px]">
               </colgroup>
               <thead class="sticky top-0 z-10 bg-bom-table-head shadow-[0_1px_0_var(--color-bom-table-line)] [&_th]:font-normal">
-                <tr class="h-[39px] text-left font-noto text-[10px] font-normal uppercase leading-[24px] tracking-normal text-bom-table-heading">
+                <tr class="h-[39px] text-left font-noto text-[12px] font-normal uppercase leading-[24px] tracking-normal text-bom-table-heading">
                   <th class="p-0">
                     <div class="flex h-[39px] items-center justify-center">
                       <BomQuoteCheckbox
@@ -2836,7 +2836,7 @@ function fmtWon(v: number | null): string {
                       >
                         ‹
                       </button>
-                      <span class="text-[10px] text-bom-table-heading">작업</span>
+                      <span class="text-[12px] text-bom-table-heading">작업</span>
                       <button
                         type="button"
                         class="grid size-[20px] place-items-center rounded-[4px] text-[17px] leading-none text-brand-soft transition hover:bg-action-quiet disabled:cursor-default disabled:text-ink-faint disabled:opacity-35"
@@ -2942,9 +2942,11 @@ function fmtWon(v: number | null): string {
         @click="closeCompactRightPanel"
       />
 
-      <!-- 우: 데스크톱 사이드바 / 태블릿 우측 드로어 / 모바일 바텀시트 -->
+      <!-- 우: 데스크톱 사이드바 / 태블릿 우측 드로어 / 모바일 바텀시트 — 셸 크롬과 같은 어두운
+           패널(단일 모드 2751:4396). 단일 검색의 부품 견적 패널은 시안대로 밝게 둔다. -->
       <aside
         id="bom-quote-side-panel"
+        data-theme="dark"
         :class="[
           compactRightOpen ? 'flex' : 'hidden',
           rightOpen ? 'xl:flex' : 'xl:hidden',

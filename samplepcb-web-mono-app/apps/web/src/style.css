@@ -616,8 +616,12 @@
 }
 
 /* 패널 아이콘 원본은 라이트용 진회색과 다크용 흰색 SVG가 섞여 있다.
-   동일 필터를 적용해 한 톤으로 정렬한다. */
+   동일 필터를 적용해 한 톤으로 정렬하고, 어두운 크롬(분석 우측 패널) 안에서는 흰색으로 뒤집는다. */
 .bom-panel-icon {
   filter: brightness(0);
   opacity: 0.75;
+}
+
+.bom-app [data-theme="dark"] .bom-panel-icon {
+  filter: brightness(0) invert(1);
 }
