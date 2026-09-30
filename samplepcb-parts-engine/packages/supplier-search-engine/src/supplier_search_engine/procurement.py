@@ -1345,7 +1345,11 @@ def apply_procurement_decisions(
             )
             if policy.procurement_mode == ProcurementMode.MASS:
                 if selected_packaging_rank < 2:
-                    packaging_preference_used = True
+                    # 후보 교체 사유는 하나뿐이다(ComponentProcurementDecision).
+                    # 가격·기술 대체로 이미 그룹이 바뀌었으면 그 사유를 유지하고
+                    # Reel 선택은 오퍼 근거(reason code)로만 남긴다.
+                    if application_group == preselected_group:
+                        packaging_preference_used = True
                     recommendation_reasons.append(
                         "mass_production_reel_preferred"
                     )

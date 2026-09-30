@@ -1551,6 +1551,154 @@ def test_mass_mode_treats_custom_reel_below_manufacturer_reel_but_above_mixed_of
     assert component.packaging_preference_used is True
 
 
+def equivalent_resistor_query() -> PlannedQuery:
+    return PlannedQuery(
+        component_id="resistor-mass-reason",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        category_policy="resistor",
+        quantity=10,
+        requirements={
+            "part_type": requirement("part_type", "resistor", "category"),
+            "resistance_ohm": requirement("resistance_ohm", 1_000.0),
+            "power_w": requirement("power_w", 0.1, "gte"),
+            "tolerance_percent": requirement("tolerance_percent", 1.0, "lte"),
+            "package": requirement("package", "0603"),
+        },
+    )
+
+
+def equivalent_resistor(
+    supplier: SupplierIdentity,
+    *,
+    mpn: str,
+    unit_price: float,
+    packaging: str,
+) -> SupplierProduct:
+    return product(
+        supplier,
+        mpn=mpn,
+        specs={
+            "resistance_ohm": 1_000.0,
+            "power_w": 0.125,
+            "tolerance_percent": 1.0,
+            "package": "0603",
+        },
+        prices=[(1, unit_price, "KRW")],
+        packaging=packaging,
+    ).model_copy(update={"category": "resistor", "package": "0603"}, deep=True)
+
+
+def test_mass_mode_reel_in_price_optimized_group_keeps_price_as_the_only_reason():
+    # 가격 교체 + Reel 선택이 사유 두 개로 ValidationError 를 내던 회귀(운영 견적 231).
+    candidates, component = decide(
+        equivalent_resistor_query(),
+        [
+            equivalent_resistor(
+                Supplier.DIGIKEY,
+                mpn="A-TECHNICAL-FIRST",
+                unit_price=10,
+                packaging="Tape & Reel",
+            ),
+            equivalent_resistor(
+                Supplier.MOUSER,
+                mpn="Z-LOWEST-TOTAL",
+                unit_price=1,
+                packaging="Tape & Reel",
+            ),
+        ],
+        policy(procurement_mode=ProcurementMode.MASS),
+    )
+
+    cheapest = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer_part_number == "Z-LOWEST-TOTAL"
+    )
+    assert component.automatic_offer_key == offer_decision(cheapest).offer_key
+    assert component.price_optimization_used is True
+    assert component.packaging_preference_used is False
+    assert component.technical_fallback_used is False
+    assert "equivalent_group_lower_effective_total_selected" in (
+        component.recommendation_reason_codes
+    )
+    assert "mass_production_reel_preferred" in (
+        component.recommendation_reason_codes
+    )
+
+
+def test_mass_mode_reel_in_fallback_group_keeps_the_technical_fallback_reason():
+    planned = query(quantity=10)
+    products = [
+        product(Supplier.DIGIKEY, prices=[]),
+        product(
+            Supplier.MOUSER,
+            mpn="ABC123456TR",
+            prices=[(1, 0.1, "KRW")],
+            packaging="Tape & Reel",
+        ),
+    ]
+
+    _sample_candidates, sample_component = decide(
+        planned,
+        products,
+        policy(procurement_mode=ProcurementMode.SAMPLE),
+    )
+    candidates, component = decide(
+        planned,
+        products,
+        policy(procurement_mode=ProcurementMode.MASS),
+    )
+
+    variant = next(
+        item for item in candidates if item.product.supplier == Supplier.MOUSER
+    )
+    assert sample_component.technical_fallback_used is True
+    assert component.technical_fallback_used is True
+    assert component.packaging_preference_used is False
+    assert component.automatic_offer_key == offer_decision(variant).offer_key
+    assert "next_purchasable_technical_group_selected" in (
+        component.recommendation_reason_codes
+    )
+    assert "mass_production_reel_preferred" in (
+        component.recommendation_reason_codes
+    )
+
+
+def test_mass_mode_pricier_reel_equivalent_group_reports_the_packaging_reason():
+    candidates, component = decide(
+        equivalent_resistor_query(),
+        [
+            equivalent_resistor(
+                Supplier.DIGIKEY,
+                mpn="A-TECHNICAL-FIRST",
+                unit_price=1,
+                packaging="Cut Tape",
+            ),
+            equivalent_resistor(
+                Supplier.MOUSER,
+                mpn="Z-REEL",
+                unit_price=10,
+                packaging="Tape & Reel",
+            ),
+        ],
+        policy(procurement_mode=ProcurementMode.MASS),
+    )
+
+    reel = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer_part_number == "Z-REEL"
+    )
+    assert component.automatic_offer_key == offer_decision(reel).offer_key
+    assert component.packaging_preference_used is True
+    assert component.price_optimization_used is False
+    assert component.technical_fallback_used is False
+    assert "equivalent_group_reel_preferred" in (
+        component.recommendation_reason_codes
+    )
+
+
 def test_mass_reevaluation_preserves_a_purchasable_requested_offer():
     products = [
         product(
