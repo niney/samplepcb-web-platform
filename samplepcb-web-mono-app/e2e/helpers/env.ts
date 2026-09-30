@@ -86,6 +86,23 @@ export function requireCustomerCreds(slot: 1 | 2 = 1): CustomerCreds {
   return { id: id2, pw };
 }
 
+/**
+ * 사람이 이어서 조작할 데모 고객(DEMO_KEEP 스펙) — e2e/.env.e2e 의 E2E_DEMO_CUSTOMER_ID/PW.
+ * 자동 여정 고객(e2e-customer)과 따로 둔다: 데모는 주행이 멈춘 자리에서 **사람이 그 계정으로
+ * 로그인해** 화면을 이어 가므로, 평소 쓰는 로컬 테스트 계정이어야 한다. 값은 코드에 두지 않는다.
+ */
+export function requireDemoCustomerCreds(): CustomerCreds {
+  const id = process.env.E2E_DEMO_CUSTOMER_ID ?? e2eEnv['E2E_DEMO_CUSTOMER_ID'];
+  const pw = process.env.E2E_DEMO_CUSTOMER_PW ?? e2eEnv['E2E_DEMO_CUSTOMER_PW'];
+  if (id === undefined || id === '' || pw === undefined || pw === '') {
+    throw new Error(
+      'e2e/.env.e2e 에 E2E_DEMO_CUSTOMER_ID / E2E_DEMO_CUSTOMER_PW 를 기입하세요 — ' +
+        '데모가 멈춘 뒤 사람이 로그인해 이어 갈 로컬 테스트 계정.',
+    );
+  }
+  return { id, pw };
+}
+
 /** HS256 로컬 서명용 시크릿 — me.php(SPCB_JWT_SECRET)·Fastify 검증과 동일 값(로컬 dev). */
 export function requireJwtSecret(): string {
   const v = process.env.JWT_SECRET ?? apiEnv['JWT_SECRET'];

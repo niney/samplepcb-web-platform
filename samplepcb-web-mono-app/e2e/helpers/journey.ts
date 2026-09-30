@@ -451,7 +451,7 @@ export async function placeBatchOrderFromBomQuotes(
 }
 
 /** 주문서 진입 이후의 공통 무통장 주문 조작. */
-async function completeBankTransferOrder(
+export async function completeBankTransferOrder(
   customer: JourneySession,
   rp: JourneyReport,
   opts: {

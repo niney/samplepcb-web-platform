@@ -123,6 +123,8 @@ specs/
   journey-bom-comparison-workspace.e2e.test.ts BOM 여정 19호 — 전체 BOM 비교→필터·페이지·오류·모바일 열 탐색
   journey-bom-admin-comparison-workspace.e2e.test.ts BOM 여정 20호 — 관리자 전체 비교→가림·페이지·복구·모바일 감사
   journey-bom-admin-workbook-recovery.e2e.test.ts BOM 여정 21호 — 관리자 실제 XLSX→분석·시트 오류 복구·모바일 감사
+  journey-bom-confirm.e2e.test.ts      BOM 여정 22호 — 결제 후 부품 확인(D43)→고객 PHP 회신(근거 팝업·나눠 받기)→추가결제 주문·환불 감액→분할 배송
+  journey-bom-confirm-admin.e2e.test.ts BOM 여정 23호 — 부품 확인 관리자 화면 조작(작성 패널·후보 서랍·대리 회신·적용·정산·목록)+예외 경로(발주서 품목·취소 거절·정산 취소·모아서 입고 대기·다른 고객·늦은 제출), Mailpit 필요
   customer-eq-menu.e2e.test.ts         마이페이지 "확인 요청 > 제조 확인"(/shop/eq) — /mine API·배지·목록에 결정 폼 없음·딥링크·390px
   customer-as-menu.e2e.test.ts         마이페이지 "문의 > A/S 접수"(/shop/as) — PCB·BOM /mine 배타·회색 배지 합산·탭·폼 없음·앵커·390px
   journey-pcb-as-mypage.e2e.test.ts    여정 44호 — PCB 완주(거버→완료) 뒤 **마이페이지 A/S 접수 진입점으로** 접수→재생산 회차→종결 완주(정리 포함, JOURNEY_KEEP=1 로 남김)
@@ -224,7 +226,10 @@ DB 분석 스냅샷 계산을 검증한다. 업로드 카드와 시트 관리 �
 | `pnpm -F e2e journey:bom:19` | BOM 19호만 — 전체 비교·필터·페이지·오류 복구 |
 | `pnpm -F e2e journey:bom:20` | BOM 20호만 — 관리자 비교·패널 가림·모바일 감사 |
 | `pnpm -F e2e journey:bom:21` | BOM 21호만 — 관리자 XLSX 분석·오류 복구·모바일 감사 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~21호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:22` | BOM 22호만 — 결제 후 부품 확인: 고객 회신·추가결제·환불·분할 배송 |
+| `pnpm -F e2e journey:bom:23` | BOM 23호만 — 부품 확인 관리자 화면 조작·예외 경로(Mailpit 127.0.0.1:8025 필요) |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~23호 브라우저 관찰 모드 |
+| `pnpm -F e2e demo:bom-confirm` | 데모(남김) — 데모 고객(.env.e2e `E2E_DEMO_CUSTOMER_ID/PW`) BOM 주문·입금까지, **부품 확인 요청 보내기 직전**에서 멈춤. 끝에 이어 갈 화면 주소 출력 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
