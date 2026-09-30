@@ -1679,6 +1679,72 @@ PCB P4.13/P4.14 의 배관을 BOM 까지 넓혔다. od 는 여전히 안 바꾼�
 `breakQty`(`bom-rfq.ts` 선정 오퍼) 변경 — 단일가 회신이라 구간 조회에 영향이 없고
 `computeQuote` 가 MOQ 를 다시 적용한다.
 
+### 6.39 결제 후 부품 확인 요청 — D43 (2026-09-30)
+
+배경: 결제 뒤 실제 구매 단계에서 지정 부품의 재고가 소진되거나 공급사 MOQ 가 계약 수량보다
+커지는 일이 생긴다. D31 은 **같은 부품을 다른 협력사에서 같은 값에** 받는 경우(고객 결과 불변)를
+내부에서 처리하지만, 부품·금액·납기·수량이 바뀌면 고객이 골라야 한다. 관리자가 문제 품목을
+지정해 선택지를 보내고, 고객이 마이페이지에서 고르고, 관리자가 그 결과를 적용·정산한다.
+원 주문은 1건 그대로 두고 **차액만** 오간다(사용자 결정 — 재견적·전액 재결제 아님).
+
+| # | 결정 | 이유 |
+| ---- | ---- | ---- |
+| D43-1 | 대상 구간 = 현재 활성 주문행이 **결제 확인 뒤 ~ 고객 배송 전**. 결제 전은 D25/D26 품목 교체+재회신, 배송 뒤는 D37 클레임. | 구간마다 이미 맞는 도구가 있다 |
+| D43-2 | 고객 결과(부품·금액·납기·수량)가 바뀔 때만 묻는다. 같은 부품을 다른 협력사로 같은 값에 받는 건 D31 내부 처리. | 불필요한 질문 방지 |
+| D43-3 | 확인 요청 1건 = Case 1개 + 문제 품목 N개(이슈). 고객은 한 번에 제출한다. 한 품목에는 열린 이슈 1건(`activeKey` unique). 요청은 `version` 낙관적 잠금. | 메일 폭주·동시 조작 방지 |
+| D43-4 | 문제 유형 사전 `stock_out`(재고 소진)·`moq_increase`(MOQ 증가). 선택지 프리셋 — 재고 소진: A `substitute`(대체품 승인)·B `wait_restock`(입고 대기)·C `customer_supply`(고객 사급) / MOQ 증가: A `moq_purchase`(MOQ 구매 승인)·B `alt_supplier`(다른 공급사)·C `customer_supply`(**해당 부품 전량 사급**). `consult`(상담 요청)는 항상 붙는다. 관리자는 프리셋 선택지를 끄고 켤 수 있다(최소 1개 + 상담). | 사용자 확정 형식 |
+| D43-5 | 차액 = **선택지별 관리자 입력**(VAT 포함 원, +추가결제·−환불·0=당사 부담). 서버는 참고값(새 라인 − 원 라인, 공급가×1.1)을 함께 박제한다. 사급의 기본 참고값은 −(원 라인×1.1). | 사용자 결정 |
+| D43-6 | 근거는 **요청 시점 박제** — 원 부품(MPN·제조사·설명·필요/주문 수량·주문 당시 단가·BOM 위치), 관찰(확인 시각·공급처 표시·재고·MOQ·리드타임·메모), 대체품(부품 정보 + 엔진 필수조건 판정 `requirementAssessments` — 후보 스냅샷에서 고른 경우만. 카탈로그에서 고르면 '엔진 비교 없음'). 협력사명·원가는 고객에게 내리지 않는다(협력사 공급처는 '당사 협력 공급처'). | snapshot-freeze·엔진 단일 판정(AGENTS.md BOM 역할 경계)·여정 43호 |
+| D43-7 | 고객 경로: 메일은 링크만(`bom_confirm_request`, 버튼 없음). 목록 `/shop/parts-confirm`(확인 요청 › 부품 확인 — 부품 축 회원에게만), 결정은 주문 상세 한 곳(`#bomc-{요청id}`)에서 POST+CSRF 브리지(`/spcb/api/bom-confirm-answer`) → sp-node. 사이드바·마이페이지 요약 밴드 배지(파랑=고객 차례). | D16·08-25 관례(get-opens-post-decides) |
+| D43-8 | 무응답은 자동으로 정하지 않는다. 기한 지남 표시 + 관리자 **대리 회신**(채널 phone·email·other 기록, actorRole admin). | 돈·부품이 걸린 결정 |
+| D43-9 | 조달 게이트: 열린 이슈(고객 대기·결정됨 미적용)가 있는 품목이 속한 협력사·공급사 그룹은 발주서 생성 409 `CONFIRM_PENDING`, 그 품목이 든 공급사 발주서의 [구매 완료]도 409. | `sp_bom_po` UK(quoteId,partnerId)라 그룹째 보류해야 나중에 같은 발주서로 낼 수 있다 |
+| D43-10 | 적용(관리자): `substitute`·`alt_supplier`·`moq_purchase` = **결제 후 변경** — 그 행만 갱신, 견적 상태·확정가·다른 행 금액 불변, 선택 이벤트 reason `post-order-amend`(D25 강제 교체는 확정가 해제·검토 중 회귀라 결제 후엔 쓰지 않는다). `customer_supply` = 행 `fulfillment=customer_supply`(발주 초안에서 빠짐). `wait_restock` = `fulfillment=backorder` + 예상일. `consult` = 변경 없이 닫고 필요하면 새 요청. 1차 적용은 **그 품목이 아직 발주서에 없을 때만**(발행됨 발주서면 삭제 뒤 적용 안내, 확인된 발주서는 이월). | 결제 후 D25 부작용 회피 |
+| D43-11 | 정산 = 요청 단위 **순액**(증액 합 − 감액 합) 1건. 증액 → **추가결제 주문**(앵커 상품 `sp-bom-extra`, io_id `bomx-{정산id}`, 표준 주문서라 무통장 포함). 결제 확인은 lazy(카트행 io_id·io_price·결제 상태). 감액 → 원 BOM 카트행 `io_price` 를 줄이고 영카트 금액 재계산(+`od_mod_history`) → 과입금 → 카드는 영카트 부분취소, 무통장은 송금 후 기존 환불 기록(`PATCH /orders/:odId/refund`). 개인결제는 쓰지 않는다(고객 화면 무통장 없음·관리자 취소 없음·공개 목록). **D31-4 개정**: 고객이 답한 확인 요청 결과에 한해 고객 금액이 바뀐다. | 사용자 결정·영카트 장부 정합(`get_order_info` 는 취소 금액을 줄 상태로 다시 계산하므로 금액 칸 직접 수정은 지워진다) |
+| D43-12 | 순액이 추가결제면 **결제 확인 뒤 적용**(관리자 '선적용' 확인으로 예외). 환불·0원이면 바로 적용. | 먼저 사고 돈을 못 받는 사고 방지 |
+| D43-13 | 입고 대기: 예상 입고일·근거·최대 대기일을 적는다. 분할 발송을 허용하면 고객이 '모아서 한 번에 / 먼저 온 것 먼저'를 고른다(분할 배송비는 관리자 입력, 0=당사 부담, 정산 순액에 포함). 분할 = **발주서 단위** — 입고 대기 품목이 든 발주서만 뒤로 미루고 나머지로 첫 배송, 두 번째 발송(택배사·송장)은 이슈에 기록해 고객에게 보인다. | 사용자 결정(고객 선택) + 발주서가 입고 단위 |
+| D43-14 | 배송 게이트(`BOM_FULFILLMENT_INCOMPLETE`) 확장: 열린 요청·미적용 결정이 있으면 차단, '모아서' 입고 대기 품목은 그 품목이 든 발주서 입고 전 차단, '먼저 온 것 먼저'는 그 발주서만 입고 계산에서 뺀다. 사급 행은 발주가 없으니 대상 밖. | 조기 배송 방지 |
+| D43-15 | C(전체 재주문) 확장점: 요청 `settlementMode`(`difference` 고정, 후속 `reorder`), Case 단위 정산 원장, 추가결제 io_id 를 `bom-{id}`와 분리, 적용 모드(결제 후 변경 / 재견적) 분리. | 사용자 요청(나중에 C 를 붙여 골라 쓴다) |
+
+- **데이터**: `sp_bom_confirm_request`(Case·회원·요청 시점 주문행·상태 `requested→answered→resolved | canceled`·기한·정산 방식·version·회신 주체/채널), `sp_bom_confirm_issue`(품목·유형·설명·근거 박제 JSON·선택지 JSON·고객 선택·발송 선호·적용·두 번째 발송·`activeKey`), `sp_bom_confirm_event`(append-only), `sp_bom_settlement`(Case 단위 정산 원장 — FK 없음, Case 가 지워져도 돈 기록은 남긴다), `sp_bom_quote_item.fulfillment`(`normal|customer_supply|backorder`)·`fulfillmentOn`(예상 입고일).
+- **API**: 관리자 `GET|POST /api/admin/bom-quotes/:id/confirms`, `…/confirms/:rid/{cancel,answer,resolve}`, `…/issues/:iid/{apply,followup}`, `…/settlements/:sid/{reduce,refund,cancel}`, 워크큐 `GET /api/admin/bom-confirms`. 고객 `GET /api/bom/confirms?odId=`·`/mine?scope=`, `POST /api/bom/confirms/:rid/answer`, `POST /api/bom/confirms/settlements/:sid/checkout`(추가결제 주문서 직행).
+- **화면**: sp-vue Case 상세 '부품 확인 요청' 패널(요청 작성·대리 회신·적용·정산) + 스마트 BOM 메뉴 '부품 확인' 워크큐(배지 = 관리자 차례). sp-php 사이드바 '부품 확인'·마이페이지 요약 밴드·목록 `/shop/parts-confirm`·주문 상세 섹션(근거 팝업·선택 폼·추가결제 버튼·두 번째 발송).
+- **이월(P2)**: C 모드, 확인된 발주서 품목의 사급·대체(부족 원장 연계), 공급사 재고 감시(엔진 라이브 재조회), 리마인드·기한 경과 자동 2차 요청, 고객 진행 스텝퍼 '부품 확인' 칸, 견적서 인쇄의 변경 이력, 추가결제 주문의 스텝퍼(지금은 일반 주문 칸 — 마켓 계약 주문과 같은 한계).
+
+**구현 기록(2026-09-30)**
+
+- **파일**: 계약 `packages/api-contract/src/schemas/bom-confirm.ts` · 마이그레이션 `20260930120000_add_bom_confirm_request`(추가 전용) ·
+  `lib/bom-confirm.ts`(요청·회신·적용·정산·목록) · `lib/bom-confirm-gates.ts`(발주·배송 게이트 — bom-po ↔ bom-case-delete 순환 회피로 분리) ·
+  `lib/bom-confirm-email.ts` · `bom-quote.ts resolvePostOrderChange/amendQuoteItemAfterOrder`(결제 후 1행 변경) · 라우트
+  `routes/admin-bom-confirms.ts`·`routes/bom-confirms.ts` · 앵커 시드 `scripts/seed-bom-extra-anchor-item.ts`
+  (`pnpm --filter api smartbom:seed-extra-anchor`) · sp-vue `BomConfirmPanel.vue`·`BomConfirmComposePanel.vue`(넓은 오른쪽 패널)·`BomConfirmCustomerPreview.vue`·
+  `AdminSmartbomConfirms.vue`·`useAdminBomConfirms.ts` · sp-php `extend/sp_bom_confirm.extend.php`(브리지·배지 DB count)·
+  `spcb/api/bom-confirm-answer.php`(POST+CSRF)·`spcb/pages/parts-confirm.php`(`/shop/parts-confirm`)·
+  `theme/sp-lite/shop/_bom_confirm_section.php`(주문 상세 섹션, `orderinquiryview.php` 가 include)·사이드바/마이페이지 밴드·
+  `extend/sp_quote_cart.extend.php` ⑦-2(`sp-bom-extra` 건별 렌더)·`shop.head.php`(VAT 명세).
+- **고객 차례 모수(배지)** = 확인 대기(`requested`) + **결제할** 추가결제(대기·요청 살아 있음·주문서 미제출). 무통장 주문서를 이미
+  냈으면 `orderPending`(입금 확인 대기)이라 결제 버튼도 배지도 없다. PHP `sp_bom_confirm_open_count`(DB count)와 sp-node
+  `/mine` `openCount` 가 같은 모수 — 여정 22호 B04 가 둘의 일치를 어서션한다.
+- **고객 진행 캡(여정 22호 실측 교정)**: 보류 품목(열린 이슈·'모아서' 입고 대기)은 발주서가 없어, 발주서만 보는 진행
+  파생이 나머지 입고만으로 '입고 완료'를 띄웠다. `bom-customer-progress` 에 hold(`confirm`|`backorder`)를 넣어 '조달 중'으로
+  붙잡고 라벨에 사유('확인이 필요한 부품이 있습니다')를 붙인다. '먼저 온 것 먼저'는 첫 배송을 막지 않으니 캡하지 않는다
+  (배송 게이트와 같은 기준 — `loadConfirmShippingStates` 공유).
+- **관리자 작성 화면 = 넓은 오른쪽 패널**(2026-09-30 사용자 결정 — 가운데 팝업은 늘 창 전체가 스크롤돼 어울리지 않았다): 전체 높이·최대 1200px, 머리·바닥 고정 + 몸통 3열(품목 목록 검색 | 품목별 작성 | 고객 미리보기 — 고객 PHP 4칸 형식)이 각자 스크롤, 1280px 미만은 미리보기를 탭으로, 모바일은 한 열. 대체품 서랍은 패널 위 한 겹. 초안은 닫아도 같은 Case 화면 안에서 유지(버튼 '작성 이어가기'), 화면을 떠날 때만 확인(라우터 가드·beforeunload).
+- **추가결제 주문 ↔ 원 주문**: 추가결제 주문 상세에 `#sp_bomc_origin`('원 주문 보기' → `#bomc-{id}`) — 두 주문이 따로
+  논다고 느끼지 않게(`sp_bom_confirm_extra_origin`, read-only 조인 cart.io_id = settlement.chargeKey).
+- **검증**: e2e 여정 22호 `pnpm -F e2e journey:bom:22`(`specs/journey-bom-confirm.e2e.test.ts`) — NOT_PAID 게이트 → 요청 2건
+  (형식·근거 박제·고객 DTO 비노출) → 발주/배송/Case 삭제 게이트 → 고객 PHP 회신(분석근거 팝업·나눠 받기) → 대리 회신 →
+  추가결제 주문(무통장 → 입금 확인 대기 → 입금 → paid) → 1행 적용(확정가 불변) → 환불(감액 → 기록, 미수 0) → 첫 배송 →
+  ORDER_CLOSED → 두 번째 발송 → 고객·관리자 화면. 여정 23호 `pnpm -F e2e journey:bom:23`
+  (`specs/journey-bom-confirm-admin.e2e.test.ts`, Mailpit 필요) — **관리자 화면 조작**(작성 패널: 품목 선택·유형 전환·선택지
+  끄기·후보 서랍 대체품·MOQ 수량·입고 근거·지난 기한 / 대리 회신 모달 / 적용·선적용·감액 확인창 / 환불 기록·정산 취소·요청 취소
+  입력창 / 업무 목록 탭·검색·Case 열기) + **예외 경로**(발주서 품목: 공급사 [구매 완료] CONFIRM_PENDING → 화면 선차단·API
+  ITEM_IN_PO → 발주서 삭제 뒤 적용 → 사급은 발주 초안 제외 / 추가결제 주문 제출 뒤 요청 취소 NOT_CANCELABLE·정산 취소
+  CHARGE_ORDER_PLACED → 선적용 → 입금 뒤 자동 완료 / 주문서만 연 추가결제의 정산 취소 = 담긴 카트행 정리 → 당사 부담 적용 /
+  '모아서' 입고 대기의 배송·진행 보류 → 입고 뒤 배송 / 상담 = 변경 없이 닫힘 / 다른 고객 404 / 열어 둔 화면의 늦은 제출 NOT_OPEN /
+  고객 메일 = 주문 상세 링크 1개, 폼·공급사 SKU 없음). ⚠ e2e 픽스처 규율: Mouser·DigiKey 공급사 발주서 생성은 실제 카트 API 를
+  부르므로(`EXTERNAL_AUTOMATED_SUPPLIERS`) 발주서 경로는 자동 실행 대상이 아닌 UniKeyIC 로 연다.
+- **운영 반영**: 마이그레이션 적용 + `smartbom:seed-extra-anchor` 1회. PHP 는 `G5_CSS_VER` 갱신분 배포.
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

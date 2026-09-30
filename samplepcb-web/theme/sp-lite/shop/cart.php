@@ -80,12 +80,15 @@ for ($i=0; $row=sql_fetch_array($result); $i++)
     // 수량 표시 생략(ct_qty=1 고정, io_price 가 총액). 상세: extend ⑥
     // 개발의뢰 마일스톤 행(sp-develop, extend ⑥-2)도 같은 취급 — 배지 문구만 갈린다.
     $is_develop = function_exists('sp_develop_it_ids') && in_array($row['it_id'], sp_develop_it_ids());
-    $is_market = ($is_develop || (function_exists('sp_market_it_ids') && in_array($row['it_id'], sp_market_it_ids())));
+    // 부품 BOM 추가결제 행(결제 후 부품 확인 D43, extend ⑦-2)도 같은 취급 — 옵션 수정 없음·수량 생략.
+    $is_bom_extra = function_exists('sp_bom_extra_it_ids') && in_array($row['it_id'], sp_bom_extra_it_ids());
+    $is_market = ($is_develop || $is_bom_extra || (function_exists('sp_market_it_ids') && in_array($row['it_id'], sp_market_it_ids())));
 
     $cart_items[] = array(
         'is_quote'   => false,
         'is_market'  => $is_market,
         'is_develop' => $is_develop,
+        'is_bom_extra' => $is_bom_extra,
         'ct_id'      => $row['ct_id'],
         'it_id'      => $row['it_id'],
         'it_name'    => stripslashes($row['it_name']),
@@ -222,7 +225,7 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                         <a href="<?php echo $item['it_url']; ?>" class="prd_name"><b><?php echo $item['it_name']; ?></b></a>
 
                         <?php if (!empty($item['is_market'])) { /* 계약 행: io 기반 옵션(빈 옵션명+가격) 대신 계약 배지만. 선택사항수정(optionmod)은 같은 it_id 카트행 전삭제 트랩이라 노출 안 함 */ ?>
-                        <div class="sod_opt"><span class="sp-cart-market-tag"><?php echo !empty($item['is_develop']) ? '개발의뢰 결제' : '재능마켓 계약'; ?></span></div>
+                        <div class="sod_opt"><span class="sp-cart-market-tag"><?php echo !empty($item['is_bom_extra']) ? '부품 추가결제' : (!empty($item['is_develop']) ? '개발의뢰 결제' : '재능마켓 계약'); ?></span></div>
                         <?php } elseif ($item['options']) { ?>
                         <div class="sod_opt"><?php echo $item['is_quote'] ? get_text($item['options']) : $item['options']; ?></div>
                         <?php if (!$item['is_quote']) { ?>

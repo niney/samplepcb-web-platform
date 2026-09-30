@@ -33,6 +33,8 @@ import { adminDigikeyRoutes, digikeyOauthCallbackRoutes } from './routes/admin-d
 import { adminBomOrderRoutes } from './routes/admin-bom-orders';
 import { bomClaimRoutes } from './routes/bom-claims';
 import { adminBomClaimRoutes } from './routes/admin-bom-claims';
+import { bomConfirmRoutes } from './routes/bom-confirms';
+import { adminBomConfirmRoutes } from './routes/admin-bom-confirms';
 import { adminMailRoutes } from './routes/admin-mail';
 import { adminPartnerRoutes } from './routes/admin-partners';
 import { adminPartnerPartRoutes } from './routes/admin-partner-parts';
@@ -129,6 +131,8 @@ await app.register(bomQuoteRoutes, { prefix: '/api' });
 await app.register(bomRoutes, { prefix: '/api/svc', actor: 'service' });
 await app.register(bomQuoteRoutes, { prefix: '/api/svc', actor: 'service' });
 await app.register(bomClaimRoutes, { prefix: '/api' });
+// 결제 후 부품 확인 요청(D43) — 고객 회신·추가결제(주문 상세 브리지·마이페이지)
+await app.register(bomConfirmRoutes, { prefix: '/api' });
 await app.register(adminBomRoutes, { prefix: '/api/admin' });
 await app.register(adminBomQuoteRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 협력사 RFQ 발송·현황·대리 입력 (docs/SMARTBOM_PARTNER_RFQ.md)
@@ -145,6 +149,8 @@ await app.register(digikeyOauthCallbackRoutes, { prefix: '/api' });
 await app.register(adminBomOrderRoutes, { prefix: '/api/admin' });
 // 배송·완료 후 고객 문제 접수와 관리자 완료·클레임 워크큐(D37)
 await app.register(adminBomClaimRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 결제 후 부품 확인 요청(D43): Case 패널·워크큐·적용·정산
+await app.register(adminBomConfirmRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 빠른 메일(§6.15): 템플릿 + Case 컨텍스트 발송·이력
 await app.register(adminMailRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 공용 파트너(조직) 관리

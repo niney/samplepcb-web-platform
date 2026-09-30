@@ -46,6 +46,21 @@ describe('resolveBomProgress', () => {
     expect(bomProgressShortLabel(r)).toBe('조달 중');
   });
 
+  it('보류 품목(부품 확인 D43)이 있으면 나머지가 다 들어와도 입고 완료가 아니라 조달 중이다', () => {
+    const received = { status: 'closed', shipment: { status: 'delivered', mode: 'domestic', receivedAt: new Date() } };
+    // 여정 22호 실측 — 정상 품목 발주서만 입고되고 확인 중 품목은 발주 보류였는데 '입고 완료'로 보였다.
+    expect(resolveBomProgress([received]).stage).toBe('received');
+    const confirm = resolveBomProgress([received], 'confirm');
+    expect(confirm).toMatchObject({ stage: 'procuring', partial: true, held: 'confirm' });
+    expect(bomProgressLabel(confirm)).toBe('부품 조달 중 — 확인이 필요한 부품이 있습니다 (일부 앞서 진행 중)');
+    expect(bomProgressShortLabel(confirm)).toBe('조달 중');
+    const backorder = resolveBomProgress([{ status: 'issued', shipment: null }], 'backorder');
+    expect(backorder).toMatchObject({ stage: 'procuring', partial: false });
+    expect(bomProgressLabel(backorder)).toBe('부품 조달 중 — 입고를 기다리는 부품이 있습니다');
+    // 발주 전이면 칸은 그대로(조달 준비) 두고 사유만 붙인다.
+    expect(bomProgressLabel(resolveBomProgress([], 'confirm'))).toBe('부품 조달 준비 중 — 확인이 필요한 부품이 있습니다');
+  });
+
   it('국제 선적이 운송 중이면 해외 어휘, 통관이면 통관 어휘', () => {
     const intl = resolveBomProgress([{ status: 'confirmed', shipment: { status: 'shipped', mode: 'international', receivedAt: null } }]);
     expect(bomProgressLabel(intl)).toBe('해외 부품 운송 중');

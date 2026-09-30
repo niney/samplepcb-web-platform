@@ -48,6 +48,8 @@ if ($sp_cur_script === 'orderform.php') {
         ? sp_quote_it_ids()
         : array('sp-pcb-std', 'sp-mask', 'sp-pcb-adv', 'sp-pcb-flex');
     $sp_quote_vat_item_ids[] = 'sp-bom-parts';
+    // 부품 BOM 추가결제(D43) — 차액도 VAT 포함 금액이라 같은 명세를 보인다(extend ⑦-2).
+    $sp_quote_vat_item_ids[] = 'sp-bom-extra';
     $sp_quote_vat_config = array(
         'itemIds' => array_values(array_unique($sp_quote_vat_item_ids)),
     );

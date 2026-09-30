@@ -16,6 +16,7 @@ import type {
 import { prisma } from '../lib/prisma';
 import { loadOpenShortageCounts, loadReceivedPoCounts } from '../lib/bom-po';
 import { areAllBomOrderCasesReceived } from '../lib/bom-order-shipping';
+import { confirmReceiptFields, loadConfirmShippingStates } from '../lib/bom-confirm-gates';
 import {
   getCartOrderAttemptsByIoIds,
   getOrderHeadersLite,
@@ -112,7 +113,7 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
       const quoteIds = quotes.map((quote) => quote.id);
       const ioIds = quotes.map((quote) => `bom-${String(quote.id)}`);
-      const [attemptsByIoId, poGroups, receivedCounts, openShortageCounts] = await Promise.all([
+      const [attemptsByIoId, poGroups, receivedCounts, openShortageCounts, confirmStates] = await Promise.all([
         getCartOrderAttemptsByIoIds(ioIds),
         prisma.spBomPo.groupBy({
           by: ['quoteId'],
@@ -122,6 +123,8 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         // 입고 발주서 수 — §6.10 조인 기반(묶음이 여러 Case 를 걸칠 수 있음)
         loadReceivedPoCounts(quoteIds),
         loadOpenShortageCounts(quoteIds),
+        // 부품 확인 요청(D43-14) — 열린 이슈·입고 대기가 배송 큐 판정에 들어간다
+        loadConfirmShippingStates(quoteIds),
       ]);
       const poCounts = new Map(poGroups.map((group) => [group.quoteId, group._count._all]));
 
@@ -237,7 +240,12 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       const isToShip = (item: AdminBomOrderListItemType): boolean =>
         isPaid(item) &&
         (item.odStatus === '입금' || item.odStatus === '준비') &&
-        areAllBomOrderCasesReceived(activeCases(item));
+        areAllBomOrderCasesReceived(
+          activeCases(item).map((entry) => ({
+            ...entry,
+            ...confirmReceiptFields(confirmStates.get(entry.quoteId)),
+          })),
+        );
       const isShipping = (item: AdminBomOrderListItemType): boolean =>
         activeCases(item).length > 0 && item.odStatus === '배송';
       const isCompleted = (item: AdminBomOrderListItemType): boolean =>

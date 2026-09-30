@@ -751,9 +751,14 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (target === '배송' || (target === '완료' && order.status !== '배송')) {
         const readiness = await loadBomOrderShippingReadiness(odId);
         if (readiness.hasBomCases && !readiness.ready) {
+          const confirmOpen = readiness.cases.some(
+            (entry) => (entry.openConfirmIssueCount ?? 0) > 0 || (entry.blockingBackorderCount ?? 0) > 0,
+          );
           return reply.status(409).send({
             error: 'BOM_FULFILLMENT_INCOMPLETE',
-            message: '공급 부족 대체발주와 모든 발주서 입고가 끝난 뒤 배송·완료 처리할 수 있습니다.',
+            message: confirmOpen
+              ? '고객 부품 확인 요청이 끝나지 않았거나 모아서 받기로 한 입고 대기 부품이 아직 입고되지 않았습니다.'
+              : '공급 부족 대체발주와 모든 발주서 입고가 끝난 뒤 배송·완료 처리할 수 있습니다.',
           });
         }
       }

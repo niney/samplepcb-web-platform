@@ -79,6 +79,8 @@ export const BomQuoteDecisionReason = z.enum([
   'admin-choice',
   'admin-force-choice',
   'admin-add',
+  // 결제 후 부품 확인 요청(D43) 적용 — 견적 상태·확정가·다른 행을 건드리지 않는 단일 행 변경
+  'post-order-amend',
   'catalog-choice',
   'offer-choice',
   'engine-catalog-selection',
@@ -1502,6 +1504,8 @@ export const AdminBomCaseDeleteBlocker = z.enum([
   'PAID_ORDER',
   'SHARED_ORDER',
   'OPEN_CLAIM',
+  // 결제 후 부품 확인 요청(D43)이 진행 중 — 처리 완료·요청 취소 뒤 삭제
+  'OPEN_CONFIRM',
   'ORDER_LINK_INCONSISTENT',
   'ENGINE_JOB_IN_PROGRESS',
   'SHIPMENT_LINK_INCONSISTENT',

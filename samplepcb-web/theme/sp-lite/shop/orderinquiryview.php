@@ -471,6 +471,12 @@ if($od['od_pg'] == 'lg') {
         <?php endif; ?>
 
         <?php
+        // ── 부품 확인 요청(결제 후 재고 소진·MOQ 증가, D43 — docs/SMARTBOM_PARTNER_RFQ.md §6.39) ──
+        // 요청이 없으면 아무것도 그리지 않는다. 추가결제 주문이면 원 주문 링크만 선다.
+        include G5_THEME_SHOP_PATH . '/_bom_confirm_section.php';
+        ?>
+
+        <?php
         // ── PCB A/S 접수(P5, docs/PCB_PARTNER_TRACK.md §9 A/S) ──────────────────
         // 배송·완료 후 제품 문제 접수. 판정·저장은 sp-node 가 하고 여기서는 화면만
         // 그린다 — 접수 가능 여부(eligibility)도 서버 판정을 그대로 표시한다.

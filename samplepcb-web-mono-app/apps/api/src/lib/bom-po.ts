@@ -45,6 +45,7 @@ import { prisma } from './prisma';
 import { filterActiveQuoteItems, toItemDto } from './bom-quote';
 import { getBusinessInfo, getOrderInfoByCtId } from './g5-db';
 import { isBomOrderFulfillmentClosed, isBomOrderLinePaid } from './bom-order-cancel';
+import { loadOpenConfirmItemIds } from './bom-confirm-gates';
 import { buildPartnerQuotationDocument } from './bom-trade-documents';
 import {
   MOUSER_CART_WEB_URL,
@@ -496,8 +497,9 @@ export const collectPoDraftGroups = async (
   const groups = new Map<bigint, PoDraftLine[]>();
   if (quote === null) return groups;
 
+  // 고객 사급으로 바뀐 행(D43 customer_supply)은 당사가 사지 않는다 — 발주 초안에서 뺀다.
   const activeRows = filterActiveQuoteItems(quote.items, quote.sheets).filter(
-    (row) => row.included,
+    (row) => row.included && row.fulfillment !== 'customer_supply',
   );
   if (activeRows.length === 0) return groups;
 
@@ -600,6 +602,7 @@ export type CreatePosResult =
         | 'ORDER_CLOSED'
         | 'NOT_PAID'
         | 'NO_ELIGIBLE_ROWS'
+        | 'CONFIRM_PENDING'
         | 'ALREADY_ISSUED'
         | 'PARTNER_COUNTRY_REQUIRED';
       detail?: string;
@@ -635,6 +638,20 @@ export const createBomPos = async (
       error: 'NO_ELIGIBLE_ROWS',
       detail: missing.map((id) => String(id)).join(','),
     };
+  }
+  // D43-9 — 고객 확인 중인 품목이 든 구매처 그룹은 통째로 보류한다. 한 Case 에 구매처당 발주서가
+  // 1건(UK quoteId+partnerId)이라, 확인 중인 품목만 빼고 내면 결정 뒤 같은 구매처로 다시 낼 수 없다.
+  const heldItems = await loadOpenConfirmItemIds(quoteId);
+  if (heldItems.size > 0) {
+    const heldPartners = wanted.filter((id) =>
+      (groups.get(id) ?? []).some((line) => heldItems.has(String(line.quoteItemId))));
+    if (heldPartners.length > 0) {
+      return {
+        ok: false,
+        error: 'CONFIRM_PENDING',
+        detail: heldPartners.map((id) => String(id)).join(','),
+      };
+    }
   }
   const existing = await prisma.spBomPo.findMany({
     where: { quoteId, partnerId: { in: wanted } },

@@ -11,6 +11,8 @@ import {
   BomQuoteSearchRequirements,
   BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
+  bomRequirementLabel,
+  type BomConfirmEngineVerdictType,
   type AdminBomQuoteDetailType,
   type AdminBomQuoteItemAddBodyType,
   type AdminBomQuoteItemRemoveBodyType,
@@ -58,6 +60,7 @@ import {
 import {
   applyQtyToOffer,
   computeTotals,
+  effectiveRfqReplyQty,
   isBomQuoteAlternativeReviewPending,
   neededQty,
   normalizeMpn,
@@ -4842,7 +4845,7 @@ function selectedOfferAuditKey(item: BomQuoteItemType): string | null {
 
 /** 카탈로그 정체성만 받아 현재 원장의 부품·구매 조건과 수량 적용 결과를 확정한다. */
 async function resolveAdminCatalogSelection(
-  tx: Prisma.TransactionClient,
+  tx: Pick<Prisma.TransactionClient, 'spPart'>,
   partId: bigint,
   requestedOffer: { supplier: string; supplierSku: string } | null,
   needed: number,
@@ -5117,6 +5120,336 @@ export async function applyAdminQuoteItemSelection(
     });
     return 'ok';
   }, { maxWait: 10_000, timeout: 60_000 });
+}
+
+// ── 결제 후 부품 확인 요청(D43) — 대체품 해석 · 결제 후 단일 행 변경 ───────────────────
+// D25 관리자 교체(applyAdminQuoteItemSelection)는 견적 전 행을 현재 환율로 다시 계산하고 force 면
+// 확정가를 비우고 검토 중으로 되돌린다 — 결제 뒤엔 고객 주문을 흔드는 부작용이다(docs §6.39 D43-10).
+// 여기는 **그 행만** 해석·갱신한다. 견적 상태·확정가·다른 행 금액·환율 스냅샷은 건드리지 않는다.
+// 해석(resolvePostOrderChange)은 요청 작성 때 근거 박제에도 쓰여, 고객이 본 대체품과 적용되는 행이 같은
+// 규칙에서 나온다(가격·재고는 그사이 바뀔 수 있어 적용 때 다시 해석한다).
+
+export type PostOrderReplacementPick =
+  | { source: 'candidate'; candidateKey: string; offerKey: string | null }
+  | { source: 'catalog'; partId: bigint; offer: { supplier: string; supplierSku: string } | null }
+  | { source: 'rfq'; rfqItemId: bigint };
+
+export type PostOrderChange = PostOrderReplacementPick | { source: 'qty'; orderQty: number };
+
+export type PostOrderResolveError =
+  | 'quote-not-found'
+  | 'item-not-found'
+  | 'candidate-not-found'
+  | 'candidate-blocked'
+  | 'offer-not-found'
+  | 'offer-not-priced'
+  | 'part-not-found'
+  | 'catalog-offer-not-found'
+  | 'rfq-item-not-found'
+  | 'not-priced'
+  | 'no-offer'
+  | 'qty-below-needed';
+
+export interface PostOrderResolvedDisplay {
+  packageCode: string | null;
+  lifecycleCode: string | null;
+  datasheetUrl: string | null;
+  leadTime: string | null;
+  /** 후보 스냅샷에서 고른 대체품만 엔진 판정이 있다. 카탈로그·협력사 회신·수량 변경은 null. */
+  engine: BomConfirmEngineVerdictType | null;
+}
+
+export interface PostOrderResolvedItem {
+  /** 갱신될 행 — recalcItems 로 금액까지 계산된 상태. */
+  item: QuoteComputedItem<BomQuoteItemType>;
+  previous: {
+    mpn: string;
+    candidateKey: string | null;
+    offerKey: string | null;
+    lineTotalKrw: number | null;
+    orderQty: number;
+  };
+  neededQty: number;
+  selectedRfqItemId: bigint | null;
+  selectedOfferKey: string | null;
+  display: PostOrderResolvedDisplay;
+  reasonCodes: BomQuoteDecisionReasonType[];
+}
+
+type PostOrderDb = Pick<
+  Prisma.TransactionClient,
+  'spBomQuote' | 'spBomQuoteCandidate' | 'spPart' | 'spBomRfqItem'
+>;
+
+const EMPTY_POST_ORDER_DISPLAY: PostOrderResolvedDisplay = {
+  packageCode: null,
+  lifecycleCode: null,
+  datasheetUrl: null,
+  leadTime: null,
+  engine: null,
+};
+
+/** 결제 후 변경을 **계산만** 한다(저장 없음). 요청 작성의 근거 박제와 적용이 같이 쓴다. */
+export async function resolvePostOrderChange(
+  db: PostOrderDb,
+  quoteId: bigint,
+  itemId: bigint,
+  change: PostOrderChange,
+  usdKrwRate: number | null,
+): Promise<PostOrderResolvedItem | PostOrderResolveError> {
+  const quote = await db.spBomQuote.findUnique({
+    where: { id: quoteId },
+    include: { items: true, sheets: true },
+  });
+  if (quote === null) return 'quote-not-found';
+  const row = filterActiveQuoteItems(quote.items, quote.sheets).find((entry) => entry.id === itemId);
+  if (row === undefined) return 'item-not-found';
+  const item = toItemDto(row);
+  const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
+  const previous = {
+    mpn: item.mpn,
+    candidateKey: item.selectedCandidateKey,
+    offerKey: selectedOfferAuditKey(item),
+    lineTotalKrw: item.lineTotalKrw,
+    orderQty: item.orderQty,
+  };
+  const reasonCodes: BomQuoteDecisionReasonType[] = ['post-order-amend', 'admin-choice'];
+  let selectedRfqItemId: bigint | null = row.selectedRfqItemId;
+  let selectedOfferKey: string | null = previous.offerKey;
+  let display: PostOrderResolvedDisplay = EMPTY_POST_ORDER_DISPLAY;
+
+  switch (change.source) {
+    case 'candidate': {
+      const candidateRow = await db.spBomQuoteCandidate.findUnique({
+        where: { quoteItemId_candidateKey: { quoteItemId: itemId, candidateKey: change.candidateKey } },
+      });
+      if (candidateRow === null) return 'candidate-not-found';
+      const parsed = StoredCandidate.safeParse(candidateRow.payload);
+      if (!parsed.success) return 'candidate-not-found';
+      const candidate = parsed.data;
+      if (!candidate.manualSelectable) return 'candidate-blocked';
+      if (change.offerKey !== null && !candidate.offers.some((offer) => offer.offerKey === change.offerKey)) {
+        return 'offer-not-found';
+      }
+      const selected = storedCandidatePick(candidate, needed, usdKrwRate, change.offerKey);
+      if (selected.pick === null) return 'offer-not-priced';
+      const technicalTop = await db.spBomQuoteCandidate.findFirst({
+        where: { quoteId, quoteItemId: itemId, autoEligible: true },
+        orderBy: { technicalRank: 'asc' },
+      });
+      const technicalParsed = technicalTop === null ? null : StoredCandidate.safeParse(technicalTop.payload);
+      const technicalPick = technicalParsed?.success === true
+        ? storedCandidatePick(technicalParsed.data, needed, usdKrwRate).pick
+        : null;
+      if (change.offerKey !== null) reasonCodes.push('offer-choice');
+      item.mpn = candidate.mpn;
+      item.manufacturerName = candidate.manufacturerName;
+      item.description = candidate.description;
+      item.partId = await partIdForStoredCandidate(candidate, db);
+      item.matchStatus = 'manual';
+      item.selectedCandidateKey = candidate.candidateKey;
+      item.selectionSource = 'admin';
+      item.selectedOffer = snapshotFromPick(selected.pick, true, selected.offerKey);
+      item.orderQty = selected.pick.orderQty;
+      item.matchEvidence = selectedEvidence(
+        item.matchEvidence,
+        candidate,
+        selected.pick,
+        needed,
+        pickLineTotal(technicalPick),
+        reasonCodes,
+      );
+      selectedRfqItemId = null;
+      selectedOfferKey = selected.offerKey;
+      const offer = candidate.offers.find((entry) => entry.offerKey === selected.offerKey);
+      display = {
+        packageCode: candidate.packageCode,
+        lifecycleCode: candidate.lifecycleCode,
+        datasheetUrl: candidate.datasheetUrl,
+        leadTime: offer?.leadTime ?? null,
+        engine: {
+          selectionMode: candidate.selectionMode,
+          safety: candidate.safety,
+          requirements: candidate.requirementAssessments
+            .filter((assessment) => assessment.state !== 'not_applicable')
+            .map((assessment) => ({
+              key: assessment.key,
+              label: bomRequirementLabel(assessment.key),
+              expected: assessment.expectedDisplay,
+              actual: assessment.actualDisplay,
+              state: assessment.state,
+            })),
+          conflicts: candidate.conflicts,
+        },
+      };
+      break;
+    }
+    case 'catalog': {
+      const resolved = await resolveAdminCatalogSelection(db, change.partId, change.offer, needed, usdKrwRate);
+      if (resolved.result !== 'ok') return resolved.result;
+      const { part, pick } = resolved;
+      if (pick === null) return 'no-offer';
+      reasonCodes.push('catalog-choice');
+      if (change.offer !== null) reasonCodes.push('offer-choice');
+      item.mpn = part.mpn;
+      item.manufacturerName = part.manufacturerName;
+      item.description = part.description;
+      item.partId = String(part.id);
+      item.matchStatus = 'manual';
+      item.selectedCandidateKey = null;
+      item.selectionSource = 'admin';
+      item.selectedOffer = snapshotFromPick(pick, true, null);
+      item.orderQty = pick.orderQty;
+      item.matchEvidence = item.matchEvidence === null
+        ? null
+        : {
+            ...item.matchEvidence,
+            procurementUnavailabilityReason: null,
+            candidateStatus: null,
+            selectionMode: 'review',
+            selectedMpn: part.mpn,
+            selectedManufacturer: part.manufacturerName,
+            selectedSupplier: pick.offer.supplier,
+            selectedSupplierSku: pick.offer.supplierSku,
+            selectedLifecycle: null,
+            selectedReplacementSources: [],
+            selectedReplacementForMpn: null,
+            identityConfidence: null,
+            specificationConfidence: null,
+            conflicts: [],
+            missingRequirements: [],
+            reasons: [],
+            corroboratingSuppliers: [],
+            selectedCandidateKey: null,
+            selectedTechnicalRank: null,
+            decisionReasonCodes: reasonCodes,
+            priceEvidence: null,
+          };
+      selectedRfqItemId = null;
+      selectedOfferKey = catalogOfferAuditKey(String(part.id), pick.offer.supplier, pick.offer.supplierSku);
+      display = {
+        ...EMPTY_POST_ORDER_DISPLAY,
+        packageCode: part.packageCode,
+        lifecycleCode: part.lifecycle,
+        datasheetUrl: part.datasheetUrl,
+      };
+      break;
+    }
+    case 'rfq': {
+      const rfqItem = await db.spBomRfqItem.findUnique({
+        where: { id: change.rfqItemId },
+        include: { rfq: { include: { partner: true } } },
+      });
+      if (rfqItem?.rfq.quoteId !== quoteId || rfqItem.quoteItemId !== itemId) {
+        return 'rfq-item-not-found';
+      }
+      if (rfqItem.unitPrice === null) return 'not-priced';
+      const unitPrice = Number(rfqItem.unitPrice);
+      const orderQty = effectiveRfqReplyQty(needed, rfqItem.replyQty, rfqItem.moq);
+      item.selectedOffer = {
+        offerKey: `rfq:${String(rfqItem.id)}`,
+        supplier: rfqItem.rfq.partner.name, // 표시 어휘 — 협력사명(고객 박제에선 '당사 협력 공급처'로 바꾼다)
+        supplierSku: '',
+        packaging: null,
+        breakQty: Math.max(1, rfqItem.replyQty ?? needed),
+        unitPrice,
+        currency: rfqItem.currency,
+        unitPriceKrw: rfqItem.currency === 'KRW' ? unitPrice : null,
+        moq: rfqItem.moq,
+        orderMultiple: null,
+        stock: rfqItem.stock,
+        priceBreaks: [{ qty: 1, price: unitPrice }],
+        fetchedAt: (rfqItem.rfq.respondedAt ?? new Date()).toISOString(),
+        pinned: true,
+      };
+      item.selectionSource = 'partner';
+      item.selectedCandidateKey = null;
+      item.orderQty = orderQty;
+      selectedRfqItemId = rfqItem.id;
+      selectedOfferKey = `rfq:${String(rfqItem.id)}`;
+      display = { ...EMPTY_POST_ORDER_DISPLAY, leadTime: rfqItem.leadTime };
+      break;
+    }
+    case 'qty': {
+      if (item.selectedOffer === null) return 'no-offer';
+      if (change.orderQty < needed) return 'qty-below-needed';
+      item.orderQty = change.orderQty;
+      break;
+    }
+  }
+
+  const [computed] = recalcItems([item], usdKrwRate);
+  if (computed === undefined) return 'item-not-found';
+  return {
+    item: computed,
+    previous,
+    neededQty: needed,
+    selectedRfqItemId,
+    selectedOfferKey,
+    display,
+    reasonCodes,
+  };
+}
+
+export type PostOrderAmendResult =
+  | { result: 'ok'; resolved: PostOrderResolvedItem }
+  | { result: PostOrderResolveError };
+
+/**
+ * 결제 후 변경 **적용** — 호출측 트랜잭션 안에서 그 행 하나와 선택 이벤트만 쓴다. 호출측이 견적 행을
+ * 먼저 잠그고(부품 확인 적용은 요청 행 FOR UPDATE 뒤) 발주 여부를 확인한 뒤 부른다.
+ */
+export async function amendQuoteItemAfterOrder(
+  tx: Prisma.TransactionClient,
+  quoteId: bigint,
+  itemId: bigint,
+  change: PostOrderChange,
+  actorId: string,
+  usdKrwRate: number | null,
+): Promise<PostOrderAmendResult> {
+  const resolved = await resolvePostOrderChange(tx, quoteId, itemId, change, usdKrwRate);
+  if (typeof resolved === 'string') return { result: resolved };
+  const item = resolved.item;
+  const updated = await tx.spBomQuoteItem.updateMany({
+    where: { id: itemId, quoteId },
+    data: {
+      mpn: item.mpn,
+      manufacturerName: item.manufacturerName,
+      description: item.description,
+      orderQty: item.orderQty,
+      matchStatus: item.matchStatus,
+      matchEvidence: item.matchEvidence === null
+        ? Prisma.DbNull
+        : (item.matchEvidence as Prisma.InputJsonValue),
+      selectedCandidateKey: item.selectedCandidateKey,
+      selectionSource: item.selectionSource,
+      partId: item.partId === null ? null : BigInt(item.partId),
+      selectedOffer: item.selectedOffer === null
+        ? Prisma.DbNull
+        : (item.selectedOffer as Prisma.InputJsonValue),
+      lineTotalKrw: item.lineTotalKrw,
+      selectedRfqItemId: resolved.selectedRfqItemId,
+    },
+  });
+  if (updated.count !== 1) throw new Error(`BOM quote item ${String(itemId)} post-order amend lost`);
+  await tx.spBomQuoteSelectionEvent.create({
+    data: {
+      quoteId,
+      quoteItemId: itemId,
+      source: 'admin',
+      actorId,
+      previousCandidateKey: resolved.previous.candidateKey,
+      selectedCandidateKey: item.selectedCandidateKey,
+      previousMpn: resolved.previous.mpn,
+      selectedMpn: item.mpn,
+      previousOfferKey: resolved.previous.offerKey,
+      selectedOfferKey: resolved.selectedOfferKey,
+      previousLineTotalKrw: resolved.previous.lineTotalKrw,
+      selectedLineTotalKrw: item.lineTotalKrw,
+      reasonCodes: resolved.reasonCodes,
+    },
+  });
+  return { result: 'ok', resolved };
 }
 
 export type AdminQuoteItemAddResult =

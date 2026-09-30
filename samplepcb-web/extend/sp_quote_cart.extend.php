@@ -88,6 +88,16 @@ function sp_bom_it_ids_in()
     }, sp_bom_it_ids()));
 }
 
+// ⑦-2 스마트 BOM 추가결제 앵커 상품 it_id(결제 후 부품 확인 D43, docs/SMARTBOM_PARTNER_RFQ.md §6.39)
+//    — sp-node g5-db BOM_EXTRA_ANCHOR_IT_ID·seed-bom-extra-anchor-item.ts 와 수동 동기화. 원 주문은
+//    그대로 두고 차액만 별도 주문으로 받는다. 카트행은 마켓 계약과 동형(io_id=bomx-{정산 id},
+//    io_price=차액(VAT 포함), ct_price=0, ct_qty=1). sp_bom_it_ids 에 합치지 않는다 — 그 목록은
+//    '부품 BOM 주문 = 한 Case' 판정(주문 트랙·수량 표시·주문내역 탭)에 쓰여 추가결제를 새 주문으로 오인한다.
+function sp_bom_extra_it_ids()
+{
+    return array('sp-bom-extra');
+}
+
 // 스마트 BOM 주문서 수량 표시 — 영카트 안에서는 "확정 견적 1건" 스냅샷이라
 // ct_qty=1을 유지해야 금액·재고·PG 계산이 맞다. 고객에게는 ct_option에 박제된
 // 제작+예비 수량을 "적용 N세트"로 표시하고, 내부 견적 건수는 보조 문구로만 남긴다.
@@ -128,7 +138,7 @@ function sp_custom_row_it_ids_in()
 {
     return implode(',', array_map(function ($x) {
         return "'" . sql_real_escape_string($x) . "'";
-    }, array_merge(sp_quote_it_ids(), sp_market_it_ids(), sp_develop_it_ids(), sp_bom_it_ids())));
+    }, array_merge(sp_quote_it_ids(), sp_market_it_ids(), sp_develop_it_ids(), sp_bom_it_ids(), sp_bom_extra_it_ids())));
 }
 
 // 주문 헤더 od_cart_count 용 집계식. 영카트 기본 COUNT(DISTINCT it_id)는 같은 템플릿

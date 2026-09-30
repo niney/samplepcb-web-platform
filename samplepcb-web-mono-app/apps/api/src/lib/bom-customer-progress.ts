@@ -2,6 +2,7 @@ import type { BomProgressStageType, CustomerOrderProgressItemType } from '@sp/ap
 import { BOM_PROGRESS_STAGES } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { isCanceledCartStatus } from './g5-db';
+import { loadConfirmShippingStates } from './bom-confirm-gates';
 
 // ── 고객 주문의 BOM 조달·물류 진행 — sp_bom_po/sp_bom_shipment 파생, od 무접촉 ───────
 // PCB 의 pcb-customer-progress 와 같은 자리. 실측(2026-08-25 §6.35)에서 고객은 입금→입고
@@ -30,6 +31,14 @@ export const resolveBomPoStage = (po: BomPoSignal): BomProgressStageType => {
   return 'procuring';
 };
 
+/**
+ * 발주서에 안 잡힌 보류 품목(결제 후 부품 확인 D43) — 발주서만 보면 나머지가 다 들어왔을 때 '입고 완료'로
+ * 보이는데, 그 품목은 고객 결정·재입고를 기다리며 아직 조달 중이다(여정 22호 실측). 배송 게이트
+ * (bom-confirm-gates confirmReceiptFields)와 같은 기준: 열린 확인 이슈 · '모아서 한 번에' 입고 대기.
+ * '먼저 온 것 먼저'는 첫 배송을 막지 않으므로 여기서도 붙잡지 않는다.
+ */
+export type BomProgressHold = 'confirm' | 'backorder';
+
 export interface BomProgressResolved {
   stage: BomProgressStageType;
   /** 발주 여러 건 중 일부가 더 앞서 있다. */
@@ -38,12 +47,19 @@ export interface BomProgressResolved {
   international: boolean;
   /** 통관 단계인 선적이 있다. */
   customs: boolean;
+  /** 보류 품목이 있어 단계를 붙잡았다(라벨에 사유를 붙인다). */
+  held?: BomProgressHold | null;
 }
 
 /** Case 의 발주서 전체 → 고객 단계. 발주 전이면 '조달 준비'. 여러 건이면 **가장 느린** 것. */
-export const resolveBomProgress = (pos: readonly BomPoSignal[]): BomProgressResolved => {
-  if (pos.length === 0) return { stage: 'procure_pending', partial: false, international: false, customs: false };
+export const resolveBomProgress = (
+  pos: readonly BomPoSignal[],
+  hold: BomProgressHold | null = null,
+): BomProgressResolved => {
+  if (pos.length === 0) return { stage: 'procure_pending', partial: false, international: false, customs: false, held: hold };
   const stages = pos.map(resolveBomPoStage);
+  // 보류 품목은 발주서가 없거나 아직 안 들어왔다 — 그 품목 몫의 칸은 '조달 중'이다.
+  if (hold !== null) stages.push('procuring');
   // 가장 늦은 칸에서 시작해 내려간다 — 배열이 비지 않았으니 실제 최소로 수렴한다(non-null 단언 회피).
   let min: BomProgressStageType = 'received';
   for (const s of stages) if (STAGE_ORDER[s] < STAGE_ORDER[min]) min = s;
@@ -52,6 +68,7 @@ export const resolveBomProgress = (pos: readonly BomPoSignal[]): BomProgressReso
     partial: stages.some((s) => s !== min),
     international: pos.some((p) => p.shipment?.mode === 'international'),
     customs: pos.some((p) => p.shipment?.status === 'customs'),
+    held: hold,
   };
 };
 
@@ -72,9 +89,15 @@ const SHORT_LABELS: Record<BomProgressStageType, string> = {
   received: '입고 완료',
 };
 
+const HOLD_NOTES: Record<BomProgressHold, string> = {
+  confirm: '확인이 필요한 부품이 있습니다',
+  backorder: '입고를 기다리는 부품이 있습니다',
+};
+
 export const bomProgressLabel = (r: BomProgressResolved): string => {
   let base = STAGE_LABELS[r.stage];
   if (r.stage === 'inbound' && r.international) base = r.customs ? '해외 운송·통관 중' : '해외 부품 운송 중';
+  if (r.held != null) base = `${base} — ${HOLD_NOTES[r.held]}`;
   return r.partial ? `${base} (일부 앞서 진행 중)` : base;
 };
 export const bomProgressShortLabel = (r: BomProgressResolved): string => {
@@ -108,12 +131,18 @@ export const listBomProgressForLines = async (
       },
     },
   });
+  const confirmStates = await loadConfirmShippingStates(quotes.map((q) => q.id));
   return quotes.map((q) => {
+    const confirm = confirmStates.get(String(q.id));
+    const hold: BomProgressHold | null = (confirm?.openIssueCount ?? 0) > 0
+      ? 'confirm'
+      : (confirm?.blockingBackorderCount ?? 0) > 0 ? 'backorder' : null;
     const resolved = resolveBomProgress(
       q.pos.map((po) => ({
         status: po.status,
         shipment: po.shipmentLink === null ? null : po.shipmentLink.shipment,
       })),
+      hold,
     );
     return {
       track: 'bom' as const,

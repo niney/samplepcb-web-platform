@@ -78,6 +78,7 @@ import {
   updatePartPackage,
 } from '../lib/bom-packing';
 import { shipmentModeFromCountry } from '../lib/bom-shipment-policy';
+import { loadOpenConfirmItemIds } from '../lib/bom-confirm-gates';
 
 // ── /api/admin/bom-quotes/:id/pos — 협력사 발주서(D18) ───────────────────────
 // 생성은 all-or-nothing(신중 액션): 결제 확인(od isPaid) 게이트 + 대상 행 재집계·박제.
@@ -100,6 +101,7 @@ const CREATE_ERROR_MESSAGE: Record<string, string> = {
   ORDER_CLOSED: '취소되었거나 완료된 BOM 주문에는 발주서를 추가할 수 없습니다.',
   NOT_PAID: '결제 확인(입금) 후에 발주할 수 있습니다.',
   NO_ELIGIBLE_ROWS: '선정 구매조건이 없는 구매처가 포함되어 있습니다.',
+  CONFIRM_PENDING: '고객 부품 확인 요청이 끝나지 않은 품목이 든 구매처가 포함되어 있습니다. 고객 회신·적용 뒤 발주하세요.',
   ALREADY_ISSUED: '이미 발주서가 발행된 구매처가 포함되어 있습니다(재발행은 삭제 후).',
   PARTNER_COUNTRY_REQUIRED: '발주 전에 선택한 협력사의 국가를 등록해 주세요.',
 };
@@ -416,6 +418,18 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           error: 'SUPPLIER_PO_REQUIRED',
           message: '사람 협력사 발주서는 협력사 포털에서 확인해야 합니다.',
         });
+      }
+      // D43-9 — 고객에게 확인 중인 품목이 든 공급사 발주서는 구매 완료로 넘기지 않는다.
+      const heldItems = await loadOpenConfirmItemIds(po.quoteId);
+      if (heldItems.size > 0) {
+        const poItems = await prisma.spBomPoItem.findMany({ where: { poId: po.id }, select: { quoteItemId: true, mpn: true } });
+        const held = poItems.filter((item) => heldItems.has(String(item.quoteItemId)));
+        if (held.length > 0) {
+          return reply.status(409).send({
+            error: 'CONFIRM_PENDING',
+            message: `고객 부품 확인 요청이 끝나지 않은 품목이 있습니다(${held.map((item) => item.mpn).join(', ')}). 회신·적용 뒤 이 발주서를 삭제하고 다시 발행하세요.`,
+          });
+        }
       }
       const updated = await prisma.spBomPo.updateMany({
         where: { id: po.id, status: 'issued' },

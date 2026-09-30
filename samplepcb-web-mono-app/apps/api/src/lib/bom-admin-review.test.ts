@@ -26,6 +26,8 @@ const row = (overrides: Partial<QuoteItemRow> = {}): QuoteItemRow => ({
   selectedOffer: null,
   selectedRfqItemId: null,
   lineTotalKrw: null,
+  fulfillment: 'normal',
+  fulfillmentOn: null,
   sourceRow: null,
   sourceSheetIndex: 0,
   sourceSheetName: 'BOM',

@@ -73,6 +73,7 @@ import BomPartAddModal from '../../components/admin/smartbom/BomPartAddModal.vue
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
 import BomPoCreateModal from '../../components/admin/smartbom/BomPoCreateModal.vue';
 import BomPoPanel from '../../components/admin/smartbom/BomPoPanel.vue';
+import BomConfirmPanel from '../../components/admin/smartbom/BomConfirmPanel.vue';
 import BomShortageRecoveryModal from '../../components/admin/smartbom/BomShortageRecoveryModal.vue';
 import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.vue';
 import BomRfqCompareModal from '../../components/admin/smartbom/BomRfqCompareModal.vue';
@@ -132,10 +133,10 @@ async function onCaseDeleted(): Promise<void> {
 // 화면 상단에 오므로 별도 스크롤·강조는 두지 않는다(사용자 결정으로 제거).
 // 진행현황·북마크(from 없음)는 전체 표시. 상세는 여전히 단일 척추 — 렌더만 다르다.
 type CaseSection = 'rfq' | 'po' | 'items';
-type CaseFrom = 'quotes' | 'orders' | 'pos' | 'logistics';
+type CaseFrom = 'quotes' | 'orders' | 'pos' | 'logistics' | 'confirms';
 const fromParam = ((): CaseFrom | null => {
   const raw = route.query.from;
-  return raw === 'quotes' || raw === 'orders' || raw === 'pos' || raw === 'logistics'
+  return raw === 'quotes' || raw === 'orders' || raw === 'pos' || raw === 'logistics' || raw === 'confirms'
     ? raw
     : null;
 })();
@@ -144,6 +145,7 @@ const INITIAL_COLLAPSED: Record<CaseFrom, CaseSection[]> = {
   orders: ['rfq', 'items'], // 경리 — 주문 정보(요약 스트립)+발주 현황만
   pos: ['rfq', 'items'], // 구매 — 발주 패널이 본업(선정가는 발주 스냅샷에 박제됨)
   logistics: ['rfq', 'items'], // 물류 — 발주 패널의 [선적 관리]가 진입점
+  confirms: ['rfq', 'items'], // 부품 확인(D43) — 확인 요청 패널+발주 현황(패널은 접지 않는다)
 };
 const collapsed = ref<Set<CaseSection>>(
   new Set(fromParam === null ? [] : INITIAL_COLLAPSED[fromParam]),
@@ -2149,6 +2151,14 @@ async function downloadOriginal(): Promise<void> {
         @compare="compareOpen = true"
         @reply="openRfqReply"
         @reissue-link="reissueMagicLink"
+      />
+
+      <!-- 결제 후 부품 확인 요청(D43) — 주문이 있는 Case 에만. 발주 게이트와 맞물려 발주 바로 위에 둔다. -->
+      <BomConfirmPanel
+        v-if="detail.orderInfo !== null"
+        :quote-id="detail.id"
+        :usd-krw-rate="detail.usdKrwRateUsed"
+        :case-label="`${smartbomCaseNo(detail.id, detail.requestedAt, detail.createdAt)} · ${detail.title}`"
       />
 
       <!-- 협력사 발주(D18) — 결제 확인 후 -->

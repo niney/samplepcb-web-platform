@@ -13,6 +13,7 @@ import { usePcbOrdersAwaitingCount, usePcbOrdersToShipCount } from '../admin/use
 import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
+import { useBomConfirmsNeedsActionCount } from '../admin/useAdminBomConfirms';
 import { usePcbClaimsPendingCount } from '../admin/useAdminPcbClaims';
 import { useDevelopModuleSignals } from '../admin/useAdminDevelop';
 import {
@@ -43,6 +44,7 @@ const CASE_FROM_MENU: Record<string, Record<string, string>> = {
     pos: 'admin-smartbom-pos',
     logistics: 'admin-smartbom-logistics',
     claims: 'admin-smartbom-claims',
+    confirms: 'admin-smartbom-confirms',
   },
   'admin-pcb-case': {
     cases: 'admin-pcb-cases',
@@ -131,6 +133,8 @@ const { data: bomOrdersAwaiting } = useBomOrdersAwaitingCount(isAdminUser);
 const { data: bomPosAwaiting } = useBomPosAwaitingCount(isAdminUser);
 const { data: bomShipmentPending } = useBomShipmentPendingCount(isAdminUser);
 const { data: bomClaimsPending } = useBomClaimsPendingCount(isAdminUser);
+// 결제 후 부품 확인 요청(D43) — 고객이 답해 적용·환불이 관리자 차례인 요청 수.
+const { data: bomConfirmsNeedsAction } = useBomConfirmsNeedsActionCount(isAdminUser);
 const { data: pcbRfqPending } = usePcbRfqPendingCount(isAdminUser);
 const { eqPending: pcbEqPending, toShip: pcbToShip } = usePcbPoWorkCounts(isAdminUser);
 const { data: pcbShipmentPending } = usePcbShipmentPendingCount(isAdminUser);
@@ -163,6 +167,8 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
           ? bomPosAwaiting.value
           : badge === 'bomClaimsPending'
             ? bomClaimsPending.value
+          : badge === 'bomConfirmsNeedsAction'
+            ? bomConfirmsNeedsAction.value
           : badge === 'pcbRfqPending'
             ? pcbTodoRfq.value + (pcbRfqPending.value ?? 0)
             : badge === 'pcbPosPending'

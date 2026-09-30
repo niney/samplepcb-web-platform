@@ -29,6 +29,11 @@ if ($row !== false && $row !== null) { $my_q_wait += (int) $row['bom_wait']; $my
 
 // 확인 요청 = 제조 확인 대기(사이드바와 같은 헬퍼 — 워킹 파일은 고객 확인 단계가 없어 제외).
 $my_eq_cnt = function_exists('sp_pcb_eq_open_count') ? sp_pcb_eq_open_count($member['mb_id']) : 0;
+// 부품 확인(결제 후 부품 확인 요청, D43) — 사이드바와 같은 모수·같은 노출 조건.
+$my_bomc_cnt  = function_exists('sp_bom_confirm_open_count') ? sp_bom_confirm_open_count($member['mb_id']) : 0;
+$my_bomc_show = $my_bomc_cnt > 0 || (function_exists('sp_bom_confirm_has_track') && sp_bom_confirm_has_track($member['mb_id']));
+// 칸 전체가 링크 하나라 고객 차례가 있는 쪽으로 보낸다(제조 확인 우선).
+$my_confirm_href = ($my_eq_cnt === 0 && $my_bomc_cnt > 0) ? G5_URL . '/shop/parts-confirm' : G5_URL . '/shop/eq';
 $my_point  = (int) $member['mb_point'];
 ?>
 
@@ -48,10 +53,13 @@ $my_point  = (int) $member['mb_point'];
                 <span class="smb_dash_sub"><em>견적확정</em><span><b><?php echo number_format($my_q_conf); ?></b>건</span></span>
             </span>
         </a>
-        <a class="smb_dash_cell" href="<?php echo G5_URL ?>/shop/eq">
+        <a class="smb_dash_cell" href="<?php echo $my_confirm_href; ?>">
             <span class="smb_dash_k">확인요청</span>
             <span class="smb_dash_v smb_dash_pair">
                 <span class="smb_dash_sub"><em>제조 확인</em><span><b><?php echo number_format($my_eq_cnt); ?></b>건</span></span>
+                <?php if ($my_bomc_show) { ?>
+                <span class="smb_dash_sub"><em>부품 확인</em><span><b><?php echo number_format($my_bomc_cnt); ?></b>건</span></span>
+                <?php } ?>
             </span>
         </a>
         <a class="smb_dash_cell smb_dash_last" href="<?php echo G5_BBS_URL ?>/point.php">

@@ -2,7 +2,7 @@
 if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
 /*
  * 공용 계정 사이드바 — 마이페이지·주문내역·주문상세·장바구니·견적관리·제조확인·A/S 접수 공유(SSOT).
- * 진입점이 $sp_account_active 로 활성 메뉴 지정(home|orders|cart|wish|quotes|eq|as|point|coupon).
+ * 진입점이 $sp_account_active 로 활성 메뉴 지정(home|orders|cart|wish|quotes|eq|bomc|as|point|coupon).
  *   · 쇼핑 페이지: 테마 shop.head.php 가 SCRIPT_NAME 으로 자동 판별해 #aside 에 include.
  *   · 커스텀 페이지(/shop/quotes·/shop/eq·/shop/as): 다른 head(theme/head.php)라
  *     페이지가 .account-layout 로 직접 감싸 include.
@@ -17,7 +17,7 @@ if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
  *   (단위는 .nav_unit 형제) — 테스트가 textContent 를 Number() 로 파싱한다.
  */
 if (!isset($sp_account_active)) $sp_account_active = '';
-$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'eq' => '', 'as' => '', 'point' => '', 'coupon' => '');
+$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'eq' => '', 'bomc' => '', 'as' => '', 'point' => '', 'coupon' => '');
 if (isset($cur[$sp_account_active])) $cur[$sp_account_active] = ' aria-current="page"';
 
 $sp_ico   = G5_THEME_URL . '/img/account'; // theme/sp-lite/img/account (라인 아이콘 SVG)
@@ -36,6 +36,11 @@ if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) {
 }
 // 제조 확인(PCB·메탈마스크 공용) 대기 건수 — 고객 차례(파랑). 브리지 미배치여도 안 죽게 함수 확인.
 $sp_eq = function_exists('sp_pcb_eq_open_count') ? sp_pcb_eq_open_count($member['mb_id']) : 0;
+// 부품 확인(결제 후 부품 확인 요청, D43) — 고객 차례(파랑). 부품 BOM 을 주문했거나 요청을 받은 회원에게만
+// 메뉴를 세운다(PCB 만 쓰는 회원에게 늘 빈 메뉴를 보이지 않게). 대기 건이 있으면 조건과 무관하게 선다.
+$sp_bomc = function_exists('sp_bom_confirm_open_count') ? sp_bom_confirm_open_count($member['mb_id']) : 0;
+$sp_bomc_show = $sp_bomc > 0 || $sp_account_active === 'bomc'
+    || (function_exists('sp_bom_confirm_has_track') && sp_bom_confirm_has_track($member['mb_id']));
 // A/S 접수 진행 중(PCB+BOM) — 관리자 차례(중립색). 세기만 DB 직접(브리지 규약, 판정은 sp-node).
 $sp_as = (function_exists('sp_pcb_claim_active_count') ? sp_pcb_claim_active_count($member['mb_id']) : 0)
        + (function_exists('sp_bom_claim_active_count') ? sp_bom_claim_active_count($member['mb_id']) : 0);
@@ -69,6 +74,9 @@ $sp_as = (function_exists('sp_pcb_claim_active_count') ? sp_pcb_claim_active_cou
                 <?php /* 트랙 중립어 — 메탈마스크(스텐실)도 같은 축이나 'EQ' 라는 말이 없다(pcbEqEventLabel).
                         피그마엔 EQ 확인·워킹 파일 확인 두 줄이나, 고객 워킹 확인 단계는 없어 제조 확인 하나로. */ ?>
                 <li><a href="<?php echo G5_URL ?>/shop/eq"<?php echo $cur['eq']; ?>><img class="nav_ico" src="<?php echo $sp_ico ?>/ico-eq.svg" alt=""><span class="lbl">제조 확인</span><?php if ($sp_eq) { ?><span class="nav_badge on"><?php echo number_format($sp_eq); ?></span><span class="nav_unit on">건</span><?php } ?></a></li>
+                <?php if ($sp_bomc_show) { /* 부품 BOM 결제 후 재고 소진·MOQ 증가 확인(D43) — 제조 확인과 같은 고객 차례 문법 */ ?>
+                <li><a href="<?php echo G5_URL ?>/shop/parts-confirm"<?php echo $cur['bomc']; ?>><img class="nav_ico" src="<?php echo $sp_ico ?>/ico-received.svg" alt=""><span class="lbl">부품 확인</span><?php if ($sp_bomc) { ?><span class="nav_badge on"><?php echo number_format($sp_bomc); ?></span><span class="nav_unit on">건</span><?php } ?></a></li>
+                <?php } ?>
             </ul>
         </div>
         <div class="nav_group">

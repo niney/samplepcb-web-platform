@@ -24,6 +24,9 @@ export const apiRoutes = {
   adminBomOrders: '/api/admin/bom-orders',
   // 배송·완료 후 고객 문제 접수와 관리자 완료·클레임 워크큐(D37)
   adminBomClaims: '/api/admin/bom-claims',
+  // 결제 후 부품 확인 요청(D43) — 관리자 워크큐 · 고객(주문 상세 브리지·마이페이지)
+  adminBomConfirms: '/api/admin/bom-confirms',
+  bomConfirms: '/api/bom/confirms',
   // 발주·선적 횡단 워크큐(관리자 메뉴 재편 — 발주/선적·배송 메뉴)
   adminBomPos: '/api/admin/bom-pos',
   adminBomShipments: '/api/admin/bom-shipments',

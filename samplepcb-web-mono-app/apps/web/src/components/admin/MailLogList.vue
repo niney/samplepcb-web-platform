@@ -127,6 +127,8 @@ const KNOWN_KINDS = [
   'estimate',
   'bom_rfq_request',
   'bom_quote_answered',
+  'bom_confirm_request',
+  'bom_confirm_answered',
   'bom_po_issued',
   'bom_shipment_turn_admin',
   'bom_shipment_turn_partner',

@@ -185,6 +185,15 @@
 //   lib/banner-image.ts(삭제 시 행+파일 동반 — 코어 bannerformupdate.php:52 auto_increment=1 리셋
 //   대비 고아/부활 방지, 교체 시 bn_time 캐시버스팅). 영카트 배너관리(/adm)와 동일 테이블 공유
 //   (점진 이관, 순수 UI 콘텐츠라 코어 부수효과 없음).
+// ㉒ SmartBOM 결제 후 부품 확인 차액 정산(D43, docs/SMARTBOM_PARTNER_RFQ.md §6.39) — 쓰기 2 + 앵커 1:
+//   • BOM_EXTRA_ANCHOR_IT_ID('sp-bom-extra')·getBomExtraAnchorItem — 추가결제 카트행 앵커(⑲ 동형,
+//       read-only SELECT). 카트 INSERT 는 ①② insertQuoteOption/insertCartRow 를 io_id=`bomx-{정산id}` 로 재사용.
+//   • reduceOrderedBomRowAmount — 결제된 BOM 주문행 g5_shop_cart.io_price 감액(FOR UPDATE 가드: ct_id·od_id·
+//       io_id·현재 io_price·결제 상태) + g5_shop_order.od_mod_history append + recomputeOrderMoneyOnItemChange
+//       (od_cart_price·od_cancel_price·od_misu·세액). 주문행 io_price 불변 원칙의 유일한 명시 예외.
+//   • addOrderRefund — od_refund_price 원자 증가 + od_mod_history append + recomputeOrderMoney(⑭ updateOrderRefund
+//       의 증분판 — 정산 원장 한 건씩 닫을 때). 돈은 보내지 않는다(기록만).
+//   코어 정합성(규율 3): 영카트 부분취소(orderpartcancel)는 미수 음수일 때만 열리므로 감액이 먼저다.
 // 초기설치·마이그레이션 one-shot CLI 는 런타임 접근 일원화의 예외다. scripts/seed-initial-data.ts는
 // 자체 mysql2 풀을 즉시 닫고 g5_shop_item INSERT + g5_shop_default의 사업자정보 11컬럼과
 // de_bank_use/de_bank_account 2컬럼만 UPDATE한다(설치값/빈값만, 다른 운영값은 필드별 보존;
@@ -271,9 +280,14 @@ export const MARKET_ANCHOR_IT_ID = 'sp-market-svc';
 //   시드: scripts/seed-develop-anchor-item.ts. 카트행 io_id = 마일스톤 paymentKey, io_price = 마일스톤 금액(VAT 포함).
 //   PHP 쪽 사전: extend/sp_quote_cart.extend.php sp_develop_it_ids() 와 수동 동기.
 export const DEVELOP_ANCHOR_IT_ID = 'sp-develop-svc';
+// ㉒ SmartBOM 결제 후 부품 확인(D43) 추가결제 앵커 — 마켓·개발의뢰와 동형·별개 it_id. 시드:
+//   scripts/seed-bom-extra-anchor-item.ts. 카트행 io_id = `bomx-{정산id}`(계약 bomSettlementChargeKey),
+//   io_price = 정산 순액(VAT 포함). PHP 사전 extend/sp_quote_cart.extend.php sp_bom_extra_it_ids() 와 수동 동기.
+export const BOM_EXTRA_ANCHOR_IT_ID = 'sp-bom-extra';
 
 export const getMarketAnchorItem = (): Promise<TemplateItem | null> => getAnchorItem(MARKET_ANCHOR_IT_ID);
 export const getDevelopAnchorItem = (): Promise<TemplateItem | null> => getAnchorItem(DEVELOP_ANCHOR_IT_ID);
+export const getBomExtraAnchorItem = (): Promise<TemplateItem | null> => getAnchorItem(BOM_EXTRA_ANCHOR_IT_ID);
 
 async function getAnchorItem(itId: string): Promise<TemplateItem | null> {
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
@@ -3226,6 +3240,102 @@ export async function updateOrderRefund(
         SET od_refund_price = ?, od_mod_history = CONCAT(od_mod_history, ?)
       WHERE od_id = ?`,
     [refundPrice, modHistory, odId],
+  );
+  if (res.affectedRows > 0) await recomputeOrderMoney(odId);
+  return res.affectedRows;
+}
+
+// ── 결제 후 부품 확인 차액 정산(카탈로그 ㉒ — D43-11) ─────────────────────────
+// BOM 주문은 견적 통째 1카트행(ct_qty=1·ct_price=0·io_price=확정가×1.1)이라 부품 하나만 줄 상태로
+// 취소할 수 없다. 영카트 get_order_info 는 취소 금액을 **줄 상태로 다시 계산**하므로 od_cancel_price 를
+// 손으로 고치면 다음 계산에서 지워진다 — 감액은 줄 금액(io_price)으로 해야 장부가 맞는다.
+// 감액 → 미수 음수(과입금) → 카드는 영카트 부분취소(미수 음수일 때만 버튼이 뜬다), 무통장은 송금 뒤
+// addOrderRefund 로 닫는다. updateOrderedCartOption 의 'io_price 불변' 원칙의 유일한 명시 예외 —
+// 고객이 답한 확인 요청 결과에 한해서다(D31-4 개정).
+
+export type BomRowReduceResult = 'ok' | 'ORDER_NOT_FOUND' | 'ROW_CHANGED';
+
+/**
+ * 결제된 BOM 주문행 금액을 줄인다. 같은 연결 트랜잭션에서 주문 헤더·카트행을 FOR UPDATE 로 잠그고
+ * ct_id·od_id·io_id·**현재 io_price**·결제 상태를 다시 확인한다 — 화면이 본 금액과 다르면 ROW_CHANGED
+ * (두 번 감액 방지). 이력은 od_mod_history 에 남긴다(⑮ 취소 블록 관례).
+ */
+export async function reduceOrderedBomRowAmount(input: {
+  odId: string;
+  ctId: number;
+  ioId: string;
+  fromPrice: number;
+  toPrice: number;
+  actorMbId: string;
+  note: string;
+}): Promise<BomRowReduceResult> {
+  if (!Number.isInteger(input.toPrice) || input.toPrice < 0 || input.toPrice >= input.fromPrice) {
+    throw new Error('reduceOrderedBomRowAmount: toPrice must be a non-negative integer below fromPrice');
+  }
+  const connection = await getG5Pool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [orders] = await connection.query<RowDataPacket[]>(
+      `SELECT od_id FROM g5_shop_order WHERE od_id = ? FOR UPDATE`,
+      [input.odId],
+    );
+    if (orders[0] === undefined) {
+      await connection.rollback();
+      return 'ORDER_NOT_FOUND';
+    }
+    const [rows] = await connection.query<RowDataPacket[]>(
+      `SELECT ct_status, io_id, io_price FROM g5_shop_cart WHERE ct_id = ? AND od_id = ? FOR UPDATE`,
+      [input.ctId, input.odId],
+    );
+    const row = rows[0];
+    if (
+      row === undefined ||
+      String(row.io_id) !== input.ioId ||
+      Number(row.io_price) !== input.fromPrice ||
+      !PAID_ORDER_STATUSES.includes(String(row.ct_status))
+    ) {
+      await connection.rollback();
+      return 'ROW_CHANGED';
+    }
+    await connection.query(`UPDATE g5_shop_cart SET io_price = ? WHERE ct_id = ?`, [input.toPrice, input.ctId]);
+    const note = input.note.replace(/[\r\n]+/g, ' ').trim().slice(0, 200);
+    const history = `${kstDateTimeStr(new Date())} ${input.actorMbId} 부품 확인 차액 감액 `
+      + `${input.fromPrice.toLocaleString('en-US')}→${input.toPrice.toLocaleString('en-US')}원`
+      + `${note === '' ? '' : ` (${note})`}\n`;
+    await connection.query(
+      `UPDATE g5_shop_order SET od_mod_history = CONCAT(od_mod_history, ?) WHERE od_id = ?`,
+      [history, input.odId],
+    );
+    await recomputeOrderMoneyOnItemChange(input.odId, connection);
+    await connection.commit();
+    return 'ok';
+  } catch (error) {
+    await connection.rollback().catch(() => undefined);
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * 환불 사실을 **더해서** 기록한다(updateOrderRefund 는 누계 절대값을 받는 관리자 입력용). 정산 원장에서
+ * 한 건의 환불을 닫을 때 쓴다 — 읽고-더해-쓰기 레이스 없이 원자 증가. 돈은 보내지 않는다.
+ */
+export async function addOrderRefund(
+  odId: string,
+  amount: number,
+  actorMbId: string,
+  note: string,
+): Promise<number> {
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('addOrderRefund: amount must be a positive integer');
+  const cleanNote = note.replace(/[\r\n]+/g, ' ').trim().slice(0, 200);
+  const history = `${kstDateTimeStr(new Date())} ${actorMbId} 환불 ${amount.toLocaleString('en-US')}원 기록`
+    + `${cleanNote === '' ? '' : ` (${cleanNote})`}\n`;
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_shop_order
+        SET od_refund_price = od_refund_price + ?, od_mod_history = CONCAT(od_mod_history, ?)
+      WHERE od_id = ?`,
+    [amount, history, odId],
   );
   if (res.affectedRows > 0) await recomputeOrderMoney(odId);
   return res.affectedRows;

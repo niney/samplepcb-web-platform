@@ -595,6 +595,7 @@ model SpBomQuote {
   itemReviews               SpBomQuoteItemReview[]
   rfqs                      SpBomRfq[]
   pos                       SpBomPo[]
+  confirmRequests           SpBomConfirmRequest[]
   analysisRuns              SpBomAnalysisRun[]         @relation("BomQuoteAnalysisRuns")
   activeAnalysisRun         SpBomAnalysisRun?          @relation("BomQuoteActiveAnalysis", fields: [activeAnalysisRunId], references: [id], onDelete: SetNull)
   supplierSearchRuns        SpBomSupplierSearchRun[]   @relation("BomQuoteSupplierSearchRuns")
@@ -677,6 +678,118 @@ model SpBomClaimEvent {
 
   @@index([claimId, createdAt])
   @@map("sp_bom_claim_event")
+}
+
+// 결제 후 부품 확인 요청(D43, docs/SMARTBOM_PARTNER_RFQ.md §6.39). 결제 뒤 재고 소진·MOQ 증가처럼
+// 고객 결과가 바뀌는 품목을 관리자가 지정해 선택지를 묻는다. 요청 1건 = Case 1개 + 이슈 N개.
+// odId·ctId 는 요청 시점의 현재 활성 주문 시도(결제 확인됨) — 재주문 뒤에도 당시 근거를 가리킨다.
+model SpBomConfirmRequest {
+  id             BigInt              @id @default(autoincrement())
+  quoteId        BigInt
+  mbId           String              @db.VarChar(60)
+  odId           String              @db.VarChar(64)
+  ctId           Int
+  status         String              @default("requested") @db.VarChar(16) // requested|answered|resolved|canceled
+  settlementMode String              @default("difference") @db.VarChar(16) // difference (후속 reorder = 전체 재주문)
+  message        String?             @db.Text
+  dueOn          DateTime? // 회신 기한(KST 날짜 앵커)
+  version        Int                 @default(1)
+  requestedBy    String              @db.VarChar(191)
+  requestedAt    DateTime            @default(now())
+  answeredAt     DateTime?
+  answeredBy     String?             @db.VarChar(191)
+  answeredRole   String?             @db.VarChar(12) // customer|admin(대리 회신)
+  answerChannel  String?             @db.VarChar(16) // web|phone|email|other
+  customerNote   String?             @db.Text
+  resolvedAt     DateTime?
+  canceledAt     DateTime?
+  cancelReason   String?             @db.Text
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  quote          SpBomQuote          @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  issues         SpBomConfirmIssue[]
+  events         SpBomConfirmEvent[]
+
+  @@index([quoteId, requestedAt])
+  @@index([mbId, status])
+  @@index([status, requestedAt])
+  @@map("sp_bom_confirm_request")
+}
+
+// 확인 요청의 문제 품목. evidence·options 는 요청 시점 박제(재고·가격은 바뀐다) — 계약 BomConfirmEvidence·
+// BomConfirmOption. activeKey('item:{quoteItemId}')는 pending|decided 동안만 채워 한 품목에 열린 이슈를 1건으로 묶는다.
+model SpBomConfirmIssue {
+  id                BigInt              @id @default(autoincrement())
+  requestId         BigInt
+  quoteItemId       BigInt // 근거 견적 행(참조만 — 박제가 원본이다)
+  sortOrder         Int
+  activeKey         String?             @unique @db.VarChar(64)
+  issueType         String              @db.VarChar(24) // stock_out|moq_increase
+  status            String              @default("pending") @db.VarChar(16) // pending|decided|applied|closed|canceled
+  description       String              @db.Text
+  evidence          Json
+  options           Json
+  chosenCode        String?             @db.VarChar(4)
+  shipPreference    String?             @db.VarChar(16) // together|split (입고 대기 선택 시)
+  appliedAt         DateTime?
+  appliedBy         String?             @db.VarChar(191)
+  applyNote         String?             @db.Text
+  followupCarrier   String?             @db.VarChar(40) // 분할 발송 — 나머지 부품 두 번째 발송
+  followupInvoice   String?             @db.VarChar(60)
+  followupShippedAt DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  request           SpBomConfirmRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([quoteItemId])
+  @@map("sp_bom_confirm_issue")
+}
+
+model SpBomConfirmEvent {
+  id        BigInt              @id @default(autoincrement())
+  requestId BigInt
+  issueId   BigInt?
+  action    String              @db.VarChar(32) // 계약 BOM_CONFIRM_EVENT_ACTIONS
+  actorRole String              @db.VarChar(12) // customer|admin|system
+  actorMbId String?             @db.VarChar(191)
+  note      String?             @db.Text
+  payload   Json?
+  createdAt DateTime            @default(now())
+  request   SpBomConfirmRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@map("sp_bom_confirm_event")
+}
+
+// Case 단위 차액 정산 원장(D43-11). 추가결제(charge)는 앵커 상품 sp-bom-extra 카트행(io_id=chargeKey)으로,
+// 환불(refund)은 원 BOM 카트행 감액(reducedAt) → 환불 기록(refundedAt)으로 닫는다. Case 와 FK 를 두지 않는다 —
+// Case 가 지워져도 실제로 오간 돈의 기록은 남아야 한다(sp_bom_claim 관례).
+model SpBomSettlement {
+  id         BigInt    @id @default(autoincrement())
+  quoteId    BigInt
+  mbId       String    @db.VarChar(60)
+  requestId  BigInt?
+  kind       String    @db.VarChar(12) // charge|refund
+  status     String    @default("pending") @db.VarChar(16) // pending|paid|reduced|refunded|canceled
+  amount     Int // VAT 포함 원(양수)
+  chargeKey  String?   @unique @db.VarChar(32) // charge 카트행 io_id(bomx-{id})
+  ctId       Int? // charge 카트행
+  paidOdId   String?   @db.VarChar(64)
+  paidAt     DateTime?
+  odId       String?   @db.VarChar(64) // refund 대상 원 주문
+  targetCtId Int? // refund 대상 원 BOM 카트행
+  reducedAt  DateTime?
+  refundedAt DateTime?
+  note       String?   @db.Text
+  createdBy  String    @db.VarChar(191)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([quoteId])
+  @@index([requestId])
+  @@index([status, kind])
+  @@map("sp_bom_settlement")
 }
 
 // 관리자 Case 영구 삭제의 최소 감사 원장. 삭제 대상과 FK를 맺으면 cascade로 함께
@@ -914,6 +1027,9 @@ model SpBomQuoteItem {
   selectedOffer           Json?
   selectedRfqItemId       BigInt? // 협력사 회신 선정(selectionSource='partner') — 스냅샷은 selectedOffer 에 박제
   lineTotalKrw            Decimal?                   @db.Decimal(14, 2)
+  // 결제 후 부품 확인 요청(D43) 적용 결과 — normal|customer_supply(발주 초안 제외)|backorder(입고 대기)
+  fulfillment             String                     @default("normal") @db.VarChar(16)
+  fulfillmentOn           DateTime? // backorder 예상 입고일(KST 날짜 앵커)
   sourceRow               Json?
   sourceSheetIndex        Int?
   sourceSheetName         String?                    @db.VarChar(191)

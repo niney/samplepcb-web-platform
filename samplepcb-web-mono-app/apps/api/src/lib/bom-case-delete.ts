@@ -105,6 +105,8 @@ export interface BomCaseDeletePolicyInput {
   paidOrder: boolean;
   orderSiblingCount: number;
   openClaimCount: number;
+  /** 진행 중인 결제 후 부품 확인 요청(D43) 수. */
+  openConfirmCount?: number;
   orderLinkInconsistent: boolean;
   engineJobInProgress: boolean;
   shipmentLinkInconsistent: boolean;
@@ -120,6 +122,7 @@ export function deriveBomCaseDeletePolicy(input: BomCaseDeletePolicyInput): {
     pushUnique(blockers, 'SHARED_ORDER');
   }
   if (input.openClaimCount > 0) pushUnique(blockers, 'OPEN_CLAIM');
+  if ((input.openConfirmCount ?? 0) > 0) pushUnique(blockers, 'OPEN_CONFIRM');
   if (input.orderLinkInconsistent) pushUnique(blockers, 'ORDER_LINK_INCONSISTENT');
   if (input.engineJobInProgress) pushUnique(blockers, 'ENGINE_JOB_IN_PROGRESS');
   if (input.shipmentLinkInconsistent) pushUnique(blockers, 'SHIPMENT_LINK_INCONSISTENT');
@@ -201,6 +204,7 @@ export async function loadBomCaseDeletePlan(
     cartRow,
     orderInfo,
     activeClaims,
+    openConfirmCount,
   ] = await Promise.all([
     prisma.spBomQuoteItem.count({ where: { quoteId } }),
     prisma.spBomQuoteSheet.count({ where: { quoteId } }),
@@ -263,6 +267,8 @@ export async function loadBomCaseDeletePlan(
       select: { id: true, status: true, version: true, updatedAt: true },
       orderBy: { id: 'asc' },
     }),
+    // 결제 후 부품 확인 요청(D43) — 진행 중이면 삭제를 막는다(OPEN_CLAIM 과 같은 이유: 고객 응대 근거).
+    prisma.spBomConfirmRequest.count({ where: { quoteId, status: { in: ['requested', 'answered'] } } }),
   ]);
 
   const shipmentTargets: BomCaseDeleteShipmentTarget[] = [];
@@ -378,6 +384,7 @@ export async function loadBomCaseDeletePlan(
     paidOrder: paymentProtected,
     orderSiblingCount: orderInfo?.siblingCarts.length ?? 0,
     openClaimCount: activeClaims.length,
+    openConfirmCount,
     orderLinkInconsistent,
     engineJobInProgress,
     shipmentLinkInconsistent,

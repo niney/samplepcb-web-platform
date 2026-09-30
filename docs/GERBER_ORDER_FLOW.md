@@ -226,6 +226,16 @@
 | 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 **식별** (DB 직접 결합 없음 — 표시용 read-only 예외는 위 `g5_member` 행) |
 | cart↔spec 관계 | **저장하지 않음** | `spec.ctId → g5_shop_cart` 조회 시점 조인으로 파생 — 동기화 로직 자체가 없어 불일치 불가능 |
 
+> **2026-09-30 카탈로그 ㉒ — SmartBOM 결제 후 부품 확인 차액 정산(D43, `SMARTBOM_PARTNER_RFQ.md` §6.39)**:
+> ① 추가결제 앵커 `sp-bom-extra`(⑲ 마켓 계약과 동형·별개 it_id — `getBomExtraAnchorItem` read-only, 카트행은
+> ①② `insertQuoteOption`/`insertCartRow` 재사용, io_id=`bomx-{정산id}`, 결제 확인은 lazy 라인 검증)
+> ② `reduceOrderedBomRowAmount` — **결제된 BOM 주문행 `g5_shop_cart.io_price` 감액**(FOR UPDATE: ct_id·od_id·
+> io_id·현재 io_price·결제 상태 재검증) + `od_mod_history` append + `recomputeOrderMoneyOnItemChange`.
+> "주문행 io_price 불변"의 유일한 명시 예외이며, 감액 → 미수 음수(과입금)가 되어야 영카트 부분취소가 열린다
+> ③ `addOrderRefund` — `od_refund_price` 원자 증가 + `od_mod_history` + `recomputeOrderMoney`(⑭ 환불 기록의
+> 증분판, 돈은 보내지 않는다). PHP 쪽은 `extend/sp_quote_cart.extend.php` ⑦-2 `sp_bom_extra_it_ids()` 가
+> 주문서·주문 메일의 건별 렌더 union(`sp_custom_row_it_ids_in`)에 합류. 운영 반영 시 `smartbom:seed-extra-anchor` 1회.
+>
 > **2026-08-02 SmartBOM Case 삭제용 카탈로그 보강(HANDOFF #15)**: 위 `g5_shop_cart`
 > DELETE 범위에 `deleteCartRowIfUnordered`를 추가했다. 기대한 `ct_id`+BOM `it_id`+
 > `bom-{quoteId}` `io_id`와 `ct_status='쇼핑'`이 그대로인 정확한 행만 단일 DELETE로

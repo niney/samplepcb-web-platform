@@ -15,6 +15,7 @@ export interface AdminMenuItem {
     | 'bomOrdersAwaiting'
     | 'bomShipmentPending'
     | 'bomClaimsPending'
+    | 'bomConfirmsNeedsAction'
     | 'bomQuotesRequested'
     | 'bomPosAwaiting'
     | 'pcbRfqPending'
@@ -89,6 +90,12 @@ const smartbomMenu: AdminMenuItem[] = [
     to: { name: 'admin-smartbom-pos' },
     labelKey: 'admin.menu.smartbomPos',
     badge: 'bomPosAwaiting',
+  },
+  // 결제 후 부품 확인 요청(D43) — 고객이 답해 적용·환불이 관리자 차례인 요청 수 배지
+  {
+    to: { name: 'admin-smartbom-confirms' },
+    labelKey: 'admin.menu.smartbomConfirms',
+    badge: 'bomConfirmsNeedsAction',
   },
   // 선적·배송 워크큐 — 관리자 차례 선적 수(D22) 배지(협력사 전이 후 메일을 놓쳐도 인지)
   {

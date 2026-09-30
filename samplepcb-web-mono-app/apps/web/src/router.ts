@@ -348,6 +348,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminSmartbomClaims.vue'),
       },
       {
+        // 결제 후 부품 확인 요청(D43) 워크큐 — 처리 필요·고객 회신 대기·추가결제·환불·입고 대기
+        path: 'smartbom/confirms',
+        name: 'admin-smartbom-confirms',
+        component: () => import('./pages/admin/AdminSmartbomConfirms.vue'),
+      },
+      {
         // 입고 스캔(D42)은 선적·배송의 통합 스캔 박스로 합쳤다 — 옛 링크·OAuth 복귀는 그대로 보낸다.
         path: 'smartbom/receiving',
         name: 'admin-smartbom-receiving',
