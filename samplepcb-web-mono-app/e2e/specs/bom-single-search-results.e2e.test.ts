@@ -175,13 +175,14 @@ describe.skipIf(!RUN)('단일 검색 — 공급사 확인 후 최종 목록', ()
     expect(await page.getByText(CANDIDATE, { exact: true }).count()).toBe(0);
   });
 
-  test('카탈로그 오류와 구매 조건 없는 후보도 완료된 공급사 결과를 지우지 않는다', async () => {
-    const candidate = { ...part(), offerOptions: [], inlineOffers: [], applied: null };
-    const { page } = await setup([], (route) => json(route, supplement([candidate])), 503);
+  test('카탈로그 오류에도 공급사 결과를 유지하고 구매 조건 없는 후보는 목록과 개수에서 뺀다', async () => {
+    const noOffer = { ...part('80002', 'NO-OFFER-MPN'), offerOptions: [], inlineOffers: [], applied: null };
+    const { page } = await setup([], (route) => json(route, supplement([part(), noOffer])), 503);
     await page.goto(`/app/bom/search?q=${QUERY}`);
     await page.getByText('조회 완료 · 1개 부품', { exact: true }).waitFor();
-    expect(await page.getByText('구매 조건 확인이 필요한 후보', { exact: true }).count()).toBe(1);
+    expect(await page.getByText('검색 결과 - 1개 부품', { exact: true }).count()).toBe(1);
     expect(await page.getByText(CANDIDATE, { exact: true }).count()).toBe(1);
-    expect(await page.getByRole('button', { name: '담기', exact: true }).count()).toBe(0);
+    expect(await page.getByText('NO-OFFER-MPN', { exact: true }).count()).toBe(0);
+    expect(await page.getByText('카탈로그 검색을 완료하지 못해 공급사에서 확인된 결과를 표시합니다.', { exact: true }).count()).toBe(1);
   });
 });

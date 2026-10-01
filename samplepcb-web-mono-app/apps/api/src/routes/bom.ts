@@ -200,8 +200,9 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
     return {
       result: true as const,
       data: {
-        items: hits.map((hit) => {
+        items: hits.flatMap((hit) => {
           const part = partsById.get(hit.id);
+          if (part === undefined) return [];
           const partnerHolders = holderLookup.itemHolders[hit.id] ?? [];
           const partnerNames = [...new Set(
             partnerHolders.map((holder) => holder.partnerName),
@@ -212,51 +213,49 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
             .map((holder) => holder.uploadedAt)
             .sort()
             .at(-1) ?? null;
-          const offerInputs = part === undefined ? [] : toOfferInputs(part);
+          const offerInputs = toOfferInputs(part);
           const pick = pickDefaultOffer(offerInputs, q.needed, config.usdKrwRate);
-          const offerOptions = part === undefined
-            ? []
-            : partOffersForDisplay(part.offers).flatMap((offer) => {
-                const offerKind = partOfferKind(offer.rawJson);
-                // SamplePCB 가격 오버레이는 외부 원천과 중복이므로 기존 견적 계산 규칙처럼
-                // 제외하고, 가격 없는 SamplePCB 제조사 카탈로그 문의 채널만 별도 행으로 낸다.
-                if (offer.supplier === SAMPLEPCB_SUPPLIER && offerKind !== 'manufacturer_catalog') {
-                  return [];
-                }
-                const derivedFrom = offer.supplier === SAMPLEPCB_SUPPLIER
-                  ? partOfferDerivedFrom(offer.rawJson)
-                  : null;
-                const view = {
-                  supplier: offer.supplier,
-                  offerKind,
-                  supplierSku: offer.supplierSku,
-                  productUrl: offer.productUrl,
-                  stock: offer.stock,
-                  moq: offer.moq,
-                  orderMultiple: offer.orderMultiple,
-                  packaging: normalizeSupplierPackaging(
-                    derivedFrom?.supplier ?? offer.supplier,
-                    offer.packaging,
-                  ),
-                  leadTime: offer.leadTime,
-                  currency: offer.currency,
-                  priceBreaks: [...offer.priceBreaks]
-                    .sort((a, b) => a.qty - b.qty)
-                    .map((priceBreak) => ({ qty: priceBreak.qty, price: Number(priceBreak.price) })),
-                  fetchedAt: offer.fetchedAt.toISOString(),
-                  derivedFrom,
-                };
-                const input = offerKind === 'manufacturer_catalog'
-                  ? undefined
-                  : offerInputs.find((candidate) =>
-                      candidate.supplier === offer.supplier
-                      && candidate.supplierSku === offer.supplierSku);
-                const optionPick = input === undefined
-                  ? null
-                  : applyQtyToOffer(input, q.needed, config.usdKrwRate);
-                return [{ ...view, applied: partAppliedOffer(optionPick) }];
-              });
-          return {
+          const offerOptions = partOffersForDisplay(part.offers).flatMap((offer) => {
+            const offerKind = partOfferKind(offer.rawJson);
+            // SamplePCB 가격 오버레이는 외부 원천과 중복이므로 기존 견적 계산 규칙처럼
+            // 제외하고, 가격 없는 SamplePCB 제조사 카탈로그 문의 채널만 별도 행으로 낸다.
+            if (offer.supplier === SAMPLEPCB_SUPPLIER && offerKind !== 'manufacturer_catalog') {
+              return [];
+            }
+            const derivedFrom = offer.supplier === SAMPLEPCB_SUPPLIER
+              ? partOfferDerivedFrom(offer.rawJson)
+              : null;
+            const view = {
+              supplier: offer.supplier,
+              offerKind,
+              supplierSku: offer.supplierSku,
+              productUrl: offer.productUrl,
+              stock: offer.stock,
+              moq: offer.moq,
+              orderMultiple: offer.orderMultiple,
+              packaging: normalizeSupplierPackaging(
+                derivedFrom?.supplier ?? offer.supplier,
+                offer.packaging,
+              ),
+              leadTime: offer.leadTime,
+              currency: offer.currency,
+              priceBreaks: [...offer.priceBreaks]
+                .sort((a, b) => a.qty - b.qty)
+                .map((priceBreak) => ({ qty: priceBreak.qty, price: Number(priceBreak.price) })),
+              fetchedAt: offer.fetchedAt.toISOString(),
+              derivedFrom,
+            };
+            const input = offerKind === 'manufacturer_catalog'
+              ? undefined
+              : offerInputs.find((candidate) =>
+                  candidate.supplier === offer.supplier
+                  && candidate.supplierSku === offer.supplierSku);
+            const optionPick = input === undefined
+              ? null
+              : applyQtyToOffer(input, q.needed, config.usdKrwRate);
+            return [{ ...view, applied: partAppliedOffer(optionPick) }];
+          });
+          return [{
             ...hit,
             hasPartnerStock: partnerHolders.length > 0,
             partnerStock: partnerHolders.length === 0
@@ -273,7 +272,7 @@ export const bomRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fastify, 
             inlineOffers: null,
             offerOptions,
             applied: partAppliedOffer(pick),
-          };
+          }];
         }),
         total,
         searchMode,

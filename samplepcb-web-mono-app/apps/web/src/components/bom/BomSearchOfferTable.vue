@@ -125,7 +125,6 @@ function pickFor(row: SearchOfferRow): OfferPick | null {
 }
 
 const { t } = useI18n();
-const unpricedParts = computed(() => props.items.filter((part) => part.offerOptions.length === 0 && !part.hasPartnerStock));
 
 function matchLabel(part: BomPartHitType): string {
   return part.searchMatch === undefined ? '' : t(`bomPartSearch.match.${part.searchMatch}`);
@@ -304,13 +303,6 @@ function partnerActionLabel(part: BomPartHitType): string {
 
 <template>
   <div class="space-y-[12px] pb-8 font-noto">
-    <section v-if="unpricedParts.length > 0" class="rounded-[10px] border border-line-search-strong bg-search-row p-[14px]">
-      <h3 class="text-[13px] font-medium text-ink-neutral">{{ t('bomPartSearch.noOffers') }}</h3>
-      <div v-for="part in unpricedParts" :key="part.id" class="mt-3 text-[12px] text-ink-subtle">
-        <strong class="text-ink-strong">{{ part.mpn }}</strong> · {{ part.manufacturerName }}
-        <p v-if="matchLabel(part) !== ''" class="text-state-review">{{ matchLabel(part) }}</p>
-      </div>
-    </section>
     <section class="overflow-hidden rounded-[10px] border border-line-search-strong bg-search-row">
       <div class="flex h-[40px] items-center border-b border-line-search-strong bg-search-section px-[14px]">
         <h3 class="text-[13px] font-medium leading-[16px] text-ink-neutral">

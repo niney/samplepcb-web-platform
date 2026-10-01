@@ -5,10 +5,9 @@ export const en = {
     checking: 'Checking parts and purchase options with suppliers.',
     completed: 'Search complete · {count} parts',
     failed: 'Search could not be completed.',
-    incompleteSuppliers: 'Some checks for {suppliers} could not be completed. Available results are shown. Please search again.',
+    incompleteSuppliers: 'Some information from {suppliers} could not be verified, so only confirmed results are shown.',
     catalogFallback: 'Supplier checks failed. Showing saved catalog results. Please search again above.',
     supplierFallback: 'Catalog search could not be completed. Showing confirmed supplier results.',
-    noOffers: 'Candidates requiring purchase option confirmation',
     match: {
       exact: 'Exact MPN',
       variant: 'Different MPN · variant candidate',

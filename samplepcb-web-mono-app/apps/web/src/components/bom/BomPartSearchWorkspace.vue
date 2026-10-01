@@ -90,7 +90,7 @@ const items = computed(() => {
     }
   }
   for (const item of localItems.value) if (!merged.has(item.id)) merged.set(item.id, item);
-  return [...merged.values()];
+  return [...merged.values()].filter((item) => item.offerOptions.length > 0 || item.hasPartnerStock);
 });
 const total = computed(() => items.value.length);
 const incompleteSuppliers = computed(() => (supplierResult.value?.engine.incompleteSuppliers ?? [])
