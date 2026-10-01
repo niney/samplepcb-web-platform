@@ -286,7 +286,8 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
     display: none;
     position: absolute;
     top: 59px;                    /* 피그마 y59 — 바(72) 아래 13px 겹쳐 시작 */
-    left: calc(50% - 67px);       /* 드롭다운 중심 = 항목 중심 + 8, 1920 화면에서 x950 */
+    left: 50%;                   /* 상위 메뉴 항목(텍스트 + 화살표)의 중심에 정렬 */
+    transform: translateX(-50%);
     z-index: 1001;
     width: 150px;
     margin: 0;
@@ -308,6 +309,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
     font-size: 15px;
     font-weight: 500;
     line-height: 19px;
+    text-align: left;
     color: var(--sp-header-ink);
     white-space: nowrap;
 }
@@ -539,6 +541,7 @@ body:has(.sp-home) .sp-footer { margin-top: 0; } /* 홈은 게시판 섹션에 �
     /* 하위메뉴: 드롭다운 → 인라인 목록(탭으로 펼침) */
     .sp-gnb__sub {
         position: static;
+        transform: none;
         width: auto;
         min-width: 0;
         border: 0;
