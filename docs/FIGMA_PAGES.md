@@ -20,6 +20,8 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 데스크톱(≥1280)은 피그마 1920 좌표 그대로(섹션 y: 히어로 72~666 · One-Stop 666~2052 · 3 EYES 2052~4856 · 프로세스+포트폴리오 4855~7095 · 통계 7095~7606 · 네트워크 7606~8326 · 도움말 8326~9049 · 푸터 9049~9395, 실측 ±2px). 1024~1279 는 간격·크기 축소, 1023 이하는 피그마에 없어 우리 정의(390px 실측 가로 넘침 0).
 - 섹션은 `inc/home/NN-*.php` 부분 파일(번호 = 피그마 순서)을 `index.php` 가 순서대로 include, 스타일은 `css/home.css` 하나(구현 때 `css/home/NN-*.css` 로 나눴다가 병합 — `index.php` 는 `css/home/` 이 있으면 부분 파일을 로드하므로 다시 나눠 작업해도 된다), 스크립트는 `js/home.js` 가 `js/home/*.js` 를 동적 import 해 `init()`.
 - 히어로 = 코드 템플릿 5장(`gerber-eyes`·`order-now`·`korlinx`·`one-stop`·`rapid-proto`) + 배너관리('메인') 이미지가 뒤에 붙는 하이브리드 유지. 템플릿 on/off·순서는 `sp_config.home_slides` JSON `{"templates":[...]}`(행 없으면 5장 전부).
+- **스크롤 진입 등장(사용자 요청, 2026-10-02)**: [megazone.com](https://www.megazone.com) 메인의 framer-motion `whileInView` 패턴(SSR `opacity:0; translateY(20px)` → `.3s easeInOut`, `once`, 묶음 stagger)을 공개 번들로 확인해 `js/home/reveal.js` 로 옮겼다. 대상 = 히어로·숫자 섹션(stats.js 자체 등장)을 뺀 섹션의 제목·문단·카드·미디어, 탭 패널·마퀴는 컨테이너 단위. 화면 아래 12% 선을 넘으면 1회, 같은 순간 들어온 요소끼리 0.1초 간격(최대 0.4초). 숨김 클래스는 JS 가 **첫 화면 아래 요소에만** 걸고(깜빡임 방지) 등장 뒤 걷는다(transform·쌓임 맥락 잔류 없음) — JS 없음·IntersectionObserver 미지원·동작 줄이기·인쇄에서는 처음부터 보인다. CSS/JS `26100201`.
+- 등장 검증: 1920·390px 에서 첫 화면 안 대상 0개 숨김, 중간값(opacity .47·translateY 10px)·완료 뒤 클래스·`--sp-reveal-delay` 잔류 0, 끝까지 스크롤 뒤 숨은 대상 0, 가로 넘침 0·pageerror 0, reduced-motion 이면 준비 자체 안 함.
 
 ## 홈 `/` — 피그마와 다르게 둔 것 · 이상 징후 · 미결(2026-09-18)
 ### 히어로(banner 01~05)

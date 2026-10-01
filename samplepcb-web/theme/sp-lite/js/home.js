@@ -6,8 +6,9 @@
 //   (3 EYES 는 모션 노드가 숨김 그룹이라 JS 없음 · 도움말은 새 디자인에 아코디언·탭이 없어 JS 없음)
 //   portfolio — Development Portfolio 무한 마퀴(korlinx 참고 사이트 방식)
 //   stats     — 숫자로 보는 SamplePCB: 화면 진입 시 카운트업·순차 등장
+//   reveal    — 나머지 섹션: 스크롤 진입 시 페이드업(megazone.com 방식, 히어로·숫자 제외)
 var spHomeVer = new URL(import.meta.url).searchParams.get('ver') || '';
-var spHomeModules = ['hero', 'onestop', 'portfolio', 'stats'];
+var spHomeModules = ['hero', 'onestop', 'portfolio', 'stats', 'reveal'];
 
 spHomeModules.forEach(function (name) {
     var url = new URL('./home/' + name + '.js' + (spHomeVer ? '?ver=' + spHomeVer : ''), import.meta.url).href;

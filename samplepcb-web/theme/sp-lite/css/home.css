@@ -33,6 +33,17 @@
 /* 섹션 공통: 전폭 배경 + 안쪽 1280 은 .sp-inner 로 */
 .sp-home > section { position: relative; }
 
+/* 스크롤 진입 등장(js/home/reveal.js) — 클래스는 JS 가 첫 화면 아래 요소에만 걸고, 등장이 끝나면 걷는다 */
+.sp-home .sp-reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity .3s ease-in-out var(--sp-reveal-delay, 0ms), transform .3s ease-in-out var(--sp-reveal-delay, 0ms);
+}
+.sp-home .sp-reveal.is-in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce), print {
+    .sp-home .sp-reveal { opacity: 1; transform: none; transition: none; }
+}
+
 
 /* ────────────────────────────── 05-hero ────────────────────────────── */
 /* ==========================================================================
