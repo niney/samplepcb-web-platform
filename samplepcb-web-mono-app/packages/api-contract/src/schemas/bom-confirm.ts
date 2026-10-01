@@ -8,6 +8,10 @@ import { DateOnly } from './common';
 //
 // 고객 DTO 에는 협력사명·원가·내부 키(후보 키·발주·RFQ id)를 싣지 않는다(여정 43호 관례).
 // PCB 의 제조 확인(pcb-eq-review.ts)과 값이 닮아도 따로 선다 — 트랙 간 어휘 격리.
+//
+// D44(§6.40, 2026-10-01) 유형 확장: "고객이 받는 것(부품·금액·수량·도착일)이 바뀌면 묻고 고른 대로 처리"라는
+// 단순 규칙으로 질문 9종 + 알림 2종(가격 인하·단종)으로 넓혔다. 알림은 답을 받지 않는다(만들자마자 종결,
+// 가격 인하는 환불 정산을 바로 연다). 산 뒤(발주서에 든 품목)도 같은 유형으로 묻는다 — 적용 제약은 D43-10 그대로.
 
 const IdString = z.string().regex(/^\d+$/);
 
@@ -33,20 +37,69 @@ export const BOM_CONFIRM_REQUEST_CUSTOMER_LABELS = {
   canceled: '요청 취소',
 } as const satisfies Record<BomConfirmRequestStatusType, string>;
 
-export const BOM_CONFIRM_ISSUE_TYPES = ['stock_out', 'moq_increase'] as const;
+/** 배열 순서 = 작성 화면의 유형 버튼 순서(사기 전 → 산 뒤 → 알림). */
+export const BOM_CONFIRM_ISSUE_TYPES = [
+  'stock_out',
+  'moq_increase',
+  'price_increase',
+  'part_change',
+  'unofficial_source',
+  'delivery_delay',
+  'quality_issue',
+  'manufacturing_info',
+  'documents',
+  'price_decrease',
+  'eol_notice',
+] as const;
 export type BomConfirmIssueTypeType = (typeof BOM_CONFIRM_ISSUE_TYPES)[number];
 export const BomConfirmIssueType = z.enum(BOM_CONFIRM_ISSUE_TYPES);
 
 export const BOM_CONFIRM_ISSUE_TYPE_LABELS = {
-  stock_out: '재고 소진',
-  moq_increase: 'MOQ 증가',
+  stock_out: '재고 부족',
+  moq_increase: 'MOQ·주문단위 증가',
+  price_increase: '가격 인상',
+  part_change: '부품·사양 변경',
+  unofficial_source: '비공식 공급처',
+  delivery_delay: '입고 지연',
+  quality_issue: '품질 문제',
+  manufacturing_info: '제조정보',
+  documents: '증빙',
+  price_decrease: '가격 인하',
+  eol_notice: '단종·EOL',
 } as const satisfies Record<BomConfirmIssueTypeType, string>;
 
 /** 요청 작성 화면의 문제 설명 기본 문구(관리자가 고쳐 보낼 수 있다). */
 export const BOM_CONFIRM_ISSUE_DEFAULT_DESCRIPTIONS = {
-  stock_out: '주문 확정 후 지정 부품의 공급사 재고가 소진되었습니다.',
-  moq_increase: '실제 공급사 MOQ(최소 주문 수량)가 계약 수량보다 많습니다.',
+  stock_out: '주문 확정 후 지정 부품의 공급사 재고가 부족해졌습니다(품절 또는 필요 수량 중 일부만 확보 가능).',
+  moq_increase: '실제 공급사 MOQ(최소 주문 수량)나 주문 단위가 필요 수량보다 큽니다.',
+  price_increase: '주문 확정 후 지정 부품의 공급 가격이 올랐습니다.',
+  part_change: '지정 부품이 후속 품번·새 Revision 또는 정격·등급이 다른 부품으로 바뀌어 판매됩니다.',
+  unofficial_source:
+    '정식 유통처에 재고가 없어 비공식 공급처에서만 구할 수 있습니다. 비공식 공급처 부품은 제조사 보증과 추적 이력이 없을 수 있어 입고 검수 뒤 보내 드립니다.',
+  delivery_delay: '공급사 입고가 예정보다 늦어졌습니다.',
+  quality_issue: '입고 검수에서 부품 이상(손상·산화·마킹 이상 또는 진위 확인 필요)이 확인되었습니다.',
+  manufacturing_info: '입고된 부품의 제조일(Date Code)이 오래되었거나 여러 Lot이 섞여 있습니다.',
+  documents: '평소 함께 제공되던 증빙 서류가 없거나 원산지가 바뀌었습니다.',
+  price_decrease: '주문 확정 후 지정 부품의 공급 가격이 내려 차액을 환불해 드립니다.',
+  eol_notice: '지정 부품이 단종(EOL) 예정입니다. 이번 주문은 그대로 진행되며, 다음 생산 때는 대체품 검토가 필요합니다.',
 } as const satisfies Record<BomConfirmIssueTypeType, string>;
+
+/**
+ * 알림 유형 — 고를 게 없어 답을 받지 않는다(D44-5). 요청은 만들자마자 종결되고 발주·배송 게이트와
+ * 고객 차례 배지에 들지 않는다. 가격 인하는 환불 정산을 바로 연다. 질문과 한 요청에 섞지 않는다.
+ */
+export const BOM_CONFIRM_NOTICE_ISSUE_TYPES = ['price_decrease', 'eol_notice'] as const satisfies readonly BomConfirmIssueTypeType[];
+
+export function isBomConfirmNoticeType(issueType: BomConfirmIssueTypeType): boolean {
+  return (BOM_CONFIRM_NOTICE_ISSUE_TYPES as readonly BomConfirmIssueTypeType[]).includes(issueType);
+}
+
+/** 관찰 단가(지금 공급 단가)가 있어야 차액을 셀 수 있는 유형. */
+export const BOM_CONFIRM_PRICE_ISSUE_TYPES = ['price_increase', 'price_decrease'] as const satisfies readonly BomConfirmIssueTypeType[];
+
+export function isBomConfirmPriceType(issueType: BomConfirmIssueTypeType): boolean {
+  return (BOM_CONFIRM_PRICE_ISSUE_TYPES as readonly BomConfirmIssueTypeType[]).includes(issueType);
+}
 
 export const BOM_CONFIRM_OPTION_KINDS = [
   'substitute',
@@ -54,6 +107,9 @@ export const BOM_CONFIRM_OPTION_KINDS = [
   'customer_supply',
   'moq_purchase',
   'alt_supplier',
+  'price_accept',
+  'accept_as_is',
+  'notice',
   'consult',
 ] as const;
 export type BomConfirmOptionKindType = (typeof BOM_CONFIRM_OPTION_KINDS)[number];
@@ -65,26 +121,62 @@ export const BOM_CONFIRM_OPTION_KIND_LABELS = {
   customer_supply: '고객 사급',
   moq_purchase: 'MOQ 구매 승인',
   alt_supplier: '다른 공급사',
+  price_accept: '오른 가격으로 구매',
+  accept_as_is: '그대로 진행',
+  notice: '안내',
   consult: '상담 요청',
 } as const satisfies Record<BomConfirmOptionKindType, string>;
 
 /**
- * 유형별 선택지 프리셋 — 배열 순서가 곧 A·B·C 순서다(사용자 확정 형식 2026-09-30).
- * 상담 요청(consult)은 유형과 무관하게 서버가 마지막에 붙인다.
+ * 유형별 선택지 프리셋 — 배열 순서가 곧 A·B·C 순서다(사용자 확정 형식 2026-09-30, D44 2026-10-01).
+ * 상담 요청(consult)은 질문 유형에만 서버가 마지막에 붙인다. 알림 유형은 '안내' 하나뿐이다.
  * MOQ 증가의 사급은 '부족분'이 아니라 **해당 부품 전량 사급**(사용자 결정)이다.
  */
 export const BOM_CONFIRM_TYPE_OPTION_KINDS = {
   stock_out: ['substitute', 'wait_restock', 'customer_supply'],
   moq_increase: ['moq_purchase', 'alt_supplier', 'customer_supply'],
+  price_increase: ['price_accept', 'substitute', 'customer_supply'],
+  part_change: ['substitute', 'wait_restock', 'customer_supply'],
+  unofficial_source: ['alt_supplier', 'wait_restock', 'customer_supply'],
+  delivery_delay: ['wait_restock', 'substitute', 'customer_supply'],
+  quality_issue: ['wait_restock', 'substitute', 'customer_supply'],
+  manufacturing_info: ['accept_as_is', 'wait_restock', 'customer_supply'],
+  documents: ['accept_as_is', 'wait_restock', 'customer_supply'],
+  price_decrease: ['notice'],
+  eol_notice: ['notice'],
 } as const satisfies Record<BomConfirmIssueTypeType, readonly Exclude<BomConfirmOptionKindType, 'consult'>[]>;
 
-/** 선택지 기본 제목 — 유형에 따라 같은 종류도 문구가 다르다(MOQ 사급 = 전량). */
+/** 같은 종류라도 유형에 따라 고객에게 보이는 제목이 다르다(적용 로직은 종류가 정한다). */
+const BOM_CONFIRM_TYPE_OPTION_TITLES: Readonly<
+  Partial<Record<BomConfirmIssueTypeType, Readonly<Partial<Record<BomConfirmOptionKindType, string>>>>>
+> = {
+  moq_increase: { customer_supply: '고객 사급(해당 부품 전량)' },
+  part_change: { substitute: '바뀐 부품으로 진행', wait_restock: '원래 부품 기다리기' },
+  unofficial_source: { alt_supplier: '비공식 공급처에서 구매', wait_restock: '정식 유통 입고 기다리기' },
+  delivery_delay: { wait_restock: '입고 기다리기', substitute: '대체품으로 변경' },
+  quality_issue: { wait_restock: '교체품 기다리기', substitute: '대체품으로 변경' },
+  manufacturing_info: { wait_restock: '교체품 기다리기' },
+  documents: { wait_restock: '교체품 기다리기' },
+  price_decrease: { notice: '차액 환불' },
+  eol_notice: { notice: '단종 안내' },
+};
+
+/** 선택지 기본 제목 — 유형에 따라 같은 종류도 문구가 다르다(MOQ 사급 = 전량 등). */
 export function bomConfirmOptionDefaultTitle(
   issueType: BomConfirmIssueTypeType,
   kind: BomConfirmOptionKindType,
 ): string {
-  if (kind === 'customer_supply' && issueType === 'moq_increase') return '고객 사급(해당 부품 전량)';
-  return BOM_CONFIRM_OPTION_KIND_LABELS[kind];
+  return BOM_CONFIRM_TYPE_OPTION_TITLES[issueType]?.[kind] ?? BOM_CONFIRM_OPTION_KIND_LABELS[kind];
+}
+
+/** 적용하면 발주 품목(부품·공급처·수량·사급)이 바뀌는 선택지 — 발주서에 든 품목이면 ITEM_IN_PO(D43-10). */
+export function bomConfirmKindChangesItem(kind: BomConfirmOptionKindType): boolean {
+  return kind === 'substitute' || kind === 'alt_supplier' || kind === 'moq_purchase' || kind === 'customer_supply';
+}
+
+/** 적용 전에 추가결제 확인이 필요한 선택지(관리자 '선적용'으로 예외, D43-12) — 품목 변경 + 같은 부품 값 인상. */
+export function bomConfirmKindNeedsPayment(kind: BomConfirmOptionKindType): boolean {
+  return bomConfirmKindChangesItem(kind) || kind === 'price_accept';
 }
 
 export const BOM_CONFIRM_OPTION_CODES = ['A', 'B', 'C', 'D', 'E'] as const;
@@ -229,6 +321,8 @@ export const BomConfirmObservation = z.object({
   moq: z.number().int().nullable(),
   leadTime: z.string().nullable(),
   note: z.string().nullable(),
+  /** 지금 공급 단가(원, VAT 별도) — 가격 인상·인하 유형의 차액 근거. D44 이전 박제에는 없다. */
+  unitPriceKrw: z.number().nullable().default(null),
 });
 export type BomConfirmObservationType = z.infer<typeof BomConfirmObservation>;
 
@@ -301,6 +395,15 @@ export const BomConfirmRestockPlan = z.object({
 });
 export type BomConfirmRestockPlanType = z.infer<typeof BomConfirmRestockPlan>;
 
+/** 같은 부품의 값만 바뀌는 선택지(오른 가격으로 구매·차액 환불)의 단가 비교 — 원, VAT 별도. */
+export const BomConfirmPricePlan = z.object({
+  beforeUnitKrw: z.number().nullable(),
+  afterUnitKrw: z.number(),
+  orderQty: z.number().int(),
+  lineTotalKrw: z.number(),
+});
+export type BomConfirmPricePlanType = z.infer<typeof BomConfirmPricePlan>;
+
 /** 저장·관리자 DTO 공용 선택지. */
 export const BomConfirmOption = z.object({
   code: BomConfirmOptionCode,
@@ -314,6 +417,8 @@ export const BomConfirmOption = z.object({
   replacement: BomConfirmReplacement.nullable(),
   moq: BomConfirmMoqPlan.nullable(),
   restock: BomConfirmRestockPlan.nullable(),
+  /** 오른 가격으로 구매·차액 환불만. D44 이전 박제에는 없다. */
+  price: BomConfirmPricePlan.nullable().default(null),
 });
 export type BomConfirmOptionType = z.infer<typeof BomConfirmOption>;
 
@@ -321,6 +426,7 @@ export type BomConfirmOptionType = z.infer<typeof BomConfirmOption>;
 
 export const BOM_CONFIRM_EVENT_ACTIONS = [
   'requested',
+  'notified',
   'answered',
   'proxy_answered',
   'applied',
@@ -339,6 +445,7 @@ export const BomConfirmEventAction = z.enum(BOM_CONFIRM_EVENT_ACTIONS);
 
 export const BOM_CONFIRM_EVENT_ACTION_LABELS = {
   requested: '확인 요청 발송',
+  notified: '변동 안내 발송',
   answered: '고객 회신',
   proxy_answered: '관리자 대리 회신',
   applied: '적용',
@@ -434,6 +541,8 @@ export const AdminBomConfirmRequest = z.object({
   odId: z.string(),
   ctId: z.number().int(),
   status: BomConfirmRequestStatus,
+  /** 알림 요청(가격 인하·단종) — 답을 받지 않고 만들 때 종결된다(D44-5). */
+  notice: z.boolean(),
   settlementMode: BomConfirmSettlementMode,
   message: z.string().nullable(),
   dueOn: z.string().nullable(),
@@ -557,12 +666,29 @@ export const AdminBomConfirmIssueInput = z
       moq: z.number().int().min(1).nullable().optional(),
       leadTime: z.string().trim().max(60).nullable().optional(),
       note: z.string().trim().max(500).nullable().optional(),
+      /** 지금 공급 단가(원, VAT 별도) — 가격 인상·인하 유형은 필수. */
+      unitPriceKrw: z.number().positive().max(100_000_000).nullable().optional(),
     }),
-    /** 순서가 곧 A·B·C 코드다. 상담 요청은 서버가 마지막에 붙인다. */
+    /** 순서가 곧 A·B·C 코드다. 상담 요청은 질문 유형에만 서버가 마지막에 붙인다. */
     options: z.array(AdminBomConfirmOptionInput).min(1).max(4),
   })
   .superRefine((issue, ctx) => {
     const allowed: readonly string[] = BOM_CONFIRM_TYPE_OPTION_KINDS[issue.issueType];
+    if (isBomConfirmPriceType(issue.issueType) && issue.observation.unitPriceKrw == null) {
+      ctx.addIssue({ code: 'custom', path: ['observation', 'unitPriceKrw'], message: '지금 공급 단가를 입력해 주세요.' });
+    }
+    if (isBomConfirmNoticeType(issue.issueType)) {
+      const option = issue.options[0];
+      if (issue.options.length !== 1 || option?.kind !== 'notice') {
+        ctx.addIssue({ code: 'custom', path: ['options'], message: '알림에는 안내 한 가지만 붙습니다.' });
+      } else if (option.priceDelta > 0 || (issue.issueType === 'eol_notice' && option.priceDelta !== 0)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['options', 0, 'priceDelta'],
+          message: issue.issueType === 'eol_notice' ? '단종 안내에는 금액이 없습니다.' : '가격 인하는 환불(0 이하)만 적을 수 있습니다.',
+        });
+      }
+    }
     const seen = new Set<string>();
     issue.options.forEach((option, index) => {
       if (!allowed.includes(option.kind)) {
@@ -589,12 +715,19 @@ export const AdminBomConfirmIssueInput = z
   });
 export type AdminBomConfirmIssueInputType = z.infer<typeof AdminBomConfirmIssueInput>;
 
-export const AdminBomConfirmCreateBody = z.object({
-  message: z.string().trim().max(2000).optional(),
-  dueOn: DateOnly.nullable().optional(),
-  sendMail: z.boolean().default(true),
-  issues: z.array(AdminBomConfirmIssueInput).min(1).max(20),
-});
+export const AdminBomConfirmCreateBody = z
+  .object({
+    message: z.string().trim().max(2000).optional(),
+    dueOn: DateOnly.nullable().optional(),
+    sendMail: z.boolean().default(true),
+    issues: z.array(AdminBomConfirmIssueInput).min(1).max(20),
+  })
+  .superRefine((body, ctx) => {
+    const notices = body.issues.filter((issue) => isBomConfirmNoticeType(issue.issueType)).length;
+    if (notices > 0 && notices < body.issues.length) {
+      ctx.addIssue({ code: 'custom', path: ['issues'], message: '알림(가격 인하·단종)은 질문과 따로 보내 주세요.' });
+    }
+  });
 export type AdminBomConfirmCreateBodyType = z.infer<typeof AdminBomConfirmCreateBody>;
 
 export const AdminBomConfirmMailDelivery = z.object({
@@ -802,6 +935,8 @@ export const CustomerBomConfirmRequest = z.object({
   ctId: z.number().int(),
   status: BomConfirmRequestStatus,
   statusLabel: z.string(),
+  /** 알림 요청(가격 인하·단종) — 고객이 할 일이 없다. */
+  notice: z.boolean(),
   message: z.string().nullable(),
   dueOn: z.string().nullable(),
   overdue: z.boolean(),
@@ -840,6 +975,7 @@ export const CustomerBomConfirmMineRow = z.object({
   odId: z.string(),
   status: BomConfirmRequestStatus,
   statusLabel: z.string(),
+  notice: z.boolean(),
   dueOn: z.string().nullable(),
   overdue: z.boolean(),
   issueCount: z.number().int(),

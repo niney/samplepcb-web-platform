@@ -20,15 +20,19 @@ import type {
 import type { FastifyBaseLogger } from 'fastify';
 import {
   ADMIN_BOM_CONFIRM_TABS,
+  BOM_CONFIRM_ISSUE_TYPES,
   BOM_CONFIRM_ISSUE_TYPE_LABELS,
   BOM_CONFIRM_OPTION_CODES,
   BOM_CONFIRM_REQUEST_CUSTOMER_LABELS,
   BomConfirmEvidence,
   bomConfirmChosenDelta,
+  bomConfirmKindChangesItem,
+  bomConfirmKindNeedsPayment,
   bomConfirmOptionDefaultTitle,
   bomConfirmVatDelta,
   bomSettlementChargeKey,
   bomSettlementStatusLabel,
+  isBomConfirmNoticeType,
   type AdminBomConfirmCountsType,
   type AdminBomConfirmCreateBodyType,
   type AdminBomConfirmEligibilityReasonType,
@@ -98,7 +102,7 @@ import { bomCaseNo } from './bom-case-delete';
 import { PARTNER_SUPPLIER, SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { recordMailLog, type MailLogMeta } from './mail-log';
 import { sendBomRfqMail } from './rfq-email';
-import { buildBomConfirmAnsweredEmail, buildBomConfirmRequestEmail } from './bom-confirm-email';
+import { buildBomConfirmAnsweredEmail, buildBomConfirmNoticeEmail, buildBomConfirmRequestEmail } from './bom-confirm-email';
 import { chosenConfirmOption, parseConfirmOptions } from './bom-confirm-gates';
 
 // ── 공용 ─────────────────────────────────────────────────────────────────────
@@ -125,8 +129,13 @@ function asIssueStatus(value: string): BomConfirmIssueStatusType {
     : 'pending';
 }
 function asIssueType(value: string): BomConfirmIssueTypeType {
-  return value === 'moq_increase' ? 'moq_increase' : 'stock_out';
+  return (BOM_CONFIRM_ISSUE_TYPES as readonly string[]).includes(value) ? (value as BomConfirmIssueTypeType) : 'stock_out';
 }
+/** 알림 요청(가격 인하·단종) — 이슈가 모두 알림 유형이다(질문과 섞지 않는다, D44-5). */
+function isNoticeRequest(issues: Pick<SpBomConfirmIssue, 'issueType'>[]): boolean {
+  return issues.length > 0 && issues.every((issue) => isBomConfirmNoticeType(asIssueType(issue.issueType)));
+}
+const NOTICE_CUSTOMER_LABEL = '안내';
 function asSettlementKind(value: string): BomSettlementKindType {
   return value === 'refund' ? 'refund' : 'charge';
 }
@@ -398,6 +407,7 @@ function toAdminRequestDto(
     odId: request.odId,
     ctId: request.ctId,
     status: asRequestStatus(request.status),
+    notice: isNoticeRequest(request.issues),
     settlementMode: 'difference',
     message: request.message,
     dueOn: kstYmd(request.dueOn),
@@ -462,6 +472,7 @@ function toCustomerIssueDto(issue: SpBomConfirmIssue): CustomerBomConfirmIssueTy
       replacement: toCustomerReplacement(option.replacement),
       moq: option.moq,
       restock: option.restock,
+      price: option.price,
     })),
     chosenCode: asOptionCode(issue.chosenCode),
     shipPreference: asShipPreference(issue.shipPreference),
@@ -499,6 +510,7 @@ function toCustomerRequestDto(
   orderPendingIds: ReadonlySet<string>,
 ): CustomerBomConfirmRequestType {
   const status = asRequestStatus(request.status);
+  const notice = isNoticeRequest(request.issues);
   return {
     id: String(request.id),
     quoteId: String(request.quoteId),
@@ -506,7 +518,8 @@ function toCustomerRequestDto(
     odId: request.odId,
     ctId: request.ctId,
     status,
-    statusLabel: BOM_CONFIRM_REQUEST_CUSTOMER_LABELS[status],
+    statusLabel: notice && status !== 'canceled' ? NOTICE_CUSTOMER_LABEL : BOM_CONFIRM_REQUEST_CUSTOMER_LABELS[status],
+    notice,
     message: request.message,
     dueOn: kstYmd(request.dueOn),
     overdue: isOverdue(request),
@@ -795,12 +808,18 @@ async function buildIssue(
       moq: input.observation.moq ?? null,
       leadTime: input.observation.leadTime ?? null,
       note: input.observation.note ?? null,
+      unitPriceKrw: input.observation.unitPriceKrw ?? null,
     },
   };
   const quoteItemId = String(row.id);
+  const pricing: OptionPricing = {
+    beforeUnitKrw: evidence.part.unitPriceKrw,
+    afterUnitKrw: evidence.observation.unitPriceKrw,
+    orderQty: row.orderQty,
+  };
   const options: BomConfirmOptionType[] = [];
   for (const [index, optionInput] of input.options.entries()) {
-    const built = await buildOption(quoteId, row.id, input.issueType, optionInput, index, previousLine, needed, usdKrwRate);
+    const built = await buildOption(quoteId, row.id, input.issueType, optionInput, index, previousLine, needed, usdKrwRate, pricing);
     if (!built.ok) {
       return built.error === 'MOQ_QTY_INVALID'
         ? { code: 'MOQ_QTY_INVALID', quoteItemId }
@@ -808,23 +827,52 @@ async function buildIssue(
     }
     options.push(built.option);
   }
-  options.push({
-    code: optionCodeAt(options.length),
-    kind: 'consult',
-    title: bomConfirmOptionDefaultTitle(input.issueType, 'consult'),
-    detail: '맞는 선택지가 없으면 담당자와 상담해 정합니다.',
-    priceDelta: 0,
-    referenceDelta: null,
-    replacement: null,
-    moq: null,
-    restock: null,
-  });
+  // 알림은 답을 받지 않으니 상담 요청을 붙이지 않는다(D44-5).
+  if (!isBomConfirmNoticeType(input.issueType)) {
+    options.push({
+      code: optionCodeAt(options.length),
+      kind: 'consult',
+      title: bomConfirmOptionDefaultTitle(input.issueType, 'consult'),
+      detail: '맞는 선택지가 없으면 담당자와 상담해 정합니다.',
+      priceDelta: 0,
+      referenceDelta: null,
+      replacement: null,
+      moq: null,
+      restock: null,
+      price: null,
+    });
+  }
   return {
     quoteItemId: row.id,
     issueType: input.issueType,
     description: input.description,
     evidence,
     options,
+  };
+}
+
+/** 같은 부품의 값만 바뀌는 선택지의 단가 근거 — 주문 당시 단가 → 관찰 단가(원, VAT 별도). */
+interface OptionPricing {
+  beforeUnitKrw: number | null;
+  afterUnitKrw: number | null;
+  orderQty: number;
+}
+
+/** 단가 비교 + 참고 차액(새 라인 − 원 라인, ×1.1). 관찰 단가가 없으면 비교 없음. */
+function pricePlan(
+  pricing: OptionPricing,
+  previousLine: number | null,
+): { price: BomConfirmOptionType['price']; referenceDelta: number | null } {
+  if (pricing.afterUnitKrw === null) return { price: null, referenceDelta: null };
+  const lineTotalKrw = Math.round(pricing.afterUnitKrw * pricing.orderQty * 100) / 100;
+  return {
+    price: {
+      beforeUnitKrw: pricing.beforeUnitKrw,
+      afterUnitKrw: pricing.afterUnitKrw,
+      orderQty: pricing.orderQty,
+      lineTotalKrw,
+    },
+    referenceDelta: bomConfirmVatDelta(lineTotalKrw, previousLine),
   };
 }
 
@@ -837,6 +885,7 @@ async function buildOption(
   previousLine: number | null,
   needed: number,
   usdKrwRate: number | null,
+  pricing: OptionPricing,
 ): Promise<
   | { ok: true; option: BomConfirmOptionType }
   | { ok: false; error: 'REPLACEMENT_UNAVAILABLE'; reason: PostOrderResolveError }
@@ -852,7 +901,14 @@ async function buildOption(
     replacement: null,
     moq: null,
     restock: null,
+    price: null,
   };
+  if (input.kind === 'price_accept' || (input.kind === 'notice' && issueType === 'price_decrease')) {
+    return { ok: true, option: { ...base, ...pricePlan(pricing, previousLine) } };
+  }
+  if (input.kind === 'accept_as_is' || input.kind === 'notice') {
+    return { ok: true, option: { ...base, referenceDelta: 0 } };
+  }
   if (input.kind === 'substitute' || input.kind === 'alt_supplier') {
     if (input.replacement === undefined) return { ok: false, error: 'REPLACEMENT_UNAVAILABLE', reason: 'no-offer' };
     const resolved = await resolvePostOrderChange(prisma, quoteId, itemId, replacementChange(input.replacement), usdKrwRate);
@@ -913,7 +969,7 @@ async function buildOption(
       option: { ...base, referenceDelta: previousLine === null ? null : -Math.round(previousLine * 1.1) },
     };
   }
-  // wait_restock
+  // wait_restock — 남은 종류는 이것뿐이다(위 분기가 나머지를 모두 돌려보낸다).
   const restock = input.restock;
   return {
     ok: true,
@@ -975,6 +1031,10 @@ export async function createConfirmRequest(
     built.push(issue);
   }
 
+  // 알림(가격 인하·단종)은 답을 받지 않는다 — 만들자마자 '안내'를 고른 것으로 닫고, 돈이 있으면 환불 정산을
+  // 바로 연다(환불 기록 뒤 자동 처리 완료). 게이트·고객 차례 배지에 들지 않게 activeKey 도 잡지 않는다(D44-5).
+  const notice = built.every((issue) => isBomConfirmNoticeType(issue.issueType));
+  const noticeNet = notice ? built.reduce((sum, issue) => sum + (issue.options[0]?.priceDelta ?? 0), 0) : 0;
   let requestId: bigint;
   try {
     requestId = await prisma.$transaction(async (tx) => {
@@ -985,8 +1045,13 @@ export async function createConfirmRequest(
           odId: order.odId,
           ctId: order.ctId,
           message: body.message === undefined || body.message === '' ? null : body.message,
-          dueOn: body.dueOn == null ? null : parseKstDate(body.dueOn),
+          dueOn: notice || body.dueOn == null ? null : parseKstDate(body.dueOn),
           requestedBy: actorMbId,
+          ...(notice
+            ? noticeNet === 0
+              ? { status: 'resolved', resolvedAt: now }
+              : { status: 'answered' }
+            : {}),
         },
       });
       for (const [index, issue] of built.entries()) {
@@ -995,23 +1060,33 @@ export async function createConfirmRequest(
             requestId: request.id,
             quoteItemId: issue.quoteItemId,
             sortOrder: index,
-            activeKey: confirmIssueActiveKey(issue.quoteItemId),
             issueType: issue.issueType,
             description: issue.description,
             evidence: issue.evidence,
             options: issue.options,
+            ...(notice
+              ? { status: 'closed', chosenCode: issue.options[0]?.code ?? 'A', activeKey: null }
+              : { activeKey: confirmIssueActiveKey(issue.quoteItemId) }),
           },
         });
       }
       await tx.spBomConfirmEvent.create({
         data: {
           requestId: request.id,
-          action: 'requested',
+          action: notice ? 'notified' : 'requested',
           actorRole: 'admin',
           actorMbId,
-          note: `${String(built.length)}개 품목 확인 요청`,
+          note: `${String(built.length)}개 품목 ${notice ? '변동 안내' : '확인 요청'}`,
         },
       });
+      if (notice) {
+        await createRequestSettlementTx(tx, request, noticeNet, actorMbId);
+        if (noticeNet === 0) {
+          await tx.spBomConfirmEvent.create({
+            data: { requestId: request.id, action: 'resolved', actorRole: 'system', actorMbId: null, note: '안내만 — 할 일 없음' },
+          });
+        }
+      }
       return request.id;
     });
   } catch (error) {
@@ -1041,8 +1116,9 @@ async function deliverRequestMail(
     include: { issues: { orderBy: { sortOrder: 'asc' } }, quote: { select: { title: true, requestedAt: true, createdAt: true } } },
   });
   if (request === null) return { status: 'skipped', reason: 'not_found' };
+  const notice = isNoticeRequest(request.issues);
   const meta: MailLogMeta = {
-    kind: 'bom_confirm_request',
+    kind: notice ? 'bom_confirm_notice' : 'bom_confirm_request',
     refType: 'bom_quote',
     refId: request.quoteId,
     sentBy: actorMbId,
@@ -1056,19 +1132,32 @@ async function deliverRequestMail(
     await recordMailLog(log, meta, { channel: 'email', status: 'skipped', reason: 'mail_unavailable', recipient: toEmail });
     return { status: 'skipped', reason: 'mail_unavailable' };
   }
-  const mail = buildBomConfirmRequestEmail({
+  const common = {
     customerName: member?.name ?? '',
     caseNo: bomCaseNo(request.quoteId, request.quote.requestedAt, request.quote.createdAt),
     quoteTitle: request.quote.title,
     odId: request.odId,
     requestId: String(request.id),
-    dueOn: kstYmd(request.dueOn),
-    issues: request.issues.map((issue) => ({
-      issueTypeLabel: BOM_CONFIRM_ISSUE_TYPE_LABELS[asIssueType(issue.issueType)],
-      mpn: parseEvidence(issue.evidence).part.mpn,
-      optionTitles: parseOptions(issue.options).map((option) => `${option.code} ${option.title}`),
-    })),
-  });
+  };
+  const mail = notice
+    ? buildBomConfirmNoticeEmail({
+        ...common,
+        issues: request.issues.map((issue) => ({
+          issueTypeLabel: BOM_CONFIRM_ISSUE_TYPE_LABELS[asIssueType(issue.issueType)],
+          mpn: parseEvidence(issue.evidence).part.mpn,
+          description: issue.description,
+        })),
+        refund: -(requestNetDelta(request.issues) ?? 0),
+      })
+    : buildBomConfirmRequestEmail({
+        ...common,
+        dueOn: kstYmd(request.dueOn),
+        issues: request.issues.map((issue) => ({
+          issueTypeLabel: BOM_CONFIRM_ISSUE_TYPE_LABELS[asIssueType(issue.issueType)],
+          mpn: parseEvidence(issue.evidence).part.mpn,
+          optionTitles: parseOptions(issue.options).map((option) => `${option.code} ${option.title}`),
+        })),
+      });
   const sent = await sendBomRfqMail(log, toEmail, mail, meta);
   if (toEmail === '') return { status: 'skipped', reason: 'missing_recipient' };
   return { status: sent ? 'sent' : 'failed', reason: sent ? null : 'send_failed' };
@@ -1153,6 +1242,43 @@ type AnswerActor =
   | { role: 'customer'; mbId: string }
   | { role: 'admin'; mbId: string; channel: BomConfirmAnswerChannelType };
 
+/** 요청 단위 순액 정산 1건(D43-11) — 0 이면 만들지 않는다. 회신(질문)과 알림 생성(가격 인하)이 함께 쓴다. */
+async function createRequestSettlementTx(
+  tx: Prisma.TransactionClient,
+  request: Pick<SpBomConfirmRequest, 'id' | 'quoteId' | 'mbId' | 'odId' | 'ctId'>,
+  net: number,
+  createdBy: string,
+): Promise<void> {
+  if (net === 0) return;
+  const settlement = await tx.spBomSettlement.create({
+    data: {
+      quoteId: request.quoteId,
+      mbId: request.mbId,
+      requestId: request.id,
+      kind: net > 0 ? 'charge' : 'refund',
+      amount: Math.abs(net),
+      odId: net < 0 ? request.odId : null,
+      targetCtId: net < 0 ? request.ctId : null,
+      createdBy,
+    },
+  });
+  if (net > 0) {
+    await tx.spBomSettlement.update({
+      where: { id: settlement.id },
+      data: { chargeKey: bomSettlementChargeKey(settlement.id) },
+    });
+  }
+  await tx.spBomConfirmEvent.create({
+    data: {
+      requestId: request.id,
+      action: 'settlement_created',
+      actorRole: 'system',
+      actorMbId: null,
+      note: `${net > 0 ? '추가결제' : '환불'} ${Math.abs(net).toLocaleString('ko-KR')}원`,
+    },
+  });
+}
+
 export async function answerConfirmRequest(
   log: FastifyBaseLogger,
   requestId: bigint,
@@ -1228,35 +1354,7 @@ export async function answerConfirmRequest(
         payload: { netDelta: net },
       },
     });
-    if (net !== 0) {
-      const settlement = await tx.spBomSettlement.create({
-        data: {
-          quoteId: request.quoteId,
-          mbId: request.mbId,
-          requestId,
-          kind: net > 0 ? 'charge' : 'refund',
-          amount: Math.abs(net),
-          odId: net < 0 ? request.odId : null,
-          targetCtId: net < 0 ? request.ctId : null,
-          createdBy: actor.mbId,
-        },
-      });
-      if (net > 0) {
-        await tx.spBomSettlement.update({
-          where: { id: settlement.id },
-          data: { chargeKey: bomSettlementChargeKey(settlement.id) },
-        });
-      }
-      await tx.spBomConfirmEvent.create({
-        data: {
-          requestId,
-          action: 'settlement_created',
-          actorRole: 'system',
-          actorMbId: null,
-          note: `${net > 0 ? '추가결제' : '환불'} ${Math.abs(net).toLocaleString('ko-KR')}원`,
-        },
-      });
-    }
+    await createRequestSettlementTx(tx, request, net, actor.mbId);
     return true;
   });
   if (!answered) return { ok: false, error: 'STALE_VERSION' };
@@ -1377,13 +1475,14 @@ export async function applyConfirmIssue(
   const settlements = await prisma.spBomSettlement.findMany({ where: { requestId, kind: 'charge', status: { not: 'canceled' } } });
   const charge = settlements[0] ?? null;
   const chargeFresh = charge === null ? null : await ensureChargePaidLazy(charge);
-  const changesProcurement = option.kind !== 'consult' && option.kind !== 'wait_restock';
-  if (changesProcurement && chargeFresh?.status === 'pending' && !body.preApply) {
+  // 돈이 드는 변경(품목 변경·같은 부품 값 인상)은 추가결제 확인 뒤(D43-12), 품목을 바꾸는 선택지만 발주서 정리 뒤(D43-10).
+  // 입고 기다리기·그대로 진행·상담은 발주서에 든 품목에도 그대로 적용된다 — 산 뒤 유형(D44-6)이 이 길을 쓴다.
+  if (bomConfirmKindNeedsPayment(option.kind) && chargeFresh?.status === 'pending' && !body.preApply) {
     return { ok: false, error: 'PAYMENT_PENDING' };
   }
   const poLinks = await loadItemPoLinks(quoteId);
   const poLink = poLinks.get(String(issue.quoteItemId));
-  if (changesProcurement && poLink !== undefined) {
+  if (bomConfirmKindChangesItem(option.kind) && poLink !== undefined) {
     return { ok: false, error: 'ITEM_IN_PO', detail: `${poLink.partnerName} 발주서 #${String(poLink.poId)} (${poLink.status})` };
   }
   const item = await prisma.spBomQuoteItem.findFirst({ where: { id: issue.quoteItemId, quoteId } });
@@ -1819,13 +1918,15 @@ export async function listCustomerConfirmsMine(
       .map((issue) => `${parseEvidence(issue.evidence).part.mpn} ${BOM_CONFIRM_ISSUE_TYPE_LABELS[asIssueType(issue.issueType)]}`)
       .slice(0, 3)
       .join(', ') + (live.length > 3 ? ` 외 ${String(live.length - 3)}건` : '');
+    const notice = isNoticeRequest(request.issues);
     return {
       id: String(request.id),
       quoteId: String(request.quoteId),
       quoteTitle: titles.get(String(request.quoteId)) ?? '',
       odId: request.odId,
       status,
-      statusLabel: BOM_CONFIRM_REQUEST_CUSTOMER_LABELS[status],
+      statusLabel: notice && status !== 'canceled' ? NOTICE_CUSTOMER_LABEL : BOM_CONFIRM_REQUEST_CUSTOMER_LABELS[status],
+      notice,
       dueOn: kstYmd(request.dueOn),
       overdue: isOverdue(request),
       issueCount: live.length,
@@ -1887,8 +1988,7 @@ export async function listAdminConfirms(query: AdminBomConfirmListQueryType): Pr
       const applicable = request.issues.some((issue) => {
         if (issue.status !== 'decided') return false;
         const option = chosenOption(parseOptions(issue.options), issue.chosenCode);
-        const changesProcurement = option !== null && option.kind !== 'consult' && option.kind !== 'wait_restock';
-        return !(changesProcurement && chargePending);
+        return !(option !== null && bomConfirmKindNeedsPayment(option.kind) && chargePending);
       });
       if (applicable || refundOpen) tabs.add('needs_action');
     }

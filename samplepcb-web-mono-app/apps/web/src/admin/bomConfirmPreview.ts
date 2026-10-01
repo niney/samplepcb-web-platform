@@ -15,6 +15,8 @@ export interface BomConfirmPreviewIssue {
   manufacturerName: string | null;
   issueTypeLabel: string;
   moq: boolean;
+  /** 알림(가격 인하·단종) — 고객이 고르지 않는다. */
+  notice: boolean;
   description: string;
   options: BomConfirmPreviewOption[];
 }

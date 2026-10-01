@@ -95,8 +95,10 @@ function sp_bom_confirm_extra_origin($od_id, $mb_id)
 }
 
 // 상태 라벨 — 계약 BOM_CONFIRM_REQUEST_CUSTOMER_LABELS 와 수동 동기(배지 클래스는 제조 확인 문법 재사용).
-function sp_bom_confirm_status_label($status)
+// 알림(가격 인하·단종, D44)은 고객이 할 일이 없어 상태 대신 '안내'로 보인다(취소만 예외).
+function sp_bom_confirm_status_label($status, $notice = false)
 {
+    if ($notice && (string) $status !== 'canceled') return array('label' => '안내', 'cls' => 'sp_eq_ok');
     switch ((string) $status) {
         case 'answered': return array('label' => '처리 중', 'cls' => 'sp_eq_wait');
         case 'resolved': return array('label' => '처리 완료', 'cls' => 'sp_eq_ok');
@@ -172,6 +174,11 @@ function sp_bom_confirm_requirement_state($state)
 function sp_bom_confirm_option_summary($option)
 {
     $parts = array();
+    if (!empty($option['price'])) {
+        $p = $option['price'];
+        $parts[] = '개당 ' . sp_bom_confirm_won($p['beforeUnitKrw']) . ' → ' . sp_bom_confirm_won($p['afterUnitKrw'])
+                 . ' · ' . number_format((int) $p['orderQty']) . '개';
+    }
     if (!empty($option['replacement'])) {
         $r = $option['replacement'];
         $parts[] = get_text($r['mpn']) . ($r['manufacturerName'] ? ' (' . get_text($r['manufacturerName']) . ')' : '');

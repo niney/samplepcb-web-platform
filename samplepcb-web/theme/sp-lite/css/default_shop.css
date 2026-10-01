@@ -2927,6 +2927,7 @@
 #sod_fin .sp_bomc_type { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.875em; font-weight: 700; }
 #sod_fin .sp_bomc_type--stock { background: #fee2e2; color: #b91c1c; }
 #sod_fin .sp_bomc_type--moq { background: #fef3c7; color: #b45309; }
+#sod_fin .sp_bomc_type--notice { background: #e0f2fe; color: #0369a1; }
 #sod_fin .sp_bomc_opts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 #sod_fin .sp_bomc_opt { padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
 #sod_fin .sp_bomc_opt > label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; cursor: pointer; }

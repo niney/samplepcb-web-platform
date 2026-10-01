@@ -95,6 +95,52 @@ export function buildBomConfirmRequestEmail(p: BomConfirmRequestEmailParams): { 
   };
 }
 
+export interface BomConfirmNoticeMailIssue {
+  issueTypeLabel: string;
+  mpn: string;
+  description: string;
+}
+
+export interface BomConfirmNoticeEmailParams {
+  customerName: string;
+  caseNo: string;
+  quoteTitle: string;
+  odId: string;
+  requestId: string;
+  issues: BomConfirmNoticeMailIssue[];
+  /** 환불할 금액(VAT 포함 원, 양수). 0 이면 안내만. */
+  refund: number;
+}
+
+/** 알림(가격 인하·단종, D44-5) — 고를 게 없어 회신을 구하지 않는다. 버튼은 주문 상세를 열기만 한다. */
+export function buildBomConfirmNoticeEmail(p: BomConfirmNoticeEmailParams): { subject: string; html: string } {
+  const name = p.customerName.trim() === '' ? '고객' : p.customerName;
+  const rows = p.issues
+    .map((issue) =>
+      cell(issue.issueTypeLabel, `<b>${esc(issue.mpn)}</b><br><span style="color:#555;">${esc(issue.description)}</span>`))
+    .join('');
+  const body = `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(name)}님, 결제하신 부품 주문에 알려 드릴 변동이 있습니다.<br>
+        따로 하실 일은 없습니다.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+        ${cell('주문 건', `${esc(p.quoteTitle)} <span style="color:#8593ab;">(${esc(p.caseNo)})</span>`)}
+        ${rows}
+        ${p.refund > 0 ? cell('환불', `<b>${won(p.refund)}원</b>(부가세 포함) — 결제하신 수단(카드 취소 또는 계좌 송금)으로 돌려드립니다.`) : ''}
+      </table>`;
+  return {
+    subject: `[샘플피씨비] 부품 변동 안내 — ${p.quoteTitle}`,
+    html: shell(
+      '부품 변동을 알려 드립니다',
+      body,
+      '주문 상세 보기',
+      bomConfirmCustomerUrl(p.odId, p.requestId),
+      '본 메일은 샘플피씨비 스마트 BOM 부품 변동 안내입니다.',
+    ),
+  };
+}
+
 export interface BomConfirmAnsweredEmailParams {
   caseNo: string;
   quoteTitle: string;

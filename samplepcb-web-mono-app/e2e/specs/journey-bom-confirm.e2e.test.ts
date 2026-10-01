@@ -727,7 +727,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 22호 — 결제 후 부품 확인
     const cardText = await card.innerText();
     for (const text of [
       '기술타입', '문제설명', '당사제안', '참고자료',
-      '재고 소진', 'MOQ 증가', '주문확정 후 지정부품 재고가 소진되었습니다.', '실제 공급사 MOQ가 계약수량보다 많습니다.',
+      '재고 부족', 'MOQ·주문단위 증가', '주문확정 후 지정부품 재고가 소진되었습니다.', '실제 공급사 MOQ가 계약수량보다 많습니다.',
       '대체품 승인', '입고 대기', '고객 사급', 'MOQ 구매 승인', '고객 사급(해당 부품 전량)', '상담 요청',
       `+${SUB_DELTA.toLocaleString('ko-KR')}원 추가결제`, `${(-STOCK_SUPPLY_DELTA).toLocaleString('ko-KR')}원 환불`,
     ]) {

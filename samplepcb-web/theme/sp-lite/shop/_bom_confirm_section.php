@@ -47,7 +47,8 @@ foreach ($sp_bomc_list as $sp_bomc_rq) {
     </p>
 
     <?php foreach ($sp_bomc_list as $rq):
-        $st   = sp_bom_confirm_status_label($rq['status']);
+        $notice = !empty($rq['notice']); // 알림(가격 인하·단종) — 고를 것이 없다(D44)
+        $st   = sp_bom_confirm_status_label($rq['status'], $notice);
         $open = ($rq['status'] === 'requested');
         $rid  = (int) $rq['id'];
     ?>
@@ -92,12 +93,12 @@ foreach ($sp_bomc_list as $sp_bomc_rq) {
 
             <dl class="sp_bomc_grid">
                 <dt>기술타입</dt>
-                <dd><span class="sp_bomc_type sp_bomc_type--<?php echo $iss['issueType'] === 'moq_increase' ? 'moq' : 'stock'; ?>"><?php echo get_text($iss['issueTypeLabel']); ?></span></dd>
+                <dd><span class="sp_bomc_type sp_bomc_type--<?php echo $notice ? 'notice' : ($iss['issueType'] === 'moq_increase' ? 'moq' : 'stock'); ?>"><?php echo get_text($iss['issueTypeLabel']); ?></span></dd>
 
                 <dt>문제설명</dt>
                 <dd><?php echo nl2br(get_text($iss['description'])); ?></dd>
 
-                <dt>당사제안</dt>
+                <dt><?php echo $notice ? '안내' : '당사제안'; ?></dt>
                 <dd>
                     <ul class="sp_bomc_opts">
                         <?php foreach ($iss['options'] as $op):
@@ -119,7 +120,7 @@ foreach ($sp_bomc_list as $sp_bomc_rq) {
                                 <span class="sp_bomc_code"><?php echo $op['code']; ?></span>
                                 <span class="sp_bomc_otitle"><?php echo get_text($op['title']); ?></span>
                                 <span class="sp_bomc_delta <?php echo $dcls; ?>"><?php echo sp_bom_confirm_delta_text($delta); ?></span>
-                                <?php if ($is_pick && !$open): ?><span class="sp_bomc_pick">선택하신 처리</span><?php endif; ?>
+                                <?php if ($is_pick && !$open && !$notice): ?><span class="sp_bomc_pick">선택하신 처리</span><?php endif; ?>
                             </label>
                             <?php if ($summary !== ''): ?>
                             <p class="sp_bomc_osum"><?php echo $summary; ?></p>
@@ -153,6 +154,8 @@ foreach ($sp_bomc_list as $sp_bomc_rq) {
             <p class="sp_bomc_state">
                 <?php if ($iss['status'] === 'applied'): ?>
                     <span class="sp_bomc_state_ok">반영 완료</span>
+                <?php elseif ($iss['status'] === 'closed' && $notice): ?>
+                    <span class="sp_bomc_state_ok">안내 완료</span>
                 <?php elseif ($iss['status'] === 'closed'): ?>
                     <span class="sp_bomc_state_ok">담당자 상담으로 마무리</span>
                 <?php elseif ($iss['status'] === 'decided'): ?>
@@ -191,15 +194,26 @@ foreach ($sp_bomc_list as $sp_bomc_rq) {
                         <tr><th>현재 재고</th><td><?php echo sp_bom_confirm_qty($obs['stock']); ?></td></tr>
                         <tr><th>최소 주문 수량(MOQ)</th><td><?php echo sp_bom_confirm_qty($obs['moq']); ?></td></tr>
                         <tr><th>리드타임</th><td><?php echo $obs['leadTime'] ? get_text($obs['leadTime']) : '—'; ?></td></tr>
+                        <?php if (isset($obs['unitPriceKrw']) && $obs['unitPriceKrw'] !== null): ?>
+                        <tr><th>지금 공급 단가</th><td><?php echo sp_bom_confirm_won($obs['unitPriceKrw']); ?> <small>(부가세 별도)</small></td></tr>
+                        <?php endif; ?>
                         <?php if (!empty($obs['note'])): ?>
                         <tr><th>메모</th><td><?php echo nl2br(get_text($obs['note'])); ?></td></tr>
                         <?php endif; ?>
                     </table>
 
                     <?php foreach ($iss['options'] as $op):
-                        if (empty($op['replacement']) && empty($op['moq']) && empty($op['restock'])) continue;
+                        if (empty($op['replacement']) && empty($op['moq']) && empty($op['restock']) && empty($op['price'])) continue;
                     ?>
                     <h4><?php echo $op['code']; ?>. <?php echo get_text($op['title']); ?></h4>
+
+                    <?php if (!empty($op['price'])): $pr = $op['price']; ?>
+                    <table class="sp_bomc_kv">
+                        <tr><th>주문 당시 단가</th><td><?php echo sp_bom_confirm_won($pr['beforeUnitKrw']); ?></td></tr>
+                        <tr><th>지금 단가</th><td><?php echo sp_bom_confirm_won($pr['afterUnitKrw']); ?></td></tr>
+                        <tr><th>주문 수량 / 금액</th><td><?php echo sp_bom_confirm_qty($pr['orderQty']); ?> / <?php echo sp_bom_confirm_won($pr['lineTotalKrw']); ?> <small>(부가세 별도)</small></td></tr>
+                    </table>
+                    <?php endif; ?>
 
                     <?php if (!empty($op['replacement'])): $rp = $op['replacement']; ?>
                     <table class="sp_bomc_kv">
@@ -295,6 +309,8 @@ foreach ($sp_bomc_list as $sp_bomc_rq) {
             <p class="sp_eq_done">
                 <?php if ($rq['status'] === 'canceled'): ?>
                     담당자가 요청을 취소했습니다 — 따로 하실 일은 없습니다.
+                <?php elseif ($notice): ?>
+                    안내드린 내용입니다 — 따로 하실 일은 없습니다.
                 <?php else: ?>
                     <?php if (!empty($rq['answeredAt'])): ?>회신 <?php echo date('Y-m-d', strtotime($rq['answeredAt'])); ?><?php endif; ?>
                     <?php if (!empty($rq['answeredByAdmin'])): ?>

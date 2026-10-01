@@ -30,8 +30,14 @@ const TONE: Record<BomConfirmPreviewOption['tone'], string> = {
     </p>
     <template v-else>
       <div class="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-900">
-        <span class="rounded-full bg-rose-100 px-1.5 py-0.5 font-bold text-rose-700">확인 대기</span>
-        <span v-if="dueOn !== ''" class="ml-1 text-gray-600">회신 기한 {{ dueOn }}</span>
+        <template v-if="issues.every((issue) => issue.notice)">
+          <span class="rounded-full bg-sky-100 px-1.5 py-0.5 font-bold text-sky-800">안내</span>
+          <span class="ml-1 text-gray-600">고객이 고를 것은 없습니다</span>
+        </template>
+        <template v-else>
+          <span class="rounded-full bg-rose-100 px-1.5 py-0.5 font-bold text-rose-700">확인 대기</span>
+          <span v-if="dueOn !== ''" class="ml-1 text-gray-600">회신 기한 {{ dueOn }}</span>
+        </template>
         <p v-if="message.trim() !== ''" class="mt-1.5 whitespace-pre-line border-l-2 border-sky-400 bg-white px-2 py-1 text-gray-800">{{ message.trim() }}</p>
       </div>
       <article v-for="(issue, index) in issues" :key="issue.key" class="rounded-lg border border-gray-200 bg-white text-[11px]">
@@ -43,11 +49,11 @@ const TONE: Record<BomConfirmPreviewOption['tone'], string> = {
         <dl class="grid grid-cols-[64px_minmax(0,1fr)]">
           <dt class="border-b border-gray-100 bg-gray-50 px-2 py-1.5 font-bold text-gray-500">기술타입</dt>
           <dd class="border-b border-gray-100 px-2 py-1.5">
-            <span class="rounded-full px-1.5 py-0.5 font-bold" :class="issue.moq ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-700'">{{ issue.issueTypeLabel }}</span>
+            <span class="rounded-full px-1.5 py-0.5 font-bold" :class="issue.notice ? 'bg-sky-100 text-sky-800' : issue.moq ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-700'">{{ issue.issueTypeLabel }}</span>
           </dd>
           <dt class="border-b border-gray-100 bg-gray-50 px-2 py-1.5 font-bold text-gray-500">문제설명</dt>
           <dd class="whitespace-pre-line border-b border-gray-100 px-2 py-1.5 text-gray-800">{{ issue.description.trim() === '' ? '—' : issue.description }}</dd>
-          <dt class="border-b border-gray-100 bg-gray-50 px-2 py-1.5 font-bold text-gray-500">당사제안</dt>
+          <dt class="border-b border-gray-100 bg-gray-50 px-2 py-1.5 font-bold text-gray-500">{{ issue.notice ? '안내' : '당사제안' }}</dt>
           <dd class="border-b border-gray-100 px-2 py-1.5">
             <ul class="grid gap-1">
               <li v-for="option in issue.options" :key="option.code" class="rounded border border-gray-200 px-1.5 py-1">

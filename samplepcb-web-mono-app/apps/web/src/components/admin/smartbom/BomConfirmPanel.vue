@@ -12,6 +12,9 @@ import {
   BOM_CONFIRM_SHIP_PREFERENCE_LABELS,
   BOM_ITEM_FULFILLMENT_LABELS,
   BOM_SETTLEMENT_KIND_LABELS,
+  bomConfirmKindChangesItem,
+  bomConfirmKindNeedsPayment,
+  isBomConfirmNoticeType,
   type AdminBomConfirmIssueType,
   type AdminBomConfirmRequestType,
   type BomConfirmAnswerChannelType,
@@ -111,6 +114,10 @@ function chosen(issue: AdminBomConfirmIssueType): BomConfirmOptionType | null {
 }
 
 function optionDetail(option: BomConfirmOptionType): string {
+  if (option.price !== null) {
+    const p = option.price;
+    return `개당 ${p.beforeUnitKrw === null ? '—' : smartbomFmtWon(p.beforeUnitKrw)} → ${smartbomFmtWon(p.afterUnitKrw)} · ${String(p.orderQty)}개 · 라인 ${smartbomFmtWon(p.lineTotalKrw)}`;
+  }
   if (option.replacement !== null) {
     const r = option.replacement;
     return `${r.mpn} · ${r.supplierLabel}${r.supplier !== null && r.supplier !== r.supplierLabel ? ` (${r.supplier})` : ''} · ${String(r.orderQty)}개 · 라인 ${smartbomFmtWon(r.lineTotalKrw)}${r.engine === null ? ' · 엔진 비교 없음' : ` · 엔진 ${r.engine.selectionMode}/${r.engine.safety}`}`;
@@ -131,14 +138,14 @@ function chargePending(request: AdminBomConfirmRequestType): boolean {
 
 function applyNeedsPayment(request: AdminBomConfirmRequestType, issue: AdminBomConfirmIssueType): boolean {
   const option = chosen(issue);
-  return chargePending(request) && option !== null && option.kind !== 'consult' && option.kind !== 'wait_restock';
+  return chargePending(request) && option !== null && bomConfirmKindNeedsPayment(option.kind);
 }
 
 async function applyIssue(request: AdminBomConfirmRequestType, issue: AdminBomConfirmIssueType): Promise<void> {
   const option = chosen(issue);
   if (option === null) return;
   const needsPayment = applyNeedsPayment(request, issue);
-  if (issue.itemState.po !== null && option.kind !== 'consult' && option.kind !== 'wait_restock') {
+  if (issue.itemState.po !== null && bomConfirmKindChangesItem(option.kind)) {
     notice.value = {
       tone: 'error',
       text: `이 품목은 ${issue.itemState.po.partnerName} 발주서 #${issue.itemState.po.poId}(${issue.itemState.po.status})에 있습니다. 발행됨이면 발주서를 삭제한 뒤 적용하세요.`,
@@ -156,7 +163,11 @@ async function applyIssue(request: AdminBomConfirmRequestType, issue: AdminBomCo
           ? '이 품목은 당사 조달에서 빠집니다(발주 초안 제외).'
           : option.kind === 'wait_restock'
             ? '이 품목을 입고 대기로 표시합니다. 발주는 입고 시점에 맞춰 진행하세요.'
-            : '변경 없이 이 품목을 닫습니다. 필요하면 새 확인 요청을 보내세요.',
+            : option.kind === 'price_accept'
+              ? '같은 부품을 오른 가격으로 삽니다. 품목은 바뀌지 않고 차액은 추가결제로 받습니다.'
+              : option.kind === 'accept_as_is'
+                ? '고객이 그대로 진행하기로 했습니다. 품목은 바뀌지 않습니다.'
+                : '변경 없이 이 품목을 닫습니다. 필요하면 새 확인 요청을 보내세요.',
       needsPayment ? '\n⚠ 추가결제가 아직 확인되지 않았습니다 — 먼저 적용합니다(선적용).' : '',
     ].filter((line) => line !== '').join('\n'),
     confirmLabel: needsPayment ? '선적용' : '적용',
@@ -365,7 +376,7 @@ function issueCanFollowup(issue: AdminBomConfirmIssueType): boolean {
           부품 확인 요청
           <span v-if="openCount > 0" class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">진행 {{ openCount }}</span>
         </h2>
-        <p class="mt-0.5 text-xs text-gray-500">결제 뒤 재고 소진·MOQ 증가로 고객 결과가 바뀔 때 선택지를 묻고, 답에 따라 적용·정산합니다.</p>
+        <p class="mt-0.5 text-xs text-gray-500">결제 뒤 부품·금액·수량·도착일이 바뀌면 선택지를 묻고(가격 인하·단종은 안내만), 답에 따라 적용·정산합니다.</p>
       </div>
       <button
         type="button"
@@ -389,6 +400,7 @@ function issueCanFollowup(issue: AdminBomConfirmIssueType): boolean {
       <li v-for="request in requests" :id="`bomc-admin-${request.id}`" :key="request.id" class="rounded-lg border border-gray-200 p-3">
         <div class="flex flex-wrap items-center gap-2 text-xs">
           <span class="rounded border px-2 py-0.5 font-bold" :class="STATUS_TONE[request.status]">{{ BOM_CONFIRM_REQUEST_STATUS_LABELS[request.status] }}</span>
+          <span v-if="request.notice" class="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 font-bold text-sky-800">알림</span>
           <span class="font-semibold text-gray-700">#{{ request.id }}</span>
           <span class="text-gray-500">요청 {{ fmtKstDate(request.requestedAt) }} · {{ request.requestedBy }}</span>
           <span v-if="request.dueOn !== null" :class="request.overdue ? 'font-bold text-rose-600' : 'text-gray-500'">
@@ -430,7 +442,7 @@ function issueCanFollowup(issue: AdminBomConfirmIssueType): boolean {
           <article v-for="issue in request.issues" :key="issue.id" class="rounded-lg border border-gray-100 p-2 text-xs">
             <div class="flex flex-wrap items-center gap-2">
               <span class="font-bold text-gray-900">{{ issue.evidence.part.mpn }}</span>
-              <span class="rounded bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-700">{{ BOM_CONFIRM_ISSUE_TYPE_LABELS[issue.issueType] }}</span>
+              <span class="rounded px-1.5 py-0.5 font-semibold" :class="isBomConfirmNoticeType(issue.issueType) ? 'bg-sky-50 text-sky-800' : 'bg-rose-50 text-rose-700'">{{ BOM_CONFIRM_ISSUE_TYPE_LABELS[issue.issueType] }}</span>
               <span class="font-semibold" :class="ISSUE_TONE[issue.status]">{{ BOM_CONFIRM_ISSUE_STATUS_LABELS[issue.status] }}</span>
               <span v-if="issue.itemState.fulfillment !== 'normal'" class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{{ BOM_ITEM_FULFILLMENT_LABELS[issue.itemState.fulfillment] }}</span>
               <span v-if="issue.itemState.po !== null" class="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">{{ issue.itemState.po.partnerName }} #{{ issue.itemState.po.poId }} ({{ issue.itemState.po.status }})</span>
@@ -453,6 +465,7 @@ function issueCanFollowup(issue: AdminBomConfirmIssueType): boolean {
             <p class="mt-1 text-[11px] text-gray-500">
               근거({{ fmtKstDate(issue.evidence.observation.checkedAt) }}): {{ issue.evidence.observation.sourceLabel ?? '공급처 미표시' }}
               · 재고 {{ issue.evidence.observation.stock ?? '—' }} · MOQ {{ issue.evidence.observation.moq ?? '—' }}
+              <template v-if="issue.evidence.observation.unitPriceKrw !== null"> · 지금 단가 {{ smartbomFmtWon(issue.evidence.observation.unitPriceKrw) }}</template>
               <template v-if="issue.evidence.observation.leadTime !== null"> · {{ issue.evidence.observation.leadTime }}</template>
               <template v-if="issue.evidence.observation.note !== null"> · {{ issue.evidence.observation.note }}</template>
             </p>

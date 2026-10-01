@@ -623,7 +623,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 23호 — 부품 확인 관리자 
     // 고객 미리보기(오른쪽 열) — 고객 화면과 같은 4칸 형식이 초안을 따라 그려진다.
     const preview = compose.getByText('고객에게 보일 모습').locator('xpath=ancestor::div[2]');
     const previewText = await preview.innerText();
-    for (const text of ['기술타입', '재고 소진', '당사제안', '대체품 승인', `+${SUB_DELTA.toLocaleString('ko-KR')}원 추가결제`, '상담 요청', '분석근거 보기']) {
+    for (const text of ['기술타입', '재고 부족', '당사제안', '대체품 승인', `+${SUB_DELTA.toLocaleString('ko-KR')}원 추가결제`, '상담 요청', '분석근거 보기']) {
       expect(previewText, `고객 미리보기: ${text}`).toContain(text);
     }
     await rp.shot(adminView, 'C02-compose-filled');
@@ -685,8 +685,8 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 23호 — 부품 확인 관리자 
     await compose.locator(`#bomc-opt-${seeded.itemIds.together}-substitute`).uncheck();
     await compose.locator(`#bomc-opt-${seeded.itemIds.together}-customer_supply`).uncheck();
     await sectionOf('together').getByPlaceholder('예: 공급사 입고 예정 공지').fill('제조사 생산 재개 공지');
-    // 상담 — MOQ 증가로 유형 전환 → 선택지가 MOQ 프리셋으로 바뀐다 → 다른 공급사 끄고 MOQ 수량 입력
-    await sectionOf('consult').getByRole('radio', { name: 'MOQ 증가' }).check();
+    // 상담 — MOQ·주문단위 증가로 유형 전환 → 선택지가 MOQ 프리셋으로 바뀐다 → 다른 공급사 끄고 MOQ 수량 입력
+    await sectionOf('consult').getByRole('radio', { name: 'MOQ·주문단위 증가' }).check();
     await expect.poll(async () => sectionOf('consult').innerText()).toContain('MOQ 구매 승인');
     await compose.locator(`#bomc-opt-${seeded.itemIds.consult}-alt_supplier`).uncheck();
     const moqInput = sectionOf('consult').getByLabel('실제 구매 수량');

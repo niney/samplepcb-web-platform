@@ -18,6 +18,8 @@ import {
   BOM_CONFIRM_TYPE_OPTION_KINDS,
   BOM_ITEM_FULFILLMENT_LABELS,
   bomConfirmOptionDefaultTitle,
+  isBomConfirmNoticeType,
+  isBomConfirmPriceType,
   type AdminBomConfirmCreateBodyType,
   type AdminBomConfirmEligibilityReasonType,
   type AdminBomConfirmItemRowType,
@@ -62,9 +64,16 @@ interface IssueDraft {
   quoteItemId: string;
   issueType: BomConfirmIssueTypeType;
   description: string;
-  observation: { sourceLabel: string; stock: string; moq: string; leadTime: string; note: string };
+  observation: { sourceLabel: string; stock: string; moq: string; leadTime: string; note: string; unitPriceKrw: string };
   options: OptionDraft[];
 }
+
+/** 유형 버튼 묶음 — 사기 전·산 뒤·알림(D44). 알림은 답을 받지 않아 질문과 한 요청에 섞지 않는다. */
+const TYPE_GROUPS: { label: string; types: readonly BomConfirmIssueTypeType[] }[] = [
+  { label: '사기 전', types: ['stock_out', 'moq_increase', 'price_increase', 'part_change', 'unofficial_source'] },
+  { label: '산 뒤', types: ['delivery_delay', 'quality_issue', 'manufacturing_info', 'documents'] },
+  { label: '알림', types: ['price_decrease', 'eol_notice'] },
+];
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -160,12 +169,14 @@ const visibleItems = computed(() => {
 
 function defaultOption(issueType: BomConfirmIssueTypeType, kind: OptionKind, item: AdminBomConfirmItemRowType): OptionDraft {
   const supplyRefund = item.lineTotalKrw === null ? '' : String(-Math.round(item.lineTotalKrw * 1.1));
+  // 금액이 따로 없는 선택지는 0 — 값만 바뀌는 선택지(오른 가격·차액 환불)는 단가를 적으면 참고값으로 채운다.
+  const noMoney = kind === 'wait_restock' || kind === 'accept_as_is' || (kind === 'notice' && issueType === 'eol_notice');
   return {
     kind,
     enabled: true,
     title: bomConfirmOptionDefaultTitle(issueType, kind),
     detail: '',
-    priceDelta: kind === 'customer_supply' ? supplyRefund : kind === 'wait_restock' ? '0' : '',
+    priceDelta: kind === 'customer_supply' ? supplyRefund : noMoney ? '0' : '',
     deltaTouched: false,
     replacement: null,
     moqOrderQty: kind === 'moq_purchase' && item.offerMoq !== null && item.offerMoq > item.neededQty ? String(item.offerMoq) : '',
@@ -184,6 +195,7 @@ function newDraft(item: AdminBomConfirmItemRowType, issueType: BomConfirmIssueTy
       moq: item.offerMoq === null ? '' : String(item.offerMoq),
       leadTime: '',
       note: '',
+      unitPriceKrw: '',
     },
     options: BOM_CONFIRM_TYPE_OPTION_KINDS[issueType].map((kind) => defaultOption(issueType, kind, item)),
   };
@@ -224,11 +236,25 @@ function consultCode(draft: IssueDraft): string {
   return CODES[draft.options.filter((entry) => entry.enabled).length] ?? '?';
 }
 
-/** 참고 차액(VAT 포함) — 새 라인 − 원 라인. 계산 불가면 null. */
+/** 확인 근거의 지금 공급 단가(원, VAT 별도) — 가격 인상·인하 유형의 차액 근거. */
+function observedUnit(itemId: string): number | null {
+  const value = drafts.value[itemId]?.observation.unitPriceKrw.trim() ?? '';
+  if (value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 참고 차액(VAT 포함) — 새 라인 − 원 라인(서버 bomConfirmVatDelta 와 같은 식). 계산 불가면 null. */
 function referenceDelta(item: AdminBomConfirmItemRowType, option: OptionDraft): number | null {
   if (item.lineTotalKrw === null) return null;
   if (option.kind === 'customer_supply') return -Math.round(item.lineTotalKrw * 1.1);
-  if (option.kind === 'wait_restock') return 0;
+  if (option.kind === 'wait_restock' || option.kind === 'accept_as_is') return 0;
+  if (option.kind === 'price_accept' || option.kind === 'notice') {
+    if (drafts.value[item.quoteItemId]?.issueType === 'eol_notice') return 0;
+    const unit = observedUnit(item.quoteItemId);
+    if (unit === null) return null;
+    return Math.round((Math.round(unit * item.orderQty * 100) / 100 - item.lineTotalKrw) * 1.1);
+  }
   if (option.kind === 'moq_purchase') {
     const qty = Number(option.moqOrderQty);
     if (!Number.isFinite(qty) || qty <= 0 || item.orderQty <= 0) return null;
@@ -244,6 +270,18 @@ function syncDelta(item: AdminBomConfirmItemRowType, option: OptionDraft): void 
   const ref = referenceDelta(item, option);
   if (ref !== null) option.priceDelta = String(ref);
 }
+
+/** 단가를 고치면 값만 바뀌는 선택지(오른 가격으로 구매·차액 환불)의 차액을 다시 채운다. */
+function syncPriceOptions(draft: IssueDraft, item: AdminBomConfirmItemRowType): void {
+  for (const option of draft.options) {
+    if (option.kind === 'price_accept' || option.kind === 'notice') syncDelta(item, option);
+  }
+}
+
+/** 이 초안이 알림(가격 인하·단종)인가 — 답을 받지 않는다. */
+const isNoticeDraft = (draft: IssueDraft): boolean => isBomConfirmNoticeType(draft.issueType);
+/** 고른 품목이 모두 알림이면 알림 요청으로 보낸다(질문과 섞으면 막는다). */
+const noticeRequest = computed(() => selectedDrafts.value.length > 0 && selectedDrafts.value.every(({ draft }) => isNoticeDraft(draft)));
 
 // ── 대체품·다른 공급처 고르기(후보 서랍) ─────────────────────────────────────
 const drawerTarget = ref<{ itemId: string; option: OptionDraft } | null>(null);
@@ -327,13 +365,20 @@ const toInt = (value: string): number | null => {
 
 const validation = computed((): string | null => {
   if (selectedDrafts.value.length === 0) return '확인할 품목을 왼쪽에서 하나 이상 고르세요.';
+  if (!noticeRequest.value && selectedDrafts.value.some(({ draft }) => isNoticeDraft(draft))) {
+    return '알림(가격 인하·단종)은 질문과 따로 보내 주세요.';
+  }
   for (const { draft, item } of selectedDrafts.value) {
     const enabled = draft.options.filter((option) => option.enabled);
     if (enabled.length === 0) return `${item.mpn}: 선택지를 하나 이상 켜세요.`;
     if (draft.description.trim().length < 5) return `${item.mpn}: 문제 설명을 5자 이상 적으세요.`;
+    if (isBomConfirmPriceType(draft.issueType) && observedUnit(draft.quoteItemId) === null) {
+      return `${item.mpn}: 지금 공급 단가(원)를 적으세요.`;
+    }
     for (const option of enabled) {
       const label = BOM_CONFIRM_OPTION_KIND_LABELS[option.kind];
       if (toInt(option.priceDelta) === null) return `${item.mpn} · ${label}: 차액(원)을 정수로 입력하세요.`;
+      if (option.kind === 'notice' && (toInt(option.priceDelta) ?? 0) > 0) return `${item.mpn}: 알림에는 환불(0 이하)만 적을 수 있습니다.`;
       if ((option.kind === 'substitute' || option.kind === 'alt_supplier') && option.replacement === null) {
         return `${item.mpn} · ${label}: 대체 부품·공급처를 고르세요.`;
       }
@@ -370,6 +415,7 @@ function buildBody(): AdminBomConfirmCreateBodyType {
         moq: toInt(draft.observation.moq),
         leadTime: optional(draft.observation.leadTime),
         note: optional(draft.observation.note),
+        unitPriceKrw: observedUnit(draft.quoteItemId),
       },
       options: draft.options
         .filter((option) => option.enabled)
@@ -419,7 +465,11 @@ const deltaLabel = (value: number | null): string => {
 // ── 고객 미리보기·요약 ─────────────────────────────────────────────────────────
 function optionSummary(item: AdminBomConfirmItemRowType, option: OptionDraft): string {
   let base = '';
-  if (option.kind === 'substitute' || option.kind === 'alt_supplier') {
+  const unit = observedUnit(item.quoteItemId);
+  const orderUnit = item.lineTotalKrw === null || item.orderQty <= 0 ? null : item.lineTotalKrw / item.orderQty;
+  if ((option.kind === 'price_accept' || option.kind === 'notice') && unit !== null) {
+    base = `개당 ${orderUnit === null ? '—' : smartbomFmtWon(orderUnit)} → ${smartbomFmtWon(unit)} · ${String(item.orderQty)}개`;
+  } else if (option.kind === 'substitute' || option.kind === 'alt_supplier') {
     base = option.replacement?.label ?? '대체 부품·공급처를 아직 고르지 않았습니다';
   } else if (option.kind === 'moq_purchase') {
     const qty = toInt(option.moqOrderQty);
@@ -447,6 +497,7 @@ const previewIssues = computed((): BomConfirmPreviewIssue[] =>
       manufacturerName: item.manufacturerName,
       issueTypeLabel: BOM_CONFIRM_ISSUE_TYPE_LABELS[draft.issueType],
       moq: draft.issueType === 'moq_increase',
+      notice: isNoticeDraft(draft),
       description: draft.description,
       options: [
         ...enabled.map((option, index) => ({
@@ -455,12 +506,15 @@ const previewIssues = computed((): BomConfirmPreviewIssue[] =>
           ...bomConfirmPreviewDelta(toInt(option.priceDelta)),
           summary: optionSummary(item, option),
         })),
-        {
-          code: consultCode(draft),
-          title: bomConfirmOptionDefaultTitle(draft.issueType, 'consult'),
-          ...bomConfirmPreviewDelta(0),
-          summary: '맞는 선택지가 없으면 담당자와 상담해 정합니다.',
-        },
+        // 알림은 답을 받지 않아 상담 요청이 붙지 않는다.
+        ...(isNoticeDraft(draft)
+          ? []
+          : [{
+              code: consultCode(draft),
+              title: bomConfirmOptionDefaultTitle(draft.issueType, 'consult'),
+              ...bomConfirmPreviewDelta(0),
+              summary: '맞는 선택지가 없으면 담당자와 상담해 정합니다.',
+            }]),
       ],
     };
   }));
@@ -470,7 +524,8 @@ const rangeText = computed((): string => {
   let min = 0;
   let max = 0;
   for (const { draft } of selectedDrafts.value) {
-    const values = [0];
+    // 질문은 상담(0)도 고를 수 있고, 알림은 안내 하나뿐이라 그 금액 그대로다.
+    const values = isNoticeDraft(draft) ? [] : [0];
     for (const option of draft.options.filter((entry) => entry.enabled)) {
       const value = toInt(option.priceDelta);
       if (value === null) return '차액 입력 필요';
@@ -689,22 +744,26 @@ onBeforeUnmount(() => {
                   </p>
                 </div>
 
-                <div class="flex flex-wrap gap-2" role="radiogroup" :aria-label="`${item.mpn} 문제 유형`">
-                  <label
-                    v-for="type in (['stock_out', 'moq_increase'] as const)"
-                    :key="type"
-                    class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold"
-                    :class="draft.issueType === type ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-gray-300 text-gray-600'"
-                  >
-                    <input
-                      type="radio"
-                      class="h-3.5 w-3.5"
-                      :name="`bomc-type-${draft.quoteItemId}`"
-                      :checked="draft.issueType === type"
-                      @change="changeIssueType(draft, type)"
+                <div class="grid gap-1.5" role="radiogroup" :aria-label="`${item.mpn} 문제 유형`">
+                  <div v-for="group in TYPE_GROUPS" :key="group.label" class="flex flex-wrap items-center gap-1.5">
+                    <span class="w-12 shrink-0 text-[11px] font-bold text-gray-400">{{ group.label }}</span>
+                    <label
+                      v-for="type in group.types"
+                      :key="type"
+                      class="flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold"
+                      :class="draft.issueType === type ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-gray-300 text-gray-600'"
                     >
-                    {{ BOM_CONFIRM_ISSUE_TYPE_LABELS[type] }}
-                  </label>
+                      <input
+                        type="radio"
+                        class="h-3.5 w-3.5"
+                        :name="`bomc-type-${draft.quoteItemId}`"
+                        :checked="draft.issueType === type"
+                        @change="changeIssueType(draft, type)"
+                      >
+                      {{ BOM_CONFIRM_ISSUE_TYPE_LABELS[type] }}
+                    </label>
+                  </div>
+                  <p v-if="isNoticeDraft(draft)" class="text-[11px] text-sky-700">알림은 고객 답을 받지 않습니다 — 보내면 바로 종결되고, 가격 인하는 환불 정산이 열립니다.</p>
                 </div>
 
                 <label class="grid gap-1 text-xs font-semibold text-gray-600">
@@ -731,6 +790,17 @@ onBeforeUnmount(() => {
                       <input v-model="draft.observation.note" maxlength="500" class="w-full min-w-0 rounded border border-gray-300 px-2 py-1 text-xs text-gray-900">
                     </label>
                   </div>
+                  <label v-if="isBomConfirmPriceType(draft.issueType)" class="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-gray-500">
+                    지금 공급 단가(원, VAT 별도)
+                    <input
+                      v-model="draft.observation.unitPriceKrw"
+                      inputmode="decimal"
+                      aria-label="지금 공급 단가"
+                      class="w-32 rounded border border-gray-300 px-2 py-1 text-xs text-gray-900 tabular-nums"
+                      @change="syncPriceOptions(draft, item)"
+                    >
+                    <span class="font-normal text-gray-500">주문 당시 {{ item.lineTotalKrw === null || item.orderQty <= 0 ? '—' : smartbomFmtWon(item.lineTotalKrw / item.orderQty) }} · 주문 {{ item.orderQty }}개</span>
+                  </label>
                 </fieldset>
 
                 <div class="grid gap-2">
@@ -742,7 +812,7 @@ onBeforeUnmount(() => {
                     :class="option.enabled ? 'border-gray-300' : 'border-dashed border-gray-200 opacity-60'"
                   >
                     <div class="flex flex-wrap items-center gap-2">
-                      <input :id="`bomc-opt-${draft.quoteItemId}-${option.kind}`" v-model="option.enabled" type="checkbox" class="h-4 w-4">
+                      <input :id="`bomc-opt-${draft.quoteItemId}-${option.kind}`" v-model="option.enabled" type="checkbox" class="h-4 w-4" :disabled="option.kind === 'notice'">
                       <span class="grid h-6 w-6 place-items-center rounded bg-gray-900 text-xs font-bold text-white">{{ optionCode(draft, option) }}</span>
                       <label :for="`bomc-opt-${draft.quoteItemId}-${option.kind}`" class="text-sm font-bold text-gray-900">
                         {{ BOM_CONFIRM_OPTION_KIND_LABELS[option.kind] }}
@@ -797,7 +867,11 @@ onBeforeUnmount(() => {
                         </label>
                       </div>
 
-                      <div class="flex flex-wrap items-center gap-2 text-xs">
+                      <p v-if="option.kind === 'price_accept' || (option.kind === 'notice' && draft.issueType === 'price_decrease')" class="text-xs text-gray-600">
+                        {{ optionSummary(item, option) || '위 확인 근거에 지금 공급 단가를 적으면 차액을 계산합니다.' }}
+                      </p>
+
+                      <div v-if="!(option.kind === 'notice' && draft.issueType === 'eol_notice')" class="flex flex-wrap items-center gap-2 text-xs">
                         <label class="flex items-center gap-2 font-semibold text-gray-600">차액(VAT 포함, +추가결제 −환불)
                           <input
                             v-model="option.priceDelta"
@@ -810,7 +884,7 @@ onBeforeUnmount(() => {
                       </div>
                     </template>
                   </div>
-                  <p class="text-[11px] text-gray-500">{{ consultCode(draft) }} 상담 요청 — 맞는 선택지가 없을 때를 위해 자동으로 붙습니다.</p>
+                  <p v-if="!isNoticeDraft(draft)" class="text-[11px] text-gray-500">{{ consultCode(draft) }} 상담 요청 — 맞는 선택지가 없을 때를 위해 자동으로 붙습니다.</p>
                 </div>
               </section>
 
@@ -833,10 +907,10 @@ onBeforeUnmount(() => {
             <p v-if="errorText !== ''" class="font-semibold text-rose-600" role="alert">{{ errorText }}</p>
             <p v-else-if="eligibilityReason === null && validation !== null" class="text-gray-500">{{ validation }}</p>
             <p v-else-if="eligibilityReason === null" class="text-gray-700">
-              품목 {{ selectedDrafts.length }}개 · 고객 선택에 따라 <b class="tabular-nums">{{ rangeText }}</b>
+              품목 {{ selectedDrafts.length }}개 · {{ noticeRequest ? '안내' : '고객 선택에 따라' }} <b class="tabular-nums">{{ rangeText }}</b>
             </p>
           </div>
-          <label class="flex items-center gap-2 text-xs font-semibold text-gray-600">회신 기한
+          <label v-if="!noticeRequest" class="flex items-center gap-2 text-xs font-semibold text-gray-600">회신 기한
             <input v-model="dueOn" type="date" class="rounded border border-gray-300 px-2 py-1 text-sm">
           </label>
           <label class="flex items-center gap-2 text-xs font-semibold text-gray-600" title="메일엔 링크만 — 선택은 마이페이지·주문 상세에서">
@@ -852,7 +926,7 @@ onBeforeUnmount(() => {
             :disabled="eligibilityReason !== null || validation !== null || create.isPending.value"
             @click="submit"
           >
-            {{ create.isPending.value ? '보내는 중…' : '확인 요청 보내기' }}
+            {{ create.isPending.value ? '보내는 중…' : noticeRequest ? '변동 안내 보내기' : '확인 요청 보내기' }}
           </button>
         </footer>
       </aside>

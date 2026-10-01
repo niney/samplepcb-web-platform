@@ -77,7 +77,7 @@ const LINES: DemoLine[] = [
     sourceRow: 9,
     bomQty: 1,
     unitPrice: 420,
-    scenario: 'MOQ 증가 — [MOQ 증가]로 바꾸고 실제 구매 수량 예: 50',
+    scenario: 'MOQ 증가 — [MOQ·주문단위 증가]로 바꾸고 실제 구매 수량 예: 50',
   },
   {
     key: 'wait',
