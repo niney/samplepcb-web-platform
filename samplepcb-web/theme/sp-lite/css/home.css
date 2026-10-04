@@ -638,7 +638,7 @@
 .sp-onestop__title {
     margin: 176px 0 0;
     font-size: 34px;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.3;
     color: #1a2129;
 }
@@ -648,14 +648,14 @@
     font-size: 22px;
     font-weight: 400;
     line-height: 1.3;
-    color: #555;
+    color: rgb(0 0 0 / 60%);
 }
 
 /* — 서비스 탭과 PCB 종류 드롭다운 */
 .sp-onestop__tabs-wrap { position: relative; margin-top: 52px; z-index: 3; }
 .sp-onestop__tabs { display: flex; gap: 32px; margin: 0; padding: 0 0 9px 5px; list-style: none; border-bottom: 1px solid #d9d9d9; }
 .sp-onestop__tab { position: relative; flex: none; }
-.sp-onestop__tab-btn { display: inline-flex; align-items: center; gap: 10px; margin: 0; padding: 0; border: 0; background: none; font: inherit; font-size: 22px; font-weight: 500; line-height: 30px; color: #444; white-space: nowrap; cursor: pointer; }
+.sp-onestop__tab-btn { display: inline-flex; align-items: center; gap: 10px; margin: 0; padding: 0; border: 0; background: none; font: inherit; font-size: 20px; font-weight: 500; line-height: 30px; color: #444; white-space: nowrap; cursor: pointer; }
 .sp-onestop__tab-btn:hover { color: #000; }
 .sp-onestop__tab.is-active .sp-onestop__tab-btn { font-weight: 800; color: #000; }
 .sp-onestop__tab.is-active::after { content: ""; position: absolute; left: -5px; right: -5px; bottom: -11px; height: 3px; background: #000; }
@@ -753,7 +753,7 @@
    · ≥1320 은 피그마 픽셀 그대로, 1024~1319 는 같은 비율로 유동, ≤1023 은 세로 흐름(미디어 위·카드 아래).
    ========================================================================== */
 .sp-eyes {
-    padding: 140px 0 0; /* 다음 Your Idea 배경 위의 빈 띠 제거(사용자 요청) */
+    padding: 140px 0 141px; /* Figma: SMT 블록 끝 → Your Idea 사진 배경 사이 141px */
     background: linear-gradient(180deg, rgba(246, 248, 251, 0) 0, #f6f8fb 336px);
     color: var(--sp-ink-2);
 }
@@ -810,7 +810,7 @@
 .sp-eyes__media img { position: absolute; display: block; }
 .sp-eyes__media--gerber img { left: 35px; top: 133px; width: 702px; height: 395px; border-radius: 8px; }  /* 355,2638 → 블록 기준 */
 .sp-eyes__media--parts { background: linear-gradient(180deg, #e6efff 0%, #e3e7f0 100%); }
-.sp-eyes__media--parts img { left: -211px; top: -1px; width: 1191px; height: 670px; }                     /* 1191 폭 화면을 가운데 772 만 */
+.sp-eyes__media--parts img { left: 35px; top: 133px; width: 702px; height: 395px; border-radius: 8px; object-fit: cover; } /* Figma 2403:29900: 프레임 안 x35/y133 */
 .sp-eyes__media--smt { background: linear-gradient(180deg, #e1dfe9 79%, #eae9f0 80.3%, #d5d3e1 100%); }
 .sp-eyes__media--smt img { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
 
@@ -917,7 +917,7 @@
     .sp-eyes__media { aspect-ratio: 772 / 670; }
     .sp-eyes__media--smt { aspect-ratio: 797 / 670; }
     .sp-eyes__media--gerber img { left: 4.53%; top: 19.85%; width: 90.93%; height: auto; }
-    .sp-eyes__media--parts img { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; }
+    .sp-eyes__media--parts img { left: 4.53%; top: 19.85%; width: 90.93%; height: auto; }
     .sp-eyes__card { padding: 32px 28px; }
     .sp-eyes__card--narrow .sp-eyes__card-body { max-width: none; }
     .sp-eyes__name { font-size: 30px; }
@@ -927,7 +927,7 @@
 
 /* ── ≤1023: 세로 흐름 — 미디어 위, 카드 아래 (피그마에 없어 우리 정의) ────── */
 @media (max-width: 1023.98px) {
-    .sp-eyes { padding: 80px 0 0; background: linear-gradient(180deg, rgba(246, 248, 251, 0) 0, #f6f8fb 160px); }
+    .sp-eyes { padding: 80px 0; background: linear-gradient(180deg, rgba(246, 248, 251, 0) 0, #f6f8fb 160px); }
     .sp-eyes__brand { font-size: 40px; gap: 6px; }
     .sp-eyes__brand img { width: 48px; height: 48px; }
     .sp-eyes__title { font-size: 32px; }

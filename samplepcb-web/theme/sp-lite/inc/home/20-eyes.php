@@ -5,8 +5,8 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
  * 홈 — 3 EYES (Smarter Manufacturing with AI) — Figma 「웹 메인」 y 2052~4856 (높이 2804)
  *   배경 2286:1276 · 제목 2286:1444 · 블록 Gerber Eyes 4.0(2286:1455) · Parts Eyes 2.0(2286:1784) · SMT Eyes(2286:1686)
  *   블록 = [화면 미디어 772(SMT 는 797)] + [카드 484(SMT 는 460)] 가로 한 줄, 가운데 블록만 좌우 반전.
- *   미디어(.sp-eyes__media): Gerber·Parts 는 피그마에 들어 있던 애니메이션 GIF(1920×1080), SMT 는 정지 합성 사진.
- *     디자이너 메모("3EYES gif 영상은 어떻게 전달드리면 될까요?") — 영상으로 바뀌면 <img> 를 <video> 로 갈아 끼우면 된다(컨테이너 치수 고정).
+ *   미디어(.sp-eyes__media): Gerber 는 피그마의 애니메이션 GIF, Parts 는 최신 화면 이미지(2403:29900, 1920×1080 GIF), SMT 는 정지 합성 사진.
+ *     디자이너 메모("3EYES gif 영상은 어떻게 전달드리면 될까요?") — Gerber 영상이 제공되면 <img> 를 <video> 로 갈아 끼우면 된다(컨테이너 치수 고정).
  *   피그마의 숨김 그룹(화면 위 떠 있는 말풍선 6개, 2286:1459 등 — 모션 2286:1460·1461 도 여기 안)은 숨김 그대로 두어 렌더하지 않는다.
  *   링크 없음(사용자 결정) — 버튼은 <span>.
  */
@@ -40,7 +40,7 @@ $sp_eyes = G5_THEME_URL.'/img/home/eyes';
             </div>
         </article>
 
-        <!-- 2. Parts Eyes 2.0 (2286:1784) — 카드 왼쪽 · 화면 GIF 오른쪽 -->
+        <!-- 2. Parts Eyes 2.0 (2286:1784) — 카드 왼쪽 · 최신 화면 이미지(2403:29900) 오른쪽 -->
         <article class="sp-eyes__block sp-eyes__block--parts">
             <div class="sp-eyes__card sp-eyes__card--narrow">
                 <div class="sp-eyes__card-body">
@@ -56,7 +56,7 @@ $sp_eyes = G5_THEME_URL.'/img/home/eyes';
                 <div class="sp-eyes__btns"><span class="sp-eyes__btn">자세히 보기 →</span><span class="sp-eyes__btn sp-eyes__btn--outline">파트너사 등록하기 →</span></div>
             </div>
             <div class="sp-eyes__media sp-eyes__media--parts">
-                <img src="<?php echo $sp_eyes; ?>/parts-screen.gif" alt="Parts Eyes 2.0 BOM 분석 화면" width="1191" height="670" loading="lazy">
+                <img src="<?php echo $sp_eyes; ?>/parts-screen.gif?ver=<?php echo G5_CSS_VER; ?>" alt="Parts Eyes 2.0 화면" width="702" height="395" loading="lazy">
             </div>
         </article>
 
