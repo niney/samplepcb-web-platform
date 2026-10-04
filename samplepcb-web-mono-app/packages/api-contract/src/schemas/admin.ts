@@ -309,7 +309,7 @@ export const AdminEstimate = z.object({
   orderCategory: z.enum(['sample', 'mass']),
   qty: z.number(),
   optionSummary: z.string(),
-  spec: PcbProjectSpec, // 상세 드로어와 동일 원본 — 라벨링은 FE specKeys i18n
+  spec: PcbProjectSpec, // 상세 드로어와 동일 원본 — 라벨링은 FE 거버 정본 사전(lib/pcb-spec.ts)
   eta: z.string().nullable(),
   applicant: AdminApplicant.nullable(),
   // 수신처 회사명 — 서버 해석 규칙 적용값(스냅샷 ?? 회원 프로필). 시트 recipientCompany 프리필용.

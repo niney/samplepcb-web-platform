@@ -50,6 +50,8 @@ const PRINT_CSS = `
     display: block !important;
   }
   .sp-estimate-host .no-print { display: none !important; }
+  /* 미리보기용 그림자 — 시트가 한 장보다 짧으면 그 아래에 회색 띠로 찍힌다 */
+  .sp-estimate-host .shadow-2xl { box-shadow: none !important; }
   @page { size: A4; margin: 0; }
 }
 `;
