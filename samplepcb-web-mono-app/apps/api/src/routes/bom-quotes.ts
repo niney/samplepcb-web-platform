@@ -38,8 +38,10 @@ import {
   type BomQuotePassiveDefaultsBodyType,
   type BomQuoteProcurementModeType,
   type BomQuoteSearchRequirementsType,
+  isCustomerCancelableBomQuoteStatus,
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
+import { cancelBomQuoteByCustomer } from '../lib/bom-quote-cancel';
 import { clientIp } from '../lib/client-ip';
 import { prisma } from '../lib/prisma';
 import { serviceActorHook, type ActorRouteOptions } from '../lib/service-actor';
@@ -161,6 +163,9 @@ const ALLOWED_EXT = new Set(['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'bom']);
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 시안 카피("up to 50 MB")와 정합
 
 const FILE_REF_TYPE = 'sp_bom_quote';
+// 취소 견적을 지우려는 요청에도 같은 문구를 쓴다 — 왜 못 지우는지와 언제 사라지는지를 함께 말한다.
+const CUSTOMER_DELETE_REFUSED_MESSAGE =
+  '작성 중인 견적만 삭제할 수 있습니다. 취소한 견적은 보존 기간이 지나면 자동으로 삭제됩니다.';
 // 같은 상태 코드로 **두 형태**가 나간다: 화면이 코드로 분기하는 봉투형
 // `{result:false, error:'INVALID_SHEET_SELECTION'}` 과 @fastify/sensible 표준형
 // `{statusCode, error, message}`(= `reply.conflict('…')`). 한 쪽만 선언하면 다른 쪽이
@@ -1341,7 +1346,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fast
     };
   });
 
-  // 목록 일괄 삭제 — 본인 작성 중·취소 견적만 삭제한다. 그 외 업무 진행 이력은 보존한다.
+  // 목록 일괄 삭제 — 본인 작성 중 견적만 삭제한다. 요청 이후(취소 포함) 업무 이력은 보존한다.
   fastify.post('/bom/quotes/delete', {
     schema: { body: BomQuoteDeleteManyBody, response: { 200: BomQuoteDeleteManyResponse } },
   }, async (request) => {
@@ -2307,26 +2312,32 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fast
     };
   });
 
-  // 취소 — draft/requested 에서만(고객)
+  // 취소 — 요청·검토 중에서만(고객). 취소된 견적은 아무 일도 하지 않는 기록으로 남는다.
   fastify.post('/bom/quotes/:id/cancel', { schema: { params: IdParams, response: { 200: BomQuoteDetailResponse } } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
-    if (!canTransition(quote.status, 'canceled')) return reply.conflict('취소할 수 없는 상태입니다');
-    await prisma.spBomQuote.update({
-      where: { id: quote.id },
-      data: { status: 'canceled', activeSearchCartKey: null },
-    });
+    // 작성 중은 삭제로 정리한다 — 취소는 요청한 뒤(요청·검토 중)의 일이다. 화면 버튼과 같은 사전.
+    if (!isCustomerCancelableBomQuoteStatus(quote.status)) {
+      return reply.conflict('취소할 수 없는 상태입니다');
+    }
+    // 상태 조건부 전이 + RFQ 마감 + 검색 흔적 종결을 한 트랜잭션으로(lib/bom-quote-cancel.ts).
+    // 관리자 회신 확정이 먼저 끝났다면 여기서 진다 — 둘 다 성공하던 겹침을 막는다.
+    const outcome = await cancelBomQuoteByCustomer(quote.id);
+    if (outcome === 'stale') {
+      return reply.conflict('견적 상태가 바뀌어 취소하지 못했습니다. 화면을 새로 고쳐 확인해 주세요.');
+    }
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
-  // 삭제 — 작성 중·취소 한정(하드 삭제, 원본 파일도 정리)
+  // 삭제 — 작성 중 한정(하드 삭제, 원본 파일도 정리). 취소 견적은 고객이 지울 수 없다:
+  // 협력사 회신 같은 업무 기록이 함께 사라지므로 고지한 보존 기간 뒤 자동 정리가 지운다.
   fastify.delete('/bom/quotes/:id', { schema: { params: IdParams } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
     if (!isCustomerDeletableBomQuoteStatus(quote.status)) {
-      return reply.conflict('작성 중이거나 취소된 견적만 삭제할 수 있습니다');
+      return reply.conflict(CUSTOMER_DELETE_REFUSED_MESSAGE);
     }
 
     const files = await prisma.spFile.findMany({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
@@ -2340,7 +2351,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fast
       },
     });
     if (removed.count === 0) {
-      return reply.conflict('작성 중이거나 취소된 견적만 삭제할 수 있습니다');
+      return reply.conflict(CUSTOMER_DELETE_REFUSED_MESSAGE);
     }
     await prisma.spFile.deleteMany({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
     for (const f of files) {

@@ -348,6 +348,9 @@ GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 �
    (+품목별 최저가 일괄 선정).
 7. ✅ **회신 연결** — Case 상세 검토 폼에 선정 반영 합계 참고 표시(D9), quote answered/
    closed/canceled 시 `closeRfqsForQuote` 일괄 마감 + 포털 회신 409.
+   - 2026-10-05: **고객 취소 경로가 이 마감을 빠뜨리고 있었다**(관리자 PATCH 만 닫았다 — 취소된 견적에
+     협력사 회신이 저장됐다). 고객 취소는 상태 전이와 같은 트랜잭션에서 RFQ 를 닫는다. 취소 견적의
+     보존·자동 삭제(회신 기록 포함)는 `docs/BOM_QUOTE.md` "취소와 보존 기간".
 
 검증(2026-07-29): typecheck·lint 전체 green, api vitest 557 passed, **API E2E 22 케이스
 ALL PASS**(diff 발송·공급사 거부·미회신 삭제·회신 보존·포털 노출 제한·타조직 차단·합계

@@ -9,7 +9,7 @@ import {
 } from './bom-quote-delete';
 
 describe('BOM 견적 일괄 삭제 대상 산정', () => {
-  it('본인 견적 중 작성 중·취소 상태만 삭제 대상으로 삼는다', () => {
+  it('본인 견적 중 작성 중 상태만 삭제 대상으로 삼는다', () => {
     const plan = planBomQuoteDeletion([
       { id: 1n, mbId: 'member-a', status: 'draft' },
       { id: 2n, mbId: 'member-a', status: 'canceled' },
@@ -18,12 +18,13 @@ describe('BOM 견적 일괄 삭제 대상 산정', () => {
       { id: 5n, mbId: 'member-b', status: 'canceled' },
     ], 'member-a');
 
-    expect(CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES).toEqual(['draft', 'canceled']);
+    // 취소 견적은 2026-10-05 부터 고객이 지울 수 없다 — 협력사 회신 기록이 함께 사라지기 때문.
+    expect(CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES).toEqual(['draft']);
     expect(plan.targets.map((row) => row.id)).toEqual([1n, 2n, 3n]);
-    expect(plan.deletableIds).toEqual([1n, 2n]);
+    expect(plan.deletableIds).toEqual([1n]);
   });
 
-  it('scope=all에서도 진행·답변·종료 견적을 보존한다', () => {
+  it('scope=all에서도 요청 이후(취소 포함) 견적을 보존한다', () => {
     const plan = planBomQuoteDeletion([
       { id: 1n, mbId: 'member-a', status: 'draft' },
       { id: 2n, mbId: 'member-a', status: 'canceled' },
@@ -33,9 +34,9 @@ describe('BOM 견적 일괄 삭제 대상 산정', () => {
       { id: 6n, mbId: 'member-a', status: 'closed' },
     ], 'member-a');
 
-    expect(plan.deletableIds).toEqual([1n, 2n]);
+    expect(plan.deletableIds).toEqual([1n]);
     expect(plan.targets.filter((row) => !plan.deletableIds.includes(row.id)).map((row) => row.status))
-      .toEqual(['requested', 'reviewing', 'answered', 'closed']);
+      .toEqual(['canceled', 'requested', 'reviewing', 'answered', 'closed']);
   });
 
   it('상태 가드 뒤 생존한 견적은 실제 삭제 ID에서 제외한다', () => {

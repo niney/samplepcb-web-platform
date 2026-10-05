@@ -297,6 +297,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminMailLogs.vue'),
       },
       {
+        // 삭제 기록(관리자 강제 삭제 + 취소 견적 자동 정리) — 코어 모듈 전역 조회
+        path: 'delete-audits',
+        name: 'admin-delete-audits',
+        component: () => import('./pages/admin/AdminDeleteAudits.vue'),
+      },
+      {
         path: 'bom',
         name: 'admin-bom',
         component: () => import('./pages/admin/AdminBomUpload.vue'),

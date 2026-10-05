@@ -84,6 +84,7 @@ import MailLogList from '../../components/admin/MailLogList.vue';
 import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
+import { formatDate } from '../../lib/format';
 
 // 스마트 BOM Case 상세 — 고객 견적요청 1건의 운영 화면(docs/SMARTBOM_PARTNER_RFQ.md §3.4).
 // 데이터·검토 로직은 BOM 모듈 공통 /api/admin/bom-quotes 계약을 사용한다.
@@ -1737,6 +1738,14 @@ async function downloadOriginal(): Promise<void> {
         <h1 class="text-xl font-bold">{{ detail.title }}</h1>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="SMARTBOM_STATUS_META[detail.status].cls">
           {{ SMARTBOM_STATUS_META[detail.status].label }}
+        </span>
+        <!-- 취소된 견적 — 고객에게 고지한 날이 지나면 자동 정리가 지운다(통합 메뉴 "삭제 기록") -->
+        <span
+          v-if="detail.status === 'canceled' && detail.purgeAfter !== null"
+          class="text-xs text-gray-500"
+          data-testid="case-purge-date"
+        >
+          {{ formatDate(detail.purgeAfter) }} 이후 자동 삭제
         </span>
         <!-- 견적서(§6.8) — 확정 전이면 시트가 "가안" 표기 -->
         <button

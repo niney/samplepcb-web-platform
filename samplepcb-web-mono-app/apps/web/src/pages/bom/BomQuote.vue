@@ -11,6 +11,7 @@ import {
   BOM_QUOTE_MAX_SET_OR_SPARE_QTY,
   BomQuotePrintResponse,
   apiRoutes,
+  isCustomerCancelableBomQuoteStatus,
   mergedOrderCustomerLabel,
   type BomQuoteDetailResponseType,
   type BomQuoteDetailType,
@@ -56,6 +57,7 @@ import {
 import { useBomPanels } from '../../bom/usePanels';
 import { bomQuoteItemSelection, bomQuoteItemSelectionKey } from '../../bom/search-selection';
 import { appPath, loginUrl, quotesUrl } from '../../lib/auth-urls';
+import { confirmDialog } from '../../lib/confirmDialog';
 import { isPositiveBigIntId } from '../../lib/route-ids';
 import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
@@ -906,7 +908,11 @@ const displayedAverageSetUnitPrice = computed(() =>
 // searching 이면 "확인 중" UI + 3초 폴링. done 은 매칭 라인과 원자적으로 도착하고,
 // 재시작·잡 유실은 서버의 게으른 치유(조회 시 수렴)가 처리한다.
 const compareOpen = ref(false);
-const enriching = computed(() => detail.value?.enrichStatus === 'searching');
+// 취소된 견적은 아무 일도 하지 않는 기록이다 — 검색 중에 취소돼 값이 남아 있어도 "확인 중"을
+// 띄우거나 폴링하지 않는다(서버도 취소 때 값을 풀지만, 그 전에 취소된 견적까지 덮는다).
+const enriching = computed(
+  () => detail.value?.status !== 'canceled' && detail.value?.enrichStatus === 'searching',
+);
 const compactPanelAttentionCount = computed(() => (
   enriching.value
     ? stats.value.unresolved
@@ -1371,10 +1377,12 @@ const refreshedNotice = ref(false);
 
 // 공급사 보강뿐 아니라 동기 build 요청 도중 새로고침·다른 탭으로 진입한 경우도
 // 서버 ready 전이를 스스로 따라가도록 견적 상태를 폴링한다.
+// 취소된 견적은 어떤 이유로도 폴링하지 않는다 — 더 바뀔 것이 없는 기록이다(검색 중에 취소돼
+// 진행 표시 값이 남아 있는 옛 견적도 여기서 멈춘다).
 watch(
-  [enriching, isBuilding, partDataPreparing],
-  ([isEnriching, isQuoteBuilding, isPartDataPreparing]) => (
-    quotePolling.value = isEnriching || isQuoteBuilding || isPartDataPreparing
+  [enriching, isBuilding, partDataPreparing, () => detail.value?.status === 'canceled'],
+  ([isEnriching, isQuoteBuilding, isPartDataPreparing, isCanceled]) => (
+    quotePolling.value = !isCanceled && (isEnriching || isQuoteBuilding || isPartDataPreparing)
   ),
   { immediate: true },
 );
@@ -2138,11 +2146,55 @@ async function submitRequest(title: string): Promise<void> {
   }
 }
 
+// ── 요청 취소 — 요청·검토 중에만. 취소는 되돌릴 수 없어 확인을 받고, 언제 삭제되는지 미리 알린다 ──
+const canCancel = computed(
+  () => detail.value !== null && isCustomerCancelableBomQuoteStatus(detail.value.status),
+);
+const cancelError = ref('');
+const purgeDateText = computed(() => {
+  const value = detail.value?.status === 'canceled' ? detail.value.purgeAfter : null;
+  return value === null
+    ? ''
+    : new Date(value).toLocaleDateString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+});
+
 async function onCancel(): Promise<void> {
+  const current = detail.value;
+  if (current === null || cancel.isPending.value) return;
+  cancelError.value = '';
+  const days = current.cancelRetentionDays;
+  const confirmed = await confirmDialog({
+    title: '견적요청을 취소할까요?',
+    message: [
+      current.status === 'reviewing'
+        ? '담당자가 검토하던 내용과 협력사 견적이 모두 중단됩니다.'
+        : '',
+      '취소하면 되돌릴 수 없습니다. 다시 진행하려면 BOM을 새로 올려야 합니다.',
+      days !== null && days > 0
+        ? `취소한 견적은 ${String(days)}일 뒤 자동으로 삭제됩니다.`
+        : '취소한 견적은 내역에 기록으로 남습니다.',
+    ]
+      .filter((line) => line !== '')
+      .join('\n'),
+    confirmLabel: '요청 취소',
+    cancelLabel: '계속 진행',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
   try {
     await cancel.mutateAsync(quoteId.value);
-  } catch {
-    // 상태 전이 불가 등 — 화면 갱신으로 확인
+  } catch (reason) {
+    // 그사이 담당자가 회신을 확정했을 수 있다 — 이유를 보여 주고 최신 상태를 다시 받는다.
+    cancelError.value =
+      reason instanceof ApiRequestError
+        ? reason.message
+        : '취소하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    void qc.invalidateQueries({ queryKey: ['bom'] });
   }
 }
 
@@ -2455,6 +2507,11 @@ function fmtWon(v: number | null): string {
                 <img :src="icDownloadOutline" alt="" class="size-[15px] shrink-0"> {{ downloadPending ? '준비 중' : '다운로드' }}
               </button>
               <span class="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{{ STATUS_LABEL[detail.status] }}</span>
+              <span
+                v-if="detail.status === 'canceled' && purgeDateText !== ''"
+                class="rounded bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700"
+                data-testid="bom-purge-date"
+              >{{ purgeDateText }} 이후 자동 삭제</span>
               <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">가격·재고 확인 완료 — 최신 결과로 갱신되었습니다</span>
             </div>
             <p v-if="titleError !== ''" class="mt-1 text-[11px] font-medium text-red-600" role="alert">{{ titleError }}</p>
@@ -3265,15 +3322,27 @@ function fmtWon(v: number | null): string {
               <img :src="icFile" alt="" class="size-[14px] brightness-0 invert">
               {{ updateSheets.isPending.value ? '시트 반영 중…' : editingLocked ? '가격 확인 중…' : '견적요청' }}
             </button>
-            <!-- 삭제는 Recent file·BOM 이력에서 확인창을 거쳐 처리한다. -->
+            <!-- 작성 중은 Recent file·BOM 이력에서 삭제하고, 요청한 뒤(요청·검토 중)는 여기서 취소한다. -->
             <button
-              v-if="detail.status === 'requested'"
+              v-if="canCancel"
               type="button"
-              class="w-full rounded-[7px] border border-line bg-surface px-4 py-2 text-[12px] text-ink-subtle transition hover:bg-gray-50 hover:text-ink"
+              class="w-full rounded-[7px] border border-line bg-surface px-4 py-2 text-[12px] text-ink-subtle transition hover:bg-gray-50 hover:text-ink disabled:cursor-wait disabled:opacity-60"
+              :disabled="cancel.isPending.value"
               @click="onCancel"
             >
               요청 취소
             </button>
+            <p v-if="cancelError !== ''" class="text-[12px] leading-5 text-red-400" role="alert">{{ cancelError }}</p>
+            <!-- 취소된 견적 — 아무 일도 하지 않는 기록이며, 고지한 날이 지나면 자동으로 삭제된다. -->
+            <p
+              v-if="detail.status === 'canceled'"
+              class="rounded-[7px] border border-line bg-surface px-3 py-2 text-[12px] leading-5 text-ink-subtle"
+              data-testid="bom-canceled-notice"
+            >
+              취소된 견적입니다.
+              <template v-if="purgeDateText !== ''">{{ purgeDateText }} 이후 자동으로 삭제됩니다.</template>
+              <template v-else>내역에 기록으로 남습니다.</template>
+            </p>
           </div>
         </div>
       </aside>

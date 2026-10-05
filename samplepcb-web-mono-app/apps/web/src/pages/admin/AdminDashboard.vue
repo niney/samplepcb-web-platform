@@ -6,6 +6,7 @@ import {
   useAdminMailLogList,
   type AdminMailLogFilters,
 } from '../../admin/useAdminMailLogs';
+import { useBomQuoteRetentionStatus } from '../../admin/useAdminDeleteAudits';
 import { formatDate, formatDateTime } from '../../lib/format';
 import UiBadge from '../../components/ui/UiBadge.vue';
 
@@ -26,6 +27,18 @@ const filters = ref<AdminMailLogFilters>(
 const { data, isFetching } = useAdminMailLogList(filters);
 const failedTotal = computed(() => data.value?.data.total ?? 0);
 const failedItems = computed(() => data.value?.data.items ?? []);
+
+// 둘째 위젯: 취소 견적 자동 정리가 제대로 도는지(조치 필요 신호) — 되돌릴 수 없는 자동 삭제라
+// 멈췄거나 밀린 것을 여기서 먼저 알린다. 자세한 내용과 [지금 실행]은 삭제 기록 화면에 있다.
+const { data: retentionData, isFetching: retentionFetching } = useBomQuoteRetentionStatus();
+const retention = computed(() => retentionData.value?.data ?? null);
+const retentionText = computed(() => {
+  const status = retention.value;
+  if (status === null) return '';
+  if (status.health === 'ok') return t('admin.dashboard.retention.ok', { pending: status.pendingCount });
+  if (status.health === 'backlog') return t('admin.dashboard.retention.backlog', { n: status.overdueCount });
+  return t(`admin.dashboard.retention.${status.health}`);
+});
 </script>
 
 <template>
@@ -72,6 +85,35 @@ const failedItems = computed(() => data.value?.data.items ?? []);
           </span>
         </li>
       </ul>
+    </section>
+
+    <section class="max-w-3xl rounded-xl border border-gray-200 bg-surface p-4" data-testid="dashboard-retention">
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-sm font-bold text-gray-800">
+          {{ t('admin.dashboard.retention.title') }}
+          <UiBadge
+            v-if="retention !== null && (retention.health === 'stale' || retention.health === 'backlog')"
+            variant="warn"
+            :label="t(`admin.deleteAudits.retention.health.${retention.health}`)"
+          />
+        </h2>
+        <RouterLink
+          :to="{ name: 'admin-delete-audits' }"
+          class="text-xs font-semibold text-blue-600 hover:underline"
+        >
+          {{ t('admin.dashboard.retention.viewAll') }}
+        </RouterLink>
+      </div>
+      <p v-if="retention === null" class="mt-3 text-sm text-gray-400">
+        {{ retentionFetching ? t('admin.deleteAudits.loading') : '—' }}
+      </p>
+      <p
+        v-else
+        class="mt-3 text-sm"
+        :class="retention.health === 'ok' ? 'text-green-700' : retention.health === 'disabled' ? 'text-gray-500' : 'text-amber-700'"
+      >
+        {{ retention.health === 'ok' ? '✓ ' : '' }}{{ retentionText }}
+      </p>
     </section>
   </div>
 </template>

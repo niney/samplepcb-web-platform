@@ -48,6 +48,11 @@ import {
 } from '../lib/bom-quote';
 import { closeRfqsForQuote } from '../lib/bom-rfq';
 import {
+  canceledQuoteStampNow,
+  settleCanceledQuoteSearchState,
+  statusGuardMessage,
+} from '../lib/bom-quote-cancel';
+import {
   loadQuoteShipmentPresence,
   loadReceivedPoCounts,
   loadShipmentAdminPending,
@@ -438,7 +443,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (quote.status !== 'requested' && quote.status !== 'reviewing') {
       return reply.status(409).send({
         error: 'INVALID_QUOTE_STATUS',
-        message: '견적요청 또는 검토 중 상태에서만 품목 확인 상태를 변경할 수 있습니다.',
+        message: statusGuardMessage(
+          quote.status,
+          '견적요청 또는 검토 중 상태에서만 품목 확인 상태를 변경할 수 있습니다.',
+        ),
       });
     }
 
@@ -778,7 +786,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (quote.status !== 'reviewing' || !canTransition(quote.status, 'answered')) {
       return reply.status(409).send({
         error: 'BOM_REVIEW_SEQUENCE_REQUIRED',
-        message: '검토 시작 후 품목 확인을 마쳐야 고객 회신을 확정할 수 있습니다.',
+        message: statusGuardMessage(
+          quote.status,
+          '검토 시작 후 품목 확인을 마쳐야 고객 회신을 확정할 수 있습니다.',
+        ),
       });
     }
 
@@ -904,7 +915,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (!canEditBomQuoteReview(quote.status) && hasBomQuoteReviewChanges(body)) {
       return reply.status(409).send({
         error: 'BOM_QUOTE_FINALIZED',
-        message: '현재 견적 상태에서는 금액과 회신 내용을 변경할 수 없습니다.',
+        message: statusGuardMessage(
+          quote.status,
+          '현재 견적 상태에서는 금액과 회신 내용을 변경할 수 없습니다.',
+        ),
       });
     }
     if (body.status === 'answered') {
@@ -917,10 +931,14 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return reply.conflict(`전이 불가: ${quote.status} → ${body.status}`);
     }
 
+    // 취소로 바꾸는 경우 — 고객 취소와 같은 값(취소 시각·고지할 삭제 예정 시각)을 찍는다.
+    const cancelStamp =
+      body.status === 'canceled' && quote.status !== 'canceled' ? await canceledQuoteStampNow() : null;
     const updated = await prisma.spBomQuote.updateMany({
       where: { id: quote.id, status: quote.status, updatedAt: quote.updatedAt },
       data: {
         ...(body.status !== undefined ? { status: body.status } : {}),
+        ...(cancelStamp ?? {}),
         ...(body.status !== undefined && body.status !== 'draft'
           ? { activeSearchCartKey: null }
           : {}),
@@ -941,6 +959,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     // 견적 마감·취소 시 하위 협력사 RFQ 도 마감한다(docs/SMARTBOM_PARTNER_RFQ.md §2.3).
     if (body.status === 'closed' || body.status === 'canceled') {
       await closeRfqsForQuote(quote.id);
+    }
+    // 시세 확인이 도는 중에 취소했다면 검색 흔적도 종결한다(고객 취소와 같은 정리).
+    if (body.status === 'canceled') {
+      await settleCanceledQuoteSearchState(quote.id);
     }
 
     const fresh = await prisma.spBomQuote.findUnique({ where: { id: quote.id }, include: { items: true, sheets: true } });

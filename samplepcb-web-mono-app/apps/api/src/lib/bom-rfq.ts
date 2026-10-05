@@ -360,9 +360,14 @@ export const toPartnerDetail = (
   };
 };
 
-// quote 가 answered/closed 로 확정되면 하위 RFQ 도 마감한다(§2.3 전이).
-export const closeRfqsForQuote = async (quoteId: bigint): Promise<void> => {
-  await prisma.spBomRfq.updateMany({
+// quote 가 answered/closed/canceled 로 끝나면 하위 RFQ 도 마감한다(§2.3 전이).
+// 취소는 상태 전이와 같은 트랜잭션에서 닫는다(db 로 tx 를 넘긴다) — 닫히기 전에 협력사 회신이
+// 끼어들 틈을 없앤다(회신 저장은 견적 행을 잠그고 RFQ 상태를 본다).
+export const closeRfqsForQuote = async (
+  quoteId: bigint,
+  db: Pick<Prisma.TransactionClient, 'spBomRfq'> = prisma,
+): Promise<void> => {
+  await db.spBomRfq.updateMany({
     where: { quoteId, status: { not: 'closed' } },
     data: { status: 'closed' },
   });

@@ -181,6 +181,13 @@ foreach (array(
         var d = String(v || '').slice(0, 10);
         return /^\d{4}[.-]\d{2}[.-]\d{2}$/.test(d) ? d.slice(2, 4) + '.' + d.slice(5, 7) + '.' + d.slice(8, 10) : (d || '-');
     }
+    // 시각(ISO)을 한국 날짜로 — 삭제 예정일처럼 날짜가 하루 어긋나면 안 되는 값에 쓴다.
+    function fmtKstDay(v) {
+        var d = new Date(v);
+        if (isNaN(d.getTime())) { return '-'; }
+        return d.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: '2-digit', month: '2-digit', day: '2-digit' })
+            .replace(/\s/g, '').replace(/\.$/, '');
+    }
     function vatIncludedBreakdown(total) {
         var normalizedTotal = Math.round(Number(total));
         var supply = Math.round(normalizedTotal / 1.1);
@@ -320,6 +327,9 @@ foreach (array(
                     : '<span class="sp-quotes__pending">금액 산정 전</span>') +
                 (q.orderState === 'canceled'
                     ? '<span class="sp-quotes__note">이전 주문 취소 — 다시 주문할 수 있습니다</span>' : '') +
+                // 취소한 견적 — 고지한 날이 지나면 자동으로 삭제된다(/app/bom 과 같은 안내)
+                (q.status === 'canceled' && q.purgeAfter
+                    ? '<span class="sp-quotes__note">' + fmtKstDay(q.purgeAfter) + ' 이후 자동 삭제</span>' : '') +
                 // 회신 완료인데 확정가가 없으면 체크가 잠긴 이유를 보여준다(D16-1 게이트)
                 (q.status === 'answered' && q.confirmedTotal === null && q.orderState !== 'ordered'
                     ? '<span class="sp-quotes__note">확정가 안내 후 주문 가능</span>' : '') +

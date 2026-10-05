@@ -24,6 +24,23 @@ export const BOM_QUOTE_CUSTOMER_STATUS_LABELS: Record<BomQuoteStatusType, string
   canceled: '취소됨',
 };
 
+/**
+ * 고객이 스스로 할 수 있는 정리 — 화면(버튼)과 서버(가드)가 같은 사전을 본다(2026-10-05).
+ *   작성 중      → 삭제(업로드 원본·분석 결과까지 즉시 삭제)
+ *   요청·검토 중 → 취소(아무 일도 하지 않는 기록으로 남고, 보존 기간 뒤 자동 삭제)
+ * 취소된 견적은 고객이 지울 수 없다 — 협력사 회신 같은 업무 기록이 함께 사라지기 때문이다.
+ */
+export const BOM_QUOTE_CUSTOMER_DELETABLE_STATUSES = ['draft'] as const satisfies readonly BomQuoteStatusType[];
+export const BOM_QUOTE_CUSTOMER_CANCELABLE_STATUSES = ['requested', 'reviewing'] as const satisfies readonly BomQuoteStatusType[];
+
+export const isCustomerDeletableBomQuoteStatus = (status: string): boolean =>
+  BOM_QUOTE_CUSTOMER_DELETABLE_STATUSES.some((candidate) => candidate === status);
+export const isCustomerCancelableBomQuoteStatus = (status: string): boolean =>
+  BOM_QUOTE_CUSTOMER_CANCELABLE_STATUSES.some((candidate) => candidate === status);
+
+/** 취소된 견적의 기본 보존 기간(일) — sp_config `bom_canceled_quote_retention_days` 가 없을 때. */
+export const BOM_CANCELED_QUOTE_RETENTION_DEFAULT_DAYS = 30;
+
 /** 견적 생성 출처 — 업로드 파일과 단일검색 카트를 화면에서 추측 없이 구분한다. */
 export const BomQuoteSourceKind = z.enum(['upload', 'single_search']);
 export type BomQuoteSourceKindType = z.infer<typeof BomQuoteSourceKind>;
@@ -966,6 +983,13 @@ export const BomQuoteSummary = z.object({
   updatedAt: z.string(),
   requestedAt: z.string().nullable(),
   answeredAt: z.string().nullable(),
+  /** 취소 시각 — 취소된 견적은 아무 일도 하지 않는 기록이다. 취소가 아니면 null. */
+  canceledAt: z.string().nullable(),
+  /**
+   * 자동 삭제 예정 시각 — 취소 당시 보존 기간으로 고객에게 고지한 날. 이 시각이 지난 뒤 첫 정리
+   * 주기에 견적이 삭제된다. null = 취소가 아니거나 자동 삭제 대상이 아님.
+   */
+  purgeAfter: z.string().nullable(),
   /** 관리자 확정 총액(VAT 별도) — 목록에서 주문 가능 판정(D16 게이트)용. */
   confirmedTotal: z.number().nullable(),
   /** 영카트 주문 전환 파생 상태(D16·D30) — 저장 아님, 현재 ct 행에서 파생. */
@@ -1009,6 +1033,11 @@ export const BomQuoteExchangeRateSnapshot = z.object({
 export type BomQuoteExchangeRateSnapshotType = z.infer<typeof BomQuoteExchangeRateSnapshot>;
 
 export const BomQuoteDetail = BomQuoteSummary.extend({
+  /**
+   * 지금 취소하면 며칠 뒤 자동 삭제되는지 — 취소 확인창의 고지용. 고객이 취소할 수 있는 상태
+   * (요청·검토 중)에서만 채우고 그 밖에는 null. 0 = 자동 삭제하지 않음(기록으로 계속 남는다).
+   */
+  cancelRetentionDays: z.number().int().nullable(),
   engineJobId: z.string().nullable(),
   /** 견적별 조달 정책. 새 업로드 기본은 sample이며 draft에서만 전환할 수 있다. */
   procurementMode: BomQuoteProcurementMode,

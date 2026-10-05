@@ -1,14 +1,17 @@
 import { Prisma } from '@prisma/client';
+import {
+  BOM_QUOTE_CUSTOMER_DELETABLE_STATUSES,
+  isCustomerDeletableBomQuoteStatus,
+} from '@sp/api-contract';
 import { deleteFromFileServer } from './file-server';
 import { prisma } from './prisma';
 
 // 후보 스냅샷 등 cascade 자식이 견적당 수천 행이라, 한 DELETE 문장의 작업량을 짧게 묶는다.
 export const BOM_QUOTE_DELETE_CHUNK_SIZE = 20;
-export const CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES = ['draft', 'canceled'] as const;
-
-export function isCustomerDeletableBomQuoteStatus(status: string): boolean {
-  return CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES.some((candidate) => candidate === status);
-}
+// 고객이 지울 수 있는 상태 — 화면과 같은 사전(계약)을 본다. 취소 견적은 2026-10-05 부터 빠졌다:
+// 협력사 회신 같은 업무 기록이 함께 사라지므로 보존 기간 뒤 자동 정리(관리자 강제 삭제 경로)만 지운다.
+export const CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES = BOM_QUOTE_CUSTOMER_DELETABLE_STATUSES;
+export { isCustomerDeletableBomQuoteStatus };
 
 export interface BomQuoteDeleteTarget {
   id: bigint;
@@ -16,7 +19,7 @@ export interface BomQuoteDeleteTarget {
   status: string;
 }
 
-/** 조회 결과를 다시 소유권으로 제한하고, 그중 작성 중·취소 견적만 삭제 후보로 만든다. */
+/** 조회 결과를 다시 소유권으로 제한하고, 그중 작성 중 견적만 삭제 후보로 만든다. */
 export function planBomQuoteDeletion(
   rows: readonly BomQuoteDeleteTarget[],
   mbId: string,

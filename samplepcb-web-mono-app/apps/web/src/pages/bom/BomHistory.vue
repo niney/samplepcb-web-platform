@@ -3,7 +3,11 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError, useAuthStore } from '@sp/shared';
 import type { BomQuoteStatusType, BomQuoteSummaryType } from '@sp/api-contract';
-import { BOM_QUOTE_CUSTOMER_STATUS_LABELS, mergedOrderCustomerLabel } from '@sp/api-contract';
+import {
+  BOM_QUOTE_CUSTOMER_STATUS_LABELS,
+  isCustomerDeletableBomQuoteStatus,
+  mergedOrderCustomerLabel,
+} from '@sp/api-contract';
 import { useDeleteBomQuotes, useMyBomQuotes } from '../../bom/useBom';
 
 const PAGE_SIZE = 20;
@@ -112,8 +116,20 @@ function statusClass(status: BomQuoteStatusType): string {
   return 'bg-rose-50 text-rose-700';
 }
 
+// 고객이 지울 수 있는 것은 작성 중뿐이다(계약 사전 — 서버 가드와 같은 값). 취소한 견적은 협력사 회신
+// 같은 업무 기록이 딸려 있어 고객이 지우지 않고, 고지한 날이 지나면 자동으로 삭제된다.
 function isDeletableStatus(status: BomQuoteStatusType): boolean {
-  return status === 'draft' || status === 'canceled';
+  return isCustomerDeletableBomQuoteStatus(status);
+}
+
+/** 취소 견적의 자동 삭제 예정일(KST) — 서버가 취소 때 찍은 값을 그대로 보여 준다. */
+function fmtDay(value: string): string {
+  return new Date(value).toLocaleDateString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
 }
 
 function eventChecked(event: Event): boolean {
@@ -240,7 +256,7 @@ function requestAllDelete(): void {
   void openDeleteDialog({
     scope: 'all',
     quoteIds: [],
-    label: `작성 중·취소 견적 전체 ${String(deletableCount.value)}건`,
+    label: `작성 중 견적 전체 ${String(deletableCount.value)}건`,
   });
 }
 
@@ -297,11 +313,11 @@ async function confirmDelete(): Promise<void> {
           <button
             type="button"
             class="min-h-[38px] rounded-lg border border-rose-200 bg-surface px-4 py-2 text-[13px] font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
-            :aria-label="`작성 중·취소 전체 삭제${deletableCount > 0 ? ` (${String(deletableCount)})` : ''}`"
+            :aria-label="`작성 중 전체 삭제${deletableCount > 0 ? ` (${String(deletableCount)})` : ''}`"
             :disabled="deletableCount === 0"
             @click="requestAllDelete"
           >
-            작성 중·취소 전체 삭제<span v-if="deletableCount > 0"> ({{ deletableCount }})</span>
+            작성 중 전체 삭제<span v-if="deletableCount > 0"> ({{ deletableCount }})</span>
           </button>
           <span v-if="deletableCount > 0" class="text-[10px] text-ink-faint">검색·필터와 관계없이 적용</span>
         </div>
@@ -412,7 +428,7 @@ async function confirmDelete(): Promise<void> {
                   :aria-label="`${displayName(item)} 선택`"
                   @change="toggleSelection(item.id, eventChecked($event))"
                 >
-                <span v-else class="text-[11px] text-gray-300" title="요청·검토·답변·종료 견적은 보호됩니다">—</span>
+                <span v-else class="text-[11px] text-gray-300" title="요청 이후(취소 포함) 견적은 보호됩니다">—</span>
               </td>
               <td class="px-3 py-3">
                 <RouterLink :to="{ name: 'bom-quote', params: { id: item.id } }" class="block truncate text-[13px] font-semibold text-ink-strong hover:text-blue-600" :title="displayName(item)">
@@ -422,6 +438,13 @@ async function confirmDelete(): Promise<void> {
               </td>
               <td class="px-3 py-3">
                 <span class="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold" :class="statusClass(item.status)">{{ STATUS_LABEL[item.status] }}</span>
+                <p
+                  v-if="item.status === 'canceled' && item.purgeAfter !== null"
+                  class="mt-1 text-[10px] font-medium text-rose-600"
+                  data-testid="bom-history-purge"
+                >
+                  {{ fmtDay(item.purgeAfter) }} 이후 자동 삭제
+                </p>
                 <a
                   v-if="item.orderProgress !== null"
                   :href="`/shop/orderinquiryview.php?od_id=${item.orderProgress.odId}`"
@@ -445,6 +468,7 @@ async function confirmDelete(): Promise<void> {
                 >
                   삭제
                 </button>
+                <span v-else-if="item.status === 'canceled'" class="text-[10px] text-ink-faint">자동 삭제 예정</span>
                 <span v-else class="text-[10px] text-ink-faint">보호됨</span>
               </td>
             </tr>
@@ -462,7 +486,7 @@ async function confirmDelete(): Promise<void> {
       </div>
 
       <footer v-if="!list.isError.value" class="flex min-h-[54px] items-center justify-between gap-3 border-t border-line px-4 py-2">
-        <p class="text-[11px] text-ink-subtle">작성 중·취소 상태만 삭제할 수 있으며 요청·검토·답변·종료 견적은 보호됩니다.</p>
+        <p class="text-[11px] text-ink-subtle">작성 중 상태만 삭제할 수 있습니다. 취소한 견적은 표시된 날 이후 자동으로 삭제되며, 그 밖의 견적은 보호됩니다.</p>
         <nav v-if="pageCount > 1" class="flex items-center gap-1" aria-label="BOM 내역 페이지">
           <button type="button" class="grid size-8 place-items-center rounded-md border border-gray-200 text-[12px] text-gray-600 hover:bg-gray-50 disabled:opacity-35" :disabled="page <= 1" aria-label="이전 페이지" @click="page -= 1">‹</button>
           <button
@@ -501,8 +525,8 @@ async function confirmDelete(): Promise<void> {
           </div>
           <p id="delete-bom-description" class="mt-4 text-[13px] leading-6 text-ink-muted">이 작업은 되돌릴 수 없으며 업로드한 원본 파일과 분석 결과가 함께 삭제됩니다.</p>
           <div v-if="deleteIntent.scope === 'all'" class="mt-2 space-y-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">
-            <p class="font-semibold">현재 검색어·상태 필터와 관계없이 이 계정의 작성 중·취소 견적 전체에 적용됩니다.</p>
-            <p>요청·검토·답변·종료 상태는 업무 이력 보호를 위해 삭제하지 않고 유지합니다.</p>
+            <p class="font-semibold">현재 검색어·상태 필터와 관계없이 이 계정의 작성 중 견적 전체에 적용됩니다.</p>
+            <p>요청·검토·답변·종료·취소 상태는 업무 이력 보호를 위해 삭제하지 않고 유지합니다.</p>
           </div>
           <div v-if="deleteError !== ''" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-5 text-red-800" role="alert">
             <p class="font-bold">삭제를 완료하지 못했습니다.</p>

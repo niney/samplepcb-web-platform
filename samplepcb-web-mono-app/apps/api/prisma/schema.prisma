@@ -586,6 +586,11 @@ model SpBomQuote {
   enrichedAt                DateTime? // 마지막 보강 반영(재매칭 저장) 시각
   requestedAt               DateTime?
   answeredAt                DateTime?
+  // 취소(고객·관리자 공통) — 취소된 견적은 아무 일도 하지 않는 기록이다(docs/BOM_QUOTE.md
+  // "취소와 보존 기간"). purgeAfter 는 취소 당시 보존 기간으로 **고객에게 고지한 삭제 예정 시각**이라
+  // 이후 설정이 바뀌어도 그대로 지킨다. null = 자동 삭제하지 않음(취소 당시 보존 기간이 꺼져 있었다).
+  canceledAt                DateTime?
+  purgeAfter                DateTime?
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
   items                     SpBomQuoteItem[]

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { isCustomerDeletableBomQuoteStatus } from '@sp/api-contract';
 import type { BomQuoteSummaryType } from '@sp/api-contract';
 import { ApiRequestError, useAuthStore } from '@sp/shared';
 import { useBomQuote, useDeleteBomQuote, useMyBomQuotes, usePatchBomQuote } from '../bom/useBom';
@@ -99,8 +100,9 @@ function recentDisplayName(quote: BomQuoteSummaryType): string {
   return quote.fileName ?? quote.title;
 }
 
+// 고객이 지울 수 있는 것은 작성 중뿐이다(계약 사전) — 취소 견적은 보존 기간 뒤 자동 삭제된다.
 function canDeleteRecent(quote: BomQuoteSummaryType): boolean {
-  return quote.status === 'draft' || quote.status === 'canceled';
+  return isCustomerDeletableBomQuoteStatus(quote.status);
 }
 
 function recentDeleteFocusableElements(): HTMLElement[] {

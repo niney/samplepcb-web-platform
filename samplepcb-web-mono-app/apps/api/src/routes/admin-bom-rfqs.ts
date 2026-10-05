@@ -35,6 +35,7 @@ import {
   getAdminBomSupplierComparisonRows,
   getAdminBomSupplierRefreshTargets,
 } from '../lib/bom-quote';
+import { statusGuardMessage } from '../lib/bom-quote-cancel';
 import { supplierSearchRunPolicyFromOptions } from '../lib/bom-supplier-search-policy';
 import { prepareSingleSearchComparisonAnalysis } from '../lib/bom-single-search-comparison';
 import { autoEnrichQuote, healEnrichment } from './bom-quotes';
@@ -174,7 +175,10 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       if (quote.status !== 'requested' && quote.status !== 'reviewing') {
         return reply.status(409).send({
           error: 'INVALID_QUOTE_STATUS',
-          message: '회신 확정 전 검토 중 상태에서만 최신 시세를 조회할 수 있습니다.',
+          message: statusGuardMessage(
+            quote.status,
+            '회신 확정 전 검토 중 상태에서만 최신 시세를 조회할 수 있습니다.',
+          ),
         });
       }
       if (quote.buildStatus !== 'ready') {
@@ -311,7 +315,10 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       if (quote.status !== 'requested' && quote.status !== 'reviewing') {
         return reply.status(409).send({
           error: 'INVALID_QUOTE_STATUS',
-          message: '검토 중(또는 견적요청) 상태에서만 협력사 견적요청을 보낼 수 있습니다.',
+          message: statusGuardMessage(
+            quote.status,
+            '검토 중(또는 견적요청) 상태에서만 협력사 견적요청을 보낼 수 있습니다.',
+          ),
         });
       }
 
@@ -443,7 +450,10 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       if (quote.status !== 'requested' && quote.status !== 'reviewing') {
         return reply.status(409).send({
           error: 'INVALID_QUOTE_STATUS',
-          message: '회신 확정 전(검토 중)에만 선정을 변경할 수 있습니다.',
+          message: statusGuardMessage(
+            quote.status,
+            '회신 확정 전(검토 중)에만 선정을 변경할 수 있습니다.',
+          ),
         });
       }
       if (request.body.kind === 'supplier' && quote.enrichStatus === 'searching') {

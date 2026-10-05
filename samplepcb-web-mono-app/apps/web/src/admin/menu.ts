@@ -53,6 +53,8 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-seo' }, labelKey: 'admin.menu.seo' },
   // 발송 이력 — 모듈 횡단 공용 원장이라 코어(통합) 모듈에 둔다.
   { to: { name: 'admin-mail-logs' }, labelKey: 'admin.menu.mailLogs' },
+  // 삭제 기록 — 강제 삭제(BOM·PCB)와 취소 견적 자동 정리가 함께 쌓는 공용 원장이라 여기 둔다.
+  { to: { name: 'admin-delete-audits' }, labelKey: 'admin.menu.deleteAudits' },
   { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];
 

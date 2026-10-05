@@ -19,7 +19,7 @@
 ```
 
 - **상태**: `draft → requested → reviewing → answered → closed` (+ requested/reviewing의
-  `canceled`). 관리자 기본 흐름은 `검토 시작 → 품목 확인 → 고객 회신 확정`이며,
+  `canceled` — 취소·삭제·보존 기간 규칙은 아래 "취소와 보존 기간"). 관리자 기본 흐름은 `검토 시작 → 품목 확인 → 고객 회신 확정`이며,
   `answered`는 화면에서 **고객 확인 대기**로 표시한다. `answered` 전이는 전용 완료 API가
   순서와 품목 확인을 다시 검증한다. 더 진행하지 않는 견적만 보조 메뉴의 **견적 마감**으로
   `closed`(화면 표기 **마감**) 처리한다. 마감은 신규 고객 주문을 막는 견적 문서 조치일 뿐
@@ -47,7 +47,8 @@
   setQty/spareQty·
   **예상 스냅샷**(itemsTotal/shippingFee/managementFee/finalTotal/usdKrwRateUsed/uncostedCount)·
   **enrichStatus/enrichedAt(자동 보강 생명주기 — 서버 영속 단일 진실)**·
-  customerMemo·adminMemo(내부)·answerNote(고객 노출)·confirmed*(관리자 확정)·requestedAt/answeredAt
+  customerMemo·adminMemo(내부)·answerNote(고객 노출)·confirmed*(관리자 확정)·requestedAt/answeredAt·
+  **canceledAt/purgeAfter(취소 시각 · 고객에게 고지한 자동 삭제 예정 시각, 2026-10-05)**
 - `sp_bom_analysis_run/sheet/component`: 엔진 분석 1회를 append-only로 보존한다. component의
   `payload`는 엔진 `ComponentRecord` JSON을 변환 없이 그대로 박제하고, componentId·시트·원본 행·
   상태·검색 텍스트처럼 정렬/조인에 필요한 안정 필드만 열로 승격한다. 알 수 없는 신규 엔진 필드도
@@ -380,7 +381,8 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   `POST /quotes/:id/items/:itemId/selection {candidateKey,offerKey}`(draft 전용, 가격은 서버 재계산) ·
   `GET /quotes/:id/comparison?page&pageSize&search&status&sheet`(원본 추출+후보의 페이지 조회) ·
   `GET /quotes/:id/supplier-search`(이 견적의 활성 검색 실행 상태) ·
-  `/request`(재계산·동결) · `/cancel` · `DELETE`(draft/canceled)
+  `/request`(재계산·동결) · `/cancel`(requested/reviewing — RFQ 마감·삭제 예정 시각 기록) ·
+  `DELETE`(draft 만 — 취소 견적은 2026-10-05 부터 고객이 지울 수 없다)
 - 잡 프록시: `GET /jobs/:id[/result]`, 공급사 검색 `POST /jobs/:id/supplier-search[/preflight]`
   — **소유 회원만**(타인·미기록 404 은닉), 일일 한도 초과 429 `SEARCH_DAILY_LIMIT`,
   max_calls 는 sp_config 와 sp-engine 안전 상한(기본 3,000회) 중 작은 값으로 클램프.
@@ -621,6 +623,51 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
 정당하게 409로 막으므로, 연속 조작하는 쪽(e2e 포함)은 `buildStatus==='ready' &&
 enrichStatus!=='searching'` 를 기다려야 한다.
 
+## 취소와 보존 기간 (2026-10-05)
+
+원칙: **취소된 견적은 아무 일도 하지 않는 기록이다.** 정리 수단은 상태마다 하나다 — 작성 중은 고객
+삭제, 요청·검토 중은 고객 취소, 영구 삭제는 관리자 강제 삭제와 보존 기간 자동 정리. 화면 버튼과 서버
+가드는 계약 사전 하나(`BOM_QUOTE_CUSTOMER_DELETABLE_STATUSES`·`BOM_QUOTE_CUSTOMER_CANCELABLE_STATUSES`)를 본다.
+
+- **고객 취소** `POST /api/bom/quotes/:id/cancel` — `requested`·`reviewing` 에서만. 상세 화면의
+  [요청 취소]는 확인창을 거친다(되돌릴 수 없음 · 검토 중이면 중단되는 일 · 며칠 뒤 삭제되는지).
+  `lib/bom-quote-cancel.ts` 가 한 트랜잭션으로 ① 상태 조건부 전이(관리자 회신 확정과 겹치면 뒤쪽이 409)
+  ② `canceledAt`·`purgeAfter` 기록 ③ 협력사 RFQ 마감 ④ 검색 흔적 종결(`enrichStatus searching→failed`,
+  미종결 search run `failed/quote_canceled`)을 한다. 관리자 경로(`PATCH status=canceled`)도 같은 값을 남긴다.
+  취소 알림은 보내지 않는다 — 협력사는 포털의 '마감', 관리자는 Case 의 '취소'와 상태 가드 문구
+  ("취소된 견적입니다…")로 안다.
+- **고객 삭제 불가** — 취소 견적은 `DELETE`·일괄 삭제 대상이 아니다(단건 409, 일괄은 보호 건수로 집계).
+  협력사 회신 같은 업무 기록이 cascade 로 함께 사라지기 때문이다. `answered` 는 취소할 수 없다 —
+  주문하지 않으면 그대로이고, 견적이 장바구니·주문에 걸려 있어도 status 는 `answered` 로 남아 따로
+  판정해야 한다.
+- **삭제 예정 고지** — `purgeAfter` = 취소 시각 + 보존 기간(sp_config `bom_canceled_quote_retention_days`,
+  기본 30일, 0 = 자동 삭제 끔 → `purgeAfter` null). **취소 때 찍어 둔 값을 그대로 지킨다** — 나중에 설정을
+  줄여도 고지한 날보다 먼저 지우지 않는다. 고객 화면 세 곳(상세·내역 목록·PHP 견적관리)에 날짜가 뜬다.
+  응답 필드: `BomQuoteSummary.canceledAt`·`purgeAfter`, 상세 `cancelRetentionDays`(확인창용 — 취소할 수
+  있는 상태에서만 채운다).
+- **자동 정리** `lib/bom-quote-retention.ts` — API 서버 시작 때 한 번 + 6시간마다(`server.ts`, 발송 이력
+  정리와 같은 틀). `status='canceled' AND purgeAfter <= now` 를 오래된 순으로 최대 50건 골라, 건마다
+  검색 흔적을 다시 종결한 뒤 `loadBomCaseDeletePlan` → `purgeBomCase(mode 'audited')` 를 실행자
+  `system:retention` 으로 부른다. **관리자 "Case 강제 영구 삭제"와 같은 경로**라 순서(엔진 잡 → 파일서버 →
+  DB 트랜잭션)·범위·감사 기록(`sp_delete_audit`)이 같다. 차단 사유(진행 중인 작업 등)나 주문 연결
+  흔적(`ctId`)이 있으면 건너뛰고, 한 건의 실패는 다음 주기로 넘긴다. 엔진 잡이 딸린 견적은 sp-engine 이
+  꺼져 있으면 그 주기에 실패한다.
+- **마이그레이션** `20261005120000_bom_quote_cancel_retention` — 이미 취소돼 있던 견적은
+  `canceledAt = updatedAt`, `purgeAfter = 적용 시각 + 30일`(고지를 받지 못한 고객의 견적이 배포 직후
+  지워지지 않게 한다).
+- **관리자 화면** `/app/admin/delete-audits`(통합 메뉴 "삭제 기록") — `sp_delete_audit` 목록(자동 정리/관리자
+  삭제 · BOM/PCB · 검색 · 기간)과 자동 정리 상태 패널([지금 실행] 포함). 대시보드에도 상태 위젯이 있다.
+  API: `GET /api/admin/delete-audits`, `GET /api/admin/bom-quote-retention`, `POST /api/admin/bom-quote-retention/run`.
+  - 정상 판정(`health`): `ok` · `stale`(마지막 실행이 없거나 두 주기=12시간보다 오래됨) · `backlog`(삭제 예정
+    시각이 한 주기 넘게 지났는데 남아 있는 취소 견적이 있음 — **실행 기록이 아니라 데이터에서 센다**) · `disabled`.
+  - 실행 이력 테이블은 없다. 마지막 실행 요약만 sp_config `bom_canceled_quote_cleanup_last_run` 에 덮어쓴다 —
+    성공은 감사 원장에, 못 지운 건은 해결될 때까지 "기한 경과 미삭제" 목록(사유 포함)에 남는다.
+- **검증** — 단위 `bom-quote-cancel.test.ts`·`bom-quote-retention.test.ts`, e2e 여정 25호
+  `journey-bom-quote-cancel`(12장면: 확인창·RFQ 마감·삭제 거절·검토 중 취소·검색 중 취소·확정과의 경합·
+  자동 정리·삭제 기록 화면·PHP 고지), 여정 13호(내역: 취소 견적 보호).
+- **알려진 한계** — 취소 직전에 시작된 관리자 시세 확인이 취소 직후 `searching` 을 다시 쓸 수 있다
+  (수 ms 창). 화면은 취소 견적을 폴링하지 않고, 자동 정리가 삭제 전에 다시 풀어 지운다.
+
 ## 2차+ 로드맵 (범위 밖 기록)
 
 결제 연계(거버식 `g5_shop_cart` 스냅샷→orderform.php — 확정가 기반) · 관리자 풀 워크벤치
@@ -641,9 +688,9 @@ Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(node 87:9037)를 픽셀 충실도 �
   제외하고 `components/AppSiteHomeButton.vue`로 각 상단바에 아이콘을 배치한다. BOM 상단의 별도 홈·관리자
   링크와 중앙 타이틀, 관리자 상단의 중앙 인사말·사이트로 링크는 셸 목적에 맞게 정리했다.
 - `pages/bom/BomHistory.vue`: 파일·견적명 검색, 상태 필터, 페이지 이동, 현재 페이지 선택,
-  개별/선택/전체 삭제. 삭제는 서버에서도 본인 `draft`·`canceled`로 제한하며
-  요청·검토·고객 확인 대기·마감 이력은
-  전체 삭제에서도 보존한다. `POST /api/bom/quotes/delete`가 최대 200개 선택 또는 전체 범위를 처리한다.
+  개별/선택/전체 삭제. 삭제는 서버에서도 본인 `draft`로 제한하며(2026-10-05 — 취소 견적 제외)
+  요청·검토·고객 확인 대기·마감·취소 이력은
+  전체 삭제에서도 보존한다. 취소 견적 행에는 선택 칸·삭제 버튼 대신 자동 삭제 예정일이 뜬다. `POST /api/bom/quotes/delete`가 최대 200개 선택 또는 전체 범위를 처리한다.
   실행은 트랜잭션 없이 20건 청크의 가드된 DELETE 문장별 autocommit(2026-07-24) — cascade
   자식(후보 스냅샷 등)이 견적당 수천 행이라 5초 인터랙티브 트랜잭션은 P2028로 전멸했다.
   status 가드가 문장 WHERE에 있어 draft→requested 경쟁에 안전하고, 중단돼도 진행분은 남는다.
@@ -717,17 +764,18 @@ Figma "02 BOM 파일 분석_검색 결과" 레이아웃에 기존 기능 병합(
 - 우측 패널: AI 분석결과(TOTAL/MATCHED %/NOSTOCK/REVIEW/UNMATCHED)·주문 정보(세트/예비 스테퍼·
   납기 "확정 시 안내")·예상 견적(최종합계 파랑 강조·VAT 별도·가견적 각주)·[견적요청]. 상세 패널의
   [견적 삭제]는 제거하고 삭제 진입점을 Recent file과 BOM 이력으로 일원화한다.
-- 좌측 Recent file은 작성 중·취소 견적에 한해 hover/키보드 focus 시 삭제 버튼을 노출하고, 모바일
+- 좌측 Recent file은 작성 중 견적에 한해 hover/키보드 focus 시 삭제 버튼을 노출하고, 모바일
   드로어에서는 항상 보이게 한다. 원본 파일·분석 결과가 함께 지워지는 확인창을 거치며 현재 보고 있는
   견적을 삭제하면 BOM 업로드 화면으로 이동한다. 요청 이후 업무 상태는 삭제 액션 자체를 노출하지 않는다.
   분석 카드는 결과 표 필터로도 동작한다. MATCHED/REVIEW/UNMATCHED는 단일 상태 필터,
   NOSTOCK은 상태와 조합 가능한 독립 재고 필터, TOTAL은 전체 필터 해제다.
   — BomLayout 프로모 aside 는 홈에서만 표시
 - 공급사 검색 적용: 엔진이 기술적으로 허용한 후보의 제조사·설명을 선택 스냅샷에 함께 박제
-- 작성 중·취소 삭제 정책(2026-08-04, 진입점 2026-08-19): Recent file·BOM 이력의 확인창에서
-  `DELETE /quotes/:id` 하드 삭제(항목 cascade·원본 파일 정리)를 실행한다. requested 는 상세의 [요청 취소]를
-  유지하고 취소 완료 후 위 삭제 진입점을 사용한다. 단건은 무트랜잭션 가드 문장
-  (`deleteMany({id, mbId, status:{in:['draft','canceled']}})`, 0건이면 409)으로 상태 경쟁을 막는다.
+- 작성 중 삭제 정책(2026-08-04, 진입점 2026-08-19, 취소 제외 2026-10-05): Recent file·BOM 이력의
+  확인창에서 `DELETE /quotes/:id` 하드 삭제(항목 cascade·원본 파일 정리)를 실행한다. 요청한 뒤
+  (requested·reviewing)는 상세의 [요청 취소](확인창)로 취소하고, 취소한 견적은 고객이 지울 수 없다 —
+  아래 "취소와 보존 기간". 단건은 무트랜잭션 가드 문장
+  (`deleteMany({id, mbId, status:{in:['draft']}})`, 0건이면 409)으로 상태 경쟁을 막는다.
 - 부품 이미지(2026-07-20): 라인 `partImageUrl` = 카탈로그 `sp_part.imageUrl` 을 응답 시
   `toDetailDto` 가 일괄 조회해 채움(스냅샷 아님 — 항상 현재 카탈로그, PATCH 왕복 없는
   서버 계산 필드). 행 76px 정사각 `<img>`(no-referrer·onerror 시 플레이스홀더 축퇴),

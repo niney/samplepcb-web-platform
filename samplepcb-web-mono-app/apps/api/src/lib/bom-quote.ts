@@ -12,6 +12,7 @@ import {
   BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
   bomRequirementLabel,
+  isCustomerCancelableBomQuoteStatus,
   type BomConfirmEngineVerdictType,
   type AdminBomQuoteDetailType,
   type AdminBomQuoteItemAddBodyType,
@@ -72,6 +73,7 @@ import {
   type OfferPick,
 } from '@sp/utils';
 import { prisma } from './prisma';
+import { getCanceledQuoteRetentionDays } from './bom-quote-retention-config';
 import { deriveBomQuoteOrderProgress } from './order-progress';
 import { engineFetch } from './engine-client';
 import {
@@ -7200,6 +7202,9 @@ export function toSummaryDto(
     updatedAt: quote.updatedAt.toISOString(),
     requestedAt: quote.requestedAt?.toISOString() ?? null,
     answeredAt: quote.answeredAt?.toISOString() ?? null,
+    // 취소가 아닌 견적에는 싣지 않는다 — 삭제 예정일은 "취소된 견적"에만 뜻이 있는 고지값이다.
+    canceledAt: quote.status === 'canceled' ? (quote.canceledAt?.toISOString() ?? null) : null,
+    purgeAfter: quote.status === 'canceled' ? (quote.purgeAfter?.toISOString() ?? null) : null,
     confirmedTotal: customerCanViewQuoteAnswer(quote.status) ? quote.confirmedTotal : null,
     orderState,
     orderProgress,
@@ -7385,7 +7390,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
   const selectedRfqItemIds = activeItems.flatMap((item) =>
     item.included && item.selectedRfqItemId !== null ? [item.selectedRfqItemId] : [],
   );
-  const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState, selectedRfqItems, orderProgress] = await Promise.all([
+  const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState, selectedRfqItems, orderProgress, cancelRetentionDays] = await Promise.all([
     loadPartMetaMap(activeItems),
     loadCandidateDisplayMeta(quote.id, activeItems),
     loadSupplierSearchSummary(quote.activeSupplierSearchRunId, quote.enrichStatus),
@@ -7398,6 +7403,10 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
       : Promise.resolve([]),
     // 주문 뒤 진행(조달·물류 파생) — "주문내역에서 확인하세요" 대신 실제 단계(08-25 §6.35).
     deriveBomQuoteOrderProgress(quote.ctId, quote.mbId),
+    // 취소 확인창의 고지용 — 취소할 수 있는 상태에서만 읽는다(작성 중의 3초 폴링에는 얹지 않는다).
+    isCustomerCancelableBomQuoteStatus(quote.status)
+      ? getCanceledQuoteRetentionDays()
+      : Promise.resolve(null),
   ]);
   const itemDtos = [...activeItems]
     .sort((a, b) => a.rowIdx - b.rowIdx)
@@ -7448,6 +7457,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
   );
   return {
     ...toSummaryDto(quote, summaryCounts(activeItems)),
+    cancelRetentionDays,
     engineJobId: quote.engineJobId,
     buildStatus: quote.buildStatus as BomQuoteDetailType['buildStatus'],
     procurementMode: quote.procurementMode as BomQuoteProcurementModeType,

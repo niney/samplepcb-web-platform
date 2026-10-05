@@ -18,6 +18,10 @@ export const apiRoutes = {
   bom: '/api/bom',
   // 고객 BOM 견적요청 관리자 검토
   adminBomQuotes: '/api/admin/bom-quotes',
+  // 취소 견적 보존 기간 자동 정리 — 상태 조회·지금 실행(관리자 "삭제 기록" 화면)
+  adminBomQuoteRetention: '/api/admin/bom-quote-retention',
+  // 삭제 감사 기록(관리자 강제 삭제 + 자동 정리) — 모듈 횡단 공용 원장
+  adminDeleteAudits: '/api/admin/delete-audits',
   // 공용 파트너(조직) 관리 — BOM·PCB·부품 판매 트랙이 함께 사용
   adminPartners: '/api/admin/partners',
   // 스마트 BOM 주문·결제(주문 축 파생 목록, D19)

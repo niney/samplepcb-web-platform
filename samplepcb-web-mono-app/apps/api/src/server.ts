@@ -36,6 +36,7 @@ import { adminBomClaimRoutes } from './routes/admin-bom-claims';
 import { bomConfirmRoutes } from './routes/bom-confirms';
 import { adminBomConfirmRoutes } from './routes/admin-bom-confirms';
 import { adminMailRoutes } from './routes/admin-mail';
+import { adminDeleteAuditRoutes } from './routes/admin-delete-audits';
 import { adminPartnerRoutes } from './routes/admin-partners';
 import { adminPartnerPartRoutes } from './routes/admin-partner-parts';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
@@ -65,6 +66,10 @@ import { bootstrapPartsIndex } from './es/sp-parts-index';
 import { drainIndexQueue } from './lib/parts-ingest';
 import { recoverSupplierResultArtifacts } from './lib/bom-part-data';
 import { cleanupExpiredMailLogs } from './lib/mail-log';
+import {
+  CANCELED_QUOTE_CLEANUP_INTERVAL_MS,
+  runCanceledQuoteCleanupSafely,
+} from './lib/bom-quote-retention';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
 import { adminMarketContractRoutes } from './routes/admin-market-contracts';
@@ -158,6 +163,8 @@ await app.register(adminBomClaimRoutes, { prefix: '/api/admin' });
 await app.register(adminBomConfirmRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 빠른 메일(§6.15): 템플릿 + Case 컨텍스트 발송·이력
 await app.register(adminMailRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 삭제 기록(강제 삭제 + 자동 정리) · 취소 견적 자동 정리 상태·지금 실행
+await app.register(adminDeleteAuditRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 공용 파트너(조직) 관리
 await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
 // 협력사 보유 부품 원장(docs/PARTNER_PARTS.md) — 관리자 뒤처리 도구·대행 업로드
@@ -281,6 +288,16 @@ async function cleanupMailLogHistory(): Promise<void> {
 void cleanupMailLogHistory();
 const mailLogCleanupTimer = setInterval(() => void cleanupMailLogHistory(), 6 * 3_600_000);
 mailLogCleanupTimer.unref();
+
+// 취소 견적 보존 기간 정리 — 고객에게 고지한 삭제 예정 시각이 지난 취소 견적을 관리자 강제 삭제와
+// 같은 경로로 지운다(sp_config bom_canceled_quote_retention_days, 기본 30일, 0=꺼짐).
+// 시작 때 한 번 + 6시간마다. 중복 실행 방지와 실행 요약 기록은 lib/bom-quote-retention.ts 가 맡는다.
+void runCanceledQuoteCleanupSafely(app.log);
+const canceledQuoteCleanupTimer = setInterval(
+  () => void runCanceledQuoteCleanupSafely(app.log),
+  CANCELED_QUOTE_CLEANUP_INTERVAL_MS,
+);
+canceledQuoteCleanupTimer.unref();
 
 // 놓친 Promise 거절 하나가 프로세스를 내리지 않게 한다. 핸들러가 없으면 Node 는 거절을
 // 예외로 승격해 종료하는데(기본 --unhandled-rejections=throw), 이 서버에는 응답 뒤에
