@@ -1167,9 +1167,12 @@ watch(detailId, () => {
   emailActionFeedback.value = null;
 });
 
-// 확정가 = 토글식 직접 입력 — 기본은 예상(자동) 금액만 보여 관리자 혼동을 막는다.
-// 토글 OFF 저장 = 확정 해제(고객에게 예상 금액 안내), ON 시 예상값으로 프리필.
-const confirmedOverride = ref(false);
+// 확정가 = 체크박스 없이 바로 입력(2026-10-06 사용자 결정 — 옛 '확정가 등록' 토글을 걷었다).
+// 검토 중이고 저장된 확정가가 없으면 예상값(운송료·관리비 기본값 + 선정 반영 총액)을 제안으로 채운다 —
+// 저장하거나 고객 회신을 확정해야 등록된다. 관리자가 고치지 않은 동안은 상세가 다시 불릴 때마다 예상값을
+// 따라가고(품목 선정이 바뀌면 총액도 따라감), 고친 뒤에는 고정한 채 예상 총액과의 차이를 보인다.
+// 확정가 없이 회신(고객은 예상 금액만, 주문 불가)하려면 [비우기] — 회신 확정 대화상자가 한 번 더 확인한다.
+const confirmedEdited = ref(false);
 
 const validRecipientEmail = (value: string): string | null => {
   const parsed = AdminBomQuoteRecipientEmail.safeParse(value);
@@ -1182,35 +1185,59 @@ const resendEmailValid = computed(() => validRecipientEmail(resendEmail.value) !
 
 watch(detail, (d) => {
   if (d === null) return;
+  const saved =
+    d.confirmedShippingFee !== null || d.confirmedManagementFee !== null || d.confirmedTotal !== null;
+  // 저장된 확정가가 없는 검토 중 건만 제안으로 채운다 — 회신된 건의 '확정가 없음'은 사실이라 그대로 둔다.
+  const suggest = !saved && (d.status === 'requested' || d.status === 'reviewing');
   form.value = {
     adminMemo: d.adminMemo ?? '',
     answerNote: d.answerNote ?? '',
-    confirmedShippingFee: d.confirmedShippingFee,
-    confirmedManagementFee: d.confirmedManagementFee,
-    confirmedTotal: d.confirmedTotal,
+    confirmedShippingFee: suggest ? d.shippingFee : d.confirmedShippingFee,
+    confirmedManagementFee: suggest ? d.managementFee : d.confirmedManagementFee,
+    confirmedTotal: suggest ? d.finalTotal : d.confirmedTotal,
   };
-  confirmedOverride.value =
-    d.confirmedShippingFee !== null || d.confirmedManagementFee !== null || d.confirmedTotal !== null;
+  // 저장값이 예상값과 같으면 '고치지 않은' 것으로 본다 — 예상값을 계속 따라간다.
+  confirmedEdited.value =
+    saved &&
+    (d.confirmedShippingFee !== d.shippingFee ||
+      d.confirmedManagementFee !== d.managementFee ||
+      d.confirmedTotal !== d.finalTotal);
   actionError.value = '';
 });
 
-function toggleConfirmedOverride(): void {
-  if (!reviewEditable.value) return;
-  confirmedOverride.value = !confirmedOverride.value;
+function fillConfirmedFromExpected(): void {
   const d = detail.value;
-  if (!confirmedOverride.value || d === null) return;
-  // 켜는 순간 예상값(운송료·관리비 기본값 + 선정 반영 총액)으로 제안 프리필 — 기존 확정값은 유지.
-  form.value.confirmedShippingFee ??= d.shippingFee;
-  form.value.confirmedManagementFee ??= d.managementFee;
-  form.value.confirmedTotal ??= d.finalTotal;
+  if (!reviewEditable.value || d === null) return;
+  form.value.confirmedShippingFee = d.shippingFee;
+  form.value.confirmedManagementFee = d.managementFee;
+  form.value.confirmedTotal = d.finalTotal;
+  confirmedEdited.value = false;
+}
+function clearConfirmed(): void {
+  if (!reviewEditable.value) return;
+  form.value.confirmedShippingFee = null;
+  form.value.confirmedManagementFee = null;
+  form.value.confirmedTotal = null;
+  confirmedEdited.value = true;
+}
+function markConfirmedEdited(): void {
+  confirmedEdited.value = true;
 }
 
 // v-model.number 는 빈 입력을 '' 로 만들 수 있어 저장 직전 정규화한다.
 const numOrNull = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : null;
-const finalConfirmedTotal = computed(() =>
-  confirmedOverride.value ? numOrNull(form.value.confirmedTotal) : null,
+const finalConfirmedTotal = computed(() => numOrNull(form.value.confirmedTotal));
+// 저장 전 제안(예상값으로 채운 상태) — 저장·회신 확정 때 등록된다는 사실을 칸 위에 밝힌다.
+const confirmedIsSuggestion = computed(
+  () => detail.value?.confirmedTotal === null && finalConfirmedTotal.value !== null && !confirmedEdited.value,
 );
+// 고친 확정 총액과 지금 예상 총액의 차이 — 품목 선정이 바뀐 뒤 옛 확정가가 남는 것을 알린다.
+const confirmedTotalDiff = computed(() => {
+  const expected = detail.value?.finalTotal ?? null;
+  const total = finalConfirmedTotal.value;
+  return total === null || expected === null || total === expected ? null : total - expected;
+});
 
 // 부가세는 저장·계산하지 않는 정책(전 금액 VAT 별도) — 참고 환산 표시만 한다.
 const withVat = (v: number | null): string =>
@@ -1502,9 +1529,9 @@ function reviewFields() {
   return {
     adminMemo: form.value.adminMemo === '' ? null : form.value.adminMemo,
     answerNote: form.value.answerNote === '' ? null : form.value.answerNote,
-    // 토글 OFF = 확정 해제(null). 검토 중에는 관리자 초안으로만 저장한다.
-    confirmedShippingFee: confirmedOverride.value ? numOrNull(form.value.confirmedShippingFee) : null,
-    confirmedManagementFee: confirmedOverride.value ? numOrNull(form.value.confirmedManagementFee) : null,
+    // 빈 칸 = 확정 해제(null). 검토 중에는 관리자 초안으로만 저장한다(고객 공개는 회신 확정 때).
+    confirmedShippingFee: numOrNull(form.value.confirmedShippingFee),
+    confirmedManagementFee: numOrNull(form.value.confirmedManagementFee),
     confirmedTotal: finalConfirmedTotal.value,
   };
 }
@@ -2556,34 +2583,57 @@ async function downloadOriginal(): Promise<void> {
             <div class="flex justify-between text-gray-400"><span>참고: VAT 포함 시</span><span class="tabular-nums">{{ withVat(detail.finalTotal) }}</span></div>
           </div>
 
-          <!-- 확정가 = 고객 주문 게이트(D16-1). "선택적 커스텀"이 아니라 필수 단계임이
-               보이도록, 미등록 상태를 경고 톤으로 상시 표시한다(사용자 피드백 반영) -->
-          <label class="flex items-start gap-2 text-xs font-bold text-gray-800" :class="reviewEditable ? 'cursor-pointer' : 'cursor-not-allowed'">
-            <input type="checkbox" class="mt-0.5 size-3.5 shrink-0" :checked="confirmedOverride" :disabled="!reviewEditable" @change="toggleConfirmedOverride">
-            <span class="shrink-0 whitespace-nowrap">확정가 등록</span>
-            <span class="font-medium text-amber-700">— 등록 시 고객 주문 가능</span>
-          </label>
-          <p v-if="!confirmedOverride" class="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-[16px] text-amber-800">
-            ⚠ 확정가 미등록 — 고객은 예상 금액만 볼 수 있고 주문(결제)할 수 없습니다.
-            체크 후 확정 총액을 저장하세요. 끈 채 저장하면 기존 확정가도 해제됩니다.
-          </p>
-          <template v-else>
-            <div class="grid grid-cols-2 gap-2">
-              <label class="text-xs text-gray-500">확정 운송료
-                <input v-model.number="form.confirmedShippingFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
-              </label>
-              <label class="text-xs text-gray-500">확정 관리비
-                <input v-model.number="form.confirmedManagementFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
-              </label>
-            </div>
-            <label class="block text-xs text-gray-500">확정 총액(VAT 별도)
-              <input v-model.number="form.confirmedTotal" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
-            </label>
-            <p class="text-[11px] text-gray-400">
-              참고: VAT 포함 시 {{ confirmedTotalVat }} — 부가세는 저장하지 않습니다(전 금액 VAT 별도).
-              검토 중 저장값은 관리자 초안이며, 고객 회신 확정 후 공개되고 [주문하기]가 열립니다.
+          <!-- 확정가 = 고객 주문 게이트(D16-1). 체크박스 없이 바로 입력한다(2026-10-06 사용자 결정).
+               검토 중 미등록이면 예상값을 제안으로 채우고, 비어 있으면 경고 톤으로 상시 표시한다. -->
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-bold text-gray-800">
+              확정가 <span class="font-medium text-amber-700">— 등록 시 고객 주문 가능</span>
             </p>
-          </template>
+            <div v-if="reviewEditable" class="flex shrink-0 gap-1">
+              <button
+                type="button"
+                class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50"
+                title="운송료·관리비 기본값과 선정 반영 예상 총액으로 채웁니다"
+                @click="fillConfirmedFromExpected"
+              >
+                예상값으로
+              </button>
+              <button
+                type="button"
+                class="rounded border border-gray-300 bg-surface px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+                title="확정가 없이 회신하려면 비우고 저장하세요 — 고객은 예상 금액만 보고 주문할 수 없습니다"
+                @click="clearConfirmed"
+              >
+                비우기
+              </button>
+            </div>
+          </div>
+          <p v-if="finalConfirmedTotal === null" class="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-[16px] text-amber-800">
+            ⚠ 확정가 없음 — 고객은 예상 금액만 볼 수 있고 주문(결제)할 수 없습니다.
+            확정 총액을 입력하거나 [예상값으로]를 누른 뒤 저장하세요.
+          </p>
+          <p v-else-if="confirmedIsSuggestion" class="rounded border border-blue-100 bg-blue-50 px-2 py-1.5 text-[11px] leading-[16px] text-blue-800">
+            예상값을 확정가 제안으로 채웠습니다 — 저장하거나 고객 회신을 확정하면 이 금액으로 등록됩니다.
+          </p>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="text-xs text-gray-500">확정 운송료
+              <input v-model.number="form.confirmedShippingFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500" @input="markConfirmedEdited">
+            </label>
+            <label class="text-xs text-gray-500">확정 관리비
+              <input v-model.number="form.confirmedManagementFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500" @input="markConfirmedEdited">
+            </label>
+          </div>
+          <label class="block text-xs text-gray-500">확정 총액(VAT 별도)
+            <input v-model.number="form.confirmedTotal" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500" @input="markConfirmedEdited">
+          </label>
+          <p v-if="reviewEditable && confirmedTotalDiff !== null" class="text-[11px] font-medium text-amber-700">
+            지금 예상 총액({{ smartbomFmtWon(detail.finalTotal) }})과 {{ confirmedTotalDiff > 0 ? '+' : '−' }}{{ smartbomFmtWon(Math.abs(confirmedTotalDiff)) }} 차이
+            — 품목 선정이 바뀌었으면 [예상값으로]로 맞추세요.
+          </p>
+          <p class="text-[11px] text-gray-400">
+            참고: VAT 포함 시 {{ confirmedTotalVat }} — 부가세는 저장하지 않습니다(전 금액 VAT 별도).
+            검토 중 저장값은 관리자 초안이며, 고객 회신 확정 후 공개되고 [주문하기]가 열립니다.
+          </p>
           <label class="block text-xs text-gray-500">고객 회신 메모(고객에게 표시)
             <textarea v-model="form.answerNote" rows="3" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 disabled:bg-gray-100 disabled:text-gray-500" />
           </label>
