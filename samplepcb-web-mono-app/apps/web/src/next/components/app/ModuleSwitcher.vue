@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { RouteLocationRaw } from 'vue-router';
-import type { AdminModuleKey } from '@/admin/menu';
-import { nextModuleLinks } from '@/next/admin-menu';
+import { useRoute } from 'vue-router';
+import { nextModuleLinks, resolveNextModuleKey, type NextMenuContext } from '@/next/admin-menu';
 
-// 상단 업무 영역 전환(Module Switcher) — 통합·PCB·BOM·개발·마켓. 리뉴얼 셸은 PCB 화면만
-// 그리므로 활성은 늘 PCB 이고, 다른 모듈은 아직 옛 화면 홈으로 이동한다.
-const props = defineProps<{ pcbEntry: RouteLocationRaw }>();
+// 상단 업무 영역 전환(Module Switcher) — 통합·PCB·BOM·개발·마켓. 리뉴얼된 모듈(PCB·SmartBOM)은 리뉴얼
+// 화면으로, 나머지는 아직 옛 화면 홈으로 이동한다. 활성 모듈은 지금 라우트에서 파생한다.
+const props = defineProps<{ ctx: NextMenuContext }>();
 
-const ACTIVE_MODULE: AdminModuleKey = 'pcb';
-const modules = computed(() => nextModuleLinks(props.pcbEntry));
+const route = useRoute();
+const activeModule = computed(() => resolveNextModuleKey(typeof route.name === 'string' ? route.name : ''));
+const modules = computed(() => nextModuleLinks(props.ctx));
 </script>
 
 <template>
@@ -22,10 +22,10 @@ const modules = computed(() => nextModuleLinks(props.pcbEntry));
       :key="mod.key"
       :to="mod.to"
       class="rounded-md px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors"
-      :class="mod.key === ACTIVE_MODULE
+      :class="mod.key === activeModule
         ? 'bg-background text-foreground shadow-xs'
         : 'hover:text-foreground'"
-      :aria-current="mod.key === ACTIVE_MODULE ? 'page' : undefined"
+      :aria-current="mod.key === activeModule ? 'page' : undefined"
     >
       {{ $t(mod.labelKey) }}
     </RouterLink>

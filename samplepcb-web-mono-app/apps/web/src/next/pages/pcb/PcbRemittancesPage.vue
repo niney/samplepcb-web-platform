@@ -30,7 +30,7 @@ import SearchInput from '@/next/components/common/SearchInput.vue';
 import TableCard from '@/next/components/common/TableCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
 import type { QueueTab } from '@/next/components/common/queue-tabs';
-import CustomerCell from '@/next/components/pcb/CustomerCell.vue';
+import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import RemittancePanel from '@/next/components/pcb/RemittancePanel.vue';
 import {
   PCB_FREE_AS_BADGE,

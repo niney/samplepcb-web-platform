@@ -1,10 +1,5 @@
-import type {
-  LocationQuery,
-  LocationQueryRaw,
-  LocationQueryValue,
-  RouteLocationRaw,
-  Router,
-} from 'vue-router';
+import type { LocationQueryRaw, LocationQueryValue, RouteLocationRaw } from 'vue-router';
+import { queryString } from '@/next/lib/list-query';
 
 // 관리자 리뉴얼(src/next) PCB 모듈의 라우트·목록 상태 규약 — 옛 admin/pcb-navigation.ts 의 짝.
 //
@@ -109,45 +104,10 @@ export const pcbAdminSectionTo = (
 export const pcbAdminEntryTo = (memory: PcbAdminMemory): RouteLocationRaw =>
   pcbAdminSectionTo(memory, memory.section);
 
-export const queryString = (value: MaybeQueryValue): string =>
-  typeof value === 'string' ? value : '';
-
-export const queryPage = (value: MaybeQueryValue): number => {
-  const parsed = Number(queryString(value));
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
-};
-
-export const queryTab = <T extends string>(
-  value: MaybeQueryValue,
-  allowed: readonly T[],
-  fallback: T,
-): T => {
-  const parsed = queryString(value);
-  return allowed.find((tab) => tab === parsed) ?? fallback;
-};
-
-export interface PcbListQueryState {
-  tab: string;
-  page: number;
-  q: string;
-  extra?: Readonly<Record<string, string | number | undefined>>;
-}
-
-export const replacePcbListQuery = (
-  router: Router,
-  current: LocationQuery,
-  state: PcbListQueryState,
-): void => {
-  const query: LocationQueryRaw = { ...current, tab: state.tab };
-  if (state.page > 1) query.page = String(state.page);
-  else delete query.page;
-  if (state.q.trim() !== '') query.q = state.q.trim();
-  else delete query.q;
-  for (const [key, value] of Object.entries(state.extra ?? {})) {
-    query[key] = value === undefined || value === '' ? undefined : String(value);
-  }
-  void router.replace({ query });
-};
+// 목록 주소 상태는 모듈 공용(next/lib/list-query.ts) — PCB 화면이 쓰던 이름 그대로 다시 내보낸다.
+export { queryPage, queryString, queryTab } from '@/next/lib/list-query';
+export type { ListQueryState as PcbListQueryState } from '@/next/lib/list-query';
+export { replaceListQuery as replacePcbListQuery } from '@/next/lib/list-query';
 
 /** Case 상세 진입 쿼리 — from=활성 메뉴 동기화, returnTo=워크큐 복귀 링크. */
 export const pcbDetailQuery = (

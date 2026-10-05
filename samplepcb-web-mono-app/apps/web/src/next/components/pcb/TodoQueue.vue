@@ -16,9 +16,9 @@ import RowCheckbox from '@/next/components/common/RowCheckbox.vue';
 import SearchInput from '@/next/components/common/SearchInput.vue';
 import TableCard from '@/next/components/common/TableCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
-import CustomerCell from './CustomerCell.vue';
+import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import DeleteQuoteDialog from './DeleteQuoteDialog.vue';
-import SelectionBar from './SelectionBar.vue';
+import SelectionBar from '@/next/components/common/SelectionBar.vue';
 import { pcbCategoryBadge } from './pcb-badges';
 
 // PCB 대기 큐(= 그 역할이 아직 시작하지 않은 일) — 견적요청·발주 화면의 첫 탭이 공유한다.

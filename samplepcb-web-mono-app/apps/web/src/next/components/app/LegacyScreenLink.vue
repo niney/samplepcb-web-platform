@@ -3,13 +3,13 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { History } from '@lucide/vue';
 import { Button } from '@/next/components/ui/button';
-import { legacyPcbRoute } from '@/next/admin-menu';
+import { legacyNextRoute } from '@/next/admin-menu';
 
 // 전환기 비교용 '이전 화면' — 지금 보는 리뉴얼 화면을 같은 params·query 의 옛 화면으로 연다.
 // 컷오버(옛 화면 삭제) 때 이 링크도 함께 지운다.
 const route = useRoute();
 const legacyTo = computed(() =>
-  typeof route.name === 'string' ? legacyPcbRoute(route.name, route.params, route.query) : null,
+  typeof route.name === 'string' ? legacyNextRoute(route.name, route.params, route.query) : null,
 );
 </script>
 

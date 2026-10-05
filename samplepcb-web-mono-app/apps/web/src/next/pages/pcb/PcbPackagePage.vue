@@ -13,7 +13,7 @@ import { Card } from '@/next/components/ui/card';
 import { Spinner } from '@/next/components/ui/spinner';
 import PageHeader from '@/next/components/common/PageHeader.vue';
 import SectionCard from '@/next/components/common/SectionCard.vue';
-import CustomerCell from '@/next/components/pcb/CustomerCell.vue';
+import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import { pcbPackageStatusBadge } from '@/next/components/pcb/pos/pos-badges';
 
 // PCB QR 스캔 도착점. token 은 식별자일 뿐이며 라우트와 API 모두 관리자 인증 뒤에 있다.

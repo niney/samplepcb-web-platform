@@ -20,7 +20,7 @@ import SearchInput from '@/next/components/common/SearchInput.vue';
 import TableCard from '@/next/components/common/TableCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
 import type { QueueTab } from '@/next/components/common/queue-tabs';
-import CustomerCell from '@/next/components/pcb/CustomerCell.vue';
+import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import TodoQueue from '@/next/components/pcb/TodoQueue.vue';
 import PoDeliveryFilter from '@/next/components/pcb/pos/PoDeliveryFilter.vue';
 import { pcbEqReviewBadge, pcbPoStatusBadge } from '@/next/components/pcb/pos/pos-badges';

@@ -41,7 +41,7 @@ import SearchInput from '@/next/components/common/SearchInput.vue';
 import TableCard from '@/next/components/common/TableCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
 import type { QueueTab } from '@/next/components/common/queue-tabs';
-import CustomerCell from '@/next/components/pcb/CustomerCell.vue';
+import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import CustomerShipDialog from '@/next/components/pcb/CustomerShipDialog.vue';
 import PackageLabelsDialog from '@/next/components/pcb/PackageLabelsDialog.vue';
 import { pcbShipmentStatusVariant } from '@/next/components/pcb/pcb-badges';

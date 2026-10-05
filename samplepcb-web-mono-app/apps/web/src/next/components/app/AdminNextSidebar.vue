@@ -19,25 +19,27 @@ import {
 import {
   effectiveMenuRouteName,
   isNextMenuActive,
-  nextPcbMenu,
+  nextModuleOf,
+  type NextMenuContext,
   type NextMenuItem,
 } from '@/next/admin-menu';
-import { pcbAdminSectionTo, type PcbAdminMemory } from '@/next/pcb-navigation';
-import { usePcbMenuBadges } from './usePcbMenuBadges';
+import { useNextMenuBadges } from './useNextMenuBadges';
 
 // 좌측 사이드바 — 옛 AdminLayout 의 사이드바와 같은 구성(앱 이름·부제 → 모듈 메뉴 → 하단 메뉴).
-// 데스크톱은 아이콘 폭으로 접히고(Ctrl/⌘+B), 모바일(<768px)은 시트로 열린다.
-const props = defineProps<{ memory: PcbAdminMemory }>();
+// 데스크톱은 아이콘 폭으로 접히고(Ctrl/⌘+B), 모바일(<768px)은 시트로 열린다. 메뉴는 지금 라우트의
+// 모듈(PCB·SmartBOM — next/admin-menu.ts 의 nextModules)을 그린다.
+const props = defineProps<{ ctx: NextMenuContext }>();
 
 const route = useRoute();
 const { isMobile, setOpenMobile } = useSidebar();
-const badges = usePcbMenuBadges();
+const badges = useNextMenuBadges();
 
 const effectiveRouteName = computed(() =>
   effectiveMenuRouteName(typeof route.name === 'string' ? route.name : '', route.query.from),
 );
-const mainItems = computed(() => nextPcbMenu.filter((item) => item.placement !== 'bottom'));
-const bottomItems = computed(() => nextPcbMenu.filter((item) => item.placement === 'bottom'));
+const activeModule = computed(() => nextModuleOf(typeof route.name === 'string' ? route.name : ''));
+const mainItems = computed(() => activeModule.value.items.filter((item) => item.placement !== 'bottom'));
+const bottomItems = computed(() => activeModule.value.items.filter((item) => item.placement === 'bottom'));
 
 const badgeCount = (item: NextMenuItem): number =>
   item.badge === undefined ? 0 : badges.value[item.badge];
@@ -65,16 +67,16 @@ watch(
 
     <SidebarContent>
       <SidebarGroup>
-        <SidebarGroupLabel>{{ $t('admin.modules.pcb') }}</SidebarGroupLabel>
+        <SidebarGroupLabel>{{ $t(activeModule.labelKey) }}</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            <SidebarMenuItem v-for="item in mainItems" :key="item.section">
+            <SidebarMenuItem v-for="item in mainItems" :key="item.key">
               <SidebarMenuButton
                 as-child
                 :is-active="isNextMenuActive(item, effectiveRouteName)"
                 :tooltip="$t(item.labelKey)"
               >
-                <RouterLink :to="pcbAdminSectionTo(props.memory, item.section)">
+                <RouterLink :to="item.to(props.ctx)">
                   <component :is="item.icon" />
                   <span>{{ $t(item.labelKey) }}</span>
                   <Badge
@@ -94,13 +96,13 @@ watch(
 
     <SidebarFooter v-if="bottomItems.length > 0">
       <SidebarMenu>
-        <SidebarMenuItem v-for="item in bottomItems" :key="item.section">
+        <SidebarMenuItem v-for="item in bottomItems" :key="item.key">
           <SidebarMenuButton
             as-child
             :is-active="isNextMenuActive(item, effectiveRouteName)"
             :tooltip="$t(item.labelKey)"
           >
-            <RouterLink :to="pcbAdminSectionTo(props.memory, item.section)">
+            <RouterLink :to="item.to(props.ctx)">
               <component :is="item.icon" />
               <span>{{ $t(item.labelKey) }}</span>
             </RouterLink>

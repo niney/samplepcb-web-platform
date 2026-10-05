@@ -11,6 +11,7 @@ import BomSearch from './pages/bom/BomSearch.vue';
 import BomQuote from './pages/bom/BomQuote.vue';
 import { appPath, loginUrl } from './lib/auth-urls';
 import { NEXT_PCB_ROUTES } from './next/pcb-navigation';
+import { NEXT_SMARTBOM_ROUTES } from './next/smartbom-navigation';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
 import AdminQuotes from './pages/admin/AdminQuotes.vue';
 import AdminOrders from './pages/admin/AdminOrders.vue';
@@ -248,6 +249,60 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./next/pages/pcb/PcbPackagePage.vue'),
       },
       { path: 'pcb/cases/:id', name: NEXT_PCB_ROUTES.case, component: () => import('./next/pages/pcb/PcbCasePage.vue') },
+      // ── SmartBOM(2026-10-06~) — 옛 경로(/admin/smartbom·/admin/bom)의 접두만 /admin/next 로. 이름 규약은
+      // src/next/smartbom-navigation.ts 머리말.
+      { path: 'smartbom', name: NEXT_SMARTBOM_ROUTES.cases, component: () => import('./next/pages/smartbom/SmartbomCasesPage.vue') },
+      {
+        path: 'smartbom/cases/:id',
+        name: NEXT_SMARTBOM_ROUTES.case,
+        component: () => import('./next/pages/smartbom/SmartbomCasePage.vue'),
+      },
+      {
+        path: 'smartbom/quotes',
+        name: NEXT_SMARTBOM_ROUTES.quotes,
+        component: () => import('./next/pages/smartbom/SmartbomQuotesPage.vue'),
+      },
+      {
+        path: 'smartbom/orders',
+        name: NEXT_SMARTBOM_ROUTES.orders,
+        component: () => import('./next/pages/smartbom/SmartbomOrdersPage.vue'),
+      },
+      { path: 'smartbom/pos', name: NEXT_SMARTBOM_ROUTES.pos, component: () => import('./next/pages/smartbom/SmartbomPosPage.vue') },
+      {
+        path: 'smartbom/logistics',
+        name: NEXT_SMARTBOM_ROUTES.logistics,
+        component: () => import('./next/pages/smartbom/SmartbomLogisticsPage.vue'),
+      },
+      {
+        path: 'smartbom/claims',
+        name: NEXT_SMARTBOM_ROUTES.claims,
+        component: () => import('./next/pages/smartbom/SmartbomClaimsPage.vue'),
+      },
+      {
+        path: 'smartbom/confirms',
+        name: NEXT_SMARTBOM_ROUTES.confirms,
+        component: () => import('./next/pages/smartbom/SmartbomConfirmsPage.vue'),
+      },
+      // 옛 화면과 같이 입고 스캔은 선적·배송 화면으로 합류했다.
+      { path: 'smartbom/receiving', redirect: (to) => ({ name: NEXT_SMARTBOM_ROUTES.logistics, query: to.query }) },
+      {
+        path: 'smartbom/packages/:code',
+        name: NEXT_SMARTBOM_ROUTES.package,
+        component: () => import('./next/pages/smartbom/SmartbomPackagePage.vue'),
+      },
+      // BOM 업로드·작업대는 옛 화면처럼 본문 여백 없이 전체 높이를 쓴다(adminContentFlush).
+      {
+        path: 'bom',
+        name: NEXT_SMARTBOM_ROUTES.bom,
+        component: () => import('./next/pages/bom/BomUploadPage.vue'),
+        meta: { adminContentFlush: true },
+      },
+      {
+        path: 'bom/:id',
+        name: NEXT_SMARTBOM_ROUTES.bomQuote,
+        component: () => import('./next/pages/bom/BomQuotePage.vue'),
+        meta: { adminContentFlush: true },
+      },
     ],
   },
   {

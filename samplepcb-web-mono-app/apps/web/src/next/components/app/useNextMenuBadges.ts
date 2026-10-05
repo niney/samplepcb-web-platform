@@ -6,12 +6,16 @@ import { usePcbOrdersAwaitingCount, usePcbOrdersToShipCount } from '@/admin/useA
 import { usePcbRemittancePendingCount } from '@/admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '@/admin/useAdminPcbCases';
 import { usePcbClaimsPendingCount } from '@/admin/useAdminPcbClaims';
+import { useBomQuotesRequestedCount, useBomShipmentPendingCount } from '@/admin/useAdminBomQuotes';
+import { useBomOrdersAwaitingCount, useBomPosAwaitingCount } from '@/admin/useAdminBomOrders';
+import { useBomClaimsPendingCount } from '@/admin/useAdminBomClaims';
+import { useBomConfirmsNeedsActionCount } from '@/admin/useAdminBomConfirms';
 import type { NextMenuBadge } from '@/next/admin-menu';
 
-// PCB 메뉴 배지 — 옛 AdminLayout 과 같은 훅·같은 합산식(옛 화면과 숫자가 어긋나면 안 된다).
+// 리뉴얼 셸 메뉴 배지 — 옛 AdminLayout 과 같은 훅·같은 합산식(옛 화면과 숫자가 어긋나면 안 된다).
 // PCB 배지는 합산이다: 시작 전(대기 큐)과 진행 중 내 차례가 모두 관리자 몫이라 하나만 세면
-// 나머지가 묻힌다("이 역할이 지금 움직여야 하는 수").
-export function usePcbMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> {
+// 나머지가 묻힌다("이 역할이 지금 움직여야 하는 수"). SmartBOM 은 역할별 하나씩.
+export function useNextMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> {
   const auth = useAuthStore();
   const isAdminUser = computed(() => auth.me?.isAdmin === true);
 
@@ -26,6 +30,15 @@ export function usePcbMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> {
   const { data: claimsPending } = usePcbClaimsPendingCount(isAdminUser);
   const { todoRfq, todoPo } = useAdminPcbTodoCounts(isAdminUser);
 
+  // SmartBOM — 검토 대기(견적관리)·입금 대기(주문·결제)·발주 대기·확인 요청 처리 대기(D43)·
+  // 관리자 차례 선적(D22)·클레임 접수+검토 중.
+  const { data: bomQuotesRequested } = useBomQuotesRequestedCount(isAdminUser);
+  const { data: bomOrdersAwaiting } = useBomOrdersAwaitingCount(isAdminUser);
+  const { data: bomPosAwaiting } = useBomPosAwaitingCount(isAdminUser);
+  const { data: bomConfirmsNeedsAction } = useBomConfirmsNeedsActionCount(isAdminUser);
+  const { data: bomShipmentPending } = useBomShipmentPendingCount(isAdminUser);
+  const { data: bomClaimsPending } = useBomClaimsPendingCount(isAdminUser);
+
   return computed(() => ({
     pcbRfqPending: todoRfq.value + (rfqPending.value ?? 0),
     pcbPosPending: todoPo.value + eqPending.value,
@@ -33,5 +46,11 @@ export function usePcbMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> {
     pcbOrdersAwaiting: ordersAwaiting.value ?? 0,
     pcbRemittancePending: remittancePending.value,
     pcbClaimsPending: claimsPending.value ?? 0,
+    bomQuotesRequested: bomQuotesRequested.value ?? 0,
+    bomOrdersAwaiting: bomOrdersAwaiting.value ?? 0,
+    bomPosAwaiting: bomPosAwaiting.value ?? 0,
+    bomConfirmsNeedsAction: bomConfirmsNeedsAction.value ?? 0,
+    bomShipmentPending: bomShipmentPending.value ?? 0,
+    bomClaimsPending: bomClaimsPending.value ?? 0,
   }));
 }

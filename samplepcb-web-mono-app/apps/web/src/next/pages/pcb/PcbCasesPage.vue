@@ -20,9 +20,9 @@ import SearchInput from '@/next/components/common/SearchInput.vue';
 import TableCard from '@/next/components/common/TableCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
 import type { QueueTab } from '@/next/components/common/queue-tabs';
-import CustomerCell from '@/next/components/pcb/CustomerCell.vue';
+import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import DeleteQuoteDialog from '@/next/components/pcb/DeleteQuoteDialog.vue';
-import SelectionBar from '@/next/components/pcb/SelectionBar.vue';
+import SelectionBar from '@/next/components/common/SelectionBar.vue';
 import {
   pcbAsRoundBadge,
   pcbOrderStatusBadge,

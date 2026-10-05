@@ -30,6 +30,8 @@ const KIT_FILES = new Set([
   'components/common/SectionCard.vue',
   'components/common/Panel.vue',
   'components/common/DialogScrollBody.vue',
+  'components/common/CustomerCell.vue',
+  'components/common/SelectionBar.vue',
   'components/common/NoticeBand.vue',
 ]);
 
