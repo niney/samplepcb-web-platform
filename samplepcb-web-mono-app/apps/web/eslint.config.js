@@ -11,7 +11,19 @@ export default [
   {
     files: ['src/next/**/*.{vue,ts}'],
     rules: {
-      'shadcn/no-restyle': ['error', { allow: ['layout'] }],
+      'shadcn/no-restyle': [
+        'error',
+        {
+          allow: ['layout'],
+          contracts: [
+            // 표 칸은 내용(숫자·코드·보조 글자)에 따라 글자 모양·색을 칸마다 정한다 — 칸을 span 으로
+            // 한 겹 더 감싸지 않게 허용한다. 여백은 표 밀도를 지키려고 열지 않는다.
+            { pattern: '^Table(Cell|Head)$', allow: ['layout', 'typography', 'color'] },
+            // 카드 안쪽 여백은 담는 내용(표·폼)에 따라 화면이 정한다(문서 권장 예).
+            { pattern: '^Card$|^Card(Header|Content|Footer)$', allow: ['layout', 'spacing'] },
+          ],
+        },
+      ],
       'shadcn/no-raw-colors': 'error',
       'shadcn/no-arbitrary-values': ['error', { allow: ['layout'] }],
       'shadcn/no-inline-styles': 'error',

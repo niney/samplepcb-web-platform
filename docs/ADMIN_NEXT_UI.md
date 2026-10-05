@@ -62,3 +62,29 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 - 확인·입력 대화상자: `@/next/lib/dialog` 의 `confirmDialog`·`promptDialog`(셸이 호스트를 띄운다). 옛 `@/lib/confirmDialog` 를 부르면 옛 모양이 뜬다.
 - 숫자는 `tabular-nums`, 보조 글자는 `text-muted-foreground`, 표 본문 `text-sm`.
 - 화면 골격: 머리(제목·설명·우측 동작) → 탭(건수 배지)+검색 → 카드 안의 표 → 페이지네이션. 공용 조각은 `next/components/pcb/`.
+
+## 7. 키트 (`next/components/common`·`next/components/pcb`)
+
+기준 화면: `pages/pcb/PcbRfqsPage.vue`(탭+대기 큐+표+선택 삭제), `PcbCasesPage.vue`(구간 탭+단계 칩). 새 목록 화면은 이 둘을 본떠 쓴다.
+
+**common** (모듈 무관)
+- `PageHeader` — `title`, `description?` · 슬롯 `#description`(마크업 설명), `#actions`(우측 버튼).
+- `QueueTabs` — `v-model`(탭 key), `tabs: QueueTab<T>[]`(`key`·`label`·`count?`(null=모름)·`attention?`(건수를 경고 배지로)) · 슬롯 `#end`(검색 등). 타입은 `common/queue-tabs.ts`.
+- `SearchInput` — `v-model`(입력 중 글자), `placeholder` · `@search`(Enter 확정). 키 입력마다 조회하지 않는다.
+- `TableCard` — 표를 담는 테두리 상자(shadcn Card 대신 — Card 의 py-6 여백 없음, 첫·끝 열 안쪽 여백).
+- `TableEmptyRow` — `colspan`, `text`, `loading?`(스피너+'불러오는 중…'). `TableBody` 안 마지막 줄.
+- `RowCheckbox` — `checked: boolean | 'indeterminate'`, `label`(aria), `disabled?` · `@change(boolean)`. 클릭이 행 클릭으로 번지지 않는다. 머리 칸은 `allSelected ? true : someSelected ? 'indeterminate' : false`.
+- `ListPagination` — `page`, `pageSize`, `total` · `@update:page`. 왼쪽 '총 N건', 한 쪽이면 번호 숨김.
+
+**pcb**
+- `pcb-badges.ts` — `pcbCategoryBadge`·`pcbQuoteBadge`·`pcbRfqReplyBadge`·`pcbStepBadge`·`pcbAsRoundBadge`·`pcbOrderStatusBadge` → `{ label, variant }`. `<Badge :variant="b.variant">{{ b.label }}</Badge>`. 뜻별 variant: warning=기다림·주의, info=진행, success=끝남, danger=문제, secondary=중립·이력, outline=부가 표지. 새 사전도 여기에 더한다.
+- `CustomerCell` — `name`, `mbId`(이름 앞세우고 아이디 병기, 빈 이름='이름 없음', 비회원).
+- `SelectionBar` — `count` · `@delete`. 항상 보이고, 고른 게 있을 때만 버튼이 붉어진다.
+- `DeleteQuoteDialog` — `ids` · `@close`·`@deleted`. `v-if` 로 띄운다(열린 채 마운트). 옛 DeleteQuoteModal 의 3단(영향→최종 확인→결과) 그대로.
+- `TodoQueue` — `kind`('todo_rfq'|'todo_po'), `from`(PcbAdminSection), `actionLabel`(화살표 아이콘 자동 — 문구에 → 넣지 말 것), `emptyText`. 발주 화면 첫 탭도 이것.
+
+**표 작성 요령(린트가 잡는 것)**
+- `TableCell`·`TableHead` 에는 배치 클래스(`text-right`·`w-10`·`max-w-*` 등)만 — 글자 모양·색(`font-mono`·`text-muted-foreground`·`truncate`·`tabular-nums`)은 안쪽 `<span>` 에 준다.
+- 말줄임은 `<span class="block max-w-xs truncate" :title="…">`.
+- 행 선택 강조는 `TableRow` 에 `:data-state="selected ? 'selected' : undefined"`(클래스 아님), 행 클릭은 `class="cursor-pointer"` + `@click`.
+- 툴팁을 쓰는 표는 `TooltipProvider` 로 한 번 감싼다. shadcn 컴포넌트의 간격(`gap-*`) 같은 모양은 바꿀 수 없으니 안쪽 span 으로 감싼다(예: `DialogTitle` 안 아이콘+글자).

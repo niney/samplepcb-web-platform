@@ -10,6 +10,7 @@ import BomHistory from './pages/bom/BomHistory.vue';
 import BomSearch from './pages/bom/BomSearch.vue';
 import BomQuote from './pages/bom/BomQuote.vue';
 import { appPath, loginUrl } from './lib/auth-urls';
+import { NEXT_PCB_ROUTES } from './next/pcb-navigation';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
 import AdminQuotes from './pages/admin/AdminQuotes.vue';
 import AdminOrders from './pages/admin/AdminOrders.vue';
@@ -215,6 +216,39 @@ const routes: RouteRecordRaw[] = [
     path: '/pcb-rfq-reply/:token',
     name: 'pcb-rfq-reply',
     component: () => import('./pages/PublicPcbRfqReply.vue'),
+  },
+  // ── 관리자 리뉴얼(shadcn-vue, src/next) — PCB 모듈부터. 옛 화면(/admin/pcb/*)과 나란히 돌다가
+  // 컷오버 때 이 화면들이 옛 경로·옛 라우트 이름을 이어받는다(src/next/pcb-navigation.ts 머리말).
+  // 셸은 지연 로딩 — shadcn·reka-ui 묶음이 옛 화면 번들에 섞이지 않게 한다.
+  {
+    path: '/admin/next',
+    component: () => import('./next/layouts/AdminNextLayout.vue'),
+    meta: { requiresAdmin: true },
+    children: [
+      { path: '', redirect: { name: NEXT_PCB_ROUTES.cases } },
+      { path: 'pcb', redirect: { name: NEXT_PCB_ROUTES.cases } },
+      { path: 'pcb/cases', name: NEXT_PCB_ROUTES.cases, component: () => import('./next/pages/pcb/PcbCasesPage.vue') },
+      { path: 'pcb/rfqs', name: NEXT_PCB_ROUTES.rfqs, component: () => import('./next/pages/pcb/PcbRfqsPage.vue') },
+      { path: 'pcb/orders', name: NEXT_PCB_ROUTES.orders, component: () => import('./next/pages/pcb/PcbOrdersPage.vue') },
+      { path: 'pcb/pos', name: NEXT_PCB_ROUTES.pos, component: () => import('./next/pages/pcb/PcbPosPage.vue') },
+      {
+        path: 'pcb/remittances',
+        name: NEXT_PCB_ROUTES.remittances,
+        component: () => import('./next/pages/pcb/PcbRemittancesPage.vue'),
+      },
+      {
+        path: 'pcb/shipments',
+        name: NEXT_PCB_ROUTES.shipments,
+        component: () => import('./next/pages/pcb/PcbShipmentsPage.vue'),
+      },
+      { path: 'pcb/claims', name: NEXT_PCB_ROUTES.claims, component: () => import('./next/pages/pcb/PcbClaimsPage.vue') },
+      {
+        path: 'pcb/packages/:code',
+        name: NEXT_PCB_ROUTES.package,
+        component: () => import('./next/pages/pcb/PcbPackagePage.vue'),
+      },
+      { path: 'pcb/cases/:id', name: NEXT_PCB_ROUTES.case, component: () => import('./next/pages/pcb/PcbCasePage.vue') },
+    ],
   },
   {
     path: '/admin',

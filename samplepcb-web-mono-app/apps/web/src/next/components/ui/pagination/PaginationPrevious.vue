@@ -28,7 +28,7 @@ const forwarded = useForwardProps(delegatedProps)
   >
     <slot>
       <ChevronLeftIcon />
-      <span class="hidden sm:block">Previous</span>
+      <span class="hidden sm:block">이전</span>
     </slot>
   </PaginationPrev>
 </template>

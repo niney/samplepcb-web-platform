@@ -22,6 +22,6 @@ const { toggleSidebar } = useSidebar()
     @click="toggleSidebar"
   >
     <PanelLeft />
-    <span class="sr-only">Toggle Sidebar</span>
+    <span class="sr-only">사이드바 열기·닫기</span>
   </Button>
 </template>
