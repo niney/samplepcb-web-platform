@@ -47,6 +47,7 @@ import type {
   DevelopRequestStatusType,
   MarketContractPaymentType,
 } from '@sp/api-contract';
+import { clientIp } from '../lib/client-ip';
 import {
   DEVELOP_FILE_SERVICE_TYPE,
   REF_DEVELOP_EVENT,
@@ -364,12 +365,13 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
   // ── POST /develop/requests — 등록(multipart: payload + attachment[] + attachment:<area>:<slot>[]) ──
   fastify.post('/develop/requests', async (request, reply) => {
     if (!request.isMultipart()) return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
-    const { files, rawPayload } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
     }
+    const { files, rawPayload } = await collectMultipart(request);
     const mbId = request.user.mbId;
     if (rawPayload === undefined) return reply.status(400).send({ result: false, error: 'PAYLOAD_REQUIRED' });
     let payloadJson: unknown;
@@ -654,12 +656,13 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
   // ── POST /develop/requests/:id/files — 첨부 추가(multipart, received·reviewing) ──
   fastify.post('/develop/requests/:id/files', async (request, reply) => {
     if (!request.isMultipart()) return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
-    const { files } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
     }
+    const { files } = await collectMultipart(request);
     const params = RequestIdParams.safeParse(request.params);
     if (!params.success) return reply.status(400).send({ result: false, error: 'BAD_PARAMS' });
     const found = await loadOwned(params.data.id, request.user.mbId);
@@ -866,7 +869,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const accepted = await prisma.$transaction(async (tx): Promise<boolean> => {
         const upd = await tx.spDevelopQuote.updateMany({
           where: { id: q.id, status: 'sent' },
-          data: { status: 'accepted', acceptedAt: now, acceptedName: request.body.name, acceptedIp: request.ip },
+          data: { status: 'accepted', acceptedAt: now, acceptedName: request.body.name, acceptedIp: clientIp(request) },
         });
         if (upd.count !== 1) return false;
         await tx.spDevelopMilestone.updateMany({ where: { quoteId: q.id, status: 'draft' }, data: { status: 'pending' } });
@@ -937,12 +940,13 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
   // ── POST /develop/requests/:id/comments — 문의(multipart: payload {body, asRequest} + file[]) ─
   fastify.post('/develop/requests/:id/comments', async (request, reply) => {
     if (!request.isMultipart()) return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
-    const { files, rawPayload } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
     }
+    const { files, rawPayload } = await collectMultipart(request);
     const params = RequestIdParams.safeParse(request.params);
     if (!params.success) return reply.status(400).send({ result: false, error: 'BAD_PARAMS' });
     const found = await loadOwned(params.data.id, request.user.mbId);
@@ -1063,7 +1067,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
             ioId: m.paymentKey,
             price: m.amount,
             option: `개발의뢰 #${String(Number(r.id))} ${m.title}`,
-            ip: request.ip,
+            ip: clientIp(request),
           });
         } catch (err) {
           await deleteQuoteOption(anchor.itId, m.paymentKey).catch(() => undefined);
@@ -1176,7 +1180,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const now = new Date();
       const updated = await prisma.spDevelopDocument.updateMany({
         where: { id: doc.id, status: 'sent' },
-        data: { status: decision, decision, decisionNote: note, decidedAt: now, decidedName: name, decidedIp: request.ip },
+        data: { status: decision, decision, decisionNote: note, decidedAt: now, decidedName: name, decidedIp: clientIp(request) },
       });
       if (updated.count !== 1) return reply.status(409).send({ result: false, error: 'DOC_NOT_OPEN' });
       const docNo = developDocNo(type, doc.seq);

@@ -14,6 +14,7 @@ import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
 import { getFreshPricingData } from '../pricing/live-pricing';
 import { applyGerberPriceMode } from '../pricing/gerber-price-mode';
+import { clientIp } from '../lib/client-ip';
 import { buildOptionSummary } from '../lib/option-summary';
 import { uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
@@ -102,6 +103,15 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       return reply.badRequest('multipart/form-data 요청이어야 합니다');
     }
 
+    // ── 회원 인증(필수) — 비회원 미사용 결정(2026-07-02). 거버는 제출 전
+    //    GET /spcb/api/me 로 토큰을 받아 Authorization 헤더로 전달한다.
+    //    본문(거버 최대 100MB)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.unauthorized('로그인이 필요합니다');
+    }
+
     // ── multipart 수신 ──
     const files: ReceivedFile[] = [];
     let rawPayload: string | undefined;
@@ -139,13 +149,6 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     const payload = parsed.data;
     const unknownSpecKeys = findUnknownSpecKeys(payload.spec);
 
-    // ── 회원 인증(필수) — 비회원 미사용 결정(2026-07-02). 거버는 제출 전
-    //    GET /spcb/api/me 로 토큰을 받아 Authorization 헤더로 전달한다.
-    try {
-      await request.jwtVerify();
-    } catch {
-      return reply.unauthorized('로그인이 필요합니다');
-    }
     const mbId = request.user.mbId;
     const cartId = request.user.cartId;
 
@@ -255,7 +258,7 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
                 ioId: project.quote.id,
                 price: quote.listPrice,
                 option: buildOptionSummary(payload.spec, payload.qty),
-                ip: request.ip,
+                ip: clientIp(request),
               });
             } catch (err) {
               // 카트 실패 시 고아 옵션 행 보상 삭제(실패해도 정리 배치가 수거)
@@ -567,7 +570,7 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           return reply.status(409).send({ result: false, error: 'ALREADY_ORDERED' });
         }
       }
-      const added = await addSpecToCart(spec, price, cartId, request.ip, request.log);
+      const added = await addSpecToCart(spec, price, cartId, clientIp(request), request.log);
       if ('error' in added) {
         const status = added.error === 'TEMPLATE_ITEM_MISSING' ? 500 : 502;
         return reply.status(status).send({ result: false, error: added.error });
@@ -623,7 +626,7 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             continue;
           }
         }
-        const added = await addSpecToCart(spec, price, cartId, request.ip, request.log);
+        const added = await addSpecToCart(spec, price, cartId, clientIp(request), request.log);
         if ('error' in added) {
           failed.push({ projectId: id, error: added.error });
           continue;

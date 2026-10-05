@@ -10,6 +10,7 @@ import {
   PCB_ORDER_CANCEL_BLOCK_LABELS,
   resolvePcbDirectShipCountry,
 } from '@sp/api-contract';
+import { clientIp } from '../lib/client-ip';
 import {
   getMembersByIds,
   getOrderInfoByCtId,
@@ -258,7 +259,7 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         [preview.ctId],
         '취소',
         request.user.mbId,
-        request.ip,
+        clientIp(request),
         {
           requireUnpaidBankTransfer: true,
           historyReason: request.body.reason,

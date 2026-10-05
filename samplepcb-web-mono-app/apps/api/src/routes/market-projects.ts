@@ -26,6 +26,7 @@ import type {
   MarketMyProjectListItemType,
   MarketProjectViewerType,
 } from '@sp/api-contract';
+import { clientIp } from '../lib/client-ip';
 import { getAiJob } from '../lib/ai/jobs';
 import { devReviewAttachmentHashes, devReviewInputHash } from '../lib/ai/dev-review';
 import {
@@ -179,12 +180,13 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (!request.isMultipart()) {
       return reply.badRequest('multipart/form-data 요청이어야 합니다');
     }
-    const { files, rawPayload } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.unauthorized('로그인이 필요합니다');
     }
+    const { files, rawPayload } = await collectMultipart(request);
     const mbId = request.user.mbId;
 
     if (rawPayload === undefined) return reply.badRequest('payload 파트가 없습니다');
@@ -692,12 +694,13 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     }
     const params = ProjectIdParams.safeParse(request.params);
     if (!params.success) return reply.badRequest('잘못된 경로입니다');
-    const { files } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.unauthorized('로그인이 필요합니다');
     }
+    const { files } = await collectMultipart(request);
 
     const project = await prisma.spMarketProject.findUnique({
       where: { id: BigInt(params.data.id) },
@@ -931,7 +934,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             mbId,
             textVersion: MARKET_NDA_VERSION,
             signedName: request.body.signedName,
-            ip: request.ip,
+            ip: clientIp(request),
           },
         });
         return {

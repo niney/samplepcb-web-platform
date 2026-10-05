@@ -277,8 +277,9 @@ export const splitMarketAttachments = (
   return { accepted, invalid };
 };
 
-// FormData(파일 파트들 + 텍스트 파트들)를 수집한다. 라우트는 이 호출 **뒤에** jwtVerify 를
-// 해야 한다(multipart 본문을 먼저 소비해야 하는 @fastify/multipart 제약). 텍스트 파트는
+// FormData(파일 파트들 + 텍스트 파트들)를 수집한다. 라우트는 이 호출 **앞에** 인증을
+// 끝내야 한다 — 파일 파트를 전부 메모리에 올리므로, 뒤에 두면 익명 요청이 100MB 를
+// 버퍼링시킨다(jwtVerify 는 헤더만 읽고, 본문을 안 읽고 401 을 내도 안전하다). 텍스트 파트는
 // fields 맵으로도 노출한다(계약 deliver 의 평문 note 필드 등) — rawPayload 는 관례상 'payload'
 // JSON 파트의 별칭(기존 등록 라우트 호환).
 export const collectMultipart = async (

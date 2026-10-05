@@ -94,12 +94,13 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     if (!request.isMultipart()) {
       return reply.badRequest('multipart/form-data 요청이어야 합니다');
     }
-    const { files, rawPayload } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.unauthorized('로그인이 필요합니다');
     }
+    const { files, rawPayload } = await collectMultipart(request);
     const mbId = request.user.mbId;
 
     if (rawPayload === undefined) return reply.badRequest('payload 파트가 없습니다');
@@ -224,12 +225,13 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     if (!request.isMultipart()) {
       return reply.badRequest('multipart/form-data 요청이어야 합니다');
     }
-    const { files, rawPayload } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.unauthorized('로그인이 필요합니다');
     }
+    const { files, rawPayload } = await collectMultipart(request);
 
     const expert = await prisma.spMarketExpert.findUnique({
       where: { mbId: request.user.mbId },

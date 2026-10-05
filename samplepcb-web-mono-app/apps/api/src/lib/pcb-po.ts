@@ -1,4 +1,4 @@
-import type { Prisma, SpFile, SpPartner, SpPcbPo } from '@prisma/client';
+import type { SpFile, SpPartner, SpPcbPo } from '@prisma/client';
 import type {
   AdminPcbPoCreateBodyType,
   AdminPcbPoPatchBodyType,
@@ -857,33 +857,47 @@ const resolveEqRole = (po: SpPcbPo, actor: PcbEqActor): EqRoleResolution => {
   return { role: null, fallback: false, byRole: 'PARTNER' };
 };
 
-/** 하위 전이를 같은 회차 상위(관리자→MD) 발주서에 상태만 미러(레거시 mirrorToParent).
- *  전이와 **한 트랜잭션**에 실어야 하므로 실행하지 않고 연산만 돌려준다(상위 없으면 빈 배열). */
-const mirrorToParent = (
+/**
+ * EQ 전이 저장 — 아래 셋은 한 덩어리라 한 트랜잭션에 싣는다(나뉘면 발주만 넘어가고 고객
+ * 화면엔 답할 수 없는 요청이 남는다).
+ *  1. 발주 상태·이력. **읽은 상태가 그대로일 때만** 쓴다 — 조건 없이 덮어쓰면 동시 조작
+ *     (더블클릭, 승인과 되돌리기의 교차)에서 뒤에 온 요청이 앞 전이를 덮고 eqHistory 한 건이
+ *     사라진다(메일은 이미 나간 뒤). 밀렸으면 아무것도 쓰지 않고 false.
+ *  2. 열려 있던 고객 확인 요청(D16) 종료 — EQ 상태가 움직이면 물어볼 대상을 잃는다. 닫지
+ *     않으면 고객 주문내역엔 답할 수 없는 승인/반려 폼이 계속 뜨고, 협력사가 보완 후
+ *     재요청할 때도 createEqReview 가 ALREADY_OPEN 으로 막힌다.
+ *  3. 같은 회차 상위(관리자→MD) 발주서에 상태만 미러(레거시 mirrorToParent, 상위 없으면 생략).
+ */
+const commitEqTransition = (
   po: SpPcbPo,
   toStatus: PcbPoStatusType,
-): Prisma.PrismaPromise<Prisma.BatchPayload>[] =>
-  po.parentPartnerId === 0n
-    ? []
-    : [
-        prisma.spPcbPo.updateMany({
-          where: {
-            specId: po.specId,
-            partnerId: po.parentPartnerId,
-            parentPartnerId: 0n,
-            reorderRound: po.reorderRound,
-          },
-          data: { status: toStatus },
-        }),
-      ];
-
-/** EQ 상태가 움직이면 열려 있던 고객 확인 요청(D16)은 물어볼 대상을 잃는다 — 닫지 않으면
- *  고객 주문내역엔 답할 수 없는 승인/반려 폼이 계속 뜨고, 협력사가 보완 후 재요청할 때도
- *  createEqReview 가 ALREADY_OPEN 으로 막힌다(관리자가 옛 요청을 손으로 취소해야 했다). */
-const closeOpenEqReviews = (poId: bigint): Prisma.PrismaPromise<Prisma.BatchPayload> =>
-  prisma.spPcbEqReview.updateMany({
-    where: { poId, status: 'requested' },
-    data: { status: 'canceled' },
+  event: Pick<PcbEqEventType, 'byRole' | 'note'>,
+): Promise<boolean> =>
+  prisma.$transaction(async (tx) => {
+    const updated = await tx.spPcbPo.updateMany({
+      where: { id: po.id, status: po.status },
+      data: {
+        status: toStatus,
+        eqHistory: appendEq(po.eqHistory, { ...event, fromStatus: po.status, toStatus }),
+      },
+    });
+    if (updated.count !== 1) return false;
+    await tx.spPcbEqReview.updateMany({
+      where: { poId: po.id, status: 'requested' },
+      data: { status: 'canceled' },
+    });
+    if (po.parentPartnerId !== 0n) {
+      await tx.spPcbPo.updateMany({
+        where: {
+          specId: po.specId,
+          partnerId: po.parentPartnerId,
+          parentPartnerId: 0n,
+          reorderRound: po.reorderRound,
+        },
+        data: { status: toStatus },
+      });
+    }
+    return true;
   });
 
 export type PcbEqTransitionError =
@@ -944,25 +958,12 @@ export const advancePcbPoEq = async (
     if (first !== undefined) return { ok: false, error: first };
   }
 
-  // 전이·미러·고객 확인 종료는 한 덩어리다 — 나뉘면 발주만 넘어가고 고객 화면엔 답할 수
-  // 없는 요청이 남는다.
   const trimmed = (note ?? '').trim();
-  await prisma.$transaction([
-    prisma.spPcbPo.update({
-      where: { id: po.id },
-      data: {
-        status: action.to,
-        eqHistory: appendEq(po.eqHistory, {
-          byRole,
-          fromStatus: po.status,
-          toStatus: action.to,
-          note: trimmed === '' ? null : trimmed,
-        }),
-      },
-    }),
-    closeOpenEqReviews(po.id),
-    ...mirrorToParent(po, action.to),
-  ]);
+  const committed = await commitEqTransition(po, action.to, {
+    byRole,
+    note: trimmed === '' ? null : trimmed,
+  });
+  if (!committed) return { ok: false, error: 'INVALID_STATUS' };
   return { ok: true, to: action.to };
 };
 
@@ -983,22 +984,8 @@ export const rejectPcbPoEq = async (
   if (action === null) return { ok: false, error: 'INVALID_STATUS' };
   if (action.rejectTo === undefined) return { ok: false, error: 'INVALID_STATUS' };
 
-  await prisma.$transaction([
-    prisma.spPcbPo.update({
-      where: { id: po.id },
-      data: {
-        status: action.rejectTo,
-        eqHistory: appendEq(po.eqHistory, {
-          byRole: 'ADMIN',
-          fromStatus: po.status,
-          toStatus: action.rejectTo,
-          note: reason,
-        }),
-      },
-    }),
-    closeOpenEqReviews(po.id),
-    ...mirrorToParent(po, action.rejectTo),
-  ]);
+  const committed = await commitEqTransition(po, action.rejectTo, { byRole: 'ADMIN', note: reason });
+  if (!committed) return { ok: false, error: 'INVALID_STATUS' };
   return { ok: true };
 };
 
@@ -1019,26 +1006,15 @@ export const revertPcbPoEq = async (
   if (role !== revert.actor && actor.kind !== 'admin')
     return { ok: false, error: 'NOT_YOUR_TURN' };
 
-  await prisma.$transaction([
-    prisma.spPcbPo.update({
-      where: { id: po.id },
-      data: {
-        status: revert.to,
-        eqHistory: appendEq(po.eqHistory, {
-          byRole,
-          fromStatus: po.status,
-          toStatus: revert.to,
-          // ⚠ 여기 '되돌리기' 를 넣던 것이 반려 판정을 깨뜨렸다(2026-08-16 교정) — 반려는
-          // "사유가 있는 eq_requested→issued" 인데, 되돌리기가 사유 자리를 채워 버려서
-          // 협력사의 '요청 취소'가 반려로 읽혔다. 되돌리기에는 남길 사유가 없다.
-          // 라벨은 전이(from→to)에서 나온다(PcbEqTimeline eventLabel).
-          note: null,
-        }),
-      },
-    }),
-    closeOpenEqReviews(po.id),
-    ...mirrorToParent(po, revert.to),
-  ]);
+  const committed = await commitEqTransition(po, revert.to, {
+    byRole,
+    // ⚠ 여기 '되돌리기' 를 넣던 것이 반려 판정을 깨뜨렸다(2026-08-16 교정) — 반려는
+    // "사유가 있는 eq_requested→issued" 인데, 되돌리기가 사유 자리를 채워 버려서
+    // 협력사의 '요청 취소'가 반려로 읽혔다. 되돌리기에는 남길 사유가 없다.
+    // 라벨은 전이(from→to)에서 나온다(PcbEqTimeline eventLabel).
+    note: null,
+  });
+  if (!committed) return { ok: false, error: 'INVALID_STATUS' };
   return { ok: true, to: revert.to };
 };
 

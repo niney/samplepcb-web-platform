@@ -349,7 +349,11 @@ export async function persistBomAnalysisResult(
       componentCount: result.components.length,
       hasParsedSheet,
     };
-  });
+  },
+  // 분석 component payload 를 20건씩 순차 저장한다 — 대형 워크북은 Prisma 기본 5초를 넘는다
+  // (persistQuoteComputed 와 같은 여유). 넘으면 P2028 로 /prepare 가 500 이 되고 견적이
+  // buildStatus='parsing' 에 남는다.
+  { maxWait: 10_000, timeout: 60_000 });
 }
 
 /** DB에 박제된 활성 분석 실행을 엔진 공개 결과 형태로 복원한다. */

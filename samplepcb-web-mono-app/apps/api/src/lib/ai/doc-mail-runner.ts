@@ -70,7 +70,12 @@ export async function startDevelopDocMailJob(options: StartDevelopDocMailJobOpti
     throw lastError instanceof Error ? lastError : new Error('GENERATION_FAILED');
   })().catch(async (err: unknown) => {
     log.warn({ err, jobId: job.id }, 'develop doc-mail generation failed');
-    await finishAiJob(job.id, { error: err instanceof Error ? err.message : 'GENERATION_FAILED' });
+    try {
+      await finishAiJob(job.id, { error: err instanceof Error ? err.message : 'GENERATION_FAILED' });
+    } catch (finishErr) {
+      // 실패 원인이 DB 순단이면 이 기록도 같이 실패한다 — 놓친 거절로 올리지 않는다.
+      log.warn({ err: finishErr, jobId: job.id }, 'develop doc-mail job failure could not be recorded');
+    }
   });
 
   return { job, cached: false };

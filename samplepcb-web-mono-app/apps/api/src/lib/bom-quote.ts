@@ -6492,9 +6492,13 @@ export async function replaceQuoteItems(
   quoteId: bigint,
   items: QuoteComputedItem<BomQuoteItemType>[],
 ): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await persistQuoteItemsInTransaction(tx, quoteId, items);
-  });
+  await prisma.$transaction(
+    async (tx) => {
+      await persistQuoteItemsInTransaction(tx, quoteId, items);
+    },
+    // 라인을 한 건씩 순차 갱신한다 — 대형 BOM 은 Prisma 기본 5초를 넘는다(persistQuoteComputed 와 같은 여유).
+    { maxWait: 10_000, timeout: 60_000 },
+  );
 }
 
 /** 분석 component 조회 조건을 Prisma 실제 필드명으로 고정하는 회귀 방어선. */

@@ -1659,29 +1659,36 @@ export async function reduceSettlementOrder(
   if (settlement.kind !== 'refund' || settlement.status !== 'pending' || settlement.odId === null || settlement.targetCtId === null) {
     return { ok: false, error: 'INVALID_STATE' };
   }
-  const info = await getOrderInfoByCtId(settlement.targetCtId);
-  if (info === null) return { ok: false, error: 'ORDER_ROW_CHANGED' };
-  if (settlement.amount > info.rowIoPrice) return { ok: false, error: 'AMOUNT_EXCEEDS_ORDER' };
-  const result = await reduceOrderedBomRowAmount({
+  // 감액은 주문행을 잠근 뒤 읽은 금액에서 빼고, 정산 id 표식으로 **한 번만** 적용된다 — 더블클릭이나
+  // "감액은 커밋됐는데 아래 상태 기록이 실패한" 요청의 재시도가 금액을 두 번 깎지 않는다.
+  const reduced = await reduceOrderedBomRowAmount({
     odId: settlement.odId,
     ctId: settlement.targetCtId,
     ioId: `bom-${String(quoteId)}`,
-    fromPrice: info.rowIoPrice,
-    toPrice: info.rowIoPrice - settlement.amount,
+    amount: settlement.amount,
     actorMbId,
     note: `부품 확인 요청 #${String(settlement.requestId ?? '')} 환불분`,
+    applyOnceKey: `정산#${String(settlementId)}`,
   });
-  if (result !== 'ok') return { ok: false, error: 'ORDER_ROW_CHANGED' };
-  const now = new Date();
-  await prisma.spBomSettlement.update({ where: { id: settlementId }, data: { status: 'reduced', reducedAt: now } });
-  if (settlement.requestId !== null) {
+  if (reduced.result === 'AMOUNT_EXCEEDS') return { ok: false, error: 'AMOUNT_EXCEEDS_ORDER' };
+  if (reduced.result !== 'ok' && reduced.result !== 'ALREADY_APPLIED') {
+    return { ok: false, error: 'ORDER_ROW_CHANGED' };
+  }
+  // 상태 전환은 한 요청만 한다 — 동시에 들어온 요청은 0건이 되어 이벤트를 두 번 남기지 않는다.
+  const flipped = await prisma.spBomSettlement.updateMany({
+    where: { id: settlementId, status: 'pending' },
+    data: { status: 'reduced', reducedAt: new Date() },
+  });
+  if (flipped.count === 1 && settlement.requestId !== null) {
     await prisma.spBomConfirmEvent.create({
       data: {
         requestId: settlement.requestId,
         action: 'settlement_reduced',
         actorRole: 'admin',
         actorMbId,
-        note: `주문 ${settlement.odId} 금액 ${info.rowIoPrice.toLocaleString('ko-KR')} → ${(info.rowIoPrice - settlement.amount).toLocaleString('ko-KR')}원`,
+        note: reduced.result === 'ok'
+          ? `주문 ${settlement.odId} 금액 ${reduced.fromPrice.toLocaleString('ko-KR')} → ${reduced.toPrice.toLocaleString('ko-KR')}원`
+          : `주문 ${settlement.odId} 감액은 이미 반영돼 있어 정산 상태만 맞췄습니다`,
       },
     });
   }

@@ -256,7 +256,10 @@ export async function startDevReviewJob(options: StartDevReviewJobOptions): Prom
       : err instanceof Error && /timeout|abort/i.test(err.message)
         ? 'TIMEOUT'
         : 'GENERATION_FAILED';
-    void finishAiJob(job.id, { error: message });
+    // 실패 원인이 DB 순단이면 이 기록도 같이 실패한다 — 놓친 거절로 올리지 않는다.
+    finishAiJob(job.id, { error: message }).catch((finishErr: unknown) => {
+      log.warn({ err: finishErr, jobId: job.id }, 'dev review job failure could not be recorded');
+    });
   });
 
   log.info({ useCase, jobId: job.id, mbId, model, images: images.length }, 'ai job started');

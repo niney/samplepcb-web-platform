@@ -64,12 +64,13 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       if (!request.isMultipart()) {
         return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
       }
-      const { files, rawPayload } = await collectMultipart(request);
+      // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
       try {
         await request.jwtVerify();
       } catch {
         return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
       }
+      const { files, rawPayload } = await collectMultipart(request);
       if (rawPayload === undefined) {
         return reply.status(400).send({ result: false, error: 'PAYLOAD_REQUIRED' });
       }
@@ -181,12 +182,13 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       if (!request.isMultipart()) {
         return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
       }
-      const { files, rawPayload } = await collectMultipart(request);
+      // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
       try {
         await request.jwtVerify();
       } catch {
         return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
       }
+      const { files, rawPayload } = await collectMultipart(request);
       if (rawPayload === undefined) {
         return reply.status(400).send({ result: false, error: 'PAYLOAD_REQUIRED' });
       }

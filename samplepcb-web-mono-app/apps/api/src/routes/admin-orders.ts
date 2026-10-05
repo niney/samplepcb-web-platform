@@ -26,6 +26,7 @@ import type {
   AdminOrderDetailOrderType,
   PcbProjectPayloadType,
 } from '@sp/api-contract';
+import { clientIp } from '../lib/client-ip';
 import { loadBomOrderShippingReadiness } from '../lib/bom-order-shipping';
 import {
   deleteOrders,
@@ -431,7 +432,7 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       },
     },
     async (request) => {
-      const action = await deleteOrders(request.body.odIds, request.user.mbId, request.ip);
+      const action = await deleteOrders(request.body.odIds, request.user.mbId, clientIp(request));
       return {
         result: true as const,
         data: { processed: action.processed, skipped: action.skipped, notify: [] },
@@ -711,7 +712,7 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       }
 
       const { ctIds, target } = request.body;
-      const result = await setOrderItemsStatus(odId, ctIds, target, request.user.mbId, request.ip);
+      const result = await setOrderItemsStatus(odId, ctIds, target, request.user.mbId, clientIp(request));
       return {
         result: true as const,
         data: {
@@ -767,7 +768,7 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         target,
         delivery,
         request.user.mbId,
-        request.ip,
+        clientIp(request),
         { preserveCanceled },
       );
       if (outcome === 'HAS_POINT') {

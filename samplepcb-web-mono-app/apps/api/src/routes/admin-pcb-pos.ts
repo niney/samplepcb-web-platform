@@ -433,6 +433,8 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           NOTHING_TO_REVERT: '되돌릴 단계가 없습니다 — 이미 첫 단계(발주접수)입니다.',
           DELEGATED: 'MD 경유 발주입니다 — 진행·되돌리기는 하위 발주에서 합니다.',
           PO_NOT_FOUND: '발주서를 찾을 수 없습니다.',
+          // 읽은 뒤에 상태가 바뀌었다(동시 조작) — 아무것도 쓰지 않았다.
+          INVALID_STATUS: '다른 처리와 겹쳤습니다 — 새로 고친 뒤 다시 시도해 주세요.',
         };
         return reply.status(409).send({
           error: res.error,

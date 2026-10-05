@@ -59,6 +59,11 @@ apps/
 - API 요청/응답 스키마는 **반드시 `@sp/api-contract`(Zod)** 에 정의하고 FE/BE 양쪽이 그걸 import.
 - `/app`·`/market`·`/api`는 그누보드 예약 경로. base/prefix 고정.
 - 신규 DB 테이블은 `sp_` 접두, Prisma 가 소유. `g5_*` 는 Prisma 스키마에 넣지 않고 `lib/g5-db.ts`(mysql2) 접근 카탈로그로만 읽고 쓴다.
+- **api 런타임 규칙(2026-10-05)**:
+  - 방문자 IP 는 `request.ip` 가 아니라 `clientIp(request)`(`lib/client-ip.ts`) — nginx 뒤라 `request.ip` 는 항상 127.0.0.1 이다.
+  - multipart 라우트는 **인증을 본문 수집(`collectMultipart`·`request.parts()`) 앞에** 둔다 — 뒤에 두면 익명 요청이 파일을 메모리에 올린다.
+  - 예상 밖 예외의 원문은 전역 핸들러(`lib/error-handler.ts`)가 가린다. 사용자에게 보여 줄 오류는 `reply.conflict()` 등 상태 코드가 있는 오류로 낸다.
+  - 폴링되는 조회는 큰 JSON 컬럼(`preflight`·후보 `payload`·`rawJson`)을 `select` 로 빼고 읽는다.
 
 ## 개발
 

@@ -14,6 +14,7 @@ import {
   CustomerBomConfirmMineResponse,
   CustomerBomSettlementCheckoutResponse,
 } from '@sp/api-contract';
+import { clientIp } from '../lib/client-ip';
 import {
   CHARGE_CHECKOUT_ERROR_MESSAGES,
   CONFIRM_ANSWER_ERROR_MESSAGES,
@@ -95,7 +96,7 @@ export const bomConfirmRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         request.params.settlementId,
         request.user.mbId,
         request.user.cartId,
-        request.ip,
+        clientIp(request),
       );
       if (!result.ok) {
         const status = result.error === 'NOT_FOUND' ? 404 : result.error === 'ANCHOR_ITEM_MISSING' || result.error === 'CART_INSERT_FAILED' ? 503 : 409;

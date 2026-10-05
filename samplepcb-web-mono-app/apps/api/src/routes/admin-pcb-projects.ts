@@ -30,6 +30,7 @@ import type {
 } from '@sp/api-contract';
 import { splitVatIncluded } from '@sp/utils';
 import { createHash } from 'node:crypto';
+import { clientIp } from '../lib/client-ip';
 import { buildOptionSummary } from '../lib/option-summary';
 import { calculateQuote } from '../pricing/engine';
 import { getFreshPricingData } from '../pricing/live-pricing';
@@ -1187,7 +1188,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
               const outcome = await deleteUnpaidOrder(
                 info.odId,
                 request.user.mbId,
-                request.ip,
+                clientIp(request),
                 undefined,
                 {
                   retainBackup: retainAudit,
@@ -1227,7 +1228,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
                 mbId: spec.mbId ?? '',
                 subjectStatus: spec.quoteStatus,
                 actorMbId: request.user.mbId,
-                actorIp: request.ip,
+                actorIp: clientIp(request),
                 reason,
                 snapshot: {
                   cartState: state,

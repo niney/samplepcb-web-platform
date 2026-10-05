@@ -2,6 +2,7 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { SpFile, SpMarketContract } from '@prisma/client';
 import { maskName } from '@sp/utils';
 import { z } from 'zod';
+import { clientIp } from '../lib/client-ip';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
 import {
@@ -176,7 +177,7 @@ export const marketContractRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
             ioId: c.contractKey,
             price: c.amount,
             option: `재능마켓 계약 #${String(Number(c.id))}`,
-            ip: request.ip,
+            ip: clientIp(request),
           });
         } catch (err) {
           await deleteQuoteOption(anchor.itId, c.contractKey).catch(() => undefined);
@@ -208,12 +209,13 @@ export const marketContractRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     }
     const params = ProjectIdParams.safeParse(request.params);
     if (!params.success) return reply.badRequest('잘못된 경로입니다');
-    const { files, fields } = await collectMultipart(request);
+    // 인증이 먼저다 — 본문(파일)을 메모리에 올리기 전에 토큰부터 본다(헤더만 읽는다).
     try {
       await request.jwtVerify();
     } catch {
       return reply.unauthorized('로그인이 필요합니다');
     }
+    const { files, fields } = await collectMultipart(request);
 
     const contract = await prisma.spMarketContract.findUnique({
       where: { projectId: BigInt(params.data.id) },

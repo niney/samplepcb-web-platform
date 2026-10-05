@@ -75,12 +75,17 @@ import { adminDevelopSettingsRoutes } from './routes/admin-develop-settings';
 import { adminDevelopQuoteRoutes } from './routes/admin-develop-quotes';
 import { adminDevelopDocRoutes } from './routes/admin-develop-docs';
 import { scheduleKoreaEximExchangeRateRefresh } from './lib/exchange-rate';
+import { registerErrorHandler } from './lib/error-handler';
+import { closeG5Pool } from './lib/g5-db';
+import { prisma } from './lib/prisma';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
 // Zod 를 req/res 검증 + 직렬화의 단일 진실원본으로 연결.
 app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
+// 예상하지 못한 예외의 원문(Prisma 경로·SQL 조각)을 응답에 싣지 않는다 — 라우트 등록 전에 건다.
+registerErrorHandler(app);
 
 // httpErrors/assert 등 유틸. 개발 시 web(:5173)과 api(:3333)는 다른 origin 이라 CORS 허용.
 await app.register(fastifySensible);
@@ -276,6 +281,40 @@ async function cleanupMailLogHistory(): Promise<void> {
 void cleanupMailLogHistory();
 const mailLogCleanupTimer = setInterval(() => void cleanupMailLogHistory(), 6 * 3_600_000);
 mailLogCleanupTimer.unref();
+
+// 놓친 Promise 거절 하나가 프로세스를 내리지 않게 한다. 핸들러가 없으면 Node 는 거절을
+// 예외로 승격해 종료하는데(기본 --unhandled-rejections=throw), 이 서버에는 응답 뒤에
+// 이어지는 fire-and-forget 호출(메일·치유·정리)이 많아 DB 순단 한 번이 진행 중인 요청과
+// 인메모리 폴러를 전부 끊는다. 원인은 로그에 남긴다 — uncaughtException 은 건드리지 않는다
+// (상태를 믿을 수 없으므로 종료 후 systemd 재기동이 맞다).
+process.on('unhandledRejection', (reason) => {
+  app.log.error({ err: reason }, 'unhandled promise rejection');
+});
+
+// 종료 신호(systemctl restart·배포·Ctrl+C) — 새 요청을 막고 진행 중인 요청을 마친 뒤
+// DB 연결을 닫는다. 타이머·폴러는 unref 라 종료를 막지 않는다. 15초 안에 못 끝내면
+// 강제 종료한다(systemd TimeoutStopSec 기본 90초보다 짧게).
+let shuttingDown = false;
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  app.log.info({ signal }, '종료 신호 수신 — 진행 중인 요청을 마치고 내린다');
+  const force = setTimeout(() => {
+    app.log.error('종료 대기 시간 초과 — 강제 종료');
+    process.exit(1);
+  }, 15_000);
+  force.unref();
+  try {
+    await app.close();
+    await Promise.allSettled([prisma.$disconnect(), closeG5Pool()]);
+    process.exit(0);
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
+}
+process.once('SIGTERM', (signal) => void shutdown(signal));
+process.once('SIGINT', (signal) => void shutdown(signal));
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로

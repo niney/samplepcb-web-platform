@@ -40,6 +40,7 @@ import {
   type BomQuoteSearchRequirementsType,
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
+import { clientIp } from '../lib/client-ip';
 import { prisma } from '../lib/prisma';
 import { serviceActorHook, type ActorRouteOptions } from '../lib/service-actor';
 import { bomOrderformUrl, orderBomQuote } from '../lib/bom-order';
@@ -2064,7 +2065,9 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fast
 
     if (request.body.items !== undefined) {
       const seenIds = new Set<string>();
-      let nextRowIdx = items.reduce((max, item) => Math.max(max, item.rowIdx), -1) + 1;
+      // 선택 해제된 시트의 행도 (quoteId,rowIdx) 유니크를 차지한다 — 활성 행만 보면 번호가 겹쳐
+      // P2002 로 자동저장이 계속 실패한다. 다른 추가 경로와 같이 저장된 전체 행을 기준으로 한다.
+      let nextRowIdx = quote.items.reduce((max, item) => Math.max(max, item.rowIdx), -1) + 1;
       for (const edit of request.body.items) {
         if (edit.id === null) {
           const catalog = edit.catalogSelection;
@@ -2252,7 +2255,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fast
     if (cartId === undefined || cartId === '') {
       return reply.status(409).send({ result: false, error: 'NO_CART_ID' });
     }
-    const result = await orderBomQuote(quote, cartId, request.ip, request.log);
+    const result = await orderBomQuote(quote, cartId, clientIp(request), request.log);
     if (!result.ok) return reply.status(409).send({ result: false, error: result.error });
     await selectCartRows(cartId, [result.ctId]);
     return { result: true as const, data: { ctId: result.ctId, redirectUrl: result.redirectUrl } };
@@ -2274,7 +2277,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fast
         failed.push({ quoteId: id, error: 'NOT_FOUND' });
         continue;
       }
-      const result = await orderBomQuote(quote, cartId, request.ip, request.log);
+      const result = await orderBomQuote(quote, cartId, clientIp(request), request.log);
       if (!result.ok) {
         failed.push({ quoteId: id, error: result.error });
         continue;

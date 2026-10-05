@@ -13,6 +13,7 @@ import type {
   AdminBomOrderCountsType,
   AdminBomOrderListItemType,
 } from '@sp/api-contract';
+import { clientIp } from '../lib/client-ip';
 import { prisma } from '../lib/prisma';
 import { loadOpenShortageCounts, loadReceivedPoCounts } from '../lib/bom-po';
 import { areAllBomOrderCasesReceived } from '../lib/bom-order-shipping';
@@ -321,7 +322,7 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         [preview.ctId],
         '취소',
         request.user.mbId,
-        request.ip,
+        clientIp(request),
         {
           requireUnpaidBankTransfer: true,
           historyReason: request.body.reason,

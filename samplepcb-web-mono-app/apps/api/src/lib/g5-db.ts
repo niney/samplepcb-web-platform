@@ -189,7 +189,8 @@
 //   • BOM_EXTRA_ANCHOR_IT_ID('sp-bom-extra')·getBomExtraAnchorItem — 추가결제 카트행 앵커(⑲ 동형,
 //       read-only SELECT). 카트 INSERT 는 ①② insertQuoteOption/insertCartRow 를 io_id=`bomx-{정산id}` 로 재사용.
 //   • reduceOrderedBomRowAmount — 결제된 BOM 주문행 g5_shop_cart.io_price 감액(FOR UPDATE 가드: ct_id·od_id·
-//       io_id·현재 io_price·결제 상태) + g5_shop_order.od_mod_history append + recomputeOrderMoneyOnItemChange
+//       io_id·결제 상태, 금액은 잠근 뒤 읽은 io_price 에서 뺀다) + g5_shop_order.od_mod_history append(한 번만
+//       적용 표식 `[정산#id]` 포함 — 같은 표식이 있으면 무변경 ALREADY_APPLIED) + recomputeOrderMoneyOnItemChange
 //       (od_cart_price·od_cancel_price·od_misu·세액). 주문행 io_price 불변 원칙의 유일한 명시 예외.
 //   • addOrderRefund — od_refund_price 원자 증가 + od_mod_history append + recomputeOrderMoney(⑭ updateOrderRefund
 //       의 증분판 — 정산 원장 한 건씩 닫을 때). 돈은 보내지 않는다(기록만).
@@ -379,7 +380,9 @@ export async function insertCartRow(c: CartInsert): Promise<number> {
       c.item.notax,
       c.ioId,
       c.price, // → io_price (위 주석 참조)
-      c.ip,
+      // ct_ip 는 varchar(25) — 실제 방문자 주소(lib/client-ip)가 IPv6 이면 넘칠 수 있다.
+      // strict sql_mode 에서 담기가 실패하지 않도록 컬럼 폭으로 자른다(코어도 같은 폭).
+      c.ip.slice(0, 25),
     ],
   );
   return result.insertId; // = ct_id
@@ -3253,35 +3256,48 @@ export async function updateOrderRefund(
 // addOrderRefund 로 닫는다. updateOrderedCartOption 의 'io_price 불변' 원칙의 유일한 명시 예외 —
 // 고객이 답한 확인 요청 결과에 한해서다(D31-4 개정).
 
-export type BomRowReduceResult = 'ok' | 'ORDER_NOT_FOUND' | 'ROW_CHANGED';
+export type BomRowReduceResult =
+  | { result: 'ok'; fromPrice: number; toPrice: number }
+  | { result: 'ALREADY_APPLIED' | 'ORDER_NOT_FOUND' | 'ROW_CHANGED' | 'AMOUNT_EXCEEDS' };
 
 /**
- * 결제된 BOM 주문행 금액을 줄인다. 같은 연결 트랜잭션에서 주문 헤더·카트행을 FOR UPDATE 로 잠그고
- * ct_id·od_id·io_id·**현재 io_price**·결제 상태를 다시 확인한다 — 화면이 본 금액과 다르면 ROW_CHANGED
- * (두 번 감액 방지). 이력은 od_mod_history 에 남긴다(⑮ 취소 블록 관례).
+ * 결제된 BOM 주문행 금액을 amount 만큼 줄인다. 같은 연결 트랜잭션에서 주문 헤더·카트행을 FOR UPDATE 로
+ * 잠그고 ct_id·od_id·io_id·결제 상태를 다시 확인한 뒤, **잠근 뒤에 읽은 현재 io_price** 에서 뺀다.
+ * 호출부가 미리 읽은 금액은 받지 않는다 — 그 값은 재시도·동시 요청에서 이미 줄어든 금액이라
+ * 두 번 감액을 막지 못했다(1000 → 700 → 400).
+ * 두 번 감액 방지는 applyOnceKey 가 맡는다: 감액과 **같은 트랜잭션**으로 od_mod_history 에 `[표식]` 을
+ * 남기고, 표식이 이미 있으면 아무것도 바꾸지 않고 ALREADY_APPLIED 를 돌려준다(더블클릭, 감액 커밋 뒤
+ * 정산 상태 기록이 실패한 요청의 재시도). 이력은 od_mod_history 에 남긴다(⑮ 취소 블록 관례).
  */
 export async function reduceOrderedBomRowAmount(input: {
   odId: string;
   ctId: number;
   ioId: string;
-  fromPrice: number;
-  toPrice: number;
+  amount: number;
   actorMbId: string;
   note: string;
+  /** 이 감액의 고유 표식(예: '정산#12') — 주문당 한 번만 적용된다. */
+  applyOnceKey: string;
 }): Promise<BomRowReduceResult> {
-  if (!Number.isInteger(input.toPrice) || input.toPrice < 0 || input.toPrice >= input.fromPrice) {
-    throw new Error('reduceOrderedBomRowAmount: toPrice must be a non-negative integer below fromPrice');
+  if (!Number.isInteger(input.amount) || input.amount <= 0) {
+    throw new Error('reduceOrderedBomRowAmount: amount must be a positive integer');
   }
+  const marker = `[${input.applyOnceKey}]`;
   const connection = await getG5Pool().getConnection();
   try {
     await connection.beginTransaction();
     const [orders] = await connection.query<RowDataPacket[]>(
-      `SELECT od_id FROM g5_shop_order WHERE od_id = ? FOR UPDATE`,
-      [input.odId],
+      `SELECT od_id, LOCATE(?, od_mod_history) > 0 AS applied FROM g5_shop_order WHERE od_id = ? FOR UPDATE`,
+      [marker, input.odId],
     );
-    if (orders[0] === undefined) {
+    const order = orders[0];
+    if (order === undefined) {
       await connection.rollback();
-      return 'ORDER_NOT_FOUND';
+      return { result: 'ORDER_NOT_FOUND' };
+    }
+    if (Number(order.applied) === 1) {
+      await connection.rollback();
+      return { result: 'ALREADY_APPLIED' };
     }
     const [rows] = await connection.query<RowDataPacket[]>(
       `SELECT ct_status, io_id, io_price FROM g5_shop_cart WHERE ct_id = ? AND od_id = ? FOR UPDATE`,
@@ -3291,24 +3307,29 @@ export async function reduceOrderedBomRowAmount(input: {
     if (
       row === undefined ||
       String(row.io_id) !== input.ioId ||
-      Number(row.io_price) !== input.fromPrice ||
       !PAID_ORDER_STATUSES.includes(String(row.ct_status))
     ) {
       await connection.rollback();
-      return 'ROW_CHANGED';
+      return { result: 'ROW_CHANGED' };
     }
-    await connection.query(`UPDATE g5_shop_cart SET io_price = ? WHERE ct_id = ?`, [input.toPrice, input.ctId]);
+    const fromPrice = Number(row.io_price);
+    if (!Number.isInteger(fromPrice) || input.amount > fromPrice) {
+      await connection.rollback();
+      return { result: 'AMOUNT_EXCEEDS' };
+    }
+    const toPrice = fromPrice - input.amount;
+    await connection.query(`UPDATE g5_shop_cart SET io_price = ? WHERE ct_id = ?`, [toPrice, input.ctId]);
     const note = input.note.replace(/[\r\n]+/g, ' ').trim().slice(0, 200);
     const history = `${kstDateTimeStr(new Date())} ${input.actorMbId} 부품 확인 차액 감액 `
-      + `${input.fromPrice.toLocaleString('en-US')}→${input.toPrice.toLocaleString('en-US')}원`
-      + `${note === '' ? '' : ` (${note})`}\n`;
+      + `${fromPrice.toLocaleString('en-US')}→${toPrice.toLocaleString('en-US')}원`
+      + `${note === '' ? '' : ` (${note})`} ${marker}\n`;
     await connection.query(
       `UPDATE g5_shop_order SET od_mod_history = CONCAT(od_mod_history, ?) WHERE od_id = ?`,
       [history, input.odId],
     );
     await recomputeOrderMoneyOnItemChange(input.odId, connection);
     await connection.commit();
-    return 'ok';
+    return { result: 'ok', fromPrice, toPrice };
   } catch (error) {
     await connection.rollback().catch(() => undefined);
     throw error;

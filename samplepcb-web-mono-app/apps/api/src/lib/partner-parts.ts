@@ -541,7 +541,7 @@ export async function commitPartnerPartUpload(
   // 커져 대형 재고표에서 다시 패킷 벽에 부딪힌다. 식별은 (시트, 원본 행) 조합으로 한다
   // (같은 품번이 여러 lot 으로 반복되므로 mpnNorm 만으로는 행이 갈리지 않는다).
   const rowKey = (sheet: string | null, sourceRow: number | null): string =>
-    `${sheet ?? ''} ${sourceRow === null ? '' : String(sourceRow)}`;
+    `${sheet ?? ''}\u0000${sourceRow === null ? '' : String(sourceRow)}`;
   const saved = await prisma.spPartnerPart.findMany({
     where: { uploadId },
     select: { id: true, sourceSheetName: true, sourceRow: true },
@@ -784,7 +784,7 @@ async function projectChunk(
   touched: Set<string>,
 ): Promise<number> {
   const identityKey = (row: { mpnNorm: string; manufacturerNorm: string }): string =>
-    `${row.mpnNorm} ${row.manufacturerNorm}`;
+    `${row.mpnNorm}\u0000${row.manufacturerNorm}`;
 
   // ① 부품 확보 — 있는 것을 한 번에 읽고, 없는 것만 한 번에 만든다.
   const mpnNorms = [...new Set(rows.map((row) => row.mpnNorm))];

@@ -26,6 +26,7 @@ import type {
   AdminBomQuoteCountsType,
   AdminBomQuoteEmailDeliveryType,
 } from '@sp/api-contract';
+import { clientIp } from '../lib/client-ip';
 import { prisma } from '../lib/prisma';
 import {
   canEditBomQuoteReview,
@@ -341,7 +342,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       try {
         const data = await purgeBomCase(plan, request.body, {
           mbId: request.user.mbId,
-          ip: request.ip,
+          ip: clientIp(request),
         });
         if (request.body.mode === 'audited') {
           request.log.warn(
