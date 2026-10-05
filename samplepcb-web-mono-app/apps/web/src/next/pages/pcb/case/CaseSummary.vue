@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { ChevronDownIcon, ChevronUpIcon, DownloadIcon, PanelRightIcon, TriangleAlertIcon } from '@lucide/vue';
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  DownloadIcon,
+  FileTextIcon,
+  PanelRightIcon,
+  ReceiptTextIcon,
+  TriangleAlertIcon,
+  WalletIcon,
+} from '@lucide/vue';
 import { fmtKstDate } from '@sp/utils';
 import { downloadAdminFile } from '@/admin/useAdminQuotes';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '@/lib/pcb-money';
@@ -11,6 +20,8 @@ import { pcbCategoryBadge } from '@/next/components/pcb/pcb-badges';
 import { rateNote } from './case-core';
 import { usePcbCaseContext } from './usePcbCase';
 
+// 줄 구분은 왼쪽 이름 열(아이콘+이름)이 한다 — 색 막대는 두지 않는다(막대 셋 중 뜻이 있던 건 미수 하나였고,
+// 그건 같은 줄의 미수금 배지가, 견적·주문 상태는 머리 배지가 이미 말한다. 2026-10-06 사용자 결정).
 // 사양·견적·주문을 옆으로 세우지 않고 위아래로 쌓는다 — 셋은 순차적으로 하는 다른 일이고, 나란히 두면
 // 짧은 쪽이 긴 쪽 높이에 끌려간다(실측 724px). 세 줄 모두 같은 문법: 좌측 이름 · 가운데 값 · 우측 동작.
 // 금액은 칸으로 나눠 tabular-nums 로 자릿수를 맞춘다. 견적(팔기 전)과 주문·수금(팔린 후)은 다른 사건이라
@@ -59,8 +70,11 @@ const toggleSpecPanel = (): void => {
   <section v-if="detail !== null" class="bg-card divide-y overflow-hidden rounded-xl border shadow-xs">
     <!-- 제작 사양 — 협력사와 통화하며 그대로 읽는 값만 한 줄로. 전체 항목은 우측 곁판으로(확인하는 것이라).
          첨부는 여기 남긴다 — 내려받기는 곁판을 열 이유가 아니다. -->
-    <div class="border-l-muted-foreground/40 flex flex-wrap items-center gap-x-4 gap-y-2 border-l-4 px-4 py-3">
-      <span class="text-muted-foreground w-20 shrink-0 text-xs font-medium">제작 사양</span>
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <span class="text-muted-foreground inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-medium">
+        <FileTextIcon class="size-3.5 shrink-0" />
+        제작 사양
+      </span>
       <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
         <!-- 제품군은 배지로 — 뒤의 값들과 회색 텍스트로 흘리면 분류로 읽히지 않는다. -->
         <Badge :variant="pcbCategoryBadge(detail.category).variant">{{ pcbCategoryBadge(detail.category).label }}</Badge>
@@ -98,8 +112,11 @@ const toggleSpecPanel = (): void => {
     </div>
 
     <!-- 고객 견적 -->
-    <div class="border-l-success flex flex-wrap items-center gap-x-4 gap-y-2 border-l-4 px-4 py-3">
-      <span class="text-muted-foreground w-20 shrink-0 text-xs font-medium">고객 견적</span>
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <span class="text-muted-foreground inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-medium">
+        <ReceiptTextIcon class="size-3.5 shrink-0" />
+        고객 견적
+      </span>
       <dl class="flex min-w-0 flex-1 flex-wrap items-stretch gap-y-1 divide-x">
         <div class="pr-4">
           <dt class="text-muted-foreground text-xs whitespace-nowrap">확정 총액 <span class="font-normal">(VAT 포함)</span></dt>
@@ -182,10 +199,12 @@ const toggleSpecPanel = (): void => {
     <!-- 주문 · 수금 — od read-only 파생. 레거시 이관 주문 이력 열람의 정위치. -->
     <div
       v-if="detail.order !== null"
-      class="flex flex-wrap items-center gap-x-4 gap-y-2 border-l-4 px-4 py-3"
-      :class="detail.order.misu > 0 ? 'border-l-destructive' : 'border-l-primary'"
+      class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
     >
-      <span class="text-muted-foreground w-20 shrink-0 text-xs font-medium">주문 · 수금</span>
+      <span class="text-muted-foreground inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-medium">
+        <WalletIcon class="size-3.5 shrink-0" />
+        주문 · 수금
+      </span>
       <dl class="flex min-w-0 flex-1 flex-wrap items-stretch gap-y-1 divide-x">
         <div class="pr-4">
           <dt class="text-muted-foreground text-xs whitespace-nowrap">주문번호</dt>
