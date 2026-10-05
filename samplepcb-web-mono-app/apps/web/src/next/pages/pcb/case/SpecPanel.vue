@@ -47,10 +47,12 @@ const { detail, specEntries, gerberFiles, specPanelOpen, specPanelPinned, toggle
         <Badge :variant="pcbCategoryBadge(detail.category).variant">{{ pcbCategoryBadge(detail.category).label }}</Badge>
         {{ detail.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.qty }}매
       </p>
-      <!-- 값은 거버 화면의 선택지 표시명, 저장 원문은 title 로 남긴다(협력사에 넘어가는 값). -->
-      <dl v-if="specEntries.length > 0" class="mt-3 columns-2 gap-x-4 text-xs">
-        <div v-for="entry in specEntries" :key="entry.key" class="flex break-inside-avoid items-baseline gap-1.5 border-b py-1">
-          <dt class="text-muted-foreground w-20 shrink-0 truncate" :title="entry.label">{{ entry.label }}</dt>
+      <!-- 값은 거버 화면의 선택지 표시명, 저장 원문은 title 로 남긴다(협력사에 넘어가는 값).
+           통화하며 소리 내 읽는 값이라 본문과 같은 14px — 12px 였을 때 화면에서 가장 작은 글자가 가장 자주
+           읽는 값이었다. 이름 칸은 14px 에서 '패턴폭/간격'이 잘리지 않는 폭, 긴 값은 잘지 않고 줄바꿈. -->
+      <dl v-if="specEntries.length > 0" class="mt-3 columns-2 gap-x-6 text-sm">
+        <div v-for="entry in specEntries" :key="entry.key" class="flex break-inside-avoid items-baseline gap-1.5 border-b py-1.5">
+          <dt class="text-muted-foreground w-24 shrink-0 truncate" :title="entry.label">{{ entry.label }}</dt>
           <dd class="min-w-0 flex-1 font-medium tabular-nums" :title="`저장값 ${entry.value}`">{{ entry.display }}</dd>
         </div>
       </dl>
