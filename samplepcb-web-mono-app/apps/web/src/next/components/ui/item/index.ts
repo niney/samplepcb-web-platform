@@ -13,17 +13,23 @@ export { default as ItemSeparator } from "./ItemSeparator.vue"
 export { default as ItemTitle } from "./ItemTitle.vue"
 
 export const itemVariants = cva(
-  "group/item flex items-center border border-transparent text-sm rounded-md transition-colors [a]:hover:bg-accent/50 [a]:transition-colors duration-100 flex-wrap outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3",
+  "group/item flex items-center border border-transparent text-sm rounded-md transition-colors [a]:hover:bg-accent/50 [a]:transition-colors [button]:hover:bg-accent/50 [button]:transition-colors [button]:text-left disabled:pointer-events-none disabled:opacity-55 duration-100 flex-wrap outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3",
   {
     variants: {
       variant: {
         default: "bg-transparent",
         outline: "border-border",
         muted: "bg-muted/50",
+        // 관리자 리뉴얼: 종류를 테두리 색으로 가르는 타일(API 공급사=완료색, 협력사 RFQ=진행색).
+        "outline-success": "border-success/40",
+        "outline-info": "border-info/40",
       },
       size: {
         default: "p-4 gap-4 ",
         sm: "py-3 px-4 gap-2.5",
+        // 관리자 리뉴얼: 가로로 여러 개 늘어서는 작은 선택 타일(선정 공급사 등) — 옛 화면 밀도. 타일은 회색 띠
+        // 위에 놓이므로 카드 바탕(bg-card)으로 띄워 바탕과 갈린다(다크에서도 한 단 밝다).
+        xs: "py-2 px-3 gap-2 bg-card shadow-xs",
       },
     },
     defaultVariants: {

@@ -23,7 +23,7 @@ samplepcb 신규 프런트/API **모노레포**(pnpm + Turborepo). 상위 우산
   `apps/web/src/partner/i18n.ts`의 주입 범위와 `partner/locales` 원문 키를 사용하며 전역 언어는 바꾸지 않는다.
   공용 컴포넌트의 관리자 문구·업무 코드·사용자 입력값을 번역하지 않는다. 상세 [파트너 언어 지원](../docs/partner-i18n.md).
 - 확정 디자인/디자인시스템 도입 시 이 문구를 갱신할 것.
-- **관리자 리뉴얼(2026-10-06~) — shadcn-vue, `apps/web/src/next/`.** PCB 모듈부터 `/app/admin/next/pcb/*` 에 옛 화면과 나란히 짓고 컷오버로 넘긴다. 정본 [`../docs/ADMIN_NEXT_UI.md`](../docs/ADMIN_NEXT_UI.md).
+- **관리자 리뉴얼(2026-10-06~) — shadcn-vue, `apps/web/src/next/`.** PCB·SmartBOM 모듈을 `/app/admin/next/{pcb,smartbom,bom}/*` 에 옛 화면과 나란히 짓고 컷오버로 넘긴다. 정본 [`../docs/ADMIN_NEXT_UI.md`](../docs/ADMIN_NEXT_UI.md).
   `src/next/**` 를 고친 뒤에는 `npx eslint <고친 파일>` + `node scripts/next-ui-audit.mjs`(apps/web, 전체는 `pnpm lint:next`)를 통과시킬 것 — 앞은 `@shadcn/lint`(옛 토큰·Tailwind 팔레트·임의값·restyle·인라인 style), 뒤는 손으로 지은 알림·상자·버튼 대신 키트를 쓰는지. 옛 화면 코드에는 걸지 않는다.
 
 ## 타입 강성 — "매우 강함" (반드시 유지)

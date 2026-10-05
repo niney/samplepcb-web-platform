@@ -1,17 +1,14 @@
 import { PCB_STEPS } from '@sp/api-contract';
-import type { BadgeVariants } from '@/next/components/ui/badge';
+import type { BadgeVariant, StatusBadge } from '@/next/components/common/badge-types';
+import { odStatusVariant } from '@/next/components/common/order-status';
 
 // PCB 목록 배지 사전 — 옛 화면의 색 클래스(bg-amber-100 …) 대신 Badge variant 로 말한다.
-// 색은 뜻으로 고른다: warning=기다림·주의, info=진행, success=끝남·확정, danger=문제,
-// secondary=중립·이력, outline=부가 표지. 같은 뜻은 화면이 달라도 같은 variant 를 쓴다.
+// 색의 뜻·공용 타입은 common/badge-types.ts, 주문(od) 상태 색은 common/order-status.ts(SmartBOM 과 공용).
 // <Badge :variant="b.variant">{{ b.label }}</Badge>
 
-export type BadgeVariant = NonNullable<BadgeVariants['variant']>;
-
-export interface PcbBadge {
-  label: string;
-  variant: BadgeVariant;
-}
+export type { BadgeVariant } from '@/next/components/common/badge-types';
+/** PCB 화면들이 쓰던 이름 — 공용 StatusBadge 와 같다. */
+export type PcbBadge = StatusBadge;
 
 // 제작 분류(sp_order_spec.category, 4종 고정). standard 와 advance 는 공정·단가·리드타임이 다른
 // 물건이라 행을 훑을 때 바로 갈려야 한다 — 기본(standard)은 중립, advance 는 주의를 끈다.
@@ -54,24 +51,11 @@ export const pcbAsRoundBadge = (round: number, open: boolean): PcbBadge => ({
   variant: open ? 'danger' : 'secondary',
 });
 
-// 고객 주문 상태(od_status 원문, 정본은 g5) — 라벨은 그대로 두고 색만 구간으로 묶는다:
-// 입금 대기=기다림, 입금 뒤 진행=진행, 완료=끝남, 취소·반품·품절·삭제=이력. 모르는 상태는 원문 + 중립.
-// 진행현황·주문 화면·Case 상세가 같은 함수를 쓴다(같은 상태가 화면마다 다른 색이 되지 않게).
-const OD_STATUS: Record<string, BadgeVariant> = {
-  주문: 'warning',
-  입금: 'info',
-  준비: 'info',
-  파일검사: 'info',
-  생산중: 'info',
-  생산완료: 'info',
-  배송: 'info',
-  완료: 'success',
-  취소: 'secondary',
-};
-
+// 고객 주문 상태(od_status 원문, 정본은 g5) — 라벨은 그대로 두고 색만 구간으로 묶는다(common/order-status.ts,
+// SmartBOM 과 공용). 진행현황·주문 화면·Case 상세가 같은 함수를 쓴다(같은 상태가 화면마다 다른 색이 되지 않게).
 export const pcbOrderStatusBadge = (odStatus: string): PcbBadge => ({
   label: odStatus,
-  variant: OD_STATUS[odStatus] ?? 'secondary',
+  variant: odStatusVariant(odStatus),
 });
 
 // 발주 상태 — 관리자 승인을 기다리는 EQ 요청만 주의, 생산완료는 끝남, 나머지는 진행.

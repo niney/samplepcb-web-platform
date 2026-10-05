@@ -27,7 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/next/components/ui/table';
-import type { BadgeVariant } from '@/next/components/pcb/pcb-badges';
+import type { BadgeVariant } from '@/next/components/common/badge-types';
 import ListPagination from './ListPagination.vue';
 import Panel from './Panel.vue';
 import TableCard from './TableCard.vue';

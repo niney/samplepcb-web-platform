@@ -21,6 +21,10 @@ export default [
             { pattern: '^Table(Cell|Head)$', allow: ['layout', 'typography', 'color'] },
             // 카드 안쪽 여백은 담는 내용(표·폼)에 따라 화면이 정한다(문서 권장 예).
             { pattern: '^Card$|^Card(Header|Content|Footer)$', allow: ['layout', 'spacing'] },
+            // 숫자 배지(건수·금액)는 자릿수를 맞춘다 — 모양·색은 variant 가 정한다.
+            { pattern: '^Badge$', allow: ['layout', 'tabular-nums'] },
+            // 금액·수량·코드 입력칸은 오른쪽 정렬·자릿수 맞춤·고정폭이 읽기에 필요하다 — 테두리·높이·색은 막는다.
+            { pattern: '^(Input|InputGroupInput)$', allow: ['layout', 'text-right', 'tabular-nums', 'font-mono'] },
           ],
         },
       ],

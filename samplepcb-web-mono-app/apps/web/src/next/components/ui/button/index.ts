@@ -19,6 +19,10 @@ export const buttonVariants = cva(
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
+        // 관리자 리뉴얼: 업무 상태 버튼 — 옅은 바탕 + 상태 글자(next/theme.css 토큰). 위험(destructive)까지는 아닌
+        // 주의 조작(예: 추가결제 확인 전 선적용)과 완료 조작에 쓴다.
+        warning: "border border-warning/30 bg-warning-soft text-warning hover:bg-warning-soft/70",
+        success: "border border-success/30 bg-success-soft text-success hover:bg-success-soft/70",
       },
       size: {
         "default": "h-8 px-3 py-1.5 has-[>svg]:px-2.5",

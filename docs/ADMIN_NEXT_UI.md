@@ -1,6 +1,6 @@
 # 관리자 리뉴얼(shadcn-vue) — `src/next`
 
-sp-vue 관리자 화면을 shadcn-vue로 다시 짓는 작업의 정본 문서. **PCB 모듈부터** 시작한다(2026-10-06).
+sp-vue 관리자 화면을 shadcn-vue로 다시 짓는 작업의 정본 문서. PCB 모듈부터 시작했고(2026-10-06), SmartBOM 모듈까지 지었다(§10). 둘 다 컷오버 전.
 
 ## 1. 방식 — 나란히 짓고 한 번에 넘긴다
 
@@ -100,7 +100,7 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 - **인쇄·PDF 문서는 `print/` 폴더에** 둔다(라벨·인보이스 미리보기). 그 폴더만 `no-arbitrary-values`·`no-inline-styles`·`no-raw-colors` 를 끈다. 파일 안 `eslint-disable` 로 풀지 않는다. 옛 인쇄 문서(`EstimateSheet`·`usePrintIsolation`)는 그대로 import 해도 되는 유일한 예외.
 - **라벨 QR 주소는 옛 경로(`/app/admin/pcb/packages/…`)를 찍는다** — 종이에 남는 주소라 리뉴얼 경로를 찍으면 컷오버 뒤 죽은 링크가 된다.
 - **입력 대화상자에 저장이 따르면 `promptDialog({ …, submit, errorFallback })`** — 연 채로 저장하고 실패하면 입력을 둔 채 오류를 보인다. 닫은 뒤 저장하면 실패 시 입력이 사라진다.
-- **상태 배지 색은 `components/pcb/pcb-badges.ts` 한 곳** — 주문(od)·발주·선적 상태는 화면이 달라도 같은 함수(`pcbOrderStatusBadge`·`pcbPoStatusVariant`·`pcbShipmentStatusVariant`)를 쓴다. 화면 전용 사전(`pos/`·`remittance/`·`claims/`·`case/case-badges.ts`)은 그 화면에만 있는 상태만 둔다.
+- **상태 배지 색은 모듈마다 한 곳** — PCB 는 `components/pcb/pcb-badges.ts`(주문·발주·선적: `pcbOrderStatusBadge`·`pcbPoStatusVariant`·`pcbShipmentStatusVariant`), SmartBOM 은 `components/smartbom/smartbom-badges.ts`(견적·주문·발주·부품 확인·RFQ·클레임·선적·Case 상세 사전 전부, 작업대 `bom/workbench/workbench-badges.ts` 도 견적 색은 여기서), 공용은 `components/common/badge-types.ts`(`BadgeVariant`·`StatusBadge`)·`common/order-status.ts`(영카트 od 상태 색 — 두 모듈 공용). 화면 전용 사전(PCB `pos/`·`remittance/`·`claims/`·`case/case-badges.ts`)은 그 화면에만 있는 상태만 두고, 도메인 판정·글자색 헬퍼(`smartbom/po/mouser-cart.ts`·`smartbom/confirm/confirm-tones.ts`)는 각 폴더에 둔다.
 - 확인 대화상자: `tone: 'danger'` 는 첫 포커스가 취소 버튼, 배경 클릭으로 닫히지 않는다(AlertDialog).
 - 표 본문 글자는 14px(shadcn 기본) — 옛 PCB 화면의 `pcb-readable`(15px 확대)은 옮기지 않았다.
 
@@ -124,3 +124,22 @@ node scripts/next-ui-audit.mjs     # 점검만(1초)
 | heading | h2 에 text-base 이상 | `SectionCard` 제목·`PageHeader` |
 
 정적 `class` 와 동적 `:class`(삼항·배열 안의 문자열 조각까지) 모두 본다. 불가피한 곳은 윗줄에 `<!-- ui-audit-allow: 사유 -->`(현재 3곳 — 사양 수정 대화상자의 2단 스크롤 2곳, 콤보 입력 목록 팝업 1곳). 키트 파일(스크립트의 `KIT_FILES`)·`components/ui`·`print/` 는 검사하지 않는다. 새 키트 컴포넌트를 만들면 `KIT_FILES` 에 더한다.
+
+## 10. SmartBOM 모듈 (2026-10-06)
+
+- **범위**: 관리자 SmartBOM 목록 8화면(진행현황·견적관리·주문·결제·발주·부품 확인·선적·배송·완료·클레임·패키지 QR) + Case 상세 + 관리자 BOM 업로드·작업대. 고객 BOM(`/app/bom`, 피그마 시안)은 대상이 아니다.
+- **경로·이름**: `/app/admin/next/smartbom/*`·`/app/admin/next/bom/*`, 이름은 옛 이름의 `admin-` → `admin-next-`(`next/smartbom-navigation.ts` 의 `NEXT_SMARTBOM_ROUTES`). 컷오버는 PCB 와 같다 — 값만 옛 이름으로.
+- **셸**: `next/admin-menu.ts` 의 `nextModules` 에 모듈을 더하면 사이드바·모듈 스위처·'이전 화면'이 따라온다. 배지는 `components/app/useNextMenuBadges.ts`(옛 셸과 같은 훅·합산식). 작업대처럼 본문을 꽉 채우는 화면은 라우트 `meta.adminContentFlush`.
+- **공용으로 올린 것**: 목록 주소 상태 `next/lib/list-query.ts`, 고객 칸·선택 삭제 바(`common/`), 배지 타입 `common/badge-types.ts`, 주문(od) 상태 색 `common/order-status.ts`(PCB·SmartBOM 공용). SmartBOM 배지 사전은 `components/smartbom/smartbom-badges.ts` 한 곳.
+- **부품 위치**: SmartBOM 업무 부품 `components/smartbom/`, BOM 부품·검색·후보 서랍·작업대 행 `components/bom/`. 옛 컴포넌트와 같은 props·emits.
+- **작업대 성능**: 표 행(`bom/QuoteRow.vue`)은 키트 컴포넌트 대신 `buttonVariants()`·`badgeVariants()` 클래스를 준 네이티브 원소다 — 행마다 컴포넌트 인스턴스가 붙으면 스크롤 마운트 비용이 3배가 된다(실측 근거 `bom/workbench/row-classes.ts`). 이 8곳은 `ui-audit-allow` 사유를 달았다. 옛 화면 대비 스크롤 +7%, 다시 열기 +12ms. 후보 서랍은 열기 첫 페인트 10.0ms(옛 11.1ms), 스크롤 최악 프레임 7.3ms(옛 44ms).
+- **확정가**: Case 상세 검토 패널의 확정가는 체크박스 없이 바로 입력(옛 화면에도 같은 날 반영 — `docs/SMARTBOM_PARTNER_RFQ.md` §6).
+- **키트 보강**(이 모듈 하며): `Alert`·`NoticeBand`·`Panel tone/xs`·`SectionCard #notice·closable`, Button `warning`·`success` 변형, Badge 는 `as`·`asChild` 가 없으면 `span` 하나(배지가 많은 화면의 열기 비용), Sheet 열림 250ms·닫힘 200ms, 오버레이 `black/50`, `Item` 버튼 hover, lint 계약 `Badge`(tabular-nums)·`Input`(text-right·tabular-nums·font-mono).
+
+### 컷오버 때 e2e 에서 고칠 것 (SmartBOM)
+
+- 탭이 `role=tab`(QueueTabs) — `getByRole('button', { name: /배송 처리 대기/ })` 같은 탭 찾기는 `getByRole('tab', …)` 로.
+- 체크박스가 shadcn Checkbox(`button role=checkbox`) — `locator('input[type=checkbox]').check()` 는 `getByRole('checkbox', …).click()` 로(부품 확인 작성 패널 등).
+- Case 삭제가 머리로 옮겨졌다(PCB 와 같은 자리·모양, 2026-10-06 사용자 결정) — 버튼 이름 'Case 강제 영구 삭제' → 'Case 삭제'(journey-bom-case-deletion·demo-bom-confirm-keep·demo-bom-confirm-types-keep).
+- 대화상자가 body 포털(reka) — 특정 섹션 안에서 대화상자를 찾던 선택자는 `getByRole('dialog')` 로.
+- 유지한 것: `data-testid`(mouser-cart-*·digikey-list-* 등), 버튼 이름(입고 패널·배송 처리·미매칭으로 기록 등), `#bomc-*` 앵커, 상태 문구('✓ 일치' 등).
