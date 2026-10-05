@@ -43,9 +43,9 @@ interface SeededQuote extends SeedPlan {
 const CORE_PLANS: SeedPlan[] = [
   { key: 'singleDraft', label: '01 단건 실패 복구', status: 'draft' },
   { key: 'selectedDraft', label: '02 선택 작성 중', status: 'draft' },
-  { key: 'selectedCanceled', label: '03 선택 취소', status: 'canceled' },
+  { key: 'protectedCanceled', label: '03 취소 보호', status: 'canceled' },
   { key: 'staleDraft', label: '04 삭제 직전 상태 변경', status: 'draft' },
-  { key: 'globalCanceled', label: '05 필터 밖 전체 삭제', status: 'canceled' },
+  { key: 'globalDraft', label: '05 필터 밖 전체 삭제', status: 'draft' },
   { key: 'requested', label: '06 견적 요청 보호', status: 'requested' },
   { key: 'reviewing', label: '07 검토 중 보호', status: 'reviewing' },
   { key: 'answered', label: '08 답변 완료 보호', status: 'answered' },
@@ -75,8 +75,14 @@ async function mustReach(url: string, hint: string): Promise<void> {
   }
 }
 
+// 고객이 지울 수 있는 것은 작성 중뿐이다(2026-10-05) — 취소 견적은 보존 기간 뒤 자동 정리가 지운다.
 function isDeletable(status: QuoteStatus): boolean {
-  return status === 'draft' || status === 'canceled';
+  return status === 'draft';
+}
+
+/** 원본 파일 참조를 심는 무대 — 지워지는 쪽(작성 중)과 남는 쪽(취소)을 모두 원장으로 대조한다. */
+function hasSeedFile(status: QuoteStatus): boolean {
+  return isDeletable(status) || status === 'canceled';
 }
 
 async function seedQuotes(): Promise<Map<string, SeededQuote>> {
@@ -87,10 +93,10 @@ async function seedQuotes(): Promise<Map<string, SeededQuote>> {
 
   for (const [index, plan] of plans.entries()) {
     const fileName = `${SEARCH_KEY}-${plan.label}.xlsx`;
-    const requestedAt =
-      plan.status === 'draft' || plan.status === 'canceled'
-        ? null
-        : new Date(baseTime - index * 60_000);
+    const requestedAt = plan.status === 'draft' ? null : new Date(baseTime - index * 60_000);
+    // 취소 견적은 취소 시각과 고객에게 고지한 삭제 예정 시각(30일 뒤)을 가진다.
+    const canceledAt = plan.status === 'canceled' ? new Date(baseTime - index * 60_000) : null;
+    const purgeAfter = canceledAt === null ? null : new Date(canceledAt.getTime() + 30 * 86_400_000);
     const answeredAt =
       plan.status === 'answered' || plan.status === 'closed'
         ? new Date(baseTime - index * 60_000)
@@ -112,6 +118,8 @@ async function seedQuotes(): Promise<Map<string, SeededQuote>> {
         finalTotal: (index + 1) * 1_000 + 3_500,
         requestedAt,
         answeredAt,
+        canceledAt,
+        purgeAfter,
         createdAt: new Date(baseTime - index * 60_000),
         updatedAt: new Date(baseTime - index * 60_000),
         items: {
@@ -133,7 +141,7 @@ async function seedQuotes(): Promise<Map<string, SeededQuote>> {
       select: { id: true },
     });
 
-    const pathToken = isDeletable(plan.status) ? `e2e/bom-history/${RUN_KEY}/${plan.key}` : null;
+    const pathToken = hasSeedFile(plan.status) ? `e2e/bom-history/${RUN_KEY}/${plan.key}` : null;
     if (pathToken !== null) {
       await prisma.spFile.create({
         data: {
@@ -199,7 +207,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 13호 — 고객 내역 검색·�
     rp.watchHttp(customer, '내역 고객');
     ledger.push(
       `sp_bom_quote ${seeded.size}건(${OWNER_ID}, 종료 시 잔여 fixture 정리)`,
-      `sp_file 5건(작성 중·취소 삭제 원장, 보호 전환 1건은 종료 시 정리)`,
+      `sp_file 5건(작성 중 4건 삭제 원장 + 취소 1건 보존 원장, 남은 것은 종료 시 정리)`,
     );
   }, 180_000);
 
@@ -256,7 +264,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 13호 — 고객 내역 검색·�
     expect(
       await page
         .getByRole('button', {
-          name: '작성 중·취소 전체 삭제 (5)',
+          name: '작성 중 전체 삭제 (4)',
           exact: true,
         })
         .isEnabled(),
@@ -384,42 +392,41 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 13호 — 고객 내역 검색·�
     );
   }, 120_000);
 
-  test('M04. 작성 중+취소 선택 삭제 → 2건만 제거하고 보호 상태는 유지', async () => {
+  test('M04. 작성 중 선택 삭제 → 그 1건만 제거하고, 취소 견적은 선택 칸 없이 삭제 예정일만 보인다', async () => {
     const page = customer.page;
     const draft = quote(seeded, 'selectedDraft');
-    const canceled = quote(seeded, 'selectedCanceled');
+    const canceled = quote(seeded, 'protectedCanceled');
     await page.goto(`${BASE_URL}/app/bom/history`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('searchbox', { name: /파일명 또는 견적명 검색/ }).fill(SEARCH_KEY);
     await quoteRow(page, draft)
       .getByRole('checkbox', { name: `${draft.fileName} 선택`, exact: true })
       .check();
-    await quoteRow(page, canceled)
-      .getByRole('checkbox', { name: `${canceled.fileName} 선택`, exact: true })
-      .check();
-    await page.getByRole('button', { name: '선택 삭제 (2)', exact: true }).click();
+    // 취소 견적 — 협력사 회신 같은 업무 기록이 딸려 있어 고객이 지우지 않는다. 대신 언제 사라지는지 보여 준다.
+    const canceledRow = quoteRow(page, canceled);
+    expect(await canceledRow.getByRole('checkbox').count(), '취소 견적에는 선택 칸이 없다').toBe(0);
+    expect(await canceledRow.getByRole('button', { name: '삭제', exact: true }).count()).toBe(0);
+    await canceledRow.getByText('자동 삭제 예정', { exact: true }).waitFor();
+    expect(await canceledRow.getByTestId('bom-history-purge').innerText()).toContain('이후 자동 삭제');
+    await rp.shot(customer, 'M04-canceled-protected');
+    await page.getByRole('button', { name: '선택 삭제 (1)', exact: true }).click();
 
-    const dialog = page.getByRole('alertdialog', { name: '선택한 2건 삭제', exact: true });
+    const dialog = page.getByRole('alertdialog', { name: '선택한 1건 삭제', exact: true });
     await dialog.getByRole('button', { name: '삭제 확인', exact: true }).click();
     await page
       .getByRole('status')
-      .getByText('2건을 삭제했습니다.', { exact: true })
+      .getByText('1건을 삭제했습니다.', { exact: true })
       .waitFor({ timeout: 30_000 });
-    expect(
-      await getPrisma().spBomQuote.count({
-        where: { id: { in: [BigInt(draft.id), BigInt(canceled.id)] } },
-      }),
-    ).toBe(0);
-    expect(
-      await getPrisma().spFile.count({
-        where: { refType: FILE_REF_TYPE, refId: { in: [BigInt(draft.id), BigInt(canceled.id)] } },
-      }),
-    ).toBe(0);
+    expect(await getPrisma().spBomQuote.count({ where: { id: BigInt(draft.id) } })).toBe(0);
+    expect(await fileCount(draft)).toBe(0);
+    // 취소 견적과 그 원본 파일 참조는 그대로다.
+    expect(await getPrisma().spBomQuote.count({ where: { id: BigInt(canceled.id) } })).toBe(1);
+    expect(await fileCount(canceled)).toBe(1);
     expect(
       await getPrisma().spBomQuote.count({
         where: { mbId: OWNER_ID, status: { in: ['requested', 'reviewing', 'answered', 'closed'] } },
       }),
     ).toBe(21);
-    F('M04', 'obs', '선택한 작성 중·취소 2건과 파일 참조만 제거되고 진행 상태 21건은 불변');
+    F('M04', 'obs', '선택한 작성 중 1건과 파일 참조만 제거된다. 취소 견적은 선택 칸·삭제 버튼 없이 삭제 예정일만 보이고, 진행 상태 21건도 불변');
   }, 120_000);
 
   test('M05. 삭제 확인 직전 draft→requested 경합 → 0건 성공 오인이 아닌 보호 안내', async () => {
@@ -448,7 +455,8 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 13호 — 고객 내역 검색·�
     ).toMatchObject({ status: 'requested' });
     expect(await fileCount(target)).toBe(1);
     const refreshedRow = quoteRow(page, target);
-    await refreshedRow.getByText('견적 요청', { exact: true }).waitFor();
+    // 상태 문구는 고객 화면 공용 사전(BOM_QUOTE_CUSTOMER_STATUS_LABELS, 08-25)의 표시값이다.
+    await refreshedRow.getByText('견적요청 접수', { exact: true }).waitFor();
     await refreshedRow.getByText('보호됨', { exact: true }).waitFor();
     F(
       'M05',
@@ -457,9 +465,9 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 13호 — 고객 내역 검색·�
     );
   }, 120_000);
 
-  test('M06. 요청 필터 안에서 전역 삭제 → 범위를 명시하고 필터 밖 취소 1건만 삭제', async () => {
+  test('M06. 요청 필터 안에서 전역 삭제 → 범위를 명시하고 필터 밖 작성 중 1건만 삭제(취소는 보호)', async () => {
     const page = customer.page;
-    const globalTarget = quote(seeded, 'globalCanceled');
+    const globalTarget = quote(seeded, 'globalDraft');
     await page.goto(`${BASE_URL}/app/bom/history`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('searchbox', { name: /파일명 또는 견적명 검색/ }).fill(SEARCH_KEY);
     await page
@@ -471,17 +479,17 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 13호 — 고객 내역 검색·�
 
     await page
       .getByRole('button', {
-        name: '작성 중·취소 전체 삭제 (1)',
+        name: '작성 중 전체 삭제 (1)',
         exact: true,
       })
       .click();
     const dialog = page.getByRole('alertdialog', {
-      name: '작성 중·취소 견적 전체 1건 삭제',
+      name: '작성 중 견적 전체 1건 삭제',
       exact: true,
     });
     await dialog
       .getByText(
-        '현재 검색어·상태 필터와 관계없이 이 계정의 작성 중·취소 견적 전체에 적용됩니다.',
+        '현재 검색어·상태 필터와 관계없이 이 계정의 작성 중 견적 전체에 적용됩니다.',
         { exact: true },
       )
       .waitFor();
@@ -494,36 +502,35 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 13호 — 고객 내역 검색·�
 
     await page
       .getByRole('status')
-      .getByText('1건을 삭제했습니다. 보호 상태 22건은 유지했습니다.', { exact: true })
+      .getByText('1건을 삭제했습니다. 보호 상태 23건은 유지했습니다.', { exact: true })
       .waitFor({ timeout: 30_000 });
     expect(
       await getPrisma().spBomQuote.findUnique({ where: { id: BigInt(globalTarget.id) } }),
     ).toBeNull();
     expect(await fileCount(globalTarget)).toBe(0);
-    expect(await getPrisma().spBomQuote.count({ where: { mbId: OWNER_ID } })).toBe(22);
-    expect(
-      await getPrisma().spBomQuote.count({
-        where: { mbId: OWNER_ID, status: { in: ['draft', 'canceled'] } },
-      }),
-    ).toBe(0);
+    expect(await getPrisma().spBomQuote.count({ where: { mbId: OWNER_ID } })).toBe(23);
+    expect(await getPrisma().spBomQuote.count({ where: { mbId: OWNER_ID, status: 'draft' } })).toBe(0);
+    // 전체 삭제도 취소 견적은 건드리지 않는다.
+    expect(await getPrisma().spBomQuote.count({ where: { mbId: OWNER_ID, status: 'canceled' } })).toBe(1);
+    // 남은 파일 참조 = 보호로 바뀐 작성 중 1건 + 취소 1건
     expect(
       await getPrisma().spFile.count({
         where: { pathToken: { startsWith: `e2e/bom-history/${RUN_KEY}/` } },
       }),
-    ).toBe(1);
+    ).toBe(2);
     F(
       'M06',
       'ux',
-      '필터 밖까지 적용되는 전체 삭제 범위를 버튼·확인문에 명시하고 보호 22건을 유지함',
+      '필터 밖까지 적용되는 전체 삭제 범위를 버튼·확인문에 명시하고 보호 23건(취소 1건 포함)을 유지함',
     );
   }, 120_000);
 
-  test('M07. 390px 22건 표 → 문서 넘침 없이 가로 탐색 안내와 2페이지 접근', async () => {
+  test('M07. 390px 23건 표 → 문서 넘침 없이 가로 탐색 안내와 2페이지 접근', async () => {
     const page = customer.page;
     await page.goto(`${BASE_URL}/app/bom/history`, { waitUntil: 'domcontentloaded' });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('searchbox', { name: /파일명 또는 견적명 검색/ }).fill(SEARCH_KEY);
-    await waitForBodyText(page, '총 22건');
+    await waitForBodyText(page, '총 23건');
     await page
       .getByText('표를 좌우로 밀어 상태·금액·관리 열을 확인하세요.', { exact: true })
       .waitFor();
