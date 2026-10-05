@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { ChevronRightIcon, PlusIcon, XIcon } from '@lucide/vue';
+import { PlusIcon, XIcon } from '@lucide/vue';
 import { ApiRequestError } from '@sp/shared';
 import {
   PCB_AS_CASE_STATUS_LABELS,
@@ -32,7 +32,6 @@ import {
 } from '@/admin/useAdminPcbAsCases';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
-import { Card } from '@/next/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +41,8 @@ import {
   DialogTitle,
 } from '@/next/components/ui/dialog';
 import { Field, FieldLabel } from '@/next/components/ui/field';
+import { Label } from '@/next/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/next/components/ui/radio-group';
 import {
   Table,
   TableBody,
@@ -51,6 +52,8 @@ import {
   TableRow,
 } from '@/next/components/ui/table';
 import { Textarea } from '@/next/components/ui/textarea';
+import NoticeBand from '@/next/components/common/NoticeBand.vue';
+import SectionCard from '@/next/components/common/SectionCard.vue';
 import { confirmDialog, promptDialog } from '@/next/lib/dialog';
 import type { BadgeVariant } from './pcb-badges';
 
@@ -137,6 +140,18 @@ const pickType = (t: PcbAsCaseTypeType): void => {
 };
 const setDescription = (value: string | number): void => {
   form.value.description = String(value);
+};
+// RadioGroup 값은 AcceptableValue 라 사전에 있는 값으로 좁혀 받는다.
+const onPartnerPick = (value: unknown): void => {
+  if (typeof value === 'number') form.value.targetPartnerId = value;
+};
+const onTypePick = (value: unknown): void => {
+  const hit = PCB_AS_CASE_TYPES.find((t) => t === value);
+  if (hit !== undefined) pickType(hit);
+};
+const onChargePick = (value: unknown): void => {
+  const hit = PCB_AS_CHARGE_TYPES.find((c) => c === value);
+  if (hit !== undefined) form.value.chargeType = hit;
 };
 
 const createMut = useCreatePcbAsCase();
@@ -269,45 +284,33 @@ const trackLabel = (parentPartnerId: number, parentPartnerName: string | null): 
 </script>
 
 <template>
-  <button
-    v-if="collapsed"
-    type="button"
-    class="bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground flex w-full items-center gap-2 rounded-xl border border-dashed px-4 py-2.5 text-sm"
-    @click="collapsed = false"
-  >
-    <ChevronRightIcon class="size-4" />
-    <span>
+  <!-- 접힘 시작(진행 중이 있으면 자동으로 펼침) — 접힌 때만 펼치기 줄을 보인다(옛 화면 동일). -->
+  <SectionCard title="A/S 재발주" flush :collapsible="collapsed" :open="!collapsed" @update:open="collapsed = !$event">
+    <template #collapsed>
       A/S 재발주 ({{ cases.length }}건<template v-if="activeCount > 0"> · <b class="text-warning">진행 중 {{ activeCount }}건</b></template>)
-    </span>
-    <span class="ml-auto text-xs">펼치기</span>
-  </button>
-  <Card v-else class="gap-0 py-0">
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-      <h2 class="text-sm font-semibold">
-        A/S 재발주
-        <span class="text-muted-foreground ml-1 text-xs font-normal">{{ cases.length }}건</span>
-      </h2>
+    </template>
+    <template #meta>{{ cases.length }}건</template>
+    <template #actions>
       <Button size="sm" @click="openCreate">
         <PlusIcon />
         A/S 접수
       </Button>
-    </div>
-    <p class="text-muted-foreground border-b px-4 py-2 text-xs">
-      완료·출고된 발주의 재생산 흐름: 접수 작성 → [접수 요청](협력사 통지) →
-      협력사 회신(가능/불가) → <b class="text-foreground">[재발주 진행]</b> = 회차 발주서 생성(발주접수부터 재진행).
-    </p>
-
-    <p v-if="error !== ''" class="bg-destructive-soft text-destructive border-b px-4 py-2 text-sm font-medium">
-      {{ error }}
-    </p>
-    <p v-if="proceededPoId !== null" class="bg-info-soft text-info border-b px-4 py-2 text-sm font-medium">
-      회차 발주서 #{{ proceededPoId }}가 생성되었습니다 — 위 <b>발주서 · EQ</b> 섹션에서 진행하세요.
-    </p>
+    </template>
+    <template #notice>
+      <NoticeBand class="text-xs">
+        완료·출고된 발주의 재생산 흐름: 접수 작성 → [접수 요청](협력사 통지) →
+        협력사 회신(가능/불가) → <b class="text-foreground">[재발주 진행]</b> = 회차 발주서 생성(발주접수부터 재진행).
+      </NoticeBand>
+      <NoticeBand v-if="error !== ''" tone="destructive" class="font-medium">{{ error }}</NoticeBand>
+      <NoticeBand v-if="proceededPoId !== null" tone="info" class="font-medium">
+        회차 발주서 #{{ proceededPoId }}가 생성되었습니다 — 위 <b>발주서 · EQ</b> 섹션에서 진행하세요.
+      </NoticeBand>
+    </template>
 
     <p v-if="cases.length === 0" class="text-muted-foreground px-4 py-6 text-center text-sm">
       A/S 접수가 없습니다.
     </p>
-    <div v-else class="[&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4">
+    <template v-else>
       <Table>
         <TableHeader>
           <TableRow>
@@ -393,7 +396,7 @@ const trackLabel = (parentPartnerId: number, parentPartnerName: string | null): 
           </TableRow>
         </TableBody>
       </Table>
-    </div>
+    </template>
     <input ref="fileInput" type="file" class="hidden" @change="onFile">
 
     <!-- 접수 대화상자(생성/수정) -->
@@ -407,58 +410,56 @@ const trackLabel = (parentPartnerId: number, parentPartnerName: string | null): 
         </DialogHeader>
 
         <div class="space-y-4">
-          <div role="radiogroup" aria-label="재생산 협력사">
-            <p class="text-muted-foreground text-xs font-medium">재생산 협력사</p>
+          <div>
+            <p id="as-case-partner-label" class="text-muted-foreground text-xs font-medium">재생산 협력사</p>
             <p v-if="candidates.length === 0" class="text-warning mt-1 text-sm">
               발주된 협력사가 없습니다 — 원주문 발주서가 있어야 A/S 대상이 됩니다.
             </p>
-            <label
-              v-for="cand in candidates"
-              :key="cand.partnerId"
-              class="mt-1 flex cursor-pointer items-center gap-2 text-sm"
+            <RadioGroup
+              v-else
+              class="mt-2"
+              aria-labelledby="as-case-partner-label"
+              :model-value="form.targetPartnerId"
+              @update:model-value="onPartnerPick"
             >
-              <input
-                type="radio"
-                name="as-case-partner"
-                class="accent-primary size-4"
-                :checked="form.targetPartnerId === cand.partnerId"
-                @change="form.targetPartnerId = cand.partnerId"
-              >
-              <span class="font-medium">{{ cand.partnerName }}</span>
-              <span class="text-muted-foreground text-xs">{{ trackLabel(cand.parentPartnerId, cand.parentPartnerName) }}</span>
-            </label>
+              <div v-for="cand in candidates" :key="cand.partnerId" class="flex items-center gap-2">
+                <RadioGroupItem :id="'as-case-partner-' + String(cand.partnerId)" :value="cand.partnerId" />
+                <Label :for="'as-case-partner-' + String(cand.partnerId)">
+                  {{ cand.partnerName }}
+                  <span class="text-muted-foreground text-xs">{{ trackLabel(cand.parentPartnerId, cand.parentPartnerName) }}</span>
+                </Label>
+              </div>
+            </RadioGroup>
           </div>
-          <div role="radiogroup" aria-label="유형">
-            <p class="text-muted-foreground text-xs font-medium">유형</p>
-            <span class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-              <label v-for="t in PCB_AS_CASE_TYPES" :key="t" class="inline-flex cursor-pointer items-center gap-1.5 text-sm">
-                <input
-                  type="radio"
-                  name="as-case-type"
-                  class="accent-primary size-4"
-                  :checked="form.caseType === t"
-                  @change="pickType(t)"
-                >
-                {{ PCB_AS_CASE_TYPE_LABELS[t] }}
-              </label>
-            </span>
+          <div>
+            <p id="as-case-type-label" class="text-muted-foreground text-xs font-medium">유형</p>
+            <RadioGroup
+              class="mt-2 flex flex-wrap"
+              aria-labelledby="as-case-type-label"
+              :model-value="form.caseType"
+              @update:model-value="onTypePick"
+            >
+              <div v-for="t in PCB_AS_CASE_TYPES" :key="t" class="flex items-center gap-2">
+                <RadioGroupItem :id="'as-case-type-' + t" :value="t" />
+                <Label :for="'as-case-type-' + t">{{ PCB_AS_CASE_TYPE_LABELS[t] }}</Label>
+              </div>
+            </RadioGroup>
           </div>
-          <div role="radiogroup" aria-label="비용 조건">
-            <p class="text-muted-foreground text-xs font-medium">
+          <div>
+            <p id="as-case-charge-label" class="text-muted-foreground text-xs font-medium">
               비용 조건 <span class="font-normal">(유형 선택 시 기본값 자동 — 변경 가능)</span>
             </p>
-            <span class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-              <label v-for="ch in PCB_AS_CHARGE_TYPES" :key="ch" class="inline-flex cursor-pointer items-center gap-1.5 text-sm">
-                <input
-                  type="radio"
-                  name="as-case-charge"
-                  class="accent-primary size-4"
-                  :checked="form.chargeType === ch"
-                  @change="form.chargeType = ch"
-                >
-                {{ PCB_AS_CHARGE_LABELS[ch] }}
-              </label>
-            </span>
+            <RadioGroup
+              class="mt-2 flex flex-wrap"
+              aria-labelledby="as-case-charge-label"
+              :model-value="form.chargeType"
+              @update:model-value="onChargePick"
+            >
+              <div v-for="ch in PCB_AS_CHARGE_TYPES" :key="ch" class="flex items-center gap-2">
+                <RadioGroupItem :id="'as-case-charge-' + ch" :value="ch" />
+                <Label :for="'as-case-charge-' + ch">{{ PCB_AS_CHARGE_LABELS[ch] }}</Label>
+              </div>
+            </RadioGroup>
           </div>
           <Field>
             <FieldLabel for="as-case-desc">설명</FieldLabel>
@@ -478,5 +479,5 @@ const trackLabel = (parentPartnerId: number, parentPartnerName: string | null): 
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </Card>
+  </SectionCard>
 </template>

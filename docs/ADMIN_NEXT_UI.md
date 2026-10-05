@@ -71,10 +71,15 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 - `PageHeader` — `title`, `description?` · 슬롯 `#description`(마크업 설명), `#actions`(우측 버튼).
 - `QueueTabs` — `v-model`(탭 key), `tabs: QueueTab<T>[]`(`key`·`label`·`count?`(null=모름)·`attention?`(건수를 경고 배지로)) · 슬롯 `#end`(검색 등). 타입은 `common/queue-tabs.ts`.
 - `SearchInput` — `v-model`(입력 중 글자), `placeholder` · `@search`(Enter 확정). 키 입력마다 조회하지 않는다.
-- `TableCard` — 표를 담는 테두리 상자(shadcn Card 대신 — Card 의 py-6 여백 없음, 첫·끝 열 안쪽 여백).
+- `TableCard` — 표를 담는 테두리 상자(shadcn Card 대신 — Card 의 py-6 여백 없음, 첫·끝 열 안쪽 여백). `bare` 면 테두리 없이 여백만(이미 카드 안인 표).
 - `TableEmptyRow` — `colspan`, `text`, `loading?`(스피너+'불러오는 중…'). `TableBody` 안 마지막 줄.
 - `RowCheckbox` — `checked: boolean | 'indeterminate'`, `label`(aria), `disabled?` · `@change(boolean)`. 클릭이 행 클릭으로 번지지 않는다. 머리 칸은 `allSelected ? true : someSelected ? 'indeterminate' : false`.
-- `ListPagination` — `page`, `pageSize`, `total` · `@update:page`. 왼쪽 '총 N건', 한 쪽이면 번호 숨김.
+- `ListPagination` — `page`, `pageSize`, `total` · `@update:page`. 왼쪽 '총 N건'(`#summary` 로 교체), 한 쪽이면 번호 숨김.
+- `SectionCard` — 화면 안 섹션. `title`, `collapsible`(+`v-model:open`), `closable`(false=펼치기 전용), `flush`(표를 담을 때 본문 여백 없이 양끝만) · 슬롯 `#title`·`#meta`·`#actions`·`#collapsed`·`#notice`(머리 아래 안내 띠)·기본(본문 — 없으면 머리만). 제목은 h2 text-sm. 접힌 모양은 점선 한 줄.
+- `NoticeBand` — 섹션 안 전폭 안내 띠(`#notice` 에). `tone` muted|info|warning|success|destructive.
+- `Panel` — 섹션·대화상자 안의 작은 테두리 상자. `size`('xs'=표 칸 안·'sm'=p-3·'md'=p-4), `tone`(default|muted|info|warning|success|destructive — 값에 따라 색이 바뀌는 결론 칸·칸 안 메모). 문장으로 상태를 알리면 Panel 이 아니라 Alert.
+- `DialogScrollBody` — 대화상자 본문 스크롤(높이 65vh 한 값).
+- (ui) `Alert` — 상태 알림 상자. `variant` default|muted|info|warning|success|destructive, `size` default|sm, `AlertTitle`·`AlertDescription`. `RadioGroup`·`RadioGroupItem` — 라디오.
 
 **pcb**
 - `pcb-badges.ts` — `pcbCategoryBadge`·`pcbQuoteBadge`·`pcbRfqReplyBadge`·`pcbStepBadge`·`pcbAsRoundBadge`·`pcbOrderStatusBadge` → `{ label, variant }`. `<Badge :variant="b.variant">{{ b.label }}</Badge>`. 뜻별 variant: warning=기다림·주의, info=진행, success=끝남, danger=문제, secondary=중립·이력, outline=부가 표지. 새 사전도 여기에 더한다.
@@ -84,7 +89,7 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 - `TodoQueue` — `kind`('todo_rfq'|'todo_po'), `from`(PcbAdminSection), `actionLabel`(화살표 아이콘 자동 — 문구에 → 넣지 말 것), `emptyText`. 발주 화면 첫 탭도 이것.
 
 **표 작성 요령(린트가 잡는 것)**
-- `TableCell`·`TableHead` 에는 배치 클래스(`text-right`·`w-10`·`max-w-*` 등)만 — 글자 모양·색(`font-mono`·`text-muted-foreground`·`truncate`·`tabular-nums`)은 안쪽 `<span>` 에 준다.
+- `TableCell`·`TableHead` 에는 배치·글자 모양·색까지 준다(lint 계약, §8). 여백(`px-*`)은 막힌다 — 표 밀도는 한 값.
 - 말줄임은 `<span class="block max-w-xs truncate" :title="…">`.
 - 행 선택 강조는 `TableRow` 에 `:data-state="selected ? 'selected' : undefined"`(클래스 아님), 행 클릭은 `class="cursor-pointer"` + `@click`.
 - 툴팁을 쓰는 표는 `TooltipProvider` 로 한 번 감싼다. shadcn 컴포넌트의 간격(`gap-*`) 같은 모양은 바꿀 수 없으니 안쪽 span 으로 감싼다(예: `DialogTitle` 안 아이콘+글자).
@@ -98,3 +103,24 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 - **상태 배지 색은 `components/pcb/pcb-badges.ts` 한 곳** — 주문(od)·발주·선적 상태는 화면이 달라도 같은 함수(`pcbOrderStatusBadge`·`pcbPoStatusVariant`·`pcbShipmentStatusVariant`)를 쓴다. 화면 전용 사전(`pos/`·`remittance/`·`claims/`·`case/case-badges.ts`)은 그 화면에만 있는 상태만 둔다.
 - 확인 대화상자: `tone: 'danger'` 는 첫 포커스가 취소 버튼, 배경 클릭으로 닫히지 않는다(AlertDialog).
 - 표 본문 글자는 14px(shadcn 기본) — 옛 PCB 화면의 `pcb-readable`(15px 확대)은 옮기지 않았다.
+
+## 9. 일관성 점검 — `pnpm lint:next`
+
+`@shadcn/lint` 는 토큰 사용과 shadcn 컴포넌트 restyle 만 본다. 일반 div 에 토큰 색을 칠해 알림 상자·섹션 상자·접힘 토글을 화면마다 새로 지어도 통과한다(2026-10-06 실측 123건). 그래서 `scripts/next-ui-audit.mjs` 를 붙였다.
+
+```bash
+cd samplepcb-web-mono-app/apps/web
+pnpm lint:next                     # eslint src/next(수 분) → next-ui-audit
+node scripts/next-ui-audit.mjs     # 점검만(1초)
+```
+
+| 규칙 | 잡는 것 | 대신 쓸 것 |
+|---|---|---|
+| alert | `bg-*-soft` + 테두리 | `<Alert variant size="sm">` |
+| tint | `bg-*-soft`(테두리 없음) | `NoticeBand`·`Badge`·`Panel tone` |
+| box | `rounded-* border p-*` | `Panel`·`SectionCard`·`TableCard` |
+| max-h | 대화상자 높이 임의값 | `DialogScrollBody` |
+| raw-control | `<button>`·`<input type=radio|checkbox>` | `Button`·`RadioGroup`·`Checkbox` |
+| heading | h2 에 text-base 이상 | `SectionCard` 제목·`PageHeader` |
+
+정적 `class` 와 동적 `:class`(삼항·배열 안의 문자열 조각까지) 모두 본다. 불가피한 곳은 윗줄에 `<!-- ui-audit-allow: 사유 -->`(현재 3곳 — 사양 수정 대화상자의 2단 스크롤 2곳, 콤보 입력 목록 팝업 1곳). 키트 파일(스크립트의 `KIT_FILES`)·`components/ui`·`print/` 는 검사하지 않는다. 새 키트 컴포넌트를 만들면 `KIT_FILES` 에 더한다.

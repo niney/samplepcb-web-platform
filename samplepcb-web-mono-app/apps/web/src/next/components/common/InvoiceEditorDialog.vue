@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/next/components/ui/table';
+import Panel from './Panel.vue';
 import TableEmptyRow from './TableEmptyRow.vue';
 import InvoicePreviewDoc from './print/InvoicePreviewDoc.vue';
 
@@ -360,7 +361,7 @@ const setText = (key: InvoiceTextKey, value: string | number): void => {
       </p>
 
       <div v-else class="space-y-4">
-        <div v-for="group in FIELD_GROUPS" :key="group.key" class="rounded-lg border p-4">
+        <Panel v-for="group in FIELD_GROUPS" :key="group.key" size="md">
           <FieldSet>
             <FieldLegend variant="label">{{ pt(group.legend) }}</FieldLegend>
             <div class="grid grid-cols-1 gap-3" :class="group.cols">
@@ -380,9 +381,9 @@ const setText = (key: InvoiceTextKey, value: string | number): void => {
               </Field>
             </div>
           </FieldSet>
-        </div>
+        </Panel>
 
-        <div class="rounded-lg border p-4">
+        <Panel size="md">
           <FieldSet>
             <FieldLegend variant="label">{{ pt('품목') }}</FieldLegend>
             <Table>
@@ -448,7 +449,7 @@ const setText = (key: InvoiceTextKey, value: string | number): void => {
               </span>
             </div>
           </FieldSet>
-        </div>
+        </Panel>
 
         <p class="text-warning text-xs">
           {{ pt('* HS CODE·순중량·총중량은 직접 입력하세요.') }}

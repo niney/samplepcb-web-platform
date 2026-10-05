@@ -86,20 +86,18 @@ function onFocusOut(e: FocusEvent): void {
     <!-- 목록 밖 값이라는 사실만 알린다 — 고치라고 강요하지 않는다. -->
     <p v-if="!listed" class="text-warning mt-0.5 text-xs font-medium">직접 입력</p>
 
-    <ul
-      v-if="open && options.length > 0"
-      class="bg-popover text-popover-foreground absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border py-1 shadow-md"
-    >
+    <!-- ui-audit-allow: 콤보 목록 팝업 표면 — Popover 로 옮기면 입력 포커스·mousedown 흐름이 바뀐다(Combobox 도입 때 교체) -->
+    <ul v-if="open && options.length > 0" class="bg-popover text-popover-foreground absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border py-1 shadow-md">
       <li v-for="o in options" :key="o.value">
-        <button
-          type="button"
-          class="hover:bg-accent hover:text-accent-foreground flex w-full items-baseline gap-2 px-2 py-1 text-left text-sm"
-          :class="o.value.toLowerCase() === current.trim().toLowerCase() ? 'text-primary font-semibold' : ''"
+        <Button
+          :variant="o.value.toLowerCase() === current.trim().toLowerCase() ? 'secondary' : 'ghost'"
+          size="sm"
+          class="w-full justify-start"
           @click="pick(o)"
         >
-          <span class="min-w-0 flex-1 truncate">{{ o.name }}</span>
+          <span class="min-w-0 flex-1 truncate text-left">{{ o.name }}</span>
           <span v-if="o.name !== o.value" class="text-muted-foreground shrink-0 font-mono text-xs">{{ o.value }}</span>
-        </button>
+        </Button>
       </li>
     </ul>
   </div>

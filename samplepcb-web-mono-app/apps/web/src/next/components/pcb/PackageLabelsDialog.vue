@@ -6,6 +6,7 @@ import { ApiRequestError } from '@sp/shared';
 import type { PcbShipmentPackageListType } from '@sp/api-contract';
 import { usePrintIsolation } from '@/lib/usePrintIsolation';
 import { Button } from '@/next/components/ui/button';
+import { Card } from '@/next/components/ui/card';
 import { Spinner } from '@/next/components/ui/spinner';
 import PackageLabelSheet from './shipment/print/PackageLabelSheet.vue';
 
@@ -170,10 +171,7 @@ usePrintIsolation('sp-next-pcb-label-print-style', PRINT_CSS, () => props.open);
         class="flex h-full flex-col items-center overflow-auto p-4 sm:p-6"
         @click.self="emit('close')"
       >
-        <div
-          data-no-print
-          class="bg-card text-card-foreground mb-3 flex w-full max-w-5xl flex-wrap items-center gap-2 rounded-xl border p-3 shadow-xl"
-        >
+        <Card data-no-print class="mb-3 w-full max-w-5xl flex-row flex-wrap items-center gap-2 p-3">
           <div class="mr-auto min-w-0">
             <h2 id="pcb-label-dialog-title" class="text-sm font-semibold">PCB QR 라벨</h2>
             <p v-if="data !== null" class="text-muted-foreground text-xs">
@@ -190,16 +188,12 @@ usePrintIsolation('sp-next-pcb-label-print-style', PRINT_CSS, () => props.open);
             닫기
           </Button>
           <p v-if="error !== ''" class="text-destructive basis-full text-sm font-medium" role="alert">{{ error }}</p>
-        </div>
+        </Card>
 
-        <p
-          v-if="loading"
-          data-no-print
-          class="bg-card text-muted-foreground flex w-full max-w-5xl items-center justify-center gap-2 rounded-xl border px-5 py-16 text-sm"
-        >
+        <Card v-if="loading" data-no-print class="w-full max-w-5xl flex-row items-center justify-center gap-2 py-16">
           <Spinner />
-          QR 라벨을 준비하는 중…
-        </p>
+          <span class="text-muted-foreground text-sm">QR 라벨을 준비하는 중…</span>
+        </Card>
 
         <PackageLabelSheet v-else-if="data !== null" :data="data" :qr-images="qrImages" />
       </div>

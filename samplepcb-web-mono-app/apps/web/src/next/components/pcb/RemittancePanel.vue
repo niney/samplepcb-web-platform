@@ -14,6 +14,7 @@ import {
 import { fetchPcbExchangeRate } from '@/admin/pcbExchangeRate';
 import { fmtPcbAmount } from '@/lib/pcb-money';
 import { confirmDialog } from '@/next/lib/dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { ButtonGroup } from '@/next/components/ui/button-group';
@@ -29,6 +30,8 @@ import {
 import { Input } from '@/next/components/ui/input';
 import { Label } from '@/next/components/ui/label';
 import { Spinner } from '@/next/components/ui/spinner';
+import DialogScrollBody from '@/next/components/common/DialogScrollBody.vue';
+import Panel from '@/next/components/common/Panel.vue';
 import { pcbRemittanceStatusBadge } from './remittance/remittance-badges';
 
 // 발주서 1건의 송금 원장 — 워크큐(목록)와 Case 상세가 같은 패널을 쓴다(옛 PcbRemittancePanel 포트,
@@ -384,295 +387,295 @@ const text = (value: string | number): string => String(value);
         </DialogTitle>
       </DialogHeader>
 
-      <div class="-mx-6 max-h-[70vh] space-y-4 overflow-y-auto px-6">
-        <!-- 무상 A/S 회차 — 발주가는 원가 회계 참고일 뿐 지급 대상이 아니다 -->
-        <div v-if="isFreeAs" class="border-success/30 bg-success-soft text-success space-y-1.5 rounded-lg border p-3">
-          <p class="text-sm font-semibold">무상 A/S 재생산 — 지급 대상이 아님</p>
-          <p class="text-xs">발주가는 원가 회계용 복사본이고 잔액은 0 입니다. 기록이 꼭 필요하면 아래를 체크해 주세요.</p>
-          <div class="flex items-center gap-2">
-            <Checkbox
-              id="remit-free-as-unlock"
-              :model-value="freeAsUnlocked"
-              @update:model-value="freeAsUnlocked = $event === true"
-            />
-            <Label for="remit-free-as-unlock">그래도 송금을 기록합니다(예: 오기록 정정)</Label>
-          </div>
-        </div>
+      <DialogScrollBody>
+        <div class="space-y-4">
+          <!-- 무상 A/S 회차 — 발주가는 원가 회계 참고일 뿐 지급 대상이 아니다 -->
+          <Alert v-if="isFreeAs" variant="success" size="sm">
+            <AlertTitle>무상 A/S 재생산 — 지급 대상이 아님</AlertTitle>
+            <AlertDescription>
+              <p>발주가는 원가 회계용 복사본이고 잔액은 0 입니다. 기록이 꼭 필요하면 아래를 체크해 주세요.</p>
+              <div class="mt-1.5 flex items-center gap-2">
+                <Checkbox
+                  id="remit-free-as-unlock"
+                  :model-value="freeAsUnlocked"
+                  @update:model-value="freeAsUnlocked = $event === true"
+                />
+                <Label for="remit-free-as-unlock">그래도 송금을 기록합니다(예: 오기록 정정)</Label>
+              </div>
+            </AlertDescription>
+          </Alert>
 
-        <!-- 지급 요약 3칸 — 잔액이 이 화면의 결론이다 -->
-        <div v-if="summary !== null" class="grid grid-cols-3 gap-2">
-          <div class="bg-muted/40 rounded-lg border p-3 text-center">
-            <p class="text-muted-foreground text-xs">발주가</p>
-            <p class="mt-1 font-semibold tabular-nums">{{ fmtPcbAmount(summary.currency, summary.poAmount) }}</p>
+          <!-- 지급 요약 3칸 — 잔액이 이 화면의 결론이다 -->
+          <div v-if="summary !== null" class="grid grid-cols-3 gap-2">
+            <Panel muted class="text-center">
+              <p class="text-muted-foreground text-xs">발주가</p>
+              <p class="mt-1 font-semibold tabular-nums">{{ fmtPcbAmount(summary.currency, summary.poAmount) }}</p>
+            </Panel>
+            <Panel muted class="text-center">
+              <p class="text-muted-foreground text-xs">송금 합계</p>
+              <p class="mt-1 font-semibold tabular-nums">
+                {{ fmtPcbAmount(summary.currency, summary.paidAmount) }}
+                <span class="text-muted-foreground text-xs font-normal">{{ summary.count }}회</span>
+              </p>
+            </Panel>
+            <!-- 잔액 칸만 상태색(결론 칸) — 남았으면 오류, 다 냈으면 완료 -->
+            <Panel class="text-center" :tone="summary.balance > 0 ? 'destructive' : 'success'">
+              <p class="text-xs">미지급 잔액</p>
+              <p class="mt-1 font-bold tabular-nums">{{ fmtPcbAmount(summary.currency, summary.balance) }}</p>
+            </Panel>
           </div>
-          <div class="bg-muted/40 rounded-lg border p-3 text-center">
-            <p class="text-muted-foreground text-xs">송금 합계</p>
-            <p class="mt-1 font-semibold tabular-nums">
-              {{ fmtPcbAmount(summary.currency, summary.paidAmount) }}
-              <span class="text-muted-foreground text-xs font-normal">{{ summary.count }}회</span>
-            </p>
-          </div>
-          <div
-            class="rounded-lg border p-3 text-center"
-            :class="
-              summary.balance > 0
-                ? 'border-destructive/30 bg-destructive-soft text-destructive'
-                : 'border-success/30 bg-success-soft text-success'
-            "
+
+          <!-- 원장 실지급 KRW — 요약 3칸이 전부 외화라 통장에서 나간 원화를 따로 보인다 -->
+          <p
+            v-if="summary !== null && isForeign && summary.count > 0"
+            class="bg-muted/40 text-muted-foreground rounded-lg px-3 py-1.5 text-center text-xs"
           >
-            <p class="text-xs">미지급 잔액</p>
-            <p class="mt-1 font-bold tabular-nums">{{ fmtPcbAmount(summary.currency, summary.balance) }}</p>
-          </div>
-        </div>
-
-        <!-- 원장 실지급 KRW — 요약 3칸이 전부 외화라 통장에서 나간 원화를 따로 보인다 -->
-        <p
-          v-if="summary !== null && isForeign && summary.count > 0"
-          class="bg-muted/40 text-muted-foreground rounded-lg px-3 py-1.5 text-center text-xs"
-        >
-          원장 실지급
-          <span class="text-foreground font-semibold tabular-nums">{{ fmtPcbAmount('KRW', ledgerKrw) }}</span>
-          <template v-if="fxDiff !== null">
-            (환차 {{ fxDiff >= 0 ? '+' : '-' }}{{ fmtPcbAmount('KRW', Math.abs(fxDiff)) }} · 발주 회계 대비)
-          </template>
-          <span v-if="rateLessCount > 0" class="text-warning font-semibold">
-            · 환율 미기입 {{ rateLessCount }}건 제외(환차 계산 불가)
-          </span>
-        </p>
-
-        <p v-if="summary !== null" class="text-center">
-          <Badge :variant="pcbRemittanceStatusBadge(summary.status).variant">
-            {{ pcbRemittanceStatusBadge(summary.status).label }}
-          </Badge>
-        </p>
-
-        <!-- 내역 -->
-        <ul class="space-y-2">
-          <li v-for="r in rows" :key="r.id" class="rounded-lg border p-3">
-            <template v-if="editId === r.id">
-              <div class="grid gap-3 sm:grid-cols-2">
-                <div class="grid gap-1.5">
-                  <Label :for="`remit-edit-on-${r.id}`">송금일</Label>
-                  <Input
-                    :id="`remit-edit-on-${r.id}`"
-                    :model-value="editOn"
-                    type="date"
-                    @update:model-value="editOn = text($event)"
-                  />
-                </div>
-                <div class="grid gap-1.5">
-                  <Label :for="`remit-edit-amount-${r.id}`">금액 ({{ r.currency }})</Label>
-                  <Input
-                    :id="`remit-edit-amount-${r.id}`"
-                    :model-value="editAmount"
-                    type="text"
-                    inputmode="decimal"
-                    @update:model-value="editAmount = text($event)"
-                  />
-                </div>
-                <div v-if="isForeign" class="grid gap-1.5 sm:col-span-2">
-                  <Label :for="`remit-edit-rate-${r.id}`">적용 환율 (KRW 환산용) *</Label>
-                  <Input
-                    :id="`remit-edit-rate-${r.id}`"
-                    :model-value="editRate"
-                    type="text"
-                    inputmode="decimal"
-                    placeholder="송금 시점 실제 환율"
-                    @update:model-value="editRate = text($event)"
-                  />
-                  <p v-if="editRateNum === null" class="text-warning text-xs font-medium">
-                    외화 송금은 환율 없이 저장할 수 없습니다.
-                  </p>
-                </div>
-                <div class="grid gap-1.5 sm:col-span-2">
-                  <Label :for="`remit-edit-memo-${r.id}`">메모</Label>
-                  <Input
-                    :id="`remit-edit-memo-${r.id}`"
-                    :model-value="editMemo"
-                    type="text"
-                    placeholder="메모 — 협력사 포털에 그대로 보입니다"
-                    @update:model-value="editMemo = text($event)"
-                  />
-                </div>
-              </div>
-              <div class="mt-3 flex justify-end gap-2">
-                <Button variant="outline" size="sm" @click="editId = null">취소</Button>
-                <Button size="sm" :disabled="!editCanSubmit" @click="void submitEdit()">
-                  <Spinner v-if="patchMut.isPending.value" />
-                  저장
-                </Button>
-              </div>
+            원장 실지급
+            <span class="text-foreground font-semibold tabular-nums">{{ fmtPcbAmount('KRW', ledgerKrw) }}</span>
+            <template v-if="fxDiff !== null">
+              (환차 {{ fxDiff >= 0 ? '+' : '-' }}{{ fmtPcbAmount('KRW', Math.abs(fxDiff)) }} · 발주 회계 대비)
             </template>
-
-            <template v-else>
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="min-w-0 space-y-0.5">
-                  <p class="flex flex-wrap items-baseline gap-x-1.5 text-sm">
-                    <span class="font-semibold tabular-nums">{{ fmtPcbAmount(r.currency, r.amount) }}</span>
-                    <span class="text-muted-foreground text-xs">{{ fmtKstDate(r.remittedOn) }}</span>
-                    <span v-if="r.krwAmount !== null && r.currency !== 'KRW'" class="text-muted-foreground text-xs tabular-nums">
-                      ≈ {{ fmtPcbAmount('KRW', r.krwAmount) }}
-                      <template v-if="r.exchangeRate !== null">@{{ r.exchangeRate }}</template>
-                    </span>
-                    <!-- 환율 미기입 — 왜 원화가 없는지를 말한다(원장 실지급·회계 리포트에서 빠진다) -->
-                    <Badge
-                      v-else-if="isRateLess(r)"
-                      variant="warning"
-                      title="환율이 없어 KRW 환산이 없습니다 — 원장 실지급 합계·회계 리포트에서 이 건이 빠집니다"
-                    >
-                      환율 미기입
-                    </Badge>
-                  </p>
-                  <p v-if="r.memo !== null" class="text-muted-foreground truncate text-xs">{{ r.memo }}</p>
-                  <p class="text-muted-foreground text-xs">기록 {{ r.createdBy }}</p>
-                </div>
-                <div class="flex shrink-0 items-center gap-1">
-                  <Button variant="outline" size="sm" :disabled="uploadMut.isPending.value" @click="pickFile(r.id)">
-                    <UploadIcon />
-                    증빙
-                  </Button>
-                  <Button variant="ghost" size="sm" @click="startEdit(r)">
-                    <PencilIcon />
-                    수정
-                  </Button>
-                  <Button variant="ghost" size="sm" :disabled="deleteMut.isPending.value" @click="void removeRow(r)">
-                    <Trash2Icon />
-                    삭제
-                  </Button>
-                </div>
-              </div>
-              <div v-if="r.files.length > 0" class="mt-2 flex flex-wrap gap-1.5">
-                <ButtonGroup v-for="f in r.files" :key="f.fileId">
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    :title="f.name"
-                    @click="void downloadRemittanceFile(props.poId, r.id, f.fileId, f.name)"
-                  >
-                    <DownloadIcon />
-                    <span class="max-w-48 truncate">{{ f.name }}</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon-xs"
-                    title="증빙 삭제"
-                    aria-label="증빙 삭제"
-                    @click="void removeFile(r.id, f)"
-                  >
-                    <XIcon />
-                  </Button>
-                </ButtonGroup>
-              </div>
-            </template>
-          </li>
-        </ul>
-        <p v-if="rows.length === 0" class="text-muted-foreground flex items-center justify-center gap-2 py-6 text-sm">
-          <Spinner v-if="detail.isFetching.value" />
-          {{ detail.isFetching.value ? '불러오는 중…' : '아직 송금 기록이 없습니다.' }}
-        </p>
-
-        <!-- 새 송금 -->
-        <section class="border-info/30 bg-info-soft/60 space-y-3 rounded-lg border p-3">
-          <p class="text-info text-sm font-semibold">송금 기록 추가</p>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div class="grid gap-1.5">
-              <Label for="remit-new-on">송금일</Label>
-              <div class="flex gap-1">
-                <Input id="remit-new-on" :model-value="formOn" type="date" @update:model-value="formOn = text($event)" />
-                <Button variant="outline" @click="formOn = kstToday()">오늘</Button>
-              </div>
-            </div>
-            <div class="grid gap-1.5">
-              <Label for="remit-new-amount">
-                금액 ({{ summary?.currency ?? '—' }})
-                <span v-if="!isFreeAs && summary !== null && summary.balance > 0" class="text-muted-foreground font-normal">
-                  잔액 기본값
-                </span>
-              </Label>
-              <Input
-                id="remit-new-amount"
-                :model-value="formAmount"
-                type="text"
-                inputmode="decimal"
-                @update:model-value="formAmount = text($event)"
-              />
-            </div>
-            <div v-if="isForeign" class="grid gap-1.5">
-              <div class="flex items-center justify-between gap-2">
-                <Label for="remit-new-rate">적용 환율 (KRW 환산용) *</Label>
-                <Button
-                  v-if="isTodayRemittance"
-                  variant="link"
-                  size="xs"
-                  :disabled="formRateLoading"
-                  @click="void prefillFormRate(true)"
-                >
-                  자동 환율
-                </Button>
-              </div>
-              <Input
-                id="remit-new-rate"
-                :model-value="formRate"
-                type="text"
-                inputmode="decimal"
-                placeholder="송금 시점 실제 환율"
-                @update:model-value="onFormRateInput"
-              />
-              <p v-if="formRateLoading" class="text-info flex items-center gap-1.5 text-xs">
-                <Spinner />
-                수출입은행 TTS 환율을 불러오는 중…
-              </p>
-              <p v-else-if="formRateIsAuto" class="text-success text-xs">
-                수출입은행 <template v-if="formRateDate !== null">{{ formRateDate }} </template>고시(송금 기준) 자동 반영 ·
-                실제 적용값으로 수정 가능
-              </p>
-              <p v-else-if="!isTodayRemittance" class="text-warning text-xs">
-                과거·미래 송금일에는 해당 시점의 실제 적용 환율을 직접 입력해 주세요.
-              </p>
-              <p v-else-if="formRateError !== ''" class="text-warning text-xs">{{ formRateError }}</p>
-              <p v-else-if="formRateNum !== null" class="text-muted-foreground text-xs">관리자가 입력한 환율로 박제됩니다.</p>
-            </div>
-            <div class="grid gap-1.5" :class="isForeign ? '' : 'sm:col-span-2'">
-              <Label for="remit-new-memo">
-                메모
-                <span class="text-warning font-normal">협력사에게 보입니다</span>
-              </Label>
-              <Input
-                id="remit-new-memo"
-                :model-value="formMemo"
-                type="text"
-                placeholder="선금 50% 등"
-                @update:model-value="formMemo = text($event)"
-              />
-            </div>
-          </div>
-          <p v-if="formKrwPreview !== null" class="text-muted-foreground text-right text-xs">
-            예상 원화 환산
-            <span class="text-foreground font-semibold tabular-nums">{{ fmtPcbAmount('KRW', formKrwPreview) }}</span>
+            <span v-if="rateLessCount > 0" class="text-warning font-semibold">
+              · 환율 미기입 {{ rateLessCount }}건 제외(환차 계산 불가)
+            </span>
           </p>
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <!-- 환율 공란은 회계 합계에서 해당 행을 사라지게 하므로 신규 저장을 막는다. -->
-            <p v-if="rateMissingWarn" class="text-warning flex items-center gap-1 text-xs font-medium">
-              <TriangleAlertIcon class="size-3.5" />
-              외화 송금은 적용 환율이 필요합니다.
-            </p>
-            <p v-if="willOverpay && summary !== null" class="text-destructive flex items-center gap-1 text-xs font-medium">
-              <TriangleAlertIcon class="size-3.5" />
-              잔액 {{ fmtPcbAmount(summary.currency, summary.balance) }} 초과 — 과지급으로 기록됩니다.
-            </p>
-            <Button
-              :disabled="!canSubmit"
-              :title="isFreeAs && !freeAsUnlocked ? '무상 A/S 회차 — 지급 대상이 아닙니다' : undefined"
-              @click="void submitNew()"
-            >
-              <Spinner v-if="createMut.isPending.value" />
-              기록
-            </Button>
-          </div>
-        </section>
 
-        <p v-if="error !== ''" role="alert" class="text-destructive text-sm font-medium">{{ error }}</p>
-      </div>
+          <p v-if="summary !== null" class="text-center">
+            <Badge :variant="pcbRemittanceStatusBadge(summary.status).variant">
+              {{ pcbRemittanceStatusBadge(summary.status).label }}
+            </Badge>
+          </p>
+
+          <!-- 내역 -->
+          <ul class="space-y-2">
+            <li v-for="r in rows" :key="r.id">
+              <Panel>
+                <template v-if="editId === r.id">
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <div class="grid gap-1.5">
+                      <Label :for="`remit-edit-on-${r.id}`">송금일</Label>
+                      <Input
+                        :id="`remit-edit-on-${r.id}`"
+                        :model-value="editOn"
+                        type="date"
+                        @update:model-value="editOn = text($event)"
+                      />
+                    </div>
+                    <div class="grid gap-1.5">
+                      <Label :for="`remit-edit-amount-${r.id}`">금액 ({{ r.currency }})</Label>
+                      <Input
+                        :id="`remit-edit-amount-${r.id}`"
+                        :model-value="editAmount"
+                        type="text"
+                        inputmode="decimal"
+                        @update:model-value="editAmount = text($event)"
+                      />
+                    </div>
+                    <div v-if="isForeign" class="grid gap-1.5 sm:col-span-2">
+                      <Label :for="`remit-edit-rate-${r.id}`">적용 환율 (KRW 환산용) *</Label>
+                      <Input
+                        :id="`remit-edit-rate-${r.id}`"
+                        :model-value="editRate"
+                        type="text"
+                        inputmode="decimal"
+                        placeholder="송금 시점 실제 환율"
+                        @update:model-value="editRate = text($event)"
+                      />
+                      <p v-if="editRateNum === null" class="text-warning text-xs font-medium">
+                        외화 송금은 환율 없이 저장할 수 없습니다.
+                      </p>
+                    </div>
+                    <div class="grid gap-1.5 sm:col-span-2">
+                      <Label :for="`remit-edit-memo-${r.id}`">메모</Label>
+                      <Input
+                        :id="`remit-edit-memo-${r.id}`"
+                        :model-value="editMemo"
+                        type="text"
+                        placeholder="메모 — 협력사 포털에 그대로 보입니다"
+                        @update:model-value="editMemo = text($event)"
+                      />
+                    </div>
+                  </div>
+                  <div class="mt-3 flex justify-end gap-2">
+                    <Button variant="outline" size="sm" @click="editId = null">취소</Button>
+                    <Button size="sm" :disabled="!editCanSubmit" @click="void submitEdit()">
+                      <Spinner v-if="patchMut.isPending.value" />
+                      저장
+                    </Button>
+                  </div>
+                </template>
+
+                <template v-else>
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="min-w-0 space-y-0.5">
+                      <p class="flex flex-wrap items-baseline gap-x-1.5 text-sm">
+                        <span class="font-semibold tabular-nums">{{ fmtPcbAmount(r.currency, r.amount) }}</span>
+                        <span class="text-muted-foreground text-xs">{{ fmtKstDate(r.remittedOn) }}</span>
+                        <span v-if="r.krwAmount !== null && r.currency !== 'KRW'" class="text-muted-foreground text-xs tabular-nums">
+                          ≈ {{ fmtPcbAmount('KRW', r.krwAmount) }}
+                          <template v-if="r.exchangeRate !== null">@{{ r.exchangeRate }}</template>
+                        </span>
+                        <!-- 환율 미기입 — 왜 원화가 없는지를 말한다(원장 실지급·회계 리포트에서 빠진다) -->
+                        <Badge
+                          v-else-if="isRateLess(r)"
+                          variant="warning"
+                          title="환율이 없어 KRW 환산이 없습니다 — 원장 실지급 합계·회계 리포트에서 이 건이 빠집니다"
+                        >
+                          환율 미기입
+                        </Badge>
+                      </p>
+                      <p v-if="r.memo !== null" class="text-muted-foreground truncate text-xs">{{ r.memo }}</p>
+                      <p class="text-muted-foreground text-xs">기록 {{ r.createdBy }}</p>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1">
+                      <Button variant="outline" size="sm" :disabled="uploadMut.isPending.value" @click="pickFile(r.id)">
+                        <UploadIcon />
+                        증빙
+                      </Button>
+                      <Button variant="ghost" size="sm" @click="startEdit(r)">
+                        <PencilIcon />
+                        수정
+                      </Button>
+                      <Button variant="ghost" size="sm" :disabled="deleteMut.isPending.value" @click="void removeRow(r)">
+                        <Trash2Icon />
+                        삭제
+                      </Button>
+                    </div>
+                  </div>
+                  <div v-if="r.files.length > 0" class="mt-2 flex flex-wrap gap-1.5">
+                    <ButtonGroup v-for="f in r.files" :key="f.fileId">
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        :title="f.name"
+                        @click="void downloadRemittanceFile(props.poId, r.id, f.fileId, f.name)"
+                      >
+                        <DownloadIcon />
+                        <span class="max-w-48 truncate">{{ f.name }}</span>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        title="증빙 삭제"
+                        aria-label="증빙 삭제"
+                        @click="void removeFile(r.id, f)"
+                      >
+                        <XIcon />
+                      </Button>
+                    </ButtonGroup>
+                  </div>
+                </template>
+              </Panel>
+            </li>
+          </ul>
+          <p v-if="rows.length === 0" class="text-muted-foreground flex items-center justify-center gap-2 py-6 text-sm">
+            <Spinner v-if="detail.isFetching.value" />
+            {{ detail.isFetching.value ? '불러오는 중…' : '아직 송금 기록이 없습니다.' }}
+          </p>
+
+          <!-- 새 송금 -->
+          <Panel class="space-y-3">
+            <p class="text-info text-sm font-semibold">송금 기록 추가</p>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="grid gap-1.5">
+                <Label for="remit-new-on">송금일</Label>
+                <div class="flex gap-1">
+                  <Input id="remit-new-on" :model-value="formOn" type="date" @update:model-value="formOn = text($event)" />
+                  <Button variant="outline" @click="formOn = kstToday()">오늘</Button>
+                </div>
+              </div>
+              <div class="grid gap-1.5">
+                <Label for="remit-new-amount">
+                  금액 ({{ summary?.currency ?? '—' }})
+                  <span v-if="!isFreeAs && summary !== null && summary.balance > 0" class="text-muted-foreground font-normal">
+                    잔액 기본값
+                  </span>
+                </Label>
+                <Input
+                  id="remit-new-amount"
+                  :model-value="formAmount"
+                  type="text"
+                  inputmode="decimal"
+                  @update:model-value="formAmount = text($event)"
+                />
+              </div>
+              <div v-if="isForeign" class="grid gap-1.5">
+                <div class="flex items-center justify-between gap-2">
+                  <Label for="remit-new-rate">적용 환율 (KRW 환산용) *</Label>
+                  <Button
+                    v-if="isTodayRemittance"
+                    variant="link"
+                    size="xs"
+                    :disabled="formRateLoading"
+                    @click="void prefillFormRate(true)"
+                  >
+                    자동 환율
+                  </Button>
+                </div>
+                <Input
+                  id="remit-new-rate"
+                  :model-value="formRate"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="송금 시점 실제 환율"
+                  @update:model-value="onFormRateInput"
+                />
+                <p v-if="formRateLoading" class="text-info flex items-center gap-1.5 text-xs">
+                  <Spinner />
+                  수출입은행 TTS 환율을 불러오는 중…
+                </p>
+                <p v-else-if="formRateIsAuto" class="text-success text-xs">
+                  수출입은행 <template v-if="formRateDate !== null">{{ formRateDate }} </template>고시(송금 기준) 자동 반영 ·
+                  실제 적용값으로 수정 가능
+                </p>
+                <p v-else-if="!isTodayRemittance" class="text-warning text-xs">
+                  과거·미래 송금일에는 해당 시점의 실제 적용 환율을 직접 입력해 주세요.
+                </p>
+                <p v-else-if="formRateError !== ''" class="text-warning text-xs">{{ formRateError }}</p>
+                <p v-else-if="formRateNum !== null" class="text-muted-foreground text-xs">관리자가 입력한 환율로 박제됩니다.</p>
+              </div>
+              <div class="grid gap-1.5" :class="isForeign ? '' : 'sm:col-span-2'">
+                <Label for="remit-new-memo">
+                  메모
+                  <span class="text-warning font-normal">협력사에게 보입니다</span>
+                </Label>
+                <Input
+                  id="remit-new-memo"
+                  :model-value="formMemo"
+                  type="text"
+                  placeholder="선금 50% 등"
+                  @update:model-value="formMemo = text($event)"
+                />
+              </div>
+            </div>
+            <p v-if="formKrwPreview !== null" class="text-muted-foreground text-right text-xs">
+              예상 원화 환산
+              <span class="text-foreground font-semibold tabular-nums">{{ fmtPcbAmount('KRW', formKrwPreview) }}</span>
+            </p>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <!-- 환율 공란은 회계 합계에서 해당 행을 사라지게 하므로 신규 저장을 막는다. -->
+              <p v-if="rateMissingWarn" class="text-warning flex items-center gap-1 text-xs font-medium">
+                <TriangleAlertIcon class="size-3.5" />
+                외화 송금은 적용 환율이 필요합니다.
+              </p>
+              <p v-if="willOverpay && summary !== null" class="text-destructive flex items-center gap-1 text-xs font-medium">
+                <TriangleAlertIcon class="size-3.5" />
+                잔액 {{ fmtPcbAmount(summary.currency, summary.balance) }} 초과 — 과지급으로 기록됩니다.
+              </p>
+              <Button
+                :disabled="!canSubmit"
+                :title="isFreeAs && !freeAsUnlocked ? '무상 A/S 회차 — 지급 대상이 아닙니다' : undefined"
+                @click="void submitNew()"
+              >
+                <Spinner v-if="createMut.isPending.value" />
+                기록
+              </Button>
+            </div>
+          </Panel>
+
+          <p v-if="error !== ''" role="alert" class="text-destructive text-sm font-medium">{{ error }}</p>
+        </div>
+      </DialogScrollBody>
 
       <DialogFooter>
         <Button variant="outline" @click="emit('close')">닫기</Button>

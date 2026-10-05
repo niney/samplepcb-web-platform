@@ -4,6 +4,7 @@ import { PaperclipIcon, PlusIcon, XIcon } from '@lucide/vue';
 import { pcbEqRejectActionLabel, type AdminPcbPoViewType } from '@sp/api-contract';
 import { useDeleteAdminPcbEqFile, useUploadAdminPcbEqFile } from '@/admin/useAdminPcbPos';
 import { formatBytes } from '@/lib/format';
+import Panel from '@/next/components/common/Panel.vue';
 import { Button } from '@/next/components/ui/button';
 import {
   Dialog,
@@ -127,7 +128,7 @@ const setReason = (value: string | number): void => {
       </Field>
 
       <!-- 수정지시 첨부 — 고르는 즉시 올라간다(목록이 곧 상태다). -->
-      <div class="border-info/30 bg-info-soft/40 rounded-lg border p-3">
+      <Panel>
         <div class="flex items-center justify-between gap-2">
           <span class="text-info flex items-center gap-1.5 text-sm font-semibold">
             <PaperclipIcon class="size-4" />
@@ -160,7 +161,7 @@ const setReason = (value: string | number): void => {
             ? `없어도 ${actWord}할 수 있습니다 — 도면·마크업이 있으면 붙여 주세요.`
             : '협력사가 포털 발주 상세에서 내려받습니다. 메일에도 첨부 사실이 안내됩니다.' }}
         </p>
-      </div>
+      </Panel>
 
       <p v-if="localError !== ''" class="text-destructive text-sm font-medium">{{ localError }}</p>
 

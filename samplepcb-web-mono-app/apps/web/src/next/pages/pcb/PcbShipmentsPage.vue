@@ -27,12 +27,14 @@ import {
 } from '@/admin/useAdminPcbOrders';
 import { confirmDialog } from '@/next/lib/dialog';
 import { pcbCaseTo, queryPage, queryString, queryTab, replacePcbListQuery } from '@/next/pcb-navigation';
+import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Checkbox } from '@/next/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/next/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/next/components/ui/tooltip';
 import ListPagination from '@/next/components/common/ListPagination.vue';
+import SectionCard from '@/next/components/common/SectionCard.vue';
 import PageHeader from '@/next/components/common/PageHeader.vue';
 import QueueTabs from '@/next/components/common/QueueTabs.vue';
 import SearchInput from '@/next/components/common/SearchInput.vue';
@@ -42,7 +44,6 @@ import type { QueueTab } from '@/next/components/common/queue-tabs';
 import CustomerCell from '@/next/components/pcb/CustomerCell.vue';
 import CustomerShipDialog from '@/next/components/pcb/CustomerShipDialog.vue';
 import PackageLabelsDialog from '@/next/components/pcb/PackageLabelsDialog.vue';
-import BoxPagination from '@/next/components/pcb/shipment/BoxPagination.vue';
 import { pcbShipmentStatusVariant } from '@/next/components/pcb/pcb-badges';
 
 // PCB 선적·배송 워크큐(P3·P4.6) — 물류 담당의 화면. SmartBOM 물류와 같은 두 섹션 골격(D9 미러):
@@ -246,35 +247,43 @@ function openCase(specId: number): void {
 
     <TooltipProvider>
       <!-- ① 협력사 선적 — 협력사 발송 → 자사·MD 입고(발주서 축 + 선적 축) -->
-      <section class="flex flex-col gap-4" aria-labelledby="pcb-ship-partner-title">
-        <h2 id="pcb-ship-partner-title" class="text-base font-semibold">협력사 선적 — 협력사 발송 → 자사 입고</h2>
-
-        <QueueTabs v-model="tab" :tabs="tabs">
-          <template #end>
-            <!-- 협력사 구간 토글 — 서버 필터라 탭 건수와 목록이 함께 움직인다. -->
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <label class="text-muted-foreground flex cursor-pointer items-center gap-2 text-sm">
-                  <Checkbox v-model="showMdLegs" />
-                  협력사 구간(하위→MD) 표시
-                </label>
-              </TooltipTrigger>
-              <TooltipContent>
-                MD 경유 건의 하위→MD 구간(협력사끼리의 운송)을 목록에 표시할지 정합니다. 자사 차례 판정에는 영향이 없습니다.
-              </TooltipContent>
-            </Tooltip>
-            <!-- 검색 — 묶음의 동반 건(다른 고객)까지 서버가 구성원 필드로 맞춰 준다. -->
-            <SearchInput v-model="searchText" placeholder="고객·프로젝트·PO·운송장 검색" @search="applySearch" />
-          </template>
-        </QueueTabs>
-
-        <!-- 발송 대기 — 생산완료인데 발송 문서가 아직 없는 발주서(선적 축 밖의 모수) -->
-        <template v-if="tab === 'to_ship'">
-          <p class="text-muted-foreground text-sm">
+      <SectionCard title="협력사 선적 — 협력사 발송 → 자사 입고" flush>
+        <div class="flex flex-col gap-3 p-4">
+          <QueueTabs v-model="tab" :tabs="tabs">
+            <template #end>
+              <!-- 협력사 구간 토글 — 서버 필터라 탭 건수와 목록이 함께 움직인다. -->
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <label class="text-muted-foreground flex cursor-pointer items-center gap-2 text-sm">
+                    <Checkbox v-model="showMdLegs" />
+                    협력사 구간(하위→MD) 표시
+                  </label>
+                </TooltipTrigger>
+                <TooltipContent>
+                  MD 경유 건의 하위→MD 구간(협력사끼리의 운송)을 목록에 표시할지 정합니다. 자사 차례 판정에는 영향이 없습니다.
+                </TooltipContent>
+              </Tooltip>
+              <!-- 검색 — 묶음의 동반 건(다른 고객)까지 서버가 구성원 필드로 맞춰 준다. -->
+              <SearchInput v-model="searchText" placeholder="고객·프로젝트·PO·운송장 검색" @search="applySearch" />
+            </template>
+          </QueueTabs>
+          <p v-if="tab === 'to_ship'" class="text-muted-foreground text-sm">
             생산이 끝났는데 아직 발송이 시작되지 않은 발주서입니다 — 발송 생성은 협력사 포털이 원칙이고, 관리자는
             Case 상세에서 대행할 수 있습니다.
           </p>
-          <TableCard>
+          <!-- 숨김이 침묵하지 않게 — 하위 발송~MD 입고 사이엔 자사향 선적이 아직 없어서, 걸러진 줄이
+               있다는 사실 자체가 정보다. -->
+          <Alert v-else-if="!showMdLegs && hiddenMdCount > 0" variant="info" size="sm">
+            <AlertDescription>
+              협력사 구간(하위→MD) {{ hiddenMdCount }}건이 숨겨져 있습니다 —
+              <Button variant="link" size="xs" @click="showMdLegs = true">표시</Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+
+        <!-- 발송 대기 — 생산완료인데 발송 문서가 아직 없는 발주서(선적 축 밖의 모수) -->
+        <template v-if="tab === 'to_ship'">
+          <TableCard bare class="border-t">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -325,22 +334,18 @@ function openCase(specId: number): void {
               </TableBody>
             </Table>
           </TableCard>
-          <ListPagination
-            :page="poFilters.page"
-            :page-size="poFilters.pageSize"
-            :total="toShipTotal"
-            @update:page="(page: number) => (poFilters = { ...poFilters, page })"
-          />
+          <div class="border-t p-4">
+            <ListPagination
+              :page="poFilters.page"
+              :page-size="poFilters.pageSize"
+              :total="toShipTotal"
+              @update:page="(page: number) => (poFilters = { ...poFilters, page })"
+            />
+          </div>
         </template>
 
         <template v-else>
-          <!-- 숨김이 침묵하지 않게 — 하위 발송~MD 입고 사이엔 자사향 선적이 아직 없어서, 걸러진 줄이
-               있다는 사실 자체가 정보다. -->
-          <p v-if="!showMdLegs && hiddenMdCount > 0" class="bg-info-soft text-info rounded-md px-3 py-2 text-sm">
-            협력사 구간(하위→MD) {{ hiddenMdCount }}건이 숨겨져 있습니다 —
-            <button type="button" class="font-semibold underline underline-offset-2" @click="showMdLegs = true">표시</button>
-          </p>
-          <TableCard>
+          <TableCard bare class="border-t">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -488,27 +493,33 @@ function openCase(specId: number): void {
               </TableBody>
             </Table>
           </TableCard>
-          <BoxPagination
-            :page="filters.page"
-            :page-size="filters.pageSize"
-            :total="total"
-            :po-total="poTotal"
-            @update:page="(page: number) => (filters = { ...filters, page })"
-          />
+          <div class="border-t p-4">
+            <ListPagination
+              :page="filters.page"
+              :page-size="filters.pageSize"
+              :total="total"
+              @update:page="(page: number) => (filters = { ...filters, page })"
+            >
+              <!-- 행이 구성원(발주) 단위로 펼쳐져서, 페이징 축(박스)과 눈에 보이는 행 수(발주)를 함께 말한다. -->
+              <template #summary>
+                박스 <span class="text-foreground font-medium tabular-nums">{{ total.toLocaleString('ko-KR') }}</span>건 · 발주
+                <span class="text-foreground font-medium tabular-nums">{{ poTotal.toLocaleString('ko-KR') }}</span>건
+              </template>
+            </ListPagination>
+          </div>
         </template>
-      </section>
+      </SectionCard>
 
       <!-- ② 고객 배송(P4.6) — 입고 끝난 주문을 고객에게 발송(주문 축). 판정은 협력 축 입고확인(관리자
            수신 선적 receivedAt)이라 이관·수동 처리 건은 여기 안 뜬다. -->
-      <section class="flex flex-col gap-4" aria-labelledby="pcb-ship-customer-title">
-        <h2 id="pcb-ship-customer-title" class="text-base font-semibold">고객 배송 — 입고 끝난 주문 발송</h2>
-
-        <QueueTabs v-model="orderTab" :tabs="orderTabs" />
-
-        <p v-if="actionError !== ''" class="bg-destructive-soft text-destructive rounded-md px-3 py-2 text-sm font-medium" role="alert">
-          {{ actionError }}
-        </p>
-        <TableCard>
+      <SectionCard title="고객 배송 — 입고 끝난 주문 발송" flush>
+        <div class="flex flex-col gap-3 p-4">
+          <QueueTabs v-model="orderTab" :tabs="orderTabs" />
+          <Alert v-if="actionError !== ''" variant="destructive" size="sm">
+            <AlertDescription>{{ actionError }}</AlertDescription>
+          </Alert>
+        </div>
+        <TableCard bare class="border-t">
           <Table>
             <TableHeader>
               <TableRow>
@@ -591,13 +602,15 @@ function openCase(specId: number): void {
             </TableBody>
           </Table>
         </TableCard>
-        <ListPagination
-          :page="orderFilters.page"
-          :page-size="orderFilters.pageSize"
-          :total="orderTotal"
-          @update:page="(page: number) => (orderFilters = { ...orderFilters, page })"
-        />
-      </section>
+        <div class="border-t p-4">
+          <ListPagination
+            :page="orderFilters.page"
+            :page-size="orderFilters.pageSize"
+            :total="orderTotal"
+            @update:page="(page: number) => (orderFilters = { ...orderFilters, page })"
+          />
+        </div>
+      </SectionCard>
     </TooltipProvider>
 
     <CustomerShipDialog

@@ -11,6 +11,7 @@ import {
 } from '@/next/components/ui/dialog';
 import { Field, FieldDescription, FieldLabel } from '@/next/components/ui/field';
 import { Input } from '@/next/components/ui/input';
+import Panel from '@/next/components/common/Panel.vue';
 import { usePcbCaseContext } from '../usePcbCase';
 
 // 협력사 선정 — 외화 환율 자동 프리필 + 판매가(확정가) 동시 등록(레거시 선정 모달의 마진%↔판매가 복원).
@@ -60,7 +61,7 @@ const onOpenChange = (open: boolean): void => {
         <p v-if="selectCostKrw !== null" class="text-muted-foreground text-sm">
           원가(KRW 환산): <b class="text-foreground tabular-nums">₩{{ selectCostKrw.toLocaleString() }}</b>
         </p>
-        <div v-if="canPriceInSelect" class="bg-success-soft/60 rounded-lg border p-3">
+        <Panel v-if="canPriceInSelect" muted>
           <p class="text-sm font-medium">판매가(확정가) 함께 등록 — 고객 결제액의 기준</p>
           <div class="mt-2 flex gap-2">
             <Field class="w-24 shrink-0">
@@ -75,7 +76,7 @@ const onOpenChange = (open: boolean): void => {
           <p class="text-muted-foreground mt-2 text-xs">
             판매가 = 원가 KRW × (1+마진%) × 1.1(VAT). 비워 두고 [선정만] 하면 나중에 [확정가 등록]에서 정합니다.
           </p>
-        </div>
+        </Panel>
         <p class="text-muted-foreground text-xs">
           선정하면 같은 트랙의 다른 회신은 '미선정'이 됩니다.<template v-if="!canPriceInSelect"> 진행 중 주문 건 — 판매가 없이 원가 선정만 합니다.</template>
         </p>

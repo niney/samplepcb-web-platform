@@ -5,6 +5,8 @@ import { PCB_ORDER_CANCEL_BLOCK_LABELS } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import { useCancelPcbOrder, usePcbOrderCancelPreview } from '@/admin/useAdminPcbOrders';
 import { fmtPcbAmount } from '@/lib/pcb-money';
+import Panel from '@/next/components/common/Panel.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
 import { Button } from '@/next/components/ui/button';
 import {
   Dialog,
@@ -106,51 +108,47 @@ const onOpenChange = (open: boolean): void => {
           <Spinner />
           취소 가능 여부를 확인하고 있습니다…
         </p>
-        <p
-          v-else-if="previewError !== ''"
-          class="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border px-3 py-2 text-sm"
-        >
-          {{ previewError }}
-        </p>
+        <Alert v-else-if="previewError !== ''" variant="destructive" size="sm">
+          <AlertDescription>{{ previewError }}</AlertDescription>
+        </Alert>
         <template v-else-if="preview !== null">
-          <dl class="bg-muted/40 grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 rounded-lg border px-3 py-3 text-sm">
-            <dt class="text-muted-foreground">대상</dt>
-            <dd class="font-medium">Q{{ preview.specId }} · {{ preview.projectName }}</dd>
-            <dt class="text-muted-foreground">주문번호</dt>
-            <dd class="text-muted-foreground font-mono text-xs leading-5">{{ preview.odId }}</dd>
-            <dt class="text-muted-foreground">주문 / 항목</dt>
-            <dd>{{ preview.odStatus }} / {{ preview.ctStatus }}</dd>
-            <dt class="text-muted-foreground">결제</dt>
-            <dd>
-              {{ preview.settleCase || '—' }} · 수납
-              <span class="tabular-nums">{{ fmtPcbAmount('KRW', preview.receiptPrice) }}</span>
-            </dd>
-          </dl>
+          <Panel muted>
+            <dl class="grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-sm">
+              <dt class="text-muted-foreground">대상</dt>
+              <dd class="font-medium">Q{{ preview.specId }} · {{ preview.projectName }}</dd>
+              <dt class="text-muted-foreground">주문번호</dt>
+              <dd class="text-muted-foreground font-mono text-xs leading-5">{{ preview.odId }}</dd>
+              <dt class="text-muted-foreground">주문 / 항목</dt>
+              <dd>{{ preview.odStatus }} / {{ preview.ctStatus }}</dd>
+              <dt class="text-muted-foreground">결제</dt>
+              <dd>
+                {{ preview.settleCase || '—' }} · 수납
+                <span class="tabular-nums">{{ fmtPcbAmount('KRW', preview.receiptPrice) }}</span>
+              </dd>
+            </dl>
+          </Panel>
 
           <template v-if="preview.cancelable && !cancelOrder.isSuccess.value">
-            <div
-              class="rounded-lg border px-3 py-2.5 text-sm"
-              :class="
-                preview.cancelsWholeOrder
-                  ? 'border-destructive/30 bg-destructive-soft text-destructive'
-                  : 'border-warning/30 bg-warning-soft text-warning'
-              "
-            >
-              <p v-if="preview.cancelsWholeOrder" class="font-semibold">
-                이 PCB가 마지막 활성 항목이어서 주문 전체가 취소됩니다.
-              </p>
-              <p v-else class="font-semibold">
-                이 PCB 항목만 취소되며 다른 활성 항목 {{ preview.activeSiblingCount }}개는 유지됩니다.
-              </p>
-              <p class="mt-1 text-xs opacity-80">취소금액·미수금·세액과 재고는 영카트 규칙으로 다시 계산됩니다.</p>
-            </div>
+            <!-- 범위 안내 — 주문 전체가 사라지면 위험(destructive), 줄만이면 주의(warning) -->
+            <Alert :variant="preview.cancelsWholeOrder ? 'destructive' : 'warning'" size="sm">
+              <AlertDescription>
+                <p v-if="preview.cancelsWholeOrder" class="text-destructive font-semibold">
+                  이 PCB가 마지막 활성 항목이어서 주문 전체가 취소됩니다.
+                </p>
+                <p v-else class="text-warning font-semibold">
+                  이 PCB 항목만 취소되며 다른 활성 항목 {{ preview.activeSiblingCount }}개는 유지됩니다.
+                </p>
+                <p class="mt-1 text-xs">취소금액·미수금·세액과 재고는 영카트 규칙으로 다시 계산됩니다.</p>
+              </AlertDescription>
+            </Alert>
 
-            <p
-              v-if="preview.rfqCount > 0"
-              class="border-warning/30 bg-warning-soft text-warning rounded-lg border px-3 py-2 text-xs"
-            >
-              협력사 견적 이력 {{ preview.rfqCount }}건은 감사 이력으로 유지되며, 취소 후 신규 발주는 차단됩니다.
-            </p>
+            <Alert v-if="preview.rfqCount > 0" variant="warning" size="sm">
+              <AlertDescription>
+                <p class="text-xs">
+                  협력사 견적 이력 {{ preview.rfqCount }}건은 감사 이력으로 유지되며, 취소 후 신규 발주는 차단됩니다.
+                </p>
+              </AlertDescription>
+            </Alert>
 
             <Field>
               <FieldLabel for="pcb-order-cancel-reason">
@@ -167,46 +165,43 @@ const onOpenChange = (open: boolean): void => {
               <FieldDescription>관리자 주문 변경이력에 기록됩니다.</FieldDescription>
             </Field>
             <p v-if="validationError !== ''" class="text-destructive text-sm">{{ validationError }}</p>
-            <p
-              v-if="actionError !== ''"
-              class="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border px-3 py-2 text-sm"
-            >
-              {{ actionError }}
-            </p>
+            <Alert v-if="actionError !== ''" variant="destructive" size="sm">
+              <AlertDescription>{{ actionError }}</AlertDescription>
+            </Alert>
             <p class="text-muted-foreground text-xs leading-5">
               영카트 관리자 취소와 동일하게 고객 안내 메일은 자동 발송되지 않습니다.
             </p>
           </template>
 
-          <div
-            v-else-if="!preview.cancelable"
-            class="border-warning/30 bg-warning-soft text-warning rounded-lg border px-3 py-3 text-sm"
-          >
-            <p class="flex items-start gap-1.5 font-semibold">
-              <TriangleAlertIcon class="mt-0.5 size-4 shrink-0" />
-              {{
-                preview.blockReason === null
-                  ? '이 화면에서 취소할 수 없습니다.'
-                  : PCB_ORDER_CANCEL_BLOCK_LABELS[preview.blockReason]
-              }}
-            </p>
-            <p v-if="preview.poCount > 0" class="mt-1 text-xs">연결된 협력사 발주서 {{ preview.poCount }}건</p>
-            <p class="mt-1 text-xs opacity-80">결제 승인 취소나 환불을 확인하기 전에 로컬 주문 상태를 먼저 변경하지 않습니다.</p>
-          </div>
+          <!-- 차단 사유는 긴 문장일 수 있어 AlertTitle(한 줄 말줄임) 대신 본문 첫 줄에 둔다 -->
+          <Alert v-else-if="!preview.cancelable" variant="warning" size="sm">
+            <TriangleAlertIcon />
+            <AlertDescription>
+              <p class="text-warning font-semibold">
+                {{
+                  preview.blockReason === null
+                    ? '이 화면에서 취소할 수 없습니다.'
+                    : PCB_ORDER_CANCEL_BLOCK_LABELS[preview.blockReason]
+                }}
+              </p>
+              <p v-if="preview.poCount > 0" class="mt-1 text-xs">연결된 협력사 발주서 {{ preview.poCount }}건</p>
+              <p class="mt-1 text-xs">결제 승인 취소나 환불을 확인하기 전에 로컬 주문 상태를 먼저 변경하지 않습니다.</p>
+            </AlertDescription>
+          </Alert>
 
-          <div v-else class="border-success/30 bg-success-soft text-success rounded-lg border px-3 py-3 text-sm">
-            <p class="flex items-center gap-1.5 font-semibold">
-              <CircleCheckIcon class="size-4 shrink-0" />
-              주문 취소가 완료되었습니다.
-            </p>
-            <p class="mt-1 text-xs">
-              {{
-                cancelOrder.data.value?.data.orderCancelled === true
-                  ? '주문 전체가 취소 상태로 이동했습니다.'
-                  : '선택한 PCB 항목이 취소되었습니다.'
-              }}
-            </p>
-          </div>
+          <Alert v-else variant="success" size="sm">
+            <CircleCheckIcon />
+            <AlertTitle>주문 취소가 완료되었습니다.</AlertTitle>
+            <AlertDescription>
+              <p class="text-xs">
+                {{
+                  cancelOrder.data.value?.data.orderCancelled === true
+                    ? '주문 전체가 취소 상태로 이동했습니다.'
+                    : '선택한 PCB 항목이 취소되었습니다.'
+                }}
+              </p>
+            </AlertDescription>
+          </Alert>
         </template>
       </div>
 

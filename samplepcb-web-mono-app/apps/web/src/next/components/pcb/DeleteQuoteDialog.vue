@@ -10,6 +10,9 @@ import {
 } from '@sp/api-contract';
 import { useDeletePreview, useDeleteQuotes } from '@/admin/useAdminQuotes';
 import { formatKrw } from '@/lib/format';
+import DialogScrollBody from '@/next/components/common/DialogScrollBody.vue';
+import Panel from '@/next/components/common/Panel.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Checkbox } from '@/next/components/ui/checkbox';
@@ -21,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/next/components/ui/dialog';
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from '@/next/components/ui/field';
 import { Label } from '@/next/components/ui/label';
 import { Spinner } from '@/next/components/ui/spinner';
 import { Textarea } from '@/next/components/ui/textarea';
@@ -176,119 +180,112 @@ onMounted(() => {
         </DialogTitle>
       </DialogHeader>
 
-      <div class="-mx-6 max-h-[65vh] space-y-4 overflow-y-auto px-6">
+      <DialogScrollBody class="space-y-4">
         <p v-if="previewLoading" class="text-muted-foreground flex items-center justify-center gap-2 py-14 text-sm">
           <Spinner />
           {{ t('admin.quotes.deleteModal.loading') }}
         </p>
-        <p
-          v-else-if="previewFailed || preview === null"
-          class="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border p-4 text-sm"
-        >
-          {{ t('admin.quotes.error.UNKNOWN') }}
-        </p>
+        <Alert v-else-if="previewFailed || preview === null" variant="destructive">
+          <AlertDescription>{{ t('admin.quotes.error.UNKNOWN') }}</AlertDescription>
+        </Alert>
         <template v-else>
-          <!-- 통계 3칸 — 차단은 전부 강제 가능하므로 '보호됨' 칸은 없다 -->
+          <!-- 통계 3칸 — 차단은 전부 강제 가능하므로 '보호됨' 칸은 없다. 칸은 같은 Panel, 뜻은 숫자 색으로만. -->
           <div class="grid grid-cols-3 gap-2">
-            <div class="bg-muted/40 rounded-lg border p-3 text-center">
+            <Panel muted class="text-center">
               <p class="text-muted-foreground text-xs">{{ t('admin.quotes.deleteModal.statSelected') }}</p>
               <p class="mt-1 text-xl font-semibold tabular-nums">{{ ids.length }}</p>
-            </div>
-            <div class="border-success/30 bg-success-soft text-success rounded-lg border p-3 text-center">
-              <p class="text-xs">{{ t('admin.quotes.deleteModal.statDeletable') }}</p>
-              <p class="mt-1 text-xl font-semibold tabular-nums">{{ preview.summary.deletableCount }}</p>
-            </div>
-            <div class="border-warning/30 bg-warning-soft text-warning rounded-lg border p-3 text-center">
-              <p class="text-xs">{{ t('admin.quotes.deleteModal.statForceable') }}</p>
-              <p class="mt-1 text-xl font-semibold tabular-nums">{{ blockedItems.length }}</p>
-            </div>
+            </Panel>
+            <Panel muted class="text-center">
+              <p class="text-muted-foreground text-xs">{{ t('admin.quotes.deleteModal.statDeletable') }}</p>
+              <p class="text-success mt-1 text-xl font-semibold tabular-nums">{{ preview.summary.deletableCount }}</p>
+            </Panel>
+            <Panel muted class="text-center">
+              <p class="text-muted-foreground text-xs">{{ t('admin.quotes.deleteModal.statForceable') }}</p>
+              <p class="text-warning mt-1 text-xl font-semibold tabular-nums">{{ blockedItems.length }}</p>
+            </Panel>
           </div>
 
           <!-- 합산 영향 -->
-          <section v-if="items.length > 0" class="border-destructive/30 rounded-lg border p-4">
-            <p class="text-destructive text-sm font-semibold">
-              {{ t('admin.quotes.deleteModal.impactTitle', { n: items.length }) }}
-            </p>
-            <dl class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div v-for="cell in impactCells" :key="cell.label" class="bg-muted/40 rounded-md p-3">
-                <dt class="text-muted-foreground text-xs">{{ cell.label }}</dt>
-                <dd class="mt-1 font-semibold tabular-nums">{{ cell.value }}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <!-- 건별 카드 -->
-          <ul class="space-y-2">
-            <li
-              v-for="it in items"
-              :key="it.projectId"
-              class="rounded-lg border p-3"
-              :class="it.deletable ? '' : 'border-warning/40 bg-warning-soft/40'"
-            >
-              <div class="flex flex-wrap items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <p class="text-muted-foreground flex items-center gap-1.5 font-mono text-xs">
-                    Q{{ it.projectId }}
-                    <Badge v-if="it.isLegacy" variant="outline">{{ t('admin.quotes.deleteModal.tagLegacy') }}</Badge>
-                  </p>
-                  <p class="truncate text-sm font-medium">{{ it.projectName }}</p>
-                  <p class="text-muted-foreground mt-0.5 text-xs">
-                    <template v-if="it.odId !== null">
-                      {{ t('admin.quotes.deleteModal.orderTitle') }} {{ it.odId }} ({{ it.odStatus }})
-                    </template>
-                    <template v-else-if="it.cartState === 'cart'">{{ t('admin.quotes.deleteModal.tagCart') }}</template>
-                    <template v-else>—</template>
-                  </p>
+          <Alert v-if="items.length > 0" variant="destructive">
+            <AlertTitle>{{ t('admin.quotes.deleteModal.impactTitle', { n: items.length }) }}</AlertTitle>
+            <AlertDescription>
+              <dl class="mt-2 grid w-full grid-cols-2 gap-2 sm:grid-cols-4">
+                <div v-for="cell in impactCells" :key="cell.label" class="bg-background/60 rounded-md p-3">
+                  <dt class="text-muted-foreground text-xs">{{ cell.label }}</dt>
+                  <dd class="text-foreground mt-1 font-semibold tabular-nums">{{ cell.value }}</dd>
                 </div>
-                <Badge :variant="it.deletable ? 'success' : 'warning'">
-                  {{
-                    it.deletable
-                      ? t('admin.quotes.deleteModal.badgeDeletable')
-                      : t('admin.quotes.deleteModal.badgeForceable')
-                  }}
-                </Badge>
-              </div>
-              <p class="text-muted-foreground mt-2 text-xs">
-                {{ t('admin.quotes.deleteModal.totalFiles', { n: it.fileCount }) }} · RFQ {{ it.pcb.rfqs }} · 발주
-                {{ it.pcb.pos }} · 선적 {{ it.pcb.shipments }}
-              </p>
-              <!-- 차단 사유는 전부 — 강제 삭제로 넘길 수 있는 만큼 대가를 다 보여준다 -->
-              <ul v-if="it.blockReasons.length > 0" class="text-warning mt-2 space-y-1 text-xs">
-                <li v-for="code in it.blockReasons" :key="code">• {{ ADMIN_DELETE_BLOCK_TEXT[code] }}</li>
-              </ul>
+              </dl>
+            </AlertDescription>
+          </Alert>
+
+          <!-- 건별 카드 — 강제 가능 건은 우측 배지(warning)와 차단 사유 글자로 갈린다 -->
+          <ul class="space-y-2">
+            <li v-for="it in items" :key="it.projectId">
+              <Panel>
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <p class="text-muted-foreground flex items-center gap-1.5 font-mono text-xs">
+                      Q{{ it.projectId }}
+                      <Badge v-if="it.isLegacy" variant="outline">{{ t('admin.quotes.deleteModal.tagLegacy') }}</Badge>
+                    </p>
+                    <p class="truncate text-sm font-medium">{{ it.projectName }}</p>
+                    <p class="text-muted-foreground mt-0.5 text-xs">
+                      <template v-if="it.odId !== null">
+                        {{ t('admin.quotes.deleteModal.orderTitle') }} {{ it.odId }} ({{ it.odStatus }})
+                      </template>
+                      <template v-else-if="it.cartState === 'cart'">{{ t('admin.quotes.deleteModal.tagCart') }}</template>
+                      <template v-else>—</template>
+                    </p>
+                  </div>
+                  <Badge :variant="it.deletable ? 'success' : 'warning'">
+                    {{
+                      it.deletable
+                        ? t('admin.quotes.deleteModal.badgeDeletable')
+                        : t('admin.quotes.deleteModal.badgeForceable')
+                    }}
+                  </Badge>
+                </div>
+                <p class="text-muted-foreground mt-2 text-xs">
+                  {{ t('admin.quotes.deleteModal.totalFiles', { n: it.fileCount }) }} · RFQ {{ it.pcb.rfqs }} · 발주
+                  {{ it.pcb.pos }} · 선적 {{ it.pcb.shipments }}
+                </p>
+                <!-- 차단 사유는 전부 — 강제 삭제로 넘길 수 있는 만큼 대가를 다 보여준다 -->
+                <ul v-if="it.blockReasons.length > 0" class="text-warning mt-2 space-y-1 text-xs">
+                  <li v-for="code in it.blockReasons" :key="code">• {{ ADMIN_DELETE_BLOCK_TEXT[code] }}</li>
+                </ul>
+              </Panel>
             </li>
           </ul>
 
           <!-- 주문 그룹(1:N) — 선택 안 된 형제 견적 경고 -->
-          <section
-            v-for="g in preview.orderGroups"
-            :key="g.odId"
-            class="border-warning/30 bg-warning-soft rounded-lg border p-4 text-xs"
-          >
-            <p class="text-warning font-semibold">
+          <Alert v-for="g in preview.orderGroups" :key="g.odId" variant="warning">
+            <AlertTitle>
               {{ t('admin.quotes.deleteModal.orderTitle') }} #{{ g.odId }}
               <span class="font-normal">({{ g.odStatus }} · {{ formatKrw(g.receiptPrice) }})</span>
-            </p>
-            <p v-if="g.selectedCount > 1" class="mt-1">
-              {{ t('admin.quotes.deleteModal.orderSelected', { n: g.selectedCount }) }}
-            </p>
-            <div v-if="g.unselectedSiblings.length > 0" class="text-destructive mt-1">
-              <p class="font-semibold">{{ t('admin.quotes.deleteModal.siblingsWarn') }}</p>
-              <ul class="ml-4 list-disc">
-                <li v-for="(name, i) in g.unselectedSiblings" :key="i">{{ name }}</li>
-              </ul>
-            </div>
-          </section>
+            </AlertTitle>
+            <AlertDescription>
+              <div class="space-y-1 text-xs">
+                <p v-if="g.selectedCount > 1">
+                  {{ t('admin.quotes.deleteModal.orderSelected', { n: g.selectedCount }) }}
+                </p>
+                <div v-if="g.unselectedSiblings.length > 0" class="text-destructive">
+                  <p class="font-semibold">{{ t('admin.quotes.deleteModal.siblingsWarn') }}</p>
+                  <ul class="ml-4 list-disc">
+                    <li v-for="(name, i) in g.unselectedSiblings" :key="i">{{ name }}</li>
+                  </ul>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
 
-          <ul
-            v-if="summaryWarnings.length > 0"
-            class="border-warning/30 bg-warning-soft text-warning space-y-1 rounded-lg border p-4 text-xs"
-          >
-            <li v-for="w in summaryWarnings" :key="w" class="flex gap-1.5">
-              <CircleAlertIcon class="mt-0.5 size-3.5 shrink-0" />
-              {{ ADMIN_DELETE_WARNING_TEXT[w] }}
-            </li>
-          </ul>
+          <Alert v-if="summaryWarnings.length > 0" variant="warning">
+            <CircleAlertIcon />
+            <AlertDescription>
+              <ul class="space-y-1 text-xs">
+                <li v-for="w in summaryWarnings" :key="w">{{ ADMIN_DELETE_WARNING_TEXT[w] }}</li>
+              </ul>
+            </AlertDescription>
+          </Alert>
 
           <p v-if="blockedItems.length > 0" class="text-warning text-xs font-medium">
             {{ t('admin.quotes.deleteModal.blockedForceable', { n: blockedItems.length }) }}
@@ -297,7 +294,7 @@ onMounted(() => {
             {{ t('admin.quotes.deleteModal.notFound', { n: preview.notFound.length }) }}
           </p>
         </template>
-      </div>
+      </DialogScrollBody>
 
       <DialogFooter>
         <Button variant="outline" @click="close">{{ t('admin.quotes.deleteModal.cancel') }}</Button>
@@ -323,52 +320,56 @@ onMounted(() => {
         </DialogTitle>
       </DialogHeader>
 
-      <div class="-mx-6 max-h-[60vh] space-y-4 overflow-y-auto px-6">
-        <section class="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border p-4 text-sm">
-          <p class="font-semibold">{{ t('admin.quotes.deleteModal.confirmN', { n: targetItems.length }) }}</p>
-          <ul class="mt-2 space-y-0.5 text-xs">
-            <li v-for="it in targetItems" :key="it.projectId" class="truncate">
-              <span class="font-mono">Q{{ it.projectId }}</span> {{ it.projectName }}
-            </li>
-          </ul>
-        </section>
+      <DialogScrollBody class="space-y-4">
+        <Alert variant="destructive">
+          <AlertTitle>{{ t('admin.quotes.deleteModal.confirmN', { n: targetItems.length }) }}</AlertTitle>
+          <AlertDescription>
+            <ul class="w-full min-w-0 space-y-0.5 text-xs">
+              <li v-for="it in targetItems" :key="it.projectId" class="truncate">
+                <span class="font-mono">Q{{ it.projectId }}</span> {{ it.projectName }}
+              </li>
+            </ul>
+          </AlertDescription>
+        </Alert>
 
+        <!-- 선택 카드는 Field 선택 카드(FieldLabel > Field) — 되돌리기 어려운 선택은 제목 글자를 붉게. -->
         <!-- 강제 해제 — 차단 전부를 넘긴다. 넘기는 대가를 사유별로 나열한다. -->
-        <label
-          v-if="blockedItems.length > 0"
-          class="border-destructive/50 bg-destructive-soft flex cursor-pointer gap-3 rounded-lg border p-4"
-        >
-          <Checkbox :model-value="forceDeleteAll" class="mt-0.5" @update:model-value="setForce" />
-          <span class="text-destructive min-w-0 space-y-1.5">
-            <span class="block text-sm font-semibold">
-              {{ t('admin.quotes.deleteModal.forceLabel', { n: blockedItems.length }) }}
-            </span>
-            <span class="block text-xs">{{ t('admin.quotes.deleteModal.forceDesc') }}</span>
-            <span class="block space-y-0.5 text-xs">
-              <span v-for="code in preview.summary.blockReasons" :key="code" class="block">
-                • {{ ADMIN_DELETE_BLOCK_TEXT[code] }}
-              </span>
-            </span>
-            <!-- 남의 견적까지 지우는 유일한 사유라 따로 못 박는다 -->
-            <span
-              v-if="sharedOrderItems.length > 0"
-              class="bg-destructive text-destructive-foreground block rounded-md px-3 py-2 text-xs font-semibold"
-            >
-              {{ t('admin.quotes.deleteModal.forceSharedWarn', { n: sharedOrderItems.length }) }}
-            </span>
-          </span>
-        </label>
+        <FieldLabel v-if="blockedItems.length > 0" for="pcb-delete-force">
+          <Field orientation="horizontal">
+            <Checkbox id="pcb-delete-force" :model-value="forceDeleteAll" @update:model-value="setForce" />
+            <FieldContent>
+              <FieldTitle>
+                <span class="text-destructive">
+                  {{ t('admin.quotes.deleteModal.forceLabel', { n: blockedItems.length }) }}
+                </span>
+              </FieldTitle>
+              <FieldDescription>{{ t('admin.quotes.deleteModal.forceDesc') }}</FieldDescription>
+              <div class="text-destructive space-y-0.5 text-xs">
+                <p v-for="code in preview.summary.blockReasons" :key="code">• {{ ADMIN_DELETE_BLOCK_TEXT[code] }}</p>
+              </div>
+              <!-- 남의 견적까지 지우는 유일한 사유라 따로 못 박는다 -->
+              <p
+                v-if="sharedOrderItems.length > 0"
+                class="bg-destructive text-destructive-foreground rounded-md px-3 py-2 text-xs font-semibold"
+              >
+                {{ t('admin.quotes.deleteModal.forceSharedWarn', { n: sharedOrderItems.length }) }}
+              </p>
+            </FieldContent>
+          </Field>
+        </FieldLabel>
 
         <!-- 감사기록 생략 — SmartBOM reset 모드와 같은 선택 -->
-        <label class="border-destructive/30 flex cursor-pointer gap-3 rounded-lg border p-4">
-          <Checkbox :model-value="skipAudit" class="mt-0.5" @update:model-value="setSkipAudit" />
-          <span class="min-w-0 space-y-1">
-            <span class="text-destructive block text-sm font-semibold">
-              {{ t('admin.quotes.deleteModal.skipAuditLabel') }}
-            </span>
-            <span class="text-muted-foreground block text-xs">{{ t('admin.quotes.deleteModal.skipAuditDesc') }}</span>
-          </span>
-        </label>
+        <FieldLabel for="pcb-delete-skip-audit">
+          <Field orientation="horizontal">
+            <Checkbox id="pcb-delete-skip-audit" :model-value="skipAudit" @update:model-value="setSkipAudit" />
+            <FieldContent>
+              <FieldTitle>
+                <span class="text-destructive">{{ t('admin.quotes.deleteModal.skipAuditLabel') }}</span>
+              </FieldTitle>
+              <FieldDescription>{{ t('admin.quotes.deleteModal.skipAuditDesc') }}</FieldDescription>
+            </FieldContent>
+          </Field>
+        </FieldLabel>
 
         <div v-if="!skipAudit" class="space-y-1.5">
           <Label for="pcb-delete-reason">
@@ -384,13 +385,19 @@ onMounted(() => {
           />
         </div>
 
-        <label class="border-warning/30 bg-warning-soft flex cursor-pointer items-start gap-2 rounded-lg border p-3">
-          <Checkbox :model-value="acknowledged" class="mt-0.5" @update:model-value="setAcknowledged" />
-          <span class="text-warning text-xs">{{ t('admin.quotes.deleteModal.ackLabel') }}</span>
-        </label>
+        <FieldLabel for="pcb-delete-ack">
+          <Field orientation="horizontal">
+            <Checkbox id="pcb-delete-ack" :model-value="acknowledged" @update:model-value="setAcknowledged" />
+            <FieldContent>
+              <FieldTitle>
+                <span class="text-warning">{{ t('admin.quotes.deleteModal.ackLabel') }}</span>
+              </FieldTitle>
+            </FieldContent>
+          </Field>
+        </FieldLabel>
 
         <p v-if="errorMessage !== ''" class="text-destructive text-sm font-medium">{{ errorMessage }}</p>
-      </div>
+      </DialogScrollBody>
 
       <DialogFooter class="sm:justify-between">
         <Button variant="ghost" :disabled="deleting" @click="backToImpact">
@@ -421,24 +428,20 @@ onMounted(() => {
         </DialogTitle>
       </DialogHeader>
 
-      <div class="-mx-6 max-h-[60vh] space-y-3 overflow-y-auto px-6">
-        <section
-          v-if="deleteResult.summary.deleted > 0"
-          class="border-success/30 bg-success-soft text-success rounded-lg border p-4 text-sm"
-        >
-          <p class="font-semibold">{{ t('admin.quotes.deleteModal.confirmN', { n: deleteResult.summary.deleted }) }}</p>
-          <p class="mt-2 text-xs">
-            {{
-              skipAudit ? t('admin.quotes.deleteModal.resultAuditSkipped') : t('admin.quotes.deleteModal.resultAudit')
-            }}
-          </p>
-        </section>
+      <DialogScrollBody class="space-y-3">
+        <Alert v-if="deleteResult.summary.deleted > 0" variant="success">
+          <AlertTitle>{{ t('admin.quotes.deleteModal.confirmN', { n: deleteResult.summary.deleted }) }}</AlertTitle>
+          <AlertDescription>
+            <p class="text-xs">
+              {{
+                skipAudit ? t('admin.quotes.deleteModal.resultAuditSkipped') : t('admin.quotes.deleteModal.resultAudit')
+              }}
+            </p>
+          </AlertDescription>
+        </Alert>
 
-        <section
-          v-if="deleteResult.summary.blocked > 0 || deleteResult.summary.failed > 0"
-          class="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border p-4"
-        >
-          <p class="text-sm font-semibold">
+        <Alert v-if="deleteResult.summary.blocked > 0 || deleteResult.summary.failed > 0" variant="destructive">
+          <AlertTitle>
             {{
               t('admin.quotes.deleteModal.resultSummary', {
                 deleted: deleteResult.summary.deleted,
@@ -446,15 +449,17 @@ onMounted(() => {
                 failed: deleteResult.summary.failed,
               })
             }}
-          </p>
-          <ul class="mt-2 space-y-1 text-xs">
-            <li v-for="r in failedResults" :key="r.projectId">
-              <span class="font-mono font-semibold">Q{{ r.projectId }}</span> —
-              {{ r.blockReason === null ? '실패' : ADMIN_DELETE_BLOCK_TEXT[r.blockReason] }}
-            </li>
-          </ul>
-        </section>
-      </div>
+          </AlertTitle>
+          <AlertDescription>
+            <ul class="space-y-1 text-xs">
+              <li v-for="r in failedResults" :key="r.projectId">
+                <span class="font-mono font-semibold">Q{{ r.projectId }}</span> —
+                {{ r.blockReason === null ? '실패' : ADMIN_DELETE_BLOCK_TEXT[r.blockReason] }}
+              </li>
+            </ul>
+          </AlertDescription>
+        </Alert>
+      </DialogScrollBody>
 
       <DialogFooter>
         <Button @click="close">{{ t('admin.quotes.deleteModal.toList') }}</Button>

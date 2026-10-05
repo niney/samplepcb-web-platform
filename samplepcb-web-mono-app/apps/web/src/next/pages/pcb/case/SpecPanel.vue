@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { DownloadIcon, PencilIcon, PinIcon, PinOffIcon, XIcon } from '@lucide/vue';
 import { downloadAdminFile } from '@/admin/useAdminQuotes';
+import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
+import Panel from '@/next/components/common/Panel.vue';
 import { pcbCategoryBadge } from '@/next/components/pcb/pcb-badges';
 import { usePcbCaseContext } from './usePcbCase';
 
@@ -52,14 +54,16 @@ const { detail, specEntries, gerberFiles, specPanelOpen, specPanelPinned, toggle
           <dd class="min-w-0 flex-1 font-medium tabular-nums" :title="`저장값 ${entry.value}`">{{ entry.display }}</dd>
         </div>
       </dl>
-      <div v-else class="bg-muted/40 mt-3 rounded-lg border border-dashed p-3.5">
-        <b class="block text-sm">사양 항목이 없는 견적입니다</b>
-        <p class="text-muted-foreground mt-1 text-xs">수동으로 접수된 건입니다. 아래 요청 내용과 첨부 파일로 검토하세요.</p>
-      </div>
+      <Alert v-else variant="muted" size="sm" class="mt-3">
+        <AlertTitle>사양 항목이 없는 견적입니다</AlertTitle>
+        <AlertDescription>수동으로 접수된 건입니다. 아래 요청 내용과 첨부 파일로 검토하세요.</AlertDescription>
+      </Alert>
 
       <div v-if="detail.message !== null && detail.message !== ''" class="mt-4 border-t pt-3">
         <p class="text-muted-foreground text-xs font-medium">고객 요청</p>
-        <p class="bg-muted/40 mt-1 rounded-lg border p-2.5 text-sm whitespace-pre-wrap">{{ detail.message }}</p>
+        <Panel muted class="mt-1">
+          <p class="text-sm whitespace-pre-wrap">{{ detail.message }}</p>
+        </Panel>
       </div>
 
       <div v-if="gerberFiles.length > 0" class="mt-4 border-t pt-3">

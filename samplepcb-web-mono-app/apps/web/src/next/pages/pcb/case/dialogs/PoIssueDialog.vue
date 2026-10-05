@@ -14,6 +14,7 @@ import {
 import { Field, FieldDescription, FieldLabel } from '@/next/components/ui/field';
 import { Input } from '@/next/components/ui/input';
 import { Textarea } from '@/next/components/ui/textarea';
+import Panel from '@/next/components/common/Panel.vue';
 import { usePcbCaseContext } from '../usePcbCase';
 
 // 발주서 발행 — 선정된 회신의 통화·금액·납기가 자동 승계된다(비우면 승계값).
@@ -51,10 +52,12 @@ const onOpenChange = (open: boolean): void => {
       <div class="flex flex-col gap-4">
         <Field>
           <FieldLabel>협력사 *</FieldLabel>
-          <div class="bg-success-soft text-success rounded-md border px-3 py-2 text-sm font-semibold">
-            {{ poTargetRfq?.partnerName ?? '선정된 협력사가 없습니다.' }}
-            <span v-if="poTargetRfq !== null" class="ml-1 text-xs font-medium">({{ poTargetRfq.currency }})</span>
-          </div>
+          <Panel muted>
+            <p class="text-sm font-semibold" :class="poTargetRfq !== null ? 'text-success' : 'text-muted-foreground'">
+              {{ poTargetRfq?.partnerName ?? '선정된 협력사가 없습니다.' }}
+              <span v-if="poTargetRfq !== null" class="ml-1 text-xs font-medium">({{ poTargetRfq.currency }})</span>
+            </p>
+          </Panel>
           <FieldDescription v-if="poTargetRfq !== null">
             회신 승계:
             {{ pcbMoneyWithSub(poTargetRfq.currency, poTargetRfq.priceOriginal, poTargetRfq.subCurrency, poTargetRfq.subPriceOriginal) }}

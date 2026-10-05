@@ -11,6 +11,7 @@ import {
 } from '@/next/components/ui/dialog';
 import { Field, FieldLabel } from '@/next/components/ui/field';
 import { Input } from '@/next/components/ui/input';
+import Panel from '@/next/components/common/Panel.vue';
 import { usePcbCaseContext } from '../usePcbCase';
 
 // 협력사 견적요청(배정) — 체크 해제된 미회신 요청은 회수(회신 완료 건은 보존), 신규 협력사에게만 메일.
@@ -31,7 +32,7 @@ const onOpenChange = (open: boolean): void => {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="max-h-64 overflow-y-auto rounded-lg border p-1">
+      <Panel class="max-h-64 overflow-y-auto">
         <label
           v-for="p in assignCandidates"
           :key="p.partnerId"
@@ -46,7 +47,7 @@ const onOpenChange = (open: boolean): void => {
           <RouterLink :to="{ name: 'admin-partners' }" class="text-primary font-medium hover:underline">파트너 관리</RouterLink>에서
           등록하세요.
         </p>
-      </div>
+      </Panel>
       <Field>
         <FieldLabel for="pcb-assign-date">희망 납기(제시일 — 선택)</FieldLabel>
         <Input id="pcb-assign-date" v-model="assignDate" type="date" />

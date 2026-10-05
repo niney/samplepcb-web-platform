@@ -6,10 +6,13 @@ import { ApiRequestError } from '@sp/shared';
 import { BOM_SHIPMENT_MODE_LABELS, PCB_PACKAGE_EVENT_LABELS, bomShipmentStatusLabel } from '@sp/api-contract';
 import { useAdminPcbPackage } from '@/admin/useAdminPcbPos';
 import { NEXT_PCB_ROUTES } from '@/next/pcb-navigation';
+import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
+import { Card } from '@/next/components/ui/card';
 import { Spinner } from '@/next/components/ui/spinner';
 import PageHeader from '@/next/components/common/PageHeader.vue';
+import SectionCard from '@/next/components/common/SectionCard.vue';
 import CustomerCell from '@/next/components/pcb/CustomerCell.vue';
 import { pcbPackageStatusBadge } from '@/next/components/pcb/pos/pos-badges';
 
@@ -39,7 +42,15 @@ const fmtDateTime = (iso: string): string => new Date(iso).toLocaleString('ko-KR
 
 <template>
   <div class="mx-auto flex max-w-4xl flex-col gap-6">
-    <PageHeader title="PCB 주문/견적 건 조회" description="PCB QR 추적">
+    <!-- 화면의 주제(프로젝트명)를 화면 제목으로 — 조회 전·실패 시에는 화면 이름을 보인다. -->
+    <PageHeader :title="detail?.projectName ?? 'PCB 주문/견적 건 조회'">
+      <template #description>
+        PCB QR 추적
+        <span v-if="detail !== null" class="font-mono text-xs">
+          · {{ detail.labelCode }} · PO-{{ detail.poId }} · Q{{ detail.specId
+          }}<template v-if="detail.reorderRound > 0"> · A/S {{ detail.reorderRound }}차</template>
+        </span>
+      </template>
       <template #actions>
         <Button variant="outline" as-child>
           <RouterLink :to="{ name: NEXT_PCB_ROUTES.shipments }">
@@ -50,42 +61,27 @@ const fmtDateTime = (iso: string): string => new Date(iso).toLocaleString('ko-KR
       </template>
     </PageHeader>
 
-    <div
-      v-if="query.isFetching.value"
-      class="bg-card text-muted-foreground flex items-center justify-center gap-2 rounded-xl border px-5 py-16 text-sm"
-    >
+    <Card v-if="query.isFetching.value" class="flex-row items-center justify-center gap-2 py-16">
       <Spinner />
-      PCB QR을 조회하는 중…
-    </div>
-    <div
-      v-else-if="loadError !== ''"
-      role="alert"
-      class="border-destructive bg-destructive-soft text-destructive flex items-center justify-center gap-2 rounded-xl border px-5 py-8 text-sm font-medium"
-    >
-      <CircleAlertIcon class="size-4" />
-      {{ loadError }}
-    </div>
+      <span class="text-muted-foreground text-sm">PCB QR을 조회하는 중…</span>
+    </Card>
+    <Alert v-else-if="loadError !== ''" variant="destructive">
+      <CircleAlertIcon />
+      <AlertTitle>{{ loadError }}</AlertTitle>
+    </Alert>
 
     <template v-else-if="detail !== null">
-      <section class="bg-card text-card-foreground overflow-hidden rounded-xl border shadow-xs">
-        <div class="bg-muted flex flex-wrap items-start gap-3 border-b px-5 py-4">
-          <div class="min-w-0 space-y-1">
-            <p class="text-muted-foreground font-mono text-xs font-semibold">{{ detail.labelCode }}</p>
-            <h2 class="text-xl font-semibold tracking-tight">{{ detail.projectName }}</h2>
-            <p class="text-muted-foreground font-mono text-xs">
-              PO-{{ detail.poId }} · Q{{ detail.specId }}
-              <template v-if="detail.reorderRound > 0"> · A/S {{ detail.reorderRound }}차</template>
-            </p>
-          </div>
-          <Badge v-if="statusBadge !== null" :variant="statusBadge.variant" class="ml-auto">{{ statusBadge.label }}</Badge>
-        </div>
+      <SectionCard :title="`QR 라벨 ${detail.labelCode}`" flush>
+        <template #actions>
+          <Badge v-if="statusBadge !== null" :variant="statusBadge.variant">{{ statusBadge.label }}</Badge>
+        </template>
 
-        <div
-          v-if="detail.status === 'voided'"
-          role="alert"
-          class="bg-destructive-soft text-destructive border-b px-5 py-3 text-sm font-medium"
-        >
-          이 라벨은 박스 구성에서 제외되어 무효입니다. 실물에 붙어 있다면 사용하지 마세요.
+        <div v-if="detail.status === 'voided'" class="border-b px-4 py-3">
+          <Alert variant="destructive" size="sm">
+            <AlertDescription>
+              이 라벨은 박스 구성에서 제외되어 무효입니다. 실물에 붙어 있다면 사용하지 마세요.
+            </AlertDescription>
+          </Alert>
         </div>
 
         <dl class="bg-border grid gap-px sm:grid-cols-2 lg:grid-cols-3">
@@ -120,7 +116,7 @@ const fmtDateTime = (iso: string): string => new Date(iso).toLocaleString('ko-KR
           </div>
         </dl>
 
-        <div class="flex flex-wrap gap-2 border-t px-5 py-4">
+        <div class="flex flex-wrap gap-2 border-t px-4 py-3">
           <Button as-child>
             <RouterLink :to="{ name: NEXT_PCB_ROUTES.case, params: { id: detail.specId }, query: { from: 'qr' } }">
               Case 상세 열기
@@ -131,13 +127,10 @@ const fmtDateTime = (iso: string): string => new Date(iso).toLocaleString('ko-KR
             <RouterLink :to="{ name: NEXT_PCB_ROUTES.shipments }">선적 큐 열기</RouterLink>
           </Button>
         </div>
-      </section>
+      </SectionCard>
 
-      <section class="bg-card text-card-foreground space-y-4 rounded-xl border p-5 shadow-xs">
-        <div class="space-y-1">
-          <h2 class="text-sm font-semibold">QR 추적 이력</h2>
-          <p class="text-muted-foreground text-xs">입고는 개별 QR이 아니라 선적 박스 입고 확인과 함께 처리됩니다.</p>
-        </div>
+      <SectionCard title="QR 추적 이력">
+        <p class="text-muted-foreground text-xs">입고는 개별 QR이 아니라 선적 박스 입고 확인과 함께 처리됩니다.</p>
         <ol v-if="events.length > 0" class="space-y-0">
           <li v-for="(event, index) in events" :key="event.eventId" class="flex gap-3">
             <div class="flex flex-col items-center">
@@ -157,7 +150,7 @@ const fmtDateTime = (iso: string): string => new Date(iso).toLocaleString('ko-KR
           </li>
         </ol>
         <p v-else class="text-muted-foreground text-xs">이력이 없습니다.</p>
-      </section>
+      </SectionCard>
     </template>
   </div>
 </template>

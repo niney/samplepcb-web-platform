@@ -10,6 +10,8 @@ import {
 } from '@/admin/useAdminQuotes';
 import { fmtPcbAmount } from '@/lib/pcb-money';
 import { PCB_SPEC_LABELS, pcbSpecFormFields } from '@/lib/pcb-spec';
+import Panel from '@/next/components/common/Panel.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import {
@@ -202,6 +204,7 @@ const previewPriceLabel = computed(() => {
 
 <template>
   <Dialog :open="true" @update:open="onOpenChange">
+    <!-- ui-audit-allow: 화면 높이를 채우는 편집 대화상자 — 가운데 편집 영역(flex-1)과 아래 요약 영역이 따로 스크롤한다 -->
     <DialogContent class="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-5xl">
       <DialogHeader>
         <p class="text-primary text-xs font-semibold">제작 사양 수정</p>
@@ -215,12 +218,14 @@ const previewPriceLabel = computed(() => {
       <!-- ③ 결과 -->
       <template v-if="result !== null">
         <div class="-mx-6 min-h-0 flex-1 space-y-3 overflow-y-auto px-6">
-          <div class="border-success/30 bg-success-soft text-success rounded-lg border p-4 text-sm">
-            <p class="font-semibold">사양을 수정했습니다 — {{ result.changedKeys.length }}개 항목</p>
-            <p class="mt-1 text-xs">새 견적 {{ result.quoteId.slice(0, 8) }}… 발급</p>
-          </div>
+          <Alert variant="success">
+            <AlertTitle>사양을 수정했습니다 — {{ result.changedKeys.length }}개 항목</AlertTitle>
+            <AlertDescription>
+              <p class="text-xs">새 견적 {{ result.quoteId.slice(0, 8) }}… 발급</p>
+            </AlertDescription>
+          </Alert>
 
-          <div class="rounded-lg border p-4">
+          <Panel size="md">
             <p class="text-muted-foreground text-xs font-semibold">자동견적가</p>
             <p class="mt-1 flex flex-wrap items-center gap-2 text-sm tabular-nums">
               <span class="text-muted-foreground line-through">{{ fmtPcbAmount('KRW', result.previousAutoPrice) }}</span>
@@ -229,19 +234,27 @@ const previewPriceLabel = computed(() => {
                 {{ result.autoPrice === null ? '자동견적 불가 — 확정가를 매겨야 합니다' : fmtPcbAmount('KRW', result.autoPrice) }}
               </b>
             </p>
-          </div>
+          </Panel>
 
-          <p v-if="result.orderRowSynced" class="border-info/30 bg-info-soft text-info rounded-lg border p-3 text-sm font-medium">
-            주문된 건이라 주문행의 사양 표기도 함께 갱신했습니다 — 결제 금액은 바뀌지 않습니다.
-          </p>
-          <p v-if="result.finalPriceStale" class="border-warning/30 bg-warning-soft text-warning flex gap-2 rounded-lg border p-3 text-sm font-medium">
-            <TriangleAlertIcon class="mt-0.5 size-4 shrink-0" />
-            확정가의 근거가 된 사양이 바뀌었습니다 — 확정가를 다시 매겨 주세요.
-          </p>
-          <p v-if="result.answeredRfqCount > 0" class="border-warning/30 bg-warning-soft text-warning flex gap-2 rounded-lg border p-3 text-sm font-medium">
-            <TriangleAlertIcon class="mt-0.5 size-4 shrink-0" />
-            이미 회신받은 협력사 견적이 {{ result.answeredRfqCount }}건 있습니다 — 바뀐 사양으로 재확인이 필요합니다.
-          </p>
+          <Alert v-if="result.orderRowSynced" variant="info" size="sm">
+            <AlertDescription>
+              <p class="font-medium">주문된 건이라 주문행의 사양 표기도 함께 갱신했습니다 — 결제 금액은 바뀌지 않습니다.</p>
+            </AlertDescription>
+          </Alert>
+          <Alert v-if="result.finalPriceStale" variant="warning" size="sm">
+            <TriangleAlertIcon />
+            <AlertDescription>
+              <p class="text-warning font-medium">확정가의 근거가 된 사양이 바뀌었습니다 — 확정가를 다시 매겨 주세요.</p>
+            </AlertDescription>
+          </Alert>
+          <Alert v-if="result.answeredRfqCount > 0" variant="warning" size="sm">
+            <TriangleAlertIcon />
+            <AlertDescription>
+              <p class="text-warning font-medium">
+                이미 회신받은 협력사 견적이 {{ result.answeredRfqCount }}건 있습니다 — 바뀐 사양으로 재확인이 필요합니다.
+              </p>
+            </AlertDescription>
+          </Alert>
         </div>
         <DialogFooter>
           <Button variant="outline" @click="emit('close')">닫기</Button>
@@ -280,9 +293,9 @@ const previewPriceLabel = computed(() => {
 
           <!-- 이 유형에 없는데 값이 들어 있는 칸 — 이관분·수기 입력. 숨기면 고칠 수도 없다. -->
           <details v-if="offTypeKeys.length > 0" class="mt-4">
-            <summary class="text-muted-foreground hover:bg-accent inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium">
+            <Button as="summary" variant="outline" size="xs" class="w-fit">
               이 유형에 없는 항목 {{ offTypeKeys.length }}개
-            </summary>
+            </Button>
             <div class="mt-2.5 grid gap-x-3.5 gap-y-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               <div v-for="k in offTypeKeys" :key="k">
                 <span class="text-muted-foreground text-xs font-medium">{{ PCB_SPEC_LABELS[k] ?? k }}</span>
@@ -298,24 +311,27 @@ const previewPriceLabel = computed(() => {
           </details>
         </div>
 
+        <!-- ui-audit-allow: 위 편집 영역과 나눠 스크롤하는 아래 요약 영역(화면 높이의 절반까지) -->
         <div class="-mx-6 max-h-[45dvh] shrink-0 space-y-2.5 overflow-y-auto overscroll-contain border-t px-6 pt-4">
           <!-- 변경 요약 — 사양은 값이 많아 무엇을 건드렸는지 놓치기 쉽다 -->
-          <div v-if="changed.length > 0 || qtyChanged" class="border-info/30 bg-info-soft/40 rounded-lg border p-3">
-            <p class="text-info text-xs font-semibold">변경 {{ changed.length + (qtyChanged ? 1 : 0) }}건</p>
-            <ul class="mt-1.5 space-y-0.5 text-xs">
-              <li v-if="qtyChanged">
-                <b>수량</b> <span class="text-muted-foreground">{{ qty }}</span> → <b>{{ qtyDraft }}</b>
-              </li>
-              <li v-for="c in changed" :key="c.key" class="flex flex-wrap items-center gap-1" :class="c.gerber ? 'text-warning' : ''">
-                <b>{{ c.label }}</b>
-                <span class="text-muted-foreground">{{ c.before }}</span> → <b>{{ c.after }}</b>
-                <Badge v-if="c.gerber" variant="warning">거버 파생</Badge>
-              </li>
-            </ul>
-          </div>
+          <Alert v-if="changed.length > 0 || qtyChanged" variant="info" size="sm">
+            <AlertTitle>변경 {{ changed.length + (qtyChanged ? 1 : 0) }}건</AlertTitle>
+            <AlertDescription>
+              <ul class="mt-1 space-y-0.5 text-xs">
+                <li v-if="qtyChanged">
+                  <b>수량</b> <span class="text-muted-foreground">{{ qty }}</span> → <b>{{ qtyDraft }}</b>
+                </li>
+                <li v-for="c in changed" :key="c.key" class="flex flex-wrap items-center gap-1" :class="c.gerber ? 'text-warning' : ''">
+                  <b>{{ c.label }}</b>
+                  <span class="text-muted-foreground">{{ c.before }}</span> → <b>{{ c.after }}</b>
+                  <Badge v-if="c.gerber" variant="warning">거버 파생</Badge>
+                </li>
+              </ul>
+            </AlertDescription>
+          </Alert>
 
           <!-- 실시간 예상 가격 미리보기 -->
-          <div class="border-info/30 bg-info-soft/40 rounded-lg border p-3">
+          <Panel>
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-1.5">
                 <span class="text-info text-xs font-semibold">실시간 예상 가격 미리보기</span>
@@ -329,7 +345,7 @@ const previewPriceLabel = computed(() => {
               </span>
             </div>
 
-            <div class="border-info/20 mt-1.5 flex flex-wrap items-baseline justify-between gap-2 border-t pt-2 text-xs">
+            <div class="mt-1.5 flex flex-wrap items-baseline justify-between gap-2 border-t pt-2 text-xs">
               <div class="flex flex-wrap items-center gap-1.5">
                 <span class="text-muted-foreground">현재:</span>
                 <span class="font-semibold tabular-nums">
@@ -358,13 +374,17 @@ const previewPriceLabel = computed(() => {
                 <Badge v-else variant="secondary">변동 없음</Badge>
               </template>
             </div>
-          </div>
+          </Panel>
 
-          <p v-if="touchedGerber" class="border-warning/40 bg-warning-soft text-warning flex gap-2 rounded-lg border p-3 text-xs leading-5 font-medium">
-            <TriangleAlertIcon class="mt-0.5 size-4 shrink-0" />
-            거버 파일에서 뽑은 값을 고쳤습니다. 화면 사양과 실제 거버가 어긋난 채로 제조에 넘어갈 수
-            있습니다 — 파일이 바뀐 것이라면 거버를 다시 받는 편이 안전합니다.
-          </p>
+          <Alert v-if="touchedGerber" variant="warning" size="sm">
+            <TriangleAlertIcon />
+            <AlertDescription>
+              <p class="text-warning text-xs leading-5 font-medium">
+                거버 파일에서 뽑은 값을 고쳤습니다. 화면 사양과 실제 거버가 어긋난 채로 제조에 넘어갈 수
+                있습니다 — 파일이 바뀐 것이라면 거버를 다시 받는 편이 안전합니다.
+              </p>
+            </AlertDescription>
+          </Alert>
           <p v-if="finalPrice !== null" class="text-muted-foreground text-xs">
             확정가 {{ fmtPcbAmount('KRW', finalPrice) }} 가 매겨져 있습니다 — 사양이 바뀌면 다시 매겨야 합니다.
           </p>

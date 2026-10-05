@@ -17,6 +17,7 @@ import {
 import { fmtPcbAmount } from '@/lib/pcb-money';
 import { confirmDialog } from '@/next/lib/dialog';
 import { pcbCaseTo, queryPage, queryString, queryTab, replacePcbListQuery } from '@/next/pcb-navigation';
+import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/next/components/ui/table';
@@ -161,12 +162,9 @@ function openCancelCase(): void {
       </template>
     </PageHeader>
 
-    <p
-      v-if="actionError !== ''"
-      class="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border px-3 py-2 text-sm font-medium"
-    >
-      {{ actionError }}
-    </p>
+    <Alert v-if="actionError !== ''" variant="destructive" size="sm">
+      <AlertDescription>{{ actionError }}</AlertDescription>
+    </Alert>
 
     <QueueTabs v-model="tab" :tabs="tabs">
       <template #end>

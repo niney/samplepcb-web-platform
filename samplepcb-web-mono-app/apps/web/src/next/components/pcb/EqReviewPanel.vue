@@ -11,6 +11,9 @@ import {
   useCancelPcbEqReview,
   useCreatePcbEqReview,
 } from '@/admin/useAdminPcbPos';
+import DialogScrollBody from '@/next/components/common/DialogScrollBody.vue';
+import Panel from '@/next/components/common/Panel.vue';
+import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Checkbox } from '@/next/components/ui/checkbox';
@@ -22,7 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/next/components/ui/dialog';
-import { Field, FieldLabel } from '@/next/components/ui/field';
+import { Field, FieldContent, FieldLabel, FieldTitle } from '@/next/components/ui/field';
 import { Input } from '@/next/components/ui/input';
 import { Textarea } from '@/next/components/ui/textarea';
 import type { BadgeVariant } from './pcb-badges';
@@ -118,9 +121,9 @@ const setDueOn = (value: string | number): void => {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="-mx-6 max-h-[65vh] space-y-4 overflow-y-auto px-6">
-        <!-- 열린 요청 -->
-        <div v-if="openReview !== null" class="border-info/30 bg-info-soft/40 rounded-lg border p-3">
+      <DialogScrollBody class="space-y-4">
+        <!-- 열린 요청 — 상태는 배지가 말한다 -->
+        <Panel v-if="openReview !== null">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <Badge :variant="STATUS_VARIANT.requested">{{ PCB_EQ_REVIEW_STATUS_LABELS.requested }}</Badge>
             <Badge v-if="openReview.overdue" variant="danger">기한 초과 — 재촉 필요</Badge>
@@ -141,17 +144,18 @@ const setDueOn = (value: string | number): void => {
               요청 취소
             </Button>
           </div>
-        </div>
+        </Panel>
 
         <!-- 새 요청 — EQ 승인요청 단계에서만(서버 가드 NOT_EQ_REQUESTED 의 화면 미러).
              그 외 단계에서 열리는 건 행의 상태 배지를 눌러 이력을 보는 경우다(P4.4). -->
-        <p
-          v-else-if="po.status !== 'eq_requested'"
-          class="bg-muted/40 text-muted-foreground rounded-lg border p-3 text-xs"
-        >
-          새 확인 요청은 발주서가 <b class="text-foreground">{{ stencil ? '확인 요청' : 'EQ 승인요청' }}</b> 단계일 때만 보낼 수 있습니다.
-        </p>
-        <div v-else class="border-info/30 space-y-3 rounded-lg border p-3">
+        <Alert v-else-if="po.status !== 'eq_requested'" variant="muted" size="sm">
+          <AlertDescription>
+            <p class="text-xs">
+              새 확인 요청은 발주서가 <b class="text-foreground">{{ stencil ? '확인 요청' : 'EQ 승인요청' }}</b> 단계일 때만 보낼 수 있습니다.
+            </p>
+          </AlertDescription>
+        </Alert>
+        <Panel v-else class="space-y-3">
           <p class="text-info text-sm font-semibold">고객에게 확인 요청</p>
           <Field>
             <FieldLabel for="eq-review-message">
@@ -185,25 +189,26 @@ const setDueOn = (value: string | number): void => {
             </p>
             <!-- 목록은 최신이 먼저 온다(서버 정렬). 이전 회차를 고객에게 보내면 고객이 옛
                  도면을 보고 승인하므로 눈에 띄게 표시한다(여정 22호). -->
+            <!-- 선택 카드(FieldLabel > Field) — 고른 파일은 카드 자체가 강조된다. 이전 회차는 배지로. -->
             <div class="mt-1 space-y-1">
-              <label
-                v-for="f in po.eqFiles"
-                :key="f.fileId"
-                class="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
-                :class="picked.includes(f.fileId)
-                  ? 'border-primary/40 bg-info-soft/50'
-                  : f.isLatest ? '' : 'border-warning/50 border-dashed'"
-              >
-                <Checkbox
-                  :model-value="picked.includes(f.fileId)"
-                  @update:model-value="togglePick(f.fileId)"
-                />
-                <span class="text-muted-foreground font-semibold uppercase">{{ f.fileType }}</span>
-                <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
-                <Badge v-if="!f.isLatest" variant="warning" title="같은 종류로 더 최근 파일이 올라와 있습니다.">
-                  이전
-                </Badge>
-              </label>
+              <FieldLabel v-for="f in po.eqFiles" :key="f.fileId" :for="`eq-review-file-${String(f.fileId)}`">
+                <Field orientation="horizontal">
+                  <Checkbox
+                    :id="`eq-review-file-${String(f.fileId)}`"
+                    :model-value="picked.includes(f.fileId)"
+                    @update:model-value="togglePick(f.fileId)"
+                  />
+                  <FieldContent>
+                    <FieldTitle>
+                      <span class="text-muted-foreground text-xs font-semibold uppercase">{{ f.fileType }}</span>
+                      <span class="min-w-0 truncate text-xs font-normal">{{ f.name }}</span>
+                    </FieldTitle>
+                  </FieldContent>
+                  <Badge v-if="!f.isLatest" variant="warning" title="같은 종류로 더 최근 파일이 올라와 있습니다.">
+                    이전
+                  </Badge>
+                </Field>
+              </FieldLabel>
             </div>
           </div>
           <p v-else class="text-muted-foreground text-xs">협력사가 올린 첨부가 없습니다.</p>
@@ -211,13 +216,13 @@ const setDueOn = (value: string | number): void => {
           <div class="flex justify-end">
             <Button :disabled="!canSend" @click="void send()">확인 요청 보내기</Button>
           </div>
-        </div>
+        </Panel>
 
         <!-- 지난 이력 -->
         <div v-if="history.length > 0">
           <p class="text-muted-foreground text-xs font-semibold">지난 요청 ({{ history.length }})</p>
           <div class="mt-2 space-y-2">
-            <div v-for="r in history" :key="r.id" class="rounded-lg border p-3">
+            <Panel v-for="r in history" :key="r.id">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <Badge :variant="STATUS_VARIANT[r.status]">{{ PCB_EQ_REVIEW_STATUS_LABELS[r.status] }}</Badge>
                 <span class="text-muted-foreground text-xs">
@@ -233,12 +238,12 @@ const setDueOn = (value: string | number): void => {
               >
                 고객 의견: {{ r.decisionNote }}
               </p>
-            </div>
+            </Panel>
           </div>
         </div>
 
         <p v-if="error !== ''" class="text-destructive text-sm font-medium">{{ error }}</p>
-      </div>
+      </DialogScrollBody>
 
       <DialogFooter>
         <Button variant="outline" @click="emit('close')">닫기</Button>

@@ -4,6 +4,7 @@ import { ChevronDownIcon, ChevronUpIcon, DownloadIcon, PanelRightIcon, TriangleA
 import { fmtKstDate } from '@sp/utils';
 import { downloadAdminFile } from '@/admin/useAdminQuotes';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '@/lib/pcb-money';
+import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { pcbCategoryBadge } from '@/next/components/pcb/pcb-badges';
@@ -247,13 +248,14 @@ const toggleSpecPanel = (): void => {
         </Button>
       </div>
       <!-- 견적 접수 때의 고객 요청과 다른, 주문서의 전하실 말씀(od_memo) — 세부 접기 밖에 항상 보인다. -->
-      <div
-        v-if="detail.order.memo.trim() !== ''"
-        class="border-warning/30 bg-warning-soft flex w-full items-start gap-2 rounded-lg border px-3 py-2"
-      >
-        <Badge variant="warning">전하실 말씀</Badge>
-        <p class="min-w-0 flex-1 text-sm break-words whitespace-pre-wrap">{{ detail.order.memo }}</p>
-      </div>
+      <Alert v-if="detail.order.memo.trim() !== ''" variant="warning" size="sm">
+        <AlertDescription>
+          <div class="flex items-start gap-2">
+            <Badge variant="warning">전하실 말씀</Badge>
+            <span class="text-foreground min-w-0 flex-1 break-words whitespace-pre-wrap">{{ detail.order.memo }}</span>
+          </div>
+        </AlertDescription>
+      </Alert>
       <p v-if="!detail.order.isPaid && !canConfirmReceipt" class="text-warning w-full text-xs">
         미입금 주문입니다 — 무통장 외 결제수단은 통합 관리 주문내역에서 처리하세요.
       </p>

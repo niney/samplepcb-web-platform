@@ -2,7 +2,7 @@
 import { ChevronDownIcon, ChevronRightIcon, FilePlusIcon } from '@lucide/vue';
 import { Button } from '@/next/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/next/components/ui/table';
-import TableCard from '@/next/components/common/TableCard.vue';
+import SectionCard from '@/next/components/common/SectionCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
 import PoRowGroup from './PoRowGroup.vue';
 import { usePcbCaseContext } from './usePcbCase';
@@ -27,24 +27,19 @@ const {
 </script>
 
 <template>
-  <button
-    v-if="detail !== null && collapsed.has('po')"
-    type="button"
-    class="bg-card text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2 rounded-xl border border-dashed px-4 py-2.5 text-sm"
-    @click="expandSection('po')"
+  <!-- 접힘은 진입 맥락(?from=)이 정한다 — 접힌 때만 펼치기 줄(옛 화면 동일). -->
+  <SectionCard
+    :title="`발주서 · ${isStencilCase ? '고객문의사항' : 'EQ'}`"
+    flush
+    :collapsible="detail !== null && collapsed.has('po')"
+    :open="!(detail !== null && collapsed.has('po'))"
+    @update:open="expandSection('po')"
   >
-    <ChevronRightIcon class="size-4" />
-    <span>발주서 · {{ isStencilCase ? '고객문의사항' : 'EQ' }} ({{ adminPos.length }}건)</span>
-    <span class="ml-auto text-xs">펼치기</span>
-  </button>
-  <TableCard v-else>
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-      <h2 class="text-sm font-semibold">
-        발주서 · {{ isStencilCase ? '고객문의사항' : 'EQ' }}
-        <span class="text-muted-foreground ml-1 text-xs font-normal">
-          {{ adminPos.length }}건<template v-if="olderRoundsCollapsed"> (현재 회차 {{ latestPoCount }}건 · 이전 회차 접힘)</template>
-        </span>
-      </h2>
+    <template #collapsed>발주서 · {{ isStencilCase ? '고객문의사항' : 'EQ' }} ({{ adminPos.length }}건)</template>
+    <template #meta>
+      {{ adminPos.length }}건<template v-if="olderRoundsCollapsed"> (현재 회차 {{ latestPoCount }}건 · 이전 회차 접힘)</template>
+    </template>
+    <template #actions>
       <!-- 선정이 없으면 버튼이 안내로 바뀐다(누르면 RFQ 패널의 선정 자리로 데려간다). -->
       <Button
         size="sm"
@@ -63,7 +58,7 @@ const {
         <FilePlusIcon v-else />
         {{ rfqsQuery.isPending.value ? '협력사 확인 중' : selectedPoRfq === null ? '협력사 선정 필요' : '발주서 발행' }}
       </Button>
-    </div>
+    </template>
     <p v-if="isStencilCase" class="text-muted-foreground border-b px-4 py-2 text-xs">
       발행은 고객 결제(입금 확인) 후에만 가능합니다. 메탈마스크는 EQ 왕복이 없습니다 — 발주접수(협력사가
       <b class="text-foreground">좌표파일(필수)</b>과 고객문의사항·사진(선택) 등록) → 확인 요청 →
@@ -107,5 +102,5 @@ const {
         </TableRow>
       </TableBody>
     </Table>
-  </TableCard>
+  </SectionCard>
 </template>

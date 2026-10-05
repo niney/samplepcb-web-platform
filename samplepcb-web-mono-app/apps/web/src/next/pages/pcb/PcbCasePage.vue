@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { TriangleAlertIcon } from '@lucide/vue';
+import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import CaseCustomerCard from '@/next/components/common/CaseCustomerCard.vue';
 import AsCasePanel from '@/next/components/pcb/AsCasePanel.vue';
 import ClaimStrip from '@/next/components/pcb/ClaimStrip.vue';
@@ -34,14 +35,10 @@ const { detail, specId, actionError, specPanelOpen, specPanelPinned } = provideP
   >
     <CaseHeader />
 
-    <p
-      v-if="actionError !== ''"
-      role="alert"
-      class="bg-destructive-soft text-destructive flex items-start gap-2 rounded-lg px-3 py-2 text-sm font-medium"
-    >
-      <TriangleAlertIcon class="mt-0.5 size-4 shrink-0" />
-      {{ actionError }}
-    </p>
+    <Alert v-if="actionError !== ''" variant="destructive" size="sm">
+      <TriangleAlertIcon />
+      <AlertDescription>{{ actionError }}</AlertDescription>
+    </Alert>
 
     <CaseCustomerCard v-if="detail !== null" :customer="detail.customer" />
     <CaseSummary />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Trash2Icon } from '@lucide/vue';
+import Panel from '@/next/components/common/Panel.vue';
 import { Button } from '@/next/components/ui/button';
 
 // 선택 삭제 툴바 — 선택이 없어도 항상 보인다("체크하면 지울 수 있다"를 먼저 알린다, 2026-08-06).
@@ -10,7 +11,7 @@ const emit = defineEmits<{ delete: [] }>();
 </script>
 
 <template>
-  <div class="bg-muted/40 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+  <Panel muted class="flex flex-wrap items-center justify-between gap-3">
     <p class="text-muted-foreground text-sm">
       현재 페이지에서 견적을 체크해 함께 삭제할 수 있습니다.
       <span v-if="count > 0" class="text-foreground ml-1 font-medium">{{ count }}건 선택</span>
@@ -24,5 +25,5 @@ const emit = defineEmits<{ delete: [] }>();
       <Trash2Icon />
       선택 {{ count }}건 영구 삭제
     </Button>
-  </div>
+  </Panel>
 </template>

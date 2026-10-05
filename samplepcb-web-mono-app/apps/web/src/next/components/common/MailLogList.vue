@@ -29,6 +29,7 @@ import {
 } from '@/next/components/ui/table';
 import type { BadgeVariant } from '@/next/components/pcb/pcb-badges';
 import ListPagination from './ListPagination.vue';
+import Panel from './Panel.vue';
 import TableCard from './TableCard.vue';
 import TableEmptyRow from './TableEmptyRow.vue';
 
@@ -340,10 +341,9 @@ const paramEntries = (params: Record<string, unknown> | null): [string, string][
                   </ul>
                   <div v-if="item.hasBody">
                     <p v-if="detailFetching" class="text-muted-foreground">{{ t('admin.mailLogs.loading') }}</p>
-                    <pre
-                      v-else-if="detail?.data.body != null"
-                      class="bg-background max-h-64 overflow-y-auto rounded-md border p-3 text-xs whitespace-pre-wrap"
-                    >{{ detail.data.body }}</pre>
+                    <Panel v-else-if="detail?.data.body != null" class="bg-background max-h-64 overflow-y-auto">
+                      <pre class="text-xs whitespace-pre-wrap">{{ detail.data.body }}</pre>
+                    </Panel>
                   </div>
                   <p v-else class="text-muted-foreground text-xs">{{ t('admin.mailLogs.detail.noBody') }}</p>
 

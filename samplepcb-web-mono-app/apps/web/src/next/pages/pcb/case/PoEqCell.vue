@@ -4,6 +4,7 @@ import { canEditPcbEqFile, type AdminPcbPoViewType } from '@sp/api-contract';
 import { downloadAdminPcbEqFile } from '@/admin/useAdminPcbPos';
 import { Button } from '@/next/components/ui/button';
 import { ButtonGroup } from '@/next/components/ui/button-group';
+import Panel from '@/next/components/common/Panel.vue';
 import { usePcbCaseContext } from './usePcbCase';
 
 // 발주 행의 EQ(스텐실: 문의·첨부) 칸 — 협력사 산출물(eq·working·coord·inquiry)과 관리자 회신(reply)을
@@ -31,9 +32,11 @@ const download = (fileId: number, name: string): void => {
 <template>
   <div class="flex flex-col gap-1.5">
     <!-- 스텐실 — 협력사가 보낸 고객문의사항(현행 제출분). 확인/보완을 결정하는 근거 본문이라 첨부보다 먼저 선다. -->
-    <div
+    <Panel
       v-if="stencilInquiryOf(po) !== null"
-      class="bg-info-soft text-info max-w-72 rounded-md px-2 py-1 text-xs"
+      size="xs"
+      tone="info"
+      class="max-w-72 text-xs"
       :title="stencilInquiryOf(po)?.note"
     >
       <span class="inline-flex items-center gap-1 font-medium">
@@ -41,7 +44,7 @@ const download = (fileId: number, name: string): void => {
         고객문의사항
       </span>
       <span class="mt-0.5 line-clamp-3 block whitespace-pre-wrap">{{ stencilInquiryOf(po)?.note }}</span>
-    </div>
+    </Panel>
 
     <div class="flex flex-wrap items-center gap-1">
       <ButtonGroup v-for="f in eqFilesShown(po)" :key="f.fileId">

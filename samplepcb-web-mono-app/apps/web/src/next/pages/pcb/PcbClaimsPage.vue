@@ -25,6 +25,7 @@ import {
 } from '@/admin/useAdminPcbClaims';
 import { useAdminPcbAsCandidates } from '@/admin/useAdminPcbAsCases';
 import { pcbCaseTo, queryPage, queryString, queryTab, replacePcbListQuery } from '@/next/pcb-navigation';
+import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Checkbox } from '@/next/components/ui/checkbox';
@@ -42,8 +43,10 @@ import { NativeSelect, NativeSelectOption } from '@/next/components/ui/native-se
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/next/components/ui/table';
 import { Textarea } from '@/next/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/next/components/ui/tooltip';
+import DialogScrollBody from '@/next/components/common/DialogScrollBody.vue';
 import ListPagination from '@/next/components/common/ListPagination.vue';
 import PageHeader from '@/next/components/common/PageHeader.vue';
+import Panel from '@/next/components/common/Panel.vue';
 import QueueTabs from '@/next/components/common/QueueTabs.vue';
 import SearchInput from '@/next/components/common/SearchInput.vue';
 import TableCard from '@/next/components/common/TableCard.vue';
@@ -432,230 +435,232 @@ const claimOpen = (status: PcbClaimStatusType): boolean =>
           </div>
         </DialogHeader>
 
-        <div class="-mx-6 max-h-[70vh] space-y-3 overflow-y-auto px-6">
-          <!-- 접수 원문 -->
-          <section class="rounded-lg border p-3">
-            <p class="text-muted-foreground text-xs font-semibold">
-              {{ PCB_CLAIM_KIND_LABELS[selectedClaim.kind] }} · 문제 수량
-              <span class="tabular-nums">{{ selectedClaim.affectedQty }}/{{ selectedClaim.orderedQty }}</span> ·
-              {{ PCB_CLAIM_REMEDY_LABELS[selectedClaim.requestedRemedy] }}
-            </p>
-            <p class="mt-1 flex items-baseline gap-1.5 text-sm font-semibold">
-              <span class="text-muted-foreground shrink-0 font-mono text-xs font-normal">Q{{ selectedClaim.specId }}</span>
-              <span class="truncate">{{ selectedClaim.projectName }}</span>
-            </p>
-            <p class="mt-1.5 text-sm leading-6 whitespace-pre-wrap">{{ selectedClaim.description }}</p>
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <Button
-                v-for="f in selectedClaim.files"
-                :key="f.fileId"
-                variant="outline"
-                size="sm"
-                :title="`${f.name} · ${f.uploadedBy === 'ADMIN' ? '관리자' : '고객'} 업로드`"
-                @click="downloadFile(selectedClaim.id, f.fileId, f.name)"
-              >
-                <DownloadIcon />
-                {{ f.name }}
-              </Button>
+        <DialogScrollBody>
+          <div class="space-y-3">
+            <!-- 접수 원문 -->
+            <Panel>
+              <p class="text-muted-foreground text-xs font-semibold">
+                {{ PCB_CLAIM_KIND_LABELS[selectedClaim.kind] }} · 문제 수량
+                <span class="tabular-nums">{{ selectedClaim.affectedQty }}/{{ selectedClaim.orderedQty }}</span> ·
+                {{ PCB_CLAIM_REMEDY_LABELS[selectedClaim.requestedRemedy] }}
+              </p>
+              <p class="mt-1 flex items-baseline gap-1.5 text-sm font-semibold">
+                <span class="text-muted-foreground shrink-0 font-mono text-xs font-normal">Q{{ selectedClaim.specId }}</span>
+                <span class="truncate">{{ selectedClaim.projectName }}</span>
+              </p>
+              <p class="mt-1.5 text-sm leading-6 whitespace-pre-wrap">{{ selectedClaim.description }}</p>
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <Button
+                  v-for="f in selectedClaim.files"
+                  :key="f.fileId"
+                  variant="outline"
+                  size="sm"
+                  :title="`${f.name} · ${f.uploadedBy === 'ADMIN' ? '관리자' : '고객'} 업로드`"
+                  @click="downloadFile(selectedClaim.id, f.fileId, f.name)"
+                >
+                  <DownloadIcon />
+                  {{ f.name }}
+                </Button>
+                <Button
+                  v-if="claimOpen(selectedClaim.status)"
+                  variant="ghost"
+                  size="sm"
+                  :disabled="uploadFile.isPending.value"
+                  @click="pickAdminFile"
+                >
+                  <UploadIcon />
+                  첨부 추가
+                </Button>
+              </div>
+            </Panel>
+
+            <!-- 회수 기록(자유 메모) — 정식 역물류 모델 보류(08-15 결정) -->
+            <Panel
+              v-if="claimOpen(selectedClaim.status) || selectedClaim.returnRequired"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <span class="flex items-center gap-1.5">
+                <Checkbox
+                  id="pcb-claim-return-required"
+                  :model-value="returnRequired"
+                  :disabled="!claimOpen(selectedClaim.status)"
+                  @update:model-value="returnRequired = $event === true"
+                />
+                <Label for="pcb-claim-return-required">불량품 회수 필요</Label>
+              </span>
+              <span class="min-w-0 flex-1">
+                <Input
+                  v-model="returnNote"
+                  type="text"
+                  maxlength="500"
+                  placeholder="회수 방법·운송장 번호 등 메모"
+                  aria-label="회수 메모"
+                  :disabled="!claimOpen(selectedClaim.status)"
+                />
+              </span>
               <Button
                 v-if="claimOpen(selectedClaim.status)"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                :disabled="uploadFile.isPending.value"
-                @click="pickAdminFile"
+                :disabled="returnMutation.isPending.value"
+                @click="void saveReturn()"
               >
-                <UploadIcon />
-                첨부 추가
+                저장
               </Button>
-            </div>
-          </section>
+            </Panel>
 
-          <!-- 회수 기록(자유 메모) — 정식 역물류 모델 보류(08-15 결정) -->
-          <section
-            v-if="claimOpen(selectedClaim.status) || selectedClaim.returnRequired"
-            class="flex flex-wrap items-center gap-2 rounded-lg border p-3"
-          >
-            <span class="flex items-center gap-1.5">
-              <Checkbox
-                id="pcb-claim-return-required"
-                :model-value="returnRequired"
-                :disabled="!claimOpen(selectedClaim.status)"
-                @update:model-value="returnRequired = $event === true"
-              />
-              <Label for="pcb-claim-return-required">불량품 회수 필요</Label>
-            </span>
-            <span class="min-w-0 flex-1">
-              <Input
-                v-model="returnNote"
-                type="text"
-                maxlength="500"
-                placeholder="회수 방법·운송장 번호 등 메모"
-                aria-label="회수 메모"
-                :disabled="!claimOpen(selectedClaim.status)"
-              />
-            </span>
-            <Button
-              v-if="claimOpen(selectedClaim.status)"
-              variant="outline"
-              size="sm"
-              :disabled="returnMutation.isPending.value"
-              @click="void saveReturn()"
-            >
-              저장
-            </Button>
-          </section>
-
-          <!-- 판정 — 검토 시작(open) → 판정 폼(reviewing) → 최종 기록(종결) -->
-          <section v-if="selectedClaim.status === 'open'" class="border-info/30 bg-info-soft rounded-lg border p-3">
-            <p class="text-info text-sm font-semibold">① 검토 시작</p>
-            <p class="text-muted-foreground mt-0.5 text-xs">
-              고객에게 "확인 중" 상태가 표시됩니다 — 판정 입력은 그 다음.
-            </p>
-            <Button class="mt-2" size="sm" :disabled="transitionClaim.isPending.value" @click="void startReview()">
-              {{ transitionClaim.isPending.value ? '처리 중…' : '검토 시작' }}
-            </Button>
-          </section>
-
-          <section v-else-if="selectedClaim.status === 'reviewing'" class="space-y-3 rounded-lg border p-3">
-            <p class="text-sm font-semibold">② 판정 — 귀책·처리 확정 후 고객 회신</p>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <Field>
-                <FieldLabel for="pcb-claim-fault">귀책 판정</FieldLabel>
-                <NativeSelect id="pcb-claim-fault" v-model="faultType">
-                  <NativeSelectOption v-for="(label, value) in PCB_CLAIM_FAULT_LABELS" :key="value" :value="value">
-                    {{ label }}
-                  </NativeSelectOption>
-                </NativeSelect>
-              </Field>
-              <Field>
-                <FieldLabel for="pcb-claim-resolution">처리 방식</FieldLabel>
-                <NativeSelect id="pcb-claim-resolution" v-model="resolutionKind">
-                  <NativeSelectOption v-for="(label, value) in PCB_CLAIM_RESOLUTION_LABELS" :key="value" :value="value">
-                    {{ label }}
-                  </NativeSelectOption>
-                </NativeSelect>
-              </Field>
-            </div>
-
-            <template v-if="resolutionKind === 'reproduce'">
-              <Field v-if="candidates.length > 0">
-                <FieldLabel for="pcb-claim-partner">
-                  재생산 협력사 <span class="text-destructive">*</span>
-                </FieldLabel>
-                <NativeSelect id="pcb-claim-partner" v-model="targetPartnerId">
-                  <NativeSelectOption :value="null" disabled>선택</NativeSelectOption>
-                  <NativeSelectOption v-for="c in candidates" :key="c.partnerId" :value="c.partnerId">
-                    {{ c.partnerName }}{{ c.parentPartnerName === null ? '' : ` (MD 경유 · ${c.parentPartnerName})` }}
-                  </NativeSelectOption>
-                </NativeSelect>
-                <FieldDescription>
-                  확정 시 A/S 케이스 초안이 만들어져 연결됩니다 — 접수 전송·회신·재발주는 Case 상세 A/S 패널에서.
-                </FieldDescription>
-              </Field>
-              <p v-else class="bg-warning-soft text-warning rounded-md px-2.5 py-1.5 text-xs">
-                원주문 발주 협력사가 없어 케이스 자동 생성 없이 방침만 기록됩니다.
+            <!-- 판정 — 검토 시작(open) → 판정 폼(reviewing) → 최종 기록(종결) -->
+            <Panel v-if="selectedClaim.status === 'open'">
+              <p class="text-info text-sm font-semibold">① 검토 시작</p>
+              <p class="text-muted-foreground mt-0.5 text-xs">
+                고객에게 "확인 중" 상태가 표시됩니다 — 판정 입력은 그 다음.
               </p>
-              <Field>
-                <FieldLabel for="pcb-claim-charge">
-                  유상 청구액 기록
-                  <span class="text-muted-foreground font-normal">(원 · 선택 — 실청구는 별도)</span>
+              <Button class="mt-2" size="sm" :disabled="transitionClaim.isPending.value" @click="void startReview()">
+                {{ transitionClaim.isPending.value ? '처리 중…' : '검토 시작' }}
+              </Button>
+            </Panel>
+
+            <Panel v-else-if="selectedClaim.status === 'reviewing'" class="space-y-3">
+              <p class="text-sm font-semibold">② 판정 — 귀책·처리 확정 후 고객 회신</p>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel for="pcb-claim-fault">귀책 판정</FieldLabel>
+                  <NativeSelect id="pcb-claim-fault" v-model="faultType">
+                    <NativeSelectOption v-for="(label, value) in PCB_CLAIM_FAULT_LABELS" :key="value" :value="value">
+                      {{ label }}
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel for="pcb-claim-resolution">처리 방식</FieldLabel>
+                  <NativeSelect id="pcb-claim-resolution" v-model="resolutionKind">
+                    <NativeSelectOption v-for="(label, value) in PCB_CLAIM_RESOLUTION_LABELS" :key="value" :value="value">
+                      {{ label }}
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+              </div>
+
+              <template v-if="resolutionKind === 'reproduce'">
+                <Field v-if="candidates.length > 0">
+                  <FieldLabel for="pcb-claim-partner">
+                    재생산 협력사 <span class="text-destructive">*</span>
+                  </FieldLabel>
+                  <NativeSelect id="pcb-claim-partner" v-model="targetPartnerId">
+                    <NativeSelectOption :value="null" disabled>선택</NativeSelectOption>
+                    <NativeSelectOption v-for="c in candidates" :key="c.partnerId" :value="c.partnerId">
+                      {{ c.partnerName }}{{ c.parentPartnerName === null ? '' : ` (MD 경유 · ${c.parentPartnerName})` }}
+                    </NativeSelectOption>
+                  </NativeSelect>
+                  <FieldDescription>
+                    확정 시 A/S 케이스 초안이 만들어져 연결됩니다 — 접수 전송·회신·재발주는 Case 상세 A/S 패널에서.
+                  </FieldDescription>
+                </Field>
+                <Alert v-else variant="warning" size="sm">
+                  <AlertDescription>원주문 발주 협력사가 없어 케이스 자동 생성 없이 방침만 기록됩니다.</AlertDescription>
+                </Alert>
+                <Field>
+                  <FieldLabel for="pcb-claim-charge">
+                    유상 청구액 기록
+                    <span class="text-muted-foreground font-normal">(원 · 선택 — 실청구는 별도)</span>
+                  </FieldLabel>
+                  <span class="block w-48">
+                    <Input
+                      id="pcb-claim-charge"
+                      v-model="chargeAmountText"
+                      type="text"
+                      inputmode="numeric"
+                      placeholder="예) 150000"
+                    />
+                  </span>
+                </Field>
+              </template>
+              <Field v-if="resolutionKind === 'refund_coordination'">
+                <FieldLabel for="pcb-claim-refund">
+                  환불 협의액 기록
+                  <span class="text-muted-foreground font-normal">(원 · 선택 — 실집행은 주문 환불 기록 창구)</span>
                 </FieldLabel>
                 <span class="block w-48">
                   <Input
-                    id="pcb-claim-charge"
-                    v-model="chargeAmountText"
+                    id="pcb-claim-refund"
+                    v-model="refundAmountText"
                     type="text"
                     inputmode="numeric"
-                    placeholder="예) 150000"
+                    placeholder="예) 66000"
                   />
                 </span>
               </Field>
-            </template>
-            <Field v-if="resolutionKind === 'refund_coordination'">
-              <FieldLabel for="pcb-claim-refund">
-                환불 협의액 기록
-                <span class="text-muted-foreground font-normal">(원 · 선택 — 실집행은 주문 환불 기록 창구)</span>
-              </FieldLabel>
-              <span class="block w-48">
-                <Input
-                  id="pcb-claim-refund"
-                  v-model="refundAmountText"
-                  type="text"
-                  inputmode="numeric"
-                  placeholder="예) 66000"
+
+              <Field>
+                <FieldLabel for="pcb-claim-response">
+                  고객 답변 <span class="text-destructive">*</span>
+                </FieldLabel>
+                <Textarea
+                  id="pcb-claim-response"
+                  v-model="responseText"
+                  rows="3"
+                  maxlength="2000"
+                  placeholder="판정 결과와 후속 일정(또는 처리 불가 사유)을 적어 주세요 — 고객 메일로 그대로 나갑니다."
                 />
-              </span>
-            </Field>
+              </Field>
+              <div class="flex flex-wrap gap-2">
+                <Button size="sm" :disabled="transitionClaim.isPending.value" @click="void finish('resolve')">
+                  처리 확정
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="transitionClaim.isPending.value"
+                  @click="void finish('reject')"
+                >
+                  처리 불가로 닫기
+                </Button>
+              </div>
+            </Panel>
 
-            <Field>
-              <FieldLabel for="pcb-claim-response">
-                고객 답변 <span class="text-destructive">*</span>
-              </FieldLabel>
-              <Textarea
-                id="pcb-claim-response"
-                v-model="responseText"
-                rows="3"
-                maxlength="2000"
-                placeholder="판정 결과와 후속 일정(또는 처리 불가 사유)을 적어 주세요 — 고객 메일로 그대로 나갑니다."
-              />
-            </Field>
-            <div class="flex flex-wrap gap-2">
-              <Button size="sm" :disabled="transitionClaim.isPending.value" @click="void finish('resolve')">
-                처리 확정
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                :disabled="transitionClaim.isPending.value"
-                @click="void finish('reject')"
-              >
-                처리 불가로 닫기
-              </Button>
-            </div>
-          </section>
+            <Panel v-else muted>
+              <p class="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
+                최종 판정
+                <Badge v-if="selectedClaim.faultType !== null" variant="secondary">
+                  {{ PCB_CLAIM_FAULT_LABELS[selectedClaim.faultType] }}
+                </Badge>
+                <Badge v-if="selectedClaim.resolutionKind !== null" variant="success">
+                  {{ PCB_CLAIM_RESOLUTION_LABELS[selectedClaim.resolutionKind] }}
+                </Badge>
+              </p>
+              <p v-if="selectedClaim.adminResponse !== null" class="mt-1.5 text-sm leading-6 whitespace-pre-wrap">
+                {{ selectedClaim.adminResponse }}
+              </p>
+              <p class="text-muted-foreground mt-1.5 text-xs">
+                <template v-if="selectedClaim.asCaseId !== null">A/S 케이스 #{{ selectedClaim.asCaseId }} 연결 · </template>
+                <template v-if="selectedClaim.chargeAmount !== null">
+                  유상 청구 기록 ₩{{ selectedClaim.chargeAmount.toLocaleString('ko-KR') }} ·
+                </template>
+                <template v-if="selectedClaim.refundAmount !== null">
+                  환불 협의 기록 ₩{{ selectedClaim.refundAmount.toLocaleString('ko-KR') }} ·
+                </template>
+                {{ selectedClaim.closedAt === null ? '' : fmtDate(selectedClaim.closedAt) }}
+              </p>
+            </Panel>
 
-          <section v-else class="bg-muted/40 rounded-lg border p-3">
-            <p class="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
-              최종 판정
-              <Badge v-if="selectedClaim.faultType !== null" variant="secondary">
-                {{ PCB_CLAIM_FAULT_LABELS[selectedClaim.faultType] }}
-              </Badge>
-              <Badge v-if="selectedClaim.resolutionKind !== null" variant="success">
-                {{ PCB_CLAIM_RESOLUTION_LABELS[selectedClaim.resolutionKind] }}
-              </Badge>
-            </p>
-            <p v-if="selectedClaim.adminResponse !== null" class="mt-1.5 text-sm leading-6 whitespace-pre-wrap">
-              {{ selectedClaim.adminResponse }}
-            </p>
-            <p class="text-muted-foreground mt-1.5 text-xs">
-              <template v-if="selectedClaim.asCaseId !== null">A/S 케이스 #{{ selectedClaim.asCaseId }} 연결 · </template>
-              <template v-if="selectedClaim.chargeAmount !== null">
-                유상 청구 기록 ₩{{ selectedClaim.chargeAmount.toLocaleString('ko-KR') }} ·
-              </template>
-              <template v-if="selectedClaim.refundAmount !== null">
-                환불 협의 기록 ₩{{ selectedClaim.refundAmount.toLocaleString('ko-KR') }} ·
-              </template>
-              {{ selectedClaim.closedAt === null ? '' : fmtDate(selectedClaim.closedAt) }}
-            </p>
-          </section>
+            <!-- 처리 이력(원장) -->
+            <Panel>
+              <p class="text-muted-foreground text-xs font-semibold">처리 이력</p>
+              <ol class="mt-1.5 space-y-1.5">
+                <li v-for="event in selectedClaim.events" :key="event.id" class="text-muted-foreground text-xs">
+                  <b class="text-foreground font-semibold">{{ PCB_CLAIM_STATUS_LABELS[event.toStatus] }}</b>
+                  · {{ event.actorRole === 'customer' ? '고객' : '관리자' }} {{ event.actorMbId }}
+                  · {{ fmtDate(event.createdAt) }}
+                  <span v-if="event.note !== null" class="block pl-2 whitespace-pre-wrap">↳ {{ event.note }}</span>
+                </li>
+              </ol>
+            </Panel>
 
-          <!-- 처리 이력(원장) -->
-          <section class="rounded-lg border p-3">
-            <p class="text-muted-foreground text-xs font-semibold">처리 이력</p>
-            <ol class="mt-1.5 space-y-1.5">
-              <li v-for="event in selectedClaim.events" :key="event.id" class="text-muted-foreground text-xs">
-                <b class="text-foreground font-semibold">{{ PCB_CLAIM_STATUS_LABELS[event.toStatus] }}</b>
-                · {{ event.actorRole === 'customer' ? '고객' : '관리자' }} {{ event.actorMbId }}
-                · {{ fmtDate(event.createdAt) }}
-                <span v-if="event.note !== null" class="block pl-2 whitespace-pre-wrap">↳ {{ event.note }}</span>
-              </li>
-            </ol>
-          </section>
-
-          <p v-if="actionError !== ''" class="bg-destructive-soft text-destructive rounded-lg px-3 py-2 text-sm font-semibold">
-            {{ actionError }}
-          </p>
-        </div>
+            <Alert v-if="actionError !== ''" variant="destructive" size="sm">
+              <AlertDescription>{{ actionError }}</AlertDescription>
+            </Alert>
+          </div>
+        </DialogScrollBody>
       </DialogContent>
     </Dialog>
   </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { TriangleAlertIcon } from '@lucide/vue';
+import { Alert, AlertTitle } from '@/next/components/ui/alert';
 import { ApiRequestError } from '@sp/shared';
 import { usePcbShipCustomerOrder } from '@/admin/useAdminPcbOrders';
 import {
@@ -126,13 +127,10 @@ async function submit(): Promise<void> {
         </DialogDescription>
       </DialogHeader>
 
-      <p
-        v-if="incompleteReceipt"
-        class="bg-warning-soft text-warning flex items-start gap-2 rounded-md px-3 py-2 text-sm font-medium"
-      >
-        <TriangleAlertIcon class="mt-0.5 size-4 shrink-0" />
-        입고 확인이 끝나지 않은 발주가 있습니다 — 검수 후 발송을 권장합니다.
-      </p>
+      <Alert v-if="incompleteReceipt" variant="warning" size="sm">
+        <TriangleAlertIcon />
+        <AlertTitle>입고 확인이 끝나지 않은 발주가 있습니다 — 검수 후 발송을 권장합니다.</AlertTitle>
+      </Alert>
 
       <form class="grid gap-4" @submit.prevent="submit">
         <Field>

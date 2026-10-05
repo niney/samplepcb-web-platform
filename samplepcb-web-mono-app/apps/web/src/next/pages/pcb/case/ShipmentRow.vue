@@ -23,6 +23,7 @@ import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { TableCell, TableRow } from '@/next/components/ui/table';
 import { pcbShipmentStatusVariant as shipStatusVariant } from '@/next/components/pcb/pcb-badges';
+import Panel from '@/next/components/common/Panel.vue';
 import { dateOnly } from './case-core';
 import { usePcbCaseContext } from './usePcbCase';
 
@@ -186,9 +187,11 @@ const caseRefWaiting = (s: AdminPcbShipmentViewType): boolean =>
       </div>
       <!-- Case ID 처리 순서 — 협력사 제출물(내려받아 수정)과 내 처리(재첨부→AWB→입력)를 한 줄 순서로.
            완료 판정은 파일 주인(uploadedBy)이 말한다. 실발송 전까지만 선다. -->
-      <div
+      <Panel
         v-if="caseRefStrip(shipment)"
-        class="bg-warning-soft mt-2 ml-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md px-3 py-2 text-xs"
+        size="sm"
+        tone="warning"
+        class="mt-2 ml-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs"
       >
         <span class="text-warning font-semibold">Case ID 처리</span>
         <span class="flex items-center gap-1.5">
@@ -269,7 +272,7 @@ const caseRefWaiting = (s: AdminPcbShipmentViewType): boolean =>
             {{ PCB_SHIPMENT_FILE_LABELS[f.fileType] }}
           </Button>
         </span>
-      </div>
+      </Panel>
     </TableCell>
   </TableRow>
 </template>

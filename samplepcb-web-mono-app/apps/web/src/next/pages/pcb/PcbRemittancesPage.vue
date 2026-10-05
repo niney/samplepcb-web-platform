@@ -388,18 +388,16 @@ function openCase(specId: number): void {
       <!-- 통화별 소계 — 목록 한 열에 ₩·$가 섞이므로 합계는 통화별로만 뜻이 있다 -->
       <div v-if="byCurrency.length > 0" class="flex flex-wrap items-center gap-2 text-xs">
         <span class="text-muted-foreground font-medium">통화별 소계</span>
-        <span
-          v-for="c in byCurrency"
-          :key="c.currency"
-          class="bg-card text-muted-foreground rounded-lg border px-2.5 py-1 tabular-nums"
-        >
-          <span class="text-foreground mr-1 font-semibold">{{ c.currency }}</span>
-          발주 {{ fmtPcbAmount(c.currency, c.poAmount) }} · 송금 {{ fmtPcbAmount(c.currency, c.paidAmount) }} · 잔액
-          <span class="font-semibold" :class="c.balance > 0 ? 'text-destructive' : 'text-muted-foreground'">
-            {{ fmtPcbAmount(c.currency, c.balance) }}
+        <Badge v-for="c in byCurrency" :key="c.currency" variant="outline">
+          <span class="text-muted-foreground font-normal tabular-nums">
+            <span class="text-foreground mr-1 font-semibold">{{ c.currency }}</span>
+            발주 {{ fmtPcbAmount(c.currency, c.poAmount) }} · 송금 {{ fmtPcbAmount(c.currency, c.paidAmount) }} · 잔액
+            <span class="font-semibold" :class="c.balance > 0 ? 'text-destructive' : 'text-muted-foreground'">
+              {{ fmtPcbAmount(c.currency, c.balance) }}
+            </span>
+            <span class="ml-1">({{ c.poCount }}건)</span>
           </span>
-          <span class="ml-1">({{ c.poCount }}건)</span>
-        </span>
+        </Badge>
         <span class="text-muted-foreground">무상 A/S 제외</span>
       </div>
 

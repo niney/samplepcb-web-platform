@@ -4,6 +4,7 @@
 // 알림 상자·섹션 상자·접힘 토글을 화면마다 새로 지어도 통과한다(2026-10-06 통합 때 37·71곳 실측).
 // 이 스크립트는 그런 반복을 키트로 되돌리게 하는 그물이다 — 규칙과 대신 쓸 것:
 //   alert      bg-*-soft 바탕 + 테두리       → ui/alert  <Alert variant="info|warning|success|destructive" size="sm">
+//   tint       bg-*-soft 바탕(테두리 없음)    → 섹션 안 띠는 common/NoticeBand, 짧은 표지는 ui/badge, 상자는 Alert
 //   box        rounded-* border + p-*        → common/Panel(작은 상자) · common/SectionCard(섹션) · common/TableCard(표)
 //   max-h      대화상자 높이 임의값           → common/DialogScrollBody
 //   raw-control  <button>·<input type=radio|checkbox> → ui/button · ui/radio-group · ui/checkbox
@@ -29,6 +30,7 @@ const KIT_FILES = new Set([
   'components/common/SectionCard.vue',
   'components/common/Panel.vue',
   'components/common/DialogScrollBody.vue',
+  'components/common/NoticeBand.vue',
 ]);
 
 function* walk(dir) {
@@ -47,6 +49,11 @@ const RULES = [
     id: 'alert',
     test: (cls) => /\bbg-(info|warning|success|destructive)-soft\b/.test(cls) && /(^|\s)border(\s|$)/.test(cls),
     hint: '상태 알림 상자 → <Alert variant=… size="sm">',
+  },
+  {
+    id: 'tint',
+    test: (cls) => /\bbg-(info|warning|success|destructive)-soft\b/.test(cls) && !/(^|\s)border(\s|$)/.test(cls),
+    hint: '색 바탕 띠·메모 → NoticeBand(섹션 띠)·Badge(짧은 표지)·Alert(상자)',
   },
   {
     id: 'box',
@@ -69,6 +76,16 @@ for (const file of walk(ROOT)) {
   const report = (index, id, hint) => {
     if (!allowed(index)) findings.push(`${relative('.', file).split(sep).join('/')}:${String(index + 1)}  [${id}] ${hint}`);
   };
+  // 동적 class(:class="…", 여러 줄 포함)는 안의 문자열 조각('…'·`…`)을 하나씩 검사한다 — 삼항·배열로
+  // 상태색을 얹는 곳(예: 값에 따라 칸 색을 바꾸는 결론 칸)이 정적 class 검사만으로는 빠진다.
+  const template = lines.slice(templateStart).join('\n');
+  for (const match of template.matchAll(/:class="([^"]*)"/g)) {
+    const index = templateStart + template.slice(0, match.index).split('\n').length - 1;
+    for (const piece of (match[1] ?? '').matchAll(/'([^']*)'|`([^`]*)`/g)) {
+      const cls = piece[1] ?? piece[2] ?? '';
+      for (const rule of RULES) if (rule.test(cls)) report(index, rule.id, rule.hint);
+    }
+  }
   for (let i = templateStart; i < lines.length; i += 1) {
     const line = lines[i] ?? '';
     for (const match of line.matchAll(/(?<![:\w-])class="([^"]*)"/g)) {
