@@ -94,18 +94,18 @@ export function useCancelPcbOrder() {
   });
 }
 
+// 배지 두 개가 같은 응답의 다른 칸을 쓴다 — queryKey 를 공유해 요청은 한 번만 나간다.
+const PCB_ORDER_BADGE_KEY = ['admin', 'pcbOrder', 'badge-counts'] as const;
+const fetchPcbOrderBadgeCounts = () =>
+  apiGet(`${apiRoutes.adminPcbOrders}?page=1&pageSize=1&tab=all`, AdminPcbOrderListResponse);
+
 // 사이드바 '주문·결제' 배지 — 입금 대기 수.
 export function usePcbOrdersAwaitingCount(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'pcbOrder', 'awaiting-count'],
-    queryFn: async () => {
-      const res = await apiGet(
-        `${apiRoutes.adminPcbOrders}?page=1&pageSize=1&tab=all`,
-        AdminPcbOrderListResponse,
-      );
-      return res.data.counts.awaiting;
-    },
+    queryKey: PCB_ORDER_BADGE_KEY,
+    queryFn: fetchPcbOrderBadgeCounts,
     enabled,
+    select: (res) => res.data.counts.awaiting,
     refetchInterval: 60_000,
   });
 }
@@ -113,15 +113,10 @@ export function usePcbOrdersAwaitingCount(enabled: Ref<boolean>) {
 /** 사이드바 '선적·배송' 배지 합산분 — 고객 배송 대기(입고확인 완료·배송 전) 수. */
 export function usePcbOrdersToShipCount(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'pcbOrder', 'to-ship-count'],
-    queryFn: async () => {
-      const res = await apiGet(
-        `${apiRoutes.adminPcbOrders}?page=1&pageSize=1&tab=all`,
-        AdminPcbOrderListResponse,
-      );
-      return res.data.counts.toShip;
-    },
+    queryKey: PCB_ORDER_BADGE_KEY,
+    queryFn: fetchPcbOrderBadgeCounts,
     enabled,
+    select: (res) => res.data.counts.toShip,
     refetchInterval: 60_000,
   });
 }

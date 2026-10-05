@@ -119,10 +119,13 @@ export function useAdminBomQuote(quoteId: Ref<string | null>) {
   });
 }
 
+// 배지 두 개가 같은 응답의 다른 칸을 쓴다 — queryKey 를 공유해 요청은 한 번만 나간다.
+const BOM_QUOTE_BADGE_KEY = ['admin', 'bom-quotes', 'badge-counts'] as const;
+
 /** 메뉴 배지용 관리자 차례 선적 수(D22) — counts 만 필요해 최소 페이지로 조회. */
 export function useBomShipmentPendingCount(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'bom-quotes', 'shipment-pending-count'],
+    queryKey: BOM_QUOTE_BADGE_KEY,
     queryFn: () => apiGet(`${base}?page=1&pageSize=1`, AdminBomQuoteListResponse),
     enabled,
     select: (res) => res.data.counts.shipmentPending,
@@ -133,7 +136,7 @@ export function useBomShipmentPendingCount(enabled: Ref<boolean>) {
 /** 메뉴 배지용 검토 대기(requested) 수 — 견적관리 메뉴(관리자 메뉴 재편). */
 export function useBomQuotesRequestedCount(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'bom-quotes', 'requested-count'],
+    queryKey: BOM_QUOTE_BADGE_KEY,
     queryFn: () => apiGet(`${base}?page=1&pageSize=1`, AdminBomQuoteListResponse),
     enabled,
     select: (res) => res.data.counts.requested,

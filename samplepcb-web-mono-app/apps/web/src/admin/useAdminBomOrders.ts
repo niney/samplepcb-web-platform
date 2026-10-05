@@ -36,10 +36,13 @@ export function useAdminBomOrders(filters: Ref<AdminBomOrderFilters>) {
   });
 }
 
+// 배지 두 개가 같은 응답의 다른 칸을 쓴다 — queryKey 를 공유해 요청은 한 번만 나간다.
+const BOM_ORDER_BADGE_KEY = ['admin', 'bom-orders', 'badge-counts'] as const;
+
 /** 메뉴 배지용 입금 대기 수 — counts 만 필요해 최소 페이지로 조회. */
 export function useBomOrdersAwaitingCount(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'bom-orders', 'awaiting-count'],
+    queryKey: BOM_ORDER_BADGE_KEY,
     queryFn: () =>
       apiGet(`${apiRoutes.adminBomOrders}?page=1&pageSize=1&tab=all`, AdminBomOrderListResponse),
     enabled,
@@ -51,7 +54,7 @@ export function useBomOrdersAwaitingCount(enabled: Ref<boolean>) {
 /** 메뉴 배지용 발주 대기(결제 완료+미발주) 수 — 발주 메뉴(관리자 메뉴 재편). */
 export function useBomPosAwaitingCount(enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: ['admin', 'bom-orders', 'pos-awaiting-count'],
+    queryKey: BOM_ORDER_BADGE_KEY,
     queryFn: () =>
       apiGet(`${apiRoutes.adminBomOrders}?page=1&pageSize=1&tab=all`, AdminBomOrderListResponse),
     enabled,
