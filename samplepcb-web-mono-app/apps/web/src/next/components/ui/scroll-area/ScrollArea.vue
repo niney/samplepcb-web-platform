@@ -1,0 +1,34 @@
+<script setup lang="ts">
+import type { ScrollAreaRootProps } from "reka-ui"
+import type { HTMLAttributes } from "vue"
+import { reactiveOmit } from "@vueuse/core"
+import {
+  ScrollAreaCorner,
+  ScrollAreaRoot,
+  ScrollAreaViewport,
+} from "reka-ui"
+import { cn } from '@/next/lib/utils'
+import ScrollBar from "./ScrollBar.vue"
+
+const props = defineProps<ScrollAreaRootProps & { class?: HTMLAttributes["class"] }>()
+
+const delegatedProps = reactiveOmit(props, "class")
+</script>
+
+<template>
+  <!-- @vue-expect-error exactOptionalPropertyTypes — reka-ui 선택 prop 이 undefined 를 받지 않는다(scripts/next-ui-expect-errors.mjs) -->
+  <ScrollAreaRoot
+    data-slot="scroll-area"
+    v-bind="delegatedProps"
+    :class="cn('relative', props.class)"
+  >
+    <ScrollAreaViewport
+      data-slot="scroll-area-viewport"
+      class="focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-3 focus-visible:outline-1"
+    >
+      <slot />
+    </ScrollAreaViewport>
+    <ScrollBar />
+    <ScrollAreaCorner />
+  </ScrollAreaRoot>
+</template>

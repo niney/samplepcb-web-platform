@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
@@ -8,6 +9,10 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
   base: '/app/',
+  // tsconfig 의 "@/*" 와 짝 — shadcn-vue 컴포넌트(src/next/components/ui)가 이 별칭으로 서로를 import 한다.
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   server: {
     port: Number(process.env.SP_WEB_PORT ?? 5173),
     // IPv4 루프백에 바인딩. 기본값 'localhost'는 Windows에서 IPv6(::1)로만 열려

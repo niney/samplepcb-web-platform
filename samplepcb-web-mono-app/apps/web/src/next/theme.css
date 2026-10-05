@@ -1,0 +1,156 @@
+/* 관리자 리뉴얼(src/next) 디자인 토큰 — shadcn-vue 규약.
+
+   style.css 가 이 파일을 불러와 Tailwind 를 한 벌만 쓴다. 기존 화면에 영향을 주지 않도록
+   세 가지를 지킨다.
+   1. 토큰 이름(--primary·--muted·--card …)은 기존 코드가 한 번도 쓰지 않은 이름이라
+      :root 에 둬도 옛 화면은 그대로다. :root 에 두는 이유는 Dialog·Popover 처럼 body 로
+      나가는(포털) 요소도 같은 값을 받게 하기 위해서다.
+   2. 모서리(--radius-*) 는 다시 정의하지 않는다. shadcn 템플릿은 rounded-sm/md/lg/xl 을
+      --radius 기준으로 바꾸는데, 기존 rounded-* 2,022곳의 모양이 함께 바뀐다.
+   3. 전역 기본 스타일(테두리색·본문 배경)은 새 셸이 떠 있을 때 <html class="sp-next"> 아래로만
+      건다(AdminNextLayout 이 붙이고 뗀다).
+
+   components.json 이 이 파일을 테마로 가리킨다 — @shadcn/lint 는 여기 선언된 색만 "있는
+   토큰"으로 알기 때문에, 새 코드에서 옛 토큰(ink-*·surface-*·brand-*)이나 Tailwind 기본
+   팔레트(gray-*·blue-*)를 쓰면 잡는다.
+
+   다크 모드는 기존과 같이 <html data-theme="dark"> 하나로 정한다(.dark 클래스를 쓰지 않음). */
+
+@import "tw-animate-css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* 기본 색조 slate(shadcn new-york) + 주 색상은 브랜드 파랑.
+   primary 는 흰 글자 대비(AA)를 위해 브랜드 진한 단계(#1e64fd)를 쓴다. */
+:root {
+  /* sonner 등 일부 컴포넌트가 var(--radius) 를 직접 읽는다. Tailwind --radius-* 스케일과는 무관. */
+  --radius: 0.5rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: #1e64fd;
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: #4798ff;
+
+  /* 업무 상태색 — shadcn 기본에는 destructive 하나뿐이라 워크큐 배지(대기·완료·주의)용으로 더한다.
+     *-soft 는 배지·알림 바탕, 본색은 글자·아이콘. */
+  --success: oklch(0.527 0.154 150.069);
+  --success-soft: oklch(0.962 0.044 156.743);
+  --warning: oklch(0.555 0.163 48.998);
+  --warning-soft: oklch(0.973 0.071 103.193);
+  --info: #1e64fd;
+  --info-soft: #eef4ff;
+  --destructive-soft: oklch(0.971 0.013 17.38);
+
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: #1e64fd;
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: #4798ff;
+}
+
+[data-theme="dark"] {
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: #5c9bff;
+  --primary-foreground: oklch(0.129 0.042 264.695);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.129 0.042 264.695);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #5c9bff;
+
+  --success: oklch(0.792 0.209 151.711);
+  --success-soft: oklch(0.266 0.065 152.934);
+  --warning: oklch(0.828 0.189 84.429);
+  --warning-soft: oklch(0.279 0.077 45.635);
+  --info: #82b4ff;
+  --info-soft: #16233c;
+  --destructive-soft: oklch(0.258 0.092 26.042);
+
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: #5c9bff;
+  --sidebar-primary-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #5c9bff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* 새 셸이 떠 있는 동안만 적용되는 기본 스타일. 옛 화면에 있을 때는 html 에 sp-next 가 없다. */
+@layer base {
+  html.sp-next *,
+  html.sp-next ::before,
+  html.sp-next ::after {
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+  html.sp-next body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}

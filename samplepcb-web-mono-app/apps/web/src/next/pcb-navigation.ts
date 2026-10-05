@@ -1,0 +1,175 @@
+import type {
+  LocationQuery,
+  LocationQueryRaw,
+  LocationQueryValue,
+  RouteLocationRaw,
+  Router,
+} from 'vue-router';
+
+// 관리자 리뉴얼(src/next) PCB 모듈의 라우트·목록 상태 규약 — 옛 admin/pcb-navigation.ts 의 짝.
+//
+// 리뉴얼 화면은 컷오버 전까지 /admin/next/pcb/* 에서 옛 화면과 나란히 돈다. 라우트 이름은
+// 전부 이 파일의 NEXT_PCB_ROUTES 로만 부른다 — 컷오버 때 값만 'admin-pcb-*' 로 바꾸면 화면
+// 코드는 그대로 옛 경로를 이어받는다(e2e·메일 딥링크·바깥 링크를 고치지 않는 전환).
+// 마지막 화면 기억(localStorage)은 옛 화면과 키를 나눠 서로의 탭 기억을 덮어쓰지 않게 한다.
+
+export const NEXT_PCB_ROUTES = {
+  cases: 'admin-next-pcb-cases',
+  rfqs: 'admin-next-pcb-rfqs',
+  orders: 'admin-next-pcb-orders',
+  pos: 'admin-next-pcb-pos',
+  remittances: 'admin-next-pcb-remittances',
+  shipments: 'admin-next-pcb-shipments',
+  claims: 'admin-next-pcb-claims',
+  package: 'admin-next-pcb-package',
+  case: 'admin-next-pcb-case',
+} as const;
+
+/** 리뉴얼 PCB 화면의 경로 접두 — 컷오버 때 '/admin/pcb' 로 바뀐다. */
+export const NEXT_PCB_BASE_PATH = '/admin/next/pcb';
+
+export const PCB_ADMIN_SECTIONS = [
+  'cases',
+  'rfqs',
+  'orders',
+  'pos',
+  'remittances',
+  'shipments',
+  'claims',
+] as const;
+
+export type PcbAdminSection = (typeof PCB_ADMIN_SECTIONS)[number];
+
+export interface PcbAdminMemory {
+  section: PcbAdminSection;
+  tabs: Partial<Record<PcbAdminSection, string>>;
+}
+
+type MaybeQueryValue = LocationQueryValue | LocationQueryValue[] | undefined;
+
+const DEFAULT_MEMORY: PcbAdminMemory = { section: 'cases', tabs: {} };
+
+const isSection = (value: unknown): value is PcbAdminSection =>
+  typeof value === 'string' && PCB_ADMIN_SECTIONS.some((section) => section === value);
+
+export const resolvePcbAdminSection = (routeName: string): PcbAdminSection | null =>
+  PCB_ADMIN_SECTIONS.find((section) => NEXT_PCB_ROUTES[section] === routeName) ?? null;
+
+const storageKey = (mbId: string | null | undefined): string =>
+  `sp:admin-next:pcb-view:${mbId === undefined || mbId === null || mbId === '' ? 'anonymous' : mbId}`;
+
+export const readPcbAdminMemory = (mbId: string | null | undefined): PcbAdminMemory => {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(storageKey(mbId)) ?? 'null');
+    if (typeof raw !== 'object' || raw === null) return { ...DEFAULT_MEMORY, tabs: {} };
+    const record = raw as Record<string, unknown>;
+    const section = isSection(record.section) ? record.section : DEFAULT_MEMORY.section;
+    const tabs: Partial<Record<PcbAdminSection, string>> = {};
+    if (typeof record.tabs === 'object' && record.tabs !== null) {
+      const rawTabs = record.tabs as Record<string, unknown>;
+      for (const key of PCB_ADMIN_SECTIONS) {
+        const value = rawTabs[key];
+        if (typeof value === 'string') tabs[key] = value;
+      }
+    }
+    return { section, tabs };
+  } catch {
+    return { ...DEFAULT_MEMORY, tabs: {} };
+  }
+};
+
+export const rememberPcbAdminView = (
+  mbId: string | null | undefined,
+  section: PcbAdminSection,
+  tab?: string,
+): PcbAdminMemory => {
+  const current = readPcbAdminMemory(mbId);
+  const next: PcbAdminMemory = {
+    section,
+    tabs: tab === undefined ? current.tabs : { ...current.tabs, [section]: tab },
+  };
+  try {
+    localStorage.setItem(storageKey(mbId), JSON.stringify(next));
+  } catch {
+    // 프라이빗 모드·저장공간 제한에서는 현재 라우팅만 유지한다.
+  }
+  return next;
+};
+
+export const pcbAdminSectionTo = (
+  memory: PcbAdminMemory,
+  section: PcbAdminSection,
+): RouteLocationRaw => {
+  const tab = memory.tabs[section];
+  return tab === undefined
+    ? { name: NEXT_PCB_ROUTES[section] }
+    : { name: NEXT_PCB_ROUTES[section], query: { tab } };
+};
+
+export const pcbAdminEntryTo = (memory: PcbAdminMemory): RouteLocationRaw =>
+  pcbAdminSectionTo(memory, memory.section);
+
+export const queryString = (value: MaybeQueryValue): string =>
+  typeof value === 'string' ? value : '';
+
+export const queryPage = (value: MaybeQueryValue): number => {
+  const parsed = Number(queryString(value));
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+};
+
+export const queryTab = <T extends string>(
+  value: MaybeQueryValue,
+  allowed: readonly T[],
+  fallback: T,
+): T => {
+  const parsed = queryString(value);
+  return allowed.find((tab) => tab === parsed) ?? fallback;
+};
+
+export interface PcbListQueryState {
+  tab: string;
+  page: number;
+  q: string;
+  extra?: Readonly<Record<string, string | number | undefined>>;
+}
+
+export const replacePcbListQuery = (
+  router: Router,
+  current: LocationQuery,
+  state: PcbListQueryState,
+): void => {
+  const query: LocationQueryRaw = { ...current, tab: state.tab };
+  if (state.page > 1) query.page = String(state.page);
+  else delete query.page;
+  if (state.q.trim() !== '') query.q = state.q.trim();
+  else delete query.q;
+  for (const [key, value] of Object.entries(state.extra ?? {})) {
+    query[key] = value === undefined || value === '' ? undefined : String(value);
+  }
+  void router.replace({ query });
+};
+
+/** Case 상세 진입 쿼리 — from=활성 메뉴 동기화, returnTo=워크큐 복귀 링크. */
+export const pcbDetailQuery = (
+  from: PcbAdminSection,
+  currentFullPath: string,
+): LocationQueryRaw => ({ from, returnTo: currentFullPath });
+
+/** Case 상세로 가는 위치 — 목록 행 클릭·진입 버튼이 공통으로 쓴다. */
+export const pcbCaseTo = (
+  specId: number,
+  from: PcbAdminSection,
+  currentFullPath: string,
+): RouteLocationRaw => ({
+  name: NEXT_PCB_ROUTES.case,
+  params: { id: String(specId) },
+  query: pcbDetailQuery(from, currentFullPath),
+});
+
+/** returnTo 는 우리 워크큐 경로만 받는다(열린 리다이렉트 방지). */
+export const safePcbReturnTo = (value: MaybeQueryValue): string | null => {
+  const target = queryString(value);
+  const path = target.split('?', 1)[0];
+  const allowedPaths = new Set(PCB_ADMIN_SECTIONS.map((section) => `${NEXT_PCB_BASE_PATH}/${section}`));
+  return path !== undefined && allowedPaths.has(path) ? target : null;
+};

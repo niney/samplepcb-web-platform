@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* 관리자 리뉴얼(src/next, shadcn-vue) 토큰 — 옛 화면과 겹치지 않게 설계된 이유는 파일 머리말 참고. */
+@import "./next/theme.css";
 /* 공용 UI(@sp/ui — 검토서 뷰어·구성도·드롭존·미리보기)는 workspace 심링크라 자동 스캔에서 빠진다. */
 @source "../../../packages/ui/src";
 
