@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint .",
-    "clean": "rimraf dist .turbo"
+    "clean": "rimraf dist .turbo",
+    "lint:next": "eslint src/next && node scripts/next-ui-audit.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.52.0",

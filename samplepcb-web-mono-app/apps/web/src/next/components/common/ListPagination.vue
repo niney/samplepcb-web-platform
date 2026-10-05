@@ -9,7 +9,7 @@ import {
   PaginationPrevious,
 } from '@/next/components/ui/pagination';
 
-// 목록 바닥 — 왼쪽 총 건수, 오른쪽 쪽 번호. 한 쪽뿐이면 번호를 숨기고 건수만 남긴다.
+// 목록 바닥 — 왼쪽 총 건수(#summary 로 교체 가능), 오른쪽 쪽 번호. 한 쪽뿐이면 번호를 숨기고 건수만 남긴다.
 // page 는 1부터. 쪽을 옮기면 update:page 만 내고, 선택 해제 등 부수 효과는 호출부가 한다.
 const props = defineProps<{
   page: number;
@@ -23,8 +23,11 @@ const totalPages = computed(() => Math.max(1, Math.ceil(props.total / props.page
 
 <template>
   <div class="flex flex-wrap items-center justify-between gap-3">
+    <!-- #summary 로 요약 문구를 바꿀 수 있다(예: "박스 N건 · 발주 M건"). -->
     <p class="text-muted-foreground text-sm">
-      총 <span class="text-foreground font-medium tabular-nums">{{ total.toLocaleString('ko-KR') }}</span>건
+      <slot name="summary">
+        총 <span class="text-foreground font-medium tabular-nums">{{ total.toLocaleString('ko-KR') }}</span>건
+      </slot>
     </p>
     <Pagination
       v-if="totalPages > 1"
