@@ -160,7 +160,8 @@ describe.skipIf(!RUN)('EQ 회신 첨부 — 관리자 → 협력사 역방향', 
       expect(body, '반려로 읽히지 않는다').not.toContain('반려된 건입니다');
       expect(body, '없던 회차를 열지 않는다').not.toContain('2차 요청');
       // 취소했으니 첨부가 다시 열리고, 할 일은 "올리고 요청하라"로 돌아간다.
-      expect(body, '첫 요청 문구로 돌아간다').toContain('EQ 질의서·Working 데이터를 올리고');
+      // 문구는 포털 한국어 정돈(2026-09-06, partner/locales/pcb.ts) 뒤의 표시 문장이다.
+      expect(body, '첫 요청 문구로 돌아간다').toContain('EQ 질의서·Working 데이터를 업로드하고');
     } finally {
       await session.context.close();
     }
@@ -271,7 +272,7 @@ describe.skipIf(!RUN)('EQ 회신 첨부 — 관리자 → 협력사 역방향', 
 
       expect(body, '반려가 타임라인에 선다').toContain('EQ 반려');
       expect(body, '사유가 그대로 보인다').toContain('실크 위치를 좌측으로');
-      expect(body, '지금 할 일이 못박힌다').toContain('보완 파일을 올리고 다시 승인요청');
+      expect(body, '지금 할 일이 못박힌다').toContain('보완 파일을 업로드하고 다시 승인 요청');
       expect(body, '관리자 회신 첨부가 대화에 붙는다').toContain('markup-v1.zip');
       expect(body, '받은 자료임을 라벨이 말한다').toContain('수정 지시');
       // 내가 올린 것도 같은 축에 — 순서가 한 줄기여야 흐름이 읽힌다.

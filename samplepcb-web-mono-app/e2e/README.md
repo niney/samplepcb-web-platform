@@ -125,6 +125,7 @@ specs/
   journey-bom-admin-workbook-recovery.e2e.test.ts BOM 여정 21호 — 관리자 실제 XLSX→분석·시트 오류 복구·모바일 감사
   journey-bom-confirm.e2e.test.ts      BOM 여정 22호 — 결제 후 부품 확인(D43)→고객 PHP 회신(근거 팝업·나눠 받기)→추가결제 주문·환불 감액→분할 배송
   journey-bom-confirm-admin.e2e.test.ts BOM 여정 23호 — 부품 확인 관리자 화면 조작(작성 패널·후보 서랍·대리 회신·적용·정산·목록)+예외 경로(발주서 품목·취소 거절·정산 취소·모아서 입고 대기·다른 고객·늦은 제출), Mailpit 필요
+  journey-bom-quote-cancel.e2e.test.ts BOM 여정 25호 — 고객 견적 취소 **현행 동작 관찰**(정책 결정 전 박제: 취소 뒤 열린 RFQ·삭제 시 회신 유실·검토 중 API 허용·검색 중 굳음·확정↔취소 경합). 어서션이 "지금 동작"이라 정책을 바꾸면 기대값도 같이 바꾼다. `pnpm journey:bom:25`, Mailpit 필요
   customer-eq-menu.e2e.test.ts         마이페이지 "확인 요청 > 제조 확인"(/shop/eq) — /mine API·배지·목록에 결정 폼 없음·딥링크·390px
   customer-as-menu.e2e.test.ts         마이페이지 "문의 > A/S 접수"(/shop/as) — PCB·BOM /mine 배타·회색 배지 합산·탭·폼 없음·앵커·390px
   journey-pcb-as-mypage.e2e.test.ts    여정 44호 — PCB 완주(거버→완료) 뒤 **마이페이지 A/S 접수 진입점으로** 접수→재생산 회차→종결 완주(정리 포함, JOURNEY_KEEP=1 로 남김)

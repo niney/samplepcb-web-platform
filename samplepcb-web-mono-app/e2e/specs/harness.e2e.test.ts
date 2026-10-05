@@ -55,8 +55,9 @@ describe.skipIf(!RUN)('E2E 하네스 자가 검증', () => {
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     expect(r.json?.data?.isPartner).toBe(true);
     expect(r.json?.data?.partnerName).toBe('협력2');
-    // 협력2 는 bom_rfq+pcb_rfq 둘 다(트랙 2 케이스 재현용 기준 조직)
-    expect(r.json?.data?.tracks).toEqual({ bom: true, pcb: true });
+    // 협력2 는 bom_rfq+pcb_rfq 둘 다(트랙 2 케이스 재현용 기준 조직). tracks 에는 그 뒤
+    // parts(보유 부품, part_sale capability)가 늘었다 — 이 검사가 보는 것은 두 트랙뿐이다.
+    expect(r.json?.data?.tracks).toMatchObject({ bom: true, pcb: true });
   });
 
   test('관리자 JWT(isAdmin 클레임) → 관리자 API 통과', async () => {
