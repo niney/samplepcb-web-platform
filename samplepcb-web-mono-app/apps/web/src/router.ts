@@ -10,6 +10,7 @@ import BomHistory from './pages/bom/BomHistory.vue';
 import BomSearch from './pages/bom/BomSearch.vue';
 import BomQuote from './pages/bom/BomQuote.vue';
 import { appPath, loginUrl } from './lib/auth-urls';
+import { NEXT_CORE_ROUTES } from './next/core-navigation';
 import { NEXT_PCB_ROUTES } from './next/pcb-navigation';
 import { NEXT_SMARTBOM_ROUTES } from './next/smartbom-navigation';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
@@ -226,7 +227,27 @@ const routes: RouteRecordRaw[] = [
     component: () => import('./next/layouts/AdminNextLayout.vue'),
     meta: { requiresAdmin: true },
     children: [
-      { path: '', redirect: { name: NEXT_PCB_ROUTES.cases } },
+      // ── 통합(2026-10-06~) — 옛 경로(/admin/*)의 접두만 /admin/next 로, 이름은 'admin' → 'admin-next'
+      // (next/core-navigation.ts). 견적관리(/admin/quotes)는 리뉴얼하지 않아 메뉴가 옛 화면을 가리킨다.
+      { path: '', name: NEXT_CORE_ROUTES.dashboard, component: () => import('./next/pages/core/DashboardPage.vue') },
+      { path: 'orders', name: NEXT_CORE_ROUTES.orders, component: () => import('./next/pages/core/OrdersPage.vue') },
+      { path: 'members', name: NEXT_CORE_ROUTES.members, component: () => import('./next/pages/core/MembersPage.vue') },
+      { path: 'partners', name: NEXT_CORE_ROUTES.partners, component: () => import('./next/pages/core/PartnersPage.vue') },
+      {
+        path: 'partner-parts',
+        name: NEXT_CORE_ROUTES.partnerParts,
+        component: () => import('./next/pages/core/PartnerPartsPage.vue'),
+      },
+      { path: 'parts', name: NEXT_CORE_ROUTES.parts, component: () => import('./next/pages/core/PartsPage.vue') },
+      { path: 'slides', name: NEXT_CORE_ROUTES.slides, component: () => import('./next/pages/core/SlidesPage.vue') },
+      { path: 'seo', name: NEXT_CORE_ROUTES.seo, component: () => import('./next/pages/core/SeoPage.vue') },
+      { path: 'mail-logs', name: NEXT_CORE_ROUTES.mailLogs, component: () => import('./next/pages/core/MailLogsPage.vue') },
+      {
+        path: 'delete-audits',
+        name: NEXT_CORE_ROUTES.deleteAudits,
+        component: () => import('./next/pages/core/DeleteAuditsPage.vue'),
+      },
+      { path: 'settings', name: NEXT_CORE_ROUTES.settings, component: () => import('./next/pages/core/SettingsPage.vue') },
       { path: 'pcb', redirect: { name: NEXT_PCB_ROUTES.cases } },
       { path: 'pcb/cases', name: NEXT_PCB_ROUTES.cases, component: () => import('./next/pages/pcb/PcbCasesPage.vue') },
       { path: 'pcb/rfqs', name: NEXT_PCB_ROUTES.rfqs, component: () => import('./next/pages/pcb/PcbRfqsPage.vue') },

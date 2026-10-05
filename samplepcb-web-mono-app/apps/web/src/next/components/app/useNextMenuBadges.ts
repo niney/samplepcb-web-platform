@@ -1,5 +1,6 @@
 import { computed, type ComputedRef } from 'vue';
 import { useAuthStore } from '@sp/shared';
+import { useRfqCount } from '@/admin/useAdminQuotes';
 import { usePcbRfqPendingCount } from '@/admin/useAdminPcbRfqs';
 import { usePcbPoWorkCounts, usePcbShipmentPendingCount } from '@/admin/useAdminPcbPos';
 import { usePcbOrdersAwaitingCount, usePcbOrdersToShipCount } from '@/admin/useAdminPcbOrders';
@@ -18,6 +19,9 @@ import type { NextMenuBadge } from '@/next/admin-menu';
 export function useNextMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> {
   const auth = useAuthStore();
   const isAdminUser = computed(() => auth.me?.isAdmin === true);
+
+  // 통합 — 거버 견적 대기(견적관리, 옛 화면 그대로).
+  const { data: rfqCount } = useRfqCount(isAdminUser);
 
   const { data: rfqPending } = usePcbRfqPendingCount(isAdminUser);
   const { eqPending, toShip } = usePcbPoWorkCounts(isAdminUser);
@@ -40,6 +44,7 @@ export function useNextMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> 
   const { data: bomClaimsPending } = useBomClaimsPendingCount(isAdminUser);
 
   return computed(() => ({
+    rfqCount: rfqCount.value ?? 0,
     pcbRfqPending: todoRfq.value + (rfqPending.value ?? 0),
     pcbPosPending: todoPo.value + eqPending.value,
     pcbShipmentPending: toShip.value + (shipmentPending.value ?? 0) + (customerToShip.value ?? 0),

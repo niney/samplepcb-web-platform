@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { History } from '@lucide/vue';
 import { Badge } from '@/next/components/ui/badge';
 import {
   Sidebar,
@@ -27,7 +28,8 @@ import { useNextMenuBadges } from './useNextMenuBadges';
 
 // 좌측 사이드바 — 옛 AdminLayout 의 사이드바와 같은 구성(앱 이름·부제 → 모듈 메뉴 → 하단 메뉴).
 // 데스크톱은 아이콘 폭으로 접히고(Ctrl/⌘+B), 모바일(<768px)은 시트로 열린다. 메뉴는 지금 라우트의
-// 모듈(PCB·SmartBOM — next/admin-menu.ts 의 nextModules)을 그린다.
+// 모듈(통합·PCB·SmartBOM — next/admin-menu.ts 의 nextModules)을 그린다. 옛 화면으로 가는 메뉴(통합 견적관리)는
+// 이름 뒤에 '이전 화면' 아이콘을 붙인다(머리의 '이전 화면' 버튼과 같은 아이콘).
 const props = defineProps<{ ctx: NextMenuContext }>();
 
 const route = useRoute();
@@ -76,9 +78,13 @@ watch(
                 :is-active="isNextMenuActive(item, effectiveRouteName)"
                 :tooltip="$t(item.labelKey)"
               >
-                <RouterLink :to="item.to(props.ctx)">
+                <RouterLink
+                  :to="item.to(props.ctx)"
+                  :title="item.legacy === true ? '아직 이전 디자인 화면입니다' : undefined"
+                >
                   <component :is="item.icon" />
                   <span>{{ $t(item.labelKey) }}</span>
+                  <History v-if="item.legacy === true" class="text-muted-foreground" aria-label="이전 화면" />
                   <Badge
                     v-if="badgeCount(item) > 0"
                     variant="warning"

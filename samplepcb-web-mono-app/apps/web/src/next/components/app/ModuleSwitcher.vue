@@ -3,8 +3,8 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { nextModuleLinks, resolveNextModuleKey, type NextMenuContext } from '@/next/admin-menu';
 
-// 상단 업무 영역 전환(Module Switcher) — 통합·PCB·BOM·개발·마켓. 리뉴얼된 모듈(PCB·SmartBOM)은 리뉴얼
-// 화면으로, 나머지는 아직 옛 화면 홈으로 이동한다. 활성 모듈은 지금 라우트에서 파생한다.
+// 상단 업무 영역 전환(Module Switcher) — 통합·PCB·BOM·개발·마켓. 리뉴얼된 모듈(통합·PCB·SmartBOM)은 리뉴얼
+// 화면으로, 나머지(개발·마켓)는 아직 옛 화면 홈으로 이동한다. 활성 모듈은 지금 라우트에서 파생한다.
 const props = defineProps<{ ctx: NextMenuContext }>();
 
 const route = useRoute();

@@ -4,15 +4,27 @@ import {
   Banknote,
   ClipboardCheck,
   ClipboardList,
+  Cpu,
   CreditCard,
   FileText,
   FileUp,
+  Globe,
+  Handshake,
+  Images,
+  LayoutDashboard,
   LifeBuoy,
+  Mail,
   MessageSquareQuote,
+  Settings,
+  ShoppingBag,
   ShoppingCart,
+  Trash2,
   Truck,
+  Users,
+  Warehouse,
 } from '@lucide/vue';
 import { adminModules, type AdminModuleKey } from '@/admin/menu';
+import { isNextCoreRoute, LEGACY_CORE_QUOTES_ROUTE, legacyCoreRouteName, NEXT_CORE_ROUTES } from '@/next/core-navigation';
 import {
   NEXT_PCB_BASE_PATH,
   NEXT_PCB_ROUTES,
@@ -26,9 +38,10 @@ import { legacySmartbomRouteName, NEXT_SMARTBOM_ROUTES, smartbomSectionOf } from
 // 여기 nextModules 에 항목을 더하고 배지 훅(useNextMenuBadges)에 합산식을 옮기면 사이드바·스위처·
 // '이전 화면'이 그대로 따라온다. 메뉴 순서·라벨(i18n 키)·배지 식별자는 옛 메뉴와 같게 둔다.
 
-export type NextModuleKey = Extract<AdminModuleKey, 'pcb' | 'smartbom'>;
+export type NextModuleKey = Extract<AdminModuleKey, 'core' | 'pcb' | 'smartbom'>;
 
 export type NextMenuBadge =
+  | 'rfqCount'
   | 'pcbRfqPending'
   | 'pcbOrdersAwaiting'
   | 'pcbPosPending'
@@ -59,6 +72,8 @@ export interface NextMenuItem {
   activeRouteNames?: readonly string[];
   /** 사용 빈도가 낮은 메뉴는 사이드바 아래쪽에 둔다. */
   placement?: 'bottom';
+  /** 리뉴얼하지 않은 옛 화면으로 가는 메뉴(통합 견적관리) — 사이드바가 '이전 화면' 표지를 붙인다. */
+  legacy?: true;
 }
 
 export interface NextModule {
@@ -94,6 +109,46 @@ const smartbomItem = (
   to: () => ({ name: NEXT_SMARTBOM_ROUTES[key] }),
   ...extra,
 });
+
+const coreItem = (
+  key: keyof typeof NEXT_CORE_ROUTES,
+  labelKey: string,
+  icon: Component,
+): NextMenuItem => ({
+  key: `core-${key}`,
+  routeName: NEXT_CORE_ROUTES[key],
+  labelKey,
+  icon,
+  to: () => ({ name: NEXT_CORE_ROUTES[key] }),
+});
+
+const coreModule: NextModule = {
+  key: 'core',
+  labelKey: 'admin.modules.core',
+  // 옛 통합 메뉴와 같은 순서. 견적관리는 리뉴얼하지 않아 옛 화면으로 간다(배지는 그대로).
+  items: [
+    coreItem('dashboard', 'admin.menu.dashboard', LayoutDashboard),
+    {
+      key: 'core-quotes',
+      routeName: LEGACY_CORE_QUOTES_ROUTE,
+      labelKey: 'admin.menu.quotes',
+      icon: MessageSquareQuote,
+      to: () => ({ name: LEGACY_CORE_QUOTES_ROUTE }),
+      badge: 'rfqCount',
+      legacy: true,
+    },
+    coreItem('orders', 'admin.menu.orders', ShoppingBag),
+    coreItem('members', 'admin.menu.members', Users),
+    coreItem('partners', 'admin.menu.partners', Handshake),
+    coreItem('partnerParts', 'admin.menu.partnerParts', Warehouse),
+    coreItem('parts', 'admin.menu.parts', Cpu),
+    coreItem('slides', 'admin.menu.slides', Images),
+    coreItem('seo', 'admin.menu.seo', Globe),
+    coreItem('mailLogs', 'admin.menu.mailLogs', Mail),
+    coreItem('deleteAudits', 'admin.menu.deleteAudits', Trash2),
+    coreItem('settings', 'admin.menu.settings', Settings),
+  ],
+};
 
 const pcbModule: NextModule = {
   key: 'pcb',
@@ -134,18 +189,22 @@ const smartbomModule: NextModule = {
   ],
 };
 
-export const nextModules: readonly NextModule[] = [pcbModule, smartbomModule];
+export const nextModules: readonly NextModule[] = [coreModule, pcbModule, smartbomModule];
 
 /** 라우트 이름 → 리뉴얼 모듈. 리뉴얼 라우트가 아니면 null. */
 export const resolveNextModuleKey = (routeName: string): NextModuleKey | null =>
-  routeName.startsWith('admin-next-pcb')
-    ? 'pcb'
-    : routeName.startsWith('admin-next-smartbom') || routeName.startsWith('admin-next-bom')
-      ? 'smartbom'
-      : null;
+  isNextCoreRoute(routeName)
+    ? 'core'
+    : routeName.startsWith('admin-next-pcb')
+      ? 'pcb'
+      : routeName.startsWith('admin-next-smartbom') || routeName.startsWith('admin-next-bom')
+        ? 'smartbom'
+        : null;
 
-export const nextModuleOf = (routeName: string): NextModule =>
-  resolveNextModuleKey(routeName) === 'smartbom' ? smartbomModule : pcbModule;
+export const nextModuleOf = (routeName: string): NextModule => {
+  const key = resolveNextModuleKey(routeName);
+  return key === 'core' ? coreModule : key === 'smartbom' ? smartbomModule : pcbModule;
+};
 
 export interface NextModuleLink {
   key: AdminModuleKey;
@@ -195,6 +254,6 @@ export const legacyNextRoute = (
     }
     return { name: `admin-pcb-${pcbEntry[0]}`, params, query: nextQuery };
   }
-  const legacySmartbom = legacySmartbomRouteName(routeName);
-  return legacySmartbom === null ? null : { name: legacySmartbom, params, query };
+  const legacyName = legacySmartbomRouteName(routeName) ?? legacyCoreRouteName(routeName);
+  return legacyName === null ? null : { name: legacyName, params, query };
 };
