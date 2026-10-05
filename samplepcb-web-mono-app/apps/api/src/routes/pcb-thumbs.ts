@@ -37,7 +37,8 @@ export const pcbThumbRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       if (contentType === 'application/octet-stream') {
         contentType = /\.png$/i.test(file.originFileName) ? 'image/png' : 'image/jpeg';
       }
-      // 서명 만료(15분)와 별개로 브라우저 캐시 1시간 — 같은 목록 재방문 시 재전송 방지
+      // 서명 만료(15~30분)와 별개로 브라우저 캐시 1시간 — 같은 목록 재방문 시 재전송 방지.
+      // 캐시 키는 URL 전체라, 서명 URL 이 같은 창 안에서 같아야 적중한다(lib/thumb-url thumbExpiry).
       return reply
         .header('Cache-Control', 'private, max-age=3600')
         .type(contentType)

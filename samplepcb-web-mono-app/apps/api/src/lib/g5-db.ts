@@ -4158,8 +4158,11 @@ const PCB_CASE_TAB_SQL: Record<Exclude<PcbCaseTab, 'all'>, string> = {
   unpaid: `c.ct_status <> '쇼핑' AND o.od_status = '주문'`,
   production: `c.ct_status <> '쇼핑' AND (${OD_ACTIVE} OR (o.od_status IN ('완료', '취소') AND ${AS_OPEN}))`,
   closed: `c.ct_status <> '쇼핑' AND o.od_status IN ('완료', '취소') AND NOT (${AS_OPEN})`,
-  todo_rfq: `${NOT_LEGACY} AND ${NO_RFQ} AND ${RFQ_STARTABLE}`,
-  todo_po: `${NOT_LEGACY} AND ${NO_PO} AND c.ct_status <> '쇼핑' AND ${OD_ACTIVE}`,
+  // 조건 순서가 비용이다 — 값싼 상태 비교를 앞에, specJson 파싱(NOT_LEGACY)을 맨 뒤에 둔다.
+  // AND 는 왼쪽부터 끊기므로 JSON 파싱이 active 2만 행 전부가 아니라 앞 조건을 통과한 소수에만
+  // 돈다(카운트 쿼리 실측 444ms → 217ms, 결과 동일). 이관분이 99.8% 라 순서 효과가 크다.
+  todo_rfq: `${RFQ_STARTABLE} AND ${NO_RFQ} AND ${NOT_LEGACY}`,
+  todo_po: `c.ct_status <> '쇼핑' AND ${OD_ACTIVE} AND ${NO_PO} AND ${NOT_LEGACY}`,
 };
 
 export async function listPcbCaseSpecs(params: {

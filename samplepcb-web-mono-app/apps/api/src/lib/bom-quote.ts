@@ -950,7 +950,9 @@ export async function loadLatestQuoteLocalCatalogTrace(
   quoteId: bigint,
   componentId: string,
 ): Promise<BomQuoteLocalCatalogTraceType | null> {
-  const pageSize = 25;
+  // 답은 대개 가장 최근 실행에 있다. 실행 행의 preflight 는 대형 BOM 에서 수 MB 라, 한 번에
+  // 많이 끌어오면 후보 패널을 열 때마다 수십 MB 를 읽는다 — 작은 페이지로 필요한 데까지만 간다.
+  const pageSize = 3;
   let cursorId: bigint | null = null;
   for (;;) {
     const runs: {
@@ -4399,6 +4401,40 @@ function selectedCandidateForSupplierRefresh(
     : null;
 }
 
+/**
+ * 행별 "선정된 기술 후보" 한 건만 읽는다. 시세 비교는 행마다 선정 후보 하나만 쓰는데, 견적의 모든
+ * 후보 payload(행당 ~10건 × ~10KB)를 읽으면 시세 확인 중 2초 폴링마다 수십 MB 가 된다.
+ * (quoteItemId, candidateKey) 유니크 인덱스로 필요한 행만 집는다 — candidateKey 컬럼은 저장 시
+ * payload.candidateKey 를 그대로 옮긴 값이다(persistQuoteComputed).
+ */
+async function loadSelectedTechnicalCandidates(
+  quoteId: bigint,
+  items: readonly { id: bigint; selectedCandidateKey: string | null; matchEvidence: unknown }[],
+): Promise<Map<bigint, StoredCandidateType>> {
+  const keyByItemId = new Map<bigint, string>();
+  for (const item of items) {
+    const key = selectedTechnicalCandidateKey(item);
+    if (key !== null) keyByItemId.set(item.id, key);
+  }
+  if (keyByItemId.size === 0) return new Map();
+  const rows = await prisma.spBomQuoteCandidate.findMany({
+    where: {
+      quoteId,
+      quoteItemId: { in: [...keyByItemId.keys()] },
+      candidateKey: { in: [...new Set(keyByItemId.values())] },
+    },
+    select: { quoteItemId: true, candidateKey: true, payload: true },
+  });
+  const selected = new Map<bigint, StoredCandidateType>();
+  for (const row of rows) {
+    // IN×IN 은 (행, 키) 쌍의 상위집합이다 — 다른 행의 선정 키와 겹친 후보는 버린다.
+    if (keyByItemId.get(row.quoteItemId) !== row.candidateKey) continue;
+    const parsed = StoredCandidate.safeParse(row.payload);
+    if (parsed.success) selected.set(row.quoteItemId, parsed.data);
+  }
+  return selected;
+}
+
 export interface AdminBomSupplierRefreshTarget {
   itemId: string;
   componentId: string;
@@ -4435,16 +4471,17 @@ export async function getAdminBomSupplierRefreshTargets(
           selectionSource: true,
           selectedCandidateKey: true,
           matchEvidence: true,
-          candidates: {
-            orderBy: { technicalRank: 'asc' },
-            select: { payload: true },
-          },
         },
       },
     },
   });
   if (quote === null) return null;
-  const targets = filterActiveQuoteItems(quote.items, quote.sheets)
+  const activeItems = filterActiveQuoteItems(quote.items, quote.sheets);
+  const selectedByItemId = await loadSelectedTechnicalCandidates(
+    quoteId,
+    activeItems.filter((item) => item.included),
+  );
+  const targets = activeItems
     .flatMap<AdminBomSupplierRefreshTarget>((item) => {
       if (!item.included) return [];
       const sourceRow = item.sourceRow !== null
@@ -4453,11 +4490,8 @@ export async function getAdminBomSupplierRefreshTargets(
         ? item.sourceRow
         : null;
       const componentId = sourceRow?.componentId;
-      const candidates = item.candidates.flatMap((row) => {
-        const parsed = StoredCandidate.safeParse(row.payload);
-        return parsed.success ? [parsed.data] : [];
-      });
-      const selected = selectedCandidateForSupplierRefresh(item, candidates);
+      const candidate = selectedByItemId.get(item.id);
+      const selected = selectedCandidateForSupplierRefresh(item, candidate === undefined ? [] : [candidate]);
       if (selected !== null && typeof componentId === 'string' && componentId !== '') {
         return [{
           itemId: String(item.id),
@@ -4510,10 +4544,6 @@ export async function getAdminBomSupplierComparisonRows(
           mpn: true,
           selectedCandidateKey: true,
           matchEvidence: true,
-          candidates: {
-            orderBy: { technicalRank: 'asc' },
-            select: { payload: true },
-          },
         },
       },
     },
@@ -4522,13 +4552,11 @@ export async function getAdminBomSupplierComparisonRows(
   const rate = quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed);
   const activeItems = filterActiveQuoteItems(quote.items, quote.sheets)
     .filter((item) => item.included);
+  const selectedByItemId = await loadSelectedTechnicalCandidates(quoteId, activeItems);
 
   return activeItems.flatMap((item) => {
-    const candidates = item.candidates.flatMap((row) => {
-      const parsed = StoredCandidate.safeParse(row.payload);
-      return parsed.success ? [parsed.data] : [];
-    });
-    const selected = selectedCandidateForSupplierRefresh(item, candidates);
+    const candidate = selectedByItemId.get(item.id);
+    const selected = selectedCandidateForSupplierRefresh(item, candidate === undefined ? [] : [candidate]);
     if (selected === null) return [];
     const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
     const offers = selected.offers.flatMap((offer) => {
@@ -6267,6 +6295,29 @@ export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdK
   }
 }
 
+/** 활성 행의 저장 후보 전부 — 행 순서(입력 순)·기술 순위 순으로 편다. */
+async function loadExistingCandidateSnapshots(
+  quoteId: bigint,
+  activeRows: readonly { id: bigint; rowIdx: number }[],
+): Promise<QuoteCandidateSnapshotInput[]> {
+  if (activeRows.length === 0) return [];
+  const rows = await prisma.spBomQuoteCandidate.findMany({
+    where: { quoteId, quoteItemId: { in: activeRows.map((row) => row.id) } },
+    orderBy: [{ quoteItemId: 'asc' }, { technicalRank: 'asc' }],
+    select: { quoteItemId: true, payload: true },
+  });
+  const byItemId = new Map<bigint, StoredCandidateType[]>();
+  for (const row of rows) {
+    const candidate = StoredCandidate.safeParse(row.payload);
+    if (!candidate.success) continue;
+    const list = byItemId.get(row.quoteItemId) ?? [];
+    list.push(candidate.data);
+    byItemId.set(row.quoteItemId, list);
+  }
+  return activeRows.flatMap((row) =>
+    (byItemId.get(row.id) ?? []).map((candidate) => ({ rowIdx: row.rowIdx, candidate })));
+}
+
 const engineRefreshInFlight = new Map<string, Promise<boolean>>();
 
 /**
@@ -6292,12 +6343,7 @@ export async function refreshQuoteFromSupplierResult(
   const run = (async (): Promise<boolean> => {
     const quote = await prisma.spBomQuote.findUnique({
       where: { id: quoteId },
-      include: {
-        items: {
-          include: { candidates: { orderBy: { technicalRank: 'asc' } } },
-        },
-        sheets: true,
-      },
+      include: { items: true, sheets: true },
     });
     const allowedStatuses = options.allowedStatuses ?? ['draft'];
     if (quote === null || !allowedStatuses.includes(quote.status)) return false;
@@ -6306,11 +6352,12 @@ export async function refreshQuoteFromSupplierResult(
     const currentItems = activeRows.map((row) => toItemDto(row));
     const evaluatedItems = activeRows.map((row) => toItemDto(row));
     const resolvedEnvelope = await applyLocalCatalogFallback(envelope, log);
-    const existingCandidateSnapshots = activeRows.flatMap((row) =>
-      row.candidates.flatMap((candidateRow) => {
-        const candidate = StoredCandidate.safeParse(candidateRow.payload);
-        return candidate.success ? [{ rowIdx: row.rowIdx, candidate: candidate.data }] : [];
-      }));
+    // 기존 후보 스냅샷은 선정 identity 시세 갱신(관리자 비교)에서만 쓴다. 일반 검색 결과 반영은
+    // 후보를 새로 만들므로 읽지 않는다 — 견적의 후보 payload 전체(수십 MB)를 읽고 파싱하던
+    // 것이 한 행 재검색에도 매번 돌았다.
+    const existingCandidateSnapshots = options.selectedIdentityOfferRefresh === true
+      ? await loadExistingCandidateSnapshots(quoteId, activeRows)
+      : [];
     const preserveCurrentSelections = options.preserveCurrentSelections === true;
     const appliedRate = preserveCurrentSelections
       ? (quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed))
@@ -6927,25 +6974,46 @@ interface QuotePartMeta {
   catalogInquiry: boolean;
 }
 
-/** 라인 partId → 카탈로그 이미지·데이터시트·문의 상태 일괄 조회 — 항상 현재 카탈로그를 따른다. */
-async function loadPartMetaMap(items: QuoteItemRow[]): Promise<Map<bigint, QuotePartMeta>> {
+/**
+ * 라인 partId → 카탈로그 이미지·데이터시트·문의 상태 일괄 조회 — 항상 현재 카탈로그를 따른다.
+ *
+ * 문의 상태(catalogInquiry)는 구매 조건이 없는 행(selectedOffer === null)에서만 쓰인다. 판정에
+ * 필요한 offer.rawJson 은 공급사 원문이라 부품 하나에 수~수십 KB 다 — 견적의 모든 부품에서
+ * 읽으면 상세 조회(검색 중 3초 폴링)마다 수 MB 를 끌어온다. 그래서 그 행들의 부품에서만 읽고,
+ * 문의 상태를 안 쓰는 호출부(인쇄)는 catalogInquiry: false 로 아예 건너뛴다.
+ */
+async function loadPartMetaMap(
+  items: QuoteItemRow[],
+  options: { catalogInquiry?: boolean } = {},
+): Promise<Map<bigint, QuotePartMeta>> {
   const partIds = [...new Set(items.flatMap((i) => (i.partId === null ? [] : [i.partId])))];
   if (partIds.length === 0) return new Map();
-  const parts = await prisma.spPart.findMany({
-    where: { id: { in: partIds } },
-    select: {
-      id: true,
-      imageUrl: true,
-      datasheetUrl: true,
-      offers: { select: { rawJson: true } },
-    },
-  });
+  const inquiryPartIds = options.catalogInquiry === false
+    ? []
+    : [...new Set(items.flatMap((i) => (i.partId !== null && i.selectedOffer === null ? [i.partId] : [])))];
+  const [parts, inquiryParts] = await Promise.all([
+    prisma.spPart.findMany({
+      where: { id: { in: partIds } },
+      select: { id: true, imageUrl: true, datasheetUrl: true },
+    }),
+    inquiryPartIds.length === 0
+      ? Promise.resolve([])
+      : prisma.spPart.findMany({
+          where: { id: { in: inquiryPartIds } },
+          select: { id: true, offers: { select: { rawJson: true } } },
+        }),
+  ]);
+  const inquiryIds = new Set(
+    inquiryParts
+      .filter((part) => part.offers.some((offer) => isCatalogInquiryOffer(offer.rawJson)))
+      .map((part) => part.id),
+  );
   return new Map(parts.map((part) => [
     part.id,
     {
       imageUrl: part.imageUrl,
       datasheetUrl: part.datasheetUrl,
-      catalogInquiry: part.offers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
+      catalogInquiry: inquiryIds.has(part.id),
     },
   ] as const));
 }
@@ -7464,7 +7532,7 @@ export async function toBomQuotePrintDto(
 ): Promise<BomQuotePrintType> {
   const activeRows = filterActiveQuoteItems(items, sheets).filter((row) => row.included);
   const [partMetaMap, candidateDisplayMeta] = await Promise.all([
-    loadPartMetaMap(activeRows),
+    loadPartMetaMap(activeRows, { catalogInquiry: false }), // 인쇄는 이미지만 쓴다
     loadCandidateDisplayMeta(quote.id, activeRows),
   ]);
   return {

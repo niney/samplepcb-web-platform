@@ -915,7 +915,8 @@ export async function healEnrichment(
   try {
     const quote = await prisma.spBomQuote.findUnique({
       where: { id: quoteId },
-      select: { activeSupplierSearchRun: true },
+      // 검색 중 상세 폴링(3초)마다 돈다 — preflight(대형 BOM 은 수 MB)는 쓰지 않는다.
+      select: { activeSupplierSearchRun: { select: { id: true, engineJobId: true, options: true } } },
     });
     const run = quote?.activeSupplierSearchRun;
     if (run?.engineJobId === null || run?.engineJobId === undefined) {
@@ -1422,7 +1423,11 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod<ActorRouteOptions> = (fast
   }, async (request, reply) => {
     const quote = await prisma.spBomQuote.findUnique({
       where: { id: request.params.id },
-      select: { mbId: true, activeSupplierSearchRun: true },
+      // 2초마다 폴링된다 — run 행의 preflight(대형 BOM 은 수 MB)를 끌어오지 않는다.
+      select: {
+        mbId: true,
+        activeSupplierSearchRun: { select: { status: true, engineJobId: true, error: true } },
+      },
     });
     if (quote?.mbId !== request.user.mbId) return reply.notFound('견적을 찾을 수 없습니다');
     const run = quote.activeSupplierSearchRun;

@@ -63,7 +63,12 @@ async function adminSupplierRefreshView(
 ): Promise<AdminBomSupplierRefreshViewType | null> {
   const quote = await prisma.spBomQuote.findUnique({
     where: { id: quoteId },
-    select: { activeSupplierSearchRun: true },
+    // 시세 확인 중 2초마다 폴링된다 — preflight(대형 BOM 은 수 MB)는 쓰지 않는다.
+    select: {
+      activeSupplierSearchRun: {
+        select: { id: true, status: true, engineJobId: true, error: true, options: true },
+      },
+    },
   });
   if (quote === null) return null;
   const activeRun = quote.activeSupplierSearchRun;
@@ -262,7 +267,11 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     async (request, reply) => {
       const quote = await prisma.spBomQuote.findUnique({
         where: { id: request.params.id },
-        select: { id: true, mbId: true, activeSupplierSearchRun: true },
+        select: {
+          id: true,
+          mbId: true,
+          activeSupplierSearchRun: { select: { status: true, options: true } },
+        },
       });
       if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
       const policy = supplierSearchRunPolicyFromOptions(

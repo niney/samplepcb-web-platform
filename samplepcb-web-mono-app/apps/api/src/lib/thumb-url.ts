@@ -7,7 +7,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 // 보호한다. 서명은 목록 API 가 본인(mbId) 소유 spec 의 썸네일에만 발급하므로
 // 소유권 검증이 URL 발급 시점에 내장된다. 무상태(HMAC)라 DB 컬럼이 필요 없다.
 
-const THUMB_TTL_SECONDS = 15 * 60; // JWT(10분)와 같은 급의 짧은 만료 — 목록 재조회마다 재발급
+// JWT(10분)와 같은 급의 짧은 만료. 만료 시각은 이 길이의 창 경계에 맞춘다(아래 signedThumbUrl).
+const THUMB_TTL_SECONDS = 15 * 60;
 
 const secret = (): string => {
   const s = process.env.JWT_SECRET;
@@ -22,8 +23,15 @@ const sign = (fileId: string, exp: number): string =>
     .update(`thumb:${fileId}:${String(exp)}`)
     .digest('base64url');
 
+// exp 를 "지금 + TTL" 로 두면 초마다 URL 이 달라져, 응답의 Cache-Control(max-age)이 있어도 브라우저
+// 캐시가 한 번도 적중하지 않는다 — 목록을 볼 때마다 카드 수만큼 파일서버를 왕복했다. 그래서 exp 를
+// TTL 창의 경계(다음다음 경계)에 맞춘다: 같은 창 안에서 발급한 URL 은 같고, 남은 유효 시간은
+// 항상 TTL 초과 ~ 2×TTL 이하(15~30분)다.
+export const thumbExpiry = (nowSeconds: number): number =>
+  (Math.floor(nowSeconds / THUMB_TTL_SECONDS) + 2) * THUMB_TTL_SECONDS;
+
 export const signedThumbUrl = (fileId: bigint): string => {
-  const exp = Math.floor(Date.now() / 1000) + THUMB_TTL_SECONDS;
+  const exp = thumbExpiry(Math.floor(Date.now() / 1000));
   return `/api/pcb-thumbs/${String(fileId)}?exp=${String(exp)}&sig=${sign(String(fileId), exp)}`;
 };
 
