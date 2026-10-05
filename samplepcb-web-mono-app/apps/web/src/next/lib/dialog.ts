@@ -62,6 +62,14 @@ export interface PromptOptions {
   description?: string;
   confirmLabel?: string;
   tone?: 'default' | 'danger';
+  /**
+   * 확인을 누르면 대화상자를 연 채로 실행할 저장 동작. 실패(throw)하면 입력값을 그대로 둔 채 대화상자
+   * 안에 오류를 보여 주고, 성공해야 닫으며 promptDialog 가 값을 돌려준다. 저장이 따르는 입력은 이걸 쓴다 —
+   * 닫은 뒤 저장하면 실패 시 입력이 사라진다(옛 UiPromptModal 은 실패해도 열려 있었다).
+   */
+  submit?: (values: PromptResult) => Promise<void>;
+  /** submit 실패 시 서버 문구가 없을 때 보일 문장. */
+  errorFallback?: string;
 }
 
 /** 확인하면 필드 name → 입력값(앞뒤 공백 제거), 취소하면 null. */

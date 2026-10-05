@@ -54,8 +54,47 @@ export const pcbAsRoundBadge = (round: number, open: boolean): PcbBadge => ({
   variant: open ? 'danger' : 'secondary',
 });
 
-/** 고객 주문 상태(od_status 원문) — 입금 확인이면 끝남, 아니면 기다림. */
-export const pcbOrderStatusBadge = (odStatus: string, isPaid: boolean): PcbBadge => ({
+// 고객 주문 상태(od_status 원문, 정본은 g5) — 라벨은 그대로 두고 색만 구간으로 묶는다:
+// 입금 대기=기다림, 입금 뒤 진행=진행, 완료=끝남, 취소·반품·품절·삭제=이력. 모르는 상태는 원문 + 중립.
+// 진행현황·주문 화면·Case 상세가 같은 함수를 쓴다(같은 상태가 화면마다 다른 색이 되지 않게).
+const OD_STATUS: Record<string, BadgeVariant> = {
+  주문: 'warning',
+  입금: 'info',
+  준비: 'info',
+  파일검사: 'info',
+  생산중: 'info',
+  생산완료: 'info',
+  배송: 'info',
+  완료: 'success',
+  취소: 'secondary',
+};
+
+export const pcbOrderStatusBadge = (odStatus: string): PcbBadge => ({
   label: odStatus,
-  variant: isPaid ? 'success' : 'warning',
+  variant: OD_STATUS[odStatus] ?? 'secondary',
 });
+
+// 발주 상태 — 관리자 승인을 기다리는 EQ 요청만 주의, 생산완료는 끝남, 나머지는 진행.
+const PO_STATUS: Record<string, BadgeVariant> = {
+  issued: 'info',
+  eq_requested: 'warning',
+  eq_done: 'info',
+  producing: 'info',
+  produced: 'success',
+};
+
+export const pcbPoStatusVariant = (status: string): BadgeVariant => PO_STATUS[status] ?? 'secondary';
+
+// 선적 상태 — 진행 중은 info 하나로 묶고 단계는 라벨 글자가 말한다. 통관만 사람 손이 갈 수 있어 주의.
+const SHIPMENT_STATUS: Record<string, BadgeVariant> = {
+  preparing: 'secondary',
+  requested: 'info',
+  shipped: 'info',
+  arrived: 'info',
+  customs: 'warning',
+  done: 'success',
+  shipping: 'info',
+  delivered: 'success',
+};
+
+export const pcbShipmentStatusVariant = (status: string): BadgeVariant => SHIPMENT_STATUS[status] ?? 'secondary';

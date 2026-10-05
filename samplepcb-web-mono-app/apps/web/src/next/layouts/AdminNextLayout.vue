@@ -30,7 +30,8 @@ onBeforeUnmount(() => {
 <template>
   <SidebarProvider>
     <AdminNextSidebar :memory="memory" />
-    <SidebarInset>
+    <!-- min-w-0: 넓은 표가 본문을 밀어 페이지 전체가 가로로 넘치지 않고 표 카드 안에서만 스크롤되게 한다. -->
+    <SidebarInset class="min-w-0">
       <AdminNextHeader :pcb-entry="pcbEntry" />
       <div class="flex min-w-0 flex-1 flex-col p-4 md:p-6">
         <RouterView />

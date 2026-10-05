@@ -32,6 +32,17 @@ export default [
     },
   },
   {
+    // 인쇄·PDF 문서(라벨·인보이스·견적서) — 화면이 아니라 종이 서류라 디자인 시스템 밖이다.
+    // 실측 글자 크기(8~10px)·테마와 무관한 흰 종이·검은 글자, PDF 캡처(html2canvas)가 읽는 인라인
+    // 스타일을 그대로 쓴다. 이런 문서는 반드시 `print/` 폴더에 둔다(파일 안 disable 주석으로 풀지 않는다).
+    files: ['src/next/**/print/**'],
+    rules: {
+      'shadcn/no-arbitrary-values': 'off',
+      'shadcn/no-inline-styles': 'off',
+      'shadcn/no-raw-colors': 'off',
+    },
+  },
+  {
     // shadcn 원본 컴포넌트(CLI 가 복사해 넣은 업스트림 코드) — 남의 코드처럼 다룬다.
     // ① 자기 모양을 직접 정의하므로 restyle 계열 규칙은 끈다(문서 권장 예외).
     // ② 업스트림 문체와 충돌하는 엄격 TS·Vue 규칙은 끈다 — 고쳐 두면 `shadcn-vue add --overwrite`

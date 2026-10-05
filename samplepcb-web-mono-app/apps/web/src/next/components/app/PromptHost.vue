@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { ApiRequestError } from '@sp/shared';
 import { Button } from '@/next/components/ui/button';
 import {
   Dialog,
@@ -25,6 +26,7 @@ import {
 //   · select 는 선택지 + '직접입력'(allowCustom=false 면 막음). 초깃값이 목록 밖이면 직접입력으로 연다
 //   · Enter 는 줄바꿈·입력이고 확인은 Ctrl/⌘+Enter, Esc 는 취소
 //   · 제출값은 앞뒤 공백을 걷어낸다
+//   · submit 이 있으면 연 채로 저장하고, 실패하면 입력을 그대로 둔 채 오류를 보여 준다(저장 중엔 닫히지 않음)
 // select 는 브라우저 기본 select(NativeSelect)다 — 옛 화면 e2e 의 selectOption 이 그대로 통한다.
 
 // select 의 '직접입력' 갈래 — 셀렉트 자체를 values 에 물리면 센티널이 제출값에 새므로 선택
@@ -34,10 +36,14 @@ const SELECT_CUSTOM = '__custom__';
 const shown = ref<PromptOptions | null>(null);
 const values = ref<Record<string, string>>({});
 const selectChoices = ref<Record<string, string>>({});
+const busy = ref(false);
+const submitError = ref('');
 
 watch(pendingPrompt, (current) => {
   if (current === null) return;
   shown.value = current;
+  busy.value = false;
+  submitError.value = '';
   values.value = Object.fromEntries(current.fields.map((field) => [field.name, field.value ?? '']));
   selectChoices.value = Object.fromEntries(
     current.fields
@@ -58,7 +64,7 @@ const canConfirm = computed(() =>
 const fieldId = (field: PromptField): string => `next-prompt-${field.name}`;
 
 function onOpenChange(value: boolean): void {
-  if (!value) settlePrompt(null);
+  if (!value && !busy.value) settlePrompt(null);
 }
 
 function setValue(field: PromptField, value: string | number): void {
@@ -74,18 +80,31 @@ function onSelectChange(field: PromptField, choice: string): void {
   values.value[field.name] = choice === SELECT_CUSTOM ? '' : choice;
 }
 
-function submit(): void {
-  if (!canConfirm.value || pendingPrompt.value === null) return;
-  settlePrompt(
-    Object.fromEntries(fields.value.map((field) => [field.name, (values.value[field.name] ?? '').trim()])),
-  );
+async function submit(): Promise<void> {
+  const pending = pendingPrompt.value;
+  if (!canConfirm.value || pending === null || busy.value) return;
+  const result = Object.fromEntries(fields.value.map((field) => [field.name, (values.value[field.name] ?? '').trim()]));
+  if (pending.submit !== undefined) {
+    busy.value = true;
+    submitError.value = '';
+    try {
+      await pending.submit(result);
+    } catch (e) {
+      submitError.value =
+        e instanceof ApiRequestError && e.message !== '' ? e.message : (pending.errorFallback ?? '처리에 실패했습니다.');
+      return;
+    } finally {
+      busy.value = false;
+    }
+  }
+  settlePrompt(result);
 }
 
 function onKeydown(event: KeyboardEvent): void {
   // 여러 줄 입력 중에는 Enter 가 줄바꿈이어야 한다 — 확인은 Ctrl/⌘+Enter.
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
-    submit();
+    void submit();
   }
 }
 </script>
@@ -150,11 +169,13 @@ function onKeydown(event: KeyboardEvent): void {
         </Field>
       </div>
 
+      <p v-if="submitError !== ''" role="alert" class="text-destructive text-sm">{{ submitError }}</p>
+
       <DialogFooter>
-        <Button variant="outline" @click="settlePrompt(null)">취소</Button>
+        <Button variant="outline" :disabled="busy" @click="settlePrompt(null)">취소</Button>
         <Button
           :variant="shown.tone === 'danger' ? 'destructive' : 'default'"
-          :disabled="!canConfirm"
+          :disabled="!canConfirm || busy"
           @click="submit"
         >
           {{ shown.confirmLabel ?? '확인' }}

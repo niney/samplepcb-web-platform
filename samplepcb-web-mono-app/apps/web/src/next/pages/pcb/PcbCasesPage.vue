@@ -97,13 +97,13 @@ watch(
   { deep: true, immediate: true },
 );
 
-// 주문 열 — 장바구니 전이면 고객 견적 상태, 담겼으면 장바구니, 주문됐으면 od 상태(입금 여부로 색).
+// 주문 열 — 장바구니 전이면 고객 견적 상태, 담겼으면 장바구니, 주문됐으면 od 상태(주문 화면과 같은 색).
 const orderBadge = (row: AdminPcbCaseItemType): PcbBadge =>
   row.cartState === 'none'
     ? pcbQuoteBadge(row.quoteStatus)
     : row.cartState === 'cart'
       ? { label: '장바구니', variant: 'warning' }
-      : pcbOrderStatusBadge(row.odStatus ?? '', row.isPaid);
+      : pcbOrderStatusBadge(row.odStatus ?? '');
 
 function openCase(specId: number): void {
   void router.push(pcbCaseTo(specId, 'cases', route.fullPath));

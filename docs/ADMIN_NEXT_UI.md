@@ -88,3 +88,13 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 - 말줄임은 `<span class="block max-w-xs truncate" :title="…">`.
 - 행 선택 강조는 `TableRow` 에 `:data-state="selected ? 'selected' : undefined"`(클래스 아님), 행 클릭은 `class="cursor-pointer"` + `@click`.
 - 툴팁을 쓰는 표는 `TooltipProvider` 로 한 번 감싼다. shadcn 컴포넌트의 간격(`gap-*`) 같은 모양은 바꿀 수 없으니 안쪽 span 으로 감싼다(예: `DialogTitle` 안 아이콘+글자).
+
+## 8. 통합 때 정한 것 (2026-10-06)
+
+- **lint 계약**: `TableCell`·`TableHead` 는 글자 모양·색 허용(여백은 막음 — 표 밀도), `Card`·`Card(Header|Content|Footer)` 는 여백 허용. `TableRow` 색·`Button`/`Input` 모양 덮어쓰기는 계속 막는다 — 옛 화면의 행 바탕 강조(내 차례 노랑·미입금 노랑)는 **배지로 옮겼다**.
+- **인쇄·PDF 문서는 `print/` 폴더에** 둔다(라벨·인보이스 미리보기). 그 폴더만 `no-arbitrary-values`·`no-inline-styles`·`no-raw-colors` 를 끈다. 파일 안 `eslint-disable` 로 풀지 않는다. 옛 인쇄 문서(`EstimateSheet`·`usePrintIsolation`)는 그대로 import 해도 되는 유일한 예외.
+- **라벨 QR 주소는 옛 경로(`/app/admin/pcb/packages/…`)를 찍는다** — 종이에 남는 주소라 리뉴얼 경로를 찍으면 컷오버 뒤 죽은 링크가 된다.
+- **입력 대화상자에 저장이 따르면 `promptDialog({ …, submit, errorFallback })`** — 연 채로 저장하고 실패하면 입력을 둔 채 오류를 보인다. 닫은 뒤 저장하면 실패 시 입력이 사라진다.
+- **상태 배지 색은 `components/pcb/pcb-badges.ts` 한 곳** — 주문(od)·발주·선적 상태는 화면이 달라도 같은 함수(`pcbOrderStatusBadge`·`pcbPoStatusVariant`·`pcbShipmentStatusVariant`)를 쓴다. 화면 전용 사전(`pos/`·`remittance/`·`claims/`·`case/case-badges.ts`)은 그 화면에만 있는 상태만 둔다.
+- 확인 대화상자: `tone: 'danger'` 는 첫 포커스가 취소 버튼, 배경 클릭으로 닫히지 않는다(AlertDialog).
+- 표 본문 글자는 14px(shadcn 기본) — 옛 PCB 화면의 `pcb-readable`(15px 확대)은 옮기지 않았다.
