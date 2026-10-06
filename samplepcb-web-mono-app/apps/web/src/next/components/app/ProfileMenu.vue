@@ -43,8 +43,9 @@ function goLogout(): void {
 <template>
   <DropdownMenu v-if="auth.isLoggedIn">
     <DropdownMenuTrigger as-child>
-      <Button variant="ghost" :aria-label="'프로필 메뉴 열기'">
-        <Avatar class="size-6">
+      <!-- 셸 헤더 크기 — 높이 36px·아바타 32px(옛 헤더와 같음) -->
+      <Button variant="ghost" size="md" :aria-label="'프로필 메뉴 열기'">
+        <Avatar class="size-8">
           <AvatarFallback>{{ initial }}</AvatarFallback>
         </Avatar>
         <span class="hidden max-w-32 truncate sm:inline">{{ displayNick }}</span>
@@ -81,5 +82,5 @@ function goLogout(): void {
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
-  <Button v-else variant="ghost" size="sm" @click="goLogin">{{ $t('auth.login') }}</Button>
+  <Button v-else variant="ghost" size="md" @click="goLogin">{{ $t('auth.login') }}</Button>
 </template>

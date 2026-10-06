@@ -18,7 +18,7 @@ sp-vue 관리자 화면을 shadcn-vue로 다시 짓는 작업의 정본 문서. 
 | 주 색상 | 브랜드 파랑 — 라이트 `#1e64fd`(흰 글자 AA), 다크 `#5c9bff` |
 | 상태색 | `success`·`warning`·`info`·`destructive` + 각 `*-soft`(배지·알림 바탕). Badge 변형 `success`·`warning`·`info`·`danger` |
 | 모서리 | Tailwind 기본값 유지 — `--radius-*` 재정의 금지(옛 `rounded-*` 2,022곳 보호) |
-| 밀도 | 기본 컨트롤 높이 32px(Button/Input/Select `h-8`), Button `sm` 28px |
+| 밀도 | 기본 컨트롤 높이 32px(Button/Input/Select `h-8`), Button `sm` 28px. **셸 헤더만 한 단 크게**(2026-10-07 사용자 결정 — 옛 헤더 체감): 홈·테마 `icon-md` 36px·아이콘 20px(선 1.75), 프로필 `md` 36px·아바타 32px, 모듈 전환 36px·활성 글자 주 색, 사이드바 열기 32px·아이콘 18px |
 | 다크 | `<html data-theme="dark">` 하나로(기존과 동일). `dark:` 변형은 `[data-theme=dark]` 에 연결 |
 | 글꼴 | Pretendard(기존) |
 | 아이콘 | `@lucide/vue` |

@@ -11,8 +11,9 @@ const label = computed(() => (isDark.value ? '라이트 모드로 전환' : '다
 </script>
 
 <template>
-  <Button variant="ghost" size="icon" :aria-label="label" :title="label" @click="toggleTheme">
-    <Sun v-if="isDark" />
-    <Moon v-else />
+  <!-- 셸 헤더 크기 — 36px·아이콘 20px(SiteHomeButton 과 같은 값) -->
+  <Button variant="ghost" size="icon-md" :aria-label="label" :title="label" @click="toggleTheme">
+    <Sun v-if="isDark" class="size-5" :stroke-width="1.75" />
+    <Moon v-else class="size-5" :stroke-width="1.75" />
   </Button>
 </template>

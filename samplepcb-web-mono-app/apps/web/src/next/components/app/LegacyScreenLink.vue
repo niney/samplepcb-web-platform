@@ -14,7 +14,7 @@ const legacyTo = computed(() =>
 </script>
 
 <template>
-  <Button v-if="legacyTo !== null" variant="ghost" size="sm" as-child>
+  <Button v-if="legacyTo !== null" variant="ghost" as-child>
     <RouterLink :to="legacyTo" title="같은 화면을 이전 디자인으로 엽니다">
       <History />
       <span class="hidden sm:inline">이전 화면</span>

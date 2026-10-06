@@ -14,16 +14,17 @@ const modules = computed(() => nextModuleLinks(props.ctx));
 
 <template>
   <nav
-    class="bg-muted text-muted-foreground flex h-8 min-w-0 items-center overflow-x-auto rounded-lg p-0.5"
+    class="bg-muted text-muted-foreground flex h-9 min-w-0 items-center overflow-x-auto rounded-lg p-0.5"
     aria-label="업무 모듈"
   >
+    <!-- 셸 헤더 크기 36px, 활성 모듈은 주 색 글자(옛 헤더·밑줄 탭의 활성 표시와 같은 색) -->
     <RouterLink
       v-for="mod in modules"
       :key="mod.key"
       :to="mod.to"
-      class="rounded-md px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors"
+      class="rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors"
       :class="mod.key === activeModule
-        ? 'bg-background text-foreground shadow-xs'
+        ? 'bg-background text-primary shadow-xs'
         : 'hover:text-foreground'"
       :aria-current="mod.key === activeModule ? 'page' : undefined"
     >
