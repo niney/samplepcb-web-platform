@@ -45,7 +45,9 @@ export const sidebarMenuButtonVariants = cva(
           "bg-background shadow-[0_0_0_1px_var(--sidebar-border)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_var(--sidebar-accent)]",
       },
       size: {
-        default: "h-8 text-sm",
+        // 관리자 리뉴얼: 레거시 사이드바 간격(한 줄 36px + 줄 사이 4px = 40px, 좌우 12px)·셸 헤더 36px 와 맞춘다
+        // (2026-10-07 사용자 결정). 업스트림은 h-8·p-2. 접힌 아이콘 모드는 base 의 size-8!·p-2! 가 그대로 이긴다.
+        default: "h-9 px-3 text-sm",
         sm: "h-7 text-xs",
         lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
       },
