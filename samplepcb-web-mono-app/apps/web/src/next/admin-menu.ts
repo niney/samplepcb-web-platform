@@ -6,15 +6,21 @@ import {
   ClipboardList,
   Cpu,
   CreditCard,
+  FilePenLine,
   FileText,
   FileUp,
+  FolderKanban,
   Globe,
   Handshake,
   Images,
+  Inbox,
   LayoutDashboard,
   LifeBuoy,
+  List,
   Mail,
   MessageSquareQuote,
+  MessagesSquare,
+  PackageCheck,
   Settings,
   ShoppingBag,
   ShoppingCart,
@@ -25,6 +31,11 @@ import {
 } from '@lucide/vue';
 import { adminModules, type AdminModuleKey } from '@/admin/menu';
 import { isNextCoreRoute, LEGACY_CORE_QUOTES_ROUTE, legacyCoreRouteName, NEXT_CORE_ROUTES } from '@/next/core-navigation';
+import {
+  isNextDevelopQueueRoute,
+  legacyDevelopRouteName,
+  NEXT_DEVELOP_ROUTES,
+} from '@/next/develop-navigation';
 import {
   NEXT_PCB_BASE_PATH,
   NEXT_PCB_ROUTES,
@@ -38,10 +49,16 @@ import { legacySmartbomRouteName, NEXT_SMARTBOM_ROUTES, smartbomSectionOf } from
 // 여기 nextModules 에 항목을 더하고 배지 훅(useNextMenuBadges)에 합산식을 옮기면 사이드바·스위처·
 // '이전 화면'이 그대로 따라온다. 메뉴 순서·라벨(i18n 키)·배지 식별자는 옛 메뉴와 같게 둔다.
 
-export type NextModuleKey = Extract<AdminModuleKey, 'core' | 'pcb' | 'smartbom'>;
+export type NextModuleKey = Extract<AdminModuleKey, 'core' | 'pcb' | 'smartbom' | 'develop'>;
 
 export type NextMenuBadge =
   | 'rfqCount'
+  | 'developReplyOverdue'
+  | 'developReceived'
+  | 'developAccepted'
+  | 'developDocsAwaiting'
+  | 'developDelivered'
+  | 'developInquiries'
   | 'pcbRfqPending'
   | 'pcbOrdersAwaiting'
   | 'pcbPosPending'
@@ -189,7 +206,38 @@ const smartbomModule: NextModule = {
   ],
 };
 
-export const nextModules: readonly NextModule[] = [coreModule, pcbModule, smartbomModule];
+const developItem = (
+  key: keyof typeof NEXT_DEVELOP_ROUTES,
+  labelKey: string,
+  icon: Component,
+  extra: Pick<NextMenuItem, 'badge' | 'activeRouteNames'> = {},
+): NextMenuItem => ({
+  key: `develop-${key}`,
+  routeName: NEXT_DEVELOP_ROUTES[key],
+  labelKey,
+  icon,
+  to: () => ({ name: NEXT_DEVELOP_ROUTES[key] }),
+  ...extra,
+});
+
+const developModule: NextModule = {
+  key: 'develop',
+  labelKey: 'admin.modules.develop',
+  // 옛 개발 메뉴와 같은 순서(docs/DEVELOP_FLOW.md §14): 진행현황 → 접수·검토 → 견적·계약 → 진행 프로젝트 →
+  // 납품·검수 → 문의·A/S → 전체 의뢰 → 설정. 배지 = "지금 관리자 차례" 하나씩.
+  items: [
+    developItem('home', 'admin.menu.developHome', ClipboardList, { badge: 'developReplyOverdue' }),
+    developItem('intake', 'admin.menu.developIntake', Inbox, { badge: 'developReceived' }),
+    developItem('contracts', 'admin.menu.developContracts', FilePenLine, { badge: 'developAccepted' }),
+    developItem('projects', 'admin.menu.developProjects', FolderKanban, { badge: 'developDocsAwaiting' }),
+    developItem('deliveries', 'admin.menu.developDeliveries', PackageCheck, { badge: 'developDelivered' }),
+    developItem('inquiries', 'admin.menu.developInquiries', MessagesSquare, { badge: 'developInquiries' }),
+    developItem('requests', 'admin.menu.developRequests', List, { activeRouteNames: [NEXT_DEVELOP_ROUTES.request] }),
+    developItem('settings', 'admin.menu.developSettings', Settings),
+  ],
+};
+
+export const nextModules: readonly NextModule[] = [coreModule, pcbModule, smartbomModule, developModule];
 
 /** 라우트 이름 → 리뉴얼 모듈. 리뉴얼 라우트가 아니면 null. */
 export const resolveNextModuleKey = (routeName: string): NextModuleKey | null =>
@@ -199,11 +247,13 @@ export const resolveNextModuleKey = (routeName: string): NextModuleKey | null =>
       ? 'pcb'
       : routeName.startsWith('admin-next-smartbom') || routeName.startsWith('admin-next-bom')
         ? 'smartbom'
-        : null;
+        : routeName.startsWith('admin-next-develop')
+          ? 'develop'
+          : null;
 
 export const nextModuleOf = (routeName: string): NextModule => {
   const key = resolveNextModuleKey(routeName);
-  return key === 'core' ? coreModule : key === 'smartbom' ? smartbomModule : pcbModule;
+  return key === 'core' ? coreModule : key === 'smartbom' ? smartbomModule : key === 'develop' ? developModule : pcbModule;
 };
 
 export interface NextModuleLink {
@@ -230,6 +280,8 @@ export const effectiveMenuRouteName = (routeName: string, from: unknown): string
     const section = smartbomSectionOf(typeof from === 'string' ? from : undefined);
     return section === null ? routeName : NEXT_SMARTBOM_ROUTES[section];
   }
+  // 개발 의뢰 상세는 떠나온 큐(from = 큐 라우트 이름)를 켠다. from 이 없으면 '전체 의뢰'(activeRouteNames).
+  if (routeName === NEXT_DEVELOP_ROUTES.request && isNextDevelopQueueRoute(from)) return from;
   return routeName;
 };
 
@@ -253,6 +305,18 @@ export const legacyNextRoute = (
       nextQuery.returnTo = LEGACY_PCB_BASE_PATH + returnTo.slice(NEXT_PCB_BASE_PATH.length);
     }
     return { name: `admin-pcb-${pcbEntry[0]}`, params, query: nextQuery };
+  }
+  const legacyDevelop = legacyDevelopRouteName(routeName);
+  if (legacyDevelop !== null) {
+    // 상세의 from(떠나온 큐)도 옛 큐 이름이어야 옛 화면의 「← 목록으로」가 받아 준다.
+    const nextQuery: LocationQueryRaw = { ...query };
+    const from = nextQuery.from;
+    if (typeof from === 'string') {
+      const legacyFrom = legacyDevelopRouteName(from);
+      if (legacyFrom === null) delete nextQuery.from;
+      else nextQuery.from = legacyFrom;
+    }
+    return { name: legacyDevelop, params, query: nextQuery };
   }
   const legacyName = legacySmartbomRouteName(routeName) ?? legacyCoreRouteName(routeName);
   return legacyName === null ? null : { name: legacyName, params, query };

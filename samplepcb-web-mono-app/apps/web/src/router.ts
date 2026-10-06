@@ -11,6 +11,7 @@ import BomSearch from './pages/bom/BomSearch.vue';
 import BomQuote from './pages/bom/BomQuote.vue';
 import { appPath, loginUrl } from './lib/auth-urls';
 import { NEXT_CORE_ROUTES } from './next/core-navigation';
+import { NEXT_DEVELOP_ROUTES } from './next/develop-navigation';
 import { NEXT_PCB_ROUTES } from './next/pcb-navigation';
 import { NEXT_SMARTBOM_ROUTES } from './next/smartbom-navigation';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
@@ -248,6 +249,49 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./next/pages/core/DeleteAuditsPage.vue'),
       },
       { path: 'settings', name: NEXT_CORE_ROUTES.settings, component: () => import('./next/pages/core/SettingsPage.vue') },
+      // ── 개발(2026-10-07~) — 옛 경로(/admin/develop/*)의 접두만 /admin/next 로, 이름은 'admin-' → 'admin-next-'
+      // (next/develop-navigation.ts). 상세는 드로어가 아닌 전면 화면(옛 화면과 같음).
+      { path: 'develop', name: NEXT_DEVELOP_ROUTES.home, component: () => import('./next/pages/develop/DevelopHomePage.vue') },
+      {
+        path: 'develop/intake',
+        name: NEXT_DEVELOP_ROUTES.intake,
+        component: () => import('./next/pages/develop/DevelopIntakePage.vue'),
+      },
+      {
+        path: 'develop/contracts',
+        name: NEXT_DEVELOP_ROUTES.contracts,
+        component: () => import('./next/pages/develop/DevelopContractsPage.vue'),
+      },
+      {
+        path: 'develop/projects',
+        name: NEXT_DEVELOP_ROUTES.projects,
+        component: () => import('./next/pages/develop/DevelopProjectsPage.vue'),
+      },
+      {
+        path: 'develop/deliveries',
+        name: NEXT_DEVELOP_ROUTES.deliveries,
+        component: () => import('./next/pages/develop/DevelopDeliveriesPage.vue'),
+      },
+      {
+        path: 'develop/inquiries',
+        name: NEXT_DEVELOP_ROUTES.inquiries,
+        component: () => import('./next/pages/develop/DevelopInquiriesPage.vue'),
+      },
+      {
+        path: 'develop/requests',
+        name: NEXT_DEVELOP_ROUTES.requests,
+        component: () => import('./next/pages/develop/DevelopRequestsPage.vue'),
+      },
+      {
+        path: 'develop/requests/:id(\\d+)',
+        name: NEXT_DEVELOP_ROUTES.request,
+        component: () => import('./next/pages/develop/DevelopRequestPage.vue'),
+      },
+      {
+        path: 'develop/settings',
+        name: NEXT_DEVELOP_ROUTES.settings,
+        component: () => import('./next/pages/develop/DevelopSettingsPage.vue'),
+      },
       { path: 'pcb', redirect: { name: NEXT_PCB_ROUTES.cases } },
       { path: 'pcb/cases', name: NEXT_PCB_ROUTES.cases, component: () => import('./next/pages/pcb/PcbCasesPage.vue') },
       { path: 'pcb/rfqs', name: NEXT_PCB_ROUTES.rfqs, component: () => import('./next/pages/pcb/PcbRfqsPage.vue') },

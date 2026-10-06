@@ -1,6 +1,7 @@
 import { computed, type ComputedRef } from 'vue';
 import { useAuthStore } from '@sp/shared';
 import { useRfqCount } from '@/admin/useAdminQuotes';
+import { useDevelopModuleSignals } from '@/admin/useAdminDevelop';
 import { usePcbRfqPendingCount } from '@/admin/useAdminPcbRfqs';
 import { usePcbPoWorkCounts, usePcbShipmentPendingCount } from '@/admin/useAdminPcbPos';
 import { usePcbOrdersAwaitingCount, usePcbOrdersToShipCount } from '@/admin/useAdminPcbOrders';
@@ -22,6 +23,9 @@ export function useNextMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> 
 
   // 통합 — 거버 견적 대기(견적관리, 옛 화면 그대로).
   const { data: rfqCount } = useRfqCount(isAdminUser);
+
+  // 개발 — 목록 API 한 번(counts·signals, 60초)으로 6개. 옛 셸 developBadges 와 같은 매핑.
+  const { data: developModule } = useDevelopModuleSignals(isAdminUser);
 
   const { data: rfqPending } = usePcbRfqPendingCount(isAdminUser);
   const { eqPending, toShip } = usePcbPoWorkCounts(isAdminUser);
@@ -45,6 +49,12 @@ export function useNextMenuBadges(): ComputedRef<Record<NextMenuBadge, number>> 
 
   return computed(() => ({
     rfqCount: rfqCount.value ?? 0,
+    developReplyOverdue: developModule.value?.signals.replyOverdue ?? 0,
+    developReceived: developModule.value?.counts.received ?? 0,
+    developAccepted: developModule.value?.counts.accepted ?? 0,
+    developDocsAwaiting: developModule.value?.signals.docsAwaiting ?? 0,
+    developDelivered: developModule.value?.counts.delivered ?? 0,
+    developInquiries: developModule.value?.signals.inquiriesOpen ?? 0,
     pcbRfqPending: todoRfq.value + (rfqPending.value ?? 0),
     pcbPosPending: todoPo.value + eqPending.value,
     pcbShipmentPending: toShip.value + (shipmentPending.value ?? 0) + (customerToShip.value ?? 0),
