@@ -111,9 +111,10 @@ const setView = (value: string | number): void => {
           </SheetDescription>
         </header>
 
-        <nav class="shrink-0 border-b px-5 py-2 sm:px-6" aria-label="부품 선택 방식">
+        <!-- 밑줄 탭 두 칸을 반씩(옛 서랍과 같은 모양) — 줄 밑줄은 nav 의 border-b -->
+        <nav class="shrink-0 border-b px-5 pt-1 sm:px-6" aria-label="부품 선택 방식">
           <Tabs :model-value="view" @update:model-value="setView">
-            <TabsList class="w-full">
+            <TabsList class="grid w-full grid-cols-2">
               <TabsTrigger value="candidates">
                 추천 후보
                 <Badge v-if="context !== null" variant="secondary">{{ context.candidates.length }}</Badge>

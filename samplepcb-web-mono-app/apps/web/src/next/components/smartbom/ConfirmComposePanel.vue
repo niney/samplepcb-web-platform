@@ -697,7 +697,8 @@ onBeforeUnmount(() => {
                 :model-value="previewTab ? 'preview' : 'compose'"
                 @update:model-value="previewTab = $event === 'preview'"
               >
-                <TabsList aria-label="작성·고객 미리보기 전환">
+                <!-- 좁은 칸 안의 보기 전환 — 옛 화면도 알약 전환이었다(밑줄 탭 아님) -->
+                <TabsList variant="segment" aria-label="작성·고객 미리보기 전환">
                   <TabsTrigger value="compose">작성</TabsTrigger>
                   <TabsTrigger value="preview">고객 미리보기</TabsTrigger>
                 </TabsList>

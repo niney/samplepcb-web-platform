@@ -16,7 +16,7 @@ import {
 import { queryPage, queryTab, replaceListQuery } from '@/next/lib/list-query';
 import ListPagination from '@/next/components/common/ListPagination.vue';
 import PageHeader from '@/next/components/common/PageHeader.vue';
-
+import QueueTabs from '@/next/components/common/QueueTabs.vue';
 import type { QueueTab } from '@/next/components/common/queue-tabs';
 import { NativeSelect, NativeSelectOption } from '@/next/components/ui/native-select';
 import ExcelDeliveryDialog from '@/next/components/core/orders/ExcelDeliveryDialog.vue';
@@ -24,7 +24,6 @@ import OrderActionBar from '@/next/components/core/orders/OrderActionBar.vue';
 import OrderDeleteDialog from '@/next/components/core/orders/OrderDeleteDialog.vue';
 import OrderDetailDrawer from '@/next/components/core/orders/OrderDetailDrawer.vue';
 import OrderFilterBar from '@/next/components/core/orders/OrderFilterBar.vue';
-import OrderStatusTabs from '@/next/components/core/orders/OrderStatusTabs.vue';
 import OrdersTable from '@/next/components/core/orders/OrdersTable.vue';
 
 // 통합 주문내역 — 옛 pages/admin/AdminOrders.vue(영카트 orderlist.php 이식)의 리뉴얼. 배치·동작은 같다:
@@ -203,7 +202,7 @@ const onDeleted = (): void => {
       description="영카트 주문 원장 — 상태 탭에서 골라 일괄 처리하고, 행을 누르면 상세(수납·취소·상태 직접 변경)가 열립니다."
     />
 
-    <OrderStatusTabs v-model="tab" :tabs="tabs" />
+    <QueueTabs v-model="tab" :tabs="tabs" />
     <OrderFilterBar :filters="filters" @change="applyFilters" />
     <OrderActionBar
       :tab="filters.tab"

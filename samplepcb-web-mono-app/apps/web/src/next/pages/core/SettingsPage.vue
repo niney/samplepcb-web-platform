@@ -26,11 +26,14 @@ const onTabPick = (value: string | number): void => {
   <div class="flex flex-col gap-4">
     <PageHeader :title="t('admin.settings.title')" />
     <Tabs :model-value="activeTab" @update:model-value="onTabPick">
-      <TabsList>
-        <TabsTrigger v-for="tab in TABS" :key="tab" :value="tab">
-          {{ t(`admin.settings.tabs.${tab}`) }}
-        </TabsTrigger>
-      </TabsList>
+      <!-- 밑줄 탭 — 줄 전체의 밑줄은 감싸는 줄이 그린다(QueueTabs 와 같은 모양) -->
+      <div class="border-b">
+        <TabsList>
+          <TabsTrigger v-for="tab in TABS" :key="tab" :value="tab">
+            {{ t(`admin.settings.tabs.${tab}`) }}
+          </TabsTrigger>
+        </TabsList>
+      </div>
       <TabsContent value="businessInfo">
         <BusinessInfoForm />
       </TabsContent>

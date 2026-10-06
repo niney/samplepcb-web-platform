@@ -69,7 +69,8 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 
 **common** (모듈 무관)
 - `PageHeader` — `title`, `description?` · 슬롯 `#description`(마크업 설명), `#actions`(우측 버튼).
-- `QueueTabs` — `v-model`(탭 key), `tabs: QueueTab<T>[]`(`key`·`label`·`count?`(null=모름)·`attention?`(건수를 경고 배지로)) · 슬롯 `#end`(검색 등). 타입은 `common/queue-tabs.ts`.
+- `QueueTabs` — `v-model`(탭 key), `tabs: QueueTab<T>[]`(`key`·`label`·`count?`(null=모름)·`attention?`(건수를 경고 배지로)) · 슬롯 `#end`(검색 등 — 탭과 같은 줄 오른쪽). 타입은 `common/queue-tabs.ts`. 모양은 밑줄 탭(아래 '탭 모양').
+- **탭 모양**(2026-10-06 사용자 결정 — 옛 관리자 화면의 밑줄 탭으로): `ui/tabs` 의 `TabsList` `variant` — `line`(기본: 활성 = 주 색 글자+2px 밑줄, 건수는 알약, 넘치면 다음 줄로)·`segment`(shadcn 기본 회색 알약 — 좁은 칸 안의 보기 전환만, 예: 부품 확인 작성/고객 미리보기). 줄 전체의 밑줄은 **감싸는 쪽이 `border-b`** 로 그린다(QueueTabs·설정 화면·후보 서랍 nav). 모양은 `TabsList` 가 provide 하고 `TabsTrigger` 가 따른다(`ui/tabs/context.ts`).
 - `SearchInput` — `v-model`(입력 중 글자), `placeholder` · `@search`(Enter 확정). 키 입력마다 조회하지 않는다.
 - `TableCard` — 표를 담는 테두리 상자(shadcn Card 대신 — Card 의 py-6 여백 없음, 첫·끝 열 안쪽 여백). `bare` 면 테두리 없이 여백만(이미 카드 안인 표).
 - `TableEmptyRow` — `colspan`, `text`, `loading?`(스피너+'불러오는 중…'). `TableBody` 안 마지막 줄.
@@ -151,7 +152,7 @@ node scripts/next-ui-audit.mjs     # 점검만(1초)
 - **견적관리**: 리뉴얼하지 않는다. 통합 메뉴의 자리·대기 배지(`rfqCount`)는 그대로 두고 옛 화면(`/app/admin/quotes`)으로 보낸다. 메뉴 항목의 `legacy: true` 가 이름 뒤에 '이전 화면'(History) 아이콘을 붙인다 — 누르면 옛 셸로 바뀌는 것을 미리 알린다.
 - **부품 위치**: `next/components/core/{orders,members,partners,parts,settings,audit}/`. 주문 결과 패널(`core/orders/OrderActionResult.vue`)은 목록 액션바·삭제·엑셀·상세 서랍이 함께 쓴다. 주문 상태 배지 색은 `core/orders/order-badges.ts` 한 곳. 협력사 보유 부품 편집 창은 파트너 포털도 옛 것을 쓰므로 새 화면용을 따로 뒀다. 부품 사진은 `bom/PartImage.vue` 재사용.
 - **주문 상세 서랍**: 쓰기 동작 9가지(주문자·받는분·메모·입금 조정·환불 기록·다음 단계·상태 직접 변경·행 취소/반품/품절·인쇄)를 옛 서랍과 같은 훅·같은 본문으로 옮겼다(코드 대조). 서랍 위에 확인 창이 떠 있으면 Esc·바깥 클릭이 서랍을 닫지 않는다. 인쇄 문서는 `core/orders/print/`.
-- **주문 상태 탭**: 16칸이라 QueueTabs(한 줄 가로 스크롤)에 넣으면 끝 칸(취소·부분취소)이 숨는다 — `core/orders/OrderStatusTabs.vue`(넓으면 8칸×2줄, 좁으면 4칸씩, 모양은 QueueTabs 와 같음). 탭·쪽은 주소에 싣는다(`?tab=`, 옛 화면은 주소 상태 없음). 필터는 화면 안에만.
+- **주문 상태 탭**: 16칸도 QueueTabs 하나(밑줄 탭이 넘치면 줄바꿈 — 1440px 에서 2줄). 탭·쪽은 주소에 싣는다(`?tab=`, 옛 화면은 주소 상태 없음). 필터는 화면 안에만.
 - **옛 화면과 달라진 동작**: 회원 차단/해제 확인이 인라인 2단계 → `confirmDialog`(문구·버튼 이름 같음). 협력사 검색·부품 행 검색은 `SearchInput`(Enter 확정 — 협력사 '검색' 버튼 없음). 설정의 사용 여부 체크박스 → `Switch`. BOM 견적 설정의 담당자 칸을 비용 `<form>` 밖으로 빼서, 담당자 칸 Enter 가 비용 설정을 저장하던 숨은 동작이 없어졌다.
 - **옛 화면 결함(발견만, 옛 화면 미수정)**: `AdminPartnerParts.vue` 의 대행 업로드 협력사 목록이 `pageSize=200` 으로 요청해 서버 상한(100)에 400 으로 거절된다 → 목록이 늘 비어 있다. 새 화면은 100.
 - **키트 보강**: `ui/switch`(켜기/끄기), `SearchInput` 에 `class`(폭 — `cn` 병합), `ui/native-select` emits 를 이름 붙은 튜플로(업스트림 선언은 핸들러 타입이 `() => any` 라 `@update:model-value` 가 타입 오류).
