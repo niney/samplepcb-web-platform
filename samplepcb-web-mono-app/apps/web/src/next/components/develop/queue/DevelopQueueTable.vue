@@ -18,17 +18,15 @@ import type { DevelopQueueColumn } from '@/components/admin/develop/develop-queu
 import { formatDate, formatDateTime, formatKrw } from '@/lib/format';
 import { developDetailTo, developQueueQuery, developQueueState } from '@/next/develop-navigation';
 import { Badge } from '@/next/components/ui/badge';
-import { Button } from '@/next/components/ui/button';
-import { ButtonGroup } from '@/next/components/ui/button-group';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/next/components/ui/table';
 import ListPagination from '@/next/components/common/ListPagination.vue';
 import QueueTabs from '@/next/components/common/QueueTabs.vue';
-import SearchInput from '@/next/components/common/SearchInput.vue';
 import TableCard from '@/next/components/common/TableCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
 import type { QueueTab } from '@/next/components/common/queue-tabs';
 import { developRequestModeVariant, developStatusBadge } from '@/next/components/develop/develop-badges';
 import DevelopAiChips from './DevelopAiChips.vue';
+import DevelopQueueSearch from './DevelopQueueSearch.vue';
 import DevelopProgressBar from '@/next/components/develop/DevelopProgressBar.vue';
 
 // 개발 모듈 워크큐 공용 표(docs/DEVELOP_FLOW.md §14) — 옛 components/admin/develop/DevelopQueueTable.vue 의 짝(같은 props).
@@ -111,10 +109,22 @@ const activeTab = computed<DevelopAdminTabType>({
   },
 });
 
-// 신호 토글 — 큐 고정 신호(props.signal)가 있으면 그것이 기본값이라 토글은 쓰지 않는다.
-const setSignal = (signal: DevelopAdminSignalType | null): void => {
-  filters.value = { ...filters.value, signal, page: 1 };
-};
+// 신호 탭 — 큐 고정 신호(props.signal)가 있으면 그것이 기본값이라 신호 탭은 쓰지 않는다. 'all' = 신호 없음.
+type SignalKey = 'all' | DevelopAdminSignalType;
+const signalTabs = computed<QueueTab<SignalKey>[]>(() =>
+  props.signal !== undefined || props.signalToggles === undefined || props.signalToggles.length === 0
+    ? []
+    : [
+        { key: 'all', label: t('admin.develop.queue.filterAll') },
+        ...props.signalToggles.map((sig) => ({ key: sig, label: DEVELOP_ADMIN_SIGNAL_LABELS[sig] })),
+      ],
+);
+const activeSignal = computed<SignalKey>({
+  get: () => filters.value.signal ?? 'all',
+  set: (key) => {
+    filters.value = { ...filters.value, signal: key === 'all' ? null : key, page: 1 };
+  },
+});
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: qInput.value, page: 1 };
 };
@@ -145,42 +155,20 @@ const openDetail = (requestId: number): void => {
          탭 밑줄이 검색 줄 아래로 밀려 떠 보이지 않게 따로 아래 줄에 둔다. -->
     <QueueTabs v-if="tabs.length > 1 && inlineSearch" v-model="activeTab" :tabs="queueTabs">
       <template #end>
-        <div class="flex items-center gap-2">
-          <SearchInput v-model="qInput" :placeholder="t('admin.develop.searchPlaceholder')" class="sm:w-72" @search="applySearch" />
-          <Button type="button" variant="outline" @click="applySearch">{{ t('admin.develop.search') }}</Button>
-        </div>
+        <DevelopQueueSearch v-model="qInput" @search="applySearch" />
       </template>
     </QueueTabs>
     <QueueTabs v-else-if="tabs.length > 1" v-model="activeTab" :tabs="queueTabs" />
-    <div v-if="tabs.length <= 1 || !inlineSearch" class="flex flex-wrap items-center justify-between gap-3">
-      <!-- 신호 토글 — 상태가 아니라 "지금 관리자 차례"인 조건으로 큐를 좁힌다. -->
-      <ButtonGroup v-if="signalToggles !== undefined && signalToggles.length > 0" :aria-label="t('admin.develop.queue.filterAll')">
-        <Button
-          type="button"
-          size="sm"
-          :variant="filters.signal === null ? 'default' : 'outline'"
-          :aria-pressed="filters.signal === null"
-          @click="setSignal(null)"
-        >
-          {{ t('admin.develop.queue.filterAll') }}
-        </Button>
-        <Button
-          v-for="sig in signalToggles"
-          :key="sig"
-          type="button"
-          size="sm"
-          :variant="filters.signal === sig ? 'warning' : 'outline'"
-          :aria-pressed="filters.signal === sig"
-          @click="setSignal(sig)"
-        >
-          {{ DEVELOP_ADMIN_SIGNAL_LABELS[sig] }}
-        </Button>
-      </ButtonGroup>
-      <span v-else />
-      <div class="flex items-center gap-2">
-        <SearchInput v-model="qInput" :placeholder="t('admin.develop.searchPlaceholder')" class="sm:w-72" @search="applySearch" />
-        <Button type="button" variant="outline" @click="applySearch">{{ t('admin.develop.search') }}</Button>
-      </div>
+    <!-- 신호 탭 — 상태가 하나뿐인 큐(진행 프로젝트)는 상태 탭 줄 대신 "지금 관리자 차례"인 조건(신호)이 탭 줄이 된다
+         (2026-10-07 사용자 결정 — 버튼 묶음 대신 다른 큐와 같은 밑줄 탭). 신호 건수는 서버가 활성 의뢰 전체로 세어
+         이 큐의 목록 수와 어긋나므로 붙이지 않는다(docs/DEVELOP_FLOW.md §15 C-13). -->
+    <QueueTabs v-else-if="signalTabs.length > 0" v-model="activeSignal" :tabs="signalTabs">
+      <template #end>
+        <DevelopQueueSearch v-model="qInput" @search="applySearch" />
+      </template>
+    </QueueTabs>
+    <div v-if="(tabs.length <= 1 && signalTabs.length === 0) || (tabs.length > 1 && !inlineSearch)" class="flex justify-end">
+      <DevelopQueueSearch v-model="qInput" @search="applySearch" />
     </div>
 
     <TableCard>
