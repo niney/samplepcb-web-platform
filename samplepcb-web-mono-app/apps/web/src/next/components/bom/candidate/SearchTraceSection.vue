@@ -103,7 +103,7 @@ const outcomeBadge = (
                   v-if="localCatalogReasonLabel(props.context.localCatalogTrace) !== null"
                   class="text-muted-foreground mt-1 block"
                 >{{ localCatalogReasonLabel(props.context.localCatalogTrace) }}</span>
-                <Panel v-if="localCatalogDecisionSummary !== null" size="xs" class="bg-card mt-2 flex flex-col gap-1.5">
+                <Panel v-if="localCatalogDecisionSummary !== null" size="xs" tone="card" class="mt-2 flex flex-col gap-1.5">
                   <div class="flex flex-wrap items-center gap-1.5">
                     <span class="font-semibold">
                       엔진 결론: {{ localCatalogDecisionStatusLabel(localCatalogDecisionSummary.procurementStatus) }}

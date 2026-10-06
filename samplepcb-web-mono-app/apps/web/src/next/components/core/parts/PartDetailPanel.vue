@@ -97,7 +97,7 @@ async function onDelete(): Promise<void> {
       </AlertDescription>
     </Alert>
 
-    <Panel v-for="offer in detailData.offers" :key="`${offer.supplier}-${offer.supplierSku}`" class="bg-card text-sm">
+    <Panel v-for="offer in detailData.offers" :key="`${offer.supplier}-${offer.supplierSku}`" tone="card" class="text-sm">
       <div class="flex flex-wrap items-center gap-3">
         <span class="font-medium">{{ supplierLabel(offer.supplier) }}</span>
         <Badge

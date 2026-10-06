@@ -38,19 +38,19 @@ const emit = defineEmits<{ close: []; execute: [] }>();
     </div>
 
     <div class="text-foreground grid grid-cols-2 gap-2 sm:grid-cols-4">
-      <Panel class="bg-card">
+      <Panel tone="card">
         <p class="text-muted-foreground text-xs">필터 일치</p>
         <p class="font-semibold tabular-nums">{{ preview.matchedParts }}건</p>
       </Panel>
-      <Panel class="bg-card">
+      <Panel tone="card">
         <p class="text-muted-foreground text-xs">삭제 가능</p>
         <p class="text-destructive font-semibold tabular-nums">{{ preview.deletableParts }}건</p>
       </Panel>
-      <Panel class="bg-card">
+      <Panel tone="card">
         <p class="text-muted-foreground text-xs">견적 연결 보호</p>
         <p class="text-warning font-semibold tabular-nums">{{ preview.protectedParts }}건</p>
       </Panel>
-      <Panel class="bg-card">
+      <Panel tone="card">
         <p class="text-muted-foreground text-xs">견적 라인</p>
         <p class="font-semibold tabular-nums">{{ preview.protectedQuoteItems }}건</p>
       </Panel>
@@ -66,7 +66,7 @@ const emit = defineEmits<{ close: []; execute: [] }>();
     </Alert>
 
     <div class="text-foreground grid gap-3 lg:grid-cols-2">
-      <Panel class="bg-card">
+      <Panel tone="card">
         <p class="text-xs font-semibold">포함 구매 조건</p>
         <div class="mt-1 flex flex-wrap gap-1.5">
           <Badge v-for="supplier in preview.supplierOffers" :key="supplier.value" variant="secondary" class="tabular-nums">
@@ -75,7 +75,7 @@ const emit = defineEmits<{ close: []; execute: [] }>();
           <span v-if="preview.supplierOffers.length === 0" class="text-muted-foreground text-xs">구매 조건 없음</span>
         </div>
       </Panel>
-      <Panel class="bg-card">
+      <Panel tone="card">
         <p class="text-xs font-semibold">카탈로그 원본</p>
         <ul v-if="preview.catalogSources.length > 0" class="mt-1 space-y-1 text-xs">
           <li

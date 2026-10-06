@@ -102,7 +102,7 @@ const gnuboardUrl = computed<string>(() =>
 
           <div v-else-if="detail !== null" :key="detail.mbId" class="flex flex-col gap-3 p-4">
             <!-- 기본정보 -->
-            <Panel class="bg-card">
+            <Panel tone="card">
               <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt class="text-muted-foreground text-xs">{{ t('admin.members.drawer.level') }}</dt>

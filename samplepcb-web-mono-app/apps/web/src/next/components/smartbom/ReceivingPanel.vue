@@ -369,7 +369,7 @@ const rawPreview = computed(() =>
 
     <!-- 대조 결과 -->
     <div v-if="scannedOnce && lastBarcode !== ''" class="grid gap-3 lg:grid-cols-2" data-testid="receiving-scan-result">
-      <Panel class="bg-card text-xs">
+      <Panel tone="card" class="text-xs">
         <p class="text-sm font-semibold">봉투 라벨</p>
         <template v-if="parsed !== null && fields !== null">
           <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -426,7 +426,7 @@ const rawPreview = computed(() =>
         <p class="text-muted-foreground mt-2 font-mono text-xs break-all">{{ rawPreview }}</p>
       </Panel>
 
-      <Panel class="bg-card text-xs">
+      <Panel tone="card" class="text-xs">
         <p class="text-sm font-semibold">
           발주 품목 후보 <span class="text-muted-foreground font-normal">({{ candidates.length }})</span>
         </p>

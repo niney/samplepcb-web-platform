@@ -78,7 +78,7 @@ npx eslint src/next/<경로>     # 수정한 파일만 — 전체는 수 분 걸
 - `ListPagination` — `page`, `pageSize`, `total` · `@update:page`. 왼쪽 '총 N건'(`#summary` 로 교체), 한 쪽이면 번호 숨김.
 - `SectionCard` — 화면 안 섹션. `title`, `collapsible`(+`v-model:open`), `closable`(false=펼치기 전용), `flush`(표를 담을 때 본문 여백 없이 양끝만) · 슬롯 `#title`·`#meta`·`#actions`·`#collapsed`·`#notice`(머리 아래 안내 띠)·기본(본문 — 없으면 머리만). 제목은 h2 text-sm. 접힌 모양은 점선 한 줄.
 - `NoticeBand` — 섹션 안 전폭 안내 띠(`#notice` 에). `tone` muted|info|warning|success|destructive.
-- `Panel` — 섹션·대화상자 안의 작은 테두리 상자. `size`('xs'=표 칸 안·'sm'=p-3·'md'=p-4), `tone`(default|muted|info|warning|success|destructive — 값에 따라 색이 바뀌는 결론 칸·칸 안 메모). 문장으로 상태를 알리면 Panel 이 아니라 Alert.
+- `Panel` — 섹션·대화상자 안의 작은 테두리 상자. `size`('xs'=표 칸 안·'sm'=p-3·'md'=p-4), `tone`(default|card|muted|info|warning|success|destructive — 값에 따라 색이 바뀌는 결론 칸·칸 안 메모, `card` 는 회색 바탕 위에 띄우는 카드 바탕 상자. `class="bg-card"` 로 손칠하지 않는다). 문장으로 상태를 알리면 Panel 이 아니라 Alert.
 - `DialogScrollBody` — 대화상자 본문 스크롤(높이 65vh 한 값).
 - (ui) `Alert` — 상태 알림 상자. `variant` default|muted|info|warning|success|destructive, `size` default|sm, `AlertTitle`·`AlertDescription`. `RadioGroup`·`RadioGroupItem` — 라디오.
 
@@ -163,3 +163,15 @@ node scripts/next-ui-audit.mjs     # 점검만(1초)
 - 회원 차단/해제 확인이 대화상자(`getByRole('alertdialog')`/`dialog`) — 인라인 확인 버튼을 찾던 선택자.
 - 협력사 목록 검색은 버튼 대신 Enter. 체크박스는 shadcn Checkbox(`role=checkbox`).
 - 유지한 것: 삭제 기록의 `data-testid`(retention-*·audit-*·dashboard-retention), 버튼 이름 전부.
+
+## 12. 개발 모듈 (2026-10-07)
+
+- **범위**: 개발 메뉴 8개(진행현황·접수·검토·견적·계약·진행 프로젝트·납품·검수·문의·A/S·전체 의뢰·설정) + 의뢰 전면 상세(탭 6개: 의뢰 내용·AI 검토서·구성도·견적서·타임라인·프로젝트 문서). 마켓 모듈은 대상이 아니다.
+- **경로·이름**: `/app/admin/next/develop/*`, 이름은 옛 이름의 `admin-` → `admin-next-`(`next/develop-navigation.ts` 의 `NEXT_DEVELOP_ROUTES`). 큐 ↔ 상세 왕복 규약(큐 상태를 URL 에, 상세 `?from=`+`lt/ls/lq/lp`, 「← 목록으로」)은 옛 `admin/develop-navigation.ts` 와 같고, 쿼리 해석 순수 함수는 그대로 다시 내보낸다. 상세는 떠나온 큐 메뉴를 켠다(옛 셸은 늘 '전체 의뢰'). '이전 화면'은 `from` 도 옛 큐 이름으로 바꿔 옛 화면의 복귀가 산다.
+- **배지**: 옛 셸과 같은 매핑 6종(`useDevelopModuleSignals` 한 번, 60초). 배지 색 사전은 `components/develop/develop-badges.ts` 한 곳(남색 'AI 실행 중'은 진행색 info 로 합침).
+- **고치지 않고 쓰는 것**: `@sp/ui` 의 고객 공용 문서 뷰(`DevReviewView`·`DevDiagramSection`·`FilePreviewModal`) — 관리자 미리보기가 고객이 받는 문서와 같아야 한다(견적서 인쇄 문서와 같은 예외). 옛 순수 로직 모듈(`components/admin/develop/{develop-queue,develop-quote-edit,develop-review-edit,develop-doc-edit,develop-files}.ts`)은 import 해서 재사용 — 컷오버 때 옛 폴더를 지우기 전에 `next/` 쪽으로 옮긴다.
+- **e2e**: 화면 e2e 가 없던 모듈이라 같은 시나리오를 옛 화면·새 화면 양쪽에서 돌리는 `e2e/specs/admin-develop-journey.e2e.test.ts`(env `DEVELOP_ADMIN_UI=old|next`, 차이 어댑터 `e2e/helpers/develop-admin.ts`)를 같이 만들었다 — 옛 화면 green = 시나리오가 맞음, 새 화면 green = 동작이 같음. 2026-10-07 둘 다 9/9(접수→검토 시작→견적 붙여넣기·발송→고객 수락→수동 입금→업무표·착수 문서 발송→고객 결정→문의·답변→납품→검수 확정→큐 왕복). 고객 행동은 API, 의뢰는 e2e 계정이 만들고 지운다(발송 원장·Mailpit 수신분까지). 실행: e2e 폴더에서 `[DEVELOP_ADMIN_UI=next] PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca ./node_modules/.bin/vitest run admin-develop-journey`.
+- **어댑터에 모은 옛/새 차이**(컷오버 때 옛 쪽 분기를 지운다): 큐 탭(옛 버튼 → `role=tab`), 사이드바(`aside` → `[data-sidebar=sidebar]`), 확인 단계(옛 인라인 패널 → 포털 대화상자 — 둘 다 "문구와 확인 버튼을 함께 품은 가장 안쪽 상자"로 찾는다), 선택 상자(네이티브 select·reka combobox), 설정 켜기/끄기(checkbox → `role=switch`).
+- **공통화(합칠 때 리더가 한 것)**: 견적·결제 조건·문서·간트·의뢰 방식 색을 `develop-badges.ts` 한 곳으로, 첨부 한 줄 `components/develop/DevelopFileRow.vue`(의뢰·타임라인·문서 첨부 공용), 달성도 막대 `components/develop/DevelopProgressBar.vue`(큐·홈 카드·현황 띠). 키트 `Panel` 에 `tone="card"`(모듈 4개 22곳의 `class="bg-card"` 를 바꿈).
+- **키트 후보(보류)**: 인라인 성공/실패 한 줄(`detail/ActionNotice.vue`), 인쇄 호스트(Teleport+`usePrintIsolation`+`print/` 문서), 행을 가로지르는 단일 선택 토글(`role=radio` 버튼), 목록 머리(제목·n/상한·추가), Label 작은 크기 변형, 신호 필터 토글(ButtonGroup+`aria-pressed`).
+- **프로세스 검토 결과**는 도메인 정본 `docs/DEVELOP_FLOW.md` §15(미결).

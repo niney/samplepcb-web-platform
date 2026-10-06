@@ -326,7 +326,7 @@ const totalPages = computed(() => {
     </PageHeader>
 
     <!-- 검색 콘솔 — 검색·정렬·재고·스펙 범위를 한 카드로 -->
-    <Panel size="md" class="bg-card flex flex-col gap-3 shadow-xs">
+    <Panel size="md" tone="card" class="flex flex-col gap-3 shadow-xs">
       <form role="search" class="flex flex-wrap items-center gap-2" @submit.prevent="onSearch">
         <InputGroup class="w-full max-w-xl">
           <InputGroupAddon>

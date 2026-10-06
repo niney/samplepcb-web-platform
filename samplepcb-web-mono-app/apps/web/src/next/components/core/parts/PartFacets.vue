@@ -28,7 +28,7 @@ const label = (key: PartFacetKey, bucket: PartFacetBucketType): string =>
 </script>
 
 <template>
-  <Panel class="bg-card flex flex-col gap-4 text-sm shadow-xs">
+  <Panel tone="card" class="flex flex-col gap-4 text-sm shadow-xs">
     <div v-for="(group, gi) in groups" :key="group.key" :class="gi > 0 ? 'border-t pt-3' : ''">
       <h3 class="text-muted-foreground mb-1.5 text-xs font-semibold tracking-wide uppercase">{{ group.title }}</h3>
       <ul class="flex flex-col gap-0.5">

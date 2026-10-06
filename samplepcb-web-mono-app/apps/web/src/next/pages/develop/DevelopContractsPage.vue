@@ -1,9 +1,23 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
+import { DEVELOP_QUEUE_PRESETS } from '@/components/admin/develop/develop-queue';
 import PageHeader from '@/next/components/common/PageHeader.vue';
+import DevelopQueueTable from '@/next/components/develop/queue/DevelopQueueTable.vue';
 
-// 자리표시 — 개발 모듈 리뉴얼 작업 중.
+// 견적·계약 큐(docs/DEVELOP_FLOW.md §14) — tab `contract` = quoted + accepted(결제 대기).
+// 행 클릭은 상세 「견적서」 탭으로 딥링크한다.
+// 옛 pages/admin/AdminDevelopContracts.vue 의 리뉴얼 — 탭·열·신호는 같다.
+const { t } = useI18n();
 </script>
 
 <template>
-  <PageHeader :title="$t('admin.menu.developContracts')" />
+  <div class="flex flex-col gap-6">
+    <PageHeader :title="t('admin.develop.queue.contracts.title')" :description="t('admin.develop.queue.contracts.desc')" />
+    <DevelopQueueTable
+      :tabs="['contract', 'quoted', 'accepted']"
+      default-tab="contract"
+      :columns="DEVELOP_QUEUE_PRESETS.contracts"
+      detail-tab="quotes"
+    />
+  </div>
 </template>

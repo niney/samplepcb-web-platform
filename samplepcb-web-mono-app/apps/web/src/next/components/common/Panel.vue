@@ -5,7 +5,8 @@
 const props = withDefaults(
   defineProps<{
     size?: 'xs' | 'sm' | 'md';
-    tone?: 'default' | 'muted' | 'info' | 'warning' | 'success' | 'destructive';
+    /** card = 회색 바탕(muted 섹션·띠) 위에 띄우는 카드 바탕 상자(편집 칸·패싯·제공처 카드 등). */
+    tone?: 'default' | 'card' | 'muted' | 'info' | 'warning' | 'success' | 'destructive';
     /** @deprecated tone="muted" 와 같다(이전 API). */
     muted?: boolean;
   }>(),
@@ -19,6 +20,7 @@ const SIZE: Record<NonNullable<typeof props.size>, string> = {
 };
 const TONE: Record<NonNullable<typeof props.tone>, string> = {
   default: '',
+  card: 'bg-card',
   muted: 'bg-muted/40',
   info: 'border-info/30 bg-info-soft text-info',
   warning: 'border-warning/30 bg-warning-soft text-warning',

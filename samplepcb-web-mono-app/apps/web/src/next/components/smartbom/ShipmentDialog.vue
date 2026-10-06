@@ -418,7 +418,7 @@ const onOpenChange = (value: boolean): void => {
             <span v-if="existing?.caseRefNote">요청 메모: {{ existing.caseRefNote }}</span>
           </div>
           <div class="mt-2 grid gap-2 sm:grid-cols-3">
-            <Panel class="bg-card text-foreground text-xs">
+            <Panel tone="card" class="text-foreground text-xs">
               <p class="font-semibold">① 협력사 Invoice 확인·수정</p>
               <p class="text-muted-foreground mt-1 truncate" :title="fileOf('invoice')?.name">
                 {{ fileOf('invoice') === null ? '첨부 없음' : `✓ ${fileOf('invoice')?.name ?? ''}` }}
@@ -441,7 +441,7 @@ const onOpenChange = (value: boolean): void => {
                 </Button>
               </div>
             </Panel>
-            <Panel class="bg-card text-foreground text-xs">
+            <Panel tone="card" class="text-foreground text-xs">
               <p class="font-semibold">② {{ docLabel }} 준비</p>
               <p class="text-muted-foreground mt-1 truncate" :title="fileOf(docKind)?.name">
                 {{ fileOf(docKind) === null ? '첨부 필요' : `✓ ${fileOf(docKind)?.name ?? ''}` }}
@@ -460,7 +460,7 @@ const onOpenChange = (value: boolean): void => {
                 </Button>
               </div>
             </Panel>
-            <Panel class="bg-card text-foreground text-xs">
+            <Panel tone="card" class="text-foreground text-xs">
               <p class="font-semibold">③ Case ID·운송장 입력</p>
               <p class="text-muted-foreground mt-1">{{ caseRef.trim() === '' ? 'Case ID 입력 필요' : `✓ ${caseRef}` }}</p>
               <p class="text-muted-foreground mt-0.5">
