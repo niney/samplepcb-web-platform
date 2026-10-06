@@ -11,8 +11,10 @@ defineOptions({
 
 const props = defineProps<{ modelValue?: AcceptableValue | AcceptableValue[], class?: HTMLAttributes["class"] }>()
 
+// 관리자 리뉴얼: 업스트림의 `"update:modelValue": AcceptableValue`(튜플 아님)는 핸들러 타입이 `() => any` 로
+// 잡혀 `@update:model-value="(v) => …"` 가 타입 오류가 난다 — 이름 붙은 튜플로 고쳤다.
 const emit = defineEmits<{
-  "update:modelValue": AcceptableValue
+  "update:modelValue": [value: AcceptableValue]
 }>()
 
 const modelValue = useVModel(props, "modelValue", emit, {

@@ -1,6 +1,6 @@
 # 관리자 리뉴얼(shadcn-vue) — `src/next`
 
-sp-vue 관리자 화면을 shadcn-vue로 다시 짓는 작업의 정본 문서. PCB 모듈부터 시작했고(2026-10-06), SmartBOM 모듈까지 지었다(§10). 둘 다 컷오버 전.
+sp-vue 관리자 화면을 shadcn-vue로 다시 짓는 작업의 정본 문서. PCB 모듈부터 시작했고(2026-10-06), SmartBOM 모듈(§10)과 통합 모듈(§11, 견적관리 제외)까지 지었다. 셋 다 컷오버 전.
 
 ## 1. 방식 — 나란히 짓고 한 번에 넘긴다
 
@@ -143,3 +143,22 @@ node scripts/next-ui-audit.mjs     # 점검만(1초)
 - Case 삭제가 머리로 옮겨졌다(PCB 와 같은 자리·모양, 2026-10-06 사용자 결정) — 버튼 이름 'Case 강제 영구 삭제' → 'Case 삭제'(journey-bom-case-deletion·demo-bom-confirm-keep·demo-bom-confirm-types-keep).
 - 대화상자가 body 포털(reka) — 특정 섹션 안에서 대화상자를 찾던 선택자는 `getByRole('dialog')` 로.
 - 유지한 것: `data-testid`(mouser-cart-*·digikey-list-* 등), 버튼 이름(입고 패널·배송 처리·미매칭으로 기록 등), `#bomc-*` 앵커, 상태 문구('✓ 일치' 등).
+
+## 11. 통합 모듈 (2026-10-06)
+
+- **범위**: 통합 메뉴 12개 중 **견적관리를 뺀 11화면** — 대시보드·주문관리·회원관리·협력사·협력사 보유 부품·부품 카탈로그·메인 슬라이드·SEO·발송 이력·삭제 기록·설정(탭 4개). 개발·마켓 모듈은 대상이 아니다(모듈 스위처가 옛 화면 홈으로 보낸다).
+- **경로·이름**: `/app/admin/next`(대시보드)·`/app/admin/next/{orders,members,partners,partner-parts,parts,slides,seo,mail-logs,delete-audits,settings}`, 이름은 옛 이름의 `admin` → `admin-next`(`next/core-navigation.ts` 의 `NEXT_CORE_ROUTES`). `/app/admin/next` 는 원래 PCB 진행현황으로 보내던 자리였는데 통합 대시보드가 됐다. 컷오버는 PCB·SmartBOM 과 같다 — 값만 옛 이름으로.
+- **견적관리**: 리뉴얼하지 않는다. 통합 메뉴의 자리·대기 배지(`rfqCount`)는 그대로 두고 옛 화면(`/app/admin/quotes`)으로 보낸다. 메뉴 항목의 `legacy: true` 가 이름 뒤에 '이전 화면'(History) 아이콘을 붙인다 — 누르면 옛 셸로 바뀌는 것을 미리 알린다.
+- **부품 위치**: `next/components/core/{orders,members,partners,parts,settings,audit}/`. 주문 결과 패널(`core/orders/OrderActionResult.vue`)은 목록 액션바·삭제·엑셀·상세 서랍이 함께 쓴다. 주문 상태 배지 색은 `core/orders/order-badges.ts` 한 곳. 협력사 보유 부품 편집 창은 파트너 포털도 옛 것을 쓰므로 새 화면용을 따로 뒀다. 부품 사진은 `bom/PartImage.vue` 재사용.
+- **주문 상세 서랍**: 쓰기 동작 9가지(주문자·받는분·메모·입금 조정·환불 기록·다음 단계·상태 직접 변경·행 취소/반품/품절·인쇄)를 옛 서랍과 같은 훅·같은 본문으로 옮겼다(코드 대조). 서랍 위에 확인 창이 떠 있으면 Esc·바깥 클릭이 서랍을 닫지 않는다. 인쇄 문서는 `core/orders/print/`.
+- **주문 상태 탭**: 16칸이라 QueueTabs(한 줄 가로 스크롤)에 넣으면 끝 칸(취소·부분취소)이 숨는다 — `core/orders/OrderStatusTabs.vue`(넓으면 8칸×2줄, 좁으면 4칸씩, 모양은 QueueTabs 와 같음). 탭·쪽은 주소에 싣는다(`?tab=`, 옛 화면은 주소 상태 없음). 필터는 화면 안에만.
+- **옛 화면과 달라진 동작**: 회원 차단/해제 확인이 인라인 2단계 → `confirmDialog`(문구·버튼 이름 같음). 협력사 검색·부품 행 검색은 `SearchInput`(Enter 확정 — 협력사 '검색' 버튼 없음). 설정의 사용 여부 체크박스 → `Switch`. BOM 견적 설정의 담당자 칸을 비용 `<form>` 밖으로 빼서, 담당자 칸 Enter 가 비용 설정을 저장하던 숨은 동작이 없어졌다.
+- **옛 화면 결함(발견만, 옛 화면 미수정)**: `AdminPartnerParts.vue` 의 대행 업로드 협력사 목록이 `pageSize=200` 으로 요청해 서버 상한(100)에 400 으로 거절된다 → 목록이 늘 비어 있다. 새 화면은 100.
+- **키트 보강**: `ui/switch`(켜기/끄기), `SearchInput` 에 `class`(폭 — `cn` 병합), `ui/native-select` emits 를 이름 붙은 튜플로(업스트림 선언은 핸들러 타입이 `() => any` 라 `@update:model-value` 가 타입 오류).
+
+### 컷오버 때 e2e 에서 고칠 것 (통합)
+
+- 설정 탭이 `role=tab`(shadcn Tabs). 메인 슬라이드 순서 버튼은 '↑'·'↓' 글자 → 아이콘 + 이름 '위로'·'아래로'.
+- 회원 차단/해제 확인이 대화상자(`getByRole('alertdialog')`/`dialog`) — 인라인 확인 버튼을 찾던 선택자.
+- 협력사 목록 검색은 버튼 대신 Enter. 체크박스는 shadcn Checkbox(`role=checkbox`).
+- 유지한 것: 삭제 기록의 `data-testid`(retention-*·audit-*·dashboard-retention), 버튼 이름 전부.

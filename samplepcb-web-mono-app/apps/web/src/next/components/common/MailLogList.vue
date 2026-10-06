@@ -14,6 +14,7 @@ import {
 } from '@/admin/useAdminMailLogs';
 import { formatBytes, formatDateTime } from '@/lib/format';
 import { NEXT_PCB_ROUTES } from '@/next/pcb-navigation';
+import { smartbomCaseTo } from '@/next/smartbom-navigation';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Field, FieldLabel } from '@/next/components/ui/field';
@@ -141,10 +142,10 @@ const STATUS_VARIANT: Record<AdminMailLogItemType['status'], BadgeVariant> = {
 const statusLabel = (s: AdminMailLogItemType['status']): string => t(`admin.mailLogs.status.${s}`);
 const channelLabel = (c: AdminMailLogItemType['channel']): string => t(`admin.mailLogs.channel.${c}`);
 
-// 컨텍스트 링크 — Case 상세 라우트가 있는 유형만(주문·마켓은 텍스트). PCB 는 리뉴얼 상세로 보낸다.
+// 컨텍스트 링크 — Case 상세 라우트가 있는 유형만(주문·마켓은 텍스트). PCB·SmartBOM 모두 리뉴얼 상세로 보낸다.
 const refLink = (item: AdminMailLogItemType): RouteLocationRaw | null =>
   item.refType === 'bom_quote'
-    ? { name: 'admin-smartbom-case', params: { id: item.refId } }
+    ? smartbomCaseTo(item.refId)
     : item.refType === 'pcb_spec'
       ? { name: NEXT_PCB_ROUTES.case, params: { id: item.refId } }
       : null;
