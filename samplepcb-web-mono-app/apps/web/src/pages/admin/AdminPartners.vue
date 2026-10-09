@@ -15,6 +15,7 @@ import {
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
+  partnerPortalActAsUrl,
   useAddPartnerMember,
   useAddPartnerRelation,
   useAdminPartnerDetail,
@@ -193,6 +194,7 @@ watch(detail, (d) => {
   relationError.value = '';
   relationChildId.value = null;
   relationCurrency.value = 'USD';
+  forceReason.value = '';
 });
 
 async function submitUpdate(): Promise<void> {
@@ -314,6 +316,10 @@ const relationCurrency = ref<PcbCurrencyType>('USD');
 const addRelationMut = useAddPartnerRelation();
 const relationCurrencyMut = useUpdatePartnerRelationCurrency();
 const removeRelationMut = useRemovePartnerRelation();
+// 강제 전환 — 진행 중인 직속 발주가 있으면 첫 하위 연결(마스터딜러 전환)이 막힌다. 관리자는 사유를
+// 남기고 넘을 수 있다(진행 건은 직접 제작 그대로 — 새 화면 PartnerRelationsSection 과 같은 동작).
+const forceReason = ref('');
+const conversionBlock = computed(() => relations.value?.conversionBlock ?? null);
 
 async function addRelation(): Promise<void> {
   if (selectedId.value === null) return;
@@ -322,15 +328,23 @@ async function addRelation(): Promise<void> {
     relationError.value = '연결할 하위 협력사를 선택해 주세요.';
     return;
   }
+  const force = conversionBlock.value !== null;
+  if (force && forceReason.value.trim() === '') {
+    relationError.value = '강제 전환 사유를 입력해 주세요.';
+    return;
+  }
   try {
     await addRelationMut.mutateAsync({
       partnerId: selectedId.value,
       body: {
         childPartnerId: relationChildId.value,
         settlementCurrency: relationCurrency.value,
+        force,
+        ...(force ? { forceReason: forceReason.value.trim() } : {}),
       },
     });
     relationChildId.value = null;
+    forceReason.value = '';
   } catch (e) {
     relationError.value = e instanceof ApiRequestError ? e.message : '연결에 실패했습니다.';
   }
@@ -475,7 +489,18 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
             class="cursor-pointer border-b border-gray-100 hover:bg-blue-50/40"
             @click="selectedId = p.partnerId"
           >
-            <td class="px-4 py-3 font-semibold text-gray-900">{{ p.name }}</td>
+            <td class="px-4 py-3 font-semibold text-gray-900">
+              {{ p.name }}
+              <span
+                v-if="p.ownerPartnerId !== null"
+                class="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700"
+                :title="`${p.ownerPartnerName ?? '마스터딜러'}이(가) 포털에서 직접 등록`"
+              >마스터딜러 등록</span>
+              <span
+                v-if="p.duplicateCount > 0"
+                class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+              >중복 의심</span>
+            </td>
             <td class="px-4 py-3 text-xs">{{ PARTNER_TYPE_LABELS[p.type] }}</td>
             <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ p.supplierCode ?? '—' }}</td>
             <td class="px-4 py-3 text-xs">{{ p.defaultCurrency }}</td>
@@ -556,6 +581,23 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
           <p v-if="detail.statusReason !== null" class="mt-1 text-xs text-red-600">
             사유: {{ detail.statusReason }}
           </p>
+          <!-- 감독 표시·관리자 대리 접속 — 새 화면 PartnerDetailSheet 와 같은 내용 -->
+          <p v-if="detail.ownerPartnerId !== null" class="mt-1 text-xs text-sky-700">
+            마스터딜러 등록 — {{ detail.ownerPartnerName ?? `조직 #${String(detail.ownerPartnerId)}` }}이(가) 포털에서 직접
+            등록했습니다.<template v-if="detail.ownerSuspended"> 지금은 그 조직이 사용 중지한 상태입니다.</template>
+          </p>
+          <p v-if="detail.duplicates.length > 0" class="mt-1 text-xs text-amber-700">
+            같은 회사로 보이는 협력사: {{ detail.duplicates.map((d) => d.name).join(', ') }}
+          </p>
+          <a
+            v-if="detail.type === 'partner'"
+            :href="partnerPortalActAsUrl(detail.partnerId)"
+            target="_blank"
+            rel="noopener"
+            class="mt-2 inline-block rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50"
+          >
+            포털로 보기 ↗
+          </a>
 
           <!-- 조직 정보 수정 -->
           <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
@@ -870,6 +912,27 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
                 </li>
               </ul>
 
+              <!-- 첫 하위 연결(마스터딜러 전환)이 지금 막히는 조직 — 누르기 전에 알리고 사유를 받는다 -->
+              <div
+                v-if="relations.parents.length === 0 && conversionBlock !== null"
+                class="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5"
+              >
+                <p class="text-xs font-semibold text-amber-800">
+                  진행 중인 발주가 {{ conversionBlock.activePoCount }}건 있어 마스터딜러 전환이 막혀 있습니다.
+                </p>
+                <p class="mt-1 text-[11px] text-amber-800">
+                  사유를 남기면 강제로 연결할 수 있습니다. 진행 중인 발주는 직접 제작으로 그대로 진행됩니다.
+                </p>
+                <input
+                  v-model="forceReason"
+                  type="text"
+                  maxlength="255"
+                  placeholder="강제 전환 사유"
+                  aria-label="강제 전환 사유"
+                  class="mt-1.5 h-8 w-full rounded-lg border border-amber-200 bg-surface px-2 text-xs"
+                >
+              </div>
+
               <!-- 하위 연결 — 다른 MD 의 하위 조직이면 후보가 비어 폼을 감춘다(2단 제한) -->
               <div
                 v-if="relations.parents.length === 0"
@@ -901,7 +964,7 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
                   :disabled="addRelationMut.isPending.value"
                   @click="addRelation"
                 >
-                  연결
+                  {{ conversionBlock !== null ? '강제 연결' : '연결' }}
                 </button>
               </div>
               <p v-else class="mt-2 text-[11px] text-gray-400">

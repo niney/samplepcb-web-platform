@@ -2,12 +2,14 @@
 import { computed, ref, watch } from 'vue';
 import { PARTNER_STATUS_LABELS, PARTNER_TYPE_LABELS } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
-import { useAdminPartnerDetail, useUpdatePartner } from '@/admin/useAdminPartners';
+import { ExternalLinkIcon } from '@lucide/vue';
+import { partnerPortalActAsUrl, useAdminPartnerDetail, useUpdatePartner } from '@/admin/useAdminPartners';
 import SectionCard from '@/next/components/common/SectionCard.vue';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/next/components/ui/sheet';
 import { Spinner } from '@/next/components/ui/spinner';
+import PartnerActLogSection from './PartnerActLogSection.vue';
 import PartnerFormFields from './PartnerFormFields.vue';
 import PartnerMembersSection from './PartnerMembersSection.vue';
 import PartnerRelationsSection from './PartnerRelationsSection.vue';
@@ -79,6 +81,27 @@ const onOpenChange = (open: boolean): void => {
                 <span class="text-muted-foreground text-xs">{{ PARTNER_TYPE_LABELS[detail.type] }}</span>
               </div>
               <p v-if="detail.statusReason !== null" class="text-destructive text-xs">사유: {{ detail.statusReason }}</p>
+              <!-- 감독 표시 — 마스터딜러가 포털에서 직접 등록한 조직은 승인 절차 없이 쓰인다(사후 감독). -->
+              <p v-if="detail.ownerPartnerId !== null" class="text-info text-xs" data-testid="partner-owner-note">
+                마스터딜러 등록 — {{ detail.ownerPartnerName ?? `조직 #${String(detail.ownerPartnerId)}` }}이(가) 포털에서 직접 등록했습니다<template v-if="detail.createdBy !== null"> (계정 {{ detail.createdBy }})</template>.
+                <template v-if="detail.ownerSuspended"> 지금은 그 조직이 사용 중지한 상태입니다.</template>
+              </p>
+              <p v-if="detail.duplicates.length > 0" class="text-warning text-xs">
+                같은 회사로 보이는 협력사:
+                <template v-for="(dup, i) in detail.duplicates" :key="dup.partnerId">
+                  <template v-if="i > 0">, </template>{{ dup.name }}({{ dup.matchedBy === 'businessNo' ? '사업자번호' : '이메일' }} 일치)
+                </template>
+              </p>
+              <!-- 관리자 대리 접속 — 이 조직의 포털을 관리자가 연다(계정 없는 조직도 열린다, 새 탭). -->
+              <div v-if="detail.type === 'partner'" class="flex flex-wrap items-center gap-2 pt-1">
+                <Button as-child variant="outline" size="sm">
+                  <a :href="partnerPortalActAsUrl(detail.partnerId)" target="_blank" rel="noopener" data-testid="partner-act-as">
+                    <ExternalLinkIcon />
+                    포털로 보기
+                  </a>
+                </Button>
+                <span class="text-muted-foreground text-xs">이 조직의 자리에서 포털을 엽니다 — 한 일은 관리자 대행으로 기록됩니다.</span>
+              </div>
             </div>
 
             <SectionCard title="조직 정보">
@@ -91,6 +114,7 @@ const onOpenChange = (open: boolean): void => {
 
             <PartnerMembersSection :detail="detail" />
             <PartnerRelationsSection v-if="detail.type === 'partner'" :detail="detail" />
+            <PartnerActLogSection :detail="detail" />
             <PartnerStatusSection :detail="detail" @deleted="emit('close')" />
           </div>
         </div>

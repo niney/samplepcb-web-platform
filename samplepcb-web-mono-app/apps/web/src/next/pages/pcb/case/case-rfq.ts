@@ -56,7 +56,15 @@ export function useCaseRfq(core: CaseCore) {
   const assignOpen = ref(false);
   const assignSelected = ref<Set<number>>(new Set());
   const assignDate = ref('');
-  const partnerFilters = ref<AdminPartnerFilters>({ page: 1, pageSize: 100, tab: 'approved', type: 'partner', q: '' });
+  // 마스터딜러가 포털에서 직접 등록한 하위는 그 조직의 것이다 — 관리자 직접 배정 후보에서 뺀다(origin).
+  const partnerFilters = ref<AdminPartnerFilters>({
+    page: 1,
+    pageSize: 100,
+    tab: 'approved',
+    type: 'partner',
+    origin: 'admin',
+    q: '',
+  });
   const partnersQuery = useAdminPartnerList(partnerFilters);
   const assignCandidates = computed(() =>
     (partnersQuery.data.value?.data.items ?? []).filter((p) => (p.capabilities as readonly string[]).includes('pcb_rfq')),

@@ -57,6 +57,9 @@ const typeFilterLabel = (t: TypeKey): string => (t === 'all' ? '전체 유형' :
 const setType = (type: TypeKey): void => {
   filters.value = { ...filters.value, type, page: 1 };
 };
+const toggleMdOnly = (): void => {
+  filters.value = { ...filters.value, origin: filters.value.origin === 'md' ? 'all' : 'md', page: 1 };
+};
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: qInput.value, page: 1 };
 };
@@ -90,6 +93,16 @@ const setPage = (page: number): void => {
             {{ typeFilterLabel(t) }}
           </Button>
         </ButtonGroup>
+        <!-- 마스터딜러가 포털에서 직접 등록한 조직만 — 자동 승인이라 사후 감독의 출발점 -->
+        <Button
+          size="sm"
+          :variant="filters.origin === 'md' ? 'secondary' : 'outline'"
+          :aria-pressed="filters.origin === 'md'"
+          data-testid="partner-origin-md"
+          @click="toggleMdOnly"
+        >
+          마스터딜러 등록만
+        </Button>
         <SearchInput v-model="qInput" placeholder="이름·코드·이메일·회원ID 검색" @search="applySearch" />
       </template>
     </QueueTabs>
@@ -116,7 +129,16 @@ const setPage = (page: number): void => {
             :data-state="selectedId === p.partnerId ? 'selected' : undefined"
             @click="selectedId = p.partnerId"
           >
-            <TableCell class="font-medium">{{ p.name }}</TableCell>
+            <TableCell class="font-medium">
+              {{ p.name }}
+              <!-- 감독 표시 — 포털 등록분(자동 승인)과 같은 회사로 보이는 조직 -->
+              <Badge v-if="p.ownerPartnerId !== null" variant="info" class="ml-1" :title="`${p.ownerPartnerName ?? '마스터딜러'}이(가) 포털에서 직접 등록`">
+                마스터딜러 등록
+              </Badge>
+              <Badge v-if="p.duplicateCount > 0" variant="warning" class="ml-1" title="사업자번호 또는 담당 이메일이 같은 협력사가 있습니다">
+                중복 의심
+              </Badge>
+            </TableCell>
             <TableCell>{{ PARTNER_TYPE_LABELS[p.type] }}</TableCell>
             <TableCell class="text-muted-foreground font-mono text-xs">{{ p.supplierCode ?? '—' }}</TableCell>
             <TableCell>{{ p.defaultCurrency }}</TableCell>

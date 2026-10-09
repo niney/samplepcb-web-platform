@@ -18,6 +18,7 @@ import SectionCard from '@/next/components/common/SectionCard.vue';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Field, FieldLabel } from '@/next/components/ui/field';
+import { Input } from '@/next/components/ui/input';
 import { Item } from '@/next/components/ui/item';
 import { NativeSelect, NativeSelectOption } from '@/next/components/ui/native-select';
 import { Spinner } from '@/next/components/ui/spinner';
@@ -33,6 +34,10 @@ const relations = computed(() => relationsQ.data.value?.data);
 const relationError = ref('');
 const relationChildId = ref<number | null>(null);
 const relationCurrency = ref<PcbCurrencyType>('USD');
+// 강제 전환 — 진행 중인 직속 발주가 있으면 첫 하위 연결(마스터딜러 전환)이 막힌다. 발주가 끊이지 않는
+// 협력사는 그 가드에 영영 걸리므로, 관리자는 사유를 남기고 넘을 수 있다(진행 건은 직접 제작 그대로).
+const forceReason = ref('');
+const conversionBlock = computed(() => relations.value?.conversionBlock ?? null);
 const addRelationMut = useAddPartnerRelation();
 const relationCurrencyMut = useUpdatePartnerRelationCurrency();
 const removeRelationMut = useRemovePartnerRelation();
@@ -44,6 +49,7 @@ watch(
     relationError.value = '';
     relationChildId.value = null;
     relationCurrency.value = 'USD';
+    forceReason.value = '';
   },
 );
 
@@ -53,12 +59,23 @@ async function addRelation(): Promise<void> {
     relationError.value = '연결할 하위 협력사를 선택해 주세요.';
     return;
   }
+  const force = conversionBlock.value !== null;
+  if (force && forceReason.value.trim() === '') {
+    relationError.value = '강제 전환 사유를 입력해 주세요.';
+    return;
+  }
   try {
     await addRelationMut.mutateAsync({
       partnerId: props.detail.partnerId,
-      body: { childPartnerId: relationChildId.value, settlementCurrency: relationCurrency.value },
+      body: {
+        childPartnerId: relationChildId.value,
+        settlementCurrency: relationCurrency.value,
+        force,
+        ...(force ? { forceReason: forceReason.value.trim() } : {}),
+      },
     });
     relationChildId.value = null;
+    forceReason.value = '';
   } catch (e) {
     relationError.value = e instanceof ApiRequestError ? e.message : '연결에 실패했습니다.';
   }
@@ -165,7 +182,35 @@ const onCurrencySelect = (event: Event): void => {
             <UnlinkIcon class="text-destructive" />
             <span class="text-destructive">해제</span>
           </Button>
+          <!-- 강제 전환으로 맺은 링크 — 누가 왜 넘었는지 남긴다 -->
+          <p v-if="c.forceNote !== null" class="text-warning w-full text-xs">
+            강제 전환{{ c.createdBy !== null ? ` · ${c.createdBy}` : '' }} — {{ c.forceNote }}
+          </p>
         </Item>
+      </div>
+
+      <!-- 첫 하위 연결(마스터딜러 전환)이 지금 막히는 조직 — 누르기 전에 알리고 사유를 받는다 -->
+      <div
+        v-if="relations.parents.length === 0 && conversionBlock !== null"
+        class="border-warning/40 bg-warning-soft flex flex-col gap-2 rounded-lg border p-3"
+        data-testid="relation-conversion-block"
+      >
+        <p class="text-warning text-xs font-semibold">
+          진행 중인 발주가 {{ conversionBlock.activePoCount }}건 있어 마스터딜러 전환이 막혀 있습니다.
+        </p>
+        <p class="text-muted-foreground text-xs">
+          사유를 남기면 강제로 연결할 수 있습니다. 진행 중인 발주는 직접 제작으로 그대로 진행되고, 이후 견적부터
+          하위에 맡길 수 있습니다.
+        </p>
+        <Field>
+          <FieldLabel :for="`relation-force-${String(detail.partnerId)}`" class="sr-only">강제 전환 사유</FieldLabel>
+          <Input
+            :id="`relation-force-${String(detail.partnerId)}`"
+            v-model="forceReason"
+            maxlength="255"
+            placeholder="강제 전환 사유 (예: 발주가 끊이지 않아 종결을 기다릴 수 없음)"
+          />
+        </Field>
       </div>
 
       <!-- 하위 연결 — 다른 MD 의 하위 조직이면 후보가 비어 폼을 감춘다(2단 제한) -->
@@ -187,7 +232,9 @@ const onCurrencySelect = (event: Event): void => {
         <NativeSelect :model-value="relationCurrency" class="w-24" aria-label="링크 통화" @change="onCurrencySelect">
           <NativeSelectOption v-for="cur in PCB_CURRENCIES" :key="cur" :value="cur">{{ cur }}</NativeSelectOption>
         </NativeSelect>
-        <Button variant="secondary" :disabled="addRelationMut.isPending.value" @click="void addRelation()">연결</Button>
+        <Button variant="secondary" :disabled="addRelationMut.isPending.value" @click="void addRelation()">
+          {{ conversionBlock !== null ? '강제 연결' : '연결' }}
+        </Button>
       </div>
       <p v-else class="text-muted-foreground text-xs">
         다른 마스터딜러의 하위 조직입니다 — 하위를 둘 수 없습니다(2단 제한).

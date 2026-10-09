@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AdminPartnerActLogResponse,
   AdminPartnerDeleteResponse,
   AdminPartnerDetailResponse,
   AdminPartnerListResponse,
@@ -27,6 +28,8 @@ export interface AdminPartnerFilters {
   pageSize: number;
   tab: 'all' | 'pending' | 'approved' | 'suspended';
   type: 'all' | PartnerTypeType;
+  /** 등록 원천 — md = 마스터딜러가 포털에서 직접 등록한 조직. 생략=전체. */
+  origin?: 'all' | 'admin' | 'md';
   q: string;
 }
 
@@ -36,6 +39,7 @@ const listPath = (f: AdminPartnerFilters): string => {
   params.set('pageSize', String(f.pageSize));
   params.set('tab', f.tab);
   params.set('type', f.type);
+  if (f.origin !== undefined && f.origin !== 'all') params.set('origin', f.origin);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
   return `${base}?${params.toString()}`;
 };
@@ -128,6 +132,20 @@ export function useDeletePartner() {
     onSuccess: () => {
       invalidate(qc);
     },
+  });
+}
+
+// ── 관리자 대리 접속 — 그 조직의 포털을 관리자가 연다 ────────────────────────
+// 새 탭으로 연다: 대리 접속 상태는 탭 단위(sessionStorage)라 관리 콘솔 탭은 영향받지 않는다.
+// 진입 표식(actAs)은 라우터 가드가 받아 기억하고 주소에서 걷는다.
+export const partnerPortalActAsUrl = (partnerId: number): string =>
+  `/app/partner?actAs=${String(partnerId)}`;
+
+export function useAdminPartnerActLogs(partnerId: Ref<number | null>) {
+  return useQuery({
+    queryKey: ['admin', 'partners', 'act-logs', partnerId],
+    queryFn: () => apiGet(`${base}/${String(partnerId.value)}/act-logs`, AdminPartnerActLogResponse),
+    enabled: computed(() => partnerId.value !== null),
   });
 }
 

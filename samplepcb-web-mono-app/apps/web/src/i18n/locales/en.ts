@@ -381,6 +381,8 @@ export const en = {
         pcb_as_replied: 'PCB A/S reply',
         pcb_claim_received: 'PCB A/S claim received',
         pcb_claim_decided: 'PCB A/S claim decided',
+        partner_child_registered: 'Sub-partner registered',
+        partner_invite: 'Partner portal invitation',
         order_deposit: 'Order deposit notice',
         order_ready: 'Order ready notice',
         order_delivery: 'Order shipping notice',

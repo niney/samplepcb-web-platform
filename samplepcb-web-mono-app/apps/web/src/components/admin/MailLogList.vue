@@ -147,6 +147,8 @@ const KNOWN_KINDS = [
   'pcb_as_replied',
   'pcb_claim_received',
   'pcb_claim_decided',
+  'partner_child_registered',
+  'partner_invite',
   'order_deposit',
   'order_delivery',
   'market_targeted_request',

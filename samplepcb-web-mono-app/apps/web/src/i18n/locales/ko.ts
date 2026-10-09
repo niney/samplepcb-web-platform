@@ -380,6 +380,8 @@ export const ko = {
         pcb_as_replied: 'PCB A/S 회신',
         pcb_claim_received: 'PCB A/S 접수 확인',
         pcb_claim_decided: 'PCB A/S 판정 안내',
+        partner_child_registered: '하위 협력사 등록 알림',
+        partner_invite: '파트너 포털 초대',
         order_deposit: '주문 입금 알림',
         order_ready: '주문 준비 알림',
         order_delivery: '주문 배송 알림',
