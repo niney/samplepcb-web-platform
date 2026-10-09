@@ -36,6 +36,8 @@ export interface PartnerMenuItem {
   activeRouteNames?: readonly string[];
   /** 공통 영역 전용 — 이 트랙이 있어야 노출한다. */
   requiresTrack?: PartnerTrackKey;
+  /** 공통 영역 전용 — 하위 협력사를 둘 수 있는 조직에만(서버 canManageChildren). */
+  requiresChildren?: boolean;
 }
 
 export interface PartnerModuleDef {
@@ -104,6 +106,13 @@ export const partnerCommonMenu: PartnerMenuItem[] = [
     labelKey: 'partner.menu.parts',
     activeRouteNames: ['partner-parts-upload'],
     requiresTrack: 'parts',
+  },
+  {
+    // 하위 협력사 — 마스터딜러가 견적을 다시 요청하고 발주를 맡길 협력사를 직접 관리한다.
+    to: { name: 'partner-children' },
+    labelKey: 'partner.menu.children',
+    requiresTrack: 'pcb',
+    requiresChildren: true,
   },
 ];
 

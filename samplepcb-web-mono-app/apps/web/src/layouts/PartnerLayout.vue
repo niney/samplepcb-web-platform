@@ -5,7 +5,7 @@ const changeLocale = (event: Event): void => { setPartnerLocale((event.target as
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { RouteLocationRaw } from 'vue-router';
-import { useAuthStore } from '@sp/shared';
+import { exitActAsPartner, useAuthStore } from '@sp/shared';
 import { usePartnerAccess } from '../partner/usePartnerAccess';
 import { usePartnerBomWork, usePartnerPcbWork } from '../partner/usePartnerWork';
 import { readPartnerModule, type PartnerModuleKey } from '../partner/partnerModule';
@@ -26,6 +26,7 @@ const MENU_LABELS: Record<string, string> = {
   'partner.menu.pos': '발주 관리', 'partner.menu.ship': '출하 준비',
   'partner.menu.pcbShip': '출하 준비', 'partner.menu.shipmentsDone': '출하 완료 내역',
   'partner.menu.as': 'A/S', 'partner.menu.remittances': '수금 현황', 'partner.menu.parts': '보유 부품',
+  'partner.menu.children': '하위 협력사',
 };
 const menuLabel = (key: string): string => MENU_LABELS[key] ?? key;
 
@@ -71,13 +72,24 @@ const activeMenu = computed<PartnerMenuItem[]>(() =>
     : [],
 );
 // 공통 영역 — 항목마다 노출 트랙이 다르다(수금=PCB 발주 대금, 보유 부품=part_sale).
+// 하위 협력사는 트랙에 더해 서버 판정(canManageChildren — 다른 마스터딜러의 하위가 아님)도 본다.
 const commonMenu = computed<PartnerMenuItem[]>(() =>
   isPartner.value
     ? partnerCommonMenu.filter(
-        (item) => item.requiresTrack === undefined || tracks.value[item.requiresTrack],
+        (item) =>
+          (item.requiresTrack === undefined || tracks.value[item.requiresTrack]) &&
+          (item.requiresChildren !== true || access.value?.canManageChildren === true),
       )
     : [],
 );
+
+// 관리자 대리 접속 — 관리자가 이 조직의 자리에서 포털을 쓰는 중이다(서버가 판정해 알려 준다).
+// 나갈 때는 통째로 새로 읽는다: 포털 조회 캐시에 이 조직의 데이터가 남아 있기 때문이다.
+const actingAdmin = computed(() => access.value?.actingAdmin === true);
+const leaveActAs = (): void => {
+  exitActAsPartner();
+  window.location.href = '/app/admin/partners';
+};
 const showCommon = computed(() => commonMenu.value.length > 0);
 
 const menuRouteName = (to: RouteLocationRaw): string | null =>
@@ -230,6 +242,23 @@ watch(
 
     <!-- 우측: 헤더 + 본문 -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <!-- 관리자 대리 접속 띠 — 지금 누구의 자리에서 일하는지, 기록이 어떻게 남는지를 늘 보인다 -->
+      <div
+        v-if="actingAdmin"
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 bg-rose-600 px-3 py-2 text-xs text-white sm:px-6"
+        role="status"
+        data-testid="partner-act-as-banner"
+      >
+        <b class="truncate">{{ pt('관리자 접속 중: {name}', { name: partnerName ?? '' }) }}</b>
+        <span class="text-rose-100">{{ pt('여기서 한 일은 관리자 대행으로 기록됩니다.') }}</span>
+        <button
+          type="button"
+          class="ml-auto rounded-md border border-white/60 px-2 py-0.5 font-semibold hover:bg-white/15"
+          @click="leaveActAs"
+        >
+          {{ pt('나가기') }}
+        </button>
+      </div>
       <header
         class="flex min-w-0 items-center gap-2 border-b border-gray-200 bg-surface px-3 py-3 text-sm sm:px-6"
       >

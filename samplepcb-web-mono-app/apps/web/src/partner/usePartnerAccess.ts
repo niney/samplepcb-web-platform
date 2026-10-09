@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
-import { useAuthStore, apiGet } from '@sp/shared';
+import { actAsPartnerId, useAuthStore, apiGet } from '@sp/shared';
 import { apiRoutes, PartnerAccessResponse } from '@sp/api-contract';
 
 // 상단 메뉴에서 사용할 협력사 접근 여부. 소속·승인 상태는 sp-node가 매 요청
@@ -8,7 +8,8 @@ import { apiRoutes, PartnerAccessResponse } from '@sp/api-contract';
 export function usePartnerAccess() {
   const auth = useAuthStore();
   const query = useQuery({
-    queryKey: computed(() => ['partner', 'access', auth.me?.mbId ?? null]),
+    // 관리자 대리 접속이면 그 조직의 판정이 온다 — 내 판정과 캐시가 섞이지 않게 키를 가른다.
+    queryKey: computed(() => ['partner', 'access', auth.me?.mbId ?? null, actAsPartnerId.value]),
     queryFn: () => apiGet(apiRoutes.partnerAccess, PartnerAccessResponse),
     enabled: computed(() => auth.isLoggedIn),
     staleTime: 5 * 60 * 1000,

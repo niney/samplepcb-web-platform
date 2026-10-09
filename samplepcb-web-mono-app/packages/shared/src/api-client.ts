@@ -4,7 +4,13 @@ import type { ZodType, ZodTypeDef } from 'zod';
 // 스키마에서도 호출부가 **출력** 타입을 받는다(입력=출력을 강제하면 추론이 입력 형태로 무너져
 // 소비처마다 parse 를 한 번 더 하는 우회가 생긴다 — 2026-08-28 검토서 화면 실측).
 type Schema<T> = ZodType<T, ZodTypeDef, unknown>;
-import { ApiError, ApiMemberError, type ApiErrorType } from '@sp/api-contract';
+import {
+  ACT_AS_PARTNER_HEADER,
+  ApiError,
+  ApiMemberError,
+  type ApiErrorType,
+} from '@sp/api-contract';
+import { actAsPartnerId } from './act-as';
 import { useAuthStore } from './auth';
 
 // 계약(@sp/api-contract)의 ApiError 는 Zod 스키마이므로, throw 가능한 Error 로 감싼다.
@@ -30,6 +36,15 @@ async function authFetch(path: string, init: RequestInit = {}): Promise<Response
     const headers = new Headers(init.headers);
     if (!headers.has('Accept')) headers.set('Accept', 'application/json');
     if (auth.token !== null) headers.set('Authorization', `Bearer ${auth.token}`);
+    // 관리자 대리 접속 — 포털 API 에만, 관리자일 때만 싣는다(같은 탭에서 다른 계정으로
+    // 로그인이 바뀌면 조용히 빠진다. 인가는 서버가 다시 판정한다).
+    if (
+      actAsPartnerId.value !== null &&
+      auth.me?.isAdmin === true &&
+      path.startsWith('/api/partner/')
+    ) {
+      headers.set(ACT_AS_PARTNER_HEADER, actAsPartnerId.value);
+    }
     return fetch(path, { ...init, headers });
   };
 

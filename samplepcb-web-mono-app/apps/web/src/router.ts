@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
-import { useAuthStore } from '@sp/shared';
+import { enterActAsPartner, useAuthStore } from '@sp/shared';
 import DefaultLayout from './layouts/DefaultLayout.vue';
 import AdminLayout from './layouts/AdminLayout.vue';
 import BomLayout from './layouts/BomLayout.vue';
@@ -205,7 +205,21 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/partner/PartnerPartUpload.vue'),
         meta: { requiresMember: true },
       },
+      {
+        // 하위 협력사 직접 관리(docs/PARTNER_PORTAL.md) — 마스터딜러가 자기 하위를 등록·수정·삭제.
+        // 노출 근거는 서버 canManageChildren(PCB 트랙 ∧ 다른 마스터딜러의 하위가 아님).
+        path: 'children',
+        name: 'partner-children',
+        component: () => import('./pages/partner/PartnerChildren.vue'),
+        meta: { requiresMember: true },
+      },
     ],
+  },
+  // 포털 초대 수락 — 조회는 공개(토큰이 근거), 수락은 로그인 후. 포털 셸 밖의 독립 문서.
+  {
+    path: '/partner-invite/:token',
+    name: 'partner-invite',
+    component: () => import('./pages/PartnerInviteAccept.vue'),
   },
   // 매직링크 무로그인 회신(§6.9) — 공개 라우트(가드 없음). 인증은 URL 토큰이 담당하며
   // 서버가 매 요청 검증한다(무효 404). 권한은 그 RFQ 1건 스코프.
@@ -594,6 +608,15 @@ export const router = createRouter({
 // 접근 가드 — UX용. 실제 보안은 sp-node 가 JWT(isAdmin·mbId)를 검증한다.
 router.beforeEach((to) => {
   const auth = useAuthStore();
+  // 관리자 대리 접속 진입 — 파트너 관리의 [포털로 보기]가 `/partner?actAs=<조직 id>` 를 새 탭으로
+  // 연다. 화면이 뜨기 전에(포털 조회가 나가기 전에) 조직을 기억하고 주소에서 표식을 걷는다.
+  const actAs = to.query.actAs;
+  if (typeof actAs === 'string' && to.path.startsWith('/partner')) {
+    if (auth.me?.isAdmin === true) enterActAsPartner(actAs);
+    const query = { ...to.query };
+    delete query.actAs;
+    return { path: to.path, query, hash: to.hash, replace: true };
+  }
   if (to.meta.requiresAdmin) {
     if (!auth.isLoggedIn) return { name: 'home' };
     if (!auth.me?.isAdmin) return { name: 'home' };

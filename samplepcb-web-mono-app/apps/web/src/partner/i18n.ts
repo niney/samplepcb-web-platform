@@ -4,6 +4,7 @@ import { partsMessages } from './locales/parts';
 import { bomMessages } from './locales/bom';
 import { pcbMessages } from './locales/pcb';
 import { shipmentMessages } from './locales/shipment';
+import { childrenMessages } from './locales/children';
 import {
   PARTNER_LOCALE_STORAGE_KEY, formatPartnerDate, formatPartnerMoney, isPartnerLocale,
   partnerIntlLocale, translatePartnerMessage,
@@ -11,7 +12,7 @@ import {
 } from './i18n-core';
 
 export const partnerMessages: PartnerMessages = {
-  ...bomMessages, ...pcbMessages, ...shipmentMessages, ...partsMessages, ...commonMessages,
+  ...childrenMessages, ...bomMessages, ...pcbMessages, ...shipmentMessages, ...partsMessages, ...commonMessages,
 };
 
 function storedLocale(): PartnerLocale {
