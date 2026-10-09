@@ -364,6 +364,7 @@ export const en = {
         bom_confirm_request: 'BOM part confirmation request',
         bom_confirm_answered: 'BOM part confirmation answered (admin)',
         bom_po_issued: 'BOM PO issued',
+        bom_md_po_issued: 'BOM sub-partner PO (master dealer)',
         bom_shipment_turn_admin: 'BOM shipment (admin turn)',
         bom_shipment_turn_partner: 'BOM shipment (partner turn)',
         bom_shipment_received: 'BOM shipment received',

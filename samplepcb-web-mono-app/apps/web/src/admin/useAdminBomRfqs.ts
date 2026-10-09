@@ -9,6 +9,7 @@ import {
   AdminBomRfqSendResponse,
   AdminBomSupplierRefreshResponse,
   apiRoutes,
+  type AdminBomPartnerFxBodyType,
   type AdminBomRfqSelectionBodyType,
   type AdminBomRfqSendBodyType,
   type BomRfqReplyBodyType,
@@ -96,6 +97,19 @@ export function useSelectRfqReply() {
   return useMutation({
     mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomRfqSelectionBodyType }) =>
       apiSend('POST', `${base}/${quoteId}/rfq-selection`, body, AdminBomRfqSelectionResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+    },
+  });
+}
+
+// 협력사 외화 환율을 직접 굳힌다(견적 단위·통화별) — 이미 그 통화로 선정한 품목은 서버가 다시 환산한다.
+export function useSetBomPartnerFx() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomPartnerFxBodyType }) =>
+      apiSend('PUT', `${base}/${quoteId}/partner-fx`, body, AdminBomRfqListResponse),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });

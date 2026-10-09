@@ -363,6 +363,7 @@ export const ko = {
         bom_confirm_request: 'BOM 부품 확인 요청',
         bom_confirm_answered: 'BOM 부품 확인 회신(관리자 알림)',
         bom_po_issued: 'BOM 발주 발행',
+        bom_md_po_issued: 'BOM 하위 발주(마스터딜러)',
         bom_shipment_turn_admin: 'BOM 선적(관리자 차례)',
         bom_shipment_turn_partner: 'BOM 선적(협력사 차례)',
         bom_shipment_received: 'BOM 입고 확인',

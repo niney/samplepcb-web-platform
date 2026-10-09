@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { AdminBomPoViewType, AdminBomRfqViewType, BomQuoteItemType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
+import { partnerAmountText } from '@/admin/bom-partner-money';
 import { useCreateBomPos } from '@/admin/useAdminBomPos';
 import { useAdminPartnerList, type AdminPartnerFilters } from '@/admin/useAdminPartners';
 import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
@@ -41,6 +42,8 @@ interface DraftLine {
   qty: number;
   unitPrice: number;
   lineTotal: number;
+  /** 외화 회신 선정 — 협력사에게 지급할 결제통화 금액("$11.66"). 원화 값은 견적 고정 환율의 추정이다. */
+  payText?: string;
   noSku?: boolean; // 공급사 발주인데 SKU 없음 — 자동 실행에서 제외됨
 }
 interface DraftGroup {
@@ -112,11 +115,20 @@ const groups = computed<DraftGroup[]>(() => {
       const partner = partnerByRfqItem.value.get(Number(offerKey.slice(4)));
       if (partner === undefined) continue;
       const unitPrice = offer?.unitPrice ?? 0;
+      const source = offer?.sourcePrice ?? null;
       push(partner.partnerId, partner.partnerName, 'partner', {
         mpn,
         qty,
         unitPrice,
         lineTotal: Math.round(unitPrice * qty),
+        ...(source === null
+          ? {}
+          : {
+              payText: partnerAmountText(
+                Math.round(source.unitPrice * qty * 100) / 100,
+                source.currency,
+              ),
+            }),
       });
       continue;
     }
@@ -250,6 +262,13 @@ const groupId = (partnerId: number): string => `next-po-create-${String(partnerI
                     </span>
                     <span class="whitespace-nowrap tabular-nums">
                       {{ fmt(line.qty) }} × {{ fmt(line.unitPrice) }} = {{ fmt(line.lineTotal) }}원
+                      <span
+                        v-if="line.payText !== undefined"
+                        class="text-warning ml-1 font-semibold"
+                        title="협력사에게는 이 금액을 지급합니다. 원화 값은 추정이며, 발주 장부에는 발행 시점의 실제 환율이 적힙니다."
+                      >
+                        ({{ line.payText }} 지급)
+                      </span>
                     </span>
                   </li>
                 </ul>

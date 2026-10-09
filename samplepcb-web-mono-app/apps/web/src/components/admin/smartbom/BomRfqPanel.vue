@@ -8,6 +8,12 @@ import {
   type BomQuoteItemType,
 } from '@sp/api-contract';
 import { smartbomFmtDate } from '../../../admin/smartbom';
+import {
+  childReplyCountText,
+  isForeignCurrency,
+  partnerAmountText,
+} from '../../../admin/bom-partner-money';
+import { partnerPortalActAsUrl } from '../../../admin/useAdminPartners';
 import { confirmDialog } from '../../../lib/confirmDialog';
 import { fmtKstDate } from '@sp/utils';
 import BomSelectedProcurementModal from './BomSelectedProcurementModal.vue';
@@ -305,56 +311,93 @@ function moveTable(direction: -1 | 1): void {
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-50">
-          <tr v-for="rfq in rfqs" :key="rfq.rfqId">
-            <td class="px-3 py-2 font-medium text-gray-900">{{ rfq.partnerName }}</td>
-            <td class="px-3 py-2">
-              <span class="rounded px-1.5 py-0.5 font-semibold" :class="statusCls(rfq.status)">
-                {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
-              </span>
-            </td>
-            <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-              {{ rfq.repliedItemCount }}<template v-if="rfq.requestedItemIds !== null">/{{ rfq.requestedItemIds.length }}</template>
-              <!-- 부분 행 선택(§6.13) — 전체가 아닌 요청은 배지로 구분 -->
-              <span v-if="rfq.requestedItemIds !== null" class="ml-1 rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700">부분</span>
-            </td>
-            <td class="px-3 py-2 text-right tabular-nums">{{ fmtWon(rfq.totalAmount) }}</td>
-            <td class="whitespace-nowrap px-3 py-2 text-gray-500">
-              {{ fmtKstDate(rfq.deliveryDate) }}
-            </td>
-            <td class="max-w-48 truncate px-3 py-2 text-gray-500">{{ rfq.memo ?? '—' }}</td>
-            <td class="whitespace-nowrap px-3 py-2 text-gray-400">
-              {{ smartbomFmtDate(rfq.requestedAt) }}
-              <template v-if="rfq.respondedAt !== null"> → {{ smartbomFmtDate(rfq.respondedAt) }}</template>
-            </td>
-            <td class="whitespace-nowrap px-3 py-2 text-right">
-              <!-- 매직링크(§6.9) — 무로그인 회신 URL 수동 전달·회수 -->
-              <button
-                v-if="rfq.magicToken !== null"
-                type="button"
-                class="rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
-                title="가입 없이 회신할 수 있는 전용 링크를 복사합니다"
-                @click="copyMagicLink(rfq)"
-              >
-                {{ copiedRfqId === rfq.rfqId ? '복사됨 ✓' : '링크 복사' }}
-              </button>
-              <button
-                type="button"
-                class="ml-1 rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                :disabled="busy === true"
-                :title="rfq.magicToken === null ? '이 RFQ 는 링크 발급 전입니다 — 재발급으로 만들 수 있습니다' : '기존 링크를 무효화하고 새 링크를 만듭니다'"
-                @click="void reissue(rfq)"
-              >
-                재발급
-              </button>
-              <button
-                type="button"
-                class="ml-1 rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
-                @click="emit('reply', rfq)"
-              >
-                {{ rfq.status === 'closed' ? '회신 보기' : rfq.status === 'quoted' ? '회신 보기·수정' : '대리 입력' }}
-              </button>
-            </td>
-          </tr>
+          <template v-for="rfq in rfqs" :key="rfq.rfqId">
+            <tr>
+              <td class="px-3 py-2 font-medium text-gray-900">
+                {{ rfq.partnerName }}
+                <span
+                  v-if="rfq.children.length > 0"
+                  class="ml-1 rounded bg-teal-100 px-1 py-0.5 text-[10px] font-semibold text-teal-800"
+                  title="이 협력사가 마스터딜러로서 하위 협력사에 다시 요청했습니다"
+                >마스터딜러 · 하위 {{ rfq.children.length }}곳</span>
+              </td>
+              <td class="px-3 py-2">
+                <span class="rounded px-1.5 py-0.5 font-semibold" :class="statusCls(rfq.status)">
+                  {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
+                </span>
+              </td>
+              <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                {{ rfq.repliedItemCount }}<template v-if="rfq.requestedItemIds !== null">/{{ rfq.requestedItemIds.length }}</template>
+                <!-- 부분 행 선택(§6.13) — 전체가 아닌 요청은 배지로 구분 -->
+                <span v-if="rfq.requestedItemIds !== null" class="ml-1 rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700">부분</span>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">
+                {{ partnerAmountText(rfq.totalAmount, rfq.currency) }}
+                <span
+                  v-if="isForeignCurrency(rfq.currency) && rfq.totalAmountKrw !== null"
+                  class="block text-[10px] text-gray-400"
+                >≈ {{ fmtWon(rfq.totalAmountKrw) }}</span>
+              </td>
+              <td class="whitespace-nowrap px-3 py-2 text-gray-500">
+                {{ fmtKstDate(rfq.deliveryDate) }}
+              </td>
+              <td class="max-w-48 truncate px-3 py-2 text-gray-500">{{ rfq.memo ?? '—' }}</td>
+              <td class="whitespace-nowrap px-3 py-2 text-gray-400">
+                {{ smartbomFmtDate(rfq.requestedAt) }}
+                <template v-if="rfq.respondedAt !== null"> → {{ smartbomFmtDate(rfq.respondedAt) }}</template>
+              </td>
+              <td class="whitespace-nowrap px-3 py-2 text-right">
+                <!-- 매직링크(§6.9) — 무로그인 회신 URL 수동 전달·회수 -->
+                <button
+                  v-if="rfq.magicToken !== null"
+                  type="button"
+                  class="rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+                  title="가입 없이 회신할 수 있는 전용 링크를 복사합니다"
+                  @click="copyMagicLink(rfq)"
+                >
+                  {{ copiedRfqId === rfq.rfqId ? '복사됨 ✓' : '링크 복사' }}
+                </button>
+                <button
+                  type="button"
+                  class="ml-1 rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                  :disabled="busy === true"
+                  :title="rfq.magicToken === null ? '이 RFQ 는 링크 발급 전입니다 — 재발급으로 만들 수 있습니다' : '기존 링크를 무효화하고 새 링크를 만듭니다'"
+                  @click="void reissue(rfq)"
+                >
+                  재발급
+                </button>
+                <button
+                  type="button"
+                  class="ml-1 rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
+                  @click="emit('reply', rfq)"
+                >
+                  {{ rfq.status === 'closed' ? '회신 보기' : rfq.status === 'quoted' ? '회신 보기·수정' : '대리 입력' }}
+                </button>
+              </td>
+            </tr>
+            <!-- 마스터딜러의 하위 재요청 — 관리자는 전부 본다. 대신 처리하려면 그 조직으로 대리 접속한다 -->
+            <tr v-if="rfq.children.length > 0" class="bg-teal-50/40" data-testid="bom-rfq-children">
+              <td colspan="8" class="px-3 py-2">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-600">
+                  <b class="text-teal-800">└ 하위 재요청 {{ childReplyCountText(rfq.children) }}</b>
+                  <span v-for="child in rfq.children" :key="child.rfqId" class="whitespace-nowrap">
+                    {{ child.partnerName }}
+                    <span class="rounded px-1 py-0.5 font-semibold" :class="statusCls(child.status)">{{ BOM_RFQ_STATUS_LABELS[child.status] }}</span>
+                    <template v-if="child.totalAmount !== null">
+                      {{ partnerAmountText(child.totalAmount, child.currency) }} · {{ child.repliedItemCount }}행
+                    </template>
+                  </span>
+                  <a
+                    :href="partnerPortalActAsUrl(rfq.partnerId)"
+                    target="_blank"
+                    rel="noopener"
+                    class="ml-auto font-semibold text-blue-700 underline"
+                    title="이 마스터딜러의 포털을 새 탭으로 엽니다 — 하위 재요청·선정·마진을 대신 처리할 수 있습니다"
+                  >마스터딜러 포털로 대리 접속</a>
+                </div>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>

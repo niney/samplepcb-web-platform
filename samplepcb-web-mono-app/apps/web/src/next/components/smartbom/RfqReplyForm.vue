@@ -148,15 +148,19 @@ watch(
   { deep: true },
 );
 
+// 서버 박제와 같은 자릿수 — 원화 0자리·외화 2자리.
+const roundMoney = (amount: number): number =>
+  props.currency === 'KRW' ? Math.round(amount) : Math.round(amount * 100) / 100;
+
 const lineTotal = (row: EditRow): number | null => {
   const price = num(row.unitPrice);
   if (price === null) return null;
   // 서버 합계·관리자 비교표와 같은 공식 — 회신수량(?? 필요수량)에 MOQ 바닥.
   const qty = effectiveRfqReplyQty(row.orderQty, num(row.replyQty), num(row.moq));
-  return Math.round(price * qty);
+  return roundMoney(price * qty);
 };
 const repliedCount = (): number => editRows.value.filter((r) => num(r.unitPrice) !== null).length;
-const grandTotal = (): number => editRows.value.reduce((sum, row) => sum + (lineTotal(row) ?? 0), 0);
+const grandTotal = (): number => roundMoney(editRows.value.reduce((sum, row) => sum + (lineTotal(row) ?? 0), 0));
 
 const partLabel = (row: EditRow): string =>
   row.mpn.trim() !== '' ? row.mpn : (row.manufacturerName ?? row.description ?? pt('품목 {value1}', { value1: row.quoteItemId }));

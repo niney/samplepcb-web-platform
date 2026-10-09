@@ -9,6 +9,8 @@ import {
 } from '@sp/api-contract';
 import { fmtKstDate } from '@sp/utils';
 import { smartbomFmtDate } from '@/admin/smartbom';
+import { childReplyCountText, isForeignCurrency, partnerAmountText } from '@/admin/bom-partner-money';
+import { partnerPortalActAsUrl } from '@/admin/useAdminPartners';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Item } from '@/next/components/ui/item';
@@ -258,56 +260,90 @@ const replyActionLabel = (rfq: AdminBomRfqViewType): string =>
         </TableRow>
       </TableHeader>
       <TableBody>
-        <TableRow v-for="rfq in props.rfqs" :key="rfq.rfqId">
-          <TableCell class="font-medium">{{ rfq.partnerName }}</TableCell>
-          <TableCell>
-            <Badge :variant="bomRfqStatusBadge(rfq.status).variant">{{ bomRfqStatusBadge(rfq.status).label }}</Badge>
-          </TableCell>
-          <TableCell class="text-right tabular-nums">
-            <span class="inline-flex items-center justify-end gap-1">
-              {{ rfq.repliedItemCount }}<template v-if="rfq.requestedItemIds !== null">/{{ rfq.requestedItemIds.length }}</template>
-              <!-- 부분 행 선택(§6.13) — 전체가 아닌 요청은 배지로 구분 -->
-              <Badge v-if="rfq.requestedItemIds !== null" variant="outline" title="일부 부품행만 요청했습니다">부분</Badge>
-            </span>
-          </TableCell>
-          <TableCell class="text-right tabular-nums">{{ fmtWon(rfq.totalAmount) }}</TableCell>
-          <TableCell class="text-muted-foreground">{{ fmtKstDate(rfq.deliveryDate) }}</TableCell>
-          <TableCell class="text-muted-foreground max-w-48 truncate" :title="rfq.memo ?? ''">{{ rfq.memo ?? '—' }}</TableCell>
-          <TableCell class="text-muted-foreground text-xs">
-            {{ smartbomFmtDate(rfq.requestedAt) }}
-            <template v-if="rfq.respondedAt !== null"> → {{ smartbomFmtDate(rfq.respondedAt) }}</template>
-          </TableCell>
-          <TableCell class="text-right">
-            <span class="inline-flex flex-wrap justify-end gap-1">
-              <!-- 매직링크(§6.9) — 무로그인 회신 URL 수동 전달·회수 -->
-              <Button
-                v-if="rfq.magicToken !== null"
-                variant="ghost"
-                size="sm"
-                title="가입 없이 회신할 수 있는 전용 링크를 복사합니다"
-                @click="void copyMagicLink(rfq)"
+        <template v-for="rfq in props.rfqs" :key="rfq.rfqId">
+          <TableRow>
+            <TableCell class="font-medium">{{ rfq.partnerName }}</TableCell>
+            <TableCell>
+              <Badge :variant="bomRfqStatusBadge(rfq.status).variant">{{ bomRfqStatusBadge(rfq.status).label }}</Badge>
+            </TableCell>
+            <TableCell class="text-right tabular-nums">
+              <span class="inline-flex items-center justify-end gap-1">
+                {{ rfq.repliedItemCount }}<template v-if="rfq.requestedItemIds !== null">/{{ rfq.requestedItemIds.length }}</template>
+                <!-- 부분 행 선택(§6.13) — 전체가 아닌 요청은 배지로 구분 -->
+                <Badge v-if="rfq.requestedItemIds !== null" variant="outline" title="일부 부품행만 요청했습니다">부분</Badge>
+              </span>
+            </TableCell>
+            <TableCell class="text-right tabular-nums">
+              {{ partnerAmountText(rfq.totalAmount, rfq.currency) }}
+              <span
+                v-if="isForeignCurrency(rfq.currency) && rfq.totalAmountKrw !== null"
+                class="text-muted-foreground block text-xs"
               >
-                <CheckIcon v-if="copiedRfqId === rfq.rfqId" />
-                <CopyIcon v-else />
-                {{ copiedRfqId === rfq.rfqId ? '복사됨' : '링크 복사' }}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                :disabled="props.busy === true"
-                :title="rfq.magicToken === null ? '이 RFQ 는 링크 발급 전입니다 — 재발급으로 만들 수 있습니다' : '기존 링크를 무효화하고 새 링크를 만듭니다'"
-                @click="void reissue(rfq)"
-              >
-                <LinkIcon />
-                재발급
-              </Button>
-              <Button variant="outline" size="sm" @click="emit('reply', rfq)">
-                <PencilLineIcon v-if="rfq.status === 'requested'" />
-                {{ replyActionLabel(rfq) }}
-              </Button>
-            </span>
-          </TableCell>
-        </TableRow>
+                ≈ {{ fmtWon(rfq.totalAmountKrw) }}
+              </span>
+            </TableCell>
+            <TableCell class="text-muted-foreground">{{ fmtKstDate(rfq.deliveryDate) }}</TableCell>
+            <TableCell class="text-muted-foreground max-w-48 truncate" :title="rfq.memo ?? ''">{{ rfq.memo ?? '—' }}</TableCell>
+            <TableCell class="text-muted-foreground text-xs">
+              {{ smartbomFmtDate(rfq.requestedAt) }}
+              <template v-if="rfq.respondedAt !== null"> → {{ smartbomFmtDate(rfq.respondedAt) }}</template>
+            </TableCell>
+            <TableCell class="text-right">
+              <span class="inline-flex flex-wrap justify-end gap-1">
+                <!-- 매직링크(§6.9) — 무로그인 회신 URL 수동 전달·회수 -->
+                <Button
+                  v-if="rfq.magicToken !== null"
+                  variant="ghost"
+                  size="sm"
+                  title="가입 없이 회신할 수 있는 전용 링크를 복사합니다"
+                  @click="void copyMagicLink(rfq)"
+                >
+                  <CheckIcon v-if="copiedRfqId === rfq.rfqId" />
+                  <CopyIcon v-else />
+                  {{ copiedRfqId === rfq.rfqId ? '복사됨' : '링크 복사' }}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :disabled="props.busy === true"
+                  :title="rfq.magicToken === null ? '이 RFQ 는 링크 발급 전입니다 — 재발급으로 만들 수 있습니다' : '기존 링크를 무효화하고 새 링크를 만듭니다'"
+                  @click="void reissue(rfq)"
+                >
+                  <LinkIcon />
+                  재발급
+                </Button>
+                <Button variant="outline" size="sm" @click="emit('reply', rfq)">
+                  <PencilLineIcon v-if="rfq.status === 'requested'" />
+                  {{ replyActionLabel(rfq) }}
+                </Button>
+              </span>
+            </TableCell>
+          </TableRow>
+          <!-- 마스터딜러의 하위 재요청 — 관리자는 전부 본다. 대신 처리하려면 그 조직으로 대리 접속한다 -->
+          <TableRow v-if="rfq.children.length > 0" data-testid="bom-rfq-children">
+            <TableCell :colspan="8">
+              <div class="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <b class="text-foreground">└ 마스터딜러 하위 재요청 {{ childReplyCountText(rfq.children) }}</b>
+                <span v-for="child in rfq.children" :key="child.rfqId" class="inline-flex items-center gap-1 whitespace-nowrap">
+                  {{ child.partnerName }}
+                  <Badge :variant="bomRfqStatusBadge(child.status).variant">{{ bomRfqStatusBadge(child.status).label }}</Badge>
+                  <template v-if="child.totalAmount !== null">
+                    {{ partnerAmountText(child.totalAmount, child.currency) }} · {{ child.repliedItemCount }}행
+                  </template>
+                </span>
+                <a
+                  :href="partnerPortalActAsUrl(rfq.partnerId)"
+                  target="_blank"
+                  rel="noopener"
+                  class="text-primary ml-auto font-semibold underline"
+                  title="이 마스터딜러의 포털을 새 탭으로 엽니다 — 하위 재요청·선정·마진을 대신 처리할 수 있습니다"
+                >
+                  마스터딜러 포털로 대리 접속
+                </a>
+              </div>
+            </TableCell>
+          </TableRow>
+        </template>
         <TableEmptyRow
           v-if="props.rfqs.length === 0"
           :colspan="8"

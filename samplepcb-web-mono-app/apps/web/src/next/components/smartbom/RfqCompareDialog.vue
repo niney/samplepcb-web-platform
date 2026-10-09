@@ -13,7 +13,17 @@ import {
   type BomQuoteItemType,
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
-import { effectiveRfqReplyQty } from '@sp/utils';
+import {
+  childSelectionText,
+  isForeignCurrency,
+  partnerAmountText,
+  partnerFxOf,
+  partnerFxText,
+  partnerUnitPriceText,
+  rfqReplyLineTotalKrw,
+  rfqReplyLineTotalOriginal,
+} from '@/admin/bom-partner-money';
+import { useBomPartnerFxEditor } from '@/admin/useBomPartnerFxEditor';
 import {
   useAdminSupplierOfferRefresh,
   useSelectRfqReply,
@@ -22,6 +32,7 @@ import {
 import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
+import { Input } from '@/next/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -50,6 +61,10 @@ const emit = defineEmits<{ close: [] }>();
 
 
 const quotedRfqs = computed(() => props.rfqs.filter((r) => r.status === 'quoted'));
+const fxEditor = useBomPartnerFxEditor(
+  computed(() => props.quoteId),
+  quotedRfqs,
+);
 const queryClient = useQueryClient();
 const quoteIdRef = computed(() => props.quoteId);
 const refreshPolling = ref(false);
@@ -192,13 +207,19 @@ const isRequested = (item: BomQuoteItemType, rfq: AdminBomRfqViewType): boolean 
 // 단가 × 필요수량으로만 세면 MOQ 4000 회신이 100개 값으로 최저가에 뽑힌다(§6.38).
 const lineTotalOf = (
   item: BomQuoteItemType,
-  reply: Pick<AdminBomRfqItemViewType, 'unitPrice' | 'replyQty' | 'moq'>,
-): number =>
-  Math.round((reply.unitPrice ?? 0) * effectiveRfqReplyQty(item.orderQty, reply.replyQty, reply.moq));
+  reply: Pick<AdminBomRfqItemViewType, 'unitPriceKrw' | 'replyQty' | 'moq'>,
+): number | null => rfqReplyLineTotalKrw(item.orderQty, reply);
 
-const partnerLineTotalOf = (item: BomQuoteItemType, rfq: AdminBomRfqViewType): number => {
+// 외화 회신은 견적 고정 환율로 환산한 원화로 비교한다. 환율이 아직 없으면 null — 고를 수 없다.
+const partnerLineTotalOf = (item: BomQuoteItemType, rfq: AdminBomRfqViewType): number | null => {
   const reply = cellOf(item, rfq);
-  return reply === null ? 0 : lineTotalOf(item, reply);
+  return reply === null ? null : lineTotalOf(item, reply);
+};
+
+/** 협력사가 실제로 받는 금액(결제통화) — 외화 회신 칸에 곁들인다. */
+const partnerLineOriginalOf = (item: BomQuoteItemType, rfq: AdminBomRfqViewType): number | null => {
+  const reply = cellOf(item, rfq);
+  return reply === null ? null : rfqReplyLineTotalOriginal(item.orderQty, reply);
 };
 
 interface PartnerChoice { kind: 'partner'; rfqItemId: number; total: number }
@@ -284,7 +305,7 @@ function persistedChoice(item: BomQuoteItemType): Choice {
       return {
         kind: 'partner',
         rfqItemId: reply.rfqItemId,
-        total: lineTotalOf(item, reply),
+        total: lineTotalOf(item, reply) ?? 0,
       };
     }
   }
@@ -381,12 +402,9 @@ function chooseSupplier(item: BomQuoteItemType, supplier: AdminBomLiveSupplierTy
 
 function choosePartner(item: BomQuoteItemType, rfq: AdminBomRfqViewType): void {
   const reply = cellOf(item, rfq);
-  if (reply?.unitPrice === null || reply?.unitPrice === undefined) return;
-  setChoice(item.id, {
-    kind: 'partner',
-    rfqItemId: reply.rfqItemId,
-    total: lineTotalOf(item, reply),
-  });
+  const total = reply === null ? null : lineTotalOf(item, reply);
+  if (reply === null || total === null) return;
+  setChoice(item.id, { kind: 'partner', rfqItemId: reply.rfqItemId, total });
 }
 
 // 현재 선정·3사 실효 행합계·협력사 회신 합계 중 최저. 단가가 아니라
@@ -419,6 +437,7 @@ function pickLowestAll(): void {
       const price = reply?.unitPrice ?? null;
       if (reply === null || price === null) continue;
       const total = lineTotalOf(item, reply);
+      if (total === null) continue; // 환율 없는 외화 회신 — 값을 모르니 최저가 후보가 아니다
       if (best === null || total < best.total) {
         best = { choice: { kind: 'partner', rfqItemId: reply.rfqItemId, total }, total };
       }
@@ -564,6 +583,50 @@ const onOpenChange = (open: boolean): void => {
         </Button>
       </div>
 
+      <!-- 협력사 외화 환율 — 이 견적에 한 번 굳혀 비교와 고객가에 같이 쓴다 -->
+      <Alert v-if="fxEditor.currencies.value.length > 0" variant="warning" size="sm">
+        <AlertDescription>
+          <span class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <b>협력사 외화 환율(이 견적에 고정)</b>
+            <span
+              v-for="currency in fxEditor.currencies.value"
+              :key="currency"
+              class="flex flex-wrap items-center gap-1.5"
+            >
+              <span class="font-semibold">1 {{ currency }} =</span>
+              <span v-if="partnerFxOf(fxEditor.partnerFx.value, currency) !== null" class="tabular-nums">
+                {{ partnerFxText(partnerFxOf(fxEditor.partnerFx.value, currency)!) }}
+              </span>
+              <b v-else class="text-destructive">환율을 가져오지 못했습니다 — 입력해 주세요</b>
+              <Input
+                v-model="fxEditor.drafts.value[currency]"
+                type="number"
+                min="0"
+                step="0.01"
+                inputmode="decimal"
+                class="h-7 w-28 text-right tabular-nums"
+                :aria-label="`${currency} 환율 직접 입력`"
+                placeholder="직접 입력"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                :disabled="fxEditor.pending.value || fxEditor.drafts.value[currency] === ''"
+                @click="void fxEditor.apply(currency)"
+              >
+                환율 적용
+              </Button>
+            </span>
+          </span>
+          <span class="mt-1 block text-xs">
+            고객가는 이 환율로 계산합니다. 발주 장부에는 발주서를 발행하는 날의 실제 환율을 적습니다.
+          </span>
+          <b v-if="fxEditor.error.value !== ''" class="text-destructive mt-1 block text-xs">
+            {{ fxEditor.error.value }}
+          </b>
+        </AlertDescription>
+      </Alert>
+
       <DialogScrollBody>
         <!-- 머리줄을 고정하려고 표 자체의 스크롤 상자를 풀고 이 본문이 두 축을 함께 스크롤한다. -->
         <div class="[&_[data-slot=table-container]]:overflow-visible">
@@ -579,7 +642,18 @@ const onOpenChange = (open: boolean): void => {
                     API 최신 시세 · {{ supplierStatusLabel(supplier) }}
                   </span>
                 </TableHead>
-                <TableHead v-for="rfq in quotedRfqs" :key="rfq.rfqId" class="bg-muted">{{ rfq.partnerName }}</TableHead>
+                <TableHead v-for="rfq in quotedRfqs" :key="rfq.rfqId" class="bg-muted">
+                  <span class="inline-flex items-center gap-1">
+                    {{ rfq.partnerName }}
+                    <Badge
+                      v-if="isForeignCurrency(rfq.currency)"
+                      variant="warning"
+                      title="이 협력사는 외화로 회신합니다 — 비교는 견적 고정 환율로 환산한 원화입니다"
+                    >
+                      {{ rfq.currency }}
+                    </Badge>
+                  </span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -667,14 +741,35 @@ const onOpenChange = (open: boolean): void => {
                   <RfqChoiceCheckbox
                     v-if="cellOf(item, rfq) !== null"
                     :checked="isPartnerChoice(choices.get(item.id), cellOf(item, rfq)?.rfqItemId ?? -1)"
+                    :disabled="partnerLineTotalOf(item, rfq) === null"
                     :label="`${mpnLabel(item)} ${rfq.partnerName} 회신 선정`"
                     @select="choosePartner(item, rfq)"
                   >
                     <span class="text-xs">
-                      <span class="font-semibold tabular-nums">{{ fmt(cellOf(item, rfq)?.unitPrice ?? 0) }}원</span>
+                      <span class="font-semibold tabular-nums">
+                        {{ partnerUnitPriceText(cellOf(item, rfq)?.unitPrice ?? 0, rfq.currency) }}
+                      </span>
+                      <span v-if="isForeignCurrency(rfq.currency)" class="text-muted-foreground block tabular-nums">
+                        <template v-if="cellOf(item, rfq)?.unitPriceKrw !== null">
+                          ≈ {{ fmt(cellOf(item, rfq)?.unitPriceKrw ?? 0) }}원
+                        </template>
+                        <b v-else class="text-destructive">환율 필요</b>
+                      </span>
                       <span class="text-muted-foreground block tabular-nums">
-                        = {{ fmt(partnerLineTotalOf(item, rfq)) }}원
+                        = {{ partnerAmountText(partnerLineTotalOf(item, rfq), 'KRW') }}
+                        <template v-if="isForeignCurrency(rfq.currency)">
+                          ({{ partnerAmountText(partnerLineOriginalOf(item, rfq), rfq.currency) }})
+                        </template>
                         <template v-if="cellOf(item, rfq)?.moq !== null"> · MOQ {{ fmt(cellOf(item, rfq)?.moq ?? 0) }}</template>
+                      </span>
+                      <!-- 마스터딜러가 하위 회신을 골라 만든 값이면 그 근거(하위·원가·환율·마진) -->
+                      <span
+                        v-if="cellOf(item, rfq)?.childSelection != null"
+                        class="text-info block text-xs"
+                        :title="cellOf(item, rfq)?.childSelection?.stale === true ? '선정 뒤 하위 회신이 바뀌었습니다 — 마스터딜러가 다시 저장해야 반영됩니다' : '마스터딜러가 하위 협력사 회신에 마진을 더한 값입니다'"
+                      >
+                        {{ childSelectionText(cellOf(item, rfq)!.childSelection!) }}
+                        <b v-if="cellOf(item, rfq)?.childSelection?.stale === true"> · 하위 회신 변경됨</b>
                       </span>
                       <Badge v-if="isCurrentRfqSelection(item, cellOf(item, rfq)?.rfqItemId ?? -1)" variant="success" class="mt-0.5">
                         선정됨

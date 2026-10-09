@@ -159,6 +159,7 @@ const KNOWN_KINDS = [
   'bom_confirm_request',
   'bom_confirm_answered',
   'bom_po_issued',
+  'bom_md_po_issued',
   'bom_shipment_turn_admin',
   'bom_shipment_turn_partner',
   'bom_shipment_received',
