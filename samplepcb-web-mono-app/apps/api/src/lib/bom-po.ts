@@ -42,6 +42,16 @@ import type {
   PartnerShipmentAdvanceBodyType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
+import { loadMdPoViewsByPo } from './bom-md-po';
+import { loadBomRemittanceRowsByPo, summarizeBomRemittances } from './bom-remittance';
+import {
+  asBomPartnerCurrency,
+  parsePartnerFxRates,
+  poLineMoney,
+  resolvePoExchangeRate,
+  roundBomAmount,
+  type PoLineMoney,
+} from './bom-fx';
 import { filterActiveQuoteItems, toItemDto } from './bom-quote';
 import { getBusinessInfo, getOrderInfoByCtId } from './g5-db';
 import { isBomOrderFulfillmentClosed, isBomOrderLinePaid } from './bom-order-cancel';
@@ -130,16 +140,53 @@ type PoWithProcurementItems = SpBomPo & {
 const suppliedQtyOf = (item: PoItemWithProcurement): number =>
   Math.max(0, item.qty - (item.shortage?.shortageQty ?? 0));
 
-const suppliedAmountOf = (item: PoItemWithProcurement): number =>
-  item.shortage === null
-    ? item.lineTotal
-    : Math.round(Number(item.unitPrice) * suppliedQtyOf(item));
+/**
+ * 금액을 누구의 통화로 보이느냐 — 외화 발주에서만 갈린다(docs/SMARTBOM_PARTNER_RFQ.md "외화 회신").
+ *  · admin   — 원화 회계값(발행 시점 실제 환율). 결제통화 금액은 *Original 로 곁들인다.
+ *  · partner — 결제통화 금액(협력사가 회신하고 받는 돈). 원화 값은 내보내지 않는다.
+ */
+export type PoMoneyAudience = 'admin' | 'partner';
+
+const isForeignItem = (item: PoItemWithProcurement): boolean => item.unitPriceOriginal !== null;
+
+const lineTotalFor = (item: PoItemWithProcurement, audience: PoMoneyAudience): number =>
+  audience === 'partner' && item.lineTotalOriginal !== null
+    ? Number(item.lineTotalOriginal)
+    : item.lineTotal;
+
+const unitPriceFor = (item: PoItemWithProcurement, audience: PoMoneyAudience): number =>
+  audience === 'partner' && item.unitPriceOriginal !== null
+    ? Number(item.unitPriceOriginal)
+    : Number(item.unitPrice);
+
+const suppliedAmountOf = (item: PoItemWithProcurement, audience: PoMoneyAudience): number => {
+  if (item.shortage === null) return lineTotalFor(item, audience);
+  const amount = unitPriceFor(item, audience) * suppliedQtyOf(item);
+  return audience === 'partner' && isForeignItem(item)
+    ? Math.round(amount * 100) / 100
+    : Math.round(amount);
+};
 
 /** 박제 발주 합계와 별도로 보여줄 실제 공급 예정 합계 — 항상 서버가 계산한다. */
-export const actualSupplyAmountOf = (items: readonly PoItemWithProcurement[]): number =>
-  items.reduce((sum, item) => sum + suppliedAmountOf(item), 0);
+export const actualSupplyAmountOf = (
+  items: readonly PoItemWithProcurement[],
+  audience: PoMoneyAudience = 'admin',
+): number => {
+  const sum = items.reduce((acc, item) => acc + suppliedAmountOf(item, audience), 0);
+  return audience === 'partner' ? Math.round(sum * 100) / 100 : sum;
+};
 
-const toItemView = (item: PoItemWithProcurement): BomPoItemViewType => ({
+/** 발주 합계 — 협력사에게는 결제통화 금액, 관리자에게는 원화 회계값. */
+export const poTotalFor = (
+  po: Pick<SpBomPo, 'totalAmount' | 'totalOriginal'>,
+  audience: PoMoneyAudience,
+): number =>
+  audience === 'partner' && po.totalOriginal !== null ? Number(po.totalOriginal) : po.totalAmount;
+
+const toItemView = (
+  item: PoItemWithProcurement,
+  audience: PoMoneyAudience = 'admin',
+): BomPoItemViewType => ({
   poItemId: Number(item.id),
   quoteItemId: String(item.quoteItemId),
   mpn: item.mpn,
@@ -147,8 +194,12 @@ const toItemView = (item: PoItemWithProcurement): BomPoItemViewType => ({
   description: item.description,
   supplierSku: item.supplierSku,
   qty: item.qty,
-  unitPrice: Number(item.unitPrice),
-  lineTotal: item.lineTotal,
+  unitPrice: unitPriceFor(item, audience),
+  lineTotal: lineTotalFor(item, audience),
+  unitPriceOriginal:
+    audience === 'admin' && item.unitPriceOriginal !== null ? Number(item.unitPriceOriginal) : null,
+  lineTotalOriginal:
+    audience === 'admin' && item.lineTotalOriginal !== null ? Number(item.lineTotalOriginal) : null,
   shortage:
     item.shortage === null
       ? null
@@ -156,7 +207,7 @@ const toItemView = (item: PoItemWithProcurement): BomPoItemViewType => ({
           shortageId: Number(item.shortage.id),
           shortageQty: item.shortage.shortageQty,
           suppliedQty: suppliedQtyOf(item),
-          suppliedAmount: suppliedAmountOf(item),
+          suppliedAmount: suppliedAmountOf(item, audience),
           reason:
             item.shortage.reason === 'out_of_stock' ||
             item.shortage.reason === 'quality_issue' ||
@@ -282,6 +333,7 @@ export const toShipmentView = (
 /** 묶음 소속 배치 로드(§6.10) — Map<shipmentId, 소속 발주서(대표 표시 포함)>. */
 export const loadShipmentGroupMap = async (
   shipmentIds: bigint[],
+  audience: PoMoneyAudience = 'admin',
 ): Promise<Map<string, BomShipmentGroupPoType[]>> => {
   const map = new Map<string, BomShipmentGroupPoType[]>();
   if (shipmentIds.length === 0) return map;
@@ -289,7 +341,15 @@ export const loadShipmentGroupMap = async (
     where: { shipmentId: { in: shipmentIds } },
     include: {
       shipment: { select: { poId: true } },
-      po: { select: { id: true, totalAmount: true, quote: { select: { title: true } } } },
+      po: {
+        select: {
+          id: true,
+          totalAmount: true,
+          totalOriginal: true,
+          currency: true,
+          quote: { select: { title: true } },
+        },
+      },
     },
     orderBy: { id: 'asc' },
   });
@@ -300,7 +360,8 @@ export const loadShipmentGroupMap = async (
       {
         poId: Number(link.po.id),
         quoteTitle: link.po.quote.title,
-        totalAmount: link.po.totalAmount,
+        totalAmount: poTotalFor(link.po, audience),
+        currency: audience === 'partner' ? link.po.currency : 'KRW',
         isPrimary: link.po.id === link.shipment.poId,
       },
     ]);
@@ -308,10 +369,17 @@ export const loadShipmentGroupMap = async (
   return map;
 };
 
+/** 관리자 발주 뷰에 얹는 것 — 마스터딜러의 하위 발주·송금 요약(목록 로더가 한 번에 읽어 넘긴다). */
+export interface AdminPoViewExtra {
+  childPos?: AdminBomPoViewType['childPos'];
+  remittance?: AdminBomPoViewType['remittance'];
+}
+
 export const toAdminPoView = (
   po: PoWithProcurementItems & { partner: SpPartner },
   shipmentFiles: BomShipmentFileMetaType[] = [],
   groupPos: BomShipmentGroupPoType[] = [],
+  extra: AdminPoViewExtra = {},
 ): AdminBomPoViewType => {
   const shipment = linkedShipment(po);
   const existingMode = shipment === null ? null : asShipmentMode(shipment.mode);
@@ -329,6 +397,10 @@ export const toAdminPoView = (
     totalAmount: po.totalAmount,
     actualSupplyAmount: actualSupplyAmountOf(po.items),
     currency: po.currency,
+    totalOriginal: po.totalOriginal === null ? null : Number(po.totalOriginal),
+    exchangeRate: po.exchangeRate === null ? null : Number(po.exchangeRate),
+    childPos: extra.childPos ?? [],
+    remittance: extra.remittance ?? null,
     memo: po.memo,
     externalRef: toExternalRefView(po.externalRef),
     shipment: shipment === null ? null : toShipmentView(shipment, shipmentFiles, groupPos),
@@ -336,7 +408,7 @@ export const toAdminPoView = (
     issuedAt: po.issuedAt.toISOString(),
     confirmedAt: po.confirmedAt?.toISOString() ?? null,
     closedAt: po.closedAt?.toISOString() ?? null,
-    items: po.items.map(toItemView),
+    items: po.items.map((item) => toItemView(item)),
   };
 };
 
@@ -356,9 +428,12 @@ export const loadAdminPos = async (quoteId: bigint): Promise<AdminBomPoViewType[
   const shipmentIds = [
     ...new Set(pos.flatMap((po) => (po.shipmentLink === null ? [] : [po.shipmentLink.shipmentId]))),
   ];
-  const [filesMap, groupMap] = await Promise.all([
+  const [filesMap, groupMap, childPosByPo, remittancesByPo] = await Promise.all([
     loadShipmentFilesMap(shipmentIds),
     loadShipmentGroupMap(shipmentIds),
+    // 마스터딜러의 하위 발주 — 관리자는 전부 본다(상위 발주서 아래에 곁들인다).
+    loadMdPoViewsByPo({ quoteId }),
+    loadBomRemittanceRowsByPo(pos.map((po) => po.id)),
   ]);
   return pos.map((po) => {
     const key = po.shipmentLink?.shipmentId.toString();
@@ -366,9 +441,25 @@ export const loadAdminPos = async (quoteId: bigint): Promise<AdminBomPoViewType[
       po,
       key === undefined ? [] : (filesMap.get(key) ?? []),
       key === undefined ? [] : (groupMap.get(key) ?? []),
+      {
+        childPos: childPosByPo.get(po.id.toString()) ?? [],
+        remittance: bomPoRemittanceSummary(po, remittancesByPo.get(po.id.toString()) ?? []),
+      },
     );
   });
 };
+
+/**
+ * 송금 요약 — 사람 협력사 발주만(공급사 발주는 공급사 사이트에서 결제한다 → null).
+ * 지급할 금액은 결제통화 기준의 실제 공급 금액이다(공급 부족 신고분을 뺀 값).
+ */
+export const bomPoRemittanceSummary = (
+  po: PoWithProcurementItems & { partner: Pick<SpPartner, 'type'> },
+  rows: Parameters<typeof summarizeBomRemittances>[2],
+): AdminBomPoViewType['remittance'] =>
+  po.partner.type !== 'partner'
+    ? null
+    : summarizeBomRemittances(po, actualSupplyAmountOf(po.items, 'partner'), rows);
 
 // ── 횡단 워크큐(관리자 메뉴 재편) — 전 Case 발주·선적 목록 ───────────────────
 // 역할별 메뉴(발주/선적·배송)의 큐. 규모가 작아(월 수십 건) 전체 파생 후 라우트에서
@@ -476,8 +567,10 @@ export interface PoDraftLine {
   description: string | null;
   supplierSku: string | null; // 공급사 발주 실행용(D20)
   qty: number;
-  unitPrice: number; // 선정 박제 단가(selectedOffer, VAT 별도·KRW 환산가)
+  unitPrice: number; // 선정 박제 단가(selectedOffer, VAT 별도·KRW 환산가 — 견적 고정 환율)
   lineTotal: number;
+  /** 협력사 외화 회신의 원본(결제통화·단가) — 발주서 금액의 정본. 원화 회신·공급사 발주는 null. */
+  original: { currency: string; unitPrice: number } | null;
   moq: number | null;
   stock: number | null;
   dateCode: string | null;
@@ -542,7 +635,13 @@ export const collectPoDraftGroups = async (
     if (row.selectedRfqItemId !== null) {
       const rfqItem = rfqItemById.get(row.selectedRfqItemId);
       if (rfqItem === undefined) continue; // 회신 원장이 지워진 잔재 — 발주 대상에서 제외
-      const unitPrice = offer?.unitPrice ?? Number(rfqItem.unitPrice ?? 0);
+      // 외화 회신은 선정 때 원화로 환산해 박제돼 있다 — 발주서의 정본은 그 원본(sourcePrice)이다.
+      // 통화는 견적요청에 박제된 링크 통화를 따른다(한 협력사 = 한 통화). 박제 원본의 통화가 그와
+      // 다르면 믿지 않고 원장 단가로 물러난다.
+      const rfqCurrency = asBomPartnerCurrency(rfqItem.rfq.currency);
+      const source = offer?.sourcePrice ?? null;
+      const unitPrice =
+        offer?.unitPrice ?? (rfqCurrency === 'KRW' ? Number(rfqItem.unitPrice ?? 0) : 0);
       push(rfqItem.rfq.partnerId, {
         quoteItemId: row.id,
         rfqItemId: rfqItem.id,
@@ -553,6 +652,16 @@ export const collectPoDraftGroups = async (
         qty,
         unitPrice,
         lineTotal: Math.round(unitPrice * qty),
+        original:
+          rfqCurrency === 'KRW'
+            ? null
+            : {
+                currency: rfqCurrency,
+                unitPrice:
+                  source !== null && asBomPartnerCurrency(source.currency) === rfqCurrency
+                    ? source.unitPrice
+                    : Number(rfqItem.unitPrice ?? 0),
+              },
         moq: rfqItem.moq,
         stock: rfqItem.stock,
         dateCode: rfqItem.dateCode,
@@ -580,6 +689,7 @@ export const collectPoDraftGroups = async (
       qty,
       unitPrice,
       lineTotal: Math.round(unitPrice * qty),
+      original: null,
       moq: null,
       stock: null,
       dateCode: null,
@@ -604,7 +714,9 @@ export type CreatePosResult =
         | 'NO_ELIGIBLE_ROWS'
         | 'CONFIRM_PENDING'
         | 'ALREADY_ISSUED'
-        | 'PARTNER_COUNTRY_REQUIRED';
+        | 'PARTNER_COUNTRY_REQUIRED'
+        // 외화 발주인데 발행 시점 환율을 구하지 못했다(고시 캐시도, 견적에 굳힌 값도 없다).
+        | 'FX_RATE_UNAVAILABLE';
       detail?: string;
     };
 
@@ -681,10 +793,56 @@ export const createBomPos = async (
   );
   const business = needsDomesticDocument ? await getBusinessInfo() : null;
   const partnerById = new Map(partners.map((partner) => [partner.id, partner] as const));
+
+  // 외화 발주의 장부 환율 — 발행하는 지금의 **실제** 환율(안전 마진 없음). 고객가에 쓴 견적 고정
+  // 환율과 일부러 다른 값이다: 고객에게는 여유 있게 받고, 장부에는 실제로 나갈 돈을 적는다.
+  const frozenFx = parsePartnerFxRates(quote.partnerFxRates);
+  const poMoneyByPartner = new Map<
+    bigint,
+    { currency: string; rate: number | null; lines: (PoDraftLine & PoLineMoney)[] }
+  >();
+  for (const partnerId of wanted) {
+    const lines = groups.get(partnerId) ?? [];
+    const currency = lines.find((line) => line.original !== null)?.original?.currency ?? 'KRW';
+    const fxCurrency = asBomPartnerCurrency(currency);
+    const rate =
+      fxCurrency === 'KRW' ? null : await resolvePoExchangeRate(fxCurrency, frozenFx[fxCurrency]);
+    if (fxCurrency !== 'KRW' && rate === null) {
+      return {
+        ok: false,
+        error: 'FX_RATE_UNAVAILABLE',
+        detail: partnerById.get(partnerId)?.name ?? String(partnerId),
+      };
+    }
+    poMoneyByPartner.set(partnerId, {
+      currency: fxCurrency,
+      rate,
+      lines: lines.map((line) => ({
+        ...line,
+        ...(line.original === null
+          ? {
+              unitPrice: line.unitPrice,
+              lineTotal: line.lineTotal,
+              unitPriceOriginal: null,
+              lineTotalOriginal: null,
+            }
+          : poLineMoney(line.original.unitPrice, line.original.currency, line.qty, rate)),
+      })),
+    });
+  }
+
   await prisma.$transaction(async (tx) => {
     for (const partnerId of wanted) {
-      const lines = groups.get(partnerId) ?? [];
+      const money = poMoneyByPartner.get(partnerId);
+      const lines = money?.lines ?? [];
       const totalAmount = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+      const foreign = money !== undefined && money.currency !== 'KRW';
+      const totalOriginal = foreign
+        ? roundBomAmount(
+            lines.reduce((sum, line) => sum + (line.lineTotalOriginal ?? 0), 0),
+            money.currency,
+          )
+        : null;
       const quotationDeliveryDate =
         lines.find((line) => line.quotationDeliveryDate !== null)?.quotationDeliveryDate ?? null;
       const quotationMemo =
@@ -695,6 +853,10 @@ export const createBomPos = async (
           partnerId,
           status: 'issued',
           totalAmount,
+          currency: money?.currency ?? 'KRW',
+          totalOriginal: totalOriginal === null ? null : new Prisma.Decimal(totalOriginal),
+          exchangeRate:
+            money?.rate === null || money?.rate === undefined ? null : new Prisma.Decimal(money.rate),
           memo,
           quotationDeliveryDate,
           quotationMemo,
@@ -712,6 +874,10 @@ export const createBomPos = async (
           qty: line.qty,
           unitPrice: new Prisma.Decimal(line.unitPrice),
           lineTotal: line.lineTotal,
+          unitPriceOriginal:
+            line.unitPriceOriginal === null ? null : new Prisma.Decimal(line.unitPriceOriginal),
+          lineTotalOriginal:
+            line.lineTotalOriginal === null ? null : new Prisma.Decimal(line.lineTotalOriginal),
           moq: line.moq,
           stock: line.stock,
           dateCode: line.dateCode,
@@ -735,6 +901,7 @@ export const createBomPos = async (
             issuedAt: po.issuedAt,
             currency: po.currency,
             totalAmount,
+            totalOriginal: po.totalOriginal,
             quotationDeliveryDate: po.quotationDeliveryDate,
             quotationMemo: po.quotationMemo,
             partner,
@@ -985,7 +1152,8 @@ export const loadShortageRecoveryCandidates = async (
       where: {
         quoteItemId: shortage.sourceItem.quoteItemId,
         unitPrice: { not: null },
-        rfq: { quoteId, respondedAt: { not: null } },
+        // 직접 트랙만 — 마스터딜러의 하위는 샘플피씨비의 발주 상대가 아니다.
+        rfq: { quoteId, parentPartnerId: 0n, respondedAt: { not: null } },
       },
       include: { rfq: { include: { partner: true } } },
       orderBy: [{ unitPrice: 'asc' }, { id: 'asc' }],
@@ -1042,7 +1210,8 @@ export type RecoverPoShortageResult =
         | 'RFQ_ITEM_NOT_FOUND'
         | 'INVALID_CANDIDATE'
         | 'TARGET_ALREADY_ISSUED'
-        | 'PARTNER_COUNTRY_REQUIRED';
+        | 'PARTNER_COUNTRY_REQUIRED'
+        | 'FX_RATE_UNAVAILABLE';
     };
 
 class BomShortageRecoveryRaceError extends Error {}
@@ -1093,6 +1262,22 @@ export const recoverPoShortage = async (
     shipmentModeFromCountry(selected.partnerCountry) === 'domestic'
       ? await getBusinessInfo()
       : null;
+  // 대체 협력사가 외화로 회신했으면 발주 금액도 같은 규칙을 따른다(결제통화 정본 + 실제 환율 회계값).
+  const recoveryRfqItem = await prisma.spBomRfqItem.findUnique({
+    where: { id: BigInt(body.rfqItemId) },
+    select: { currency: true },
+  });
+  const recoveryCurrency = asBomPartnerCurrency(recoveryRfqItem?.currency);
+  const recoveryRate =
+    recoveryCurrency === 'KRW'
+      ? null
+      : await resolvePoExchangeRate(
+          recoveryCurrency,
+          parsePartnerFxRates(shortageHeader.sourceItem.po.quote.partnerFxRates)[recoveryCurrency],
+        );
+  if (recoveryCurrency !== 'KRW' && recoveryRate === null) {
+    return { ok: false, error: 'FX_RATE_UNAVAILABLE' };
+  }
 
   try {
     return await prisma.$transaction(
@@ -1114,6 +1299,7 @@ export const recoverPoShortage = async (
         if (
           rfqItem?.quoteItemId !== shortage.sourceItem.quoteItemId ||
           rfqItem.rfq.quoteId !== quoteId ||
+          rfqItem.rfq.parentPartnerId !== 0n ||
           rfqItem.rfq.respondedAt === null ||
           rfqItem.unitPrice === null
         ) {
@@ -1144,14 +1330,26 @@ export const recoverPoShortage = async (
           };
         }
 
-        const lineTotal = Math.round(Number(rfqItem.unitPrice) * shortage.shortageQty);
+        const money = poLineMoney(
+          Number(rfqItem.unitPrice),
+          rfqItem.currency,
+          shortage.shortageQty,
+          recoveryRate,
+        );
+        const lineTotal = money.lineTotal;
         const po = await tx.spBomPo.create({
           data: {
             quoteId,
             partnerId: rfqItem.rfq.partnerId,
             status: 'issued',
             totalAmount: lineTotal,
-            currency: 'KRW',
+            currency: money.lineTotalOriginal === null ? 'KRW' : recoveryCurrency,
+            totalOriginal:
+              money.lineTotalOriginal === null ? null : new Prisma.Decimal(money.lineTotalOriginal),
+            exchangeRate:
+              money.lineTotalOriginal === null || recoveryRate === null
+                ? null
+                : new Prisma.Decimal(recoveryRate),
             memo: body.memo ?? null,
             quotationDeliveryDate: rfqItem.rfq.deliveryDate,
             quotationMemo: rfqItem.rfq.memo,
@@ -1167,8 +1365,12 @@ export const recoverPoShortage = async (
             description: shortage.sourceItem.description,
             supplierSku: null,
             qty: shortage.shortageQty,
-            unitPrice: rfqItem.unitPrice,
+            unitPrice: new Prisma.Decimal(money.unitPrice),
             lineTotal,
+            unitPriceOriginal:
+              money.unitPriceOriginal === null ? null : new Prisma.Decimal(money.unitPriceOriginal),
+            lineTotalOriginal:
+              money.lineTotalOriginal === null ? null : new Prisma.Decimal(money.lineTotalOriginal),
             moq: rfqItem.moq,
             stock: rfqItem.stock,
             dateCode: rfqItem.dateCode,
@@ -1191,6 +1393,7 @@ export const recoverPoShortage = async (
               issuedAt: po.issuedAt,
               currency: po.currency,
               totalAmount: po.totalAmount,
+              totalOriginal: po.totalOriginal,
               quotationDeliveryDate: po.quotationDeliveryDate,
               quotationMemo: po.quotationMemo,
               partner: rfqItem.rfq.partner,
@@ -2106,7 +2309,7 @@ export const loadPartnerShipments = async (partnerId: bigint) => {
   const ids = shipments.map((s) => s.id);
   const [filesMap, groupMap] = await Promise.all([
     loadShipmentFilesMap(ids),
-    loadShipmentGroupMap(ids),
+    loadShipmentGroupMap(ids, 'partner'),
   ]);
   return shipments.map((shipment) => {
     const view = toShipmentView(
@@ -2277,7 +2480,7 @@ export const toPartnerPoListItem = (
   poId: Number(po.id),
   quoteTitle: po.quote.title,
   status: asBomPoStatus(po.status),
-  totalAmount: po.totalAmount,
+  totalAmount: poTotalFor(po, 'partner'),
   currency: po.currency,
   itemCount: po.items.length,
   issuedAt: po.issuedAt.toISOString(),
@@ -2289,6 +2492,8 @@ export const toPartnerPoDetail = (
   po: PoWithProcurementItems & { quote: { title: string } },
   shipmentFiles: BomShipmentFileMetaType[] = [],
   groupPos: BomShipmentGroupPoType[] = [],
+  /** 송금 요약(받은 금액·잔액)·마스터딜러의 하위 발주 가능 여부 — 포털 상세만 채운다. */
+  extra: Partial<Pick<PartnerPoDetailType, 'remittance' | 'hasChildItems'>> = {},
 ): PartnerPoDetailType => {
   const linked = linkedShipment(po);
   const shipment = linked === null ? null : toShipmentView(linked, shipmentFiles, groupPos);
@@ -2296,12 +2501,14 @@ export const toPartnerPoDetail = (
     poId: Number(po.id),
     quoteTitle: po.quote.title,
     status: asBomPoStatus(po.status),
-    totalAmount: po.totalAmount,
-    actualSupplyAmount: actualSupplyAmountOf(po.items),
+    totalAmount: poTotalFor(po, 'partner'),
+    actualSupplyAmount: actualSupplyAmountOf(po.items, 'partner'),
     currency: po.currency,
     memo: po.memo,
     issuedAt: po.issuedAt.toISOString(),
     confirmedAt: po.confirmedAt?.toISOString() ?? null,
+    remittance: extra.remittance ?? null,
+    hasChildItems: extra.hasChildItems ?? false,
     shipment:
       shipment === null
         ? null
@@ -2323,6 +2530,6 @@ export const toPartnerPoDetail = (
             files: shipment.files,
             groupPos: shipment.groupPos,
           },
-    items: po.items.map(toItemView),
+    items: po.items.map((item) => toItemView(item, 'partner')),
   };
 };

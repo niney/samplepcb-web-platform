@@ -104,6 +104,7 @@ const CREATE_ERROR_MESSAGE: Record<string, string> = {
   CONFIRM_PENDING: '고객 부품 확인 요청이 끝나지 않은 품목이 든 구매처가 포함되어 있습니다. 고객 회신·적용 뒤 발주하세요.',
   ALREADY_ISSUED: '이미 발주서가 발행된 구매처가 포함되어 있습니다(재발행은 삭제 후).',
   PARTNER_COUNTRY_REQUIRED: '발주 전에 선택한 협력사의 국가를 등록해 주세요.',
+  FX_RATE_UNAVAILABLE: '외화 발주에 쓸 환율을 가져오지 못했습니다 — 견적요청 비교 화면에서 환율을 입력해 주세요.',
 };
 
 const RECOVERY_ERROR_MESSAGE: Record<string, string> = {
@@ -115,6 +116,7 @@ const RECOVERY_ERROR_MESSAGE: Record<string, string> = {
   INVALID_CANDIDATE: '재고와 회신 수량이 확인된 다른 협력사를 선택해 주세요.',
   TARGET_ALREADY_ISSUED: '이 Case에 이미 발주된 협력사에는 별도 대체발주할 수 없습니다.',
   PARTNER_COUNTRY_REQUIRED: '대체 협력사의 국가 정보를 먼저 등록해 주세요.',
+  FX_RATE_UNAVAILABLE: '외화 발주에 쓸 환율을 가져오지 못했습니다 — 견적요청 비교 화면에서 환율을 입력해 주세요.',
 };
 
 const DOCUMENT_ERROR_MESSAGE = {
@@ -219,7 +221,8 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             partnerName: result.partner.name,
             quoteTitle: quote.title,
             itemCount: po.itemCount,
-            totalAmount: po.totalAmount,
+            totalAmount: po.totalOriginal ?? po.totalAmount,
+            currency: po.currency,
           }),
           {
             kind: 'bom_po_issued',
@@ -278,7 +281,8 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         return reply.status(409).send({
           error: result.error,
           message:
-            result.error === 'PARTNER_COUNTRY_REQUIRED' && result.detail !== undefined
+            (result.error === 'PARTNER_COUNTRY_REQUIRED' || result.error === 'FX_RATE_UNAVAILABLE') &&
+            result.detail !== undefined
               ? `${CREATE_ERROR_MESSAGE[result.error] ?? '협력사 국가를 먼저 등록해 주세요.'} (${result.detail})`
               : (CREATE_ERROR_MESSAGE[result.error] ?? '발주서 생성에 실패했습니다.'),
         });
@@ -310,7 +314,8 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             partnerName: partner.name,
             quoteTitle: quote.title,
             itemCount: po.itemCount,
-            totalAmount: po.totalAmount,
+            totalAmount: po.totalOriginal ?? po.totalAmount,
+            currency: po.currency,
           }),
           {
             kind: 'bom_po_issued',
@@ -456,13 +461,28 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po?.quoteId !== request.params.id) {
         return reply.notFound('발주서를 찾을 수 없습니다');
       }
-      const removed = await prisma.spBomPo.deleteMany({
-        where: { id: po.id, status: 'issued' },
+      // 발주서를 지우면 송금 기록과 마스터딜러의 하위 발주가 FK 로 함께 사라진다. 돈 기록은 조용히
+      // 없어지면 안 되고(PCB HAS_REMITTANCE 와 같은 가드), 하위가 이미 확인·출고한 발주도 마찬가지다.
+      // 아직 아무도 손대지 않은 하위 발주(확인 대기)는 발주서와 함께 거둔다.
+      const outcome = await prisma.$transaction(async (tx) => {
+        const [remittances, movedChildPos] = await Promise.all([
+          tx.spBomRemittance.count({ where: { poId: po.id } }),
+          tx.spBomMdPo.count({ where: { poId: po.id, status: { not: 'issued' } } }),
+        ]);
+        if (remittances > 0) return 'HAS_REMITTANCE' as const;
+        if (movedChildPos > 0) return 'HAS_ACTIVE_CHILD_POS' as const;
+        const removed = await tx.spBomPo.deleteMany({ where: { id: po.id, status: 'issued' } });
+        return removed.count === 0 ? ('PO_NOT_DELETABLE' as const) : ('ok' as const);
       });
-      if (removed.count === 0) {
+      if (outcome !== 'ok') {
         return reply.status(409).send({
-          error: 'PO_NOT_DELETABLE',
-          message: '확인 완료된 발주서는 삭제할 수 없습니다.',
+          error: outcome,
+          message:
+            outcome === 'HAS_REMITTANCE'
+              ? '송금 기록이 있는 발주서는 삭제할 수 없습니다 — 송금 기록을 먼저 지워 주세요.'
+              : outcome === 'HAS_ACTIVE_CHILD_POS'
+                ? '하위 협력사가 이미 확인·출고한 하위 발주가 있어 삭제할 수 없습니다 — 마스터딜러 포털에서 하위 발주를 먼저 정리해 주세요.'
+                : '확인 완료된 발주서는 삭제할 수 없습니다.',
         });
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };

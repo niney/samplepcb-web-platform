@@ -36,7 +36,13 @@ import {
   validateSupplierCode,
 } from '../lib/partner';
 import { normalizePartnerCountry } from '../lib/bom-shipment-policy';
-import { activePairDocCount, loadActiveDirectPos, type PairDoc } from '../lib/partner-children';
+import {
+  activeBomPairDocCount,
+  activePairDocCount,
+  loadActiveDirectPos,
+  type BomPairDoc,
+  type PairDoc,
+} from '../lib/partner-children';
 import { purgeOrphanPartnerOffers } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
 
@@ -152,18 +158,33 @@ const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> =
     status: true,
     reorderRound: true,
   } as const;
-  const [rfqRows, poRows] =
+  // BOM 쪽 문서(하위 재요청·하위 발주)도 같은 쌍으로 센다 — 해제 가드와 화면의 숫자가 같아야 한다.
+  const bomSelect = { parentPartnerId: true, partnerId: true, status: true } as const;
+  const [rfqRows, poRows, bomRfqRows, bomMdPoRows] =
     pairConds.length === 0
-      ? [[], []]
+      ? [[], [], [], []]
       : await Promise.all([
           prisma.spPcbRfq.findMany({ where: { OR: pairConds }, select: docSelect }),
           prisma.spPcbPo.findMany({ where: { OR: pairConds }, select: docSelect }),
+          prisma.spBomRfq.findMany({ where: { OR: pairConds }, select: bomSelect }),
+          prisma.spBomMdPo.findMany({ where: { OR: pairConds }, select: bomSelect }),
         ]);
   const rfqMap = groupByPair(rfqRows);
   const poMap = groupByPair(poRows);
+  const bomOfPair = (
+    rows: (BomPairDoc & { parentPartnerId: bigint; partnerId: bigint })[],
+    parentId: bigint,
+    childId: bigint,
+  ): BomPairDoc[] => rows.filter((row) => row.parentPartnerId === parentId && row.partnerId === childId);
   const activeOf = (parentId: bigint, childId: bigint): number => {
     const key = pairKey(parentId, childId);
-    return activePairDocCount(rfqMap.get(key) ?? [], poMap.get(key) ?? []);
+    return (
+      activePairDocCount(rfqMap.get(key) ?? [], poMap.get(key) ?? []) +
+      activeBomPairDocCount(
+        bomOfPair(bomRfqRows, parentId, childId),
+        bomOfPair(bomMdPoRows, parentId, childId),
+      )
+    );
   };
 
   const toLink = (
@@ -792,21 +813,19 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         where: { parentPartnerId_childPartnerId: { parentPartnerId: id, childPartnerId: childId } },
       });
       if (relation === null) return reply.notFound('소속 링크가 없습니다');
-      const [rfqs, pos] = await Promise.all([
-        prisma.spPcbRfq.findMany({
-          where: { parentPartnerId: id, partnerId: childId },
-          select: { status: true, reorderRound: true },
-        }),
-        prisma.spPcbPo.findMany({
-          where: { parentPartnerId: id, partnerId: childId },
-          select: { status: true, reorderRound: true },
-        }),
+      const pair = { parentPartnerId: id, partnerId: childId };
+      const [rfqs, pos, bomRfqs, bomMdPos] = await Promise.all([
+        prisma.spPcbRfq.findMany({ where: pair, select: { status: true, reorderRound: true } }),
+        prisma.spPcbPo.findMany({ where: pair, select: { status: true, reorderRound: true } }),
+        // 부품 조달 쪽 — 하위 재요청(회신 왕복 중)·하위 발주(수령 전)도 진행 중이다.
+        prisma.spBomRfq.findMany({ where: pair, select: { status: true } }),
+        prisma.spBomMdPo.findMany({ where: pair, select: { status: true } }),
       ]);
-      if (activePairDocCount(rfqs, pos) > 0) {
+      if (activePairDocCount(rfqs, pos) + activeBomPairDocCount(bomRfqs, bomMdPos) > 0) {
         return reply.status(409).send({
           error: 'RELATION_ACTIVE',
           message:
-            '진행 중 견적·발주가 있는 소속은 해제할 수 없습니다. 종결(생산완료) 후 해제하세요.',
+            '진행 중 견적·발주가 있는 소속은 해제할 수 없습니다. 종결(생산완료·수령·견적 마감) 후 해제하세요.',
         });
       }
       await prisma.spPartnerRelation.delete({ where: { id: relation.id } });

@@ -44,6 +44,8 @@ export const apiRoutes = {
   partnerInvite: '/api/partner-invite',
   partnerRfqs: '/api/partner/rfqs',
   partnerPos: '/api/partner/pos',
+  // 마스터딜러 하위 발주 — 하위로서 받은 것·발주처로서 낸 것 공용(문서 단위 권한은 서버가 판정)
+  partnerMdPos: '/api/partner/md-pos',
   partnerShipments: '/api/partner/shipments',
   // 협력사 보유 부품(재고표 업로드·원장, docs/PARTNER_PARTS.md) — 포털 공통 영역
   partnerParts: '/api/partner/parts',

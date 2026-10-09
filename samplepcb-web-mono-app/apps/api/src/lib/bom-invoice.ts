@@ -54,6 +54,13 @@ export const loadPoForInvoice = async (poId: bigint): Promise<PoForInvoice | nul
     },
   });
 
+// 외화 발주의 원화 컬럼은 우리 회계값이다 — 세관에 신고하는 값은 협력사가 받는 결제통화 금액.
+const invoiceUnitValue = (item: InvoicePoItem): number =>
+  item.unitPriceOriginal === null ? Number(item.unitPrice) : Number(item.unitPriceOriginal);
+
+const invoiceAmount = (amount: number, currency: string): number =>
+  currency === 'KRW' ? Math.round(amount) : Math.round(amount * 100) / 100;
+
 /** 초안 — 저장본(편집본) 우선, fresh 면 발주 데이터로 재조립(레거시 stale 함정 교정). */
 export const buildInvoiceDraft = async (
   po: PoForInvoice,
@@ -99,8 +106,8 @@ export const buildInvoiceDraft = async (
               hsCode: '',
               qty: String(qty),
               currency: row.currency,
-              unitValue: Number(item.unitPrice),
-              totalValue: Math.round(Number(item.unitPrice) * qty),
+              unitValue: invoiceUnitValue(item),
+              totalValue: invoiceAmount(invoiceUnitValue(item) * qty, row.currency),
             },
           ];
     }),
@@ -125,7 +132,10 @@ export const buildInvoiceDraft = async (
     currency: po.currency,
     invoiceDate: todayKst(),
     items,
-    totalValue: items.reduce((sum, item) => sum + (item.totalValue ?? 0), 0),
+    totalValue: invoiceAmount(
+      items.reduce((sum, item) => sum + (item.totalValue ?? 0), 0),
+      po.currency,
+    ),
   };
 };
 

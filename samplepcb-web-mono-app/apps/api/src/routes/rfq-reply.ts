@@ -10,6 +10,7 @@ import {
   saveRfqReply,
   toPartnerDetail,
 } from '../lib/bom-rfq';
+import { loadRfqRequesterName } from '../lib/bom-rfq-md';
 
 // ── /api/rfq-reply/:token — 매직링크 무로그인 회신(§6.9) ─────────────────────
 // 인증 = 토큰 자체(메일함 소유 = 신원). 로그인·세션 없음, 권한은 이 RFQ 1건 스코프.
@@ -28,7 +29,12 @@ export const rfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       const scope = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
       return {
         result: true as const,
-        data: { partnerName: rfq.partner.name, rfq: toPartnerDetail(rfq, scope, await loadOwnStockForItems(rfq.partnerId, scope)) },
+        data: {
+          partnerName: rfq.partner.name,
+          rfq: toPartnerDetail(rfq, scope, await loadOwnStockForItems(rfq.partnerId, scope), {
+            requesterName: await loadRfqRequesterName(rfq),
+          }),
+        },
       };
     },
   );
@@ -69,7 +75,12 @@ export const rfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       const scope = filterScopeForRfq(await loadRfqScopeItems(fresh.quoteId), fresh);
       return {
         result: true as const,
-        data: { partnerName: fresh.partner.name, rfq: toPartnerDetail(fresh, scope, await loadOwnStockForItems(fresh.partnerId, scope)) },
+        data: {
+          partnerName: fresh.partner.name,
+          rfq: toPartnerDetail(fresh, scope, await loadOwnStockForItems(fresh.partnerId, scope), {
+            requesterName: await loadRfqRequesterName(fresh),
+          }),
+        },
       };
     },
   );

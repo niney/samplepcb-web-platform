@@ -251,7 +251,8 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       loadShipmentAdminPending(),
       loadQuoteShipmentPresence(quoteIds),
       prisma.spBomRfq.findMany({
-        where: { quoteId: { in: quoteIds } },
+        // 회신율은 샘플피씨비가 직접 보낸 견적요청 기준 — 마스터딜러의 하위 재요청은 세지 않는다.
+        where: { quoteId: { in: quoteIds }, parentPartnerId: 0n },
         select: { quoteId: true, respondedAt: true },
       }),
     ]);

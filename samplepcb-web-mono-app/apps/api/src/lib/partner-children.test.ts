@@ -6,9 +6,21 @@ import {
 } from '@sp/api-contract';
 import { matchPartnerDuplicates } from './partner';
 import { readActAsPartnerId } from './partner-act-as';
-import { activePairDocCount, partnerInviteStateOf } from './partner-children';
+import { activeBomPairDocCount, activePairDocCount, partnerInviteStateOf } from './partner-children';
 
 // 하위 협력사 직접 관리의 순수 판정 — DB 를 건드리는 흐름(등록·삭제·초대 수락)은 e2e 가 본다.
+
+describe('activeBomPairDocCount', () => {
+  it('회신 왕복 중인 견적요청과 수령 전 하위 발주를 센다', () => {
+    expect(activeBomPairDocCount([{ status: 'requested' }, { status: 'quoted' }], [])).toBe(2);
+    expect(activeBomPairDocCount([], [{ status: 'issued' }, { status: 'confirmed' }, { status: 'shipped' }])).toBe(3);
+  });
+
+  it('마감된 견적요청과 수령한 하위 발주는 세지 않는다 — 삭제·해제가 열린다', () => {
+    expect(activeBomPairDocCount([{ status: 'closed' }], [{ status: 'received' }])).toBe(0);
+    expect(activeBomPairDocCount([], [])).toBe(0);
+  });
+});
 
 describe('activePairDocCount', () => {
   it('왕복 중인 견적과 미종결 발주를 센다', () => {

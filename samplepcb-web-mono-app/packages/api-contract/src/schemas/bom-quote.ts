@@ -472,6 +472,16 @@ export const BomQuoteSelectedOffer = z.object({
   fetchedAt: z.string(),
   /** 사용자가 명시 선택(고정) — 수량 변경 시 이 구매 조건 안에서만 구간 재계산. */
   pinned: z.boolean(),
+  /**
+   * 협력사 외화 회신을 견적 고정 환율로 원화 환산해 박제한 경우의 원본 — 결제통화 단가와 적용 환율.
+   * 이때 unitPrice·currency·priceBreaks 는 환산된 **원화**다(계산 엔진은 원화·달러만 안다).
+   * 발주서는 이 원본을 결제통화 금액의 정본으로 쓴다. 원화 회신·공급사 가격에는 없다.
+   * 관리자 전용 — 고객 응답에서는 지운다.
+   */
+  sourcePrice: z
+    .object({ currency: z.string(), unitPrice: z.number(), rate: z.number().positive() })
+    .nullable()
+    .optional(),
 });
 export type BomQuoteSelectedOfferType = z.infer<typeof BomQuoteSelectedOffer>;
 

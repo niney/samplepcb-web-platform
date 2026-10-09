@@ -38,6 +38,9 @@ export interface TradeQuotationItemSource {
   qty: number;
   unitPrice: Prisma.Decimal | number;
   lineTotal: number;
+  /** 외화 발주의 결제통화 단가·금액 — 있으면 문서는 이 값을 적는다(원화 컬럼은 회계값). */
+  unitPriceOriginal?: Prisma.Decimal | number | null;
+  lineTotalOriginal?: Prisma.Decimal | number | null;
   moq: number | null;
   stock: number | null;
   dateCode: string | null;
@@ -52,6 +55,7 @@ export interface TradeQuotationSource {
   issuedAt: Date;
   currency: string;
   totalAmount: number;
+  totalOriginal?: Prisma.Decimal | number | null;
   quotationDeliveryDate: Date | null;
   quotationMemo: string | null;
   partner: TradePartnerProfile;
@@ -90,16 +94,27 @@ export const samplePcbTradeParty = (business: BusinessInfo | null): BomTradePart
   country: 'KR',
 });
 
-const vatOf = (supplyAmount: number, partnerCountry: string | null): number =>
-  shipmentModeFromCountry(partnerCountry) === 'domestic' ? Math.round(supplyAmount * 0.1) : 0;
+/** 문서 금액 반올림 — 원화 0자리·외화 2자리. */
+const roundDocAmount = (amount: number, currency: string): number =>
+  currency === 'KRW' ? Math.round(amount) : Math.round(amount * 100) / 100;
+
+const vatOf = (supplyAmount: number, partnerCountry: string | null, currency = 'KRW'): number =>
+  shipmentModeFromCountry(partnerCountry) === 'domestic'
+    ? roundDocAmount(supplyAmount * 0.1, currency)
+    : 0;
+
+/** 협력사 문서에 적는 단가 — 외화 발주는 결제통화 단가(원화 컬럼은 우리 회계값이다). */
+const docUnitPrice = (item: Pick<TradeQuotationItemSource, 'unitPrice' | 'unitPriceOriginal'>): number =>
+  item.unitPriceOriginal == null ? Number(item.unitPrice) : Number(item.unitPriceOriginal);
 
 export const buildPartnerQuotationDocument = (
   source: TradeQuotationSource,
   business: BusinessInfo | null,
   snapshotAt = new Date(),
 ): BomPartnerQuotationType => {
-  const supplyAmount = source.totalAmount;
-  const vatAmount = vatOf(supplyAmount, source.partner.country);
+  const supplyAmount =
+    source.totalOriginal == null ? source.totalAmount : Number(source.totalOriginal);
+  const vatAmount = vatOf(supplyAmount, source.partner.country, source.currency);
   return {
     kind: 'quotation',
     quotationNo: `PQT-SPB-${String(source.id)}`,
@@ -118,8 +133,8 @@ export const buildPartnerQuotationDocument = (
       manufacturerName: item.manufacturerName,
       description: item.description,
       qty: item.qty,
-      unitPrice: Number(item.unitPrice),
-      lineTotal: item.lineTotal,
+      unitPrice: docUnitPrice(item),
+      lineTotal: item.lineTotalOriginal == null ? item.lineTotal : Number(item.lineTotalOriginal),
       moq: item.moq,
       stock: item.stock,
       dateCode: item.dateCode,
@@ -128,7 +143,7 @@ export const buildPartnerQuotationDocument = (
     })),
     supplyAmount,
     vatAmount,
-    totalAmount: supplyAmount + vatAmount,
+    totalAmount: roundDocAmount(supplyAmount + vatAmount, source.currency),
     memo: source.quotationMemo,
     snapshotAt: snapshotAt.toISOString(),
   };
@@ -161,6 +176,7 @@ export const loadPartnerQuotationDocument = async (
       issuedAt: po.issuedAt,
       currency: po.currency,
       totalAmount: po.totalAmount,
+      totalOriginal: po.totalOriginal,
       quotationDeliveryDate: po.quotationDeliveryDate,
       quotationMemo: po.quotationMemo,
       partner: po.partner,
@@ -242,16 +258,20 @@ export const loadShipmentStatementDocument = async (
               description: item.description,
               orderedQty: item.qty,
               shippedQty,
-              unitPrice: Number(item.unitPrice),
-              lineTotal: Math.round(Number(item.unitPrice) * shippedQty),
+              unitPrice: docUnitPrice(item),
+              lineTotal: roundDocAmount(docUnitPrice(item) * shippedQty, po.currency),
               lotNos: uniqueTexts(packages.map((pkg) => pkg.lotNo)),
               dateCodes: uniqueTexts(packages.map((pkg) => pkg.dateCode)),
             },
           ];
     }),
   );
-  const supplyAmount = items.reduce((sum, item) => sum + item.lineTotal, 0);
-  const vatAmount = vatOf(supplyAmount, shipment.po.partner.country);
+  const statementCurrency = pos[0]?.currency ?? shipment.po.partner.defaultCurrency;
+  const supplyAmount = roundDocAmount(
+    items.reduce((sum, item) => sum + item.lineTotal, 0),
+    statementCurrency,
+  );
+  const vatAmount = vatOf(supplyAmount, shipment.po.partner.country, statementCurrency);
   const now = new Date();
   const primaryQuotation = BomPartnerQuotation.safeParse(shipment.po.quotationData);
   const snapshotAt = shipment.packingFinalizedAt ?? now;
@@ -266,7 +286,7 @@ export const loadShipmentStatementDocument = async (
     issuedAt: issuedAt.toISOString(),
     finalizedAt: shipment.packingFinalizedAt?.toISOString() ?? null,
     mode: 'domestic',
-    currency: pos[0]?.currency ?? shipment.po.partner.defaultCurrency,
+    currency: statementCurrency,
     issuer: primaryQuotation.success
       ? primaryQuotation.data.issuer
       : partnerTradeParty(shipment.po.partner),

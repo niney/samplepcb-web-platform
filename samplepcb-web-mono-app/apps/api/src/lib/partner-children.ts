@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { SpPartner } from '@prisma/client';
-import type {
-  PartnerChildEligibilityType,
-  PartnerChildItemType,
-  PartnerChildListDataType,
-  PartnerInviteStateType,
+import {
+  PARTNER_CHILD_TRACKS,
+  type PartnerChildEligibilityType,
+  type PartnerChildItemType,
+  type PartnerChildListDataType,
+  type PartnerChildTrackType,
+  type PartnerInviteStateType,
 } from '@sp/api-contract';
 import { asPartnerStatus, toCapabilities } from './partner';
 import { purgeOrphanPartnerOffers } from './partner-parts';
@@ -17,6 +19,29 @@ import { prisma } from './prisma';
 // 이후 단계는 마스터딜러가 대행한다. 계정이 필요하면 초대 링크로 본인이 연결한다.
 // 소유(ownerPartnerId)는 "누가 포털에서 고칠 수 있는가"의 근거다 — 관리자가 연결해 준
 // 하위는 읽기 전용으로만 보인다.
+
+/** 조직이 가진 견적 트랙(PCB 제작·부품 조달) — 마스터딜러 중개가 있는 둘만. */
+export const rfqTracksOf = (capabilities: unknown): PartnerChildTrackType[] => {
+  const caps = toCapabilities(capabilities);
+  return PARTNER_CHILD_TRACKS.filter((track) => caps.includes(track));
+};
+
+/**
+ * 하위에게 줄 트랙 — 요청값 ∩ 내 트랙. 생략하면 내 트랙 전부. 내게 없는 트랙만 골랐으면 빈 배열
+ * (호출부가 거절한다). 견적 트랙이 아닌 능력(부품 판매 등)은 current 에서 그대로 보존한다.
+ */
+export const resolveChildCapabilities = (
+  parentCapabilities: unknown,
+  requested: readonly PartnerChildTrackType[] | undefined,
+  current: unknown = [],
+): { tracks: PartnerChildTrackType[]; capabilities: string[] } => {
+  const mine = rfqTracksOf(parentCapabilities);
+  const tracks = requested === undefined ? mine : mine.filter((track) => requested.includes(track));
+  const others = toCapabilities(current).filter(
+    (cap) => !(PARTNER_CHILD_TRACKS as readonly string[]).includes(cap),
+  );
+  return { tracks, capabilities: [...tracks, ...others] };
+};
 
 export interface PairDoc {
   status: string;
@@ -38,6 +63,22 @@ export const activePairDocCount = (rfqs: PairDoc[], pos: PairDoc[]): number => {
   for (const p of pos) if (p.status !== 'produced') count += 1;
   return count;
 };
+
+/** BOM 쪽 문서 — 견적요청(하위 재요청 포함)과 마스터딜러 하위 발주. 회차 개념이 없다. */
+export interface BomPairDoc {
+  status: string;
+}
+
+// 진행 중(미종결) BOM 문서 수 — 견적요청은 회신 왕복 중(requested|quoted — 견적이 확정·취소되면
+// closed 로 닫힌다), 하위 발주는 마스터딜러가 받기 전(≠received). PCB 판정(activePairDocCount)과
+// 같은 자리에서 더한다: 도중에 관계를 끊거나 조직을 정지하면 하위는 매직링크·포털이 닫히고
+// 마스터딜러는 그 하위의 회신·발주를 이어 갈 수 없다(2026-10-09 — BOM 중개가 생기면서 추가).
+export const activeBomPairDocCount = (
+  rfqs: readonly BomPairDoc[],
+  mdPos: readonly BomPairDoc[],
+): number =>
+  rfqs.filter((rfq) => rfq.status === 'requested' || rfq.status === 'quoted').length +
+  mdPos.filter((po) => po.status !== 'received').length;
 
 // 첫 하위 연결(마스터딜러 전환) 가드의 대상 — 관리자 직속 미종결 발주.
 // 발주 방식은 발주서마다 박제(fulfillmentMode)라 전환해도 진행 건은 바뀌지 않는다. 그래도
@@ -73,7 +114,8 @@ export const resolveChildEligibility = async (
   partner: Pick<SpPartner, 'id' | 'type' | 'capabilities'>,
   actingAdmin: boolean,
 ): Promise<PartnerChildEligibilityType> => {
-  if (partner.type !== 'partner' || !toCapabilities(partner.capabilities).includes('pcb_rfq')) {
+  // 견적 트랙이 하나라도 있어야 중개할 일이 있다(PCB 제작·부품 조달 둘 다 마스터딜러 중개가 있다).
+  if (partner.type !== 'partner' || rfqTracksOf(partner.capabilities).length === 0) {
     return { allowed: false, reason: 'NO_PCB_TRACK', ...NOT_BLOCKED };
   }
   const [asChild, childCount] = await Promise.all([
@@ -101,7 +143,7 @@ export const resolveChildEligibility = async (
 export const canManageChildren = async (
   partner: Pick<SpPartner, 'id' | 'type' | 'capabilities'>,
 ): Promise<boolean> => {
-  if (partner.type !== 'partner' || !toCapabilities(partner.capabilities).includes('pcb_rfq')) {
+  if (partner.type !== 'partner' || rfqTracksOf(partner.capabilities).length === 0) {
     return false;
   }
   return (await prisma.spPartnerRelation.count({ where: { childPartnerId: partner.id } })) === 0;
@@ -111,29 +153,29 @@ interface ChildDocs {
   /** 이 조직이 수주한 PCB 견적·발주(상위 불문). */
   rfqs: (PairDoc & { parentPartnerId: bigint })[];
   pos: (PairDoc & { parentPartnerId: bigint })[];
-  bomRfqCount: number;
+  /** 이 조직이 받은 BOM 견적요청(샘플피씨비 직접 + 마스터딜러 재요청)·마스터딜러 하위 발주. */
+  bomRfqs: (BomPairDoc & { parentPartnerId: bigint })[];
+  bomMdPos: (BomPairDoc & { parentPartnerId: bigint })[];
 }
+
+const emptyChildDocs = (): ChildDocs => ({ rfqs: [], pos: [], bomRfqs: [], bomMdPos: [] });
 
 const loadChildDocs = async (childIds: bigint[]): Promise<Map<string, ChildDocs>> => {
   const map = new Map<string, ChildDocs>();
-  for (const id of childIds) map.set(id.toString(), { rfqs: [], pos: [], bomRfqCount: 0 });
+  for (const id of childIds) map.set(id.toString(), emptyChildDocs());
   if (childIds.length === 0) return map;
   const docSelect = { partnerId: true, parentPartnerId: true, status: true, reorderRound: true } as const;
-  const [rfqs, pos, bomRfqs] = await Promise.all([
+  const bomSelect = { partnerId: true, parentPartnerId: true, status: true } as const;
+  const [rfqs, pos, bomRfqs, bomMdPos] = await Promise.all([
     prisma.spPcbRfq.findMany({ where: { partnerId: { in: childIds } }, select: docSelect }),
     prisma.spPcbPo.findMany({ where: { partnerId: { in: childIds } }, select: docSelect }),
-    prisma.spBomRfq.groupBy({
-      by: ['partnerId'],
-      where: { partnerId: { in: childIds } },
-      _count: { _all: true },
-    }),
+    prisma.spBomRfq.findMany({ where: { partnerId: { in: childIds } }, select: bomSelect }),
+    prisma.spBomMdPo.findMany({ where: { partnerId: { in: childIds } }, select: bomSelect }),
   ]);
   for (const r of rfqs) map.get(r.partnerId.toString())?.rfqs.push(r);
   for (const p of pos) map.get(p.partnerId.toString())?.pos.push(p);
-  for (const g of bomRfqs) {
-    const docs = map.get(g.partnerId.toString());
-    if (docs !== undefined) docs.bomRfqCount = g._count._all;
-  }
+  for (const r of bomRfqs) map.get(r.partnerId.toString())?.bomRfqs.push(r);
+  for (const p of bomMdPos) map.get(p.partnerId.toString())?.bomMdPos.push(p);
   return map;
 };
 
@@ -149,11 +191,14 @@ const activeDocCountOf = (docs: ChildDocs, parentId: bigint | null): number => {
       docs.pos.filter((p) => p.parentPartnerId.toString() === key),
     );
   }
-  return count;
+  // BOM 은 회차가 없어 상위별로 묶을 필요가 없다 — 대상 상위의 문서만 고르면 된다.
+  const ofParent = <T extends { parentPartnerId: bigint }>(rows: T[]): T[] =>
+    parentId === null ? rows : rows.filter((row) => row.parentPartnerId === parentId);
+  return count + activeBomPairDocCount(ofParent(docs.bomRfqs), ofParent(docs.bomMdPos));
 };
 
 const hasAnyDocs = (docs: ChildDocs): boolean =>
-  docs.rfqs.length > 0 || docs.pos.length > 0 || docs.bomRfqCount > 0;
+  docs.rfqs.length > 0 || docs.pos.length > 0 || docs.bomRfqs.length > 0 || docs.bomMdPos.length > 0;
 
 export const loadPartnerChildren = async (
   parent: Pick<SpPartner, 'id' | 'type' | 'capabilities'>,
@@ -178,7 +223,7 @@ export const loadPartnerChildren = async (
   const now = Date.now();
   const items: PartnerChildItemType[] = relations.map((rel) => {
     const child = rel.child;
-    const docs = docsMap.get(child.id.toString()) ?? { rfqs: [], pos: [], bomRfqCount: 0 };
+    const docs = docsMap.get(child.id.toString()) ?? emptyChildDocs();
     const invite = child.invites[0];
     return {
       partnerId: Number(child.id),
@@ -194,6 +239,7 @@ export const loadPartnerChildren = async (
       activeCount: activeDocCountOf(docs, parent.id),
       hasHistory: hasAnyDocs(docs),
       hasPortalAccount: child._count.members > 0,
+      tracks: rfqTracksOf(child.capabilities),
       invite:
         invite === undefined
           ? null
@@ -205,7 +251,7 @@ export const loadPartnerChildren = async (
       createdAt: rel.createdAt.toISOString(),
     };
   });
-  return { eligibility, items };
+  return { eligibility, items, parentTracks: rfqTracksOf(parent.capabilities) };
 };
 
 export type OwnedChildError = 'NOT_FOUND' | 'NOT_OWNED';
@@ -245,7 +291,7 @@ export const removeOwnedChild = async (
       where: { childPartnerId: child.id, NOT: { parentPartnerId: parentId } },
     }),
   ]);
-  const docs = docsMap.get(child.id.toString()) ?? { rfqs: [], pos: [], bomRfqCount: 0 };
+  const docs = docsMap.get(child.id.toString()) ?? emptyChildDocs();
   // 상위 불문 진행 중 건이 하나라도 있으면 막는다 — 정지는 매직링크·포털을 함께 닫는다.
   if (activeDocCountOf(docs, null) > 0) return { ok: false, error: 'RELATION_ACTIVE' };
   // 관리자가 다른 마스터딜러에게도 연결해 둔 조직은 한쪽이 없앨 수 없다.

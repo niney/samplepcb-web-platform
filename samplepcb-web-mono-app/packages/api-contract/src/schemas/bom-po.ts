@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BomMdPoView, BomRemittanceSummary } from './bom-md-po';
 
 // ── 스마트 BOM 협력사 발주 — sp_bom_po* 계약 (D18, docs/SMARTBOM_PARTNER_RFQ.md §6.1) ──
 // 발주서 = 박제 문서(생성 시점 스냅샷·불변). Case × 협력사 1건, 결제 확인 후 발행.
@@ -51,7 +52,7 @@ export const BomPoShortageView = z.object({
   /** 원 발주 수량 중 실제 공급하기로 남은 수량. */
   suppliedQty: z.number().int().nonnegative(),
   /** 원 발주 단가 × 실제 공급 수량(VAT 별도, 서버 계산). */
-  suppliedAmount: z.number().int().nonnegative(),
+  suppliedAmount: z.number().nonnegative(), // 발주 통화 기준(외화면 소수)
   reason: BomPoShortageReason,
   note: z.string().nullable(),
   reportedAt: z.string(),
@@ -77,7 +78,10 @@ export const BomPoItemView = z.object({
   supplierSku: z.string().nullable(),
   qty: z.number().int(),
   unitPrice: z.number(), // 스냅샷 단가(VAT 별도)
-  lineTotal: z.number().int(),
+  lineTotal: z.number(), // 보는 쪽 통화 기준 — 관리자=원화 회계값, 협력사=결제통화(외화면 소수)
+  /** 외화 발주의 결제통화 단가·금액(정본) — 관리자 화면이 원화 회계값 옆에 함께 보인다. 원화 발주는 null. */
+  unitPriceOriginal: z.number().nullable().default(null),
+  lineTotalOriginal: z.number().nullable().default(null),
   /** 이 원 발주 품목에 협력사가 신고한 공급 부족. */
   shortage: BomPoShortageView.nullable(),
   /** 이 품목이 어느 부족분을 회복하기 위해 추가 발주됐는지. */
@@ -283,7 +287,9 @@ export type BomShipmentFileMetaType = z.infer<typeof BomShipmentFileMeta>;
 export const BomShipmentGroupPo = z.object({
   poId: z.number(),
   quoteTitle: z.string(),
-  totalAmount: z.number().int(),
+  totalAmount: z.number(),
+  /** totalAmount 의 통화 — 협력사 화면은 결제통화, 관리자 화면은 원화 회계값이라 KRW. */
+  currency: z.string().default('KRW'),
   /** 대표(생성) 발주서 — 묶음에서 제외 불가(선적 자체의 기준). */
   isPrimary: z.boolean(),
 });
@@ -644,7 +650,8 @@ export const BomPartnerQuotationItem = z.object({
   description: z.string().nullable(),
   qty: z.number().int().positive(),
   unitPrice: z.number(),
-  lineTotal: z.number().int(),
+  // 결제통화 금액 — 외화 발주는 소수 2자리.
+  lineTotal: z.number(),
   moq: z.number().int().positive().nullable(),
   stock: z.number().int().nonnegative().nullable(),
   dateCode: z.string().nullable(),
@@ -665,9 +672,9 @@ export const BomPartnerQuotation = z.object({
   issuer: BomTradeParty,
   recipient: BomTradeParty,
   items: z.array(BomPartnerQuotationItem).max(500),
-  supplyAmount: z.number().int(),
-  vatAmount: z.number().int(),
-  totalAmount: z.number().int(),
+  supplyAmount: z.number(),
+  vatAmount: z.number(),
+  totalAmount: z.number(),
   memo: z.string().nullable(),
   snapshotAt: z.string(),
 });
@@ -690,7 +697,7 @@ export const BomShipmentStatementItem = z.object({
   orderedQty: z.number().int().positive(),
   shippedQty: z.number().int().positive(),
   unitPrice: z.number(),
-  lineTotal: z.number().int(),
+  lineTotal: z.number(),
   lotNos: z.array(z.string()),
   dateCodes: z.array(z.string()),
 });
@@ -713,9 +720,9 @@ export const BomShipmentStatement = z.object({
   trackingNumber: z.string().nullable(),
   items: z.array(BomShipmentStatementItem).max(500),
   totalQuantity: z.number().int().nonnegative(),
-  supplyAmount: z.number().int(),
-  vatAmount: z.number().int(),
-  totalAmount: z.number().int(),
+  supplyAmount: z.number(),
+  vatAmount: z.number(),
+  totalAmount: z.number(),
   snapshotAt: z.string(),
 });
 export type BomShipmentStatementType = z.infer<typeof BomShipmentStatement>;
@@ -747,10 +754,18 @@ export const AdminBomPoView = z.object({
   /** 기존 박제 mode와 현재 등록 국가가 다른 레거시/운영 데이터 경고. */
   shipmentModeMismatch: z.boolean(),
   status: BomPoStatus,
-  totalAmount: z.number().int(), // KRW, VAT 별도
+  totalAmount: z.number().int(), // KRW, VAT 별도 — 외화 발주면 발행 시점 실제 환율의 회계값
   /** 공급 부족을 제외한 실제 공급 예정 합계(VAT 별도, 서버 계산). */
   actualSupplyAmount: z.number().int().nonnegative(),
+  /** 결제통화(협력사가 받는 통화). KRW 가 아니면 totalOriginal·exchangeRate 가 채워진다. */
   currency: z.string(),
+  /** 외화 발주의 결제통화 합계(정본)와 발행 시점 실제 환율(결제통화→KRW, 안전 마진 없음). */
+  totalOriginal: z.number().nullable().default(null),
+  exchangeRate: z.number().nullable().default(null),
+  /** 이 발주서를 받은 마스터딜러가 하위에 다시 낸 발주 — 관리자는 전부 본다(없으면 빈 배열). */
+  childPos: z.array(BomMdPoView).default([]),
+  /** 송금 요약(지급·잔액·환차) — 사람 협력사 발주만. 공급사 발주는 null. */
+  remittance: BomRemittanceSummary.nullable().default(null),
   memo: z.string().nullable(),
   /** 외부 실행 결과(D20) — 자동화 대상 공급사 발주에만. */
   externalRef: BomPoExternalRef.nullable(),
@@ -940,7 +955,7 @@ export const PartnerPoListItem = z.object({
   poId: z.number(),
   quoteTitle: z.string(),
   status: BomPoStatus,
-  totalAmount: z.number().int(),
+  totalAmount: z.number(), // 결제통화 금액(외화면 소수)
   currency: z.string(),
   itemCount: z.number().int(),
   issuedAt: z.string(),
@@ -969,13 +984,17 @@ export const PartnerPoDetail = z.object({
   poId: z.number(),
   quoteTitle: z.string(),
   status: BomPoStatus,
-  totalAmount: z.number().int(),
+  totalAmount: z.number(), // 결제통화 금액(외화면 소수)
   /** 공급 부족을 제외한 실제 공급 예정 합계(VAT 별도, 서버 계산). */
-  actualSupplyAmount: z.number().int().nonnegative(),
+  actualSupplyAmount: z.number().nonnegative(),
   currency: z.string(),
   memo: z.string().nullable(),
   issuedAt: z.string(),
   confirmedAt: z.string().nullable(),
+  /** 송금 요약(받은 금액·잔액) — 결제통화 기준. 환차는 싣지 않는다(샘플피씨비 회계). */
+  remittance: BomRemittanceSummary.omit({ fxDiffKrw: true }).nullable().default(null),
+  /** 마스터딜러 — 하위 회신으로 견적한 품목이 있어 하위 발주를 낼 수 있는 발주서다. */
+  hasChildItems: z.boolean().default(false),
   /** 선적(D21·D22·§6.10) — 핑퐁 진행에 필요한 전부(입고·편차 메모·묶음 소속 포함). */
   shipment: BomShipmentView.pick({
     mode: true,

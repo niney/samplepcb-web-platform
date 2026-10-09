@@ -53,6 +53,7 @@ const REPLACEMENT_REASON_LABELS: Record<string, string> = {
   'catalog-offer-not-found': '카탈로그 구매 조건을 찾을 수 없습니다',
   'rfq-item-not-found': '이 품목의 협력사 회신이 아닙니다',
   'not-priced': '협력사 회신에 단가가 없습니다',
+  'fx-unavailable': '외화 회신에 쓸 환율이 없습니다 — 견적요청 비교 화면에서 환율을 입력해 주세요',
   'no-offer': '구매 조건이 없습니다',
   'qty-below-needed': '필요수량보다 적게 살 수 없습니다',
   'item-not-found': '품목을 찾을 수 없습니다',

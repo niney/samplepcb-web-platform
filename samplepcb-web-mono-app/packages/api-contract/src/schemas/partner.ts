@@ -337,7 +337,8 @@ export type AdminPartnerActLogResponseType = z.infer<typeof AdminPartnerActLogRe
 // 회신하고 이후 단계는 마스터딜러가 대행한다. 계정이 필요하면 초대 링크로 본인이 연결한다.
 
 // 지금 하위를 등록할 수 없는 이유 — 화면은 폼을 열기 전에 이 값으로 안내한다.
-//  · NO_PCB_TRACK    PCB 견적 능력이 없는 조직(마스터딜러 중개는 PCB 트랙에만 있다)
+//  · NO_PCB_TRACK    견적 트랙(PCB 제작·부품 조달)이 하나도 없는 조직 — 중개할 일이 없다.
+//                    (이름은 PCB 전용이던 때의 것 — 지금은 두 트랙 모두 마스터딜러 중개가 있다)
 //  · PARENT_IS_CHILD 다른 마스터딜러의 하위(2단 제한)
 //  · ACTIVE_POS      진행 중 직속 발주가 있어 첫 하위 등록(마스터딜러 전환)이 보류된다
 export const PARTNER_CHILD_BLOCK_REASONS = ['NO_PCB_TRACK', 'PARENT_IS_CHILD', 'ACTIVE_POS'] as const;
@@ -353,6 +354,11 @@ export const PartnerChildEligibility = z.object({
   canForce: z.boolean(),
 });
 export type PartnerChildEligibilityType = z.infer<typeof PartnerChildEligibility>;
+
+// 하위에게 맡길 수 있는 일(견적 트랙) — 조직 capabilities 중 중개가 있는 둘.
+export const PARTNER_CHILD_TRACKS = ['pcb_rfq', 'bom_rfq'] as const;
+export type PartnerChildTrackType = (typeof PARTNER_CHILD_TRACKS)[number];
+export const PartnerChildTrack = z.enum(PARTNER_CHILD_TRACKS);
 
 export const PartnerChildInvite = z.object({
   email: z.string(),
@@ -376,6 +382,8 @@ export const PartnerChildItem = z.object({
   hasHistory: z.boolean(), // 이력이 있으면 삭제 대신 사용 중지된다
   hasPortalAccount: z.boolean(),
   invite: PartnerChildInvite.nullable(), // 가장 최근 초대
+  /** 이 하위에게 맡길 수 있는 일 — PCB 제작 견적·부품 조달 견적. */
+  tracks: z.array(PartnerChildTrack).default([]),
   createdAt: z.string(),
 });
 export type PartnerChildItemType = z.infer<typeof PartnerChildItem>;
@@ -383,6 +391,8 @@ export type PartnerChildItemType = z.infer<typeof PartnerChildItem>;
 export const PartnerChildListData = z.object({
   eligibility: PartnerChildEligibility,
   items: z.array(PartnerChildItem),
+  /** 내가 가진 견적 트랙 — 하위에게는 이 안에서만 맡길 수 있다. */
+  parentTracks: z.array(PartnerChildTrack).default([]),
 });
 export type PartnerChildListDataType = z.infer<typeof PartnerChildListData>;
 
@@ -403,6 +413,8 @@ const PartnerChildFields = z.object({
   contactName: z.string().trim().max(100).nullish(),
   contactPhone: z.string().trim().max(50).nullish(),
   contactEmail: z.string().trim().email().max(255).nullish(), // 견적요청 메일·초대 수신처
+  // 맡길 일 — 생략하면 내가 가진 견적 트랙 전부. 내게 없는 트랙은 줄 수 없다.
+  tracks: z.array(PartnerChildTrack).min(1).optional(),
 });
 
 // forceReason — 관리자 대리 접속에서만 받는다(ACTIVE_POS 강제 전환 사유).

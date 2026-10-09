@@ -16,6 +16,7 @@ import {
   loadOwnedChild,
   loadPartnerChildren,
   removeOwnedChild,
+  resolveChildCapabilities,
   resolveChildEligibility,
 } from '../lib/partner-children';
 import {
@@ -41,7 +42,7 @@ const ChildParams = z.object({ childId: z.string().regex(/^\d+$/) });
 const BLOCK_ERRORS = {
   NO_PCB_TRACK: {
     error: 'NO_PCB_TRACK',
-    message: 'PCB 견적 협력사만 하위 협력사를 둘 수 있습니다.',
+    message: '견적 트랙(PCB 제작·부품 조달)이 있는 협력사만 하위 협력사를 둘 수 있습니다.',
   },
   PARENT_IS_CHILD: {
     error: 'PARENT_IS_CHILD',
@@ -51,6 +52,11 @@ const BLOCK_ERRORS = {
     error: 'PARENT_HAS_ACTIVE_POS',
     message: '진행 중인 발주가 있어 지금은 하위 협력사를 등록할 수 없습니다 — 발주 종결 후 등록해 주세요.',
   },
+} as const;
+
+const NO_TRACK = {
+  error: 'TRACK_NOT_ALLOWED',
+  message: '하위 협력사에게는 내가 가진 견적 트랙(PCB 제작·부품 조달) 안에서만 일을 맡길 수 있습니다.',
 } as const;
 
 const NOT_OWNED = {
@@ -113,6 +119,9 @@ export const partnerChildRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         if (!forced) return reply.status(409).send(BLOCK_ERRORS[eligibility.reason]);
         forceNote = b.forceReason ?? null;
       }
+      // 맡길 일 — 생략하면 내 견적 트랙 전부. 내게 없는 트랙만 골랐으면 거절한다.
+      const granted = resolveChildCapabilities(me.capabilities, b.tracks);
+      if (granted.tracks.length === 0) return reply.status(409).send(NO_TRACK);
 
       const child = await prisma.$transaction(async (tx) => {
         const created = await tx.spPartner.create({
@@ -121,7 +130,7 @@ export const partnerChildRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             name: b.name,
             country: b.country,
             defaultCurrency: b.settlementCurrency,
-            capabilities: ['pcb_rfq'],
+            capabilities: granted.capabilities,
             status: 'approved',
             contactName: b.contactName ?? null,
             contactPhone: b.contactPhone ?? null,
@@ -202,6 +211,12 @@ export const partnerChildRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (b.contactPhone !== undefined) data.contactPhone = b.contactPhone ?? null;
       if (b.contactEmail !== undefined) data.contactEmail = b.contactEmail ?? null;
       if (b.settlementCurrency !== undefined) data.defaultCurrency = b.settlementCurrency;
+      // 맡길 일을 바꾼다 — 이후 배정부터 적용(이미 보낸 견적요청·발주는 그대로 진행된다).
+      if (b.tracks !== undefined) {
+        const granted = resolveChildCapabilities(me.capabilities, b.tracks, owned.child.capabilities);
+        if (granted.tracks.length === 0) return reply.status(409).send(NO_TRACK);
+        data.capabilities = granted.capabilities;
+      }
       await prisma.$transaction([
         prisma.spPartner.update({ where: { id: childId }, data }),
         ...(b.settlementCurrency === undefined

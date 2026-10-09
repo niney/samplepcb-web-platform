@@ -93,6 +93,7 @@ import { resolveManufacturer } from './manufacturer-alias';
 import { PARTNER_SUPPLIER, SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { isCatalogInquiryOffer, partOffersForDisplay } from './parts-offer-kind';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
+import { asBomPartnerCurrency, buildPartnerRfqOffer, ensureQuotePartnerFx } from './bom-fx';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 import {
   supplierRunLimitedComponentCount,
@@ -5177,6 +5178,8 @@ export type PostOrderResolveError =
   | 'catalog-offer-not-found'
   | 'rfq-item-not-found'
   | 'not-priced'
+  // 외화 회신인데 이 견적에 그 통화의 환율이 없다(관리자가 입력해야 한다).
+  | 'fx-unavailable'
   | 'no-offer'
   | 'qty-below-needed';
 
@@ -5370,28 +5373,36 @@ export async function resolvePostOrderChange(
         where: { id: change.rfqItemId },
         include: { rfq: { include: { partner: true } } },
       });
-      if (rfqItem?.rfq.quoteId !== quoteId || rfqItem.quoteItemId !== itemId) {
+      // 직접 트랙(parent=0)의 회신만 — 마스터딜러의 하위 회신은 관리자 선정 대상이 아니다.
+      if (
+        rfqItem?.rfq.quoteId !== quoteId ||
+        rfqItem.quoteItemId !== itemId ||
+        rfqItem.rfq.parentPartnerId !== 0n
+      ) {
         return 'rfq-item-not-found';
       }
       if (rfqItem.unitPrice === null) return 'not-priced';
-      const unitPrice = Number(rfqItem.unitPrice);
       const orderQty = effectiveRfqReplyQty(needed, rfqItem.replyQty, rfqItem.moq);
-      item.selectedOffer = {
-        offerKey: `rfq:${String(rfqItem.id)}`,
-        supplier: rfqItem.rfq.partner.name, // 표시 어휘 — 협력사명(고객 박제에선 '당사 협력 공급처'로 바꾼다)
-        supplierSku: '',
-        packaging: null,
-        breakQty: Math.max(1, rfqItem.replyQty ?? needed),
-        unitPrice,
-        currency: rfqItem.currency,
-        unitPriceKrw: rfqItem.currency === 'KRW' ? unitPrice : null,
-        moq: rfqItem.moq,
-        orderMultiple: null,
-        stock: rfqItem.stock,
-        priceBreaks: [{ qty: 1, price: unitPrice }],
-        fetchedAt: (rfqItem.rfq.respondedAt ?? new Date()).toISOString(),
-        pinned: true,
-      };
+      // 외화 회신은 견적 고정 환율로 원화 환산해 박제한다 — 견적 단계 선정(applyPartnerRfqSelection)과
+      // 같은 조립기를 쓴다. 이 함수는 계산만 하지만 환율 고정은 예외로 여기서 일어날 수 있다:
+      // 굳힌 값이 없으면 지금 굳혀야 요청 작성과 적용이 같은 환율을 본다(품목은 건드리지 않는다).
+      const rfqCurrency = asBomPartnerCurrency(rfqItem.currency);
+      const partnerOffer = buildPartnerRfqOffer(
+        {
+          rfqItemId: rfqItem.id,
+          partnerName: rfqItem.rfq.partner.name, // 표시 어휘 — 협력사명(고객 박제에선 '당사 협력 공급처'로 바꾼다)
+          unitPrice: Number(rfqItem.unitPrice),
+          currency: rfqItem.currency,
+          replyQty: rfqItem.replyQty,
+          moq: rfqItem.moq,
+          stock: rfqItem.stock,
+          respondedAt: rfqItem.rfq.respondedAt,
+        },
+        needed,
+        rfqCurrency === 'KRW' ? null : await ensureQuotePartnerFx(quoteId, rfqCurrency, db),
+      );
+      if (partnerOffer === null) return 'fx-unavailable';
+      item.selectedOffer = partnerOffer;
       item.selectionSource = 'partner';
       item.selectedCandidateKey = null;
       item.orderQty = orderQty;
@@ -7383,7 +7394,13 @@ export async function loadSupplierSearchSummary(
   };
 }
 
-export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
+export async function toDetailDto(
+  quote: QuoteRow,
+  items: QuoteItemRow[],
+  sheets: QuoteSheetRow[] = [],
+  /** 관리자 응답만 true — 협력사 외화 회신의 원본(결제통화 단가·환율)을 남긴다. 고객에게는 지운다. */
+  keepPartnerCost = false,
+): Promise<BomQuoteDetailType> {
   const activeItems = filterActiveQuoteItems(items, sheets);
   const customerAnswerVisible = customerCanViewQuoteAnswer(quote.status);
   const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
@@ -7413,7 +7430,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     .map((row) => {
       const meta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);
       const identityPreview = candidateDisplayMeta.identityPreviewByRowIdx.get(row.rowIdx) ?? null;
-      return toItemDto(
+      const dto = toItemDto(
         row,
         resolveBomQuoteItemImageUrl(
           meta?.imageUrl,
@@ -7427,6 +7444,11 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
         row.selectedOffer === null && (meta?.catalogInquiry ?? false),
         identityPreview,
       );
+      // 협력사의 결제통화 단가와 적용 환율은 공급망 정보다 — 고객 화면에 내보내지 않는다.
+      if (!keepPartnerCost && dto.selectedOffer?.sourcePrice != null) {
+        dto.selectedOffer = { ...dto.selectedOffer, sourcePrice: null };
+      }
+      return dto;
     });
   const rowLimitCounts = itemDtos.reduce(
     (counts, item) => {
@@ -7592,7 +7614,7 @@ export async function toAdminDetailDto(
   // 주문 헤더 파생(⑧ 결제 판정) — 담김 상태(주문 헤더 없음)면 getOrderInfoByCtId 가 null.
   const [info, detail, members, memberProfile] = await Promise.all([
     quote.ctId === null ? Promise.resolve(null) : getOrderInfoByCtId(quote.ctId),
-    toDetailDto(quote, items, sheets),
+    toDetailDto(quote, items, sheets, true),
     getMembersByIds([quote.mbId]),
     prisma.spMemberProfile.findUnique({
       where: { mbId: quote.mbId },

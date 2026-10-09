@@ -2,6 +2,7 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   ADMIN_BOM_LIVE_SUPPLIERS,
+  AdminBomPartnerFxBody,
   AdminBomRfqListResponse,
   AdminBomQuotePartnerStockResponse,
   AdminBomRfqReplyResponse,
@@ -19,8 +20,10 @@ import { loadQuoteItemPartnerHolders } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
 import {
   applyPartnerRfqSelection,
+  applyQuotePartnerFx,
   diffSendRfqs,
   loadAdminRfqs,
+  loadQuotePartnerFx,
   loadRfqScopeItems,
   reissueMagicToken,
   saveRfqReply,
@@ -49,13 +52,16 @@ const IdParams = z.object({ id: z.coerce.bigint() });
 const RfqParams = z.object({ id: z.coerce.bigint(), rfqId: z.coerce.bigint() });
 
 async function adminRfqListData(quoteId: bigint) {
-  const [rfqs, supplierTargets] = await Promise.all([
+  const [rfqs, supplierTargets, partnerFx] = await Promise.all([
     loadAdminRfqs(quoteId),
     getAdminBomSupplierRefreshTargets(quoteId),
+    loadQuotePartnerFx(quoteId),
   ]);
   return {
     rfqs,
     supplierComparisonTargetCount: supplierTargets?.length ?? 0,
+    // 이 견적에 굳힌 협력사 외화 환율 — 비교표의 원화 환산과 고객가가 이 값을 쓴다.
+    partnerFx,
   };
 }
 
@@ -415,7 +421,40 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         include: { partner: true, items: { orderBy: { id: 'asc' } } },
       });
       if (updated === null) return reply.notFound('RFQ 를 찾을 수 없습니다');
-      return { result: true as const, data: toAdminRfqView(updated) };
+      return {
+        result: true as const,
+        data: toAdminRfqView(updated, await loadQuotePartnerFx(updated.quoteId)),
+      };
+    },
+  );
+
+  // ── PUT — 협력사 외화 환율을 직접 굳힌다(견적 단위·통화별) ───────────────────
+  // 자동 환율원을 못 구했거나 값을 바꿔야 할 때. 이미 그 통화로 선정한 품목은 새 환율로 다시
+  // 환산된다 — 그래서 선정을 바꿀 수 있는 동안(검토 중)에만 연다.
+  fastify.put(
+    '/bom-quotes/:id/partner-fx',
+    {
+      schema: {
+        params: IdParams,
+        body: AdminBomPartnerFxBody,
+        response: { 200: AdminBomRfqListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      if (quote.status !== 'requested' && quote.status !== 'reviewing') {
+        return reply.status(409).send({
+          error: 'INVALID_QUOTE_STATUS',
+          message: statusGuardMessage(
+            quote.status,
+            '회신 확정 전(검토 중)에만 환율을 바꿀 수 있습니다.',
+          ),
+        });
+      }
+      const result = await applyQuotePartnerFx(quote.id, request.body.currency, request.body.rate);
+      if (result !== 'ok') return reply.notFound('견적을 찾을 수 없습니다');
+      return { result: true as const, data: await adminRfqListData(quote.id) };
     },
   );
 
@@ -472,7 +511,10 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         if (partnerResult !== 'ok') {
           return reply.status(409).send({
             error: partnerResult.toUpperCase().replaceAll('-', '_'),
-            message: '선정에 실패했습니다 — 회신과 공급사 시세를 새로고침해 주세요.',
+            message:
+              partnerResult === 'fx-unavailable'
+                ? '외화 회신에 쓸 환율을 가져오지 못했습니다 — 비교 화면에서 환율을 입력한 뒤 선정해 주세요.'
+                : '선정에 실패했습니다 — 회신과 공급사 시세를 새로고침해 주세요.',
           });
         }
         return { result: true as const };

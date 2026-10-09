@@ -23,6 +23,8 @@ export interface BomRfqRequestEmailParams {
   itemCount: number;
   /** 매직링크 URL(§6.9) — 있으면 주 버튼(가입 없이 회신), 포털은 보조 링크로. */
   magicUrl?: string | null;
+  /** 마스터딜러가 하위에 보내는 재요청이면 그 조직명 — 누가 요청했는지 본문에 밝힌다. */
+  requesterName?: string | null;
 }
 
 export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
@@ -61,7 +63,9 @@ export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
     <tr><td style="background:#ffffff;border:1px solid #e4eaf3;border-radius:12px;padding:24px;">
       <div style="font-size:17px;font-weight:700;color:#14243e;padding-bottom:12px;">부품 견적요청이 도착했습니다</div>
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
-        ${esc(p.partnerName)} 담당자님, 아래 건의 부품 견적을 요청드립니다.
+        ${esc(p.partnerName)} 담당자님, ${
+          p.requesterName == null ? '' : `<b>${esc(p.requesterName)}</b>에서 `
+        }아래 건의 부품 견적을 요청드립니다.
       </p>
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
         <tr>
@@ -88,7 +92,103 @@ export interface BomPoIssuedEmailParams {
   partnerName: string;
   quoteTitle: string;
   itemCount: number;
-  totalAmount: number; // KRW, VAT 별도
+  /** 결제통화 금액(VAT 별도) — 외화 발주면 소수 2자리. */
+  totalAmount: number;
+  /** 결제통화 — 생략하면 원화. */
+  currency?: string;
+}
+
+/** 협력사에게 보이는 금액 — 자기 결제통화로 적는다(원화 0자리·외화 2자리). */
+export const bomPartnerAmountText = (amount: number, currency = 'KRW'): string => {
+  if (currency === 'KRW') return `${Math.round(amount).toLocaleString('en-US')}원`;
+  const symbol = currency === 'USD' ? 'US$' : currency === 'CNY' ? '¥' : `${currency} `;
+  return `${symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+export interface BomMdPoIssuedEmailParams {
+  partnerName: string;
+  /** 발주처 — 마스터딜러 조직명. */
+  requesterName: string;
+  quoteTitle: string;
+  currency: string;
+  totalAmount: number;
+  memo: string | null;
+  /** 하위에 포털 계정이 있으면 포털에서 확인할 수 있다고 안내한다. */
+  hasPortalAccount: boolean;
+  items: readonly { mpn: string; manufacturerName: string | null; qty: number; unitPrice: number; lineTotal: number }[];
+}
+
+// 마스터딜러 하위 발주(D47) — 하위는 계정이 없는 경우가 많아 품목을 본문에 그대로 싣는다.
+// 확인·문의는 발주처(마스터딜러)에게 한다 — 샘플피씨비는 이 문서의 당사자가 아니다.
+export function buildBomMdPoIssuedEmail(p: BomMdPoIssuedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const cell = 'padding:6px 8px;font-size:12px;border:1px solid #e1e6ea;';
+  const rows = p.items
+    .map(
+      (item) => `
+        <tr>
+          <td style="${cell}color:#222;">${esc(item.mpn)}${
+            item.manufacturerName === null ? '' : `<br><span style="color:#8593ab;">${esc(item.manufacturerName)}</span>`
+          }</td>
+          <td style="${cell}text-align:right;">${item.qty.toLocaleString('en-US')}</td>
+          <td style="${cell}text-align:right;">${item.unitPrice.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+          <td style="${cell}text-align:right;">${esc(bomPartnerAmountText(item.lineTotal, p.currency))}</td>
+        </tr>`,
+    )
+    .join('');
+  const portalUrl = `${WEB_BASE_URL}/app/partner`;
+  return {
+    subject: `[${p.requesterName}] 부품 발주서 — ${p.quoteTitle} (${String(p.items.length)}개 품목)`,
+    html: `
+<div style="margin:0;padding:24px 12px;background:#f5f7fb;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;margin:0 auto;border-collapse:collapse;">
+    <tr><td style="padding:0 4px 12px;font-size:15px;font-weight:800;color:#081226;">SAMPLEPCB 스마트 BOM</td></tr>
+    <tr><td style="background:#ffffff;border:1px solid #e4eaf3;border-radius:12px;padding:24px;">
+      <div style="font-size:17px;font-weight:700;color:#14243e;padding-bottom:12px;">부품 발주서가 도착했습니다</div>
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, <b>${esc(p.requesterName)}</b>에서 아래 품목을 발주합니다.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">발주 건</td>
+          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${esc(p.quoteTitle)}</td>
+        </tr>
+        <tr>
+          <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">발주 합계</td>
+          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;"><b>${esc(bomPartnerAmountText(p.totalAmount, p.currency))}</b></td>
+        </tr>${
+          p.memo === null || p.memo === ''
+            ? ''
+            : `
+        <tr>
+          <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">메모</td>
+          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${esc(p.memo)}</td>
+        </tr>`
+        }
+      </table>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:14px;">
+        <tr>
+          <th style="${cell}background:#f3f6f9;color:#555;text-align:left;">품번</th>
+          <th style="${cell}background:#f3f6f9;color:#555;text-align:right;">수량</th>
+          <th style="${cell}background:#f3f6f9;color:#555;text-align:right;">단가(${esc(p.currency)})</th>
+          <th style="${cell}background:#f3f6f9;color:#555;text-align:right;">금액</th>
+        </tr>${rows}
+      </table>
+      <p style="margin:14px 0 0;font-size:12px;color:#555;line-height:1.6;">
+        ${
+          p.hasPortalAccount
+            ? `<a href="${esc(portalUrl)}" style="color:#2563eb;">파트너 포털</a>에서 발주를 확인하고 출고를 알릴 수 있습니다. `
+            : ''
+        }발주 내용 확인과 문의는 발주처(${esc(p.requesterName)})로 연락해 주세요.
+      </p>
+    </td></tr>
+    <tr><td style="padding:12px 4px 0;font-size:11px;color:#8593ab;">
+      본 메일은 ${esc(p.requesterName)}의 요청으로 샘플피씨비 스마트 BOM 이 보낸 발주 알림입니다.</td></tr>
+  </table>
+</div>`,
+  };
 }
 
 // 발주서 발행 알림(D18-8) — 확인은 포털에서.
@@ -97,7 +197,7 @@ export function buildBomPoIssuedEmail(p: BomPoIssuedEmailParams): {
   html: string;
 } {
   const portalUrl = `${WEB_BASE_URL}/app/partner`;
-  const won = p.totalAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const amountText = bomPartnerAmountText(p.totalAmount, p.currency);
   return {
     subject: `[샘플피씨비] 발주서 도착 — ${p.quoteTitle} (${String(p.itemCount)}개 품목)`,
     html: `
@@ -116,7 +216,7 @@ export function buildBomPoIssuedEmail(p: BomPoIssuedEmailParams): {
         </tr>
         <tr>
           <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">품목 / 합계</td>
-          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${String(p.itemCount)}개 / ${esc(won)}원 (VAT 별도)</td>
+          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${String(p.itemCount)}개 / ${esc(amountText)} (VAT 별도)</td>
         </tr>
       </table>
       <div style="padding-top:20px;">

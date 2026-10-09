@@ -575,6 +575,10 @@ model SpBomQuote {
   finalTotal                Int                        @default(0)
   usdKrwRateUsed            Decimal?                   @db.Decimal(10, 2)
   exchangeRateSnapshot      Json? // 적용 환율의 출처·기준일·안전계수(RFQ 감사 스냅샷)
+  // 협력사 외화 회신의 견적 단위 고정 환율(docs/SMARTBOM_PARTNER_RFQ.md "외화 회신") —
+  // { USD?: {...}, CNY?: {...} }. 통화별로 한 번 얼리고 그 견적이 끝날 때까지 쓴다:
+  // 한 견적 안에서 공급사 가격과 협력사 회신이 같은 환율로 비교된다(선정 시점마다 다시 보지 않는다).
+  partnerFxRates            Json?
   uncostedCount             Int                        @default(0)
   customerMemo              String?                    @db.Text
   adminMemo                 String?                    @db.Text // 내부 메모 — 고객 응답 미노출
@@ -1180,6 +1184,8 @@ model SpPartner {
   parts           SpPartnerPart[]
   rfqs            SpBomRfq[]
   pos             SpBomPo[]
+  bomMdPosReceived SpBomMdPo[]          @relation("BomMdPoChild") // 마스터딜러에게서 받은 하위 발주
+  bomMdPosIssued   SpBomMdPo[]          @relation("BomMdPoParent") // 마스터딜러로서 낸 하위 발주
   pcbRfqs         SpPcbRfq[]
   pcbPos          SpPcbPo[]
   pcbAsCases      SpPcbAsCase[] // 재생산 대상(target)으로서
@@ -1365,8 +1371,11 @@ model SpBomRfq {
   partnerId        BigInt
   parentPartnerId  BigInt         @default(0) // 0=관리자 직접(센티넬 — FK 없음). MD 중개는 후속
   status           String         @default("requested") @db.VarChar(16) // requested|quoted|closed
-  totalAmount      Int? // 회신 합계(KRW 정수) — 회신 저장 시 박제
-  currency         String         @default("KRW") @db.VarChar(8) // 1차 KRW 단일(D7) — 외화 회신 자리
+  totalAmount      Int? // 회신 합계(KRW 정수) — 회신 저장 시 박제. 외화 회신이면 null(totalOriginal 이 정본)
+  // 결제통화 = 링크 통화(관리자↔협력사는 조직 기본 통화, 마스터딜러↔하위는 소속 링크 통화).
+  // 배정 시점에 박제한다 — 이후 조직·링크 통화를 바꿔도 이 견적요청은 그대로다.
+  currency         String         @default("KRW") @db.VarChar(8)
+  totalOriginal    Decimal?       @db.Decimal(15, 2) // 회신 합계(결제통화) — 원화면 totalAmount 와 같은 값
   deliveryDate     DateTime? // 협력사 회신 납기
   memo             String?        @db.Text // 협력사 회신 메모
   requestedAt      DateTime       @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
@@ -1397,8 +1406,13 @@ model SpBomPo {
   quoteId               BigInt
   partnerId             BigInt
   status                String           @default("issued") @db.VarChar(16) // issued|confirmed|closed
-  totalAmount           Int // 발주 합계(KRW 정수, VAT 별도) — 생성 시 박제
+  totalAmount           Int // 발주 합계(KRW 정수, VAT 별도) — 생성 시 박제. 외화 발주면 원화 회계값
+  // 결제통화(협력사가 받는 통화). 외화면 금액 정본은 totalOriginal·품목의 *Original 이고,
+  // 원화 컬럼(totalAmount·unitPrice·lineTotal)은 발행 시점 **실제 환율**(exchangeRate, 안전 마진
+  // 없음)로 환산한 회계값이다 — 고객가에 쓴 견적 고정 환율과 다른 값이다.
   currency              String           @default("KRW") @db.VarChar(8)
+  totalOriginal         Decimal?         @db.Decimal(15, 2)
+  exchangeRate          Decimal?         @db.Decimal(12, 6) // 결제통화→KRW, 원화 발주는 null
   memo                  String?          @db.Text // 관리자 발주 메모(협력사 노출)
   // 외부공급사 실행 결과 박제(D20) — Mouser {cartKey…}/DigiKey {singleUseUrl…}/실패 {error}.
   // 사람 협력사 발주는 null. 재시도 시 덮어쓴다.
@@ -1417,10 +1431,95 @@ model SpBomPo {
   items                 SpBomPoItem[]
   shipment              SpBomShipment? // 대표(생성) 관계 — 소속 판정은 shipmentLink 가 진실(§6.10)
   shipmentLink          SpBomShipmentPo?
+  mdPos                 SpBomMdPo[] // 이 발주서를 받은 마스터딜러가 하위에 다시 낸 발주
+  remittances           SpBomRemittance[] // 송금 원장(D48)
 
   @@unique([quoteId, partnerId])
   @@index([partnerId, status]) // 협력사 포털 워크큐
   @@map("sp_bom_po")
+}
+
+// ── BOM 송금 원장(D48, docs/SMARTBOM_PARTNER_RFQ.md §6.44) ──────────────────────────────
+// 협력사 발주서 1:N 송금 — PCB 송금 원장(SpPcbRemittance)과 같은 모양·같은 이유(부분·분할 송금,
+// 살아 있는 발주서에 붙어 잔액을 계산하므로 FK). 송금 통화 = 발주 통화(서버 강제). 외화면 **송금한
+// 날의 실제 환율**과 원화 환산을 박제한다 — 발주서의 장부 환율(SpBomPo.exchangeRate)과의 차이가 환차다.
+model SpBomRemittance {
+  id           BigInt   @id @default(autoincrement())
+  poId         BigInt
+  remittedOn   DateTime // 송금일(KST 날짜) — 시각은 의미 없다
+  currency     String   @db.VarChar(8)
+  amount       Decimal  @db.Decimal(15, 2)
+  exchangeRate Decimal? @db.Decimal(12, 6) // 외화 송금의 실제 적용 환율. KRW 면 null
+  krwAmount    Int? // 회계 환산 박제(외화만)
+  memo         String?  @db.VarChar(500)
+  createdBy    String   @db.VarChar(191) // 기록자 mbId — 돈 기록이라 행위자를 남긴다
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  po           SpBomPo  @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  @@index([poId])
+  @@index([remittedOn])
+  @@map("sp_bom_remittance")
+}
+
+// ── 마스터딜러 하위 발주(D47, docs/SMARTBOM_PARTNER_RFQ.md §6.43) ────────────────────────
+// 마스터딜러가 샘플피씨비에게서 받은 발주서(SpBomPo)의 품목 가운데 하위 회신으로 견적한 것을
+// 그 하위에 다시 발주한다. **SpBomPo 에 parentPartnerId 를 더하지 않고 따로 둔다** — 샘플피씨비의
+// 발주 원장은 입고·검수·선적 묶음·고객 진행이 전부 그 표를 읽는다(조회 60여 곳). 하위 발주는
+// 마스터딜러의 문서이고 물건은 마스터딜러에게 간다. 금액은 하위 통화(링크 통화)가 정본이다.
+// 상태: issued(보냄) → confirmed(하위 확인) → shipped(하위 출고) → received(마스터딜러 수령).
+// 출고 전에는 삭제할 수 있다(상위 발주서를 삭제하면 함께 사라진다 — Cascade).
+model SpBomMdPo {
+  id              BigInt          @id @default(autoincrement())
+  poId            BigInt // 상위 발주서(샘플피씨비 → 마스터딜러)
+  quoteId         BigInt
+  parentPartnerId BigInt // 마스터딜러(발주처)
+  partnerId       BigInt // 하위 협력사(수주처)
+  status          String          @default("issued") @db.VarChar(16) // issued|confirmed|shipped|received
+  currency        String          @db.VarChar(8) // 마스터딜러↔하위 링크 통화 — 하위 재요청에 박제된 값
+  totalAmount     Decimal         @db.Decimal(15, 2)
+  memo            String?         @db.Text
+  carrier         String?         @db.VarChar(100)
+  trackingNo      String?         @db.VarChar(100)
+  issuedBy        String          @db.VarChar(191) // 발행 계정 — 관리자 대리 접속이면 관리자 mbId
+  issuedAt        DateTime        @default(now())
+  confirmedAt     DateTime?
+  shippedAt       DateTime?
+  receivedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  po              SpBomPo         @relation(fields: [poId], references: [id], onDelete: Cascade)
+  partner         SpPartner       @relation("BomMdPoChild", fields: [partnerId], references: [id])
+  parent          SpPartner       @relation("BomMdPoParent", fields: [parentPartnerId], references: [id])
+  items           SpBomMdPoItem[]
+
+  @@unique([poId, partnerId])
+  @@index([partnerId, status])
+  @@index([parentPartnerId, status])
+  @@index([quoteId])
+  @@map("sp_bom_md_po")
+}
+
+model SpBomMdPoItem {
+  id               BigInt    @id @default(autoincrement())
+  mdPoId           BigInt
+  poItemId         BigInt    @unique // 상위 발주 품목(참조만) — 한 품목은 하위 발주 한 건에만
+  quoteItemId      BigInt
+  mpn              String    @db.VarChar(191)
+  manufacturerName String?   @db.VarChar(191)
+  description      String?   @db.VarChar(1000)
+  qty              Int
+  unitPrice        Decimal   @db.Decimal(14, 4) // 하위 회신가(하위 통화) — 마스터딜러가 고를 때 굳힌 값
+  lineTotal        Decimal   @db.Decimal(15, 2)
+  moq              Int?
+  stock            Int?
+  dateCode         String?   @db.VarChar(100)
+  leadTime         String?   @db.VarChar(64)
+  createdAt        DateTime  @default(now())
+  mdPo             SpBomMdPo @relation(fields: [mdPoId], references: [id], onDelete: Cascade)
+
+  @@index([mdPoId])
+  @@map("sp_bom_md_po_item")
 }
 
 // 선적(D21) — 경량 모델: 1차는 발주서당 1건(poId UNIQUE). 발주 스키마 무참조(D13)라
@@ -1496,6 +1595,9 @@ model SpBomPoItem {
   qty              Int // 발주 수량(= 생성 시점 orderQty 박제)
   unitPrice        Decimal              @db.Decimal(14, 4) // 선정 단가 박제(VAT 별도)
   lineTotal        Int // round(unitPrice × qty) KRW 정수
+  // 외화 발주만 — 협력사가 회신한 결제통화 단가·금액(정본). 원화 발주는 null.
+  unitPriceOriginal Decimal?            @db.Decimal(14, 4)
+  lineTotalOriginal Decimal?            @db.Decimal(15, 2)
   moq              Int?
   stock            Int?
   dateCode         String?              @db.VarChar(100)
@@ -1648,6 +1750,16 @@ model SpBomRfqItem {
   leadTime    String?          @db.VarChar(64)
   memo        String?          @db.VarChar(500)
   offerId     BigInt? // source=api 근거 SpPartOffer 참조 — 카탈로그 정리와 분리(FK 없음)
+  // 마스터딜러 변환점 박제(PCB D1 의 품목 단위 판) — 마스터딜러가 이 품목에 하위 회신을 골라
+  // 마진을 얹은 경우에만 채운다: unitPrice = sourceUnitPrice × sourceRate × (1 + marginRate/100).
+  // 고른 하위의 **견적요청 문서**(자기참조 — FK 없음)를 가리킨다. 품목은 quoteItemId 가 같다.
+  // 회신 행 id 를 쓰지 않는 까닭: 하위가 다시 회신하면 행이 새로 만들어져 id 가 바뀐다.
+  // 원단가·환율·마진을 함께 남겨 감사 때 계산을 복원하고, 하위 회신이 바뀌면 원단가로 알아챈다.
+  selectedChildRfqId     BigInt?
+  marginRate             Decimal?   @db.Decimal(6, 2)
+  sourceCurrency         String?    @db.VarChar(8)
+  sourceUnitPrice        Decimal?   @db.Decimal(14, 4)
+  sourceRate             Decimal?   @db.Decimal(12, 6)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   rfq         SpBomRfq         @relation(fields: [rfqId], references: [id], onDelete: Cascade)

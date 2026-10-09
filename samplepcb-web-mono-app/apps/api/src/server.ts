@@ -41,6 +41,8 @@ import { adminPartnerRoutes } from './routes/admin-partners';
 import { adminPartnerPartRoutes } from './routes/admin-partner-parts';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { partnerPoRoutes } from './routes/partner-pos';
+import { partnerMdPoRoutes } from './routes/partner-md-pos';
+import { adminBomRemittanceRoutes } from './routes/admin-bom-remittances';
 import { partnerAccessRoutes } from './routes/partner-access';
 import { partnerChildRoutes } from './routes/partner-children';
 import { partnerInviteRoutes } from './routes/partner-invite';
@@ -151,6 +153,8 @@ await app.register(adminBomQuoteRoutes, { prefix: '/api/admin' });
 await app.register(adminBomRfqRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 협력사 발주서(D18)
 await app.register(adminBomPoRoutes, { prefix: '/api/admin' });
+// BOM 송금 원장(D48) — 협력사 발주서 1:N 송금
+await app.register(adminBomRemittanceRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 입고 스캔(D42): 공급사 봉투 라벨 2D 바코드 → 발주 품목 입고 원장
 await app.register(adminBomReceivingRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — DigiKey 3-legged OAuth 연결 상태·시작·해제(D42)
@@ -180,6 +184,8 @@ await app.register(partnerInviteRoutes, { prefix: '/api' });
 await app.register(partnerPartRoutes, { prefix: '/api' });
 await app.register(partnerRfqRoutes, { prefix: '/api' });
 await app.register(partnerPoRoutes, { prefix: '/api' });
+// 마스터딜러 하위 발주(D47) — 발주처·수주처 공용, 문서 단위 권한은 라우트가 판정
+await app.register(partnerMdPoRoutes, { prefix: '/api' });
 // 매직링크 무로그인 회신(§6.9) — 인증 = 토큰(메일함 소유), 권한은 RFQ 1건 스코프
 await app.register(rfqReplyRoutes, { prefix: '/api' });
 // PCB 파트너 트랙 P1(docs/PCB_PARTNER_TRACK.md) — 견적행 RFQ: 관리자·포털·매직링크

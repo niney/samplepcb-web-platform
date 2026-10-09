@@ -45,12 +45,15 @@ import {
   toPartnerPoDetail,
   toPartnerPoListItem,
   loadShipmentFilesMap,
+  actualSupplyAmountOf,
   loadShipmentGroupMap,
   reportPoShortage,
   requestBomShipmentCaseRef,
   updatePoShortage,
   type PartnerShipmentError,
 } from '../lib/bom-po';
+import { poHasChildItems } from '../lib/bom-md-po';
+import { listBomRemittanceRows, summarizeBomRemittances } from '../lib/bom-remittance';
 import { collectMultipart } from '../lib/market';
 import {
   buildInvoiceDraft,
@@ -151,13 +154,33 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           ]
         : await Promise.all([
             loadShipmentFilesMap([shipmentId]),
-            loadShipmentGroupMap([shipmentId]),
+            loadShipmentGroupMap([shipmentId], 'partner'),
           ]);
     const key = shipmentId?.toString();
+    const [remittanceRows, hasChildItems] = await Promise.all([
+      listBomRemittanceRows(po.id),
+      poHasChildItems(po),
+    ]);
+    // 협력사에게는 결제통화의 받은 금액·잔액만 — 환차는 샘플피씨비 회계라 싣지 않는다.
+    const summary = summarizeBomRemittances(
+      po,
+      actualSupplyAmountOf(po.items, 'partner'),
+      remittanceRows,
+    );
+    const remittance = {
+      currency: summary.currency,
+      poAmount: summary.poAmount,
+      paidAmount: summary.paidAmount,
+      balance: summary.balance,
+      status: summary.status,
+      count: summary.count,
+      lastRemittedOn: summary.lastRemittedOn,
+    };
     return toPartnerPoDetail(
       po,
       key === undefined ? [] : (filesMap.get(key) ?? []),
       key === undefined ? [] : (groupMap.get(key) ?? []),
+      { remittance, hasChildItems },
     );
   };
 
