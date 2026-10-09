@@ -136,6 +136,8 @@ interface AdminRfqListData {
   kept?: number;
   removed?: number;
   rfqs: AdminRfqRow[];
+  /** 이 견적에 굳힌 협력사 외화 환율(통화별) — 원화 환산과 고객가의 기준. */
+  partnerFx?: { USD: { rate: number } | null; CNY: { rate: number } | null };
 }
 
 interface AdminQuoteItem {
@@ -700,10 +702,14 @@ describe.skipIf(!RUN || !JOURNEY)(
       expect(new Set(detailB.items.map((item) => item.quoteItemId))).toEqual(
         new Set(groupBItemIds),
       );
-      // 현재 BOM 협력사 RFQ는 파트너 기본 통화와 무관하게 KRW 전용이다.
+      // 협력사는 링크 통화로 회신한다(외화 회신) — 배정 시 조직의 결제통화가 견적요청에 박제된다.
       expect(detailA.currency).toBe('KRW');
-      expect(detailB.currency).toBe('KRW');
-      F('C03', 'obs', '협력2(CN·기본 USD)도 현재 BOM RFQ 계약에 따라 KRW로 회신');
+      expect(detailB.currency).toBe('USD');
+      const fxResponse = await api(A, 'GET', `/api/admin/bom-quotes/${quoteId}/rfqs`);
+      const fxData: AdminRfqListData | undefined = fxResponse.json?.data;
+      const usdRate = fxData?.partnerFx?.USD?.rate ?? 0;
+      expect(usdRate, '달러 환율이 견적에 굳어 있어야 한다').toBeGreaterThan(0);
+      F('C03', 'obs', `협력2(CN·USD)는 달러로 회신 — 견적 고정 환율 ${String(usdRate)}`);
 
       const crossRead = await api(PA, 'GET', `/api/partner/rfqs/${String(rfqBId)}`);
       expect(crossRead.status, '다른 협력사 RFQ 은닉').toBe(404);
@@ -749,8 +755,9 @@ describe.skipIf(!RUN || !JOURNEY)(
       expect(replyA.status, JSON.stringify(replyA.json)).toBe(200);
 
       const replyItemsB = detailB.items.map((item, index) => {
-        const unitPrice = 260 + index * 40;
-        partnerReplyTotal += unitPrice * item.orderQty;
+        // 달러 단가 — 고객가 근거(원화 합계)에는 견적 고정 환율로 환산해 더한다.
+        const unitPrice = Math.round(((260 + index * 40) / 1_400) * 100) / 100;
+        partnerReplyTotal += unitPrice * usdRate * item.orderQty;
         return {
           quoteItemId: item.quoteItemId,
           unitPrice,
@@ -779,7 +786,7 @@ describe.skipIf(!RUN || !JOURNEY)(
         partnerBView,
         `/app/partner/bom/rfqs/${String(rfqBId)}`,
         'C03-partner-b-quoted',
-        [quoteTitle, '회신', 'KRW'],
+        [quoteTitle, '회신', 'USD'],
       );
     }, 120_000);
 

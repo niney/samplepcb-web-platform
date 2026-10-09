@@ -150,6 +150,8 @@ export interface MdStagePartnerSpec {
   orgName: string;
   country: string;
   currency: string;
+  /** 새로 만들 때의 역할 — 생략하면 PCB 견적(기존 무대). BOM 무대는 ['bom_rfq'] 를 준다. */
+  capabilities?: string[];
 }
 
 export async function ensureStagePartner(spec: MdStagePartnerSpec): Promise<PartnerFixture> {
@@ -181,7 +183,7 @@ export async function ensureStagePartner(spec: MdStagePartnerSpec): Promise<Part
         status: 'approved',
         country: spec.country,
         defaultCurrency: spec.currency,
-        capabilities: ['pcb_rfq'],
+        capabilities: spec.capabilities ?? ['pcb_rfq'],
         contactName: spec.orgName,
         contactEmail: `${spec.mbId}@test.local`,
       },

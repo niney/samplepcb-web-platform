@@ -86,6 +86,8 @@ interface AdminRfqRow {
   partnerId: number;
   partnerName: string;
   status: 'requested' | 'quoted' | 'closed';
+  /** 결제통화 — 배정 시 링크 통화로 박제된다(외화 회신). */
+  currency: string;
   magicToken: string | null;
   items: AdminRfqItem[];
 }
@@ -104,6 +106,8 @@ interface AdminQuoteItem {
 interface AdminQuoteData {
   status: string;
   updatedAt: string;
+  /** 선정 품목 합계(원화) — 외화 회신은 견적 고정 환율로 환산된 값. */
+  itemsTotal: number;
   items: AdminQuoteItem[];
 }
 
@@ -120,6 +124,9 @@ interface PoRow {
   partnerName: string;
   status: string;
   totalAmount: number;
+  /** 외화 발주의 결제통화 합계 — 원화 발주는 null. */
+  totalOriginal: number | null;
+  currency: string;
   items: PoItem[];
 }
 
@@ -165,6 +172,13 @@ interface FormApiResult {
   status: number;
   json: unknown;
 }
+
+/**
+ * 회신 단가 — 시드 단가는 원화 감각이라, 외화 결제 협력사는 그 통화 감각의 값으로 바꿔 넣는다.
+ * (통화만 다르고 값은 같은 4,850 달러짜리 MCU 는 주문 금액을 비현실적으로 부풀린다.)
+ */
+const replyUnitPrice = (line: SeedLine, currency: string): number =>
+  currency === 'KRW' ? line.unitPrice : Math.round((line.unitPrice / 1_400) * 100) / 100;
 
 const capabilityList = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
@@ -279,6 +293,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 6호 — RFQ 미응답 회수·재
   let oldReassignedToken: string | null = null;
   let activeMagicToken: string | null = null;
   let replyTotal = 0;
+  let replyCurrency = 'KRW';
   let confirmedTotal = 0;
   let odId: string | null = null;
   let poId: number | null = null;
@@ -458,6 +473,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 6호 — RFQ 미응답 회수·재
       throw new Error('재배정 RFQ·매직링크가 생성되지 않았습니다');
     }
     reassignedRfqId = rfq.rfqId;
+    replyCurrency = rfq.currency;
     oldReassignedToken = rfq.magicToken;
     ledger.push(`sp_bom_rfq #${String(reassignedRfqId)}(${REASSIGNED_PARTNER_NAME}, 재배정)`);
 
@@ -541,7 +557,9 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 6호 — RFQ 미응답 회수·재
         invalidSaveRequests += 1;
       }
     });
-    await page.getByLabel(`${firstLine.mpn} 단가(KRW)`).fill(String(firstLine.unitPrice));
+    await page
+      .getByLabel(`${firstLine.mpn} 단가(${replyCurrency})`)
+      .fill(String(replyUnitPrice(firstLine, replyCurrency)));
     const invalidReplyQty = page.getByLabel(`${firstLine.mpn} 회신수량`);
     await invalidReplyQty.fill('0');
     await page.getByRole('button', { name: '회신 저장', exact: true }).click();
@@ -558,15 +576,18 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 6호 — RFQ 미응답 회수·재
     for (const [index, line] of LINES.entries()) {
       const row = page.locator('tr').filter({ hasText: line.mpn }).first();
       const inputs = row.locator('input');
-      await inputs.nth(0).fill(String(line.unitPrice));
+      await inputs.nth(0).fill(String(replyUnitPrice(line, replyCurrency)));
       await inputs.nth(1).fill(String(line.orderQty));
       await inputs.nth(2).fill('1');
       await inputs.nth(3).fill(String(line.orderQty + 200));
       await inputs.nth(4).fill('25+');
       await inputs.nth(5).fill(index === 0 ? '7영업일' : '재고 보유');
       await inputs.nth(6).fill(`${line.mpn} 재배정 회신`);
-      replyTotal += line.unitPrice * line.orderQty;
+      replyTotal += replyUnitPrice(line, replyCurrency) * line.orderQty;
     }
+    // 합계는 결제통화로 박제된다 — 원화 0자리·외화 2자리.
+    replyTotal =
+      replyCurrency === 'KRW' ? Math.round(replyTotal) : Math.round(replyTotal * 100) / 100;
     await page.locator('input[type="date"]').fill(futureDate(9));
     await page
       .getByLabel('회신 메모', { exact: true })
@@ -599,7 +620,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 6호 — RFQ 미응답 회수·재
         A,
         'POST',
         `/api/admin/bom-quotes/${seeded.quoteId}/rfq-selection`,
-        { itemId: item.quoteItemId, rfqItemId: item.rfqItemId },
+        { kind: 'partner', itemId: item.quoteItemId, rfqItemId: item.rfqItemId },
       );
       expect(selected.status, JSON.stringify(selected.json)).toBe(200);
     }
@@ -628,7 +649,8 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 6호 — RFQ 미응답 회수·재
     detail = detailResponse.json?.data;
     expect(detail?.items.every((item) => item.selectionSource === 'partner')).toBe(true);
 
-    confirmedTotal = replyTotal + 8_500;
+    // 고객가는 서버가 환산한 원화 합계에서 나온다(외화 회신이면 견적 고정 환율).
+    confirmedTotal = Math.ceil(detail?.itemsTotal ?? 0) + 8_500;
     const completed = await api(A, 'POST', `/api/admin/bom-quotes/${seeded.quoteId}/complete`, {
       adminMemo: `[BOM 여정 6호 ${RUN_KEY}] 미응답 회수 후 확정`,
       answerNote: '1차 미응답 요청을 회수하고 대체 협력사 재고·납기를 확인했습니다.',
@@ -699,7 +721,9 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 6호 — RFQ 미응답 회수·재
     poId = po.poId;
     expect(data?.created).toBe(1);
     expect(po.items).toHaveLength(LINES.length);
-    expect(po.totalAmount).toBe(replyTotal);
+    // 발주 금액의 정본은 결제통화다 — 외화 발주의 원화 값은 발행일 환율의 회계값이라 회신 합계와 다르다.
+    expect(po.currency).toBe(replyCurrency);
+    expect(po.totalOriginal ?? po.totalAmount).toBe(replyTotal);
     expect(data?.pos.some((entry) => entry.partnerId === num(initialPartner.id))).toBe(false);
     const confirmed = await api(PB, 'POST', `/api/partner/pos/${String(poId)}/confirm`);
     expect(confirmed.status, JSON.stringify(confirmed.json)).toBe(200);
