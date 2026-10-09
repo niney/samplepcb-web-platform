@@ -182,8 +182,8 @@ R3 부터 사이드바 메뉴(완료된 발송).
 
 - 하위 협력사 직접 관리·대리 접속(2026-10-09): `e2e journey:children` 7/7(등록·소유 경계·초대·
   삭제/사용 중지·전환 가드와 강제 전환·대리 접속 권한과 기록·화면) · 거버 없이 같은 경로를 밟는
-  회귀 13본 green · api 단위 테스트 · typecheck·lint(변경 파일) clean. 고객 거버 제출로 시작하는
-  여정(4호·12호·20호)은 이 주행에서 돌리지 못했다(8040 에 `sp-gerber-eye-v3` 가 필요).
+  회귀 13본 green · 거버 제출로 시작하는 여정 1호·2호·4호·12호·20호 green · api 단위 테스트 ·
+  typecheck·lint(변경 파일) clean.
 - 서버 스모크(자족 시드→검증→무잔재): PCB 보드 29케이스 + access tracks 2케이스
   ALL PASS(2026-08-10 기준, scratchpad 소멸 전제 — E2E 정착은 아래).
 - **E2E 기반 검증**(사용자 방침) — `samplepcb-web-mono-app/e2e/`(vitest+playwright-core, 스텁 로그인).

@@ -3319,8 +3319,13 @@ MD 소속은 그동안 관리자만 연결할 수 있었다(위 'MD 소속 관�
   `journey-authz`·`pcb-caseref`·`pcb-transport`·`pcb-selfship-gate`) · 대행 안내 판정은 로컬 DB
   실측(직접 발주=운영자 · 발주처 있음=그 조직 · 계정 있음=포털 버튼) + 빌더 단위 3케이스.
   `md-direct-self` S2 는 포털 문구 정돈 뒤 옛 버튼 이름(`EQ 승인요청`)을 찾던 것이라 스펙을 고쳤다.
-- **돌리지 못한 것**: 고객 거버 제출로 시작하는 4호(`journey-md-relay`)·12호(`journey-admin-proxy`)·
-  20호(`journey-currency`). 주행 때 8040 에 떠 있던 것이 e2e 가 기대하는 `sp-gerber-eye-v3`(vite)가
-  아니라 `samplepcb_gerber`(webpack)여서 업로드 뒤 가격이 서지 않았다. `pcb-invoice-attach` 는 포털
-  문구 정돈 뒤 옛 버튼 이름(`이 박스로 발송 준비`)을 찾는 기존 실패다.
-- **남은 것**: 위 세 여정을 eye-v3 로 다시 돌리는 것 · 운영 반영은 `migrate deploy`.
+- **거버 제출로 시작하는 여정**: 4호(`journey-md-relay`) 9/9 · 12호(`journey-admin-proxy`) 8/8 ·
+  20호(`journey-currency`) 5/5 · 1호(`journey-gerber-rfq`) 11/11 · 2호(`journey-domestic-partner`) 11/11.
+  처음엔 전부 첫 단계에서 60초 타임아웃이 났는데 원인은 거버 앱이 아니라 **e2e 헬퍼의 경합**이었다:
+  `submitGerberRfq` 가 입력 칸이 붙자마자 파일을 넣었고, 거버 앱(`samplepcb_gerber`, webpack dev)은
+  번들이 다 실리기 전에 받은 파일을 조용히 버린다(실측 — 즉시 넣으면 무반응, `load` 뒤에 넣으면 가격
+  표시). 헬퍼가 `load` 를 기다리게 고쳤다. 12호는 고객 주문 화면이 긴 진행 문구 대신 짧은 배지
+  (`제조 확인 중`·`생산 중`…)를 보이게 바뀐 뒤(08-25) 옛 문구를 찾던 단언 5개를 지금 어휘로 맞췄다.
+- **이번 변경과 무관한 기존 실패(손대지 않음)**: `pcb-invoice-attach`(옛 버튼 이름 `이 박스로 발송
+  준비`) · 6호 `journey-direct-ship` J2·J6(포털 스텝퍼 `현지도착`·고객 카드 `직송 배송 완료` 옛 어휘).
+- **남은 것**: 운영 반영은 `migrate deploy`.
