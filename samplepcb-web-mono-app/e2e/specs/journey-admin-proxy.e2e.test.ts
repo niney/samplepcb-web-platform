@@ -404,7 +404,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
 
     // ── P6 고객 축 — 고객은 협력사가 누구인지·포털을 쓰는지 알 필요가 없다. 카드만 따라오면 된다.
     const progress1 = await customerProgressText('P03-customer-progress-eq');
-    expect(progress1, '고객 진행 카드 — EQ').toContain('제조 확인(EQ) 진행 중');
+    expect(progress1, '고객 진행 카드 — EQ').toContain('제조 확인 중');
     expect(progress1.includes(PROXY_ORG), '고객 화면에 협력사명 비노출').toBe(false);
   }, 180_000);
 
@@ -452,7 +452,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     const start = await api(A, 'POST', `${base}/production-start`, {});
     expect(start.status, `생산 시작 대행: ${JSON.stringify(start.json)}`).toBe(200);
     const progressMid = await customerProgressText('P04-customer-progress-producing');
-    expect(progressMid, '고객 진행 카드 — 생산').toContain('생산 진행 중');
+    expect(progressMid, '고객 진행 카드 — 생산').toContain('생산 중');
 
     const done = await api(A, 'POST', `${base}/production-complete`, {});
     expect(done.status, `생산 완료 대행: ${JSON.stringify(done.json)}`).toBe(200);
@@ -476,7 +476,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     );
 
     const progress2 = await customerProgressText('P04-customer-progress-produced');
-    expect(progress2, '고객 진행 카드 — 생산 완료').toContain('생산 완료 — 발송 준비 중');
+    expect(progress2, '고객 진행 카드 — 생산 완료').toContain('생산 완료');
   }, 240_000);
 
   test('P5. 선적 대행 — 담기 동선 관찰 → 배송 중 대행(국내 Invoice 불요) → 선적 차례 메일', async (ctx) => {
@@ -562,7 +562,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     expect((turnMail?.HTML ?? '').includes('파트너 포털 열기'), '무계정 — 포털 버튼 없음').toBe(false);
 
     const progress3 = await customerProgressText('P05-customer-progress-shipping');
-    expect(progress3, '고객 진행 카드 — 운송').toContain('입고 운송 중');
+    expect(progress3, '고객 진행 카드 — 운송').toContain('입고 중');
     F('P5', 'obs', `선적 대행 — 담기+배송중 1회 호출(mode=domestic·Invoice 불요), 운송장 KR-PROXY-0811`);
   }, 240_000);
 
@@ -621,7 +621,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     expect(caseBody, 'Case — 국내 택배 표기').toContain('국내(택배)');
 
     const progress4 = await customerProgressText('P06-customer-progress-received');
-    expect(progress4, '고객 진행 카드 — 입고').toContain('입고 완료 — 배송 준비 중');
+    expect(progress4, '고객 진행 카드 — 입고').toContain('입고 완료');
+    // '입고 완료'는 스텝퍼 칸 이름과 같은 낱말이라 그것만으로는 늘 참이다 — 앞 단계 배지가 걷혔는지도 본다.
+    expect(progress4, '고객 진행 카드 — 운송 배지 해소').not.toContain('입고 중');
     F(
       'P6',
       'obs',

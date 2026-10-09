@@ -157,6 +157,10 @@ export async function submitGerberRfq(
   await page.goto(GERBER_URL, { waitUntil: 'domcontentloaded' });
   const input = page.locator('input[type=file]').first();
   await input.waitFor({ state: 'attached', timeout: 15_000 });
+  // 입력 칸이 붙었다고 앱이 받을 준비가 된 것은 아니다 — 거버 앱(webpack dev)은 번들이 다 실리기
+  // 전에 넣은 파일을 조용히 버린다(보드도 가격도 안 선다 → 아래 대기가 60초 뒤 타임아웃).
+  // 2026-10-09 실측: 즉시 넣으면 무반응, load 뒤에 넣으면 가격 표시.
+  await page.waitForLoadState('load').catch(() => undefined);
   await input.setInputFiles(opts.fixtureZip);
   await page.waitForFunction(
     () =>
