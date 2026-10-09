@@ -166,7 +166,7 @@ describe.skipIf(!RUN)('MD 직접 제작 — 하위 견적·발주 없이 완주'
     const body = await view.page.locator('body').innerText();
     expect(body).toContain('직접 제작 발주입니다');
     expect(body).not.toContain('하위 발주 필요');
-    expect(await view.page.getByRole('button', { name: 'EQ 승인요청' }).isVisible()).toBe(true);
+    expect(await view.page.getByRole('button', { name: 'EQ 승인 요청' }).isVisible()).toBe(true);
     expect(await view.page.getByRole('button', { name: '하위 발주' }).count()).toBe(0);
     await snap(view.page, 'md-direct-self/S02-self-po-ready');
   });
