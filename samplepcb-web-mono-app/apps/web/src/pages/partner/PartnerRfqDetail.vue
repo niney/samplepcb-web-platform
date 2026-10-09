@@ -4,14 +4,21 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { BOM_RFQ_STATUS_LABELS, type BomRfqReplyBodyType } from '@sp/api-contract';
-import { usePartnerRfqDetail, usePartnerRfqReply } from '../../partner/usePartnerRfqs';
+import {
+  usePartnerRfqChildren,
+  usePartnerRfqDetail,
+  usePartnerRfqReply,
+} from '../../partner/usePartnerRfqs';
+import PartnerBomRfqChildrenPanel from '../../components/partner/PartnerBomRfqChildrenPanel.vue';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
+import type { RfqReplyChildOffers } from '../../components/smartbom/rfq-reply-md';
 
 const { pt, pd, locale } = usePartnerI18n();
 
 // 파트너 포털 회신 폼 — 행별 단가·재고·D/C·납기 입력(마감 전 재회신 허용).
 // 노출은 부품행과 내 회신뿐(고객 정보·목표단가 없음 — 서버 계약이 보장, D8).
+// 마스터딜러는 같은 화면에서 하위 협력사에 다시 요청하고, 품목마다 하위 회신을 골라 회신한다.
 
 const route = useRoute();
 const rfqId = computed(() => {
@@ -25,6 +32,32 @@ const reply = usePartnerRfqReply();
 const saveError = ref('');
 watch(locale, () => { saveError.value = ''; });
 const saved = ref(false);
+
+// 마스터딜러 — 하위에 다시 요청할 수 있는 건이면 하위 회신을 품목별 선택지로 편다.
+const canFanOut = computed(() => detail.value?.canFanOut === true);
+const childrenQuery = usePartnerRfqChildren(rfqId, canFanOut);
+const childOffers = computed<RfqReplyChildOffers | null>(() => {
+  if (!canFanOut.value) return null;
+  const offers: RfqReplyChildOffers = {};
+  for (const child of childrenQuery.data.value?.data.rfqs ?? []) {
+    for (const item of child.items) {
+      (offers[item.quoteItemId] ??= []).push({
+        childRfqId: child.rfqId,
+        partnerName: child.partnerName,
+        currency: child.currency,
+        unitPrice: item.unitPrice,
+        unitPriceInMine: item.unitPriceInParent,
+        rateToMine: child.rateToParent,
+        replyQty: item.replyQty,
+        moq: item.moq,
+        stock: item.stock,
+        dateCode: item.dateCode,
+        leadTime: item.leadTime,
+      });
+    }
+  }
+  return offers;
+});
 
 const rows = computed<RfqReplyFormRow[]>(() =>
   (detail.value?.items ?? []).map((item) => ({
@@ -77,8 +110,14 @@ const statusCls = (s: string): string =>
 
     <template v-else>
       <p class="text-sm text-gray-500">
-        {{ pt('{value1}개 품목 · 요청일 {value2}', { value1: detail.items.length, value2: pd(detail.requestedAt) }) }} <template v-if="detail.status === 'closed'"> {{ pt('· 마감된 요청입니다(수정 불가)') }}</template>
+        {{ pt('{value1}개 품목 · 요청일 {value2}', { value1: detail.items.length, value2: pd(detail.requestedAt) }) }} <template v-if="detail.requesterName !== null"> {{ pt('· 요청 {name}', { name: detail.requesterName }) }}</template> <template v-if="detail.status === 'closed'"> {{ pt('· 마감된 요청입니다(수정 불가)') }}</template>
       </p>
+
+      <PartnerBomRfqChildrenPanel
+        v-if="canFanOut && rfqId !== null"
+        :rfq-id="rfqId"
+        :read-only="detail.status === 'closed'"
+      />
 
       <div class="rounded-xl border border-gray-200 bg-surface p-4">
         <RfqReplyForm
@@ -88,6 +127,7 @@ const statusCls = (s: string): string =>
           :memo="detail.memo"
           :busy="reply.isPending.value"
           :read-only="detail.status === 'closed'"
+          :child-offers="childOffers"
           @submit="submit"
         />
         <p v-if="saveError !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ saveError }}</p>

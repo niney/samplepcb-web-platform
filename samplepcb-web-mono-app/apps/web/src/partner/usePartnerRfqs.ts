@@ -10,8 +10,11 @@ import {
   type PartnerPoShortageCreateBodyType,
   type PartnerPoShortageUpdateBodyType,
   PartnerPoListResponse,
+  PartnerRfqChildrenResponse,
+  PartnerRfqChildrenSendResponse,
   PartnerRfqDetailResponse,
   PartnerRfqListResponse,
+  type PartnerRfqChildrenSendBodyType,
   PartnerShipmentCreateResponse,
   PartnerShipmentListResponse,
   apiRoutes,
@@ -55,6 +58,27 @@ export function usePartnerRfqReply() {
   return useMutation({
     mutationFn: ({ rfqId, body }: { rfqId: string; body: BomRfqReplyBodyType }) =>
       apiSend('PUT', `${base}/${rfqId}`, body, PartnerRfqDetailResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner', 'rfqs'] });
+    },
+  });
+}
+
+// ── 마스터딜러: 하위 재요청(docs/SMARTBOM_PARTNER_RFQ.md "마스터딜러 중개") ──────
+export function usePartnerRfqChildren(rfqId: Ref<string | null>, enabled?: Ref<boolean>) {
+  return useQuery({
+    queryKey: computed(() => ['partner', 'rfqs', 'children', rfqId.value]),
+    queryFn: () => apiGet(`${base}/${rfqId.value ?? ''}/children`, PartnerRfqChildrenResponse),
+    enabled: computed(() => rfqId.value !== null && (enabled?.value ?? true)),
+    retry: false,
+  });
+}
+
+export function useSendPartnerRfqChildren() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rfqId, body }: { rfqId: string; body: PartnerRfqChildrenSendBodyType }) =>
+      apiSend('POST', `${base}/${rfqId}/children`, body, PartnerRfqChildrenSendResponse),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['partner', 'rfqs'] });
     },

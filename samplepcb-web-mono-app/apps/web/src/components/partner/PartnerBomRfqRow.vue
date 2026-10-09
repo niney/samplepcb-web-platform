@@ -24,7 +24,19 @@ const fmtWon = (v: number | null, currency: string): string =>
     :class="todo ? 'border-blue-200 hover:border-blue-300 hover:bg-blue-50/40' : 'border-gray-200 hover:bg-gray-50'"
   >
     <div class="min-w-0 flex-1">
-      <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.quoteTitle }}</p>
+      <p class="truncate text-sm font-semibold text-gray-900">
+        {{ rfq.quoteTitle }}
+        <!-- 하위로서 받은 건 — 누가 요청했는지(마스터딜러) -->
+        <span
+          v-if="rfq.requesterName !== null"
+          class="ml-1 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700"
+        >{{ pt('요청 {name}', { name: rfq.requesterName }) }}</span>
+        <!-- 마스터딜러로서 하위에 다시 요청한 건 -->
+        <span
+          v-if="rfq.childRfqCount > 0"
+          class="ml-1 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700"
+        >{{ pt('하위 회신 {replied}/{total}', { replied: rfq.childRepliedCount, total: rfq.childRfqCount }) }}</span>
+      </p>
       <p class="mt-0.5 text-sm text-gray-500">
         {{ pt('{value1}개 품목 · 요청일 {value2}', { value1: rfq.itemCount, value2: pd(rfq.requestedAt) }) }} <template v-if="!todo">
           {{ pt('· 회신 {value1}/{value2}행 · {value3}', { value1: rfq.repliedItemCount, value2: rfq.itemCount, value3: fmtWon(rfq.totalAmount, rfq.currency) }) }}

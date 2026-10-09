@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePartnerI18n } from '../../partner/i18n';
+import { partnerIntlLocale } from '../../partner/i18n-core';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
@@ -19,6 +20,7 @@ import {
   usePartnerPoShortageUpdate,
 } from '../../partner/usePartnerRfqs';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
+import PartnerBomChildPosPanel from '../../components/partner/PartnerBomChildPosPanel.vue';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
 import { confirmDialog } from '../../lib/confirmDialog';
 
@@ -161,6 +163,9 @@ const badge = computed(() =>
 );
 
 const fmt = (v: number): string => pn(v);
+// 부품 단가는 센트 아래가 흔하다 — 기본 숫자 표기(3자리)로는 0.0035 가 0.004 로 보여 금액과 어긋난다.
+const fmtUnitPrice = (v: number): string =>
+  new Intl.NumberFormat(partnerIntlLocale(locale.value), { maximumFractionDigits: 4 }).format(v);
 </script>
 
 <template>
@@ -184,6 +189,18 @@ const fmt = (v: number): string => pn(v);
         {{ pt('발행 {value1}', { value1: pd(detail.issuedAt) }) }} <template v-if="detail.confirmedAt !== null"> {{ pt('· 확인 {value1}', { value1: pd(detail.confirmedAt) }) }}</template>
       </p>
       <p v-if="detail.memo !== null" class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">{{ detail.memo }}</p>
+      <!-- 송금 — 받은 금액과 잔액(결제통화). 한 번이라도 받았을 때만 띄운다 -->
+      <p
+        v-if="detail.remittance !== null && detail.remittance.count > 0"
+        class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900"
+        data-testid="partner-po-remittance"
+      >
+        {{ pt('입금 {paid} / {total} · 잔액 {balance}', {
+          paid: pm(detail.remittance.paidAmount, detail.remittance.currency),
+          total: pm(detail.remittance.poAmount, detail.remittance.currency),
+          balance: pm(detail.remittance.balance, detail.remittance.currency),
+        }) }}
+      </p>
       <p
         v-if="detail.status === 'confirmed' && shipment === null"
         class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"
@@ -209,7 +226,7 @@ const fmt = (v: number): string => pn(v);
                 <div class="text-gray-400">{{ item.manufacturerName ?? item.description ?? '' }}</div>
               </td>
               <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ fmt(item.qty) }}</td>
-              <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ fmt(item.unitPrice) }}</td>
+              <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ fmtUnitPrice(item.unitPrice) }}</td>
               <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ pm(item.lineTotal, detail.currency) }}</td>
               <td class="min-w-48 px-3 py-2 text-xs">
                 <template v-if="item.shortage !== null">
@@ -279,6 +296,9 @@ const fmt = (v: number): string => pn(v);
           </tfoot>
         </table>
       </div>
+
+      <!-- 마스터딜러 — 하위 회신으로 견적한 품목을 그 하위에 다시 발주한다 -->
+      <PartnerBomChildPosPanel v-if="detail.hasChildItems && poId !== null" :po-id="poId" />
 
       <div
         v-if="shortageItem !== null"

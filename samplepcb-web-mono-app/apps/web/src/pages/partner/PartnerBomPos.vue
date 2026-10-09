@@ -10,6 +10,8 @@ import PartnerWorkqueueTabs, {
   type PartnerWorkqueueTab,
 } from '../../components/partner/PartnerWorkqueueTabs.vue';
 import PartnerBomPoRow from '../../components/partner/PartnerBomPoRow.vue';
+import PartnerBomMdPoCard from '../../components/partner/PartnerBomMdPoCard.vue';
+import { usePartnerMdPos } from '../../partner/usePartnerMdPos';
 import PartnerEmpty from '../../components/partner/PartnerEmpty.vue';
 import UiPagination from '../../components/ui/UiPagination.vue';
 
@@ -30,6 +32,10 @@ const page = ref(1);
 const work = usePartnerBomWork();
 const accessQuery = usePartnerAccess();
 const noTrack = computed(() => accessQuery.data.value?.data.tracks.bom === false);
+
+// 마스터딜러에게서 받은 발주 — 샘플피씨비 발주와는 다른 문서라 위에 따로 편다(없으면 안 보인다).
+const mdPosQuery = usePartnerMdPos(computed(() => !noTrack.value));
+const mdPos = computed(() => mdPosQuery.data.value?.data.items ?? []);
 
 const isDone = (po: PartnerPoListItemType): boolean =>
   po.shipmentReceived ||
@@ -89,6 +95,11 @@ const emptyText = computed(() => {
     <div v-if="noTrack" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"> {{ pt('이 조직은 BOM 부품 트랙에 참여하지 않습니다.') }} </div>
 
     <template v-else>
+      <section v-if="mdPos.length > 0" class="space-y-2" data-testid="partner-md-pos-received">
+        <h2 class="text-sm font-bold text-gray-900">{{ pt('마스터딜러에게서 받은 발주') }}</h2>
+        <PartnerBomMdPoCard v-for="mdPo in mdPos" :key="mdPo.mdPoId" :md-po="mdPo" role="child" />
+      </section>
+
       <PartnerWorkqueueTabs v-model="tab" :tabs="tabs" accent="indigo">
         <input
           v-model="q"

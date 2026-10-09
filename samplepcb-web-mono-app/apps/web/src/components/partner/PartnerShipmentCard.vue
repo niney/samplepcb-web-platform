@@ -42,7 +42,7 @@ import { INTL_CARRIERS, isIntlCarrier } from '../../lib/shipment-carriers';
 // 발송 단위로 묶어 보여준다. 서버 조작은 대표 발주서(primaryPoId) 경유로 기존
 // poId 라우트를 재사용한다(핑퐁 인가·필수 게이트는 서버가 검증).
 
-const { pt, pn, pd, enabled, locale } = usePartnerI18n();
+const { pt, pd, pm, enabled, locale } = usePartnerI18n();
 
 const displayDate = (value: string | null | undefined): string => enabled.value ? pd(value) : originalDate(value);
 
@@ -380,7 +380,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
     <ul class="mt-2 space-y-0.5 text-sm text-gray-700">
       <li v-for="entry in shipment.groupPos" :key="entry.poId" class="flex items-center gap-2">
         <span>{{ entry.quoteTitle }}</span>
-        <span class="text-xs text-gray-400">{{ pt('{p0}원', { p0: pn(entry.totalAmount) }) }}</span>
+        <span class="text-xs text-gray-400">{{ pm(entry.totalAmount, entry.currency) }}</span>
       </li>
     </ul>
     <RouterLink

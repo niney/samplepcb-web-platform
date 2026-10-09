@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePartnerI18n } from '../../partner/i18n';
+import { partnerIntlLocale } from '../../partner/i18n-core';
 import { nextTick, ref, watch } from 'vue';
 import {
   BomRfqReplyBody,
@@ -7,6 +8,12 @@ import {
   type BomRfqReplyBodyType,
 } from '@sp/api-contract';
 import { effectiveRfqReplyQty, kstDateInput } from '@sp/utils';
+import {
+  mdUnitPricePreview,
+  type RfqReplyChildOffer,
+  type RfqReplyChildOffers,
+  type RfqReplyChildSelection,
+} from './rfq-reply-md';
 
 const { pt, pn, locale } = usePartnerI18n();
 
@@ -15,6 +22,8 @@ const { pt, pn, locale } = usePartnerI18n();
 // 합계는 서버가 재계산·박제하므로 여기서는 참고 표시만 한다.
 // MOQ → 회신수량은 한 방향으로만 따라간다(§6.38): MOQ 가 필요수량을 넘으면 회신수량을
 // MOQ 로 채우고, 사람이 직접 친 회신수량은 덮지 않는다. 회신수량 < MOQ 는 모순이라 막는다.
+// 마스터딜러(childOffers 를 받은 경우)는 품목마다 '직접 회신' 대신 하위 회신을 골라 마진(%)을
+// 얹을 수 있다 — 그 행의 단가는 서버가 하위 회신가 × 환율 × (1 + 마진%) 로 산출한다.
 
 export interface RfqReplyFormRow {
   quoteItemId: string;
@@ -30,6 +39,8 @@ export interface RfqReplyFormRow {
     dateCode: string | null;
     leadTime: string | null;
     memo: string | null;
+    /** 마스터딜러가 하위 회신을 골라 만든 행이면 그 근거. */
+    childSelection?: RfqReplyChildSelection | null;
   } | null;
   /**
    * 내가 올려 둔 보유 부품의 같은 품번 값(docs/PARTNER_PARTS.md) — **제안**이다.
@@ -54,6 +65,8 @@ const props = defineProps<{
   memo: string | null;
   busy?: boolean;
   readOnly?: boolean;
+  /** 마스터딜러 전용 — 품목별로 고를 수 있는 하위 회신. 주면 '공급 경로' 열이 생긴다. */
+  childOffers?: RfqReplyChildOffers | null;
 }>();
 
 const emit = defineEmits<{ submit: [body: BomRfqReplyBodyType] }>();
@@ -77,6 +90,12 @@ interface EditRow {
   replyQtyAuto: boolean;
   /** 마지막으로 동기화에 반영한 MOQ — 변경 감지용(제출에는 안 실린다). */
   lastMoq: number | null;
+  /** 마스터딜러: 이 품목을 맡길 하위의 재요청 문서. null = 직접 회신. */
+  childRfqId: number | null;
+  /** 마스터딜러: 하위 회신가에 얹는 마진(%). */
+  marginRate: number | null;
+  /** 저장돼 있던 하위 선정 — 같은 하위·같은 회신가면 그때 굳힌 환율로 미리보기를 낸다. */
+  keptSelection: RfqReplyChildSelection | null;
 }
 
 const editRows = ref<EditRow[]>([]);
@@ -114,6 +133,9 @@ const initRows = (): void => {
       prefilled: suggest !== null,
       replyQtyAuto,
       lastMoq: moq,
+      childRfqId: row.reply?.childSelection?.childRfqId ?? null,
+      marginRate: row.reply?.childSelection?.marginRate ?? null,
+      keptSelection: row.reply?.childSelection ?? null,
     };
   });
   deliveryDateInput.value = kstDateInput(props.deliveryDate);
@@ -156,18 +178,66 @@ watch(editRows, (rows) => {
   }
 }, { deep: true });
 
+// 부품 단가는 센트 아래가 흔하다 — 기본 숫자 표기(3자리)로는 0.0035 가 0.004 로 보인다.
+const pu = (value: number): string =>
+  new Intl.NumberFormat(partnerIntlLocale(locale.value), { maximumFractionDigits: 4 }).format(value);
+
+// ── 마스터딜러: 하위 회신 선정 ──
+const hasMd = (): boolean => props.childOffers != null;
+const offersOf = (row: EditRow): RfqReplyChildOffer[] => props.childOffers?.[row.quoteItemId] ?? [];
+const pickedOffer = (row: EditRow): RfqReplyChildOffer | null =>
+  row.childRfqId === null
+    ? null
+    : (offersOf(row).find((offer) => offer.childRfqId === row.childRfqId) ?? null);
+/** 하위를 고른 행인데 그 하위 회신이 지금은 없다(회수·재회신으로 사라짐) — 다시 골라야 한다. */
+const childMissing = (row: EditRow): boolean => row.childRfqId !== null && pickedOffer(row) === null;
+/** 하위를 고른 행의 상위 회신가 미리보기. 환율을 모르면 null(저장하면 서버가 산출). */
+const mdPrice = (row: EditRow): number | null => {
+  const offer = pickedOffer(row);
+  return offer === null ? null : mdUnitPricePreview(offer, num(row.marginRate) ?? 0, row.keptSelection);
+};
+/** 이 행의 단가 — 하위를 골랐으면 산출값, 아니면 직접 입력값. */
+const priceOf = (row: EditRow): number | null =>
+  row.childRfqId === null ? num(row.unitPrice) : mdPrice(row);
+const offerLabel = (offer: RfqReplyChildOffer): string =>
+  offer.unitPriceInMine === null || offer.currency === props.currency
+    ? `${offer.partnerName} · ${pu(offer.unitPrice)} ${offer.currency}`
+    : `${offer.partnerName} · ${pu(offer.unitPrice)} ${offer.currency} (≈ ${pu(offer.unitPriceInMine)} ${props.currency})`;
+// 하위를 고르는 순간 그 회신의 수량·재고·D/C·납기를 가져온다(사람이 고른 행동이라 덮어쓴다).
+const onChildChange = (row: EditRow): void => {
+  const offer = pickedOffer(row);
+  if (offer === null) {
+    row.marginRate = null;
+    return;
+  }
+  row.marginRate ??= 0;
+  row.moq = offer.moq;
+  row.replyQty = offer.replyQty;
+  row.replyQtyAuto = false;
+  row.lastMoq = offer.moq;
+  row.stock = offer.stock;
+  row.dateCode = offer.dateCode ?? '';
+  row.leadTime = offer.leadTime ?? '';
+  row.unitPrice = null;
+};
+
+// 서버 박제와 같은 자릿수 — 원화 0자리·외화 2자리.
+const roundMoney = (amount: number): number =>
+  props.currency === 'KRW' ? Math.round(amount) : Math.round(amount * 100) / 100;
+
 const lineTotal = (row: EditRow): number | null => {
-  const price = num(row.unitPrice);
+  const price = priceOf(row);
   if (price === null) return null;
   // 서버 합계·관리자 비교표와 같은 공식 — 회신수량(?? 필요수량)에 MOQ 바닥.
   const qty = effectiveRfqReplyQty(row.orderQty, num(row.replyQty), num(row.moq));
-  return Math.round(price * qty);
+  return roundMoney(price * qty);
 };
 
-const repliedCount = (): number => editRows.value.filter((r) => num(r.unitPrice) !== null).length;
+const repliedCount = (): number =>
+  editRows.value.filter((r) => r.childRfqId !== null || num(r.unitPrice) !== null).length;
 
 const grandTotal = (): number =>
-  editRows.value.reduce((sum, row) => sum + (lineTotal(row) ?? 0), 0);
+  roundMoney(editRows.value.reduce((sum, row) => sum + (lineTotal(row) ?? 0), 0));
 
 const partLabel = (row: EditRow): string =>
   row.mpn.trim() !== ''
@@ -175,7 +245,7 @@ const partLabel = (row: EditRow): string =>
     : (row.manufacturerName ?? row.description ?? pt('품목 {value1}', { value1: row.quoteItemId }));
 
 const tableScroll = ref<HTMLElement | null>(null);
-type NumericField = 'unitPrice' | 'replyQty' | 'moq' | 'stock';
+type NumericField = 'unitPrice' | 'replyQty' | 'moq' | 'stock' | 'marginRate';
 
 const fieldKey = (row: EditRow, field: NumericField | 'dateCode' | 'leadTime' | 'memo'): string =>
   `${row.quoteItemId}:${field}`;
@@ -213,7 +283,22 @@ function validateInteger(
 
 function validateRows(): boolean {
   for (const row of editRows.value) {
-    const priceEntered = hasValue(row.unitPrice);
+    if (row.childRfqId !== null) {
+      if (childMissing(row)) {
+        return rejectInput(
+          fieldKey(row, 'marginRate'),
+          pt('{value1}에 고른 하위 협력사 회신이 지금은 없습니다. 다시 골라 주세요.', { value1: partLabel(row) }),
+        );
+      }
+      const margin = num(row.marginRate);
+      if (margin === null || margin < 0 || margin > 1000) {
+        return rejectInput(
+          fieldKey(row, 'marginRate'),
+          pt('{value1} 마진율은 0 이상의 숫자(%)로 입력해 주세요.', { value1: partLabel(row) }),
+        );
+      }
+    }
+    const priceEntered = row.childRfqId !== null || hasValue(row.unitPrice);
     const hasReplyDetail =
       hasValue(row.replyQty)
       || hasValue(row.moq)
@@ -231,7 +316,7 @@ function validateRows(): boolean {
       continue;
     }
 
-    const price = num(row.unitPrice);
+    const price = row.childRfqId !== null ? 0 : num(row.unitPrice);
     if (price === null || price < 0) {
       return rejectInput(
         fieldKey(row, 'unitPrice'),
@@ -274,18 +359,23 @@ function submit(): void {
   if (!validateRows()) return;
   const items: BomRfqItemReplyInputType[] = editRows.value
     .filter((row) => {
+      if (row.childRfqId !== null) return true;
       const price = num(row.unitPrice);
       return price !== null && price >= 0;
     })
     .map((row) => ({
       quoteItemId: row.quoteItemId,
-      unitPrice: num(row.unitPrice) ?? 0,
+      // 하위를 고른 행의 단가는 서버가 산출한다 — 여기 값은 미리보기일 뿐이다.
+      unitPrice: priceOf(row) ?? 0,
       replyQty: num(row.replyQty),
       moq: num(row.moq),
       stock: num(row.stock),
       dateCode: strOrNull(row.dateCode),
       leadTime: strOrNull(row.leadTime),
       memo: strOrNull(row.memo),
+      ...(row.childRfqId === null
+        ? {}
+        : { childRfqId: row.childRfqId, marginRate: num(row.marginRate) ?? 0 }),
     }));
   const result = BomRfqReplyBody.safeParse({
     items,
@@ -325,11 +415,12 @@ function submit(): void {
           →
         </button>
       </div>
-      <table class="min-w-[960px] divide-y divide-gray-100 text-xs">
+      <table class="divide-y divide-gray-100 text-xs" :class="hasMd() ? 'min-w-[1240px]' : 'min-w-[960px]'">
         <thead class="bg-gray-50 text-left text-gray-500">
           <tr class="whitespace-nowrap">
             <th class="px-2 py-2">{{ pt('부품') }}</th>
             <th class="px-2 py-2 text-right">{{ pt('필요수량') }}</th>
+            <th v-if="hasMd()" class="px-2 py-2">{{ pt('공급 경로 · 마진') }}</th>
             <th class="px-2 py-2 text-right">{{ pt('단가({value1})', { value1: currency }) }}</th>
             <th class="px-2 py-2 text-right">{{ pt('회신수량') }}</th>
             <th class="px-2 py-2 text-right">MOQ</th>
@@ -357,7 +448,57 @@ function submit(): void {
             <td class="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
               {{ pn(row.orderQty) }}
             </td>
-            <td class="px-2 py-1.5">
+            <!-- 마스터딜러: 직접 회신하거나, 하위 회신을 골라 마진을 얹는다 -->
+            <td v-if="hasMd()" class="px-2 py-1.5">
+              <div class="flex items-center gap-1.5">
+                <select
+                  v-model="row.childRfqId"
+                  :disabled="readOnly"
+                  :aria-label="pt('{value1} 공급 경로', { value1: partLabel(row) })"
+                  class="h-7 max-w-52 rounded border border-gray-300 bg-white px-1.5"
+                  @change="onChildChange(row)"
+                >
+                  <option :value="null">{{ pt('직접 회신') }}</option>
+                  <option v-for="offer in offersOf(row)" :key="offer.childRfqId" :value="offer.childRfqId">
+                    {{ offerLabel(offer) }}
+                  </option>
+                  <option v-if="childMissing(row)" :value="row.childRfqId" disabled>
+                    {{ pt('회신이 없어진 하위') }}
+                  </option>
+                </select>
+                <template v-if="row.childRfqId !== null">
+                  <input
+                    v-model.number="row.marginRate"
+                    type="number"
+                    min="0"
+                    step="any"
+                    :disabled="readOnly"
+                    :aria-label="pt('{value1} 마진율(%)', { value1: partLabel(row) })"
+                    :aria-invalid="isInvalid(row, 'marginRate')"
+                    :aria-describedby="isInvalid(row, 'marginRate') ? 'rfq-reply-validation-error' : undefined"
+                    :data-rfq-key="fieldKey(row, 'marginRate')"
+                    class="w-14 rounded border border-gray-300 px-1.5 py-1 text-right tabular-nums"
+                    :class="{ 'border-red-500 ring-1 ring-red-200': isInvalid(row, 'marginRate') }"
+                  >
+                  <span class="text-gray-400">%</span>
+                </template>
+              </div>
+              <p
+                v-if="row.keptSelection?.stale === true && row.childRfqId === row.keptSelection.childRfqId"
+                class="mt-0.5 text-[10px] font-semibold text-amber-700"
+              >
+                {{ pt('하위 회신이 바뀌었습니다 — 저장하면 새 값으로 반영됩니다.') }}
+              </p>
+              <p v-else-if="offersOf(row).length === 0 && row.childRfqId === null" class="mt-0.5 text-[10px] text-gray-400">
+                {{ pt('하위 회신 없음') }}
+              </p>
+            </td>
+            <td v-if="row.childRfqId !== null" class="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
+              <span :title="pt('하위 회신가에 환율과 마진을 적용한 값입니다. 저장할 때 서버가 확정합니다.')">
+                {{ mdPrice(row) === null ? pt('저장 시 산출') : pu(mdPrice(row) ?? 0) }}
+              </span>
+            </td>
+            <td v-else class="px-2 py-1.5">
               <input
                 v-model.number="row.unitPrice"
                 type="number"
@@ -472,7 +613,7 @@ function submit(): void {
             </td>
           </tr>
           <tr v-if="editRows.length === 0">
-            <td colspan="10" class="px-2 py-8 text-center text-gray-400">{{ pt('요청 부품행이 없습니다.') }}</td>
+            <td :colspan="hasMd() ? 11 : 10" class="px-2 py-8 text-center text-gray-400">{{ pt('요청 부품행이 없습니다.') }}</td>
           </tr>
         </tbody>
       </table>

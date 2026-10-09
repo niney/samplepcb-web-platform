@@ -5,6 +5,7 @@ import {
   PARTNER_STATUS_LABELS,
   PCB_CURRENCIES,
   type PartnerChildItemType,
+  type PartnerChildTrackType,
   type PcbCurrencyType,
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
@@ -32,6 +33,12 @@ const { pt, pd, pn } = usePartnerI18n();
 const query = usePartnerChildren();
 const eligibility = computed(() => query.data.value?.data.eligibility ?? null);
 const items = computed(() => query.data.value?.data.items ?? []);
+// 하위에게 맡길 수 있는 일 — 내가 가진 견적 트랙 안에서만. 트랙이 하나뿐이면 고를 것이 없다.
+const parentTracks = computed(() => query.data.value?.data.parentTracks ?? []);
+const TRACK_LABELS: Record<PartnerChildTrackType, string> = {
+  pcb_rfq: 'PCB 제작',
+  bom_rfq: '부품 조달',
+};
 
 const createMut = useCreatePartnerChild();
 const updateMut = useUpdatePartnerChild();
@@ -46,7 +53,7 @@ const forceMode = computed(
 const canCreate = computed(() => eligibility.value?.allowed === true || forceMode.value);
 
 const BLOCK_TEXT = {
-  NO_PCB_TRACK: 'PCB 제작 협력사만 하위 협력사를 둘 수 있습니다.',
+  NO_PCB_TRACK: '견적을 받는 협력사(PCB 제작·부품 조달)만 하위 협력사를 둘 수 있습니다.',
   PARENT_IS_CHILD: '다른 마스터딜러에 소속된 협력사는 하위 협력사를 둘 수 없습니다.',
 } as const;
 
@@ -63,6 +70,7 @@ const ERROR_TEXT: Record<string, string> = {
   ALREADY_HAS_ACCOUNT: '이미 포털 계정이 연결된 협력사입니다.',
   NOT_APPROVED: '사용 중지된 협력사입니다.',
   EMAIL_REQUIRED: '초대를 받을 이메일을 먼저 입력해 주세요.',
+  TRACK_NOT_ALLOWED: '맡길 일을 하나 이상 골라 주세요.',
 };
 const errorText = (caught: unknown): string => {
   const code = caught instanceof ApiRequestError ? (caught.payload?.error ?? '') : '';
@@ -83,6 +91,7 @@ interface Draft {
   contactPhone: string;
   contactEmail: string;
   forceReason: string;
+  tracks: PartnerChildTrackType[];
 }
 const emptyDraft = (): Draft => ({
   name: '',
@@ -92,6 +101,7 @@ const emptyDraft = (): Draft => ({
   contactPhone: '',
   contactEmail: '',
   forceReason: '',
+  tracks: [...parentTracks.value],
 });
 const asCurrency = (value: string | null): PcbCurrencyType =>
   PCB_CURRENCIES.find((c) => c === value) ?? 'USD';
@@ -115,6 +125,7 @@ const openEdit = (item: PartnerChildItemType): void => {
     contactPhone: item.contactPhone ?? '',
     contactEmail: item.contactEmail ?? '',
     forceReason: '',
+    tracks: item.tracks.filter((track) => parentTracks.value.includes(track)),
   };
   formError.value = null;
   editing.value = item.partnerId;
@@ -145,6 +156,10 @@ async function submitForm(): Promise<void> {
     formError.value = pt('이메일 형식이 올바르지 않습니다.');
     return;
   }
+  if (parentTracks.value.length > 1 && d.tracks.length === 0) {
+    formError.value = pt('맡길 일을 하나 이상 골라 주세요.');
+    return;
+  }
   const needsReason = target === 'new' && forceMode.value;
   if (needsReason && d.forceReason.trim() === '') {
     formError.value = pt('사유를 입력해 주세요.');
@@ -157,6 +172,8 @@ async function submitForm(): Promise<void> {
     contactName: blankToNull(d.contactName),
     contactPhone: blankToNull(d.contactPhone),
     contactEmail: email === '' ? null : email,
+    // 트랙이 하나뿐이면 보내지 않는다 — 서버가 내 트랙 전부로 채운다.
+    ...(parentTracks.value.length > 1 ? { tracks: d.tracks } : {}),
   };
   try {
     if (target === 'new') {
@@ -257,8 +274,10 @@ const ROW_BTN_CLS =
           {{ pt('하위 협력사 등록') }}
         </button>
       </template>
-      <!-- 조직과 소속은 트랙 공용이지만, 하위에 다시 요청하는 기능은 지금 PCB 제작 견적에만 있다 -->
-      <p class="mt-1 text-xs text-gray-400">{{ pt('현재 PCB 제작 견적에만 쓰입니다.') }}</p>
+      <!-- 조직과 소속은 트랙 공용 — 하위마다 맡길 일(PCB 제작·부품 조달)을 따로 정한다 -->
+      <p class="mt-1 text-xs text-gray-400">
+        {{ pt('받은 견적요청을 하위 협력사에 다시 요청할 때 쓰입니다.') }}
+      </p>
     </PartnerPageHeader>
 
     <!-- 지금 등록할 수 없는 이유 — 폼을 열기 전에 알린다 -->
@@ -334,6 +353,11 @@ const ROW_BTN_CLS =
                   class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600"
                   :title="pt('샘플피씨비에서 연결한 협력사입니다 — 변경은 담당자에게 요청해 주세요.')"
                 >{{ pt('관리자 연결') }}</span>
+                <span
+                  v-for="track in item.tracks"
+                  :key="track"
+                  class="rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700"
+                >{{ pt(TRACK_LABELS[track]) }}</span>
               </p>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ item.country ?? '—' }}</td>
@@ -447,6 +471,18 @@ const ROW_BTN_CLS =
           <p class="text-[11px] text-gray-400 sm:col-span-2">
             {{ pt('이 협력사와 정산할 통화입니다. 바꾸면 이후 견적요청부터 적용됩니다.') }}
           </p>
+          <fieldset v-if="parentTracks.length > 1" class="sm:col-span-2">
+            <legend class="mb-1 block text-xs font-semibold text-gray-700">{{ pt('맡길 일') }} *</legend>
+            <div class="flex flex-wrap gap-4">
+              <label v-for="track in parentTracks" :key="track" class="flex items-center gap-1.5 text-sm text-gray-700">
+                <input v-model="draft.tracks" type="checkbox" name="tracks" :value="track">
+                {{ pt(TRACK_LABELS[track]) }}
+              </label>
+            </div>
+            <span class="mt-1 block text-[11px] text-gray-400">
+              {{ pt('고른 일의 견적요청만 이 협력사에 다시 요청할 수 있습니다.') }}
+            </span>
+          </fieldset>
           <label>
             <span class="mb-1 block text-xs font-semibold text-gray-700">{{ pt('담당자') }}</span>
             <input v-model="draft.contactName" type="text" name="contactName" :class="FIELD_CLS" maxlength="100">

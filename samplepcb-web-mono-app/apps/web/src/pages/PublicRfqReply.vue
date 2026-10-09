@@ -131,6 +131,8 @@ const statusCls = (s: string): string =>
         </div>
         <p class="text-sm text-gray-500">
           {{ rfq.items.length }}개 품목 · 요청일 {{ fmtKstDate(rfq.requestedAt) }}
+          <!-- 마스터딜러가 다시 요청한 건 — 누가 요청했는지 밝힌다(문의도 그쪽으로) -->
+          <template v-if="rfq.requesterName !== null"> · 요청처 <b class="text-gray-700">{{ rfq.requesterName }}</b></template>
           <template v-if="rfq.status === 'closed'"> · 마감된 요청입니다(수정 불가)</template>
         </p>
         <p class="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">

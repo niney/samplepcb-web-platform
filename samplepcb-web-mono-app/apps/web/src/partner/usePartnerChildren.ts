@@ -70,7 +70,11 @@ export function useDeletePartnerChild() {
     onSuccess: (res) => {
       qc.setQueryData<PartnerChildListResponseType>(LIST_KEY, {
         result: true,
-        data: { eligibility: res.data.eligibility, items: res.data.items },
+        data: {
+          eligibility: res.data.eligibility,
+          items: res.data.items,
+          parentTracks: res.data.parentTracks,
+        },
       });
       void qc.invalidateQueries({ queryKey: ['partner', 'pcbRfqs'] });
     },
