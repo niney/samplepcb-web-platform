@@ -320,3 +320,67 @@ describe('buildPcbRfqRequestEmail — 견적요청(매직링크 유무 분기)',
     expect(mail.html).toContain('이 메일에 회신해 주세요');
   });
 });
+
+// 대행 주체 — 마스터딜러가 발주한 건의 하위 협력사에게는 그 마스터딜러가 대행 주체이자 문의처다
+// (하위는 계정 없이 쓰는 것이 기본 — docs/PARTNER_PORTAL.md §5.1). 샘플피씨비 담당자로 보내면
+// 하위가 모르는 곳으로 문의가 간다.
+describe('무계정 대행 안내의 주체 — 샘플피씨비 담당자 vs 발주처(마스터딜러)', () => {
+  const noAccount = { hasPortalAccount: false, inquiryEmail: 'md@hanbit.test' } as const;
+
+  it('발주처가 있으면 발주서 메일이 그 조직을 대행 주체·문의처로 안내한다', () => {
+    const mail = buildPcbPoIssuedEmail({
+      partnerName: '하위가람',
+      requesterName: '한빛중개',
+      projectName: 'arduino-uno.zip',
+      qty: 10,
+      priceText: '¥7,200',
+      deliveryText: null,
+      ...noAccount,
+      proxyName: '한빛중개',
+    });
+    expect(mail.html).toContain('발주처(한빛중개)가 대행합니다');
+    expect(mail.html).toContain('발주처(한빛중개)에게 전달해 주세요');
+    expect(mail.html).toContain('mailto:md@hanbit.test');
+    expect(mail.html).not.toContain('샘플피씨비 담당자');
+  });
+
+  it('입고 확인·선적 차례·EQ 결과 메일도 같은 주체를 쓴다', () => {
+    const received = buildPcbShipmentReceivedEmail({
+      partnerName: '하위가람',
+      projectName: 'arduino-uno.zip',
+      note: null,
+      ...noAccount,
+      proxyName: '한빛중개',
+    });
+    expect(received.html).toContain('발주처(한빛중개)가 대행합니다');
+    const decision = buildPcbEqDecisionEmail({
+      partnerName: '하위가람',
+      projectName: 'arduino-uno.zip',
+      approved: false,
+      reason: '드릴 도면 누락',
+      poId: '400',
+      ...noAccount,
+      proxyName: '한빛중개',
+    });
+    expect(decision.html).toContain('발주처(한빛중개)에게 전달해 주세요');
+    expect(decision.html).not.toContain('샘플피씨비 담당자');
+  });
+
+  it('조직명은 이스케이프하고, 발주처가 없으면 종전대로 샘플피씨비 담당자다', () => {
+    const escaped = buildPcbShipmentReceivedEmail({
+      partnerName: '하위',
+      projectName: 'p',
+      note: null,
+      ...noAccount,
+      proxyName: '<b>상사</b>',
+    });
+    expect(escaped.html).toContain('발주처(&lt;b&gt;상사&lt;/b&gt;)');
+    const plain = buildPcbShipmentReceivedEmail({
+      partnerName: '하위',
+      projectName: 'p',
+      note: null,
+      ...noAccount,
+    });
+    expect(plain.html).toContain('샘플피씨비 담당자가 대행합니다');
+  });
+});

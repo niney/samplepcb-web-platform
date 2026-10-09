@@ -39,6 +39,7 @@ import {
   pcbPoTrackOf,
   revertPcbPoEq,
   uploadPcbEqFile,
+  type PcbEqActor,
 } from '../lib/pcb-po';
 import {
   advancePcbShipment,
@@ -53,6 +54,7 @@ import {
   revertPcbShipment,
   savePcbInvoiceData,
   savePcbShipmentFile,
+  type PcbShipmentActor,
 } from '../lib/pcb-shipment';
 import { renderInvoiceXlsx } from '../lib/bom-invoice';
 import { collectMultipart } from '../lib/market';
@@ -84,11 +86,22 @@ const PoFileParams = z.object({ poId: z.coerce.bigint(), fileId: z.coerce.bigint
 export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requirePartner);
 
-  const requireCtx = (request: { partnerContext?: { partnerId: bigint; partnerName: string } }) => {
+  const requireCtx = (request: {
+    partnerContext?: { partnerId: bigint; partnerName: string; actingAdmin: boolean };
+  }) => {
     const ctx = request.partnerContext;
     if (ctx === undefined) throw fastify.httpErrors.forbidden();
     return ctx;
   };
+  type Ctx = ReturnType<typeof requireCtx>;
+
+  // 관리자 대리 접속이면 주체는 관리자 대행이다 — 관리자 화면의 만능 대행(D11)과 같은 표기
+  // (EQ 이력 byRole·첨부 uploadedBy = ADMIN). 접근 범위는 그대로 그 조직의 발주서뿐이다.
+  const actorOf = (ctx: Ctx): PcbEqActor =>
+    ctx.actingAdmin ? { kind: 'admin' } : { kind: 'partner', partnerId: ctx.partnerId };
+  const shipActorOf = (ctx: Ctx, mbId: string): PcbShipmentActor => ({ ...actorOf(ctx), mbId });
+  const uploaderOf = (ctx: Ctx, po: { partnerId: bigint }): 'ADMIN' | 'PARTNER' | 'MASTER_DEALER' =>
+    ctx.actingAdmin ? 'ADMIN' : po.partnerId === ctx.partnerId ? 'PARTNER' : 'MASTER_DEALER';
 
   // ── 목록/상세 ───────────────────────────────────────────────────────────────
   fastify.get(
@@ -257,7 +270,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           message: pcbEqLockedMessage(await pcbPoTrackOf(po.specId)),
         });
       }
-      const uploadedBy = po.partnerId === ctx.partnerId ? 'PARTNER' : 'MASTER_DEALER';
+      const uploadedBy = uploaderOf(ctx, po);
       await uploadPcbEqFile(po.id, file, kind.data, uploadedBy);
       const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
@@ -347,7 +360,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       // lib 이 트랙을 보고 판정한다 — 라우트가 카테고리를 다시 읽지 않는다.
       const res = await advancePcbPoEq(
         po.id,
-        { kind: 'partner', partnerId: ctx.partnerId },
+        actorOf(ctx),
         'issued',
         request.body.note ?? null,
       );
@@ -394,7 +407,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const ctx = requireCtx(request);
       const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await advancePcbPoEq(po.id, { kind: 'partner', partnerId: ctx.partnerId }, 'eq_done');
+      const res = await advancePcbPoEq(po.id, actorOf(ctx), 'eq_done');
       if (!res.ok)
         return reply.status(409).send({ error: res.error, message: transitionMessage(res.error) });
       return { result: true as const };
@@ -410,7 +423,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await advancePcbPoEq(
         po.id,
-        { kind: 'partner', partnerId: ctx.partnerId },
+        actorOf(ctx),
         'producing',
       );
       if (!res.ok)
@@ -466,7 +479,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const ctx = requireCtx(request);
       const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await revertPcbPoEq(po.id, { kind: 'partner', partnerId: ctx.partnerId });
+      const res = await revertPcbPoEq(po.id, actorOf(ctx));
       if (!res.ok)
         return reply.status(409).send({ error: res.error, message: transitionMessage(res.error) });
       return { result: true as const };
@@ -526,7 +539,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
 
       const [spec, portalCta] = await Promise.all([
         prisma.spOrderSpec.findUnique({ where: { id: created.po.specId } }),
-        resolvePcbPortalCta(created.po.partnerId),
+        resolvePcbPortalCta(created.po.partnerId, created.po.parentPartnerId),
       ]);
       if (spec !== null) {
         void sendPcbMail(
@@ -622,7 +635,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await advancePcbShipment(
         po,
-        { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
+        shipActorOf(ctx, request.user.mbId),
         request.body,
       );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
@@ -695,7 +708,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const ctx = requireCtx(request);
       const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await revertPcbShipment(po, { kind: 'partner', partnerId: ctx.partnerId });
+      const res = await revertPcbShipment(po, actorOf(ctx));
       if (!res.ok) return reply.status(409).send(shipError(res.error));
       const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
@@ -720,7 +733,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await requestPcbShipmentCaseRef(
         po,
-        { kind: 'partner', partnerId: ctx.partnerId },
+        actorOf(ctx),
         request.body.note ?? null,
       );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
@@ -770,14 +783,14 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await receivePcbShipment(
         po,
-        { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
+        shipActorOf(ctx, request.user.mbId),
         request.body.note ?? null,
       );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
       // 보내는측(하위 수주 조직) 통지 — 무계정이면 대행 안내(재점검 #15).
       const [portalCta, shipPoCount] = await Promise.all([
-        resolvePcbPortalCta(po.partnerId),
+        resolvePcbPortalCta(po.partnerId, po.parentPartnerId),
         countPcbShipmentPos(po.id),
       ]);
       void sendPcbMail(
@@ -812,11 +825,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const ctx = requireCtx(request);
       const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const res = await detachPcbShipmentPo(po, {
-        kind: 'partner',
-        partnerId: ctx.partnerId,
-        mbId: request.user.mbId,
-      });
+      const res = await detachPcbShipmentPo(po, shipActorOf(ctx, request.user.mbId));
       if (!res.ok) return reply.status(409).send(shipError(res.error));
       return { result: true as const };
     },
@@ -845,7 +854,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (shipment === null) {
         const advanceable = await advancePcbShipment(
           po,
-          { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
+          shipActorOf(ctx, request.user.mbId),
           {},
         );
         // 첫 전이는 필수값 부족으로 실패할 수 있다 — 발송 생성만 필요하므로 재조회.
@@ -855,7 +864,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             .status(409)
             .send(shipError(advanceable.ok ? 'NOT_SHIPPED' : advanceable.error));
       }
-      const uploadedBy = po.partnerId === ctx.partnerId ? 'PARTNER' : 'MASTER_DEALER';
+      const uploadedBy = uploaderOf(ctx, po);
       await savePcbShipmentFile(shipment.id, kind.data, file, uploadedBy);
       const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
@@ -935,7 +944,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (shipment === null) {
         await advancePcbShipment(
           po,
-          { kind: 'partner', partnerId: ctx.partnerId, mbId: request.user.mbId },
+          shipActorOf(ctx, request.user.mbId),
           {},
         );
         shipment = await findPcbShipmentByPo(po.id);

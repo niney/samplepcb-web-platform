@@ -37,7 +37,9 @@ const ShipmentParams = z.object({ shipmentId: z.coerce.bigint() });
 export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requirePartner);
 
-  const requireCtx = (request: { partnerContext?: { partnerId: bigint; partnerName: string } }) => {
+  const requireCtx = (request: {
+    partnerContext?: { partnerId: bigint; partnerName: string; actingAdmin: boolean };
+  }) => {
     const ctx = request.partnerContext;
     if (ctx === undefined) throw fastify.httpErrors.forbidden();
     return ctx;
@@ -69,7 +71,7 @@ export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opt
         return reply.notFound('PCB 발송을 찾을 수 없습니다');
       }
       const data = await loadPcbShipmentPackageList(request.params.shipmentId, {
-        type: 'PARTNER',
+        type: ctx.actingAdmin ? 'ADMIN' : 'PARTNER',
         mbId: request.user.mbId,
       });
       if (data === null) return reply.notFound('PCB 발송을 찾을 수 없습니다');
@@ -92,7 +94,7 @@ export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opt
       }
       try {
         const data = await markPcbShipmentPackagesPrinted(request.params.shipmentId, {
-          type: 'PARTNER',
+          type: ctx.actingAdmin ? 'ADMIN' : 'PARTNER',
           mbId: request.user.mbId,
         });
         return { result: true as const, data };
@@ -148,7 +150,7 @@ export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opt
       // 담기는 내가 수주한 발주서만 — MD 가 하위에 발주한 건은 하위 수주자가 보낸다.
       if (po?.partnerId !== ctx.partnerId) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await ensurePcbShipment(po, {
-        type: 'PARTNER',
+        type: ctx.actingAdmin ? 'ADMIN' : 'PARTNER',
         mbId: request.user.mbId,
       });
       if (!res.ok) {

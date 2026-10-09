@@ -9,7 +9,7 @@ import type { MailLogMeta } from './mail-log';
 
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'https://local-web.samplepcb.co.kr';
 
-const esc = (v: string | number | null | undefined): string =>
+export const esc = (v: string | number | null | undefined): string =>
   String(v ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -46,7 +46,7 @@ export const pcbPriceText = (
     : main;
 };
 
-const shell = (title: string, bodyHtml: string, footer: string): string => `
+export const shell = (title: string, bodyHtml: string, footer: string): string => `
 <div style="margin:0;padding:24px 12px;background:#f5f7fb;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
   <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:0 auto;border-collapse:collapse;">
     <tr><td style="padding:0 4px 12px;font-size:15px;font-weight:800;color:#081226;">SAMPLEPCB · PCB 협력</td></tr>
@@ -58,7 +58,7 @@ const shell = (title: string, bodyHtml: string, footer: string): string => `
   </table>
 </div>`;
 
-const infoRow = (label: string, value: string): string => `
+export const infoRow = (label: string, value: string): string => `
         <tr>
           <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">${esc(label)}</td>
           <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${value}</td>
@@ -75,7 +75,16 @@ export interface PcbPortalCtaParams {
   hasPortalAccount?: boolean;
   /** 대행 안내의 문의처(운영자 메일) — hasPortalAccount=false 일 때만 사용. */
   inquiryEmail?: string | null;
+  /** 대행 주체가 샘플피씨비가 아닐 때 그 조직명 — 마스터딜러가 발주한 건의 하위 협력사에게는
+   *  그 마스터딜러가 대행 주체이자 문의처다(inquiryEmail 도 그 조직의 메일로 온다). */
+  proxyName?: string | null;
 }
+
+/** 대행 주체 표시 — 조사가 흔들리지 않게 조직명은 '발주처(…)'로 감싼다. 동적 값이라 esc. */
+const proxyWho = (p: PcbPortalCtaParams): string =>
+  p.proxyName === undefined || p.proxyName === null || p.proxyName === ''
+    ? '샘플피씨비 담당자'
+    : `발주처(${esc(p.proxyName)})`;
 
 /** 포털 버튼 자리에 넣는 대행 안내 박스 — lead 는 하드코딩 안내문(비 esc). */
 const proxyNoticeBox = (lead: string, inquiryEmail: string | null | undefined): string => `
@@ -109,7 +118,7 @@ export function buildPcbRfqRequestEmail(p: PcbRfqRequestEmailParams): {
     p.magicUrl === null
       ? p.hasPortalAccount === false
         ? proxyNoticeBox(
-            '견적 회신은 샘플피씨비 담당자가 대행 접수합니다 — 견적가·예상 배송일 회신·문의:',
+            `견적 회신은 ${proxyWho(p)}가 대행 접수합니다 — 견적가·예상 배송일 회신·문의:`,
             p.inquiryEmail,
           )
         : `
@@ -264,14 +273,14 @@ export function buildPcbPoIssuedEmail(p: PcbPoIssuedEmailParams): {
   const guide =
     p.track === 'stencil'
       ? noAccount
-        ? '내용 확인 후 <b>좌표파일(필수)</b>을 샘플피씨비 담당자에게 전달해 주세요. 고객에게 확인할 사항이 있으면 문의사항·사진도 함께 전달하면 됩니다 — 확인 요청 등 포털 진행은 담당자가 대행합니다.'
+        ? `내용 확인 후 <b>좌표파일(필수)</b>을 ${proxyWho(p)}에게 전달해 주세요. 고객에게 확인할 사항이 있으면 문의사항·사진도 함께 전달하면 됩니다 — 확인 요청 등 포털 진행은 담당자가 대행합니다.`
         : '포털에서 내용을 확인하고 <b>좌표파일(필수)</b>을 올린 뒤 확인 요청해 주세요. 고객에게 확인할 사항이 있으면 고객문의사항과 사진을 함께 남길 수 있습니다(선택).'
       : noAccount
-        ? '내용 확인 후 생산용 <b>Working 파일이 있으면</b> 샘플피씨비 담당자에게 전달해 주세요. EQ 자료는 필요한 경우 함께 전달하면 됩니다 — EQ 승인요청 등 포털 진행은 담당자가 대행합니다.'
+        ? `내용 확인 후 생산용 <b>Working 파일이 있으면</b> ${proxyWho(p)}에게 전달해 주세요. EQ 자료는 필요한 경우 함께 전달하면 됩니다 — EQ 승인요청 등 포털 진행은 담당자가 대행합니다.`
         : '포털에서 내용을 확인하고 생산용 <b>Working 파일이 있으면 업로드를 권장</b>합니다. EQ 파일은 선택이며, 파일 없이도 EQ 승인요청을 진행할 수 있습니다.';
   const cta = noAccount
     ? proxyNoticeBox(
-        '포털 진행(EQ·생산 상태 처리)은 샘플피씨비 담당자가 대행합니다 — 파일 전달·문의:',
+        `포털 진행(EQ·생산 상태 처리)은 ${proxyWho(p)}가 대행합니다 — 파일 전달·문의:`,
         p.inquiryEmail,
       )
     : `
@@ -322,7 +331,7 @@ export function buildPcbRemittanceSettledEmail(p: PcbRemittanceSettledEmailParam
   ].join('');
   const cta =
     p.hasPortalAccount === false
-      ? proxyNoticeBox('입금 확인·정산 문의는 샘플피씨비 담당자에게 주세요:', p.inquiryEmail)
+      ? proxyNoticeBox(`입금 확인·정산 문의는 ${proxyWho(p)}에게 주세요:`, p.inquiryEmail)
       : `
       <div style="padding-top:16px;">
         <a href="${esc(pcbPartnerPortalUrl())}"
@@ -437,13 +446,13 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
     ? `<b>${esc(p.projectName)}</b> 건에 보완 요청이 도착했습니다.
         ${
           noAccount
-            ? '사유 확인 후 보완 파일을 샘플피씨비 담당자에게 전달해 주세요 — 재요청은 담당자가 대행합니다.'
+            ? `사유 확인 후 보완 파일을 ${proxyWho(p)}에게 전달해 주세요 — 재요청은 담당자가 대행합니다.`
             : '사유 확인 후 좌표파일·문의사항을 보완해 다시 확인 요청해 주세요.'
         }`
     : `<b>${esc(p.projectName)}</b> 건의 EQ가 반려되었습니다.
         ${
           noAccount
-            ? '사유 확인 후 보완 파일을 샘플피씨비 담당자에게 전달해 주세요 — 재승인요청은 담당자가 대행합니다.'
+            ? `사유 확인 후 보완 파일을 ${proxyWho(p)}에게 전달해 주세요 — 재승인요청은 담당자가 대행합니다.`
             : '사유 확인 후 파일 보완 → 다시 승인요청해 주세요.'
         }`;
   const lines = p.approved
@@ -464,7 +473,7 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
   // 계정 없는 조직 — 포털 버튼 대신 대행 안내(열어도 로그인 화면에서 막히는 CTA 를 없앤다).
   const cta = noAccount
     ? proxyNoticeBox(
-        '포털 진행(상태 처리)은 샘플피씨비 담당자가 대행합니다 — 진행 상황 회신·문의:',
+        `포털 진행(상태 처리)은 ${proxyWho(p)}가 대행합니다 — 진행 상황 회신·문의:`,
         p.inquiryEmail,
       )
     : `
@@ -555,11 +564,11 @@ export function buildPcbShipmentTurnEmail(p: PcbShipmentTurnEmailParams): {
     p.nextLabel === null
       ? '내용을 확인해 주세요.'
       : noAccount
-        ? `다음 단계인 '<b>${esc(p.nextLabel)}</b>' 진행은 샘플피씨비 담당자가 대행합니다.`
+        ? `다음 단계인 '<b>${esc(p.nextLabel)}</b>' 진행은 ${proxyWho(p)}가 대행합니다.`
         : `다음 단계인 '<b>${esc(p.nextLabel)}</b>' 처리를 부탁드립니다.`;
   const cta = noAccount
     ? proxyNoticeBox(
-        '포털 진행(선적 상태 처리)은 샘플피씨비 담당자가 대행합니다 — 진행 상황 회신·문의:',
+        `포털 진행(선적 상태 처리)은 ${proxyWho(p)}가 대행합니다 — 진행 상황 회신·문의:`,
         p.inquiryEmail,
       )
     : `
@@ -696,7 +705,7 @@ export function buildPcbShipmentReceivedEmail(p: PcbShipmentReceivedEmailParams)
   const cta =
     p.hasPortalAccount === false
       ? proxyNoticeBox(
-          '포털 확인·후속 처리는 샘플피씨비 담당자가 대행합니다 — 회신·문의:',
+          `포털 확인·후속 처리는 ${proxyWho(p)}가 대행합니다 — 회신·문의:`,
           p.inquiryEmail,
         )
       : `

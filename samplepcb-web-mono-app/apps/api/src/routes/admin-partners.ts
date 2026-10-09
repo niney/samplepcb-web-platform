@@ -1,7 +1,9 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { Prisma } from '@prisma/client';
+import type { SpPartner } from '@prisma/client';
 import { z } from 'zod';
 import {
+  AdminPartnerActLogResponse,
   AdminPartnerCreateBody,
   AdminPartnerDeleteResponse,
   AdminPartnerDetailResponse,
@@ -26,6 +28,7 @@ import { getMembersByIds } from '../lib/g5-db';
 import {
   asPartnerStatus,
   asPartnerType,
+  matchPartnerDuplicates,
   toAdminPartnerDetail,
   toAdminPartnerItem,
   toCapabilities,
@@ -33,6 +36,7 @@ import {
   validateSupplierCode,
 } from '../lib/partner';
 import { normalizePartnerCountry } from '../lib/bom-shipment-policy';
+import { activePairDocCount, loadActiveDirectPos, type PairDoc } from '../lib/partner-children';
 import { purgeOrphanPartnerOffers } from '../lib/partner-parts';
 import { prisma } from '../lib/prisma';
 
@@ -59,12 +63,40 @@ const isUniqueViolation = (e: unknown): boolean =>
 const isForeignKeyViolation = (e: unknown): boolean =>
   e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003';
 
+// 같은 회사로 보이는 다른 협력사(사업자번호·담당 이메일 일치) — 사람 협력사끼리만 본다.
+type DupSource = Pick<SpPartner, 'id' | 'type' | 'name' | 'businessNo' | 'contactEmail'>;
+
+const loadDuplicatePool = async (rows: readonly DupSource[]): Promise<DupSource[]> => {
+  const targets = rows.filter((r) => r.type === 'partner');
+  const bizNos = [...new Set(targets.map((r) => r.businessNo?.trim() ?? '').filter((v) => v !== ''))];
+  const emails = [...new Set(targets.map((r) => r.contactEmail?.trim() ?? '').filter((v) => v !== ''))];
+  if (bizNos.length === 0 && emails.length === 0) return [];
+  return prisma.spPartner.findMany({
+    where: {
+      type: 'partner',
+      OR: [
+        ...(bizNos.length > 0 ? [{ businessNo: { in: bizNos } }] : []),
+        ...(emails.length > 0 ? [{ contactEmail: { in: emails } }] : []),
+      ],
+    },
+    select: { id: true, type: true, name: true, businessNo: true, contactEmail: true },
+  });
+};
+
+const duplicatesOf = (row: DupSource, pool: readonly DupSource[]) =>
+  row.type === 'partner' ? matchPartnerDuplicates(row, pool) : [];
+
 const detailOf = async (id: bigint): Promise<AdminPartnerDetailType | null> => {
   const partner = await prisma.spPartner.findUnique({
     where: { id },
-    include: { members: { orderBy: { id: 'asc' } } },
+    include: { members: { orderBy: { id: 'asc' } }, owner: { select: { name: true } } },
   });
-  return partner === null ? null : toAdminPartnerDetail(partner);
+  if (partner === null) return null;
+  const pool = await loadDuplicatePool([partner]);
+  return toAdminPartnerDetail(partner, {
+    ownerPartnerName: partner.owner?.name ?? null,
+    duplicates: duplicatesOf(partner, pool),
+  });
 };
 
 // ── 마스터딜러(MD) 소속 — sp_partner_relation 헬퍼 ───────────────────────────
@@ -72,26 +104,8 @@ const detailOf = async (id: bigint): Promise<AdminPartnerDetailType | null> => {
 // 배정 시점에 RFQ 행으로 박제(resolveLinkCurrency)되므로 여기서의 변경은 이후 배정부터
 // 적용된다. 2단만 지원 — 부모는 다른 MD 의 하위일 수 없고, 하위는 부모일 수 없다.
 
-interface PairDoc {
-  status: string;
-  reorderRound: number;
-}
-
-// 진행 중(미종결) 문서 수 — RFQ 왕복 중(requested|quoted)·선정 후 발주 대기(selected 인데
-// 같은 회차 발주 없음)·미종결 발주(≠produced). 이 수가 0일 때만 링크 해제를 허용한다 —
-// 도중 해제는 위임 발주의 하위 재배정·발주 권한(NOT_MY_CHILD) 축을 흔든다. EQ 방식 자체는
-// 발주서 fulfillmentMode 에 박제돼 관계 변경으로 뒤집히지 않는다. 선적은
-// 행에 받는측이 박제돼 링크와 무관하므로 세지 않는다.
-const activePairDocCount = (rfqs: PairDoc[], pos: PairDoc[]): number => {
-  const poRounds = new Set(pos.map((p) => p.reorderRound));
-  let count = 0;
-  for (const r of rfqs) {
-    if (r.status === 'requested' || r.status === 'quoted') count += 1;
-    else if (r.status === 'selected' && !poRounds.has(r.reorderRound)) count += 1;
-  }
-  for (const p of pos) if (p.status !== 'produced') count += 1;
-  return count;
-};
+// 진행 중 문서 수(activePairDocCount)는 포털의 하위 삭제와 같은 판정이라 lib 로 옮겼다
+// (lib/partner-children.ts).
 
 type PairRow = PairDoc & { parentPartnerId: bigint; partnerId: bigint };
 
@@ -153,7 +167,12 @@ const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> =
   };
 
   const toLink = (
-    rel: { settlementCurrency: string | null; createdAt: Date },
+    rel: {
+      settlementCurrency: string | null;
+      createdBy: string | null;
+      forceNote: string | null;
+      createdAt: Date;
+    },
     other: { id: bigint; name: string; country: string | null; status: string },
     parentId: bigint,
     childId: bigint,
@@ -164,11 +183,21 @@ const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> =
     status: asPartnerStatus(other.status),
     settlementCurrency: rel.settlementCurrency,
     activeCount: activeOf(parentId, childId),
+    createdBy: rel.createdBy,
+    forceNote: rel.forceNote,
     createdAt: rel.createdAt.toISOString(),
   });
 
+  // 첫 하위 연결이 지금 막히는가 — 화면이 연결을 누르기 전에 알리고 강제 전환을 안내한다.
+  let conversionBlock: AdminPartnerRelationsDataType['conversionBlock'] = null;
+  if (asParent.length === 0 && asChild.length === 0) {
+    const active = await loadActiveDirectPos(id, 0);
+    if (active.count > 0) conversionBlock = { activePoCount: active.count };
+  }
+
   // 후보 — 2단 규칙 선반영: 자신·기존 하위·이미 MD(부모 경험)인 조직 제외. 이 조직이
   // 이미 다른 MD 의 하위면 후보 없음(하위는 부모가 될 수 없다 — POST 가드와 동일).
+  // 다른 마스터딜러가 포털에서 직접 등록한 조직도 후보에서 뺀다(그 조직의 것이다).
   let candidates: AdminPartnerRelationsDataType['candidates'] = [];
   if (asChild.length === 0) {
     const mdRows = await prisma.spPartnerRelation.findMany({
@@ -181,7 +210,11 @@ const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> =
       ...mdRows.map((r) => r.parentPartnerId.toString()),
     ]);
     const rows = await prisma.spPartner.findMany({
-      where: { type: 'partner', status: 'approved' },
+      where: {
+        type: 'partner',
+        status: 'approved',
+        OR: [{ ownerPartnerId: null }, { ownerPartnerId: id }],
+      },
       orderBy: { name: 'asc' },
     });
     candidates = rows
@@ -198,6 +231,7 @@ const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> =
     parents: asChild.map((rel) => toLink(rel, rel.parent, rel.parentPartnerId, id)),
     children: asParent.map((rel) => toLink(rel, rel.child, id, rel.childPartnerId)),
     candidates,
+    conversionBlock,
   };
 };
 
@@ -211,7 +245,7 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       schema: { querystring: AdminPartnerListQuery, response: { 200: AdminPartnerListResponse } },
     },
     async (request) => {
-      const { page, pageSize, tab, type, q } = request.query;
+      const { page, pageSize, tab, type, origin, q } = request.query;
       const keyword = q?.trim();
       const conds: Prisma.SpPartnerWhereInput[] = [];
       if (keyword !== undefined && keyword !== '') {
@@ -225,6 +259,9 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         });
       }
       if (type !== 'all') conds.push({ type });
+      // 등록 원천 — md 는 마스터딜러가 포털에서 직접 등록한 조직(자동 승인 — 사후 감독 대상).
+      if (origin === 'md') conds.push({ NOT: { ownerPartnerId: null } });
+      if (origin === 'admin') conds.push({ ownerPartnerId: null });
       const base: Prisma.SpPartnerWhereInput = conds.length > 0 ? { AND: conds } : {};
       const where: Prisma.SpPartnerWhereInput =
         tab === 'all' ? base : { AND: [base, { status: tab }] };
@@ -235,7 +272,7 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           orderBy: { id: 'desc' },
           skip: (page - 1) * pageSize,
           take: pageSize,
-          include: { _count: { select: { members: true } } },
+          include: { _count: { select: { members: true } }, owner: { select: { name: true } } },
         }),
         prisma.spPartner.count({ where }),
         // counts — 검색어·유형 필터 반영, 탭 미반영(회원 관리 관례)
@@ -246,10 +283,16 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         counts[asPartnerStatus(g.status)] += g._count._all;
         counts.all += g._count._all;
       }
+      const dupPool = await loadDuplicatePool(rows);
       return {
         result: true as const,
         data: {
-          items: rows.map((r) => toAdminPartnerItem(r, r._count.members)),
+          items: rows.map((r) =>
+            toAdminPartnerItem(r, r._count.members, {
+              ownerPartnerName: r.owner?.name ?? null,
+              duplicates: duplicatesOf(r, dupPool),
+            }),
+          ),
           total,
           page,
           pageSize,
@@ -434,6 +477,9 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           statusReason: reason ?? null,
           decidedBy: request.user.mbId,
           decidedAt: new Date(),
+          // 관리자가 상태를 정했다 — 소유 마스터딜러의 '사용 중지' 표식을 지워, 관리자 정지를
+          // 마스터딜러가 포털에서 되살리지 못하게 한다.
+          ownerSuspendedAt: null,
         },
       });
       if (updated.count === 0) {
@@ -571,6 +617,33 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     },
   );
 
+  // ── GET /api/admin/partners/:id/act-logs — 관리자 대리 접속 이력(최근 50건) ──
+  // 관리자가 이 조직의 포털에 들어가 한 쓰기 요청(lib/partner-act-as.ts·plugins/auth.ts).
+  fastify.get(
+    '/partners/:id/act-logs',
+    { schema: { params: PartnerIdParams, response: { 200: AdminPartnerActLogResponse } } },
+    async (request) => {
+      const rows = await prisma.spPartnerActLog.findMany({
+        where: { partnerId: BigInt(request.params.id) },
+        orderBy: { id: 'desc' },
+        take: 50,
+      });
+      return {
+        result: true as const,
+        data: {
+          items: rows.map((r) => ({
+            id: Number(r.id),
+            adminMbId: r.adminMbId,
+            method: r.method,
+            path: r.path,
+            statusCode: r.statusCode,
+            createdAt: r.createdAt.toISOString(),
+          })),
+        },
+      };
+    },
+  );
+
   // ── GET /api/admin/partners/:id/relations — MD 소속(상위·하위·후보) ─────────
   fastify.get(
     '/partners/:id/relations',
@@ -638,19 +711,24 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       }
       // 첫 하위 연결은 조직을 MD 로 전환한다. 발주 방식은 fulfillmentMode 박제라 기존 건이
       // 자체→위임으로 뒤집히진 않지만, 진행 중 거래 도중 조직 역할을 바꾸지 않는 보수적 가드는 유지.
+      // 발주가 끊이지 않는 협력사는 이 가드에 영영 걸리므로, 관리자는 사유를 남기고 넘을 수 있다
+      // (force — 2단 제한·승인 상태 같은 위의 구조 제약은 강제로도 못 넘는다).
       const existingChildren = await prisma.spPartnerRelation.count({
         where: { parentPartnerId: id },
       });
+      let forceNote: string | null = null;
       if (existingChildren === 0) {
         const activeReceived = await prisma.spPcbPo.count({
           where: { partnerId: id, parentPartnerId: 0n, status: { not: 'produced' } },
         });
         if (activeReceived > 0) {
-          return reply.status(409).send({
-            error: 'PARENT_HAS_ACTIVE_POS',
-            message:
-              '진행 중 수주 발주가 있어 지금은 마스터딜러로 전환할 수 없습니다 — EQ 진행 주체가 위임으로 바뀝니다. 발주 종결 후 연결하세요.',
-          });
+          if (!request.body.force) {
+            return reply.status(409).send({
+              error: 'PARENT_HAS_ACTIVE_POS',
+              message: `진행 중인 발주가 ${String(activeReceived)}건 있어 지금은 마스터딜러로 전환할 수 없습니다 — 발주 종결 후 연결하거나, 사유를 남기고 강제로 연결하세요(진행 중인 발주는 직접 제작으로 그대로 진행됩니다).`,
+            });
+          }
+          forceNote = request.body.forceReason ?? null;
         }
       }
       try {
@@ -659,6 +737,8 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             parentPartnerId: id,
             childPartnerId: childId,
             settlementCurrency: request.body.settlementCurrency,
+            createdBy: request.user.mbId,
+            forceNote,
           },
         });
       } catch (e) {

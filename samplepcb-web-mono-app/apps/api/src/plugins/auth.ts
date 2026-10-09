@@ -2,6 +2,7 @@ import fp from 'fastify-plugin';
 import fastifyJwt from '@fastify/jwt';
 import type { FastifyInstance } from 'fastify';
 import { JwtClaims, type JwtClaimsType } from '@sp/api-contract';
+import { readActAsPartnerId } from '../lib/partner-act-as';
 import { prisma } from '../lib/prisma';
 
 // 타입 보강 ----------------------------------------------------------------
@@ -14,7 +15,13 @@ declare module 'fastify' {
   }
   interface FastifyRequest {
     /** requirePartner 통과 시 세팅되는 소속 조직 컨텍스트. */
-    partnerContext?: { partnerId: bigint; partnerName: string; role: string };
+    partnerContext?: {
+      partnerId: bigint;
+      partnerName: string;
+      role: string;
+      /** 관리자 대리 접속 — 관리자가 이 조직의 포털에 들어와 있다(이력 주체는 ADMIN). */
+      actingAdmin: boolean;
+    };
   }
 }
 
@@ -65,6 +72,25 @@ export default fp(async (app: FastifyInstance) => {
   // 비접근" 원칙과 무관하다. 1계정=1조직 운영 가드(관리자 API)로 소속은 최대 1행.
   const requirePartner: FastifyInstance['requirePartner'] = async (request, reply) => {
     await authenticate(request, reply);
+    // 관리자 대리 접속 — 관리자가 그 조직의 자리에서 포털을 쓴다. 소속 계정이 없어도, 조직이
+    // 정지돼 있어도 들어간다(정지 조직의 진행 건을 대행으로 마무리해야 하므로). 쓰기 요청은
+    // 아래 onResponse 훅이 원장에 남긴다.
+    const actAs = readActAsPartnerId(request.headers);
+    if (actAs !== null) {
+      if (!request.user.isAdmin) {
+        throw app.httpErrors.forbidden('관리자만 대리 접속할 수 있습니다');
+      }
+      const partner =
+        actAs === 'invalid' ? null : await prisma.spPartner.findUnique({ where: { id: actAs } });
+      if (partner === null) throw app.httpErrors.notFound('대리 접속할 파트너가 없습니다');
+      request.partnerContext = {
+        partnerId: partner.id,
+        partnerName: partner.name,
+        role: 'owner',
+        actingAdmin: true,
+      };
+      return;
+    }
     const membership = await prisma.spPartnerMember.findFirst({
       where: { mbId: request.user.mbId },
       include: { partner: true },
@@ -80,7 +106,31 @@ export default fp(async (app: FastifyInstance) => {
       partnerId: membership.partnerId,
       partnerName: membership.partner.name,
       role: membership.role,
+      actingAdmin: false,
     };
   };
   app.decorate('requirePartner', requirePartner);
+
+  // 대리 접속 원장 — 관리자가 조직의 자리에서 한 쓰기 요청을 1건씩 남긴다. 발주·발송 이력은
+  // 각자의 주체 표기(ADMIN)를 따르지만 표기 자리가 없는 쓰기(견적 회신·하위 등록 등)도 있어,
+  // "누가 그 조직으로 무엇을 했는가"의 단일 근거는 이 원장이다. 기록 실패는 요청을 막지 않는다.
+  app.addHook('onResponse', async (request, reply) => {
+    const ctx = request.partnerContext;
+    if (ctx?.actingAdmin !== true) return;
+    if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') return;
+    try {
+      await prisma.spPartnerActLog.create({
+        data: {
+          partnerId: ctx.partnerId,
+          partnerName: ctx.partnerName,
+          adminMbId: request.user.mbId,
+          method: request.method,
+          path: (request.url.split('?')[0] ?? request.url).slice(0, 255),
+          statusCode: reply.statusCode,
+        },
+      });
+    } catch (err) {
+      request.log.error({ err }, 'partner act log write failed');
+    }
+  });
 });

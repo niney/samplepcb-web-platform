@@ -594,7 +594,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       }
       try {
         const data = await saveShipmentPackingList(request.params.shipmentId, request.body, {
-          type: 'PARTNER',
+          type: ctx.actingAdmin ? 'ADMIN' : 'PARTNER',
           mbId: request.user.mbId,
         });
         return { result: true as const, data };
@@ -629,7 +629,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       }
       try {
         const data = await markShipmentPackingListPrinted(request.params.shipmentId, {
-          type: 'PARTNER',
+          type: ctx.actingAdmin ? 'ADMIN' : 'PARTNER',
           mbId: request.user.mbId,
         });
         return { result: true as const, data };
@@ -689,7 +689,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       }
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
       if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      const saved = await saveShipmentFile(shipment.id, kind.data, file, 'PARTNER');
+      const saved = await saveShipmentFile(shipment.id, kind.data, file, ctx.actingAdmin ? 'ADMIN' : 'PARTNER');
       if (!saved.ok) {
         if (saved.error === 'SHIPMENT_NOT_FOUND') {
           return reply.notFound(DOCUMENT_ERROR_MESSAGE[saved.error]);

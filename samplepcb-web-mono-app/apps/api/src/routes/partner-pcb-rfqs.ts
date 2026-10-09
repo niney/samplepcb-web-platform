@@ -246,7 +246,7 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         for (const partner of diff.addedPartners) {
           const token = diff.addedTokens.get(partner.id.toString());
           // 매직링크가 없을 때만 포털 폴백 CTA 가 실리므로 그때만 무계정 여부를 판정(재점검 #15).
-          const portalCta = token === undefined ? await resolvePcbPortalCta(partner.id) : null;
+          const portalCta = token === undefined ? await resolvePcbPortalCta(partner.id, ctx.partnerId) : null;
           void sendPcbMail(
             request.log,
             partner.contactEmail,

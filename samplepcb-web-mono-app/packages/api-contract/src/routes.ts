@@ -39,6 +39,9 @@ export const apiRoutes = {
   adminBomPackages: '/api/admin/bom-packages',
   // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인(D18)
   partnerAccess: '/api/partner/access',
+  // 하위 협력사 직접 관리(마스터딜러 포털) · 포털 초대 수락(공개 조회 + 로그인 수락)
+  partnerChildren: '/api/partner/children',
+  partnerInvite: '/api/partner-invite',
   partnerRfqs: '/api/partner/rfqs',
   partnerPos: '/api/partner/pos',
   partnerShipments: '/api/partner/shipments',

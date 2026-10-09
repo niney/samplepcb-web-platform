@@ -2,6 +2,7 @@ import type { SpPartner, SpPartnerMember } from '@prisma/client';
 import { PARTNER_CAPABILITIES } from '@sp/api-contract';
 import type {
   AdminPartnerDetailType,
+  AdminPartnerDuplicateType,
   AdminPartnerListItemType,
   AdminPartnerMemberItemType,
   PartnerCapabilityType,
@@ -30,7 +31,17 @@ export const toCapabilities = (v: unknown): PartnerCapabilityType[] =>
     ? v.filter((c): c is PartnerCapabilityType => typeof c === 'string' && CAPABILITY_SET.has(c))
     : [];
 
-export const toAdminPartnerItem = (p: SpPartner, memberCount: number): AdminPartnerListItemType => ({
+/** 목록·상세에 얹는 감독 표시 — 소유 조직명과 같은 회사로 보이는 다른 협력사. */
+export interface AdminPartnerOversight {
+  ownerPartnerName?: string | null;
+  duplicates?: readonly AdminPartnerDuplicateType[];
+}
+
+export const toAdminPartnerItem = (
+  p: SpPartner,
+  memberCount: number,
+  oversight: AdminPartnerOversight = {},
+): AdminPartnerListItemType => ({
   partnerId: Number(p.id),
   type: asPartnerType(p.type),
   name: p.name,
@@ -41,6 +52,9 @@ export const toAdminPartnerItem = (p: SpPartner, memberCount: number): AdminPart
   status: asPartnerStatus(p.status),
   contactEmail: p.contactEmail,
   memberCount,
+  ownerPartnerId: p.ownerPartnerId === null ? null : Number(p.ownerPartnerId),
+  ownerPartnerName: oversight.ownerPartnerName ?? null,
+  duplicateCount: oversight.duplicates?.length ?? 0,
   createdAt: p.createdAt.toISOString(),
 });
 
@@ -52,8 +66,9 @@ export const toAdminPartnerMemberItem = (m: SpPartnerMember): AdminPartnerMember
 
 export const toAdminPartnerDetail = (
   p: SpPartner & { members: SpPartnerMember[] },
+  oversight: AdminPartnerOversight = {},
 ): AdminPartnerDetailType => ({
-  ...toAdminPartnerItem(p, p.members.length),
+  ...toAdminPartnerItem(p, p.members.length, oversight),
   contactName: p.contactName,
   contactPhone: p.contactPhone,
   businessNo: p.businessNo,
@@ -67,8 +82,33 @@ export const toAdminPartnerDetail = (
   statusReason: p.statusReason,
   decidedBy: p.decidedBy,
   decidedAt: p.decidedAt?.toISOString() ?? null,
+  createdBy: p.createdBy,
+  ownerSuspended: p.status === 'suspended' && p.ownerSuspendedAt !== null,
+  duplicates: [...(oversight.duplicates ?? [])],
   members: p.members.map(toAdminPartnerMemberItem),
 });
+
+// 같은 회사로 보이는 조직 찾기 — 사업자번호 또는 담당 이메일이 같으면 의심한다(대소문자·공백 무시).
+// 자동 승인된 포털 등록분에서 여러 마스터딜러가 같은 회사를 각각 올린 흔적을 관리자에게 보인다.
+const dupKey = (v: string | null): string => (v ?? '').trim().toLowerCase();
+
+export const matchPartnerDuplicates = (
+  self: Pick<SpPartner, 'id' | 'businessNo' | 'contactEmail'>,
+  pool: readonly Pick<SpPartner, 'id' | 'name' | 'businessNo' | 'contactEmail'>[],
+): AdminPartnerDuplicateType[] => {
+  const biz = dupKey(self.businessNo);
+  const email = dupKey(self.contactEmail);
+  const out: AdminPartnerDuplicateType[] = [];
+  for (const other of pool) {
+    if (other.id === self.id) continue;
+    if (biz !== '' && dupKey(other.businessNo) === biz) {
+      out.push({ partnerId: Number(other.id), name: other.name, matchedBy: 'businessNo' });
+    } else if (email !== '' && dupKey(other.contactEmail) === email) {
+      out.push({ partnerId: Number(other.id), name: other.name, matchedBy: 'contactEmail' });
+    }
+  }
+  return out;
+};
 
 // supplierCode 는 supplier(필수)·house(선택)만 보유 — partner(사람 협력사)는 금지.
 // SpPartOffer.supplier 와 같은 어휘라 사람 조직에 붙으면 구매 조건 원장과 의미가 충돌한다.

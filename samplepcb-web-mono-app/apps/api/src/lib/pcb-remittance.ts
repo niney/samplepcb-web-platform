@@ -381,7 +381,7 @@ const runSettledNotice = async (
     });
     if (alreadySent > 0) return;
 
-    const portalCta = await resolvePcbPortalCta(po.partnerId);
+    const portalCta = await resolvePcbPortalCta(po.partnerId, po.parentPartnerId);
     await sendPcbMail(
       log,
       po.partner.contactEmail,

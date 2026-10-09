@@ -215,7 +215,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (spec !== null) {
         const [requesterName, portalCta] = await Promise.all([
           loadHousePartnerName(),
-          resolvePcbPortalCta(created.po.partnerId),
+          resolvePcbPortalCta(created.po.partnerId, created.po.parentPartnerId),
         ]);
         void sendPcbMail(
           request.log,
@@ -334,7 +334,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               : `${PCB_PO_STATUS_LABELS[track].eq_requested} 상태에서만 ${track === 'stencil' ? '확인 완료로 넘길' : '승인할'} 수 있습니다.`,
         });
 
-      const portalCta = await resolvePcbPortalCta(po.partnerId);
+      const portalCta = await resolvePcbPortalCta(po.partnerId, po.parentPartnerId);
       void sendPcbMail(
         request.log,
         po.partner.contactEmail,
@@ -387,7 +387,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         });
 
       const [portalCta, replyFileCount] = await Promise.all([
-        resolvePcbPortalCta(po.partnerId),
+        resolvePcbPortalCta(po.partnerId, po.parentPartnerId),
         // 회신 첨부는 메일에 붙이지 않는다(포털에서 받는다) — 대신 **있다는 사실**을 알린다.
         // 사유만 오는 반려와 "도면을 봐야 하는" 반려는 협력사가 할 일이 다르다.
         countPcbEqReplyFiles(po.id),
@@ -712,7 +712,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       // 관리자 전이 → 협력사(보내는측) 통지 — 다음 협력사 차례가 있으면 안내.
       const [spec, portalCta, shipPoCount] = await Promise.all([
         prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
-        resolvePcbPortalCta(po.partnerId),
+        resolvePcbPortalCta(po.partnerId, po.parentPartnerId),
         countPcbShipmentPos(po.id),
       ]);
       void sendPcbMail(
@@ -784,7 +784,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (res.shipment.caseRefRequestedAt !== null) {
         const [spec, portalCta, shipPoCount] = await Promise.all([
           prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
-          resolvePcbPortalCta(po.partnerId),
+          resolvePcbPortalCta(po.partnerId, po.parentPartnerId),
           countPcbShipmentPos(po.id),
         ]);
         void sendPcbMail(
@@ -868,7 +868,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
 
       const [spec, portalCta, shipPoCount] = await Promise.all([
         prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
-        resolvePcbPortalCta(po.partnerId),
+        resolvePcbPortalCta(po.partnerId, po.parentPartnerId),
         countPcbShipmentPos(po.id),
       ]);
       void sendPcbMail(

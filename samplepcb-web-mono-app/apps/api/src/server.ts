@@ -42,6 +42,8 @@ import { adminPartnerPartRoutes } from './routes/admin-partner-parts';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { partnerPoRoutes } from './routes/partner-pos';
 import { partnerAccessRoutes } from './routes/partner-access';
+import { partnerChildRoutes } from './routes/partner-children';
+import { partnerInviteRoutes } from './routes/partner-invite';
 import { partnerPartRoutes } from './routes/partner-parts';
 import { rfqReplyRoutes } from './routes/rfq-reply';
 import { adminPcbRfqRoutes } from './routes/admin-pcb-rfqs';
@@ -171,6 +173,9 @@ await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
 await app.register(adminPartnerPartRoutes, { prefix: '/api/admin' });
 // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인
 await app.register(partnerAccessRoutes, { prefix: '/api' });
+// 하위 협력사 직접 관리(마스터딜러 포털) + 포털 초대 수락(공개 조회·로그인 수락)
+await app.register(partnerChildRoutes, { prefix: '/api' });
+await app.register(partnerInviteRoutes, { prefix: '/api' });
 // 협력사 보유 부품 — 포털 공통 영역(part_sale capability 는 라우트가 매 요청 재확인)
 await app.register(partnerPartRoutes, { prefix: '/api' });
 await app.register(partnerRfqRoutes, { prefix: '/api' });

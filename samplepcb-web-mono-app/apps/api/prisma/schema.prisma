@@ -1162,8 +1162,19 @@ model SpPartner {
   decidedBy       String?               @db.VarChar(191) // 처리 관리자 mbId
   decidedAt       DateTime?
   legacyJson      Json? // partnerAuth 승격 이관 원본 보존(SpMemberProfile 관례)
+  // 마스터딜러가 포털에서 직접 등록한 하위 협력사의 소유 조직(null=관리자 등록).
+  // 소유 조직만 포털에서 수정·삭제할 수 있고, 다른 마스터딜러·관리자 직접 배정 후보에는
+  // 섞이지 않는다(docs/PARTNER_PORTAL.md "하위 협력사 직접 관리").
+  ownerPartnerId   BigInt?
+  createdBy        String?               @db.VarChar(191) // 포털 등록 계정 mbId(관리자 등록은 decidedBy)
+  // 소유 마스터딜러가 '사용 중지'한 시각 — 관리자 정지와 구분한다. 이 값이 있을 때만
+  // 마스터딜러가 다시 사용으로 되돌릴 수 있고, 관리자가 상태를 바꾸면 비운다.
+  ownerSuspendedAt DateTime?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
+  owner           SpPartner?            @relation("PartnerOwner", fields: [ownerPartnerId], references: [id], onDelete: SetNull)
+  ownedPartners   SpPartner[]           @relation("PartnerOwner")
+  invites         SpPartnerInvite[]
   members         SpPartnerMember[]
   partUploads     SpPartnerPartUpload[]
   parts           SpPartnerPart[]
@@ -1176,7 +1187,43 @@ model SpPartner {
   parentRelations SpPartnerRelation[]   @relation("PartnerRelationChild")
 
   @@index([type, status]) // 관리자 목록 탭×유형 필터
+  @@index([ownerPartnerId])
   @@map("sp_partner")
+}
+
+// 포털 초대 — 계정 없이 등록된 조직의 담당자가 **본인 계정으로** 포털에 들어오게 하는 링크.
+// 회원을 대신 만들지 않는다(가짜 회원 없음 원칙): 받은 사람이 가입·로그인한 뒤 수락하면
+// sp_partner_member 1행이 생긴다. 토큰은 1회용(acceptedAt)·기한부(expiresAt).
+model SpPartnerInvite {
+  id         BigInt    @id @default(autoincrement())
+  partnerId  BigInt
+  token      String    @unique @db.VarChar(64)
+  email      String    @db.VarChar(255)
+  createdBy  String    @db.VarChar(191) // 보낸 계정 mbId
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  acceptedBy String?   @db.VarChar(191)
+  createdAt  DateTime  @default(now())
+  partner    SpPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+  @@map("sp_partner_invite")
+}
+
+// 관리자 대리 접속 원장 — 관리자가 협력사 포털에 그 조직으로 들어가 한 **쓰기** 요청 1건 = 1행.
+// 조직이 지워져도 기록은 남아야 하므로 FK 를 두지 않고 이름을 박제한다.
+model SpPartnerActLog {
+  id          BigInt   @id @default(autoincrement())
+  partnerId   BigInt
+  partnerName String   @db.VarChar(191)
+  adminMbId   String   @db.VarChar(191)
+  method      String   @db.VarChar(8)
+  path        String   @db.VarChar(255)
+  statusCode  Int
+  createdAt   DateTime @default(now())
+
+  @@index([partnerId, id])
+  @@map("sp_partner_act_log")
 }
 
 // 계정 연결 — 로그인 가능 주체(정상 가입한 g5_member 를 조직에 연결, 가짜 회원 없음).
@@ -1298,6 +1345,9 @@ model SpPartnerRelation {
   parentPartnerId    BigInt
   childPartnerId     BigInt
   settlementCurrency String?   @db.VarChar(8)
+  createdBy          String?   @db.VarChar(191) // 연결한 계정 mbId(관리자 또는 마스터딜러)
+  // 관리자 강제 전환 사유 — 진행 중 직속 발주가 있는데도 첫 하위를 연결한 경우에만 남는다.
+  forceNote          String?   @db.VarChar(255)
   createdAt          DateTime  @default(now())
   parent             SpPartner @relation("PartnerRelationParent", fields: [parentPartnerId], references: [id], onDelete: Cascade)
   child              SpPartner @relation("PartnerRelationChild", fields: [childPartnerId], references: [id], onDelete: Cascade)

@@ -212,7 +212,7 @@ export const partnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           fileName: file.filename.slice(0, 255),
           fileSize: BigInt(file.buffer.length),
           status: 'parsing',
-          uploadedBy: 'PARTNER',
+          uploadedBy: request.partnerContext?.actingAdmin === true ? 'ADMIN' : 'PARTNER',
           uploadedById: request.user.mbId,
         },
       });
@@ -246,7 +246,7 @@ export const partnerPartRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
             size: BigInt(stored.size),
             writeDate: new Date(),
             fileType: 'bom',
-            uploadedBy: 'PARTNER',
+            uploadedBy: request.partnerContext?.actingAdmin === true ? 'ADMIN' : 'PARTNER',
           },
         });
         await prisma.spPartnerPartUpload.update({
