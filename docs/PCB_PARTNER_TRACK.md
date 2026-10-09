@@ -3281,3 +3281,46 @@ BOM 클레임(sp_bom_claim, D37)의 PCB 미러 + PCB 고유 판정 축. 처리 �
 검증: 신규 `md-direct-self.e2e.test.ts` 3/3(직접 회신→관리자 선정→`self` 발주→직접 EQ·
 생산완료→관리자행 발송, 하위 발주 409, Vue 버튼·안내 육안) · 기존 `md-eq-observe` 4/4와
 `md-quote-loop` 5/5(위임 회귀) · `md-quote-rework` 6/6(하위 선정→직접 회신 전환 포함).
+
+### 하위 협력사 직접 관리 · 관리자 대리 접속 (2026-10-09)
+
+MD 소속은 그동안 관리자만 연결할 수 있었다(위 'MD 소속 관리 UI 구현 기록'). 이제 **마스터딜러가
+포털에서 자기 하위를 직접 등록·수정·삭제**하고, 관리자는 **그 조직의 포털에 대리 접속**한다.
+정보 구조·정책의 정본은 [PARTNER_PORTAL.md](PARTNER_PORTAL.md) §5.1·§5.2 — 여기에는 이 트랙의
+규칙이 어떻게 바뀌었는지만 남긴다.
+
+- **전환 가드는 정책으로 남고, 관리자에게만 통로가 생겼다.** `PARENT_HAS_ACTIVE_POS` 는
+  `fulfillmentMode` 박제(위 'MD 건별 직접 제작') 이후로 지킬 기술적 이유가 없다 — 전환해도 진행 중
+  발주는 `self` 그대로이고, 뒤늦은 하위 발주는 `SELF_FULFILLMENT` 가 막는다. 그래도 협력사 본인에게는
+  막고 미리 안내한다(사용자 결정). 발주가 끊이지 않는 조직은 그 가드에 영영 걸리므로 관리자는
+  `force`+`forceReason` 으로 넘고, 사유·계정이 링크(`forceNote`·`createdBy`)에 남는다. 안내 문구의
+  "EQ 진행 주체가 위임으로 바뀝니다"는 사실이 아니게 돼 고쳤다.
+- **전환 뒤 달라지는 것은 하나다.** 발주 전 견적에서 하위 재요청·선정이 열린다. 견적 없는 수동
+  발주는 방식 값을 생략하면 위임이 기본값이지만(`pcb-po.ts`), 관리자 화면은 선정된 견적 없이는
+  발주를 만들지 않아(`case-po.ts`) 화면 경로로는 생기지 않는다 — 따로 손대지 않았다.
+- **무계정 대행 안내의 주체를 발주처로 갈랐다.** 하위는 계정 없이 쓰는 것이 기본이 됐는데, 하위에
+  가는 발주·EQ 결과·선적 차례·입고 확인 메일의 대행 안내가 전부 "샘플피씨비 담당자"를 가리켰다.
+  `resolvePcbPortalCta(partnerId, issuerPartnerId)` 가 문서의 발주처(`parentPartnerId`)를 받아,
+  마스터딜러가 발주한 건이면 대행 주체(`proxyName` → "발주처(조직명)")와 문의처를 그 조직으로
+  돌려준다. 조직의 소유자가 아니라 **그 문서의 발주처**로 판정하므로 관리자가 연결해 준 하위에도
+  똑같이 맞는다. 관리자 직접 발주(0)는 종전 그대로다.
+- **대리 접속의 주체 표기는 D11 을 그대로 쓴다.** 포털 라우트가 액터를 협력사·마스터딜러 둘로만
+  가르던 자리(`partner-pcb-pos.ts`)에 관리자 대행을 더했다: EQ·선적은 `{kind:'admin'}`(이력
+  `byRole=ADMIN`), 첨부는 `uploadedBy=ADMIN`. lib 은 이미 관리자를 양측 대행으로 받으므로 고친 곳은
+  라우트의 액터 조립 한 군데(`actorOf`·`shipActorOf`·`uploaderOf`)다. 접근 범위는 그 조직의 발주서
+  그대로다.
+- **소유 조직은 관리자 직접 배정 후보에서 빠진다.** 마스터딜러가 등록한 하위는 그 조직의 것이라
+  PCB 배정 모달(옛·새 Case 화면)이 `origin=admin` 으로 목록을 부르고, 소속 후보에서도 남의 소유는
+  뺀다. 서버가 배정 자체를 거절하지는 않는다(관리자 재량).
+- **검증**: `journey:children` 7/7(CH1 등록 · CH2 소유 경계 · CH3 초대 · CH4 삭제/사용 중지 · CH5 전환
+  가드·강제 전환 · CH6 대리 접속 권한·EQ `byRole=ADMIN` 실측 · CH7 화면) · 거버 없이 같은 경로를
+  밟는 회귀 13본 60케이스 green(`md-ship-legs`·`md-eq-observe`·`md-direct-self`·`journey-eq-reply`·
+  `journey-bulk-box`·`journey-as-rounds`·`journey-remit-multi`·`journey-myturn`·`journey-md-multi`·
+  `journey-authz`·`pcb-caseref`·`pcb-transport`·`pcb-selfship-gate`) · 대행 안내 판정은 로컬 DB
+  실측(직접 발주=운영자 · 발주처 있음=그 조직 · 계정 있음=포털 버튼) + 빌더 단위 3케이스.
+  `md-direct-self` S2 는 포털 문구 정돈 뒤 옛 버튼 이름(`EQ 승인요청`)을 찾던 것이라 스펙을 고쳤다.
+- **돌리지 못한 것**: 고객 거버 제출로 시작하는 4호(`journey-md-relay`)·12호(`journey-admin-proxy`)·
+  20호(`journey-currency`). 주행 때 8040 에 떠 있던 것이 e2e 가 기대하는 `sp-gerber-eye-v3`(vite)가
+  아니라 `samplepcb_gerber`(webpack)여서 업로드 뒤 가격이 서지 않았다. `pcb-invoice-attach` 는 포털
+  문구 정돈 뒤 옛 버튼 이름(`이 박스로 발송 준비`)을 찾는 기존 실패다.
+- **남은 것**: 위 세 여정을 eye-v3 로 다시 돌리는 것 · 운영 반영은 `migrate deploy`.

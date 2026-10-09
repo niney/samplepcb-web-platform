@@ -63,8 +63,11 @@
 │   pcb/shipments/done       PartnerPcbShipmentsDone
 │   pcb/as                   PartnerPcbAs
 ├─ /partner/remittances      PartnerPcbRemittances — 공통 영역(모듈 밖, tracks.pcb)
-└─ /partner/parts            PartnerParts — 공통 영역(모듈 밖, tracks.parts)
-    parts/uploads/:id        PartnerPartUpload(← 보유 부품 — 열 역할 교정·반영)
+├─ /partner/parts            PartnerParts — 공통 영역(모듈 밖, tracks.parts)
+│   parts/uploads/:id        PartnerPartUpload(← 보유 부품 — 열 역할 교정·반영)
+└─ /partner/children         PartnerChildren — 공통 영역(tracks.pcb ∧ canManageChildren, §5.1)
+
+/partner-invite/:token       PartnerInviteAccept — 포털 셸 밖(초대 수락, §5.1)
 ```
 
 - **공통 영역**: 모듈 소속이 본질이 아닌 화면(수금 현황·보유 부품)은 억지 배속하지 않는다
@@ -120,8 +123,67 @@ BOM `GET /partner/shipments?tab=done`(기존) 미러로 PCB
 확인, 최신순 페이지네이션) + `PartnerPcbShipmentsDone` 화면. 홈엔 건수 링크만(§6.11) →
 R3 부터 사이드바 메뉴(완료된 발송).
 
+## 5.1 하위 협력사 직접 관리 (2026-10-09)
+
+마스터딜러가 **포털에서 자기 하위 협력사를 등록·수정·삭제**한다(`/partner/children`, 공통 영역).
+그전에는 관리자만 파트너 관리의 '마스터딜러 소속'에서 연결할 수 있었다(그 경로는 그대로 있다).
+
+- **메뉴 노출** — PCB 트랙 보유 ∧ 다른 마스터딜러의 하위가 아님(`access.canManageChildren`). 2단 제한이라
+  남의 하위는 하위를 둘 수 없다.
+- **등록은 자동 승인** — 승인 절차를 두면 "쉽게 쓴다"는 목적이 깨진다. 조직(`type=partner`·`pcb_rfq`
+  고정·국가 필수)과 소속 링크가 한 번에 서고, **소유**(`sp_partner.ownerPartnerId`)와 등록 계정
+  (`createdBy`)이 남는다. 사후 감독은 관리자 몫: 운영자 통지 메일(`partner_child_registered`),
+  파트너 관리의 '마스터딜러 등록' 배지·필터(`origin=md`), 사업자번호·이메일이 같은 조직의 '중복 의심'.
+- **회원은 만들지 않는다** — "정상 가입한 회원만 연결, 가짜 회원 없음"(SMARTBOM_PARTNER_RFQ §1)을
+  지킨다. 하위는 계정 없이 매직링크로 견적을 회신하고, 발주 이후는 마스터딜러가 대행한다. 계정이
+  필요하면 **초대**: 1회용 링크(64hex·14일, `sp_partner_invite`)를 메일로 보내고, 받은 사람이
+  **자기 계정으로** 로그인해 수락하면 연결된다(`/partner-invite/:token` — 조회 공개, 수락 로그인).
+  1계정=1조직 가드는 관리자 계정 연결과 같다. 그누보드 회원 삭제는 행을 지우지 않고 아이디를
+  영구 보관하므로(`member_delete`) "함께 만들고 함께 지우기"는 애초에 성립하지 않는다.
+- **대행 안내 메일** — 계정 없는 하위에 가는 메일은 포털 버튼 대신 대행 안내를 싣는데, 마스터딜러가
+  발주한 건이면 대행 주체와 문의처가 그 마스터딜러다("발주처(조직명)"). 판정은 문서의 발주처로
+  한다(`resolvePcbPortalCta` — PCB_PARTNER_TRACK.md 기록 참조).
+- **쓰임새** — 조직과 소속 링크는 트랙 공용이지만, 하위에 다시 요청하는 기능은 지금 PCB 트랙에만
+  있다(BOM 마스터딜러 중개는 레거시에만 있고 플랫폼에는 미이식 — SMARTBOM_PARTNER_RFQ D4). 그래서
+  메뉴는 공통 영역에 두고 화면에 "현재 PCB 제작 견적에만 쓰입니다"를 밝힌다.
+- **소유 경계** — 수정·삭제·초대는 내가 등록한 조직에만. 관리자가 연결해 준 하위는 목록에
+  '관리자 연결'로 보이기만 한다(`NOT_OWNED`). 소유 조직은 다른 마스터딜러의 후보·관리자 직접
+  배정 후보에 섞이지 않는다(관리자 PCB 배정 모달은 `origin=admin`).
+- **삭제 = 이력이 없을 때만 진짜 삭제** — 문서 이력이 있으면 같은 버튼이 '사용 중지'
+  (`status=suspended` + `ownerSuspendedAt`)로 수렴한다. 진행 중 견적·발주가 있으면 막는다
+  (`RELATION_ACTIVE`, 관리자 소속 해제와 같은 판정 `activePairDocCount`). 마스터딜러는 **자기가
+  중지한 것만** 되살린다 — 관리자가 상태를 바꾸면 표식이 지워져 `NOT_OWNER_SUSPENDED`.
+- **첫 등록 = 마스터딜러 전환** — 진행 중 직속 발주가 있으면 막고(`PARENT_HAS_ACTIVE_POS`), 폼을
+  열기 전에 어느 발주가 끝나야 하는지 보여 준다(`eligibility`). 발주 방식은 발주서마다 박제
+  (`fulfillmentMode`)라 전환해도 진행 건은 바뀌지 않으므로 이 차단은 정책이다. 발주가 끊이지 않는
+  협력사가 영영 걸리지 않게 **관리자만 사유를 남겨 넘는다**(파트너 관리의 `force`+`forceReason`,
+  또는 대리 접속의 `forceReason` — 링크에 `forceNote`·`createdBy` 로 남는다). 구조 제약(2단 제한·
+  승인 상태)은 강제로도 못 넘는다.
+
+## 5.2 관리자 대리 접속 (2026-10-09)
+
+관리자가 **그 조직의 자리에서 포털을 쓴다** — 파트너 관리 상세의 [포털로 보기]가
+`/app/partner?actAs=<조직 id>` 를 새 탭으로 연다(계정 없는 조직·정지된 조직도 열린다).
+
+- **방식** — 그누보드 세션을 바꿔 그 회원으로 로그인하지 않는다(무계정 조직엔 불가능하고 세션
+  쿠키 충돌을 다시 부른다). 관리자 토큰 + 요청 헤더 `x-sp-act-as-partner` 하나이고, 판정은
+  `requirePartner`·`/partner/access` 두 곳이 같은 함수(`lib/partner-act-as.ts`)를 쓴다. 관리자가
+  아니면 403. 화면 쪽 상태는 탭 단위(sessionStorage)라 관리 콘솔 탭은 영향받지 않는다.
+- **읽기·쓰기 모두 된다.** 접근 범위는 그 조직의 것뿐이다(라우트의 소속 검사는 그대로).
+- **기록** — ① 쓰기 요청은 전부 `sp_partner_act_log`(관리자·조직·경로·결과)에 남고 파트너 관리
+  상세의 '대리 접속 이력'에 보인다. ② 이력에 주체 자리가 있는 곳은 관리자 대행 표기를 따른다:
+  EQ 전이 `byRole=ADMIN`, EQ·선적 첨부 `uploadedBy=ADMIN`, 박스·포장 이벤트 `actorType=ADMIN`
+  (관리자 화면의 만능 대행 D11 과 같은 표기 — PCB 는 `{kind:'admin'}` 액터). A/S 첨부만은
+  `PARTNER` 그대로다 — 그 값이 주체가 아니라 "접수 자료/회신 자료" 구분이기 때문이다.
+- **셸** — 대리 접속 중에는 붉은 띠가 조직명과 "관리자 대행으로 기록됩니다"를 늘 보이고,
+  [나가기]는 상태를 지우고 파트너 관리로 통째로 새로 읽는다(포털 조회 캐시를 버린다).
+
 ## 6. 검증
 
+- 하위 협력사 직접 관리·대리 접속(2026-10-09): `e2e journey:children` 7/7(등록·소유 경계·초대·
+  삭제/사용 중지·전환 가드와 강제 전환·대리 접속 권한과 기록·화면) · 거버 없이 같은 경로를 밟는
+  회귀 13본 green · api 단위 테스트 · typecheck·lint(변경 파일) clean. 고객 거버 제출로 시작하는
+  여정(4호·12호·20호)은 이 주행에서 돌리지 못했다(8040 에 `sp-gerber-eye-v3` 가 필요).
 - 서버 스모크(자족 시드→검증→무잔재): PCB 보드 29케이스 + access tracks 2케이스
   ALL PASS(2026-08-10 기준, scratchpad 소멸 전제 — E2E 정착은 아래).
 - **E2E 기반 검증**(사용자 방침) — `samplepcb-web-mono-app/e2e/`(vitest+playwright-core, 스텁 로그인).
@@ -143,5 +205,9 @@ R3 부터 사이드바 메뉴(완료된 발송).
 - 2026-08-23 보유 부품: 공통 영역 2화면(`/partner/parts`·`parts/uploads/:id`) +
   `tracks.parts`(= `part_sale`, 죽어 있던 capability 를 살림) + 공통 메뉴 항목별
   `requiresTrack` 조건. 정본 [PARTNER_PARTS.md](PARTNER_PARTS.md)
+- 2026-10-09 하위 협력사 직접 관리(§5.1) + 관리자 대리 접속(§5.2): 공통 메뉴 `children`
+  (`requiresChildren`) · `PartnerChildren`·`PartnerInviteAccept` 화면 · 셸 대리 접속 띠 ·
+  `sp_partner` 소유 3컬럼·`sp_partner_invite`·`sp_partner_act_log`(마이그레이션
+  `20261009120000_partner_children_self_service` — 운영은 `migrate deploy` 필요)
 - 선행: PCB 발송 박스 모델 재구성(`608fb1b12`, PCB_PARTNER_TRACK.md §9) · MD 소속 관리
   (`9d9dd4681`)
