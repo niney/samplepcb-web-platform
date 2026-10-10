@@ -48,7 +48,7 @@ const {
   rfqSelectable,
   allRfqRowsSelected,
   rfqQuickSelectionGroups,
-  selectRfqComponentRows,
+  selectRfqRowsExcluding,
   toggleRfqRow,
   toggleAllRfqRows,
   useFullRfqScope,
@@ -210,32 +210,34 @@ function moveTable(direction: -1 | 1): void {
           <PlusIcon />
           부품 추가
         </Button>
+        <!-- 유형 빠른 선택 = '제외' 방식. 숫자는 누르면 선택되는 행 수(옆 버튼들과 같다). 뺄 행이 없거나
+             남는 행이 없으면 끈다 — 전부 고르면 전체 발송과 같고, 빈 선택은 전체 발송으로 뒤집힌다. -->
         <Button
           variant="outline"
           size="xs"
-          :disabled="rfqQuickSelectionGroups.resistorIds.length === 0"
-          title="sp-engine이 저항으로 분류한 행만 선택합니다"
-          @click="selectRfqComponentRows('resistor')"
+          :disabled="rfqQuickSelectionGroups.resistorIds.length === 0 || rfqQuickSelectionGroups.withoutResistorIds.length === 0"
+          :title="`sp-engine이 저항으로 분류한 ${rfqQuickSelectionGroups.resistorIds.length}행을 뺀 나머지를 선택합니다`"
+          @click="selectRfqRowsExcluding('resistor')"
         >
-          저항 {{ rfqQuickSelectionGroups.resistorIds.length }}
+          저항 제외 {{ rfqQuickSelectionGroups.withoutResistorIds.length }}
         </Button>
         <Button
           variant="outline"
           size="xs"
-          :disabled="rfqQuickSelectionGroups.capacitorIds.length === 0"
-          title="sp-engine이 캐패시터로 분류한 행만 선택합니다"
-          @click="selectRfqComponentRows('capacitor')"
+          :disabled="rfqQuickSelectionGroups.capacitorIds.length === 0 || rfqQuickSelectionGroups.withoutCapacitorIds.length === 0"
+          :title="`sp-engine이 캐패시터로 분류한 ${rfqQuickSelectionGroups.capacitorIds.length}행을 뺀 나머지를 선택합니다`"
+          @click="selectRfqRowsExcluding('capacitor')"
         >
-          캐패시터 {{ rfqQuickSelectionGroups.capacitorIds.length }}
+          캐패시터 제외 {{ rfqQuickSelectionGroups.withoutCapacitorIds.length }}
         </Button>
         <Button
           variant="outline"
           size="xs"
-          :disabled="rfqQuickSelectionGroups.passiveIds.length === 0"
-          title="sp-engine이 저항 또는 캐패시터로 분류한 행을 함께 선택합니다"
-          @click="selectRfqComponentRows('passive')"
+          :disabled="rfqQuickSelectionGroups.passiveIds.length === 0 || rfqQuickSelectionGroups.withoutPassiveIds.length === 0"
+          :title="`sp-engine이 저항·캐패시터로 분류한 ${rfqQuickSelectionGroups.passiveIds.length}행을 뺀 나머지를 선택합니다`"
+          @click="selectRfqRowsExcluding('passive')"
         >
-          저항+캐패시터 {{ rfqQuickSelectionGroups.passiveIds.length }}
+          저항+캐패시터 제외 {{ rfqQuickSelectionGroups.withoutPassiveIds.length }}
         </Button>
         <Button
           variant="outline"
@@ -257,9 +259,9 @@ function moveTable(direction: -1 | 1): void {
         </Button>
         <span
           v-if="rfqQuickSelectionGroups.unclassifiedCount > 0"
-          title="엔진 부품 유형이 없는 과거 견적·수동 행은 유형 자동 선택에서 제외됩니다"
+          title="엔진 부품 유형이 없는 행(IC 등, 과거 견적·수동 행)은 저항·캐패시터로 보지 않아 '제외' 선택에 남습니다"
         >
-          분류 미확인 {{ rfqQuickSelectionGroups.unclassifiedCount }}행 제외
+          분류 미확인 {{ rfqQuickSelectionGroups.unclassifiedCount }}행 포함
         </span>
         <Button
           v-if="rfqItemSelection.size > 0"

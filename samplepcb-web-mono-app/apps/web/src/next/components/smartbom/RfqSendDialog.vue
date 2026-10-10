@@ -314,7 +314,7 @@ const onOpenChange = (open: boolean): void => {
       </Alert>
       <Alert v-else variant="info" size="sm">
         <AlertDescription>
-          <p>품목 표의 <b>RFQ</b> 칸을 체크하면 일부 행만 보낼 수 있습니다(저항·캐패시터·구매 조건 없음 빠른 선택).</p>
+          <p>품목 표의 <b>RFQ</b> 칸을 체크하면 일부 행만 보낼 수 있습니다(저항·캐패시터 제외, 구매 조건 없음 빠른 선택).</p>
           <Button variant="outline" size="xs" class="mt-1.5" :disabled="send.isPending.value" @click="pickRows">
             <ListChecksIcon />
             품목 표에서 고르기

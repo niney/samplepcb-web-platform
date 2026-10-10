@@ -33,7 +33,9 @@ import {
 // 부품 교체(D25)·부품 추가/수동 행 제거(D26). 옛 화면 스크립트의 같은 부분을 의미 그대로 옮겼다.
 
 // 부품 유형 판단은 Vue 문자열 추측이 아니라 sp-engine 의 정규화 결과만 소비한다.
-// 과거 견적·수동 행처럼 guidance 가 없으면 미분류로 남겨 자동 선택하지 않는다.
+// 빠른 선택은 '제외' 방식이다(저항은 A사, 나머지는 B사) — 엔진이 저항·캐패시터로 분류한 행만 빼고
+// 나머지는 남긴다. 미분류(엔진 유형 enum 에 없는 IC, 과거 견적·수동 행)를 함께 빼면 '저항+캐패시터
+// 제외'가 IC 를 전부 놓치므로, 미분류는 저항·캐패시터로 보지 않고 선택에 남긴다.
 type RfqPassiveComponentType = 'resistor' | 'capacitor';
 
 export const rfqEngineComponentType = (item: BomQuoteItemType) =>
@@ -43,6 +45,10 @@ interface RfqQuickSelectionGroups {
   resistorIds: string[];
   capacitorIds: string[];
   passiveIds: string[];
+  /** 저항을 뺀 나머지(미분류 포함) — [저항 제외]. */
+  withoutResistorIds: string[];
+  withoutCapacitorIds: string[];
+  withoutPassiveIds: string[];
   unofferedIds: string[];
   unclassifiedCount: number;
 }
@@ -170,20 +176,21 @@ export function useCaseItems(core: CaseCore) {
       resistorIds: [],
       capacitorIds: [],
       passiveIds: [],
+      withoutResistorIds: [],
+      withoutCapacitorIds: [],
+      withoutPassiveIds: [],
       unofferedIds: [],
       unclassifiedCount: 0,
     };
     for (const item of scopeItems.value) {
       const componentType = rfqEngineComponentType(item);
-      if (componentType === 'resistor') {
-        groups.resistorIds.push(item.id);
-        groups.passiveIds.push(item.id);
-      } else if (componentType === 'capacitor') {
-        groups.capacitorIds.push(item.id);
-        groups.passiveIds.push(item.id);
-      } else if (componentType === null) {
-        groups.unclassifiedCount += 1;
-      }
+      if (componentType === 'resistor') groups.resistorIds.push(item.id);
+      else groups.withoutResistorIds.push(item.id);
+      if (componentType === 'capacitor') groups.capacitorIds.push(item.id);
+      else groups.withoutCapacitorIds.push(item.id);
+      if (componentType === 'resistor' || componentType === 'capacitor') groups.passiveIds.push(item.id);
+      else groups.withoutPassiveIds.push(item.id);
+      if (componentType === null) groups.unclassifiedCount += 1;
       if (item.selectedOffer === null) groups.unofferedIds.push(item.id);
     }
     return groups;
@@ -194,14 +201,15 @@ export function useCaseItems(core: CaseCore) {
     if (ids.length === 0) return;
     rfqItemSelection.value = new Set(ids);
   }
-  function selectRfqComponentRows(componentType: RfqPassiveComponentType | 'passive'): void {
+  /** [저항 제외]·[캐패시터 제외]·[저항+캐패시터 제외] — 그 유형을 뺀 나머지를 선택한다. */
+  function selectRfqRowsExcluding(componentType: RfqPassiveComponentType | 'passive'): void {
     const groups = rfqQuickSelectionGroups.value;
     applyRfqQuickSelection(
       componentType === 'resistor'
-        ? groups.resistorIds
+        ? groups.withoutResistorIds
         : componentType === 'capacitor'
-          ? groups.capacitorIds
-          : groups.passiveIds,
+          ? groups.withoutCapacitorIds
+          : groups.withoutPassiveIds,
     );
   }
   function toggleRfqRow(itemId: string): void {
@@ -849,7 +857,7 @@ export function useCaseItems(core: CaseCore) {
     rfqSelectable,
     allRfqRowsSelected,
     rfqQuickSelectionGroups,
-    selectRfqComponentRows,
+    selectRfqRowsExcluding,
     toggleRfqRow,
     toggleAllRfqRows,
     useFullRfqScope,
