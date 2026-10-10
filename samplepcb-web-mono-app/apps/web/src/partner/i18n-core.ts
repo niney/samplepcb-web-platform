@@ -42,6 +42,19 @@ export function formatPartnerDate(value: string | null | undefined, locale: Part
   }).format(date);
 }
 
+/** 시각까지 필요한 자리(EQ 회신 전달 등) — 날짜와 같은 한국 시각 규칙에 'KST' 를 붙인다.
+ *  해외 공장이 자기 현지 시각으로 오독하지 않게 기준 시간대를 글자로 남긴다. */
+export function formatPartnerDateTime(value: string | null | undefined, locale: PartnerLocale): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const text = new Intl.DateTimeFormat(partnerIntlLocale(locale), {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(date);
+  return `${text} KST`;
+}
+
 export function formatPartnerMoney(value: number, currency: string, locale: PartnerLocale): string {
   // A locale changes presentation, never the currency or amount of a purchase order.
   if (locale === 'ko' && currency === 'KRW') {

@@ -40,6 +40,7 @@ import {
 import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { pcbSpecEntries, pcbSpecFormFields } from '../../lib/pcb-spec';
 import PartnerPageHeader from '../../components/partner/PartnerPageHeader.vue';
+import PartnerPcbEqAnswers from '../../components/partner/PartnerPcbEqAnswers.vue';
 import PcbEqTimeline from '../../components/pcb/PcbEqTimeline.vue';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
@@ -158,6 +159,20 @@ const downloadEq = (fileId: number, name: string): void => {
   void downloadPartnerPcbEqFile(poId.value, fileId, name);
 };
 
+// ── 고객 회신(D20) — 관리자가 전달한 문항형 회차만 온다(최신 먼저, 위임 상위는 하위의 회차).
+const eqRounds = computed(() => detail.value?.eqRounds ?? []);
+// 최신 전달 회차가 **지금 승인요청에 대한 답**인가 — 마지막으로 승인요청 상태에 들어간 뒤에
+// 전달됐으면 그렇다. 이전 요청의 답(반려·취소 전에 전달된 것)을 "방금 도착"으로 말하면
+// 협력사가 이미 반영한 답을 또 반영하려 든다. 승인요청 이력이 없으면(이관분) 지금 것으로
+// 본다 — 답이 보이는데 안내가 침묵하는 쪽이 더 나쁘다.
+const answerArrived = computed<boolean>(() => {
+  const d = detail.value;
+  const latest = eqRounds.value[0];
+  if (d?.status !== 'eq_requested' || latest === undefined) return false;
+  const requestedAt = d.eq.history.filter((e) => e.toStatus === 'eq_requested').at(-1)?.at;
+  return requestedAt === undefined || Date.parse(latest.forwardedAt) >= Date.parse(requestedAt);
+});
+
 // '지금 할 일' — 타임라인 마지막 칸이 할 말. 상태마다 **한 문장으로 못박는다**(무엇을 봐야
 // 하고 무엇을 해야 하는지를 협력사가 조립하지 않게). 반려 뒤 구간은 보완 여부까지 말한다 —
 // 같은 파일로 다시 요청하면 같은 사유로 되돌아온다.
@@ -190,6 +205,12 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
             title: pt('{value1}가 {value2}을 올리고 {value3}할 차례입니다.', { value1: sub, value2: st ? pt('좌표파일') : pt('EQ 자료'), value3: askWord }),
             hint: pt('필요하면 MD가 파일 업로드·{value1}을 대행할 수 있습니다.', { value1: askWord }),
           };
+    }
+    if (d.status === 'eq_requested' && !st && answerArrived.value) {
+      return {
+        title: pt('고객 회신이 도착했습니다 — 위 \'고객 회신\'에서 문항별 선택을 확인해 주세요.'),
+        hint: pt('{value1}가 회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다립니다. EQ를 고쳐야 하면 [{value2}] 후 수정한 EQ를 올려 다시 승인요청합니다(필요하면 MD 대행).', { value1: sub, value2: revertLabel.value }),
+      };
     }
     if (d.status === 'eq_requested')
       return { title: st ? pt('샘플피씨비 관리자의 확인을 기다리고 있습니다.') : pt('샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.'), hint: '' };
@@ -239,6 +260,14 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
             ? ''
             : pt('Working 파일은 생산에 쓰는 자료입니다 — 승인요청 후에는 추가·교체할 수 없으니 지금 올리시길 권합니다(없이도 요청은 가능합니다).'),
         };
+  }
+  // 고객 회신이 전달됐다 — 다음 수는 둘뿐이다: 그대로 만들 수 있으면 관리자 승인을 기다리고,
+  // 답 때문에 EQ 를 고쳐야 하면 요청을 물리고 새 EQ 를 올린다(승인요청 중에는 첨부가 잠긴다).
+  if (d.status === 'eq_requested' && answerArrived.value) {
+    return {
+      title: pt('고객 회신이 도착했습니다 — 위 \'고객 회신\'에서 문항별 선택을 확인해 주세요.'),
+      hint: pt('회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다려 주세요. EQ를 고쳐야 하면 [{value1}] 후 수정한 EQ를 올려 다시 승인요청해 주세요.', { value1: revertLabel.value }),
+    };
   }
   if (d.status === 'eq_requested') {
     return {
@@ -661,10 +690,16 @@ watch(locale, () => {
             @download="downloadEq"
             @delete="(fileId) => void deleteFile(fileId)"
           />
+        </div>
 
+        <!-- 고객 회신(D20) — 대화(타임라인)와 할 일 사이: 읽고 → 판단하고 → 누른다. 위임 상위(MD
+             관전)는 타임라인이 없어도 하위의 회차를 받으므로 위임 조건 밖에 둔다. -->
+        <PartnerPcbEqAnswers v-if="eqRounds.length > 0" :rounds="eqRounds" class="mt-4" />
+
+        <div v-if="detail.eq.delegatePoId === null && !detail.eq.blocked">
           <!-- 지금 할 일 — 타임라인의 마지막 칸. 무엇을 해야 하는지 한 문장으로 못박고,
                할 수 있는 것만 버튼으로 연다(첨부는 승인요청 뒤 잠긴다). -->
-          <div class="mt-3 rounded-xl border border-blue-200 bg-blue-50/40 p-3">
+          <div class="mt-3 rounded-xl border border-blue-200 bg-blue-50/40 p-3" data-testid="partner-eq-now-todo">
             <p class="text-sm font-bold text-blue-900">{{ nowTodo.title }}</p>
             <p v-if="nowTodo.hint !== ''" class="mt-1 text-xs leading-5 text-blue-700">
               {{ nowTodo.hint }}

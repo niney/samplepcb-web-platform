@@ -3450,3 +3450,10 @@ P1 과 P2 연구(추출기·프로빙)는 **병행**한다 — 둘의 접점은 
   **`eq-answer.php` 는 `stripslashes`** — common.php 가 `$_POST` 전체에 `sql_escape_string` 을 건다.
 - **검증**: e2e `journey-eq-items-customer` 9/9(카드·권장·공개 그림만·비공개 404·확대 · 클라이언트 막힘 · 서버 거부 문구 "항목 N"·값 복원 1회 · 따옴표·백슬래시 의견 보존 · 배지·목록 · 2차 '동일' 접힘·미리 선택·제출 · 대리 회신 안내 · 390px 넘침 0 · 'EQ'·협력사명·원문·그림 원본명 미노출) + 회귀 `customer-eq-menu` 6/6·`journey-eq-reply` 8/8.
 - **발견(이번 범위 밖, 미수정)**: ① 기존 브리지 `eq-decide.php`(note)·`bom-confirm-answer.php`(note)·`claim-create.php`(description)가 이스케이프된 `$_POST` 를 그대로 넘긴다 — 따옴표가 `\'`, **줄바꿈이 `\n` 두 글자**로 저장될 것(코드로 확인, 실측 전) ② 고객 회신 400 응답에 문제 문항 itemId 가 없어 브리지가 회차를 다시 읽는다 ③ sp-node 진행 라벨 '제조 확인(EQ) …'(P4.13)이 진행 카드에서 고객에게 'EQ' 를 낸다.
+
+#### D20 P1 협력사 포털 구현 기록 (2026-10-11 — '고객 회신' 영역)
+
+- **파일**: `apps/web/src/components/partner/PartnerPcbEqAnswers.vue`(신규) · `pages/partner/PartnerPcbPoDetail.vue`(영역 배치·`answerArrived`·`nowTodo` 2분기) · `partner/i18n-core.ts`(`formatPartnerDateTime` — KST 표기) · `partner/locales/pcb.ts`(키 29개 ko/en/zh-CN).
+- **화면**: 타임라인과 '지금 할 일' 사이(읽고 → 판단하고 → 누르는 순서). 회차 2개 이상이면 탭(최신 기본). 전달·회신 시각(KST) · 고객 선택 요약 `1: B · 2: A` · 문항별 **원문 질문 · 원문 선택지 · 고른 기호 강조(32px)** · 고객 의견("고객 원문(한국어)" — 번역은 P2) · 고객이 본 한국어 문장(접힘).
+- **판단**: "회신 도착" 안내는 최신 전달 시각이 마지막 승인요청보다 뒤일 때만(이전 요청의 답을 또 '도착'이라 하면 반영한 답을 다시 반영한다; 승인요청 이력이 없는 이관 데이터는 도착으로 본다) · 시각에 KST(중국 공장이 현지 시각으로 읽지 않게) · MD 위임 상위는 하위 발주서 회차를, MD 하위 관전은 주어를 "하위 협력사(이름)"로.
+- **검증**: e2e `journey-eq-items-portal` 5/5(전달 전 영역 없음 · 원문·강조·의견·요약·위치·390px · en/zh-CN 한글 잔류 없음 · 반려→재요청 뒤 1차 답을 '도착'이라 하지 않음·회차 탭 · MD 3화면) + 회귀 `md-eq-observe`·`journey-eq-reply`·`partner-i18n`.
