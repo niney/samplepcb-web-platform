@@ -55,6 +55,7 @@ export const toAdminPartnerItem = (
   ownerPartnerId: p.ownerPartnerId === null ? null : Number(p.ownerPartnerId),
   ownerPartnerName: oversight.ownerPartnerName ?? null,
   duplicateCount: oversight.duplicates?.length ?? 0,
+  isMasterDealer: p.isMasterDealer,
   createdAt: p.createdAt.toISOString(),
 });
 

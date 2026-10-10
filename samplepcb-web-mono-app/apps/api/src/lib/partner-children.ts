@@ -111,7 +111,7 @@ const NOT_BLOCKED: Pick<PartnerChildEligibilityType, 'activePoCount' | 'activePo
 
 /** 지금 하위를 등록할 수 있는가 — 포털 메뉴 진입·등록 요청이 같은 판정을 쓴다. */
 export const resolveChildEligibility = async (
-  partner: Pick<SpPartner, 'id' | 'type' | 'capabilities'>,
+  partner: Pick<SpPartner, 'id' | 'type' | 'capabilities' | 'isMasterDealer'>,
   actingAdmin: boolean,
 ): Promise<PartnerChildEligibilityType> => {
   // 견적 트랙이 하나라도 있어야 중개할 일이 있다(PCB 제작·부품 조달 둘 다 마스터딜러 중개가 있다).
@@ -124,7 +124,8 @@ export const resolveChildEligibility = async (
   ]);
   // 2단 제한 — 다른 마스터딜러의 하위는 하위를 둘 수 없다(구조 제약이라 강제로도 못 넘는다).
   if (asChild > 0) return { allowed: false, reason: 'PARENT_IS_CHILD', ...NOT_BLOCKED };
-  if (childCount === 0) {
+  // 첫 하위 등록은 마스터딜러 전환이다 — 관리자가 이미 마스터딜러로 지정한 조직은 전환이 아니라 막지 않는다.
+  if (childCount === 0 && !partner.isMasterDealer) {
     const active = await loadActiveDirectPos(partner.id);
     if (active.count > 0) {
       return {
@@ -141,7 +142,7 @@ export const resolveChildEligibility = async (
 
 /** 하위 협력사 메뉴 노출 근거 — 등록이 지금 막혀 있어도(ACTIVE_POS) 메뉴는 보여 안내한다. */
 export const canManageChildren = async (
-  partner: Pick<SpPartner, 'id' | 'type' | 'capabilities'>,
+  partner: Pick<SpPartner, 'id' | 'type' | 'capabilities' | 'isMasterDealer'>,
 ): Promise<boolean> => {
   if (partner.type !== 'partner' || rfqTracksOf(partner.capabilities).length === 0) {
     return false;
@@ -201,7 +202,7 @@ const hasAnyDocs = (docs: ChildDocs): boolean =>
   docs.rfqs.length > 0 || docs.pos.length > 0 || docs.bomRfqs.length > 0 || docs.bomMdPos.length > 0;
 
 export const loadPartnerChildren = async (
-  parent: Pick<SpPartner, 'id' | 'type' | 'capabilities'>,
+  parent: Pick<SpPartner, 'id' | 'type' | 'capabilities' | 'isMasterDealer'>,
   actingAdmin: boolean,
 ): Promise<PartnerChildListDataType> => {
   const [eligibility, relations] = await Promise.all([
@@ -251,7 +252,12 @@ export const loadPartnerChildren = async (
       createdAt: rel.createdAt.toISOString(),
     };
   });
-  return { eligibility, items, parentTracks: rfqTracksOf(parent.capabilities) };
+  return {
+    eligibility,
+    items,
+    parentTracks: rfqTracksOf(parent.capabilities),
+    isMasterDealer: parent.isMasterDealer || relations.length > 0,
+  };
 };
 
 export type OwnedChildError = 'NOT_FOUND' | 'NOT_OWNED';

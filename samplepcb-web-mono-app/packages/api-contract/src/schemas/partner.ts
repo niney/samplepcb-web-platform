@@ -86,6 +86,8 @@ export const AdminPartnerListQuery = z.object({
   type: z.enum(['all', ...PARTNER_TYPES]).default('all'),
   // 등록 원천 — md = 마스터딜러가 포털에서 직접 등록한 조직(자동 승인이라 사후 감독 대상).
   origin: z.enum(['all', 'admin', 'md']).default('all'),
+  // 역할 — md = 마스터딜러로 지정된 조직(isMasterDealer, docs/PARTNER_PORTAL.md "마스터딜러 지정").
+  role: z.enum(['all', 'md']).default('all'),
   q: z.string().optional(), // name·supplierCode·contactEmail·연결 mbId contains
 });
 export type AdminPartnerListQueryType = z.infer<typeof AdminPartnerListQuery>;
@@ -122,6 +124,8 @@ export const AdminPartnerListItem = z.object({
   ownerPartnerName: z.string().nullable().default(null),
   // 사업자번호·담당 이메일이 같은 다른 협력사 수 — 여러 마스터딜러가 같은 회사를 각각 등록한 흔적.
   duplicateCount: z.number().default(0),
+  // 마스터딜러 지정 — 하위가 없어도 관리자가 처음부터 켤 수 있고, 첫 하위 연결·등록 때 켜진다.
+  isMasterDealer: z.boolean().default(false),
   createdAt: z.string(),
 });
 export type AdminPartnerListItemType = z.infer<typeof AdminPartnerListItem>;
@@ -204,6 +208,8 @@ const AdminPartnerCreateFields = z.object({
   businessItem: z.string().trim().max(100).nullish(),
   fax: z.string().trim().max(50).nullish(),
   memo: z.string().max(5000).nullish(),
+  // 마스터딜러 지정 — 사람 협력사(type=partner)만. 끄기는 하위가 없을 때만(라우트 가드).
+  isMasterDealer: z.boolean().optional(),
 });
 export const AdminPartnerCreateBody = AdminPartnerCreateFields.superRefine((value, ctx) => {
   if (value.type === 'partner' && value.status === 'approved' && value.country == null) {
@@ -393,6 +399,8 @@ export const PartnerChildListData = z.object({
   items: z.array(PartnerChildItem),
   /** 내가 가진 견적 트랙 — 하위에게는 이 안에서만 맡길 수 있다. */
   parentTracks: z.array(PartnerChildTrack).default([]),
+  /** 마스터딜러로 지정됐는가 — 하위가 0명이어도 관리자가 지정했으면 true(빈 목록 안내가 달라진다). */
+  isMasterDealer: z.boolean().default(false),
 });
 export type PartnerChildListDataType = z.infer<typeof PartnerChildListData>;
 

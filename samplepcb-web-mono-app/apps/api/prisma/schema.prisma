@@ -1174,6 +1174,10 @@ model SpPartner {
   // 소유 마스터딜러가 '사용 중지'한 시각 — 관리자 정지와 구분한다. 이 값이 있을 때만
   // 마스터딜러가 다시 사용으로 되돌릴 수 있고, 관리자가 상태를 바꾸면 비운다.
   ownerSuspendedAt DateTime?
+  // 마스터딜러 지정(docs/PARTNER_PORTAL.md "마스터딜러 지정") — 하위가 없어도 관리자가 처음부터
+  // 마스터딜러로 둘 수 있다. 포털에서 첫 하위를 등록하거나 관리자가 하위를 연결하면 켜진다.
+  // 실제 위임의 근거는 여전히 소속 링크(sp_partner_relation)이고, 이 표시는 역할·화면·가드의 정본이다.
+  isMasterDealer   Boolean               @default(false)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   owner           SpPartner?            @relation("PartnerOwner", fields: [ownerPartnerId], references: [id], onDelete: SetNull)

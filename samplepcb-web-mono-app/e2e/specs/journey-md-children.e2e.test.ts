@@ -140,7 +140,8 @@ describe.skipIf(!RUN || !JOURNEY)('여정 — 하위 협력사 직접 관리', (
     await prisma.spPartnerActLog.deleteMany({ where: { partnerId: { in: stageIds } } });
     await prisma.spPartner.updateMany({
       where: { id: { in: stageIds } },
-      data: { status: 'approved', statusReason: null, ownerSuspendedAt: null },
+      // 마스터딜러 지정은 첫 하위 등록 때 켜지고 남는다(docs/PARTNER_PORTAL.md "마스터딜러 지정") — 무대를 처음으로.
+      data: { status: 'approved', statusReason: null, ownerSuspendedAt: null, isMasterDealer: false },
     });
   };
 
@@ -434,6 +435,11 @@ describe.skipIf(!RUN || !JOURNEY)('여정 — 하위 협력사 직접 관리', (
     // 파트너 관리 화면 경로 — 미리 알리고(conversionBlock), force+사유로만 넘는다.
     const removed = await actAs(A, busy.id, 'DELETE', `/api/partner/children/${String(forcedId)}`);
     expect(removed.json?.data?.outcome, '무이력 하위 정리').toBe('deleted');
+    // 강제 등록으로 마스터딜러 지정이 켜졌고 하위를 지워도 남는다 — 지정된 조직은 전환 가드가 없으니,
+    // 관리자 화면 경로를 보려면 지정을 끈다(하위가 없어야 끌 수 있다).
+    expect(removed.json?.data?.isMasterDealer, '지정은 남는다').toBe(true);
+    const off = await api(A, 'PUT', `/api/admin/partners/${String(busy.id)}`, { isMasterDealer: false });
+    expect(off.status, JSON.stringify(off.json)).toBe(200);
     const relations = await api(A, 'GET', `/api/admin/partners/${String(busy.id)}/relations`);
     expect(relations.json?.data?.conversionBlock?.activePoCount, '화면 사전 안내').toBeGreaterThanOrEqual(1);
     const target = { childPartnerId: num(sub.id), settlementCurrency: 'USD' };

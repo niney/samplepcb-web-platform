@@ -30,6 +30,8 @@ export interface AdminPartnerFilters {
   type: 'all' | PartnerTypeType;
   /** 등록 원천 — md = 마스터딜러가 포털에서 직접 등록한 조직. 생략=전체. */
   origin?: 'all' | 'admin' | 'md';
+  /** md = 마스터딜러로 지정된 조직만. */
+  role?: 'all' | 'md';
   q: string;
 }
 
@@ -40,6 +42,7 @@ const listPath = (f: AdminPartnerFilters): string => {
   params.set('tab', f.tab);
   params.set('type', f.type);
   if (f.origin !== undefined && f.origin !== 'all') params.set('origin', f.origin);
+  if (f.role !== undefined && f.role !== 'all') params.set('role', f.role);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
   return `${base}?${params.toString()}`;
 };

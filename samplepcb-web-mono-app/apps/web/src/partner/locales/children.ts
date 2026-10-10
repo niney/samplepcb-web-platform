@@ -39,6 +39,16 @@ export const childrenMessages = {
   '{count}건': ['{count}건', '{count}', '{count} 笔'],
   '다시 사용': ['다시 사용', 'Enable', '重新启用'],
   '등록한 하위 협력사가 없습니다.': ['등록한 하위 협력사가 없습니다.', 'No sub-partners yet.', '尚未登记下级合作伙伴。'],
+  '마스터딜러로 지정된 협력사입니다.': [
+    '마스터딜러로 지정된 협력사입니다.',
+    'Your company is designated as a master dealer.',
+    '贵公司已被指定为主经销商。',
+  ],
+  '하위 협력사를 등록하면 받은 견적요청을 하위에 다시 요청하고, 고른 회신으로 발주를 맡길 수 있습니다.': [
+    '하위 협력사를 등록하면 받은 견적요청을 하위에 다시 요청하고, 고른 회신으로 발주를 맡길 수 있습니다.',
+    'Register sub-partners to forward the quote requests you receive and assign orders based on the replies you choose.',
+    '登记下级合作伙伴后，可将收到的询价转发给下级，并按所选报价委托订单。',
+  ],
 
   // ── 등록·수정 폼 ──
   '등록하면 바로 견적을 요청할 수 있습니다. 상대방의 회원가입은 필요하지 않습니다.': ['등록하면 바로 견적을 요청할 수 있습니다. 상대방의 회원가입은 필요하지 않습니다.', 'You can request quotes right after adding them. They do not need to sign up.', '登记后即可发起询价，对方无需注册。'],

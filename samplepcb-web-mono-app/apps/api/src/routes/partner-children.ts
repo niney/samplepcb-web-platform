@@ -149,6 +149,10 @@ export const partnerChildRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             forceNote,
           },
         });
+        // 첫 하위 등록이면 이 조직이 마스터딜러가 된다(표시가 역할의 정본 — docs/PARTNER_PORTAL.md).
+        if (!me.isMasterDealer) {
+          await tx.spPartner.update({ where: { id: me.id }, data: { isMasterDealer: true } });
+        }
         return created;
       });
 

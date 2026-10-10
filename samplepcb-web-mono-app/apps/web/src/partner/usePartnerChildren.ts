@@ -74,6 +74,7 @@ export function useDeletePartnerChild() {
           eligibility: res.data.eligibility,
           items: res.data.items,
           parentTracks: res.data.parentTracks,
+          isMasterDealer: res.data.isMasterDealer,
         },
       });
       void qc.invalidateQueries({ queryKey: ['partner', 'pcbRfqs'] });

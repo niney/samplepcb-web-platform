@@ -60,6 +60,9 @@ const setType = (type: TypeKey): void => {
 const toggleMdOnly = (): void => {
   filters.value = { ...filters.value, origin: filters.value.origin === 'md' ? 'all' : 'md', page: 1 };
 };
+const toggleMasterDealers = (): void => {
+  filters.value = { ...filters.value, role: filters.value.role === 'md' ? 'all' : 'md', page: 1 };
+};
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: qInput.value, page: 1 };
 };
@@ -103,6 +106,15 @@ const setPage = (page: number): void => {
         >
           마스터딜러 등록만
         </Button>
+        <Button
+          size="sm"
+          :variant="filters.role === 'md' ? 'secondary' : 'outline'"
+          :aria-pressed="filters.role === 'md'"
+          data-testid="partner-role-md"
+          @click="toggleMasterDealers"
+        >
+          마스터딜러만
+        </Button>
         <SearchInput v-model="qInput" placeholder="이름·코드·이메일·회원ID 검색" @search="applySearch" />
       </template>
     </QueueTabs>
@@ -131,6 +143,7 @@ const setPage = (page: number): void => {
           >
             <TableCell class="font-medium">
               {{ p.name }}
+              <Badge v-if="p.isMasterDealer" variant="default" class="ml-1">마스터딜러</Badge>
               <!-- 감독 표시 — 포털 등록분(자동 승인)과 같은 회사로 보이는 조직 -->
               <Badge v-if="p.ownerPartnerId !== null" variant="info" class="ml-1" :title="`${p.ownerPartnerName ?? '마스터딜러'}이(가) 포털에서 직접 등록`">
                 마스터딜러 등록

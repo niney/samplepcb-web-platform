@@ -210,8 +210,10 @@ const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> =
   });
 
   // 첫 하위 연결이 지금 막히는가 — 화면이 연결을 누르기 전에 알리고 강제 전환을 안내한다.
+  // 이미 마스터딜러로 지정된 조직은 첫 연결이 역할 전환이 아니라 막지 않는다.
   let conversionBlock: AdminPartnerRelationsDataType['conversionBlock'] = null;
-  if (asParent.length === 0 && asChild.length === 0) {
+  const self = await prisma.spPartner.findUnique({ where: { id }, select: { isMasterDealer: true } });
+  if (asParent.length === 0 && asChild.length === 0 && self?.isMasterDealer !== true) {
     const active = await loadActiveDirectPos(id, 0);
     if (active.count > 0) conversionBlock = { activePoCount: active.count };
   }
@@ -234,6 +236,7 @@ const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> =
       where: {
         type: 'partner',
         status: 'approved',
+        isMasterDealer: false, // 하위가 아직 없어도 마스터딜러로 지정된 조직은 하위가 될 수 없다
         OR: [{ ownerPartnerId: null }, { ownerPartnerId: id }],
       },
       orderBy: { name: 'asc' },
@@ -266,7 +269,7 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       schema: { querystring: AdminPartnerListQuery, response: { 200: AdminPartnerListResponse } },
     },
     async (request) => {
-      const { page, pageSize, tab, type, origin, q } = request.query;
+      const { page, pageSize, tab, type, origin, role, q } = request.query;
       const keyword = q?.trim();
       const conds: Prisma.SpPartnerWhereInput[] = [];
       if (keyword !== undefined && keyword !== '') {
@@ -283,6 +286,7 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       // 등록 원천 — md 는 마스터딜러가 포털에서 직접 등록한 조직(자동 승인 — 사후 감독 대상).
       if (origin === 'md') conds.push({ NOT: { ownerPartnerId: null } });
       if (origin === 'admin') conds.push({ ownerPartnerId: null });
+      if (role === 'md') conds.push({ isMasterDealer: true });
       const base: Prisma.SpPartnerWhereInput = conds.length > 0 ? { AND: conds } : {};
       const where: Prisma.SpPartnerWhereInput =
         tab === 'all' ? base : { AND: [base, { status: tab }] };
@@ -356,6 +360,12 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           .status(400)
           .send({ error: 'PARTNER_COUNTRY_REQUIRED', message: invalidCountry });
       }
+      if (b.isMasterDealer === true && b.type !== 'partner') {
+        return reply.status(400).send({
+          error: 'NOT_PARTNER_TYPE',
+          message: '마스터딜러는 사람 협력사(partner)만 지정할 수 있습니다.',
+        });
+      }
       try {
         const created = await prisma.spPartner.create({
           data: {
@@ -377,6 +387,7 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             businessItem: b.businessItem ?? null,
             fax: b.fax ?? null,
             memo: b.memo ?? null,
+            isMasterDealer: b.isMasterDealer === true,
             ...(b.status === 'pending'
               ? {}
               : { decidedBy: request.user.mbId, decidedAt: new Date() }),
@@ -430,7 +441,37 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           .send({ error: 'PARTNER_COUNTRY_REQUIRED', message: invalidCountry });
       }
 
+      // 마스터딜러 지정 — 켜기는 사람 협력사이고 다른 마스터딜러의 하위가 아닐 때(2단 제한),
+      // 끄기는 하위가 없을 때만(하위가 있는 동안은 실제로 중개 중이다). 유형을 바꾸며 켜 둔 채
+      // partner 가 아니게 되는 것도 막는다.
+      const effMd = b.isMasterDealer ?? existing.isMasterDealer;
+      if (effMd && effType !== 'partner') {
+        return reply.status(400).send({
+          error: 'NOT_PARTNER_TYPE',
+          message: '마스터딜러는 사람 협력사(partner)만 지정할 수 있습니다.',
+        });
+      }
+      if (b.isMasterDealer !== undefined && b.isMasterDealer !== existing.isMasterDealer) {
+        const [asChild, childCount] = await Promise.all([
+          prisma.spPartnerRelation.count({ where: { childPartnerId: id } }),
+          prisma.spPartnerRelation.count({ where: { parentPartnerId: id } }),
+        ]);
+        if (b.isMasterDealer && asChild > 0) {
+          return reply.status(409).send({
+            error: 'PARENT_IS_CHILD',
+            message: '다른 마스터딜러의 하위 조직은 마스터딜러가 될 수 없습니다(2단 제한).',
+          });
+        }
+        if (!b.isMasterDealer && childCount > 0) {
+          return reply.status(409).send({
+            error: 'HAS_CHILDREN',
+            message: `하위 협력사 ${String(childCount)}곳이 연결돼 있어 마스터딜러 지정을 끌 수 없습니다 — 소속을 먼저 해제하세요.`,
+          });
+        }
+      }
+
       const data: Prisma.SpPartnerUpdateInput = {};
+      if (b.isMasterDealer !== undefined) data.isMasterDealer = b.isMasterDealer;
       if (b.type !== undefined) data.type = b.type;
       if (b.name !== undefined) data.name = b.name;
       if (b.supplierCode !== undefined) data.supplierCode = b.supplierCode ?? null;
@@ -718,10 +759,10 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         prisma.spPartnerRelation.count({ where: { parentPartnerId: childId } }),
         prisma.spPartnerRelation.count({ where: { childPartnerId: id } }),
       ]);
-      if (childAsMd > 0) {
+      if (childAsMd > 0 || child.isMasterDealer) {
         return reply.status(400).send({
           error: 'CHILD_IS_MD',
-          message: '이미 하위를 거느린 마스터딜러 조직입니다 — 2단 중개만 지원합니다.',
+          message: '마스터딜러 조직은 하위로 연결할 수 없습니다 — 2단 중개만 지원합니다.',
         });
       }
       if (parentAsChild > 0) {
@@ -738,7 +779,8 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         where: { parentPartnerId: id },
       });
       let forceNote: string | null = null;
-      if (existingChildren === 0) {
+      // 이미 마스터딜러로 지정된 조직은 역할 전환이 아니므로 진행 중 발주 가드를 두지 않는다.
+      if (existingChildren === 0 && !parent.isMasterDealer) {
         const activeReceived = await prisma.spPcbPo.count({
           where: { partnerId: id, parentPartnerId: 0n, status: { not: 'produced' } },
         });
@@ -753,15 +795,19 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         }
       }
       try {
-        await prisma.spPartnerRelation.create({
-          data: {
-            parentPartnerId: id,
-            childPartnerId: childId,
-            settlementCurrency: request.body.settlementCurrency,
-            createdBy: request.user.mbId,
-            forceNote,
-          },
-        });
+        // 하위를 연결하면 마스터딜러 지정도 켠다(표시가 역할의 정본).
+        await prisma.$transaction([
+          prisma.spPartnerRelation.create({
+            data: {
+              parentPartnerId: id,
+              childPartnerId: childId,
+              settlementCurrency: request.body.settlementCurrency,
+              createdBy: request.user.mbId,
+              forceNote,
+            },
+          }),
+          prisma.spPartner.update({ where: { id }, data: { isMasterDealer: true } }),
+        ]);
       } catch (e) {
         if (isUniqueViolation(e)) {
           return reply

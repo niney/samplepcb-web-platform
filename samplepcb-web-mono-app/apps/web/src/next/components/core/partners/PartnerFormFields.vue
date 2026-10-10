@@ -19,10 +19,18 @@ import type { PartnerForm } from './partner-form';
 // 파트너 등록·수정 칸 — 옛 화면의 두 폼(생성 모달·상세 드로어)이 같은 칸을 썼다. 수정(edit)은 담당자·전화·
 // 이메일(RFQ 알림 수신)·발주 고정 안내·내부 메모를 더 보이고, 등록(create)은 담당자 이메일만 받는다.
 // 국가·통화는 서버가 대문자로 맞추지만 입력 중에도 대문자로 보이게 바로 올린다(옛 화면은 CSS 로만 대문자).
-const props = defineProps<{ mode: 'create' | 'edit'; idPrefix: string }>();
+// masterDealerLock — 마스터딜러 체크를 바꿀 수 없는 이유(하위가 연결돼 있으면 끌 수 없다). null=바꿀 수 있다.
+const props = withDefaults(
+  defineProps<{ mode: 'create' | 'edit'; idPrefix: string; masterDealerLock?: string | null }>(),
+  { masterDealerLock: null },
+);
 const form = defineModel<PartnerForm>({ required: true });
 
-type TextKey = Exclude<keyof PartnerForm, 'type' | 'capabilities'>;
+type TextKey = Exclude<keyof PartnerForm, 'type' | 'capabilities' | 'isMasterDealer'>;
+
+const setMasterDealer = (checked: boolean | 'indeterminate'): void => {
+  form.value = { ...form.value, isMasterDealer: checked === true };
+};
 
 const set = (key: TextKey, value: string | number): void => {
   const text = String(value);
@@ -82,9 +90,26 @@ const fieldId = (key: string): string => `${props.idPrefix}-${key}`;
     <div class="grid grid-cols-2 gap-x-3 gap-y-4">
       <Field>
         <FieldLabel :for="fieldId('type')">유형</FieldLabel>
-        <NativeSelect :id="fieldId('type')" :model-value="form.type" @change="setType">
-          <NativeSelectOption v-for="t in PARTNER_TYPES" :key="t" :value="t">{{ PARTNER_TYPE_LABELS[t] }}</NativeSelectOption>
-        </NativeSelect>
+        <!-- 마스터딜러는 사람 협력사의 한 갈래라 유형 옆에 둔다(docs/PARTNER_PORTAL.md "마스터딜러 지정"). -->
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <NativeSelect :id="fieldId('type')" :model-value="form.type" @change="setType">
+            <NativeSelectOption v-for="t in PARTNER_TYPES" :key="t" :value="t">{{ PARTNER_TYPE_LABELS[t] }}</NativeSelectOption>
+          </NativeSelect>
+          <div
+            v-if="isPartner"
+            class="flex items-center gap-1.5"
+            :title="masterDealerLock ?? '받은 견적요청·발주를 하위 협력사에 다시 맡기는 조직'"
+          >
+            <Checkbox
+              :id="fieldId('master-dealer')"
+              :model-value="form.isMasterDealer"
+              :disabled="masterDealerLock !== null"
+              data-testid="partner-master-dealer"
+              @update:model-value="setMasterDealer"
+            />
+            <Label :for="fieldId('master-dealer')">마스터딜러</Label>
+          </div>
+        </div>
       </Field>
       <Field v-for="f in basicFields" :key="f.key">
         <FieldLabel :for="fieldId(f.key)">{{ f.label }}</FieldLabel>

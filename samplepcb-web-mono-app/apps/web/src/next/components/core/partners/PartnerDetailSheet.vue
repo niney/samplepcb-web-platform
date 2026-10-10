@@ -3,7 +3,12 @@ import { computed, ref, watch } from 'vue';
 import { PARTNER_STATUS_LABELS, PARTNER_TYPE_LABELS } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import { ExternalLinkIcon } from '@lucide/vue';
-import { partnerPortalActAsUrl, useAdminPartnerDetail, useUpdatePartner } from '@/admin/useAdminPartners';
+import {
+  partnerPortalActAsUrl,
+  useAdminPartnerDetail,
+  useAdminPartnerRelations,
+  useUpdatePartner,
+} from '@/admin/useAdminPartners';
 import SectionCard from '@/next/components/common/SectionCard.vue';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
@@ -27,6 +32,17 @@ const detailQ = useAdminPartnerDetail(partnerIdRef);
 const detail = computed(() => {
   const d = detailQ.data.value?.data;
   return d?.partnerId === props.partnerId ? d : undefined;
+});
+
+// 마스터딜러 체크를 바꿀 수 없는 때 — 서버 가드(HAS_CHILDREN·PARENT_IS_CHILD)를 저장 전에 화면이 먼저 알린다.
+// 소속 섹션과 같은 조회 키라 요청은 한 번이다.
+const relationsQ = useAdminPartnerRelations(partnerIdRef);
+const masterDealerLock = computed<string | null>(() => {
+  const rel = relationsQ.data.value?.data;
+  if (rel === undefined) return null;
+  if (rel.children.length > 0) return `하위 협력사 ${String(rel.children.length)}곳이 연결돼 있어 끌 수 없습니다`;
+  if (rel.parents.length > 0) return '다른 마스터딜러의 하위라 지정할 수 없습니다';
+  return null;
 });
 
 const editForm = ref(emptyPartnerForm());
@@ -78,6 +94,7 @@ const onOpenChange = (open: boolean): void => {
               <div class="flex flex-wrap items-center gap-2">
                 <span class="text-base font-semibold">{{ detail.name }}</span>
                 <Badge :variant="partnerStatusVariant(detail.status)">{{ PARTNER_STATUS_LABELS[detail.status] }}</Badge>
+                <Badge v-if="detail.isMasterDealer" variant="default">마스터딜러</Badge>
                 <span class="text-muted-foreground text-xs">{{ PARTNER_TYPE_LABELS[detail.type] }}</span>
               </div>
               <p v-if="detail.statusReason !== null" class="text-destructive text-xs">사유: {{ detail.statusReason }}</p>
@@ -105,7 +122,12 @@ const onOpenChange = (open: boolean): void => {
             </div>
 
             <SectionCard title="조직 정보">
-              <PartnerFormFields v-model="editForm" mode="edit" id-prefix="partner-edit" />
+              <PartnerFormFields
+                v-model="editForm"
+                mode="edit"
+                id-prefix="partner-edit"
+                :master-dealer-lock="masterDealerLock"
+              />
               <p v-if="editError !== ''" role="alert" class="text-destructive text-sm font-medium">{{ editError }}</p>
               <div class="flex justify-end">
                 <Button variant="outline" :disabled="updateMut.isPending.value" @click="void submitUpdate()">정보 저장</Button>

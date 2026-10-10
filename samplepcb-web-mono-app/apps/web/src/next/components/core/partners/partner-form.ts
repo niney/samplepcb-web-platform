@@ -29,6 +29,8 @@ export interface PartnerForm {
   businessItem: string;
   fax: string;
   memo: string;
+  /** 마스터딜러 지정 — 사람 협력사만. 하위가 없어도 처음부터 켤 수 있다. */
+  isMasterDealer: boolean;
 }
 
 export const emptyPartnerForm = (): PartnerForm => ({
@@ -49,6 +51,7 @@ export const emptyPartnerForm = (): PartnerForm => ({
   businessItem: '',
   fax: '',
   memo: '',
+  isMasterDealer: false,
 });
 
 export const partnerFormFromDetail = (d: AdminPartnerDetailType): PartnerForm => ({
@@ -69,6 +72,7 @@ export const partnerFormFromDetail = (d: AdminPartnerDetailType): PartnerForm =>
   businessItem: d.businessItem ?? '',
   fax: d.fax ?? '',
   memo: d.memo ?? '',
+  isMasterDealer: d.isMasterDealer,
 });
 
 const toNullable = (v: string): string | null => (v.trim() === '' ? null : v.trim());
@@ -93,6 +97,7 @@ export const partnerCreateBody = (f: PartnerForm): AdminPartnerCreateBodyType =>
   businessItem: toNullable(f.businessItem),
   fax: toNullable(f.fax),
   memo: toNullable(f.memo),
+  isMasterDealer: f.type === 'partner' && f.isMasterDealer,
 });
 
 export const partnerUpdateBody = (f: PartnerForm): AdminPartnerUpdateBodyType => ({
@@ -113,6 +118,7 @@ export const partnerUpdateBody = (f: PartnerForm): AdminPartnerUpdateBodyType =>
   businessItem: toNullable(f.businessItem),
   fax: toNullable(f.fax),
   memo: toNullable(f.memo),
+  isMasterDealer: f.type === 'partner' && f.isMasterDealer,
 });
 
 /** 조직 상태 배지 — 승인=끝남(success), 승인 대기=기다림(warning), 정지=문제(danger). */

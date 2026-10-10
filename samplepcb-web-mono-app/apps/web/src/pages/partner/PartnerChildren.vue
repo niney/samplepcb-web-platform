@@ -322,7 +322,18 @@ const ROW_BTN_CLS =
       {{ notice.text }}
     </p>
 
-    <PartnerEmpty v-if="items.length === 0">
+    <!-- 관리자가 마스터딜러로 지정했는데 아직 하위가 없다 — 첫 등록으로 안내한다 -->
+    <section
+      v-if="items.length === 0 && !query.isFetching.value && query.data.value?.data.isMasterDealer === true"
+      class="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900"
+      data-testid="partner-child-md-onboarding"
+    >
+      <p class="font-semibold">{{ pt('마스터딜러로 지정된 협력사입니다.') }}</p>
+      <p class="mt-1 text-xs text-teal-800">
+        {{ pt('하위 협력사를 등록하면 받은 견적요청을 하위에 다시 요청하고, 고른 회신으로 발주를 맡길 수 있습니다.') }}
+      </p>
+    </section>
+    <PartnerEmpty v-else-if="items.length === 0">
       {{ query.isFetching.value ? pt('불러오는 중…') : pt('등록한 하위 협력사가 없습니다.') }}
     </PartnerEmpty>
 
