@@ -3438,3 +3438,15 @@ P1 과 P2 연구(추출기·프로빙)는 **병행**한다 — 둘의 접점은 
   기존 `journey-eq-reply`·`customer-eq-menu`·`md-eq-observe` 18/18 · api 단위 1176 · web·contract typecheck.
 - **남은 것(P1 화면 트랙)**: sp-php `sp_pcb_eq_status_label` 에 draft·answered 없음 + 문항형 requested 가 D16 승인/반려 폼으로 그려짐(누르면 409) — 고객 PHP 문항형 섹션에서 교정.
   관리자 Case 버튼 라벨(`case-po.ts eqReviewLabelOf`·옛 `AdminPcbCase.vue`)이 answered 를 '고객 승인'으로 표시. MD 위임 상위 발주서의 초안 생성은 막지 않는다(D16 과 동일 — 상위의 열린 회차는 전이로 안 닫힌다). Case 삭제 경고의 첨부 수에 그림 미포함.
+
+#### D20 P1 고객 화면 구현 기록 (2026-10-11 — sp-php 주문 상세 문항형 회차)
+
+- **파일**: `theme/sp-lite/shop/_pcb_eq_items_round.php`(신규 — 문항형 회차 카드·확대 `<dialog>`·스크립트) · `orderinquiryview.php`(format=items 분기, 문구형 D16 그대로, draft 거름) ·
+  `spcb/api/eq-answer.php`(신규 — POST 전용 + `sp_pcb_check_token()` CSRF → `POST /api/pcb-eq-reviews/:id/answer`) · `spcb/api/eq-file.php`(sp-node 가 inline 으로 준 이미지(png·jpeg·gif·webp)만 inline, 나머지 attachment, nosniff 상시, 그림 파일명 중립화 `figure-{id}.{ext}`) ·
+  `extend/sp_pcb_eq.extend.php`(상태 라벨 answered='회신 완료'·draft 방어, 유형·변화 사전 = 계약 미러, 회신 실패 시 고른 값 세션 플래시 1회) · `spcb/pages/eq.php`(확인 항목 N개·N차) · `default_shop.css`(`#sod_fin .sp_eqi_*`) · **`G5_CSS_VER` 26101101**.
+- **화면**: 회차 머리(상태·프로젝트·"N차 확인"(2 이상)·기한) → 개정 회차면 "바뀐 항목과 새 항목만 골라 주세요" 안내 → 문항 카드(번호·유형·변경/신규 배지·질문·공개 그림 썸네일→확대·선택지 라디오 '제조사 권장'·'의견 필요'·의견) →
+  **'동일' 문항은 이전 답을 미리 고른 채 접고 [바꾸기]로 펼침**, '변경' 문항은 "지난번 답변"을 보여 주되 미리 고르지 않음 → 진행 n/N → 동의 체크 → [회신 제출](sp-dialog, 취소에 초점). answered = 읽기 전용 요약, 대리 회신이면 "담당자가 확인해 대신 입력한 답변" 안내(관리자 근거 메모는 비노출).
+- **판단**: 고객 라벨 answered = '회신 완료'(계약 '고객 회신'은 관리자 시점) · 그림 파일명은 화면·다운로드 어디에도 안 쓴다(공장명 혼입 — 좌표파일·여정 43호와 같은 이유) · inline 그림만 `private, max-age=300` · 오류 시 값 보존은 세션 플래시(쿼리스트링은 의견 원문이 URL·로그에 남아 기각) ·
+  **`eq-answer.php` 는 `stripslashes`** — common.php 가 `$_POST` 전체에 `sql_escape_string` 을 건다.
+- **검증**: e2e `journey-eq-items-customer` 9/9(카드·권장·공개 그림만·비공개 404·확대 · 클라이언트 막힘 · 서버 거부 문구 "항목 N"·값 복원 1회 · 따옴표·백슬래시 의견 보존 · 배지·목록 · 2차 '동일' 접힘·미리 선택·제출 · 대리 회신 안내 · 390px 넘침 0 · 'EQ'·협력사명·원문·그림 원본명 미노출) + 회귀 `customer-eq-menu` 6/6·`journey-eq-reply` 8/8.
+- **발견(이번 범위 밖, 미수정)**: ① 기존 브리지 `eq-decide.php`(note)·`bom-confirm-answer.php`(note)·`claim-create.php`(description)가 이스케이프된 `$_POST` 를 그대로 넘긴다 — 따옴표가 `\'`, **줄바꿈이 `\n` 두 글자**로 저장될 것(코드로 확인, 실측 전) ② 고객 회신 400 응답에 문제 문항 itemId 가 없어 브리지가 회차를 다시 읽는다 ③ sp-node 진행 라벨 '제조 확인(EQ) …'(P4.13)이 진행 카드에서 고객에게 'EQ' 를 낸다.

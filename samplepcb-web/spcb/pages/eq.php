@@ -11,6 +11,7 @@
 //     브리지 관례를 쓰고(orderinquiryview.php) 화면이 한 벌이면 되기 때문이다.
 //   · **승인·반려 폼은 여기 없다.** 행은 주문 상세(#eq-{id})로 보낸다 — 메일이 쓰는 바로 그
 //     링크다. 결정 UI 를 복제하면 첨부·기한·확인 모달·경고가 두 곳에서 갈린다.
+//     문항형 회차(D20)도 같다 — 목록은 "확인 항목 N개"·회차만 알리고 고르는 일은 주문 상세에서.
 //
 // 어휘: 트랙 중립어("제조 확인")를 쓴다. 메탈마스크(스텐실) 발주도 같은 축을 쓰지만 그쪽엔
 // 'EQ' 라는 말이 없다(계약 pcbEqEventLabel — 화면 하드코딩은 2026-08-17 확정 결함).
@@ -26,7 +27,10 @@ $sp_eq_scope = (isset($_GET['scope']) && $_GET['scope'] === 'all') ? 'all' : 'op
 $sp_eq_data  = function_exists('sp_pcb_eq_reviews_mine')
     ? sp_pcb_eq_reviews_mine($sp_eq_scope)
     : array('reviews' => array(), 'openCount' => 0);
-$sp_eq_rows  = $sp_eq_data['reviews'];
+// 작성 중(draft)은 sp-node 가 빼고 보내지만 혹시 새어 들어와도 그리지 않는다(주문 상세와 같은 방어).
+$sp_eq_rows  = array_values(array_filter($sp_eq_data['reviews'], function ($r) {
+    return isset($r['status']) && $r['status'] !== 'draft';
+}));
 $sp_eq_open  = (int) $sp_eq_data['openCount'];
 
 $g5['title'] = '제조 확인';
@@ -66,6 +70,10 @@ include_once(G5_THEME_PATH . '/head.php');
                 <?php foreach ($sp_eq_rows as $rv):
                     $st   = sp_pcb_eq_status_label($rv['status']);
                     $open = ($rv['status'] === 'requested');
+                    // 문항형(D20) — 항목 수·회차만 알린다. 고르는 폼은 여기 두지 않는다(딥링크만, P4.1-b).
+                    $items_fmt = isset($rv['format']) && $rv['format'] === 'items';
+                    $item_cnt  = $items_fmt && isset($rv['items']) && is_array($rv['items']) ? count($rv['items']) : 0;
+                    $round_no  = $items_fmt && isset($rv['roundNo']) ? (int) $rv['roundNo'] : 0;
                     // 주문이 지워진 건(여정 34호)은 갈 곳이 없다 — 링크 없이 안내만 남긴다.
                     $link = empty($rv['odId'])
                         ? ''
@@ -75,6 +83,9 @@ include_once(G5_THEME_PATH . '/head.php');
                         <div class="sp-eqm__head">
                             <span class="sp_eq_badge <?php echo $st['cls']; ?>"><?php echo $st['label']; ?></span>
                             <strong class="sp-eqm__proj"><?php echo get_text($rv['projectName']); ?></strong>
+                            <?php if ($round_no >= 2): ?>
+                                <span class="sp-eqm__round"><?php echo $round_no; ?>차 확인</span>
+                            <?php endif; ?>
                             <?php if ($open && !empty($rv['overdue'])): ?>
                                 <span class="sp_eq_badge sp_eq_no">회신 기한 지남</span>
                             <?php elseif ($open && !empty($rv['dueOn'])): ?>
@@ -89,6 +100,9 @@ include_once(G5_THEME_PATH . '/head.php');
                                 요청 <?php echo date('Y-m-d', strtotime($rv['requestedAt'])); ?>
                                 <?php if (!empty($rv['odId'])): ?>
                                     · 주문 <?php echo get_text($rv['odId']); ?>
+                                <?php endif; ?>
+                                <?php if ($item_cnt > 0): ?>
+                                    · <span class="sp-eqm__items">확인 항목 <?php echo $item_cnt; ?>개</span>
                                 <?php endif; ?>
                                 <?php if (!empty($rv['files'])): ?>
                                     · 첨부 <?php echo count($rv['files']); ?>건

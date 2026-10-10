@@ -342,20 +342,34 @@ if($od['od_pg'] == 'lg') {
         // 화면만 그린다. 메일의 [주문내역에서 확인하기] 는 이 섹션(#eq-{id})으로 온다.
         // ⚠ 협력사명·발주서 정보는 노출하지 않는다 — 고객에게 공급망을 드러내지 않는다.
         $sp_eq_reviews = function_exists('sp_pcb_eq_reviews') ? sp_pcb_eq_reviews($od_id) : array();
+        // 작성 중(draft) 회차는 sp-node 가 고객 응답에서 뺀다(D20-1 관리자 검토 필수) — 혹시 새어
+        // 들어와도 그리지 않는다(빈 폼·'준비 중' 줄이 고객에게 보이면 받은 적 없는 요청이 된다).
+        $sp_eq_reviews = array_values(array_filter($sp_eq_reviews, function ($r) {
+            return isset($r['status']) && $r['status'] !== 'draft';
+        }));
         // 열린(회신 대기) 요청이 하나라도 있는지 — 안내문을 무조건 "승인 또는 반려해
         // 주세요"로 띄우면, 이미 끝났거나 취소된 이력만 남은 화면에서 없는 버튼을
         // 찾게 된다(2026-08-10 실측: 관리자 EQ 승인이 열린 요청을 자동 취소한 뒤
-        // 완료된 주문에서도 이 문장이 그대로 떴다).
-        $sp_eq_has_open = false;
+        // 완료된 주문에서도 이 문장이 그대로 떴다). 형식별로 따로 센다 — 문항형(D20)에는
+        // 승인·반려가 없고 항목마다 고른다.
+        $sp_eq_open_msg = false;
+        $sp_eq_open_items = false;
         foreach ($sp_eq_reviews as $sp_eq_rv) {
-            if ($sp_eq_rv['status'] === 'requested') { $sp_eq_has_open = true; break; }
+            if ($sp_eq_rv['status'] !== 'requested') continue;
+            if (isset($sp_eq_rv['format']) && $sp_eq_rv['format'] === 'items') $sp_eq_open_items = true;
+            else $sp_eq_open_msg = true;
         }
+        $sp_eq_has_open = $sp_eq_open_msg || $sp_eq_open_items;
         if ($sp_eq_reviews):
         ?>
         <section id="sp_eq_wrap">
             <h2><?php echo $sp_eq_has_open ? '제조 확인 요청' : '제조 확인 이력'; ?></h2>
             <p class="sp_eq_intro">
-                <?php if ($sp_eq_has_open): ?>
+                <?php if ($sp_eq_open_msg && $sp_eq_open_items): ?>
+                    제조 전 확인이 필요한 사항입니다. 요청마다 내용을 보시고 회신해 주세요.
+                <?php elseif ($sp_eq_open_items): ?>
+                    제조 전 확인이 필요한 사항입니다. 항목마다 원하시는 처리 방법을 골라 회신해 주세요.
+                <?php elseif ($sp_eq_open_msg): ?>
                     제조 전 확인이 필요한 사항입니다. 내용을 보시고 승인 또는 반려해 주세요.
                 <?php else: ?>
                     지난 제조 확인 내역입니다 — 지금 회신하실 것은 없습니다.
@@ -363,6 +377,11 @@ if($od['od_pg'] == 'lg') {
             </p>
 
             <?php foreach ($sp_eq_reviews as $rv):
+                // 문항형 회차(D20) — 항목 카드·선택지·회신 폼은 별도 파일(문구형 폼과 섞지 않는다).
+                if (isset($rv['format']) && $rv['format'] === 'items') {
+                    include G5_THEME_SHOP_PATH . '/_pcb_eq_items_round.php';
+                    continue;
+                }
                 $st  = sp_pcb_eq_status_label($rv['status']);
                 $open = ($rv['status'] === 'requested');
             ?>

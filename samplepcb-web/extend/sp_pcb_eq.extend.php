@@ -12,8 +12,8 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 // (spcb/api/me.php 와 같은 브리지 방식, 클레임 shape 도 동일).
 //
 // ⚠ 메일 링크는 이 함수를 부르지 않는다. 링크는 주문내역 화면을 열 뿐이고 결정은
-//   화면 안 POST(spcb/api/eq-decide)로만 일어난다 — 메일 보안 스캐너의 링크
-//   프리페치(GET)로 승인이 자동 처리되는 사고를 막는 규칙이다.
+//   화면 안 POST(spcb/api/eq-decide · 문항형은 spcb/api/eq-answer)로만 일어난다 — 메일 보안
+//   스캐너의 링크 프리페치(GET)로 승인이 자동 처리되는 사고를 막는 규칙이다.
 
 if (!defined('SPCB_NODE_BASE')) {
     // 같은 호스트의 sp-node. nginx 를 거치지 않고 내부로 직접 부른다(빠르고 외부 노출 없음).
@@ -173,15 +173,95 @@ function sp_pcb_coord_file_url($file_id)
     return G5_URL . '/spcb/api/coord-file?file=' . (int) $file_id;
 }
 
-/** 상태 라벨 — 계약(PCB_EQ_REVIEW_STATUS_LABELS)과 같은 말을 쓴다. */
+/** 상태 라벨 — 계약(PCB_EQ_REVIEW_STATUS_LABELS)과 같은 상태 축이되 **고객 시점의 말**을 쓴다
+ *  (계약은 관리자 화면 말 '고객 승인'·'고객 회신'). 상태가 늘면 계약과 함께 고친다.
+ *  answered = 문항형(D20) 회차에 고객(또는 담당자 대리)이 답한 상태. */
 function sp_pcb_eq_status_label($status)
 {
     switch ($status) {
         case 'approved': return array('label' => '승인함',   'cls' => 'sp_eq_ok');
         case 'rejected': return array('label' => '반려함',   'cls' => 'sp_eq_no');
+        case 'answered': return array('label' => '회신 완료', 'cls' => 'sp_eq_ok');
         case 'canceled': return array('label' => '요청 취소', 'cls' => 'sp_eq_off');
+        // draft(관리자 작성 중)는 sp-node 가 고객 응답에서 빼므로 오지 않는다 — 혹시 새어 들어와도
+        // '확인 대기'로 보여 고객이 없는 폼을 찾지 않게 막아 둔다(화면은 이 상태의 행을 아예 건너뛴다).
+        case 'draft':    return array('label' => '준비 중',   'cls' => 'sp_eq_off');
         default:         return array('label' => '확인 대기', 'cls' => 'sp_eq_wait');
     }
+}
+
+// ── D20 문항형 회차(format=items) — 고객 화면용 사전·도우미 ─────────────────────
+// 정본 docs/PCB_PARTNER_TRACK.md 「D20 설계」. 판정(전 문항·의견 필수·소유권·판본)은 sp-node 가 하고
+// 여기 있는 것은 **표시용 말**뿐이다.
+
+/** 문항 유형 라벨 — 계약 PCB_EQ_ITEM_CATEGORY_LABELS 미러
+ *  (packages/api-contract/src/schemas/pcb-eq-review.ts — 그쪽을 고치면 여기도 같이). 모르는 값은 '기타'. */
+function sp_pcb_eq_item_category_label($category)
+{
+    static $map = array(
+        'impedance'      => '임피던스',
+        'marking'        => '마킹(UL·주기)',
+        'pad'            => '패드',
+        'soldermask_dam' => '솔더마스크 댐',
+        'circuit'        => '회로 패턴',
+        'via'            => '비아 처리',
+        'soldermask'     => '솔더마스크',
+        'legend'         => '실크(문자)',
+        'drill'          => '드릴(홀)',
+        'outline'        => '외형',
+        'panel'          => '패널(배열)',
+        'stackup'        => '적층 구조',
+        'material'       => '원자재',
+        'surface_finish' => '표면처리',
+        'indication'     => '표기·도면',
+        'other'          => '기타',
+    );
+    return isset($map[$category]) ? $map[$category] : '기타';
+}
+
+/** 문항 변화 라벨 — 계약 PCB_EQ_ITEM_CHANGE_LABELS 미러(같은 파일). 첫 회차(null)는 빈 문자열. */
+function sp_pcb_eq_item_change_label($change)
+{
+    static $map = array('new' => '신규', 'changed' => '변경', 'same' => '동일');
+    return isset($map[$change]) ? $map[$change] : '';
+}
+
+/** 화면 출력 이스케이프 — 질문·선택지·의견은 사람이(또는 AI 번역이) 쓴 자유 문장이라
+ *  따옴표까지 막는 htmlspecialchars 로 낸다(get_text 는 홑따옴표를 그대로 둔다). */
+function sp_pcb_eq_h($str)
+{
+    return htmlspecialchars((string) $str, ENT_QUOTES, 'UTF-8');
+}
+
+/** 문항 그림 URL — `<img>` 로 쓰는 인라인 열람. view=1 이면 브리지가 실패를 리다이렉트가 아니라
+ *  404 로 끝낸다(이미지 요청이 주문 상세 HTML 을 통째로 다시 불러오지 않게). */
+function sp_pcb_eq_figure_url($review_id, $file_id)
+{
+    return sp_pcb_eq_file_url($review_id, $file_id) . '&view=1';
+}
+
+/** 회신이 거절돼 되돌아올 때 고객이 고른 값을 **한 번** 되살린다(세션 플래시).
+ *  오류 안내 뒤 문항 N개를 처음부터 다시 고르게 하지 않으려는 것 — 판정과는 무관하다. */
+function sp_pcb_eq_answer_draft_save($review_id, $draft)
+{
+    $all = get_session('sp_eqi_draft');
+    if (!is_array($all)) $all = array();
+    $draft['at'] = time();
+    $all[(int) $review_id] = $draft;
+    set_session('sp_eqi_draft', $all);
+}
+
+/** 위에서 남긴 값을 꺼내고 지운다(새로고침에서 다시 살아나지 않게). 30분 지난 것은 버린다. */
+function sp_pcb_eq_answer_draft_take($review_id)
+{
+    $all = get_session('sp_eqi_draft');
+    $review_id = (int) $review_id;
+    if (!is_array($all) || !isset($all[$review_id])) return null;
+    $draft = $all[$review_id];
+    unset($all[$review_id]);
+    set_session('sp_eqi_draft', $all);
+    if (!is_array($draft) || !isset($draft['at']) || time() - (int) $draft['at'] > 1800) return null;
+    return $draft;
 }
 
 /** 그누보드 CSRF 토큰 검증 — **alert 없이 참/거짓만** 돌려준다.

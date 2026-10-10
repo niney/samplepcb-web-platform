@@ -2883,6 +2883,86 @@
 #sod_fin .sp_eq_done { margin: 8px 0 0; font-size: 0.917em; color: #6b7280; }
 #sod_fin .sp_eq_done .sp_eq_note { display: block; margin-top: 4px; color: #4b5563; }
 
+/* 제조 확인 문항형 회차(D20 — docs/PCB_PARTNER_TRACK.md 「D20 설계」) — 위 .sp_eq_* 톤 공유 +
+   항목 카드(부품 확인 D43 .sp_bomc_issue 와 같은 시각 문법)·선택지·이전 답 접힘·그림 확대 */
+#sod_fin .sp_eqi_round { min-width: 0; }
+#sod_fin .sp_eqi_round .sp_eq_proj { min-width: 0; overflow-wrap: anywhere; }
+#sod_fin .sp_eqi_round_no { padding: 1px 8px; border-radius: 4px; background: #ede9fe; color: #6d28d9; font-size: 0.833em; font-weight: 700; }
+#sod_fin .sp_eqi_revnote { margin: 10px 0 0; padding: 8px 12px; border: 1px solid #fde68a; border-radius: 6px; background: #fffbeb; font-size: 0.875em; line-height: 1.6; color: #92400e; }
+#sod_fin .sp_eqi_list { list-style: none; margin: 0; padding: 0; }
+#sod_fin .sp_eqi_card { min-width: 0; margin-top: 10px; padding: 12px 14px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; scroll-margin-top: 90px; }
+#sod_fin .sp_eqi_card.is-kept { background: #f9fafb; }
+#sod_fin .sp_eqi_card.is-invalid { border-color: #f87171; box-shadow: 0 0 0 2px #fee2e2; }
+#sod_fin .sp_eqi_h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 8px; }
+#sod_fin .sp_eqi_no { padding: 1px 8px; border-radius: 4px; background: #111827; color: #fff; font-size: 0.8em; font-weight: 700; }
+#sod_fin .sp_eqi_card.is-answered .sp_eqi_no { background: #0284c7; }
+#sod_fin .sp_eqi_cat { font-size: 0.875em; font-weight: 700; color: #374151; }
+#sod_fin .sp_eqi_chg { padding: 1px 7px; border-radius: 999px; font-size: 0.75em; font-weight: 700; }
+#sod_fin .sp_eqi_chg--new { background: #dcfce7; color: #15803d; }
+#sod_fin .sp_eqi_chg--changed { background: #fef3c7; color: #b45309; }
+#sod_fin .sp_eqi_chg--same { background: #f3f4f6; color: #6b7280; }
+#sod_fin .sp_eqi_keep { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 0.917em; color: #374151; }
+#sod_fin .sp_eqi_keep_t { color: #047857; font-weight: 700; white-space: nowrap; }
+#sod_fin .sp_eqi_when_open,
+#sod_fin .sp_eqi_card.is-unfolded .sp_eqi_when_kept { display: none; }
+#sod_fin .sp_eqi_card.is-unfolded .sp_eqi_when_open { display: inline; color: #6b7280; }
+#sod_fin .sp_eqi_keep_v { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+#sod_fin .sp_eqi_keep_c { display: block; font-size: 0.917em; color: #6b7280; white-space: pre-wrap; }
+#sod_fin .sp_eqi_unfold { margin-left: auto; padding: 5px 12px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; font-size: 0.875em; font-weight: 700; cursor: pointer; }
+#sod_fin .sp_eqi_unfold:hover { background: #f3f4f6; }
+#sod_fin .sp_eqi_card.is-unfolded .sp_eqi_unfold { display: none; }
+#sod_fin .sp_eqi_card.is-unfolded .sp_eqi_body { margin-top: 8px; }
+#sod_fin .sp_eqi_q { padding: 10px 12px; border-left: 3px solid #0ea5e9; background: #f8fafc; font-size: 0.958em; line-height: 1.7; color: #0f172a; white-space: pre-wrap; overflow-wrap: anywhere; }
+#sod_fin .sp_eqi_card.is-readonly .sp_eqi_q { border-left-color: #d1d5db; color: #374151; }
+#sod_fin .sp_eqi_prev { margin: 8px 0 0; font-size: 0.875em; line-height: 1.6; color: #6b7280; overflow-wrap: anywhere; }
+#sod_fin .sp_eqi_prev b { color: #374151; }
+#sod_fin .sp_eqi_figs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+#sod_fin .sp_eqi_fig { display: block; width: 132px; height: 96px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; overflow: hidden; cursor: zoom-in; }
+#sod_fin .sp_eqi_fig:hover,
+#sod_fin .sp_eqi_fig:focus-visible { border-color: #0284c7; }
+#sod_fin .sp_eqi_fig img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* fieldset 기본 min-width:min-content 가 긴 선택지를 좁은 화면 밖으로 밀어낸다 — 0 으로 푼다. */
+#sod_fin .sp_eqi_opts { min-width: 0; margin: 10px 0 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px; }
+#sod_fin .sp_eqi_opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; font-size: 0.917em; cursor: pointer; }
+#sod_fin .sp_eqi_opt:has(input:checked) { border-color: #0284c7; background: #f0f9ff; }
+#sod_fin .sp_eqi_opt input { flex: none; margin: 0; }
+#sod_fin .sp_eqi_key { display: inline-flex; flex: none; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: #e5e7eb; color: #111827; font-size: 0.875em; font-weight: 700; }
+#sod_fin .sp_eqi_opt:has(input:checked) .sp_eqi_key { background: #0284c7; color: #fff; }
+#sod_fin .sp_eqi_olabel { flex: 1 1 160px; min-width: 0; font-weight: 600; color: #111827; overflow-wrap: anywhere; }
+#sod_fin .sp_eqi_rec,
+#sod_fin .sp_eqi_needtag { padding: 1px 7px; border-radius: 999px; font-size: 0.8em; font-weight: 700; white-space: nowrap; }
+#sod_fin .sp_eqi_rec { background: #d1fae5; color: #047857; }
+#sod_fin .sp_eqi_needtag { background: #f3f4f6; color: #6b7280; }
+#sod_fin .sp_eqi_cmt { display: block; margin-top: 10px; }
+#sod_fin .sp_eqi_cmt_t { font-size: 0.875em; font-weight: 700; color: #374151; }
+#sod_fin .sp_eqi_cmt_t em { font-style: normal; font-weight: 400; color: #9ca3af; }
+#sod_fin .sp_eqi_card.is-need-comment .sp_eqi_cmt_t em { font-weight: 700; color: #b91c1c; }
+#sod_fin .sp_eqi_cmt textarea { display: block; box-sizing: border-box; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.958em; font-family: inherit; }
+#sod_fin .sp_eqi_card.is-invalid.is-need-comment textarea { border-color: #f87171; }
+#sod_fin .sp_eqi_err { margin: 6px 0 0; font-size: 0.875em; font-weight: 700; color: #b91c1c; }
+#sod_fin .sp_eqi_foot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #7dd3fc; }
+#sod_fin .sp_eqi_progress { margin: 0 0 8px; font-size: 0.917em; color: #374151; }
+#sod_fin .sp_eqi_progress b { color: #0369a1; }
+#sod_fin .sp_eqi_agree { display: flex; align-items: flex-start; gap: 6px; font-size: 0.917em; font-weight: 700; color: #111827; cursor: pointer; }
+#sod_fin .sp_eqi_agree input { flex: none; margin: 3px 0 0; }
+#sod_fin .sp_eqi_submit:disabled { opacity: .6; cursor: progress; }
+#sod_fin .sp_eqi_ans { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px 8px; margin: 10px 0 0; font-size: 0.917em; }
+#sod_fin .sp_eqi_ans dt { font-weight: 700; color: #6b7280; }
+#sod_fin .sp_eqi_ans dd { margin: 0; color: #111827; overflow-wrap: anywhere; }
+#sod_fin .sp_eqi_ans .sp_eqi_rec { margin-left: 4px; }
+#sod_fin .sp_eqi_ans_c { white-space: pre-wrap; }
+#sod_fin .sp_eqi_optlist { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.917em; color: #4b5563; overflow-wrap: anywhere; }
+#sod_fin .sp_eq_done .sp_eqi_proxy { color: #b45309; font-weight: 700; }
+
+/* 그림 확대(<dialog>) — 최상위 레이어라 글자 크기를 px 로 못박는다(.sp_bomc_dialog 와 같은 이유). */
+.sp_eqi_figdlg { width: min(960px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 12px; box-shadow: 0 20px 50px rgba(15, 23, 42, .25); }
+.sp_eqi_figdlg::backdrop { background: rgba(15, 23, 42, .55); }
+.sp_eqi_figdlg_h { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #e5e7eb; background: #fff; }
+.sp_eqi_figdlg_h h3 { margin: 0; font-size: 15px; font-weight: 700; color: #111827; }
+.sp_eqi_figdlg_x { flex: none; width: 32px; height: 32px; border: 0; border-radius: 6px; background: #f3f4f6; font-size: 20px; line-height: 1; cursor: pointer; }
+.sp_eqi_figdlg_b { padding: 12px; background: #f8fafc; }
+.sp_eqi_figdlg_b img { display: block; max-width: 100%; max-height: calc(100vh - 140px); margin: 0 auto; object-fit: contain; }
+
 /* PCB A/S 접수(P5) — EQ 톤 공유 + 접수 폼 전용 */
 #sod_fin #sp_as_wrap { margin: 20px 0; }
 #sod_fin #sp_as_wrap h2 { font-size: 1.083em; font-weight: 700; margin: 0 0 6px; }
@@ -3003,6 +3083,9 @@
     #sod_fin .sp_bomc_osum,
     #sod_fin .sp_bomc_ship { margin-left: 0; }
     #sod_fin .sp_bomc_delta { margin-left: 0; }
+    #sod_fin .sp_eqi_card { padding: 10px 12px; }
+    #sod_fin .sp_eqi_fig { width: 104px; height: 78px; }
+    #sod_fin .sp_eqi_unfold { margin-left: 0; }
 }
 
 /* ==========================================================================
@@ -3046,6 +3129,10 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .sp-eqm__item:not(.is-open) .sp-eqm__msg { border-left-color: #d1d5db; background: #f9fafb; color: #4b5563; }
+
+/* 문항형 회차(D20) — 회차 번호·항목 수(목록은 알리기만, 고르는 일은 주문 상세에서) */
+.sp-eqm__round { padding: 1px 8px; border-radius: 4px; background: #ede9fe; color: #6d28d9; font-size: 12px; font-weight: 700; }
+.sp-eqm__items { font-weight: 700; color: var(--sp-ink); }
 
 .sp-eqm__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .sp-eqm__meta { min-width: 0; font-size: 13px; color: var(--sp-muted); }
