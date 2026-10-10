@@ -72,6 +72,8 @@ async function cancel(reviewId: number): Promise<void> {
 }
 
 const STATUS_CLS: Record<PcbEqReviewStatusType, string> = {
+  draft: 'bg-gray-100 text-gray-600',
+  answered: 'bg-emerald-100 text-emerald-700',
   requested: 'bg-sky-100 text-sky-700',
   approved: 'bg-emerald-100 text-emerald-700',
   rejected: 'bg-red-100 text-red-700',

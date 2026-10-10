@@ -5,7 +5,9 @@ const prismaMocks = vi.hoisted(() => ({
   poFindFirst: vi.fn(),
   transaction: vi.fn(),
   txPoUpdateMany: vi.fn(),
+  txReviewFindMany: vi.fn(),
   txReviewUpdateMany: vi.fn(),
+  txEventCreate: vi.fn(),
 }));
 
 vi.mock('./prisma', () => ({
@@ -35,19 +37,30 @@ describe('PCB 발주 EQ 전이 — 상태 가드', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMocks.poFindFirst.mockResolvedValue(null);
+    prismaMocks.txReviewFindMany.mockResolvedValue([]);
     prismaMocks.txReviewUpdateMany.mockResolvedValue({ count: 0 });
+    prismaMocks.txEventCreate.mockResolvedValue({});
     prismaMocks.transaction.mockImplementation(
       async (run: (tx: unknown) => Promise<unknown>) =>
         run({
           spPcbPo: { updateMany: prismaMocks.txPoUpdateMany },
-          spPcbEqReview: { updateMany: prismaMocks.txReviewUpdateMany },
+          spPcbEqReview: {
+            findMany: prismaMocks.txReviewFindMany,
+            updateMany: prismaMocks.txReviewUpdateMany,
+          },
+          spPcbEqReviewEvent: { create: prismaMocks.txEventCreate },
         }),
     );
   });
 
-  it('되돌리기: 읽은 상태를 조건으로 쓰고, 이력을 남기고, 고객 확인을 닫는다', async () => {
+  it('되돌리기: 읽은 상태를 조건으로 쓰고, 이력을 남기고, 고객 확인(작성 중 포함)을 닫는다', async () => {
     prismaMocks.poFindUnique.mockResolvedValue(po());
     prismaMocks.txPoUpdateMany.mockResolvedValue({ count: 1 });
+    // 열린 회차 둘 — 하나는 그사이 고객이 답해 조건부 갱신이 비켜 간다(이벤트도 없어야 한다).
+    prismaMocks.txReviewFindMany.mockResolvedValue([{ id: 31n }, { id: 32n }]);
+    prismaMocks.txReviewUpdateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
 
     const result = await revertPcbPoEq(7n, { kind: 'admin' });
 
@@ -61,9 +74,18 @@ describe('PCB 발주 EQ 전이 — 상태 가드', () => {
     expect(call.data.status).toBe('issued');
     expect(call.data.eqHistory).toHaveLength(1);
     expect(call.data.eqHistory[0]).toMatchObject({ fromStatus: 'eq_requested', toStatus: 'issued', note: null });
-    expect(prismaMocks.txReviewUpdateMany).toHaveBeenCalledWith({
-      where: { poId: 7n, status: 'requested' },
-      data: { status: 'canceled' },
+    expect(prismaMocks.txReviewFindMany).toHaveBeenCalledWith({
+      where: { poId: 7n, status: { in: ['draft', 'requested'] } },
+      select: { id: true },
+    });
+    expect(prismaMocks.txReviewUpdateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 31n, status: { in: ['draft', 'requested'] } },
+      data: { status: 'canceled', version: { increment: 1 } },
+    });
+    // 닫힌 회차에만 시스템 이벤트 — answered 로 비켜 간 32 에는 남기지 않는다.
+    expect(prismaMocks.txEventCreate).toHaveBeenCalledTimes(1);
+    expect(prismaMocks.txEventCreate).toHaveBeenCalledWith({
+      data: { reviewId: 31n, action: 'canceled', actorRole: 'system', note: '발주 EQ 상태 변경' },
     });
   });
 
@@ -75,6 +97,7 @@ describe('PCB 발주 EQ 전이 — 상태 가드', () => {
 
     expect(result).toEqual({ ok: false, error: 'INVALID_STATUS' });
     expect(prismaMocks.txPoUpdateMany).toHaveBeenCalledTimes(1);
+    expect(prismaMocks.txReviewFindMany).not.toHaveBeenCalled();
     expect(prismaMocks.txReviewUpdateMany).not.toHaveBeenCalled();
   });
 

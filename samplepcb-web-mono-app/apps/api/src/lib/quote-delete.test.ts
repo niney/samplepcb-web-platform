@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   poFindMany: vi.fn(),
   shipmentFindMany: vi.fn(),
   asCaseFindMany: vi.fn(),
+  reviewFindMany: vi.fn(),
   quoteDeleteMany: vi.fn(),
   specDelete: vi.fn(),
   transaction: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('./prisma', () => ({
     spPcbPo: { findMany: mocks.poFindMany },
     spPcbShipment: { findMany: mocks.shipmentFindMany },
     spPcbAsCase: { findMany: mocks.asCaseFindMany },
+    spPcbEqReview: { findMany: mocks.reviewFindMany },
     spQuote: { deleteMany: mocks.quoteDeleteMany },
     spOrderSpec: { delete: mocks.specDelete },
     $transaction: mocks.transaction,
@@ -53,6 +55,7 @@ beforeEach(() => {
   mocks.poFindMany.mockResolvedValue([]);
   mocks.shipmentFindMany.mockResolvedValue([]);
   mocks.asCaseFindMany.mockResolvedValue([]);
+  mocks.reviewFindMany.mockResolvedValue([]);
   mocks.fileFindMany.mockResolvedValue([]);
 });
 
@@ -102,6 +105,23 @@ describe('purgeQuoteData', () => {
     expect(query.where.OR.map((o) => o.refType)).toEqual(['sp_pcb_as_case']);
     const tokens = mocks.deleteFromFileServer.mock.calls.map((c) => c[0] as string);
     expect(tokens).toEqual(['as-photo']);
+  });
+
+  it('고객 확인 회차(D20)의 문항 그림도 함께 걷는다 — 회차는 cascade, 그림 sp_file 은 아니다', async () => {
+    mocks.poFindMany.mockResolvedValue([{ id: 11n }]);
+    mocks.reviewFindMany.mockResolvedValue([{ id: 41n }]);
+    mocks.fileFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 401n, pathToken: 'figure' }]);
+
+    await purgeQuoteData(spec);
+
+    const query = mocks.fileFindMany.mock.calls[1]?.[0] as {
+      where: { OR: { refType: string }[] };
+    };
+    expect(query.where.OR.map((o) => o.refType)).toEqual(['sp_pcb_po_eq', 'sp_pcb_eq_review']);
+    expect(mocks.deleteFromFileServer.mock.calls.map((c) => c[0] as string)).toEqual(['figure']);
+    expect(mocks.fileDeleteMany).toHaveBeenCalledWith({ where: { id: { in: [401n] } } });
   });
 
   it('협력 트랙이 없으면 첨부 조회 자체를 건너뛴다(불필요한 쿼리 금지)', async () => {

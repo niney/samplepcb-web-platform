@@ -1,6 +1,8 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  CustomerPcbEqAnswerBody,
+  CustomerPcbEqAnswerResponse,
   CustomerPcbEqDecisionBody,
   CustomerPcbEqDecisionResponse,
   CustomerPcbEqReviewListQuery,
@@ -21,18 +23,27 @@ import type {
 import { listOrderProgressForLines, slowestOrderProgress } from '../lib/order-progress';
 import { getCartOrderLinks, getCartRowsByOdId, getOrderRow } from '../lib/g5-db';
 import {
+  EQ_ITEMS_ERRORS,
+  answerEqReview,
   decideEqReview,
   getEqReviewFile,
   listCustomerEqReviews,
   listMyEqReviews,
+  type EqItemsError,
 } from '../lib/pcb-eq-review';
+import { eqFigureContentType } from '../lib/pcb-eq-items';
 import {
   getCustomerCoordFile,
   listCustomerPcbProgress,
   slowestPcbProgress,
 } from '../lib/pcb-customer-progress';
 import { downloadFromFileServer } from '../lib/file-server';
-import { sendPcbMail, buildPcbEqCustomerDecisionEmail } from '../lib/pcb-rfq-email';
+import {
+  buildPcbEqCustomerAnswerEmail,
+  buildPcbEqCustomerDecisionEmail,
+  pcbAdminCaseUrl,
+  sendPcbMail,
+} from '../lib/pcb-rfq-email';
 import { prisma } from '../lib/prisma';
 
 // ── 고객 EQ 확인(P4.1) — docs/PCB_PARTNER_TRACK.md D16 ──────────────────────
@@ -46,6 +57,30 @@ import { prisma } from '../lib/prisma';
 const ReviewParams = z.object({ reviewId: z.coerce.bigint() });
 const ReviewFileParams = ReviewParams.extend({ fileId: z.coerce.bigint() });
 const ApiError = z.object({ error: z.string(), message: z.string() });
+
+/** 화면이 낡은 경우의 공통 안내 — 이미 답했거나, 그 사이 관리자가 EQ 를 움직여 요청이 닫혔다. */
+const STALE_MESSAGE = '이미 처리된 확인 요청입니다 — 화면을 새로고침해 주세요.';
+
+/**
+ * 고객 회신(D20) 오류 → HTTP·문구. 고객 어휘로 덮는다('제조 확인' — EQ·발주라는 말을 쓰지
+ * 않는다, P4.1-b). 남의 회차·작성 중 초안은 404 로 존재를 알리지 않는다.
+ */
+const customerAnswerError = (error: EqItemsError): { code: 400 | 404 | 409; message: string } => {
+  switch (error) {
+    case 'REVIEW_NOT_FOUND':
+    case 'NOT_OWNER':
+      return { code: 404, message: '확인 요청을 찾을 수 없습니다.' };
+    case 'NOT_REQUESTED':
+    case 'NOT_EQ_REQUESTED':
+      return { code: 409, message: STALE_MESSAGE };
+    case 'WRONG_FORMAT':
+      return { code: 409, message: '이 확인 요청은 승인·반려로 답하는 요청입니다 — 화면을 새로고침해 주세요.' };
+    case 'VERSION_CONFLICT':
+      return { code: 409, message: '그사이 확인 내용이 바뀌었습니다 — 화면을 새로고침한 뒤 다시 골라 주세요.' };
+    default:
+      return EQ_ITEMS_ERRORS[error];
+  }
+};
 
 export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -249,9 +284,14 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           return reply.status(409).send({
             error: outcome.error,
             message:
-              outcome.error === 'NOT_EQ_REQUESTED'
-                ? '이미 처리된 확인 요청입니다 — 화면을 새로고침해 주세요.'
-                : '이미 처리된 확인 요청입니다.',
+              outcome.error === 'NOT_EQ_REQUESTED' ? STALE_MESSAGE : '이미 처리된 확인 요청입니다.',
+          });
+        }
+        // 문항형 회차(D20)는 통째 승인·반려가 없다 — 항목별 회신(/answer)으로만 답한다.
+        if (outcome.error === 'WRONG_FORMAT') {
+          return reply.status(409).send({
+            error: outcome.error,
+            message: '항목별로 회신하는 확인 요청입니다 — 화면을 새로고침해 주세요.',
           });
         }
         return reply.notFound('확인 요청을 찾을 수 없습니다');
@@ -298,6 +338,74 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     },
   );
 
+  // ── POST /pcb-eq-reviews/:reviewId/answer — 문항형 회차(D20) 항목별 회신 ──────
+  // 전 문항에 답하고 "이 답변대로 제작 진행"에 동의(agree)해야 한다 — 부분 제출은 없다.
+  // 주문 상세의 POST+CSRF 브리지(sp-php)가 부른다. 메일 링크가 이 라우트를 직접 부르는 일은
+  // 없다(D16 — 링크 프리페치로 답이 자동 제출되는 사고를 막는 규칙).
+  fastify.post(
+    '/pcb-eq-reviews/:reviewId/answer',
+    {
+      schema: {
+        params: ReviewParams,
+        body: CustomerPcbEqAnswerBody,
+        response: { 200: CustomerPcbEqAnswerResponse, 400: ApiError, 404: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const outcome = await answerEqReview(request.params.reviewId, request.user.mbId, {
+        expectedVersion: request.body.expectedVersion,
+        answers: request.body.answers,
+      });
+      if (!outcome.ok) {
+        const mapped = customerAnswerError(outcome.error);
+        return reply.status(mapped.code).send({ error: outcome.error, message: mapped.message });
+      }
+
+      const reviews = await listCustomerEqReviews(await ctIdsOfSpec(outcome.specId), request.user.mbId);
+      const view = reviews.find((r) => r.id === Number(request.params.reviewId));
+      if (view === undefined) return reply.notFound('확인 요청을 찾을 수 없습니다');
+
+      // 관리자에게 알림 — 회신을 놓치면 협력사 전달이 멈춘다. 수신처는 D16 결정 알림과 같다
+      // (자사 조직 메일). 비어 있어도 발송 래퍼에 넘긴다 — 원장에 skipped(missing_recipient)로
+      // 남아야 "알림이 왜 안 왔나"를 메일 이력에서 찾을 수 있다.
+      const spec = await prisma.spOrderSpec.findUnique({
+        where: { id: outcome.specId },
+        select: { projectName: true },
+      });
+      const adminEmail = (await prisma.spPartner.findFirst({ where: { type: 'house' } }))
+        ?.contactEmail;
+      void sendPcbMail(
+        request.log,
+        adminEmail,
+        buildPcbEqCustomerAnswerEmail({
+          projectName: spec?.projectName ?? view.projectName,
+          customerId: request.user.mbId,
+          roundNo: view.roundNo,
+          items: view.items.map((i) => ({
+            no: String(i.seq + 1),
+            question: i.question,
+            key: i.answer?.key ?? '-',
+            label: i.options.find((o) => o.key === i.answer?.key)?.label ?? null,
+            comment: i.answer?.comment ?? null,
+          })),
+          caseUrl: pcbAdminCaseUrl(outcome.specId.toString()),
+        }),
+        {
+          kind: 'pcb_eq_customer_decision',
+          refType: 'pcb_spec',
+          refId: outcome.specId,
+          sentBy: request.user.mbId,
+          params: {
+            poId: String(outcome.poId),
+            reviewId: String(request.params.reviewId),
+            format: 'items',
+          },
+        },
+      );
+      return { result: true as const, data: { review: view } };
+    },
+  );
+
   // ── GET /pcb-progress/coord-files/:fileId — 좌표파일(통보 없는 열람) ────────
   // D16(확인 요청)과 **다른 축**이다: 요청도 결정도 없고, 관리자가 고른 것도 아니다.
   // 종류(coord)가 곧 공개 권한이고, 단계·소유권은 lib 이 다시 판정한다 — 목록에 실렸다는
@@ -321,7 +429,9 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     },
   );
 
-  // ── GET /pcb-eq-reviews/:reviewId/files/:fileId — 공개 첨부 ─────────────────
+  // ── GET /pcb-eq-reviews/:reviewId/files/:fileId — 공개 첨부·공개 문항 그림 ───
+  // 문항 그림(D20)은 **인라인**으로 낸다 — sp-php 브리지가 주문 상세에서 `<img>` 로 쓴다.
+  // Content-Type 은 확장자 MIME(업로드 때 이미지 확장자만 받았다)이고 nosniff 를 붙인다.
   fastify.get(
     '/pcb-eq-reviews/:reviewId/files/:fileId',
     { schema: { params: ReviewFileParams } },
@@ -334,6 +444,16 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       if (file === null) return reply.notFound('파일을 찾을 수 없습니다');
       const downloaded = await downloadFromFileServer(file.pathToken);
       if (downloaded === null) return reply.notFound('파일을 찾을 수 없습니다');
+      if (file.inline) {
+        return reply
+          .header(
+            'content-disposition',
+            `inline; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`,
+          )
+          .header('content-type', eqFigureContentType(file.originFileName))
+          .header('x-content-type-options', 'nosniff')
+          .send(downloaded.buffer);
+      }
       return reply
         .header(
           'content-disposition',

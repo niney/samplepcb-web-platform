@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DateOnly } from './common';
-import { PcbPoEqReviewSummary } from './pcb-eq-review';
+import { PartnerPcbEqRound, PcbPoEqReviewSummary } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
 import { BomInvoiceData, BomShipmentMode, BomShipmentStatus, ShipmentTransport } from './bom-po';
 
@@ -1130,6 +1130,9 @@ export const PartnerPcbPoDetail = z.object({
     /** delegated 수주인데 하위 발주 전 — "하위에 발주하면 EQ 가 시작됩니다". */
     blocked: z.boolean(),
   }),
+  /** D20 고객 회신 — 관리자가 협력사에 **전달한 문항형 회차만**(최신 먼저). 전달 전엔 빈 배열.
+   *  위임 상위(MD 수주)는 EQ 가 실제로 도는 하위 발주서의 회차를 본다. */
+  eqRounds: z.array(PartnerPcbEqRound),
   spec: z.object({
     projectName: z.string(),
     category: z.string(),

@@ -1957,13 +1957,63 @@ model SpPcbEqReview {
   decidedBy     String?   @db.VarChar(191) // 고객 mb_id
   decidedAt     DateTime?
   decisionNote  String?   @db.Text // 반려 사유·의견
+  // ── D20 문항형 회차(docs/PCB_PARTNER_TRACK.md D20) — status 에 draft·answered 가 더해진다 ──
+  format        String    @default("message") @db.VarChar(16) // message(D16 문구형)|items(문항형)
+  version       Int       @default(1) // 낙관적 잠금 — 편집·발송·회신이 올린다
+  prevReviewId  BigInt? // 직전 문항형 회차(개정 EQ 연결)
+  sourceFileIds Json? // 근거 협력사 EQ 첨부(sp_pcb_po_eq) id 목록
+  answeredRole  String?   @db.VarChar(16) // customer|admin
+  answerChannel String?   @db.VarChar(16) // web|phone|email|other
+  forwardedAt   DateTime? // 협력사에 회신 전달
+  forwardedBy   String?   @db.VarChar(191)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   po            SpPcbPo   @relation(fields: [poId], references: [id], onDelete: Cascade)
+  items         SpPcbEqReviewItem[]
+  events        SpPcbEqReviewEvent[]
 
   @@index([poId])
   @@index([specId, status])
   @@map("sp_pcb_eq_review")
+}
+
+/// D20 문항 — 공장 EQ 표의 한 줄. 답은 문항 행에 바로 둔다(문항 하나에 답 하나, 회차가 바뀌면 새 행).
+model SpPcbEqReviewItem {
+  id            BigInt        @id @default(autoincrement())
+  reviewId      BigInt
+  seq           Int // 화면 순서(0부터)
+  factoryNo     String?       @db.VarChar(32) // 공장 원문 번호
+  category      String        @db.VarChar(32) // 계약 PCB_EQ_ITEM_CATEGORIES
+  question      String        @db.Text // 고객용 한국어
+  questionOrig  String?       @db.Text // 공장 원문
+  options       Json // PcbEqItemOption[]
+  figures       Json // [{fileId, shared}] — sp_file(refType 'sp_pcb_eq_review', refId=reviewId)
+  prevItemId    BigInt? // 직전 회차의 같은 문항
+  change        String?       @db.VarChar(16) // new|changed|same(첫 회차 null)
+  answerKey     String?       @db.VarChar(8)
+  answerComment String?       @db.Text
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  review        SpPcbEqReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@map("sp_pcb_eq_review_item")
+}
+
+/// D20 회차 이벤트 — 덧붙이기만 한다(작성·발송·회신·대리 회신·전달·취소).
+model SpPcbEqReviewEvent {
+  id        BigInt        @id @default(autoincrement())
+  reviewId  BigInt
+  action    String        @db.VarChar(32)
+  actorRole String        @db.VarChar(16) // customer|admin|system
+  actorMbId String?       @db.VarChar(191)
+  channel   String?       @db.VarChar(16)
+  note      String?       @db.Text
+  createdAt DateTime      @default(now())
+  review    SpPcbEqReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@map("sp_pcb_eq_review_event")
 }
 
 // PCB 송금 원장 — 발주서 1:N 송금. **부분·분할 송금이 실재**하기 때문에 상태 한 칸이

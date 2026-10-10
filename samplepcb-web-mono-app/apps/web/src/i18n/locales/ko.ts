@@ -375,6 +375,7 @@ export const ko = {
         pcb_eq_decision: 'PCB EQ 승인/반려',
         pcb_eq_customer_request: 'PCB EQ 고객확인 요청',
         pcb_eq_customer_decision: 'PCB EQ 고객 회신',
+        pcb_eq_answer_forwarded: 'PCB EQ 고객 회신 협력사 전달',
         pcb_produced: 'PCB 생산완료',
         pcb_shipment_turn: 'PCB 선적 진행',
         pcb_shipment_received: 'PCB 입고 확인',

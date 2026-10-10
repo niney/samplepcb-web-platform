@@ -742,21 +742,36 @@ export interface PcbEqCustomerRequestEmailParams {
   projectName: string;
   odId: string;
   reviewId: number;
+  /** 머리말 — 문항형(D20)은 비어 있을 수 있다(그때는 상자를 그리지 않는다). */
   message: string;
   dueText: string | null;
   fileCount: number;
+  /** D20 문항형 회차의 문항 수 — 있으면 "확인할 항목 N개"로 말하고 항목별 회신을 안내한다.
+   *  문항 내용은 메일에 싣지 않는다(그림·선택지는 주문내역에서 — 메일은 링크만, D20 흐름). */
+  itemCount?: number;
 }
 
 export function buildPcbEqCustomerRequestEmail(p: PcbEqCustomerRequestEmailParams): {
   subject: string;
   html: string;
 } {
+  const items = p.itemCount ?? 0;
   const rows = [
     infoRow('주문번호', esc(p.odId)),
     infoRow('건', esc(p.projectName)),
+    ...(items === 0 ? [] : [infoRow('확인할 항목', `<b>${String(items)}개</b>`)]),
     ...(p.dueText === null ? [] : [infoRow('회신 기한', `<b>${esc(p.dueText)}</b>`)]),
     ...(p.fileCount === 0 ? [] : [infoRow('첨부', `${String(p.fileCount)}개 (주문내역에서 확인)`)]),
   ].join('');
+  const lead =
+    items === 0
+      ? `아래 내용을 보시고 <b>주문내역 상세</b>에서 승인 또는 반려해 주세요.`
+      : `확인할 항목이 <b>${String(items)}개</b> 있습니다. <b>주문내역 상세</b>에서 항목마다 원하시는 처리 방법을 골라 회신해 주세요.`;
+  const messageBox =
+    p.message.trim() === ''
+      ? ''
+      : `
+      <div style="margin:0 0 14px;padding:12px 14px;background:#f8fafc;border-left:3px solid #0ea5e9;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;">${esc(p.message)}</div>`;
   return {
     subject: `[샘플피씨비] 제조 확인 요청 — ${p.projectName}`,
     html: shell(
@@ -764,9 +779,8 @@ export function buildPcbEqCustomerRequestEmail(p: PcbEqCustomerRequestEmailParam
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         주문하신 <b>${esc(p.projectName)}</b> 건에 제조 전 확인이 필요한 사항이 있습니다.
-        아래 내용을 보시고 <b>주문내역 상세</b>에서 승인 또는 반려해 주세요.
-      </p>
-      <div style="margin:0 0 14px;padding:12px 14px;background:#f8fafc;border-left:3px solid #0ea5e9;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;">${esc(p.message)}</div>
+        ${lead}
+      </p>${messageBox}
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
       </table>
       <div style="padding-top:20px;">
@@ -898,6 +912,121 @@ export function buildPcbEqCustomerDecisionEmail(p: PcbEqCustomerDecisionEmailPar
         <b>${esc(p.projectName)}</b> 건을 고객(${esc(p.customerId)})이
         ${p.approved ? '승인했습니다. EQ 승인을 진행해 주세요.' : '반려했습니다. 사유를 확인해 협력사에 전달해 주세요.'}
       </p>${noteHtml}`,
+      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+    ),
+  };
+}
+
+// ── D20 문항형 회차 — 고객 회신 → 관리자, 관리자 전달 → 협력사 ─────────────────
+
+/** 메일 한 줄 — 문항 번호·고른 기호·의견(문항형 회신 요약 공용). */
+export interface PcbEqAnswerMailItem {
+  /** 공장 원문 번호(없으면 순번) — 협력사는 이 번호로 읽는다. */
+  no: string;
+  question: string;
+  key: string;
+  /** 고른 선택지의 한국어 문구(관리자 메일용). */
+  label: string | null;
+  comment: string | null;
+}
+
+export interface PcbEqCustomerAnswerEmailParams {
+  projectName: string;
+  customerId: string;
+  roundNo: number | null;
+  items: PcbEqAnswerMailItem[];
+  /** 관리자 Case 상세 — 회신 확인·협력사 전달이 거기서 일어난다. */
+  caseUrl: string;
+}
+
+/** 고객이 문항별로 회신했다 → 관리자. 놓치면 협력사 전달이 멈춘다(D20 — kind 는 D16 과 같다). */
+export function buildPcbEqCustomerAnswerEmail(p: PcbEqCustomerAnswerEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const round = p.roundNo !== null && p.roundNo > 1 ? ` ${String(p.roundNo)}차` : '';
+  const rows = p.items
+    .map((i) =>
+      infoRow(
+        `${i.no}. ${i.question.length > 40 ? `${i.question.slice(0, 40)}…` : i.question}`,
+        `<b>${esc(i.key)}</b>${i.label === null ? '' : ` ${esc(i.label)}`}${
+          i.comment === null ? '' : `<br><span style="color:#475569;">의견: ${esc(i.comment)}</span>`
+        }`,
+      ),
+    )
+    .join('');
+  return {
+    subject: `[샘플피씨비] 고객 회신${round} — ${p.projectName}`,
+    html: shell(
+      `고객이 제조 확인${round}에 회신했습니다`,
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        <b>${esc(p.projectName)}</b> 건을 고객(${esc(p.customerId)})이 항목별로 회신했습니다.
+        회신 내용을 확인해 협력사에 전달하고, 진행해도 되면 EQ 승인을 눌러 주세요.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
+      </table>
+      <div style="padding-top:20px;">
+        <a href="${esc(p.caseUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          Case 상세 열기</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbEqAnswerForwardedEmailParams extends PcbPortalCtaParams {
+  partnerName: string;
+  projectName: string;
+  roundNo: number;
+  poId: string;
+  items: PcbEqAnswerMailItem[];
+}
+
+/**
+ * 관리자가 고객 회신을 전달했다 → 수주 협력사(kind `pcb_eq_answer_forwarded`). 공장은 선택지
+ * **기호**로 읽는다(D20-4) — 문항 번호·기호·의견을 싣고, 원문 대조는 포털 '고객 회신'에서 한다.
+ * 고객 신원은 싣지 않는다(협력사에 고객을 드러내지 않는 관례).
+ */
+export function buildPcbEqAnswerForwardedEmail(p: PcbEqAnswerForwardedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const noAccount = p.hasPortalAccount === false;
+  const rows = p.items
+    .map((i) =>
+      infoRow(
+        `No. ${i.no}`,
+        `<b>${esc(i.key)}</b>${
+          i.comment === null ? '' : `<br><span style="color:#475569;">Comment: ${esc(i.comment)}</span>`
+        }`,
+      ),
+    )
+    .join('');
+  const cta = noAccount
+    ? proxyNoticeBox(
+        `포털 확인은 ${proxyWho(p)}가 대행합니다 — 회신 내용 문의:`,
+        p.inquiryEmail,
+      )
+    : `
+      <div style="padding-top:20px;">
+        <a href="${esc(pcbPartnerPoUrl(p.poId))}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          포털에서 고객 회신 보기</a>
+      </div>`;
+  return {
+    subject: `[샘플피씨비] EQ 고객 회신 (Round ${String(p.roundNo)}) — ${p.projectName}`,
+    html: shell(
+      `EQ 고객 회신이 도착했습니다 (Round ${String(p.roundNo)})`,
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건 EQ ${String(p.roundNo)}차에 대한
+        고객 회신입니다. 문항 번호별로 고객이 고른 선택지 기호와 의견을 확인해 주세요.
+        (Customer answers per EQ item — option key and comment.)
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
+      </table>${cta}`,
       '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
     ),
   };

@@ -7,16 +7,39 @@ import { z } from 'zod';
 // 고객은 발주서를 모른다 — 화면에는 "내 주문의 확인 요청"으로만 보이고 협력사명은
 // 어디에도 나오지 않는다("제조사"로 표기). 공개 파일은 관리자가 고른 것만이다.
 
-export const PCB_EQ_REVIEW_STATUSES = ['requested', 'approved', 'rejected', 'canceled'] as const;
+// 상태 — D20(문항형 회차)이 둘을 더한다:
+//  · draft    = 관리자가 문항을 다듬는 중(고객에게 안 보이고 배지에도 안 든다)
+//  · answered = 고객이 문항별로 회신하고 "이 답변대로 제작 진행"에 동의했다
+// approved/rejected 는 D16 문구형(format='message')의 결정이다 — 문항형에는 통째 반려가 없고
+// 반대 뜻은 문항마다 선택지·의견으로 말한다.
+export const PCB_EQ_REVIEW_STATUSES = [
+  'draft',
+  'requested',
+  'answered',
+  'approved',
+  'rejected',
+  'canceled',
+] as const;
 export type PcbEqReviewStatusType = (typeof PCB_EQ_REVIEW_STATUSES)[number];
 export const PcbEqReviewStatus = z.enum(PCB_EQ_REVIEW_STATUSES);
 
 export const PCB_EQ_REVIEW_STATUS_LABELS = {
+  draft: '작성 중',
   requested: '확인 대기',
+  answered: '고객 회신',
   approved: '고객 승인',
   rejected: '고객 반려',
   canceled: '요청 취소',
 } as const satisfies Record<PcbEqReviewStatusType, string>;
+
+/** 고객이 답한 상태인가(문구형 승인·반려 + 문항형 회신) — 관리자 승인 전 확인창의 판정. */
+export const isPcbEqReviewDecided = (s: PcbEqReviewStatusType): boolean =>
+  s === 'answered' || s === 'approved' || s === 'rejected';
+
+/** 형식 — message=D16 문구 1개 + 승인/반려 · items=D20 문항별 선택지 회신. */
+export const PCB_EQ_REVIEW_FORMATS = ['message', 'items'] as const;
+export type PcbEqReviewFormatType = (typeof PCB_EQ_REVIEW_FORMATS)[number];
+export const PcbEqReviewFormat = z.enum(PCB_EQ_REVIEW_FORMATS);
 
 /** 고객에게 공개된 첨부 — 관리자가 고른 것만. 협력사명이 든 파일은 애초에 안 담는다. */
 export const PcbEqReviewFile = z.object({
@@ -25,6 +48,224 @@ export const PcbEqReviewFile = z.object({
   size: z.number(),
 });
 export type PcbEqReviewFileType = z.infer<typeof PcbEqReviewFile>;
+
+// ── D20 문항형 회차 — 공장 EQ 표(문항 N개 × 선택지 A/B/C × 그림)를 고객이 문항별로 답한다 ──
+// 정본 docs/PCB_PARTNER_TRACK.md D20. 회차 = sp_pcb_eq_review 한 행(format='items'),
+// 문항 = sp_pcb_eq_review_item. 발주 상태 머신은 건드리지 않는다(D16 ①과 같다).
+
+/** 문항 유형 — 중국 공장 EQ 표의 '问题类型' 12종 + 자주 나오는 4종. 화면 라벨은 아래 사전. */
+export const PCB_EQ_ITEM_CATEGORIES = [
+  'impedance',
+  'marking',
+  'pad',
+  'soldermask_dam',
+  'circuit',
+  'via',
+  'soldermask',
+  'legend',
+  'drill',
+  'outline',
+  'panel',
+  'stackup',
+  'material',
+  'surface_finish',
+  'indication',
+  'other',
+] as const;
+export type PcbEqItemCategoryType = (typeof PCB_EQ_ITEM_CATEGORIES)[number];
+export const PcbEqItemCategory = z.enum(PCB_EQ_ITEM_CATEGORIES);
+
+export const PCB_EQ_ITEM_CATEGORY_LABELS = {
+  impedance: '임피던스',
+  marking: '마킹(UL·주기)',
+  pad: '패드',
+  soldermask_dam: '솔더마스크 댐',
+  circuit: '회로 패턴',
+  via: '비아 처리',
+  soldermask: '솔더마스크',
+  legend: '실크(문자)',
+  drill: '드릴(홀)',
+  outline: '외형',
+  panel: '패널(배열)',
+  stackup: '적층 구조',
+  material: '원자재',
+  surface_finish: '표면처리',
+  indication: '표기·도면',
+  other: '기타',
+} as const satisfies Record<PcbEqItemCategoryType, string>;
+
+/** 문항 변화(직전 회차 대비) — 개정 EQ 에서 고객이 바뀐 것만 보면 되게. 첫 회차는 null. */
+export const PCB_EQ_ITEM_CHANGES = ['new', 'changed', 'same'] as const;
+export type PcbEqItemChangeType = (typeof PCB_EQ_ITEM_CHANGES)[number];
+export const PcbEqItemChange = z.enum(PCB_EQ_ITEM_CHANGES);
+
+export const PCB_EQ_ITEM_CHANGE_LABELS = {
+  new: '신규',
+  changed: '변경',
+  same: '동일',
+} as const satisfies Record<PcbEqItemChangeType, string>;
+
+/**
+ * 선택지 — `key` 는 **공장 원문 기호 그대로**(A/B/C). 협력사는 회신을 이 기호로 읽는다
+ * (번역이 어긋나도 "B 를 골랐다"는 사실은 어긋나지 않는다).
+ */
+export const PcbEqItemOption = z.object({
+  key: z.string().trim().min(1).max(4),
+  /** 고객에게 보이는 한국어 문구. */
+  label: z.string().trim().min(1).max(500),
+  /** 공장 원문(중국어·영어) — 관리자·협력사만 본다. */
+  labelOrig: z.string().trim().max(1000).nullable(),
+  /** 제조사 권장 — 고객 화면 배지. 공장 표의 첫 선택지가 대개 권장안이지만 판정은 사람이 한다. */
+  recommended: z.boolean(),
+  /** '贵司指示(지시해 주세요)' 류 — 고르면 의견이 필수다. */
+  requiresComment: z.boolean(),
+});
+export type PcbEqItemOptionType = z.infer<typeof PcbEqItemOption>;
+
+/** 문항 초안의 공통 몸통 — AI 분석 결과(PcbEqDraft)와 관리자 편집 입력이 같은 모양이다. */
+export const PcbEqDraftItem = z.object({
+  /** 공장 원문 번호('1', '2.0' 등) — 협력사 회신서·개정 회차 연결의 키. */
+  factoryNo: z.string().trim().max(32).nullable(),
+  category: PcbEqItemCategory,
+  /** 고객에게 보이는 한국어 질문(번역·다듬은 문장). */
+  question: z.string().trim().min(1).max(4000),
+  /** 공장 원문 질문 — 관리자·협력사만. */
+  questionOrig: z.string().trim().max(8000).nullable(),
+  options: z.array(PcbEqItemOption).min(1).max(8),
+});
+export type PcbEqDraftItemType = z.infer<typeof PcbEqDraftItem>;
+
+/**
+ * AI 분석 산출물(D20 P2) — 추출기(셀·그림) → LLM 구조화·번역의 결과. 그림은 LLM 이 아니라
+ * 추출기가 꺼내므로 여기엔 **참조**(`figureRefs` = 추출기 이미지 id)만 있다.
+ */
+export const PcbEqDraft = z.object({
+  header: z.object({
+    customerPartNo: z.string().nullable(),
+    factoryPartNo: z.string().nullable(),
+    /** 공장 표의 작성일(YYYY-MM-DD) — 없으면 null. */
+    issuedOn: z.string().nullable(),
+  }),
+  items: z.array(PcbEqDraftItem.extend({ figureRefs: z.array(z.string()).max(10) })).max(60),
+});
+export type PcbEqDraftType = z.infer<typeof PcbEqDraft>;
+
+/** 문항 그림 — sp_file(refType 'sp_pcb_eq_review'). `shared` 인 것만 고객에게 내려간다. */
+export const PcbEqItemFigure = z.object({
+  fileId: z.number(),
+  name: z.string(),
+  size: z.number(),
+  shared: z.boolean(),
+});
+export type PcbEqItemFigureType = z.infer<typeof PcbEqItemFigure>;
+
+/** 고객(또는 대리) 답 — 문항 하나에 하나. */
+export const PcbEqItemAnswer = z.object({
+  key: z.string(),
+  comment: z.string().nullable(),
+});
+export type PcbEqItemAnswerType = z.infer<typeof PcbEqItemAnswer>;
+
+/** 직전 회차의 같은 문항과 그 답 — 개정 회차에서 "이전 답 유지"의 근거. */
+export const PcbEqPrevItem = z.object({
+  itemId: z.number(),
+  question: z.string(),
+  answer: PcbEqItemAnswer.nullable(),
+  /** 고른 선택지의 한국어 문구(답이 있을 때). */
+  answerLabel: z.string().nullable(),
+});
+export type PcbEqPrevItemType = z.infer<typeof PcbEqPrevItem>;
+
+/** 관리자 화면 문항 — 원문·전체 그림(공개 여부 포함)·이전 회차 연결을 안다. */
+export const AdminPcbEqItem = PcbEqDraftItem.extend({
+  id: z.number(),
+  seq: z.number().int(),
+  figures: z.array(PcbEqItemFigure),
+  prevItemId: z.number().nullable(),
+  change: PcbEqItemChange.nullable(),
+  prev: PcbEqPrevItem.nullable(),
+  answer: PcbEqItemAnswer.nullable(),
+});
+export type AdminPcbEqItemType = z.infer<typeof AdminPcbEqItem>;
+
+/** 고객 화면 문항 — 원문·비공개 그림·공장 원문 선택지는 없다(공급망 미노출). */
+export const CustomerPcbEqItem = z.object({
+  id: z.number(),
+  seq: z.number().int(),
+  category: PcbEqItemCategory,
+  question: z.string(),
+  options: z.array(PcbEqItemOption.omit({ labelOrig: true })),
+  figures: z.array(PcbEqReviewFile),
+  change: PcbEqItemChange.nullable(),
+  prev: PcbEqPrevItem.nullable(),
+  answer: PcbEqItemAnswer.nullable(),
+});
+export type CustomerPcbEqItemType = z.infer<typeof CustomerPcbEqItem>;
+
+/** 협력사 포털 문항 — **전달된 회차만**. 원문·선택지 기호·고객 답(기호+의견)을 본다. */
+export const PartnerPcbEqItem = z.object({
+  id: z.number(),
+  factoryNo: z.string().nullable(),
+  category: PcbEqItemCategory,
+  questionOrig: z.string().nullable(),
+  question: z.string(),
+  options: z.array(PcbEqItemOption.pick({ key: true, label: true, labelOrig: true })),
+  answer: PcbEqItemAnswer.nullable(),
+});
+export type PartnerPcbEqItemType = z.infer<typeof PartnerPcbEqItem>;
+
+export const PartnerPcbEqRound = z.object({
+  reviewId: z.number(),
+  roundNo: z.number().int(),
+  answeredAt: z.string().nullable(),
+  forwardedAt: z.string(),
+  items: z.array(PartnerPcbEqItem),
+});
+export type PartnerPcbEqRoundType = z.infer<typeof PartnerPcbEqRound>;
+
+// ── 회신 주체·채널·이벤트 ────────────────────────────────────────────────────
+
+export const PCB_EQ_ANSWER_CHANNELS = ['web', 'phone', 'email', 'other'] as const;
+export type PcbEqAnswerChannelType = (typeof PCB_EQ_ANSWER_CHANNELS)[number];
+export const PcbEqAnswerChannel = z.enum(PCB_EQ_ANSWER_CHANNELS);
+
+export const PCB_EQ_ANSWER_CHANNEL_LABELS = {
+  web: '고객 직접(웹)',
+  phone: '전화',
+  email: '메일',
+  other: '기타',
+} as const satisfies Record<PcbEqAnswerChannelType, string>;
+
+export const PCB_EQ_REVIEW_EVENT_ACTIONS = [
+  'drafted',
+  'sent',
+  'answered',
+  'proxy_answered',
+  'forwarded',
+  'canceled',
+] as const;
+export type PcbEqReviewEventActionType = (typeof PCB_EQ_REVIEW_EVENT_ACTIONS)[number];
+export const PcbEqReviewEventAction = z.enum(PCB_EQ_REVIEW_EVENT_ACTIONS);
+
+export const PCB_EQ_REVIEW_EVENT_ACTION_LABELS = {
+  drafted: '문항 작성 시작',
+  sent: '고객에게 발송',
+  answered: '고객 회신',
+  proxy_answered: '관리자 대리 회신',
+  forwarded: '협력사에 전달',
+  canceled: '요청 취소',
+} as const satisfies Record<PcbEqReviewEventActionType, string>;
+
+export const PcbEqReviewEvent = z.object({
+  id: z.number(),
+  action: PcbEqReviewEventAction,
+  actorRole: z.enum(['customer', 'admin', 'system']),
+  actorMbId: z.string().nullable(),
+  channel: PcbEqAnswerChannel.nullable(),
+  note: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type PcbEqReviewEventType = z.infer<typeof PcbEqReviewEvent>;
 
 /** 발주 행에 싣는 요약 — 모달을 열지 않아도 "보냈는지·답했는지"가 보이게(사용자 결정
  *  2026-08-07). 열린 요청이 있으면 그것, 없으면 마지막 결정. canceled 뿐이면 요약 없음
@@ -37,6 +278,11 @@ export const PcbPoEqReviewSummary = z.object({
   decidedAt: z.string().nullable(),
   /** 반려 사유 — 행 툴팁이 쓴다(관리자 화면 전용이라 원문 그대로). */
   decisionNote: z.string().nullable(),
+  /** D20 — 행 칩 "EQ 2차 · 고객 회신 대기"용. 문구형이면 roundNo null. */
+  format: PcbEqReviewFormat,
+  roundNo: z.number().int().nullable(),
+  /** 문항형 회신을 협력사에 전달한 시각 — 전달 전이면 '전달 필요' 배지. */
+  forwardedAt: z.string().nullable(),
 });
 export type PcbPoEqReviewSummaryType = z.infer<typeof PcbPoEqReviewSummary>;
 
@@ -56,8 +302,107 @@ export const AdminPcbEqReviewView = z.object({
   decisionNote: z.string().nullable(),
   /** 기한이 지났는데 아직 답이 없다 — 관리자가 재촉해야 하는 신호. */
   overdue: z.boolean(),
+  // ── D20 문항형 ──
+  format: PcbEqReviewFormat,
+  /** 낙관적 잠금 — 편집·발송·대리 회신은 expectedVersion 을 맞춰야 한다. */
+  version: z.number().int(),
+  /** 이 발주서의 문항형 회차 중 몇 번째인가(1부터). 문구형은 null. */
+  roundNo: z.number().int().nullable(),
+  /** 직전 문항형 회차 — 개정 EQ 의 연결. */
+  prevReviewId: z.number().nullable(),
+  /** 이 회차가 근거로 삼은 협력사 EQ 첨부(sp_pcb_po_eq) id. */
+  sourceFileIds: z.array(z.number()),
+  items: z.array(AdminPcbEqItem),
+  answeredRole: z.enum(['customer', 'admin']).nullable(),
+  answerChannel: PcbEqAnswerChannel.nullable(),
+  forwardedAt: z.string().nullable(),
+  forwardedBy: z.string().nullable(),
+  events: z.array(PcbEqReviewEvent),
 });
 export type AdminPcbEqReviewViewType = z.infer<typeof AdminPcbEqReviewView>;
+
+// ── 관리자: 문항형 회차(D20) ─────────────────────────────────────────────────
+
+/** 초안 만들기 — 열린 회차(draft|requested)가 있으면 409 ALREADY_OPEN. */
+export const AdminPcbEqDraftCreateBody = z.object({
+  /** 직전 문항형 회차의 문항을 복사해 시작(개정 EQ) — change='same', prevItemId 연결. */
+  fromPrevious: z.boolean().default(false),
+  /** 근거 EQ 첨부 — 이 발주서의 eq/working 첨부만(서버 검증). */
+  sourceFileIds: z.array(z.number().int().positive()).max(20).default([]),
+});
+export type AdminPcbEqDraftCreateBodyType = z.infer<typeof AdminPcbEqDraftCreateBody>;
+
+/** 문항 편집 입력 — 저장은 **초안 통째 교체**(id 가 있으면 그 문항을 갱신, 없으면 새로, 빠진 건 삭제). */
+export const AdminPcbEqItemInput = PcbEqDraftItem.extend({
+  id: z.number().int().positive().optional(),
+  /** 이 회차에 올린 그림(sp_file id)과 고객 공개 여부. */
+  figures: z
+    .array(z.object({ fileId: z.number().int().positive(), shared: z.boolean() }))
+    .max(10)
+    .default([]),
+  prevItemId: z.number().int().positive().nullable().default(null),
+  change: PcbEqItemChange.nullable().default(null),
+});
+export type AdminPcbEqItemInputType = z.input<typeof AdminPcbEqItemInput>;
+
+export const AdminPcbEqDraftUpdateBody = z.object({
+  expectedVersion: z.number().int().positive(),
+  /** 고객에게 보일 머리말(선택) — 비우면 기본 안내문. */
+  message: z.string().trim().max(2000).default(''),
+  dueOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
+  items: z.array(AdminPcbEqItemInput).max(60),
+});
+export type AdminPcbEqDraftUpdateBodyType = z.input<typeof AdminPcbEqDraftUpdateBody>;
+
+/** 발송·전달·취소처럼 몸통 없이 버전만 맞추는 조작. */
+export const AdminPcbEqVersionBody = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+export type AdminPcbEqVersionBodyType = z.infer<typeof AdminPcbEqVersionBody>;
+
+/** 문항별 답 입력 — 고객 회신과 관리자 대리 회신이 같다. */
+export const PcbEqAnswerInput = z.object({
+  itemId: z.number().int().positive(),
+  key: z.string().trim().min(1).max(4),
+  comment: z.string().trim().max(2000).optional(),
+});
+export type PcbEqAnswerInputType = z.infer<typeof PcbEqAnswerInput>;
+
+/**
+ * 고객 회신 — **모든 문항**에 답하고 "이 답변대로 제작 진행"에 동의해야 한다(부분 제출 없음:
+ * 공장은 한 문항이라도 비면 진행하지 못한다). requiresComment 선택지는 의견 2자 이상.
+ */
+export const CustomerPcbEqAnswerBody = z.object({
+  expectedVersion: z.number().int().positive(),
+  answers: z.array(PcbEqAnswerInput).min(1).max(60),
+  agree: z.literal(true),
+});
+export type CustomerPcbEqAnswerBodyType = z.infer<typeof CustomerPcbEqAnswerBody>;
+
+/** 관리자 대리 회신 — 채널(웹 제외)과 근거 메모가 필수(D43-8 관례). */
+export const AdminPcbEqProxyAnswerBody = z.object({
+  expectedVersion: z.number().int().positive(),
+  answers: z.array(PcbEqAnswerInput).min(1).max(60),
+  channel: PcbEqAnswerChannel.exclude(['web']),
+  note: z.string().trim().min(2).max(2000),
+});
+export type AdminPcbEqProxyAnswerBodyType = z.infer<typeof AdminPcbEqProxyAnswerBody>;
+
+export const AdminPcbEqReviewResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ review: AdminPcbEqReviewView }),
+});
+export type AdminPcbEqReviewResponseType = z.infer<typeof AdminPcbEqReviewResponse>;
+
+export const AdminPcbEqFigureUploadResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ figure: PcbEqItemFigure }),
+});
+export type AdminPcbEqFigureUploadResponseType = z.infer<typeof AdminPcbEqFigureUploadResponse>;
 
 // ── 관리자: 확인 요청 보내기 ─────────────────────────────────────────────────
 export const AdminPcbEqReviewCreateBody = z.object({
@@ -94,6 +439,14 @@ export const CustomerPcbEqReviewView = z.object({
   decidedAt: z.string().nullable(),
   decisionNote: z.string().nullable(),
   overdue: z.boolean(),
+  // ── D20 문항형 — draft 는 고객 응답에 절대 실리지 않는다 ──
+  format: PcbEqReviewFormat,
+  version: z.number().int(),
+  /** 고객에게 보이는 회차 번호(문항형만). 첫 회차면 1 — 화면은 2 이상일 때만 "N차"를 붙인다. */
+  roundNo: z.number().int().nullable(),
+  items: z.array(CustomerPcbEqItem),
+  /** 관리자가 대신 답했는가 — 고객 화면 "담당자가 전화로 확인한 답변입니다" 안내. */
+  answeredByAdmin: z.boolean(),
 });
 export type CustomerPcbEqReviewViewType = z.infer<typeof CustomerPcbEqReviewView>;
 
@@ -232,3 +585,7 @@ export const CustomerPcbEqDecisionResponse = z.object({
   data: z.object({ review: CustomerPcbEqReviewView }),
 });
 export type CustomerPcbEqDecisionResponseType = z.infer<typeof CustomerPcbEqDecisionResponse>;
+
+/** 고객 문항형 회신(D20) 응답 — 결정 응답과 같은 모양(갱신된 회차 하나). */
+export const CustomerPcbEqAnswerResponse = CustomerPcbEqDecisionResponse;
+export type CustomerPcbEqAnswerResponseType = CustomerPcbEqDecisionResponseType;

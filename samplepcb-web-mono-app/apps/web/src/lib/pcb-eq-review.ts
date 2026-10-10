@@ -8,9 +8,11 @@ import { fmtKstDate } from '@sp/utils';
 export type PcbEqReviewDisplay = 'none' | 'pending' | 'overdue' | 'approved' | 'rejected';
 
 export const pcbEqReviewState = (r: PcbPoEqReviewSummaryType | null): PcbEqReviewDisplay => {
-  if (r === null) return 'none';
+  // D20 — 작성 중(draft)은 고객에게 아직 안 간 것이라 '미요청'과 같은 칸, 문항형 회신(answered)은
+  // 고객이 답한 것이라 승인 칸의 색을 빌린다(전용 표시는 문항형 작업공간 몫).
+  if (r === null || r.status === 'draft' || r.status === 'canceled') return 'none';
   if (r.status === 'requested') return r.overdue ? 'overdue' : 'pending';
-  return r.status === 'approved' ? 'approved' : 'rejected';
+  return r.status === 'rejected' ? 'rejected' : 'approved';
 };
 
 /** 버튼(Case 상세) — 누를 수 있는 자리라 테두리형. */
@@ -39,11 +41,11 @@ export const pcbEqReviewBadgeLabel = (r: PcbPoEqReviewSummaryType | null): strin
     case 'overdue':
       return '고객 기한초과';
     case 'approved':
-      return '고객 승인';
+      return r?.status === 'answered' ? '고객 회신' : '고객 승인';
     case 'rejected':
       return '고객 반려';
     default:
-      return '고객 미요청';
+      return r?.status === 'draft' ? '작성 중' : '고객 미요청';
   }
 };
 

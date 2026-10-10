@@ -264,6 +264,8 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 | D7 | 레거시 데이터 이관? | **미이관** | §5.6 |
 | D8 | 회수 자료 커밋? | **전부 커밋** | 보고서+docs/legacy-smartbom/ 4종 |
 
+**D20 (2026-10-11) — EQ 고객 확인을 문항형 회차로 넓힌다.** 공장 EQ 표(문항 N개 × 선택지 A/B/C × 그림)를 고객이 주문 상세에서 문항별로 답하고(관리자 대리 회신 가능), 개정 EQ 는 새 회차로 직전 회차에 연결한다. ① D16 원장을 회차로 확장(`format=items`, draft→requested→answered) — 발주 상태 머신은 그대로 ② 고객 발송 전 관리자 검토 필수 ③ `eq_done` 은 관리자 유지 ④ 관리자 작업공간은 넓은 오른쪽 패널 ⑤ 협력사에는 포털 문항별 + 영문 회신서 ⑥ 원본 엑셀·공장 로고는 고객 비노출. 상세는 말미 「D20 설계」.
+
 **D19 (2026-08-10) — EQ 첨부는 선택, Working 파일은 권장이다.** 발주접수→EQ 승인요청 전이는 파일 유무로 막지 않는다(사용자 결정). ① **EQ 파일은 선택** — 제조 확인 사항이 있을 때만 올린다. ② **Working 파일은 생산 자료라 업로드를 권장**하되 필수 게이트로 만들지 않는다. 포털은 미업로드 카드를 강조하고 "승인요청 후에는 추가·교체할 수 없음"을 알려 지금 올리도록 유도하지만 버튼은 활성 상태다. ③ **첨부 잠금은 유지** — 승인요청 뒤 파일이 바뀌어 관리자가 다른 자료를 검토하는 문제를 막기 위해 업로드·삭제는 계속 `issued`에서만 허용한다. 빠뜨렸다면 EQ 요청 취소/반려 후 보완한다. ④ 관리자 대행 전이와 메일도 같은 정책을 사용하며, `MISSING_EQ_FILES` 서버 오류와 계약의 `needsEqFiles` 표시는 폐기한다. 상태 순서·주체·주문 취소 게이트는 그대로다.
 
 **D13 (2026-08-06) — 견적 영구 삭제의 협력 트랙 차단 + 감사 원장 공용화.** BOM Case 삭제(§bom-case-delete)를 복제하지 않고 PCB 실정에 맞게 이식한다. ① **차단 확장** — 기존 `PAID_ORDER` 에 `PO_ISSUED`·`SHIPMENT_EXISTS`·`SHARED_ORDER` 추가(우회 정책은 D14 로 대체). ② **경고 4종**(`RFQ_EMAILS_REMAIN`·`PCB_ATTACHMENTS_DELETED`·`UNPAID_ORDER_DELETED`·`LEGACY_CASE`) + 최종확인 체크. PCB 는 모수가 2만 건이라 BOM 의 단건 2단계 모달이 아니라 **배치 프리뷰를 강화**하는 형태다. ③ **감사 원장 공용화** — `sp_bom_case_delete_audit` → **`sp_delete_audit`**(트랙 접두사 없음 = 횡단 관례) + `quoteId` → `subjectType`+`subjectId` 중립화. 범위는 테이블 이름이 아니라 `subjectType` 이 말한다(이름만 공용이고 `quoteId` 에 묶인 `sp_mail_log` 가 반면교사).
@@ -3329,3 +3331,110 @@ MD 소속은 그동안 관리자만 연결할 수 있었다(위 'MD 소속 관�
 - **이번 변경과 무관한 기존 실패(손대지 않음)**: `pcb-invoice-attach`(옛 버튼 이름 `이 박스로 발송
   준비`) · 6호 `journey-direct-ship` J2·J6(포털 스텝퍼 `현지도착`·고객 카드 `직송 배송 완료` 옛 어휘).
 - **남은 것**: 운영 반영은 `migrate deploy`.
+
+### D20 설계 — EQ 문항형 회차: 공장 EQ 표를 고객이 문항별로 답한다 (2026-10-11)
+
+**배경.** 협력사(중국 공장)의 EQ 는 표다 — 문항 N개마다 유형·질문(중·영)·그림·공장 제안 A/B/C 가 있고
+고객은 노란 칸에 선택·의견을 적어 돌려준다(샘플 `.tmp/EQ-L050AKM1001-SH136D2823C.xls`: 슬롯 10 중
+실질 4문항, 그림은 `图 N` 시트, 1장은 공장 로고). D16 확인 요청은 **문구 1개 + 승인/반려 1개**라 이 표를
+담지 못하고, 관리자 대리 결정이 없고, 개정 EQ 와의 연결이 시각(`eqRoundStartOf`)뿐이었다. BOM D43
+(결제 후 부품 확인 — 요청 1건 = 문항 N개 × 선택지 + 대리 회신 + 넓은 오른쪽 작성 패널)이 같은 모양의
+선례라 그 형식을 따른다.
+
+**사용자 결정(2026-10-11, 권장안 5개 채택).**
+
+| # | 결정 | 이유 |
+|---|---|---|
+| D20-1 | 고객 발송 전 **관리자 검토 필수**(초안 → 발송) | AI 오역은 잘못된 보드로 이어지고, 원본에 공장명·로고가 있다 |
+| D20-2 | EQ 종결(`eq_done`)은 **관리자 유지**(D3) — 화면에 [고객 회신대로 승인] 원클릭 | 공장이 회신을 읽고 추가 EQ 를 낼 수 있다 — 고객 회신으로 자동 종결하면 되돌림이 잦다 |
+| D20-3 | 관리자 EQ 작업공간 = **넓은 오른쪽 패널**(D43 `BomConfirmComposePanel` 관례, 3열) | 2026-09-30 사용자가 가운데 팝업을 거부하고 고른 형식 — 같은 일은 같은 모양 |
+| D20-4 | 협력사 회신 전달 = **포털 문항별 표시 + 영문 회신서 xlsx**(원본 `.xls` 양식에 직접 쓰지 않음) | BIFF 쓰기 비용 대비 이득이 없다 — 공장은 선택지 기호(A/B)로 읽는다 |
+| D20-5 | 공장 UL 마킹이 찍힌 그림은 **그대로 공개 가능**, 원본 엑셀·공장 로고는 고객에게 절대 안 간다 | 마킹을 넣기로 하면 납품 보드에 어차피 찍힌다 — 그림 공개는 문항별로 관리자가 고른다(D16 ③) |
+
+**구조 — 상태 머신은 포크하지 않는다.** 발주 상태(`issued → eq_requested → eq_done`)·주체·전이 사전은
+그대로다(스텐실 때의 교훈: 상태를 늘리면 라벨·워크큐·게이트·MD 미러·e2e 가 두 벌). D16 원장
+`sp_pcb_eq_review` 를 **회차**로 넓힌다 — 배지(`sp_pcb_eq_open_count`)·`/shop/eq` 목록·딥링크·메일·
+전이 시 자동 종료(`commitEqTransition`)가 그대로 산다.
+
+- `format` = `message`(D16 문구형, 기존 행) | `items`(D20 문항형). 문항형은 `sp_pcb_eq_review_item`
+  N행(유형·한국어 질문·원문·선택지 JSON·그림 JSON·직전 회차 문항·변화·답)과 이벤트 원장
+  `sp_pcb_eq_review_event`(덧붙이기만)를 갖는다. 마이그레이션 `20261011120000_pcb_eq_review_items`(추가형).
+- 상태 = `draft`(관리자 작성 중 — **고객 응답·배지·목록에 절대 안 실림**) → `requested`(발송) →
+  `answered`(고객이 전 문항에 답하고 "이 답변대로 제작 진행" 동의) | `canceled`. `approved/rejected` 는
+  문구형 전용 — 문항형에는 통째 반려가 없고 반대 뜻은 문항마다 선택지·의견으로 말한다.
+- **열린 회차 = draft|requested, 발주서당 1개**(`ALREADY_OPEN`). EQ 전이는 열린 회차를 닫는다 —
+  `commitEqTransition` 의 자동 취소 대상에 `draft` 를 더한다(물어볼 EQ 가 사라지면 초안도 무의미).
+  `answered` 는 전이로 닫히지 않는다(이력이다).
+- 회차 번호 = 그 발주서의 문항형 회차 순서(1부터, 저장하지 않고 파생). **개정 연결**: 새 초안을
+  `fromPrevious` 로 만들면 직전 문항형 회차의 문항을 복사해 `prevItemId`·`change='same'` 으로 잇고,
+  관리자가 바뀐 문항을 `changed`·새 문항을 `new` 로 고친다(P2 의 AI 가 이 표시를 제안한다).
+- 선택지 `key` 는 **공장 원문 기호 그대로**(A/B/C) — 번역이 어긋나도 "B 를 골랐다"는 사실은 어긋나지
+  않는다. `requiresComment`('贵司指示' 류)를 고르면 의견 필수, `recommended` 는 고객 화면 '제조사 권장'.
+- 그림 = `sp_file(refType 'sp_pcb_eq_review', refId=회차, fileType 'figure')` — 협력사 EQ 첨부
+  (`sp_pcb_po_eq`)와 섞지 않는다(포털 타임라인·첨부 칸에 끼지 않게). 문항 `figures=[{fileId, shared}]`,
+  고객 응답·다운로드는 `shared` 만.
+- **낙관적 잠금** `version` — 초안 저장·발송·회신·대리 회신·전달이 `expectedVersion` 을 맞춰야 한다
+  (열어 둔 화면의 늦은 제출이 덮어쓰지 않게, D43-3).
+
+**흐름.**
+
+```
+협력사 EQ+Working 업로드 → [승인요청](issued→eq_requested, 기존)
+ → 관리자 [EQ 열기] → 초안(직접 작성 | 직전 회차에서 가져오기 | P2: AI 분석)
+ → 문항 검토·그림 공개 선택 → [고객에게 보내기](requested, 메일=링크만)
+ → 고객 주문 상세에서 문항별 선택·의견 → [회신 제출](answered) / 관리자 [대리 회신](채널·근거 필수)
+ → 관리자 [협력사에 전달](forwardedAt, 협력사 메일) → 포털에 문항별 원문+고객 답(기호+의견)
+ → 공장이 개정 EQ 를 내면: 요청 취소 또는 관리자 반려 → issued → 재업로드 → 재요청 → 새 회차(fromPrevious)
+ → 아니면 관리자 [EQ 승인](eq_done, 기존 — [고객 회신대로 승인] 은 같은 라우트의 화면 단축)
+```
+
+**화면.**
+
+- **관리자 Case 행**: 발주 행의 첨부·버튼 더미를 줄이고 상태 칩("EQ 2차 · 고객 회신 대기 D+2" /
+  "회신 도착 · 전달 필요")과 **[EQ 열기]** 하나를 둔다. 승인·반려·대행·송금 등 기존 동작은 유지.
+- **관리자 EQ 작업공간(오른쪽 패널, 최대 ~1400px)**: 머리(발주·협력사·회차 전환·상태) / 몸통 3열 =
+  문항 목록(유형·변화 배지) | 문항 편집(한국어 질문 ↔ 원문 나란히, 선택지 편집·권장·의견 필수,
+  그림 업로드·공개 토글, 직전 회차 질문·답) | 고객 미리보기 / 활동(이벤트+기존 EQ 타임라인) 탭 /
+  바닥 고정(임시저장 · 대리 회신 · 협력사에 전달 · 고객에게 보내기). 초안 유지·이탈 가드(D43 관례).
+- **고객(sp-php 주문 상세 `#eq-{id}`)**: D16 섹션을 문항형으로 확장 — 문항 카드(유형·변화 배지·질문·
+  그림 확대·선택지 라디오('제조사 권장')·의견), 진행 "2/4", 개정 회차는 '동일' 문항에 이전 답을 미리
+  채우고 접는다, [회신 제출] 전 동의 체크. 화면 어휘는 계속 '제조 확인'(EQ 라는 말을 안 쓴다, P4.1-b).
+  POST+CSRF 브리지 → sp-node(PHP 는 sp_ 에 쓰지 않는다, P4.1).
+- **협력사 포털**: 발주 상세에 '고객 회신' 영역 — 전달된 회차만, 문항별 원문 질문·선택지 기호·고객 답
+  (기호+의견). P1 의견은 한국어 원문, P2 에서 영문 번역 병기.
+
+**단계.**
+
+| 단계 | 내용 |
+|---|---|
+| P1 | 원장 확장·API(초안·편집·그림·발송·고객 회신·대리 회신·전달)·관리자 작업공간(수동 편집)·고객 PHP 문항형·포털 회신 보기·메일·e2e |
+| P2 | AI 분석 — sp-node 추출기(.xls/.xlsx 셀·병합·그림, SheetJS 0.20.3 CDN tarball + `cfb`, npm 0.18.5 금지)·LLM 구조화+한국어 번역(`PcbEqDraft`)·고객 의견 영문 역번역. 모델은 프로빙으로 정한다(`docs/PCB_EQ_AI_PROBE.md`) |
+| P3 | 개정 회차 diff 보조·회신서 xlsx·리마인드·고객 첨부 업로드 |
+
+P1 과 P2 연구(추출기·프로빙)는 **병행**한다 — 둘의 접점은 계약 `PcbEqDraft`(= 관리자 편집 입력과 같은
+모양) 하나뿐이다. 계약: `packages/api-contract/src/schemas/pcb-eq-review.ts` D20 절.
+
+#### D20 P1 백엔드 구현 기록 (2026-10-11)
+
+- **파일**: 계약 `pcb-eq-review.ts` D20 절 · `pcb-po.ts`(포털 발주 상세 `eqRounds` — 전달된 회차만, 위임 상위는 하위 발주서의 회차) ·
+  마이그레이션 `20261011120000_pcb_eq_review_items` · `lib/pcb-eq-items.ts`(DB 없는 규칙 — 뷰 조립·답 검증·회차 번호·개정 연결·그림 MIME) ·
+  `lib/pcb-eq-review.ts`(D20 쓰기 경로) · `lib/pcb-po.ts`(`closeOpenEqReviewsTx`) · `lib/pcb-rfq-email.ts`(요청 메일 문항 수,
+  `buildPcbEqCustomerAnswerEmail`·`buildPcbEqAnswerForwardedEmail`, kind `pcb_eq_answer_forwarded`) · `lib/quote-delete.ts`·`deletePcbPo`(그림 sp_file 정리) ·
+  라우트 `admin-pcb-eq-reviews.ts`·`pcb-eq-reviews.ts`.
+- **라우트(관리자 `/api/admin`)**: `POST /pcb-eq-reviews/:poId/drafts` · `PUT …/:reviewId/draft` · `POST|DELETE|GET …/:reviewId/figures[/:fileId]` ·
+  `POST …/:reviewId/send` · `POST …/:reviewId/answer`(대리) · `POST …/:reviewId/forward` · `DELETE …/:reviewId`(draft·requested 취소 + 이벤트).
+  **고객 `/api`**: `POST /pcb-eq-reviews/:reviewId/answer` · 기존 `GET …/files/:fileId` 가 공유된 문항 그림을 inline 으로(확장자 MIME·nosniff). 목록 GET 은 문항 포함·draft 제외.
+- **구현 판단(설계 보강)**:
+  1. **안 나간 채 닫힌 초안**(작성 중 EQ 전이로 자동 취소)은 회차 번호를 세지 않고 고객 목록에도 안 보인다(발송 여부 = 이벤트 `sent`) — 관리자·고객 회차 번호가 갈리지 않게.
+  2. `fromPrevious` 원천 = 문항 ≥1 인 최신 문항형 회차. 그게 안 나간 초안이면 문항 내용은 복사하되 연결(`prevItemId`·`change`·`prevReviewId`)은 그 초안이 잇던 값(= 고객이 마지막으로 본 회차)을 승계한다.
+  3. `prevReviewId` 는 빈 초안에도 채운다(관리자가 손으로 이을 수 있게). 고객 뷰는 고객이 못 본 회차를 가리키는 연결을 비운다.
+  4. 문항형인데 머리말이 비면 고객 뷰에 기본 안내문(`PCB_EQ_ITEMS_DEFAULT_MESSAGE`), 관리자 뷰는 원값.
+  5. 그림 올리기·지우기는 version 을 올리지 않는다(열어 둔 편집기가 그림마다 낡지 않게) — 문항에 붙이는 저장(PUT)이 올린다.
+  6. 동시성: 조건부 `updateMany(id·status·version)` + 초안 생성·문구형 생성·발송·회신은 발주서 행을 `FOR UPDATE` 로 잡아 전이와의 교차·열린 회차 2개를 막는다.
+  7. 고객 회신 → 관리자 알림은 자사 조직 메일이 비어도 발송을 태워 `skipped(missing_recipient)` 를 원장에 남긴다(조용한 누락 방지).
+  8. `sourceFileIds` 는 이 발주서의 `eq|working` 첨부만. decide·cancel 도 version+1, cancel 은 문구형에도 이벤트.
+  9. 문구형 decide 는 문항형 회차에 409 `WRONG_FORMAT`, 초안에는 404. 고객 라우트 오류 문구는 고객 어휘로 덮는다.
+- **검증**: e2e `journey-eq-items` 12/12(초안 게이트·draft 비노출·버전 충돌·그림 공개·발송·고객 회신 검증 5종·전달·포털·개정 fromPrevious·대리 회신·WRONG_FORMAT·전이 자동 종료) ·
+  기존 `journey-eq-reply`·`customer-eq-menu`·`md-eq-observe` 18/18 · api 단위 1176 · web·contract typecheck.
+- **남은 것(P1 화면 트랙)**: sp-php `sp_pcb_eq_status_label` 에 draft·answered 없음 + 문항형 requested 가 D16 승인/반려 폼으로 그려짐(누르면 409) — 고객 PHP 문항형 섹션에서 교정.
+  관리자 Case 버튼 라벨(`case-po.ts eqReviewLabelOf`·옛 `AdminPcbCase.vue`)이 answered 를 '고객 승인'으로 표시. MD 위임 상위 발주서의 초안 생성은 막지 않는다(D16 과 동일 — 상위의 열린 회차는 전이로 안 닫힌다). Case 삭제 경고의 첨부 수에 그림 미포함.

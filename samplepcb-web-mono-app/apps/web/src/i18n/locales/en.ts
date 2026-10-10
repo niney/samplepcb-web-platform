@@ -376,6 +376,7 @@ export const en = {
         pcb_eq_decision: 'PCB EQ decision',
         pcb_eq_customer_request: 'PCB EQ customer request',
         pcb_eq_customer_decision: 'PCB EQ customer reply',
+        pcb_eq_answer_forwarded: 'PCB EQ customer reply forwarded',
         pcb_produced: 'PCB production done',
         pcb_shipment_turn: 'PCB shipment progress',
         pcb_shipment_received: 'PCB shipment received',

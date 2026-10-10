@@ -24,15 +24,25 @@ export async function removeCartRow(spec: SpOrderSpec): Promise<void> {
 const PCB_EQ_REF_TYPE = 'sp_pcb_po_eq';
 const PCB_SHIPMENT_REF_TYPE = 'sp_pcb_shipment';
 const PCB_AS_CASE_REF_TYPE = 'sp_pcb_as_case';
+// 고객 확인 회차(D20)의 문항 그림 — 회차는 발주서 cascade 로 사라지지만 그림 sp_file 은 남는다.
+const PCB_EQ_FIGURE_REF_TYPE = 'sp_pcb_eq_review';
 
-/** 이 스펙에 딸린 PCB 협력 트랙 첨부(EQ·Working·상업송장·AWB·A/S 자료) 전부. */
+/** 이 스펙에 딸린 PCB 협력 트랙 첨부(EQ·Working·상업송장·AWB·A/S 자료·확인 그림) 전부. */
 async function loadPcbTrackFiles(specId: bigint) {
-  const [poIds, shipmentIds, asCaseIds] = await Promise.all([
+  const [poIds, shipmentIds, asCaseIds, reviewIds] = await Promise.all([
     prisma.spPcbPo.findMany({ where: { specId }, select: { id: true } }),
     prisma.spPcbShipment.findMany({ where: { specId }, select: { id: true } }),
     prisma.spPcbAsCase.findMany({ where: { specId }, select: { id: true } }),
+    prisma.spPcbEqReview.findMany({ where: { specId }, select: { id: true } }),
   ]);
-  if (poIds.length === 0 && shipmentIds.length === 0 && asCaseIds.length === 0) return [];
+  if (
+    poIds.length === 0 &&
+    shipmentIds.length === 0 &&
+    asCaseIds.length === 0 &&
+    reviewIds.length === 0
+  ) {
+    return [];
+  }
   return prisma.spFile.findMany({
     where: {
       OR: [
@@ -44,6 +54,11 @@ async function loadPcbTrackFiles(specId: bigint) {
           : []),
         ...(asCaseIds.length > 0
           ? [{ refType: PCB_AS_CASE_REF_TYPE, refId: { in: asCaseIds.map((r) => r.id) } }]
+          : []),
+        // 개정 회차가 그림 행을 복제해 pathToken 이 겹칠 수 있다 — 두 번째 삭제는 파일서버가
+        // 404 로 답하고 deleteFromFileServer 가 성공으로 읽는다(멱등).
+        ...(reviewIds.length > 0
+          ? [{ refType: PCB_EQ_FIGURE_REF_TYPE, refId: { in: reviewIds.map((r) => r.id) } }]
           : []),
       ],
     },

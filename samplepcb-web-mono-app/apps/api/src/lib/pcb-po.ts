@@ -45,7 +45,12 @@ import {
   validatePcbRfqPartners,
 } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
-import { loadEqReviewRowSummaries } from './pcb-eq-review';
+import {
+  closeOpenEqReviewsTx,
+  deletePoEqFigures,
+  loadEqReviewRowSummaries,
+  loadPartnerEqRounds,
+} from './pcb-eq-review';
 import type { PcbDeliveryDateRange } from './pcb-delivery-filter';
 import { resolvePcbRemittanceDueOn } from './pcb-payment-terms';
 import { loadRemittanceSummaries, summarizePcbRemittances } from './pcb-remittance';
@@ -835,6 +840,8 @@ export const deletePcbPo = async (
     await deleteFromFileServer(file.pathToken);
     await prisma.spFile.delete({ where: { id: file.id } });
   }
+  // 고객 확인 회차(D20)의 문항 그림도 — 회차는 cascade 로 사라져도 sp_file 은 따라가지 않는다.
+  await deletePoEqFigures(po.id);
   await prisma.spPcbPo.delete({ where: { id: po.id } });
   return { ok: true };
 };
@@ -865,7 +872,9 @@ const resolveEqRole = (po: SpPcbPo, actor: PcbEqActor): EqRoleResolution => {
  *     사라진다(메일은 이미 나간 뒤). 밀렸으면 아무것도 쓰지 않고 false.
  *  2. 열려 있던 고객 확인 요청(D16) 종료 — EQ 상태가 움직이면 물어볼 대상을 잃는다. 닫지
  *     않으면 고객 주문내역엔 답할 수 없는 승인/반려 폼이 계속 뜨고, 협력사가 보완 후
- *     재요청할 때도 createEqReview 가 ALREADY_OPEN 으로 막힌다.
+ *     재요청할 때도 createEqReview 가 ALREADY_OPEN 으로 막힌다. D20 — 작성 중인 문항형
+ *     초안도 함께 닫고(물어볼 EQ 가 사라졌다) 닫힌 회차마다 이벤트를 남긴다. 회신 끝난
+ *     회차(answered)는 이력이라 닫지 않는다(closeOpenEqReviewsTx).
  *  3. 같은 회차 상위(관리자→MD) 발주서에 상태만 미러(레거시 mirrorToParent, 상위 없으면 생략).
  */
 const commitEqTransition = (
@@ -882,10 +891,7 @@ const commitEqTransition = (
       },
     });
     if (updated.count !== 1) return false;
-    await tx.spPcbEqReview.updateMany({
-      where: { poId: po.id, status: 'requested' },
-      data: { status: 'canceled' },
-    });
+    await closeOpenEqReviewsTx(tx, po.id);
     if (po.parentPartnerId !== 0n) {
       await tx.spPcbPo.updateMany({
         where: {
@@ -1265,6 +1271,9 @@ export const loadPartnerPcbPoDetail = async (
       delegatePoId: delegation.delegatePoId === null ? null : Number(delegation.delegatePoId),
       blocked: delegation.blocked,
     },
+    // D20 고객 회신 — 관리자가 **전달한 회차만**. 회차는 EQ 가 실제로 도는 발주서에 붙으므로
+    // 위임 상위(MD 수주)는 하위 발주서의 회차를 본다(EQ 이력 미러와 같은 축).
+    eqRounds: await loadPartnerEqRounds(delegation.delegatePoId ?? po.id),
     spec: {
       projectName: po.spec.projectName,
       category: po.spec.category,

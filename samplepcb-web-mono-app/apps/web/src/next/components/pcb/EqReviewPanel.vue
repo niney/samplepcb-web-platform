@@ -90,6 +90,8 @@ async function cancel(reviewId: number): Promise<void> {
 
 // 고객 확인은 '기다림'이 아니라 '진행'(우리가 보낸 물음) — 승인=끝남, 반려=문제, 취소=이력.
 const STATUS_VARIANT: Record<PcbEqReviewStatusType, BadgeVariant> = {
+  draft: 'secondary',
+  answered: 'success',
   requested: 'info',
   approved: 'success',
   rejected: 'danger',
