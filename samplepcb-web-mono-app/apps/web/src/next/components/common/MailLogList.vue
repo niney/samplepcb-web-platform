@@ -155,6 +155,7 @@ const KNOWN_KINDS = [
   'quick_mail',
   'estimate',
   'bom_rfq_request',
+  'bom_rfq_scope_added',
   'bom_quote_answered',
   'bom_confirm_request',
   'bom_confirm_answered',

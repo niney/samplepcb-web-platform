@@ -250,6 +250,11 @@ export const newMagicToken = (): string => randomBytes(32).toString('hex');
 /** 발급 30일 경과는 무효(안전 상한). RFQ closed 는 열람 허용·회신만 거부(라우트 판단). */
 const MAGIC_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
 
+const isMagicTokenAlive = (rfq: Pick<SpBomRfq, 'magicToken' | 'magicTokenAt'>): boolean =>
+  rfq.magicToken !== null &&
+  rfq.magicTokenAt !== null &&
+  Date.now() - rfq.magicTokenAt.getTime() <= MAGIC_TOKEN_TTL_MS;
+
 export const loadRfqByMagicToken = async (token: string) => {
   if (!/^[0-9a-f]{64}$/.test(token)) return null;
   const rfq = await prisma.spBomRfq.findUnique({
@@ -261,8 +266,7 @@ export const loadRfqByMagicToken = async (token: string) => {
     },
   });
   if (rfq === null) return null;
-  if (rfq.magicTokenAt === null) return null;
-  if (Date.now() - rfq.magicTokenAt.getTime() > MAGIC_TOKEN_TTL_MS) return null;
+  if (!isMagicTokenAlive(rfq)) return null;
   return rfq;
 };
 
@@ -313,7 +317,47 @@ export interface RfqDiffResult {
   addedPartners: SpPartner[]; // 알림 메일 대상(신규 발송분만)
   /** 신규 RFQ 의 매직링크 토큰(파트너별) — 메일 CTA 조립용(§6.9). */
   addedTokens: Map<string, string>;
+  /** 행이 실제로 더해진 기존 요청(§6.13 개정) — '품목 추가' 알림 메일 대상. */
+  expanded: RfqScopeExpansion[];
 }
+
+export interface RfqScopeExpansion {
+  partner: SpPartner;
+  /** 이번에 더해진 행 수. */
+  addedCount: number;
+  /** 더한 뒤 요청 행 수(현재 scope 기준). */
+  itemCount: number;
+  /** 메일 CTA 용 — 살아 있는 토큰은 그대로, 비었거나 30일이 지났으면 새로 발급한 것. */
+  magicToken: string;
+}
+
+/** 행 추가 대상이 이미 회신한 요청이다 — 트랜잭션을 되돌리고 라우트가 409 로 알린다. */
+export class RfqExpandConflictError extends Error {
+  constructor(readonly partnerName: string) {
+    super(`RFQ already replied — cannot add items (${partnerName})`);
+  }
+}
+
+/**
+ * 행 추가(§6.13 개정) — 기존 요청 범위 ∪ 이번 행(adding null=전체). 줄이지 않는다: 협력사가 쓰고 있는
+ * 회신과 어긋나기 때문이다. 결과가 scope 전체를 덮으면 null(=전체) — 첫 발송의 '전체 선택 null 정규화'와
+ * 같은 성질(이후 행 추가 자동 포함). 이미 전체(null)였거나 더할 행이 없으면 addedCount 0.
+ */
+export const mergeRequestedItemIds = (
+  existing: readonly string[] | null,
+  adding: readonly string[] | null,
+  scopeIds: readonly string[],
+): { next: string[] | null; addedCount: number } => {
+  if (existing === null) return { next: null, addedCount: 0 };
+  const have = new Set(existing);
+  const added = [...new Set(adding ?? scopeIds)].filter((id) => !have.has(id));
+  if (added.length === 0) return { next: [...existing], addedCount: 0 };
+  const union = new Set([...existing, ...added]);
+  return {
+    next: scopeIds.every((id) => union.has(id)) ? null : [...union],
+    addedCount: added.length,
+  };
+};
 
 export const validateRfqPartners = async (
   partnerIds: readonly number[],
@@ -346,6 +390,8 @@ export const diffSendRfqs = async (
   requestedItemIds: readonly string[] | null = null,
   /** 0n=관리자 직접 트랙, 그 외=마스터딜러 조직 id(하위 재요청). diff 는 **같은 발주처의 행끼리만** 수렴한다. */
   parentPartnerId = 0n,
+  /** 행 추가(§6.13 개정) — 이미 보낸 미회신 요청에 requestedItemIds 를 더할 협력사 + null 정규화 기준 scope. */
+  expand: { partnerIds: readonly number[]; scopeItemIds: readonly string[] } | null = null,
 ): Promise<RfqDiffResult> => {
   const wanted = new Set(partnerIds.map((id) => BigInt(id)));
   return prisma.$transaction(async (tx) => {
@@ -355,6 +401,25 @@ export const diffSendRfqs = async (
     if (quoteLock.length === 0) throw new Error(`BOM quote ${String(quoteId)} not found during RFQ send`);
     const existing = await tx.spBomRfq.findMany({ where: { quoteId, parentPartnerId } });
     const existingByPartner = new Map(existing.map((r) => [r.partnerId, r]));
+
+    // 행 추가 대상 — 아직 안 보낸 협력사는 아래 신규 생성이 같은 결과를 낸다(그 사이 회수된 경우 포함).
+    // 회신한 요청은 막는다: 받은 회신과 요청 범위가 어긋나고, 되돌리려면 회신 정책부터 정해야 한다.
+    const expandTargets = (expand?.partnerIds ?? []).flatMap((id) => {
+      const rfq = existingByPartner.get(BigInt(id));
+      return rfq === undefined || !wanted.has(rfq.partnerId) ? [] : [rfq];
+    });
+    const expandPartners =
+      expandTargets.length === 0
+        ? new Map<bigint, SpPartner>()
+        : new Map(
+            (
+              await tx.spPartner.findMany({ where: { id: { in: expandTargets.map((r) => r.partnerId) } } })
+            ).map((p) => [p.id, p]),
+          );
+    const partnerNameOf = (rfq: SpBomRfq): string =>
+      expandPartners.get(rfq.partnerId)?.name ?? `#${String(rfq.partnerId)}`;
+    const replied = expandTargets.find((rfq) => rfq.status !== 'requested');
+    if (replied !== undefined) throw new RfqExpandConflictError(partnerNameOf(replied));
 
     const toRemove = existing.filter(
       (r) => !wanted.has(r.partnerId) && r.status === 'requested',
@@ -416,12 +481,47 @@ export const diffSendRfqs = async (
       for (const currency of foreign) await ensureQuotePartnerFx(quoteId, currency, tx);
     }
 
+    const expanded: RfqScopeExpansion[] = [];
+    if (expand !== null) {
+      const scopeSet = new Set(expand.scopeItemIds);
+      for (const rfq of expandTargets) {
+        const merged = mergeRequestedItemIds(parseRequestedItemIds(rfq), requestedItemIds, expand.scopeItemIds);
+        if (merged.addedCount === 0) continue;
+        const now = new Date();
+        // 메일 CTA 는 기존 링크를 그대로 쓴다 — 이미 죽은 링크(없음·30일 경과)만 새로 낸다.
+        const keepToken = isMagicTokenAlive(rfq) ? rfq.magicToken : null;
+        const token = keepToken ?? newMagicToken();
+        // 상태 조건부 갱신 — 위 검사와 이 사이에 협력사가 회신했으면 0건이 되어 되돌린다.
+        const updated = await tx.spBomRfq.updateMany({
+          where: { id: rfq.id, status: 'requested' },
+          data: {
+            requestedItemIds: merged.next ?? Prisma.DbNull,
+            requestedAt: now,
+            ...(keepToken === null ? { magicToken: token, magicTokenAt: now } : {}),
+          },
+        });
+        if (updated.count === 0) throw new RfqExpandConflictError(partnerNameOf(rfq));
+        const partner = expandPartners.get(rfq.partnerId);
+        if (partner === undefined) continue;
+        expanded.push({
+          partner,
+          addedCount: merged.addedCount,
+          itemCount:
+            merged.next === null
+              ? expand.scopeItemIds.length
+              : merged.next.filter((id) => scopeSet.has(id)).length,
+          magicToken: token,
+        });
+      }
+    }
+
     return {
       added: toAddIds.length,
       kept: existing.length - toRemove.length,
       removed: toRemove.length,
       addedPartners,
       addedTokens,
+      expanded,
     };
   });
 };

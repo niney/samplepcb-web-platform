@@ -32,6 +32,7 @@ import {
   isManualQuoteItem,
   itemLabel,
   itemLocation,
+  RFQ_ROW_PICKER_ID,
   rfqEngineComponentType,
   type AdminItemView,
 } from './case-items';
@@ -51,6 +52,7 @@ const {
   toggleRfqRow,
   toggleAllRfqRows,
   useFullRfqScope,
+  rfqRowPickerFlash,
   selectUnofferedRfqRows,
   itemPartnerHolders,
   partnerStockItemIds,
@@ -188,8 +190,14 @@ function moveTable(direction: -1 | 1): void {
     </div>
     <NoticeBand v-if="itemReviewError !== ''" tone="destructive" class="font-medium">{{ itemReviewError }}</NoticeBand>
 
-    <!-- 다음 RFQ 발송 행 선택(§6.13) — 체크는 이 표에서, 발송 대화상자는 확인만. 선택이 없으면 전체 발송. -->
-    <div class="bg-muted/40 text-muted-foreground flex min-h-10 flex-wrap items-center gap-2 border-b px-4 py-1.5 text-xs">
+    <!-- 다음 RFQ 발송 행 선택(§6.13) — 체크는 이 표에서, 발송 대화상자는 확인만. 선택이 없으면 전체 발송.
+         발송 대화상자 [품목 표에서 고르기]가 이 줄로 데려와 잠깐 테두리를 칠한다. -->
+    <div
+      :id="RFQ_ROW_PICKER_ID"
+      tabindex="-1"
+      class="bg-muted/40 text-muted-foreground flex min-h-10 flex-wrap items-center gap-2 border-b px-4 py-1.5 text-xs outline-none transition-shadow"
+      :class="rfqRowPickerFlash ? 'ring-primary ring-2 ring-inset' : ''"
+    >
       <span>다음 RFQ 발송 행 선택 — 선택 없으면 전체 {{ scopeItems.length }}행 발송</span>
       <Badge v-if="rfqItemSelection.size > 0" variant="info">{{ rfqItemSelection.size }}행 선택됨</Badge>
       <span class="ml-auto flex flex-wrap items-center justify-end gap-1.5">

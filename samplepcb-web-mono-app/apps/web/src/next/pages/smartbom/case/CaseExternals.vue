@@ -32,6 +32,7 @@ const {
   partnerItemsByPartner,
   partnerHoldersByItem,
   useFullRfqScope,
+  focusRfqRowPicker,
   poCreateOpen,
   shipmentPo,
   shipmentPoView,
@@ -62,6 +63,11 @@ const candidateNeeded = computed(() => {
   return item === null || quote === null ? 1 : neededQty(item.bomQty, quote.setQty, quote.spareQty);
 });
 const selectedItemIds = computed(() => [...rfqItemSelection.value]);
+
+// 발송 대화상자 → 품목 표의 행 선택 자리로. 대화상자가 다 닫힌 뒤에 온다(RfqSendDialog onCloseAutoFocus).
+function pickRfqRows(): void {
+  void focusRfqRowPicker();
+}
 </script>
 
 <template>
@@ -135,6 +141,7 @@ const selectedItemIds = computed(() => [...rfqItemSelection.value]);
       :item-holders="partnerHoldersByItem"
       @close="sendOpen = false"
       @sent="useFullRfqScope"
+      @pick-rows="pickRfqRows"
     />
     <RfqCompareDialog
       :open="compareOpen"

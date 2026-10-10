@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import type {
   AdminBomQuoteItemAddBodyType,
@@ -150,6 +150,9 @@ export function itemLabel(item: BomQuoteItemType): string {
 
 export const isManualQuoteItem = (item: BomQuoteItemType): boolean => item.manualEntry === true;
 
+/** 품목 표의 'RFQ 발송 행 선택' 툴바 — 발송 대화상자에서 이리로 데려온다(focusRfqRowPicker). */
+export const RFQ_ROW_PICKER_ID = 'smartbom-rfq-row-picker';
+
 export function useCaseItems(core: CaseCore) {
   const { detailId, detail, detailQuery, scopeItems, rfqs, rfqQuery, pos, poQuery } = core;
 
@@ -212,6 +215,23 @@ export function useCaseItems(core: CaseCore) {
   }
   function useFullRfqScope(): void {
     rfqItemSelection.value = new Set();
+  }
+  // 발송 대화상자 [품목 표에서 고르기] — 발송 버튼(RFQ 패널)과 체크(품목 표)가 떨어져 있어 찾기 어려웠다.
+  // 접혀 있으면 펼치고(§6.12) 선택 툴바로 데려가 잠깐 테두리를 칠한다.
+  const rfqRowPickerFlash = ref(false);
+  let rfqRowPickerFlashTimer: number | undefined;
+  async function focusRfqRowPicker(): Promise<void> {
+    core.expandSection('items');
+    await nextTick();
+    const el = document.getElementById(RFQ_ROW_PICKER_ID);
+    if (el === null) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.focus({ preventScroll: true });
+    rfqRowPickerFlash.value = true;
+    window.clearTimeout(rfqRowPickerFlashTimer);
+    rfqRowPickerFlashTimer = window.setTimeout(() => {
+      rfqRowPickerFlash.value = false;
+    }, 1800);
   }
   // 실무 퀵 액션 — 공급사 구매 조건이 없는 행만 협력사에 문의하는 흔한 패턴.
   function selectUnofferedRfqRows(): void {
@@ -833,6 +853,8 @@ export function useCaseItems(core: CaseCore) {
     toggleRfqRow,
     toggleAllRfqRows,
     useFullRfqScope,
+    rfqRowPickerFlash,
+    focusRfqRowPicker,
     selectUnofferedRfqRows,
     partnerHoldersByItem,
     partnerItemsByPartner,

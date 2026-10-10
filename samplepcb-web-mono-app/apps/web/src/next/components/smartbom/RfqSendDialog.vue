@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue';
-import { ChevronDownIcon, ChevronUpIcon } from '@lucide/vue';
+import { ChevronDownIcon, ChevronUpIcon, ListChecksIcon } from '@lucide/vue';
 import type {
   AdminBomQuoteItemPartnerHolderType,
   AdminBomRfqViewType,
@@ -28,7 +28,9 @@ import DialogScrollBody from '@/next/components/common/DialogScrollBody.vue';
 // 협력사 견적요청 발송 — 옛 components/admin/smartbom/BomRfqSendModal.vue 의 짝(같은 props·emits).
 // 승인 협력사(BOM 견적 트랙)를 고르면 그 집합으로 발송 상태를 맞춘다(diff — 유지분 보존, 빠진 미회신만
 // 삭제, 신규만 메일. docs/SMARTBOM_PARTNER_RFQ.md §2.4). 회신한 협력사는 서버가 보존하므로 해제를 잠근다.
-// 부분 행 선택(§6.13)은 품목 표에서 하고(selectedItemIds, 빈 배열=전체) 여기서는 요약·확인만 한다.
+// 부분 행 선택(§6.13)은 품목 표에서 하고(selectedItemIds, 빈 배열=전체) 여기서는 요약·확인만 한다 —
+// [품목 표에서 고르기]는 대화상자를 닫고 그 자리로 데려간다(pickRows). 이미 보낸 미회신 요청에는 협력사별
+// [행 추가]를 켠 곳만 이번 행을 더한다(§6.13 개정 — 합집합, 회신한 요청은 잠김).
 
 const props = defineProps<{
   open: boolean;
@@ -41,7 +43,7 @@ const props = defineProps<{
   /** quoteItemId → 보유 협력사 상세(재고·D/C·기준일). 펼친 목록이 이걸 읽는다. */
   itemHolders?: Record<string, AdminBomQuoteItemPartnerHolderType[]>;
 }>();
-const emit = defineEmits<{ close: []; sent: [] }>();
+const emit = defineEmits<{ close: []; sent: []; pickRows: [] }>();
 
 const idPrefix = useId();
 
@@ -138,15 +140,59 @@ const emptySelectionBlocked = computed(() => selected.value.size === 0 && pendin
 const selectedWithoutEmailCount = computed(
   () => candidates.value.filter((partner) => selected.value.has(partner.partnerId) && partner.contactEmail === null).length,
 );
-const submitLabel = computed(() => {
-  if (selected.value.size > 0) return `발송 (${String(selected.value.size)}곳)`;
-  return pendingRfqCount.value > 0 ? '미회신 요청 회수' : '협력사를 선택해 주세요';
-});
-
 // 부분 행 선택(§6.13) — 품목 테이블 체크가 진실. 빈 배열=전체(itemIds 생략).
 const partialSelection = computed(
   () => props.selectedItemIds.length > 0 && props.selectedItemIds.length < props.scopeItems.length,
 );
+const selectedRowsOpen = ref(false);
+const selectedRows = computed(() => {
+  const ids = new Set(props.selectedItemIds);
+  return props.scopeItems.filter((item) => ids.has(item.id));
+});
+
+// 행 추가(§6.13 개정) — 이미 보낸 요청이 일부 행만 받았을 때, 이번 대상 행 중 빠진 것을 더할 수 있다.
+// 서버가 합집합·null 정규화·회신 잠금을 다시 판단하고, 여기선 고를 수 있는 곳만 보여 준다.
+const rfqByPartner = computed(() => new Map(props.rfqs.map((rfq) => [rfq.partnerId, rfq])));
+const scopeIdList = computed(() => props.scopeItems.map((item) => item.id));
+const targetItemIds = computed(() => (partialSelection.value ? props.selectedItemIds : scopeIdList.value));
+/** 기존 요청에 없는 이번 대상 행 수 — 안 보냈거나 전체 요청(null)이면 0. */
+const missingCount = (partnerId: number): number => {
+  const rfq = rfqByPartner.value.get(partnerId);
+  if (rfq?.requestedItemIds == null) return 0;
+  const have = new Set(rfq.requestedItemIds);
+  return targetItemIds.value.filter((id) => !have.has(id)).length;
+};
+const canExpand = (partnerId: number): boolean =>
+  rfqByPartner.value.get(partnerId)?.status === 'requested' && missingCount(partnerId) > 0;
+/** 부분 요청의 받은 범위 — '12/40행'. 전체 요청·미발송은 null. */
+const coverageText = (partnerId: number): string | null => {
+  const requested = rfqByPartner.value.get(partnerId)?.requestedItemIds ?? null;
+  if (requested === null) return null;
+  const scope = new Set(scopeIdList.value);
+  return `${String(requested.filter((id) => scope.has(id)).length)}/${String(scopeIdList.value.length)}행`;
+};
+
+const expandSelected = ref<Set<number>>(new Set());
+function toggleExpand(partnerId: number): void {
+  const next = new Set(expandSelected.value);
+  if (next.has(partnerId)) next.delete(partnerId);
+  else next.add(partnerId);
+  expandSelected.value = next;
+}
+// 발송 대상에서 뺐거나 더할 행이 사라진 곳(품목 선택이 바뀜)은 보내지 않는다.
+const expandPartnerIds = computed(() =>
+  [...expandSelected.value].filter((id) => selected.value.has(id) && canExpand(id)),
+);
+
+const submitLabel = computed(() => {
+  if (selected.value.size > 0) {
+    const expanding = expandPartnerIds.value.length;
+    return expanding > 0
+      ? `발송 (${String(selected.value.size)}곳 · 행 추가 ${String(expanding)}곳)`
+      : `발송 (${String(selected.value.size)}곳)`;
+  }
+  return pendingRfqCount.value > 0 ? '미회신 요청 회수' : '협력사를 선택해 주세요';
+});
 
 const send = useSendBomRfqs();
 const error = ref('');
@@ -155,8 +201,11 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return;
-    // 열 때 현재 발송 상태를 프리셋 — diff 의 기준 집합이 눈에 보이게.
+    // 열 때 현재 발송 상태를 프리셋 — diff 의 기준 집합이 눈에 보이게. 행 추가는 늘 꺼진 채로 시작.
     selected.value = new Set(props.rfqs.map((r) => r.partnerId));
+    expandSelected.value = new Set();
+    selectedRowsOpen.value = false;
+    pickRowsPending = false;
     error.value = '';
   },
   { immediate: true },
@@ -168,6 +217,21 @@ function toggle(partnerId: number): void {
   if (next.has(partnerId)) next.delete(partnerId);
   else next.add(partnerId);
   selected.value = next;
+}
+
+// [품목 표에서 고르기] — 닫힘이 끝나 포커스 가둠·스크롤 잠금이 풀린 뒤(closeAutoFocus) 넘긴다.
+// 닫히는 중에 바깥으로 포커스를 옮기면 가둠이 도로 끌어들인다.
+let pickRowsPending = false;
+function pickRows(): void {
+  if (send.isPending.value) return;
+  pickRowsPending = true;
+  emit('close');
+}
+function onCloseAutoFocus(event: Event): void {
+  if (!pickRowsPending) return;
+  pickRowsPending = false;
+  event.preventDefault();
+  emit('pickRows');
 }
 
 async function submit(): Promise<void> {
@@ -185,6 +249,7 @@ async function submit(): Promise<void> {
         partnerIds: [...selected.value],
         // 부분 선택일 때만 itemIds — 전체는 생략(=전체 파생, 이후 행 추가 자동 포함)
         ...(partialSelection.value ? { itemIds: [...props.selectedItemIds] } : {}),
+        ...(expandPartnerIds.value.length > 0 ? { expandPartnerIds: expandPartnerIds.value } : {}),
       },
     });
     emit('sent');
@@ -201,7 +266,7 @@ const onOpenChange = (open: boolean): void => {
 
 <template>
   <Dialog :open="props.open" @update:open="onOpenChange">
-    <DialogContent class="sm:max-w-md">
+    <DialogContent class="sm:max-w-lg" @close-auto-focus="onCloseAutoFocus">
       <DialogHeader>
         <DialogTitle>협력사 견적요청</DialogTitle>
         <DialogDescription>
@@ -212,10 +277,48 @@ const onOpenChange = (open: boolean): void => {
         </DialogDescription>
       </DialogHeader>
 
-      <!-- 행 선택은 품목 표에서(§6.13 — 편집 창구 단일). 여기선 확인만 -->
+      <!-- 행 선택은 품목 표에서(§6.13 — 편집 창구 단일). 여기선 확인과 그 자리로 가는 길만 -->
       <Alert v-if="partialSelection" variant="info" size="sm">
         <AlertDescription>
-          부분 선택은 이번에 <b>새로 발송되는</b> 협력사에게만 적용됩니다 — 행 변경은 품목 표에서.
+          <p>
+            선택한 행은 <b>새로 발송하는</b> 협력사에 적용됩니다. 이미 보낸 미회신 협력사에는 <b>행 추가</b>를 켠 곳만
+            더해집니다.
+          </p>
+          <div class="mt-1.5 flex flex-wrap gap-1.5">
+            <Button
+              variant="outline"
+              size="xs"
+              :aria-expanded="selectedRowsOpen"
+              @click="selectedRowsOpen = !selectedRowsOpen"
+            >
+              선택 {{ selectedRows.length }}행 보기
+              <ChevronUpIcon v-if="selectedRowsOpen" />
+              <ChevronDownIcon v-else />
+            </Button>
+            <Button variant="outline" size="xs" :disabled="send.isPending.value" @click="pickRows">
+              <ListChecksIcon />
+              품목 표에서 바꾸기
+            </Button>
+          </div>
+          <ul
+            v-if="selectedRowsOpen"
+            class="bg-background mt-1.5 max-h-40 overflow-y-auto rounded-md px-2 py-1"
+            data-testid="rfq-send-selected-rows"
+          >
+            <li v-for="item in selectedRows" :key="item.id" class="flex gap-2 py-0.5 text-xs">
+              <span class="min-w-0 flex-1 truncate font-mono">{{ item.mpn === '' ? '(품번 없음)' : item.mpn }}</span>
+              <span class="text-muted-foreground min-w-0 max-w-40 truncate">{{ item.manufacturerName ?? '' }}</span>
+            </li>
+          </ul>
+        </AlertDescription>
+      </Alert>
+      <Alert v-else variant="info" size="sm">
+        <AlertDescription>
+          <p>품목 표의 <b>RFQ</b> 칸을 체크하면 일부 행만 보낼 수 있습니다(저항·캐패시터·구매 조건 없음 빠른 선택).</p>
+          <Button variant="outline" size="xs" class="mt-1.5" :disabled="send.isPending.value" @click="pickRows">
+            <ListChecksIcon />
+            품목 표에서 고르기
+          </Button>
         </AlertDescription>
       </Alert>
 
@@ -256,9 +359,41 @@ const onOpenChange = (open: boolean): void => {
                 <ChevronDownIcon v-else />
               </Button>
               <Badge v-if="p.contactEmail === null" variant="warning">메일 없음</Badge>
+              <Badge
+                v-if="coverageText(p.partnerId) !== null"
+                variant="outline"
+                class="tabular-nums"
+                title="이 협력사가 받은 요청 행 / 현재 요청 가능 행"
+              >
+                {{ coverageText(p.partnerId) }}
+              </Badge>
               <Badge v-if="quotedPartnerIds.has(p.partnerId)" variant="success">회신됨</Badge>
               <Badge v-else-if="sentPartnerIds.has(p.partnerId)" variant="info">발송됨</Badge>
             </div>
+
+            <!-- 행 추가 — 일부 행만 받은 미회신 요청에 이번 대상 행 중 빠진 것을 더한다(줄이지는 않는다) -->
+            <div
+              v-if="canExpand(p.partnerId)"
+              class="flex items-center gap-2 border-t border-dashed py-1.5 pr-3 pl-9 text-xs"
+              data-testid="rfq-send-expand"
+            >
+              <Checkbox
+                :id="`${idPrefix}-x${p.partnerId}`"
+                :model-value="expandSelected.has(p.partnerId)"
+                :disabled="!selected.has(p.partnerId)"
+                @update:model-value="toggleExpand(p.partnerId)"
+              />
+              <label :for="`${idPrefix}-x${p.partnerId}`" class="cursor-pointer font-medium">
+                {{ partialSelection ? '선택 행 중' : '나머지' }} {{ missingCount(p.partnerId) }}행을 기존 요청에 추가
+              </label>
+              <span class="text-muted-foreground ml-auto">품목 추가 메일 발송</span>
+            </div>
+            <p
+              v-else-if="partialSelection && quotedPartnerIds.has(p.partnerId) && missingCount(p.partnerId) > 0"
+              class="text-muted-foreground border-t border-dashed py-1.5 pr-3 pl-9 text-xs"
+            >
+              회신을 받은 요청이라 행을 더할 수 없습니다.
+            </p>
 
             <div v-if="expanded.has(p.partnerId)" class="bg-muted/40 border-t px-3 py-2">
               <ul class="flex flex-col gap-1">

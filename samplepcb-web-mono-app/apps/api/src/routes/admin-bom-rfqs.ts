@@ -26,11 +26,17 @@ import {
   loadQuotePartnerFx,
   loadRfqScopeItems,
   reissueMagicToken,
+  RfqExpandConflictError,
   saveRfqReply,
   toAdminRfqView,
   validateRfqPartners,
 } from '../lib/bom-rfq';
-import { buildBomRfqRequestEmail, magicReplyUrl, sendBomRfqMail } from '../lib/rfq-email';
+import {
+  buildBomRfqRequestEmail,
+  buildBomRfqScopeAddedEmail,
+  magicReplyUrl,
+  sendBomRfqMail,
+} from '../lib/rfq-email';
 import { engineFetch } from '../lib/engine-client';
 import {
   applyQuoteCandidateSelection,
@@ -350,7 +356,34 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         requestedItemIds = unique.length === scope.length ? null : unique;
       }
 
-      const diff = await diffSendRfqs(quote.id, request.body.partnerIds, requestedItemIds);
+      // 행 추가(§6.13 개정) — 발송 대상에서 빠진 협력사는 회수 대상이라 더할 수 없다.
+      const expandPartnerIds = request.body.expandPartnerIds ?? [];
+      const keptSet = new Set(request.body.partnerIds);
+      if (expandPartnerIds.some((id) => !keptSet.has(id))) {
+        return reply.status(400).send({
+          error: 'EXPAND_NOT_SELECTED',
+          message: '행을 추가할 협력사는 발송 대상에도 선택되어 있어야 합니다.',
+        });
+      }
+
+      let diff: Awaited<ReturnType<typeof diffSendRfqs>>;
+      try {
+        diff = await diffSendRfqs(
+          quote.id,
+          request.body.partnerIds,
+          requestedItemIds,
+          0n,
+          expandPartnerIds.length === 0
+            ? null
+            : { partnerIds: expandPartnerIds, scopeItemIds: scope.map((item) => String(item.id)) },
+        );
+      } catch (e) {
+        if (!(e instanceof RfqExpandConflictError)) throw e;
+        return reply.status(409).send({
+          error: 'RFQ_ALREADY_REPLIED',
+          message: `'${e.partnerName}' 은(는) 이미 회신해 품목을 추가할 수 없습니다 — 회신 전 요청에만 행을 더할 수 있습니다.`,
+        });
+      }
 
       // 알림 메일 — 신규 발송분만, 비차단(실패는 로그). 주 CTA = 매직링크(§6.9).
       if (diff.addedPartners.length > 0) {
@@ -376,6 +409,30 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           );
         }
       }
+      for (const expansion of diff.expanded) {
+        void sendBomRfqMail(
+          request.log,
+          expansion.partner.contactEmail,
+          buildBomRfqScopeAddedEmail({
+            partnerName: expansion.partner.name,
+            quoteTitle: quote.title,
+            addedCount: expansion.addedCount,
+            itemCount: expansion.itemCount,
+            magicUrl: magicReplyUrl(expansion.magicToken),
+          }),
+          {
+            kind: 'bom_rfq_scope_added',
+            refType: 'bom_quote',
+            refId: quote.id,
+            sentBy: request.user.mbId,
+            params: {
+              partnerId: String(expansion.partner.id),
+              partnerName: expansion.partner.name,
+              addedCount: expansion.addedCount,
+            },
+          },
+        );
+      }
 
       return {
         result: true as const,
@@ -383,6 +440,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           added: diff.added,
           kept: diff.kept,
           removed: diff.removed,
+          expanded: diff.expanded.length,
           rfqs: await loadAdminRfqs(quote.id),
         },
       };

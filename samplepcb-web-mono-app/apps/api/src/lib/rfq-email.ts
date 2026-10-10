@@ -27,14 +27,10 @@ export interface BomRfqRequestEmailParams {
   requesterName?: string | null;
 }
 
-export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
-  subject: string;
-  html: string;
-} {
+/** 견적요청 회신 버튼 — 매직링크가 있으면 무로그인 회신이 주, 포털은 보조. 요청·품목 추가 메일 공용. */
+const rfqReplyCta = (magicUrl: string | null): string => {
   const portalUrl = `${WEB_BASE_URL}/app/partner`;
-  const magicUrl = p.magicUrl ?? null;
-  const cta =
-    magicUrl === null
+  return magicUrl === null
       ? `
       <div style="padding-top:20px;">
         <a href="${esc(portalUrl)}"
@@ -54,6 +50,13 @@ export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
         위 버튼은 이 견적요청 전용 링크입니다(로그인 불필요, 30일 유효 — 외부 공유는 삼가 주세요).
         파트너 계정이 있다면 <a href="${esc(portalUrl)}" style="color:#2563eb;">포털 로그인으로 회신</a>할 수도 있습니다.
       </p>`;
+};
+
+export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const cta = rfqReplyCta(p.magicUrl ?? null);
   return {
     subject: `[샘플피씨비] 부품 견적요청 — ${p.quoteTitle} (${String(p.itemCount)}개 품목)`,
     html: `
@@ -77,6 +80,48 @@ export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
           <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${String(p.itemCount)}개</td>
         </tr>
       </table>${cta}
+    </td></tr>
+    <tr><td style="padding:12px 4px 0;font-size:11px;color:#8593ab;">
+      본 메일은 샘플피씨비 스마트 BOM 견적요청 알림입니다.</td></tr>
+  </table>
+</div>`,
+  };
+}
+
+export interface BomRfqScopeAddedEmailParams {
+  partnerName: string;
+  quoteTitle: string;
+  /** 이번에 더해진 품목 수. */
+  addedCount: number;
+  /** 더한 뒤 요청 품목 수. */
+  itemCount: number;
+  magicUrl: string | null;
+}
+
+// 품목 추가(§6.13 개정) — 이미 받은 미회신 견적요청에 행이 더해졌다. 링크는 기존 요청과 같다(죽은 링크만 새로).
+export function buildBomRfqScopeAddedEmail(p: BomRfqScopeAddedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const row = (label: string, value: string): string => `
+        <tr>
+          <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">${label}</td>
+          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${value}</td>
+        </tr>`;
+  return {
+    subject: `[샘플피씨비] 견적요청 품목 추가 — ${p.quoteTitle} (+${String(p.addedCount)}개, 총 ${String(p.itemCount)}개)`,
+    html: `
+<div style="margin:0;padding:24px 12px;background:#f5f7fb;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:0 auto;border-collapse:collapse;">
+    <tr><td style="padding:0 4px 12px;font-size:15px;font-weight:800;color:#081226;">SAMPLEPCB 스마트 BOM</td></tr>
+    <tr><td style="background:#ffffff;border:1px solid #e4eaf3;border-radius:12px;padding:24px;">
+      <div style="font-size:17px;font-weight:700;color:#14243e;padding-bottom:12px;">견적요청에 품목이 추가되었습니다</div>
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, 앞서 보내드린 견적요청에 품목을 추가로 요청드립니다.
+        기존 품목과 함께 한 번에 회신해 주세요.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${row('견적 건', esc(p.quoteTitle))}${row('추가 품목', `${String(p.addedCount)}개`)}${row('전체 요청 품목', `${String(p.itemCount)}개`)}
+      </table>${rfqReplyCta(p.magicUrl)}
     </td></tr>
     <tr><td style="padding:12px 4px 0;font-size:11px;color:#8593ab;">
       본 메일은 샘플피씨비 스마트 BOM 견적요청 알림입니다.</td></tr>

@@ -32,6 +32,8 @@ const props = defineProps<{
   supplierComparisonTargetCount: number;
   loading: boolean;
   canSend: boolean; // reviewing 에서만 발송·선정 가능
+  /** 품목 표에서 체크한 다음 발송 행 수(§6.13) — 0=전체 발송. 버튼에 보여 체크가 걸려 있음을 알린다. */
+  selectedItemCount?: number;
   busy?: boolean;
   actionNotice?: string;
   actionError?: string;
@@ -195,6 +197,14 @@ const replyActionLabel = (rfq: AdminBomRfqViewType): string =>
       >
         <SendIcon />
         협력사 견적요청 보내기
+        <Badge
+          v-if="(props.selectedItemCount ?? 0) > 0"
+          variant="secondary"
+          class="tabular-nums"
+          title="품목 표에서 체크한 행만 요청합니다"
+        >
+          {{ props.selectedItemCount }}행 선택
+        </Badge>
       </Button>
     </template>
     <template #notice>

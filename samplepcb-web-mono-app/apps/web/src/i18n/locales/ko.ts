@@ -359,6 +359,7 @@ export const ko = {
         quick_mail: '빠른 메일',
         estimate: '견적서 발송',
         bom_rfq_request: 'BOM 견적요청',
+        bom_rfq_scope_added: 'BOM 견적요청 품목 추가',
         bom_quote_answered: 'BOM 견적 회신',
         bom_confirm_request: 'BOM 부품 확인 요청',
         bom_confirm_answered: 'BOM 부품 확인 회신(관리자 알림)',

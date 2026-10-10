@@ -224,8 +224,11 @@ export const AdminBomRfqSendBody = z.object({
   /** 0곳 허용 — 전부 해제 발송 = 미회신(requested) RFQ 전부 회수(quoted 는 보존). */
   partnerIds: z.array(z.number().int().positive()).max(50),
   /** 부분 행 선택(§6.13) — 요청 부품행 id. 생략=전체. 이번에 새로 생성되는 RFQ 에만
-   * 적용된다(유지분의 기존 세트는 불변 — diff 보존 규칙 동일). */
+   * 적용된다(유지분의 기존 세트는 불변 — diff 보존 규칙 동일). 예외는 expandPartnerIds. */
   itemIds: z.array(z.string().regex(/^\d+$/)).min(1).max(500).optional(),
+  /** 행 추가(§6.13 개정) — 이미 보낸 **미회신** 요청에 이번 행(itemIds, 생략=전체)을 더할 협력사.
+   * 줄이지는 않는다(합집합). partnerIds 안에 있어야 하고, 회신한 요청이면 409. */
+  expandPartnerIds: z.array(z.number().int().positive()).max(50).optional(),
 });
 export type AdminBomRfqSendBodyType = z.infer<typeof AdminBomRfqSendBody>;
 
@@ -235,6 +238,8 @@ export const AdminBomRfqSendResponse = z.object({
     added: z.number().int(),
     kept: z.number().int(),
     removed: z.number().int(),
+    /** 행이 실제로 더해진 기존 요청 수(더할 행이 없던 곳은 세지 않는다). */
+    expanded: z.number().int(),
     rfqs: z.array(AdminBomRfqView),
   }),
 });

@@ -43,6 +43,7 @@ const {
   supplierComparisonTargetCount,
   sendOpen,
   compareOpen,
+  rfqItemSelection,
   openRfqReply,
   reissueLink,
   rfqLinkNotice,
@@ -114,6 +115,7 @@ const onExpand = (section: 'rfq' | 'po' | 'items', open: boolean): void => {
         :supplier-comparison-target-count="supplierComparisonTargetCount"
         :loading="rfqQuery.isLoading.value"
         :can-send="detail.status === 'reviewing'"
+        :selected-item-count="rfqItemSelection.size"
         :busy="reissueLink.isPending.value"
         :action-notice="rfqLinkNotice"
         :action-error="rfqLinkError"

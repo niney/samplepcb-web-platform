@@ -360,6 +360,7 @@ export const en = {
         quick_mail: 'Quick mail',
         estimate: 'Estimate',
         bom_rfq_request: 'BOM RFQ request',
+        bom_rfq_scope_added: 'BOM RFQ items added',
         bom_quote_answered: 'BOM quote answered',
         bom_confirm_request: 'BOM part confirmation request',
         bom_confirm_answered: 'BOM part confirmation answered (admin)',
