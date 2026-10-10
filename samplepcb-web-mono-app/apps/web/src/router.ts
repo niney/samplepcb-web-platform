@@ -234,16 +234,15 @@ const routes: RouteRecordRaw[] = [
     name: 'pcb-rfq-reply',
     component: () => import('./pages/PublicPcbRfqReply.vue'),
   },
-  // ── 관리자 리뉴얼(shadcn-vue, src/next) — PCB 모듈부터. 옛 화면(/admin/pcb/*)과 나란히 돌다가
-  // 컷오버 때 이 화면들이 옛 경로·옛 라우트 이름을 이어받는다(src/next/pcb-navigation.ts 머리말).
+  // ── 관리자(shadcn-vue 리뉴얼, src/next) — 2026-10-10 컷오버로 정식 경로(/admin/*)·이름('admin-*')을
+  // 이어받았다. 옛 화면은 아래 옛 셸의 /admin/legacy/* · 'admin-legacy-*' 로 물러나 '이전 화면'으로만 연다.
   // 셸은 지연 로딩 — shadcn·reka-ui 묶음이 옛 화면 번들에 섞이지 않게 한다.
   {
-    path: '/admin/next',
+    path: '/admin',
     component: () => import('./next/layouts/AdminNextLayout.vue'),
     meta: { requiresAdmin: true },
     children: [
-      // ── 통합(2026-10-06~) — 옛 경로(/admin/*)의 접두만 /admin/next 로, 이름은 'admin' → 'admin-next'
-      // (next/core-navigation.ts). 견적관리(/admin/quotes)는 리뉴얼하지 않아 메뉴가 옛 화면을 가리킨다.
+      // ── 통합(next/core-navigation.ts). 견적관리(/admin/quotes)는 리뉴얼하지 않아 메뉴가 옛 셸의 화면을 가리킨다.
       { path: '', name: NEXT_CORE_ROUTES.dashboard, component: () => import('./next/pages/core/DashboardPage.vue') },
       { path: 'orders', name: NEXT_CORE_ROUTES.orders, component: () => import('./next/pages/core/OrdersPage.vue') },
       { path: 'members', name: NEXT_CORE_ROUTES.members, component: () => import('./next/pages/core/MembersPage.vue') },
@@ -263,8 +262,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./next/pages/core/DeleteAuditsPage.vue'),
       },
       { path: 'settings', name: NEXT_CORE_ROUTES.settings, component: () => import('./next/pages/core/SettingsPage.vue') },
-      // ── 개발(2026-10-07~) — 옛 경로(/admin/develop/*)의 접두만 /admin/next 로, 이름은 'admin-' → 'admin-next-'
-      // (next/develop-navigation.ts). 상세는 드로어가 아닌 전면 화면(옛 화면과 같음).
+      // ── 개발(next/develop-navigation.ts). 상세는 드로어가 아닌 전면 화면(옛 화면과 같음).
       { path: 'develop', name: NEXT_DEVELOP_ROUTES.home, component: () => import('./next/pages/develop/DevelopHomePage.vue') },
       {
         path: 'develop/intake',
@@ -328,8 +326,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./next/pages/pcb/PcbPackagePage.vue'),
       },
       { path: 'pcb/cases/:id', name: NEXT_PCB_ROUTES.case, component: () => import('./next/pages/pcb/PcbCasePage.vue') },
-      // ── SmartBOM(2026-10-06~) — 옛 경로(/admin/smartbom·/admin/bom)의 접두만 /admin/next 로. 이름 규약은
-      // src/next/smartbom-navigation.ts 머리말.
+      // ── SmartBOM(next/smartbom-navigation.ts).
       { path: 'smartbom', name: NEXT_SMARTBOM_ROUTES.cases, component: () => import('./next/pages/smartbom/SmartbomCasesPage.vue') },
       {
         path: 'smartbom/cases/:id',
@@ -369,6 +366,8 @@ const routes: RouteRecordRaw[] = [
         name: NEXT_SMARTBOM_ROUTES.package,
         component: () => import('./next/pages/smartbom/SmartbomPackagePage.vue'),
       },
+      // 2026-08-06 통합 관리로 이동. 기존 북마크·외부 링크는 정식 경로로 보낸다.
+      { path: 'smartbom/partners', redirect: { name: NEXT_CORE_ROUTES.partners } },
       // BOM 업로드·작업대는 옛 화면처럼 본문 여백 없이 전체 높이를 쓴다(adminContentFlush).
       {
         path: 'bom',
@@ -384,25 +383,36 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  // 컷오버 전 리뉴얼 경로(/admin/next/*) 북마크 — 접두만 걷어 정식 경로로 보낸다.
+  {
+    path: '/admin/next/:rest(.*)*',
+    redirect: (to) => ({
+      path: `/admin/${([] as string[]).concat(to.params.rest ?? []).join('/')}`,
+      query: to.query,
+      hash: to.hash,
+    }),
+  },
+  // ── 옛 셸(AdminLayout) — 컷오버(2026-10-10)로 옛 화면은 /admin/legacy/* · 'admin-legacy-*' 로 물러났다
+  // (리뉴얼 화면의 '이전 화면' 링크가 연다). 리뉴얼하지 않은 견적관리·재능마켓은 정식 경로·이름 그대로 여기 남는다.
   {
     path: '/admin',
     component: AdminLayout,
     meta: { requiresAdmin: true },
     children: [
-      { path: '', name: 'admin', component: AdminDashboard },
+      { path: 'legacy', name: 'admin-legacy', component: AdminDashboard },
       { path: 'quotes', name: 'admin-quotes', component: AdminQuotes },
-      { path: 'orders', name: 'admin-orders', component: AdminOrders },
-      { path: 'members', name: 'admin-members', component: AdminMembers },
+      { path: 'legacy/orders', name: 'admin-legacy-orders', component: AdminOrders },
+      { path: 'legacy/members', name: 'admin-legacy-members', component: AdminMembers },
       {
-        path: 'partners',
-        name: 'admin-partners',
+        path: 'legacy/partners',
+        name: 'admin-legacy-partners',
         component: () => import('./pages/admin/AdminPartners.vue'),
       },
       {
         // 협력사 보유 부품 뒤처리(docs/PARTNER_PARTS.md) — 만료·제한을 두지 않는 대신
         // 관리자가 낡은 원장을 끄고·비우고·대행 업로드하는 운영 창구.
-        path: 'partner-parts',
-        name: 'admin-partner-parts',
+        path: 'legacy/partner-parts',
+        name: 'admin-legacy-partner-parts',
         component: () => import('./pages/admin/AdminPartnerParts.vue'),
       },
       // 재능마켓(/market) 관리 — 전문가 심사·프로젝트 모니터·설정
@@ -412,187 +422,187 @@ const routes: RouteRecordRaw[] = [
       { path: 'market/settings', name: 'admin-market-settings', component: AdminMarketSettings },
       // 개발의뢰 모듈(docs/DEVELOP_FLOW.md §14) — 홈(진행현황)·단계별 큐·전체 의뢰·상세·설정.
       {
-        path: 'develop',
-        name: 'admin-develop',
+        path: 'legacy/develop',
+        name: 'admin-legacy-develop',
         component: () => import('./pages/admin/AdminDevelopHome.vue'),
       },
       {
-        path: 'develop/intake',
-        name: 'admin-develop-intake',
+        path: 'legacy/develop/intake',
+        name: 'admin-legacy-develop-intake',
         component: () => import('./pages/admin/AdminDevelopIntake.vue'),
       },
       {
-        path: 'develop/contracts',
-        name: 'admin-develop-contracts',
+        path: 'legacy/develop/contracts',
+        name: 'admin-legacy-develop-contracts',
         component: () => import('./pages/admin/AdminDevelopContracts.vue'),
       },
       {
-        path: 'develop/projects',
-        name: 'admin-develop-projects',
+        path: 'legacy/develop/projects',
+        name: 'admin-legacy-develop-projects',
         component: () => import('./pages/admin/AdminDevelopProjects.vue'),
       },
       {
-        path: 'develop/deliveries',
-        name: 'admin-develop-deliveries',
+        path: 'legacy/develop/deliveries',
+        name: 'admin-legacy-develop-deliveries',
         component: () => import('./pages/admin/AdminDevelopDeliveries.vue'),
       },
       {
-        path: 'develop/inquiries',
-        name: 'admin-develop-inquiries',
+        path: 'legacy/develop/inquiries',
+        name: 'admin-legacy-develop-inquiries',
         component: () => import('./pages/admin/AdminDevelopInquiries.vue'),
       },
       {
-        path: 'develop/requests',
-        name: 'admin-develop-requests',
+        path: 'legacy/develop/requests',
+        name: 'admin-legacy-develop-requests',
         component: () => import('./pages/admin/AdminDevelopRequests.vue'),
       },
       {
-        path: 'develop/requests/:id(\\d+)',
-        name: 'admin-develop-request',
+        path: 'legacy/develop/requests/:id(\\d+)',
+        name: 'admin-legacy-develop-request',
         component: () => import('./pages/admin/AdminDevelopRequestDetail.vue'),
       },
       {
-        path: 'develop/settings',
-        name: 'admin-develop-settings',
+        path: 'legacy/develop/settings',
+        name: 'admin-legacy-develop-settings',
         component: () => import('./pages/admin/AdminDevelopSettings.vue'),
       },
-      { path: 'slides', name: 'admin-slides', component: AdminSlides },
-      { path: 'seo', name: 'admin-seo', component: AdminSeo },
+      { path: 'legacy/slides', name: 'admin-legacy-slides', component: AdminSlides },
+      { path: 'legacy/seo', name: 'admin-legacy-seo', component: AdminSeo },
       {
         // 발송 이력(메일·알림톡·SMS 공용 원장) — 코어 모듈 전역 조회
-        path: 'mail-logs',
-        name: 'admin-mail-logs',
+        path: 'legacy/mail-logs',
+        name: 'admin-legacy-mail-logs',
         component: () => import('./pages/admin/AdminMailLogs.vue'),
       },
       {
         // 삭제 기록(관리자 강제 삭제 + 취소 견적 자동 정리) — 코어 모듈 전역 조회
-        path: 'delete-audits',
-        name: 'admin-delete-audits',
+        path: 'legacy/delete-audits',
+        name: 'admin-legacy-delete-audits',
         component: () => import('./pages/admin/AdminDeleteAudits.vue'),
       },
       {
-        path: 'bom',
-        name: 'admin-bom',
+        path: 'legacy/bom',
+        name: 'admin-legacy-bom',
         component: () => import('./pages/admin/AdminBomUpload.vue'),
         meta: { adminContentFlush: true },
       },
       {
-        path: 'bom/:id',
-        name: 'admin-bom-quote',
+        path: 'legacy/bom/:id',
+        name: 'admin-legacy-bom-quote',
         component: () => import('./pages/admin/AdminBomQuote.vue'),
         meta: { adminContentFlush: true },
       },
-      { path: 'parts', name: 'admin-parts', component: AdminParts },
-      { path: 'settings', name: 'admin-settings', component: AdminSettings },
+      { path: 'legacy/parts', name: 'admin-legacy-parts', component: AdminParts },
+      { path: 'legacy/settings', name: 'admin-legacy-settings', component: AdminSettings },
       // 스마트 BOM 모듈(docs/SMARTBOM_PARTNER_RFQ.md §3) — 헤더 모듈 스위처의 두 번째
       // 모듈. 라우트 이름 prefix 'admin-smartbom' 이 모듈 소속 판정 기준(admin/menu.ts).
       {
-        path: 'smartbom',
-        name: 'admin-smartbom',
+        path: 'legacy/smartbom',
+        name: 'admin-legacy-smartbom',
         component: () => import('./pages/admin/AdminSmartbomCases.vue'),
       },
       {
-        path: 'smartbom/cases/:id',
-        name: 'admin-smartbom-case',
+        path: 'legacy/smartbom/cases/:id',
+        name: 'admin-legacy-smartbom-case',
         component: () => import('./pages/admin/AdminSmartbomCase.vue'),
       },
       {
-        path: 'smartbom/quotes',
-        name: 'admin-smartbom-quotes',
+        path: 'legacy/smartbom/quotes',
+        name: 'admin-legacy-smartbom-quotes',
         component: () => import('./pages/admin/AdminSmartbomQuotes.vue'),
       },
       {
-        path: 'smartbom/orders',
-        name: 'admin-smartbom-orders',
+        path: 'legacy/smartbom/orders',
+        name: 'admin-legacy-smartbom-orders',
         component: () => import('./pages/admin/AdminSmartbomOrders.vue'),
       },
       {
-        path: 'smartbom/pos',
-        name: 'admin-smartbom-pos',
+        path: 'legacy/smartbom/pos',
+        name: 'admin-legacy-smartbom-pos',
         component: () => import('./pages/admin/AdminSmartbomPos.vue'),
       },
       {
-        path: 'smartbom/logistics',
-        name: 'admin-smartbom-logistics',
+        path: 'legacy/smartbom/logistics',
+        name: 'admin-legacy-smartbom-logistics',
         component: () => import('./pages/admin/AdminSmartbomLogistics.vue'),
       },
       {
-        path: 'smartbom/claims',
-        name: 'admin-smartbom-claims',
+        path: 'legacy/smartbom/claims',
+        name: 'admin-legacy-smartbom-claims',
         component: () => import('./pages/admin/AdminSmartbomClaims.vue'),
       },
       {
         // 결제 후 부품 확인 요청(D43) 워크큐 — 처리 필요·고객 회신 대기·추가결제·환불·입고 대기
-        path: 'smartbom/confirms',
-        name: 'admin-smartbom-confirms',
+        path: 'legacy/smartbom/confirms',
+        name: 'admin-legacy-smartbom-confirms',
         component: () => import('./pages/admin/AdminSmartbomConfirms.vue'),
       },
       {
         // 입고 스캔(D42)은 선적·배송의 통합 스캔 박스로 합쳤다 — 옛 링크·OAuth 복귀는 그대로 보낸다.
-        path: 'smartbom/receiving',
-        name: 'admin-smartbom-receiving',
-        redirect: (to) => ({ name: 'admin-smartbom-logistics', query: to.query }),
+        path: 'legacy/smartbom/receiving',
+        name: 'admin-legacy-smartbom-receiving',
+        redirect: (to) => ({ name: 'admin-legacy-smartbom-logistics', query: to.query }),
       },
       {
         // 선적 리스트 QR 스캔 도착점(D24) — token은 식별자, 실제 접근은 관리자 가드.
-        path: 'smartbom/packages/:code',
-        name: 'admin-smartbom-package',
+        path: 'legacy/smartbom/packages/:code',
+        name: 'admin-legacy-smartbom-package',
         component: () => import('./pages/admin/AdminSmartbomPackage.vue'),
       },
       {
         // 2026-08-06 통합 관리로 이동. 기존 북마크·외부 링크는 정식 경로로 보낸다.
-        path: 'smartbom/partners',
-        name: 'admin-smartbom-partners',
-        redirect: { name: 'admin-partners' },
+        path: 'legacy/smartbom/partners',
+        name: 'admin-legacy-smartbom-partners',
+        redirect: { name: 'admin-legacy-partners' },
       },
       // ── PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md P1) — 라우트 이름 prefix
       // 'admin-pcb' 가 모듈 소속 판정 기준(admin/menu.ts resolveAdminModuleKey).
       {
-        path: 'pcb/cases',
-        name: 'admin-pcb-cases',
+        path: 'legacy/pcb/cases',
+        name: 'admin-legacy-pcb-cases',
         component: () => import('./pages/admin/AdminPcbCases.vue'),
       },
       {
-        path: 'pcb/rfqs',
-        name: 'admin-pcb-rfqs',
+        path: 'legacy/pcb/rfqs',
+        name: 'admin-legacy-pcb-rfqs',
         component: () => import('./pages/admin/AdminPcbRfqs.vue'),
       },
       {
-        path: 'pcb/orders',
-        name: 'admin-pcb-orders',
+        path: 'legacy/pcb/orders',
+        name: 'admin-legacy-pcb-orders',
         component: () => import('./pages/admin/AdminPcbOrders.vue'),
       },
       {
-        path: 'pcb/pos',
-        name: 'admin-pcb-pos',
+        path: 'legacy/pcb/pos',
+        name: 'admin-legacy-pcb-pos',
         component: () => import('./pages/admin/AdminPcbPos.vue'),
       },
       {
         // 송금 워크큐(P3.11) — 지급 대기·부분 송금·협력사별 잔액
-        path: 'pcb/remittances',
-        name: 'admin-pcb-remittances',
+        path: 'legacy/pcb/remittances',
+        name: 'admin-legacy-pcb-remittances',
         component: () => import('./pages/admin/AdminPcbRemittances.vue'),
       },
       {
-        path: 'pcb/shipments',
-        name: 'admin-pcb-shipments',
+        path: 'legacy/pcb/shipments',
+        name: 'admin-legacy-pcb-shipments',
         component: () => import('./pages/admin/AdminPcbShipments.vue'),
       },
       {
         // PCB 고객 클레임(A/S 접수) 워크큐(P5) — SmartBOM 클레임 미러.
-        path: 'pcb/claims',
-        name: 'admin-pcb-claims',
+        path: 'legacy/pcb/claims',
+        name: 'admin-legacy-pcb-claims',
         component: () => import('./pages/admin/AdminPcbClaims.vue'),
       },
       {
         // PCB Case QR 스캔 도착점 — token은 식별자, 접근은 관리자 가드와 API 인증이 담당.
-        path: 'pcb/packages/:code',
-        name: 'admin-pcb-package',
+        path: 'legacy/pcb/packages/:code',
+        name: 'admin-legacy-pcb-package',
         component: () => import('./pages/admin/AdminPcbPackage.vue'),
       },
       {
-        path: 'pcb/cases/:id',
-        name: 'admin-pcb-case',
+        path: 'legacy/pcb/cases/:id',
+        name: 'admin-legacy-pcb-case',
         component: () => import('./pages/admin/AdminPcbCase.vue'),
       },
     ],

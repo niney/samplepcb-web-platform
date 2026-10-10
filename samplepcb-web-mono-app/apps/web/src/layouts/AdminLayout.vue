@@ -3,7 +3,15 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import type { RouteLocationRaw } from 'vue-router';
-import { adminModules, resolveAdminModuleKey, type AdminMenuItem } from '../admin/menu';
+import {
+  adminModules,
+  canonicalAdminRouteName,
+  isLegacyAdminRoute,
+  legacyAdminRouteName,
+  legacyAdminTo,
+  resolveAdminModuleKey,
+  type AdminMenuItem,
+} from '../admin/menu';
 import { useRfqCount } from '../admin/useAdminQuotes';
 import { useBomOrdersAwaitingCount, useBomPosAwaitingCount } from '../admin/useAdminBomOrders';
 import { useBomQuotesRequestedCount, useBomShipmentPendingCount } from '../admin/useAdminBomQuotes';
@@ -38,22 +46,22 @@ const currentRouteName = computed(() => (typeof route.name === 'string' ? route.
 // PCB 모듈도 같은 규약(from=cases|rfqs|orders|pos|shipments) — 워크큐가 이미 ?from= 을
 // 넘기고 있었는데 이 매핑이 SmartBOM 전용이라 어디서 들어와도 진행현황이 켜졌다.
 const CASE_FROM_MENU: Record<string, Record<string, string>> = {
-  'admin-smartbom-case': {
-    quotes: 'admin-smartbom-quotes',
-    orders: 'admin-smartbom-orders',
-    pos: 'admin-smartbom-pos',
-    logistics: 'admin-smartbom-logistics',
-    claims: 'admin-smartbom-claims',
-    confirms: 'admin-smartbom-confirms',
+  'admin-legacy-smartbom-case': {
+    quotes: 'admin-legacy-smartbom-quotes',
+    orders: 'admin-legacy-smartbom-orders',
+    pos: 'admin-legacy-smartbom-pos',
+    logistics: 'admin-legacy-smartbom-logistics',
+    claims: 'admin-legacy-smartbom-claims',
+    confirms: 'admin-legacy-smartbom-confirms',
   },
-  'admin-pcb-case': {
-    cases: 'admin-pcb-cases',
-    rfqs: 'admin-pcb-rfqs',
-    orders: 'admin-pcb-orders',
-    pos: 'admin-pcb-pos',
-    shipments: 'admin-pcb-shipments',
-    remittances: 'admin-pcb-remittances',
-    claims: 'admin-pcb-claims',
+  'admin-legacy-pcb-case': {
+    cases: 'admin-legacy-pcb-cases',
+    rfqs: 'admin-legacy-pcb-rfqs',
+    orders: 'admin-legacy-pcb-orders',
+    pos: 'admin-legacy-pcb-pos',
+    shipments: 'admin-legacy-pcb-shipments',
+    remittances: 'admin-legacy-pcb-remittances',
+    claims: 'admin-legacy-pcb-claims',
   },
 };
 const effectiveRouteName = computed(() => {
@@ -62,11 +70,22 @@ const effectiveRouteName = computed(() => {
   const from = route.query.from;
   return (typeof from === 'string' ? map[from] : undefined) ?? currentRouteName.value;
 });
+// 컷오버(2026-10-10) 뒤 이 셸은 옛 화면(/admin/legacy/*)과 리뉴얼하지 않은 화면(견적관리·마켓)을 함께 띄운다.
+// 옛 화면 안에서는 메뉴·스위처가 옛 화면끼리 잇고, 견적관리·마켓에서는 정식(리뉴얼) 화면으로 보낸다.
+const inLegacy = computed(() => isLegacyAdminRoute(currentRouteName.value));
+const linkTo = (to: RouteLocationRaw): RouteLocationRaw => (inLegacy.value ? legacyAdminTo(to) : to);
+const linkName = (name: string): string => (inLegacy.value ? legacyAdminRouteName(name) : name);
 const menuRouteName = (to: RouteLocationRaw): string | null =>
-  typeof to === 'object' && 'name' in to && typeof to.name === 'string' ? to.name : null;
+  typeof to === 'object' && 'name' in to && typeof to.name === 'string' ? linkName(to.name) : null;
 const isMenuActive = (item: AdminMenuItem): boolean =>
   menuRouteName(item.to) === effectiveRouteName.value ||
-  item.activeRouteNames?.includes(effectiveRouteName.value) === true;
+  item.activeRouteNames?.some((name) => linkName(name) === effectiveRouteName.value) === true;
+// 옛 화면에서 같은 화면의 리뉴얼판으로 돌아가는 링크(같은 params·query).
+const renewedTo = computed<RouteLocationRaw | null>(() =>
+  inLegacy.value
+    ? { name: canonicalAdminRouteName(currentRouteName.value), params: route.params, query: route.query }
+    : null,
+);
 
 // 활성 모듈 = 현재 라우트에서 순수 파생(단일 진실) — 북마크/새로고침 진입에도 안전.
 // localStorage 는 "마지막 사용 모듈" 기억용 기록만(후속: 진입 리다이렉트에 활용 가능).
@@ -101,9 +120,9 @@ watch(
   { immediate: true },
 );
 const moduleTo = (moduleKey: string, fallback: RouteLocationRaw): RouteLocationRaw =>
-  moduleKey === 'pcb' ? pcbAdminEntryTo(pcbMemory.value) : fallback;
+  !inLegacy.value ? fallback : moduleKey === 'pcb' ? pcbAdminEntryTo(pcbMemory.value) : legacyAdminTo(fallback);
 const menuTo = (item: AdminMenuItem): RouteLocationRaw => {
-  if (activeModuleKey.value !== 'pcb') return item.to;
+  if (activeModuleKey.value !== 'pcb' || !inLegacy.value) return linkTo(item.to);
   const routeName = menuRouteName(item.to);
   const section = routeName === null ? null : resolvePcbAdminSection(routeName);
   return section === null ? item.to : pcbAdminSectionTo(pcbMemory.value, section);
@@ -282,6 +301,14 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
         </nav>
         <!-- 테마 전환 — 파트너 셸과 같은 상태를 공유한다(useTheme 싱글턴, BOM 셸은 단일 모드) -->
         <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+          <RouterLink
+            v-if="renewedTo !== null"
+            :to="renewedTo"
+            class="rounded-md border border-blue-200 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+            title="같은 화면을 새 디자인으로 엽니다"
+          >
+            새 화면
+          </RouterLink>
           <AppThemeToggle icon-class="size-[22px]" />
           <AppSiteHomeButton />
           <AppProfileMenu :show-bom="true" />

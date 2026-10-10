@@ -41,7 +41,7 @@ const fmtDateTime = (iso: string): string =>
         <h1 class="text-xl font-extrabold">PCB 주문/견적 건 조회</h1>
       </div>
       <RouterLink
-        :to="{ name: 'admin-pcb-shipments' }"
+        :to="{ name: 'admin-legacy-pcb-shipments' }"
         class="ml-auto rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
       >
         ← PCB 선적·배송
@@ -125,13 +125,13 @@ const fmtDateTime = (iso: string): string =>
 
         <div class="flex flex-wrap gap-2 border-t border-gray-100 px-5 py-4">
           <RouterLink
-            :to="{ name: 'admin-pcb-case', params: { id: detail.specId }, query: { from: 'qr' } }"
+            :to="{ name: 'admin-legacy-pcb-case', params: { id: detail.specId }, query: { from: 'qr' } }"
             class="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700"
           >
             Case 상세 열기 →
           </RouterLink>
           <RouterLink
-            :to="{ name: 'admin-pcb-shipments' }"
+            :to="{ name: 'admin-legacy-pcb-shipments' }"
             class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
           >
             선적 큐 열기

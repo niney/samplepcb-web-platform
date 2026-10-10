@@ -143,7 +143,7 @@ const deltaText = (value: number | null): string => {
             </td>
             <td class="px-3 py-2 text-right">
               <RouterLink
-                :to="{ name: 'admin-smartbom-case', params: { id: row.quoteId }, query: { from: 'confirms' }, hash: `#bomc-admin-${row.id}` }"
+                :to="{ name: 'admin-legacy-smartbom-case', params: { id: row.quoteId }, query: { from: 'confirms' }, hash: `#bomc-admin-${row.id}` }"
                 class="rounded-lg border border-sky-300 px-3 py-1.5 font-bold text-sky-700 hover:bg-sky-50"
               >
                 Case 열기

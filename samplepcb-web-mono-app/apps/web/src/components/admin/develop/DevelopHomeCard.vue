@@ -19,7 +19,7 @@ const props = defineProps<{ item: AdminDevelopRequestListItemType }>();
 const { t } = useI18n();
 
 // 상세 딥링크 — from=홈이라 「← 목록으로」가 홈으로 돌아온다.
-const to = (tab: string) => developDetailTo(props.item.requestId, { tab, from: 'admin-develop' });
+const to = (tab: string) => developDetailTo(props.item.requestId, { tab, from: 'admin-legacy-develop' });
 const quiet = computed(
   () =>
     props.item.ops.pendingApprovals === 0 &&

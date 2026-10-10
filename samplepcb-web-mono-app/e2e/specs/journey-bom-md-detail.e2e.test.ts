@@ -107,7 +107,8 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 — 외화·마스터딜러 상세
     await disconnectPrisma();
   }, 60_000);
 
-  const caseUrl = (): string => `/app/admin/smartbom/cases/${flow.quoteId}`;
+  // 옛 화면 문구로 쓴 칸들 — 컷오버(2026-10-10) 뒤 옛 화면은 /admin/legacy 아래에 있다(D05 가 리뉴얼 화면).
+  const caseUrl = (): string => `/app/admin/legacy/smartbom/cases/${flow.quoteId}`;
 
   test('D01. 발송 — 통화는 보낸 순간에 박제되고, 그 뒤 조직의 통화를 바꿔도 그대로다', async () => {
     await flow.advanceTo(1);
@@ -292,7 +293,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 — 외화·마스터딜러 상세
 
   test('D05. 새 관리자 화면(shadcn)에도 같은 정보가 선다', async () => {
     const page = adminView.page;
-    await rp.assertView(adminView, `/app/admin/next/smartbom/cases/${flow.quoteId}`, 'D05-next-case', [
+    await rp.assertView(adminView, `/app/admin/smartbom/cases/${flow.quoteId}`, 'D05-next-case', [
       flow.title,
       '마스터딜러 하위 재요청',
       BOM_MD_CHILDREN.a.name,

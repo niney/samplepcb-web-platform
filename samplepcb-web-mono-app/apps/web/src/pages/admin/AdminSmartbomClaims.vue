@@ -319,7 +319,7 @@ const statusClass = (claimStatus: BomClaimStatusType): string =>
           <span class="rounded-full px-2.5 py-1 text-xs font-bold" :class="statusClass(selectedClaim.status)">{{ BOM_CLAIM_STATUS_LABELS[selectedClaim.status] }}</span>
           <span class="text-sm font-semibold text-gray-600">{{ BOM_CLAIM_KIND_LABELS[selectedClaim.kind] }}</span>
           <RouterLink
-            :to="{ name: 'admin-smartbom-case', params: { id: selectedClaim.quoteId }, query: { from: 'claims' } }"
+            :to="{ name: 'admin-legacy-smartbom-case', params: { id: selectedClaim.quoteId }, query: { from: 'claims' } }"
             class="ml-auto rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700"
           >
             Case 열기

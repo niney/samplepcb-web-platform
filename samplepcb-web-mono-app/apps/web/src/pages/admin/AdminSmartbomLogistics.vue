@@ -86,7 +86,7 @@ function openPackageScan(): void {
   packageScanError.value = '';
   if (isPackageCode(raw)) {
     const code = normalizePackageCode(raw);
-    void router.push({ name: 'admin-smartbom-package', params: { code } });
+    void router.push({ name: 'admin-legacy-smartbom-package', params: { code } });
     return;
   }
   // 공급사 봉투 라벨 → 입고 패널(대조·기록). 입력은 비우고 포커스는 패널이 끝나면 되돌린다.
@@ -143,7 +143,7 @@ function openShipment(item: AdminBomShipmentCrossItemType): void {
 // from=logistics — Case 상세가 발주(선적 진입점) 섹션만 펼치고 스크롤(§6.12)
 function openCase(quoteId: string): void {
   void router.push({
-    name: 'admin-smartbom-case',
+    name: 'admin-legacy-smartbom-case',
     params: { id: quoteId },
     query: { from: 'logistics' },
   });

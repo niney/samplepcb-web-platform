@@ -194,10 +194,36 @@ export const adminModules: readonly AdminModule[] = [
   },
 ];
 
+// ── 2026-10-10 컷오버 — 리뉴얼 화면(src/next)이 정식 경로·이름('admin-*')을 이어받고, 이 셸의 옛 화면은
+// /admin/legacy/* · 'admin-legacy-*' 로 물러났다. 견적관리(admin-quotes)·재능마켓(admin-market-*)은 리뉴얼하지
+// 않아 정식 이름 그대로 이 셸에 남는다. 메뉴 정의는 정식 이름으로 두고, 셸이 옛 화면 안에서는 옛 이름으로 바꿔 건다.
+const LEGACY_PREFIX = 'admin-legacy';
+const isUnrenewed = (name: string): boolean => name === 'admin-quotes' || name.startsWith('admin-market-');
+
+export const isLegacyAdminRoute = (routeName: string): boolean =>
+  routeName === LEGACY_PREFIX || routeName.startsWith(`${LEGACY_PREFIX}-`);
+
+/** 옛 이름 → 정식 이름('admin-legacy-pcb-case' → 'admin-pcb-case'). 정식 이름은 그대로. */
+export const canonicalAdminRouteName = (routeName: string): string =>
+  isLegacyAdminRoute(routeName) ? `admin${routeName.slice(LEGACY_PREFIX.length)}` : routeName;
+
+/** 정식 이름 → 옛 화면 이름. 리뉴얼하지 않은 화면(견적관리·마켓)은 정식 이름 그대로. */
+export const legacyAdminRouteName = (routeName: string): string =>
+  isUnrenewed(routeName) || isLegacyAdminRoute(routeName) || !(routeName === 'admin' || routeName.startsWith('admin-'))
+    ? routeName
+    : `${LEGACY_PREFIX}${routeName.slice('admin'.length)}`;
+
+/** 이름으로 가는 위치를 옛 화면 쪽으로 바꾼다(이름이 없는 위치는 그대로). */
+export const legacyAdminTo = (to: RouteLocationRaw): RouteLocationRaw =>
+  typeof to === 'object' && 'name' in to && typeof to.name === 'string'
+    ? { ...to, name: legacyAdminRouteName(to.name) }
+    : to;
+
 // 라우트 이름 → 소속 모듈. 스위처 활성 상태는 이 파생이 단일 진실 — 북마크·새로고침
-// 진입에서도 메뉴가 어긋나지 않는다(레거시 useAppMode gotcha 회수).
-export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
-  routeName === 'admin-develop' || routeName.startsWith('admin-develop-')
+// 진입에서도 메뉴가 어긋나지 않는다(레거시 useAppMode gotcha 회수). 옛 이름도 정식 이름으로 읽는다.
+export const resolveAdminModuleKey = (name: string): AdminModuleKey => {
+  const routeName = canonicalAdminRouteName(name);
+  return routeName === 'admin-develop' || routeName.startsWith('admin-develop-')
     ? 'develop'
     : routeName.startsWith('admin-smartbom') || routeName === 'admin-bom' || routeName === 'admin-bom-quote'
     ? 'smartbom'
@@ -206,3 +232,4 @@ export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
       : routeName.startsWith('admin-market-')
         ? 'market'
         : 'core';
+};

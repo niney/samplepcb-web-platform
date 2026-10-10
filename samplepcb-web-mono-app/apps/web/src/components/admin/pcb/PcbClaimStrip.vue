@@ -77,7 +77,7 @@ async function submitCreate(): Promise<void> {
       <span class="ml-auto" />
       <RouterLink
         v-if="claims.length > 0"
-        :to="{ name: 'admin-pcb-claims' }"
+        :to="{ name: 'admin-legacy-pcb-claims' }"
         class="rounded-md border border-teal-300 bg-teal-50 px-2.5 py-1 text-xs font-bold text-teal-700 hover:bg-teal-100"
       >
         워크큐에서 처리 →

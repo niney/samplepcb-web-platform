@@ -116,9 +116,9 @@ const channelLabel = (c: AdminMailLogItemType['channel']): string =>
 // 컨텍스트 링크 — Case 상세 라우트가 있는 유형만(주문·마켓은 텍스트).
 const refLink = (item: AdminMailLogItemType): { name: string; params: { id: string } } | null =>
   item.refType === 'bom_quote'
-    ? { name: 'admin-smartbom-case', params: { id: item.refId } }
+    ? { name: 'admin-legacy-smartbom-case', params: { id: item.refId } }
     : item.refType === 'pcb_spec'
-      ? { name: 'admin-pcb-case', params: { id: item.refId } }
+      ? { name: 'admin-legacy-pcb-case', params: { id: item.refId } }
       : null;
 
 // 알려진 kind 목록(필터 select) — i18n 사전에서 파생해 서버와 결합하지 않는다.

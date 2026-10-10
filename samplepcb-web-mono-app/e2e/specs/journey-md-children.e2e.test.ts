@@ -520,7 +520,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 — 하위 협력사 직접 관리', (
     await rp.shot(adminView, 'CH7-act-as-banner');
 
     // 파트너 관리 — 등록 주체 표시와 포털로 보기.
-    await adminView.page.goto(`${BASE_URL}/app/admin/next/partners`, { waitUntil: 'domcontentloaded' });
+    await adminView.page.goto(`${BASE_URL}/app/admin/partners`, { waitUntil: 'domcontentloaded' });
     await adminView.page.getByTestId('partner-origin-md').click();
     await adminView.page.getByText('e2e하위가람전자').first().click();
     await adminView.page.getByTestId('partner-owner-note').waitFor({ state: 'visible', timeout: 30_000 });

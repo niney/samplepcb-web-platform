@@ -51,7 +51,7 @@ const setTab = (tab: AdminBomOrderFilters['tab']): void => {
 
 // from=orders — Case 상세가 주문 정보+발주 현황만 펼침(§6.12)
 function openCase(quoteId: string): void {
-  void router.push({ name: 'admin-smartbom-case', params: { id: quoteId }, query: { from: 'orders' } });
+  void router.push({ name: 'admin-legacy-smartbom-case', params: { id: quoteId }, query: { from: 'orders' } });
 }
 
 const statusCls = (item: AdminBomOrderListItemType): string =>
@@ -138,14 +138,14 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
       <h1 class="text-xl font-bold">주문·결제</h1>
       <div class="flex items-center gap-2">
         <RouterLink
-          :to="{ name: 'admin-smartbom-logistics' }"
+          :to="{ name: 'admin-legacy-smartbom-logistics' }"
           class="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
           title="고객 배송 처리·구매확정은 선적·배송 메뉴에서"
         >
           선적·배송 →
         </RouterLink>
         <RouterLink
-          :to="{ name: 'admin-orders' }"
+          :to="{ name: 'admin-legacy-orders' }"
           class="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
           title="결제 승인 취소·환불과 주문 상세 편집은 통합 관리 주문내역에서"
         >

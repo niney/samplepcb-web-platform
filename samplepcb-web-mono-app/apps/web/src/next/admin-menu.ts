@@ -243,11 +243,11 @@ export const nextModules: readonly NextModule[] = [coreModule, pcbModule, smartb
 export const resolveNextModuleKey = (routeName: string): NextModuleKey | null =>
   isNextCoreRoute(routeName)
     ? 'core'
-    : routeName.startsWith('admin-next-pcb')
+    : routeName.startsWith('admin-pcb-')
       ? 'pcb'
-      : routeName.startsWith('admin-next-smartbom') || routeName.startsWith('admin-next-bom')
+      : routeName.startsWith('admin-smartbom') || routeName.startsWith('admin-bom')
         ? 'smartbom'
-        : routeName.startsWith('admin-next-develop')
+        : routeName.startsWith('admin-develop')
           ? 'develop'
           : null;
 
@@ -288,8 +288,8 @@ export const effectiveMenuRouteName = (routeName: string, from: unknown): string
 export const isNextMenuActive = (item: NextMenuItem, effectiveRouteName: string): boolean =>
   item.routeName === effectiveRouteName || item.activeRouteNames?.includes(effectiveRouteName) === true;
 
-// ── 전환기 '이전 화면' — 리뉴얼 라우트를 같은 params·query 의 옛 라우트로 바꾼다.
-const LEGACY_PCB_BASE_PATH = '/admin/pcb';
+// ── '이전 화면' — 리뉴얼 라우트를 같은 params·query 의 옛 화면 라우트(/admin/legacy/*)로 바꾼다.
+const LEGACY_PCB_BASE_PATH = '/admin/legacy/pcb';
 
 export const legacyNextRoute = (
   routeName: string,
@@ -304,7 +304,7 @@ export const legacyNextRoute = (
     if (typeof returnTo === 'string' && returnTo.startsWith(NEXT_PCB_BASE_PATH)) {
       nextQuery.returnTo = LEGACY_PCB_BASE_PATH + returnTo.slice(NEXT_PCB_BASE_PATH.length);
     }
-    return { name: `admin-pcb-${pcbEntry[0]}`, params, query: nextQuery };
+    return { name: `admin-legacy-pcb-${pcbEntry[0]}`, params, query: nextQuery };
   }
   const legacyDevelop = legacyDevelopRouteName(routeName);
   if (legacyDevelop !== null) {

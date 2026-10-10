@@ -69,7 +69,7 @@ const rfqBadge = (
 
 // from=quotes — Case 상세가 견적 관련 섹션만 펼치고 RFQ 패널로 스크롤(§6.12)
 function openCase(id: string): void {
-  void router.push({ name: 'admin-smartbom-case', params: { id }, query: { from: 'quotes' } });
+  void router.push({ name: 'admin-legacy-smartbom-case', params: { id }, query: { from: 'quotes' } });
 }
 
 function toggleRow(id: string): void {

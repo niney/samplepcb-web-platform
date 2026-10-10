@@ -121,7 +121,7 @@ const rfqBadge = (row: { rfqTotal: number; rfqQuoted: number }): { label: string
 // from=rfqs — Case 상세가 워크큐 복귀 링크·활성 메뉴 동기화에 사용.
 function openCase(specId: number): void {
   void router.push({
-    name: 'admin-pcb-case',
+    name: 'admin-legacy-pcb-case',
     params: { id: String(specId) },
     query: pcbDetailQuery('rfqs', route.fullPath),
   });

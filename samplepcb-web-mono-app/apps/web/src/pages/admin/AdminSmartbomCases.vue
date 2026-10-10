@@ -62,7 +62,7 @@ const SUMMARY_CARDS: { key: 'all' | 'requested' | 'reviewing' | 'answered'; labe
 ];
 
 function openCase(id: string): void {
-  void router.push({ name: 'admin-smartbom-case', params: { id } });
+  void router.push({ name: 'admin-legacy-smartbom-case', params: { id } });
 }
 
 function toggleRow(id: string): void {

@@ -130,7 +130,7 @@ async function submit(): Promise<void> {
         <p class="text-[11px] text-gray-400">
           알림 메일은 발송되지 않습니다 — 배송 안내가 필요하면
           <RouterLink
-            :to="{ name: 'admin-orders' }"
+            :to="{ name: 'admin-legacy-orders' }"
             target="_blank"
             class="font-semibold text-blue-600 hover:underline"
           >

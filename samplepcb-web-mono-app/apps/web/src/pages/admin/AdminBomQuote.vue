@@ -62,7 +62,7 @@ const qc = useQueryClient();
 const quoteId = computed(() => String(route.params.id ?? ''));
 
 async function goToUpload(): Promise<void> {
-  await router.push({ name: 'admin-bom' });
+  await router.push({ name: 'admin-legacy-bom' });
 }
 
 // 자동 보강(searching) 동안 견적을 3초 폴링 — done 은 매칭 라인과 같은 응답으로

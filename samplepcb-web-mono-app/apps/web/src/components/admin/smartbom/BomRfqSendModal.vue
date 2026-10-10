@@ -234,7 +234,7 @@ async function submit(): Promise<void> {
         <p v-if="isFetching && candidates.length === 0" class="py-6 text-center text-xs text-gray-400">불러오는 중…</p>
         <p v-else-if="candidates.length === 0" class="py-6 text-center text-xs text-gray-400">
           승인된 협력사(BOM 견적 트랙)가 없습니다 —
-          <RouterLink :to="{ name: 'admin-partners' }" class="font-semibold text-blue-600 hover:underline">
+          <RouterLink :to="{ name: 'admin-legacy-partners' }" class="font-semibold text-blue-600 hover:underline">
             파트너 관리
           </RouterLink>에서 등록하세요.
         </p>

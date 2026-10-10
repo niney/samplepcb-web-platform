@@ -3,25 +3,24 @@ import { queryString } from '@/next/lib/list-query';
 
 // 관리자 리뉴얼(src/next) PCB 모듈의 라우트·목록 상태 규약 — 옛 admin/pcb-navigation.ts 의 짝.
 //
-// 리뉴얼 화면은 컷오버 전까지 /admin/next/pcb/* 에서 옛 화면과 나란히 돈다. 라우트 이름은
-// 전부 이 파일의 NEXT_PCB_ROUTES 로만 부른다 — 컷오버 때 값만 'admin-pcb-*' 로 바꾸면 화면
-// 코드는 그대로 옛 경로를 이어받는다(e2e·메일 딥링크·바깥 링크를 고치지 않는 전환).
+// 2026-10-10 컷오버 — 리뉴얼 화면이 정식 경로(/admin/pcb/*)·이름('admin-pcb-*')을 이어받았고, 옛 화면은
+// /admin/legacy/pcb/* · 'admin-legacy-pcb-*' 로 물러났다. 라우트 이름은 전부 이 파일의 NEXT_PCB_ROUTES 로만 부른다.
 // 마지막 화면 기억(localStorage)은 옛 화면과 키를 나눠 서로의 탭 기억을 덮어쓰지 않게 한다.
 
 export const NEXT_PCB_ROUTES = {
-  cases: 'admin-next-pcb-cases',
-  rfqs: 'admin-next-pcb-rfqs',
-  orders: 'admin-next-pcb-orders',
-  pos: 'admin-next-pcb-pos',
-  remittances: 'admin-next-pcb-remittances',
-  shipments: 'admin-next-pcb-shipments',
-  claims: 'admin-next-pcb-claims',
-  package: 'admin-next-pcb-package',
-  case: 'admin-next-pcb-case',
+  cases: 'admin-pcb-cases',
+  rfqs: 'admin-pcb-rfqs',
+  orders: 'admin-pcb-orders',
+  pos: 'admin-pcb-pos',
+  remittances: 'admin-pcb-remittances',
+  shipments: 'admin-pcb-shipments',
+  claims: 'admin-pcb-claims',
+  package: 'admin-pcb-package',
+  case: 'admin-pcb-case',
 } as const;
 
-/** 리뉴얼 PCB 화면의 경로 접두 — 컷오버 때 '/admin/pcb' 로 바뀐다. */
-export const NEXT_PCB_BASE_PATH = '/admin/next/pcb';
+/** 리뉴얼 PCB 화면의 경로 접두. */
+export const NEXT_PCB_BASE_PATH = '/admin/pcb';
 
 export const PCB_ADMIN_SECTIONS = [
   'cases',

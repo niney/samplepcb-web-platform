@@ -100,7 +100,7 @@ const QUOTE_CLS: Record<string, { label: string; cls: string }> = {
 
 function openCase(specId: number): void {
   void router.push({
-    name: 'admin-pcb-case',
+    name: 'admin-legacy-pcb-case',
     params: { id: String(specId) },
     query: pcbDetailQuery('cases', route.fullPath),
   });

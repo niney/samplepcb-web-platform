@@ -26,14 +26,16 @@ export interface PcbAdminMemory {
 }
 
 const DEFAULT_MEMORY: PcbAdminMemory = { section: 'cases', tabs: {} };
+// 옛 화면은 2026-10-10 컷오버로 /admin/legacy/pcb/* · 'admin-legacy-pcb-*' 로 물러났다(정식 경로는 리뉴얼 화면).
+const LEGACY_PCB_BASE_PATH = '/admin/legacy/pcb';
 const SECTION_ROUTES: Record<PcbAdminSection, string> = {
-  cases: 'admin-pcb-cases',
-  rfqs: 'admin-pcb-rfqs',
-  orders: 'admin-pcb-orders',
-  pos: 'admin-pcb-pos',
-  remittances: 'admin-pcb-remittances',
-  shipments: 'admin-pcb-shipments',
-  claims: 'admin-pcb-claims',
+  cases: 'admin-legacy-pcb-cases',
+  rfqs: 'admin-legacy-pcb-rfqs',
+  orders: 'admin-legacy-pcb-orders',
+  pos: 'admin-legacy-pcb-pos',
+  remittances: 'admin-legacy-pcb-remittances',
+  shipments: 'admin-legacy-pcb-shipments',
+  claims: 'admin-legacy-pcb-claims',
 };
 
 const isSection = (value: unknown): value is PcbAdminSection =>
@@ -145,11 +147,6 @@ export const pcbDetailQuery = (
 export const safePcbReturnTo = (value: MaybeQueryValue): string | null => {
   const target = queryString(value);
   const path = target.split('?', 1)[0];
-  const allowedPaths = new Set(Object.keys(SECTION_ROUTES).map((section) => {
-    const routeName = SECTION_ROUTES[section as PcbAdminSection];
-    return routeName === 'admin-pcb-cases'
-      ? '/admin/pcb/cases'
-      : `/admin/pcb/${section}`;
-  }));
+  const allowedPaths = new Set(PCB_ADMIN_SECTIONS.map((section) => `${LEGACY_PCB_BASE_PATH}/${section}`));
   return path !== undefined && allowedPaths.has(path) ? target : null;
 };

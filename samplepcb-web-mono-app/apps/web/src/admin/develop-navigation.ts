@@ -7,13 +7,13 @@ import type { DevelopAdminSignalType, DevelopAdminTabType } from '@sp/api-contra
 // 순수 함수만 — 라우터 객체는 화면이 든다.
 
 export const DEVELOP_QUEUE_ROUTES = [
-  'admin-develop',
-  'admin-develop-intake',
-  'admin-develop-contracts',
-  'admin-develop-projects',
-  'admin-develop-deliveries',
-  'admin-develop-inquiries',
-  'admin-develop-requests',
+  'admin-legacy-develop',
+  'admin-legacy-develop-intake',
+  'admin-legacy-develop-contracts',
+  'admin-legacy-develop-projects',
+  'admin-legacy-develop-deliveries',
+  'admin-legacy-develop-inquiries',
+  'admin-legacy-develop-requests',
 ] as const;
 export type DevelopQueueRoute = (typeof DEVELOP_QUEUE_ROUTES)[number];
 export const isDevelopQueueRoute = (value: unknown): value is DevelopQueueRoute =>
@@ -74,12 +74,12 @@ export function developDetailTo(
       if (list.page > 1) query.lp = String(list.page);
     }
   }
-  return { name: 'admin-develop-request', params: { id: String(requestId) }, query };
+  return { name: 'admin-legacy-develop-request', params: { id: String(requestId) }, query };
 }
 
 /** 「← 목록으로」 — 떠난 큐의 그 자리로. from 이 없거나 모르는 값이면 전체 의뢰. */
 export function developBackTo(query: LocationQuery): RouteLocationRaw {
-  if (!isDevelopQueueRoute(query.from)) return { name: 'admin-develop-requests' };
+  if (!isDevelopQueueRoute(query.from)) return { name: 'admin-legacy-develop-requests' };
   const list = developQueueState({ tab: query.lt ?? null, signal: query.ls ?? null, q: query.lq ?? null, page: query.lp ?? null });
   const back: Record<string, string> = {};
   if (list.tab !== null) back.tab = list.tab;

@@ -61,7 +61,7 @@ function setTab(key: TabKey): void {
 // 발행·조작은 Case 상세 발주 패널로 — from=pos 는 발주 섹션만 펼치고 스크롤(§6.12)
 function openCasePo(quoteId: string): void {
   void router.push({
-    name: 'admin-smartbom-case',
+    name: 'admin-legacy-smartbom-case',
     params: { id: quoteId },
     query: { from: 'pos' },
   });

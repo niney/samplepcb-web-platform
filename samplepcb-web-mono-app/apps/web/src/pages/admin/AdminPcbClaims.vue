@@ -86,7 +86,7 @@ watch(
 
 function openCase(specId: string): void {
   void router.push({
-    name: 'admin-pcb-case',
+    name: 'admin-legacy-pcb-case',
     params: { id: specId },
     query: pcbDetailQuery('claims', route.fullPath),
   });

@@ -355,7 +355,7 @@ const progressTone = (item: { orderedQty: number; scannedQty: number }): string 
         <span class="rounded px-1.5 py-0.5 text-xs font-bold" :class="lastProgress.complete ? (lastProgress.overReceived ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700') : 'bg-amber-100 text-amber-700'">
           {{ lastProgress.overReceived ? '초과 입고' : lastProgress.complete ? '전량 입고' : `입고 ${lastProgress.scannedTotal}/${lastProgress.orderedTotal}` }}
         </span>
-        <RouterLink :to="{ name: 'admin-smartbom-case', params: { id: lastProgress.quoteId }, query: { from: 'logistics' } }" class="ml-auto text-xs font-semibold text-blue-700 underline">Case 열기</RouterLink>
+        <RouterLink :to="{ name: 'admin-legacy-smartbom-case', params: { id: lastProgress.quoteId }, query: { from: 'logistics' } }" class="ml-auto text-xs font-semibold text-blue-700 underline">Case 열기</RouterLink>
         <button
           v-if="canComplete"
           type="button"
@@ -412,7 +412,7 @@ const progressTone = (item: { orderedQty: number; scannedQty: number }): string 
                   <!-- 발주번호는 이력에 남지만 품목 삭제 시 견적 연결은 없어질 수 있다. -->
                   <RouterLink
                     v-if="row.quoteId !== null && row.quoteId.trim() !== ''"
-                    :to="{ name: 'admin-smartbom-case', params: { id: row.quoteId }, query: { from: 'logistics' } }"
+                    :to="{ name: 'admin-legacy-smartbom-case', params: { id: row.quoteId }, query: { from: 'logistics' } }"
                     class="text-blue-700 underline"
                   >
                     {{ row.quoteTitle ?? `PO #${row.poId}` }}

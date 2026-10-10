@@ -204,7 +204,7 @@ async function runNow(): Promise<void> {
             class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm"
           >
             <RouterLink
-              :to="{ name: 'admin-smartbom-case', params: { id: item.quoteId } }"
+              :to="{ name: 'admin-legacy-smartbom-case', params: { id: item.quoteId } }"
               class="max-w-[22rem] truncate font-medium text-blue-600 hover:underline"
               :title="item.title"
             >

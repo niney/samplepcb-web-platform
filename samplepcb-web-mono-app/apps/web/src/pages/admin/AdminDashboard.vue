@@ -56,7 +56,7 @@ const retentionText = computed(() => {
           />
         </h2>
         <RouterLink
-          :to="{ name: 'admin-mail-logs', query: { status: 'failed' } }"
+          :to="{ name: 'admin-legacy-mail-logs', query: { status: 'failed' } }"
           class="text-xs font-semibold text-blue-600 hover:underline"
         >
           {{ t('admin.dashboard.mailFailures.viewAll') }}
@@ -98,7 +98,7 @@ const retentionText = computed(() => {
           />
         </h2>
         <RouterLink
-          :to="{ name: 'admin-delete-audits' }"
+          :to="{ name: 'admin-legacy-delete-audits' }"
           class="text-xs font-semibold text-blue-600 hover:underline"
         >
           {{ t('admin.dashboard.retention.viewAll') }}

@@ -3,33 +3,32 @@ import { queryString } from '@/next/lib/list-query';
 
 // 관리자 리뉴얼(src/next) SmartBOM 모듈의 라우트 규약 — pcb-navigation.ts 와 같은 문법.
 //
-// 리뉴얼 화면은 컷오버 전까지 /admin/next/{smartbom,bom}/* 에서 옛 화면과 나란히 돈다. 라우트 이름은
-// 옛 이름의 'admin-' 를 'admin-next-' 로 바꾼 것이고, 화면 코드는 이 파일의 NEXT_SMARTBOM_ROUTES 로만
-// 부른다 — 컷오버 때 값만 옛 이름으로 되돌리면 e2e·메일 딥링크·바깥 링크를 고치지 않고 넘어간다.
+// 2026-10-10 컷오버 — 리뉴얼 화면이 정식 경로(/admin/{smartbom,bom}/*)·이름('admin-*')을 이어받았고, 옛 화면은
+// /admin/legacy/{smartbom,bom}/* · 'admin-legacy-*' 로 물러났다. 화면 코드는 이 파일의 NEXT_SMARTBOM_ROUTES 로만 부른다.
 // 목록 주소 상태(탭·쪽·검색어)는 모듈 공용 next/lib/list-query.ts 를 쓴다.
 
 export const NEXT_SMARTBOM_ROUTES = {
-  cases: 'admin-next-smartbom',
-  quotes: 'admin-next-smartbom-quotes',
-  orders: 'admin-next-smartbom-orders',
-  pos: 'admin-next-smartbom-pos',
-  confirms: 'admin-next-smartbom-confirms',
-  logistics: 'admin-next-smartbom-logistics',
-  claims: 'admin-next-smartbom-claims',
-  package: 'admin-next-smartbom-package',
-  case: 'admin-next-smartbom-case',
-  bom: 'admin-next-bom',
-  bomQuote: 'admin-next-bom-quote',
+  cases: 'admin-smartbom',
+  quotes: 'admin-smartbom-quotes',
+  orders: 'admin-smartbom-orders',
+  pos: 'admin-smartbom-pos',
+  confirms: 'admin-smartbom-confirms',
+  logistics: 'admin-smartbom-logistics',
+  claims: 'admin-smartbom-claims',
+  package: 'admin-smartbom-package',
+  case: 'admin-smartbom-case',
+  bom: 'admin-bom',
+  bomQuote: 'admin-bom-quote',
 } as const;
 
-/** 리뉴얼 라우트 이름 → 옛 라우트 이름('이전 화면' 링크·컷오버 기준). */
+/** 리뉴얼 라우트 이름 → 옛 화면 라우트 이름('이전 화면' 링크). */
 export const legacySmartbomRouteName = (nextName: string): string | null =>
   Object.values(NEXT_SMARTBOM_ROUTES).some((name) => name === nextName)
-    ? nextName.replace(/^admin-next-/, 'admin-')
+    ? nextName.replace(/^admin-/, 'admin-legacy-')
     : null;
 
-/** 리뉴얼 SmartBOM 화면의 경로 접두 — 컷오버 때 '/admin/smartbom' 로 바뀐다. */
-export const NEXT_SMARTBOM_BASE_PATH = '/admin/next/smartbom';
+/** 리뉴얼 SmartBOM 화면의 경로 접두. */
+export const NEXT_SMARTBOM_BASE_PATH = '/admin/smartbom';
 
 // 역할별 워크큐(Case 상세 ?from= 의 값) — 옛 화면과 같은 다섯 + 클레임.
 export const SMARTBOM_SECTIONS = ['quotes', 'orders', 'pos', 'confirms', 'logistics', 'claims'] as const;

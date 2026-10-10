@@ -117,12 +117,12 @@ const specId = computed(() => {
 });
 // 진입 워크큐 복귀 링크 — ?from= 일반화(P3.5, rfqs 하드코딩 정리).
 const BACK_TARGETS: Record<string, { name: string; label: string }> = {
-  cases: { name: 'admin-pcb-cases', label: 'PCB 진행현황' },
-  rfqs: { name: 'admin-pcb-rfqs', label: 'PCB 견적요청' },
-  orders: { name: 'admin-pcb-orders', label: 'PCB 주문·결제' },
-  pos: { name: 'admin-pcb-pos', label: 'PCB 발주·EQ' },
-  remittances: { name: 'admin-pcb-remittances', label: 'PCB 송금' },
-  shipments: { name: 'admin-pcb-shipments', label: 'PCB 선적·배송' },
+  cases: { name: 'admin-legacy-pcb-cases', label: 'PCB 진행현황' },
+  rfqs: { name: 'admin-legacy-pcb-rfqs', label: 'PCB 견적요청' },
+  orders: { name: 'admin-legacy-pcb-orders', label: 'PCB 주문·결제' },
+  pos: { name: 'admin-legacy-pcb-pos', label: 'PCB 발주·EQ' },
+  remittances: { name: 'admin-legacy-pcb-remittances', label: 'PCB 송금' },
+  shipments: { name: 'admin-legacy-pcb-shipments', label: 'PCB 선적·배송' },
 };
 const backTarget = computed(() => {
   const fallback =
@@ -1092,7 +1092,7 @@ const shipMatesOf = (
 // 동반 건의 Case 로 이동 — 같은 라우트 params 교체(specId computed 가 반응해 전체 재조회).
 function openMateCase(mateSpecId: number): void {
   void router.push({
-    name: 'admin-pcb-case',
+    name: 'admin-legacy-pcb-case',
     params: { id: String(mateSpecId) },
     query: route.query,
   });
@@ -3195,7 +3195,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           </label>
           <p v-if="assignCandidates.length === 0" class="px-2 py-4 text-center text-xs text-gray-400">
             PCB 견적(pcb_rfq) 능력이 있는 승인 협력사가 없습니다 —
-            <RouterLink :to="{ name: 'admin-partners' }" class="font-semibold text-blue-600 hover:underline">
+            <RouterLink :to="{ name: 'admin-legacy-partners' }" class="font-semibold text-blue-600 hover:underline">
               파트너 관리
             </RouterLink>에서 등록하세요.
           </p>

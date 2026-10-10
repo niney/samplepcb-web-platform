@@ -53,7 +53,7 @@ const applySearch = (): void => {
 
 function openCase(specId: number): void {
   void router.push({
-    name: 'admin-pcb-case',
+    name: 'admin-legacy-pcb-case',
     params: { id: String(specId) },
     query: pcbDetailQuery(props.from, route.fullPath),
   });

@@ -291,7 +291,7 @@ const openPanel = (row: AdminPcbRemittanceItemType): void => {
 
 const openCase = (specId: number): void => {
   void router.push({
-    name: 'admin-pcb-case',
+    name: 'admin-legacy-pcb-case',
     params: { id: String(specId) },
     query: pcbDetailQuery('remittances', route.fullPath),
   });

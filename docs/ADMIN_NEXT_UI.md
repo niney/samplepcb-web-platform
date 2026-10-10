@@ -1,6 +1,14 @@
 # 관리자 리뉴얼(shadcn-vue) — `src/next`
 
-sp-vue 관리자 화면을 shadcn-vue로 다시 짓는 작업의 정본 문서. PCB 모듈부터 시작했고(2026-10-06), SmartBOM 모듈(§10)과 통합 모듈(§11, 견적관리 제외)까지 지었다. 셋 다 컷오버 전.
+sp-vue 관리자 화면을 shadcn-vue로 다시 짓는 작업의 정본 문서. PCB 모듈부터 시작했고(2026-10-06), SmartBOM 모듈(§10)과 통합 모듈(§11, 견적관리 제외)까지 지었다. 개발 모듈 포함 **2026-10-10 컷오버 완료** — 아래 §0.
+
+## 0. 컷오버(2026-10-10) — 지금의 경로·이름
+
+- **리뉴얼 화면이 정식**: `/app/admin/*`, 이름 `admin`·`admin-*`(통합·PCB·SmartBOM·BOM·개발). `NEXT_*_ROUTES` 값과 `NEXT_*_BASE_PATH` 가 옛 값을 이어받았다. 메일 딥링크·QR·바깥 링크는 고치지 않고 새 화면으로 열린다.
+- **옛 화면은 지우지 않고 물러났다**: `/app/admin/legacy/*`, 이름 `admin-legacy`·`admin-legacy-*`(옛 셸 `AdminLayout`). 새 화면의 '이전 화면' 버튼(`legacyNextRoute`)이 열고, 옛 셸 헤더의 '새 화면' 버튼이 같은 화면의 리뉴얼판으로 돌아간다. 옛 화면 코드 안의 라우트 이름도 `admin-legacy-*` 로 바꿔 옛 화면끼리 잇는다.
+- **리뉴얼하지 않은 화면은 그대로**: 견적관리(`/admin/quotes`, `admin-quotes`)·재능마켓(`/admin/market/*`, `admin-market-*`)은 정식 경로·이름 그대로 옛 셸에 남는다. 옛 셸은 이 화면들에서 메뉴·스위처를 정식(리뉴얼) 화면으로, 옛 화면 안에서는 옛 화면으로 건다(`admin/menu.ts` 의 `legacyAdminTo`·`canonicalAdminRouteName`).
+- 컷오버 전 경로 `/app/admin/next/*` 는 접두만 걷어 정식 경로로 리다이렉트한다(북마크).
+- **e2e 남은 일**: `/app/admin/{pcb,smartbom,bom,develop,…}` 를 옛 화면 선택자로 보던 스펙은 이제 새 화면을 연다 — 선택자를 새 화면에 맞추거나(정석) 옛 화면 대조가 목적이면 `/app/admin/legacy/…` 로 옮긴다. `e2e/helpers/develop-admin.ts` 의 `DEVELOP_ADMIN_UI=old` 는 legacy 경로를 본다.
 
 ## 1. 방식 — 나란히 짓고 한 번에 넘긴다
 

@@ -1,6 +1,6 @@
 // 관리자 「개발」 화면 e2e 공용 — 시드(고객 API)·정리·옛/새 화면 차이 어댑터.
 //
-// 같은 시나리오를 옛 화면(/app/admin/develop)과 리뉴얼 화면(/app/admin/next/develop)에서 돌린다(env DEVELOP_ADMIN_UI=old|next,
+// 같은 시나리오를 옛 화면(/app/admin/legacy/develop)과 리뉴얼 화면(/app/admin/develop — 2026-10-10 컷오버로 정식 경로)에서 돌린다(env DEVELOP_ADMIN_UI=old|next,
 // 기본 old). 옛 화면에서 green 이면 시나리오가 맞고, 새 화면도 green 이면 동작이 같다는 대조가 된다.
 // 선택자는 role·이름(문구) 중심 — 두 화면이 같은 문구를 쓰기로 했다(docs/ADMIN_NEXT_UI.md). 구조가 다른 곳(탭 버튼 vs role=tab,
 // 네이티브 체크박스 vs role=checkbox 버튼, 인라인 확인 vs 포털 대화상자, 사이드바 마크업)은 이 파일의 어댑터 함수가 가린다.
@@ -18,9 +18,9 @@ export type DevelopAdminUi = 'old' | 'next';
 export const DEVELOP_ADMIN_UI: DevelopAdminUi = process.env.DEVELOP_ADMIN_UI === 'next' ? 'next' : 'old';
 
 /** vue-router base(/app) 포함 경로 접두. */
-export const DEVELOP_ADMIN_BASE = DEVELOP_ADMIN_UI === 'next' ? '/app/admin/next/develop' : '/app/admin/develop';
+export const DEVELOP_ADMIN_BASE = DEVELOP_ADMIN_UI === 'next' ? '/app/admin/develop' : '/app/admin/legacy/develop';
 
-const ROUTE_PREFIX = DEVELOP_ADMIN_UI === 'next' ? 'admin-next-develop' : 'admin-develop';
+const ROUTE_PREFIX = DEVELOP_ADMIN_UI === 'next' ? 'admin-develop' : 'admin-legacy-develop';
 export type DevelopQueueKey = 'home' | 'intake' | 'contracts' | 'projects' | 'deliveries' | 'inquiries' | 'requests';
 const QUEUE_PATHS: Record<DevelopQueueKey, string> = {
   home: '',
@@ -31,7 +31,7 @@ const QUEUE_PATHS: Record<DevelopQueueKey, string> = {
   inquiries: '/inquiries',
   requests: '/requests',
 };
-/** 큐 라우트 이름(상세 `?from=` 값) — 옛 'admin-develop-intake' · 새 'admin-next-develop-intake'. */
+/** 큐 라우트 이름(상세 `?from=` 값) — 옛 'admin-legacy-develop-intake' · 새 'admin-develop-intake'. */
 export const developQueueRouteName = (key: DevelopQueueKey): string =>
   key === 'home' ? ROUTE_PREFIX : `${ROUTE_PREFIX}-${key}`;
 export const developQueuePath = (key: DevelopQueueKey): string => `${DEVELOP_ADMIN_BASE}${QUEUE_PATHS[key]}`;

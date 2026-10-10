@@ -45,7 +45,7 @@ async function submit(file: File): Promise<void> {
   error.value = '';
   try {
     const response = await create.mutateAsync(file);
-    await router.push({ name: 'admin-bom-quote', params: { id: response.data.quoteId } });
+    await router.push({ name: 'admin-legacy-bom-quote', params: { id: response.data.quoteId } });
   } catch (reason) {
     error.value =
       reason instanceof ApiRequestError && reason.payload?.error === 'BOM_ENGINE_UNREACHABLE'

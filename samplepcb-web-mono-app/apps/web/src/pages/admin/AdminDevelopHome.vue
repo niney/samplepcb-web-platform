@@ -42,13 +42,13 @@ const chips = computed(() => {
   const d = data.value?.data;
   if (d === undefined) return [];
   return [
-    { key: 'intake', n: d.counts.intake, to: 'admin-develop-intake', tone: 'gray' },
-    { key: 'contract', n: d.counts.contract, to: 'admin-develop-contracts', tone: 'gray' },
-    { key: 'inProgress', n: d.counts.in_progress, to: 'admin-develop-projects', tone: 'gray' },
-    { key: 'delivered', n: d.counts.delivered, to: 'admin-develop-deliveries', tone: 'gray' },
-    { key: 'docsAwaiting', n: d.signals.docsAwaiting, to: 'admin-develop-projects', tone: 'amber' },
-    { key: 'replyOverdue', n: d.signals.replyOverdue, to: 'admin-develop-projects', tone: 'red' },
-    { key: 'inquiriesOpen', n: d.signals.inquiriesOpen, to: 'admin-develop-inquiries', tone: 'amber' },
+    { key: 'intake', n: d.counts.intake, to: 'admin-legacy-develop-intake', tone: 'gray' },
+    { key: 'contract', n: d.counts.contract, to: 'admin-legacy-develop-contracts', tone: 'gray' },
+    { key: 'inProgress', n: d.counts.in_progress, to: 'admin-legacy-develop-projects', tone: 'gray' },
+    { key: 'delivered', n: d.counts.delivered, to: 'admin-legacy-develop-deliveries', tone: 'gray' },
+    { key: 'docsAwaiting', n: d.signals.docsAwaiting, to: 'admin-legacy-develop-projects', tone: 'amber' },
+    { key: 'replyOverdue', n: d.signals.replyOverdue, to: 'admin-legacy-develop-projects', tone: 'red' },
+    { key: 'inquiriesOpen', n: d.signals.inquiriesOpen, to: 'admin-legacy-develop-inquiries', tone: 'amber' },
   ] as const;
 });
 const chipClass = (tone: 'gray' | 'amber' | 'red', n: number): string =>

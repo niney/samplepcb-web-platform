@@ -126,7 +126,7 @@ function retryDetail(): void {
 
 async function onCaseDeleted(): Promise<void> {
   caseDeleteOpen.value = false;
-  await router.push({ name: 'admin-smartbom' });
+  await router.push({ name: 'admin-legacy-smartbom' });
 }
 
 // 역할별 메뉴 진입 컨텍스트(§6.12 개정) — ?from=quotes|orders|pos|logistics 로 들어오면
@@ -1753,7 +1753,7 @@ async function downloadOriginal(): Promise<void> {
     <!-- 헤더 -->
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
-        :to="{ name: 'admin-smartbom' }"
+        :to="{ name: 'admin-legacy-smartbom' }"
         class="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
       >
         ← 진행현황

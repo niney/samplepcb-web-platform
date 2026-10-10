@@ -92,7 +92,7 @@ const fmtDateTime = (iso: string): string =>
         <h1 class="text-xl font-extrabold">실물 포장 조회</h1>
       </div>
       <RouterLink
-        :to="{ name: 'admin-smartbom-logistics' }"
+        :to="{ name: 'admin-legacy-smartbom-logistics' }"
         class="ml-auto rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
       >
         ← 선적·배송
@@ -167,7 +167,7 @@ const fmtDateTime = (iso: string): string =>
             </p>
             <RouterLink
               :to="{
-                name: 'admin-smartbom-case',
+                name: 'admin-legacy-smartbom-case',
                 params: { id: detail.po.quoteId },
                 query: { from: 'logistics' },
               }"
