@@ -37,6 +37,7 @@ import {
   PCB_PO_STATUS_LABELS,
   pcbEqReplyFileName,
   lastPcbEqReworkBoundary,
+  type AdminPcbEqCommentTranslationBodyType,
   type AdminPcbEqProxyAnswerBodyType,
   type AdminPcbPoViewType,
 } from '@sp/api-contract';
@@ -675,6 +676,40 @@ const onZoom = (url: string, name: string): void => {
   zoomed.value = { url, name };
 };
 
+// ── 고객 의견 번역(D20 P4) — 협력사 화면·회신서에 원문과 함께 나가는 문장 ───────────────────
+// 고객 회신이 도착하면 서버가 뒤에서 번역해 둔다. 여기서는 그 번역을 보고 고치거나, 없으면 AI 로 받는다.
+const translationBusy = computed(() => mut.translate.isPending.value || mut.saveCommentTranslation.isPending.value);
+async function translateComments(force: boolean): Promise<void> {
+  const view = selectedView.value;
+  if (view === null || translationBusy.value) return;
+  if (
+    force &&
+    !(await confirmDialog({
+      message: `${String(view.roundNo ?? '')}차의 고객 의견을 모두 AI 로 다시 번역할까요?\n직접 고친 번역도 AI 번역으로 바뀝니다.`,
+      confirmLabel: '다시 번역',
+    }))
+  ) {
+    return;
+  }
+  errorText.value = '';
+  try {
+    await mut.translate.mutateAsync({ poId: view.poId, reviewId: view.id, force });
+  } catch (error) {
+    fail(error, 'AI 번역에 실패했습니다.');
+  }
+}
+async function saveCommentTranslation(body: AdminPcbEqCommentTranslationBodyType): Promise<void> {
+  const view = selectedView.value;
+  const itemId = currentItem.value?.id ?? null;
+  if (view === null || itemId === null || translationBusy.value) return;
+  errorText.value = '';
+  try {
+    await mut.saveCommentTranslation.mutateAsync({ poId: view.poId, reviewId: view.id, itemId, body });
+  } catch (error) {
+    fail(error, '번역을 저장하지 못했습니다.');
+  }
+}
+
 // ── 근거 첨부 내려받기 ───────────────────────────────────────────────────────────
 const sourceFiles = computed(() => {
   const ids = selectedView.value?.sourceFileIds ?? [];
@@ -1086,6 +1121,10 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
                 :prev-round="prevRound"
                 :uploading="uploading"
                 :loose-figures="looseFigures"
+                :ai-enabled="aiEnabled"
+                :translation-busy="translationBusy"
+                @save-translation="(body) => void saveCommentTranslation(body)"
+                @translate="(force) => void translateComments(force)"
                 @patch="patchItem"
                 @upload="(files) => void uploadFigures(files)"
                 @remove-figure="(id) => void removeFigure(id)"

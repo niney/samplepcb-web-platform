@@ -109,6 +109,9 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
   let mdProjectName = '';
 
   const COMMENT = `좌측 하단에 넣어 주세요 ${token}`;
+  // 고객 의견의 번역(D20 P4) — 실제로는 고객 회신 때 AI 가 번역해 두지만, 화면 단언이 모델 답에 기대지 않게
+  // 관리자 수정 경로(PUT)로 정해진 문장을 넣는다. 사람이 적은 번역은 뒤늦게 도착한 AI 번역이 덮지 못한다(쓰기 가드).
+  const TRANSLATED = { en: `Please place it at the lower left ${token}`, 'zh-CN': `请放在左下角 ${token}` } as const;
   const ITEMS = [
     {
       factoryNo: '1',
@@ -338,6 +341,12 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
 
   test('P2. 전달 — 원문 질문·원문 선택지·고른 기호 강조·고객 의견, 지금 할 일이 다음 수를 말한다', async () => {
     await forward(poId, r1);
+    // 번역문을 정해 둔다(담당자 수정) — 포털 응답에 실린다. 의견이 없는 2번 문항에는 번역도 없다.
+    const put = await api(A, 'PUT', `/api/admin/pcb-eq-reviews/${String(poId)}/${String(r1.id)}/items/${String(r1.items[0].id)}/comment-translation`, TRANSLATED);
+    expect(put.status, `번역 저장: ${JSON.stringify(put.json)}`).toBe(200);
+    const round = (await portalRounds(P, poId))[0];
+    expect(round.items[0].commentI18n, '포털 응답의 번역').toMatchObject({ ...TRANSLATED, by: 'admin' });
+    expect(round.items[1].commentI18n, '의견 없는 문항').toBeNull();
     const page = await openPo(owner.mbId ?? '', poId, projectName);
     await area(page).waitFor();
     const box = area(page);
@@ -372,6 +381,9 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
     const comment = await first.getByTestId('partner-eq-comment').innerText();
     expect(comment).toContain(COMMENT);
     expect(comment).toContain(tr('고객 원문(한국어)', 'ko'));
+    // 포털 언어가 한국어면 번역이 있어도 원문만 보인다(번역문은 영어·중국어일 때).
+    expect(await first.getByTestId('partner-eq-comment').getAttribute('data-translated'), '한국어 화면').toBe('false');
+    expect(comment, '한국어 화면에 번역문이 끼지 않는다').not.toContain(TRANSLATED.en);
     expect(await items.nth(1).getByTestId('partner-eq-comment').count(), '의견 없는 문항엔 칸이 없다').toBe(0);
     expect(await chosenOf(page, 1)).toEqual(['true', 'false']);
 
@@ -435,7 +447,20 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
       expect(boxText.replace(COMMENT, ''), `${locale} 영역에 한국어 문구가 남지 않는다`).not.toMatch(HANGUL);
       expect(boxText, `${locale} 고객 의견은 원문 그대로`).toContain(COMMENT);
       expect(boxText).toContain(tr('고객 선택', locale));
-      expect(boxText).toContain(tr('고객 원문(한국어)', locale));
+      // 고객 의견 — 번역문을 크게, 원문(한국어)을 그 아래 작게. 번역이 사람 손을 거쳤으면 그렇게 표시한다.
+      const commentBox = page.getByTestId('partner-eq-comment').first();
+      expect(await commentBox.getAttribute('data-translated'), `${locale} 번역 표시`).toBe('true');
+      const translated = commentBox.getByTestId('partner-eq-comment-translated');
+      const original = commentBox.getByTestId('partner-eq-comment-original');
+      expect((await translated.innerText()).trim(), `${locale} 번역문`).toBe(TRANSLATED[locale]);
+      expect(await original.innerText(), `${locale} 원문 머리말`).toContain(`${tr('원문(한국어)', locale)}:`);
+      expect(await original.innerText(), `${locale} 원문`).toContain(COMMENT);
+      expect(await commentBox.innerText(), `${locale} 번역 출처`).toContain(tr('담당자 확인 번역', locale));
+      const [trSize, origSize] = await Promise.all(
+        [translated, original].map((el) => el.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize))),
+      );
+      expect(trSize, `${locale} 번역문이 원문보다 크다`).toBeGreaterThan(origSize ?? 0);
+      expect((await translated.boundingBox())?.y ?? 0, `${locale} 번역문이 위`).toBeLessThan((await original.boundingBox())?.y ?? 0);
       expect(boxText).toContain(tr('마킹(UL·주기)', locale));
       expect(boxText).toContain(tr('{value1}차', locale, { value1: 1 }));
       expect(await chosenOf(page, 0), `${locale} 강조 유지`).toEqual(['false', 'true']);
@@ -449,6 +474,9 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
       expect(sheet, `${locale} 표 제목`).toContain(tr('고객 선택', locale));
       expect(sheet, `${locale} 유형`).toContain(tr('마킹(UL·주기)', locale));
       expect(sheet, `${locale} 고객 의견은 원문 그대로`).toContain(COMMENT);
+      // 회신서의 의견 칸도 화면과 같은 번역문(저장된 것 하나)을 먼저, 원문을 그 아래 적는다.
+      expect(sheet, `${locale} 회신서의 번역문`).toContain(TRANSLATED[locale]);
+      expect(sheet, `${locale} 회신서의 원문 머리말`).toContain(`${tr('원문(한국어)', locale)}: ${COMMENT}`);
       // 남는 한글은 자료뿐이다 — 고객 의견(원문)과 협력사 자기 이름. 표 제목·안내문에는 한글이 없다.
       const leftover = sheet.replace(COMMENT, '').split('\n').filter((line) => HANGUL.test(line));
       expect(leftover.filter((line) => !line.includes(owner.name)), `${locale} 회신서에 남은 한국어 문구`).toEqual([]);

@@ -1,5 +1,6 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
+import { autoTranslateEqComments } from '../lib/ai/pcb-eq-translate';
 import {
   CustomerPcbEqAnswerBody,
   CustomerPcbEqAnswerResponse,
@@ -360,6 +361,9 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         const mapped = customerAnswerError(outcome.error);
         return reply.status(mapped.code).send({ error: outcome.error, message: mapped.message });
       }
+      // 회신이 저장됐다 — 고객 의견을 뒤에서 번역해 둔다(D20 P4). 응답을 기다리게 하지 않고, 번역이 꺼져 있거나
+      // 실패해도 회신은 그대로다(협력사 화면은 원문만 보인다).
+      void autoTranslateEqComments(request.params.reviewId, request.log);
 
       const reviews = await listCustomerEqReviews(await ctIdsOfSpec(outcome.specId), request.user.mbId);
       const view = reviews.find((r) => r.id === Number(request.params.reviewId));

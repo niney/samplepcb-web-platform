@@ -166,6 +166,34 @@ export const PcbEqItemAnswer = z.object({
 });
 export type PcbEqItemAnswerType = z.infer<typeof PcbEqItemAnswer>;
 
+/**
+ * 고객 의견의 번역(D20 P4) — 고객은 한국어로 쓰고, 협력사 포털 언어가 영어·중국어면 화면과 회신서 엑셀에
+ * **번역문을 원문과 함께** 보인다(원문을 치우지 않는다 — 제조 지시는 한 단어가 틀리면 그대로 만들어진다).
+ * 고객 회신이 도착했을 때 AI 가 한 번 번역해 문항에 저장하고(by=ai), 관리자가 고치면 그 문장이 나간다(by=admin).
+ * 번역이 없으면(꺼져 있음·실패) null — 화면은 지금처럼 원문만 보인다.
+ */
+export const PcbEqCommentTranslation = z.object({
+  en: z.string(),
+  'zh-CN': z.string(),
+  by: z.enum(['ai', 'admin']),
+  at: z.string(),
+});
+export type PcbEqCommentTranslationType = z.infer<typeof PcbEqCommentTranslation>;
+
+/** 번역이 있는 언어(원문인 한국어 제외) — 포털 언어 가운데 이 둘일 때만 번역문을 세운다. */
+export const PCB_EQ_COMMENT_TRANSLATION_LOCALES = ['en', 'zh-CN'] as const;
+export type PcbEqCommentTranslationLocaleType = (typeof PCB_EQ_COMMENT_TRANSLATION_LOCALES)[number];
+
+/** 그 언어로 보일 번역문 — 한국어이거나 번역이 없거나 비어 있으면 null(원문만 보인다). */
+export const pcbEqCommentTranslated = (
+  translation: PcbEqCommentTranslationType | null,
+  locale: string,
+): string | null => {
+  if (translation === null || (locale !== 'en' && locale !== 'zh-CN')) return null;
+  const text = translation[locale].trim();
+  return text === '' ? null : text;
+};
+
 /** 직전 회차의 같은 문항과 그 답 — 개정 회차에서 "이전 답 유지"의 근거. */
 export const PcbEqPrevItem = z.object({
   itemId: z.number(),
@@ -255,6 +283,8 @@ export const AdminPcbEqItem = PcbEqDraftItem.extend({
   change: PcbEqItemChange.nullable(),
   prev: PcbEqPrevItem.nullable(),
   answer: PcbEqItemAnswer.nullable(),
+  /** 고객 의견의 번역(D20 P4) — 의견이 없거나 아직 번역 전이면 null. */
+  commentI18n: PcbEqCommentTranslation.nullable(),
   /** AI 초안의 검토 표시(없으면 빈 배열) — 저장 입력에 실어 보내지 않으면 지워진다. */
   aiFlags: z.array(PcbEqAiFlag),
 });
@@ -283,6 +313,8 @@ export const PartnerPcbEqItem = z.object({
   question: z.string(),
   options: z.array(PcbEqItemOption.pick({ key: true, label: true, labelOrig: true })),
   answer: PcbEqItemAnswer.nullable(),
+  /** 고객 의견의 번역(D20 P4) — 포털 언어가 영어·중국어면 번역문을 원문 위에 세운다. 없으면 null. */
+  commentI18n: PcbEqCommentTranslation.nullable(),
 });
 export type PartnerPcbEqItemType = z.infer<typeof PartnerPcbEqItem>;
 
@@ -764,3 +796,21 @@ export const PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE = {
     other: '其他',
   },
 } as const satisfies Record<PcbEqReplyLocaleType, Record<PcbEqItemCategoryType, string>>;
+
+// ── 고객 의견 번역(D20 P4) — 관리자 ──────────────────────────────────────────
+// `POST /admin/pcb-eq-reviews/:poId/:reviewId/translate` — AI 로 (다시) 번역. 응답은 갱신된 회차.
+// `PUT  /admin/pcb-eq-reviews/:poId/:reviewId/items/:itemId/comment-translation` — 관리자가 번역문을 고친다.
+
+/** [AI 번역]·[다시 번역] — force 가 아니면 번역이 없는 의견만(관리자가 고친 번역을 덮지 않는다). */
+export const AdminPcbEqTranslateBody = z
+  .object({ force: z.boolean().default(false) })
+  .nullish()
+  .transform((v) => v ?? { force: false });
+export type AdminPcbEqTranslateBodyType = z.input<typeof AdminPcbEqTranslateBody>;
+
+/** 번역문 수정 — 두 언어를 함께 보낸다(한쪽만 고쳐도 다른 쪽은 지금 값 그대로 실어 보낸다). 둘 다 비우면 번역을 지운다. */
+export const AdminPcbEqCommentTranslationBody = z.object({
+  en: z.string().trim().max(6000),
+  'zh-CN': z.string().trim().max(6000),
+});
+export type AdminPcbEqCommentTranslationBodyType = z.infer<typeof AdminPcbEqCommentTranslationBody>;

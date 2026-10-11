@@ -6,6 +6,7 @@ import {
   AdminPcbEqReviewListResponse,
   AdminPcbEqReviewResponse,
   apiRoutes,
+  type AdminPcbEqCommentTranslationBodyType,
   type AdminPcbEqDraftCreateBodyType,
   type AdminPcbEqDraftUpdateBodyType,
   type AdminPcbEqProxyAnswerBodyType,
@@ -146,6 +147,34 @@ export function useEqRoundMutations() {
     onSuccess: onReview,
   });
 
+  // ── 고객 의견 번역(D20 P4) — 응답은 그 회차의 최신 뷰. 행 요약(칩)은 안 바뀌어 캐시만 갈아 끼운다. ──
+  /** AI 로 번역 — force 가 아니면 번역이 없는 의견만(직접 고친 번역을 덮지 않는다). 끝날 때까지 기다린다(10초 안팎). */
+  const translate = useMutation({
+    mutationFn: ({ poId, reviewId, force }: { poId: number; reviewId: number; force: boolean }) =>
+      apiSend('POST', `${reviewPath(poId, reviewId)}/translate`, { force }, AdminPcbEqReviewResponse),
+    onSuccess: (res) => {
+      putReview(qc, res.data.review);
+    },
+  });
+  /** 번역문 수정 — 고친 문장이 협력사 화면·회신서에 나간다. */
+  const saveCommentTranslation = useMutation({
+    mutationFn: ({
+      poId,
+      reviewId,
+      itemId,
+      body,
+    }: {
+      poId: number;
+      reviewId: number;
+      itemId: number;
+      body: AdminPcbEqCommentTranslationBodyType;
+    }) =>
+      apiSend('PUT', `${reviewPath(poId, reviewId)}/items/${String(itemId)}/comment-translation`, body, AdminPcbEqReviewResponse),
+    onSuccess: (res) => {
+      putReview(qc, res.data.review);
+    },
+  });
+
   /** 초안 삭제·요청 취소 — 같은 라우트(작성 중·회신 대기만). 응답은 발주서의 회차 목록 전체. */
   const cancel = useMutation({
     mutationFn: ({ poId, reviewId }: { poId: number; reviewId: number }) =>
@@ -173,7 +202,19 @@ export function useEqRoundMutations() {
     },
   });
 
-  return { createDraft, saveDraft, uploadFigure, deleteFigure, send, proxyAnswer, forward, cancel, aiAnalyze };
+  return {
+    createDraft,
+    saveDraft,
+    uploadFigure,
+    deleteFigure,
+    send,
+    proxyAnswer,
+    forward,
+    cancel,
+    aiAnalyze,
+    translate,
+    saveCommentTranslation,
+  };
 }
 
 /**

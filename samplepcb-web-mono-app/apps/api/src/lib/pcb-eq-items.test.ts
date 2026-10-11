@@ -51,6 +51,7 @@ const item = (over: Partial<SpPcbEqReviewItem> = {}): SpPcbEqReviewItem => ({
   change: null,
   answerKey: null,
   answerComment: null,
+  answerCommentI18n: null,
   aiFlags: null,
   createdAt: new Date('2026-10-11T00:00:00Z'),
   updatedAt: new Date('2026-10-11T00:00:00Z'),

@@ -1,4 +1,5 @@
-import type { Prisma, SpFile, SpPcbEqReview, SpPcbEqReviewItem } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { SpFile, SpPcbEqReview, SpPcbEqReviewItem } from '@prisma/client';
 import { PCB_EQ_REVIEW_STATUSES } from '@sp/api-contract';
 import type {
   AdminPcbEqReviewViewType,
@@ -1311,6 +1312,35 @@ export const proxyAnswerEqReview = async (
     channel: body.channel,
     note: body.note,
   });
+};
+
+/**
+ * 고객 의견 번역을 관리자가 고친다(D20 P4) — 그 문장이 협력사 화면·회신서에 나간다(by=admin).
+ * 두 언어를 다 비우면 번역을 지운다(원문만 보인다). 의견이 없는 문항에는 번역도 없다.
+ * 회차의 버전을 올리지 않는다 — 번역은 문항·답을 바꾸지 않고, 전달·승인과 엇갈려도 서로를 막을 이유가 없다.
+ */
+export const saveEqCommentTranslation = async (
+  poId: bigint,
+  reviewId: bigint,
+  itemId: bigint,
+  body: { en: string; 'zh-CN': string },
+): Promise<{ ok: true } | { ok: false; error: 'REVIEW_NOT_FOUND' | 'NO_COMMENT' }> => {
+  const item = await prisma.spPcbEqReviewItem.findFirst({
+    where: { id: itemId, reviewId, review: { poId, format: 'items' } },
+    select: { id: true, answerComment: true },
+  });
+  if (item === null) return { ok: false, error: 'REVIEW_NOT_FOUND' };
+  if (item.answerComment === null || item.answerComment.trim() === '') return { ok: false, error: 'NO_COMMENT' };
+  const empty = body.en === '' && body['zh-CN'] === '';
+  await prisma.spPcbEqReviewItem.update({
+    where: { id: item.id },
+    data: {
+      answerCommentI18n: empty
+        ? Prisma.DbNull
+        : { en: body.en, 'zh-CN': body['zh-CN'], by: 'admin', at: new Date().toISOString() },
+    },
+  });
+  return { ok: true };
 };
 
 /** 협력사에 전달 — 고객 회신이 온 회차만, 한 번. 포털 '고객 회신' 영역은 이 시각부터 열린다. */

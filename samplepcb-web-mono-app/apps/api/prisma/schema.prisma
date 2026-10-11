@@ -1996,6 +1996,7 @@ model SpPcbEqReviewItem {
   change        String?       @db.VarChar(16) // new|changed|same(첫 회차 null)
   answerKey     String?       @db.VarChar(8)
   answerComment String?       @db.Text
+  answerCommentI18n Json? // 고객 의견 번역 { en, zh-CN, by: ai|admin, at } — 협력사 화면·회신서용(D20 P4)
   aiFlags       Json? // PcbEqAiFlag[] — AI 초안의 검토 표시(D20 P2), 관리자가 확인하면 지운다
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

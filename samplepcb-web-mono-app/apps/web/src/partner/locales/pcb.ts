@@ -432,4 +432,8 @@ export const pcbMessages = {
   '회신서 엑셀': ['회신서 엑셀', 'Reply sheet (Excel)', '回复单 (Excel)'],
   '이 회차의 고객 회신을 엑셀 파일로 내려받습니다.': ['이 회차의 고객 회신을 엑셀 파일로 내려받습니다.', 'Download this round\'s customer answers as an Excel file.', '将本次客户回复下载为 Excel 文件。'],
   '회신서를 내려받지 못했습니다.': ['회신서를 내려받지 못했습니다.', 'Could not download the reply sheet.', '无法下载回复单。'],
+  // 고객 의견 번역(D20 P4) — 번역문 위의 표시와 원문 줄의 머리말
+  'AI 번역': ['AI 번역', 'AI translation', 'AI 翻译'],
+  '담당자 확인 번역': ['담당자 확인 번역', 'Translation checked by staff', '已由负责人确认的译文'],
+  '원문(한국어)': ['원문(한국어)', 'Original (Korean)', '原文（韩语）'],
 } as const;

@@ -21,6 +21,7 @@ import {
   PCB_EQ_ITEM_CATEGORIES,
   PCB_EQ_ITEM_CATEGORY_LABELS,
   PCB_EQ_ITEM_CHANGE_LABELS,
+  type AdminPcbEqCommentTranslationBodyType,
   type AdminPcbEqReviewViewType,
   type PcbEqItemChangeType,
 } from '@sp/api-contract';
@@ -34,6 +35,7 @@ import { Field, FieldLabel } from '@/next/components/ui/field';
 import { Input } from '@/next/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/next/components/ui/native-select';
 import { Textarea } from '@/next/components/ui/textarea';
+import EqCommentTranslation from './EqCommentTranslation.vue';
 import EqFigureThumb from './EqFigureThumb.vue';
 import EqLooseFigures from './EqLooseFigures.vue';
 import {
@@ -62,6 +64,10 @@ const props = defineProps<{
   uploading: boolean;
   /** 이 회차에 올렸지만 어느 문항에도 안 붙은 그림(부모가 서버 목록 − 편집 버퍼로 계산). */
   looseFigures: EqFigureDraft[];
+  /** 'PCB EQ 분석'이 켜져 있는가 — 고객 의견 AI 번역 버튼의 유무(D20 P4). */
+  aiEnabled: boolean;
+  /** 번역 저장·AI 번역이 도는 중. */
+  translationBusy: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -71,6 +77,10 @@ const emit = defineEmits<{
   /** 붙지 않은 그림을 이 문항에 붙인다(부모가 버퍼에 넣는다 — 그림 정보는 부모가 안다). */
   attachFigure: [fileId: number];
   zoom: [url: string, name: string];
+  /** 고객 의견 번역문 수정(D20 P4). */
+  saveTranslation: [body: AdminPcbEqCommentTranslationBodyType];
+  /** 이 회차의 고객 의견을 AI 로 번역 — force 면 이미 있는 번역도 다시. */
+  translate: [force: boolean];
 }>();
 
 const patch = (value: ItemPatch): void => {
@@ -341,6 +351,16 @@ const answeredOption = computed(() =>
           <span v-if="answeredOption?.labelOrig" class="text-muted-foreground"> · {{ answeredOption.labelOrig }}</span>
         </p>
         <p v-if="item.answer.comment !== null" class="text-foreground mt-1 text-sm font-medium whitespace-pre-wrap">“{{ item.answer.comment }}”</p>
+        <!-- 고객 의견의 번역(D20 P4) — 협력사 화면·회신서에 원문과 함께 나가는 문장. 여기서 확인하고 고친다. -->
+        <EqCommentTranslation
+          v-if="item.id !== null && item.answer.comment !== null && item.answer.comment.trim() !== ''"
+          :item-id="item.id"
+          :translation="item.commentI18n"
+          :ai-enabled="aiEnabled"
+          :busy="translationBusy"
+          @save="emit('saveTranslation', $event)"
+          @translate="emit('translate', $event)"
+        />
       </AlertDescription>
     </Alert>
 

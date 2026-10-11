@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   AdminPcbEqAiAnalyzeBody,
   AdminPcbEqAiAnalyzeResponse,
+  AdminPcbEqCommentTranslationBody,
   AdminPcbEqDraftCreateBody,
   AdminPcbEqDraftUpdateBody,
   AdminPcbEqFigureUploadResponse,
@@ -11,6 +12,7 @@ import {
   AdminPcbEqReviewCreateBody,
   AdminPcbEqReviewListResponse,
   AdminPcbEqReviewResponse,
+  AdminPcbEqTranslateBody,
   AdminPcbEqVersionBody,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
@@ -26,6 +28,7 @@ import {
   listAdminEqReviews,
   loadAdminEqReview,
   proxyAnswerEqReview,
+  saveEqCommentTranslation,
   saveEqDraft,
   sendEqDraft,
   uploadEqFigure,
@@ -35,6 +38,7 @@ import { eqFigureContentType, eqItemNo } from '../lib/pcb-eq-items';
 import { loadEqReplySheet, renderEqReplyXlsx } from '../lib/pcb-eq-reply-sheet';
 import { isEqAiEnabled, loadEqAiState } from '../lib/pcb-eq-ai';
 import { EQ_ANALYSIS_ERRORS, startEqAnalysis } from '../lib/ai/pcb-eq-runner';
+import { EQ_TRANSLATE_ERRORS, autoTranslateEqComments, translateEqComments } from '../lib/ai/pcb-eq-translate';
 import { eqRoundStartOf } from '../lib/pcb-po';
 import { getMembersByIds, getOrderInfoByCtId } from '../lib/g5-db';
 import {
@@ -64,6 +68,7 @@ import { downloadFromFileServer } from '../lib/file-server';
 const PoParams = z.object({ poId: z.coerce.bigint() });
 const ReviewParams = PoParams.extend({ reviewId: z.coerce.bigint() });
 const FigureParams = ReviewParams.extend({ fileId: z.coerce.bigint() });
+const ItemParams = ReviewParams.extend({ itemId: z.coerce.bigint() });
 const ApiError = z.object({ error: z.string(), message: z.string() });
 
 const CREATE_ERROR: Record<string, { code: 400 | 404 | 409; message: string }> = {
@@ -414,6 +419,55 @@ export const adminPcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts,
       const { poId, reviewId } = request.params;
       const outcome = await proxyAnswerEqReview(poId, reviewId, request.body, request.user.mbId);
       if (!outcome.ok) return sendItemsError(reply, outcome.error);
+      // 대리로 넣은 의견도 협력사가 읽는다 — 고객 회신과 같이 뒤에서 번역해 둔다(D20 P4).
+      void autoTranslateEqComments(reviewId, request.log);
+      return reviewView(reply, poId, reviewId);
+    },
+  );
+
+  // ── POST /pcb-eq-reviews/:poId/:reviewId/translate — 고객 의견 AI 번역(D20 P4) ──
+  // 자동 번역이 안 됐거나(꺼져 있었음·실패) 다시 받고 싶을 때. 끝날 때까지 기다렸다 갱신된 회차를 돌려준다
+  // (의견은 짧아 10초 안팎). force 가 아니면 번역이 없는 의견만 — 관리자가 고친 번역을 덮지 않는다.
+  fastify.post(
+    '/pcb-eq-reviews/:poId/:reviewId/translate',
+    {
+      schema: {
+        params: ReviewParams,
+        body: AdminPcbEqTranslateBody,
+        response: { 200: AdminPcbEqReviewResponse, 404: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const { poId, reviewId } = request.params;
+      if ((await loadAdminEqReview(poId, reviewId)) === null) return reply.notFound('확인 요청을 찾을 수 없습니다');
+      const outcome = await translateEqComments(reviewId, { force: request.body.force, log: request.log });
+      if (!outcome.ok) {
+        const mapped = EQ_TRANSLATE_ERRORS[outcome.error];
+        return reply.status(mapped.code).send({ error: outcome.error, message: mapped.message });
+      }
+      return reviewView(reply, poId, reviewId);
+    },
+  );
+
+  // ── PUT /pcb-eq-reviews/:poId/:reviewId/items/:itemId/comment-translation — 번역문 수정(D20 P4) ──
+  // 관리자가 고친 문장이 협력사 화면·회신서에 나간다. 두 언어를 다 비우면 번역을 지운다(원문만 보인다).
+  fastify.put(
+    '/pcb-eq-reviews/:poId/:reviewId/items/:itemId/comment-translation',
+    {
+      schema: {
+        params: ItemParams,
+        body: AdminPcbEqCommentTranslationBody,
+        response: { 200: AdminPcbEqReviewResponse, 404: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const { poId, reviewId, itemId } = request.params;
+      const outcome = await saveEqCommentTranslation(poId, reviewId, itemId, request.body);
+      if (!outcome.ok) {
+        return outcome.error === 'NO_COMMENT'
+          ? reply.status(409).send({ error: 'NO_COMMENT', message: '고객 의견이 없는 문항에는 번역을 적을 수 없습니다.' })
+          : reply.notFound('확인 요청을 찾을 수 없습니다');
+      }
       return reviewView(reply, poId, reviewId);
     },
   );

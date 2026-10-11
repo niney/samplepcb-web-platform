@@ -3,6 +3,7 @@ import {
   type AdminPcbEqDraftUpdateBodyType,
   type AdminPcbEqReviewViewType,
   type PcbEqAiFlagType,
+  type PcbEqCommentTranslationType,
   type PcbEqItemAnswerType,
   type PcbEqItemCategoryType,
   type PcbEqItemChangeType,
@@ -50,6 +51,8 @@ export interface EqItemDraft {
   prev: PcbEqPrevItemType | null;
   /** 고객(또는 대리) 답 — 발송 뒤 회차의 읽기 전용 표시. */
   answer: PcbEqItemAnswerType | null;
+  /** 고객 의견의 번역(D20 P4) — 서버 값 그대로(편집은 문항 저장이 아니라 전용 라우트로 한다). */
+  commentI18n: PcbEqCommentTranslationType | null;
   /**
    * AI 초안의 검토 표시(D20 P2) — 관리자가 [확인함]으로 하나씩 지운다. ⚠ 저장 몸통에 **남은 표시를 항상** 싣는다:
    * 서버는 안 실린 표시를 지워진 것으로 본다(계약 AdminPcbEqItemInput.aiFlags 기본 []).
@@ -113,6 +116,7 @@ export const newItem = (hasPrevRound: boolean): EqItemDraft => {
     change: hasPrevRound ? 'new' : null,
     prev: null,
     answer: null,
+    commentI18n: null,
     aiFlags: [],
   };
 };
@@ -177,6 +181,7 @@ export function draftFromView(view: AdminPcbEqReviewViewType): EqRoundDraft {
     change: item.change,
     prev: item.prev,
     answer: item.answer,
+    commentI18n: item.commentI18n,
     aiFlags: item.aiFlags.map((f) => ({ code: f.code, detail: f.detail })),
   }));
   const base = { message: view.message, dueOn: kstDateInput(view.dueOn), items };

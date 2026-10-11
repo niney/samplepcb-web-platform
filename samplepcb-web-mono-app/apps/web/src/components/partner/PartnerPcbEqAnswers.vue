@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { PCB_EQ_ITEM_CATEGORY_LABELS, type PartnerPcbEqItemType, type PartnerPcbEqRoundType } from '@sp/api-contract';
+import {
+  PCB_EQ_ITEM_CATEGORY_LABELS,
+  pcbEqCommentTranslated,
+  type PartnerPcbEqItemType,
+  type PartnerPcbEqRoundType,
+} from '@sp/api-contract';
 import { usePartnerI18n } from '../../partner/i18n';
 import { formatPartnerDateTime } from '../../partner/i18n-core';
 
 // EQ 고객 회신(D20) — 관리자가 협력사에 **전달한** 문항형 회차만 온다(서버가 거른다, 최신 먼저).
 // 공장은 자기 EQ 표의 **선택지 기호**(A/B/C)로 답을 읽는다 — 번역이 어긋나도 "B 를 골랐다"는
 // 사실은 어긋나지 않으므로 기호를 가장 크게, 문장은 공장 원문(없으면 한국어)으로 보인다.
-// 고객 의견은 번역 없이 원문 그대로다.
+// 고객 의견은 한국어 원문이다. 포털 언어가 영어·중국어이고 저장된 번역이 있으면(D20 P4 — 고객 회신 때 AI 가
+// 번역해 두고 관리자가 고칠 수 있다) **번역문을 크게, 원문을 그 아래 작게** 보인다. 원문을 치우지 않는다 —
+// 제조 지시는 한 단어가 틀리면 그대로 만들어지고, 다툼이 생기면 원문이 근거다. 번역이 없으면 원문만.
 //
 // 2026-10-11 재편(사용자 지적) — 이 영역이 타임라인과 '지금 할 일' 사이에 끼어 있어, 추가 EQ 요청으로
 // 돌아온 화면에서 올린 파일과 업로드 버튼 사이를 갈랐다. 지금은 **EQ 카드 아래의 별도 카드**이고,
@@ -67,6 +74,10 @@ const commentOf = (item: PartnerPcbEqItemType): string | null => {
   const c = item.answer?.comment ?? null;
   return c === null || c === '' ? null : c;
 };
+
+/** 지금 포털 언어로 보일 번역문 — 한국어이거나 번역이 없으면 null(원문만 보인다). */
+const translatedOf = (item: PartnerPcbEqItemType): string | null =>
+  commentOf(item) === null ? null : pcbEqCommentTranslated(item.commentI18n, locale.value);
 
 /** 고객이 실제로 읽은 한국어 문장이 원문과 다를 때만 보일 거리가 있다(번역이 답을 갈랐는지 확인용). */
 const hasKoreanView = (item: PartnerPcbEqItemType): boolean =>
@@ -189,12 +200,39 @@ defineExpose({ reveal });
               </template>
               <span v-else class="pt-1 text-xs text-gray-400">{{ pt('답변 없음') }}</span>
             </div>
-            <!-- 고객 의견 — 번역 없이 원문 그대로 -->
-            <div v-if="commentOf(item) !== null" class="min-w-0 rounded-md border-l-4 border-violet-400 bg-violet-50/50 px-2 py-1" data-testid="partner-eq-comment">
-              <p class="text-[11px] font-semibold text-violet-800">
-                {{ pt('고객 의견') }} <span class="font-normal text-gray-400">· {{ pt('고객 원문(한국어)') }}</span>
-              </p>
-              <p class="mt-0.5 whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]" :class="isExpanded(item.id) ? '' : 'line-clamp-2'">{{ commentOf(item) }}</p>
+            <!-- 고객 의견 — 번역이 있으면 번역문을 크게·원문을 그 아래 작게, 없으면 원문만 -->
+            <div
+              v-if="commentOf(item) !== null"
+              class="min-w-0 rounded-md border-l-4 border-violet-400 bg-violet-50/50 px-2 py-1"
+              data-testid="partner-eq-comment"
+              :data-translated="translatedOf(item) !== null ? 'true' : 'false'"
+            >
+              <template v-if="translatedOf(item) !== null">
+                <p class="text-[11px] font-semibold text-violet-800">
+                  {{ pt('고객 의견') }}
+                  <span class="font-normal text-gray-400">· {{ item.commentI18n?.by === 'admin' ? pt('담당자 확인 번역') : pt('AI 번역') }}</span>
+                </p>
+                <p
+                  class="mt-0.5 whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]"
+                  :class="isExpanded(item.id) ? '' : 'line-clamp-2'"
+                  data-testid="partner-eq-comment-translated"
+                >
+                  {{ translatedOf(item) }}
+                </p>
+                <p
+                  class="mt-1 whitespace-pre-wrap text-xs text-gray-500 [overflow-wrap:anywhere]"
+                  :class="isExpanded(item.id) ? '' : 'line-clamp-2'"
+                  data-testid="partner-eq-comment-original"
+                >
+                  <span class="font-semibold">{{ pt('원문(한국어)') }}:</span> {{ commentOf(item) }}
+                </p>
+              </template>
+              <template v-else>
+                <p class="text-[11px] font-semibold text-violet-800">
+                  {{ pt('고객 의견') }} <span class="font-normal text-gray-400">· {{ pt('고객 원문(한국어)') }}</span>
+                </p>
+                <p class="mt-0.5 whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]" :class="isExpanded(item.id) ? '' : 'line-clamp-2'">{{ commentOf(item) }}</p>
+              </template>
             </div>
             <span v-else class="hidden text-xs text-gray-300 lg:block">—</span>
             <button

@@ -6,6 +6,7 @@ import {
   PCB_EQ_ITEM_CHANGES,
   PCB_EQ_REVIEW_EVENT_ACTIONS,
   PcbEqAiFlag,
+  PcbEqCommentTranslation,
   PcbEqItemOption,
 } from '@sp/api-contract';
 import type {
@@ -16,6 +17,7 @@ import type {
   PcbEqAiFlagType,
   PcbEqAnswerChannelType,
   PcbEqAnswerInputType,
+  PcbEqCommentTranslationType,
   PcbEqItemAnswerType,
   PcbEqItemCategoryType,
   PcbEqItemChangeType,
@@ -106,6 +108,15 @@ export const eqItemNo = (item: Pick<SpPcbEqReviewItem, 'factoryNo' | 'seq'>): st
 
 const answerOf = (row: Pick<SpPcbEqReviewItem, 'answerKey' | 'answerComment'>): PcbEqItemAnswerType | null =>
   row.answerKey === null ? null : { key: row.answerKey, comment: row.answerComment };
+
+/** 고객 의견의 번역(D20 P4) — 의견이 없는 문항이거나 저장된 모양이 깨졌으면 없는 것으로(화면은 원문만 보인다). */
+export const parseEqCommentI18n = (
+  row: Pick<SpPcbEqReviewItem, 'answerComment' | 'answerCommentI18n'>,
+): PcbEqCommentTranslationType | null => {
+  if (row.answerComment === null || row.answerComment.trim() === '') return null;
+  const parsed = PcbEqCommentTranslation.safeParse(row.answerCommentI18n);
+  return parsed.success ? parsed.data : null;
+};
 
 /** 고른 선택지의 한국어 문구 — 사라진 기호(선택지가 고쳐진 뒤)면 null. */
 export const eqAnswerLabel = (options: readonly PcbEqItemOptionType[], key: string | null): string | null =>
@@ -531,6 +542,7 @@ export const toAdminEqItem = (
   change: asEqItemChange(row.change),
   prev,
   answer: answerOf(row),
+  commentI18n: parseEqCommentI18n(row),
   aiFlags: parseEqAiFlags(row.aiFlags),
 });
 
@@ -578,6 +590,7 @@ export const toPartnerEqItem = (row: SpPcbEqReviewItem): PartnerPcbEqItemType =>
     labelOrig: o.labelOrig,
   })),
   answer: answerOf(row),
+  commentI18n: parseEqCommentI18n(row),
 });
 
 /** 이벤트 — 사전 밖 행(손으로 넣은 데이터)은 화면에 싣지 않는다. */

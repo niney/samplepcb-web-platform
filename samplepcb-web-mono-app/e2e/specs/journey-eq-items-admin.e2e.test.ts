@@ -468,11 +468,39 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     expect(sheet, '고객이 직접 답했다').not.toContain('대리 입력');
     expect(sheet, 'EQ 요청 회차와 고객 확인 회차를 이름으로 가른다').toContain('EQ 요청: 1차');
     expect(sheet).toContain('고객 확인: 1차');
+
+    // ── 고객 의견 번역(D20 P4) — 협력사 화면·회신서에 원문과 함께 나가는 문장을 여기서 보고 고친다.
+    // 고객 회신 때 AI 가 뒤에서 번역해 두지만(켜져 있으면), 단언이 모델 답에 기대지 않게 사람이 적는 경로로 확인한다.
+    const trBox = w.locator('[data-eq-comment-translation]');
+    await trBox.waitFor({ state: 'visible' });
+    await trBox.locator('[data-eq-translation-edit]').click();
+    const TR_EN = `Next to the silkscreen at the lower left ${token}`;
+    const TR_ZH = `放在左下角丝印旁边 ${token}`;
+    await trBox.getByLabel('English').fill(TR_EN);
+    await trBox.getByLabel('简体中文').fill(TR_ZH);
+    await trBox.locator('[data-eq-translation-save]').click();
+    await untilText('담당자 수정 표시', trBox.locator('[data-eq-translation-by]'), '담당자 수정');
+    expect(await trBox.locator('[data-eq-translation-en]').innerText()).toBe(TR_EN);
+    expect(await trBox.locator('[data-eq-translation-zh]').innerText()).toBe(TR_ZH);
+    expect((await adminReview(r1)).items[0].commentI18n, '저장된 번역').toMatchObject({ en: TR_EN, 'zh-CN': TR_ZH, by: 'admin' });
+    await shot('08b-comment-translation');
+    // 의견이 없는 문항에는 번역 칸도 없고, 서버도 받지 않는다.
+    const noComment = await api(A, 'PUT', `${adminBase()}/${String(r1)}/items/${String(d.id)}/comment-translation`, { en: 'x', 'zh-CN': 'y' });
+    expect(noComment.status, JSON.stringify(noComment.json)).toBe(409);
+    expect(noComment.json?.error).toBe('NO_COMMENT');
+    // 두 칸을 다 비우면 번역을 지운다 — 다시 적으면 그 문장이 선다.
+    const cleared = await api(A, 'PUT', `${adminBase()}/${String(r1)}/items/${String(m.id)}/comment-translation`, { en: '', 'zh-CN': '' });
+    expect(cleared.json?.data?.review?.items?.[0]?.commentI18n, '지운 직후의 응답').toBeNull();
+    const again = await api(A, 'PUT', `${adminBase()}/${String(r1)}/items/${String(m.id)}/comment-translation`, { en: TR_EN, 'zh-CN': TR_ZH });
+    expect(again.json?.data?.review?.items?.[0]?.commentI18n).toMatchObject({ en: TR_EN, by: 'admin' });
     await shot('08-answered');
 
     await footer().getByRole('button', { name: '협력사에 전달' }).click();
     await confirmWith('협력사에 전달');
     await until('전달', async () => (await adminReview(r1))?.forwardedAt !== null);
+    // 전달되면 협력사 포털 응답에 번역이 실린다(화면은 포털 언어가 영어·중국어일 때 번역문을 원문 위에 세운다).
+    const portal = await api(P, 'GET', `/api/partner/pcb-pos/${String(poId)}`);
+    expect(portal.json?.data?.eqRounds?.[0]?.items?.[0]?.commentI18n, '포털에 실린 번역').toMatchObject({ en: TR_EN, 'zh-CN': TR_ZH });
     await untilText('전달됨', ws().locator('[data-eq-round-status]'), '전달됨');
     expect(await footer().getByRole('button', { name: '고객 회신대로 EQ 승인' }).count()).toBe(1);
     expect(await footer().getByRole('button', { name: '개정 EQ 요청(반려)' }).count()).toBe(1);

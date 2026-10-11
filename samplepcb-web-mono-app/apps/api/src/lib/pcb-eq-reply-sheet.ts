@@ -3,6 +3,7 @@ import {
   PCB_EQ_ANSWER_CHANNEL_LABELS,
   PCB_EQ_ITEM_CATEGORIES,
   PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE,
+  pcbEqCommentTranslated,
   pcbEqReplyFileName,
   summarizePcbEqRounds,
   type PcbEqAnswerChannelType,
@@ -11,7 +12,7 @@ import {
   type PcbEqReplyLocaleType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
-import { parseEqItemFigures, parseEqItemOptions } from './pcb-eq-items';
+import { parseEqCommentI18n, parseEqItemFigures, parseEqItemOptions } from './pcb-eq-items';
 import { loadEqRoundNumbers } from './pcb-eq-review';
 import { parseEqHistory } from './pcb-po';
 
@@ -24,7 +25,8 @@ import { parseEqHistory } from './pcb-po';
 //
 // 원칙(포털 '고객 회신' 카드와 같다):
 //  · 선택 **기호**가 공장이 읽는 키다 — 가장 크게, 강조색으로. 번역이 어긋나도 "B 를 골랐다"는 어긋나지 않는다.
-//  · 질문·선택지는 공장 원문(없으면 한국어), 고객 의견은 번역 없이 한국어 원문(사용자 결정 — 역번역 없음).
+//  · 질문·선택지는 공장 원문(없으면 한국어). 고객 의견은 한국어 원문이고, 파일 언어가 영어·중국어이며 저장된
+//    번역이 있으면 **번역문을 먼저, 원문을 그 아래** 적는다(D20 P4 — 원문을 치우지 않는다).
 //  · 협력사용에는 고객 정보·대리 입력 여부를 싣지 않는다(포털이 안 보이는 것은 파일에도 없다).
 //    관리자용에만 '고객이 본 문장(한국어)' 열과 대리 입력 경로가 붙는다.
 //  · 그림은 싣지 않고 장수만 적는다 — 그림은 공장이 자기 EQ 에 넣은 것이라 공장이 이미 갖고 있다.
@@ -40,6 +42,8 @@ export interface EqReplySheetItem {
   questionOrig: string | null;
   options: { key: string; label: string; labelOrig: string | null }[];
   answer: { key: string; comment: string | null } | null;
+  /** 이 파일의 언어로 옮긴 고객 의견(D20 P4) — 한국어 파일이거나 번역이 없으면 null(원문만 적는다). */
+  commentTranslated: string | null;
   change: PcbEqItemChangeType | null;
   figureCount: number;
 }
@@ -83,6 +87,10 @@ interface SheetText {
   colComment: string;
   colChange: string;
   colFigures: string;
+  /** 번역문 아래 원문 줄의 머리말. */
+  original: string;
+  /** 번역문이 실린 파일의 안내문(원문만 실린 파일은 note). */
+  noteTranslated: string;
   figures: (n: number) => string;
   noAnswer: string;
   change: Record<PcbEqItemChangeType, string>;
@@ -111,6 +119,8 @@ const TEXT: Record<PcbEqReplyLocaleType, SheetText> = {
     colComment: '고객 의견',
     colChange: '변경',
     colFigures: '참고 그림',
+    original: '원문(한국어)',
+    noteTranslated: '',
     figures: (n) => `${String(n)}장`,
     noAnswer: '답변 없음',
     change: { new: '신규', changed: '변경', same: '동일' },
@@ -137,6 +147,8 @@ const TEXT: Record<PcbEqReplyLocaleType, SheetText> = {
     colComment: 'Customer comment',
     colChange: 'Change',
     colFigures: 'Figures',
+    original: 'Original (Korean)',
+    noteTranslated: 'These are the EQ answers SamplePCB confirmed with the customer. Option letters match those in your EQ sheet. Customer comments are translated for reference, each followed by the original Korean.',
     figures: (n) => String(n),
     noAnswer: 'No answer',
     change: { new: 'New', changed: 'Changed', same: 'Same' },
@@ -163,6 +175,8 @@ const TEXT: Record<PcbEqReplyLocaleType, SheetText> = {
     colComment: '客户意见',
     colChange: '变更',
     colFigures: '参考图',
+    original: '原文（韩语）',
+    noteTranslated: '以下是 SamplePCB 向客户确认的 EQ 回复。选项字母与贵司 EQ 表中的字母一致。客户意见为参考译文，其后附韩语原文。',
     figures: (n) => `${String(n)} 张`,
     noAnswer: '未回答',
     change: { new: '新增', changed: '变更', same: '相同' },
@@ -296,7 +310,8 @@ export const renderEqReplyXlsx = async (input: EqReplySheetInput): Promise<Buffe
     mergedRow(`담당자 대리 입력 — 경로: ${PCB_EQ_ANSWER_CHANNEL_LABELS[input.proxyChannel]}`, 18, { bold: true, color: { argb: 'FFB45309' } });
   }
   const totalWidth = columns.reduce((n, c) => n + c.width, 0);
-  mergedRow(t.note, Math.max(18, wrappedLines(t.note, totalWidth) * 14 + 4), { size: 9, color: { argb: 'FF6B7280' } }, true);
+  const note = t.noteTranslated !== '' && input.items.some((i) => i.commentTranslated !== null) ? t.noteTranslated : t.note;
+  mergedRow(note, Math.max(18, wrappedLines(note, totalWidth) * 14 + 4), { size: 9, color: { argb: 'FF6B7280' } }, true);
   r += 1;
 
   // 머리행 — 틀 고정·인쇄 때 장마다 반복.
@@ -315,7 +330,10 @@ export const renderEqReplyXlsx = async (input: EqReplySheetInput): Promise<Buffe
 
   input.items.forEach((item, index) => {
     const chosen = item.answer === null ? null : (item.options.find((o) => o.key === item.answer?.key) ?? null);
-    const comment = item.answer?.comment ?? '';
+    const original = item.answer?.comment ?? '';
+    // 번역문을 먼저, 원문을 그 아래 — 공장이 의심될 때 대조하고, 다툼이 생기면 원문이 근거다.
+    const comment =
+      original !== '' && item.commentTranslated !== null ? `${item.commentTranslated}\n${t.original}: ${original}` : original;
     const text: Record<Column['key'], string> = {
       no: item.factoryNo ?? String(index + 1),
       type: PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE[input.locale][item.category],
@@ -423,6 +441,7 @@ export const loadEqReplySheet = async (args: {
       questionOrig: i.questionOrig,
       options: parseEqItemOptions(i.options).map((o) => ({ key: o.key, label: o.label, labelOrig: o.labelOrig })),
       answer: i.answerKey === null ? null : { key: i.answerKey, comment: i.answerComment === '' ? null : i.answerComment },
+      commentTranslated: pcbEqCommentTranslated(parseEqCommentI18n(i), args.locale),
       change: change(i.change),
       figureCount: parseEqItemFigures(i.figures).length,
     })),

@@ -14,6 +14,7 @@ const item = (over: Partial<EqReplySheetItem> = {}): EqReplySheetItem => ({
     { key: 'B', label: '위치를 지정하겠습니다', labelOrig: '贵司指示位置' },
   ],
   answer: { key: 'B', comment: '좌측 하단에 넣어 주세요' },
+  commentTranslated: null,
   change: null,
   figureCount: 0,
   ...over,
@@ -149,6 +150,17 @@ describe('renderEqReplyXlsx', () => {
       'UL 마킹을 보드에 넣을까요?\nA. 공장 제안대로 넣지 않음\nB. 위치를 지정하겠습니다',
     );
     expect(row[1]).toBe('마킹(UL·주기)');
+  });
+
+  it('번역이 있으면 의견 칸에 번역문을 먼저, 원문을 그 아래 적고 안내문도 그렇게 말한다', async () => {
+    const sheet = await open(input({ items: [item({ commentTranslated: '请放在左下角。' })] }));
+    const row = rowValues(sheet, headerRowOf(sheet, '序号') + 1);
+    expect(row[6]).toBe('请放在左下角。\n原文（韩语）: 좌측 하단에 넣어 주세요');
+    expect(allText(sheet)).toContain('客户意见为参考译文，其后附韩语原文');
+    // 번역이 없으면 지금처럼 원문만, 안내문도 원문이라고 말한다.
+    const plain = await open(input());
+    expect(rowValues(plain, headerRowOf(plain, '序号') + 1)[6]).toBe('좌측 하단에 넣어 주세요');
+    expect(allText(plain)).toContain('客户意见为韩语原文，未经翻译');
   });
 
   it('고객이 직접 답했으면 대리 입력 줄이 없다', async () => {

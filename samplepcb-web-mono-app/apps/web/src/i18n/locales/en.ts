@@ -522,7 +522,7 @@ export const en = {
         pcbEqParse: {
           title: 'PCB EQ analysis',
           enabled: 'Enabled',
-          enabledHint: 'When a partner submits an EQ approval request, the EQ spreadsheet is turned into draft questions — sending to the customer still waits for admin review. When off, questions are written by hand in the EQ workspace.',
+          enabledHint: 'When a partner submits an EQ approval request, the EQ spreadsheet is turned into draft questions — sending to the customer still waits for admin review. When the customer answers, their comments are translated into English and Chinese (shown to the partner alongside the original). When off, questions are written by hand in the EQ workspace.',
           model: 'Model',
           modelHint: 'Text model that structures the EQ table into questions and translates them into Korean. The probed default is kimi-k3.',
           think: 'Thinking level',
