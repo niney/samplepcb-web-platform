@@ -195,7 +195,7 @@ function balancedObjects(text: string, stringAware: boolean): string[] {
 
 // 줄 머리 `{` 에서 새로 시작해 균형이 맞는 곳까지 — 앞선 추론문의 어긋난 따옴표·중괄호에 오염되지 않는다
 // (glm-5.3 실측: 초안 JSON 뒤에 "Wait —" 하고 다시 추론, 홀수 개 따옴표 뒤에 최종 JSON).
-function spanFromLineStart(text: string, start: number, stringAware: boolean): string | null {
+function spanFromLineStart(text: string, start: number, stringAware: boolean): [number, number] | null {
   let depth = 0;
   let inString = false;
   let escaped = false;
@@ -211,10 +211,23 @@ function spanFromLineStart(text: string, start: number, stringAware: boolean): s
     else if (ch === '{') depth += 1;
     else if (ch === '}') {
       depth -= 1;
-      if (depth === 0) return text.slice(start, i + 1);
+      if (depth === 0) return [start, i + 1];
     }
   }
   return null;
+}
+
+// 열 0 후보의 순서 — **바깥 객체 먼저**(뒤에 있는 것부터), 다른 후보 안에 든 객체는 그다음(뒤에 있는 것부터).
+// 배열 원소를 열 0 에 찍는 모델(minimax-m3·glm-5.3 실측, EQ 문항 17개)은 바깥 객체 안에 열 0 객체가 줄줄이
+// 생긴다 — "마지막 열 0 객체"를 고르면 마지막 원소 하나가 답이 됐다. 안쪽 후보를 버리지 않는 이유: 잘린 초안의
+// 열 0 `{` 가 뒤의 최종 JSON 까지 삼킨 바깥 후보는 파싱에 실패하고, 그때 답은 안쪽(최종 JSON)이다.
+function orderLineStartSpans(spans: readonly [number, number][]): [number, number][] {
+  const inside = (a: [number, number], b: [number, number]): boolean =>
+    a !== b && b[0] <= a[0] && a[1] <= b[1];
+  const outer = spans.filter((s) => !spans.some((o) => inside(s, o)));
+  const nested = spans.filter((s) => spans.some((o) => inside(s, o)));
+  const lastFirst = (a: [number, number], b: [number, number]): number => b[0] - a[0];
+  return [...[...outer].sort(lastFirst), ...[...nested].sort(lastFirst)];
 }
 
 // 열 0 의 `{` 만 — 들여쓴 `{` 는 정돈된 JSON 의 중첩 객체(배열 원소)라 최종 답의 시작이 아니다(실측:
@@ -236,11 +249,20 @@ export function extractJsonObject(text: string): unknown {
     return a >= 0 && b > a ? [s.slice(a, b + 1)] : [];
   };
   const fenced = fence?.[1];
-  const fromLineStarts = lineStartBraces(text)
-    .reverse() // 최종 답은 마지막 완전한 객체
-    .flatMap((s) => [spanFromLineStart(text, s, true), spanFromLineStart(text, s, false)])
-    .filter((c): c is string => c !== null);
+  // 통째로 JSON 이면 그것이 답이다 — 아래 조각 고르기 휴리스틱은 추론문·서문이 섞였을 때를 위한 것이고,
+  // 깨끗한 출력에 먼저 들이대면 정돈된 JSON 의 중첩 객체를 답으로 오인할 수 있다.
+  const whole = [...(fenced === undefined ? [] : [fenced.trim()]), text.trim()].filter((s) =>
+    s.startsWith('{'),
+  );
+  const fromLineStarts = [true, false].flatMap((stringAware) =>
+    orderLineStartSpans(
+      lineStartBraces(text)
+        .map((s) => spanFromLineStart(text, s, stringAware))
+        .filter((c): c is [number, number] => c !== null),
+    ).map(([s, e]) => text.slice(s, e)),
+  );
   const candidates = [
+    ...whole,
     ...(fenced === undefined ? [] : [...balancedObjects(fenced, true), ...naive(fenced)]),
     ...fromLineStarts,
     ...balancedObjects(text, true),

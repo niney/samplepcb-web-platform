@@ -29,6 +29,24 @@ describe('extractJsonObject', () => {
     expect(extractJsonObject(text)).toEqual({ summary: '첫 줄\n둘째 줄\t탭', n: 2 });
   });
 
+  it('배열 원소를 열 0 에 찍어도 바깥 객체 전체를 고른다(minimax-m3·glm-5.3 실측 — 마지막 원소 하나로 줄던 결함)', () => {
+    const text = '{"header": {"no": null},\n"items": [\n{"factoryNo": "1", "q": "가"},\n{"factoryNo": "2", "q": "나"}\n]}';
+    expect(extractJsonObject(text)).toEqual({
+      header: { no: null },
+      items: [
+        { factoryNo: '1', q: '가' },
+        { factoryNo: '2', q: '나' },
+      ],
+    });
+    // 서문이 붙어 통째 파싱이 안 돼도 열 0 후보 중 바깥 객체가 먼저다.
+    expect(extractJsonObject(`결과입니다:\n${text}\n`)).toEqual(extractJsonObject(text));
+  });
+
+  it('열 0 에서 시작한 잘린 초안이 최종 JSON 을 삼켜도 안쪽의 최종 객체를 찾는다', () => {
+    const text = '{"summary": "초안", "items": [\nWait, let me redo.\n{"summary": "최종", "n": 3}\n';
+    expect(extractJsonObject(text)).toEqual({ summary: '최종', n: 3 });
+  });
+
   it('객체가 없으면 던진다', () => {
     expect(() => extractJsonObject('그냥 문장입니다')).toThrow('no JSON object');
   });
