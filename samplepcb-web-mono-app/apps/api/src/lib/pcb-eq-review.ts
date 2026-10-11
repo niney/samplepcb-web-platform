@@ -23,6 +23,7 @@ import {
   eqFigureMime,
   eqRoundNumbers,
   isEqReviewCustomerVisible,
+  looseEqFigures,
   parseEqItemFigures,
   parseEqItemOptions,
   planEqItemCopyLink,
@@ -226,6 +227,8 @@ export const listAdminEqReviews = async (
         const prev = i.prevItemId === null ? undefined : prevItems.get(i.prevItemId.toString());
         return toAdminEqItem(i, figures, prev === undefined ? null : toEqPrevItem(prev.item));
       }),
+      // 올렸지만 문항에 안 붙은 그림 — 위에서 회차 묶음으로 한 번에 읽은 것을 가른다(추가 조회 없음).
+      looseFigures: format === 'items' ? looseEqFigures(r.id, r.items, figures) : [],
       answeredRole:
         r.answeredRole === 'customer' || r.answeredRole === 'admin' ? r.answeredRole : null,
       answerChannel: asEqAnswerChannel(r.answerChannel),

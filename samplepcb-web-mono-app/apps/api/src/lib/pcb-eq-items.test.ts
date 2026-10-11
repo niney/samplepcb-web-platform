@@ -6,6 +6,7 @@ import {
   eqItemNo,
   eqRoundNumbers,
   isEqReviewCustomerVisible,
+  looseEqFigures,
   parseEqItemFigures,
   parseEqItemOptions,
   planEqItemCopyLink,
@@ -228,6 +229,25 @@ describe('뷰 조립 — 화면마다 보이는 것이 다르다', () => {
       answer: { key: 'A', comment: null },
       answerLabel: '공장 제안대로',
     });
+  });
+
+  it('붙지 않은 그림 — 이 회차에 올렸는데 어느 문항에도 없는 것만, 올린 순으로, 비공개로', () => {
+    const files = new Map([
+      ...FILES,
+      ['504', file(504n, 'later.png')],
+      ['503', file(503n, 'loose.png')],
+      ['601', { ...file(601n, 'other-round.png'), refId: 2n }], // 다른 회차의 그림(묶음 조회에 섞여 온다)
+    ]);
+    expect(looseEqFigures(1n, [item()], files)).toEqual([
+      { fileId: 503, name: 'loose.png', size: 1234, shared: false },
+      { fileId: 504, name: 'later.png', size: 1234, shared: false },
+    ]);
+    // 문항에 붙이면 빠진다 — 공개 여부와 무관하게.
+    const attached = item({ id: 12n, figures: [{ fileId: 503, shared: true }] });
+    expect(looseEqFigures(1n, [item(), attached], files).map((f) => f.fileId)).toEqual([504]);
+    // 문항이 없으면 올린 그림이 전부 남는다(AI 분석이 그림부터 올리는 순간).
+    expect(looseEqFigures(1n, [], files).map((f) => f.fileId)).toEqual([501, 502, 503, 504]);
+    expect(looseEqFigures(2n, [], files).map((f) => f.fileId)).toEqual([601]);
   });
 
   it('관리자는 원문·전체 그림(공개 여부)·연결을 본다', () => {

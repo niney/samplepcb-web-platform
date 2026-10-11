@@ -24,12 +24,14 @@ import { Input } from '@/next/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/next/components/ui/native-select';
 import { Textarea } from '@/next/components/ui/textarea';
 import EqFigureThumb from './EqFigureThumb.vue';
+import EqLooseFigures from './EqLooseFigures.vue';
 import {
   EQ_CHANGE_VARIANT,
   EQ_FIGURE_MAX,
   EQ_OPTION_MAX,
   eqItemNoOf,
   newOption,
+  type EqFigureDraft,
   type EqItemDraft,
   type EqOptionDraft,
 } from './eq-round';
@@ -47,12 +49,16 @@ const props = defineProps<{
   /** 직전 회차(개정 연결 대상) — 없으면 첫 회차라 변화·연결 칸이 없다. */
   prevRound: AdminPcbEqReviewViewType | null;
   uploading: boolean;
+  /** 이 회차에 올렸지만 어느 문항에도 안 붙은 그림(부모가 서버 목록 − 편집 버퍼로 계산). */
+  looseFigures: EqFigureDraft[];
 }>();
 
 const emit = defineEmits<{
   patch: [patch: ItemPatch];
   upload: [files: File[]];
   removeFigure: [fileId: number];
+  /** 붙지 않은 그림을 이 문항에 붙인다(부모가 버퍼에 넣는다 — 그림 정보는 부모가 안다). */
+  attachFigure: [fileId: number];
   zoom: [url: string, name: string];
 }>();
 
@@ -426,6 +432,18 @@ const answeredOption = computed(() =>
         </li>
       </ul>
       <p v-else-if="!editable" class="text-muted-foreground text-xs">그림 없음</p>
+      <!-- 올렸지만 어느 문항에도 안 붙은 그림 — 저장 없이 떠났다 돌아와도 여기서 다시 붙인다(초안일 때만). -->
+      <EqLooseFigures
+        v-if="editable"
+        :figures="looseFigures"
+        :urls="urls"
+        :po-id="poId"
+        :review-id="reviewId"
+        :attach-blocked-reason="item.figures.length >= EQ_FIGURE_MAX ? `이 문항은 그림이 ${String(EQ_FIGURE_MAX)}장이라 더 붙일 수 없습니다.` : null"
+        @attach="(id) => emit('attachFigure', id)"
+        @remove="(id) => emit('removeFigure', id)"
+        @zoom="(u, n) => emit('zoom', u, n)"
+      />
     </div>
   </div>
 </template>

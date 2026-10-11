@@ -401,7 +401,15 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 초안·발송·문항별 �
     const tempFigId = Number(temp.json.data.figure.fileId);
 
     // 그림 올리기는 버전을 올리지 않는다 — 열어 둔 편집기가 낡지 않게.
-    expect((await adminReview(r1))?.version).toBe(2);
+    const uploaded = await adminReview(r1);
+    expect(uploaded?.version).toBe(2);
+    // 올리고 아직 저장 안 한 그림은 '붙지 않은 그림'으로 보인다(올린 순·비공개) — 화면을 떠났다 와도 다시 붙일 수 있게.
+    expect(uploaded?.looseFigures, '붙지 않은 그림').toEqual([
+      { fileId: sharedFigId, name: 'ul-mark.png', size: PNG_1PX.length, shared: false },
+      { fileId: privateFigId, name: 'factory-logo.png', size: PNG_1PX.length, shared: false },
+      { fileId: tempFigId, name: 'temp.webp', size: PNG_1PX.length, shared: false },
+    ]);
+    expect(uploaded?.items.flatMap((i: any) => i.figures), '아직 어느 문항에도 없다').toEqual([]);
 
     const [m, d] = r1Items;
     const saved = await api(A, 'PUT', `${adminBase()}/${String(r1)}/draft`, {
@@ -422,12 +430,15 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 초안·발송·문항별 �
     expect(saved.status, `그림 붙여 저장: ${JSON.stringify(saved.json)}`).toBe(200);
     expect(saved.json.data.review.version).toBe(3);
     expect(saved.json.data.review.items.map((i: any) => i.id), '문항 id 유지(갱신)').toEqual([m.id, d.id]);
+    // 문항에 붙여 저장하면 붙지 않은 그림에서 빠진다(공개 여부와 무관).
+    expect(saved.json.data.review.looseFigures, '붙이면 빠진다').toEqual([]);
 
     // 지우면 붙어 있던 문항에서도 빠진다(버전 그대로).
     const del = await api(A, 'DELETE', `${figPath}/${String(tempFigId)}`);
     expect(del.status, `그림 삭제: ${JSON.stringify(del.json)}`).toBe(200);
     expect(del.json.data.review.version).toBe(3);
     expect(del.json.data.review.items[1].figures).toEqual([]);
+    expect(del.json.data.review.looseFigures, '지운 그림은 붙지 않은 그림으로도 안 남는다').toEqual([]);
     expect(
       await getPrisma().spFile.count({ where: { id: BigInt(tempFigId) } }),
       '그림 행 삭제',

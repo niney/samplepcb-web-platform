@@ -15,7 +15,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import type { Locator, Page } from 'playwright-core';
+import type { Dialog, Locator, Page } from 'playwright-core';
 import {
   API_URL,
   BASE_URL,
@@ -56,6 +56,9 @@ const PNG_B = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
   'base64',
 );
+
+/** 세 번째 그림 — IEND 뒤의 꼬리 바이트는 디코더가 무시한다(내용만 다르게). */
+const PNG_C = Buffer.concat([PNG_A, Buffer.from([0x00])]);
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -321,6 +324,48 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     await untilText('활동', side, '문항 작성 시작');
     await shot('04-preview-activity');
     await side.getByRole('tab', { name: '고객 미리보기' }).click();
+  });
+
+  test('A4b. 붙지 않은 그림 — 올리고 저장 없이 떠났다 돌아와도 편집기에서 다시 붙인다', async () => {
+    // 문항 2 에 그림을 올린다(편집 버퍼에만 붙는다) → 저장하지 않고 화면을 떠난다.
+    await ws().locator('[data-eq-item="2"]').getByRole('button').first().click();
+    await ws().locator('[data-eq-figure-input]').setInputFiles({ name: 'drill-map.png', mimeType: 'image/png', buffer: PNG_C });
+    await untilText('버퍼에 붙음', ws(), 'drill-map.png');
+    await untilText('저장 안 된 변경', footer(), '저장 안 된 변경');
+    const before = await adminReview(r1);
+    expect(before.looseFigures.map((f: any) => [f.name, f.shared]), '서버에서는 아직 붙지 않은 그림').toEqual([['drill-map.png', false]]);
+    expect(before.items[1].figures, '문항에는 아직 없다').toEqual([]);
+
+    // 떠날 때 묻는 창(beforeunload)이 뜨면 떠난다 — 저장 안 된 변경은 버려진다.
+    const leave = (dialog: Dialog): void => {
+      void dialog.accept();
+    };
+    page.on('dialog', leave);
+    await openCase();
+    page.off('dialog', leave);
+    await openWorkspace();
+
+    // 돌아오면 문항 그림 목록에는 없지만 '아직 문항에 안 붙은 그림' 줄에 남아 있다.
+    await ws().locator('[data-eq-item="2"]').getByRole('button').first().click();
+    const loose = ws().locator('[data-eq-loose-figures]');
+    await loose.waitFor({ state: 'visible' });
+    const looseText = await loose.innerText();
+    expect(looseText).toContain('아직 문항에 안 붙은 그림 1');
+    expect(looseText).toContain('drill-map.png');
+    expect(await footer().innerText(), '돌아온 직후는 저장된 판 그대로').not.toContain('저장 안 된 변경');
+    await loose.getByRole('button', { name: '이 문항에 붙이기' }).scrollIntoViewIfNeeded();
+    await shot('17-loose-figures');
+
+    // [이 문항에 붙이기] → 줄이 사라지고 문항 그림이 된다(비공개로) → 임시저장하면 서버에서도 붙는다.
+    await loose.getByRole('button', { name: '이 문항에 붙이기' }).click();
+    await loose.waitFor({ state: 'hidden' });
+    await untilText('붙인 뒤 저장 안 된 변경', footer(), '저장 안 된 변경');
+    await footer().getByRole('button', { name: '임시저장' }).click();
+    await until('붙여 저장', async () => (await adminReview(r1))?.items?.[1]?.figures?.length === 1);
+    const after = await adminReview(r1);
+    expect(after.looseFigures, '붙이면 빠진다').toEqual([]);
+    expect(after.items[1].figures.map((f: any) => [f.name, f.shared])).toEqual([['drill-map.png', false]]);
+    expect(after.items[0].figures.map((f: any) => f.name), '다른 문항 그림은 그대로').toEqual(['ul-mark.png', 'factory-logo.png']);
   });
 
   test('A5. 작성 이어가기 — 닫아도 저장 안 된 변경이 남고, 행 칩은 "EQ 1차 · 작성 중"', async () => {

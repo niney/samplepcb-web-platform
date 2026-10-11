@@ -68,18 +68,33 @@ export function useEqRoundMutations() {
     onSuccess: onReview,
   });
 
-  // 그림 올리기·지우기는 버전을 올리지 않는다(서버 규칙) — 문항에 붙이는 것은 저장의 몫이라 캐시도 그대로 둔다.
+  // 그림 올리기·지우기는 버전을 올리지 않는다(서버 규칙) — 문항에 붙이는 것은 저장의 몫이다. 올린 그림은 서버에서
+  // 아직 '붙지 않은 그림'(looseFigures)이라 캐시에도 그렇게 더한다: 화면의 붙지 않은 그림 줄이 캐시(서버가 아는
+  // 그림) − 편집 버퍼(문항에 붙인 그림)로 계산되므로, 캐시가 올린 그림을 모르면 문항을 지웠을 때 그림이 화면에서 사라진다.
   const uploadFigure = useMutation({
     mutationFn: ({ poId, reviewId, file }: { poId: number; reviewId: number; file: File }) => {
       const form = new FormData();
       form.set('file', file);
       return apiSendForm('POST', `${reviewPath(poId, reviewId)}/figures`, form, AdminPcbEqFigureUploadResponse);
     },
+    onSuccess: (res, vars) => {
+      qc.setQueryData<AdminPcbEqReviewListResponseType>(listKey(vars.poId), (old) => {
+        if (old === undefined) return old;
+        const reviews = old.data.reviews.map((r) =>
+          r.id === vars.reviewId ? { ...r, looseFigures: [...r.looseFigures, res.data.figure] } : r,
+        );
+        return { ...old, data: { reviews } };
+      });
+    },
   });
 
+  // 지우기 응답은 그 회차의 최신 뷰(문항 그림·붙지 않은 그림에서 모두 빠진 판) — 행 요약은 안 바뀌어 캐시만 갈아 끼운다.
   const deleteFigure = useMutation({
     mutationFn: ({ poId, reviewId, fileId }: { poId: number; reviewId: number; fileId: number }) =>
       apiSend('DELETE', eqFigurePath(poId, reviewId, fileId), undefined, AdminPcbEqReviewResponse),
+    onSuccess: (res) => {
+      putReview(qc, res.data.review);
+    },
   });
 
   const send = useMutation({

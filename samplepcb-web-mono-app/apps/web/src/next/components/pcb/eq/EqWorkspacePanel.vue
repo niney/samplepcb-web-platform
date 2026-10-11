@@ -43,6 +43,7 @@ import EqActivity from './EqActivity.vue';
 import EqCustomerPreview from './EqCustomerPreview.vue';
 import EqItemEditor from './EqItemEditor.vue';
 import EqItemList from './EqItemList.vue';
+import EqLooseFigures from './EqLooseFigures.vue';
 import EqProxyAnswerDialog from './EqProxyAnswerDialog.vue';
 import {
   draftBody,
@@ -54,6 +55,7 @@ import {
   isOpenReview,
   newItem,
   sharedFigureCount,
+  type EqFigureDraft,
   type EqItemDraft,
   type EqRoundDraft,
 } from './eq-round';
@@ -500,12 +502,43 @@ async function removeFigure(fileId: number): Promise<void> {
   });
   if (!ok) return;
   errorText.value = '';
+  const wasDirty = isDraftDirty(target);
   try {
-    await mut.deleteFigure.mutateAsync({ poId: target.poId, reviewId: target.reviewId, fileId });
-    for (const item of target.items) item.figures = item.figures.filter((f) => f.fileId !== fileId);
+    const res = await mut.deleteFigure.mutateAsync({ poId: target.poId, reviewId: target.reviewId, fileId });
+    // 지우기는 서버의 문항 그림에서도 뺀다(버전은 그대로). 저장 안 된 변경이 없었으면 서버 판을 그대로 받고
+    // (버퍼만 고치면 이미 반영된 삭제가 '저장 안 된 변경'으로 남는다), 있었으면 내 변경을 지키고 그림만 뺀다.
+    if (wasDirty) {
+      for (const item of target.items) item.figures = item.figures.filter((f) => f.fileId !== fileId);
+    } else {
+      buffers.value.set(target.reviewId, draftFromView(res.data.review));
+    }
   } catch (error) {
     fail(error, '그림을 지우지 못했습니다.');
   }
+}
+
+/**
+ * 아직 문항에 안 붙은 그림 — 서버가 아는 이 회차의 그림(문항에 붙은 것 + looseFigures)에서 **지금 편집 버퍼가
+ * 문항에 붙여 둔 것**을 뺀다. 그래서 올리고 저장 없이 떠났다 돌아온 그림도, 방금 문항을 지워 갈 곳을 잃은
+ * 그림도 여기 남는다(다시 붙이거나 지운다). 초안에서만 — 보낸 뒤 회차는 그림을 고칠 수 없다.
+ */
+const looseFigures = computed((): EqFigureDraft[] => {
+  const view = selectedView.value;
+  const target = draft.value;
+  if (view === null || target === null) return [];
+  const attached = new Set(target.items.flatMap((item) => item.figures.map((f) => f.fileId)));
+  const known = new Map<number, EqFigureDraft>();
+  for (const f of [...view.items.flatMap((item) => item.figures), ...view.looseFigures]) {
+    // 공개 여부는 문항에 붙일 때 다시 정한다 — 떼였던 그림이 공개인 채 따라붙지 않게.
+    known.set(f.fileId, { fileId: f.fileId, name: f.name, size: f.size, shared: false });
+  }
+  return [...known.values()].filter((f) => !attached.has(f.fileId)).sort((a, b) => a.fileId - b.fileId);
+});
+function attachFigure(fileId: number): void {
+  const item = draft.value?.items[itemIndex.value];
+  const figure = looseFigures.value.find((f) => f.fileId === fileId);
+  if (item === undefined || figure === undefined) return;
+  item.figures.push({ ...figure });
 }
 const zoomed = ref<{ url: string; name: string } | null>(null);
 const onZoom = (url: string, name: string): void => {
@@ -795,9 +828,22 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
             </div>
 
             <div class="grid gap-4 p-4" :class="midTab === 'edit' ? '' : 'hidden xl:grid'">
-              <Panel v-if="currentItem === null" size="md" class="text-muted-foreground border-dashed py-10 text-center text-sm">
-                {{ editable ? '왼쪽 [문항 추가]로 공장 EQ 표의 첫 문항을 옮기세요.' : '이 회차에는 문항이 없습니다.' }}
-              </Panel>
+              <template v-if="currentItem === null">
+                <Panel size="md" class="text-muted-foreground border-dashed py-10 text-center text-sm">
+                  {{ editable ? '왼쪽 [문항 추가]로 공장 EQ 표의 첫 문항을 옮기세요.' : '이 회차에는 문항이 없습니다.' }}
+                </Panel>
+                <!-- 문항이 아직 없어도 올려 둔 그림은 보인다(문항을 다 지웠거나, 그림부터 올린 경우) — 붙이기는 문항을 만든 뒤. -->
+                <EqLooseFigures
+                  v-if="editable"
+                  :figures="looseFigures"
+                  :urls="urls"
+                  :po-id="model.poId"
+                  :review-id="model.reviewId"
+                  attach-blocked-reason="문항을 만들면 그 문항에 붙일 수 있습니다."
+                  @remove="(id) => void removeFigure(id)"
+                  @zoom="onZoom"
+                />
+              </template>
               <EqItemEditor
                 v-else
                 :item="currentItem"
@@ -808,9 +854,11 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
                 :urls="urls"
                 :prev-round="prevRound"
                 :uploading="uploading"
+                :loose-figures="looseFigures"
                 @patch="patchItem"
                 @upload="(files) => void uploadFigures(files)"
                 @remove-figure="(id) => void removeFigure(id)"
+                @attach-figure="attachFigure"
                 @zoom="onZoom"
               />
 

@@ -313,6 +313,13 @@ export const AdminPcbEqReviewView = z.object({
   /** 이 회차가 근거로 삼은 협력사 EQ 첨부(sp_pcb_po_eq) id. */
   sourceFileIds: z.array(z.number()),
   items: z.array(AdminPcbEqItem),
+  /**
+   * 이 회차에 올렸지만 **어느 문항에도 안 붙은** 그림(올린 순). 그림 올리기는 저장과 따로라(버전을 안 올린다)
+   * 붙이기 전에 화면을 떠나면 문항 그림 목록에서 사라진다 — 여기 실어 다시 붙이거나 지울 수 있게 한다.
+   * P2 의 AI 분석도 그림을 먼저 올리고 나중에 문항에 매핑한다. shared 는 언제나 false(공개는 문항에 붙일 때
+   * 정한다). 문구형 회차는 빈 배열.
+   */
+  looseFigures: z.array(PcbEqItemFigure),
   answeredRole: z.enum(['customer', 'admin']).nullable(),
   answerChannel: PcbEqAnswerChannel.nullable(),
   forwardedAt: z.string().nullable(),

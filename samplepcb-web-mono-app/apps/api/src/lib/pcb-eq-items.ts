@@ -17,6 +17,7 @@ import type {
   PcbEqItemAnswerType,
   PcbEqItemCategoryType,
   PcbEqItemChangeType,
+  PcbEqItemFigureType,
   PcbEqItemOptionType,
   PcbEqPrevItemType,
   PcbEqReviewEventType,
@@ -302,6 +303,23 @@ const figureViews = (
       ? []
       : [{ fileId: Number(f.id), name: f.originFileName, size: Number(f.size), shared: r.shared }];
   });
+
+/**
+ * 회차에 올렸지만 어느 문항에도 안 붙은 그림(올린 순 = id 순). 올리기는 저장과 따로라 붙이기 전에 화면을
+ * 떠나면 문항 그림 목록에 없다 — 관리자 뷰가 이 목록을 실어 다시 붙이거나 지우게 한다. `files` 는 여러
+ * 회차의 그림이 섞인 묶음이어도 된다(refId 로 이 회차 것만 고른다). 공개 여부는 문항에 붙일 때 정하므로 false.
+ */
+export const looseEqFigures = (
+  reviewId: bigint,
+  items: readonly Pick<SpPcbEqReviewItem, 'figures'>[],
+  files: ReadonlyMap<string, SpFile>,
+): PcbEqItemFigureType[] => {
+  const attached = new Set(items.flatMap((i) => parseEqItemFigures(i.figures).map((f) => f.fileId.toString())));
+  return [...files.values()]
+    .filter((f) => f.refId === reviewId && !attached.has(f.id.toString()))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((f) => ({ fileId: Number(f.id), name: f.originFileName, size: Number(f.size), shared: false }));
+};
 
 /** 관리자 문항 — 원문·전체 그림(공개 여부 포함)·직전 회차 연결. */
 export const toAdminEqItem = (
