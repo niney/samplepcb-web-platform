@@ -405,6 +405,43 @@ export function buildPcbEqRequestedEmail(
   };
 }
 
+export interface PcbEqReopenedEmailParams {
+  partnerName: string; // 요청한 협력사(MD 가 하위 대신 눌렀으면 그 MD)
+  projectName: string;
+  /** 무엇을 더 확인해야 하는지 — 협력사가 쓴 그대로 인용한다. */
+  reason: string;
+  targetUrl: string; // Case 상세
+}
+
+/**
+ * 협력사가 **추가 EQ 를 요청**했다(D20 후속 R-2·R-3) → 운영자. 승인했던 건이 발주접수로 돌아갔다는 사실을
+ * 지금 알려야 한다 — 안 보내면 다음 승인요청 메일이 올 때까지 관리자는 생산이 시작된 줄 안다.
+ */
+export function buildPcbEqReopenedEmail(p: PcbEqReopenedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `[샘플피씨비] PCB 추가 EQ 요청 — ${p.projectName} · ${p.partnerName}`,
+    html: shell(
+      '협력사가 추가 EQ 를 요청했습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건에 추가로 확인할 사항이 있다며
+        EQ 를 다시 열었습니다. <b>EQ 승인이 풀리고 발주접수로 돌아갔습니다</b>(생산은 시작되지 않았습니다).
+        협력사가 수정한 EQ 를 올려 다시 승인요청하면 알림이 옵니다.
+      </p>
+      <p style="margin:0 0 12px;padding:10px 12px;background:#fff7ed;border-left:3px solid #ea580c;font-size:13px;color:#7c2d12;line-height:1.6;white-space:pre-wrap;"><b>요청 사유</b><br/>${esc(p.reason)}</p>
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          Case 상세 열기</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+    ),
+  };
+}
+
 /** 포털 발주 상세 딥링크 — 반려 메일에서 홈이 아니라 그 발주로 바로(사용성 잔여 해소). */
 export const pcbPartnerPoUrl = (poId: string): string =>
   `${WEB_BASE_URL}/app/partner/pcb/pos/${poId}`;
@@ -421,7 +458,39 @@ export interface PcbEqDecisionEmailParams extends PcbPortalCtaParams {
   replyFileCount?: number;
   /** 공정 트랙 — 스텐실은 EQ 어휘 대신 확인 완료/보완 요청의 말을 쓴다(기본 'eq'). */
   track?: 'eq' | 'stencil';
+  /**
+   * 승인과 함께 전달된 고객 회신(D20 후속 R-1) — 승인 메일 **한 통**에 싣는다(전달 메일을 따로 보내지 않는다).
+   * 공장은 선택지 **기호**로 읽는다: 본문에는 문항 번호:기호 요약을, 원문 대조는 포털 '고객 회신'에서.
+   * 승인(approved)일 때만 쓴다.
+   */
+  customerAnswers?: {
+    roundNo: number;
+    items: { no: string; key: string; comment: string | null }[];
+    /** 같은 승인으로 함께 전달된 **이전** 회차 수(요약은 최신 회차만 싣는다). */
+    earlierRounds: number;
+  };
 }
+
+/** 승인 메일의 고객 회신 블록 — 포털 계정이 없는 조직은 포털을 못 여니 의견까지 메일에 싣는다. */
+const customerAnswersBlock = (
+  a: NonNullable<PcbEqDecisionEmailParams['customerAnswers']>,
+  noAccount: boolean,
+): string => {
+  const summary = a.items.map((i) => `${esc(i.no)}:<b>${esc(i.key)}</b>`).join(' · ');
+  const comments = a.items.filter((i) => i.comment !== null && i.comment !== '');
+  const commentRows =
+    !noAccount || comments.length === 0
+      ? ''
+      : `<br/>${comments.map((i) => `No. ${esc(i.no)} 의견: ${esc(i.comment)}`).join('<br/>')}`;
+  const earlier =
+    a.earlierRounds === 0 ? '' : ` (이전 회차 회신 ${String(a.earlierRounds)}건도 함께 전달되었습니다)`;
+  return `
+      <p style="margin:0 0 12px;padding:10px 12px;background:#f0fdf4;border-left:3px solid #059669;font-size:13px;color:#14532d;line-height:1.7;">
+        <b>고객 회신 ${String(a.items.length)}문항</b>${a.roundNo > 1 ? ` (EQ ${String(a.roundNo)}차)` : ''} —
+        ${noAccount ? '문항 번호별 선택 기호입니다.' : '포털 발주 상세의 [고객 회신]에서 문항별 원문과 의견을 확인해 주세요.'}${earlier}<br/>
+        ${summary}${commentRows}
+      </p>`;
+};
 
 /** EQ 승인/반려(스텐실: 확인 완료/보완 요청) → 수주 협력사 통지. */
 export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
@@ -455,10 +524,20 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
             ? `사유 확인 후 보완 파일을 ${proxyWho(p)}에게 전달해 주세요 — 재승인요청은 담당자가 대행합니다.`
             : '사유 확인 후 파일 보완 → 다시 승인요청해 주세요.'
         }`;
+  // 고객 회신이 함께 왔으면 "읽고 → 진행하거나 다시 묻는다"가 다음 행동이다(R-2 — 추가 EQ 요청은 생산 시작 전까지).
+  const answers = p.approved && !stencil ? p.customerAnswers : undefined;
+  const approvedNext =
+    answers === undefined
+      ? noAccount
+        ? '생산을 진행해 주세요.'
+        : '포털에서 [생산 시작]을 진행해 주세요.'
+      : noAccount
+        ? `아래 고객 회신대로 생산을 진행해 주세요 — 더 확인할 것이 있으면 생산 전에 ${proxyWho(p)}에게 알려 주세요.`
+        : '고객 회신을 확인한 뒤 포털에서 [생산 시작]을 진행해 주세요 — 더 확인할 것이 있으면 생산 시작 전에 [추가 EQ 요청]을 눌러 주세요.';
   const lines = p.approved
     ? `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.partnerName)} 담당자님, ${approvedLead}
-        ${noAccount ? '생산을 진행해 주세요.' : '포털에서 [생산 시작]을 진행해 주세요.'}</p>`
+        ${approvedNext}</p>${answers === undefined ? '' : customerAnswersBlock(answers, noAccount)}`
     : `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.partnerName)} 담당자님, ${rejectedLead}</p>
       ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">${stencil ? '보완 요청' : '반려'} 사유: <b>${esc(p.reason)}</b></p>`}

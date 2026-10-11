@@ -235,10 +235,10 @@ describe.skipIf(!RUN)('메탈마스크 — 고객문의사항 + 좌표파일로 
       await session.page.waitForLoadState('networkidle');
       const body = await session.page.locator('body').innerText();
 
-      expect(body, '할 일이 한 문장으로 못박힌다').toContain('좌표파일을 올린 뒤 확인 요청');
+      expect(body, '할 일이 한 문장으로 못박힌다').toContain('좌표 파일을 업로드한 뒤 확인 요청');
       expect(body, '고객이 본다는 사실을 미리 알린다').toContain('고객도 주문내역에서');
-      expect(body, '좌표파일이 붙은 것이 보인다').toContain('＋ 좌표파일 (1)');
-      expect(body, '문의사항은 선택임을 밝힌다').toContain('고객문의사항 (선택)');
+      expect(body, '좌표파일이 붙은 것이 보인다').toContain('＋ 좌표 파일 (1)');
+      expect(body, '문의사항은 선택임을 밝힌다').toContain('고객 문의사항 (선택)');
       expect(body, '문의 사진 칸이 열려 있다(M2 에서 1장 첨부)').toContain('＋ 문의 사진 (1)');
       // 스텐실에는 EQ 어휘가 안 나온다 — 스텝퍼 라벨까지.
       expect(body, '확인 요청 칸').toContain('확인 요청');

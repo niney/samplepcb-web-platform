@@ -4,6 +4,7 @@ import {
   eqFigureContentType,
   eqFigureMime,
   eqItemNo,
+  countEqNumberedRounds,
   eqRoundNumbers,
   eqTextSimilarity,
   isEqReviewCustomerVisible,
@@ -102,6 +103,22 @@ describe('회차 번호·고객 노출', () => {
       { id: 24n, poId: 1n, format: 'items', status: 'draft', sent: false },
     ]);
     expect([20, 21, 22, 23, 24].map((id) => rounds.get(String(id)))).toEqual([1, 1, 1, 2, 2]);
+  });
+
+  it('회차 수는 번호가 붙은 것만 발주서별로 센다 — 작업공간 탭 수와 같다', () => {
+    // 발주 행 eqRoundCount: 추가 EQ 요청 뒤 다시 올라온 발주는 요약(eqReview)이 비어도 지난 회차가 남아 있다.
+    const counts = countEqNumberedRounds([
+      { id: 1n, poId: 1n, format: 'items', status: 'approved', sent: true }, // 승인으로 닫힌 1차
+      { id: 2n, poId: 1n, format: 'items', status: 'canceled', sent: true }, // 보낸 뒤 취소 — 탭으로 남는다
+      { id: 3n, poId: 1n, format: 'items', status: 'canceled', sent: false }, // 안 나간 채 닫힌 초안 — 번호도 탭도 없다
+      { id: 4n, poId: 1n, format: 'items', status: 'draft', sent: false }, // 작성 중
+      { id: 5n, poId: 1n, format: 'message', status: 'approved', sent: false }, // 문구형(D16)
+      { id: 6n, poId: 2n, format: 'items', status: 'canceled', sent: false }, // 세면 문은 열리는데 안이 빈다
+      { id: 7n, poId: 3n, format: 'items', status: 'answered', sent: true },
+    ]);
+    expect(counts.get('1')).toBe(3);
+    expect(counts.has('2'), '안 나간 초안뿐이면 키가 없다(=0)').toBe(false);
+    expect(counts.get('3')).toBe(1);
   });
 
   it('draft 와 안 나간 채 닫힌 문항형 초안은 고객에게 없다 — 문구형은 취소 이력까지 보인다', () => {

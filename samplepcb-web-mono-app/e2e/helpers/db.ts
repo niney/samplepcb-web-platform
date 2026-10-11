@@ -21,8 +21,20 @@ export function getPrisma(): any {
   return instance;
 }
 
+/** 커넥션을 닫기 전에 끝나야 하는 뒷정리(여정 리포트가 거는 AI 잡 정리 등). */
+const pendingCleanups: Promise<unknown>[] = [];
+
+/**
+ * 동기 자리(리포트 쓰기)에서 시작한 DB 뒷정리를 걸어 둔다 — disconnectPrisma 가 다 기다린 뒤 닫는다.
+ * 실패는 삼킨다(뒷정리가 여정을 실패로 세우지 않는다 — 호출부가 경고를 남긴다).
+ */
+export function trackCleanup(task: Promise<unknown>): void {
+  pendingCleanups.push(task.catch(() => undefined));
+}
+
 /** afterAll 에서 호출 — 커넥션을 안 닫으면 vitest 프로세스가 안 끝난다. */
 export async function disconnectPrisma(): Promise<void> {
+  await Promise.all(pendingCleanups.splice(0));
   if (instance !== null) {
     await instance.$disconnect();
     instance = null;

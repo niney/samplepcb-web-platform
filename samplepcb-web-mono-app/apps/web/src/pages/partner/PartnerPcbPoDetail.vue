@@ -6,17 +6,21 @@ import { ApiRequestError } from '@sp/shared';
 import {
   PCB_SHIPMENT_FILE_LABELS,
   PCB_EQ_FORWARD,
+  PCB_EQ_REOPEN,
   PCB_EQ_REVERT,
   PCB_PO_FULFILLMENT_MODE_LABELS,
   PCB_PO_STATUSES,
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
   PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
+  PcbEqReopenBody,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
+  canReopenPcbEq,
   isPcbEqRejectionEvent,
+  lastPcbEqReworkBoundary,
   pcbEqForwardLabel,
   pcbEqRevertLabel,
   pcbStencilSubmitBlockers,
@@ -28,6 +32,7 @@ import {
   downloadPartnerPcbShipmentFile,
   useCreatePartnerChildPcbPo,
   useDeletePartnerPcbEqFile,
+  usePartnerPcbEqReopen,
   usePartnerPcbEqRequest,
   usePartnerPcbEqRevert,
   usePartnerPcbPoDetail,
@@ -161,17 +166,37 @@ const downloadEq = (fileId: number, name: string): void => {
 
 // ── 고객 회신(D20) — 관리자가 전달한 문항형 회차만 온다(최신 먼저, 위임 상위는 하위의 회차).
 const eqRounds = computed(() => detail.value?.eqRounds ?? []);
-// 최신 전달 회차가 **지금 승인요청에 대한 답**인가 — 마지막으로 승인요청 상태에 들어간 뒤에
+// 최신 전달 회차가 **이번 승인요청에 대한 답**인가 — 마지막 승인요청(issued → eq_requested) 뒤에
 // 전달됐으면 그렇다. 이전 요청의 답(반려·취소 전에 전달된 것)을 "방금 도착"으로 말하면
 // 협력사가 이미 반영한 답을 또 반영하려 든다. 승인요청 이력이 없으면(이관분) 지금 것으로
 // 본다 — 답이 보이는데 안내가 침묵하는 쪽이 더 나쁘다.
-const answerArrived = computed<boolean>(() => {
+// ⚠ 기준은 **승인요청 전이**다. '승인 취소'(eq_done → eq_requested)도 같은 상태로 들어오지만 새
+//   요청이 아니라서, 그걸 기준으로 삼으면 승인 때 자동 전달된 답이 취소 한 번에 "이전 것"이 된다.
+const answerForThisRequest = computed<boolean>(() => {
   const d = detail.value;
   const latest = eqRounds.value[0];
-  if (d?.status !== 'eq_requested' || latest === undefined) return false;
-  const requestedAt = d.eq.history.filter((e) => e.toStatus === 'eq_requested').at(-1)?.at;
+  if (d === null || latest === undefined) return false;
+  const requestedAt = d.eq.history
+    .filter((e) => e.fromStatus === 'issued' && e.toStatus === 'eq_requested')
+    .at(-1)?.at;
   return requestedAt === undefined || Date.parse(latest.forwardedAt) >= Date.parse(requestedAt);
 });
+/** 승인 대기 중에 회신이 먼저 전달됐다(관리자의 수동 전달) — 읽고 기다리거나 요청을 물린다. */
+const answerArrived = computed<boolean>(
+  () => detail.value?.status === 'eq_requested' && answerForThisRequest.value,
+);
+/** 승인됐고 회신이 와 있다(승인이 자동 전달한다, D20 후속 R-1) — 읽고 생산하거나 다시 묻는다. */
+const answerToReview = computed<boolean>(
+  () => detail.value?.status === 'eq_done' && answerForThisRequest.value,
+);
+
+// ── 추가 EQ 요청(D20 후속 R-2) — 승인 뒤 협력사가 사유와 함께 EQ 를 다시 연다(eq_done → issued).
+// 보이는 조건은 [생산 시작]과 같다(같은 주체의 같은 순간의 갈림길) + 계약의 상태·트랙 문턱.
+// 스텐실은 계약이 막는다(확인 완료 뒤 좌표파일은 바뀌지 않는다는 약속).
+const reopenLabel = computed(() => pt(PCB_EQ_REOPEN.label));
+const canReopen = computed(
+  () => canForward.value && detail.value !== null && canReopenPcbEq(detail.value.status, track.value),
+);
 
 // '지금 할 일' — 타임라인 마지막 칸이 할 말. 상태마다 **한 문장으로 못박는다**(무엇을 봐야
 // 하고 무엇을 해야 하는지를 협력사가 조립하지 않게). 반려 뒤 구간은 보완 여부까지 말한다 —
@@ -195,6 +220,13 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
     const st = isStencil.value;
     const askWord = st ? pt('확인 요청') : pt('승인요청');
     const doneWord = st ? pt('확인이 끝났습니다') : pt('EQ가 승인됐습니다');
+    // 추가 EQ 요청으로 돌아온 건 — 반려가 아니다(하위 또는 MD 대행이 스스로 다시 열었다).
+    if (eqReopen.value !== null) {
+      return {
+        title: pt('추가 EQ 요청 건입니다 — {value1}가 수정한 EQ를 올리고 다시 승인요청해야 합니다.', { value1: sub }),
+        hint: pt('보완이 늦어지면 아래 버튼으로 MD가 파일을 올리고 대행 진행할 수도 있습니다.'),
+      };
+    }
     if (d.status === 'issued') {
       return eqRejection.value !== null
         ? {
@@ -214,6 +246,15 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
     }
     if (d.status === 'eq_requested')
       return { title: st ? pt('샘플피씨비 관리자의 확인을 기다리고 있습니다.') : pt('샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.'), hint: '' };
+    if (d.status === 'eq_done' && canReopen.value) {
+      // 승인 뒤의 갈림길(생산 시작 | 추가 EQ 요청)은 하위의 몫이고, MD 는 둘 다 대행할 수 있다.
+      return {
+        title: answerToReview.value
+          ? pt('EQ가 승인됐고 고객 회신이 전달됐습니다 — {value1}가 회신대로 생산을 시작하거나 추가 EQ를 요청합니다.', { value1: sub })
+          : pt('{value1} — {value2}가 생산을 시작합니다.', { value1: doneWord, value2: sub }),
+        hint: pt('필요하면 MD 대행으로 [{value1}] 또는 [{value2}]을 진행할 수 있습니다.', { value1: forwardLabel.value, value2: reopenLabel.value }),
+      };
+    }
     if (d.status === 'eq_done')
       return { title: pt('{value1} — {value2}가 생산을 시작합니다.', { value1: doneWord, value2: sub }), hint: pt('필요하면 MD 대행으로 진행할 수 있습니다.') };
     if (d.status === 'producing')
@@ -246,6 +287,16 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
       return { title: pt('생산 중입니다 — 끝나면 [생산 완료]를 눌러 주세요.'), hint: '' };
     return { title: pt('생산이 끝났습니다 — 발송을 시작해 주세요.'), hint: '' };
   }
+  // 내가 추가 EQ 를 요청해 돌아온 건 — 반려 문구가 뜨면 안 된다(아무도 반려하지 않았다).
+  // 지금 올라 있는 EQ 는 이미 승인된 판이라, 새 파일 없이 다시 요청하면 같은 것을 또 묻게 된다.
+  if (eqReopen.value !== null) {
+    return {
+      title: pt('추가 EQ를 준비 중입니다 — 수정한 EQ를 올리고 다시 승인요청해 주세요.'),
+      hint: hasFileAfterReopen.value
+        ? pt('추가 EQ 요청 후 새 파일을 올렸습니다 — 승인요청을 진행해 주세요.')
+        : pt('아직 추가 EQ 요청 후 새로 올린 파일이 없습니다 — 지금 올라 있는 EQ는 이미 승인된 것입니다.'),
+    };
+  }
   if (d.status === 'issued') {
     return eqRejection.value !== null
       ? {
@@ -274,6 +325,18 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
       title: pt('샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.'),
       hint: pt('승인요청 중에는 첨부를 바꿀 수 없습니다 — 바꾸려면 요청을 취소한 뒤 올려 주세요.'),
     };
+  }
+  // 승인 뒤의 갈림길 — 회신을 읽고 그대로 만들거나 다시 묻는다. 생산을 시작하면 다시 묻는 문이 닫힌다.
+  if (d.status === 'eq_done' && canReopen.value) {
+    return answerToReview.value
+      ? {
+          title: pt('고객 회신을 확인해 주세요 — 회신대로 생산할 수 있으면 [{value1}], 더 확인할 것이 있으면 [{value2}]을 눌러 주세요.', { value1: forwardLabel.value, value2: reopenLabel.value }),
+          hint: pt('추가 EQ 요청은 생산을 시작하기 전까지만 할 수 있습니다.'),
+        }
+      : {
+          title: pt('EQ가 승인됐습니다 — 생산을 시작해 주세요.'),
+          hint: pt('더 확인할 것이 있으면 생산을 시작하기 전에 [{value1}]으로 EQ를 다시 열 수 있습니다.', { value1: reopenLabel.value }),
+        };
   }
   if (d.status === 'eq_done') return { title: pt('EQ가 승인됐습니다 — 생산을 시작해 주세요.'), hint: '' };
   if (d.status === 'producing')
@@ -334,12 +397,14 @@ const eqRequest = usePartnerPcbEqRequest();
 const prodStart = usePartnerPcbProductionStart();
 const prodComplete = usePartnerPcbProductionComplete();
 const eqRevert = usePartnerPcbEqRevert();
+const eqReopenRun = usePartnerPcbEqReopen();
 const busy = computed(
   () =>
     eqRequest.isPending.value ||
     prodStart.isPending.value ||
     prodComplete.isPending.value ||
-    eqRevert.isPending.value,
+    eqRevert.isPending.value ||
+    eqReopenRun.isPending.value,
 );
 async function runForward(): Promise<void> {
   if (poId.value === null || detail.value === null) return;
@@ -363,6 +428,32 @@ async function runRevert(): Promise<void> {
     await eqRevert.mutateAsync({ poId: poId.value });
   } catch (e) {
     surfaceError(e, pt('되돌리기에 실패했습니다.'));
+  }
+}
+
+// 추가 EQ 요청 — 사유를 받아야 하는 전이라 대화상자를 거친다. 오류는 **대화상자 안**에 적는다
+// (페이지 위쪽 actionError 는 창에 가려 안 보인다). 사유 규칙은 서버와 같은 계약 스키마로 먼저 본다.
+const reopenPromptOpen = ref(false);
+const reopenError = ref('');
+function openReopen(): void {
+  reopenError.value = '';
+  reopenPromptOpen.value = true;
+}
+async function submitReopen(values: Record<string, string>): Promise<void> {
+  if (poId.value === null) return;
+  const body = PcbEqReopenBody.safeParse({ reason: values.reason ?? '' });
+  if (!body.success) {
+    reopenError.value = pt('사유를 2자 이상 적어 주세요.');
+    return;
+  }
+  reopenError.value = '';
+  actionError.value = '';
+  try {
+    await eqReopenRun.mutateAsync({ poId: poId.value, body: body.data });
+    reopenPromptOpen.value = false;
+  } catch (e) {
+    reopenError.value =
+      locale.value === 'ko' && e instanceof ApiRequestError && e.message !== '' ? e.message : pt('추가 EQ 요청에 실패했습니다.');
   }
 }
 
@@ -468,6 +559,24 @@ const eqRejection = computed<{ note: string | null; at: string } | null>(() => {
   if (last === undefined || !isPcbEqRejectionEvent(last)) return null;
   return { note: last.note, at: last.at };
 });
+// 발주접수로 돌아온 이유가 **추가 EQ 요청**인가(D20 후속) — 반려(eq_requested → issued)와 전이
+// 모양부터 다르다(eq_done → issued). 판정은 계약의 경계 함수 하나다: 가장 최근에 EQ 를 다시 돌게
+// 만든 것이 반려면 위 eqRejection 이, 추가 EQ 요청이면 이것이 말한다(둘이 동시에 서지 않는다).
+// 재요청을 잠깐 물렸다(요청 취소) 해도 추가 EQ 를 준비 중인 것은 그대로라 마지막 이벤트로 좁히지 않는다.
+const eqReopen = computed<{ note: string; at: string } | null>(() => {
+  const d = detail.value;
+  if (d?.status !== 'issued') return null;
+  const boundary = lastPcbEqReworkBoundary(d.eq.history);
+  return boundary?.kind === 'reopen' ? { note: boundary.note, at: boundary.at } : null;
+});
+// 추가 EQ 요청 뒤 새 파일을 올렸는가 — 지금 올라 있는 EQ 는 이미 승인된 판이다. 서버가 찍는
+// afterReject 는 **가장 최근 경계**(반려 또는 추가 EQ 요청) 뒤의 파일이라 같은 표시를 읽는다.
+// 관리자 회신(reply)은 내 산출물이 아니라 세지 않는다.
+const hasFileAfterReopen = computed<boolean>(
+  () =>
+    eqReopen.value !== null &&
+    (detail.value?.eq.files.some((f) => f.fileType !== 'reply' && f.afterReject) ?? false),
+);
 // 반려 뒤 보완 파일을 실제로 올렸는가 — 서버가 파일마다 afterReject 를 찍어 준다.
 // 안 올린 채 재요청하면 관리자에게 "같은 도면"으로 보이고 다시 반려된다.
 const hasFixAfterReject = computed<boolean>(
@@ -542,6 +651,7 @@ const specEntries = computed(() => {
 // Clear transient feedback on language changes; preserve entered form values.
 watch(locale, () => {
   actionError.value = '';
+  reopenError.value = '';
 });
 </script>
 
@@ -704,6 +814,16 @@ watch(locale, () => {
             <p v-if="nowTodo.hint !== ''" class="mt-1 text-xs leading-5 text-blue-700">
               {{ nowTodo.hint }}
             </p>
+            <!-- 추가 EQ 요청으로 돌아온 건 — 무엇을 더 확인하려 했는지(요청 때 쓴 사유)를 다시 보인다.
+                 수정 EQ 를 만드는 동안 이 문장이 작업 지시다. 사유는 쓴 그대로(번역하지 않는다). -->
+            <div
+              v-if="eqReopen !== null && eqReopen.note !== ''"
+              class="mt-2 min-w-0 rounded-md border-l-4 border-amber-400 bg-surface px-3 py-2"
+              data-testid="partner-eq-reopen-reason"
+            >
+              <p class="text-xs font-semibold text-amber-800">{{ pt('추가 EQ 요청 사유') }}</p>
+              <p class="mt-0.5 whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]">{{ eqReopen.note }}</p>
+            </div>
             <!-- 스텐실 — 필수는 좌표파일 하나, 문의사항·사진은 선택이다. 문의사항은 제출과
                  한 몸이라 여기 둔다(제출 뒤엔 첨부와 같이 잠긴다 — 따로 저장 버튼을 두면
                  잠금이 거짓말이 된다). -->
@@ -783,6 +903,18 @@ watch(locale, () => {
           <span v-if="canForward && submitBlockers.length > 0" class="text-xs font-semibold text-amber-700">
             {{ submitBlockers.map((b) => pt(PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES[b])).join(' · ') }}
           </span>
+          <!-- 추가 EQ 요청 — [생산 시작]과 같은 순간의 다른 길이라 바로 옆에, 보조 모양으로 둔다
+               (주 동작은 생산 시작이다). 사유를 받아야 해서 누르면 대화상자가 먼저 뜬다. -->
+          <button
+            v-if="canReopen"
+            type="button"
+            class="rounded-lg border border-amber-300 bg-surface px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-40"
+            :disabled="busy"
+            data-testid="partner-eq-reopen"
+            @click="openReopen()"
+          >
+            {{ detail.eq.fallback ? pt('(MD 대행) {value1}', { value1: reopenLabel }) : reopenLabel }}
+          </button>
           <!-- 안내 문구는 위 '지금 할 일' 한 곳으로 모았다(같은 말을 두 번 하지 않는다). -->
           <button
             v-if="canRevert && revert !== null"
@@ -1045,6 +1177,24 @@ watch(locale, () => {
       :busy="shipReceive.isPending.value"
       @close="receivePromptOpen = false"
       @confirm="(v) => void submitShipReceive(v)"
+    />
+    <!-- 추가 EQ 요청 — 사유 필수(관리자에게 그대로 간다). 검증·서버 오류는 필드 아래에 적는다. -->
+    <UiPromptModal
+      :title="reopenPromptOpen ? reopenLabel : null"
+      :fields="[{
+        name: 'reason',
+        label: pt('요청 사유'),
+        type: 'textarea',
+        required: true,
+        maxlength: 2000,
+        placeholder: pt('무엇을 더 확인해야 하는지 적어 주세요.'),
+        hint: reopenError !== '' ? `⚠ ${reopenError}` : pt('2자 이상 적어 주세요.'),
+      }]"
+      :description="pt('고객 회신을 보고 더 확인할 것이 있을 때 씁니다. 발주가 발주접수로 돌아가 EQ 파일을 다시 올릴 수 있고, 샘플피씨비 담당자에게 사유가 전달됩니다.')"
+      :confirm-label="reopenLabel"
+      :busy="eqReopenRun.isPending.value"
+      @close="reopenPromptOpen = false"
+      @confirm="(v) => void submitReopen(v)"
     />
   </div>
 </template>

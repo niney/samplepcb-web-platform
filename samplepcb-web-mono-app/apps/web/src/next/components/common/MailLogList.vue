@@ -172,6 +172,7 @@ const KNOWN_KINDS = [
   'pcb_eq_customer_request',
   'pcb_eq_customer_decision',
   'pcb_eq_answer_forwarded',
+  'pcb_eq_reopened',
   'pcb_produced',
   'pcb_shipment_turn',
   'pcb_shipment_received',

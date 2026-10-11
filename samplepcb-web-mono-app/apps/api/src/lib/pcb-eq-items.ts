@@ -154,6 +154,21 @@ export const eqRoundNumbers = (rows: readonly EqRoundCandidate[]): Map<string, n
   return out;
 };
 
+/**
+ * 발주서별 **번호가 붙은** 문항형 회차 수(key=poId) — 관리자 작업공간의 탭 수(roundNo !== null)와 같다.
+ * 번호 규칙(eqRoundNumbers)에서 그대로 파생한다: 안 나간 채 닫힌 초안은 번호가 없으니 여기서도 빠진다.
+ */
+export const countEqNumberedRounds = (rows: readonly EqRoundCandidate[]): Map<string, number> => {
+  const numbered = eqRoundNumbers(rows);
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (!numbered.has(r.id.toString())) continue;
+    const po = r.poId.toString();
+    out.set(po, (out.get(po) ?? 0) + 1);
+  }
+  return out;
+};
+
 // ── 개정 회차 연결(fromPrevious) ─────────────────────────────────────────────
 
 /**

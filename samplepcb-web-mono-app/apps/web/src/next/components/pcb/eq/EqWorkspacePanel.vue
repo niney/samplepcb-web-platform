@@ -8,6 +8,9 @@
 // 흐름: 회차 없음·직전 회차 닫힘 + EQ 승인요청 → [새 회차 시작](직접 작성 | 직전 회차에서 가져오기 | AI(P2) |
 // 간단 문구) → 초안 편집·임시저장(PUT 통째 교체) → [고객에게 보내기] → 고객 회신 | [대리 회신] →
 // [협력사에 전달] → [고객 회신대로 EQ 승인](기존 eq-approve) 또는 개정 EQ 요청(기존 반려 → 새 회차).
+// D20 후속 — 승인은 회신 온 미전달 회차를 협력사에 **함께 전달**한다(R-1, 수동 전달은 승인 전에 협력사 의견을 먼저
+// 들을 때). 승인 뒤 협력사가 [추가 EQ 요청]으로 EQ 를 다시 열 수 있고(R-2), 그렇게 다시 올라온 승인요청이면 새 회차
+// 카드가 협력사의 사유를 근거로 보여 준다.
 //
 // 초안은 서버에 있다(draft) — 이 패널이 들고 있는 것은 **저장 안 된 변경**뿐이다(회차별 버퍼). 닫아도 같은 Case
 // 화면 안에서는 남고('작성 이어가기'), 화면을 떠날 때만 묻는다. 저장·발송·회신·전달은 version 을 맞춰야 해서
@@ -32,6 +35,7 @@ import {
 import {
   PCB_EQ_FILE_LABELS,
   PCB_PO_STATUS_LABELS,
+  lastPcbEqReworkBoundary,
   type AdminPcbEqProxyAnswerBodyType,
   type AdminPcbPoViewType,
 } from '@sp/api-contract';
@@ -180,6 +184,16 @@ function defaultSelection(): number | 'new' | null {
  * 있거나 초안을 쓰는 중). 이번 요청의 회차를 이미 보냈으면 지난 분석 결과는 더 할 말이 아니다. 결과가 초안에
  * 들어갔으면(appliedReviewId) 띠 대신 회차 배지 'AI 초안 · 검토 필요'가 말한다.
  */
+/**
+ * 이번 승인요청이 **협력사의 추가 EQ 요청**으로 다시 올라온 것인가(D20 후속 R-2). 가장 최근 경계가 추가 EQ 요청이고
+ * 발주가 승인요청 중이면 그 뒤의 요청이 지금 요청이다 — 협력사가 적은 사유가 새 회차에서 무엇이 바뀌었는지의 근거다.
+ */
+const reopenContext = computed(() => {
+  if (props.po?.status !== 'eq_requested') return null;
+  const boundary = lastPcbEqReworkBoundary(props.po.eqHistory);
+  return boundary?.kind === 'reopen' ? boundary : null;
+});
+
 /** 이번 요청을 아직 고객에게 안 보냈다 — 새로 시작할 수 있거나 초안을 쓰는 중. */
 const aiBeforeSend = computed(
   () =>
@@ -580,21 +594,11 @@ async function forwardRound(): Promise<void> {
   }
 }
 
-async function approve(): Promise<void> {
-  const target = props.po;
-  const view = selectedView.value;
-  if (target === null) return;
-  // 승인 확인창 규칙(고객 대기·반려면 되묻기)은 Case 의 approvePo 가 갖고 있다. 여기선 그 규칙이 모르는
-  // 한 가지만 묻는다 — 회신을 협력사에 아직 안 넘겼는데 승인하면 공장은 고객 답을 못 보고 생산에 들어간다.
-  if (view?.status === 'answered' && view.forwardedAt === null) {
-    const ok = await confirmDialog({
-      message: '고객 회신을 아직 협력사에 전달하지 않았습니다.\n\n전달하지 않고 EQ 승인할까요? (공장은 포털에서 고객 답을 볼 수 없습니다)',
-      confirmLabel: '그래도 승인',
-      tone: 'danger',
-    });
-    if (!ok) return;
-  }
-  emit('approve', target);
+// 승인 확인창 규칙은 Case 의 approvePo 한 곳이 갖고 있다 — 고객 대기·반려면 되묻고, 회신 온 미전달 회차면
+// "승인하면 고객 회신이 협력사에 함께 전달됩니다"를 알린다(D20 후속 R-1: 승인이 자동 전달한다). 여기서 따로
+// 묻지 않는다(같은 승인이 두 번 묻지 않게 — 전에는 '전달하지 않고 승인?'을 여기서 물었다).
+function approve(): void {
+  if (props.po !== null) emit('approve', props.po);
 }
 
 // ── 그림 ───────────────────────────────────────────────────────────────────────
@@ -825,6 +829,16 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
                 {{ f.fileType }}<template v-if="!f.isLatest"> · 이전</template>
               </Button>
             </span>
+            <!-- 이번 요청이 협력사의 추가 EQ 요청으로 올라온 것이면 그 사유를 초안 위에서도 본다(AI 가 초안을 만들어 새 회차
+                 카드를 건너뛴 경우에도 무엇이 바뀌었는지 알게). -->
+            <span
+              v-if="reopenContext !== null && selectedView !== null && selectedView.id === currentRound?.id && selectedView.status === 'draft'"
+              class="text-warning max-w-full truncate text-xs"
+              :title="reopenContext.note"
+              data-eq-reopen-head
+            >
+              협력사 추가 EQ 요청: {{ reopenContext.note }}
+            </span>
             <Button
               v-if="po !== null && messageReviews.length > 0"
               variant="ghost"
@@ -873,6 +887,18 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
                 협력사가 EQ 승인요청을 올렸습니다. 공장 EQ 표를 문항으로 옮겨 고객에게 묻습니다 — 보내기 전에는 고객에게 보이지 않습니다.
               </p>
             </div>
+            <!-- 승인 뒤 협력사가 EQ 를 다시 열어 올라온 요청 — 협력사가 적은 사유가 이 회차의 근거다. -->
+            <Alert v-if="reopenContext !== null" variant="warning" size="sm" data-eq-reopen-context>
+              <AlertDescription>
+                <p class="text-xs">
+                  <b>협력사 추가 EQ 요청({{ fmtKstDate(reopenContext.at) }}):</b>
+                  <span class="ml-1 whitespace-pre-wrap">{{ reopenContext.note === '' ? '(사유 없음)' : reopenContext.note }}</span>
+                </p>
+                <p class="text-muted-foreground mt-1 text-xs">
+                  승인 뒤 협력사가 EQ 를 다시 열었습니다 — 직전 회차에서 가져와 바뀐 문항만 고치면 고객은 바뀐 것만 다시 답합니다.
+                </p>
+              </AlertDescription>
+            </Alert>
             <div v-if="sourceCandidates.length > 0" class="grid gap-1.5">
               <p class="text-xs font-semibold">근거 EQ 첨부 <span class="text-muted-foreground font-normal">— 이 회차가 옮겨 적는 협력사 파일(고객에게 가지 않음)</span></p>
               <span v-for="f in sourceCandidates" :key="f.fileId" class="inline-flex items-center gap-2 text-xs">
@@ -1102,10 +1128,13 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
               고객 회신을 기다립니다 — 전화·메일로 답을 들었으면 [대리 회신]으로 넣으세요.
             </p>
             <p v-else-if="selectedView?.status === 'answered' && selectedView.forwardedAt === null" class="text-warning font-semibold">
-              고객 회신이 왔습니다 — 협력사에 전달해야 공장이 답을 봅니다.
+              <template v-if="po?.status === 'eq_requested'">
+                고객 회신이 왔습니다 — EQ 승인하면 협력사에 함께 전달됩니다(승인 전에 협력사 의견을 먼저 들으려면 [협력사에 전달]).
+              </template>
+              <template v-else>고객 회신이 왔습니다 — 협력사에 전달해야 공장이 답을 봅니다.</template>
             </p>
             <p v-else-if="selectedView?.status === 'answered'" class="text-muted-foreground">
-              {{ fmtKstDate(selectedView.forwardedAt) }} 협력사 전달 — 공장이 개정 EQ 를 내면 반려 후 새 회차로, 아니면 EQ 승인.
+              {{ fmtKstDate(selectedView.forwardedAt) }} 협력사 전달<template v-if="po?.status === 'eq_requested'"> — 공장이 개정 EQ 를 내면 반려 후 새 회차로, 아니면 EQ 승인.</template><template v-else> — 지난 회차의 기록입니다.</template>
             </p>
           </div>
 
@@ -1131,12 +1160,24 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
           </template>
 
           <template v-else-if="selectedView?.status === 'answered' && po !== null">
-            <Button v-if="selectedView.forwardedAt === null" :disabled="busy" @click="void forwardRound()">협력사에 전달</Button>
+            <!-- 승인이 회신을 함께 전달하므로(R-1) 승인요청 중에는 전달이 보조 동작이다 — 승인 전에 협력사 의견을 먼저 들을 때. -->
+            <Button
+              v-if="selectedView.forwardedAt === null"
+              :variant="po.status === 'eq_requested' ? 'outline' : 'default'"
+              :disabled="busy"
+              @click="void forwardRound()"
+            >
+              협력사에 전달
+            </Button>
             <template v-if="po.status === 'eq_requested'">
               <Button variant="outline" :disabled="busy" title="공장이 고객 회신을 반영한 개정 EQ 를 내야 할 때 — 반려하면 '발주접수'로 돌아가고, 재요청이 오면 새 회차로 묻습니다." @click="emit('reject', po)">
                 개정 EQ 요청(반려)
               </Button>
-              <Button :variant="selectedView.forwardedAt === null ? 'outline' : 'default'" :disabled="busy" @click="void approve()">
+              <Button
+                :disabled="busy"
+                :title="selectedView.forwardedAt === null ? '승인하면 고객 회신이 협력사에 함께 전달됩니다.' : undefined"
+                @click="approve"
+              >
                 고객 회신대로 EQ 승인
               </Button>
             </template>

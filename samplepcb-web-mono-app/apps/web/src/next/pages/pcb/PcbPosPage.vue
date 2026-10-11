@@ -23,7 +23,7 @@ import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import TodoQueue from '@/next/components/pcb/TodoQueue.vue';
 import PoDeliveryFilter from '@/next/components/pcb/pos/PoDeliveryFilter.vue';
 import { usePollWhile } from '@/next/components/pcb/eq/usePollWhile';
-import { pcbEqReviewBadge, pcbEqRowTitle, pcbPoStatusBadge } from '@/next/components/pcb/pos/pos-badges';
+import { pcbEqReviewBadge, pcbEqReworkBadge, pcbEqRowTitle, pcbPoStatusBadge } from '@/next/components/pcb/pos/pos-badges';
 
 // PCB 발주·EQ 워크큐(P2) — 구매 담당의 화면. 큐 흐름:
 //   발주 대기(결제 완료+미발주 — 스펙 축) → 협력사 진행 → EQ 승인 대기 → 생산 진행 → 생산완료.
@@ -200,8 +200,20 @@ function openCase(specId: number): void {
                       {{ pcbPoStatusBadge(row.track, row.status).label }}
                     </Badge>
                     <Badge v-if="row.adminTurn">내 차례</Badge>
+                    <!-- 추가 EQ 요청(D20 후속) — 승인 뒤 협력사가 EQ 를 다시 열어 발주접수로 돌아와 있다(주의색 — 반려의
+                         문제색과 가른다). 사유는 Case 상세에. 서버가 '돌아온 이유가 추가 EQ 요청일 때'만 시각을 준다. -->
+                    <Tooltip v-if="row.status === 'issued' && row.reopenedAt !== null">
+                      <TooltipTrigger as-child>
+                        <Badge :variant="pcbEqReworkBadge(row.track, 'reopen').variant" data-eq-rework-badge>
+                          {{ pcbEqReworkBadge(row.track, 'reopen').label }} {{ fmtDate(row.reopenedAt) }}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {{ fmtDate(row.reopenedAt) }} 추가 EQ 요청 — 승인 뒤 다시 열렸습니다. 협력사가 EQ 를 다시 올릴 차례(사유는 Case 상세).
+                      </TooltipContent>
+                    </Tooltip>
                     <!-- 반려 뒤 보완 대기 — 같은 '발주접수'라도 "아직 안 온 건"과 "돌려보낸 건"은 할 말이 다르다. -->
-                    <Tooltip v-if="row.status === 'issued' && row.rejectedAt !== null">
+                    <Tooltip v-else-if="row.status === 'issued' && row.rejectedAt !== null">
                       <TooltipTrigger as-child>
                         <Badge variant="danger">반려됨 {{ fmtDate(row.rejectedAt) }}</Badge>
                       </TooltipTrigger>

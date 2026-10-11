@@ -4,15 +4,15 @@ import {
   PCB_PAYMENT_TERM_CUSTOM_DATE,
   PCB_PAYMENT_TERM_NET_7,
   isPcbDeliveryOverdue,
+  canReopenPcbEq,
   isPcbEqReviewDecided,
-  lastPcbEqRejectedAt,
-  lastPcbEqRejection,
+  lastPcbEqReworkBoundary,
   lastPcbStencilInquiry,
   pcbEqForwardLabel,
   pcbEqRejectActionLabel,
   type AdminPcbPoViewType,
   type PcbEqFileTypeType,
-  type PcbEqRejection,
+  type PcbEqReworkBoundary,
 } from '@sp/api-contract';
 import { fmtKstDate, kstDateInput, kstDateOnly, kstToday } from '@sp/utils';
 import {
@@ -28,10 +28,11 @@ import {
   type AdminPcbEqSubstituteAction,
 } from '@/admin/useAdminPcbPos';
 import { pcbEqReviewState, type PcbEqReviewDisplay } from '@/lib/pcb-eq-review';
+import { useAdminPcbEqReopen } from '@/next/components/pcb/eq/useAdminPcbEqReopen';
 import { usePollWhile } from '@/next/components/pcb/eq/usePollWhile';
 import type { PcbBadge } from '@/next/components/pcb/pcb-badges';
 import { pcbEqReviewBadge, pcbEqRowTitle } from '@/next/components/pcb/pos/pos-badges';
-import { confirmDialog, promptDialog } from '@/next/lib/dialog';
+import { confirmDialog, promptDialog, type ConfirmOptions } from '@/next/lib/dialog';
 import { addDateOnlyDays, type CaseCore } from './case-core';
 import type { CaseRfq } from './case-rfq';
 
@@ -261,8 +262,13 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
   /** 행 버튼 문구 — 같은 Case 안에서 닫아 둔 초안 변경이 있으면 이어 쓰게 한다. */
   const eqOpenLabelOf = (po: AdminPcbPoViewType): string =>
     po.track === 'stencil' ? '고객 확인' : eqDirtyPoIds.value.includes(po.poId) ? '작성 이어가기' : 'EQ 열기';
-  /** 행에 [EQ 열기]를 둘까 — 승인요청 중이거나 고객 확인 이력이 있을 때(승인의 근거는 단계가 지나도 남긴다). */
-  const showEqOpen = (po: AdminPcbPoViewType): boolean => po.status === 'eq_requested' || po.eqReview !== null;
+  /** 행에 [EQ 열기]를 둘까 — EQ 트랙은 **승인요청 중이거나 문항형 회차가 하나라도 있으면**(eqRoundCount) 상태와 무관하게
+   *  둔다: 반려·추가 EQ 요청으로 발주접수에 돌아와 있어도, 승인·생산 뒤에도 지난 회차의 고객 답을 다시 볼 수 있어야
+   *  한다(D20 후속). 요약(eqReview)은 **이번 승인요청 뒤**의 회차만 실어 이 판정에 쓸 수 없다 — 다시 돈 발주가 새
+   *  회차 없이 승인·반려되면 요약이 비기 때문이다. 다만 문구형(D16) 확인만 있는 발주와 스텐실(문구형뿐)의 문은
+   *  요약으로 남긴다 — eqRoundCount 는 문항형만 센다. */
+  const showEqOpen = (po: AdminPcbPoViewType): boolean =>
+    po.status === 'eq_requested' || po.eqReview !== null || (po.track === 'eq' && po.eqRoundCount > 0);
   /** 행 칩 — 문항형이면 "EQ 2차 · 회신 대기 D+2", 문구형이면 옛 배지 문구, 회차가 없으면 AI 분석 중·안 됨(D20 P2).
    *  워크큐 배지와 같은 판정·색. */
   const eqChipOf = (po: AdminPcbPoViewType): PcbBadge | null =>
@@ -385,22 +391,32 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
     // 막지 않는다 — 관리자 만능 대행(D11)이 원칙이라 여기서 되묻기만 한다. 어휘는 계약 라벨 사전 하나.
     // 답한 상태(문구형 승인·반려 + 문항형 회신)는 계약 isPcbEqReviewDecided 하나로 판정한다 — 반려만 한 번 더
     // 묻는다. 작성 중(D20 draft)은 고객에게 안 갔지만, 승인하면 EQ 전이가 그 초안을 닫으므로 그 사실을 묻는다.
+    //
+    // D20 후속 R-1 — 승인은 회신 온 **미전달** 문항형 회차를 협력사에 함께 전달한다(서버). 전달 없이 승인돼
+    // 공장이 고객 답을 모른 채 생산에 들어가는 길이 없어졌으므로, 여기서는 되묻지 않고 그 사실만 알린다.
     const approveWord = pcbEqForwardLabel('eq_requested', po.track);
     const review = po.eqReview;
     const note = review?.decisionNote ?? null;
-    const ask =
+    const warn = (message: string): ConfirmOptions => ({ message, confirmLabel: '그래도 진행', tone: 'danger' });
+    const ask: ConfirmOptions | null =
       review === null
         ? null
         : review.status === 'rejected'
-          ? `고객이 반려한 건입니다${note === null ? '' : `\n사유: ${note}`}\n\n그래도 ${approveWord} 처리할까요?`
+          ? warn(`고객이 반려한 건입니다${note === null ? '' : `\n사유: ${note}`}\n\n그래도 ${approveWord} 처리할까요?`)
           : isPcbEqReviewDecided(review.status)
-            ? null
+            ? review.format === 'items' && review.status === 'answered' && review.forwardedAt === null
+              ? {
+                  title: approveWord,
+                  message: `승인하면 고객 회신${review.roundNo === null ? '' : `(${String(review.roundNo)}차)`}이 협력사에 함께 전달됩니다 — 포털에 문항별 답이 열리고 메일이 나갑니다.\n\n${approveWord} 처리할까요?`,
+                  confirmLabel: approveWord,
+                }
+              : null
             : review.status === 'requested'
-              ? `고객 회신을 기다리는 중입니다.\n\n답을 기다리지 않고 ${approveWord} 처리할까요?`
+              ? warn(`고객 회신을 기다리는 중입니다.\n\n답을 기다리지 않고 ${approveWord} 처리할까요?`)
               : review.status === 'draft'
-                ? `작성 중인 고객 확인 초안이 있습니다(고객에게는 아직 안 보냄).\n\n${approveWord}하면 초안은 닫힙니다. 그래도 진행할까요?`
+                ? warn(`작성 중인 고객 확인 초안이 있습니다(고객에게는 아직 안 보냄).\n\n${approveWord}하면 초안은 닫힙니다. 그래도 진행할까요?`)
                 : null;
-    if (ask !== null && !(await confirmDialog({ message: ask, confirmLabel: '그래도 진행', tone: 'danger' }))) return;
+    if (ask !== null && !(await confirmDialog(ask))) return;
     actionError.value = '';
     try {
       await approveEq.mutateAsync({ specId: specId.value, poId: po.poId });
@@ -498,15 +514,50 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
   /** 관리자 회신 첨부 — 반려하며 돌려보내는 수정지시. 협력사는 못 지운다. */
   const replyFilesOf = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
     po.eqFiles.filter((f) => f.fileType === 'reply');
-  /** 직전 반려(시각+사유) — 상태 칸이 "돌려보낸 건"임을 말하고 사유를 보여 준다. */
-  const poRejection = (po: AdminPcbPoViewType): PcbEqRejection | null => lastPcbEqRejection(po.eqHistory);
+  /** EQ 를 다시 돌게 만든 가장 최근의 경계(시각·사유·종류) — 관리자 반려 또는 협력사 추가 EQ 요청(D20 후속).
+   *  상태 칸이 "왜 발주접수로 돌아왔는지"를 말하고 사유를 보여 준다. 둘을 갈라 읽는 건 kind 다. */
+  const poRework = (po: AdminPcbPoViewType): PcbEqReworkBoundary | null => lastPcbEqReworkBoundary(po.eqHistory);
+  /** 추가 EQ 요청 사유를 쓴 쪽 — 협력사가 포털에서 눌렀는가, 관리자가 대행했는가(경계와 같은 시각의 이력 줄 byRole). */
+  const poReopenAuthor = (po: AdminPcbPoViewType, boundary: PcbEqReworkBoundary): string =>
+    po.eqHistory.find((e) => e.at === boundary.at && e.toStatus === 'issued')?.byRole === 'ADMIN' ? '관리자 대행' : '협력사';
   /** 스텐실 — 협력사가 확인 요청에 실어 보낸 고객문의사항(현행 제출분). */
   const stencilInquiryOf = (po: AdminPcbPoViewType): { at: string; note: string } | null =>
     po.track === 'stencil' ? lastPcbStencilInquiry(po.eqHistory) : null;
-  // 반려 뒤 보완 — 첨부는 승인요청 뒤 잠기므로 보완 파일은 반려와 재요청 **사이**에만 올라온다. 그 구간이
-  // 비었는데 다시 승인요청이 와 있으면 같은 도면으로 재요청한 것이다(승인 버튼 옆에서 말한다).
+  // 경계 뒤 보완 — 첨부는 승인요청 뒤 잠기므로 보완 파일은 경계(반려·추가 EQ 요청)와 재요청 **사이**에만 올라온다.
+  // 그 구간이 비었는데 다시 승인요청이 와 있으면 같은 파일로 재요청한 것이다(승인 버튼 옆에서 말한다). 서버가
+  // afterReject 를 같은 경계 기준으로 준다.
   const eqUnfixedAfterReject = (po: AdminPcbPoViewType): boolean =>
-    po.status === 'eq_requested' && lastPcbEqRejectedAt(po.eqHistory) !== null && !po.eqFiles.some((f) => f.afterReject);
+    po.status === 'eq_requested' && poRework(po) !== null && !po.eqFiles.some((f) => f.afterReject);
+
+  // ── 추가 EQ 요청 대행(D20 후속 R-2 · D11) — 포털 계정이 없는 조직은 누를 사람이 없다 ────────────
+  const reopenEq = useAdminPcbEqReopen();
+  /** 대행 버튼을 낼까 — 생산 시작 전(eq_done)·EQ 트랙만(계약), 위임/차단 발주는 하위에서 진행한다. */
+  const canSubstituteReopen = (po: AdminPcbPoViewType): boolean =>
+    canReopenPcbEq(po.status, po.track) && po.eqDelegatePoId === null && !po.eqBlocked;
+  async function substituteReopen(po: AdminPcbPoViewType): Promise<void> {
+    actionError.value = '';
+    await promptDialog({
+      title: '추가 EQ 요청 대행',
+      description: `${po.partnerName} 대신 추가 EQ 를 요청합니다(이력에 관리자 대행으로 남습니다). 발주가 '발주접수'로 돌아가 EQ 첨부를 다시 올리고 승인요청할 수 있게 됩니다 — 고객에게는 다음 승인요청 뒤 새 회차로 묻습니다.`,
+      fields: [
+        {
+          name: 'reason',
+          label: '무엇을 더 확인해야 하나요',
+          type: 'textarea',
+          required: true,
+          maxlength: 2000,
+          placeholder: '예) 고객 회신(2번 B) 반영 시 임피던스 스택업이 바뀝니다 — 적층 구조를 다시 확인해야 합니다.',
+        },
+      ],
+      confirmLabel: '추가 EQ 요청',
+      // 서버 문턱(생산 시작됨·스텐실 NOT_EQ_TRACK 등)에 걸리면 그 문구가 대화상자 안에 그대로 보인다.
+      errorFallback: '추가 EQ 요청에 실패했습니다.',
+      submit: async (values) => {
+        if (specId.value === null) return;
+        await reopenEq.mutateAsync({ specId: specId.value, poId: po.poId, body: { reason: values.reason ?? '' } });
+      },
+    });
+  }
 
   return {
     poModalOpen,
@@ -571,7 +622,10 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
     eqFilesShown,
     eqOlderCount,
     replyFilesOf,
-    poRejection,
+    poRework,
+    poReopenAuthor,
+    canSubstituteReopen,
+    substituteReopen,
     stencilInquiryOf,
     eqUnfixedAfterReject,
   };

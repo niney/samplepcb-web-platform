@@ -5,6 +5,7 @@ import {
   PCB_EQ_REVERT_NOTE,
   buildPcbEqTimeline,
   isPcbEqRejectionEvent,
+  isPcbEqReopenEvent,
   pcbEqEventLabel,
   type PcbEqEventType,
   type PcbEqFileViewType,
@@ -80,6 +81,10 @@ const roleChipCls = (r: string): string => ROLE_CHIP[r] ?? 'bg-gray-100 text-gra
 const eventLabel = (item: { fromStatus?: string; toStatus?: string; note?: string | null }): string =>
   pt(pcbEqEventLabel(item, props.track ?? 'eq'));
 const isReject = isPcbEqRejectionEvent;
+// 추가 EQ 요청(eq_done → issued) — 반려처럼 회차를 닫지만 **누가 틀렸다는 말이 아니다**(협력사가
+// 고객 회신을 읽고 스스로 다시 연 것). 붉은 반려와 갈라 주의색으로 세운다 — 발신자 쪽 색(내 것=파랑)에
+// 묻히면 "왜 발주접수로 돌아왔는지"가 대화에서 안 보인다.
+const isReopen = isPcbEqReopenEvent;
 
 /** 되돌리기가 남긴 레거시 표식은 사유가 아니다 — 말풍선에 '되돌리기'만 뜨면 안 읽힌다. */
 const shownNote = (note?: string | null): string =>
@@ -150,16 +155,19 @@ const when = (at: string): string => {
               {{ when(item.at) }}
             </p>
 
-            <!-- 전이 — 반려만 붉게(되돌아온 이유가 가장 먼저 읽혀야 한다) -->
+            <!-- 전이 — 반려만 붉게(되돌아온 이유가 가장 먼저 읽혀야 한다), 추가 EQ 요청은 주의색 -->
             <div
               v-if="item.kind === 'event'"
               class="rounded-xl border px-3 py-2 text-sm"
+              :data-eq-event="isReject(item) ? 'reject' : isReopen(item) ? 'reopen' : 'step'"
               :class="
                 isReject(item)
                   ? 'border-red-200 bg-red-50 text-red-800'
-                  : isMine(item.byRole)
-                    ? 'border-blue-200 bg-blue-50 text-blue-900'
-                    : 'border-gray-200 bg-gray-50 text-gray-700'
+                  : isReopen(item)
+                    ? 'border-amber-300 bg-amber-50 text-amber-900'
+                    : isMine(item.byRole)
+                      ? 'border-blue-200 bg-blue-50 text-blue-900'
+                      : 'border-gray-200 bg-gray-50 text-gray-700'
               "
             >
               <p class="font-semibold">{{ eventLabel(item) }}</p>

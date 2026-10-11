@@ -26,6 +26,9 @@ const todo = computed(() => props.po.myTurn);
 const rejected = computed(
   () => props.po.status === 'issued' && (props.po.rejectedAt ?? null) !== null,
 );
+// 추가 EQ 요청으로 돌아온 건(D20 후속) — 반려와 서로 배타다(서버가 가장 최근 경계 하나만 세운다).
+// 발주 직후의 '발주접수'와 같은 얼굴이 되지 않게 배지로 가른다 — 수정한 EQ 를 올릴 차례다.
+const reopened = computed(() => props.po.status === 'issued' && props.po.reopenedAt !== null);
 const eqBlocked = computed(() => props.po.eqBlocked === true);
 
 </script>
@@ -47,6 +50,9 @@ const eqBlocked = computed(() => props.po.eqBlocked === true);
         <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-700">{{ pt('A/S {value1}차', { value1: po.reorderRound }) }}</span>
         <span v-if="rejected" class="ml-1 rounded bg-red-100 px-1 text-[11px] font-bold text-red-700">
           {{ po.direction === 'issued' ? pt('반려 — 보완 대기') : pt('반려됨 — 보완 필요') }}
+        </span>
+        <span v-else-if="reopened" class="ml-1 rounded bg-amber-100 px-1 text-[11px] font-bold text-amber-800" data-testid="partner-pcb-po-reopened">
+          {{ po.direction === 'issued' ? pt('추가 EQ 요청 — 수정 대기') : pt('추가 EQ 준비 중') }}
         </span>
         <!-- MD 수주의 하위 발주 대기 — EQ 를 열려면 먼저 하위에 발주해야 한다 -->
         <span v-if="eqBlocked" class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-bold text-indigo-700">{{ pt('하위 발주 필요') }}</span>

@@ -14,6 +14,7 @@ import {
   type PcbShipmentFileTypeType,
   type PartnerPcbChildPoCreateBodyType,
   type PcbEqFileTypeType,
+  type PcbEqReopenBodyType,
   type PcbShipmentAdvanceBodyType,
 } from '@sp/api-contract';
 import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
@@ -124,6 +125,19 @@ export function usePartnerPcbProductionComplete() {
 }
 export function usePartnerPcbEqRevert() {
   return transition(useQueryClient(), 'eq-revert');
+}
+
+// 추가 EQ 요청(D20 후속) — 승인된 건(eq_done)을 협력사가 사유와 함께 발주접수로 돌린다.
+// 되돌리기(eq-revert)와 다른 축이라 훅도 따로 둔다 — 사유가 필수 본문이다.
+export function usePartnerPcbEqReopen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, body }: { poId: number; body: PcbEqReopenBodyType }) =>
+      apiSend('POST', `${base}/${String(poId)}/eq-reopen`, body, PcbPoActionResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
 }
 
 // MD 하위 발주 — 하위 회신 견적행 기준(대상·통화·금액 유도).

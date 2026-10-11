@@ -1,25 +1,37 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import {
   BanknoteIcon,
   BanIcon,
   CheckIcon,
+  MessageCircleQuestionIcon,
   PackageIcon,
   PencilIcon,
   Undo2Icon,
   UserCogIcon,
   XIcon,
 } from '@lucide/vue';
-import { pcbEqForwardLabel, pcbEqRejectActionLabel, pcbEqRevertLabel, type AdminPcbPoViewType } from '@sp/api-contract';
+import {
+  PCB_EQ_REOPEN,
+  pcbEqForwardLabel,
+  pcbEqRejectActionLabel,
+  pcbEqRevertLabel,
+  type AdminPcbPoViewType,
+} from '@sp/api-contract';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
+import { pcbEqUnfixedLabel, pcbEqUnfixedTitle } from '@/next/components/pcb/pos/pos-badges';
 import { substituteActionOf, substituteLabelOf } from './case-po';
 import { usePcbCaseContext } from './usePcbCase';
 
 // 발주 행의 액션 칸 — EQ 판정(승인·반려·되돌리기), 협력사 몫 대행, 발송 시작, 송금, 조건 수정, 취소.
 // 고객 확인은 EQ 칸(PoEqCell)의 칩 + [EQ 열기] 가 맡는다(D20 — 작업공간 하나로 모았다).
-defineProps<{ po: AdminPcbPoViewType }>();
+const props = defineProps<{ po: AdminPcbPoViewType }>();
 
 const {
+  poRework,
+  canSubstituteReopen,
+  substituteReopen,
   eqUnfixedAfterReject,
   approvePo,
   rejectPoId,
@@ -31,22 +43,19 @@ const {
   openPoEdit,
   removePo,
 } = usePcbCaseContext();
+
+/** 경고의 기준이 된 경계 — 관리자 반려인가, 협력사 추가 EQ 요청인가(문구가 다르다, 판정은 같다). */
+const reworkKind = computed(() => poRework(props.po)?.kind ?? 'reject');
 </script>
 
 <template>
   <span class="inline-flex flex-wrap justify-end gap-1">
     <!-- 고객 확인(D16 문구형·D20 문항형)은 EQ 칸의 상태 칩 + [EQ 열기] 하나로 옮겼다 — 여기는 판정·대행 버튼만. -->
     <template v-if="po.status === 'eq_requested' && po.eqDelegatePoId === null">
-      <!-- 반려(보완 요청)했는데 그 뒤로 올라온 파일이 없다 = 같은 파일로 온 재요청. 승인 버튼 옆이 아니면
-           볼 이유가 없는 정보다. -->
-      <Badge
-        v-if="eqUnfixedAfterReject(po)"
-        variant="danger"
-        :title="po.track === 'stencil'
-          ? '직전 보완 요청 이후 새로 올라온 첨부가 없습니다 — 같은 파일로 다시 확인 요청됐을 수 있습니다.'
-          : '직전 반려 이후 새로 올라온 EQ 첨부가 없습니다 — 같은 도면으로 다시 승인요청됐을 수 있습니다.'"
-      >
-        {{ po.track === 'stencil' ? '보완 요청 후 새 파일 없음' : '반려 후 새 파일 없음' }}
+      <!-- 반려(보완 요청)했거나 협력사가 추가 EQ 를 요청했는데 그 뒤로 올라온 파일이 없다 = 같은 파일로 온 재요청.
+           승인 버튼 옆이 아니면 볼 이유가 없는 정보다. -->
+      <Badge v-if="eqUnfixedAfterReject(po)" variant="danger" :title="pcbEqUnfixedTitle(po.track, reworkKind)" data-eq-unfixed>
+        {{ pcbEqUnfixedLabel(po.track, reworkKind) }}
       </Badge>
       <Button
         size="sm"
@@ -75,6 +84,17 @@ const {
     >
       <UserCogIcon />
       {{ substituteLabelOf(po, substituteActionOf(po.status) ?? 'eq-request') }}
+    </Button>
+    <!-- 추가 EQ 요청 대행(D20 후속) — 승인 뒤 협력사가 포털에서 누르는 전이. 생산 시작 전·EQ 트랙에서만. -->
+    <Button
+      v-if="canSubstituteReopen(po)"
+      variant="outline"
+      size="sm"
+      title="협력사 포털의 [추가 EQ 요청]과 같습니다 — 사유를 적으면 발주가 '발주접수'로 돌아가 EQ 를 다시 올릴 수 있습니다."
+      @click="void substituteReopen(po)"
+    >
+      <MessageCircleQuestionIcon />
+      {{ PCB_EQ_REOPEN.label }}(대행)
     </Button>
     <!-- 발송 시작(담기) 대행 — 계정 없는 조직은 포털에서 누를 사람이 없다 -->
     <Button

@@ -15,6 +15,7 @@ import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { ButtonGroup } from '@/next/components/ui/button-group';
 import Panel from '@/next/components/common/Panel.vue';
+import { pcbEqAfterReworkNote } from '@/next/components/pcb/pos/pos-badges';
 import { usePcbCaseContext } from './usePcbCase';
 
 // 발주 행의 EQ(스텐실: 문의·첨부) 칸 — 협력사 산출물(eq·working·coord·inquiry)과 관리자 회신(reply)을
@@ -25,9 +26,12 @@ const props = defineProps<{ po: AdminPcbPoViewType }>();
 // MD 위임 상위는 EQ 를 하위에서 진행한다 — 열기는 하위 줄([EQ 열기])에 두고, 여기선 자기 이력이 있을 때만.
 const eqOpenHere = computed(() => showEqOpen(props.po) && (props.po.eqDelegatePoId === null || props.po.eqReview !== null));
 const chip = computed(() => eqChipOf(props.po));
+/** 경계(반려·추가 EQ 요청) 뒤에 올라온 파일의 툴팁 덧말 — 어느 경계 뒤인지에 따라 말이 다르다. */
+const afterReworkNote = computed(() => pcbEqAfterReworkNote(poRework(props.po)?.kind ?? 'reject'));
 
 const {
   specId,
+  poRework,
   eqChipOf,
   eqReviewTitleOf,
   eqOpenLabelOf,
@@ -80,7 +84,7 @@ const download = (fileId: number, name: string): void => {
         <Button
           :variant="f.isLatest ? 'outline' : 'ghost'"
           size="xs"
-          :title="`${f.fileType.toUpperCase()} · ${f.name}${f.isLatest ? ' (최신)' : ' — 이전 업로드입니다. 승인 근거로 쓰지 마세요.'}${f.afterReject ? ' · 반려 뒤 새로 올라온 보완분입니다.' : ''}`"
+          :title="`${f.fileType.toUpperCase()} · ${f.name}${f.isLatest ? ' (최신)' : ' — 이전 업로드입니다. 승인 근거로 쓰지 마세요.'}${f.afterReject ? afterReworkNote : ''}`"
           @click="download(f.fileId, f.name)"
         >
           <HistoryIcon v-if="!f.isLatest" />

@@ -23,6 +23,8 @@ import {
   PCB_EQ_ITEMS_DEFAULT_MESSAGE,
   asEqAnswerChannel,
   eqFigureMime,
+  eqItemNo,
+  countEqNumberedRounds,
   eqRoundNumbers,
   isEqReviewCustomerVisible,
   linkEqRevision,
@@ -43,6 +45,7 @@ import {
   type AdminEqItemInput,
   type EqAnswerError,
   type EqDraftSaveError,
+  type EqRoundCandidate,
 } from './pcb-eq-items';
 
 // ── PCB EQ 고객 확인 코어(P4.1) — docs/PCB_PARTNER_TRACK.md D16·D20 ──────────
@@ -124,23 +127,25 @@ const CUSTOMER_VISIBLE: Prisma.SpPcbEqReviewWhereInput = {
   ],
 };
 
-/** 발주서들의 문항형 회차 번호(key=reviewId) — 규칙은 eqRoundNumbers. */
-const loadEqRoundNumbers = async (poIds: readonly bigint[]): Promise<Map<string, number>> => {
-  if (poIds.length === 0) return new Map();
+/** 발주서들의 문항형 회차 — 번호·개수 규칙(eqRoundNumbers·countEqNumberedRounds)의 입력. */
+const loadEqRoundCandidates = async (poIds: readonly bigint[]): Promise<EqRoundCandidate[]> => {
+  if (poIds.length === 0) return [];
   const rows = await prisma.spPcbEqReview.findMany({
     where: { poId: { in: [...poIds] }, format: 'items' },
     select: { id: true, poId: true, format: true, status: true, events: SENT_EVENT },
   });
-  return eqRoundNumbers(
-    rows.map((r) => ({
-      id: r.id,
-      poId: r.poId,
-      format: r.format,
-      status: r.status,
-      sent: r.events.length > 0,
-    })),
-  );
+  return rows.map((r) => ({
+    id: r.id,
+    poId: r.poId,
+    format: r.format,
+    status: r.status,
+    sent: r.events.length > 0,
+  }));
 };
+
+/** 발주서들의 문항형 회차 번호(key=reviewId) — 규칙은 eqRoundNumbers. */
+const loadEqRoundNumbers = async (poIds: readonly bigint[]): Promise<Map<string, number>> =>
+  eqRoundNumbers(await loadEqRoundCandidates(poIds));
 
 /** 회차들의 문항 그림 파일(sp_file) — key=fileId. */
 const loadFigureFiles = async (reviewIds: readonly bigint[]): Promise<Map<string, SpFile>> => {
@@ -377,6 +382,77 @@ export const closeOpenEqReviewsTx = async (
   return closed;
 };
 
+/**
+ * 승인과 함께 전달(D20 후속 R-1) — EQ 승인 전이(commitEqTransition)의 트랜잭션 안에서, 고객 회신이 왔고
+ * **아직 협력사에 전달하지 않은** 문항형 회차를 전달 처리한다. 승인은 "이 답대로 진행하라"는 뜻이라
+ * 답을 못 본 채 승인만 받는 상태가 없어야 한다(전달 없이 승인하면 공장이 고객 답을 모른 채 생산을 시작했다).
+ * 수동 [협력사에 전달](forwardEqReview)로 이미 나간 회차는 건드리지 않는다. 문구형(D16)은 전달이라는
+ * 개념이 없다 — format 으로 걸러진다. 전달한 회차 id(오래된 것부터)를 돌려준다(승인 메일이 요약을 싣는다).
+ */
+export const forwardAnsweredEqReviewsTx = async (
+  tx: Prisma.TransactionClient,
+  poId: bigint,
+  actorMbId: string,
+): Promise<bigint[]> => {
+  const pending = await tx.spPcbEqReview.findMany({
+    where: { poId, format: 'items', status: 'answered', forwardedAt: null },
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  });
+  const forwarded: bigint[] = [];
+  const now = new Date();
+  for (const { id } of pending) {
+    const updated = await tx.spPcbEqReview.updateMany({
+      where: { id, status: 'answered', forwardedAt: null },
+      data: { forwardedAt: now, forwardedBy: actorMbId, version: { increment: 1 } },
+    });
+    if (updated.count !== 1) continue; // 그사이 수동 전달이 먼저 갔다
+    await tx.spPcbEqReviewEvent.create({
+      data: {
+        reviewId: id,
+        action: 'forwarded',
+        actorRole: 'admin',
+        actorMbId,
+        note: '승인과 함께 전달',
+      },
+    });
+    forwarded.push(id);
+  }
+  return forwarded;
+};
+
+/**
+ * 승인 메일에 싣는 고객 회신 요약 — 방금 승인과 함께 전달된 회차들 중 **가장 최근 회차**의 문항 번호·기호·의견.
+ * 공장은 기호로 읽는다(D20-4). 함께 전달된 이전 회차는 건수만 센다(본문은 포털에서). 없으면 null.
+ */
+export const loadForwardedAnswerDigest = async (
+  poId: bigint,
+  reviewIds: readonly bigint[],
+): Promise<{
+  roundNo: number;
+  items: { no: string; key: string; comment: string | null }[];
+  earlierRounds: number;
+} | null> => {
+  if (reviewIds.length === 0) return null;
+  const rows = await prisma.spPcbEqReview.findMany({
+    where: { id: { in: [...reviewIds] }, poId },
+    orderBy: { id: 'desc' },
+    include: { items: { orderBy: { seq: 'asc' } } },
+  });
+  const latest = rows[0];
+  if (latest === undefined) return null;
+  const rounds = await loadEqRoundNumbers([poId]);
+  return {
+    roundNo: rounds.get(latest.id.toString()) ?? 1,
+    items: latest.items.map((i) => ({
+      no: eqItemNo(i),
+      key: i.answerKey ?? '-',
+      comment: i.answerComment,
+    })),
+    earlierRounds: rows.length - 1,
+  };
+};
+
 // ── 고객 쪽 ─────────────────────────────────────────────────────────────────
 
 type CustomerReviewRow = SpPcbEqReview & { items: SpPcbEqReviewItem[] };
@@ -591,6 +667,14 @@ export const getEqReviewFile = async (
   return { pathToken: file.pathToken, originFileName: file.originFileName, inline: true };
 };
 
+/** loadEqReviewRowSummaries 의 결과 — 요약과 회차 수는 한 조회에서 나온다. */
+export interface EqReviewRowSummaries {
+  /** key=poId — 요약이 없으면 키가 없다. */
+  summaries: Map<string, PcbPoEqReviewSummaryType>;
+  /** key=poId — 번호가 붙은 문항형 회차 수(작업공간 탭 수). 하나도 없으면 키가 없다(=0). */
+  roundCounts: Map<string, number>;
+}
+
 /** 발주 행에 싣는 요약(P4.4) — 모달을 열지 않아도 "보냈는지·답했는지"가 보이게.
  *  열린 회차(작성 중·회신 대기)가 있으면 그것(생성 가드상 항상 최신 행), 없으면 마지막 결정.
  *  canceled 는 요약에서 제외한다 — 취소했으면 미요청과 같다(다시 물어봐야 한다).
@@ -598,20 +682,28 @@ export const getEqReviewFile = async (
  *
  *  `roundStartByPo` 를 주면 **현재 EQ 회차에 생성된 리뷰만** 요약한다. 반려로 발주가 내려갔다
  *  다시 올라오면 지난 회차의 결정은 이력일 뿐인데, 그걸 요약으로 쓰면 배지가 옛 회차에 머물고
- *  반려 사유 프리필이 지난 회차 고객 문구를 협력사에 재발송한다. 비우면 전 이력 대상(구데이터). */
+ *  반려 사유 프리필이 지난 회차 고객 문구를 협력사에 재발송한다. 비우면 전 이력 대상(구데이터).
+ *
+ *  `roundCounts` 는 요약과 **다른 축**이다 — 승인요청 구간과 무관하게 그 발주서의 번호 붙은 문항형
+ *  회차를 센다(보낸 뒤 취소한 회차 포함 — 그래서 취소 행까지 읽고 요약에서만 뺀다). 번호 조회가 읽은
+ *  것에서 세므로 조회는 늘지 않는다. */
 export const loadEqReviewRowSummaries = async (
   poIds: readonly bigint[],
   roundStartByPo?: ReadonlyMap<string, Date | null>,
-): Promise<Map<string, PcbPoEqReviewSummaryType>> => {
+): Promise<EqReviewRowSummaries> => {
   const map = new Map<string, PcbPoEqReviewSummaryType>();
-  if (poIds.length === 0) return map;
-  const rows = await prisma.spPcbEqReview.findMany({
-    where: { poId: { in: [...poIds] }, status: { not: 'canceled' } },
+  if (poIds.length === 0) return { summaries: map, roundCounts: new Map() };
+  const all = await prisma.spPcbEqReview.findMany({
+    where: { poId: { in: [...poIds] } },
     orderBy: { id: 'desc' },
   });
-  // 문항형 회차가 하나도 없으면(대부분의 목록) 번호 조회를 건너뛴다.
-  const itemPoIds = [...new Set(rows.filter((r) => r.format === 'items').map((r) => r.poId))];
-  const rounds = await loadEqRoundNumbers(itemPoIds);
+  const rows = all.filter((r) => r.status !== 'canceled');
+  // 문항형 회차가 하나도 없으면(대부분의 목록) 번호 조회를 건너뛴다. 취소된 회차만 남은 발주서도
+  // 묻는다 — 보낸 뒤 취소한 회차는 번호가 있고 작업공간에 탭으로 남는다.
+  const itemPoIds = [...new Set(all.filter((r) => r.format === 'items').map((r) => r.poId))];
+  const candidates = await loadEqRoundCandidates(itemPoIds);
+  const rounds = eqRoundNumbers(candidates);
+  const roundCounts = countEqNumberedRounds(candidates);
   // AI 초안(D20 P2) 표시 — 작성 중인 회차만 묻는다(대개 0~몇 건). 칩 "AI 초안 · 검토 필요".
   const draftIds = rows.filter((r) => r.status === 'draft').map((r) => r.id);
   const aiDrafted = new Set(
@@ -647,7 +739,7 @@ export const loadEqReviewRowSummaries = async (
       aiDraft: r.status === 'draft' && aiDrafted.has(r.id.toString()),
     });
   }
-  return map;
+  return { summaries: map, roundCounts };
 };
 
 // ── D20 협력사 포털 — 전달된 회차만 ───────────────────────────────────────────

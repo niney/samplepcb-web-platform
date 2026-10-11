@@ -12,8 +12,7 @@ import {
   bomShipmentNextStatus,
   isPcbDeliveryOverdue,
   canEditPcbEqFile,
-  lastPcbEqRejectedAt,
-  lastPcbEqRejection,
+  lastPcbEqReworkBoundary,
   lastPcbStencilInquiry,
   pcbEqForwardLabel,
   pcbEqRejectActionLabel,
@@ -32,7 +31,7 @@ import {
   type AdminPcbShipmentViewType,
   type PcbEqFileTypeType,
   type PcbShipmentFileTypeType,
-  type PcbEqRejection,
+  type PcbEqReworkBoundary,
   type BomShipmentStatusType,
   type PcbRfqReplyBodyType,
   type PcbShipmentAdvanceBodyType,
@@ -1239,8 +1238,15 @@ const replyFilesOf = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
 // 누른다 — 반려 사유가 반영되지 않은 채 생산으로 넘어간다.
 // 직전 반려(시각+사유) — 상태 칸이 "돌려보낸 건"임을 말하고 사유를 그대로 보여 준다.
 // 데이터는 상세 응답의 eqHistory 에 이미 있다(추가 조회 없음). 판정은 계약 순수 함수.
-const poRejection = (po: AdminPcbPoViewType): PcbEqRejection | null =>
-  lastPcbEqRejection(po.eqHistory);
+// D20 후속 — 경계는 반려만이 아니다: 승인 뒤 협력사가 추가 EQ 를 요청해도 발주접수로 돌아온다(kind 로 가른다).
+const poRejection = (po: AdminPcbPoViewType): PcbEqReworkBoundary | null =>
+  lastPcbEqReworkBoundary(po.eqHistory);
+/** 추가 EQ 요청 사유를 쓴 쪽 — 포털의 협력사인가, 관리자 대행인가(경계와 같은 시각의 이력 줄 byRole). */
+const poReopenAuthor = (po: AdminPcbPoViewType): string =>
+  po.eqHistory.find((e) => e.at === poRejection(po)?.at && e.toStatus === 'issued')?.byRole === 'ADMIN' ? '관리자 대행' : '협력사';
+/** 돌아온 이유의 라벨 — 추가 EQ 요청은 반려가 아니다(색도 주의색으로 가른다). */
+const poReworkLabel = (po: AdminPcbPoViewType): string =>
+  poRejection(po)?.kind === 'reopen' ? '추가 EQ 요청' : po.track === 'stencil' ? '보완 요청됨' : '반려됨';
 
 // 스텐실 — 협력사가 확인 요청에 실어 보낸 **고객문의사항**(현행 제출분). 확인 완료를 누르는
 // 사람이 문의 본문을 행에서 못 읽으면 이 트랙의 핑퐁은 빈 껍데기다(2026-08-17 교정).
@@ -1250,7 +1256,7 @@ const stencilInquiryOf = (po: AdminPcbPoViewType): { at: string; note: string } 
 
 const eqUnfixedAfterReject = (po: AdminPcbPoViewType): boolean =>
   po.status === 'eq_requested' &&
-  lastPcbEqRejectedAt(po.eqHistory) !== null &&
+  poRejection(po) !== null &&
   !po.eqFiles.some((f) => f.afterReject);
 
 const canAdminReceive = (s: PcbShipmentViewType): boolean => {
@@ -2293,16 +2299,18 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                        갈라 주고, 내가 쓴 사유를 함께 보여 준다(재요청이 오면 대조할 근거다). -->
                   <span
                     v-if="po.status === 'issued' && poRejection(po) !== null"
-                    class="ml-1 whitespace-nowrap rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
+                    class="ml-1 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                    :class="poRejection(po)?.kind === 'reopen' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
                   >
-                    {{ po.track === 'stencil' ? '보완 요청됨' : '반려됨' }} {{ fmtKstDate(poRejection(po)?.at ?? null) }}
+                    {{ poReworkLabel(po) }} {{ fmtKstDate(poRejection(po)?.at ?? null) }}
                   </span>
                   <p
                     v-if="poRejection(po) !== null && (po.status === 'issued' || po.status === 'eq_requested')"
-                    class="mt-1 max-w-[13rem] truncate text-[11px] text-red-600"
+                    class="mt-1 max-w-[13rem] truncate text-[11px]"
+                    :class="poRejection(po)?.kind === 'reopen' ? 'text-amber-700' : 'text-red-600'"
                     :title="poRejection(po)?.note"
                   >
-                    “{{ poRejection(po)?.note }}”
+                    <template v-if="poRejection(po)?.kind === 'reopen'">{{ poReopenAuthor(po) }}: </template>“{{ poRejection(po)?.note }}”
                   </p>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 tabular-nums">
@@ -2486,7 +2494,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                         ? '직전 보완 요청 이후 새로 올라온 첨부가 없습니다 — 같은 파일로 다시 확인 요청됐을 수 있습니다.'
                         : '직전 반려 이후 새로 올라온 EQ 첨부가 없습니다 — 같은 도면으로 다시 승인요청됐을 수 있습니다.'"
                     >
-                      {{ po.track === 'stencil' ? '보완 요청 후 새 파일 없음' : '반려 후 새 파일 없음' }}
+                      {{ poRejection(po)?.kind === 'reopen' ? '추가 EQ 요청 후 새 파일 없음' : po.track === 'stencil' ? '보완 요청 후 새 파일 없음' : '반려 후 새 파일 없음' }}
                     </span>
                     <button
                       type="button"

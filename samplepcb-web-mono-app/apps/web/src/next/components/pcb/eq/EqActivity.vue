@@ -2,10 +2,12 @@
 // EQ 작업공간 3열 '활동' — 이 회차의 이벤트 원장(sp_pcb_eq_review_event: 작성 시작·발송·회신·대리 회신·
 // 전달·취소)과 발주서의 EQ 전이(승인요청·반려·승인)를 한 줄기 시간순으로. 회차 이벤트는 덧붙이기만 하는
 // 원장이라 화면도 고치지 않고 그대로 읽는다. 대리 회신의 메모는 "누가 어떤 경로로 들었는가"의 근거다.
+// D20 후속 — 승인 뒤 협력사가 EQ 를 다시 연 '추가 EQ 요청'은 주의색으로 세운다(사유가 다음 회차의 근거).
 import { computed } from 'vue';
 import {
   PCB_EQ_ANSWER_CHANNEL_LABELS,
   PCB_EQ_REVIEW_EVENT_ACTION_LABELS,
+  isPcbEqReopenEvent,
   pcbEqEventLabel,
   type AdminPcbEqReviewViewType,
   type PcbEqEventType,
@@ -65,7 +67,7 @@ const rows = computed((): Row[] => {
     at: e.at,
     source: 'po',
     label: pcbEqEventLabel(e, props.track),
-    variant: 'outline',
+    variant: isPcbEqReopenEvent(e) ? 'warning' : 'outline',
     actor: ROLE_LABELS[e.byRole] ?? e.byRole,
     note: e.note,
   }));
@@ -81,7 +83,7 @@ const rows = computed((): Row[] => {
     </div>
     <Panel v-if="rows.length === 0" size="md" class="text-muted-foreground border-dashed text-center text-xs">기록이 없습니다.</Panel>
     <ol v-else class="grid gap-2" aria-label="활동 기록">
-      <li v-for="row in rows" :key="row.key" :data-eq-activity="row.source">
+      <li v-for="row in rows" :key="row.key" :data-eq-activity="row.source" :data-eq-activity-label="row.label">
         <Panel size="xs" :tone="row.source === 'po' ? 'muted' : 'default'" class="grid gap-0.5 text-xs">
           <p class="flex flex-wrap items-center gap-1.5">
             <Badge :variant="row.variant">{{ row.label }}</Badge>

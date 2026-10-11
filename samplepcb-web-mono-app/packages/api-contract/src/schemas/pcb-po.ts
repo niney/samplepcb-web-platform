@@ -122,6 +122,37 @@ export const PCB_EQ_REVERT: Record<PcbPoStatusType, PcbEqRevertAction | null> = 
   produced: { actor: 'RECEIVER', to: 'producing', label: '생산완료 취소' },
 };
 
+/**
+ * 추가 EQ 요청(D20 후속, 2026-10-11 사용자 결정) — EQ 승인 뒤 협력사가 고객 회신을 읽고
+ * "더 확인할 것이 있다"며 EQ 를 다시 여는 전이. 되돌리기 사전(PCB_EQ_REVERT)과 **다른 축**이다:
+ * 되돌리기는 "그 상태로 들어가게 한 주체가 한 칸 물린다"이고(eq_done 은 관리자의 승인 취소),
+ * 이것은 RECEIVER 가 승인된 건을 처음(issued)으로 돌려 수정한 EQ 를 올리고 다시 승인요청한다.
+ * **사유 필수**(관리자에게 메일로 간다) · **생산 시작 전(eq_done)에만** — 생산이 시작된 뒤는 EQ 가
+ * 아니라 A/S·클레임의 일이다.
+ */
+export const PCB_EQ_REOPEN = {
+  actor: 'RECEIVER',
+  from: 'eq_done',
+  to: 'issued',
+  label: '추가 EQ 요청',
+} as const satisfies { actor: PcbEqRoleType; from: PcbPoStatusType; to: PcbPoStatusType; label: string };
+
+/**
+ * 이 발주서에서 추가 EQ 요청을 할 수 있는가 — **상태와 트랙**만 본다(주체·위임 가드는 서버).
+ * 스텐실은 안 된다: 확인 완료 순간 좌표파일이 고객 주문내역에 공개되고 "그 뒤로 바뀌지 않는다"가
+ * 약속이다(고객이 그 파일로 SMT 설비를 잡는다). 좌표를 고쳐야 하면 관리자의 확인 취소로만 되돌린다.
+ * 전이 사전은 트랙으로 가르지 않는다 — 이것은 좌표파일 필수와 같은 **트랙별 문턱**이다.
+ */
+export const canReopenPcbEq = (status: PcbPoStatusType, track: PcbPoTrackType): boolean =>
+  status === PCB_EQ_REOPEN.from && track === 'eq';
+
+/** 추가 EQ 요청 본문 — 협력사 포털과 관리자 대행이 같다. */
+export const PcbEqReopenBody = z.object({
+  /** 무엇을 더 확인해야 하는지 — 관리자 메일·Case 행·타임라인에 그대로 나온다. */
+  reason: z.string().trim().min(2).max(2000),
+});
+export type PcbEqReopenBodyType = z.infer<typeof PcbEqReopenBody>;
+
 // 스텐실 트랙의 버튼 문구 — 전이 사전(PCB_EQ_FORWARD/REVERT)은 **주체·순서의 정본**이라
 // 트랙으로 갈리지 않는다(갈리면 서버 검증이 두 벌이 된다). 갈리는 건 사람이 읽는 문구뿐이라
 // 여기서 덮어쓴다. 없는 키는 EQ 문구 그대로 쓴다(생산시작·생산완료는 두 트랙이 같은 말).
@@ -348,6 +379,32 @@ export const lastPcbEqRejectedAt = (
   history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
 ): string | null => lastPcbEqRejection(history)?.at ?? null;
 
+/** 이 전이가 **추가 EQ 요청**인가(eq_done → issued) — 반려(eq_requested → issued)와 전이 모양부터 다르다. */
+export const isPcbEqReopenEvent = (e: { fromStatus?: string; toStatus?: string }): boolean =>
+  e.fromStatus === PCB_EQ_REOPEN.from && e.toStatus === PCB_EQ_REOPEN.to;
+
+/**
+ * EQ 를 다시 돌게 만든 **가장 최근의 경계** — 관리자 반려 또는 협력사 추가 EQ 요청(시각·사유·종류).
+ * 둘 다 "그 뒤로 새 파일이 올라왔는가"의 기준 시각이고, 발주가 issued 로 돌아가 있는 동안 화면이
+ * "왜 다시 돌아왔는지"를 말할 근거다. 없으면 null.
+ */
+export interface PcbEqReworkBoundary {
+  kind: 'reject' | 'reopen';
+  at: string;
+  note: string;
+}
+export const lastPcbEqReworkBoundary = (
+  history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
+): PcbEqReworkBoundary | null => {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const e = history[i];
+    if (e === undefined || e.at === '') continue;
+    if (isPcbEqRejectionEvent(e)) return { kind: 'reject', at: e.at, note: e.note ?? '' };
+    if (isPcbEqReopenEvent(e)) return { kind: 'reopen', at: e.at, note: e.note ?? '' };
+  }
+  return null;
+};
+
 /** 타임라인 전이 이벤트의 사람 말 — **트랙이 정본**이다(화면이 EQ 문구를 하드코딩하면
  *  스텐실 발주의 대화가 'EQ 승인요청/EQ 반려'로 그려진다 — 2026-08-17 확정 결함).
  *  반려와 '요청 취소'는 같은 전이(eq_requested → issued)라 [[isPcbEqRejectionEvent]]
@@ -367,6 +424,7 @@ export const pcbEqEventLabel = (
   }
   if (from === 'eq_requested' && to === 'eq_done') return st ? '확인 완료' : 'EQ 승인';
   if (from === 'eq_done' && to === 'eq_requested') return st ? '확인 취소' : '승인 취소';
+  if (isPcbEqReopenEvent(e)) return st ? '추가 확인 요청' : PCB_EQ_REOPEN.label;
   if (from === 'eq_done' && to === 'producing') return '생산 시작';
   if (from === 'producing' && to === 'eq_done') return '생산시작 취소';
   if (from === 'producing' && to === 'produced') return '생산 완료';
@@ -431,7 +489,7 @@ export interface PcbEqTimelineRound<F> {
   /** 1부터 — 반려로 닫힐 때마다 다음 회차가 열린다. */
   index: number;
   items: PcbEqTimelineItem<F>[];
-  /** 이 회차를 닫은 반려 사유. 진행 중인 마지막 회차는 null. */
+  /** 이 회차를 닫은 사유 — 관리자 반려 또는 협력사 추가 EQ 요청. 진행 중인 마지막 회차는 null. */
   closedByNote: string | null;
 }
 
@@ -508,7 +566,8 @@ export const buildPcbEqTimeline = <
     cur.items.push(row.item);
     // 반려가 회차를 닫는다 — 판정은 isPcbEqRejectionEvent 하나뿐이다(요청 취소는 안 닫는다:
     // 같은 회차를 협력사가 잠깐 물렸다 다시 올리는 것이라 대화가 끊기지 않는다).
-    if (row.item.kind === 'event' && isPcbEqRejectionEvent(row.item)) {
+    // 추가 EQ 요청(eq_done → issued)도 회차를 닫는다 — 승인으로 끝난 대화 뒤에 새 질문이 시작된다.
+    if (row.item.kind === 'event' && (isPcbEqRejectionEvent(row.item) || isPcbEqReopenEvent(row.item))) {
       cur.closedByNote = row.item.note ?? '';
       rounds.push({ index: cur.index + 1, items: [], closedByNote: null });
     }
@@ -841,6 +900,13 @@ export const AdminPcbPoView = z.object({
   /** EQ AI 분석 요약(D20 P2) — **이번 승인요청**의 분석이 도는 중이거나 안 됐을 때만(칩 "AI 분석 중"·
    *  "AI 분석 안 됨"). 됐으면 null 이고 eqReview.aiDraft 가 말한다. 승인요청 상태가 아니면 null. */
   eqAi: PcbPoEqAiSummary.nullable(),
+  /** 이 발주서의 **번호가 붙은** 문항형(format='items') 회차 수 — 관리자 작업공간의 탭 수와 같다
+   *  (roundNo !== null: 작성 중인 초안 + 고객에게 나간 회차, 보낸 뒤 취소한 것 포함). **안 나간 채 닫힌
+   *  초안은 세지 않는다** — 번호도 탭도 없어, 세면 작업공간 문은 열리는데 안이 빈다. 문구형(D16)도 안 센다.
+   *  eqReview 는 이번 승인요청의 것만 실어, 추가 EQ 요청·반려 뒤 다시 올라온 발주는 요약이 null 이어도
+   *  지난 회차가 남아 있다 — 화면이 "처음 묻는 건"과 "지난 회차가 있는 건"을 가르는 근거.
+   *  협력사 포털로 나가는 직렬화(MD 가 보는 하위 발주)에서는 늘 0. */
+  eqRoundCount: z.number().int(),
 });
 export type AdminPcbPoViewType = z.infer<typeof AdminPcbPoView>;
 
@@ -1002,9 +1068,13 @@ export const AdminPcbPoWorkItem = z.object({
   adminTurn: z.boolean(),
   /** 생산완료·발송 미편성 — 보내는측이 발송을 시작해야 하는 상태(to_ship 탭 표시용). */
   awaitingShipment: z.boolean(),
-  /** 마지막 EQ 반려 시각(없으면 null) — '협력사 진행' 탭에서 "그냥 대기"와 "반려 뒤 보완
-   *  대기"를 가른다. 판정은 lastPcbEqRejectedAt(반려와 요청취소는 같은 전이라 note 로 갈린다). */
+  /** EQ 반려 시각(없으면 null) — '협력사 진행' 탭에서 "그냥 대기"와 "반려 뒤 보완 대기"를 가른다.
+   *  **가장 최근 경계가 반려일 때만** 선다(lastPcbEqReworkBoundary) — 그 뒤 협력사가 추가 EQ 를
+   *  요청했으면 지금 돌아와 있는 이유는 반려가 아니라 reopenedAt 쪽이다(둘은 서로 배타). */
   rejectedAt: z.string().nullable(),
+  /** 협력사가 **추가 EQ 를 요청**한 시각(D20 후속) — 승인됐던 건이 발주접수로 돌아와 있는 이유가
+   *  그것일 때(가장 최근 경계가 추가 EQ 요청). 사유는 eqHistory 의 그 전이 note. 아니면 null. */
+  reopenedAt: z.string().nullable(),
   /** EQ 고객 확인 요약(Case 상세와 같은 요약) — 'EQ 승인 대기' 탭에서 지금 승인하면 되는
    *  건(고객 승인)과 고객 확인중·고객 반려·미요청을 목록에서 가른다. null=미요청. */
   eqReview: PcbPoEqReviewSummary.nullable(),
@@ -1058,6 +1128,10 @@ export const PartnerPcbPoListItem = z.object({
   /** 직전 EQ 반려 시각(없으면 null) — myTurn 만으로는 **왜** 내 차례인지 모른다(첫 EQ 요청과
    *  반려 뒤 보완이 같은 얼굴이 된다). 포털에 들어오자마자 갈리게 하는 배지의 근거. */
   rejectedAt: z.string().nullable().default(null),
+  /** 내가(또는 하위가) **추가 EQ 를 요청**해 발주접수로 돌아와 있다(D20 후속) — 그 시각. 가장 최근
+   *  경계가 추가 EQ 요청일 때만 서고 그때 rejectedAt 은 null 이다(서로 배타). 수정한 EQ 를 올리고
+   *  다시 승인요청할 차례라는 배지의 근거. */
+  reopenedAt: z.string().nullable(),
   /** delegated 수주 발주의 "하위 발주 대기"(EQ 시작 불가) — 이때가 MD 의 차례인데 EQ 사전으로는
    *  actor 가 안 잡혀 홈이 "할 일 없음"으로 침묵했다(MD 실주행 교정). 배지·myTurn 의 근거. */
   eqBlocked: z.boolean().default(false),

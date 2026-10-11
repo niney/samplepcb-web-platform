@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { BASE_URL, GERBER_URL, outputDir } from './env';
 import { snap } from './browser';
 import { findLatestOrder } from './g5';
-import { getPrisma } from './db';
+import { getPrisma, trackCleanup } from './db';
 
 /**
  * 공급사 검색 일일 한도(회원당 20회)를 e2e 전용 계정에 한해 오늘치만 되돌린다.
@@ -112,8 +112,40 @@ export function createJourneyReport(fileName: string, title: string) {
     await snap(s.page, `journey/${name}`);
   };
 
+  /**
+   * 이 주행이 만든 발주서(대장의 `sp_pcb_po #N`)에 붙은 EQ AI 분석 잡을 지운다.
+   *
+   * 로컬에서 'PCB EQ 분석'(pcb.eq-parse)이 켜져 있으면 **승인요청을 올리는 모든 여정**에 자동 분석 잡이
+   * 붙는다(가짜 EQ 파일이라 실패 잡). 잡은 발주서에 FK 가 없어(업무 대상 규약 targetType·targetId) 발주서가
+   * 지워져도 남는다 — 여정은 생성물을 대장에 적고 사람이 정리하는 관례라, 잡은 여기서 먼저 거둔다.
+   * 대장에 적힌 **자기 발주서 id 로만** 지운다. 시드 스펙은 cleanupPcbPos 가 같은 일을 한다.
+   * 리포트 쓰기는 동기라 정리는 걸어만 두고, disconnectPrisma 가 끝나기를 기다린다.
+   */
+  const sweepEqAiJobs = (): void => {
+    const poIds = [
+      ...new Set(ledger.flatMap((l) => [...l.matchAll(/sp_pcb_po #(\d+)/g)].map((m) => m[1] ?? ''))),
+    ]
+      .filter((id) => id !== '')
+      .map((id) => BigInt(id));
+    if (poIds.length === 0) return;
+    // 자동 분석은 승인요청 응답 **뒤에** 걸린다(파일을 받은 다음 잡이 선다) — 마지막 단계가 승인요청이면
+    // 잡이 아직 없을 수 있어 잠깐 기다렸다 지운다.
+    const sweep = async (): Promise<void> => {
+      await new Promise((r) => setTimeout(r, 1_500));
+      await getPrisma().spAiJob.deleteMany({
+        where: { useCase: 'pcb.eq-parse', targetType: 'pcb_po', targetId: { in: poIds } },
+      });
+    };
+    trackCleanup(
+      sweep().catch((err: unknown) => {
+        console.warn(`EQ AI 잡 정리 실패(발주 ${poIds.join(', ')}):`, err);
+      }),
+    );
+  };
+
   // 리포트는 pageErrors 만 읽는다 — 고객(PhpLoginResult)·관리자/파트너(E2eSession)를 함께 받는다.
   const write = (sessions: Record<string, { pageErrors: string[] } | undefined>): string => {
+    sweepEqAiJobs();
     mkdirSync(join(outputDir, 'journey'), { recursive: true });
     const report = [
       `# ${title} (${new Date().toISOString()})`,

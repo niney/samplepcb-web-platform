@@ -11,6 +11,7 @@ import {
   PartnerPcbPoListResponse,
   PartnerPcbRemittanceListResponse,
   PcbEqFileType,
+  PcbEqReopenBody,
   PcbEqRequestBody,
   PcbInvoiceResponse,
   PcbPoActionResponse,
@@ -37,6 +38,7 @@ import {
   partnerCanTouchPo,
   pcbEqLockedMessage,
   pcbPoTrackOf,
+  reopenPcbPoEq,
   revertPcbPoEq,
   uploadPcbEqFile,
   type PcbEqActor,
@@ -62,6 +64,7 @@ import { downloadFromFileServer } from '../lib/file-server';
 import { getShopEstimateProfile } from '../lib/g5-db';
 import {
   buildPcbCaseRefRequestedEmail,
+  buildPcbEqReopenedEmail,
   buildPcbEqRequestedEmail,
   buildPcbPoIssuedEmail,
   buildPcbProducedEmail,
@@ -336,6 +339,9 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     INVALID_STATUS: '현재 단계에서 실행할 수 없는 전이입니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     FINAL: '이미 마지막 단계입니다.',
+    // 추가 EQ 요청(D20 후속) — 스텐실은 대상이 아니다(확인 완료 뒤 좌표파일이 고객에게 공개된다).
+    NOT_EQ_TRACK: '이 발주는 추가 확인 요청 대상이 아닙니다 — 고칠 것이 있으면 샘플피씨비 담당자에게 문의해 주세요.',
+    REASON_REQUIRED: '추가로 확인할 내용을 적어 주세요.',
     ORDER_CANCELED: '취소된 주문입니다 — 진행을 멈추고 샘플피씨비 담당자에게 문의해 주세요.',
     // 스텐실 제출 요건 — 문구는 계약이 정본이라 그대로 편다.
     ...PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
@@ -474,6 +480,63 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           producedMeta,
         );
       }
+      return { result: true as const };
+    },
+  );
+
+  // ── 추가 EQ 요청(D20 후속 R-2) — EQ 승인 뒤 고객 회신을 읽고 "더 확인할 것이 있다" ──────
+  // eq_done → issued(생산 시작 전에만). 발주접수로 돌아가 첨부 잠금이 풀린다 — 수정한 EQ 를 올리고 다시
+  // 승인요청하면 된다. 사유는 필수이고 운영자에게 그대로 메일로 간다(R-3): 안 보내면 다음 승인요청이
+  // 올 때까지 관리자는 발주가 되돌아간 것을 모른다.
+  fastify.post(
+    '/partner/pcb-pos/:poId/eq-reopen',
+    {
+      schema: {
+        params: PoParams,
+        body: PcbEqReopenBody,
+        response: { 200: PcbPoActionResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await reopenPcbPoEq(po.id, actorOf(ctx), request.body.reason);
+      if (!res.ok)
+        return reply.status(409).send({
+          error: res.error,
+          message:
+            res.error === 'INVALID_STATUS'
+              ? 'EQ 승인 뒤, 생산 시작 전에만 추가 EQ 를 요청할 수 있습니다.'
+              : transitionMessage(res.error),
+        });
+
+      // 수신자는 승인요청 알림(pcb_eq_requested)과 같다 — 운영자 메일.
+      const [profile, spec] = await Promise.all([
+        getShopEstimateProfile(),
+        prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
+      ]);
+      void sendPcbMail(
+        request.log,
+        profile?.managerEmail,
+        buildPcbEqReopenedEmail({
+          partnerName: ctx.partnerName,
+          projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
+          reason: request.body.reason,
+          targetUrl: pcbAdminCaseUrl(po.specId.toString()),
+        }),
+        {
+          kind: 'pcb_eq_reopened',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: {
+            poId: String(po.id),
+            partnerName: ctx.partnerName,
+            reason: request.body.reason.slice(0, 500),
+          },
+        },
+      );
       return { result: true as const };
     },
   );

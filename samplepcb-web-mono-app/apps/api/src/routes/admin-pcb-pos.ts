@@ -14,6 +14,7 @@ import {
   PCB_PO_STATUS_LABELS,
   PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
   PcbShipmentFileType,
+  PcbEqReopenBody,
   PcbEqRequestBody,
   PcbInvoiceResponse,
   PcbPoActionResponse,
@@ -43,9 +44,11 @@ import {
   pcbEqLockedMessage,
   pcbPoTrackOf,
   rejectPcbPoEq,
+  reopenPcbPoEq,
   revertPcbPoEq,
   uploadPcbEqFile,
 } from '../lib/pcb-po';
+import { loadForwardedAnswerDigest } from '../lib/pcb-eq-review';
 import { loadHousePartnerName } from '../lib/pcb-rfq';
 import {
   advancePcbShipment,
@@ -325,7 +328,8 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       // 스펙은 한 번만 읽는다 — 트랙(category)과 메일 제목(projectName)이 같은 행이다.
       const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
       const track = resolvePcbPoTrack(spec?.category);
-      const res = await advancePcbPoEq(po.id, { kind: 'admin' }, 'eq_requested');
+      // 승인한 관리자를 실어 보낸다 — 승인과 함께 전달되는 고객 회신(D20 후속 R-1)의 주체로 남는다.
+      const res = await advancePcbPoEq(po.id, { kind: 'admin', mbId: request.user.mbId }, 'eq_requested');
       if (!res.ok)
         return reply.status(409).send({
           error: res.error,
@@ -335,7 +339,12 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               : `${PCB_PO_STATUS_LABELS[track].eq_requested} 상태에서만 ${track === 'stencil' ? '확인 완료로 넘길' : '승인할'} 수 있습니다.`,
         });
 
-      const portalCta = await resolvePcbPortalCta(po.partnerId, po.parentPartnerId);
+      // 승인이 고객 회신을 함께 전달했으면(회신이 왔고 아직 전달 전이던 문항형 회차) 승인 메일 **한 통**에
+      // 회신 요약을 싣는다 — 전달 메일(pcb_eq_answer_forwarded)을 따로 보내지 않는다.
+      const [portalCta, customerAnswers] = await Promise.all([
+        resolvePcbPortalCta(po.partnerId, po.parentPartnerId),
+        loadForwardedAnswerDigest(po.id, res.forwardedReviewIds),
+      ]);
       void sendPcbMail(
         request.log,
         po.partner.contactEmail,
@@ -346,6 +355,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           reason: null,
           poId: String(po.id),
           track,
+          ...(customerAnswers === null ? {} : { customerAnswers }),
           ...portalCta,
         }),
         {
@@ -353,7 +363,14 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           refType: 'pcb_spec',
           refId: po.specId,
           sentBy: request.user.mbId,
-          params: { poId: String(po.id), partnerName: po.partner.name, approved: true },
+          params: {
+            poId: String(po.id),
+            partnerName: po.partner.name,
+            approved: true,
+            ...(res.forwardedReviewIds.length === 0
+              ? {}
+              : { forwardedReviewIds: res.forwardedReviewIds.map((id) => String(id)) }),
+          },
         },
       );
       return { result: true as const };
@@ -500,6 +517,40 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       },
     );
   }
+
+  // ── 추가 EQ 요청 대행(D20 후속 R-2 · D11) — 포털 미온보딩 협력사 대신 관리자가 누른다 ──
+  // 협력사 라우트와 같은 본문(사유 필수)·같은 가드다. 이력에는 byRole 'ADMIN' 으로 남고, 관리자가 직접
+  // 누른 것이라 운영자 알림 메일은 보내지 않는다(다른 대행 전이와 같다).
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/eq-reopen',
+    {
+      schema: {
+        params: PoParams,
+        body: PcbEqReopenBody,
+        response: { 200: PcbPoActionResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await loadPcbPoWithPartner(request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await reopenPcbPoEq(po.id, { kind: 'admin', mbId: request.user.mbId }, request.body.reason);
+      if (!res.ok) {
+        const REOPEN_ERROR: Record<string, string> = {
+          NOT_EQ_TRACK: '메탈마스크 발주는 추가 확인 요청 대상이 아닙니다 — 좌표를 고쳐야 하면 확인 취소로 되돌리세요.',
+          INVALID_STATUS: 'EQ 승인 뒤, 생산 시작 전에만 추가 EQ 를 요청할 수 있습니다.',
+          DELEGATED: 'MD 경유 발주입니다 — 추가 EQ 요청은 하위 발주에서 합니다.',
+          ORDER_CANCELED: '취소된 주문입니다 — 재작업은 A/S 재발주로 진행하세요.',
+          REASON_REQUIRED: '추가로 확인할 내용을 적어 주세요.',
+        };
+        return reply.status(409).send({
+          error: res.error,
+          message: REOPEN_ERROR[res.error] ?? '추가 EQ 요청을 진행할 수 없는 상태입니다.',
+        });
+      }
+      return { result: true as const };
+    },
+  );
 
   // ── EQ 첨부 업로드/삭제 — 두 갈래다 ─────────────────────────────────────────
   // ① eq·working = 협력사 산출물 대행 업로드(D11) — 포털과 같은 잠금(issued 에서만)

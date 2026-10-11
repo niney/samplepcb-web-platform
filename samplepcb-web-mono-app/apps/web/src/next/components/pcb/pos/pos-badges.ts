@@ -77,6 +77,31 @@ export const pcbEqReviewBadge = (
   };
 };
 
+// 발주접수로 **돌아온 이유**(D20 후속) — 관리자 반려(우리가 돌려보냄: 문제색)와 협력사 추가 EQ 요청(승인 뒤 협력사가
+// 다시 연 것: 주의색)을 가른다. 둘 다 같은 '발주접수'라 배지가 없으면 발주 직후인 건과도 구분되지 않는다.
+// 판정은 계약 lastPcbEqReworkBoundary(이력이 있는 Case)·행 요약의 reopenedAt/rejectedAt(워크큐).
+export type PcbEqReworkKind = 'reject' | 'reopen';
+
+export const pcbEqReworkBadge = (track: PcbPoTrackType, kind: PcbEqReworkKind): PcbBadge =>
+  kind === 'reopen'
+    ? { label: track === 'stencil' ? '추가 확인 요청' : '추가 EQ 요청', variant: 'warning' }
+    : { label: track === 'stencil' ? '보완 요청됨' : '반려됨', variant: 'danger' };
+
+/** 경계 뒤로 새 파일 없이 다시 승인요청이 왔을 때의 경고 문구(승인 버튼 옆). */
+export const pcbEqUnfixedLabel = (track: PcbPoTrackType, kind: PcbEqReworkKind): string =>
+  kind === 'reopen' ? '추가 EQ 요청 후 새 파일 없음' : track === 'stencil' ? '보완 요청 후 새 파일 없음' : '반려 후 새 파일 없음';
+
+export const pcbEqUnfixedTitle = (track: PcbPoTrackType, kind: PcbEqReworkKind): string =>
+  kind === 'reopen'
+    ? '협력사가 추가 EQ 를 요청한 뒤로 새로 올라온 EQ 첨부가 없습니다 — 같은 파일로 다시 승인요청됐을 수 있습니다.'
+    : track === 'stencil'
+      ? '직전 보완 요청 이후 새로 올라온 첨부가 없습니다 — 같은 파일로 다시 확인 요청됐을 수 있습니다.'
+      : '직전 반려 이후 새로 올라온 EQ 첨부가 없습니다 — 같은 도면으로 다시 승인요청됐을 수 있습니다.';
+
+/** 경계 뒤에 올라온 첨부의 툴팁 덧말(파일 버튼). */
+export const pcbEqAfterReworkNote = (kind: PcbEqReworkKind): string =>
+  kind === 'reopen' ? ' · 추가 EQ 요청 뒤 새로 올라온 파일입니다.' : ' · 반려 뒤 새로 올라온 보완분입니다.';
+
 /** 행 칩 툴팁 — 칩과 같은 우선순위(회차 요약 > AI 분석 상태). 실패면 사유 문구가 여기 실린다. */
 export const pcbEqRowTitle = (
   review: PcbPoEqReviewSummaryType | null,

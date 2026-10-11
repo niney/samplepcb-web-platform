@@ -20,13 +20,15 @@ import type {
 } from '@sp/api-contract';
 import {
   PCB_EQ_FORWARD,
+  PCB_EQ_REOPEN,
   PCB_EQ_REVERT,
   PCB_EQ_REVERT_NOTE,
   PCB_PO_FULFILLMENT_MODES,
   PCB_PO_STATUSES,
   PCB_PO_STATUS_LABELS,
   asPcbEqFileType,
-  lastPcbEqRejectedAt,
+  canReopenPcbEq,
+  lastPcbEqReworkBoundary,
   orderPcbEqFiles,
   pcbStencilSubmitBlockers,
   resolvePcbPoTrack,
@@ -49,6 +51,7 @@ import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './f
 import {
   closeOpenEqReviewsTx,
   deletePoEqFigures,
+  forwardAnsweredEqReviewsTx,
   loadEqReviewRowSummaries,
   loadPartnerEqRounds,
 } from './pcb-eq-review';
@@ -155,6 +158,30 @@ export const eqRoundStartOf = (po: Pick<SpPcbPo, 'eqHistory'>): Date | null => {
 const eqRoundStartMap = (rows: readonly SpPcbPo[]): Map<string, Date | null> =>
   new Map(rows.map((r) => [r.id.toString(), eqRoundStartOf(r)]));
 
+/**
+ * EQ 를 다시 돌게 만든 **가장 최근의 경계**를 목록 행이 쓰는 모양으로 — 관리자 반려면 rejectedAt,
+ * 협력사 추가 EQ 요청(D20 후속)이면 reopenedAt. 둘은 **서로 배타**다(가장 최근 경계 하나만 선다):
+ * 예전에 반려된 적 있는 건을 협력사가 승인 뒤 다시 열었다면 지금 발주접수로 돌아와 있는 이유는
+ * 반려가 아니라 추가 EQ 요청이다 — 옛 반려 시각을 남기면 목록이 "반려 뒤 보완 대기"라고 거짓말한다.
+ * 판정은 계약의 lastPcbEqReworkBoundary 하나(반려 판정 isPcbEqRejectionEvent 는 그대로다).
+ */
+export const eqReworkStamps = (
+  eqHistory: unknown,
+): { rejectedAt: string | null; reopenedAt: string | null; boundaryAt: string | null } => {
+  const boundary = lastPcbEqReworkBoundary(parseEqHistory(eqHistory));
+  return {
+    rejectedAt: boundary?.kind === 'reject' ? boundary.at : null,
+    reopenedAt: boundary?.kind === 'reopen' ? boundary.at : null,
+    boundaryAt: boundary?.at ?? null,
+  };
+};
+
+/** 목록 행에 펴 넣는 두 칸(rejectedAt·reopenedAt). */
+const pickReworkStamps = (eqHistory: unknown): { rejectedAt: string | null; reopenedAt: string | null } => {
+  const { rejectedAt, reopenedAt } = eqReworkStamps(eqHistory);
+  return { rejectedAt, reopenedAt };
+};
+
 // RFQ 없는 수동 발주의 레거시 기본값에만 쓴다. 진행 중 판정은 관계가 아니라 발주서의
 // fulfillmentMode 박제값을 읽는다 — 같은 MD도 건별로 직접 제작할 수 있어야 한다.
 const hasChildPartnerRelations = async (partnerId: bigint): Promise<boolean> =>
@@ -219,8 +246,10 @@ const loadEqFilesMap = async (
   const out = new Map<string, PcbEqFileViewType[]>();
   for (const po of pos) {
     const key = po.id.toString();
-    const rejectedAt = lastPcbEqRejectedAt(parseEqHistory(po.eqHistory));
-    out.set(key, orderPcbEqFiles(map.get(key) ?? [], rejectedAt));
+    // '그 뒤로 새 파일이 올라왔는가'의 기준 = EQ 를 다시 돌게 만든 가장 최근 경계. 관리자 반려뿐 아니라
+    // 협력사의 추가 EQ 요청(D20 후속)도 경계다 — 승인된 건을 다시 연 뒤 올린 파일이 '보완분'이다.
+    const boundaryAt = eqReworkStamps(po.eqHistory).boundaryAt;
+    out.set(key, orderPcbEqFiles(map.get(key) ?? [], boundaryAt));
   }
   return out;
 };
@@ -317,6 +346,8 @@ interface AdminPoExtras {
   eqReview: PcbPoEqReviewSummaryType | null;
   /** EQ AI 분석 요약(D20 P2) — 분석 중·안 됨일 때만. 협력사 포털로 나가는 직렬화에서는 늘 null. */
   eqAi: PcbPoEqAiSummaryType | null;
+  /** 번호가 붙은 문항형 EQ 회차 수(작업공간 탭 수) — 협력사 포털로 나가는 직렬화에서는 늘 0. */
+  eqRoundCount: number;
   /** 송금 원장 파생(P3.11) — 행 배지가 부분/완납을 구분하려면 날짜만으론 부족하다. */
   remittance: { paidAmount: number; balance: number; count: number };
 }
@@ -356,11 +387,12 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   childCount: extras.childCount,
   eqReview: extras.eqReview,
   eqAi: extras.eqAi,
+  eqRoundCount: extras.eqRoundCount,
 });
 
 const serializeAdminPos = async (
   rows: PoWithPartner[],
-  /** 관리자 화면용인가 — 포털(MD 가 보는 하위 발주)로 나가는 직렬화는 AI 분석 상태를 싣지 않는다. */
+  /** 관리자 화면용인가 — 포털(MD 가 보는 하위 발주)로 나가는 직렬화는 AI 분석 상태·회차 수를 싣지 않는다. */
   audience: 'admin' | 'partner' = 'admin',
 ): Promise<AdminPcbPoViewType[]> => {
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
@@ -371,7 +403,7 @@ const serializeAdminPos = async (
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
   const filesMap = await loadEqFilesMap(rows);
   const roundStarts = eqRoundStartMap(rows);
-  const reviewMap = await loadEqReviewRowSummaries(
+  const { summaries: reviewMap, roundCounts } = await loadEqReviewRowSummaries(
     rows.map((r) => r.id),
     roundStarts,
   );
@@ -413,6 +445,8 @@ const serializeAdminPos = async (
         childCount,
         eqReview: reviewMap.get(row.id.toString()) ?? null,
         eqAi: aiMap.get(row.id.toString()) ?? null,
+        // 회차 수는 관리자 작업공간의 것이다(작성 중·취소 포함) — 포털에는 개수도 내보내지 않는다.
+        eqRoundCount: audience === 'admin' ? (roundCounts.get(row.id.toString()) ?? 0) : 0,
         remittance: {
           paidAmount: remit.paidAmount,
           balance: remit.balance,
@@ -869,7 +903,8 @@ export const deletePcbPo = async (
 };
 
 // ── EQ 전이 — 순서(expectedFrom)·주체 서버 강제 + MD 미러 ────────────────────
-export type PcbEqActor = { kind: 'admin' } | { kind: 'partner'; partnerId: bigint };
+/** 관리자의 mbId 는 **승인과 함께 전달**(D20 후속 R-1)의 forwardedBy·이벤트에 남는다(없으면 'admin'). */
+export type PcbEqActor = { kind: 'admin'; mbId?: string } | { kind: 'partner'; partnerId: bigint };
 
 interface EqRoleResolution {
   role: PcbEqRoleType | null;
@@ -898,12 +933,18 @@ const resolveEqRole = (po: SpPcbPo, actor: PcbEqActor): EqRoleResolution => {
  *     초안도 함께 닫고(물어볼 EQ 가 사라졌다) 닫힌 회차마다 이벤트를 남긴다. 회신 끝난
  *     회차(answered)는 이력이라 닫지 않는다(closeOpenEqReviewsTx).
  *  3. 같은 회차 상위(관리자→MD) 발주서에 상태만 미러(레거시 mirrorToParent, 상위 없으면 생략).
+ *  4. **EQ 승인이면 고객 회신을 협력사에 전달**(D20 후속 R-1) — 회신이 왔고 아직 전달 전인 문항형 회차.
+ *     승인과 전달이 따로 놀면 공장이 고객 답을 모른 채 생산을 시작한다. 같은 트랜잭션이라 "승인됐는데
+ *     회신은 안 보이는" 틈이 없다. 전달한 회차 id 를 돌려준다(승인 메일이 요약을 싣는다).
+ * 밀렸으면 null, 됐으면 결과.
  */
 const commitEqTransition = (
   po: SpPcbPo,
   toStatus: PcbPoStatusType,
   event: Pick<PcbEqEventType, 'byRole' | 'note'>,
-): Promise<boolean> =>
+  /** EQ 승인(eq_requested → eq_done)에서 회신을 전달할 관리자 — 그 밖의 전이는 비운다. */
+  forwardAnswersBy: string | null = null,
+): Promise<{ forwardedReviewIds: bigint[] } | null> =>
   prisma.$transaction(async (tx) => {
     const updated = await tx.spPcbPo.updateMany({
       where: { id: po.id, status: po.status },
@@ -912,8 +953,12 @@ const commitEqTransition = (
         eqHistory: appendEq(po.eqHistory, { ...event, fromStatus: po.status, toStatus }),
       },
     });
-    if (updated.count !== 1) return false;
+    if (updated.count !== 1) return null;
     await closeOpenEqReviewsTx(tx, po.id);
+    const forwardedReviewIds =
+      forwardAnswersBy !== null && po.status === 'eq_requested' && toStatus === 'eq_done'
+        ? await forwardAnsweredEqReviewsTx(tx, po.id, forwardAnswersBy)
+        : [];
     if (po.parentPartnerId !== 0n) {
       await tx.spPcbPo.updateMany({
         where: {
@@ -925,7 +970,7 @@ const commitEqTransition = (
         data: { status: toStatus },
       });
     }
-    return true;
+    return { forwardedReviewIds };
   });
 
 export type PcbEqTransitionError =
@@ -939,6 +984,9 @@ export type PcbEqTransitionError =
   // 반려 사유가 시스템 예약어('되돌리기')와 정확히 같다 — 저장하면 반려 판정
   // (isPcbEqRejectionEvent)이 레거시 표식으로 오인해 요청 취소로 읽는다.
   | 'RESERVED_REASON'
+  // 추가 EQ 요청(D20 후속) — 스텐실은 대상이 아니다(R-4) · 사유는 필수다(관리자에게 메일로 간다).
+  | 'NOT_EQ_TRACK'
+  | 'REASON_REQUIRED'
   // 스텐실 트랙의 제출 요건(계약 pcbStencilSubmitBlockers) — 발주접수 → 확인 요청에서만.
   | PcbStencilSubmitBlockerType;
 
@@ -954,7 +1002,15 @@ export const advancePcbPoEq = async (
   /** 이 전이에 남길 메모. 스텐실 트랙의 **고객문의사항**이 여기로 온다(새 컬럼 없이
    *  eqHistory 에 실린다 — 타임라인이 이미 그 자리를 말풍선으로 그린다). */
   note?: string | null,
-): Promise<{ ok: true; to: PcbPoStatusType } | { ok: false; error: PcbEqTransitionError }> => {
+): Promise<
+  | {
+      ok: true;
+      to: PcbPoStatusType;
+      /** EQ 승인과 함께 협력사에 전달된 고객 회신 회차(D20 후속 R-1) — 그 밖의 전이는 늘 빈 배열. */
+      forwardedReviewIds: bigint[];
+    }
+  | { ok: false; error: PcbEqTransitionError }
+> => {
   const po = await prisma.spPcbPo.findUnique({ where: { id: poId } });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
   if (asPcbPoStatus(po.status) !== expectedFrom) return { ok: false, error: 'INVALID_STATUS' };
@@ -987,12 +1043,15 @@ export const advancePcbPoEq = async (
   }
 
   const trimmed = (note ?? '').trim();
-  const committed = await commitEqTransition(po, action.to, {
-    byRole,
-    note: trimmed === '' ? null : trimmed,
-  });
-  if (!committed) return { ok: false, error: 'INVALID_STATUS' };
-  return { ok: true, to: action.to };
+  const committed = await commitEqTransition(
+    po,
+    action.to,
+    { byRole, note: trimmed === '' ? null : trimmed },
+    // 승인은 관리자만 한다(ORDERER) — 승인한 관리자가 회신 전달의 주체로 남는다.
+    actor.kind === 'admin' ? (actor.mbId ?? 'admin') : null,
+  );
+  if (committed === null) return { ok: false, error: 'INVALID_STATUS' };
+  return { ok: true, to: action.to, forwardedReviewIds: committed.forwardedReviewIds };
 };
 
 export const rejectPcbPoEq = async (
@@ -1013,7 +1072,7 @@ export const rejectPcbPoEq = async (
   if (action.rejectTo === undefined) return { ok: false, error: 'INVALID_STATUS' };
 
   const committed = await commitEqTransition(po, action.rejectTo, { byRole: 'ADMIN', note: reason });
-  if (!committed) return { ok: false, error: 'INVALID_STATUS' };
+  if (committed === null) return { ok: false, error: 'INVALID_STATUS' };
   return { ok: true };
 };
 
@@ -1042,8 +1101,46 @@ export const revertPcbPoEq = async (
     // 라벨은 전이(from→to)에서 나온다(PcbEqTimeline eventLabel).
     note: null,
   });
-  if (!committed) return { ok: false, error: 'INVALID_STATUS' };
+  if (committed === null) return { ok: false, error: 'INVALID_STATUS' };
   return { ok: true, to: revert.to };
+};
+
+/**
+ * 추가 EQ 요청(D20 후속 R-2) — EQ 승인 뒤 협력사가 고객 회신을 읽고 "더 확인할 것이 있다"며 EQ 를 다시 연다
+ * (eq_done → issued). 발주접수로 돌아가 첨부 잠금이 풀리고, 수정한 EQ 를 올려 다시 승인요청한다.
+ *
+ * 되돌리기(revertPcbPoEq)와 다른 축이다 — 되돌리기는 그 상태로 들어가게 한 주체가 한 칸 물리는 것이고
+ * (eq_done 은 관리자의 승인 취소), 이것은 RECEIVER 가 승인된 건을 처음으로 돌린다. 권한 규칙은
+ * **생산 시작 전이와 같다**: 수주 협력사(MD 는 하위 대신), 위임 상위에서는 불가(하위 발주서에서), 취소된
+ * 주문은 불가, 관리자는 만능 대행(D11). 문턱 둘이 더 붙는다 — **생산 시작 전(eq_done)에만**(시작된 뒤는
+ * EQ 가 아니라 A/S·클레임) · **스텐실 제외**(R-4: 확인 완료 순간 좌표파일이 고객에게 공개되고 "그 뒤로
+ * 바뀌지 않는다"가 약속이다). 사유는 필수 — 이력 note 로 남아 타임라인·Case 행·관리자 메일에 그대로 나온다.
+ */
+export const reopenPcbPoEq = async (
+  poId: bigint,
+  actor: PcbEqActor,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: PcbEqTransitionError }> => {
+  const note = reason.trim();
+  if (note === '') return { ok: false, error: 'REASON_REQUIRED' };
+  const po = await prisma.spPcbPo.findUnique({ where: { id: poId } });
+  if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  // 트랙이 먼저다 — 스텐실은 어느 단계에서 눌러도 "이 발주는 대상이 아니다"가 답이다.
+  const track = await pcbPoTrackOf(po.specId);
+  if (track !== 'eq') return { ok: false, error: 'NOT_EQ_TRACK' };
+  if (!canReopenPcbEq(asPcbPoStatus(po.status), track)) return { ok: false, error: 'INVALID_STATUS' };
+  const delegation = await resolveEqDelegation(po);
+  if (delegation.delegatePoId !== null || delegation.blocked)
+    return { ok: false, error: 'DELEGATED' };
+  // 취소된 주문의 EQ 를 다시 돌리지 않는다(생산 시작과 같은 가드 — 정리는 되돌리기로 한다).
+  if (await isPcbOrderLineCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
+  const { role, byRole } = resolveEqRole(po, actor);
+  if (role !== PCB_EQ_REOPEN.actor && actor.kind !== 'admin')
+    return { ok: false, error: 'NOT_YOUR_TURN' };
+
+  const committed = await commitEqTransition(po, PCB_EQ_REOPEN.to, { byRole, note });
+  if (committed === null) return { ok: false, error: 'INVALID_STATUS' };
+  return { ok: true };
 };
 
 // ── 협력사 포털 직렬화 ───────────────────────────────────────────────────────
@@ -1121,7 +1218,7 @@ export const loadPartnerPcbPos = async (
       issuedAt: po.issuedAt.toISOString(),
       myTurn: eqTurn || shipTurn || childRequired,
       // 이력은 행에 이미 있다 — 관리자 워크큐 배지와 같은 사전(추가 조회 없음).
-      rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
+      ...pickReworkStamps(po.eqHistory),
       eqBlocked: childRequired,
     });
   }
@@ -1154,7 +1251,7 @@ export const loadPartnerPcbPos = async (
       // EQ 승인은 관리자 몫(D3)이지만 하위 **입고 확인**은 MD 차례다(P3).
       myTurn: inboundTurn,
       // 내가 발주한 축(하위 진행분)의 반려 이력 — 상대가 보완 중임을 MD 도 알아야 한다.
-      rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
+      ...pickReworkStamps(po.eqHistory),
       eqBlocked: false,
     });
   }
@@ -1392,7 +1489,7 @@ export const loadAdminPcbPoWorkItems = async (
   });
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
   const roundStarts = eqRoundStartMap(rows);
-  const [parents, shipmentLinks, reviewMap, customerNames, aiMap] = await Promise.all([
+  const [parents, shipmentLinks, { summaries: reviewMap }, customerNames, aiMap] = await Promise.all([
     parentIds.length === 0
       ? Promise.resolve([])
       : prisma.spPartner.findMany({ where: { id: { in: parentIds } } }),
@@ -1462,7 +1559,7 @@ export const loadAdminPcbPoWorkItems = async (
         awaitingShipment,
         // 이력은 행에 이미 있다(추가 조회 없음) — 반려와 요청취소를 note 로 가르는 판정은
         // 계약의 순수 함수가 한다(Case 상세의 반려 배너와 같은 사전).
-        rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
+        ...pickReworkStamps(po.eqHistory),
         eqReview,
         eqAi: aiMap.get(po.id.toString()) ?? null,
       },

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { PCB_PO_STATUS_LABELS, type AdminPcbPoViewType } from '@sp/api-contract';
 import { fmtKstDate } from '@sp/utils';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '@/lib/pcb-money';
@@ -9,13 +10,18 @@ import PoActionsCell from './PoActionsCell.vue';
 import PoEqCell from './PoEqCell.vue';
 import ShipmentRow from './ShipmentRow.vue';
 import { pcbPoStatusVariant as poStatusVariant } from '@/next/components/pcb/pcb-badges';
+import { pcbEqReworkBadge } from '@/next/components/pcb/pos/pos-badges';
 import { dateOnly, rateNote } from './case-core';
 import { usePcbCaseContext } from './usePcbCase';
 
 // 발주서 한 건 — 본행 + 선적 줄(대표 발주 아래 1줄, 묶음 포함) + MD 하위 발주 요약 줄.
-defineProps<{ po: AdminPcbPoViewType }>();
+const props = defineProps<{ po: AdminPcbPoViewType }>();
 
-const { poRejection, isPoOverdue, shipRowsOf, childPosOf } = usePcbCaseContext();
+const { poRework, poReopenAuthor, isPoOverdue, shipRowsOf, childPosOf } = usePcbCaseContext();
+
+// 발주접수로 돌아온 이유 — 관리자 반려(우리가 돌려보냄) 또는 협력사 추가 EQ 요청(승인 뒤 협력사가 다시 연 것, D20 후속).
+const rework = computed(() => poRework(props.po));
+const reworkBadge = computed(() => (rework.value === null ? null : pcbEqReworkBadge(props.po.track, rework.value.kind)));
 </script>
 
 <template>
@@ -49,18 +55,21 @@ const { poRejection, isPoOverdue, shipRowsOf, childPosOf } = usePcbCaseContext()
     <TableCell>
       <span class="inline-flex flex-wrap items-center gap-1">
         <Badge :variant="poStatusVariant(po.status)">{{ PCB_PO_STATUS_LABELS[po.track][po.status] }}</Badge>
-        <!-- 반려하면 상태가 issued 로 돌아가 '발주접수'만 남는다 — 방금 돌려보낸 건과 발주 직후인 건이
-             같아진다. 워크큐와 같은 문구로 갈라 주고, 내가 쓴 사유를 함께 보여 준다. -->
-        <Badge v-if="po.status === 'issued' && poRejection(po) !== null" variant="danger">
-          {{ po.track === 'stencil' ? '보완 요청됨' : '반려됨' }} {{ fmtKstDate(poRejection(po)?.at ?? null) }}
+        <!-- 반려하거나 협력사가 추가 EQ 를 요청하면 상태가 issued 로 돌아가 '발주접수'만 남는다 — 방금 돌아온 건과
+             발주 직후인 건이 같아진다. 워크큐와 같은 문구로 갈라 주고(반려=문제색 · 추가 EQ 요청=주의색), 사유를 함께 보여 준다. -->
+        <Badge v-if="po.status === 'issued' && rework !== null && reworkBadge !== null" :variant="reworkBadge.variant" data-eq-rework-badge>
+          {{ reworkBadge.label }} {{ fmtKstDate(rework.at) }}
         </Badge>
       </span>
+      <!-- 사유 — 반려는 내가 쓴 말, 추가 EQ 요청은 협력사가 쓴 말(누구 말인지 색과 머리말로 가른다). -->
       <p
-        v-if="poRejection(po) !== null && (po.status === 'issued' || po.status === 'eq_requested')"
-        class="text-destructive mt-1 max-w-52 truncate text-xs"
-        :title="poRejection(po)?.note"
+        v-if="rework !== null && rework.note !== '' && (po.status === 'issued' || po.status === 'eq_requested')"
+        class="mt-1 max-w-52 truncate text-xs"
+        :class="rework.kind === 'reopen' ? 'text-warning' : 'text-destructive'"
+        :title="rework.kind === 'reopen' ? `추가 EQ 요청 사유(${poReopenAuthor(po, rework)}): ${rework.note}` : rework.note"
+        data-eq-rework-note
       >
-        “{{ poRejection(po)?.note }}”
+        <template v-if="rework.kind === 'reopen'">{{ poReopenAuthor(po, rework) }}: </template>“{{ rework.note }}”
       </p>
     </TableCell>
     <TableCell class="whitespace-nowrap tabular-nums">

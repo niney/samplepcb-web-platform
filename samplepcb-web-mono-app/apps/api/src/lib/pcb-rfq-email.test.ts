@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPcbAsCaseSubmittedEmail,
   buildPcbEqDecisionEmail,
+  buildPcbEqReopenedEmail,
   buildPcbEqRequestedEmail,
   buildPcbPoIssuedEmail,
   buildPcbRfqRequestEmail,
@@ -382,5 +383,96 @@ describe('무계정 대행 안내의 주체 — 샘플피씨비 담당자 vs 발
       ...noAccount,
     });
     expect(plain.html).toContain('샘플피씨비 담당자가 대행합니다');
+  });
+});
+
+// D20 후속 R-1 — 승인이 고객 회신을 함께 전달하면 승인 메일 한 통에 회신 요약이 실린다(전달 메일을 따로 안 보낸다).
+describe('buildPcbEqDecisionEmail — 승인과 함께 전달된 고객 회신', () => {
+  const answers = {
+    roundNo: 2,
+    items: [
+      { no: '1', key: 'B', comment: '좌측 하단에 <넣어> 주세요' },
+      { no: '2.0', key: 'A', comment: null },
+    ],
+    earlierRounds: 1,
+  };
+
+  it('계정 있음 — 문항 번호:기호 요약 + 포털에서 확인 + 추가 EQ 요청 안내, 의견 원문은 싣지 않는다', () => {
+    const mail = buildPcbEqDecisionEmail({
+      partnerName: '협력2',
+      projectName: 'arduino-uno.zip',
+      approved: true,
+      reason: null,
+      poId: '356',
+      customerAnswers: answers,
+    });
+    expect(mail.subject).toContain('EQ 승인');
+    expect(mail.html).toContain('고객 회신 2문항');
+    expect(mail.html).toContain('(EQ 2차)');
+    expect(mail.html).toContain('1:<b>B</b> · 2.0:<b>A</b>');
+    expect(mail.html).toContain('[고객 회신]에서');
+    expect(mail.html).toContain('[추가 EQ 요청]');
+    expect(mail.html).toContain('이전 회차 회신 1건도 함께 전달');
+    expect(mail.html).not.toContain('좌측 하단');
+    expect(mail.html).toContain('/app/partner/pcb/pos/356');
+  });
+
+  it('계정 없음 — 포털을 못 여니 의견까지 메일에 싣는다(이스케이프)', () => {
+    const mail = buildPcbEqDecisionEmail({
+      partnerName: 'e2e한국협력',
+      projectName: 'arduino-uno.zip',
+      approved: true,
+      reason: null,
+      poId: '400',
+      hasPortalAccount: false,
+      inquiryEmail: 'info@samplepcb.co.kr',
+      customerAnswers: { ...answers, roundNo: 1, earlierRounds: 0 },
+    });
+    expect(mail.html).toContain('고객 회신 2문항');
+    expect(mail.html).not.toContain('(EQ 1차)');
+    expect(mail.html).toContain('No. 1 의견: 좌측 하단에 &lt;넣어&gt; 주세요');
+    expect(mail.html).not.toContain('[추가 EQ 요청]');
+    expect(mail.html).not.toContain('/app/partner');
+    expect(mail.html).toContain('아래 고객 회신대로 생산을 진행해 주세요');
+  });
+
+  it('회신이 없으면 종전 문구 그대로, 반려·스텐실에는 회신 블록이 붙지 않는다', () => {
+    const plain = buildPcbEqDecisionEmail({ partnerName: '협력2', projectName: 'p', approved: true, reason: null });
+    expect(plain.html).toContain('포털에서 [생산 시작]을 진행해 주세요.');
+    expect(plain.html).not.toContain('고객 회신');
+    const rejected = buildPcbEqDecisionEmail({
+      partnerName: '협력2',
+      projectName: 'p',
+      approved: false,
+      reason: '도면 누락',
+      customerAnswers: answers,
+    });
+    expect(rejected.html).not.toContain('고객 회신 2문항');
+    const stencil = buildPcbEqDecisionEmail({
+      partnerName: '협력2',
+      projectName: 'p',
+      approved: true,
+      reason: null,
+      track: 'stencil',
+      customerAnswers: answers,
+    });
+    expect(stencil.html).not.toContain('고객 회신 2문항');
+  });
+});
+
+// D20 후속 R-3 — 협력사가 추가 EQ 를 요청한 순간 운영자에게.
+describe('buildPcbEqReopenedEmail — 추가 EQ 요청', () => {
+  it('누가·무슨 건을·왜 다시 열었는지와 Case 링크 — 사유는 그대로 인용(이스케이프)', () => {
+    const mail = buildPcbEqReopenedEmail({
+      partnerName: '협력2',
+      projectName: 'arduino-uno.zip',
+      reason: '2번 답대로면 랜드가 <0.075mm> 로 부족합니다',
+      targetUrl: 'https://local-web.samplepcb.co.kr/app/admin/pcb/cases/77',
+    });
+    expect(mail.subject).toBe('[샘플피씨비] PCB 추가 EQ 요청 — arduino-uno.zip · 협력2');
+    expect(mail.html).toContain('협력2 협력사가');
+    expect(mail.html).toContain('EQ 승인이 풀리고 발주접수로 돌아갔습니다');
+    expect(mail.html).toContain('2번 답대로면 랜드가 &lt;0.075mm&gt; 로 부족합니다');
+    expect(mail.html).toContain('/app/admin/pcb/cases/77');
   });
 });
