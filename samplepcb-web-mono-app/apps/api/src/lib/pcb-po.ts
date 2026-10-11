@@ -7,6 +7,7 @@ import type {
   PartnerPcbChildPoCreateBodyType,
   PartnerPcbPoDetailType,
   PartnerPcbPoListItemType,
+  PcbEqCommentTranslationType,
   PcbEqEventType,
   PcbEqFileTypeType,
   PcbEqFileViewType,
@@ -26,6 +27,7 @@ import {
   PCB_PO_FULFILLMENT_MODES,
   PCB_PO_STATUSES,
   PCB_PO_STATUS_LABELS,
+  PcbEqCommentTranslation,
   asPcbEqFileType,
   canReopenPcbEq,
   isPcbEqFileRecord,
@@ -118,6 +120,10 @@ const parseKstDate = (s: string): Date => new Date(`${s}T00:00:00+09:00`);
 type PoWithPartner = SpPcbPo & { partner: SpPartner };
 
 // ── EQ 이력(Json) — 하위 발주서가 정본, 상위(미러)는 상태만 복사 ──────────────
+const noteI18nOf = (json: unknown): { noteI18n?: PcbEqCommentTranslationType } => {
+  const parsed = PcbEqCommentTranslation.safeParse(json);
+  return parsed.success ? { noteI18n: parsed.data } : {};
+};
 export const parseEqHistory = (json: unknown): PcbEqEventType[] => {
   if (!Array.isArray(json)) return [];
   const out: PcbEqEventType[] = [];
@@ -130,6 +136,9 @@ export const parseEqHistory = (json: unknown): PcbEqEventType[] => {
       fromStatus: typeof r.fromStatus === 'string' ? r.fromStatus : '',
       toStatus: typeof r.toStatus === 'string' ? r.toStatus : '',
       note: typeof r.note === 'string' ? r.note : null,
+      // 사유의 번역(D20 P4) — 있는 사건에만 싣는다. 전이가 이력을 다시 쓸 때(appendEq) 이 값이 함께 넘어가야
+      // 뒤에 일어난 전이 하나로 번역이 사라지지 않는다.
+      ...noteI18nOf(r.noteI18n),
     });
   }
   return out;

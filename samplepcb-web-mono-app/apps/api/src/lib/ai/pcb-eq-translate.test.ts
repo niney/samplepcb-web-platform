@@ -14,15 +14,31 @@ interface ItemRow {
 }
 
 const h = vi.hoisted(() => {
-  const state: { review: { id: bigint; format: string; items: ItemRow[] } | null; enabled: boolean } = {
+  const state: {
+    review: { id: bigint; format: string; items: ItemRow[] } | null;
+    enabled: boolean;
+    /** 발주 이력(Json 한 칸) — 사유 번역이 이 배열의 사건에 붙는다. */
+    po: { eqHistory: unknown } | null;
+  } = {
     review: null,
     enabled: true,
+    po: null,
   };
   return { state };
 });
 
-vi.mock('../prisma', () => ({
-  prisma: {
+vi.mock('../prisma', () => {
+  const prisma = {
+    // 사유 번역은 행을 잠그고 그 자리에서 다시 읽는다 — 가짜는 잠금 없이 같은 상태를 돌려준다.
+    $queryRaw: () => Promise.resolve([]),
+    $transaction: (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma),
+    spPcbPo: {
+      findUnique: () => Promise.resolve(h.state.po === null ? null : { eqHistory: h.state.po.eqHistory }),
+      update: (args: { data: { eqHistory: unknown } }) => {
+        if (h.state.po !== null) h.state.po.eqHistory = args.data.eqHistory;
+        return Promise.resolve({});
+      },
+    },
     spPcbEqReview: {
       findUnique: () => Promise.resolve(h.state.review),
     },
@@ -40,8 +56,9 @@ vi.mock('../prisma', () => ({
         return Promise.resolve({ count: 1 });
       },
     },
-  },
-}));
+  };
+  return { prisma };
+});
 vi.mock('./usecases', () => ({
   PCB_EQ_PARSE_USECASE: 'pcb.eq-parse',
   getAiUsecaseRuntime: () => Promise.resolve({ enabled: h.state.enabled, model: 'kimi-k3', think: 'low' }),
@@ -51,8 +68,10 @@ vi.mock('./usecases', () => ({
 
 import {
   buildEqCommentTranslatePrompt,
+  buildEqNoteTranslatePrompt,
   parseEqCommentTranslations,
   translateEqComments,
+  translateEqHistoryNote,
   type EqCommentSource,
 } from './pcb-eq-translate';
 
@@ -84,6 +103,7 @@ const answer = (items: { id: number; en: string; zh: string }[]): string => JSON
 beforeEach(() => {
   h.state.review = null;
   h.state.enabled = true;
+  h.state.po = null;
   log.info.mockClear();
   log.warn.mockClear();
 });
@@ -229,5 +249,101 @@ describe('translateEqComments', () => {
     expect(await translateEqComments(5n, { force: false, log })).toEqual({ ok: false, error: 'REVIEW_NOT_FOUND' });
     h.state.review = { id: 5n, format: 'message', items: [] };
     expect(await translateEqComments(5n, { force: false, log })).toEqual({ ok: false, error: 'REVIEW_NOT_FOUND' });
+  });
+});
+
+// ── 관리자가 쓴 사유(반려·대행 추가 EQ 요청) — 발주 이력의 그 사건에 번역을 붙인다 ──────────────
+const hist = (at: string, byRole: string, fromStatus: string, toStatus: string, note: string | null = null) => ({
+  at,
+  byRole,
+  fromStatus,
+  toStatus,
+  note,
+});
+const T = (n: number): string => `2026-10-11T00:0${String(n)}:00.000Z`;
+const events = (): Record<string, unknown>[] => (h.state.po?.eqHistory ?? []) as Record<string, unknown>[];
+
+describe('buildEqNoteTranslatePrompt', () => {
+  it('구매자가 공장에 쓴 사유라고 말하고, 번역만 하라고 못박는다', () => {
+    const prompt = buildEqNoteTranslatePrompt('도면 번호가 다릅니다. 0.25mm 로 고쳐 주세요.');
+    expect(prompt).toContain('the buyer');
+    expect(prompt).toContain('도면 번호가 다릅니다');
+    expect(prompt).toContain('Do not omit anything');
+    expect(prompt).toContain('exactly as written');
+  });
+});
+
+describe('translateEqHistoryNote', () => {
+  it('가장 최근의 관리자 반려 사유를 번역해 그 사건에만 붙인다 — 다른 사건과 다른 키는 그대로', async () => {
+    h.state.po = {
+      eqHistory: [
+        hist(T(1), 'PARTNER', 'issued', 'eq_requested'),
+        { ...hist(T(2), 'ADMIN', 'eq_requested', 'issued', '옛 반려'), noteI18n: { en: 'old', 'zh-CN': '旧', by: 'ai', at: 'x' } },
+        hist(T(3), 'PARTNER', 'issued', 'eq_requested'),
+        { ...hist(T(4), 'ADMIN', 'eq_requested', 'issued', '홀 지름을 0.25mm 로 고쳐 주세요'), extra: 'keep-me' },
+      ],
+    };
+    const chat = vi.fn((prompt: string) => {
+      expect(prompt).toContain('홀 지름을 0.25mm 로 고쳐 주세요');
+      return Promise.resolve(answer([{ id: 1, en: 'Please change the hole diameter to 0.25mm.', zh: '请将孔径改为 0.25mm。' }]));
+    });
+    const result = await translateEqHistoryNote(7n, { log, chat });
+    expect(result).toMatchObject({ ok: true, translation: { en: 'Please change the hole diameter to 0.25mm.', by: 'ai' } });
+    expect(events()[3]).toMatchObject({ note: '홀 지름을 0.25mm 로 고쳐 주세요', extra: 'keep-me', noteI18n: { 'zh-CN': '请将孔径改为 0.25mm。' } });
+    expect(events()[1]?.noteI18n, '이미 번역된 옛 사유는 그대로').toMatchObject({ en: 'old' });
+    expect(events()[0]?.noteI18n).toBeUndefined();
+    expect(events()).toHaveLength(4);
+  });
+
+  it('협력사가 직접 쓴 추가 EQ 요청 사유는 자기 말이라 번역하지 않는다 — 관리자 대행이 쓴 것만', async () => {
+    h.state.po = { eqHistory: [hist(T(1), 'PARTNER', 'eq_done', 'issued', '阻抗条位置需再确认')] };
+    const chat = vi.fn(() => Promise.resolve(answer([{ id: 1, en: 'x', zh: 'y' }])));
+    expect(await translateEqHistoryNote(7n, { log, chat })).toEqual({ ok: true, translation: null });
+    expect(chat).not.toHaveBeenCalled();
+
+    h.state.po = { eqHistory: [hist(T(1), 'ADMIN', 'eq_done', 'issued', '적층 구조를 다시 확인해야 합니다')] };
+    const proxy = vi.fn(() => Promise.resolve(answer([{ id: 1, en: 'The stack-up must be re-confirmed.', zh: '需要重新确认叠层结构。' }])));
+    expect(await translateEqHistoryNote(7n, { log, chat: proxy })).toMatchObject({ ok: true, translation: { by: 'ai' } });
+    expect(events()[0]?.noteI18n).toMatchObject({ en: 'The stack-up must be re-confirmed.' });
+  });
+
+  it('사유가 아닌 것은 번역하지 않는다 — 요청 취소·레거시 되돌리기 표식·승인', async () => {
+    h.state.po = {
+      eqHistory: [
+        hist(T(1), 'ADMIN', 'eq_requested', 'issued'),
+        hist(T(2), 'ADMIN', 'eq_requested', 'issued', '되돌리기'),
+        hist(T(3), 'ADMIN', 'eq_requested', 'eq_done', '메모'),
+      ],
+    };
+    const chat = vi.fn(() => Promise.resolve('{}'));
+    expect(await translateEqHistoryNote(7n, { log, chat })).toEqual({ ok: true, translation: null });
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('모델을 기다리는 사이 이력이 늘어도 새 사건을 지우지 않는다(그 자리에서 다시 읽어 붙인다)', async () => {
+    h.state.po = { eqHistory: [hist(T(1), 'ADMIN', 'eq_requested', 'issued', '도면 번호가 다릅니다')] };
+    const chat = vi.fn(() => {
+      // 답이 오기 전에 협력사가 다시 승인요청을 올렸다.
+      if (h.state.po !== null) h.state.po.eqHistory = [...events(), hist(T(2), 'PARTNER', 'issued', 'eq_requested')];
+      return Promise.resolve(answer([{ id: 1, en: 'The drawing number is different.', zh: '图纸编号不一致。' }]));
+    });
+    expect(await translateEqHistoryNote(7n, { log, chat })).toMatchObject({ ok: true, translation: { by: 'ai' } });
+    expect(events()).toHaveLength(2);
+    expect(events()[0]?.noteI18n).toMatchObject({ en: 'The drawing number is different.' });
+    expect(events()[1]).toMatchObject({ byRole: 'PARTNER', toStatus: 'eq_requested' });
+  });
+
+  it('숫자가 어긋난 번역은 붙이지 않는다 — AI_FAILED, 이력은 그대로', async () => {
+    h.state.po = { eqHistory: [hist(T(1), 'ADMIN', 'eq_requested', 'issued', '0.25mm 로 고쳐 주세요')] };
+    const chat = vi.fn(() => Promise.resolve(answer([{ id: 1, en: 'Change to 0.2mm', zh: '改为 0.25mm' }])));
+    expect(await translateEqHistoryNote(7n, { log, chat })).toEqual({ ok: false, error: 'AI_FAILED' });
+    expect(events()[0]?.noteI18n).toBeUndefined();
+  });
+
+  it("'PCB EQ 분석'이 꺼져 있으면 AI_DISABLED, 없는 발주서는 PO_NOT_FOUND", async () => {
+    expect(await translateEqHistoryNote(7n, { log })).toEqual({ ok: false, error: 'PO_NOT_FOUND' });
+    h.state.po = { eqHistory: [hist(T(1), 'ADMIN', 'eq_requested', 'issued', '사유')] };
+    h.state.enabled = false;
+    expect(await translateEqHistoryNote(7n, { log })).toEqual({ ok: false, error: 'AI_DISABLED' });
   });
 });

@@ -8,6 +8,7 @@ import type {
   PcbEqAiFlagType,
   PcbEqAnswerInputType,
   PcbEqAnswerChannelType,
+  PcbEqCommentTranslationType,
   PcbEqDraftItemType,
   PcbEqItemFigureType,
   PcbEqReviewFileType,
@@ -31,6 +32,7 @@ import {
   linkEqRevision,
   looseEqFigures,
   parseEqAiFlags,
+  parseEqCommentI18n,
   parseEqItemFigures,
   parseEqItemOptions,
   planEqItemCopyLink,
@@ -431,7 +433,7 @@ export const loadForwardedAnswerDigest = async (
   reviewIds: readonly bigint[],
 ): Promise<{
   roundNo: number;
-  items: { no: string; key: string; comment: string | null }[];
+  items: { no: string; key: string; comment: string | null; commentI18n: PcbEqCommentTranslationType | null }[];
   earlierRounds: number;
 } | null> => {
   if (reviewIds.length === 0) return null;
@@ -449,6 +451,7 @@ export const loadForwardedAnswerDigest = async (
       no: eqItemNo(i),
       key: i.answerKey ?? '-',
       comment: i.answerComment,
+      commentI18n: parseEqCommentI18n(i),
     })),
     earlierRounds: rows.length - 1,
   };

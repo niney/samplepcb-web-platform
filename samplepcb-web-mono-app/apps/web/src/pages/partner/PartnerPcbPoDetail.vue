@@ -19,6 +19,7 @@ import {
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
   canReopenPcbEq,
+  pcbEqCommentTranslated,
   pcbEqReplyFileName,
   isPcbEqRejectionEvent,
   lastPcbEqReworkBoundary,
@@ -691,6 +692,14 @@ const eqReopen = computed<{ note: string; at: string } | null>(() => {
   const boundary = lastPcbEqReworkBoundary(d.eq.history);
   return boundary?.kind === 'reopen' ? { note: boundary.note, at: boundary.at } : null;
 });
+// 그 사유를 관리자가 대행으로(한국어로) 썼으면 번역이 이력에 붙어 있다(D20 P4) — 포털 언어가 영어·중국어일 때
+// 번역문을 먼저, 원문을 그 아래 보인다. 협력사가 직접 쓴 사유에는 번역이 없다(자기 말이다).
+const eqReopenTranslated = computed<string | null>(() => {
+  const reopen = eqReopen.value;
+  if (reopen === null || reopen.note === '') return null;
+  const event = detail.value?.eq.history.find((e) => e.at === reopen.at && e.note === reopen.note);
+  return pcbEqCommentTranslated(event?.noteI18n ?? null, locale.value);
+});
 // 추가 EQ 요청 뒤 새 파일을 올렸는가 — 지금 올라 있는 EQ 는 이미 승인된 판이다. 서버가 찍는
 // afterReject 는 **가장 최근 경계**(반려 또는 추가 EQ 요청) 뒤의 파일이라 같은 표시를 읽는다.
 // 관리자 회신(reply)은 내 산출물이 아니라 세지 않는다.
@@ -956,14 +965,25 @@ watch(locale, () => {
               </button>
             </div>
             <!-- 추가 EQ 요청으로 돌아온 건 — 무엇을 더 확인하려 했는지(요청 때 쓴 사유)를 다시 보인다.
-                 수정 EQ 를 만드는 동안 이 문장이 작업 지시다. 사유는 쓴 그대로(번역하지 않는다). -->
+                 수정 EQ 를 만드는 동안 이 문장이 작업 지시다. 협력사가 쓴 사유는 쓴 그대로이고, 관리자가 대행으로
+                 (한국어로) 쓴 사유는 번역이 있으면 번역문을 먼저·원문을 그 아래 보인다(D20 P4). -->
             <div
               v-if="eqReopen !== null && eqReopen.note !== ''"
               class="mt-2 min-w-0 rounded-md border-l-4 border-amber-400 bg-surface px-3 py-2"
               data-testid="partner-eq-reopen-reason"
             >
-              <p class="text-xs font-semibold text-amber-800">{{ pt('추가 EQ 요청 사유') }}</p>
-              <p class="mt-0.5 whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]">{{ eqReopen.note }}</p>
+              <p class="text-xs font-semibold text-amber-800">
+                {{ pt('추가 EQ 요청 사유') }}<span v-if="eqReopenTranslated !== null" class="font-normal text-gray-400"> · {{ pt('AI 번역') }}</span>
+              </p>
+              <template v-if="eqReopenTranslated !== null">
+                <p class="mt-0.5 whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]" data-testid="partner-eq-reopen-reason-translated">
+                  {{ eqReopenTranslated }}
+                </p>
+                <p class="mt-1 whitespace-pre-wrap text-xs text-gray-500 [overflow-wrap:anywhere]">
+                  <span class="font-semibold">{{ pt('원문(한국어)') }}:</span> {{ eqReopen.note }}
+                </p>
+              </template>
+              <p v-else class="mt-0.5 whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]">{{ eqReopen.note }}</p>
             </div>
             <!-- 스텐실 — 필수는 좌표파일 하나, 문의사항·사진은 선택이다. 문의사항은 제출과
                  한 몸이라 여기 둔다(제출 뒤엔 첨부와 같이 잠긴다 — 따로 저장 버튼을 두면

@@ -51,6 +51,7 @@ import {
   uploadPcbEqFile,
 } from '../lib/pcb-po';
 import { loadForwardedAnswerDigest } from '../lib/pcb-eq-review';
+import { autoTranslateEqHistoryNote } from '../lib/ai/pcb-eq-translate';
 import { loadHousePartnerName } from '../lib/pcb-rfq';
 import {
   advancePcbShipment,
@@ -433,6 +434,9 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           params: { poId: String(po.id), partnerName: po.partner.name, approved: false },
         },
       );
+      // 반려 사유는 관리자가 한국어로 쓴다 — 협력사 포털 언어가 영어·중국어면 번역문을 원문과 함께 보이게 뒤에서
+      // 번역해 이력에 붙인다(D20 P4). 응답·메일을 기다리게 하지 않고, 실패해도 반려는 그대로다.
+      void autoTranslateEqHistoryNote(po.id, request.log);
       return { result: true as const };
     },
   );
@@ -550,6 +554,8 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message: REOPEN_ERROR[res.error] ?? '추가 EQ 요청을 진행할 수 없는 상태입니다.',
         });
       }
+      // 대행으로 적은 사유도 한국어다 — 협력사 화면에 번역과 함께 보이게 한다(반려 사유와 같은 길).
+      void autoTranslateEqHistoryNote(po.id, request.log);
       return { result: true as const };
     },
   );

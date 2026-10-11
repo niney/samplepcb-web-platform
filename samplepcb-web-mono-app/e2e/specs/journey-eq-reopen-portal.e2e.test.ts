@@ -225,6 +225,20 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     return row.innerText();
   };
   const occurrences = (text: string, needle: string): number => text.split(needle).length - 1;
+  /**
+   * 반려 사유의 번역을 이력에 붙인다(D20 P4). 실제로는 반려 직후 AI 가 뒤에서 번역해 붙이지만, 화면 단언이 모델 답에
+   * 기대지 않게 같은 자리(가장 최근 반려 사건의 noteI18n)에 정해진 문장을 넣는다 — 이미 번역이 붙은 사건은 뒤늦게
+   * 도착한 AI 번역이 건드리지 않는다.
+   */
+  const setRejectNoteTranslation = async (id: number, text: { en: string; 'zh-CN': string }): Promise<void> => {
+    const prisma = getPrisma();
+    const row = await prisma.spPcbPo.findUnique({ where: { id: BigInt(id) }, select: { eqHistory: true } });
+    const events = (Array.isArray(row?.eqHistory) ? row.eqHistory : []) as any[];
+    const last = [...events].reverse().find((e) => e.fromStatus === 'eq_requested' && e.toStatus === 'issued' && e.note);
+    if (last === undefined) throw new Error('반려 사건이 없습니다');
+    last.noteI18n = { ...text, by: 'ai', at: new Date().toISOString() };
+    await prisma.spPcbPo.update({ where: { id: BigInt(id) }, data: { eqHistory: events } });
+  };
   /** 관리자 대리 접속으로 올린다 — 서버가 올린 사람을 ADMIN 으로 적는다. */
   const uploadEqAsProxy = async (partnerId: bigint | number, id: number, name: string): Promise<number> => {
     const form = new FormData();
@@ -613,6 +627,34 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     expect(occurrences(await page.locator('main').innerText(), 'EQ-rejected.pdf'), '반려된 파일은 타임라인에만').toBe(1);
     expect(await timelineX(page).count(), '반려된 파일의 ✕').toBe(1);
     expect(await page.getByTestId('partner-eq-upload-locked').count(), '굳은 파일은 없다').toBe(0);
+
+    // ── 반려 사유의 번역(D20 P4) — 관리자는 한국어로 쓰고 공장이 읽는다. 포털 언어가 영어·중국어면 번역문을 먼저,
+    //    원문을 그 아래 작게 보인다. 한국어 화면은 지금처럼 원문만.
+    const NOTE = { en: `The drawing number is different ${token}`, 'zh-CN': `图纸编号不一致 ${token}` };
+    await setRejectNoteTranslation(id, NOTE);
+    const withNote = (await portalDetail(P, id)).eq.history.find((e: any) => e.note === '도면 번호가 다릅니다');
+    expect(withNote?.noteI18n, '포털 응답의 사유 번역').toMatchObject(NOTE);
+    page = await openPo(owner.mbId ?? '', id, name);
+    const rejectBubble = page.locator('[data-eq-event="reject"]');
+    await rejectBubble.waitFor();
+    expect(await rejectBubble.locator('[data-eq-note-translated]').count(), '한국어 화면엔 번역문이 없다').toBe(0);
+    expect(await rejectBubble.innerText()).toContain('도면 번호가 다릅니다');
+    for (const locale of ['en', 'zh-CN'] as const) {
+      await setLocale(page, locale);
+      const translated = rejectBubble.locator('[data-eq-note-translated]');
+      const original = rejectBubble.locator('[data-eq-note-original]');
+      expect((await translated.innerText()).trim(), `${locale} 번역문`).toBe(NOTE[locale]);
+      expect(await original.innerText(), `${locale} 원문 머리말`).toContain(`${tr('원문(한국어)', locale)}:`);
+      expect(await original.innerText(), `${locale} 원문`).toContain('도면 번호가 다릅니다');
+      expect(await rejectBubble.innerText(), `${locale} 번역 표시`).toContain(tr('AI 번역', locale));
+      expect((await translated.boundingBox())?.y ?? 0, `${locale} 번역문이 위`).toBeLessThan((await original.boundingBox())?.y ?? 0);
+      const [trSize, origSize] = await Promise.all(
+        [translated, original].map((el) => el.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize))),
+      );
+      expect(trSize, `${locale} 번역문이 원문보다 크다`).toBeGreaterThan(origSize ?? 0);
+    }
+    await shot(page, 'zh-reject-note-translated');
+    await setLocale(page, 'ko');
 
     // ④ 보완 파일을 올린다 — 새 것은 목록에만, 반려된 것은 타임라인에만(양쪽에 겹치지 않는다).
     expect(await uploadEq(P, id, 'EQ-fixed.pdf'), '보완 업로드').toBe(200);

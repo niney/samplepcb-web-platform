@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildPcbAsCaseSubmittedEmail,
+  buildPcbEqAnswerForwardedEmail,
   buildPcbEqDecisionEmail,
   buildPcbEqReopenedEmail,
   buildPcbEqRequestedEmail,
@@ -474,5 +475,61 @@ describe('buildPcbEqReopenedEmail — 추가 EQ 요청', () => {
     expect(mail.html).toContain('EQ 승인이 풀리고 발주접수로 돌아갔습니다');
     expect(mail.html).toContain('2번 답대로면 랜드가 &lt;0.075mm&gt; 로 부족합니다');
     expect(mail.html).toContain('/app/admin/pcb/cases/77');
+  });
+});
+
+// D20 P4 — 고객 의견은 한국어다. 저장된 번역이 있으면 협력사 메일의 의견 아래에 영어·중국어를 덧붙인다
+// (메일은 받는 사람의 언어를 모른다 — 둘 다 적는다). 원문은 그대로 남는다.
+describe('고객 의견 번역이 실린 협력사 메일', () => {
+  const translated = { en: 'Lower left, <please>.', 'zh-CN': '请放在左下角。' };
+
+  it('전달 메일 — 의견 아래에 EN·中文 줄, 번역이 없는 의견은 원문만', () => {
+    const mail = buildPcbEqAnswerForwardedEmail({
+      partnerName: '협력2',
+      projectName: 'arduino-uno.zip',
+      roundNo: 1,
+      poId: '400',
+      items: [
+        { no: '1', question: 'q1', key: 'B', label: null, comment: '좌측 하단에 넣어 주세요', commentI18n: translated },
+        { no: '2', question: 'q2', key: 'C', label: null, comment: '납기가 급합니다', commentI18n: null },
+        { no: '3', question: 'q3', key: 'A', label: null, comment: null },
+      ],
+    });
+    expect(mail.html).toContain('Comment: 좌측 하단에 넣어 주세요');
+    expect(mail.html, '영어 — HTML 이스케이프').toContain('EN: Lower left, &lt;please&gt;.');
+    expect(mail.html).toContain('中文: 请放在左下角。');
+    expect(mail.html).toContain('Comment: 납기가 급합니다');
+    expect(mail.html.split('EN: ').length - 1, '번역 줄은 번역이 있는 의견에만').toBe(1);
+  });
+
+  it('승인 메일(포털 계정 없는 조직) — 의견과 함께 번역도 싣는다', () => {
+    const mail = buildPcbEqDecisionEmail({
+      partnerName: '무계정협력',
+      projectName: 'p',
+      approved: true,
+      reason: null,
+      hasPortalAccount: false,
+      inquiryEmail: 'info@samplepcb.co.kr',
+      customerAnswers: {
+        roundNo: 1,
+        items: [{ no: '1', key: 'B', comment: '좌측 하단에 넣어 주세요', commentI18n: translated }],
+        earlierRounds: 0,
+      },
+    });
+    expect(mail.html).toContain('No. 1 의견: 좌측 하단에 넣어 주세요');
+    expect(mail.html).toContain('EN: Lower left, &lt;please&gt;.');
+    expect(mail.html).toContain('中文: 请放在左下角。');
+  });
+
+  it('한쪽 언어만 있으면 그 줄만 적는다', () => {
+    const mail = buildPcbEqAnswerForwardedEmail({
+      partnerName: '협력2',
+      projectName: 'p',
+      roundNo: 1,
+      poId: '1',
+      items: [{ no: '1', question: 'q', key: 'B', label: null, comment: '의견', commentI18n: { en: '', 'zh-CN': '意见' } }],
+    });
+    expect(mail.html).not.toContain('EN: ');
+    expect(mail.html).toContain('中文: 意见');
   });
 });

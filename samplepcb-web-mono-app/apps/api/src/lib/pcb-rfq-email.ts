@@ -465,11 +465,25 @@ export interface PcbEqDecisionEmailParams extends PcbPortalCtaParams {
    */
   customerAnswers?: {
     roundNo: number;
-    items: { no: string; key: string; comment: string | null }[];
+    items: { no: string; key: string; comment: string | null; commentI18n?: PcbEqMailTranslation | null }[];
     /** 같은 승인으로 함께 전달된 **이전** 회차 수(요약은 최신 회차만 싣는다). */
     earlierRounds: number;
   };
 }
+
+/** 고객 의견의 번역(D20 P4) — 저장된 것이 있으면 메일의 의견 아래에 영어·중국어를 덧붙인다(메일은 언어를 모른다). */
+export interface PcbEqMailTranslation {
+  en: string;
+  'zh-CN': string;
+}
+/** 의견 아래의 번역 두 줄(HTML) — 번역이 없거나 비면 빈 문자열. 원문은 부르는 쪽이 이미 적었다. */
+const translationLines = (t: PcbEqMailTranslation | null | undefined): string => {
+  if (t === null || t === undefined) return '';
+  return [
+    t.en.trim() === '' ? '' : `<br/><span style="color:#475569;">EN: ${esc(t.en)}</span>`,
+    t['zh-CN'].trim() === '' ? '' : `<br/><span style="color:#475569;">中文: ${esc(t['zh-CN'])}</span>`,
+  ].join('');
+};
 
 /** 승인 메일의 고객 회신 블록 — 포털 계정이 없는 조직은 포털을 못 여니 의견까지 메일에 싣는다. */
 const customerAnswersBlock = (
@@ -481,7 +495,7 @@ const customerAnswersBlock = (
   const commentRows =
     !noAccount || comments.length === 0
       ? ''
-      : `<br/>${comments.map((i) => `No. ${esc(i.no)} 의견: ${esc(i.comment)}`).join('<br/>')}`;
+      : `<br/>${comments.map((i) => `No. ${esc(i.no)} 의견: ${esc(i.comment)}${translationLines(i.commentI18n)}`).join('<br/>')}`;
   const earlier =
     a.earlierRounds === 0 ? '' : ` (이전 회차 회신 ${String(a.earlierRounds)}건도 함께 전달되었습니다)`;
   return `
@@ -1007,6 +1021,8 @@ export interface PcbEqAnswerMailItem {
   /** 고른 선택지의 한국어 문구(관리자 메일용). */
   label: string | null;
   comment: string | null;
+  /** 의견의 번역(협력사 메일용) — 있으면 의견 아래에 영어·중국어를 덧붙인다. */
+  commentI18n?: PcbEqMailTranslation | null;
 }
 
 export interface PcbEqCustomerAnswerEmailParams {
@@ -1078,7 +1094,7 @@ export function buildPcbEqAnswerForwardedEmail(p: PcbEqAnswerForwardedEmailParam
       infoRow(
         `No. ${i.no}`,
         `<b>${esc(i.key)}</b>${
-          i.comment === null ? '' : `<br><span style="color:#475569;">Comment: ${esc(i.comment)}</span>`
+          i.comment === null ? '' : `<br><span style="color:#475569;">Comment: ${esc(i.comment)}</span>${translationLines(i.commentI18n)}`
         }`,
       ),
     )

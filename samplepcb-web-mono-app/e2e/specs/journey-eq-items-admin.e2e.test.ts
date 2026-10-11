@@ -35,6 +35,7 @@ import {
   getPartner,
   getPrisma,
   mailpitDelete,
+  mailpitMessage,
   mailpitSearch,
   monoRoot,
   newSession,
@@ -501,6 +502,21 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     // 전달되면 협력사 포털 응답에 번역이 실린다(화면은 포털 언어가 영어·중국어일 때 번역문을 원문 위에 세운다).
     const portal = await api(P, 'GET', `/api/partner/pcb-pos/${String(poId)}`);
     expect(portal.json?.data?.eqRounds?.[0]?.items?.[0]?.commentI18n, '포털에 실린 번역').toMatchObject({ en: TR_EN, 'zh-CN': TR_ZH });
+    // 전달 메일 — 의견 아래에 번역 두 줄이 덧붙는다(메일은 받는 사람의 언어를 모른다).
+    if (mailpitUp) {
+      let html = '';
+      await until('전달 메일', async () => {
+        const hit = (((await mailpitSearch(`subject:"${projectName}"`))?.messages ?? []) as any[]).find((m) =>
+          String(m.Subject).includes('EQ 고객 회신'),
+        );
+        if (hit === undefined) return false;
+        html = String((await mailpitMessage(String(hit.ID)))?.HTML ?? '');
+        return true;
+      });
+      expect(html, '의견 원문').toContain('좌측 하단 실크 옆에 넣어 주세요');
+      expect(html, '영어 번역 줄').toContain(`EN: ${TR_EN}`);
+      expect(html, '중국어 번역 줄').toContain(`中文: ${TR_ZH}`);
+    }
     await untilText('전달됨', ws().locator('[data-eq-round-status]'), '전달됨');
     expect(await footer().getByRole('button', { name: '고객 회신대로 EQ 승인' }).count()).toBe(1);
     expect(await footer().getByRole('button', { name: '개정 EQ 요청(반려)' }).count()).toBe(1);

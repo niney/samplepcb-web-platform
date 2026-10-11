@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DateOnly } from './common';
-import { PartnerPcbEqRound, PcbPoEqAiSummary, PcbPoEqReviewSummary } from './pcb-eq-review';
+import { PartnerPcbEqRound, PcbEqCommentTranslation, PcbPoEqAiSummary, PcbPoEqReviewSummary } from './pcb-eq-review';
+import type { PcbEqCommentTranslationType } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
 import { BomInvoiceData, BomShipmentMode, BomShipmentStatus, ShipmentTransport } from './bom-po';
 
@@ -515,6 +516,8 @@ export interface PcbEqTimelineItem<F> {
   fromStatus?: string;
   toStatus?: string;
   note?: string | null;
+  /** 사유의 번역(관리자가 쓴 사유) — 없으면 원문만 보인다. */
+  noteI18n?: PcbEqCommentTranslationType | null;
   files?: F[];
 }
 
@@ -540,7 +543,14 @@ export interface PcbEqTimelineRound<F> {
 export const buildPcbEqTimeline = <
   F extends { fileId: number; uploadedAt: string; uploadedBy: string | null },
 >(
-  history: readonly { at: string; byRole: string; fromStatus: string; toStatus: string; note: string | null }[],
+  history: readonly {
+    at: string;
+    byRole: string;
+    fromStatus: string;
+    toStatus: string;
+    note: string | null;
+    noteI18n?: PcbEqCommentTranslationType | null | undefined;
+  }[],
   files: readonly F[],
 ): PcbEqTimelineRound<F>[] => {
   interface Sortable {
@@ -562,6 +572,8 @@ export const buildPcbEqTimeline = <
         fromStatus: e.fromStatus,
         toStatus: e.toStatus,
         note: e.note,
+        // 번역이 없는 사건에는 키를 두지 않는다(대부분의 사건은 사유가 없다).
+        ...(e.noteI18n == null ? {} : { noteI18n: e.noteI18n }),
       },
     });
   });
@@ -720,6 +732,9 @@ export const PcbEqEvent = z.object({
   fromStatus: z.string(),
   toStatus: z.string(),
   note: z.string().nullable(),
+  /** 사유의 번역(D20 P4) — **관리자가 한국어로 쓴 사유**(반려·보완 요청·대행 추가 EQ 요청)를 협력사 포털 언어가
+   *  영어·중국어일 때 원문과 함께 보인다. 사유가 저장된 뒤 AI 가 뒤에서 번역해 이력에 붙인다 — 없으면 원문만. */
+  noteI18n: PcbEqCommentTranslation.nullish(),
 });
 export type PcbEqEventType = z.infer<typeof PcbEqEvent>;
 

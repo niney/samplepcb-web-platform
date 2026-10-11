@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
+import { PCB_EQ_REVERT_NOTE, PcbEqCommentTranslation, isPcbEqRejectionEvent, isPcbEqReopenEvent } from '@sp/api-contract';
 import type { PcbEqCommentTranslationType } from '@sp/api-contract';
 import { parseEqItemOptions } from '../pcb-eq-items';
 import { prisma } from '../prisma';
@@ -227,5 +228,121 @@ export const autoTranslateEqComments = (reviewId: bigint, log: AiRunLogger): Pro
       log.warn(
         { reviewId: reviewId.toString(), err: (err instanceof Error ? err.message : String(err)).slice(0, 200) },
         'eq comment translate: crashed',
+      );
+    });
+
+// ── 관리자가 쓴 사유의 번역 — 반려(보완 요청)·대행 추가 EQ 요청 ──────────────────────────────
+// 사유는 발주 이력(sp_pcb_po.eqHistory, Json)의 사건에 note 로 남는다. 관리자는 한국어로 쓰고 협력사가 읽는다 —
+// 고객 의견과 같은 문제라 같은 방식으로 푼다: 저장된 뒤 뒤에서 한 번 번역해 **그 사건에** noteI18n 을 붙이고,
+// 포털 타임라인이 번역문을 원문과 함께 보인다. 협력사가 직접 쓴 사유(추가 EQ 요청)는 자기 말이라 번역하지 않는다.
+
+export const buildEqNoteTranslatePrompt = (note: string): string =>
+  [
+    'You translate a note that the buyer (the company ordering the PCB) wrote to the factory.',
+    'It says why the factory\'s engineering query (EQ) submission was returned, or what must be re-confirmed.',
+    "The readers are the factory's engineers, who will act on these words.",
+    'The note is in Korean. Translate it into (1) English and (2) Simplified Chinese.',
+    '',
+    'Rules:',
+    '- Translate the note only. Do not answer it, explain it, soften it, summarize it, or add anything. Do not omit anything.',
+    '- Keep every number, unit, tolerance, part number, layer name, file name, reference designator and other',
+    '  alphanumeric token exactly as written (for example 0.25mm, ±0.1, TOP, V-CUT, UL, R12, 2.0T).',
+    '- Positions and directions must be exact: left/right, top/bottom, upper/lower, inner/outer,',
+    '  parallel/perpendicular, long side/short side. Never swap them and never generalize them.',
+    '- Use standard PCB manufacturing terms. Chinese must use the terms mainland PCB factories use',
+    '  (阻焊, 丝印/字符, 焊盘, 过孔, 孔环, 阻抗条, 拼板, 叠层, 表面处理).',
+    '- If the note is already written in English or in Chinese, copy it unchanged for that language and translate it for the other.',
+    '- Keep line breaks.',
+    '',
+    'Return JSON only: {"items":[{"id":1,"en":"<English>","zh":"<Simplified Chinese>"}]}',
+    '',
+    'Note:',
+    JSON.stringify([{ id: 1, comment: note }], null, 2),
+  ].join('\n');
+
+interface RawEqEvent {
+  at?: unknown;
+  byRole?: unknown;
+  fromStatus?: unknown;
+  toStatus?: unknown;
+  note?: unknown;
+  noteI18n?: unknown;
+}
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+const eventsOf = (json: unknown): RawEqEvent[] =>
+  Array.isArray(json) ? json.filter((row): row is RawEqEvent => typeof row === 'object' && row !== null) : [];
+
+/** 번역할 사건인가 — 관리자가 쓴 반려(보완 요청)·대행 추가 EQ 요청의 사유이고 아직 번역이 없다. */
+const needsNoteTranslation = (e: RawEqEvent): boolean => {
+  const note = str(e.note).trim();
+  if (str(e.byRole) !== 'ADMIN' || note === '' || note === PCB_EQ_REVERT_NOTE) return false;
+  if (PcbEqCommentTranslation.safeParse(e.noteI18n).success) return false;
+  const shape = { fromStatus: str(e.fromStatus), toStatus: str(e.toStatus), note };
+  return isPcbEqRejectionEvent(shape) || isPcbEqReopenEvent(shape);
+};
+
+export type EqNoteTranslateResult =
+  | { ok: true; translation: PcbEqCommentTranslationType | null }
+  | { ok: false; error: 'PO_NOT_FOUND' | 'AI_DISABLED' | 'AI_FAILED' };
+
+/**
+ * 발주 이력에서 **가장 최근의, 아직 번역되지 않은 관리자 사유**를 번역해 그 사건에 붙인다.
+ * 번역할 것이 없으면 translation=null 로 끝난다(모델을 부르지 않는다).
+ *
+ * 이력은 Json 한 칸이라 다시 쓸 때 **행을 잠그고 그 자리에서 다시 읽는다** — 모델을 기다리는 사이(몇 초) 협력사가
+ * 재요청하면 이력이 늘어나 있다. 읽어 둔 옛 배열로 덮으면 그 사건이 사라진다. 사건은 시각·사유로 다시 찾는다.
+ */
+export async function translateEqHistoryNote(
+  poId: bigint,
+  options: { log: AiRunLogger; chat?: EqTranslateChat },
+): Promise<EqNoteTranslateResult> {
+  const po = await prisma.spPcbPo.findUnique({ where: { id: poId }, select: { eqHistory: true } });
+  if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  const target = eventsOf(po.eqHistory).filter(needsNoteTranslation).at(-1);
+  if (target === undefined) return { ok: true, translation: null };
+  const note = str(target.note);
+
+  const chat = options.chat ?? (await defaultChat(options.log));
+  if (chat === null) return { ok: false, error: 'AI_DISABLED' };
+  let text: string;
+  try {
+    text = await chat(buildEqNoteTranslatePrompt(note));
+  } catch (err) {
+    options.log.warn(
+      { poId: poId.toString(), err: (err instanceof Error ? err.message : String(err)).slice(0, 200) },
+      'eq note translate: model call failed',
+    );
+    return { ok: false, error: 'AI_FAILED' };
+  }
+  const hit = parseEqCommentTranslations(text, [{ id: 1, question: '', chosen: '', comment: note }]).get(1);
+  if (hit === undefined) return { ok: false, error: 'AI_FAILED' };
+  const translation: PcbEqCommentTranslationType = { en: hit.en, 'zh-CN': hit.zh, by: 'ai', at: new Date().toISOString() };
+
+  const written = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM sp_pcb_po WHERE id = ${poId} FOR UPDATE`;
+    const fresh = await tx.spPcbPo.findUnique({ where: { id: poId }, select: { eqHistory: true } });
+    const events = eventsOf(fresh?.eqHistory);
+    const index = events.findIndex((e) => str(e.at) === str(target.at) && str(e.note) === note && needsNoteTranslation(e));
+    if (index < 0) return false;
+    const next = events.map((e, i) => (i === index ? { ...e, noteI18n: translation } : e));
+    await tx.spPcbPo.update({ where: { id: poId }, data: { eqHistory: next as unknown as Prisma.InputJsonValue } });
+    return true;
+  });
+  options.log.info({ poId: poId.toString(), written }, 'eq note translate: done');
+  return { ok: true, translation: written ? translation : null };
+}
+
+/** 반려·대행 재요청에 매달린 자동 번역 — **절대 던지지 않는다**. 꺼져 있거나 실패하면 화면은 원문만 보인다. */
+export const autoTranslateEqHistoryNote = (poId: bigint, log: AiRunLogger): Promise<void> =>
+  translateEqHistoryNote(poId, { log })
+    .then((result) => {
+      if (!result.ok && result.error !== 'AI_DISABLED') {
+        log.warn({ poId: poId.toString(), error: result.error }, 'eq note translate: skipped');
+      }
+    })
+    .catch((err: unknown) => {
+      log.warn(
+        { poId: poId.toString(), err: (err instanceof Error ? err.message : String(err)).slice(0, 200) },
+        'eq note translate: crashed',
       );
     });

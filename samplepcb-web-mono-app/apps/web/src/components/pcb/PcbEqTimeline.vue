@@ -6,7 +6,9 @@ import {
   buildPcbEqTimeline,
   isPcbEqRejectionEvent,
   isPcbEqReopenEvent,
+  pcbEqCommentTranslated,
   pcbEqEventLabel,
+  type PcbEqCommentTranslationType,
   type PcbEqEventType,
   type PcbEqFileViewType,
   type PcbPoTrackType,
@@ -93,6 +95,11 @@ const isReopen = isPcbEqReopenEvent;
 /** 되돌리기가 남긴 레거시 표식은 사유가 아니다 — 말풍선에 '되돌리기'만 뜨면 안 읽힌다. */
 const shownNote = (note?: string | null): string =>
   note === PCB_EQ_REVERT_NOTE ? '' : (note ?? '');
+// 관리자가 한국어로 쓴 사유(반려·보완 요청·대행 추가 EQ 요청)의 번역(D20 P4) — 포털 언어가 영어·중국어이고
+// 번역이 붙어 있으면 **번역문을 먼저, 원문을 그 아래 작게** 보인다. 원문을 치우지 않는다(무엇을 고치라는
+// 말인지가 다툼의 근거다). 번역이 없거나 한국어 화면이면 지금처럼 원문만.
+const translatedNote = (item: { note?: string | null; noteI18n?: PcbEqCommentTranslationType | null }): string | null =>
+  shownNote(item.note) === '' ? null : pcbEqCommentTranslated(item.noteI18n ?? null, locale.value);
 // 스텐실의 확인 요청 note 는 반려 사유가 아니라 **고객문의사항**이다 — 캡션으로 갈라 준다
 // (안 가르면 요청 말풍선의 본문이 무슨 글인지 관리자·MD 가 문맥을 조립해야 한다).
 const isStencilInquiry = (item: { fromStatus?: string; toStatus?: string }): boolean =>
@@ -177,7 +184,16 @@ const when = (at: string): string => {
               <p class="font-semibold">{{ eventLabel(item) }}</p>
               <template v-if="shownNote(item.note) !== ''">
                 <p v-if="isStencilInquiry(item)" class="mt-1 text-[11px] font-semibold opacity-70">{{ pt('고객문의사항') }}</p>
-                <p class="mt-1 whitespace-pre-wrap">
+                <template v-if="translatedNote(item) !== null">
+                  <p class="mt-1 text-[11px] font-semibold opacity-70">{{ pt('AI 번역') }}</p>
+                  <p class="whitespace-pre-wrap [overflow-wrap:anywhere]" data-eq-note-translated>
+                    {{ translatedNote(item) }}
+                  </p>
+                  <p class="mt-1 whitespace-pre-wrap text-xs opacity-70 [overflow-wrap:anywhere]" data-eq-note-original>
+                    <span class="font-semibold">{{ pt('원문(한국어)') }}:</span> {{ shownNote(item.note) }}
+                  </p>
+                </template>
+                <p v-else class="mt-1 whitespace-pre-wrap">
                   {{ shownNote(item.note) }}
                 </p>
               </template>
