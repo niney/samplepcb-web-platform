@@ -12,6 +12,7 @@ import {
 } from '@sp/api-contract';
 import DialogScrollBody from '@/next/components/common/DialogScrollBody.vue';
 import Panel from '@/next/components/common/Panel.vue';
+import { Alert } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import {
@@ -25,6 +26,7 @@ import {
 import { Field, FieldLabel } from '@/next/components/ui/field';
 import { RadioGroup, RadioGroupItem } from '@/next/components/ui/radio-group';
 import { Textarea } from '@/next/components/ui/textarea';
+import { confirmDialog } from '@/next/lib/dialog';
 
 type ProxyChannel = AdminPcbEqProxyAnswerBodyType['channel'];
 const CHANNELS: readonly ProxyChannel[] = ['phone', 'email', 'other'];
@@ -46,6 +48,10 @@ const emit = defineEmits<{
 
 const picks = ref<Record<number, string>>({});
 const comments = ref<Record<number, string>>({});
+// 의견 칸은 문항당 하나라, B 에 붙여 적은 의견이 A 로 바꾼 뒤에도 그대로 나간다(공장은 기호를 먼저 읽는다).
+// 고객 화면(_pcb_eq_items_round.php)과 같은 규칙 — 지우지 않고 **알리기만** 하고, 저장 때 한 번 묻는다.
+// commentBase = 그 의견이 어느 기호에 붙여 적은 것인가(null = 붙은 곳 없음).
+const commentBase = ref<Record<number, string | null>>({});
 const channel = ref<ProxyChannel>('phone');
 const note = ref('');
 
@@ -56,6 +62,7 @@ watch(
     if (id === null) return;
     picks.value = {};
     comments.value = {};
+    commentBase.value = {};
     channel.value = 'phone';
     note.value = '';
   },
@@ -82,11 +89,29 @@ const problems = computed((): string[] => {
   return out;
 });
 
+const hasComment = (itemId: number): boolean => (comments.value[itemId] ?? '').trim() !== '';
+/** 의견을 지금 선택에 붙인다 — 의견을 고쳤거나, 그대로 두겠다고 했을 때. */
+function bindComment(itemId: number): void {
+  const now = picks.value[itemId];
+  commentBase.value = { ...commentBase.value, [itemId]: hasComment(itemId) && now !== undefined ? now : null };
+}
+/** 의견이 다른 선택에 붙여 적은 것이면 그 기호(원래 선택으로 돌아오면 null). */
+const staleFrom = (itemId: number): string | null => {
+  const base = commentBase.value[itemId] ?? null;
+  const now = picks.value[itemId];
+  return hasComment(itemId) && base !== null && now !== undefined && base !== now ? base : null;
+};
+const staleNos = computed(() => items.value.flatMap((item, i) => (staleFrom(item.id) === null ? [] : [String(i + 1)])));
+
 function pick(itemId: number, value: unknown): void {
-  if (typeof value === 'string') picks.value = { ...picks.value, [itemId]: value };
+  if (typeof value !== 'string') return;
+  picks.value = { ...picks.value, [itemId]: value };
+  // 고르기 전에 적어 둔 의견은 첫 선택에 붙는다.
+  if (hasComment(itemId) && (commentBase.value[itemId] ?? null) === null) bindComment(itemId);
 }
 function setComment(itemId: number, value: string | number): void {
   comments.value = { ...comments.value, [itemId]: String(value) };
+  bindComment(itemId); // 의견을 고쳤다 = 지금 선택을 보고 쓴 말이다
 }
 const onChannel = (value: unknown): void => {
   const hit = CHANNELS.find((c) => c === value);
@@ -96,8 +121,18 @@ const setNote = (value: string | number): void => {
   note.value = String(value);
 };
 
-function submit(): void {
+async function submit(): Promise<void> {
   if (problems.value.length > 0 || props.busy) return;
+  // 막지는 않는다 — 의견이 선택과 무관한 메모일 수 있다. 한 번 묻고 지나간다.
+  if (staleNos.value.length > 0) {
+    const ok = await confirmDialog({
+      title: '의견을 확인하세요',
+      message: `항목 ${staleNos.value.join('·')}: 선택을 바꾼 뒤 의견을 확인하지 않았습니다.\n의견은 공장에 그대로 전달됩니다 — 바뀐 선택에도 맞으면 그대로 저장하세요.`,
+      confirmLabel: '그대로 저장',
+      cancelLabel: '돌아가서 확인',
+    });
+    if (!ok) return;
+  }
   emit('submit', {
     answers: items.value.map((item) => {
       const comment = (comments.value[item.id] ?? '').trim();
@@ -143,6 +178,15 @@ const onOpenChange = (open: boolean): void => {
               </Field>
             </FieldLabel>
           </RadioGroup>
+          <Alert v-if="staleFrom(item.id) !== null" variant="warning" size="sm" :data-eq-proxy-stale="index + 1">
+            <div class="col-span-2 grid gap-1.5 text-xs">
+              <p>선택을 바꿨습니다(<b>{{ staleFrom(item.id) }}</b> → <b>{{ picks[item.id] }}</b>) — 아래 의견이 바뀐 선택에도 맞는지 확인하세요.</p>
+              <p class="flex flex-wrap gap-1.5">
+                <Button variant="outline" size="xs" data-eq-proxy-stale-clear @click="setComment(item.id, '')">의견 지우기</Button>
+                <Button variant="outline" size="xs" data-eq-proxy-stale-keep @click="bindComment(item.id)">이 의견 그대로 둠</Button>
+              </p>
+            </div>
+          </Alert>
           <Field :data-invalid="commentShort(item.id) ? 'true' : undefined">
             <FieldLabel :for="`eq-proxy-cmt-${String(item.id)}`">
               의견{{ needsComment(item.id) ? '(필수)' : '(선택)' }}
@@ -189,7 +233,7 @@ const onOpenChange = (open: boolean): void => {
 
       <DialogFooter>
         <Button variant="outline" @click="emit('close')">닫기</Button>
-        <Button :disabled="problems.length > 0 || busy" @click="submit">{{ busy ? '저장 중…' : '대리 회신 저장' }}</Button>
+        <Button :disabled="problems.length > 0 || busy" @click="void submit()">{{ busy ? '저장 중…' : '대리 회신 저장' }}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

@@ -197,6 +197,14 @@ foreach ($eqi_items as $it) {
                     </label>
                     <?php endforeach; ?>
                 </fieldset>
+                <?php // 의견을 적은 뒤 처리 방법을 바꾸면 의견이 옛 선택에 맞춘 말로 남는다 — 지우지 않고 알린다(스크립트가 연다). ?>
+                <div class="sp_eqi_stale" data-eqi-stale role="status" hidden>
+                    <p class="sp_eqi_stale_t">처리 방법을 바꾸셨습니다 (<b data-eqi-stale-from></b> → <b data-eqi-stale-to></b>). 아래 의견이 바뀐 선택에도 맞는지 확인해 주세요.</p>
+                    <div class="sp_eqi_stale_b">
+                        <button type="button" data-eqi-stale-clear>의견 지우기</button>
+                        <button type="button" data-eqi-stale-keep>이 의견 그대로 둠</button>
+                    </div>
+                </div>
                 <label class="sp_eqi_cmt">
                     <span class="sp_eqi_cmt_t">의견 <em data-eqi-cmt-hint><?php echo $need_cmt ? '(필수 — 2자 이상)' : '(선택)'; ?></em></span>
                     <textarea name="comment[<?php echo $iid; ?>]" rows="2" maxlength="2000"<?php echo $need_cmt ? ' required' : ''; ?>
@@ -309,6 +317,36 @@ if (empty($sp_eqi_assets_done)):
                 : '고르신 처리 방법은 의견이 필요합니다 — 2자 이상 적어 주세요.';
         }
     }
+    // ── 의견과 선택의 어긋남 ─────────────────────────────────────────────────
+    // 의견 칸은 항목당 하나라, B 에 '좌측 하단에 넣어 주세요'라고 적고 A(넣지 않음)로 바꾸면 그 말이 A 에 붙어 나간다.
+    // 공장은 기호를 먼저 읽으므로 모순이 생산까지 간다. 조용히 지우면 길게 쓴 글이 사라지고, 바꿀 때마다 물으면
+    // 눌러 보며 비교하는 사람을 막는다 — 그래서 **알리기만** 하고(띠), 회신 버튼에서 한 번 묻는다.
+    // data-eqi-base = 지금 의견이 어느 기호에 붙여 적은 것인가('' = 붙은 곳 없음).
+    function setStale(card, on, from, to) {
+        var band = card.querySelector('[data-eqi-stale]');
+        card.classList.toggle('is-stale', !!on);
+        if (!band) return;
+        band.hidden = !on;
+        if (!on) return;
+        band.querySelector('[data-eqi-stale-from]').textContent = from;
+        band.querySelector('[data-eqi-stale-to]').textContent = to;
+    }
+    /** 의견을 지금 선택에 붙인다(의견을 고쳤거나, 그대로 두겠다고 했거나, 처음 그렸을 때). */
+    function bindComment(card) {
+        var p = picked(card);
+        var ta = card.querySelector('textarea');
+        card.setAttribute('data-eqi-base', p && ta && ta.value.trim() !== '' ? p.value : '');
+        setStale(card, false);
+    }
+    function onPick(card) {
+        var p = picked(card);
+        var ta = card.querySelector('textarea');
+        if (!p || !ta) return;
+        var base = card.getAttribute('data-eqi-base') || '';
+        // 의견이 없으면 어긋날 것이 없다. 고르기 전에 적어 둔 의견은 첫 선택에 붙는다.
+        if (ta.value.trim() === '' || base === '') { bindComment(card); return; }
+        setStale(card, base !== p.value, base, p.value); // 원래 선택으로 돌아오면 걷힌다
+    }
     function refresh(form) {
         var cards = form.querySelectorAll('.sp_eqi_card');
         var done = 0;
@@ -353,9 +391,21 @@ if (empty($sp_eqi_assets_done)):
         var wrap = document.getElementById('sp_eq_wrap');
         if (!wrap) return;
         wrap.querySelectorAll('.sp_eqi_form').forEach(function (form) {
+            // 처음 그려진 값(이전 회차의 답·되살린 값)의 의견은 그때 고른 선택에 붙어 있다.
+            form.querySelectorAll('.sp_eqi_card').forEach(bindComment);
             refresh(form);
-            form.addEventListener('change', function () { refresh(form); });
-            form.addEventListener('input', function () { refresh(form); });
+            form.addEventListener('change', function (e) {
+                var t = e.target;
+                var card = t && t.type === 'radio' && t.closest ? t.closest('.sp_eqi_card') : null;
+                if (card) onPick(card);
+                refresh(form);
+            });
+            form.addEventListener('input', function (e) {
+                var t = e.target;
+                var card = t && t.tagName === 'TEXTAREA' && t.closest ? t.closest('.sp_eqi_card') : null;
+                if (card) bindComment(card); // 의견을 고쳤다 = 지금 선택을 보고 쓴 말이다
+                refresh(form);
+            });
 
             // 거절 뒤 되돌아온 화면 — 되살린 값으로 문제 항목을 바로 표시한다(문구는 sp-dialog 가 띄운다).
             if (form.getAttribute('data-eqi-restored') === '1') {
@@ -364,6 +414,16 @@ if (empty($sp_eqi_assets_done)):
             }
 
             form.addEventListener('click', function (e) {
+                var sb = e.target.closest ? e.target.closest('[data-eqi-stale-clear],[data-eqi-stale-keep]') : null;
+                if (sb) {
+                    var sc = sb.closest('.sp_eqi_card');
+                    var sta = sc.querySelector('textarea');
+                    if (sb.hasAttribute('data-eqi-stale-clear') && sta) sta.value = '';
+                    bindComment(sc);
+                    refresh(form); // 지운 뒤 고른 선택지가 의견 필수면 (필수) 표시가 선다
+                    if (sta) sta.focus();
+                    return;
+                }
                 var btn = e.target.closest ? e.target.closest('.sp_eqi_unfold') : null;
                 if (!btn) return;
                 var card = btn.closest('.sp_eqi_card');
@@ -394,14 +454,28 @@ if (empty($sp_eqi_assets_done)):
                         .then(function () { agree.focus(); });
                     return;
                 }
-                window.spDialog
-                    .confirm('이 답변으로 회신하시겠습니까?\n회신하면 담당자가 확인해 제작을 이어 갑니다.\n회신 뒤에는 이 화면에서 바꿀 수 없습니다 — 바꾸시려면 담당자에게 연락해 주세요.', {
-                        title: '제조 확인 회신',
-                        tone: 'success',
-                        okText: '회신 제출',
-                    })
+                // 처리 방법을 바꾼 뒤 의견을 확인하지 않은 항목 — 막지는 않는다(의견이 선택과 무관한 메모일 수 있다).
+                var stale = Array.prototype.slice.call(form.querySelectorAll('.sp_eqi_card.is-stale'));
+                var LOCKED = '회신 뒤에는 이 화면에서 바꿀 수 없습니다 — 바꾸시려면 담당자에게 연락해 주세요.';
+                var ask = stale.length === 0
+                    ? window.spDialog.confirm(
+                        '이 답변으로 회신하시겠습니까?\n회신하면 담당자가 확인해 제작을 이어 갑니다.\n' + LOCKED,
+                        { title: '제조 확인 회신', tone: 'success', okText: '회신 제출' })
+                    : window.spDialog.confirm(
+                        '항목 ' + stale.map(function (c) { return c.getAttribute('data-no'); }).join(', ')
+                            + ': 처리 방법을 바꾼 뒤 의견을 확인하지 않으셨습니다.\n'
+                            + '의견은 제조사에 그대로 전달됩니다. 바뀐 선택에도 맞으면 그대로 회신하시고, 아니면 돌아가서 고쳐 주세요.\n\n' + LOCKED,
+                        { title: '의견을 확인해 주세요', tone: 'danger', okText: '그대로 회신', cancelText: '돌아가서 확인' });
+                ask
                     .then(function (ok) {
-                        if (!ok) return;
+                        if (!ok) {
+                            if (stale.length > 0) {
+                                stale[0].scrollIntoView({ block: 'center' });
+                                var first = stale[0].querySelector('textarea');
+                                if (first) first.focus({ preventScroll: true });
+                            }
+                            return;
+                        }
                         form.dataset.spConfirmed = '1';
                         var sb = form.querySelector('.sp_eqi_submit');
                         if (sb) sb.disabled = true; // 연타로 두 번 나가지 않게(두 번째는 서버가 409 로 막는다)

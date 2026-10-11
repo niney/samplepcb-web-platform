@@ -137,6 +137,10 @@ describe.skipIf(!RUN)('제조 확인 문항형(D20) — 고객 주문 상세 화
   let r3 = 0;
   /** 따옴표·백슬래시 — 그누보드가 $_POST 에 addslashes 를 거는 함정(브리지가 되돌리는지) */
   const COMMENT_2 = `"좌측" 하단 빈 곳에 넣어 주세요 (it's ok \\ ${token})`;
+  /** 의견이 선택 사항인 선택지(A)에 붙인 말 — 개정 회차에 '이전 답변'으로 실려 온다. */
+  const COMMENT_1 = '비아 주변 여유도 함께 봐 주세요';
+  /** 선택과 무관한 메모 — 선택을 바꿔도 그대로 보내는 것이 맞는 경우. */
+  const MEMO = '참고로 납기가 급합니다';
 
   const adminBase = (): string => `/api/admin/pcb-eq-reviews/${String(poId)}`;
   const adminReview = async (reviewId: number): Promise<any> => {
@@ -590,14 +594,103 @@ describe.skipIf(!RUN)('제조 확인 문항형(D20) — 고객 주문 상세 화
     expect((await readCard(i2)).checked, '두 번째 열람엔 복원 없음').toBeNull();
   });
 
+  // 2026-10-11 사용자 지적: 의견 칸은 항목당 하나라, B 에 적은 의견이 A 로 바꾼 뒤에도 그대로 나간다(공장은 기호를
+  // 먼저 읽는다). 조용히 지우지도, 바꿀 때마다 묻지도 않는다 — 띠로 알리고 회신 버튼에서 한 번 묻는다.
+  test('C4b. 의견을 적은 뒤 처리 방법을 바꾸면 알린다 — 지우지 않고, 회신 버튼에서 한 번 묻는다(POST 없음)', async () => {
+    const { page } = customer;
+    const [i1 = 0, i2 = 0, i3 = 0] = r1Items.map((i: any) => Number(i.id));
+    await openOrder(`#eq-${String(r1)}`);
+    const card = `#eqi-${String(i2)}`;
+    const band = page.locator(`${card} [data-eqi-stale]`);
+    const ta = page.locator(`${card} textarea`);
+    const pick = (key: string) => page.locator(`${card} input[value="${key}"]`).check();
+    const bandText = async (): Promise<string> => (await band.innerText()).replace(/\s+/g, ' ');
+    expect(await band.isHidden(), '처음엔 띠가 없다').toBe(true);
+
+    // ① B(위치 지정)에 의견을 적고 A(넣지 않음)로 바꾼다 — 의견은 그대로, 띠가 선다.
+    await pick('B');
+    await ta.fill('좌측 하단에 넣어 주세요');
+    expect(await band.isHidden(), '적는 동안엔 띠가 없다').toBe(true);
+    await pick('A');
+    await band.waitFor({ state: 'visible' });
+    expect(await bandText()).toContain('처리 방법을 바꾸셨습니다 (B → A)');
+    expect(await ta.inputValue(), '의견은 지우지 않는다').toBe('좌측 하단에 넣어 주세요');
+    expect((await readCard(i2)).classes).toContain('is-stale');
+    await shot(page, 'c4b-stale-band', card);
+
+    // ② 원래 선택으로 돌아오면 걷힌다.
+    await pick('B');
+    expect(await band.isHidden(), '원래 선택으로 돌아옴').toBe(true);
+
+    // ③ 다시 바꾸고 [의견 지우기] — 비워지고 띠가 걷히고 초점이 의견 칸에 간다.
+    await pick('A');
+    await band.waitFor({ state: 'visible' });
+    await band.getByRole('button', { name: '의견 지우기' }).click();
+    expect(await ta.inputValue(), '지워졌다').toBe('');
+    expect(await band.isHidden()).toBe(true);
+    expect(await ta.evaluate((el) => el === document.activeElement), '초점은 의견 칸').toBe(true);
+
+    // ④ 의견이 없으면 눌러 보며 비교해도 조용하다.
+    await pick('B');
+    await pick('A');
+    expect(await band.isHidden(), '의견 없이 바꾸면 띠가 없다').toBe(true);
+
+    // ⑤ A 에 메모를 적고 B 로 → 띠(A → B) → [이 의견 그대로 둠] — 걷히고 의견은 남는다.
+    await ta.fill(MEMO);
+    await pick('B');
+    await band.waitFor({ state: 'visible' });
+    expect(await bandText()).toContain('(A → B)');
+    await band.getByRole('button', { name: '이 의견 그대로 둠' }).click();
+    expect(await band.isHidden()).toBe(true);
+    expect(await ta.inputValue(), '그대로 둔다').toBe(MEMO);
+
+    // ⑥ 의견을 고치면 걷힌다 — 지금 선택을 보고 쓴 말이다.
+    await pick('A');
+    await band.waitFor({ state: 'visible' });
+    expect(await bandText()).toContain('(B → A)');
+    await ta.fill(`${MEMO}.`);
+    expect(await band.isHidden(), '고치면 걷힌다').toBe(true);
+
+    // ⑦ 띠가 남은 채 회신 — 확인창이 그것부터 묻고, [돌아가서 확인]은 그 의견 칸으로 보낸다.
+    await pick('B');
+    await band.waitFor({ state: 'visible' });
+    await page.locator(`#eqi-${String(i1)} input[value="A"]`).check();
+    await page.locator(`#eqi-${String(i3)} input[value="A"]`).check();
+    await page.locator(`#eq-${String(r1)} input[name=agree]`).check();
+    await page.locator(`#eq-${String(r1)} .sp_eqi_submit`).click();
+    const ask = await dialogText();
+    expect(ask).toContain('의견을 확인해 주세요');
+    expect(ask).toContain('항목 2');
+    expect(ask).toContain('처리 방법을 바꾼 뒤 의견을 확인하지 않으셨습니다');
+    expect(ask, '되돌릴 수 없음은 여전히 알린다').toContain('회신 뒤에는 이 화면에서 바꿀 수 없습니다');
+    expect(ask).not.toContain('EQ');
+    expect((await page.locator('.sp-dlg-ok').innerText()).trim()).toBe('그대로 회신');
+    expect((await page.locator('.sp-dlg-cancel').innerText()).trim()).toBe('돌아가서 확인');
+    await shot(page, 'c4b-stale-confirm', '.sp-dlg');
+    await closeDialog('cancel');
+    expect(await ta.evaluate((el) => el === document.activeElement), '그 의견 칸으로 돌아간다').toBe(true);
+    expect(page.url(), '서버로 가지 않았다').not.toContain('sp_msg');
+    expect((await adminReview(r1))?.status).toBe('requested');
+
+    // 390px — 띠가 가로로 터지지 않는다.
+    await page.setViewportSize({ width: 390, height: 900 });
+    const narrow = await overflow();
+    expect(narrow.over, `390px 가로 넘침(${String(narrow.width)}px): ${narrow.culprits.join(' | ')}`).toBe(false);
+    await shot(page, 'c4b-stale-390', card);
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+
   test('C5. 정상 제출 — 확인 대화(취소에 초점) → 회신 완료 요약·배지 감소·목록 라벨', async () => {
     const { page } = customer;
     const [i1 = 0, i2 = 0, i3 = 0] = r1Items.map((i: any) => Number(i.id));
     await page.locator(`#eqi-${String(i1)} input[value="A"]`).check();
+    await page.locator(`#eqi-${String(i1)} textarea`).fill(COMMENT_1);
     await page.locator(`#eqi-${String(i2)} input[value="B"]`).check();
     await page.locator(`#eqi-${String(i2)} textarea`).fill(COMMENT_2);
     await page.locator(`#eqi-${String(i3)} input[value="A"]`).check();
     await page.locator(`#eq-${String(r1)} input[name=agree]`).check();
+    // C4b 가 남긴 띠는 의견을 다시 적는 순간 걷혔다 — 평소 확인창이 뜬다.
+    expect(await page.locator(`#eq-${String(r1)} .sp_eqi_card.is-stale`).count(), '남은 띠 없음').toBe(0);
     await shot(page, 'c5-filled', `#eq-${String(r1)}`);
 
     const r = await submitAndConfirm(r1);
@@ -611,6 +704,7 @@ describe.skipIf(!RUN)('제조 확인 문항형(D20) — 고객 주문 상세 화
     expect(review).toMatchObject({ status: 'answered', answeredRole: 'customer', answerChannel: 'web' });
     expect(review.items.map((i: any) => i.answer?.key)).toEqual(['A', 'B', 'A']);
     expect(review.items[1].answer.comment, 'addslashes 되돌림').toBe(COMMENT_2);
+    expect(review.items[0].answer.comment, '선택 의견도 나간다').toBe(COMMENT_1);
 
     // 화면 — 읽기 전용 요약.
     const round = page.locator(`#eq-${String(r1)}`);
@@ -718,6 +812,16 @@ describe.skipIf(!RUN)('제조 확인 문항형(D20) — 고객 주문 상세 화
     expect(opened.keep).toContain('지난번 답변');
     expect(opened.keep).not.toContain('이전 답변 유지');
     await shot(page, 'c6-round2-unfolded', `#eqi-${String(j1)}`);
+    // 이전 회차에서 실려 온 의견도 같은 규칙 — 처리 방법을 바꾸면 띠가 서고(오래 전에 쓴 말이라 더 잊기 쉽다), 되돌리면 걷힌다.
+    expect(opened.comment, '이전 의견이 채워져 있다').toBe(COMMENT_1);
+    const carried = page.locator(`#eqi-${String(j1)} [data-eqi-stale]`);
+    expect(await carried.isHidden(), '펼치기만 해서는 띠가 없다').toBe(true);
+    await page.locator(`#eqi-${String(j1)} input[value="B"]`).check();
+    await carried.waitFor({ state: 'visible' });
+    expect((await carried.innerText()).replace(/\s+/g, ' ')).toContain('(A → B)');
+    await shot(page, 'c6-round2-carried-stale', `#eqi-${String(j1)}`);
+    await page.locator(`#eqi-${String(j1)} input[value="A"]`).check();
+    expect(await carried.isHidden(), '되돌리면 걷힌다').toBe(true);
 
     // 390px — 열린 폼(접힘·펼침·그림·긴 낱말 질문·긴 프로젝트명)이 가로로 터지지 않는다.
     await page.setViewportSize({ width: 390, height: 900 });
@@ -729,15 +833,28 @@ describe.skipIf(!RUN)('제조 확인 문항형(D20) — 고객 주문 상세 화
     await openOrder(`#eq-${String(r2)}`);
 
     // 바뀐 것만 골라 보낸다 — 접힌 1·3번은 손대지 않는다.
+    // 항목 2 — B 에 메모를 적었다가 A 로 바꾼 채 보낸다. 확인창이 한 번 묻고, [그대로 회신]이면 의견째 나간다
+    // (막지 않는다 — 의견이 선택과 무관한 메모일 수 있다).
+    await page.locator(`#eqi-${String(j2)} input[value="B"]`).check();
+    await page.locator(`#eqi-${String(j2)} textarea`).fill(MEMO);
     await page.locator(`#eqi-${String(j2)} input[value="A"]`).check();
+    await page.locator(`#eqi-${String(j2)} [data-eqi-stale]`).waitFor({ state: 'visible' });
     await page.locator(`#eqi-${String(j4)} input[value="A"]`).check();
     await page.locator(`#eq-${String(r2)} input[name=agree]`).check();
     const r = await submitAndConfirm(r2);
+    expect(r.confirm, '띠가 남아 있으면 그것부터 묻는다').toContain('항목 2: 처리 방법을 바꾼 뒤 의견을 확인하지 않으셨습니다');
+    expect(r.cancelFocused, '이 확인창도 취소에 초점').toBe(true);
     expect(r.result).toContain('회신을 보냈습니다');
     await closeDialog();
     const review = await adminReview(r2);
     expect(review.status).toBe('answered');
     expect(review.items.map((i: any) => i.answer?.key), '접힌 항목의 이전 답도 제출됐다').toEqual(['A', 'A', 'A', 'A']);
+    expect(review.items.map((i: any) => i.answer?.comment ?? null), '접힌 항목의 이전 의견 · 그대로 보낸 메모').toEqual([
+      COMMENT_1,
+      MEMO,
+      null,
+      null,
+    ]);
   });
 
   test('C7. 대리 회신 회차 — 담당자가 대신 입력한 답변이라고 말한다', async () => {

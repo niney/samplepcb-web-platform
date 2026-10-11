@@ -2940,6 +2940,13 @@
 #sod_fin .sp_eqi_cmt textarea { display: block; box-sizing: border-box; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.958em; font-family: inherit; }
 #sod_fin .sp_eqi_card.is-invalid.is-need-comment textarea { border-color: #f87171; }
 #sod_fin .sp_eqi_err { margin: 6px 0 0; font-size: 0.875em; font-weight: 700; color: #b91c1c; }
+/* 의견을 적은 뒤 처리 방법을 바꿨다 — 의견이 옛 선택에 맞춘 말일 수 있다(지우지 않고 알린다) */
+#sod_fin .sp_eqi_stale { margin-top: 10px; padding: 8px 10px; border: 1px solid #fcd34d; border-radius: 6px; background: #fffbeb; }
+#sod_fin .sp_eqi_stale_t { margin: 0; font-size: 0.875em; line-height: 1.6; color: #92400e; overflow-wrap: anywhere; }
+#sod_fin .sp_eqi_stale_b { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+#sod_fin .sp_eqi_stale_b button { padding: 4px 10px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; font-size: 0.875em; font-weight: 700; cursor: pointer; }
+#sod_fin .sp_eqi_stale_b button:hover { background: #f3f4f6; }
+#sod_fin .sp_eqi_card.is-stale .sp_eqi_cmt textarea { border-color: #f59e0b; }
 #sod_fin .sp_eqi_foot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #7dd3fc; }
 #sod_fin .sp_eqi_progress { margin: 0 0 8px; font-size: 0.917em; color: #374151; }
 #sod_fin .sp_eqi_progress b { color: #0369a1; }

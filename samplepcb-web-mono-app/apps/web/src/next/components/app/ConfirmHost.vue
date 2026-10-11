@@ -16,8 +16,14 @@ import { pendingConfirm, settleConfirm, type ConfirmOptions } from '@/next/lib/d
 // danger 면 취소 버튼(되돌리기 어려운 조작을 Enter 한 번에 하지 않게).
 // 닫히는 애니메이션 동안 글이 비지 않도록 마지막 요청을 shown 에 붙잡아 둔다.
 const shown = ref<ConfirmOptions | null>(null);
+// 요청마다 포털을 새로 붙인다 — 대화상자들은 z-index 가 같아 body 안의 순서로 쌓이는데, 포털은 처음 붙은 자리에
+// 머문다. 그래서 확인창을 한 번 쓴 뒤에 열린 Dialog(v-if 로 그때 붙는 것) 안에서 물으면 확인창이 그 Dialog
+// **아래**에 깔려 보이지도 눌리지도 않았다(EQ 대리 회신 창에서 실측). 키를 바꿔 매번 맨 뒤에 붙인다.
+const seq = ref(0);
 watch(pendingConfirm, (current) => {
-  if (current !== null) shown.value = current;
+  if (current === null) return;
+  shown.value = current;
+  seq.value += 1;
 });
 
 const open = computed(() => pendingConfirm.value !== null);
@@ -34,7 +40,7 @@ function onOpenAutoFocus(event: Event): void {
 
 <template>
   <AlertDialog :open="open" @update:open="onOpenChange">
-    <AlertDialogContent v-if="shown !== null" @open-auto-focus="onOpenAutoFocus">
+    <AlertDialogContent v-if="shown !== null" :key="seq" @open-auto-focus="onOpenAutoFocus">
       <AlertDialogHeader>
         <AlertDialogTitle :class="shown.title === undefined ? 'sr-only' : undefined">
           {{ shown.title ?? '확인' }}

@@ -506,6 +506,47 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     expect(await save.isDisabled(), '메모 1자').toBe(true);
     await dialog.getByLabel(/근거 메모/).fill(`10/11 고객 전화 확인 ${token}`);
     expect(await save.isDisabled(), '다 채움').toBe(false);
+
+    // 의견을 적은 뒤 선택을 바꾸면 알린다(고객 화면과 같은 규칙, 2026-10-11) — 지우지 않고, 저장 때 한 번 묻는다.
+    const item1 = dialog.locator('[data-eq-proxy-item="1"]');
+    const stale = dialog.locator('[data-eq-proxy-stale="1"]');
+    const optA = item1.getByRole('radio', { name: /넣지 않음/ });
+    const optB = item1.getByRole('radio', { name: /위치를 지정하겠습니다/ });
+    expect(await stale.count(), 'B 에 적은 의견 — 아직 띠 없음').toBe(0);
+    await optA.click();
+    await stale.waitFor({ state: 'visible' });
+    expect(await textOf(stale)).toContain('선택을 바꿨습니다(B → A)');
+    expect(await item1.getByRole('textbox').inputValue(), '의견은 지우지 않는다').toBe('우측 상단');
+    await shot('12b-proxy-stale');
+    await optB.click();
+    await until('원래 선택으로 돌아오면 걷힌다', async () => (await stale.count()) === 0);
+    await optA.click();
+    await stale.waitFor({ state: 'visible' });
+    await stale.getByRole('button', { name: '의견 지우기' }).click();
+    await until('지우면 걷힌다', async () => (await stale.count()) === 0);
+    expect(await item1.getByRole('textbox').inputValue()).toBe('');
+    await item1.getByRole('textbox').fill('납기가 급하다고 함');
+    await optB.click();
+    await stale.waitFor({ state: 'visible' });
+    expect(await textOf(stale)).toContain('(A → B)');
+    await stale.getByRole('button', { name: '이 의견 그대로 둠' }).click();
+    await until('그대로 두면 걷힌다', async () => (await stale.count()) === 0);
+    expect(await item1.getByRole('textbox').inputValue(), '의견은 남는다').toBe('납기가 급하다고 함');
+    // 띠가 남은 채 저장 — 한 번 묻고, [돌아가서 확인]이면 저장하지 않는다.
+    await optA.click();
+    await stale.waitFor({ state: 'visible' });
+    await save.click();
+    await confirmAlert().waitFor({ state: 'visible' });
+    expect(await textOf(confirmAlert())).toContain('항목 1: 선택을 바꾼 뒤 의견을 확인하지 않았습니다');
+    await shot('12c-proxy-stale-confirm');
+    await confirmAlert().getByRole('button', { name: '돌아가서 확인' }).click();
+    await confirmAlert().waitFor({ state: 'hidden' });
+    expect((await adminReview(r2))?.status, '저장되지 않았다').toBe('requested');
+    expect(await dialog.isVisible(), '대리 회신 창은 그대로').toBe(true);
+    // 고쳐서 저장 — 띠가 없으면 묻지 않는다.
+    await optB.click();
+    await item1.getByRole('textbox').fill('우측 상단');
+    await until('의견을 고치면 걷힌다', async () => (await stale.count()) === 0);
     await save.click();
     await until('대리 회신', async () => (await adminReview(r2))?.status === 'answered');
     const answered = await adminReview(r2);
