@@ -17,6 +17,9 @@ import { formatPartnerDateTime } from '../../partner/i18n-core';
 // collapsedByDefault — 읽어야 하는 단계(승인 직후·승인 대기 중 회신 도착)가 아니면 접어 둔다.
 // 접혀도 '고객 선택 요약' 한 줄은 남는다. 단계가 바뀌면 사람이 누른 접힘은 잊는다.
 const props = defineProps<{ rounds: readonly PartnerPcbEqRoundType[]; collapsedByDefault?: boolean }>();
+// [회신서 엑셀] — 지금 보는 회차를 파일로(D20 P3). 공장은 답을 자기 EQ 표에 옮겨 적고 내부에 돌린다 — 화면을
+// 베끼지 않게 한다. 내려받기는 부모가 한다(발주서·프로젝트명·언어를 부모가 안다).
+const emit = defineEmits<{ download: [round: PartnerPcbEqRoundType] }>();
 const { pt, locale } = usePartnerI18n();
 
 // 고른 회차는 reviewId 로 든다 — 고르지 않았으면 늘 최신(새 회차가 전달되면 저절로 넘어간다).
@@ -108,7 +111,16 @@ defineExpose({ reveal });
       <span v-else class="rounded-full bg-violet-600 px-2.5 py-0.5 text-xs font-semibold text-white">{{ pt('{value1}차', { value1: current.roundNo }) }}</span>
       <button
         type="button"
-        class="ml-auto rounded-md border border-violet-200 bg-surface px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50"
+        class="ml-auto rounded-md border border-emerald-300 bg-surface px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+        :title="pt('이 회차의 고객 회신을 엑셀 파일로 내려받습니다.')"
+        data-testid="partner-eq-answers-xlsx"
+        @click="emit('download', current)"
+      >
+        ⬇ {{ pt('회신서 엑셀') }}
+      </button>
+      <button
+        type="button"
+        class="rounded-md border border-violet-200 bg-surface px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50"
         :aria-expanded="open"
         data-testid="partner-eq-answers-toggle"
         @click="toggled = !open"

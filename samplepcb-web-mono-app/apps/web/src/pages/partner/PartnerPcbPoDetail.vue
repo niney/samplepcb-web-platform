@@ -19,6 +19,7 @@ import {
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
   canReopenPcbEq,
+  pcbEqReplyFileName,
   isPcbEqRejectionEvent,
   lastPcbEqReworkBoundary,
   pcbEqForwardLabel,
@@ -28,6 +29,7 @@ import {
 } from '@sp/api-contract';
 import {
   downloadPartnerPcbEqFile,
+  downloadPartnerPcbEqReply,
   downloadPartnerPcbPoSpecFile,
   downloadPartnerPcbShipmentFile,
   useCreatePartnerChildPcbPo,
@@ -269,6 +271,28 @@ const answerArrived = computed<boolean>(
 // 고객 회신 카드는 EQ 카드 **아래**에 따로 있다 — 읽어야 하는 단계면 '지금 할 일'이 요약 한 줄과 [회신 보기]로 가리킨다.
 // (.vue 타입을 ref 주석에 물리면 ESLint 가 error type 으로 읽는다 — 쓰는 모양만 적는다.)
 const answersCard = ref<{ reveal: () => Promise<void> } | null>(null);
+// 고객 회신서 엑셀(D20 P3) — 회차는 EQ 가 실제로 도는 발주서의 것이라(위임 상위는 하위의 회차) 파일 이름의 발주번호도
+// 그 발주서다. 서버가 같은 규칙(계약 pcbEqReplyFileName)으로 이름을 붙인다.
+const downloadEqReply = async (round: { reviewId: number; roundNo: number }): Promise<void> => {
+  const d = detail.value;
+  if (d === null || poId.value === null) return;
+  actionError.value = '';
+  try {
+    await downloadPartnerPcbEqReply(
+      poId.value,
+      round.reviewId,
+      locale.value,
+      pcbEqReplyFileName({
+        projectName: d.spec.projectName,
+        poId: d.eq.delegatePoId ?? poId.value,
+        roundNo: round.roundNo,
+        locale: locale.value,
+      }),
+    );
+  } catch (e) {
+    surfaceError(e, pt('회신서를 내려받지 못했습니다.'));
+  }
+};
 const answerSummary = computed(() =>
   (eqRounds.value[0]?.items ?? []).map((item, i) => ({ no: item.factoryNo ?? String(i + 1), key: item.answer?.key ?? '—' })),
 );
@@ -1097,6 +1121,7 @@ watch(locale, () => {
         ref="answersCard"
         :rounds="eqRounds"
         :collapsed-by-default="!(answerArrived || answerToReview)"
+        @download="(round) => void downloadEqReply(round)"
       />
 
       <!-- P3 선적 — 발송 준비/핑퐁/입고확인 -->

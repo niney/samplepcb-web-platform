@@ -17,10 +17,15 @@
 // 사전: API(3333)·웹(5173, nginx 경유)·e2e/.env.e2e 고객 아이디. 스크린샷은 리포 루트 .tmp/eq-portal-shots/.
 // 무대는 e2e 소유 픽스처(주문+카트+스펙+발주)로 세우고 지운다. MD 무대 계정·조직·관계는 상설(md-eq-observe 와 공유).
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Page } from 'playwright-core';
+import {
+  PCB_EQ_ITEM_CATEGORIES,
+  PCB_EQ_ITEM_CATEGORY_LABELS,
+  PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE,
+} from '../../packages/api-contract/src/schemas/pcb-eq-review';
 import { translatePartnerMessage, type PartnerLocale, type PartnerMessages } from '../../apps/web/src/partner/i18n-core';
 import { bomMessages } from '../../apps/web/src/partner/locales/bom';
 import { childrenMessages } from '../../apps/web/src/partner/locales/children';
@@ -43,6 +48,7 @@ import {
   deleteOrderHard,
   disconnectPrisma,
   ensureMdRelation,
+  fetchXlsx,
   ensureStagePartner,
   getPartner,
   getPrisma,
@@ -53,6 +59,7 @@ import {
   newSession,
   requireCustomerCreds,
   signJwt,
+  xlsxText,
   type E2eSession,
   type G5OrderFixture,
   type PartnerFixture,
@@ -296,6 +303,22 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
     await disconnectPrisma();
   }, 120_000);
 
+  /** 고객 회신서 엑셀(D20 P3) 경로 — 포털은 전달된 회차만 준다. */
+  const replyPath = (id: number, reviewId: number, lang?: string): string =>
+    `/api/partner/pcb-pos/${String(id)}/eq-rounds/${String(reviewId)}/reply-xlsx${lang === undefined ? '' : `?lang=${lang}`}`;
+
+  // 회신서의 유형 칸은 계약의 언어별 표를, 화면은 포털 사전을 쓴다 — 두 곳이 다른 말을 하면 화면과 파일이 어긋난다.
+  test('P0. 회신서 엑셀의 유형 라벨은 포털 사전과 같은 말이다(세 언어 × 열여섯 유형)', () => {
+    for (const locale of ['ko', 'en', 'zh-CN'] as const) {
+      for (const category of PCB_EQ_ITEM_CATEGORIES) {
+        expect(
+          PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE[locale][category],
+          `${locale} · ${category}`,
+        ).toBe(tr(PCB_EQ_ITEM_CATEGORY_LABELS[category], locale));
+      }
+    }
+  });
+
   test('P1. 전달 전 — 고객이 답해도 포털엔 영역이 없고, 할 일은 승인 대기 그대로', async () => {
     expect(await uploadEq(P, poId, 'EQ-factory.xls'), 'EQ 업로드').toBe(200);
     await eqRequest(P, poId);
@@ -304,6 +327,8 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
     expect(r1.status).toBe('answered');
 
     expect(await portalRounds(P, poId), '전달 전 API').toEqual([]);
+    // 회신서 엑셀도 같다 — 전달 전의 회차는 "없다"로 답한다(회차가 있다는 사실도 흘리지 않는다).
+    expect((await fetchXlsx(P, replyPath(poId, r1.id))).status, '전달 전 회신서').toBe(404);
     const page = await openPo(owner.mbId ?? '', poId, projectName);
     expect(await area(page).count(), '전달 전 화면에 영역 없음').toBe(0);
     const text = await todo(page).innerText();
@@ -371,6 +396,25 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
     await page.getByTestId('partner-eq-answer-item').first().waitFor();
     expect(await page.getByTestId('partner-eq-answers-collapsed').count(), '[회신 보기]가 카드를 펼친다').toBe(0);
 
+    // ── 회신서 엑셀(D20 P3) — 카드 머리의 [회신서 엑셀]. 화면과 같은 내용이 서식 갖춘 한 장으로 내려온다.
+    const downloading = page.waitForEvent('download');
+    await page.getByTestId('partner-eq-answers-xlsx').click();
+    const file = await downloading;
+    expect(file.suggestedFilename(), '파일 이름').toBe(`EQ-Reply_${projectName}_PO-${String(poId)}_1차.xlsx`);
+    const sheet = xlsxText(readFileSync(await file.path()));
+    expect(sheet).toContain('EQ 회신서');
+    expect(sheet).toContain(projectName);
+    expect(sheet, '공장 원문 질문').toContain(ITEMS[0]?.questionOrig ?? '');
+    expect(sheet, '고른 선택지 원문').toContain('贵司指示位置');
+    expect(sheet, '고객 의견은 한국어 원문').toContain(COMMENT);
+    expect(sheet, '협력사용에는 고객이 본 한국어 문장이 없다').not.toContain(ITEMS[0]?.question ?? '');
+    expect(sheet, '기준 시간대를 글자로').toContain('KST');
+    // 같은 것을 API 로 — 응답 형식·이름. 다른 협력사는 받지 못한다.
+    const direct = await fetchXlsx(P, replyPath(poId, r1.id));
+    expect(direct).toMatchObject({ status: 200, fileName: `EQ-Reply_${projectName}_PO-${String(poId)}_1차.xlsx` });
+    expect(direct.contentType).toContain('spreadsheetml');
+    expect((await fetchXlsx(M, replyPath(poId, r1.id))).status, '남의 발주서').toBe(404);
+
     await shot(page, 'ko-desktop');
     await box.screenshot({ path: join(SHOTS, 'ko-area.png') });
     await assertNoOverflow(page, 'ko 1440');
@@ -395,6 +439,19 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
       expect(boxText).toContain(tr('마킹(UL·주기)', locale));
       expect(boxText).toContain(tr('{value1}차', locale, { value1: 1 }));
       expect(await chosenOf(page, 0), `${locale} 강조 유지`).toEqual(['false', 'true']);
+      // 회신서 엑셀 — 표 제목·안내문은 포털 언어를 따르고, 고객 의견만 한국어 원문이다.
+      const downloading = page.waitForEvent('download');
+      await page.getByTestId('partner-eq-answers-xlsx').click();
+      const file = await downloading;
+      expect(file.suggestedFilename(), `${locale} 파일 이름`).toBe(`EQ-Reply_${projectName}_PO-${String(poId)}_R1.xlsx`);
+      const sheet = xlsxText(readFileSync(await file.path()));
+      expect(sheet, `${locale} 제목`).toContain(locale === 'en' ? 'EQ Reply Sheet' : 'EQ 回复单');
+      expect(sheet, `${locale} 표 제목`).toContain(tr('고객 선택', locale));
+      expect(sheet, `${locale} 유형`).toContain(tr('마킹(UL·주기)', locale));
+      expect(sheet, `${locale} 고객 의견은 원문 그대로`).toContain(COMMENT);
+      // 남는 한글은 자료뿐이다 — 고객 의견(원문)과 협력사 자기 이름. 표 제목·안내문에는 한글이 없다.
+      const leftover = sheet.replace(COMMENT, '').split('\n').filter((line) => HANGUL.test(line));
+      expect(leftover.filter((line) => !line.includes(owner.name)), `${locale} 회신서에 남은 한국어 문구`).toEqual([]);
 
       const todoText = await todo(page).innerText();
       expect(todoText, `${locale} 지금 할 일 번역`).not.toMatch(HANGUL);
@@ -502,6 +559,12 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
 
     // 위임 상위 — EQ 는 하위에서 돈다. 상위 응답은 하위의 회차를 싣는다.
     expect((await portalRounds(M, mdTopPoId)).map((r) => r.reviewId), '상위는 하위의 회차').toEqual([answered.id]);
+    // 회신서 엑셀도 같은 축 — 위임 상위(MD)는 하위 발주서의 회차를 받고, 파일 이름의 발주번호는 그 하위 발주서다.
+    const mdSheet = await fetchXlsx(M, replyPath(mdTopPoId, answered.id));
+    expect(mdSheet).toMatchObject({ status: 200, fileName: `EQ-Reply_${mdProjectName}_PO-${String(mdChildPoId)}_1차.xlsx` });
+    expect(xlsxText(mdSheet.buffer), 'MD 가 받은 회신서').toContain(COMMENT);
+    expect((await fetchXlsx(S, replyPath(mdChildPoId, answered.id, 'zh-CN'))).status, '하위 수주자 본인').toBe(200);
+    expect((await fetchXlsx(P, replyPath(mdChildPoId, answered.id))).status, '무관한 협력사').toBe(404);
     let page = await openPo(md.mbId ?? '', mdTopPoId, mdProjectName);
     await area(page).waitFor();
     expect(await chosenOf(page, 0)).toEqual(['false', 'true']);

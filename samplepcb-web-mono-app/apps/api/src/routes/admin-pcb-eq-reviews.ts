@@ -32,6 +32,7 @@ import {
   type EqItemsError,
 } from '../lib/pcb-eq-review';
 import { eqFigureContentType, eqItemNo } from '../lib/pcb-eq-items';
+import { loadEqReplySheet, renderEqReplyXlsx } from '../lib/pcb-eq-reply-sheet';
 import { isEqAiEnabled, loadEqAiState } from '../lib/pcb-eq-ai';
 import { EQ_ANALYSIS_ERRORS, startEqAnalysis } from '../lib/ai/pcb-eq-runner';
 import { eqRoundStartOf } from '../lib/pcb-po';
@@ -414,6 +415,30 @@ export const adminPcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts,
       const outcome = await proxyAnswerEqReview(poId, reviewId, request.body, request.user.mbId);
       if (!outcome.ok) return sendItemsError(reply, outcome.error);
       return reviewView(reply, poId, reviewId);
+    },
+  );
+
+  // ── GET /pcb-eq-reviews/:poId/:reviewId/reply-xlsx — 고객 회신서 엑셀(D20 P3) ──
+  // 회신이 온 문항형 회차면 전달 전에도 받는다(관리자는 보관·검토용). 한국어 + 고객이 본 문장 열 + 대리 입력 경로.
+  fastify.get(
+    '/pcb-eq-reviews/:poId/:reviewId/reply-xlsx',
+    { schema: { params: ReviewParams } },
+    async (request, reply) => {
+      const out = await loadEqReplySheet({
+        poId: request.params.poId,
+        reviewId: request.params.reviewId,
+        audience: 'admin',
+        locale: 'ko',
+      });
+      if (!out.ok) {
+        return out.error === 'NOT_ANSWERED'
+          ? reply.status(409).send({ error: 'NOT_ANSWERED', message: '고객 회신이 온 뒤에 회신서를 받을 수 있습니다.' })
+          : reply.notFound('확인 요청을 찾을 수 없습니다');
+      }
+      return reply
+        .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(out.fileName)}`)
+        .send(await renderEqReplyXlsx(out.sheet));
     },
   );
 

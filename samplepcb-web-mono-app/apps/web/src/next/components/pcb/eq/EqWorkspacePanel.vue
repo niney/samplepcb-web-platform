@@ -35,6 +35,7 @@ import {
 import {
   PCB_EQ_FILE_LABELS,
   PCB_PO_STATUS_LABELS,
+  pcbEqReplyFileName,
   lastPcbEqReworkBoundary,
   type AdminPcbEqProxyAnswerBodyType,
   type AdminPcbPoViewType,
@@ -79,7 +80,7 @@ import {
   type EqItemDraft,
   type EqRoundDraft,
 } from './eq-round';
-import { createEqFigureUrls, useAdminPcbEqRounds, useEqRoundMutations } from './useAdminPcbEqRounds';
+import { createEqFigureUrls, downloadAdminPcbEqReply, useAdminPcbEqRounds, useEqRoundMutations } from './useAdminPcbEqRounds';
 
 const props = defineProps<{
   open: boolean;
@@ -684,6 +685,24 @@ function downloadSource(fileId: number, name: string): void {
   void downloadAdminPcbEqFile(props.specId, props.po.poId, fileId, name);
 }
 
+// ── 고객 회신서 엑셀(D20 P3) — 회신이 온 문항형 회차를 서식 갖춘 한 장으로 ─────────────────
+// 전달 전에도 받는다(관리자는 보관·검토용). 협력사는 포털에서 전달된 회차만 받는다(같은 양식, 그쪽 언어).
+const replySheetReady = computed(() => selectedView.value?.format === 'items' && selectedView.value.status === 'answered');
+async function downloadReplySheet(): Promise<void> {
+  const view = selectedView.value;
+  if (props.po === null || view?.roundNo == null) return;
+  errorText.value = '';
+  try {
+    await downloadAdminPcbEqReply(
+      props.po.poId,
+      view.id,
+      pcbEqReplyFileName({ projectName: props.projectName, poId: props.po.poId, roundNo: view.roundNo, locale: 'ko' }),
+    );
+  } catch (e) {
+    fail(e, '회신서를 내려받지 못했습니다.');
+  }
+}
+
 // ── 탭(1280px 미만은 편집 칸 안에서 미리보기·활동을 바꿔 본다) ──────────────────────
 const midTab = ref<'edit' | 'preview' | 'activity'>('edit');
 const sideTab = ref<'preview' | 'activity'>('preview');
@@ -803,6 +822,18 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
               <Badge :variant="roundBadge.variant" data-eq-round-status>{{ roundBadge.label }}</Badge>
               <span v-if="roundBadge.detail !== null" class="text-muted-foreground text-xs">{{ roundBadge.detail }}</span>
             </template>
+            <!-- 고객 회신서 엑셀 — 회신이 온 회차에서만. 문항·고객 선택·의견이 서식 갖춘 한 장으로 나온다. -->
+            <Button
+              v-if="replySheetReady"
+              variant="outline"
+              size="xs"
+              title="이 회차의 고객 회신을 엑셀 파일로 내려받습니다(질문 원문·고객이 본 문장·선택·의견)."
+              data-eq-reply-xlsx
+              @click="void downloadReplySheet()"
+            >
+              <DownloadIcon />
+              회신서 엑셀
+            </Button>
             <!-- AI 초안을 다시 받고 싶을 때(설정·파일이 그대로면 최근 결과를 다시 쓴다) — 초안의 문항이 통째로 바뀐다. -->
             <Button
               v-if="draft !== null && selectedView?.aiDraft === true && aiEnabled && aiHasSource && ai?.status !== 'running'"

@@ -118,7 +118,7 @@ const parseKstDate = (s: string): Date => new Date(`${s}T00:00:00+09:00`);
 type PoWithPartner = SpPcbPo & { partner: SpPartner };
 
 // ── EQ 이력(Json) — 하위 발주서가 정본, 상위(미러)는 상태만 복사 ──────────────
-const parseEqHistory = (json: unknown): PcbEqEventType[] => {
+export const parseEqHistory = (json: unknown): PcbEqEventType[] => {
   if (!Array.isArray(json)) return [];
   const out: PcbEqEventType[] = [];
   for (const row of json) {
@@ -208,6 +208,11 @@ const resolveEqDelegation = async (po: SpPcbPo): Promise<EqDelegation> => {
     ? { delegatePoId: null, blocked: true }
     : { delegatePoId: child.id, blocked: false };
 };
+
+/** 이 발주서를 보는 협력사에게 **고객 회신 회차가 붙어 있는 발주서** — 위임 상위(MD 수주)는 하위 발주서의
+ *  회차를 본다(상세의 eqRounds 와 같은 축). 회신서 엑셀 내려받기가 같은 회차를 찾게 한다. */
+export const resolveEqRoundsPoId = async (po: SpPcbPo): Promise<bigint> =>
+  (await resolveEqDelegation(po)).delegatePoId ?? po.id;
 
 // ── EQ 첨부(sp_file refType 'sp_pcb_po_eq') ──────────────────────────────────
 // isLatest·afterReject 는 **목록 전체와 EQ 이력을 봐야** 정해지므로 여기서는 붙이지 않는다

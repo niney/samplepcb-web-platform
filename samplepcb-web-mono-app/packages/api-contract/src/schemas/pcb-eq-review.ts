@@ -699,3 +699,68 @@ export const AdminPcbEqAiAnalyzeResponse = z.object({
   data: z.object({ ai: PcbEqAiState }),
 });
 export type AdminPcbEqAiAnalyzeResponseType = z.infer<typeof AdminPcbEqAiAnalyzeResponse>;
+
+// ── EQ 회신서 엑셀(D20 P3) — 고객 회신을 서식을 갖춘 한 장으로 내려받는다 ───────────────
+// `GET /partner/pcb-pos/:poId/eq-rounds/:reviewId/reply-xlsx?lang=` (전달된 회차만) ·
+// `GET /admin/pcb-eq-reviews/:poId/:reviewId/reply-xlsx` (회신 온 회차 — 한국어, 고객이 본 문장 열 포함).
+
+/** 회신서의 표 제목·안내문 언어 — 협력사 포털 언어와 같다. 질문·선택지는 공장 원문, 고객 의견은 한국어 원문. */
+export const PCB_EQ_REPLY_LOCALES = ['ko', 'en', 'zh-CN'] as const;
+export type PcbEqReplyLocaleType = (typeof PCB_EQ_REPLY_LOCALES)[number];
+export const PcbEqReplyLocale = z.enum(PCB_EQ_REPLY_LOCALES);
+
+/** 내려받는 파일 이름 — 서버(content-disposition)와 화면(저장 이름)이 같은 이름을 쓴다.
+ *  프로젝트명의 경로 문자(\ / : * ? " < > |)는 '_' 로 바꾸고 길면 자른다. 회차 꼬리는 언어를 따른다. */
+export const pcbEqReplyFileName = (args: {
+  projectName: string;
+  poId: number;
+  roundNo: number;
+  locale: PcbEqReplyLocaleType;
+}): string => {
+  const project = args.projectName.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+  const round = args.locale === 'ko' ? `${String(args.roundNo)}차` : `R${String(args.roundNo)}`;
+  return `EQ-Reply_${project === '' ? 'PCB' : project}_PO-${String(args.poId)}_${round}.xlsx`;
+};
+
+/** 문항 유형 라벨(언어별) — 회신서 엑셀의 유형 칸. 한국어는 PCB_EQ_ITEM_CATEGORY_LABELS 그대로이고, 영어·중국어는
+ *  협력사 포털 사전(apps/web/src/partner/locales/pcb.ts)과 **같은 말**이어야 한다 — 화면과 파일이 다른 말을 하지
+ *  않게 e2e(journey-eq-reply-xlsx)가 두 표를 대조한다. */
+export const PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE = {
+  ko: PCB_EQ_ITEM_CATEGORY_LABELS,
+  en: {
+    impedance: 'Impedance',
+    marking: 'Marking (UL, date code)',
+    pad: 'Pad',
+    soldermask_dam: 'Solder mask dam',
+    circuit: 'Circuit pattern',
+    via: 'Via treatment',
+    soldermask: 'Solder mask',
+    legend: 'Silkscreen (legend)',
+    drill: 'Drilling (holes)',
+    outline: 'Outline',
+    panel: 'Panel (array)',
+    stackup: 'Stack-up',
+    material: 'Material',
+    surface_finish: 'Surface finish',
+    indication: 'Notation · Drawing',
+    other: 'Other',
+  },
+  'zh-CN': {
+    impedance: '阻抗',
+    marking: '标记（UL·周期）',
+    pad: '焊盘',
+    soldermask_dam: '阻焊桥',
+    circuit: '线路',
+    via: '过孔处理',
+    soldermask: '阻焊',
+    legend: '字符',
+    drill: '钻孔',
+    outline: '外形',
+    panel: '拼板',
+    stackup: '叠层结构',
+    material: '原材料',
+    surface_finish: '表面处理',
+    indication: '标注 · 图纸',
+    other: '其他',
+  },
+} as const satisfies Record<PcbEqReplyLocaleType, Record<PcbEqItemCategoryType, string>>;

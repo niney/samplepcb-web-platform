@@ -11,6 +11,7 @@ import {
   PartnerPcbPoListResponse,
   PartnerPcbRemittanceListResponse,
   PcbEqFileType,
+  PcbEqReplyLocale,
   PCB_EQ_FILE_RECORD_MESSAGE,
   PcbEqReopenBody,
   PcbEqRequestBody,
@@ -38,6 +39,7 @@ import {
   loadPartnerPcbPoSpecFile,
   loadPartnerPcbPos,
   partnerCanTouchPo,
+  resolveEqRoundsPoId,
   pcbEqLockedMessage,
   pcbPoTrackOf,
   reopenPcbPoEq,
@@ -45,6 +47,7 @@ import {
   uploadPcbEqFile,
   type PcbEqActor,
 } from '../lib/pcb-po';
+import { loadEqReplySheet, renderEqReplyXlsx } from '../lib/pcb-eq-reply-sheet';
 import {
   advancePcbShipment,
   buildPcbInvoiceDraft,
@@ -88,6 +91,9 @@ import type { MailLogMeta } from '../lib/mail-log';
 
 const PoParams = z.object({ poId: z.coerce.bigint() });
 const PoFileParams = z.object({ poId: z.coerce.bigint(), fileId: z.coerce.bigint() });
+const PoReviewParams = z.object({ poId: z.coerce.bigint(), reviewId: z.coerce.bigint() });
+const ReplySheetQuery = z.object({ lang: PcbEqReplyLocale.default('ko') });
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requirePartner);
@@ -334,6 +340,30 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         )
         .header('content-type', downloaded.contentType)
         .send(downloaded.buffer);
+    },
+  );
+
+  // ── 고객 회신서 엑셀(D20 P3) — 관리자가 **전달한** 문항형 회차만. 화면의 고객 회신 카드와 같은 내용을
+  //    공장이 자기 표에 옮겨 적기 좋은 한 장으로 준다. 위임 상위(MD)는 하위 발주서의 회차를 받는다. ──
+  fastify.get(
+    '/partner/pcb-pos/:poId/eq-rounds/:reviewId/reply-xlsx',
+    { schema: { params: PoReviewParams, querystring: ReplySheetQuery } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await partnerCanTouchPo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const out = await loadEqReplySheet({
+        poId: await resolveEqRoundsPoId(po),
+        reviewId: request.params.reviewId,
+        audience: 'partner',
+        locale: request.query.lang,
+      });
+      // 미전달·미회신도 "없다"로 답한다 — 전달 전의 회차가 있다는 사실을 포털에 흘리지 않는다.
+      if (!out.ok) return reply.notFound('회신서를 찾을 수 없습니다');
+      return reply
+        .header('content-type', XLSX_TYPE)
+        .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(out.fileName)}`)
+        .send(await renderEqReplyXlsx(out.sheet));
     },
   );
 

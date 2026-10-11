@@ -28,6 +28,20 @@ const reviewPath = (poId: number, reviewId: number): string => `${reviewsPath(po
 export const eqFigurePath = (poId: number, reviewId: number, fileId: number): string =>
   `${reviewPath(poId, reviewId)}/figures/${String(fileId)}`;
 
+/** 고객 회신서 엑셀(D20 P3) — 회신이 온 문항형 회차를 서식 갖춘 한 장으로(관리자용: 한국어 + 고객이 본 문장 열). */
+export async function downloadAdminPcbEqReply(poId: number, reviewId: number, fileName: string): Promise<void> {
+  const blob = await apiGetBlob(`${reviewPath(poId, reviewId)}/reply-xlsx`);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** AI 분석 중일 때 목록을 다시 읽는 간격 — 분석은 10~20초쯤 걸린다(프로빙 p50 11.6초). */
 const AI_POLL_MS = 4_500;
 

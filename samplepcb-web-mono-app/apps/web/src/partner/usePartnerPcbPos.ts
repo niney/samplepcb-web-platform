@@ -177,6 +177,15 @@ export const downloadPartnerPcbEqFile = (
   fileName: string,
 ): Promise<void> => saveBlob(`${base}/${String(poId)}/eq-files/${String(fileId)}`, fileName);
 
+/** 고객 회신서 엑셀(D20 P3) — 관리자가 전달한 문항형 회차를 서식 갖춘 한 장으로. 표 제목은 포털 언어를 따른다. */
+export const downloadPartnerPcbEqReply = (
+  poId: number,
+  reviewId: number,
+  lang: string,
+  fileName: string,
+): Promise<void> =>
+  saveBlob(`${base}/${String(poId)}/eq-rounds/${String(reviewId)}/reply-xlsx?lang=${encodeURIComponent(lang)}`, fileName);
+
 // ═══ P3 선적 — 발송(핑퐁)·입고확인·첨부·상업송장 ═══════════════════════════════
 
 export function usePartnerPcbShipmentAdvance() {

@@ -12,7 +12,7 @@
 // 무대는 e2e 소유 픽스처(주문+카트+스펙+발주)로 세우고 **이 주행이 만든 것만** 지운다(다른 트랙 e2e 와 공존).
 // 화면 캡처: <리포>/.tmp/eq-admin-shots/*.png
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Dialog, Locator, Page } from 'playwright-core';
@@ -31,6 +31,7 @@ import {
   createPcbPo,
   deleteOrderHard,
   disconnectPrisma,
+  fetchXlsx,
   getPartner,
   getPrisma,
   mailpitDelete,
@@ -39,6 +40,7 @@ import {
   newSession,
   requireCustomerCreds,
   signJwt,
+  xlsxText,
   type E2eSession,
   type G5OrderFixture,
   type PartnerFixture,
@@ -419,6 +421,9 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     await untilText('회신 대기 배지', ws().locator('[data-eq-round-status]'), '회신 대기 D+0');
     expect(await footer().getByRole('button', { name: '대리 회신' }).count()).toBe(1);
     expect(await footer().getByRole('button', { name: '요청 취소' }).count()).toBe(1);
+    // 회신서 엑셀(D20 P3) — 답이 없는 회신서는 없다. 버튼이 없고 서버도 그렇게 답한다.
+    expect(await ws().locator('[data-eq-reply-xlsx]').count(), '회신 전엔 [회신서 엑셀]이 없다').toBe(0);
+    expect(await fetchXlsx(A, `${adminBase()}/${String(r1)}/reply-xlsx`), '회신 전 회신서').toMatchObject({ status: 409, error: 'NOT_ANSWERED' });
     await shot('07-requested');
   });
 
@@ -450,6 +455,19 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     await untilText('고객 선택', w, '좌측 하단 실크 옆에 넣어 주세요');
     expect(await w.innerText()).toContain('고객 선택');
     await untilText('행 칩 전달 필요', rowChip(), '회신 도착 · 전달 필요');
+    // ── 회신서 엑셀(D20 P3) — 회신이 오면 전달 전에도 받는다(관리자는 보관·검토용). 한국어 + 고객이 본 문장 열.
+    const downloading = page.waitForEvent('download');
+    await ws().locator('[data-eq-reply-xlsx]').click();
+    const file = await downloading;
+    expect(file.suggestedFilename(), '파일 이름').toBe(`EQ-Reply_${projectName}_PO-${String(poId)}_1차.xlsx`);
+    const sheet = xlsxText(readFileSync(await file.path()));
+    expect(sheet).toContain('EQ 회신서');
+    expect(sheet, '관리자용 열').toContain('고객이 본 문장(한국어)');
+    expect(sheet, '고객 의견').toContain('좌측 하단 실크 옆에 넣어 주세요');
+    expect(sheet, '전달 전').toContain('아직 협력사에 전달하지 않음');
+    expect(sheet, '고객이 직접 답했다').not.toContain('대리 입력');
+    expect(sheet, 'EQ 요청 회차와 고객 확인 회차를 이름으로 가른다').toContain('EQ 요청: 1차');
+    expect(sheet).toContain('고객 확인: 1차');
     await shot('08-answered');
 
     await footer().getByRole('button', { name: '협력사에 전달' }).click();
@@ -580,6 +598,14 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
       ['A', null],
     ]);
     await untilText('대리 회신 경로', ws().locator('header'), '대리 회신 · 전화');
+    // 회신서 엑셀 — 담당자가 대신 넣은 답이면 그 사실과 경로가 관리자용 파일에 적힌다(2차는 A9 의 반려·재요청 뒤 = EQ 요청 2차).
+    const proxySheet = await fetchXlsx(A, `${adminBase()}/${String(r2)}/reply-xlsx`);
+    expect(proxySheet).toMatchObject({ status: 200, fileName: `EQ-Reply_${projectName}_PO-${String(poId)}_2차.xlsx` });
+    const proxyText = xlsxText(proxySheet.buffer);
+    expect(proxyText).toContain('담당자 대리 입력 — 경로: 전화');
+    expect(proxyText).toContain('EQ 요청: 2차');
+    expect(proxyText).toContain('고객 확인: 2차');
+    expect(proxyText, '대리로 넣은 의견').toContain('우측 상단');
     await shot('13-proxy-answered');
   });
 

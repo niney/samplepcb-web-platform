@@ -428,4 +428,8 @@ export const pcbMessages = {
   '번호': ['번호', 'No.', '序号'],
   '유형': ['유형', 'Type', '类型'],
   '질문': ['질문', 'Question', '问题'],
+  // 고객 회신서 엑셀(D20 P3) — 고객 회신 카드의 내려받기
+  '회신서 엑셀': ['회신서 엑셀', 'Reply sheet (Excel)', '回复单 (Excel)'],
+  '이 회차의 고객 회신을 엑셀 파일로 내려받습니다.': ['이 회차의 고객 회신을 엑셀 파일로 내려받습니다.', 'Download this round\'s customer answers as an Excel file.', '将本次客户回复下载为 Excel 文件。'],
+  '회신서를 내려받지 못했습니다.': ['회신서를 내려받지 못했습니다.', 'Could not download the reply sheet.', '无法下载回复单。'],
 } as const;

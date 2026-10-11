@@ -144,7 +144,7 @@ const loadEqRoundCandidates = async (poIds: readonly bigint[]): Promise<EqRoundC
 };
 
 /** 발주서들의 문항형 회차 번호(key=reviewId) — 규칙은 eqRoundNumbers. */
-const loadEqRoundNumbers = async (poIds: readonly bigint[]): Promise<Map<string, number>> =>
+export const loadEqRoundNumbers = async (poIds: readonly bigint[]): Promise<Map<string, number>> =>
   eqRoundNumbers(await loadEqRoundCandidates(poIds));
 
 /** 회차들의 문항 그림 파일(sp_file) — key=fileId. */
