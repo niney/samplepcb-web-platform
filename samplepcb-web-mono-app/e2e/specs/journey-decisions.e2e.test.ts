@@ -286,29 +286,32 @@ describe.skipIf(!RUN || !JOURNEY)('여정 33호 — 미결 판단 3건 구현 �
     );
   }, 300_000);
 
-  test('D5. 관리자 화면 — 이전 회차는 접혀 있고 펼치면 표가 붙는다', async (ctx) => {
+  // 2026-10-11 재편 — 좁은 칸의 [이전 N] 토글이 EQ 줄(파일명이 보이는 전체 폭 한 줄)로 바뀌었다. 옛 도면 오승인
+  // 방지는 그대로 지킨다: **최신이 먼저** 서고, 같은 회차에서 다시 올려 밀린 파일은 맨 뒤에 '이전' 배지로 선다.
+  test('D5. 관리자 화면 — 최신이 먼저 서고, 밀린 파일은 맨 뒤에 \'이전\'으로 남는다', async (ctx) => {
     if (lineB.specId === null) return ctx.skip();
     await rp.view(adminView, `/app/admin/pcb/cases/${String(lineB.specId)}`, 'D05-case-eq');
 
-    // 접힌 상태 — 최신 두 개만 버튼으로 서고, 이전 1건은 [이전 1] 뒤에 있다.
-    const older = adminView.page.getByRole('button', { name: '이전 1' });
-    await older.first().waitFor({ timeout: 20_000 });
-    const beforeExpand = await adminView.page.getByText('· 이전').count();
-    expect(beforeExpand, '펼치기 전에는 이전 파일 버튼이 없다').toBe(0);
-    await rp.shot(adminView, 'D05-case-eq-collapsed');
-
-    // 펼치면 나온다 — 지운 것이 아니라 접어 둔 것임이 화면으로 증명된다.
-    await older.first().click();
-    await adminView.page.getByText('· 이전').first().waitFor({ timeout: 15_000 });
-    const afterExpand = await adminView.page.getByText('· 이전').count();
-    expect(afterExpand, '펼치면 이전 파일이 드러난다').toBeGreaterThan(0);
-    await rp.shot(adminView, 'D05-case-eq-expanded');
+    const rows = adminView.page.locator('tr[data-eq-band]').first().locator('[data-eq-band-file]');
+    await rows.first().waitFor({ timeout: 20_000 });
+    const texts = (await rows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+    expect(texts.length, '세 파일 모두 이름으로 보인다(지우지 않는다)').toBe(3);
+    expect(texts.slice(0, 2).join(' | '), '앞의 둘이 최신').toContain('eq-v2.zip');
+    expect(texts.slice(0, 2).join(' | ')).toContain('working-v1.zip');
+    expect(texts.slice(0, 2).some((t) => t.includes('이전')), '최신엔 이전 표시가 없다').toBe(false);
+    expect(texts[2], '밀린 파일은 맨 뒤').toContain('eq-v1.zip');
+    expect(texts[2], '이전 배지').toContain('이전');
+    expect(
+      await rows.nth(2).getByRole('button').first().getAttribute('title'),
+      '밀린 파일의 버튼은 승인 근거가 아니라고 말한다',
+    ).toContain('승인 근거로 쓰지 마세요');
+    await rp.shot(adminView, 'D05-case-eq-band');
 
     F(
       'D5',
       'obs',
-      `관리자 Case 화면 실측 — 접힘 상태 '· 이전' 0개 → [이전 1] 클릭 후 ${String(afterExpand)}개. ` +
-        `최신만 먼저 보이고 이전은 눌러야 나온다(옛 도면 오승인 방지).`,
+      `관리자 Case 화면 실측 — EQ 줄 파일 순서 [${texts.join(' / ')}]. ` +
+        `최신이 먼저 서고 밀린 파일은 맨 뒤에 '이전'으로 남는다(옛 도면이 첫 버튼이 되지 않는다).`,
     );
   }, 300_000);
 
@@ -382,17 +385,33 @@ describe.skipIf(!RUN || !JOURNEY)('여정 33호 — 미결 판단 3건 구현 �
     ).toBe(3);
 
     await rp.view(adminView, `/app/admin/pcb/cases/${String(lineB.specId)}`, 'D05c-case-fixed');
-    await adminView.page.getByText('· 보완').first().waitFor({ timeout: 20_000 });
+    const band = adminView.page.locator('tr[data-eq-band]').first();
+    const fixedRow = band.locator('[data-eq-band-file]', { hasText: 'eq-fixed.zip' });
+    await fixedRow.first().waitFor({ timeout: 20_000 });
+    expect((await fixedRow.first().innerText()).replace(/\s+/g, ' '), '보완 배지').toContain('보완');
     expect(
       await adminView.page.getByText('반려 후 새 파일 없음').count(),
       '보완 뒤에는 경고가 걷힌다',
     ).toBe(0);
+    // 요청 회차 — 두 번 반려됐으니 지금이 3차다. 최신 회차에는 보완분만 있고, 반려 전 파일 3건은 1차에 남아 있다.
+    const chips = band.locator('[data-eq-round]');
+    expect((await chips.allInnerTexts()).map((t) => t.trim()), '회차 칩').toEqual(['1차', '2차', '3차']);
+    expect(
+      await Promise.all([0, 1].map((i) => chips.nth(i).getAttribute('data-eq-round-outcome'))),
+      '1·2차는 반려로 닫혔다',
+    ).toEqual(['rejected', 'rejected']);
+    expect(await band.locator('[data-eq-band-file]').count(), '3차에는 보완분 하나').toBe(1);
     await rp.shot(adminView, 'D05c-case-fixed');
+    await chips.nth(0).click();
+    await band.locator('[data-eq-band-readonly]').waitFor({ timeout: 10_000 });
+    expect(await band.locator('[data-eq-band-file]').count(), '1차에는 반려 전 파일 3건').toBe(3);
+    expect(await band.locator('[data-eq-band-note]').innerText(), '1차 반려 사유 전문').toContain('홀 지름이 규격 밖입니다');
+    await rp.shot(adminView, 'D05c-case-round1');
     F(
       'D5c',
       'obs',
       `보완 실측 — 반려 뒤 올린 'eq-fixed.zip' 만 afterReject=true(이전 3건은 false, 지워지지 ` +
-        `않는다) · 화면은 '· 보완' 배지로 갈리고 경고는 사라진다.`,
+        `않는다) · 화면은 최신(3차)에 '보완' 배지로 서고 경고는 사라진다. 반려 전 파일 3건은 1차에서 반려 사유와 함께 읽힌다.`,
     );
   }, 300_000);
 
