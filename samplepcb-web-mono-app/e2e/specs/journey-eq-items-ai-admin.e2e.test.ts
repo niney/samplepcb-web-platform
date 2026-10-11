@@ -6,6 +6,7 @@
 //   P2 설정 > AI 연동에서 'PCB EQ 분석' 토글 저장
 //   P3 켠 뒤 엑셀이 아닌(.txt) EQ 로 승인요청 → 행·워크큐 칩 "AI 분석 안 됨" + 작업공간 띠(사유) + [AI 다시 분석]·[직접 작성]
 //   P4 문항의 AI 검토 표시(aiFlags) — 목록 배지·편집기 표시 상자·[확인함]·저장이 **남은 표시를 실어 보낸다**·보내기 경고
+//   P4c 분석이 됐을 때의 주의 문구(ai.detail) — 완료 잡 행을 직접 넣어 **서버가 만든 문구**가 주의 띠에 그대로 뜨는지
 //   P5 (옵트인 EQ_AI_E2E=1, 실 LLM) 합성 픽스처 엑셀로 승인요청 → "AI 분석 중" → "AI 초안 · 검토 필요" → 문항·그림·활동
 //
 // 실행: cd e2e && pnpm exec cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run journey-eq-items-ai-admin
@@ -17,6 +18,7 @@
 //   차례로 돌아 겹치지 않는다. 각 단계는 켜짐을 다시 확인하고 시작한다(멱등).
 // 화면 캡처: <리포>/.tmp/eq-admin-shots/20-ai-*.png …
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -581,6 +583,82 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20 P2) — AI 분석의 관리자 �
     expect(after.reviews.find((r: any) => r.id === r1)).toMatchObject({ status: 'draft', aiDraft: false });
     expect(admin.pageErrors, '페이지 오류').toEqual([]);
   }, 180_000);
+
+  test('P4c. 분석 주의(ai.detail) — 서버가 잡의 주의 사항으로 만든 문구가 초안 위 주의 띠에 그대로 뜨고, 닫을 수 있다', async () => {
+    // 분석이 **됐을 때의 주의**는 모델 출력·추출 경고에 달려 있어 픽스처로는 나오지 않는다 — 이번 승인요청 뒤에 완료 잡
+    // 행을 직접 넣는다(LLM 없음). 문구는 서버가 진짜 경로(toEqAiState)로 만든다: 여러 건은 ' · ' 로 잇고 300자에서 자른다.
+    // 유스케이스 on/off 와 무관하다(목록의 `ai` 는 발주가 승인요청 중이고 이번 요청 뒤의 최신 잡이면 실린다).
+    const W1 = '표 규칙으로는 문항 5 도 읽혔으나 AI 초안에 없습니다 — 빠진 문항이 없는지 확인해 주세요';
+    const W2 = `AI 출력 정리: 선택지 기호를 원문대로 되돌렸습니다(${token})`;
+    const jobId = randomUUID();
+    const metaOf = (warnings: string[]): string =>
+      JSON.stringify({
+        v: 1,
+        trigger: 'auto',
+        sourceFileId: 0,
+        sourceFileName: 'EQ.xlsx',
+        replaceDraft: false,
+        actorMbId: null,
+        detail: null,
+        appliedReviewId: r1,
+        skipped: null,
+        responses: [],
+        draft: null,
+        itemFlags: [],
+        promptChars: null,
+        warnings,
+      });
+    const prisma = getPrisma();
+    await prisma.spAiJob.create({
+      data: {
+        id: jobId,
+        useCase: 'pcb.eq-parse',
+        targetType: 'pcb_po',
+        targetId: BigInt(poId),
+        mbId: 'system',
+        status: 'done',
+        stage: null,
+        model: 'kimi-k3',
+        promptVersion: 'eq-parse-v3',
+        inputHash: 'e2e',
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        resultJson: metaOf([W1, W2]),
+      },
+    });
+    try {
+      const list = await eqList();
+      expect(list.ai, '이번 요청의 최신 잡').toMatchObject({ jobId, status: 'done', reason: null, appliedReviewId: r1 });
+      expect(list.ai.detail, "주의 사항은 ' · ' 로 이어 한 줄").toBe(`${W1} · ${W2}`);
+      expect((await poRow())?.eqAi ?? null, '됐으면 행 요약은 없다(회차 칩이 말한다)').toBeNull();
+
+      await openCase();
+      await openWorkspace();
+      const caution = ws().locator('[data-eq-ai-caution]');
+      await caution.waitFor({ state: 'visible' });
+      expect(await caution.innerText(), '서버 문구 그대로').toContain(`AI 분석 주의: ${W1} · ${W2} — 원본 EQ 와 대조해 주세요.`);
+      expect(await banner().getAttribute('data-eq-ai-kind'), '초안에 들어간 분석이라 잡의 띠는 없다').toBe('none');
+      await untilText('초안은 그대로 열려 있다', ws().locator('[data-eq-round-status]'), '작성 중');
+      await shot('37-ai-caution-live');
+      await caution.getByRole('button', { name: 'AI 분석 주의 닫기' }).click();
+      await until('주의 띠 닫힘', async () => (await banner().count()) === 0);
+      await closeWorkspace();
+
+      // 주의가 길면 300자에서 자른다(말줄임표) — 화면이 아니라 서버 응답으로 본다.
+      await prisma.spAiJob.update({
+        where: { id: jobId },
+        data: { resultJson: metaOf(Array.from({ length: 12 }, (_, i) => `주의 ${String(i + 1)} — ${'가'.repeat(40)}`)) },
+      });
+      const long = (await eqList()).ai.detail as string;
+      expect(long.length, '300자').toBe(300);
+      expect(long.endsWith('…'), '잘렸다는 표시').toBe(true);
+    } finally {
+      // 이 케이스가 넣은 잡만 지운다 — 뒤 케이스는 다시 '분석 안 됨' 상태에서 이어 간다.
+      await prisma.spAiJob.deleteMany({ where: { id: jobId } });
+    }
+    expect((await eqList()).ai, '넣은 잡을 빼면 원래 상태').toMatchObject({ status: 'failed' });
+    expect(admin.pageErrors, '페이지 오류').toEqual([]);
+  });
 
   test.skipIf(!EQ_AI)(
     'P5. (실 LLM) 엑셀 EQ 로 승인요청 — "AI 분석 중" → "AI 초안 · 검토 필요" → 문항·그림·활동',
