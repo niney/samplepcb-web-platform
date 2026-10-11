@@ -16,7 +16,7 @@ import {
   type BomConfirmIssueTypeType,
 } from '@sp/api-contract';
 
-const RESTOCK = { expectedOn: '2026-10-20', basis: '공급사 입고 예정 공지' };
+const RESTOCK = { expectedOn: '2026-10-20', basis: '공급사 입고 예정 공지', splitAllowed: false, splitShippingFee: 0 };
 const REPLACEMENT = { source: 'rfq' as const, rfqItemId: '7' };
 
 /** 유형 프리셋 그대로의 선택지 입력(필수 부속 값까지 채움). */
