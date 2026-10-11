@@ -1,0 +1,132 @@
+{
+  "id": "k-vertical-cards",
+  "file": "k-vertical-cards.xlsx",
+  "label": "(k·홀드아웃) 머리글 표가 없는 세로 카드형 — 【问题N】/问题：/建议：A. … B. … 가 한 셀씩 · 그림은 카드 옆",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-K-1187",
+      "factoryPartNo": "TS-2410-0315",
+      "issuedOn": "2026-10-05"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "soldermask",
+        "question": "BGA 영역의 솔더마스크 오픈이 한쪽 0.025mm 밖에 되지 않아 생산 시 정합을 보장할 수 없습니다. 오픈을 한쪽 0.05mm 로 키우기를 권합니다.",
+        "questionOrig": "BGA区域阻焊开窗单边仅0.025mm，生产无法保证对位，建议开窗单边加大至0.05mm。",
+        "options": [
+          {
+            "key": "A",
+            "label": "오픈 확대에 동의",
+            "labelOrig": "同意加大开窗",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원본대로 제작하고 솔더마스크가 패드에 올라오는 위험을 수용",
+            "labelOrig": "按原稿制作，接受阻焊上焊盘风险",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "2",
+        "category": "drill",
+        "question": "홀 크기 0.3mm 비아가 2,865개로 홀 밀도가 높습니다. 수율을 높이려면 일부 비아를 0.35mm 로 바꾸기를 권합니다.",
+        "questionOrig": "孔径0.3mm的过孔共2865个，孔密度较高，建议部分过孔改为0.35mm以提高良率。",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "동의하지 않음",
+            "labelOrig": "不同意",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "기타(내용을 적어 주세요)",
+            "labelOrig": "其他：____",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "3",
+        "category": "outline",
+        "question": "외형 공차를 ±0.05mm 로 요구하셨으나 제조사 CNC 능력은 ±0.1mm 입니다. ±0.1mm 를 수용하시겠습니까?",
+        "questionOrig": "外形公差贵司要求±0.05mm，我司CNC能力为±0.1mm，是否接受±0.1mm？",
+        "options": [
+          {
+            "key": "A",
+            "label": "±0.1mm 수용",
+            "labelOrig": "接受±0.1mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "±0.05mm 요구(금형 변경 필요, 비용 별도)",
+            "labelOrig": "要求±0.05mm（需改冲模，费用另计）",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-1"
+        ]
+      },
+      {
+        "factoryNo": "4",
+        "category": "marking",
+        "question": "보드에 제조사 로고와 생산 주기(예: 2441)를 실크로 넣을까요?",
+        "questionOrig": "是否需要在板上丝印我司LOGO及生产周期（如2441）？",
+        "options": [
+          {
+            "key": "A",
+            "label": "넣음",
+            "labelOrig": "需要",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "넣지 않음",
+            "labelOrig": "不需要",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "주기만 넣음",
+            "labelOrig": "只加周期",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "2": [
+      "via"
+    ],
+    "4": [
+      "legend"
+    ]
+  },
+  "emptySlots": [],
+  "notes": "questionOrig 는 \"问题：\" 뒤 본문(라벨 제외)을 정답으로 친다(유사도 채점). 템플릿 파서 v1 은 머리글이 없어 실패가 정상."
+}

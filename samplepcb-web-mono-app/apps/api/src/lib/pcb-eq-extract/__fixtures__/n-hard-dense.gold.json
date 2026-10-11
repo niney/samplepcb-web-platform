@@ -1,0 +1,583 @@
+{
+  "id": "n-hard-dense",
+  "file": "n-hard-dense.xlsx",
+  "label": "(n·난도) 23문항(하위 번호 12.1·12.2) · 질문이 중/영 두 칸 · 선택지 한 셀 중영 혼용(A：/A)/(A)/A- 제각각) · 빈 슬롯 6개가 실문항 사이 · 구획 줄 · 병합 섞임 · 앵커 그림+그림 시트 · 무관 그림",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-N-1101",
+      "factoryPartNo": "ST-2411-0088",
+      "issuedOn": "2026-10-10"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "impedance",
+        "question": "차동 임피던스 90Ω±10% 를 맞추려면 적층 구조 계산상 선폭 0.11mm/간격 0.15mm 가 필요합니다. 수용하시겠습니까?",
+        "questionOrig": "差分阻抗90Ω±10%，按叠层计算线宽0.11mm/间距0.15mm，是否接受？ 90ohm diff impedance needs 0.11/0.15mm width/space per stackup, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受/Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "기타(내용을 적어 주세요)",
+            "labelOrig": "其他，请注明/Other, pls specify",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "2",
+        "category": "drill",
+        "question": "최소 드릴 0.15mm 는 기계 드릴 능력을 넘습니다. 0.2mm 로 바꿀까요?",
+        "questionOrig": "最小钻孔0.15mm超出机械钻能力，改为0.2mm？ Min drill 0.15mm exceeds mechanical capability, change to 0.2mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "0.2mm 로 변경",
+            "labelOrig": "改为0.2mm/Change to 0.2mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "레이저 드릴(추가 비용)",
+            "labelOrig": "激光钻孔（加价）/Laser drill (extra cost)",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "3",
+        "category": "via",
+        "question": "비아 홀 메움 방식이 지정되어 있지 않습니다. 솔더마스크 잉크로 홀 메움 할까요?",
+        "questionOrig": "过孔塞孔方式未注明，按阻焊塞孔制作？ Via plugging not specified, plug with solder mask?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "레진 홀 메움",
+            "labelOrig": "树脂塞孔/Resin plug",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "홀 메움 안 함",
+            "labelOrig": "不塞孔/No plug",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "5",
+        "category": "soldermask_dam",
+        "question": "IC 핀 사이 솔더마스크 댐 0.06mm 는 남길 수 없습니다. 통 오픈으로 할까요?",
+        "questionOrig": "IC脚间阻焊桥0.06mm无法保留，开通窗？ S/M dam 0.06mm between IC pins can not be kept, gang opening?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용(권장)",
+            "labelOrig": "接受（建议）/Accept (recommended)",
+            "recommended": true,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 주세요)",
+            "labelOrig": "请贵司指示/Pls advise",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "6",
+        "category": "legend",
+        "question": "실크가 패드 위에 올라가 있습니다. 실크를 깎아낼까요?",
+        "questionOrig": "字符上焊盘，削字符处理？ Legend on pads, clip the legend?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "동의하지 않음",
+            "labelOrig": "不同意/Disagree",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "7",
+        "category": "pad",
+        "question": "BGA 패드 0.25mm 가 작습니다. 0.28mm 로 보정할까요?",
+        "questionOrig": "BGA焊盘0.25mm偏小，补偿至0.28mm？ BGA pad 0.25mm is small, compensate to 0.28mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원본대로",
+            "labelOrig": "按原稿/As original",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "8",
+        "category": "outline",
+        "question": "외형 도면에 공차가 없습니다. ±0.15mm 로 제작할까요?",
+        "questionOrig": "外形图无公差，按±0.15mm制作？ No tolerance on outline drawing, use ±0.15mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受/Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "기타(내용을 적어 주세요)",
+            "labelOrig": "其他，请注明/Other, pls specify",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "10",
+        "category": "panel",
+        "question": "패널 크기가 제조사 최대 크기를 넘습니다. 1x2 패널로 바꿀까요?",
+        "questionOrig": "拼版尺寸超出我司最大尺寸，改为1x2拼版？ Panel size exceeds our max, change to 1x2 array?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "낱개",
+            "labelOrig": "单片/Single pcs",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "11",
+        "category": "surface_finish",
+        "question": "골드 핑거와 무전해 금도금(ENIG)이 한 보드에 있어 전해 금도금과 ENIG 두 공정이 필요하고 납기가 2일 늘어납니다. 수용하시겠습니까?",
+        "questionOrig": "金手指与沉金同板，需电金+沉金两道工序，交期+2天？ Gold finger + ENIG on same board needs 2 processes, +2 days?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受/Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "전부 ENIG",
+            "labelOrig": "全部沉金/All ENIG",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "12.1",
+        "category": "material",
+        "question": "TG150 원자재 재고가 없습니다. 같은 가격에 TG170 으로 바꿀까요?",
+        "questionOrig": "板材TG150无库存，改用TG170（价格不变）？ TG150 out of stock, use TG170 at same price?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "TG150 입고까지 대기",
+            "labelOrig": "等TG150/Wait for TG150",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "12.2",
+        "category": "material",
+        "question": "동박 두께가 1oz 인데 적층도에는 2oz 로 되어 있습니다. 어느 쪽을 기준으로 할까요?",
+        "questionOrig": "铜厚1oz与叠层图2oz不符，以哪个为准？ Copper 1oz vs stackup 2oz, which one?",
+        "options": [
+          {
+            "key": "A",
+            "label": "1oz",
+            "labelOrig": "1oz",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "2oz",
+            "labelOrig": "2oz",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "14",
+        "category": "circuit",
+        "question": "회로와 홀 사이가 0.1mm 라 보정 후 쇼트가 날 수 있습니다. 회로를 옮기기를 권하는데 어떻게 할까요?",
+        "questionOrig": "线路距孔0.1mm，补偿后可能短路，建议移线？ Trace 0.1mm to hole, may short after compensation, move trace?",
+        "options": [
+          {
+            "key": "A",
+            "label": "회로 이동에 동의",
+            "labelOrig": "同意移线/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "그대로 유지",
+            "labelOrig": "保持/Keep",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "15",
+        "category": "marking",
+        "question": "UL 마크와 주기를 뒷면 실크에 넣을까요? 첨부 그림 3 참고.",
+        "questionOrig": "UL标记及周期加在底层字符？见附图3 Add UL mark & date code on bottom legend? see fig.3",
+        "options": [
+          {
+            "key": "A",
+            "label": "넣음",
+            "labelOrig": "加/Add",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "넣지 않음",
+            "labelOrig": "不加/No",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-4"
+        ]
+      },
+      {
+        "factoryNo": "16",
+        "category": "indication",
+        "question": "드릴 도면의 홀 수가 드릴 파일과 다릅니다. 드릴 파일 기준으로 할까요?",
+        "questionOrig": "钻孔图孔数与钻带不符，以钻带为准？ Hole count on drill drawing differs from drill file, follow drill file?",
+        "options": [
+          {
+            "key": "A",
+            "label": "드릴 파일 기준",
+            "labelOrig": "以钻带为准/Follow drill file",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "드릴 도면 기준",
+            "labelOrig": "以钻孔图为准/Follow drawing",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "18",
+        "category": "via",
+        "question": "패드 내 비아는 도금 평탄화가 필요하며 추가 비용이 듭니다. 수용하시겠습니까?",
+        "questionOrig": "盘中孔需电镀填平，加收费用？ Via-in-pad needs plating fill, extra charge?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受/Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "비아를 패드 밖으로 이동",
+            "labelOrig": "移开过孔/Move vias out of pads",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      },
+      {
+        "factoryNo": "19",
+        "category": "soldermask",
+        "question": "솔더마스크 색상이 무광 검정이라 납기가 1일 늘어납니다. 수용하시겠습니까?",
+        "questionOrig": "阻焊颜色哑黑，交期+1天？ Matte black solder mask, +1 day?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受/Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "유광 검정으로 변경",
+            "labelOrig": "改亮黑/Glossy black",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "20",
+        "category": "outline",
+        "question": "슬롯 최소 폭이 0.5mm 인데 라우터 비트 최소치는 0.6mm 입니다. 0.6mm 로 넓힐까요?",
+        "questionOrig": "槽孔最小宽度0.5mm，锣刀最小0.6mm，加宽至0.6mm？ Min slot width 0.5mm, router min 0.6mm, widen to 0.6mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "드릴 홀을 겹쳐 가공",
+            "labelOrig": "改钻孔连孔/Use overlapping drill holes",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-3"
+        ]
+      },
+      {
+        "factoryNo": "22",
+        "category": "stackup",
+        "question": "4층 보드의 적층 구조가 없습니다. 제조사 표준 1.6mm 적층으로 할까요?",
+        "questionOrig": "4层板未提供叠层，按常规1.6mm叠层？ No stackup for 4L, use standard 1.6mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受/Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사(고객)가 제공",
+            "labelOrig": "贵司提供/Customer provides",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "23",
+        "category": "other",
+        "question": "수량 100pcs 인데 2% 여유분을 더 납품해도 될까요?",
+        "questionOrig": "贵司数量100pcs，交货可否多交2%？ Qty 100pcs, may we ship +2% overs?",
+        "options": [
+          {
+            "key": "A",
+            "label": "가능",
+            "labelOrig": "可以/OK",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "불가",
+            "labelOrig": "不可以/No",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "24",
+        "category": "other",
+        "question": "거버 파일 이름에 공백이 있습니다. 보관할 때 밑줄로 바꿔도 될까요?",
+        "questionOrig": "Gerber文件名含空格，存档时改为下划线？ Gerber file names contain spaces, replace with underscores for archive?",
+        "options": [
+          {
+            "key": "A",
+            "label": "가능",
+            "labelOrig": "可以/OK",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "불가",
+            "labelOrig": "不可以/No",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "25",
+        "category": "legend",
+        "question": "솔더마스크가 흰색인데 실크도 흰색이라 잘 보이지 않습니다. 검은색 실크로 바꿀까요?",
+        "questionOrig": "字符颜色白色，板色白色，看不清，改黑色字符？ White legend on white solder mask is unreadable, change to black legend?",
+        "options": [
+          {
+            "key": "A",
+            "label": "검은색으로 변경",
+            "labelOrig": "改黑色/Black",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "흰색 유지",
+            "labelOrig": "保持白色/Keep white",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "27",
+        "category": "pad",
+        "question": "테스트 포인트 패드가 0.5mm 입니다. 플라잉 프로브 검사를 위해 0.8mm 로 키울까요?",
+        "questionOrig": "测试点焊盘0.5mm，需加大至0.8mm便于飞针？ Test pads 0.5mm, enlarge to 0.8mm for flying probe?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意/Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "동의하지 않음",
+            "labelOrig": "不同意/Disagree",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "28",
+        "category": "drill",
+        "question": "무도금 홀(NPTH)을 도금 홀(PTH)로 만들까요?",
+        "questionOrig": "NPTH孔做PTH？ Make NPTH holes as PTH?",
+        "options": [
+          {
+            "key": "A",
+            "label": "PTH 로 제작",
+            "labelOrig": "做PTH/Make PTH",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "NPTH 유지",
+            "labelOrig": "保持NPTH/Keep NPTH",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "기타(내용을 적어 주세요)",
+            "labelOrig": "其他，请注明/Other, pls specify",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "16": [
+      "drill"
+    ],
+    "20": [
+      "drill"
+    ],
+    "12.2": [
+      "stackup"
+    ]
+  },
+  "emptySlots": [
+    "4",
+    "9",
+    "13",
+    "17",
+    "21",
+    "26"
+  ],
+  "notes": "questionOrig 정답은 \"중문 영문\"(두 칸을 공백으로) — 유사도 채점이라 이음 문자는 상관없다. 5번 A 만 권장(建议/recommended). 구획 줄(【…】·第二部分)은 문항이 아니다."
+}

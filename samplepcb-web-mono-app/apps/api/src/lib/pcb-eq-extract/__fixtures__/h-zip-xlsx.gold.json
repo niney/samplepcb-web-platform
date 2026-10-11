@@ -1,0 +1,106 @@
+{
+  "id": "h-zip-xlsx",
+  "file": "h-zip-xlsx.zip",
+  "label": "(h) zip 안 xlsx(폴더 안·readme 동봉) · 그림 시트 이름 공백 없음(图1)",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-2409-208",
+      "factoryPartNo": "HX4L0928",
+      "issuedOn": "2026-09-28"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "indication",
+        "question": "주신 거버와 PDF 도면의 보드 두께가 다릅니다(1.0mm 대 0.8mm). 거버 기준 1.0mm 로 제작할까요?",
+        "questionOrig": "贵司提供的Gerber与PDF图纸板厚不一致（1.0mm vs 0.8mm），我司按Gerber 1.0mm制作？Gerber(1.0mm) and PDF(0.8mm) thickness differ, we follow Gerber 1.0mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "거버 기준 1.0mm",
+            "labelOrig": "按Gerber 1.0mm Follow Gerber",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "PDF 기준 0.8mm",
+            "labelOrig": "按PDF 0.8mm Follow PDF",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "2",
+        "category": "soldermask",
+        "question": "솔더마스크 오픈 파일에서 방열 패드가 전부 오픈되어 있습니다. 그 위에 솔더마스크 격자를 넣을까요?",
+        "questionOrig": "阻焊开窗文件中散热焊盘全开窗，是否需要做阻焊网格？The thermal pad is fully opened, do you need soldermask grid on it?",
+        "options": [
+          {
+            "key": "A",
+            "label": "격자 필요",
+            "labelOrig": "需要网格 Need grid",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "전체 오픈 유지",
+            "labelOrig": "全开窗 Full opening",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-1"
+        ]
+      },
+      {
+        "factoryNo": "3",
+        "category": "legend",
+        "question": "실크 색상이 지정되어 있지 않습니다. 흰색 실크로 제작할까요?",
+        "questionOrig": "字符颜色贵司未注明，我司按白色字符制作？Legend color not specified, we make white legend?",
+        "options": [
+          {
+            "key": "A",
+            "label": "흰색",
+            "labelOrig": "白色 White",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "검은색",
+            "labelOrig": "黑色 Black",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      }
+    ]
+  },
+  "categoryAlt": {
+    "1": [
+      "material",
+      "other"
+    ]
+  },
+  "emptySlots": [
+    "4",
+    "5",
+    "6"
+  ],
+  "notes": "포털 EQ 첨부는 zip 이 흔하다 — 추출기가 안의 첫 통합문서를 고른다."
+}

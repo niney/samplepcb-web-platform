@@ -1,0 +1,464 @@
+{
+  "id": "f-many-types",
+  "file": "f-many-types.xlsx",
+  "label": "(f) 17문항 · 임피던스/적층/드릴/비아/댐/하프홀/V컷/스탬프홀/표면처리/동박/원자재/실크/패드/외형/마킹/회로/기타 · 참조 시트(阻抗表)",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-2410-033",
+      "factoryPartNo": "BR8L2410-21",
+      "issuedOn": "2026-09-22"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "impedance",
+        "question": "요구하신 임피던스(임피던스 표 참고)에 맞추려면 차동 100Ω 선로의 선폭/간격을 0.1/0.12mm 로 조정해야 합니다. 수용하시겠습니까?",
+        "questionOrig": "按贵司阻抗要求（见阻抗表），差分100Ω需将线宽/线距调整为0.1/0.12mm，是否接受？Per your impedance requirement (see impedance sheet), 100ohm differential needs width/space 0.1/0.12mm, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "조정 수용",
+            "labelOrig": "接受调整 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "2",
+        "category": "stackup",
+        "question": "4층 보드 두께 1.2mm 를 요구하셨는데 제조사 표준 적층은 1.6mm 입니다. 1.2mm 에 맞춰 적층 구조를 조정하려는데(그림 1 참고) 수용하시겠습니까?",
+        "questionOrig": "贵司要求板厚1.2mm 4层，我司常规叠层为1.6mm，按1.2mm调整叠层结构（见图1），是否接受？4-layer 1.2mm required, we adjust the stackup as fig1, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-1"
+        ]
+      },
+      {
+        "factoryNo": "3",
+        "category": "drill",
+        "question": "홀과 홀 사이 최소 간격이 0.15mm 라 드릴 비트가 부러지기 쉽습니다. 홀을 옮기거나 합치기를 권하니 확인해 주세요.",
+        "questionOrig": "孔到孔最小间距0.15mm，钻孔易断刀，建议移孔或合并，请确认。Min hole-to-hole 0.15mm may break drill bits, suggest to move or merge holes, pls confirm.",
+        "options": [
+          {
+            "key": "A",
+            "label": "홀 이동 허용",
+            "labelOrig": "允许移孔 Allow to move",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "홀 합치기 허용",
+            "labelOrig": "允许合并 Allow to merge",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "4",
+        "category": "via",
+        "question": "BGA 패드 위에 비아가 있습니다(패드 내 비아). 레진으로 홀 메움 후 도금 평탄화(VIPPO)를 권하며 추가 비용이 듭니다. 수용하시겠습니까?",
+        "questionOrig": "过孔焊盘在BGA焊盘上（盘中孔），建议树脂塞孔后电镀填平(VIPPO)，需加收费用，是否接受？Via-in-pad on BGA, suggest VIPPO with extra cost, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "VIPPO 와 비용 수용",
+            "labelOrig": "接受VIPPO及费用 Accept VIPPO & cost",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "솔더마스크 잉크 홀 메움으로 변경",
+            "labelOrig": "改为盖油塞孔 Change to soldermask plugging",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      },
+      {
+        "factoryNo": "5",
+        "category": "soldermask_dam",
+        "question": "QFN 패드 사이 솔더마스크 댐 폭이 0.07mm 로 최소치 0.08mm 보다 작아 남길 수 없습니다. 통 오픈을 수용하시겠습니까?",
+        "questionOrig": "QFN焊盘间阻焊桥宽度0.07mm，小于最小0.08mm，无法保留阻焊桥，是否接受开通窗？S/M dam between QFN pads 0.07mm < min 0.08mm, accept gang opening?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "6",
+        "category": "drill",
+        "question": "보드 가장자리에 하프홀이 있어 하프홀 공정이 추가되고 납기가 1일 늘어납니다. 수용하시겠습니까?",
+        "questionOrig": "板边有半孔，需要加工半孔工艺，交期增加1天，是否接受？Castellated half holes on board edge need extra process, +1 day lead time, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "하프홀 취소",
+            "labelOrig": "取消半孔 Cancel half holes",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "7",
+        "category": "panel",
+        "question": "패널 방식이 지정되어 있지 않습니다. 2x3 패널, V컷 분리, 레일(공정 여백) 5mm 를 권하는데 수용하시겠습니까?",
+        "questionOrig": "拼版方式贵司未注明，我司建议2x3拼版，V-CUT分板，工艺边5mm，是否接受？Panel not specified, we suggest 2x3 array with V-CUT and 5mm rails, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "낱개(단품)로 출하",
+            "labelOrig": "单片出货 Ship as single pcs",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-3"
+        ]
+      },
+      {
+        "factoryNo": "8",
+        "category": "panel",
+        "question": "비정형 보드라 V컷을 할 수 없습니다. 홀 크기 0.5mm 스탬프 홀로 연결하기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "异形板无法V-CUT，建议用邮票孔连接，孔径0.5mm，是否接受？Irregular shape can not be V-cut, suggest stamp holes 0.5mm, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "9",
+        "category": "surface_finish",
+        "question": "무전해 금도금(ENIG) 면적 비율이 30% 를 넘습니다. 비용을 줄이려면 ENIG+OSP 선택 처리로 바꾸기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "沉金面积比例超过30%，建议改为沉金+OSP选择性处理以降低成本，是否接受？ENIG area > 30%, suggest selective ENIG+OSP to reduce cost, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "전면 ENIG 유지",
+            "labelOrig": "仍按全板沉金 Keep full ENIG",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "10",
+        "category": "circuit",
+        "question": "외층 동박 두께 2oz 를 요구하셨는데 선폭 0.15mm 로는 에칭할 수 없습니다. 외층을 1oz 로 바꾸거나 선폭을 0.2mm 로 키우기를 권합니다.",
+        "questionOrig": "贵司要求外层铜厚2oz，线宽0.15mm无法满足蚀刻，建议外层改为1oz或线宽加大至0.2mm？Outer copper 2oz with 0.15mm trace can not be etched, change to 1oz or widen trace to 0.2mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "1oz 로 변경",
+            "labelOrig": "改为1oz Change to 1oz",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "선폭을 0.2mm 로 확대",
+            "labelOrig": "线宽加大至0.2mm Widen to 0.2mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "11",
+        "category": "material",
+        "question": "자료에는 TG170 원자재로 되어 있으나 제조사 재고는 TG150 이고 TG170 을 쓰면 납기가 3일 늘어납니다. TG150 을 수용하시겠습니까?",
+        "questionOrig": "资料要求TG170板材，我司库存为TG150，使用TG170交期加3天，是否接受TG150？TG170 required, we have TG150 in stock, TG170 adds 3 days; accept TG150?",
+        "options": [
+          {
+            "key": "A",
+            "label": "TG150 수용",
+            "labelOrig": "接受TG150 Accept TG150",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "TG170 유지",
+            "labelOrig": "坚持TG170 Keep TG170",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "12",
+        "category": "legend",
+        "question": "윗면 실크가 패드와 겹칩니다. 제조사가 실크를 옮기고, 옮길 수 없는 것은 깎아내려 하는데 수용하시겠습니까?",
+        "questionOrig": "顶层字符与焊盘重叠，我司将移开字符，无法移开的将削掉，是否接受？Top legend overlaps pads, we will move or clip it, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-4",
+          "img-5"
+        ]
+      },
+      {
+        "factoryNo": "13",
+        "category": "pad",
+        "question": "SMD 패드 간격이 0.2mm 입니다. 쇼트를 막기 위해 패드를 한쪽 0.02mm 씩 줄이기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "SMD焊盘间距0.2mm，建议焊盘单边内缩0.02mm以避免短路，是否接受？SMD pad gap 0.2mm, suggest shrink pads 0.02mm per side, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원래대로 유지",
+            "labelOrig": "保持原样 Keep as is",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "14",
+        "category": "outline",
+        "question": "외형 도면 치수는 50x30mm, 거버 외형 레이어는 50x31mm 입니다. 어느 쪽을 기준으로 할까요?",
+        "questionOrig": "外形图尺寸为50x30mm，Gerber外形层为50x31mm，以哪个为准？Drawing 50x30mm vs Gerber outline 50x31mm, which one?",
+        "options": [
+          {
+            "key": "A",
+            "label": "외형 도면 기준",
+            "labelOrig": "以外形图为准 Follow drawing",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "거버 기준",
+            "labelOrig": "以Gerber为准 Follow Gerber",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-6"
+        ]
+      },
+      {
+        "factoryNo": "15",
+        "category": "marking",
+        "question": "보드에 UL 마크와 주기(데이트 코드)를 넣을까요?",
+        "questionOrig": "是否需要在板上加UL标记及周期？Do you need UL mark and date code on the board?",
+        "options": [
+          {
+            "key": "A",
+            "label": "넣음",
+            "labelOrig": "需要 Yes",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "넣지 않음",
+            "labelOrig": "不需要 No",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "16",
+        "category": "circuit",
+        "question": "내층 회로가 보드 가장자리에서 0.2mm 라 라우팅 시 동박이 드러납니다. 0.3mm 안쪽으로 줄이기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "内层线路距板边0.2mm，锣板会露铜，建议内缩至0.3mm，是否接受？Inner layer traces 0.2mm from board edge, suggest pull back to 0.3mm, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "17",
+        "category": "other",
+        "question": "거버에 드릴 파일이 두 개 있습니다. 제조사는 NC_DRILL.drl 기준으로 제작하려 하니 확인해 주세요.",
+        "questionOrig": "贵司Gerber中有两个钻孔文件，我司按NC_DRILL.drl制作，请确认。Two drill files found, we will use NC_DRILL.drl, pls confirm.",
+        "options": [
+          {
+            "key": "A",
+            "label": "확인",
+            "labelOrig": "确认 Confirm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "6": [
+      "outline"
+    ],
+    "7": [
+      "outline"
+    ],
+    "8": [
+      "outline"
+    ],
+    "9": [
+      "indication"
+    ],
+    "10": [
+      "material"
+    ],
+    "11": [
+      "other"
+    ],
+    "17": [
+      "drill"
+    ]
+  },
+  "emptySlots": [
+    "18"
+  ],
+  "notes": "1번 첨부는 그림이 아니라 참조 시트(阻抗表) — figureRefs 는 []. 7·8번은 공장이 outline 으로 분류했지만 내용은 패널."
+}

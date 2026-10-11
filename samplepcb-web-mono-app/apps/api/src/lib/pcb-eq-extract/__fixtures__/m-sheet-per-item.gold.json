@@ -1,0 +1,104 @@
+{
+  "id": "m-sheet-per-item",
+  "file": "m-sheet-per-item.xlsx",
+  "label": "(m·홀드아웃) 목차 시트 + 문항마다 시트 하나(EQ1·EQ2·EQ3) — 질문·그림·선택지가 각 시트에",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-M-0902",
+      "factoryPartNo": "MX-6L-0902",
+      "issuedOn": "2026-10-09"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "impedance",
+        "question": "임피던스 선로가 분할된 플레인을 가로지릅니다(그림 참고). 임피던스 연속성을 보장할 수 없어 동박 보강 또는 배선 변경을 권합니다.",
+        "questionOrig": "阻抗线经过分割平面（见图），无法保证阻抗连续，建议补铜或改走线。The impedance trace crosses a split plane (see picture), we can not guarantee impedance continuity; suggest adding copper or rerouting.",
+        "options": [
+          {
+            "key": "A",
+            "label": "동박 보강에 동의",
+            "labelOrig": "同意补铜 Agree to add copper",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사(고객)가 설계 수정",
+            "labelOrig": "贵司修改设计 Customer will modify design",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "임피던스 편차 수용",
+            "labelOrig": "接受阻抗偏差 Accept impedance deviation",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-1"
+        ]
+      },
+      {
+        "factoryNo": "2",
+        "category": "via",
+        "question": "L1-L2 블라인드 비아의 홀 크기가 0.1mm 라 레이저 드릴이 필요하며 비용이 약 15% 늘어납니다. 수용하시겠습니까?",
+        "questionOrig": "盲孔L1-L2孔径0.1mm，需激光钻孔，费用增加约15%，是否接受？Blind via L1-L2 0.1mm needs laser drilling, about 15% extra cost, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "관통 홀로 변경",
+            "labelOrig": "改为通孔 Change to through holes",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      },
+      {
+        "factoryNo": "3",
+        "category": "material",
+        "question": "내층 동박 두께가 설명에는 2oz, 적층 구조도에는 1oz 로 되어 있습니다. 어느 쪽을 기준으로 할까요?",
+        "questionOrig": "内层铜厚资料为2oz，但叠层图为1oz，以哪个为准？Inner copper 2oz in notes but 1oz in stackup drawing, which one?",
+        "options": [
+          {
+            "key": "A",
+            "label": "2oz",
+            "labelOrig": "2oz",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "1oz",
+            "labelOrig": "1oz",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "2": [
+      "drill"
+    ],
+    "3": [
+      "stackup"
+    ]
+  },
+  "emptySlots": [],
+  "notes": "번호는 목차의 No.(1·2·3)를 정답으로 친다(\"EQ1\" 이면 원문 유사도로 짝짓는다). 메인 시트가 목차라 문항 시트를 \"보조 시트\" 로 잘라 읽으면 놓친다."
+}

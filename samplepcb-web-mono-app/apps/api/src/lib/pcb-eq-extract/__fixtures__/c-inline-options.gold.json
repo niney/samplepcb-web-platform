@@ -1,0 +1,146 @@
+{
+  "id": "c-inline-options",
+  "file": "c-inline-options.xlsx",
+  "label": "(c) 선택지 한 셀(A.… ⏎ B.… / A、… B、…) · 두 줄 머리글(중+영) · 머리 정보 \"라벨: 값\" 한 셀 · 권장 표시(推荐) 1건",
+  "draft": {
+    "header": {
+      "customerPartNo": "CP-7781-R2",
+      "factoryPartNo": "JX-2409-118",
+      "issuedOn": "2026-09-20"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "circuit",
+        "question": "회로 최소 선폭/간격이 3.5/3.5mil 로 제조사 표준 4/4mil 보다 작습니다. 일부 선폭을 4mil 로 보정하기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "线路最小线宽/线距3.5/3.5mil，低于我司常规4/4mil，建议局部线宽补偿至4mil，是否接受？The min line width/spacing is 3.5/3.5mil, below our standard 4/4mil, we suggest local compensation to 4mil, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "보정 수용(권장)",
+            "labelOrig": "接受补偿（推荐）Accept compensation (recommended)",
+            "recommended": true,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원본대로 제작 — 수율 위험은 귀사 부담",
+            "labelOrig": "按原稿制作，良率风险由贵司承担 Make as original, yield risk on customer",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 주세요)",
+            "labelOrig": "请贵司指示 Pls advise",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "2",
+        "category": "pad",
+        "question": "BGA 패드 지름이 0.25mm 이고 솔더마스크 오픈이 패드와 1:1 입니다. 오픈을 한쪽 0.05mm 씩 키우기를 권하는데 어떻게 할까요?",
+        "questionOrig": "BGA焊盘直径0.25mm，阻焊开窗与焊盘1:1，建议开窗单边加大0.05mm？BGA pad dia. 0.25mm with 1:1 S/M opening, suggest enlarge opening 0.05mm per side?",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意 Agree",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "동의하지 않음",
+            "labelOrig": "不同意 Disagree",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "3",
+        "category": "panel",
+        "question": "패널의 V컷 선과 부품의 간격이 0.3mm 밖에 되지 않아 V컷이 부품 패드를 손상시킬 수 있습니다. 스탬프 홀 연결로 바꾸기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "拼版V-CUT线距元件仅0.3mm，V-CUT可能伤及元件焊盘，建议改为邮票孔连接，是否接受？V-CUT line is only 0.3mm from components, suggest change to stamp holes, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "스탬프 홀로 변경",
+            "labelOrig": "改为邮票孔 Change to stamp holes",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "V컷 유지",
+            "labelOrig": "保持V-CUT Keep V-CUT",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "4",
+        "category": "indication",
+        "question": "도면에는 보드 두께가 1.6mm 로 표기되어 있으나 거버 설명에는 1.0mm 로 되어 있습니다. 어느 쪽을 기준으로 할까요?",
+        "questionOrig": "图纸标注板厚1.6mm，但Gerber说明为1.0mm，请确认以哪个为准？Drawing says 1.6mm thickness but Gerber note says 1.0mm, which one is correct?",
+        "options": [
+          {
+            "key": "A",
+            "label": "1.6mm",
+            "labelOrig": "1.6mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "1.0mm",
+            "labelOrig": "1.0mm",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "5",
+        "category": "other",
+        "question": "메탈마스크(스텐실) 파일을 주지 않으셨습니다. 제조사에서 메탈마스크를 제작할까요?",
+        "questionOrig": "贵司未提供钢网文件，是否需要我司制作钢网？You did not provide stencil file, do you need us to make the stencil?",
+        "options": [
+          {
+            "key": "A",
+            "label": "필요(제작)",
+            "labelOrig": "需要 Yes",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "필요 없음",
+            "labelOrig": "不需要 No",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "2": [
+      "soldermask"
+    ],
+    "4": [
+      "material"
+    ]
+  },
+  "emptySlots": [],
+  "notes": "1번 A 만 recommended=true(원문에 推荐/recommended). 그림 없음."
+}

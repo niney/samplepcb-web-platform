@@ -1,0 +1,155 @@
+{
+  "id": "e-lhd-v2",
+  "file": "e-lhd-v2.xlsx",
+  "label": "(e) (a)의 개정판 2차 — 2번 변경·3번 삭제(번호 결번)·6번 신규 + 이전 회차 고객 답(I·J 칸)",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-2409-017",
+      "factoryPartNo": "XD24A0915",
+      "issuedOn": "2026-09-15"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "soldermask_dam",
+        "question": "그림 1과 같이 U3 의 IC 패드 간격이 0.18mm 라 솔더마스크 댐을 남길 수 없습니다. 제조사는 패드 사이를 한꺼번에 오픈(통 오픈)하기를 권합니다. 확인해 주시겠습니까?",
+        "questionOrig": "如图1，U3处IC焊盘间距0.18mm，无法保留阻焊桥，我司建议开通窗处理，请确认？As fig1 shown, the pad spacing of U3 is 0.18mm, we can not keep the soldermask dam, we suggest to make gang opening, pls confirm.",
+        "options": [
+          {
+            "key": "A",
+            "label": "통 오픈 처리 수용",
+            "labelOrig": "接受开通窗Accept gang opening",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      },
+      {
+        "factoryNo": "2",
+        "category": "drill",
+        "question": "그림 2와 같이 최소 홀 크기 0.2mm 에 패드 0.35mm 입니다. 회신하신 대로 0.2mm 를 유지하면 애뉼러 링이 부족해, 홀 크기를 0.18mm 로 하고 패드를 0.4mm 로 키우기를 권합니다. 괜찮을까요?",
+        "questionOrig": "如图2，最小孔径0.2mm与焊盘0.35mm，按贵司回复保持0.2mm则孔环不足，我司建议孔径改为0.18mm、焊盘加大至0.4mm，可以吗？As fig2 shown, keeping 0.2mm hole per your reply leaves insufficient annular ring, we suggest 0.18mm hole and enlarge pad to 0.4mm, ok?",
+        "options": [
+          {
+            "key": "A",
+            "label": "홀 크기 0.18mm 와 패드 확대에 동의",
+            "labelOrig": "同意0.18mm孔径并加大焊盘 Agree 0.18mm hole & enlarge pad",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-3"
+        ]
+      },
+      {
+        "factoryNo": "4",
+        "category": "legend",
+        "question": "그림 4와 같이 일부 실크 문자의 선폭이 0.1mm, 문자 높이가 0.6mm 로 제조사 최소 능력(선폭 0.12mm/문자 높이 0.8mm)보다 작아 완성품에서 흐릴 수 있습니다. 비율대로 키울까요?",
+        "questionOrig": "如图4，部分字符线宽0.1mm、字高0.6mm，小于我司最小能力（线宽0.12mm/字高0.8mm），成品会模糊，请确认是否按比例加大？As fig4 shown, some legend line width 0.1mm and height 0.6mm are below our capability(0.12mm/0.8mm), shall we enlarge them proportionally?",
+        "options": [
+          {
+            "key": "A",
+            "label": "비율대로 확대에 동의",
+            "labelOrig": "同意按比例加大Agree to enlarge",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원래대로 두고 실크가 흐린 것을 수용",
+            "labelOrig": "保持原样，接受字符模糊 Keep as is and accept blurry legend",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-4",
+          "img-5"
+        ]
+      },
+      {
+        "factoryNo": "5",
+        "category": "impedance",
+        "question": "귀사 요구는 싱글엔드 50Ω±10% 임피던스인데, 현재 적층 구조로 계산하면 선폭을 0.13mm 로 조정해야 합니다. 수용하시겠습니까?",
+        "questionOrig": "贵司要求单端50Ω±10%，按现有叠层计算线宽需调整为0.13mm，是否接受？You require 50ohm±10% single-ended impedance, per current stackup the trace width should be adjusted to 0.13mm, is it ok?",
+        "options": [
+          {
+            "key": "A",
+            "label": "선폭 조정 수용",
+            "labelOrig": "接受调整线宽 Accept to adjust trace width",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "6",
+        "category": "surface_finish",
+        "question": "무전해 금도금(ENIG) 두께를 2u\" 로 요구하셨는데 제조사 표준은 1u\" 이며 2u\" 는 추가 비용이 듭니다. 수용하시겠습니까?",
+        "questionOrig": "沉金厚度贵司要求2u\"，我司常规1u\"，2u\"需加收费用，是否接受？ENIG gold thickness 2u\" required, our standard is 1u\", 2u\" costs extra, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "추가 비용 수용",
+            "labelOrig": "接受加收费用 Accept extra cost",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "1u\" 로 변경",
+            "labelOrig": "改为1u\" Change to 1u\"",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-6"
+        ]
+      }
+    ]
+  },
+  "categoryAlt": {
+    "6": [
+      "indication"
+    ]
+  },
+  "emptySlots": [
+    "7",
+    "8"
+  ],
+  "notes": "고객 답 칸(I·J·L·N)은 문항이 아니다 — 선택지·질문에 섞이면 오답. 번호 3 은 결번이라 채워 넣으면 안 된다."
+}

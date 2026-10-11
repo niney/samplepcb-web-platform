@@ -1,0 +1,157 @@
+{
+  "id": "a-lhd-bilingual",
+  "file": "a-lhd-bilingual.xlsx",
+  "label": "(a) LHD 유사 이중언어 · 선택지 세 줄(기호 열+문구 열) · 그림 시트 · 빈 슬롯 3",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-2409-017",
+      "factoryPartNo": "XD24A0915",
+      "issuedOn": "2026-09-12"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "soldermask_dam",
+        "question": "그림 1과 같이 U3 의 IC 패드 간격이 0.18mm 라 솔더마스크 댐을 남길 수 없습니다. 제조사는 패드 사이를 한꺼번에 오픈(통 오픈)하기를 권합니다. 확인해 주시겠습니까?",
+        "questionOrig": "如图1，U3处IC焊盘间距0.18mm，无法保留阻焊桥，我司建议开通窗处理，请确认？As fig1 shown, the pad spacing of U3 is 0.18mm, we can not keep the soldermask dam, we suggest to make gang opening, pls confirm.",
+        "options": [
+          {
+            "key": "A",
+            "label": "통 오픈 처리 수용",
+            "labelOrig": "接受开通窗Accept gang opening",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      },
+      {
+        "factoryNo": "2",
+        "category": "drill",
+        "question": "그림 2와 같이 최소 홀 크기 0.2mm 에 패드 0.35mm 라 애뉼러 링이 0.075mm 밖에 되지 않습니다. 홀 크기를 0.15mm 로 바꿔도 될까요?",
+        "questionOrig": "如图2，最小孔径0.2mm与焊盘0.35mm，孔环仅0.075mm，我司建议孔径改为0.15mm，可以吗？As fig2 shown, the min hole size is 0.2mm with 0.35mm pad, the annular ring is only 0.075mm, can we change the hole size to 0.15mm?",
+        "options": [
+          {
+            "key": "A",
+            "label": "0.15mm 로 변경에 동의",
+            "labelOrig": "同意改为0.15mm Agree to change to 0.15mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원본대로 0.2mm 로 제작하고 작은 애뉼러 링을 수용",
+            "labelOrig": "按原稿0.2mm制作，接受孔环偏小 Keep 0.2mm, accept small annular ring",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-3"
+        ]
+      },
+      {
+        "factoryNo": "3",
+        "category": "via",
+        "question": "BGA 아래 비아가 패드에 너무 가깝습니다. 제조사는 비아를 레진으로 홀 메움(레진 플러깅 후 도금 평탄화)하기를 권합니다. 수용하시겠습니까?",
+        "questionOrig": "BGA下过孔距焊盘太近，我司建议过孔塞孔（树脂塞孔+电镀填平），是否接受？The vias under BGA are too close to pads, we suggest resin plugging and capping, is it acceptable?",
+        "options": [
+          {
+            "key": "A",
+            "label": "레진 홀 메움 수용",
+            "labelOrig": "接受树脂塞孔Accept resin plugging",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "비아를 솔더마스크로 덮기(텐팅)만 하면 됨",
+            "labelOrig": "过孔盖油即可 Just tent the vias with soldermask",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "4",
+        "category": "legend",
+        "question": "그림 4와 같이 일부 실크 문자의 선폭이 0.1mm, 문자 높이가 0.6mm 로 제조사 최소 능력(선폭 0.12mm/문자 높이 0.8mm)보다 작아 완성품에서 흐릴 수 있습니다. 비율대로 키울까요?",
+        "questionOrig": "如图4，部分字符线宽0.1mm、字高0.6mm，小于我司最小能力（线宽0.12mm/字高0.8mm），成品会模糊，请确认是否按比例加大？As fig4 shown, some legend line width 0.1mm and height 0.6mm are below our capability(0.12mm/0.8mm), shall we enlarge them proportionally?",
+        "options": [
+          {
+            "key": "A",
+            "label": "비율대로 확대에 동의",
+            "labelOrig": "同意按比例加大Agree to enlarge",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원래대로 두고 실크가 흐린 것을 수용",
+            "labelOrig": "保持原样，接受字符模糊 Keep as is and accept blurry legend",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-4",
+          "img-5"
+        ]
+      },
+      {
+        "factoryNo": "5",
+        "category": "impedance",
+        "question": "귀사 요구는 싱글엔드 50Ω±10% 임피던스인데, 현재 적층 구조로 계산하면 선폭을 0.13mm 로 조정해야 합니다. 수용하시겠습니까?",
+        "questionOrig": "贵司要求单端50Ω±10%，按现有叠层计算线宽需调整为0.13mm，是否接受？You require 50ohm±10% single-ended impedance, per current stackup the trace width should be adjusted to 0.13mm, is it ok?",
+        "options": [
+          {
+            "key": "A",
+            "label": "선폭 조정 수용",
+            "labelOrig": "接受调整线宽 Accept to adjust trace width",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {},
+  "emptySlots": [
+    "6",
+    "7",
+    "8"
+  ],
+  "notes": "실샘플과 같은 열 배치. 공장 로고(F1)는 어느 문항에도 속하지 않는다."
+}

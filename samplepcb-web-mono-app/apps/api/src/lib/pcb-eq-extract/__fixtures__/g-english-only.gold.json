@@ -1,0 +1,157 @@
+{
+  "id": "g-english-only",
+  "file": "g-english-only.xlsx",
+  "label": "(g) 영어 전용 · 번호 EQ-01 · 선택지 기호 숫자(\"Option 1: …\") · 그림 시트 Fig1/Fig2(질문 본문이 Fig.N 으로 부름)",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-G-5521",
+      "factoryPartNo": "EB-26-0937",
+      "issuedOn": "2026-09-25"
+    },
+    "items": [
+      {
+        "factoryNo": "EQ-01",
+        "category": "soldermask_dam",
+        "question": "U5 핀 사이 솔더마스크 댐이 0.06mm 로 제조사 최소치 0.08mm 보다 작습니다. 한 줄 전체를 하나로 오픈(통 오픈)하기를 제안합니다.",
+        "questionOrig": "Solder mask dams between U5 pins are 0.06mm, below our minimum 0.08mm. We propose gang relief (one opening for the whole row).",
+        "options": [
+          {
+            "key": "1",
+            "label": "통 오픈 수용",
+            "labelOrig": "Accept gang relief",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "2",
+            "label": "개별 댐을 유지하고 브리지 위험을 수용",
+            "labelOrig": "Keep individual dams and accept bridging risk",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "EQ-02",
+        "category": "drill",
+        "question": "드릴 파일에 0.15mm 홀이 있는데 제조사 기계 드릴 최소치는 0.2mm 입니다. 선택해 주세요.",
+        "questionOrig": "Drill file contains 0.15mm holes; our minimum mechanical drill is 0.2mm. Please choose:",
+        "options": [
+          {
+            "key": "1",
+            "label": "0.2mm 로 확대",
+            "labelOrig": "Enlarge to 0.2mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "2",
+            "label": "레이저 드릴 사용(추가 비용)",
+            "labelOrig": "Use laser drilling (extra cost)",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "3",
+            "label": "기타(내용을 적어 주세요)",
+            "labelOrig": "Other, please specify",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "EQ-03",
+        "category": "stackup",
+        "question": "4층 1.6mm 보드인데 적층 구조를 받지 못했습니다. 제조사 표준 적층 구조(그림 1 참고)를 적용하겠습니다.",
+        "questionOrig": "No stack-up was provided for this 4-layer 1.6mm board. We will use our standard stack-up (see Fig.1).",
+        "options": [
+          {
+            "key": "1",
+            "label": "표준 적층 구조 수용",
+            "labelOrig": "Accept standard stack-up",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "2",
+            "label": "고객이 적층 구조를 제공",
+            "labelOrig": "Customer will provide stack-up",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-1"
+        ]
+      },
+      {
+        "factoryNo": "EQ-04",
+        "category": "marking",
+        "question": "뒷면 실크에 UL 마크, 주기(WWYY), 제조사 로고를 넣어도 될까요?",
+        "questionOrig": "Do you allow us to add UL mark, date code (WWYY) and our logo on the bottom silkscreen?",
+        "options": [
+          {
+            "key": "1",
+            "label": "예, 모두 추가",
+            "labelOrig": "Yes, add all",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "2",
+            "label": "UL 마크와 주기만 추가",
+            "labelOrig": "Add UL mark and date code only",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "3",
+            "label": "마킹 없음",
+            "labelOrig": "No marking",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "EQ-05",
+        "category": "panel",
+        "question": "패널 도면은 3x4 배열인데 분리 레일이 정의되어 있지 않습니다. 긴 두 변에 5mm 레일과 피듀셜 3개, 툴링 홀 4개를 두기를 제안합니다(그림 2).",
+        "questionOrig": "Panel drawing shows 3x4 array, but the breakaway rails are not defined. We propose 5mm rails on two long sides with 3 fiducials and 4 tooling holes (Fig.2).",
+        "options": [
+          {
+            "key": "1",
+            "label": "수용",
+            "labelOrig": "Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "2",
+            "label": "지시 바람(의견을 주세요)",
+            "labelOrig": "Please advise",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      }
+    ]
+  },
+  "categoryAlt": {
+    "EQ-01": [
+      "soldermask"
+    ],
+    "EQ-04": [
+      "legend"
+    ]
+  },
+  "emptySlots": [],
+  "notes": "선택지 key 는 \"1\",\"2\",\"3\"(원문 기호 그대로) — A/B 로 바꾸면 오답. 첨부 칸이 없어 그림은 본문 Fig.N 으로 잇는다."
+}

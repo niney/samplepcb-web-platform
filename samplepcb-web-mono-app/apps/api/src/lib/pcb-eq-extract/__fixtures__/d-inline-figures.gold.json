@@ -1,0 +1,124 @@
+{
+  "id": "d-inline-figures",
+  "file": "d-inline-figures.xlsx",
+  "label": "(d) 그림이 메인 시트 질문 행 옆(D열)에 앵커 · 선택지가 열마다(方案A|方案B) · 로고 A1",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-D-3304",
+      "factoryPartNo": "RK2410-0042",
+      "issuedOn": "2026-10-02"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "drill",
+        "question": "홀 크기 3.0mm 인 무도금 홀(NPTH)이 주변 동박과 0.1mm 밖에 떨어져 있지 않습니다. 동박을 0.3mm 이격시키기를 권합니다.",
+        "questionOrig": "NPTH孔径3.0mm与周围铜皮距离仅0.1mm，建议铜皮避让0.3mm。NPTH hole 3.0mm is only 0.1mm from copper, suggest to clear copper 0.3mm.",
+        "options": [
+          {
+            "key": "A",
+            "label": "동박 이격에 동의",
+            "labelOrig": "同意避让 Agree to clear copper",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원래대로 유지",
+            "labelOrig": "保持原样 Keep as is",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      },
+      {
+        "factoryNo": "2",
+        "category": "drill",
+        "question": "보드 가장자리 하프홀 지름 0.6mm 는 제작 가능(최소 0.5mm)하지만 하프홀은 추가 공정비가 붙습니다. 계속 진행할까요?",
+        "questionOrig": "板边半孔直径0.6mm，最小能力0.5mm可做，但半孔需要额外加收工程费，是否继续？Castellated holes 0.6mm on board edge are OK, but extra charge applies, continue?",
+        "options": [
+          {
+            "key": "A",
+            "label": "계속 제작",
+            "labelOrig": "继续制作 Continue",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "하프홀 취소",
+            "labelOrig": "取消半孔 Cancel castellated holes",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-3",
+          "img-4"
+        ]
+      },
+      {
+        "factoryNo": "3",
+        "category": "soldermask",
+        "question": "솔더마스크 색상이 무광 검정으로 되어 있어 납기가 2일 늘어납니다. 수용하시겠습니까?",
+        "questionOrig": "阻焊颜色资料为哑光黑，交期需增加2天，是否接受？Matte black solder mask needs 2 more days lead time, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "유광 녹색으로 변경",
+            "labelOrig": "改为亮光绿 Change to glossy green",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "4",
+        "category": "surface_finish",
+        "question": "골드 핑거에 30° 베벨이 필요한데 자료에 베벨 깊이가 없습니다. 제조사 표준인 1.0mm 로 제작할까요?",
+        "questionOrig": "金手指需要斜边30°，资料未注明斜边深度，我司按常规1.0mm制作？Gold fingers need 30° bevel, depth not specified, we will make 1.0mm as default?",
+        "options": [
+          {
+            "key": "A",
+            "label": "표준대로(1.0mm)",
+            "labelOrig": "按常规 Default 1.0mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 주세요)",
+            "labelOrig": "请贵司指示 Pls advise",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": [
+          "img-5"
+        ]
+      }
+    ]
+  },
+  "categoryAlt": {
+    "2": [
+      "outline"
+    ],
+    "4": [
+      "outline",
+      "pad"
+    ]
+  },
+  "emptySlots": [],
+  "notes": "그림 시트가 없다 — 행 위치로 문항을 정해야 한다. 2번은 그림 2장(두 행에 걸침). 로고는 무관."
+}

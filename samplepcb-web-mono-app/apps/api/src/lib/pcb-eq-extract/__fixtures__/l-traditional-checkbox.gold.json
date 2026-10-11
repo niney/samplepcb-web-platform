@@ -1,0 +1,111 @@
+{
+  "id": "l-traditional-checkbox",
+  "file": "l-traditional-checkbox.xlsx",
+  "label": "(l·홀드아웃) 대만 번체 전용 · 선택지가 체크박스(□ …)라 기호 없음 · 번호 Q1 · 그림 시트 \"圖一\"(한자 숫자, 본문 見圖一)",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-L-0427",
+      "factoryPartNo": "TW-2410-1168",
+      "issuedOn": "2026-10-07"
+    },
+    "items": [
+      {
+        "factoryNo": "Q1",
+        "category": "soldermask",
+        "question": "솔더마스크 색상을 파란색으로 요구하셨는데 제조사는 파란색 솔더마스크에 공정이 2일 더 걸립니다. 납기 연장에 동의하시겠습니까?",
+        "questionOrig": "防焊顏色要求為藍色，本廠藍色防焊需加2天製程，是否同意交期延後？",
+        "options": [
+          {
+            "key": "A",
+            "label": "납기 연장에 동의",
+            "labelOrig": "同意延後",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "녹색 솔더마스크로 변경(납기 유지)",
+            "labelOrig": "改為綠色防焊，交期不變",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "Q2",
+        "category": "drill",
+        "question": "드릴 파일과 드릴 도면의 홀 크기가 다릅니다(0.8mm 대 0.9mm). 어느 쪽을 기준으로 할까요?",
+        "questionOrig": "鑽孔檔與鑽孔圖孔徑不符（0.8mm vs 0.9mm），請確認以何者為準？",
+        "options": [
+          {
+            "key": "A",
+            "label": "드릴 파일 기준 0.8mm",
+            "labelOrig": "依鑽孔檔 0.8mm",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "드릴 도면 기준 0.9mm",
+            "labelOrig": "依鑽孔圖 0.9mm",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "Q3",
+        "category": "outline",
+        "question": "보드 가장자리에 R0.2mm 안쪽 라운드가 있는데 라우터 비트 최소치는 R0.4mm 입니다. R0.4mm 로 바꾸는 데 동의하시겠습니까?",
+        "questionOrig": "板邊有內凹圓角R0.2mm，銑刀最小R0.4mm，是否同意修改為R0.4mm？",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "동의하지 않음(따로 알려 주세요)",
+            "labelOrig": "不同意，請另行告知",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "Q4",
+        "category": "legend",
+        "question": "실크 면에 반전 문자가 한 곳 있습니다(그림 1 참고). 정방향 문자로 고칠까요?",
+        "questionOrig": "文字面有一處反字（見圖一），是否需要修正為正字？",
+        "options": [
+          {
+            "key": "A",
+            "label": "수정",
+            "labelOrig": "修正",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "원본대로",
+            "labelOrig": "依原稿",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-1"
+        ]
+      }
+    ]
+  },
+  "categoryAlt": {},
+  "emptySlots": [],
+  "notes": "원문에 기호가 없으므로 규칙상 key 는 A·B 순. 번체 머리글(項次/問題說明)은 템플릿 v1 사전에 없다."
+}

@@ -1,0 +1,173 @@
+{
+  "id": "b-cn-only",
+  "file": "b-cn-only.xlsx",
+  "label": "(b) 중국어 전용 · 열 순서 다름(질문이 유형 앞) · 선택지 줄 수 가변 · 附图 시트 · 참조 시트(叠层结构) · 머리 날짜 텍스트",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-B-0921",
+      "factoryPartNo": "HQ6L2409-03",
+      "issuedOn": "2026-09-18"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "outline",
+        "question": "외형 도면에서 보드 가장자리와 회로 사이 거리가 0.15mm 밖에 되지 않아 라우팅 후 동박이 드러날 수 있습니다. 회로를 0.25mm 안쪽으로 줄이기를 권하는데 동의하시겠습니까?",
+        "questionOrig": "外形图中板边到线路距离仅0.15mm，锣板后可能露铜，建议线路内缩至0.25mm，是否同意？",
+        "options": [
+          {
+            "key": "A",
+            "label": "안쪽으로 줄이기에 동의",
+            "labelOrig": "同意内缩",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "동의하지 않음 — 원본대로 제작하고 동박 노출 위험을 수용",
+            "labelOrig": "不同意，按原稿制作，接受露铜风险",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-1"
+        ]
+      },
+      {
+        "factoryNo": "2",
+        "category": "surface_finish",
+        "question": "자료에는 HASL 로 되어 있으나 보드에 0.4mm 피치 BGA 가 있어 HASL 로는 평탄도가 부족합니다. 비용 변동 없이 무전해 금도금(ENIG)으로 바꾸기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "贵司资料要求喷锡，但板上有0.4mm间距BGA，喷锡平整度不够，建议改为沉金，费用不变，是否接受？",
+        "options": [
+          {
+            "key": "A",
+            "label": "무전해 금도금(ENIG)으로 변경",
+            "labelOrig": "改为沉金",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "그대로 HASL 로 제작",
+            "labelOrig": "仍按喷锡制作",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "기타(내용을 적어 주세요)",
+            "labelOrig": "其他（请注明）",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "3",
+        "category": "drill",
+        "question": "드릴 파일에서 홀 3개가 외형과 겹칩니다(첨부 그림 2 참고). 이 홀 3개를 삭제할까요?",
+        "questionOrig": "钻孔文件中有3个孔与外形重叠（见附图2），是否删除这3个孔？",
+        "options": [
+          {
+            "key": "A",
+            "label": "삭제",
+            "labelOrig": "删除",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "남겨서 하프홀로 제작",
+            "labelOrig": "保留，做成半孔",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": [
+          "img-2"
+        ]
+      },
+      {
+        "factoryNo": "4",
+        "category": "soldermask",
+        "question": "솔더마스크 파일에 윗면(TOP)이 빠져 있습니다. 패드보다 한쪽 0.05mm 크게 오픈해서 제작할까요?",
+        "questionOrig": "阻焊文件缺少顶层，是否按焊盘单边开窗0.05mm制作？",
+        "options": [
+          {
+            "key": "A",
+            "label": "동의",
+            "labelOrig": "同意",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사(고객)에서 파일을 다시 제공",
+            "labelOrig": "贵司重新提供文件",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "5",
+        "category": "stackup",
+        "question": "6층 보드인데 적층 구조를 주지 않으셨습니다. 제조사 표준 적층(시트 '叠层结构' 참고)으로 보드 두께 1.6mm 로 제작하려는데 수용하시겠습니까?",
+        "questionOrig": "6层板贵司未提供叠层，我司按常规叠层（见叠层结构）制作，板厚1.6mm，是否接受？",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 주세요)",
+            "labelOrig": "请贵司指示",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "6",
+        "category": "other",
+        "question": "자료에 드릴 파일이 두 버전(V1, V2) 있습니다. 어느 버전을 쓸지 확인해 주세요.",
+        "questionOrig": "资料中有两个版本的钻孔文件（V1、V2），请确认使用哪个版本？",
+        "options": [
+          {
+            "key": "A",
+            "label": "V1 사용",
+            "labelOrig": "使用V1",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "V2 사용",
+            "labelOrig": "使用V2",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "1": [
+      "circuit"
+    ],
+    "6": [
+      "drill"
+    ]
+  },
+  "emptySlots": [],
+  "notes": "번역 없이 중국어만 — 영어 단서가 없다. 2번 C(其他请注明)는 의견 필수."
+}

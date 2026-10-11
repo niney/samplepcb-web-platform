@@ -1,0 +1,133 @@
+{
+  "id": "j-legacy-xls",
+  "file": "j-legacy-xls.xls",
+  "label": "(j) BIFF8 .xls(SheetJS 로 쓴 셀만 — 그림 없음) · 날짜는 서식 붙은 일련값",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-2408-115",
+      "factoryPartNo": "JL2408-77",
+      "issuedOn": "2026-08-30"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "surface_finish",
+        "question": "OSP 로 요청하셨으나 보드에 골드 핑거가 있습니다. 골드 핑거는 전해 금도금, 나머지는 OSP 로 하기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "贵司要求OSP，板上有金手指，建议金手指电金+其余OSP，是否接受？OSP required but gold fingers exist, suggest hard gold on fingers + OSP elsewhere, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "전면 OSP",
+            "labelOrig": "全板OSP Full OSP",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "2",
+        "category": "drill",
+        "question": "슬롯의 길이:폭 비가 2:1 보다 작아 라우팅으로 가공할 수 없습니다. 드릴 홀을 겹쳐 뚫어 슬롯을 만들기를 권하는데 수용하시겠습니까?",
+        "questionOrig": "槽孔长宽比小于2:1，无法锣槽，建议改为钻孔连孔，是否接受？Slot aspect ratio < 2:1, suggest drilled slot by overlapping holes, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "수용",
+            "labelOrig": "接受 Accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "labelOrig": "请贵司指示Pls send your suggestion",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "3",
+        "category": "via",
+        "question": "비아 처리 방식이 지정되어 있지 않아 비아를 솔더마스크로 덮어(텐팅) 제작하려 합니다. 수용하시겠습니까?",
+        "questionOrig": "贵司未注明过孔处理方式，我司按过孔盖油制作，是否接受？Via treatment not specified, we will tent vias with soldermask, OK?",
+        "options": [
+          {
+            "key": "A",
+            "label": "텐팅 수용",
+            "labelOrig": "接受盖油 Accept tenting",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "비아 오픈",
+            "labelOrig": "过孔开窗 Open vias",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "비아를 잉크로 메움",
+            "labelOrig": "过孔塞油 Plug vias with ink",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "4",
+        "category": "other",
+        "question": "주문 수량은 50pcs 인데 패널로 만들면 54pcs 가 나옵니다. 남는 4pcs 도 함께 출하할까요?",
+        "questionOrig": "贵司订单数量50pcs，拼版后为54pcs，多出的4pcs是否一起出货？Order 50pcs, panel yields 54pcs, ship the extra 4pcs?",
+        "options": [
+          {
+            "key": "A",
+            "label": "함께 출하",
+            "labelOrig": "一起出货 Ship all",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "50pcs 만 출하",
+            "labelOrig": "只出50pcs Ship 50pcs only",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "1": [
+      "indication"
+    ],
+    "4": [
+      "panel"
+    ]
+  },
+  "emptySlots": [
+    "5",
+    "6"
+  ],
+  "notes": "그림 시트는 있지만 비어 있다 — 모든 문항 figureRefs=[]. 첨부 칸 \"图 N\" 을 보고 그림을 지어내면 오답."
+}

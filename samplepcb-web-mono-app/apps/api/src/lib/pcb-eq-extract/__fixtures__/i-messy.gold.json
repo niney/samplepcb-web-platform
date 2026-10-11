@@ -1,0 +1,107 @@
+{
+  "id": "i-messy",
+  "file": "i-messy.xlsx",
+  "label": "(i) 지저분한 양식 — 두 줄 병합 머리글 · 슬롯 12 중 실질 3 · 유형만 있는 슬롯 · \"/\" 자리표시 · 빈 선택지(B 빈칸→A·C) · 빈 줄 · 꼬리 비고 · 무관 도장 그림",
+  "draft": {
+    "header": {
+      "customerPartNo": "SPB-I-0610",
+      "factoryPartNo": "HD-10L-2409-6",
+      "issuedOn": "2026-09-10"
+    },
+    "items": [
+      {
+        "factoryNo": "1",
+        "category": "soldermask_dam",
+        "question": "솔더마스크 댐(绿油桥): 0805 패키지 패드 간격이 너무 좁아 솔더마스크 댐을 남길 수 없으므로 통 오픈으로 제작하겠습니다. 참고해 주세요.",
+        "questionOrig": "绿油桥：0805封装焊盘间距过小，阻焊桥无法保留，按开通窗制作，请知悉。S/M bridge between 0805 pads cannot be kept, we will open them together, pls note.",
+        "options": [
+          {
+            "key": "A",
+            "label": "확인·수용",
+            "labelOrig": "知悉接受 Noted & accept",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 주세요)",
+            "labelOrig": "请贵司指示 Pls advise",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "4",
+        "category": "drill",
+        "question": "드릴 도면과 드릴 파일의 홀 수가 다릅니다(도면 126개, 파일 124개). 드릴 파일 기준으로 할까요?",
+        "questionOrig": "钻孔图与钻孔文件孔数不符（图纸126个，文件124个），以钻孔文件为准？Hole count mismatch (drawing 126 vs drill file 124), follow drill file?",
+        "options": [
+          {
+            "key": "A",
+            "label": "드릴 파일 기준",
+            "labelOrig": "以钻孔文件为准 Follow drill file",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "드릴 도면 기준",
+            "labelOrig": "以钻孔图为准 Follow drawing",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "C",
+            "label": "귀사 지시 바람(의견을 주세요)",
+            "labelOrig": "请贵司指示 Pls advise",
+            "recommended": false,
+            "requiresComment": true
+          }
+        ],
+        "figureRefs": []
+      },
+      {
+        "factoryNo": "7",
+        "category": "impedance",
+        "question": "임피던스 제어를 요구하셨으나 임피던스 대상 선로 위치가 없습니다. 임피던스를 제어할 회로를 표시해 주시거나, 임피던스 제어를 하지 않는 것으로 확인해 주세요.",
+        "questionOrig": "贵司要求阻抗控制但未提供阻抗线位置，请标示需控阻抗的线路或确认不做阻抗。Impedance control required but no impedance traces indicated, please mark them or confirm no impedance control.",
+        "options": [
+          {
+            "key": "A",
+            "label": "자료를 보완해 드리겠습니다(고객 제공)",
+            "labelOrig": "我司补充资料 We will provide",
+            "recommended": false,
+            "requiresComment": false
+          },
+          {
+            "key": "B",
+            "label": "임피던스 제어 안 함",
+            "labelOrig": "不做阻抗控制 No impedance control",
+            "recommended": false,
+            "requiresComment": false
+          }
+        ],
+        "figureRefs": []
+      }
+    ]
+  },
+  "categoryAlt": {
+    "1": [
+      "soldermask"
+    ]
+  },
+  "emptySlots": [
+    "2",
+    "3",
+    "5",
+    "6",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12"
+  ],
+  "notes": "1번은 B 가 비어 A·C 만 — 기호를 A·B 로 다시 매기면 오답. 7번은 유형 칸이 비어 본문으로 유형을 정한다. 꼬리 비고는 문항이 아니다."
+}
