@@ -2207,6 +2207,11 @@ model SpPcbShipment {
   caseRef            String?           @db.VarChar(100) // 관리자가 입력한 참조번호
   caseRefFilledAt    DateTime?
   shippedAt          DateTime? // 최초 발송 전이 박제
+  // 협력사 선적 완료 확인(2026-10-11) — 받는 쪽이 국제 선적을 진행한 뒤 보내는 쪽이 "실제로 넘겼다"를 남긴다.
+  // 상태 사전(BOM 공유)에 단계를 끼우지 않고 문서 필드로 둔다(관리자 진행을 협력사 클릭에 묶지 않는다).
+  // 선적을 되돌리면 함께 비운다. By = PARTNER | ADMIN(대행).
+  shipConfirmedAt    DateTime?
+  shipConfirmedBy    String?           @db.VarChar(16)
   receivedAt         DateTime? // 받는측 입고확인(검수)
   receivedNote       String?           @db.Text
   completedAt        DateTime? // 최종 단계 진입 박제(revert 이탈 시 해제)

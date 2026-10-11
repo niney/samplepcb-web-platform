@@ -228,6 +228,19 @@ export function usePartnerPcbShipmentRevert() {
   });
 }
 
+// 선적 완료 확인 — 받는 쪽이 국제 '선적'을 진행한 뒤 보내는 쪽이 "실제로 넘겼다"를 남긴다. 이 확인으로
+// 발송은 보내기 보드에서 완료 내역으로 넘어간다(보드도 함께 무효화된다).
+export function usePartnerPcbShipmentConfirm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId }: { poId: number }) =>
+      apiSend('POST', `${base}/${String(poId)}/shipment/ship-confirm`, {}, PartnerPcbPoDetailResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
 // MD 입고확인 — 받는측이 내 조직인 발송만(서버 판정).
 export function usePartnerPcbShipmentReceive() {
   const qc = useQueryClient();

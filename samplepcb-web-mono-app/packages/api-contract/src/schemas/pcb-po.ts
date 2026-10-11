@@ -3,7 +3,8 @@ import { DateOnly } from './common';
 import { PartnerPcbEqRound, PcbEqCommentTranslation, PcbPoEqAiSummary, PcbPoEqReviewSummary } from './pcb-eq-review';
 import type { PcbEqCommentTranslationType } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
-import { BomInvoiceData, BomShipmentMode, BomShipmentStatus, ShipmentTransport } from './bom-po';
+import { BomInvoiceData, BomShipmentMode, BomShipmentStatus, ShipmentTransport, bomShipmentNextStatus } from './bom-po';
+import type { BomShipmentModeType, BomShipmentStatusType } from './bom-po';
 
 // ── PCB 파트너 트랙 — sp_pcb_po 계약(P2) ─────────────────────────────────────
 // 설계 정본: docs/PCB_PARTNER_TRACK.md §5.2-2·§5.2-3. 발주서 status 가 EQ·생산
@@ -820,6 +821,10 @@ export const PcbShipmentView = z.object({
   caseRef: z.string().nullable(),
   caseRefFilledAt: z.string().nullable(),
   shippedAt: z.string().nullable(),
+  /** 협력사 '선적 완료' 확인 — 받는 쪽이 국제 '선적'을 진행한 뒤 보내는 쪽이 "실제로 넘겼다"를 남긴 시각.
+   *  By = PARTNER(본인) | ADMIN(대행). 상태 사전에는 없는 기록이다(pcbShipConfirmPending·pcbShipmentSenderDone). */
+  shipConfirmedAt: z.string().nullable(),
+  shipConfirmedBy: z.enum(['PARTNER', 'ADMIN']).nullable(),
   receivedAt: z.string().nullable(),
   receivedNote: z.string().nullable(),
   completedAt: z.string().nullable(),
@@ -830,6 +835,38 @@ export const PcbShipmentView = z.object({
   files: z.array(PcbShipmentFileView),
 });
 export type PcbShipmentViewType = z.infer<typeof PcbShipmentView>;
+
+// ── 협력사 '선적 완료' 확인(2026-10-11) ───────────────────────────────────────
+// 국제 발송은 '선적'부터 끝까지 받는 쪽(관리자) 단계라, 협력사 화면에는 할 일 없는 건이 입고 확인까지
+// 남아 있었다. 그리고 자사 주선(Case ID) 건은 관리자의 '선적'이 실은 **서류 준비 완료**일 뿐이라,
+// 실물이 운송사로 넘어갔는지는 어디에도 남지 않았다. → 협력사가 [선적 완료]로 확인을 남긴다.
+//   · 상태 사전(BOM 공유)에 단계를 끼우지 않는다 — 문서 필드 하나(shipConfirmedAt)다
+//   · 관리자 진행을 막지 않는다 — 확인 없이 국내도착으로 넘어가면 협력사 쪽은 그대로 끝난 것으로 본다
+//   · 국내도착·통관·완료는 협력사에게 보여 주기만 한다('샘플피씨비 진행')
+interface PcbShipConfirmSubject {
+  mode: BomShipmentModeType;
+  status: BomShipmentStatusType;
+  shipConfirmedAt: unknown;
+  receivedAt: unknown;
+}
+
+/** 협력사의 [선적 완료] 차례인가 — 국제 '선적' 단계이고 아직 확인이 없다(입고 확인 전). */
+export const pcbShipConfirmPending = (s: PcbShipConfirmSubject): boolean =>
+  s.mode === 'international' && s.status === 'shipped' && s.shipConfirmedAt == null && s.receivedAt == null;
+
+/**
+ * 보내는 쪽(협력사)에게 이 발송이 끝났는가 — 출하 준비(진행 중)와 출하 완료 내역을 가르는 판정.
+ * 입고 확인·마지막 단계는 예전 그대로고, 국제 발송은 여기에 **선적 완료 확인** 또는 **'선적'을 지난 단계**가 더해진다
+ * (관리자가 확인 없이 국내도착으로 넘겼다면 물건은 떠난 것이다 — 협력사 화면에 할 일로 남기지 않는다).
+ */
+export const pcbShipmentSenderDone = (s: PcbShipConfirmSubject): boolean => {
+  if (s.receivedAt != null || bomShipmentNextStatus(s.mode, s.status) === null) return true;
+  if (s.mode !== 'international') return false;
+  return s.shipConfirmedAt != null || s.status === 'arrived' || s.status === 'customs' || s.status === 'done';
+};
+
+/** 협력사 화면의 가상 단계 이름 — 상태 사전에는 없다(국제 '선적'과 '국내도착' 사이에 선다). */
+export const PCB_SHIP_CONFIRM_LABEL = '선적 완료';
 
 // ── 관리자 전용 선적 뷰 — 묶음 구성원의 고객 신원까지 싣는다 ──────────────────
 // 묶음은 고객(Case) 경계를 넘어 합류하므로(박스 키에 고객 축이 없다 — 여정 9호)

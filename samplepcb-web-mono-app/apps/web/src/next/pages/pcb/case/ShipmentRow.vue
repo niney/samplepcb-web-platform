@@ -17,6 +17,7 @@ import {
   PCB_SHIPMENT_FILE_LABELS,
   SHIPMENT_TRANSPORTS,
   SHIPMENT_TRANSPORT_LABELS,
+  pcbShipConfirmPending,
   type AdminPcbPoViewType,
   type AdminPcbShipmentViewType,
 } from '@sp/api-contract';
@@ -59,6 +60,7 @@ const {
   showProxy,
   adminShipAdvance,
   openCaseRef,
+  adminShipConfirm,
   canAdminReceive,
   openReceive,
   invoicePoId,
@@ -127,6 +129,13 @@ const hasCaseRef = (s: AdminPcbShipmentViewType): boolean => s.caseRef !== null 
         <span v-else-if="shipment.caseRef !== null && shipment.caseRef !== ''" class="text-info">
           Case ID <b class="tabular-nums">{{ shipment.caseRef }}</b>
         </span>
+        <!-- 협력사 선적 완료 확인 — '선적' 뒤 실물이 운송사로 넘어갔는지. 확인이 없어도 다음 단계는 막지 않는다. -->
+        <Badge v-if="pcbShipConfirmPending(shipment)" variant="outline" title="협력사가 물품을 운송사에 넘기면 포털에서 [선적 완료]를 누릅니다." data-ship-confirm="pending">
+          협력사 선적 완료 대기
+        </Badge>
+        <span v-else-if="shipment.shipConfirmedAt !== null" class="text-success font-medium" data-ship-confirm="done">
+          협력사 선적 완료 {{ dateOnly(shipment.shipConfirmedAt) }}<template v-if="shipment.shipConfirmedBy === 'ADMIN'"> (대행)</template>
+        </span>
         <span v-if="shipment.receivedAt !== null" class="text-success font-medium">
           입고완료 {{ dateOnly(shipment.receivedAt) }}<template v-if="shipment.receivedNote !== null && shipment.receivedNote !== ''"> · {{ shipment.receivedNote }}</template>
         </span>
@@ -174,6 +183,19 @@ const hasCaseRef = (s: AdminPcbShipmentViewType): boolean => s.caseRef !== null 
         >
           <UserCogIcon v-if="isShipAdvanceProxy(shipment)" />
           {{ adminShipAdvanceLabel(shipment) }} 진행
+        </Button>
+        <!-- 선적 완료 확인 대행 — 협력사 몫이라 [협력사 대행 동작 보기]를 따른다. -->
+        <Button
+          v-if="pcbShipConfirmPending(shipment) && showProxy(po)"
+          variant="outline"
+          size="sm"
+          title="협력사가 포털에서 하는 확인입니다 — 관리자 대행으로 남깁니다."
+          data-ship-proxy
+          data-ship-confirm-proxy
+          @click="void adminShipConfirm(po.poId, shipment)"
+        >
+          <UserCogIcon />
+          선적 완료 대행
         </Button>
         <!-- Case ID 단독 입력 — 기록·정정 경로. 요청 건은 스트립 ③ 이 운송장과 함께 받으므로 스트립이 서 있는
              동안엔 없다(같은 값을 두 버튼이 묻지 않게). 발송 뒤에는 오타를 고치는 [Case ID 정정]으로 남는다. -->

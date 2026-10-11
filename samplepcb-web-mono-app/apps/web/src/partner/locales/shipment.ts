@@ -1,5 +1,15 @@
 // Partner portal copy: Korean, English, Simplified Chinese.
 export const shipmentMessages = {
+  '선적 완료를 확인했거나 입고가 확인된 출하 내역입니다.': ['선적 완료를 확인했거나 입고가 확인된 출하 내역입니다.', 'Shipments you confirmed as handed over, or whose receipt is confirmed.', '已确认交运或已确认收货的出货记录。'],
+  '선적 완료': ['선적 완료', 'Handover confirmed', '已确认交运'],
+  '물품을 운송사에 넘겼습니까? 확인하면 이 발송은 완료 내역으로 넘어가고, 되돌리려면 {p0}에 요청해야 합니다.': ['물품을 운송사에 넘겼습니까? 확인하면 이 발송은 완료 내역으로 넘어가고, 되돌리려면 {p0}에 요청해야 합니다.', 'Have the goods been handed over to the carrier? Once confirmed, this shipment moves to your completed list. To undo it, contact {p0}.', '货物是否已交给承运方？确认后，该发货将移至已完成列表；如需撤销，请联系{p0}。'],
+  '선적 완료 처리에 실패했습니다.': ['선적 완료 처리에 실패했습니다.', 'Could not confirm the handover.', '交运确认失败。'],
+  '점선 단계는 {p0}가 진행합니다 — 참고용으로 보여 드립니다.': ['점선 단계는 {p0}가 진행합니다 — 참고용으로 보여 드립니다.', 'Dashed steps are handled by {p0} and are shown for reference only.', '虚线步骤由{p0}处理，仅供参考。'],
+  '선적 완료 확인 {p0}': ['선적 완료 확인 {p0}', 'Handover confirmed {p0}', '已确认交运 {p0}'],
+  '(샘플피씨비 대행)': ['(샘플피씨비 대행)', '(recorded by SamplePCB)', '（由 SamplePCB 代为确认）'],
+  '라벨을 붙여 운송사에 넘겼으면 선적 완료를 눌러 주세요.': ['라벨을 붙여 운송사에 넘겼으면 선적 완료를 눌러 주세요.', 'Once the goods are labeled and handed over to the carrier, confirm the handover.', '贴好标签并交给承运方后，请确认交运。'],
+  '{p0}가 선적을 확인했습니다 — 물품을 운송사에 넘겼으면 선적 완료를 눌러 주세요.': ['{p0}가 선적을 확인했습니다 — 물품을 운송사에 넘겼으면 선적 완료를 눌러 주세요.', '{p0} has confirmed the shipment. Once the goods are handed over to the carrier, confirm the handover.', '{p0}已确认装运。货物交给承运方后，请确认交运。'],
+  '누르면 이 발송은 완료 내역으로 넘어갑니다. 이후 단계는 {p0}가 진행합니다.': ['누르면 이 발송은 완료 내역으로 넘어갑니다. 이후 단계는 {p0}가 진행합니다.', 'This moves the shipment to your completed list. The remaining steps are handled by {p0}.', '确认后该发货将移至已完成列表，后续步骤由{p0}处理。'],
   '선택 사항': ['선택 사항', 'Optional', '选填'],
   '② Invoice를 첨부해야 진행할 수 있습니다.': ['② Invoice를 첨부해야 진행할 수 있습니다.', '② Attach an invoice to continue.', '② 请先上传商业发票。'],
   '⑤ 출고예정일을 입력해 주세요.': ['⑤ 출고예정일을 입력해 주세요.', '⑤ Enter the planned dispatch date.', '⑤ 请输入预计发货日期。'],

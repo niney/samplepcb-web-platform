@@ -23,7 +23,7 @@ const total = computed(() => query.data.value?.data.total ?? 0);
 
 <template>
   <div class="space-y-4">
-    <PartnerPageHeader :title="pt('완료된 발송')" :subtitle="pt('발송이 끝났거나 입고 확인된 기록입니다.')" />
+    <PartnerPageHeader :title="pt('완료된 발송')" :subtitle="pt('선적 완료를 확인했거나 입고가 확인된 출하 내역입니다.')" />
 
     <p v-if="query.isLoading.value" class="text-sm text-gray-400">{{ pt('불러오는 중…') }}</p>
     <p

@@ -22,6 +22,8 @@ import {
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentPrevStatus,
+  pcbShipConfirmPending,
+  pcbShipmentSenderDone,
   resolvePcbPoTrack,
   shipmentTransportDocType,
   shipmentTransportOf,
@@ -439,6 +441,7 @@ export type PcbShipmentTransitionError =
   | 'MISSING_TRACKING'
   | 'CASE_REF_REQUIRED'
   | 'CASE_REF_LOCKED'
+  | 'SHIP_CONFIRM_UNAVAILABLE'
   | 'MISSING_AWB_FILE'
   | 'MISSING_BL_FILE'
   | 'NOT_ADMIN_RECEIVER'
@@ -608,9 +611,51 @@ export const revertPcbShipment = async (
     return { ok: false, error: 'NOT_YOUR_TURN' };
   await prisma.spPcbShipment.update({
     where: { id: shipment.id },
-    data: { status: prev, completedAt: null },
+    data: {
+      status: prev,
+      completedAt: null,
+      // '선적'을 되돌리면 협력사의 선적 완료 확인도 없던 일이 된다(다시 선적하면 다시 확인한다).
+      ...(current === 'shipped' ? { shipConfirmedAt: null, shipConfirmedBy: null } : {}),
+    },
   });
   return { ok: true, to: prev };
+};
+
+/**
+ * 협력사 '선적 완료' 확인 — 보내는 쪽 전용(관리자는 대행). 받는 쪽이 국제 '선적'을 진행한 뒤에만 남길 수 있다.
+ * 상태는 바꾸지 않는다(문서 필드) — 그래서 받는 쪽의 다음 단계(국내도착…)는 이 확인을 기다리지 않는다.
+ * 두 번 눌러도 처음 시각을 지킨다(`already` — 통지를 다시 보내지 않게).
+ */
+export const confirmPcbShipmentShip = async (
+  po: SpPcbPo,
+  actor: PcbShipmentActor,
+): Promise<
+  | { ok: true; shipment: SpPcbShipment; already: boolean }
+  | { ok: false; error: PcbShipmentTransitionError }
+> => {
+  const shipment = await findPcbShipmentByPo(po.id);
+  if (shipment === null) return { ok: false, error: 'NOT_SHIPPED' };
+  if (!(await isSideActor(shipment, 'PARTNER', actor))) return { ok: false, error: 'NOT_YOUR_TURN' };
+  if (shipment.shipConfirmedAt !== null) return { ok: true, shipment, already: true };
+  const mode = asPcbShipmentMode(shipment.mode);
+  if (mode !== 'international' || asPcbShipmentStatus(mode, shipment.status) !== 'shipped' || shipment.receivedAt !== null)
+    return { ok: false, error: 'SHIP_CONFIRM_UNAVAILABLE' };
+  const updated = await prisma.spPcbShipment.update({
+    where: { id: shipment.id },
+    data: { shipConfirmedAt: new Date(), shipConfirmedBy: actor.kind === 'admin' ? 'ADMIN' : 'PARTNER' },
+  });
+  return { ok: true, shipment: updated, already: false };
+};
+
+/** 계약 판정(pcbShipConfirmPending·pcbShipmentSenderDone)에 넘길 모양 — 행의 문자열 상태를 사전 값으로 접는다. */
+const confirmSubjectOf = (shipment: SpPcbShipment) => {
+  const mode = asPcbShipmentMode(shipment.mode);
+  return {
+    mode,
+    status: asPcbShipmentStatus(mode, shipment.status),
+    shipConfirmedAt: shipment.shipConfirmedAt,
+    receivedAt: shipment.receivedAt,
+  };
 };
 
 /** 입고확인(검수) — 받는측 전용, 발송 시작 후 허용(조기 확인 가능 — UI 경고 몫). */
@@ -844,6 +889,8 @@ export const toPcbShipmentView = async (
     caseRef: shipment.caseRef,
     caseRefFilledAt: iso(shipment.caseRefFilledAt),
     shippedAt: iso(shipment.shippedAt),
+    shipConfirmedAt: iso(shipment.shipConfirmedAt),
+    shipConfirmedBy: shipment.shipConfirmedBy === 'ADMIN' ? 'ADMIN' : shipment.shipConfirmedBy === null ? null : 'PARTNER',
     receivedAt: iso(shipment.receivedAt),
     receivedNote: shipment.receivedNote,
     completedAt: iso(shipment.completedAt),
@@ -1016,7 +1063,8 @@ export const loadPartnerPcbShipBoard = async (
           view.reorderRound,
         ),
       });
-    } else if (shipment.receivedAt !== null || bomShipmentNextStatus(mode, status) === null) {
+    } else if (pcbShipmentSenderDone(confirmSubjectOf(shipment))) {
+      // 협력사에게 끝난 발송 — 입고 확인·마지막 단계에 더해, 국제는 [선적 완료] 확인(또는 '선적'을 지난 단계).
       doneCount += 1;
     } else {
       active.push(await toPcbShipmentView(shipment));
@@ -1038,11 +1086,8 @@ export const loadPartnerPcbDoneShipments = async (
     where: { poId: { in: myPoIds } },
     orderBy: { id: 'desc' },
   });
-  const done = shipments.filter((s) => {
-    const mode = asPcbShipmentMode(s.mode);
-    const status = asPcbShipmentStatus(mode, s.status);
-    return s.receivedAt !== null || bomShipmentNextStatus(mode, status) === null;
-  });
+  // 보드의 doneCount 와 같은 판정 — 둘이 어긋나면 "완료 3건 보기"를 눌렀는데 2건이 나온다.
+  const done = shipments.filter((s) => s.status !== 'preparing' && pcbShipmentSenderDone(confirmSubjectOf(s)));
   const slice = done.slice((page - 1) * pageSize, page * pageSize);
   return {
     items: await Promise.all(slice.map((s) => toPcbShipmentView(s))),
@@ -1065,7 +1110,8 @@ export const pcbShipmentSenderTurn = (shipment: SpPcbShipment): boolean => {
   const mode = asPcbShipmentMode(shipment.mode);
   const current = asPcbShipmentStatus(mode, shipment.status);
   const next = bomShipmentNextStatus(mode, current);
-  return next !== null && bomShipmentActorOf(mode, next) === 'PARTNER';
+  // 사전의 다음 단계가 협력사 몫이거나, 사전에는 없는 [선적 완료] 확인 차례.
+  return (next !== null && bomShipmentActorOf(mode, next) === 'PARTNER') || pcbShipConfirmPending(confirmSubjectOf(shipment));
 };
 
 // ── 상업송장(D23 동형 — BomInvoiceData·renderInvoiceXlsx 재사용) ──────────────

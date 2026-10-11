@@ -6,11 +6,12 @@ import { ApiRequestError } from '@sp/shared';
 import {
   BOM_SHIPMENT_MODE_LABELS,
   PCB_SHIPMENT_FILE_LABELS,
+  PCB_SHIP_CONFIRM_LABEL,
   SHIPMENT_TRANSPORTS,
   SHIPMENT_TRANSPORT_LABELS,
   bomShipmentActorOf,
   bomShipmentNextStatus,
-  bomShipmentStatusesOf,
+  pcbShipConfirmPending,
   shipmentTransportDocType,
   shipmentTransportOf,
   type PcbShipmentFileTypeType,
@@ -18,12 +19,14 @@ import {
   type ShipmentTransportType,
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
+import { PCB_SHIP_STEP_CLS, pcbShipSteps } from '../../lib/pcb-ship-steps';
 import { INTL_CARRIERS, isIntlCarrier } from '../../lib/shipment-carriers';
 import {
   downloadPartnerPcbShipmentFile,
   partnerPcbPackageApi,
   partnerPcbInvoiceApi,
   usePartnerPcbShipmentAdvance,
+  usePartnerPcbShipmentConfirm,
   usePartnerPcbShipmentRevert,
   useUploadPartnerPcbShipmentFile,
 } from '../../partner/usePartnerPcbPos';
@@ -75,8 +78,31 @@ const canRevert = computed(
     bomShipmentActorOf(props.shipment.mode, props.shipment.status) === 'PARTNER',
 );
 
+// ── 선적 완료 확인(2026-10-11) ─────────────────────────────────────────────────
+// 국제 발송은 '선적'부터 받는 쪽(샘플피씨비) 단계다. 협력사의 마지막 일은 **실제로 넘겼다**를 남기는 것 —
+// 상태 사전에 없는 가상 단계 '선적 완료'로 스텝퍼에 세우고, 그 뒤(국내도착·통관·완료)는 보여 주기만 한다.
+// 확인하면 이 카드는 보내기 보드에서 완료 내역으로 넘어간다.
+const confirmPending = computed(() => !props.readonly && pcbShipConfirmPending(props.shipment));
+const steps = computed(() => pcbShipSteps(props.shipment, statusLabel, pt(PCB_SHIP_CONFIRM_LABEL)));
+const hasTheirSteps = computed(() => steps.value.some((step) => step.state.startsWith('theirs')));
+
 const advance = usePartnerPcbShipmentAdvance();
 const revert = usePartnerPcbShipmentRevert();
+const confirmShip = usePartnerPcbShipmentConfirm();
+async function runConfirmShip(): Promise<void> {
+  const ok = await confirmDialog({
+    title: pt('선적 완료'),
+    message: pt('물품을 운송사에 넘겼습니까? 확인하면 이 발송은 완료 내역으로 넘어가고, 되돌리려면 {p0}에 요청해야 합니다.', { p0: props.shipment.receiverName }),
+    confirmLabel: pt('선적 완료'),
+  });
+  if (!ok) return;
+  error.value = '';
+  try {
+    await confirmShip.mutateAsync({ poId: repPoId.value });
+  } catch (e) {
+    surface(e, pt('선적 완료 처리에 실패했습니다.'));
+  }
+}
 const upload = useUploadPartnerPcbShipmentFile();
 
 const error = ref('');
@@ -296,7 +322,7 @@ const STATUS_CLS: Record<string, string> = {
 </script>
 
 <template>
-  <section class="rounded-xl border border-teal-200 bg-surface p-4">
+  <section class="rounded-xl border border-teal-200 bg-surface p-4" data-testid="pcb-ship-card" :data-shipment="shipment.shipmentId">
     <h2 class="text-sm font-bold text-teal-700">
       <!-- 발송번호 — 아카이브에 같은 모양의 카드가 쌓이면 무엇을 보는 중인지 알 수 없다. -->
       <span class="mr-1 font-mono text-xs font-normal text-gray-400">SH-{{ shipment.shipmentId }}</span>
@@ -323,17 +349,25 @@ const STATUS_CLS: Record<string, string> = {
     </h2>
 
     <!-- 스텝퍼 -->
-    <ol class="mt-3 flex flex-wrap items-center gap-1">
-      <template v-for="(step, i) in bomShipmentStatusesOf(shipment.mode)" :key="step">
+    <ol class="mt-3 flex flex-wrap items-center gap-1" data-testid="pcb-ship-steps">
+      <template v-for="(step, i) in steps" :key="step.key">
         <li
           class="rounded-full px-2.5 py-1 text-xs font-semibold"
-          :class="bomShipmentStatusesOf(shipment.mode).indexOf(shipment.status) > i ? 'bg-emerald-50 text-emerald-700' : bomShipmentStatusesOf(shipment.mode).indexOf(shipment.status) === i ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-400'"
+          :class="PCB_SHIP_STEP_CLS[step.state]"
+          :data-step="step.key"
+          :data-step-state="step.state"
         >
-          {{ statusLabel(step) }}
+          {{ step.label }}
         </li>
-        <span v-if="i < bomShipmentStatusesOf(shipment.mode).length - 1" class="text-gray-300">→</span>
+        <span v-if="i < steps.length - 1" class="text-gray-300">→</span>
       </template>
     </ol>
+    <p v-if="hasTheirSteps" class="mt-1 text-[11px] text-gray-400" data-testid="pcb-ship-steps-note">
+      {{ pt('점선 단계는 {p0}가 진행합니다 — 참고용으로 보여 드립니다.', { p0: shipment.receiverName }) }}
+    </p>
+    <p v-if="shipment.shipConfirmedAt !== null" class="mt-1.5 text-xs font-semibold text-emerald-700" data-testid="pcb-ship-confirmed">
+      {{ pt('선적 완료 확인 {p0}', { p0: dateOnly(shipment.shipConfirmedAt) }) }}<template v-if="shipment.shipConfirmedBy === 'ADMIN'"> {{ pt('(샘플피씨비 대행)') }}</template>
+    </p>
     <p v-if="shipment.receivedAt !== null" class="mt-1.5 text-xs font-semibold text-emerald-700">
       {{ pt('입고 확인 완료 {p0}', { p0: dateOnly(shipment.receivedAt) }) }}<template v-if="shipment.receivedNote !== null && shipment.receivedNote !== ''">{{ pt('— 메모: {p0}', { p0: shipment.receivedNote }) }}</template>
     </p>
@@ -634,6 +668,22 @@ const STATUS_CLS: Record<string, string> = {
           @click="void runAdvance()"
         >
           {{ pt('{p0} 진행', { p0: statusLabel(shipNext) }) }}
+        </button>
+      </div>
+      <!-- 선적 완료 확인 — 받는 쪽이 선적을 진행했다. 실제로 넘겼으면 이 버튼으로 내 일을 끝낸다. -->
+      <div v-else-if="confirmPending" class="mt-3 rounded-lg border border-teal-200 bg-teal-50/60 p-3" data-testid="pcb-ship-confirm">
+        <p class="text-sm font-bold text-teal-900">
+          {{ caseRefBranch ? pt('라벨을 붙여 운송사에 넘겼으면 선적 완료를 눌러 주세요.') : pt('{p0}가 선적을 확인했습니다 — 물품을 운송사에 넘겼으면 선적 완료를 눌러 주세요.', { p0: shipment.receiverName }) }}
+        </p>
+        <p class="mt-0.5 text-xs text-teal-700">{{ pt('누르면 이 발송은 완료 내역으로 넘어갑니다. 이후 단계는 {p0}가 진행합니다.', { p0: shipment.receiverName }) }}</p>
+        <button
+          type="button"
+          class="mt-2 w-full rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-700 disabled:opacity-40"
+          :disabled="confirmShip.isPending.value"
+          data-testid="pcb-ship-confirm-button"
+          @click="void runConfirmShip()"
+        >
+          {{ pt('선적 완료') }}
         </button>
       </div>
       <p v-else-if="shipNext !== null" class="mt-3 text-sm text-gray-500">

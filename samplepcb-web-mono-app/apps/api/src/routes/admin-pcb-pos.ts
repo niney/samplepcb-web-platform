@@ -23,6 +23,7 @@ import {
   PcbShipmentAdvanceBody,
   PcbShipmentReceiveBody,
   asPcbEqFileType,
+  PCB_SHIP_CONFIRM_LABEL,
   bomShipmentStatusLabel,
   canEditPcbEqFile,
   pcbEqRejectActionLabel,
@@ -64,6 +65,7 @@ import {
   loadAdminPcbShipmentsForPoIds,
   cancelPcbShipment,
   countPcbShipmentPos,
+  confirmPcbShipmentShip,
   fillPcbShipmentCaseRef,
   receivePcbShipment,
   revertPcbShipment,
@@ -659,6 +661,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     CASE_REF_REQUIRED:
       'Case ID 발송입니다 — 선적 진행 시 발송 참조번호(Case ID)를 함께 입력하세요.',
     CASE_REF_LOCKED: '이미 발송이 시작되어 참조번호 요청 단계가 지났습니다.',
+    SHIP_CONFIRM_UNAVAILABLE: '선적 완료는 국제 발송의 선적 단계에서만 남길 수 있습니다.',
     MISSING_AWB_FILE: 'Case ID 발송은 AWB 첨부가 필수입니다 — 선적 줄 [⬆ AWB]로 첨부 후 진행하세요.',
     // 해상 발송의 운송서류는 B/L 이다(08-16) — 문구가 AWB 로 남으면 없는 버튼을 가리킨다.
     MISSING_BL_FILE: '해상 Case ID 발송은 B/L 첨부가 필수입니다 — 선적 줄 [⬆ B/L]로 첨부 후 진행하세요.',
@@ -776,7 +779,12 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
-      // 관리자 전이 → 협력사(보내는측) 통지 — 다음 협력사 차례가 있으면 안내.
+      // 관리자 전이 → 협력사(보내는측) 통지. 국제의 국내도착·통관·완료는 **보내지 않는다**(2026-10-11):
+      // 협력사에게 그 단계들은 보여 주기만 하는 것이고(자기 일은 [선적 완료]로 끝났다), 단계마다 오는 메일은
+      // 읽을 것이 없었다. 입고 확인 통지(수량 부족·불량 메모)는 따로 그대로 나간다.
+      const intl = res.shipment.mode !== 'domestic';
+      if (intl && (res.to === 'arrived' || res.to === 'customs' || res.to === 'done'))
+        return { result: true as const, data: await loadPanel(request.params.id) };
       const [spec, portalCta, shipPoCount] = await Promise.all([
         prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
         resolvePcbPortalCta(po.partnerId, po.parentPartnerId),
@@ -789,7 +797,8 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           recipientName: po.partner.name,
           projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
           statusLabel: bomShipmentStatusLabel(res.shipment.mode === 'domestic' ? 'domestic' : 'international', res.to),
-          nextLabel: null,
+          // 국제 '선적' 뒤에는 협력사의 [선적 완료] 확인이 남는다 — 메일이 그 일을 말한다.
+          nextLabel: intl && res.to === 'shipped' ? PCB_SHIP_CONFIRM_LABEL : null,
           targetUrl: pcbPartnerPortalUrl(),
           targetLabel: '파트너 포털 열기',
           poCount: shipPoCount,
@@ -882,6 +891,19 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           },
         );
       }
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  // 선적 완료 확인 대행 — 포털 계정이 없는 조직 등 협력사가 누를 수 없을 때. 관리자 스스로 한 일이라 통지는 없다.
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/ship-confirm',
+    { schema: { params: PoParams, response: { 200: AdminPcbPoListResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await confirmPcbShipmentShip(po, { kind: 'admin', mbId: request.user.mbId });
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
       return { result: true as const, data: await loadPanel(request.params.id) };
     },
   );

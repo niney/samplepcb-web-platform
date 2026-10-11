@@ -20,6 +20,7 @@ import {
   PcbShipCaseRefRequestBody,
   PcbShipmentAdvanceBody,
   PcbShipmentReceiveBody,
+  PCB_SHIP_CONFIRM_LABEL,
   bomShipmentStatusLabel,
   resolvePcbPoTrack,
   type PartnerPcbRemittanceTotalType,
@@ -58,6 +59,7 @@ import {
   getPcbShipmentFileDownload,
   receivePcbShipment,
   requestPcbShipmentCaseRef,
+  confirmPcbShipmentShip,
   revertPcbShipment,
   savePcbInvoiceData,
   savePcbShipmentFile,
@@ -698,6 +700,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     CASE_REF_REQUIRED:
       '발송 참조번호(Case ID) 처리 대기 중입니다 — 샘플피씨비가 Case ID·운송장·AWB 를 처리하면 메일로 안내됩니다.',
     CASE_REF_LOCKED: '이미 발송이 시작되어 참조번호를 요청할 수 없습니다.',
+    SHIP_CONFIRM_UNAVAILABLE: '선적 완료는 샘플피씨비가 선적을 진행한 뒤, 다음 단계로 넘어가기 전에만 남길 수 있습니다.',
     MISSING_AWB_FILE: 'AWB 첨부가 필요합니다 — Case ID 발송은 샘플피씨비가 AWB 를 첨부한 뒤 선적합니다.',
     // 해상은 운송서류가 B/L 이다(08-16) — 협력사 화면에도 같은 어휘로 나가야 한다.
     MISSING_BL_FILE: 'B/L 첨부가 필요합니다 — Case ID 해상 발송은 샘플피씨비가 B/L 을 첨부한 뒤 선적합니다.',
@@ -815,6 +818,73 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await revertPcbShipment(po, actorOf(ctx));
       if (!res.ok) return reply.status(409).send(shipError(res.error));
+      const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  // 선적 완료 확인(2026-10-11) — 받는 쪽이 국제 '선적'을 진행한 뒤, 보내는 쪽이 "실제로 넘겼다"를 남긴다.
+  // 이 확인으로 협력사의 발송은 끝난다(출하 완료 내역으로). 받는 쪽에는 한 번 알린다.
+  fastify.post(
+    '/partner/pcb-pos/:poId/shipment/ship-confirm',
+    { schema: { params: PoParams, response: { 200: PartnerPcbPoDetailResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await confirmPcbShipmentShip(po, shipActorOf(ctx, request.user.mbId));
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+
+      // 받는 쪽 통지 — 처음 확인했을 때만(두 번 눌러도 한 통). 관리자=운영자 메일 / MD 입고=조직 메일.
+      if (!res.already) {
+        const shipPoCount = await countPcbShipmentPos(po.id);
+        const meta: MailLogMeta = {
+          kind: 'pcb_ship_confirmed',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: { poId: String(po.id), partnerName: ctx.partnerName },
+        };
+        if (res.shipment.receiverKind === 'md') {
+          const receiverPartnerId = res.shipment.receiverPartnerId;
+          const [md, portalCta] = await Promise.all([
+            prisma.spPartner.findUnique({ where: { id: receiverPartnerId ?? 0n } }),
+            receiverPartnerId === null ? null : resolvePcbPortalCta(receiverPartnerId),
+          ]);
+          void sendPcbMail(
+            request.log,
+            md?.contactEmail,
+            buildPcbShipmentTurnEmail({
+              recipientName: md?.name ?? '중개 조직',
+              projectName: po.spec.projectName,
+              statusLabel: PCB_SHIP_CONFIRM_LABEL,
+              nextLabel: null,
+              targetUrl: pcbPartnerPortalUrl(),
+              targetLabel: '파트너 포털 열기',
+              poCount: shipPoCount,
+              ...(portalCta ?? {}),
+            }),
+            meta,
+          );
+        } else {
+          const profile = await getShopEstimateProfile();
+          void sendPcbMail(
+            request.log,
+            profile?.managerEmail,
+            buildPcbShipmentTurnEmail({
+              recipientName: '샘플피씨비',
+              projectName: po.spec.projectName,
+              statusLabel: PCB_SHIP_CONFIRM_LABEL,
+              nextLabel: null,
+              targetUrl: pcbAdminCaseUrl(po.specId.toString()),
+              targetLabel: 'Case 상세 열기',
+              poCount: shipPoCount,
+            }),
+            meta,
+          );
+        }
+      }
       const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
       return { result: true as const, data: detail };

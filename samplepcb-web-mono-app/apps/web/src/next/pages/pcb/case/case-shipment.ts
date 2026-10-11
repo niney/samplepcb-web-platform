@@ -20,6 +20,7 @@ import {
   useAdminPcbShipmentBox,
   useAdminPcbShipmentCancel,
   useAdminPcbShipmentCaseRef,
+  useAdminPcbShipmentConfirm,
   useAdminPcbShipmentReceive,
   useAdminPcbShipmentRevert,
   useUploadAdminPcbShipmentFile,
@@ -454,6 +455,26 @@ export function useCaseShipment(core: CaseCore) {
     });
   }
 
+  // 협력사 [선적 완료] 확인 대행 — 포털 계정이 없는 조직 등 협력사가 누를 수 없을 때([협력사 대행 동작 보기]).
+  const shipConfirmAdmin = useAdminPcbShipmentConfirm();
+  async function adminShipConfirm(poId: number, s: PcbShipmentViewType): Promise<void> {
+    const sid = specId.value;
+    if (sid === null) return;
+    if (
+      !(await confirmDialog({
+        message: `${s.senderName}의 선적 완료를 대신 확인할까요? 협력사 화면에서 이 발송이 완료 내역으로 넘어갑니다.`,
+        confirmLabel: '선적 완료 대행',
+      }))
+    )
+      return;
+    actionError.value = '';
+    try {
+      await shipConfirmAdmin.mutateAsync({ specId: sid, poId });
+    } catch (e) {
+      surfaceError(e, '선적 완료 확인에 실패했습니다.');
+    }
+  }
+
   // 인보이스 생성기 — 대표 발주 기준 콜백 주입.
   const invoicePoId = ref<number | null>(null);
   const adminInvoiceApiRef = computed(() =>
@@ -492,6 +513,7 @@ export function useCaseShipment(core: CaseCore) {
     adminShipCaseRef,
     adminPickShipFile,
     openCaseRef,
+    adminShipConfirm,
     openReceive,
     invoicePoId,
     adminInvoiceApiRef,

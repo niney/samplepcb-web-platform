@@ -361,7 +361,7 @@ const shipmentInvalidate = (qc: ReturnType<typeof useQueryClient>): void => {
 
 const shipmentAction = (
   qc: ReturnType<typeof useQueryClient>,
-  action: 'advance' | 'box' | 'revert',
+  action: 'advance' | 'box' | 'revert' | 'ship-confirm',
 ) =>
   useMutation({
     mutationFn: ({
@@ -394,6 +394,10 @@ export function useAdminPcbShipmentBox() {
 }
 export function useAdminPcbShipmentRevert() {
   return shipmentAction(useQueryClient(), 'revert');
+}
+/** 협력사 [선적 완료] 확인 대행 — 포털 계정이 없는 조직 등 협력사가 누를 수 없을 때. */
+export function useAdminPcbShipmentConfirm() {
+  return shipmentAction(useQueryClient(), 'ship-confirm');
 }
 
 /** 선적 취소(문서 삭제) — 발송 전·입고 전만. 견적 삭제의 SHIPMENT_EXISTS 를 푸는 출구. */

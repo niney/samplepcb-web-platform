@@ -1,4 +1,5 @@
 import { computed, type Ref } from 'vue';
+import { pcbShipConfirmPending } from '@sp/api-contract';
 import { usePartnerPos, usePartnerRfqs, usePartnerShipments } from './usePartnerRfqs';
 import { usePartnerPcbRfqs } from './usePartnerPcbRfqs';
 import {
@@ -87,7 +88,9 @@ export function usePartnerPcbWork(enabled?: Ref<boolean>) {
   const boxes = computed(() => boardQuery.data.value?.data.boxes ?? []);
   const activeShipments = computed(() => boardQuery.data.value?.data.active ?? []);
   const doneCount = computed(() => boardQuery.data.value?.data.doneCount ?? 0);
-  const shipTodoCount = computed(() => shelf.value.length + boxes.value.length);
+  // 보내기의 할 일 — 담을 것·보낼 박스에 더해, 받는 쪽이 선적을 진행해 [선적 완료] 확인을 기다리는 발송.
+  const shipConfirmCount = computed(() => activeShipments.value.filter((s) => pcbShipConfirmPending(s)).length);
+  const shipTodoCount = computed(() => shelf.value.length + boxes.value.length + shipConfirmCount.value);
 
   // A/S — 회신 주체가 나인 접수 건만 '할 일'.
   const asCases = computed(() => asQuery.data.value?.data.cases ?? []);

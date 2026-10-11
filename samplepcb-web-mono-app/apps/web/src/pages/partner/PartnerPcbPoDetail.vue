@@ -16,8 +16,9 @@ import {
   PcbEqReopenBody,
   bomShipmentActorOf,
   bomShipmentNextStatus,
+  PCB_SHIP_CONFIRM_LABEL,
   bomShipmentStatusLabel,
-  bomShipmentStatusesOf,
+  pcbShipmentSenderDone,
   canReopenPcbEq,
   pcbEqCommentTranslated,
   pcbEqReplyFileName,
@@ -52,6 +53,7 @@ import PartnerPcbEqAnswers from '../../components/partner/PartnerPcbEqAnswers.vu
 import PcbEqTimeline from '../../components/pcb/PcbEqTimeline.vue';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
+import { PCB_SHIP_STEP_CLS, pcbShipSteps } from '../../lib/pcb-ship-steps';
 import { formatBytes } from '../../lib/format';
 import { formatPartnerDateTime } from '../../partner/i18n-core';
 
@@ -646,6 +648,14 @@ async function issueChildPoFromOrigin(target: {
 // ── P3 선적 — 발송 준비/핑퐁/입고확인/첨부/상업송장 ──────────────────────────
 const ship = computed(() => detail.value?.shipment ?? null);
 const shipMode = computed(() => ship.value?.mode ?? 'international');
+// 스텝퍼 — 보내기 카드와 같은 단계(가상 단계 [선적 완료] 포함, 받는 쪽 단계는 흐리게).
+const shipSteps = computed(() =>
+  ship.value === null
+    ? []
+    : pcbShipSteps(ship.value, (step) => pt(bomShipmentStatusLabel(shipMode.value, step)), pt(PCB_SHIP_CONFIRM_LABEL)),
+);
+/** 보내는 쪽(내가 수주한 발주)에게 이 발송이 끝났는가 — 끝났으면 '보내기에서 진행' 안내를 걷는다. */
+const shipSenderDone = computed(() => ship.value !== null && pcbShipmentSenderDone(ship.value));
 const shipNext = computed(() =>
   ship.value === null ? null : bomShipmentNextStatus(shipMode.value, ship.value.status),
 );
@@ -1179,17 +1189,22 @@ watch(locale, () => {
 
         <template v-if="ship !== null">
           <!-- 스텝퍼 -->
-          <ol class="mt-3 flex flex-wrap items-center gap-1">
-            <template v-for="(step, i) in bomShipmentStatusesOf(ship.mode)" :key="step">
+          <ol class="mt-3 flex flex-wrap items-center gap-1" data-testid="partner-po-ship-steps">
+            <template v-for="(step, i) in shipSteps" :key="step.key">
               <li
                 class="rounded-full px-2.5 py-1 text-xs font-semibold"
-                :class="bomShipmentStatusesOf(ship.mode).indexOf(ship.status) > i ? 'bg-emerald-50 text-emerald-700' : bomShipmentStatusesOf(ship.mode).indexOf(ship.status) === i ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-400'"
+                :class="PCB_SHIP_STEP_CLS[step.state]"
+                :data-step="step.key"
+                :data-step-state="step.state"
               >
-                {{ pt(bomShipmentStatusLabel(ship.mode, step)) }}
+                {{ step.label }}
               </li>
-              <span v-if="i < bomShipmentStatusesOf(ship.mode).length - 1" class="text-gray-300">→</span>
+              <span v-if="i < shipSteps.length - 1" class="text-gray-300">→</span>
             </template>
           </ol>
+          <p v-if="ship.shipConfirmedAt !== null" class="mt-1.5 text-xs font-semibold text-emerald-700" data-testid="partner-po-ship-confirmed">
+            {{ pt('선적 완료 확인 {p0}', { p0: dateOnly(ship.shipConfirmedAt) }) }}<template v-if="ship.shipConfirmedBy === 'ADMIN'"> {{ pt('(샘플피씨비 대행)') }}</template>
+          </p>
           <p v-if="ship.receivedAt !== null" class="mt-1.5 text-xs font-semibold text-emerald-700">
             {{ pt('입고 확인 완료 {value1}', { value1: dateOnly(ship.receivedAt) }) }}<template v-if="ship.receivedNote !== null && ship.receivedNote !== ''">{{ pt('— 메모: {value1}', { value1: ship.receivedNote }) }}</template>
           </p>
@@ -1215,7 +1230,7 @@ watch(locale, () => {
 
           <!-- 보내는측 — 조작은 보드 단일 창구 -->
           <RouterLink
-            v-if="detail.direction === 'received' && shipNext !== null"
+            v-if="detail.direction === 'received' && shipNext !== null && !shipSenderDone"
             :to="{ name: 'partner-pcb-ship' }"
             class="mt-3 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700"
           >
