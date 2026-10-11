@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lastPcbEqRejectedAt, orderPcbEqFiles } from '@sp/api-contract';
+import { isPcbEqFileRecord, lastPcbEqRejectedAt, orderPcbEqFiles } from '@sp/api-contract';
 
 // EQ 첨부 최신·보완 판정(여정 22호 → 33호 결정) — 관리자 Case·고객확인 패널·협력사 포털이
 // 같은 답을 하게 하는 순수 함수. 협력사가 같은 종류를 다시 올려도 이전 파일은 남으므로
@@ -124,5 +124,50 @@ describe('lastPcbEqRejectedAt', () => {
   // 이관·구데이터는 at 이 비어 있을 수 있다 — 비교 기준이 못 되므로 건너뛴다.
   it('시각이 비면 근거로 삼지 않는다', () => {
     expect(lastPcbEqRejectedAt([ev('', 'eq_requested', 'issued', '사유')])).toBeNull();
+  });
+});
+
+// 기록으로 굳은 파일(2026-10-11) — 추가 EQ 요청으로 발주접수에 돌아와도, 이미 승인됐거나 고객 확인에
+// 쓰인 협력사 파일은 지울 수 없다. `issued` 가 "아직 아무것도 안 낸 상태"가 아니게 된 뒤의 규칙.
+describe('isPcbEqFileRecord', () => {
+  const none = new Set<number>();
+  const approved = [
+    ev('2026-10-11T01:00:00.000Z', 'issued', 'eq_requested'),
+    ev('2026-10-11T02:00:00.000Z', 'eq_requested', 'eq_done'),
+    ev('2026-10-11T03:00:00.000Z', 'eq_done', 'issued', '임피던스 쿠폰 위치 재확인'),
+  ];
+
+  it('승인 전에 올라와 있던 파일은 굳는다 — 추가 EQ 요청 뒤에도 못 지운다', () => {
+    expect(isPcbEqFileRecord(f(1, 'eq', '2026-10-11T00:30:00.000Z'), approved, none, 'eq')).toBe(true);
+  });
+
+  it('추가 EQ 요청 뒤에 새로 올린 파일은 굳지 않는다 — 잘못 올렸으면 지우고 다시 올린다', () => {
+    expect(isPcbEqFileRecord(f(2, 'eq', '2026-10-11T03:30:00.000Z'), approved, none, 'eq')).toBe(false);
+  });
+
+  it('반려·요청 취소만 거친 파일은 굳지 않는다', () => {
+    const rejected = [
+      ev('2026-10-11T01:00:00.000Z', 'issued', 'eq_requested'),
+      ev('2026-10-11T02:00:00.000Z', 'eq_requested', 'issued', '도면 불일치'),
+      ev('2026-10-11T02:30:00.000Z', 'issued', 'eq_requested'),
+      ev('2026-10-11T02:40:00.000Z', 'eq_requested', 'issued'),
+    ];
+    expect(isPcbEqFileRecord(f(1, 'eq', '2026-10-11T00:30:00.000Z'), rejected, none, 'eq')).toBe(false);
+  });
+
+  it('고객에게 나간 회차의 근거 첨부는 승인 전이라도 굳는다', () => {
+    const requested = [ev('2026-10-11T01:00:00.000Z', 'issued', 'eq_requested')];
+    expect(isPcbEqFileRecord(f(7, 'eq', '2026-10-11T00:30:00.000Z'), requested, new Set([7]), 'eq')).toBe(true);
+    expect(isPcbEqFileRecord(f(8, 'working', '2026-10-11T00:30:00.000Z'), requested, new Set([7]), 'eq')).toBe(false);
+  });
+
+  it('관리자 회신(reply)과 스텐실 트랙은 대상이 아니다', () => {
+    expect(
+      isPcbEqFileRecord({ fileId: 1, fileType: 'reply', uploadedAt: '2026-10-11T00:30:00.000Z' }, approved, new Set([1]), 'eq'),
+    ).toBe(false);
+    // 메탈마스크는 건드리지 않는다(R-4) — 좌표파일 잠금은 기존 상태 규칙(canEditPcbEqFile)이 맡는다.
+    expect(
+      isPcbEqFileRecord({ fileId: 1, fileType: 'coord', uploadedAt: '2026-10-11T00:30:00.000Z' }, approved, none, 'stencil'),
+    ).toBe(false);
   });
 });

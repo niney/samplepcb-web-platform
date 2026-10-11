@@ -413,4 +413,13 @@ export const pcbMessages = {
   '원자재': ['원자재', 'Material', '原材料'],
   '표면처리': ['표면처리', 'Surface finish', '表面处理'],
   '표기·도면': ['표기·도면', 'Notation · Drawing', '标注 · 图纸'],
+  // 올린 파일 목록·삭제 확인·고객 회신 접기(2026-10-11 — 업로드 결과가 고객 회신에 가려 안 보이던 것)
+  '올린 파일': ['올린 파일', 'Uploaded files', '已上传文件'],
+  '업로드됨': ['업로드됨', 'Uploaded', '已上传'],
+  '아직 올린 파일이 없습니다.': ['아직 올린 파일이 없습니다.', 'No files uploaded yet.', '尚未上传文件。'],
+  '\'{value1}\' 파일을 삭제할까요? 삭제하면 되돌릴 수 없습니다.': ['\'{value1}\' 파일을 삭제할까요? 삭제하면 되돌릴 수 없습니다.', 'Delete \'{value1}\'? This cannot be undone.', '确定删除“{value1}”吗？删除后无法恢复。'],
+  '이미 승인됐거나 고객 확인에 쓰인 파일 {value1}개는 기록으로 남아 삭제할 수 없습니다 — 새 파일을 올리면 이전 파일로 접힙니다.': ['이미 승인됐거나 고객 확인에 쓰인 파일 {value1}개는 기록으로 남아 삭제할 수 없습니다 — 새 파일을 올리면 이전 파일로 접힙니다.', '{value1} file(s) already approved or used for customer confirmation are kept as records and cannot be deleted — uploading a new file marks them as earlier versions.', '已获批准或已用于客户确认的 {value1} 个文件作为记录保留，无法删除 — 上传新文件后，它们将标记为旧版。'],
+  '접기': ['접기', 'Collapse', '收起'],
+  '펼치기': ['펼치기', 'Expand', '展开'],
+  '문항별 내용은 접어 두었습니다 — [펼치기]로 다시 볼 수 있습니다.': ['문항별 내용은 접어 두었습니다 — [펼치기]로 다시 볼 수 있습니다.', 'Item details are collapsed — press [Expand] to view them again.', '各问题内容已收起 — 点击[展开]可再次查看。'],
 } as const;

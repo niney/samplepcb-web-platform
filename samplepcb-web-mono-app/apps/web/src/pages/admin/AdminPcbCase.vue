@@ -2381,7 +2381,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       ⬇ {{ f.fileType }}<template v-if="!f.isLatest"> · 이전</template><template v-else-if="f.afterReject"> · 보완</template>
                     </button>
                     <button
-                      v-if="po.status === 'issued'"
+                      v-if="po.status === 'issued' && !f.locked"
                       type="button"
                       class="rounded-r border border-l-0 border-gray-200 px-1 py-0.5 text-[11px] text-gray-300 hover:bg-red-50 hover:text-red-600"
                       title="첨부 삭제(대행)"

@@ -215,7 +215,7 @@ const when = (at: string): string => {
                     :title="pt('같은 종류로 더 나중 파일이 있습니다 — 이건 이전 것입니다.')"
                   >{{ pt('이전') }}</span>
                   <button
-                    v-if="editable === true && isMine(item.byRole)"
+                    v-if="editable === true && isMine(item.byRole) && !f.locked"
                     type="button"
                     class="shrink-0 text-gray-300 hover:text-red-600"
                     :aria-label="pt('파일 삭제')"

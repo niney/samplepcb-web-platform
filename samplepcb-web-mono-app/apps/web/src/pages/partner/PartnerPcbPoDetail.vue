@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { usePartnerI18n } from '../../partner/i18n';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -49,6 +49,8 @@ import PartnerPcbEqAnswers from '../../components/partner/PartnerPcbEqAnswers.vu
 import PcbEqTimeline from '../../components/pcb/PcbEqTimeline.vue';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
+import { formatBytes } from '../../lib/format';
+import { formatPartnerDateTime } from '../../partner/i18n-core';
 
 const { pt, pm, locale, pd, pn } = usePartnerI18n();
 const dateOnly = pd;
@@ -127,6 +129,53 @@ const hasWorkingFile = computed(
   () => detail.value?.eq.files.some((f) => f.fileType === 'working') ?? false,
 );
 const filesEditable = computed(() => detail.value?.status === 'issued');
+
+// ── 올린 파일(EQ 트랙) — 업로드 버튼 바로 아래에서 결과를 보인다(2026-10-11 사용자 지적) ──
+// 올린 파일은 타임라인 말풍선으로 나타나는데, 추가 EQ 요청으로 돌아온 화면에서는 그 사이에 '고객 회신'이
+// 화면 한두 장을 차지해 버튼을 누른 자리에서 결과가 안 보였다. 여기 목록은 **지금 손댈 수 있는 파일**이다:
+// 기록으로 굳은 파일(locked — 승인됐거나 고객 확인에 쓰인 것)은 빼고 건수만 알린다. 타임라인은 그대로 둔다(시간순 기록).
+const myUploadRole = computed(() => (detail.value?.direction === 'issued' ? 'MASTER_DEALER' : 'PARTNER'));
+const workingSetFiles = computed(() =>
+  (detail.value?.eq.files ?? []).filter((f) => (f.fileType === 'eq' || f.fileType === 'working') && !f.locked),
+);
+const lockedFileCount = computed(
+  () => (detail.value?.eq.files ?? []).filter((f) => (f.fileType === 'eq' || f.fileType === 'working') && f.locked).length,
+);
+const workingSetCount = (fileType: 'eq' | 'working'): number =>
+  workingSetFiles.value.filter((f) => f.fileType === fileType).length;
+const uploadCountSuffix = (fileType: 'eq' | 'working'): string => {
+  const n = workingSetCount(fileType);
+  return n > 0 ? ` (${pn(n)})` : '';
+};
+const uploadKindLabel = (fileType: PcbEqFileTypeType): string => (fileType === 'working' ? pt('Working 데이터') : pt('EQ 질의서'));
+
+// 방금 올린 줄을 잠깐 강조한다 — "올라갔다"를 누른 자리에서 알게.
+const freshFileIds = ref<ReadonlySet<number>>(new Set<number>());
+let freshBaseline: Set<number> | null = null;
+let freshTimer: ReturnType<typeof setTimeout> | null = null;
+function armFreshBaseline(): void {
+  freshBaseline = new Set((detail.value?.eq.files ?? []).map((f) => f.fileId));
+}
+watch(
+  () => detail.value?.eq.files,
+  (files) => {
+    const baseline = freshBaseline;
+    if (baseline === null || files === undefined) return;
+    const fresh = files.filter((f) => !baseline.has(f.fileId)).map((f) => f.fileId);
+    if (fresh.length === 0) return;
+    for (const id of fresh) baseline.add(id);
+    freshFileIds.value = new Set([...freshFileIds.value, ...fresh]);
+    if (freshTimer !== null) clearTimeout(freshTimer);
+    freshTimer = setTimeout(() => {
+      freshFileIds.value = new Set<number>();
+      freshBaseline = null;
+      freshTimer = null;
+    }, 6000);
+  },
+);
+onBeforeUnmount(() => {
+  if (freshTimer !== null) clearTimeout(freshTimer);
+});
 
 // ── 스텐실(메탈마스크) 트랙 ─────────────────────────────────────────────────
 // EQ 질의 왕복이 없는 대신 **고객문의사항 + 좌표파일**을 내고 관리자가 확인한다.
@@ -364,6 +413,7 @@ function pickAndUpload(
     const files = [...(input.files ?? [])];
     if (files.length === 0) return;
     actionError.value = '';
+    armFreshBaseline();
     const failed: string[] = [];
     let lastMessage = '';
     for (const file of files) {
@@ -381,6 +431,16 @@ function pickAndUpload(
     }
   };
   input.click();
+}
+/** 삭제는 한 번 묻는다 — 목록의 [삭제]와 타임라인의 ✕ 가 같은 문을 지난다(되돌릴 수 없다). */
+async function askDeleteFile(fileId: number): Promise<void> {
+  const file = detail.value?.eq.files.find((f) => f.fileId === fileId);
+  const ok = await confirmDialog({
+    message: pt('\'{value1}\' 파일을 삭제할까요? 삭제하면 되돌릴 수 없습니다.', { value1: file?.name ?? '' }),
+    confirmLabel: pt('삭제'),
+    tone: 'danger',
+  });
+  if (ok) await deleteFile(fileId);
 }
 async function deleteFile(fileId: number): Promise<void> {
   if (poId.value === null) return;
@@ -798,13 +858,20 @@ watch(locale, () => {
             :track="track"
             :editable="filesEditable && detail.eq.myRole === 'RECEIVER'"
             @download="downloadEq"
-            @delete="(fileId) => void deleteFile(fileId)"
+            @delete="(fileId) => void askDeleteFile(fileId)"
           />
         </div>
 
         <!-- 고객 회신(D20) — 대화(타임라인)와 할 일 사이: 읽고 → 판단하고 → 누른다. 위임 상위(MD
              관전)는 타임라인이 없어도 하위의 회차를 받으므로 위임 조건 밖에 둔다. -->
-        <PartnerPcbEqAnswers v-if="eqRounds.length > 0" :rounds="eqRounds" class="mt-4" />
+        <!-- 발주접수로 돌아와 수정 EQ 를 올리는 단계(업로드가 열린 내 차례)면 접어 둔다 — 지금 할 일은 읽기가
+             아니라 올리기이고, 펼쳐 두면 올린 결과와 버튼 사이를 문항이 가른다. -->
+        <PartnerPcbEqAnswers
+          v-if="eqRounds.length > 0"
+          :rounds="eqRounds"
+          :collapsed-by-default="filesEditable && detail.eq.myRole === 'RECEIVER'"
+          class="mt-4"
+        />
 
         <div v-if="detail.eq.delegatePoId === null && !detail.eq.blocked">
           <!-- 지금 할 일 — 타임라인의 마지막 칸. 무엇을 해야 하는지 한 문장으로 못박고,
@@ -861,28 +928,71 @@ watch(locale, () => {
               </div>
             </template>
 
-            <div
-              v-else-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
-              class="mt-2 flex flex-wrap gap-2"
-            >
-              <button
-                type="button"
-                class="rounded-md border border-blue-300 bg-surface px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
-                :disabled="upload.isPending.value"
-                @click="pickAndUpload('eq')"
-              >
-                {{ pt('＋ EQ 질의서') }}
-              </button>
-              <button
-                type="button"
-                class="rounded-md border px-2.5 py-1.5 text-xs font-semibold hover:bg-blue-50 disabled:opacity-40"
-                :class="hasWorkingFile ? 'border-blue-300 bg-surface text-blue-700' : 'border-amber-300 bg-amber-50 text-amber-700'"
-                :disabled="upload.isPending.value"
-                @click="pickAndUpload('working')"
-              >
-                {{ pt('＋ Working 데이터') }}
-              </button>
-            </div>
+            <template v-else-if="filesEditable && detail.eq.myRole === 'RECEIVER'">
+              <div class="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="rounded-md border border-blue-300 bg-surface px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+                  :disabled="upload.isPending.value"
+                  @click="pickAndUpload('eq')"
+                >
+                  {{ pt('＋ EQ 질의서') }}{{ uploadCountSuffix('eq') }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md border px-2.5 py-1.5 text-xs font-semibold hover:bg-blue-50 disabled:opacity-40"
+                  :class="hasWorkingFile ? 'border-blue-300 bg-surface text-blue-700' : 'border-amber-300 bg-amber-50 text-amber-700'"
+                  :disabled="upload.isPending.value"
+                  @click="pickAndUpload('working')"
+                >
+                  {{ pt('＋ Working 데이터') }}{{ uploadCountSuffix('working') }}
+                </button>
+              </div>
+              <!-- 올린 파일 — 누른 자리에서 결과를 보고, 잘못 올렸으면 바로 지운다 -->
+              <div class="mt-2 rounded-lg border border-blue-100 bg-surface p-2.5" data-testid="partner-eq-upload-list">
+                <p class="text-xs font-bold text-blue-900">{{ pt('올린 파일') }}</p>
+                <ul v-if="workingSetFiles.length > 0" class="mt-1.5 space-y-1">
+                  <li
+                    v-for="f in workingSetFiles"
+                    :key="f.fileId"
+                    class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-2 py-1.5 text-xs transition-colors"
+                    :class="freshFileIds.has(f.fileId) ? 'bg-emerald-50 ring-1 ring-emerald-300' : 'bg-gray-50'"
+                    data-testid="partner-eq-upload-row"
+                    :data-fresh="freshFileIds.has(f.fileId) ? 'true' : 'false'"
+                  >
+                    <span class="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800">{{ uploadKindLabel(f.fileType) }}</span>
+                    <button
+                      type="button"
+                      class="min-w-0 truncate font-medium text-blue-700 hover:underline"
+                      @click="downloadEq(f.fileId, f.name)"
+                    >
+                      {{ f.name }}
+                    </button>
+                    <span class="shrink-0 text-gray-400">{{ formatBytes(f.size) }} · {{ formatPartnerDateTime(f.uploadedAt, locale) }}</span>
+                    <span v-if="freshFileIds.has(f.fileId)" class="shrink-0 font-semibold text-emerald-700">✓ {{ pt('업로드됨') }}</span>
+                    <span
+                      v-if="!f.isLatest"
+                      class="shrink-0 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700"
+                      :title="pt('같은 종류로 더 나중 파일이 있습니다 — 이건 이전 것입니다.')"
+                    >{{ pt('이전') }}</span>
+                    <button
+                      v-if="f.uploadedBy === myUploadRole"
+                      type="button"
+                      class="ml-auto shrink-0 rounded-md border border-red-200 bg-surface px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40"
+                      :disabled="removeFile.isPending.value"
+                      data-testid="partner-eq-upload-delete"
+                      @click="void askDeleteFile(f.fileId)"
+                    >
+                      {{ pt('삭제') }}
+                    </button>
+                  </li>
+                </ul>
+                <p v-else class="mt-1 text-xs text-gray-500" data-testid="partner-eq-upload-empty">{{ pt('아직 올린 파일이 없습니다.') }}</p>
+                <p v-if="lockedFileCount > 0" class="mt-1.5 text-[11px] leading-4 text-gray-500" data-testid="partner-eq-upload-locked">
+                  {{ pt('이미 승인됐거나 고객 확인에 쓰인 파일 {value1}개는 기록으로 남아 삭제할 수 없습니다 — 새 파일을 올리면 이전 파일로 접힙니다.', { value1: pn(lockedFileCount) }) }}
+                </p>
+              </div>
+            </template>
           </div>
         </div>
 

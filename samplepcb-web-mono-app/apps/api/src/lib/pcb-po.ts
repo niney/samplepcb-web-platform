@@ -28,6 +28,7 @@ import {
   PCB_PO_STATUS_LABELS,
   asPcbEqFileType,
   canReopenPcbEq,
+  isPcbEqFileRecord,
   lastPcbEqReworkBoundary,
   orderPcbEqFiles,
   pcbStencilSubmitBlockers,
@@ -54,6 +55,7 @@ import {
   forwardAnsweredEqReviewsTx,
   loadEqReviewRowSummaries,
   loadPartnerEqRounds,
+  loadSentEqSourceFileIds,
 } from './pcb-eq-review';
 import { loadEqAiRowSummaries } from './pcb-eq-ai';
 import type { PcbDeliveryDateRange } from './pcb-delivery-filter';
@@ -210,7 +212,7 @@ const resolveEqDelegation = async (po: SpPcbPo): Promise<EqDelegation> => {
 // ── EQ 첨부(sp_file refType 'sp_pcb_po_eq') ──────────────────────────────────
 // isLatest·afterReject 는 **목록 전체와 EQ 이력을 봐야** 정해지므로 여기서는 붙이지 않는다
 // (orderPcbEqFiles 몫).
-type EqFileBase = Omit<PcbEqFileViewType, 'isLatest' | 'afterReject'>;
+type EqFileBase = Omit<PcbEqFileViewType, 'isLatest' | 'afterReject' | 'locked'>;
 
 // DB 컬럼은 문자열 — 계약 유니온으로 총함수 내로잉. 사전은 계약(asPcbEqFileType)이 정본이라
 // 새 종류가 늘어도 여기는 손댈 것이 없다(종류 사전을 여기 복제해 뒀다가 잊으면 그 파일이
@@ -225,6 +227,8 @@ const toEqFileView = (f: SpFile): EqFileBase => ({
   uploadedBy: f.uploadedBy,
   uploadedAt: f.writeDate.toISOString(),
 });
+
+const NO_SENT_SOURCES: ReadonlySet<number> = new Set<number>();
 
 /** 발주서를 통째로 받는다 — 반려 시각(eqHistory)이 있어야 '보완분'을 가를 수 있다. */
 const loadEqFilesMap = async (
@@ -242,6 +246,11 @@ const loadEqFilesMap = async (
     list.push(toEqFileView(row));
     map.set(key, list);
   }
+  // 기록으로 굳은 파일(locked) 판정의 재료 — 트랙(스텐실은 대상 아님)·고객에게 나간 회차의 근거 첨부.
+  const [tracks, sentSources] = await Promise.all([
+    loadPcbPoTracks(pos.map((p) => p.specId)),
+    loadSentEqSourceFileIds(pos.map((p) => p.id)),
+  ]);
   // 최신 판정·정렬은 계약의 순수 함수 하나로 — 화면마다 각자 정렬하면 규칙이 갈라진다.
   const out = new Map<string, PcbEqFileViewType[]>();
   for (const po of pos) {
@@ -249,7 +258,16 @@ const loadEqFilesMap = async (
     // '그 뒤로 새 파일이 올라왔는가'의 기준 = EQ 를 다시 돌게 만든 가장 최근 경계. 관리자 반려뿐 아니라
     // 협력사의 추가 EQ 요청(D20 후속)도 경계다 — 승인된 건을 다시 연 뒤 올린 파일이 '보완분'이다.
     const boundaryAt = eqReworkStamps(po.eqHistory).boundaryAt;
-    out.set(key, orderPcbEqFiles(map.get(key) ?? [], boundaryAt));
+    const history = parseEqHistory(po.eqHistory);
+    const track = tracks.get(po.specId.toString()) ?? 'eq';
+    const sent = sentSources.get(key) ?? NO_SENT_SOURCES;
+    out.set(
+      key,
+      orderPcbEqFiles(map.get(key) ?? [], boundaryAt).map((f) => ({
+        ...f,
+        locked: isPcbEqFileRecord(f, history, sent, track),
+      })),
+    );
   }
   return out;
 };
@@ -278,6 +296,15 @@ export const uploadPcbEqFile = async (
       uploadedBy,
     },
   });
+};
+
+/**
+ * 이 첨부가 기록으로 굳어 지울 수 없는가 — 목록과 **같은 판정**을 쓴다(loadEqFilesMap 이 계약
+ * isPcbEqFileRecord 로 채운 locked). 삭제 라우트(포털·관리자 대행)가 지우기 전에 묻는다.
+ */
+export const isPcbEqFileLocked = async (po: SpPcbPo, fileId: bigint): Promise<boolean> => {
+  const files = (await loadEqFilesMap([po])).get(po.id.toString()) ?? [];
+  return files.some((f) => f.fileId === Number(fileId) && f.locked);
 };
 
 export const deletePcbEqFile = async (poId: bigint, fileId: bigint): Promise<boolean> => {

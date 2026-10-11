@@ -451,6 +451,86 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     await setLocale(page, 'ko');
   });
 
+  // 2026-10-11 사용자 지적: 추가 EQ 요청으로 돌아온 화면에서 올린 파일이 '고객 회신' 위쪽 타임라인에만 나타나
+  // 업로드가 됐는지 안 보였다. 버튼 바로 아래 '올린 파일' 목록 + 고객 회신 접기 + 굳은 파일(승인된 1차 EQ) 삭제 잠금.
+  test('R3b. 올린 파일 — 버튼 아래에서 결과가 보이고, 지울 수 있고, 승인된 파일은 못 지운다(고객 회신은 접힌다)', async () => {
+    const page = await openPo(owner.mbId ?? '', poId, projectName);
+    const list = page.getByTestId('partner-eq-upload-list');
+    const rows = page.getByTestId('partner-eq-upload-row');
+    await list.waitFor();
+
+    // ① 고객 회신은 접혀 있다 — 요약 한 줄은 남고, 펼치면 문항이 다시 보인다.
+    await page.getByTestId('partner-eq-answers-collapsed').waitFor();
+    expect(await page.getByTestId('partner-eq-answer-item').count(), '접힌 동안 문항 없음').toBe(0);
+    expect(await page.getByTestId('partner-eq-answer-summary').innerText(), '요약은 남는다').toContain('1: B');
+    await shot(page, 'ko-upload-collapsed');
+    await page.getByTestId('partner-eq-answers-toggle').click();
+    expect(await page.getByTestId('partner-eq-answer-item').count(), '펼치면 문항이 보인다').toBeGreaterThan(0);
+    await page.getByTestId('partner-eq-answers-toggle').click();
+    expect(await page.getByTestId('partner-eq-answer-item').count(), '다시 접힌다').toBe(0);
+
+    // ② 아직 새로 올린 것이 없다 — 승인된 1차 EQ 는 목록에 없고(기록) 건수만 알린다. 타임라인에도 ✕ 가 없다.
+    await page.getByTestId('partner-eq-upload-empty').waitFor();
+    expect(await rows.count(), '손댈 수 있는 파일 0').toBe(0);
+    expect(await page.getByTestId('partner-eq-upload-locked').innerText(), '굳은 파일 1개 안내').toContain('1');
+    expect(await todo(page).getByRole('button', { name: /EQ 질의서/ }).innerText(), '새 파일이 없으니 개수 없음').not.toContain('(');
+    expect(await page.getByRole('button', { name: tr('파일 삭제', 'ko') }).count(), '승인된 파일엔 ✕ 가 없다').toBe(0);
+
+    // ③ 서버도 거절한다 — 협력사·관리자 대행 둘 다.
+    const before = await portalDetail(P, poId);
+    const approvedFile = before.eq.files.find((f: any) => f.name === 'EQ-factory.pdf');
+    expect(approvedFile?.locked, '승인된 1차 EQ 는 굳었다').toBe(true);
+    const denied = await api(P, 'DELETE', `/api/partner/pcb-pos/${String(poId)}/eq-files/${String(approvedFile.fileId)}`);
+    expect(denied.status, `굳은 파일 삭제: ${JSON.stringify(denied.json)}`).toBe(409);
+    expect(denied.json?.error).toBe('FILE_RECORD_LOCKED');
+    const deniedProxy = await api(
+      A,
+      'DELETE',
+      `/api/admin/pcb-projects/${specId.toString()}/pos/${String(poId)}/eq-files/${String(approvedFile.fileId)}`,
+    );
+    expect(deniedProxy.status, `대행 삭제: ${JSON.stringify(deniedProxy.json)}`).toBe(409);
+    expect(deniedProxy.json?.error).toBe('FILE_RECORD_LOCKED');
+
+    // ④ 화면에서 올린다 — 결과가 **버튼 바로 아래**에 강조되어 나타나고 버튼에 개수가 붙는다.
+    const uploadBtn = todo(page).getByRole('button', { name: /EQ 질의서/ });
+    const chooser = page.waitForEvent('filechooser');
+    await uploadBtn.click();
+    await (await chooser).setFiles({ name: 'EQ-wrong.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') });
+    await rows.first().waitFor();
+    expect(await rows.count(), '올린 줄 1').toBe(1);
+    const rowText = await rows.first().innerText();
+    expect(rowText).toContain('EQ-wrong.pdf');
+    expect(rowText, '방금 올린 줄 강조').toContain(tr('업로드됨', 'ko'));
+    expect(await rows.first().getAttribute('data-fresh')).toBe('true');
+    expect(await uploadBtn.innerText(), '버튼에 개수').toContain('(1)');
+    const btnBox = await uploadBtn.boundingBox();
+    const rowBox = await rows.first().boundingBox();
+    expect(btnBox !== null && rowBox !== null, '위치를 잴 수 있다').toBe(true);
+    expect((rowBox?.y ?? 0) - ((btnBox?.y ?? 0) + (btnBox?.height ?? 0)), '올린 줄은 버튼 바로 아래(120px 안)').toBeLessThan(120);
+    expect((rowBox?.y ?? 0) > (btnBox?.y ?? 0), '버튼보다 아래').toBe(true);
+    await shot(page, 'ko-upload-uploaded');
+
+    // ⑤ en/zh-CN — 목록에 한글이 남지 않는다. 390px 넘침 0.
+    for (const locale of ['en', 'zh-CN'] as const) {
+      await setLocale(page, locale);
+      expect(await list.innerText(), `${locale} 올린 파일 목록 한글 잔류`).not.toMatch(HANGUL);
+      expect(await page.getByTestId('partner-eq-answers-collapsed').innerText(), `${locale} 접힘 안내 한글 잔류`).not.toMatch(HANGUL);
+    }
+    await setLocale(page, 'ko');
+    await narrow(page, 'ko upload list', 'ko-upload-390');
+
+    // ⑥ 잘못 올렸다 — 목록의 [삭제]는 한 번 묻고 지운다. 굳은 파일 안내는 그대로.
+    await page.getByTestId('partner-eq-upload-delete').click();
+    const confirm = page.getByRole('alertdialog');
+    await confirm.waitFor();
+    expect(await confirm.innerText(), '무엇을 지우는지 말한다').toContain('EQ-wrong.pdf');
+    await confirm.getByRole('button', { name: tr('삭제', 'ko') }).click();
+    await page.getByTestId('partner-eq-upload-empty').waitFor();
+    expect(await rows.count(), '지운 뒤 0').toBe(0);
+    expect(await page.getByTestId('partner-eq-upload-locked').count(), '굳은 파일 안내는 남는다').toBe(1);
+    const after = await portalDetail(P, poId);
+    expect(after.eq.files.map((f: any) => f.name), '서버에서도 지워졌고 승인된 파일은 남았다').toEqual(['EQ-factory.pdf']);
+  });
   test('R4. 새 파일 → 재승인 → 생산 시작 — 이전 회차의 답을 다시 확인하라 하지 않고, 시작 뒤엔 버튼이 없다', async () => {
     // 수정한 EQ 를 올리면 안내가 "승인요청을 진행"으로 바뀐다.
     expect(await uploadEq(P, poId, 'EQ-factory-rev2.pdf'), '수정 EQ 업로드').toBe(200);

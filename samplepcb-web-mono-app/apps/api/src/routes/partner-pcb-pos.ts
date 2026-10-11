@@ -11,6 +11,7 @@ import {
   PartnerPcbPoListResponse,
   PartnerPcbRemittanceListResponse,
   PcbEqFileType,
+  PCB_EQ_FILE_RECORD_MESSAGE,
   PcbEqReopenBody,
   PcbEqRequestBody,
   PcbInvoiceResponse,
@@ -30,6 +31,7 @@ import {
   asPcbPoStatus,
   createChildPcbPo,
   deletePcbEqFile,
+  isPcbEqFileLocked,
   getPcbEqFileDownload,
   getPcbEqFileType,
   loadPartnerPcbPoDetail,
@@ -301,6 +303,10 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           error: 'EQ_LOCKED',
           message: pcbEqLockedMessage(await pcbPoTrackOf(po.specId)),
         });
+      }
+      // 발주접수로 돌아와 있어도 이미 승인됐거나 고객 확인에 쓰인 파일은 기록이다(추가 EQ 요청 뒤 1차 EQ 등).
+      if (await isPcbEqFileLocked(po, request.params.fileId)) {
+        return reply.status(409).send({ error: 'FILE_RECORD_LOCKED', message: PCB_EQ_FILE_RECORD_MESSAGE });
       }
       const removed = await deletePcbEqFile(po.id, request.params.fileId);
       if (!removed) return reply.notFound('파일을 찾을 수 없습니다');

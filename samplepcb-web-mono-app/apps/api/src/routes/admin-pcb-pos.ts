@@ -14,6 +14,7 @@ import {
   PCB_PO_STATUS_LABELS,
   PCB_STENCIL_SUBMIT_BLOCKER_MESSAGES,
   PcbShipmentFileType,
+  PCB_EQ_FILE_RECORD_MESSAGE,
   PcbEqReopenBody,
   PcbEqRequestBody,
   PcbInvoiceResponse,
@@ -35,6 +36,7 @@ import {
   createAdminPcbPo,
   deletePcbPo,
   deletePcbEqFile,
+  isPcbEqFileLocked,
   getPcbEqFileDownload,
   getPcbEqFileType,
   loadAdminPcbPoWorkItems,
@@ -604,6 +606,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               ? '생산이 시작된 뒤에는 회신 첨부를 지울 수 없습니다.'
               : pcbEqLockedMessage(await pcbPoTrackOf(po.specId)),
         });
+      }
+      // 대행 삭제도 같은 규칙 — 승인됐거나 고객 확인에 쓰인 협력사 파일은 기록이다.
+      if (await isPcbEqFileLocked(po, request.params.fileId)) {
+        return reply.status(409).send({ error: 'FILE_RECORD_LOCKED', message: PCB_EQ_FILE_RECORD_MESSAGE });
       }
       const removed = await deletePcbEqFile(po.id, request.params.fileId);
       if (!removed) return reply.notFound('파일을 찾을 수 없습니다');

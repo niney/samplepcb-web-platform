@@ -96,8 +96,9 @@ const download = (fileId: number, name: string): void => {
             <span class="bg-success size-1.5 rounded-full" />
           </template>
         </Button>
+        <!-- 승인됐거나 고객 확인에 쓰인 파일(locked)은 기록이라 대행으로도 지우지 않는다 -->
         <Button
-          v-if="po.status === 'issued'"
+          v-if="po.status === 'issued' && !f.locked"
           :variant="f.isLatest ? 'outline' : 'ghost'"
           size="icon-xs"
           title="첨부 삭제(대행)"

@@ -745,6 +745,28 @@ export const loadEqReviewRowSummaries = async (
 // ── D20 협력사 포털 — 전달된 회차만 ───────────────────────────────────────────
 
 /** 포털 발주 상세의 '고객 회신' — **관리자가 전달한 회차만**(최신 먼저). 전달 전엔 아무것도 없다. */
+/**
+ * 발주서별 **고객에게 나간 문항형 회차의 근거 첨부**(sourceFileIds) — 이 파일들은 기록으로 굳는다
+ * (계약 isPcbEqFileRecord ②). 안 나간 초안의 근거는 세지 않는다(초안은 고쳐 쓰는 중이다).
+ */
+export const loadSentEqSourceFileIds = async (
+  poIds: readonly bigint[],
+): Promise<Map<string, Set<number>>> => {
+  const out = new Map<string, Set<number>>();
+  if (poIds.length === 0) return out;
+  const rows = await prisma.spPcbEqReview.findMany({
+    where: { poId: { in: [...poIds] }, format: 'items', events: { some: { action: 'sent' } } },
+    select: { poId: true, sourceFileIds: true },
+  });
+  for (const r of rows) {
+    const key = r.poId.toString();
+    const set = out.get(key) ?? new Set<number>();
+    for (const id of parseSharedFileIds(r.sourceFileIds)) set.add(Number(id));
+    out.set(key, set);
+  }
+  return out;
+};
+
 export const loadPartnerEqRounds = async (poId: bigint): Promise<PartnerPcbEqRoundType[]> => {
   const rows = await prisma.spPcbEqReview.findMany({
     where: { poId, format: 'items', forwardedAt: { not: null } },

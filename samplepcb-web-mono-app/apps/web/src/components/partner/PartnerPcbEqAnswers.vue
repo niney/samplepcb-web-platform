@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { PCB_EQ_ITEM_CATEGORY_LABELS, type PartnerPcbEqItemType, type PartnerPcbEqRoundType } from '@sp/api-contract';
 import { usePartnerI18n } from '../../partner/i18n';
 import { formatPartnerDateTime } from '../../partner/i18n-core';
@@ -8,7 +8,10 @@ import { formatPartnerDateTime } from '../../partner/i18n-core';
 // 공장은 자기 EQ 표의 **선택지 기호**(A/B/C)로 답을 읽는다 — 번역이 어긋나도 "B 를 골랐다"는
 // 사실은 어긋나지 않으므로 기호를 가장 크게, 문장은 공장 원문(없으면 한국어)으로 보인다.
 // 고객 의견은 P1 에서 번역 없이 원문 그대로다(번역 병기는 P2).
-const props = defineProps<{ rounds: readonly PartnerPcbEqRoundType[] }>();
+// collapsedByDefault — 발주접수로 돌아와 **수정 EQ 를 올리는 단계**면 접어 둔다(2026-10-11 사용자 지적):
+// 회신은 이미 읽었고 지금 할 일은 업로드인데, 문항이 화면 한두 장을 차지해 올린 결과가 안 보였다.
+// 접혀도 '고객 선택 요약' 한 줄은 남는다(공장이 옮겨 적는 값). 읽어야 하는 단계(승인요청 중·승인 뒤)는 펼친다.
+const props = defineProps<{ rounds: readonly PartnerPcbEqRoundType[]; collapsedByDefault?: boolean }>();
 const { pt, locale } = usePartnerI18n();
 
 // 고른 회차는 reviewId 로 든다 — 고르지 않았으면 늘 최신(새 회차가 전달되면 저절로 넘어간다).
@@ -18,6 +21,16 @@ const current = computed<PartnerPcbEqRoundType | null>(
 );
 const latestId = computed(() => props.rounds[0]?.reviewId ?? null);
 const dt = (value: string | null): string => formatPartnerDateTime(value, locale.value);
+
+// 접힘은 사람이 누르기 전까지 단계(기본값)를 따른다 — 단계가 바뀌면 누른 것을 잊는다.
+const toggled = ref<boolean | null>(null);
+const open = computed(() => toggled.value ?? !props.collapsedByDefault);
+watch(
+  () => props.collapsedByDefault,
+  () => {
+    toggled.value = null;
+  },
+);
 
 /** 공장 번호가 회신서·개정 연결의 키다. 비어 있으면 표의 순서로 대신한다. */
 const itemNo = (item: PartnerPcbEqItemType, index: number): string => item.factoryNo ?? String(index + 1);
@@ -54,11 +67,20 @@ const hasKoreanView = (item: PartnerPcbEqItemType): boolean =>
         </button>
       </div>
       <span v-else class="rounded-full bg-violet-600 px-2.5 py-0.5 text-xs font-semibold text-white">{{ pt('{value1}차', { value1: current.roundNo }) }}</span>
+      <button
+        type="button"
+        class="ml-auto rounded-md border border-violet-200 bg-surface px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50"
+        :aria-expanded="open"
+        data-testid="partner-eq-answers-toggle"
+        @click="toggled = !open"
+      >
+        {{ open ? pt('접기') : pt('펼치기') }}
+      </button>
     </div>
-    <p class="mt-1 text-xs text-gray-500">
+    <p v-if="open" class="mt-1 text-xs text-gray-500">
       {{ pt('전달 {value1}', { value1: dt(current.forwardedAt) }) }}<template v-if="current.answeredAt !== null"> · {{ pt('고객 회신 {value1}', { value1: dt(current.answeredAt) }) }}</template>
     </p>
-    <p class="mt-1 text-xs leading-5 text-violet-800">
+    <p v-if="open" class="mt-1 text-xs leading-5 text-violet-800">
       {{ pt('샘플피씨비가 고객에게 확인한 EQ 답변입니다. 선택 기호는 귀사 EQ 표의 기호와 같습니다.') }}
     </p>
 
@@ -72,7 +94,11 @@ const hasKoreanView = (item: PartnerPcbEqItemType): boolean =>
       >{{ s.no }}: {{ s.key }}</span>
     </div>
 
-    <ol class="mt-3 space-y-3">
+    <p v-if="!open" class="mt-1 text-xs text-gray-500" data-testid="partner-eq-answers-collapsed">
+      {{ pt('문항별 내용은 접어 두었습니다 — [펼치기]로 다시 볼 수 있습니다.') }}
+    </p>
+
+    <ol v-if="open" class="mt-3 space-y-3">
       <li
         v-for="(item, i) in current.items"
         :key="item.id"

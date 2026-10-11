@@ -236,6 +236,36 @@ export const canEditPcbEqFile = (
 ): boolean =>
   fileType === 'reply' ? status === 'issued' || status === 'eq_requested' : status === 'issued';
 
+/**
+ * 이 EQ 첨부가 **기록으로 굳었는가** — 굳은 파일은 발주가 발주접수로 돌아와도 지울 수 없다
+ * (2026-10-11 사용자 결정). 추가 EQ 요청(D20 후속)이 생기면서 `issued` 가 "아직 아무것도 안 낸
+ * 상태"가 아니게 됐다: 승인된 건을 다시 열면 [[canEditPcbEqFile]] 만으로는 **이미 승인된 1차 EQ
+ * 파일까지** 지워진다 — 그 파일은 고객에게 보낸 문항의 근거이고 관리자가 승인한 서류다.
+ *
+ * 굳는 조건(협력사 산출물만 — 관리자 회신 reply 는 대상이 아니다):
+ *  ① 그 파일이 올라온 **뒤에** EQ 승인(`eq_requested → eq_done`)이 한 번이라도 있었다
+ *  ② 고객에게 나간 문항형 회차의 근거 첨부(sourceFileIds)다
+ * 반려·요청 취소만 거친 파일은 굳지 않는다 — 잘못 올린 파일은 지금처럼 지우고 다시 올린다.
+ * 스텐실은 대상이 아니다(메탈마스크는 건드리지 않는다 — R-4).
+ */
+export const isPcbEqFileRecord = (
+  file: { fileId: number; fileType: string; uploadedAt: string },
+  history: readonly { at: string; fromStatus: string; toStatus: string }[],
+  sentSourceFileIds: ReadonlySet<number>,
+  track: PcbPoTrackType,
+): boolean => {
+  if (track !== 'eq' || file.fileType === 'reply') return false;
+  if (sentSourceFileIds.has(file.fileId)) return true;
+  // 둘 다 toISOString() 이라 사전식 비교가 곧 시각 비교다.
+  return history.some(
+    (e) => e.fromStatus === 'eq_requested' && e.toStatus === 'eq_done' && e.at > file.uploadedAt,
+  );
+};
+
+/** 굳은 파일 삭제 409(`FILE_RECORD_LOCKED`) 문구 — 포털·관리자 대행이 같은 문장을 쓴다. */
+export const PCB_EQ_FILE_RECORD_MESSAGE =
+  '이미 승인됐거나 고객 확인에 쓰인 파일은 지울 수 없습니다 — 새 파일을 올리면 이전 파일로 접힙니다.';
+
 /** 스텐실 트랙의 제출(발주접수 → 확인 요청) 필수 요건 — 못 채운 것을 코드로 돌려준다.
  *  화면과 서버가 같은 함수를 쓴다(서버가 정본, 화면은 버튼을 미리 잠그는 용도).
  *  고객문의사항(note)은 **선택**이다(사용자 결정 2026-08-17 — 물어볼 것이 없는 주문이
@@ -262,6 +292,9 @@ export const PcbEqFileView = z.object({
   isLatest: z.boolean(),
   /** 직전 EQ 반려 뒤에 올라온 파일(=보완분). 반려 이력이 없으면 전부 false. */
   afterReject: z.boolean(),
+  /** 기록으로 굳은 파일 — 승인된 적이 있거나 고객에게 나간 회차의 근거였다. 지울 수 없다
+   *  ([[isPcbEqFileRecord]], 서버가 채운다). 새 파일을 올리면 이 파일은 '이전'으로 접힌다. */
+  locked: z.boolean(),
 });
 export type PcbEqFileViewType = z.infer<typeof PcbEqFileView>;
 
