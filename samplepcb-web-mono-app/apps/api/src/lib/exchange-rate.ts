@@ -417,12 +417,5 @@ export async function getPcbExchangeRate(
   return { rate, rateDate };
 }
 
-/**
- * PCB 금액 반올림 — KRW 0자리·USD/CNY 2자리, HALF_UP(양수 전제).
- * ×100 후 부동소수 표현 오차(1.005×100=100.4999…)로 HALF_UP 이 깨지는 것을
- * 12자리 유효숫자 정규화로 보정한다(견적 금액 규모 ≪ 10^10 전제 — Decimal(15,2) 내).
- */
-export function roundPcbAmount(amount: number, currency: 'KRW' | 'USD' | 'CNY'): number {
-  const scale = currency === 'KRW' ? 1 : 100;
-  return Math.round(Number((amount * scale).toPrecision(12))) / scale;
-}
+// PCB 금액 반올림은 계약으로 옮겼다 — 포털 미리보기(마스터딜러 회신가)와 서버 박제가 같은 함수를 쓴다.
+export { roundPcbAmount } from '@sp/api-contract';

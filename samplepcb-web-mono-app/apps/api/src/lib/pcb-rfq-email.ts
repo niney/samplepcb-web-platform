@@ -26,6 +26,10 @@ export const pcbAdminCaseUrl = (specId: string): string =>
 
 export const pcbPartnerPortalUrl = (): string => `${WEB_BASE_URL}/app/partner`;
 
+/** 포털의 받은 견적요청 상세 — 마스터딜러에게 하위 회신 도착을 알릴 때 그 건으로 바로 보낸다. */
+export const pcbPartnerRfqUrl = (rfqId: string): string =>
+  `${WEB_BASE_URL}/app/partner/pcb/rfqs/${rfqId}`;
+
 /** 회신가 표시 조립 — "US$1,080.86 (¥7,200)" (메일·로그 공용, 화면은 웹 유틸 사용). */
 export const pcbPriceText = (
   currency: string,

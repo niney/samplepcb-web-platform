@@ -20,20 +20,11 @@ import {
   saveMdChildSelection,
   savePcbRfqReply,
 } from '../lib/pcb-rfq';
-import {
-  buildPcbRfqRepliedEmail,
-  buildPcbRfqRequestEmail,
-  magicPcbReplyUrl,
-  pcbAdminCaseUrl,
-  pcbPartnerPortalUrl,
-  pcbPriceText,
-  sendPcbMail,
-} from '../lib/pcb-rfq-email';
+import { buildPcbRfqRequestEmail, magicPcbReplyUrl, sendPcbMail } from '../lib/pcb-rfq-email';
+import { notifyPcbRfqReplied } from '../lib/pcb-rfq-notify';
 import { downloadFromFileServer } from '../lib/file-server';
-import { getShopEstimateProfile } from '../lib/g5-db';
 import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
 import { kstDateStr } from '../lib/kst';
-import type { MailLogMeta } from '../lib/mail-log';
 
 // ── PCB 파트너 RFQ 포털 라우트(requirePartner) — docs/PCB_PARTNER_TRACK.md §5.4 ──
 // 받은 견적요청 워크큐·상세(스펙 사양 + 거버 파일 프록시)·회신, MD 2단(하위 배정 diff·
@@ -116,57 +107,7 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       }
 
       // 회신 도착 통지 — 관리자 트랙이면 운영자 메일, MD 하위 트랙이면 MD 조직 메일.
-      const updated = await prisma.spPcbRfq.findUnique({ where: { id: rfq.id } });
-      if (updated !== null) {
-        const priceText = pcbPriceText(
-          updated.currency,
-          updated.priceOriginal === null ? null : Number(updated.priceOriginal),
-          updated.subCurrency,
-          updated.subPriceOriginal === null ? null : Number(updated.subPriceOriginal),
-        );
-        const deliveryText =
-          updated.quotedDeliveryDate === null ? null : kstDateStr(updated.quotedDeliveryDate);
-        const repliedMeta: MailLogMeta = {
-          kind: 'pcb_rfq_replied',
-          refType: 'pcb_spec',
-          refId: rfq.specId,
-          sentBy: request.user.mbId,
-          params: { rfqId: String(rfq.id), partnerName: ctx.partnerName },
-        };
-        if (rfq.parentPartnerId === 0n) {
-          const profile = await getShopEstimateProfile();
-          void sendPcbMail(
-            request.log,
-            profile?.managerEmail,
-            buildPcbRfqRepliedEmail({
-              partnerName: ctx.partnerName,
-              projectName: rfq.spec.projectName,
-              specId: rfq.specId.toString(),
-              priceText,
-              deliveryText,
-              targetUrl: pcbAdminCaseUrl(rfq.specId.toString()),
-              targetLabel: 'Case 상세 열기',
-            }),
-            repliedMeta,
-          );
-        } else {
-          const md = await prisma.spPartner.findUnique({ where: { id: rfq.parentPartnerId } });
-          void sendPcbMail(
-            request.log,
-            md?.contactEmail,
-            buildPcbRfqRepliedEmail({
-              partnerName: ctx.partnerName,
-              projectName: rfq.spec.projectName,
-              specId: rfq.specId.toString(),
-              priceText,
-              deliveryText,
-              targetUrl: pcbPartnerPortalUrl(),
-              targetLabel: '파트너 포털 열기',
-            }),
-            repliedMeta,
-          );
-        }
-      }
+      await notifyPcbRfqReplied(request.log, rfq.id, { sentBy: request.user.mbId });
 
       const detail = await loadPartnerPcbRfqDetail(rfq.id, ctx.partnerId);
       if (detail === null) return reply.notFound('견적요청을 찾을 수 없습니다');
@@ -297,6 +238,7 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         ctx.partnerId,
         request.body.childRfqId === null ? null : BigInt(request.body.childRfqId),
         request.body.marginRate,
+        { quotedDeliveryDate: request.body.quotedDeliveryDate, memo: request.body.memo },
       );
       if (!res.ok) {
         if (res.error === 'RFQ_NOT_FOUND' || res.error === 'NOT_YOUR_RFQ' || res.error === 'CHILD_NOT_FOUND')
@@ -318,6 +260,12 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           .status(409)
           .send({ error: res.error, message: '선정이 끝난 견적은 수정할 수 없습니다.' });
       }
+      // 하위 선정은 곧 상위 회신이다 — 직접 회신과 같은 통지를 보낸다(해제는 회신이 사라지는 것이라 알리지 않는다).
+      if (request.body.childRfqId !== null)
+        await notifyPcbRfqReplied(request.log, request.params.rfqId, {
+          sentBy: request.user.mbId,
+          params: { viaChildRfqId: String(request.body.childRfqId) },
+        });
       return { result: true as const };
     },
   );

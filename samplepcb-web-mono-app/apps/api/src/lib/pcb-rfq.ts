@@ -10,7 +10,7 @@ import type {
   PcbRfqReplyBodyType,
   PcbRfqStatusType,
 } from '@sp/api-contract';
-import { PCB_CURRENCIES, PCB_RFQ_STATUSES } from '@sp/api-contract';
+import { PCB_CURRENCIES, PCB_RFQ_STATUSES, pcbMdQuoteAmount } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getPcbExchangeRate, roundPcbAmount } from './exchange-rate';
 import { getCartOrderLinks, getOrderInfoByCtId } from './g5-db';
@@ -399,6 +399,8 @@ export const saveMdChildSelection = async (
   actorPartnerId: bigint,
   childRfqId: bigint | null,
   marginRate?: number,
+  /** 상위에 회신할 납기·메모. 납기 생략 = 하위 납기 그대로, 메모 생략 = 기존 메모 유지. */
+  extra: { quotedDeliveryDate?: string | undefined; memo?: string | null | undefined } = {},
 ): Promise<{ ok: true } | { ok: false; error: MdChildSelectError }> => {
   const mdRfq = await prisma.spPcbRfq.findUnique({ where: { id: mdRfqId } });
   if (mdRfq === null) return { ok: false, error: 'RFQ_NOT_FOUND' };
@@ -460,8 +462,8 @@ export const saveMdChildSelection = async (
   const childCcy = asPcbCurrency(child.currency);
   const rate = await getPcbExchangeRate(childCcy, mdCcy);
   if (rate === null) return { ok: false, error: 'EXCHANGE_RATE_UNAVAILABLE' };
-  // 단일 곱 체인 후 최종 1회 반올림(레거시 BigDecimal HALF_UP 동치 — 중간 반올림 금지).
-  const mdAmount = roundPcbAmount(childPrice * rate.rate * (1 + marginRate / 100), mdCcy);
+  // 단일 곱 체인 후 최종 1회 반올림 — 포털 미리보기와 같은 계약 함수(pcbMdQuoteAmount).
+  const mdAmount = pcbMdQuoteAmount(childPrice, rate.rate, marginRate, mdCcy);
 
   await prisma.$transaction([
     prisma.spPcbRfq.updateMany({
@@ -488,8 +490,14 @@ export const saveMdChildSelection = async (
         sourceCurrency: childCcy,
         sourceAmount: childPrice,
         sourceRate: rate.rate,
-        // 납기 상향 pass-through(레거시 승계) — 하위 회신 납기를 상위 회신으로 전달.
-        quotedDeliveryDate: child.quotedDeliveryDate,
+        // 납기 — 기본은 하위 회신 납기를 그대로 올린다(레거시 pass-through). 마스터딜러가 자기
+        // 여유 일수를 두려면 납기를 따로 준다. 예전에는 그러려고 [회신 저장]을 누르면 직접 회신으로
+        // 바뀌며 하위 선정이 풀렸다(2026-10-11).
+        quotedDeliveryDate:
+          extra.quotedDeliveryDate === undefined
+            ? child.quotedDeliveryDate
+            : parseKstDate(extra.quotedDeliveryDate),
+        ...(extra.memo === undefined ? {} : { memo: extra.memo }),
         respondedAt: new Date(),
       },
     }),
@@ -663,6 +671,26 @@ export const loadPartnerPcbRfqs = async (
       ? []
       : await prisma.spPartner.findMany({ where: { id: { in: parentIds } } });
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
+  // 마스터딜러 — 내가 하위에 다시 보낸 요청의 진행(보낸 수·회신 수). 목록에서 "회신이 왔으니 고를 차례"가
+  // 보여야 한다(내 회신 전까지 행은 계속 requested 라 그것만으로는 구별이 안 된다).
+  const childRows = rows.some((r) => r.parentPartnerId === 0n)
+    ? await prisma.spPcbRfq.findMany({
+        where: { parentPartnerId: partnerId },
+        select: { specId: true, reorderRound: true, status: true },
+      })
+    : [];
+  const childAgg = new Map<string, { count: number; quoted: number }>();
+  for (const child of childRows) {
+    const key = `${child.specId.toString()}:${String(child.reorderRound)}`;
+    const agg = childAgg.get(key) ?? { count: 0, quoted: 0 };
+    agg.count += 1;
+    if (hasReply(child)) agg.quoted += 1;
+    childAgg.set(key, agg);
+  }
+  const childAggOf = (row: (typeof rows)[number]): { count: number; quoted: number } =>
+    (row.parentPartnerId === 0n
+      ? childAgg.get(`${row.specId.toString()}:${String(row.reorderRound)}`)
+      : undefined) ?? { count: 0, quoted: 0 };
   return rows.map((row) => ({
     rfqId: Number(row.id),
     projectName: row.spec.projectName,
@@ -682,6 +710,8 @@ export const loadPartnerPcbRfqs = async (
     quotedDeliveryDate: iso(row.quotedDeliveryDate),
     requestedAt: row.requestedAt.toISOString(),
     respondedAt: iso(row.respondedAt),
+    childCount: childAggOf(row).count,
+    childQuotedCount: childAggOf(row).quoted,
   }));
 };
 
@@ -735,6 +765,31 @@ export const loadPartnerPcbRfqDetail = async (
       : ((await prisma.spPartner.findUnique({ where: { id: rfq.parentPartnerId } }))?.name ??
         '중개 조직');
 
+  // 하위 통화 → 내 결제통화 오늘 환율(비교·미리보기용). 매직링크(partnerId=null)는 하위 정보를 싣지 않는다.
+  const mdCcy = asPcbCurrency(rfq.currency);
+  const childRates: Record<string, number | null> = {};
+  if (partnerId !== null) {
+    for (const ccy of new Set(children.map((child) => asPcbCurrency(child.currency)))) {
+      childRates[ccy] = (await getPcbExchangeRate(ccy, mdCcy))?.rate ?? null;
+    }
+  }
+  const sourceAmount = decNum(rfq.sourceAmount);
+  const sourceRate = decNum(rfq.sourceRate);
+  const mdQuote =
+    rfq.selectedChildRfqId === null ||
+    rfq.marginRate === null ||
+    rfq.sourceCurrency === null ||
+    sourceAmount === null ||
+    sourceRate === null
+      ? null
+      : {
+          childRfqId: Number(rfq.selectedChildRfqId),
+          marginRate: rfq.marginRate,
+          sourceCurrency: rfq.sourceCurrency,
+          sourceAmount,
+          sourceRate,
+        };
+
   return {
     rfqId: Number(rfq.id),
     status: asPcbRfqStatus(rfq.status),
@@ -765,6 +820,9 @@ export const loadPartnerPcbRfqDetail = async (
       name: rel.child.name,
       settlementCurrency: rel.settlementCurrency,
     })),
+    isAdminTrack: rfq.parentPartnerId === 0n,
+    mdQuote,
+    childRates,
   };
 };
 

@@ -583,16 +583,23 @@ async function submitReopen(values: Record<string, string>): Promise<void> {
 // ── MD 하위 발주 ─────────────────────────────────────────────────────────────
 const childPo = useCreatePartnerChildPcbPo();
 const childRfqPick = ref<number | null>(null);
+// 실패 메시지는 누른 버튼 곁에 — 페이지 위쪽 actionError 는 이 구역(화면 아래)에서 보이지 않는다.
+const childPoError = ref('');
+const surfaceChildPoError = (e: unknown): void => {
+  childPoError.value =
+    locale.value === 'ko' && e instanceof ApiRequestError && e.message !== '' ? e.message : pt('하위 발주에 실패했습니다.');
+};
 async function issueChildPo(): Promise<void> {
   if (poId.value === null || childRfqPick.value === null) return;
   actionError.value = '';
+  childPoError.value = '';
   try {
     await childPo.mutateAsync({
       poId: poId.value,
       body: { childRfqId: childRfqPick.value },
     });
   } catch (e) {
-    surfaceError(e, pt('하위 발주에 실패했습니다.'));
+    surfaceChildPoError(e);
   }
 }
 const selectableChildRfqs = computed(
@@ -628,10 +635,11 @@ async function issueChildPoFromOrigin(target: {
   });
   if (!ok) return;
   actionError.value = '';
+  childPoError.value = '';
   try {
     await childPo.mutateAsync({ poId: poId.value, body: { partnerId: target.partnerId } });
   } catch (e) {
-    surfaceError(e, pt('하위 발주에 실패했습니다.'));
+    surfaceChildPoError(e);
   }
 }
 
@@ -1257,6 +1265,7 @@ watch(locale, () => {
         class="rounded-xl border border-indigo-200 bg-surface p-4"
       >
         <h2 class="text-sm font-bold text-indigo-700">{{ pt('하위 협력사 발주 (마스터딜러)') }}</h2>
+        <p v-if="childPoError !== ''" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" role="alert" data-testid="partner-pcb-child-po-error">{{ childPoError }}</p>
 
         <div v-if="detail.children.length > 0" class="mt-3 overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-100 text-sm">

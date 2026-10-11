@@ -46,6 +46,15 @@ const STATUS_CLS: Record<string, string> = {
         </template>
       </p>
     </div>
+    <!-- 마스터딜러 — 하위에 다시 보낸 요청의 진행. 회신이 왔고 내 회신 전이면 "고를 차례"라 도드라지게. -->
+    <span
+      v-if="rfq.childCount > 0"
+      class="shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold"
+      :class="todo && rfq.childQuotedCount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'"
+      data-testid="partner-pcb-rfq-child-progress"
+    >
+      {{ pt('하위 회신 {value1}/{value2}', { value1: rfq.childQuotedCount, value2: rfq.childCount }) }}
+    </span>
     <span v-if="!todo" class="shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[rfq.status]">
       {{ pt(PCB_RFQ_STATUS_LABELS[rfq.status]) }}
     </span>

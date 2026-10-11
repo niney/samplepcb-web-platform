@@ -1,22 +1,12 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ApiError, MagicPcbRfqResponse, PcbRfqReplyBody } from '@sp/api-contract';
-import { prisma } from '../lib/prisma';
 import {
   loadPartnerPcbRfqDetail,
   loadPcbRfqByMagicToken,
   savePcbRfqReply,
 } from '../lib/pcb-rfq';
-import {
-  buildPcbRfqRepliedEmail,
-  pcbAdminCaseUrl,
-  pcbPartnerPortalUrl,
-  pcbPriceText,
-  sendPcbMail,
-} from '../lib/pcb-rfq-email';
-import { getShopEstimateProfile } from '../lib/g5-db';
-import { kstDateStr } from '../lib/kst';
-import type { MailLogMeta } from '../lib/mail-log';
+import { notifyPcbRfqReplied } from '../lib/pcb-rfq-notify';
 
 // ── PCB 매직링크 무로그인 회신 — BOM §6.9 동형(메일함 소유 = 신원, RFQ 1건 스코프) ──
 // 인증 없음: 토큰(64hex, 30일 TTL, 재발급 회전) 자체가 인가. GET 은 선정 후에도 열람
@@ -82,58 +72,8 @@ export const pcbRfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       }
 
       // 회신 도착 통지(포털 회신과 동일 규칙 — 관리자 트랙=운영자, MD 트랙=MD 조직).
-      const updated = await prisma.spPcbRfq.findUnique({ where: { id: rfq.id } });
-      if (updated !== null) {
-        const priceText = pcbPriceText(
-          updated.currency,
-          updated.priceOriginal === null ? null : Number(updated.priceOriginal),
-          updated.subCurrency,
-          updated.subPriceOriginal === null ? null : Number(updated.subPriceOriginal),
-        );
-        const deliveryText =
-          updated.quotedDeliveryDate === null ? null : kstDateStr(updated.quotedDeliveryDate);
-        // 매직링크 회신은 무로그인 — 트리거 주체 mbId 가 없다(sentBy null=시스템).
-        const repliedMeta: MailLogMeta = {
-          kind: 'pcb_rfq_replied',
-          refType: 'pcb_spec',
-          refId: rfq.specId,
-          sentBy: null,
-          params: { rfqId: String(rfq.id), partnerName: rfq.partner.name, magicLink: true },
-        };
-        if (rfq.parentPartnerId === 0n) {
-          const profile = await getShopEstimateProfile();
-          void sendPcbMail(
-            request.log,
-            profile?.managerEmail,
-            buildPcbRfqRepliedEmail({
-              partnerName: rfq.partner.name,
-              projectName: rfq.spec.projectName,
-              specId: rfq.specId.toString(),
-              priceText,
-              deliveryText,
-              targetUrl: pcbAdminCaseUrl(rfq.specId.toString()),
-              targetLabel: 'Case 상세 열기',
-            }),
-            repliedMeta,
-          );
-        } else {
-          const md = await prisma.spPartner.findUnique({ where: { id: rfq.parentPartnerId } });
-          void sendPcbMail(
-            request.log,
-            md?.contactEmail,
-            buildPcbRfqRepliedEmail({
-              partnerName: rfq.partner.name,
-              projectName: rfq.spec.projectName,
-              specId: rfq.specId.toString(),
-              priceText,
-              deliveryText,
-              targetUrl: pcbPartnerPortalUrl(),
-              targetLabel: '파트너 포털 열기',
-            }),
-            repliedMeta,
-          );
-        }
-      }
+      // 매직링크 회신은 무로그인 — 트리거 주체 mbId 가 없다(sentBy null=시스템).
+      await notifyPcbRfqReplied(request.log, rfq.id, { sentBy: null, params: { magicLink: true } });
 
       const detail = await loadPartnerPcbRfqDetail(rfq.id, null);
       if (detail === null) return reply.notFound('유효하지 않은 링크입니다');

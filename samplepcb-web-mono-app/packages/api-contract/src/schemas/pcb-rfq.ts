@@ -29,6 +29,28 @@ export const PCB_CURRENCY_SYMBOLS = {
   CNY: '¥',
 } as const satisfies Record<PcbCurrencyType, string>;
 
+/**
+ * PCB 금액 반올림 — KRW 0자리·USD/CNY 2자리, HALF_UP(양수 전제).
+ * ×100 후 부동소수 표현 오차(1.005×100=100.4999…)로 HALF_UP 이 깨지는 것을
+ * 12자리 유효숫자 정규화로 보정한다(견적 금액 규모 ≪ 10^10 전제 — Decimal(15,2) 내).
+ * 서버 박제와 포털 미리보기가 같은 함수를 쓴다(따로 두면 1원·1센트가 갈린다).
+ */
+export const roundPcbAmount = (amount: number, currency: PcbCurrencyType): number => {
+  const scale = currency === 'KRW' ? 1 : 100;
+  return Math.round(Number((amount * scale).toPrecision(12))) / scale;
+};
+
+/**
+ * 마스터딜러 회신가 = 하위 결제금액 × 환율(하위통화→내 결제통화) × (1+마진%).
+ * 단일 곱 체인 뒤 **마지막에 한 번만** 반올림한다(레거시 BigDecimal HALF_UP 동치 — 중간 반올림 금지).
+ */
+export const pcbMdQuoteAmount = (
+  sourceAmount: number,
+  rate: number,
+  marginRate: number,
+  currency: PcbCurrencyType,
+): number => roundPcbAmount(sourceAmount * rate * (1 + marginRate / 100), currency);
+
 // ── 회신 입력(협력사 포털 · 관리자 대리 입력 · 매직링크 공용) ────────────────
 // price 는 **입력통화 기준 원본**. 서버가 결제통화로 환산해 정본(priceOriginal)을 박제
 // 하고, 입력≠결제일 때만 sub_*(원본 3종)를 남긴다(같으면 명시적 null 클리어 — 정정 시
@@ -157,6 +179,13 @@ export const PcbRfqChildSelectBody = z.object({
   childRfqId: z.number().int().positive().nullable(),
   /** 정수 %(레거시 승계). 선정 시 필수 — 해제 시 무시. */
   marginRate: z.number().int().min(0).max(500).optional(),
+  /** 상위에 회신할 납기. 생략 = 하위 회신 납기 그대로(레거시 pass-through). 마스터딜러의 여유 일수는 여기서 둔다. */
+  quotedDeliveryDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  /** 상위에 전할 메모. 생략 = 기존 메모 유지, null = 비움. */
+  memo: z.string().trim().max(2000).nullable().optional(),
 });
 export type PcbRfqChildSelectBodyType = z.infer<typeof PcbRfqChildSelectBody>;
 
@@ -256,6 +285,9 @@ export const PartnerPcbRfqListItem = z.object({
   quotedDeliveryDate: z.string().nullable(),
   requestedAt: z.string(),
   respondedAt: z.string().nullable(),
+  /** 마스터딜러 전용 — 이 건으로 하위에 다시 보낸 견적요청 수와 그중 회신 온 수(일반 협력사·하위 트랙 행은 0). */
+  childCount: z.number().int(),
+  childQuotedCount: z.number().int(),
 });
 export type PartnerPcbRfqListItemType = z.infer<typeof PartnerPcbRfqListItem>;
 
@@ -309,6 +341,26 @@ export const PartnerPcbRfqDetail = z.object({
       settlementCurrency: z.string().nullable(), // null=기본 USD(런타임)
     }),
   ),
+  /** 관리자가 내게 보낸 행인가 — 하위 재요청·선정은 이 행에서만 열린다(하위 트랙으로 받은 행은 false). */
+  isAdminTrack: z.boolean(),
+  /**
+   * MD 전용 — 지금 회신이 하위 선정으로 만들어졌을 때의 근거(변환점 박제):
+   * priceOriginal = sourceAmount × sourceRate × (1+marginRate/100). 직접 회신·미회신은 null.
+   */
+  mdQuote: z
+    .object({
+      childRfqId: z.number(),
+      marginRate: z.number(),
+      sourceCurrency: z.string(),
+      sourceAmount: z.number(),
+      sourceRate: z.number(),
+    })
+    .nullable(),
+  /**
+   * MD 전용 — 하위 결제통화 → 내 결제통화 **오늘** 환율(통화코드 → 환율, 미준비면 null).
+   * 비교·미리보기용이다 — 박제는 저장하는 순간 서버가 다시 읽은 환율로 한다.
+   */
+  childRates: z.record(z.string(), z.number().nullable()),
 });
 export type PartnerPcbRfqDetailType = z.infer<typeof PartnerPcbRfqDetail>;
 
@@ -324,7 +376,12 @@ export const MagicPcbRfqResponse = z.object({
   result: z.literal(true),
   data: z.object({
     partnerName: z.string(),
-    rfq: PartnerPcbRfqDetail.omit({ children: true, myChildPartners: true }),
+    rfq: PartnerPcbRfqDetail.omit({
+      children: true,
+      myChildPartners: true,
+      mdQuote: true,
+      childRates: true,
+    }),
   }),
 });
 export type MagicPcbRfqResponseType = z.infer<typeof MagicPcbRfqResponse>;
