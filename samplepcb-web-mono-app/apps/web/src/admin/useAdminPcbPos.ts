@@ -413,8 +413,8 @@ export function useAdminPcbShipmentCancel() {
   });
 }
 
-/** 발송 참조번호(Case ID) 입력 — 협력사 요청에 대한 응답(요청 없어도 기록 가능).
- *  입력되면 협력사에게 값이 메일로 안내되고 발송(운송장) 게이트가 열린다. */
+/** 발송 참조번호(Case ID) 단독 입력 — 기록·정정 경로다(요청 건의 주 경로는 [선적 진행]이 운송장과 함께 받는다).
+ *  협력사 통지는 발송 뒤 값이 바뀌었을 때만(정정) 나간다. */
 export function useAdminPcbShipmentCaseRef() {
   const qc = useQueryClient();
   return useMutation({

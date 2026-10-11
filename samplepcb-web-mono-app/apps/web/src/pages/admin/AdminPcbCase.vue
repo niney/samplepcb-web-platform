@@ -3369,7 +3369,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <UiPromptModal
       :title="caseRefPrompt === null ? null : '발송 참조번호(Case ID) 입력'"
       :fields="caseRefFields"
-      description="입력하면 협력사에게 값이 메일로 안내되고 발송(운송장) 진행이 열립니다."
+      description="기록·정정용입니다 — 협력사 통지는 선적 진행 때 운송장과 함께 나가고, 발송 뒤 값을 바꾸면 정정 메일이 나갑니다."
       confirm-label="입력"
       :busy="shipCaseRefAdmin.isPending.value"
       @close="caseRefPrompt = null"

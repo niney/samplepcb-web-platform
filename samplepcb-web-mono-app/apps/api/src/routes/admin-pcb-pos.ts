@@ -848,7 +848,14 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const res = await fillPcbShipmentCaseRef(po, { kind: 'admin' }, request.body.caseRef);
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
-      if (res.shipment.caseRefRequestedAt !== null) {
+      // 통지는 **발송 뒤 정정**일 때만 — Case ID 는 [선적 진행]이 운송장·서류와 함께 한 번에 알린다
+      // (사용자 결정 2026-10-11). 예전에는 발송 전 단독 입력에도 "이 번호로 발송을 진행하고 운송장을
+      // 입력해 주세요"가 나갔는데, 이 갈래에서 운송장은 관리자 몫이라 협력사가 할 수 없는 일이었다.
+      const corrected =
+        res.shipment.caseRefRequestedAt !== null &&
+        res.shipment.shippedAt !== null &&
+        (res.previousCaseRef ?? '') !== request.body.caseRef;
+      if (corrected) {
         const [spec, portalCta, shipPoCount] = await Promise.all([
           prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
           resolvePcbPortalCta(po.partnerId, po.parentPartnerId),

@@ -681,12 +681,16 @@ export const requestPcbShipmentCaseRef = async (
 };
 
 /** 입력 — 관리자 전용. 요청 없이도 기록할 수 있다(관리자 자체 메모 관례). 입고 전까지
- *  정정 허용(오타 교정 실무), 입고확인 뒤엔 원장 잠금. */
+ *  정정 허용(오타 교정 실무), 입고확인 뒤엔 원장 잠금. `previousCaseRef` 는 바꾸기 전 값 —
+ *  라우트가 "발송 뒤에 값이 바뀌었는가"로 정정 통지를 가른다. */
 export const fillPcbShipmentCaseRef = async (
   po: SpPcbPo,
   actor: PcbShipmentActor,
   caseRef: string,
-): Promise<{ ok: true; shipment: SpPcbShipment } | { ok: false; error: PcbShipmentTransitionError }> => {
+): Promise<
+  | { ok: true; shipment: SpPcbShipment; previousCaseRef: string | null }
+  | { ok: false; error: PcbShipmentTransitionError }
+> => {
   const shipment = await findPcbShipmentByPo(po.id);
   if (shipment === null) return { ok: false, error: 'NOT_SHIPPED' };
   if (actor.kind !== 'admin') return { ok: false, error: 'NOT_YOUR_TURN' };
@@ -695,7 +699,7 @@ export const fillPcbShipmentCaseRef = async (
     where: { id: shipment.id },
     data: { caseRef, caseRefFilledAt: new Date() },
   });
-  return { ok: true, shipment: updated };
+  return { ok: true, shipment: updated, previousCaseRef: shipment.caseRef };
 };
 
 /**

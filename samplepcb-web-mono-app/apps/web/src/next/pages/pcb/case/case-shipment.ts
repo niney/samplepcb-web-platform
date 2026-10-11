@@ -79,7 +79,9 @@ export const shipPromptFieldsOf = (next: BomShipmentStatusType, ship?: ShipPromp
     // 직접 발송(Case ID 미체크) — 받는측 입력 없음: 운송 계약 주체가 협력사라 준비 단계에 적어 둔 값이
     // 그대로 실린다. 빈 배열 = 무입력 즉시 전이.
     if (ship?.caseRefRequested !== true) return [];
-    // Case ID 갈래 — 관리자가 부킹 주체라 참조번호·운송수단·운송회사·운송장을 한 번에 받는다.
+    // Case ID 갈래 — 관리자가 부킹 주체라 참조번호·운송회사·운송장을 한 번에 받는다. 운송수단은 여기서
+    // 묻지 않는다: 어느 서류(AWB/B·L)를 붙였는지가 이미 수단을 말한다(스트립 ②). 예전에는 마지막
+    // 창에서 수단을 바꿀 수 있어, 바꾸는 순간 앞 단계에서 붙인 서류가 무효가 됐다.
     const sea = shipmentTransportOf(ship.transport) === 'sea';
     return [
       {
@@ -93,27 +95,19 @@ export const shipPromptFieldsOf = (next: BomShipmentStatusType, ship?: ShipPromp
             ? `협력사 요청 메모: ${ship.caseRefNote}`
             : '협력사가 라벨링·인계에 쓸 값입니다 — 선적 통지 메일에 함께 나갑니다.',
       },
-      // 자사 주선은 부킹 주체가 관리자다 — 협력사가 요청 때 적어 둔 수단을 굳히지 않고 여기서 확정한다.
-      {
-        name: 'transport',
-        label: '운송수단',
-        type: 'select',
-        options: TRANSPORT_OPTIONS,
-        allowCustom: false,
-        required: true,
-        value: SHIPMENT_TRANSPORT_LABELS[shipmentTransportOf(ship.transport)],
-        hint: '바꾸면 필수 첨부도 함께 바뀝니다 — 항공 AWB / 해상 B/L.',
-      },
-      {
-        name: 'carrier',
-        label: sea ? '선사·포워더' : '운송회사',
-        type: 'select',
-        // 해상은 포워더 이름을 적는 실무라 특송 프리셋이 방해가 된다 — 빈 목록(= 직접입력만).
-        options: sea ? [] : INTL_CARRIERS,
-        maxlength: 50,
-        value: ship.carrier ?? '',
-        placeholder: sea ? '선사 또는 포워더명' : '운송회사명',
-      },
+      // 해상은 포워더 이름을 적는 실무라 특송 프리셋이 방해가 된다 — 바로 적는 칸으로 둔다(예전에는 빈
+      // 목록의 셀렉트에서 '직접입력'을 먼저 골라야 칸이 나왔다).
+      sea
+        ? { name: 'carrier', label: '선사·포워더', maxlength: 50, value: ship.carrier ?? '', placeholder: '선사 또는 포워더명' }
+        : {
+            name: 'carrier',
+            label: '운송회사',
+            type: 'select',
+            options: INTL_CARRIERS,
+            maxlength: 50,
+            value: ship.carrier ?? '',
+            placeholder: '운송회사명',
+          },
       {
         name: 'trackingNumber',
         label: `트래킹 번호(${PCB_SHIPMENT_FILE_LABELS[shipmentTransportDocType(ship.transport)]})`,
@@ -240,6 +234,10 @@ export function useCaseShipment(core: CaseCore) {
   async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
     const next = bomShipmentNextStatus(s.mode, s.status);
     if (next === null) return;
+    if (next === 'shipped' && s.caseRefRequestedAt !== null) {
+      await adminShipCaseRef(poId, s);
+      return;
+    }
     // 필드 판정은 갈래를 알아야 한다 — 직접 발송 '선적'은 무입력이지만 Case ID 갈래는 입력이 필수라,
     // 갈래 없이 물으면 후자까지 즉시 전이로 새어 409 만 남는다.
     const ship: ShipPromptContext = {
@@ -310,16 +308,70 @@ export function useCaseShipment(core: CaseCore) {
     s.files.find((f) => f.fileType === 'invoice') ?? null;
   const adminInvoiceOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
     s.files.find((f) => f.fileType === 'invoice' && f.uploadedBy === 'ADMIN') ?? null;
+  const caseRefStrip = (s: PcbShipmentViewType): boolean =>
+    s.caseRefRequestedAt !== null && s.receivedAt === null && (s.status === 'preparing' || s.status === 'requested');
+  // 스트립 ② 의 운송수단 — **어느 서류를 붙였는지가 곧 수단이다.** 관리자가 여기서 고르고(부킹 주체),
+  // 그 값이 ③ 의 전이에 실린다(서버 게이트: body.transport ?? 박제값). 고르기 전에는 협력사가 요청 때
+  // 적어 둔 값이 기본이고, 새로 열었을 때는 붙어 있는 서류에서 되짚는다(B/L 만 있으면 해상).
+  const stripTransportPick = ref(new Map<number, 'air' | 'sea'>());
+  const stripTransportOf = (s: PcbShipmentViewType): 'air' | 'sea' => {
+    const picked = stripTransportPick.value.get(s.shipmentId);
+    if (picked !== undefined) return picked;
+    const stored = shipmentTransportOf(s.transport);
+    const other = stored === 'air' ? 'sea' : 'air';
+    const has = (t: 'air' | 'sea'): boolean => s.files.some((f) => f.fileType === shipmentTransportDocType(t));
+    return !has(stored) && has(other) ? other : stored;
+  };
+  function setStripTransport(s: PcbShipmentViewType, transport: 'air' | 'sea'): void {
+    const next = new Map(stripTransportPick.value);
+    next.set(s.shipmentId, transport);
+    stripTransportPick.value = next;
+  }
   /** 이 발송의 운송서류 — 항공 AWB / 해상 B/L. 서버 게이트와 같은 사전에서 유도해야 "첨부했는데 409"가 안 난다. */
-  const shipDocTypeOf = (s: AdminPcbShipmentViewType): PcbShipmentFileTypeType => shipmentTransportDocType(s.transport);
-  const shipDocLabelOf = (s: AdminPcbShipmentViewType): string => PCB_SHIPMENT_FILE_LABELS[shipDocTypeOf(s)];
-  const awbOf = (s: AdminPcbShipmentViewType): AdminShipFileView | null =>
+  const shipDocTypeOf = (s: PcbShipmentViewType): PcbShipmentFileTypeType =>
+    shipmentTransportDocType(caseRefStrip(s) ? stripTransportOf(s) : s.transport);
+  const shipDocLabelOf = (s: PcbShipmentViewType): string => PCB_SHIPMENT_FILE_LABELS[shipDocTypeOf(s)];
+  const awbOf = (s: PcbShipmentViewType): AdminShipFileView | null =>
     s.files.find((f) => f.fileType === shipDocTypeOf(s)) ?? null;
+  /** 스트립 ③ 이 관리자 차례인가 — 협력사가 선적 요청을 마친 뒤다(되돌려 준비 중이면 아직 아니다). */
+  const caseRefShipStep = (s: PcbShipmentViewType): boolean => caseRefStrip(s) && s.status === 'requested';
+  /** ③ 이 잠긴 이유 — 눌러 보고 409 로 배우게 하지 않는다(서버 게이트와 같은 조건). 열려 있으면 null. */
+  const caseRefShipLock = (s: PcbShipmentViewType): string | null => {
+    if (s.status !== 'requested') return '협력사가 선적 요청을 하면 열립니다.';
+    if (awbOf(s) === null) return `${shipDocLabelOf(s)} 를 먼저 첨부해 주세요(2단계).`;
+    return null;
+  };
+  // 스트립 ③ — Case ID·운송회사·운송장을 한 번에 받아 선적으로 넘긴다. 협력사 통지는 이때 한 번 나간다
+  // (Case ID·운송장 동봉 — 사용자 결정 2026-10-11).
+  async function adminShipCaseRef(poId: number, s: PcbShipmentViewType): Promise<void> {
+    const sid = specId.value;
+    if (sid === null || caseRefShipLock(s) !== null) return;
+    const transport = stripTransportOf(s);
+    // 수단을 바꿔 골랐다면 앞서 박힌 운송회사·운송장은 남의 수단 값이다 — 미리 채우지 않는다.
+    const sameTransport = transport === shipmentTransportOf(s.transport);
+    actionError.value = '';
+    await promptDialog({
+      title: 'Case ID·운송장 입력 — 선적 진행',
+      description: `운송수단 ${SHIPMENT_TRANSPORT_LABELS[transport]} · 입력하면 선적으로 넘어가고, 협력사에게 Case ID·운송장이 메일로 한 번에 안내됩니다.`,
+      fields: shipPromptFieldsOf('shipped', {
+        caseRefRequested: true,
+        caseRef: s.caseRef,
+        caseRefNote: s.caseRefNote,
+        carrier: sameTransport ? s.carrier : null,
+        trackingNumber: sameTransport ? s.trackingNumber : null,
+        transport,
+      }),
+      confirmLabel: '선적 진행',
+      errorFallback: '선적 진행에 실패했습니다.',
+      submit: async (values) => {
+        // 운송수단을 함께 보낸다 — 서버는 수단이 바뀌면 앞서 박힌 운송회사·운송장을 비우고 이 요청의 값을 쓴다.
+        await shipAdvanceAdmin.mutateAsync({ specId: sid, poId, body: { ...shipBodyOf(values), transport } });
+      },
+    });
+  }
   /** 스트립 ①·② 밖의 제출 서류(원산지증명원 등) — 스트립이 서 있는 동안의 다운로드 자리. */
   const otherShipFilesOf = (s: AdminPcbShipmentViewType): AdminShipFileView[] =>
     s.files.filter((f) => f.fileType !== 'invoice' && f.fileType !== shipDocTypeOf(s));
-  const caseRefStrip = (s: AdminPcbShipmentViewType): boolean =>
-    s.caseRefRequestedAt !== null && s.receivedAt === null && (s.status === 'preparing' || s.status === 'requested');
   function adminPickShipFile(poId: number, fileType: PcbShipmentFileTypeType): void {
     const input = document.createElement('input');
     input.type = 'file';
@@ -336,28 +388,32 @@ export function useCaseShipment(core: CaseCore) {
     input.click();
   }
 
-  // 발송 참조번호(Case ID) 입력 — 협력사가 이 값을 기다리며 발송을 멈춘 상태(요청 배지)라 입력 즉시 값이
-  // 협력사 메일로 나간다. 요청이 없어도 기록 가능(관리자 자체 메모 관례).
+  // 발송 참조번호(Case ID) 단독 입력 — **기록·정정 경로**다. 요청 건의 주 경로는 스트립 ③ 이 운송장과 함께
+  // 받으므로 스트립이 서 있는 동안엔 이 버튼이 없다. 협력사 통지는 발송 뒤 값이 바뀌었을 때만(정정) 나간다.
   const shipCaseRefAdmin = useAdminPcbShipmentCaseRef();
-  async function openCaseRef(poId: number, current: string | null, note: string | null): Promise<void> {
+  async function openCaseRef(poId: number, s: PcbShipmentViewType): Promise<void> {
+    const has = s.caseRef !== null && s.caseRef !== '';
+    const correcting = s.caseRefRequestedAt !== null && s.shippedAt !== null;
     actionError.value = '';
     await promptDialog({
-      title: '발송 참조번호(Case ID) 입력',
-      description: '입력하면 협력사에게 값이 메일로 안내되고 발송(운송장) 진행이 열립니다.',
+      title: has ? '발송 참조번호(Case ID) 정정' : '발송 참조번호(Case ID) 입력',
+      description: correcting
+        ? '발송 뒤 정정입니다 — 값을 바꾸면 협력사에게 정정 메일이 나갑니다.'
+        : '기록용입니다 — 이 입력만으로는 협력사에게 메일이 나가지 않습니다.',
       fields: [
         {
           name: 'caseRef',
           label: '발송 참조번호(Case ID)',
           required: true,
           maxlength: 100,
-          value: current ?? '',
+          value: s.caseRef ?? '',
           hint:
-            note !== null && note !== ''
-              ? `협력사 요청 메모: ${note}`
-              : '특송 계정·포워더 부킹·통관 참조 등 협력사가 발송에 쓸 값입니다.',
+            s.caseRefNote !== null && s.caseRefNote !== ''
+              ? `협력사 요청 메모: ${s.caseRefNote}`
+              : '특송 계정·포워더 부킹·통관 참조 등 발송에 쓰는 값입니다.',
         },
       ],
-      confirmLabel: '입력',
+      confirmLabel: has ? '정정' : '입력',
       errorFallback: '발송 참조번호 입력에 실패했습니다.',
       submit: async (values) => {
         if (specId.value === null) return;
@@ -429,6 +485,11 @@ export function useCaseShipment(core: CaseCore) {
     awbOf,
     otherShipFilesOf,
     caseRefStrip,
+    caseRefShipStep,
+    caseRefShipLock,
+    stripTransportOf,
+    setStripTransport,
+    adminShipCaseRef,
     adminPickShipFile,
     openCaseRef,
     openReceive,

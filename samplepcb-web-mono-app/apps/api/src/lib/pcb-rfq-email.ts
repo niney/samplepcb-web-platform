@@ -750,15 +750,15 @@ export interface PcbCaseRefFilledEmailParams extends PcbPortalCtaParams {
   targetLabel: string;
 }
 
-/** 발송 참조번호(Case ID) 입력 통지 — 협력사가 이 값을 기다리며 발송을 멈춘 상태라
- *  값 자체를 본문에 크게 싣는다(포털에 다시 들어가지 않아도 부칠 수 있게). */
+/** 발송 참조번호(Case ID) **정정** 통지 — 발송 뒤 값이 바뀌었을 때만 나간다. 발송 전의 값은
+ *  '선적' 통지가 운송장·서류와 함께 한 번에 싣는다(2026-10-11). 값 자체를 본문에 크게 싣는다. */
 export function buildPcbCaseRefFilledEmail(p: PcbCaseRefFilledEmailParams): {
   subject: string;
   html: string;
 } {
   const noAccount = p.hasPortalAccount === false;
   const cta = noAccount
-    ? proxyNoticeBox('운송장 번호 회신·문의:', p.inquiryEmail)
+    ? proxyNoticeBox('문의:', p.inquiryEmail)
     : `
       <div style="padding-top:16px;">
         <a href="${esc(p.targetUrl)}"
@@ -766,13 +766,13 @@ export function buildPcbCaseRefFilledEmail(p: PcbCaseRefFilledEmailParams): {
           ${esc(p.targetLabel)}</a>
       </div>`;
   return {
-    subject: `[샘플피씨비] 발송 참조번호(Case ID) 안내 — ${batchLabel(p.projectName, p.poCount)}`,
+    subject: `[샘플피씨비] 발송 참조번호(Case ID) 정정 — ${batchLabel(p.projectName, p.poCount)}`,
     html: shell(
-      '요청하신 발송 참조번호(Case ID)를 안내드립니다',
+      '발송 참조번호(Case ID)가 정정되었습니다',
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.recipientName)} 담당자님, <b>${esc(batchLabel(p.projectName, p.poCount))}</b> 건의
-        발송 참조번호가 입력되었습니다. 이 번호로 발송을 진행하고 운송장 번호를 입력해 주세요.
+        발송 참조번호가 아래 값으로 정정되었습니다. 라벨·서류에는 이 번호를 사용해 주세요.
       </p>
       <div style="margin:12px 0;padding:14px 16px;background:#f0fdfa;border-left:3px solid #0d9488;font-size:16px;font-weight:700;color:#0f766e;letter-spacing:0.5px;">
         ${esc(p.caseRef)}
