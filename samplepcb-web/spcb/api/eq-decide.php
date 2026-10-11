@@ -15,7 +15,7 @@
 // ※ spcb/ 밖 PHP 는 include(재사용)만 하고 수정하지 않는다.
 
 include_once __DIR__ . '/../../common.php';
-include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_node_call()
+include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_node_call(), sp_bridge_text()
 
 /** 원래 주문내역으로 되돌리며 결과 문구를 실어 보낸다(sp-dialog.js 가 모달로 표시). */
 function sp_eq_back($msg, $tone = 'default')
@@ -42,7 +42,8 @@ if (!sp_pcb_check_token()) {
 
 $review_id = isset($_POST['review_id']) ? (int) $_POST['review_id'] : 0;
 $decision  = (isset($_POST['decision']) && $_POST['decision'] === 'reject') ? 'reject' : 'approve';
-$note      = isset($_POST['note']) ? trim((string) $_POST['note']) : '';
+// 사유·의견은 자유 문장 — $_POST 는 코어가 addslashes 를 건 값이라 원문으로 읽는다(sp_bridge_text).
+$note      = sp_bridge_text('note');
 
 if ($review_id <= 0) {
     sp_eq_back('확인 요청을 찾을 수 없습니다.', 'danger');

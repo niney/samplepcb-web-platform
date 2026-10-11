@@ -11,7 +11,7 @@
 // ※ spcb/ 밖 PHP 는 include(재사용)만 하고 수정하지 않는다.
 
 include_once __DIR__ . '/../../common.php';
-include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_node_call(), sp_pcb_check_token()
+include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_node_call(), sp_pcb_check_token(), sp_bridge_text()
 
 /** 원래 주문내역의 그 요청 자리로 되돌리며 결과 문구를 실어 보낸다(sp-dialog.js 가 모달로 표시). */
 function sp_bomc_back($msg, $tone = 'default', $request_id = 0)
@@ -36,7 +36,9 @@ if (!sp_pcb_check_token()) {
 
 $request_id = isset($_POST['request_id']) ? (int) $_POST['request_id'] : 0;
 $version    = isset($_POST['version']) ? (int) $_POST['version'] : 0;
-$note       = isset($_POST['note']) ? trim((string) $_POST['note']) : '';
+// 요청 사항은 자유 문장 — $_POST 는 코어가 addslashes 를 건 값이라 원문으로 읽는다(계약 max 2000).
+// choice·ship 은 아래에서 정규식·화이트리스트로 거르므로 $_POST 그대로 쓴다.
+$note       = sp_bridge_text('note', 2000);
 $choice_in  = isset($_POST['choice']) && is_array($_POST['choice']) ? $_POST['choice'] : array();
 $ship_in    = isset($_POST['ship']) && is_array($_POST['ship']) ? $_POST['ship'] : array();
 
@@ -60,7 +62,7 @@ if (empty($choices)) {
 }
 
 $body = array('expectedVersion' => $version, 'choices' => $choices);
-if ($note !== '') $body['note'] = mb_substr($note, 0, 2000);
+if ($note !== '') $body['note'] = $note;
 
 $res = sp_pcb_node_call('POST', '/api/bom/confirms/' . $request_id . '/answer', $body);
 

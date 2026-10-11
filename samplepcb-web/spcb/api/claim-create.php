@@ -12,7 +12,7 @@
 // ※ spcb/ 밖 PHP 는 include(재사용)만 하고 수정하지 않는다.
 
 include_once __DIR__ . '/../../common.php';
-include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_member_token()
+include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_member_token(), sp_bridge_text()
 
 /** 원래 주문내역으로 되돌리며 결과 문구를 실어 보낸다(sp-dialog.js 가 모달로 표시). */
 function sp_claim_back($msg, $tone = 'default')
@@ -37,7 +37,9 @@ if (!sp_pcb_check_token()) {
 $spec_id      = isset($_POST['spec_id']) ? (int) $_POST['spec_id'] : 0;
 $kind         = isset($_POST['kind']) ? (string) $_POST['kind'] : '';
 $affected_qty = isset($_POST['affected_qty']) ? (int) $_POST['affected_qty'] : 0;
-$description  = isset($_POST['description']) ? trim((string) $_POST['description']) : '';
+// 증상 설명은 자유 문장 — $_POST 는 코어가 addslashes 를 건 값이라 원문으로 읽는다(sp_bridge_text).
+// kind·requested_remedy 는 sp-node 가 enum 으로 거르므로 $_POST 그대로 넘긴다.
+$description  = sp_bridge_text('description');
 $remedy       = isset($_POST['requested_remedy']) ? (string) $_POST['requested_remedy'] : '';
 $ack          = isset($_POST['acknowledge']) && $_POST['acknowledge'] === '1';
 

@@ -285,3 +285,60 @@ function sp_pcb_check_token($expire = 7200)
 
     return hash_equals($expected, $hmac);
 }
+
+// ── 브리지 폼의 자유 입력 읽기 — 고객이 친 글자 그대로 ──────────────────────────
+// 그누보드 common.php(119행)는 $_POST·$_GET 의 **모든 값**에 G5_ESCAPE_FUNCTION 을 건다.
+// 지금 설정(config.php)은 sql_escape_string = addslashes 다: `'`·`"`·`\` 앞에 `\` 를 붙이고
+// NUL 을 `\0` 두 글자로 바꾼다(줄바꿈·유니코드는 건드리지 않는다). g5 SQL 을 문자열로 조립하는
+// 코어를 위한 방어다. sp-node 는 Prisma 바인딩이라 그 방어가 필요 없고, 그 값을 그대로 넘기면
+// 고객이 쓴 `it's "A" \ 끝` 이 `it\'s \"A\" \\ 끝` 으로 sp_ 원장에 저장된다(실측 2026-10-11 —
+// eq-decide·bom-confirm-answer·claim-create, e2e/specs/php-bridge-escape). 원장을 읽는 관리자
+// 화면·알림 메일도 그 값을 그대로 쓰고, 길이 검사는 군더더기 `\` 를 글자로 센다.
+//
+// 그래서 sp-node 로 넘길 **자유 입력 문장**은 $_POST 를 직접 읽지 않고 아래 함수로 읽는다.
+//   · 되돌리는 것이 아니라 PHP 가 받은 **원문**을 다시 읽는다(filter 확장 — 코어가 $_POST 를
+//     덮어써도 원문은 따로 남는다. urlencoded·multipart 모두). 칸 이름으로 읽으므로 한 값에
+//     되돌림이 두 번 걸릴 일이 없고, 코어의 이스케이프 설정이 바뀌어도 따라 바꿀 것이 없다.
+//   · 원문을 읽지 못하는 환경이면 $_POST 값에 stripslashes(addslashes 의 정확한 역)를 한 번 건다.
+// ⚠ 여기서 읽은 값은 **이스케이프 전**이다 — g5 SQL(sql_query 문자열)에 넣지 않는다. sp-node 전용.
+// ※ (int)·화이트리스트·정규식으로 거르는 칸(id·decision·choice 등)은 $_POST 그대로 써도 된다
+//   (따옴표가 낄 자리가 없다).
+
+/** 폼 한 칸의 원문 — 문자열 또는 (name="x[..]" 이면) 배열. 칸이 없으면 null. */
+function sp_bridge_raw($key)
+{
+    if (!isset($_POST[$key])) return null;
+
+    if (function_exists('filter_input')) {
+        $flag = is_array($_POST[$key]) ? FILTER_REQUIRE_ARRAY : FILTER_REQUIRE_SCALAR;
+        $raw  = filter_input(INPUT_POST, $key, FILTER_UNSAFE_RAW, $flag);
+        if ($raw !== null && $raw !== false) return $raw;
+    }
+    return array_map_deep('stripslashes', $_POST[$key]);
+}
+
+/** 원문 한 값을 다듬는다 — 앞뒤 공백을 떼고(계약의 .trim() 과 같다) $max 글자에서 자른다(0 = 안 자름).
+ *  NUL 은 버린다: 코어의 addslashes 가 `\0` 글자로 무력화하던 것이라, 원문을 읽는 이상 여기서 막는다. */
+function sp_bridge_clean($value, $max = 0)
+{
+    if (!is_string($value)) return '';
+    $value = trim(str_replace("\0", '', $value));
+    return $max > 0 ? mb_substr($value, 0, $max) : $value;
+}
+
+/** 자유 입력 한 칸(name="note") — 고객이 친 그대로. 칸이 없거나 배열로 오면 빈 문자열. */
+function sp_bridge_text($key, $max = 0)
+{
+    return sp_bridge_clean(sp_bridge_raw($key), $max);
+}
+
+/** 자유 입력 배열 칸(name="comment[12]") — 키는 그대로, 값마다 sp_bridge_text 와 같이. 배열이 아니면 빈 배열. */
+function sp_bridge_text_map($key, $max = 0)
+{
+    $raw = sp_bridge_raw($key);
+    $out = array();
+    if (is_array($raw)) {
+        foreach ($raw as $k => $value) $out[$k] = sp_bridge_clean($value, $max);
+    }
+    return $out;
+}

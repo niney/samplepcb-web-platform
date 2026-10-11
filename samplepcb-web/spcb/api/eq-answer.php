@@ -16,7 +16,7 @@
 // ※ spcb/ 밖 PHP 는 include(재사용)만 하고 수정하지 않는다.
 
 include_once __DIR__ . '/../../common.php';
-include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_node_call(), sp_pcb_check_token()
+include_once G5_PATH . '/extend/sp_pcb_eq.extend.php'; // sp_pcb_node_call(), sp_pcb_check_token(), sp_bridge_text_map()
 
 /** 원래 주문내역의 그 회차(또는 문제 문항) 자리로 되돌리며 결과 문구를 실어 보낸다(sp-dialog.js 가 모달로 표시). */
 function sp_eqi_back($msg, $tone = 'default', $anchor = '')
@@ -70,8 +70,10 @@ if (!sp_pcb_check_token()) {
 $review_id  = isset($_POST['review_id']) ? (int) $_POST['review_id'] : 0;
 $version    = isset($_POST['version']) ? (int) $_POST['version'] : 0;
 $od_id      = isset($_POST['od_id']) ? (string) $_POST['od_id'] : '';
-$answer_in  = isset($_POST['answer']) && is_array($_POST['answer']) ? $_POST['answer'] : array();
-$comment_in = isset($_POST['comment']) && is_array($_POST['comment']) ? $_POST['comment'] : array();
+// ⚠ common.php 가 $_POST 전체에 addslashes 를 건다(G5_ESCAPE_FUNCTION) — 답 기호와 의견은
+//   그대로 넘기면 `'`·`"`·`\` 앞에 백슬래시가 붙어 저장되므로 원문으로 읽는다(sp_bridge_text_map).
+$answer_in  = sp_bridge_text_map('answer', 4);     // itemId => key  — 계약 max 4, 공장 원문 기호(A/B/C)
+$comment_in = sp_bridge_text_map('comment', 2000); // itemId => 의견 — 계약 max 2000
 $agree      = isset($_POST['agree']) && $_POST['agree'] === '1';
 
 if ($review_id <= 0 || $version <= 0) {
@@ -79,18 +81,14 @@ if ($review_id <= 0 || $version <= 0) {
 }
 $anchor = 'eq-' . $review_id;
 
-// 폼 값 → 계약 CustomerPcbEqAnswerBody. ⚠ common.php 가 $_POST 전체에 addslashes 를 건다
-// (G5_ESCAPE_FUNCTION) — 의견을 그대로 넘기면 `'`·`"`·`\` 앞에 백슬래시가 붙어 저장된다.
+// 폼 값 → 계약 CustomerPcbEqAnswerBody.
 $answers  = array(); // itemId => key   (세션 복원·문제 문항 찾기용)
 $comments = array(); // itemId => comment
 $body_answers = array();
 foreach ($answer_in as $item_id => $key) {
     $item_id = (int) preg_replace('/[^0-9]/', '', (string) $item_id);
-    $key = trim(stripslashes((string) $key));
     if ($item_id <= 0 || $key === '') continue;
-    $key = mb_substr($key, 0, 4); // 계약 max 4 — 공장 원문 기호(A/B/C)
-    $comment = isset($comment_in[$item_id]) ? trim(stripslashes((string) $comment_in[$item_id])) : '';
-    $comment = mb_substr($comment, 0, 2000);
+    $comment = isset($comment_in[$item_id]) ? $comment_in[$item_id] : '';
     $answers[$item_id] = $key;
     $entry = array('itemId' => $item_id, 'key' => $key);
     if ($comment !== '') {
@@ -102,7 +100,6 @@ foreach ($answer_in as $item_id => $key) {
 // 답을 안 고른 문항의 의견도 되살릴 수 있게 따로 담는다(위 루프는 답이 있는 문항만 본다).
 foreach ($comment_in as $item_id => $comment) {
     $item_id = (int) preg_replace('/[^0-9]/', '', (string) $item_id);
-    $comment = mb_substr(trim(stripslashes((string) $comment)), 0, 2000);
     if ($item_id > 0 && $comment !== '' && !isset($comments[$item_id])) $comments[$item_id] = $comment;
 }
 
