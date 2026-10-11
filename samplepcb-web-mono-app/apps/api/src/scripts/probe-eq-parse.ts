@@ -17,7 +17,7 @@
 //              backoff 로 표시해 지연 통계에서 뺀다.
 //   --resume=<실행 폴더> 이어 달리기 — records.jsonl 에 (mode·model·think·file·run) 키가 있는 작업은 건너뛰고
 //              같은 폴더에 덧붙인다(중복 키는 마지막 것만 채점).
-//   --prompt v1|v2(전체 분석 프롬프트 판, 기본 v1) · --timeout 초(기본 600) · --temperature(기본 0)
+//   --prompt v1|v2|v3(전체 분석 프롬프트 판 — 출하 판은 v3, 하네스 기본은 비교 기준인 v1) · --timeout 초(기본 600) · --temperature(기본 0)
 //   --no-format 구조화 출력(JSON 스키마) 끔 · --tag 출력 폴더 꼬리표 · --out 출력 루트
 // 산출: <out>/<타임스탬프>-<tag>/ records.jsonl · summary.md · summary.json · translations.md · raw/ · drafts/ · prompts/
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';

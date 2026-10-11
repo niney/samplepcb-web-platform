@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AdminPcbEqAiAnalyzeResponse,
   AdminPcbEqFigureUploadResponse,
   AdminPcbEqReviewListResponse,
   AdminPcbEqReviewResponse,
@@ -27,11 +28,27 @@ const reviewPath = (poId: number, reviewId: number): string => `${reviewsPath(po
 export const eqFigurePath = (poId: number, reviewId: number, fileId: number): string =>
   `${reviewPath(poId, reviewId)}/figures/${String(fileId)}`;
 
-export function useAdminPcbEqRounds(poId: Ref<number | null>, enabled: Ref<boolean>) {
+/** AI 분석 중일 때 목록을 다시 읽는 간격 — 분석은 10~20초쯤 걸린다(프로빙 p50 11.6초). */
+const AI_POLL_MS = 4_500;
+
+/**
+ * 발주서의 회차 목록 + 이번 승인요청의 AI 분석 상태(`ai`·`aiEnabled`, D20 P2).
+ * `poll` 이 참이고 분석이 도는 중(ai.status='running')이면 끝날 때까지 다시 읽는다 — 끝나면 저절로 멈춘다.
+ * 패널이 닫혀 있으면 부르는 쪽이 poll 을 꺼서 폴링하지 않는다(행 칩은 Case 가 따로 본다).
+ */
+export function useAdminPcbEqRounds(poId: Ref<number | null>, enabled: Ref<boolean>, poll: Ref<boolean>) {
   return useQuery({
     queryKey: computed(() => listKey(poId.value)),
     queryFn: () => apiGet(reviewsPath(poId.value ?? 0), AdminPcbEqReviewListResponse),
     enabled: computed(() => enabled.value && poId.value !== null),
+    // poll 을 옵션 안에서 읽지 않고 옵션 자체를 바꾼다 — 함수만 넘기면 다음 조회가 끝나야 다시 계산돼, 패널을 닫은
+    // 뒤에도 이미 걸린 타이머가 한 번 더 돈다.
+    refetchInterval: computed(() =>
+      poll.value
+        ? (query: { state: { data?: AdminPcbEqReviewListResponseType | undefined } }) =>
+            query.state.data?.data.ai?.status === 'running' ? AI_POLL_MS : false
+        : false,
+    ),
   });
 }
 
@@ -41,7 +58,7 @@ function putReview(qc: QueryClient, review: AdminPcbEqReviewViewType): void {
     if (old === undefined) return old;
     const rest = old.data.reviews.filter((r) => r.id !== review.id);
     const reviews = [...rest, review].sort((a, b) => b.id - a.id);
-    return { ...old, data: { reviews } };
+    return { ...old, data: { ...old.data, reviews } };
   });
 }
 
@@ -83,7 +100,7 @@ export function useEqRoundMutations() {
         const reviews = old.data.reviews.map((r) =>
           r.id === vars.reviewId ? { ...r, looseFigures: [...r.looseFigures, res.data.figure] } : r,
         );
-        return { ...old, data: { reviews } };
+        return { ...old, data: { ...old.data, reviews } };
       });
     },
   });
@@ -125,7 +142,24 @@ export function useEqRoundMutations() {
     },
   });
 
-  return { createDraft, saveDraft, uploadFigure, deleteFigure, send, proxyAnswer, forward, cancel };
+  /**
+   * [AI 분석]·[AI 다시 분석]·[AI 결과를 초안에 적용](D20 P2) — 202 로 잡 상태만 돌아온다(분석은 뒤에서 돈다).
+   * 캐시의 `ai` 를 갈아 끼우면 목록 폴링(useAdminPcbEqRounds)이 이어받고, 행 칩(AI 분석 중)은 발주 목록이 다시 읽는다.
+   * 같은 파일·같은 설정의 최근 결과가 있으면 서버가 바로 적용하고 done 을 주므로 그때는 목록도 다시 읽는다.
+   */
+  const aiAnalyze = useMutation({
+    mutationFn: ({ poId, replaceDraft }: { poId: number; replaceDraft: boolean }) =>
+      apiSend('POST', `${reviewsPath(poId)}/ai-analyze`, { replaceDraft }, AdminPcbEqAiAnalyzeResponse),
+    onSuccess: (res, vars) => {
+      qc.setQueryData<AdminPcbEqReviewListResponseType>(listKey(vars.poId), (old) =>
+        old === undefined ? old : { ...old, data: { ...old.data, ai: res.data.ai } },
+      );
+      if (res.data.ai.status !== 'running') void qc.invalidateQueries({ queryKey: listKey(vars.poId) });
+      refreshRows(qc);
+    },
+  });
+
+  return { createDraft, saveDraft, uploadFigure, deleteFigure, send, proxyAnswer, forward, cancel, aiAnalyze };
 }
 
 /**

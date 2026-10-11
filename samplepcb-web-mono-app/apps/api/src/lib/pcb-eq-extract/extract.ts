@@ -145,11 +145,13 @@ function extractCfb(buf: Buffer, out: EqExtract): void {
   const container = CFB.read(buf, { type: 'buffer' });
   if (CFB.find(container, 'EncryptionInfo') !== null || CFB.find(container, 'EncryptedPackage') !== null) {
     out.format = 'xlsx';
+    out.problem = 'encrypted';
     out.warnings.push('암호가 걸린 통합문서라 읽지 못했습니다(공장에 암호 없는 파일을 요청)');
     return;
   }
   const stream = CFB.find(container, 'Workbook') ?? CFB.find(container, 'Book');
   if (stream === null) {
+    out.problem = 'no_workbook';
     out.warnings.push('Office 복합 문서이지만 엑셀 통합문서 스트림이 없습니다(워드·한글 파일?)');
     return;
   }
@@ -160,6 +162,7 @@ function extractCfb(buf: Buffer, out: EqExtract): void {
     EQ_EXTRACT_LIMITS.maxImageBytes,
   );
   if (pics.encrypted) {
+    out.problem = 'encrypted';
     out.warnings.push('암호가 걸린 .xls 라 읽지 못했습니다(공장에 암호 없는 파일을 요청)');
     return;
   }
@@ -168,6 +171,7 @@ function extractCfb(buf: Buffer, out: EqExtract): void {
   try {
     wb = XLSX.read(buf, readOpts);
   } catch (err) {
+    out.problem = 'unreadable';
     out.warnings.push(`셀을 읽지 못했습니다: ${errText(err)}`);
     return;
   }
@@ -212,6 +216,7 @@ function extractXlsx(buf: Buffer, out: EqExtract): void {
   try {
     wb = XLSX.read(buf, readOpts);
   } catch (err) {
+    out.problem = 'unreadable';
     out.warnings.push(`셀을 읽지 못했습니다: ${errText(err)}`);
     return;
   }
@@ -274,12 +279,14 @@ const WORKBOOK_EXT_RE = /\.(xlsx|xlsm|xls)$/i;
 
 /** EQ 통합문서 하나(.xls/.xlsx/.zip)를 셀·병합·그림으로. throw 하지 않는다. */
 export function extractEqWorkbook(buf: Buffer, fileName: string): EqExtract {
-  const out: EqExtract = { fileName, innerName: null, format: null, sheets: [], images: [], warnings: [] };
+  const out: EqExtract = { fileName, innerName: null, format: null, problem: null, sheets: [], images: [], warnings: [] };
   if (buf.length > EQ_EXTRACT_LIMITS.maxInputBytes) {
+    out.problem = 'too_large';
     out.warnings.push(`파일이 ${String(EQ_EXTRACT_LIMITS.maxInputBytes / 1024 / 1024)}MB 를 넘어 읽지 않았습니다`);
     return out;
   }
   if (buf.length < 8) {
+    out.problem = 'unreadable';
     out.warnings.push('빈 파일이거나 너무 작습니다');
     return out;
   }
@@ -298,6 +305,7 @@ export function extractEqWorkbook(buf: Buffer, fileName: string): EqExtract {
       const candidates = names.filter((n) => WORKBOOK_EXT_RE.test(n) && !n.startsWith('__MACOSX/') && !/(^|\/)~\$/.test(n));
       const inner = candidates[0];
       if (inner === undefined) {
+        out.problem = 'no_workbook';
         out.warnings.push('zip 안에 엑셀 통합문서(.xls/.xlsx)가 없습니다');
         return out;
       }
@@ -309,12 +317,16 @@ export function extractEqWorkbook(buf: Buffer, fileName: string): EqExtract {
       const innerBuf = Buffer.from(innerData);
       if (innerBuf.subarray(0, 8).equals(CFB_MAGIC)) extractCfb(innerBuf, out);
       else if (innerBuf.subarray(0, 4).equals(ZIP_MAGIC)) extractXlsx(innerBuf, out);
-      else out.warnings.push(`zip 안 ${inner} 는 엑셀 형식이 아닙니다`);
+      else {
+        out.problem = 'no_workbook';
+        out.warnings.push(`zip 안 ${inner} 는 엑셀 형식이 아닙니다`);
+      }
       return out;
     }
     // 그 밖(HTML·CSV 로 내보낸 '가짜 xls' 등) — 텍스트로 보일 때만 SheetJS 에 맡긴다(PDF·그림을
     // 넣으면 SheetJS 는 쓰레기 셀을 만든다).
     if (buf.subarray(0, 512).includes(0)) {
+      out.problem = 'no_workbook';
       out.warnings.push('엑셀(.xls/.xlsx/.zip)이 아닌 바이너리 파일이라 읽지 않았습니다');
       return out;
     }
@@ -324,6 +336,7 @@ export function extractEqWorkbook(buf: Buffer, fileName: string): EqExtract {
     out.sheets = readWorkbookCells(wb, out.warnings).sheets;
     return out;
   } catch (err) {
+    out.problem = 'unreadable';
     out.warnings.push(`읽기 실패: ${errText(err)}`);
     out.sheets = [];
     out.images = [];

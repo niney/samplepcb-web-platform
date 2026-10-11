@@ -45,6 +45,8 @@ export interface EqTemplateResult {
   layout: EqTemplateLayout | null;
   /** 질문이 비어 버린 번호 슬롯. */
   emptySlots: string[];
+  /** 선택지를 자신 있게 못 읽은 문항 번호(기호를 지어 붙였거나 선택지를 못 찾음) — 구조 대조에서 선택지 비교를 건너뛴다. */
+  uncertain: string[];
   warnings: string[];
 }
 
@@ -301,6 +303,7 @@ function parseSheet(x: EqExtract, sheet: EqSheet, warnings: string[]): EqTemplat
   const mainImages = x.images.filter((i) => i.sheetName === sheet.name && i.anchor !== null);
   const items: PcbEqDraftType['items'] = [];
   const emptySlots: string[] = [];
+  const uncertain: string[] = [];
   let firstItemDate: string | null = null;
   starts.forEach((start, idx) => {
     const nextStart = starts[idx + 1] ?? lastRow + 1;
@@ -330,6 +333,7 @@ function parseSheet(x: EqExtract, sheet: EqSheet, warnings: string[]): EqTemplat
         requiresComment: REQUIRES_COMMENT_RE.test(o.text),
       }));
     if (keyless) warnings.push(`문항 ${factoryNo}: 선택지 기호가 없어 A·B… 를 붙였습니다`);
+    if (keyless || options.length === 0) uncertain.push(factoryNo);
     if (options.length === 0) {
       warnings.push(`문항 ${factoryNo}: 선택지를 찾지 못해 '확인' 하나를 넣었습니다`);
       options.push({ key: 'A', label: '확인', labelOrig: null, recommended: false, requiresComment: false });
@@ -377,9 +381,9 @@ function parseSheet(x: EqExtract, sheet: EqSheet, warnings: string[]): EqTemplat
   const parsed = PcbEqDraft.safeParse(candidate);
   if (!parsed.success) {
     warnings.push(`템플릿 결과가 계약을 통과하지 못했습니다: ${parsed.error.issues[0]?.message ?? '?'}`);
-    return { draft: null, layout, emptySlots, warnings };
+    return { draft: null, layout, emptySlots, uncertain, warnings };
   }
-  return { draft: parsed.data, layout, emptySlots, warnings };
+  return { draft: parsed.data, layout, emptySlots, uncertain, warnings };
 }
 
 /** LLM 없이 표 구조만으로 PcbEqDraft 를 만든다. 실패하면 draft=null(이유는 warnings). */
@@ -393,5 +397,5 @@ export function parseEqTemplate(x: EqExtract): EqTemplateResult {
     if (res !== null) return res;
   }
   warnings.push('EQ 머리글(질문·제안/답 칸)을 찾지 못했습니다 — 템플릿이 모르는 양식');
-  return { draft: null, layout: null, emptySlots: [], warnings };
+  return { draft: null, layout: null, emptySlots: [], uncertain: [], warnings };
 }

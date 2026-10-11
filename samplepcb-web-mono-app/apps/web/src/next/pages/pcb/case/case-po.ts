@@ -27,9 +27,10 @@ import {
   useUploadAdminPcbEqFile,
   type AdminPcbEqSubstituteAction,
 } from '@/admin/useAdminPcbPos';
-import { pcbEqReviewState, pcbEqReviewTitle, type PcbEqReviewDisplay } from '@/lib/pcb-eq-review';
+import { pcbEqReviewState, type PcbEqReviewDisplay } from '@/lib/pcb-eq-review';
+import { usePollWhile } from '@/next/components/pcb/eq/usePollWhile';
 import type { PcbBadge } from '@/next/components/pcb/pcb-badges';
-import { pcbEqReviewBadge } from '@/next/components/pcb/pos/pos-badges';
+import { pcbEqReviewBadge, pcbEqRowTitle } from '@/next/components/pcb/pos/pos-badges';
 import { confirmDialog, promptDialog } from '@/next/lib/dialog';
 import { addDateOnlyDays, type CaseCore } from './case-core';
 import type { CaseRfq } from './case-rfq';
@@ -63,6 +64,7 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
     detailQuery,
     adminRows,
     allPos,
+    posQuery,
     latestRoundRfqs,
     selectedPoRfq,
     rfqsQuery,
@@ -261,9 +263,16 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
     po.track === 'stencil' ? '고객 확인' : eqDirtyPoIds.value.includes(po.poId) ? '작성 이어가기' : 'EQ 열기';
   /** 행에 [EQ 열기]를 둘까 — 승인요청 중이거나 고객 확인 이력이 있을 때(승인의 근거는 단계가 지나도 남긴다). */
   const showEqOpen = (po: AdminPcbPoViewType): boolean => po.status === 'eq_requested' || po.eqReview !== null;
-  /** 행 칩 — 문항형이면 "EQ 2차 · 회신 대기 D+2", 문구형이면 옛 배지 문구. 워크큐 배지와 같은 판정·색. */
+  /** 행 칩 — 문항형이면 "EQ 2차 · 회신 대기 D+2", 문구형이면 옛 배지 문구, 회차가 없으면 AI 분석 중·안 됨(D20 P2).
+   *  워크큐 배지와 같은 판정·색. */
   const eqChipOf = (po: AdminPcbPoViewType): PcbBadge | null =>
-    po.eqReview === null ? null : pcbEqReviewBadge(po.eqReview);
+    po.eqReview === null && po.eqAi === null ? null : pcbEqReviewBadge(po.eqReview, po.eqAi);
+  // AI 분석은 서버 뒤에서 돈다(10~20초) — 'AI 분석 중' 줄이 있는 동안만 발주 목록을 다시 읽어 칩이 초안·실패로 넘어가게 한다.
+  usePollWhile(
+    () => allPos.value.some((p) => p.eqAi?.status === 'running'),
+    () => void posQuery.refetch(),
+    5_000,
+  );
 
   // EQ 고객 확인 표시 — 대화상자를 열지 않아도 "보냈는지·답했는지"가 보인다. 버튼 하나가 상태를
   // 입는다: 미요청 → 확인중 → 승인/반려. 판정은 lib/pcb-eq-review 공용(워크큐 배지와 같은 상태).
@@ -285,7 +294,7 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
         return r?.status === 'draft' ? '작성 중' : '고객 확인';
     }
   };
-  const eqReviewTitleOf = (po: AdminPcbPoViewType): string => pcbEqReviewTitle(po.eqReview);
+  const eqReviewTitleOf = (po: AdminPcbPoViewType): string => pcbEqRowTitle(po.eqReview, po.eqAi);
 
   /** 제작 사양 수정 — 저장하면 견적이 새로 발급되므로 상세를 다시 읽는다. */
   const editableSpec = computed<Record<string, string | number>>(() => detail.value?.spec ?? {});

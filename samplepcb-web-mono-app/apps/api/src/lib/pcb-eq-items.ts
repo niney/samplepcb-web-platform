@@ -5,6 +5,7 @@ import {
   PCB_EQ_ITEM_CATEGORIES,
   PCB_EQ_ITEM_CHANGES,
   PCB_EQ_REVIEW_EVENT_ACTIONS,
+  PcbEqAiFlag,
   PcbEqItemOption,
 } from '@sp/api-contract';
 import type {
@@ -12,6 +13,7 @@ import type {
   AdminPcbEqItemType,
   CustomerPcbEqItemType,
   PartnerPcbEqItemType,
+  PcbEqAiFlagType,
   PcbEqAnswerChannelType,
   PcbEqAnswerInputType,
   PcbEqItemAnswerType,
@@ -54,6 +56,17 @@ export const parseEqItemOptions = (json: unknown): PcbEqItemOptionType[] => {
   const out: PcbEqItemOptionType[] = [];
   for (const raw of json) {
     const parsed = PcbEqItemOption.safeParse(raw);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out;
+};
+
+/** AI 검토 표시(Json) — 깨진 원소는 버린다. 고객·협력사 뷰에는 싣지 않는다(관리자 전용). */
+export const parseEqAiFlags = (json: unknown): PcbEqAiFlagType[] => {
+  if (!Array.isArray(json)) return [];
+  const out: PcbEqAiFlagType[] = [];
+  for (const raw of json) {
+    const parsed = PcbEqAiFlag.safeParse(raw);
     if (parsed.success) out.push(parsed.data);
   }
   return out;
@@ -102,6 +115,8 @@ export const eqAnswerLabel = (options: readonly PcbEqItemOptionType[], key: stri
 
 export interface EqRoundCandidate {
   id: bigint;
+  /** 회차 번호는 **발주서마다** 1부터 센다 — 여러 발주서의 회차를 한 번에 넘겨도 섞이지 않게. */
+  poId: bigint;
   format: string;
   status: string;
   /** 고객에게 발송된 적이 있다(이벤트 'sent'). */
@@ -113,7 +128,7 @@ export interface EqRoundCandidate {
  * (작성 중에 EQ 가 움직여 자동 취소된 것)도 안 보인다 — 고객 목록에 "요청 취소" 줄이 뜨면
  * 받은 적 없는 요청이 취소됐다고 읽힌다. 문구형(D16)은 예전처럼 취소 이력까지 보인다.
  */
-export const isEqReviewCustomerVisible = (r: Omit<EqRoundCandidate, 'id'>): boolean =>
+export const isEqReviewCustomerVisible = (r: Pick<EqRoundCandidate, 'format' | 'status' | 'sent'>): boolean =>
   r.status !== 'draft' && (r.format !== 'items' || r.status !== 'canceled' || r.sent);
 
 /**
@@ -127,7 +142,15 @@ export const eqRoundNumbers = (rows: readonly EqRoundCandidate[]): Map<string, n
     .filter((r) => r.format === 'items' && (r.status === 'draft' || isEqReviewCustomerVisible(r)))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const out = new Map<string, number>();
-  counted.forEach((r, i) => out.set(r.id.toString(), i + 1));
+  // 발주서별로 센다 — 목록(워크큐·마이페이지)은 여러 발주서의 회차를 한 번에 넘긴다. 통째로 세면 남의
+  // 발주서 회차가 번호를 밀어 올린다(고객 화면에 "5차 확인"이 뜬 실측, 2026-10-11).
+  const perPo = new Map<string, number>();
+  for (const r of counted) {
+    const po = r.poId.toString();
+    const no = (perPo.get(po) ?? 0) + 1;
+    perPo.set(po, no);
+    out.set(r.id.toString(), no);
+  }
   return out;
 };
 
@@ -146,6 +169,160 @@ export const planEqItemCopyLink = (
   sourceSent
     ? { prevItemId: src.id, change: 'same' }
     : { prevItemId: src.prevItemId, change: asEqItemChange(src.change) };
+
+// ── 개정 회차 대조(D20 P2 — AI 초안) ─────────────────────────────────────────
+// 공장이 개정 EQ 를 내면 새 초안의 문항을 **고객이 마지막으로 본 회차**와 견줘 동일·변경·신규를 붙인다.
+// LLM 에게 묻지 않는다 — 공장 번호와 원문만으로 결정적으로 낸다(같은 입력이면 늘 같은 답, 프로빙 §9).
+// '동일'은 고객 화면에서 **이전 답을 미리 골라 준다** — 그래서 가장 엄격하다(원문·선택지가 정규화 후 완전히 같을 때만).
+
+export interface EqRevisionSide {
+  factoryNo: string | null;
+  questionOrig: string | null;
+  options: readonly Pick<PcbEqItemOptionType, 'key' | 'label' | 'labelOrig'>[];
+}
+
+export interface EqRevisionLink {
+  /** 이어진 직전 회차 문항의 **배열 위치**(prev 인자 기준) — 신규면 null. */
+  prevIndex: number | null;
+  change: PcbEqItemChangeType;
+}
+
+/** 번호만 같고 내용은 딴 문항인 경우를 거르는 문턱 — 이보다 안 닮았으면 번호를 물려받은 새 문항으로 본다. */
+export const EQ_REVISION_SAME_NO_MIN_SIMILARITY = 0.4;
+/** 번호가 안 맞는 문항끼리 '변경'으로 이으려면 이만큼은 닮아야 한다(오탈자 수정·문구 손질 수준). */
+export const EQ_REVISION_CROSS_NO_MIN_SIMILARITY = 0.8;
+
+/**
+ * 원문 비교용 정규화 — 전각·반각(NFKC), 대소문자, 공백·구두점 차이를 지운다. 단 **숫자 사이의 소수점·
+ * 쉼표와 숫자 앞 음수 부호는 남긴다**: "1.5mm" 와 "15mm" 가 같아지면 다른 치수를 '동일'로 잇는다.
+ * 수학 기호(±·<·≥)는 구두점이 아니라 그대로 남는다.
+ */
+export const normalizeEqOrigText = (text: string): string =>
+  text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/(?<=\d)\.(?=\d)/g, '\u0001')
+    .replace(/(?<=\d),(?=\d)/g, '\u0002')
+    .replace(/(?<![\p{L}\p{N}])-(?=\d)/gu, '\u0003')
+    .replace(/[\s\p{P}]+/gu, '')
+    .replaceAll('\u0001', '.')
+    .replaceAll('\u0002', ',')
+    .replaceAll('\u0003', '-');
+
+/** 공장 번호 정규화 — '1'·'1.0'·'01'·'(1)'·'1.' 을 같은 번호로. 비면 null. */
+export const normalizeEqFactoryNo = (no: string | null): string | null => {
+  const v = (no ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/^[#(（\s]+|[.)）、\s]+$/g, '')
+    .replace(/\.0+$/, '')
+    .replace(/^0+(?=\d)/, '')
+    .toUpperCase();
+  return v === '' ? null : v;
+};
+
+/** 글자 2-gram Dice 계수(0~1) — 중국어·한국어처럼 띄어쓰기 없는 원문에서도 "얼마나 같은 문장인가"를 잰다. */
+export const eqTextSimilarity = (a: string, b: string): number => {
+  if (a === b) return a === '' ? 0 : 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const grams = (s: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < s.length - 1; i += 1) {
+      const g = s.slice(i, i + 2);
+      m.set(g, (m.get(g) ?? 0) + 1);
+    }
+    return m;
+  };
+  const ga = grams(a);
+  const gb = grams(b);
+  let overlap = 0;
+  for (const [g, n] of ga) overlap += Math.min(n, gb.get(g) ?? 0);
+  return (2 * overlap) / (a.length - 1 + (b.length - 1));
+};
+
+const revisionTextKey = (side: EqRevisionSide): string | null => {
+  const v = normalizeEqOrigText(side.questionOrig ?? '');
+  return v === '' ? null : v;
+};
+
+/** 선택지 지문 — 기호와 원문(없으면 한국어)을 같이 본다. 기호가 같아도 문구가 바뀌면 '같은 답'이 아니다. */
+const revisionOptionsKey = (side: EqRevisionSide): string =>
+  side.options
+    .map((o) => `${o.key.trim().toUpperCase()}=${normalizeEqOrigText(o.labelOrig ?? o.label)}`)
+    .join('|');
+
+/**
+ * 새 초안 문항 ↔ 직전(고객이 본) 회차 문항 대조. 차례:
+ *  ① **원문이 같은 문항끼리 먼저** 잇는다 — 번호가 달라도. 공장이 문항 하나를 빼고 번호를 당기면 번호로는
+ *     딴 문항이 짝이 된다(2번 자리에 옛 3번이 온다). 선택지까지 같으면 `same`, 선택지가 바뀌었으면 `changed`.
+ *     원문이 같은 후보가 여럿이면 번호가 같은 쪽.
+ *  ② 남은 것 중 **번호가 같은 짝** — 원문이 바뀐 것이라 `changed`. 단 전혀 다른 질문이 번호만 물려받았으면
+ *     (유사도 문턱 미만) 잇지 않는다. 한쪽 원문이 비어 견줄 수 없으면 번호를 믿는다.
+ *  ③ 번호도 안 맞는 나머지 — 원문이 거의 같으면(번호가 바뀌고 문구도 손본 문항) `changed`.
+ *  ④ 그래도 짝이 없으면 `new`.
+ * 직전 문항 하나는 한 번만 쓰인다(둘이 같은 이전 답을 물려받지 않게).
+ */
+export const linkEqRevision = (
+  next: readonly EqRevisionSide[],
+  prev: readonly EqRevisionSide[],
+): EqRevisionLink[] => {
+  const nextText = next.map(revisionTextKey);
+  const prevText = prev.map(revisionTextKey);
+  const nextNo = next.map((s) => normalizeEqFactoryNo(s.factoryNo));
+  const prevNo = prev.map((s) => normalizeEqFactoryNo(s.factoryNo));
+  const links: (EqRevisionLink | null)[] = next.map(() => null);
+  const used = new Set<number>();
+  const free = (): number[] => prev.map((_, j) => j).filter((j) => !used.has(j));
+
+  // ① 원문 완전 일치
+  next.forEach((side, i) => {
+    const text = nextText[i] ?? null;
+    if (text === null) return;
+    const candidates = free().filter((j) => prevText[j] === text);
+    const no = nextNo[i] ?? null;
+    const pick = candidates.find((j) => no !== null && prevNo[j] === no) ?? candidates[0];
+    const matched = pick === undefined ? undefined : prev[pick];
+    if (pick === undefined || matched === undefined) return;
+    used.add(pick);
+    links[i] = {
+      prevIndex: pick,
+      change: revisionOptionsKey(side) === revisionOptionsKey(matched) ? 'same' : 'changed',
+    };
+  });
+
+  // ② 번호 짝
+  next.forEach((_, i) => {
+    const no = nextNo[i] ?? null;
+    if (links[i] !== null || no === null) return;
+    const pick = free().find((j) => prevNo[j] === no);
+    if (pick === undefined) return;
+    const a = nextText[i] ?? null;
+    const b = prevText[pick] ?? null;
+    if (a !== null && b !== null && eqTextSimilarity(a, b) < EQ_REVISION_SAME_NO_MIN_SIMILARITY) return;
+    used.add(pick);
+    links[i] = { prevIndex: pick, change: 'changed' };
+  });
+
+  // ③ 번호가 안 맞는 나머지 — 가장 닮은 것 하나
+  next.forEach((_, i) => {
+    const text = nextText[i] ?? null;
+    if (links[i] !== null || text === null) return;
+    let best: { j: number; score: number } | null = null;
+    for (const j of free()) {
+      const other = prevText[j] ?? null;
+      if (other === null) continue;
+      const score = eqTextSimilarity(text, other);
+      if (score >= EQ_REVISION_CROSS_NO_MIN_SIMILARITY && (best === null || score > best.score)) {
+        best = { j, score };
+      }
+    }
+    if (best === null) return;
+    used.add(best.j);
+    links[i] = { prevIndex: best.j, change: 'changed' };
+  });
+
+  return links.map((l) => l ?? { prevIndex: null, change: 'new' });
+};
 
 // ── 초안 저장 검증 ───────────────────────────────────────────────────────────
 
@@ -339,6 +516,7 @@ export const toAdminEqItem = (
   change: asEqItemChange(row.change),
   prev,
   answer: answerOf(row),
+  aiFlags: parseEqAiFlags(row.aiFlags),
 });
 
 /**

@@ -12,10 +12,23 @@
 // 초안은 서버에 있다(draft) — 이 패널이 들고 있는 것은 **저장 안 된 변경**뿐이다(회차별 버퍼). 닫아도 같은 Case
 // 화면 안에서는 남고('작성 이어가기'), 화면을 떠날 때만 묻는다. 저장·발송·회신·전달은 version 을 맞춰야 해서
 // 다른 곳에서 바뀌면 409 VERSION_CONFLICT — "새로 불러오기"로 서버 판을 다시 받는다(내 변경은 버린다).
+//
+// D20 P2 — 협력사가 승인요청을 누르면 서버가 EQ 엑셀을 자동 분석해 초안을 만든다(유스케이스가 켜져 있을 때).
+// 이 패널은 그 잡의 상태(목록 응답의 `ai`·`aiEnabled`)를 띠로 보이고(분석 중·안 됨·결과 준비), 분석 중이면 열려
+// 있는 동안 목록을 다시 읽는다. AI 초안은 배지 'AI 초안 · 검토 필요'와 문항별 검토 표시(aiFlags)로 구분한다 —
+// 자동은 초안까지고 고객 발송은 관리자 검토 뒤다(D20-1).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
+import { RouterLink, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import { DownloadIcon, FileTextIcon, PencilLineIcon, SparklesIcon, CopyIcon, MessageSquareTextIcon } from '@lucide/vue';
+import {
+  CopyIcon,
+  DownloadIcon,
+  FileTextIcon,
+  MessageSquareTextIcon,
+  PencilLineIcon,
+  RefreshCwIcon,
+  SparklesIcon,
+} from '@lucide/vue';
 import {
   PCB_EQ_FILE_LABELS,
   PCB_PO_STATUS_LABELS,
@@ -38,8 +51,10 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/next/compon
 import { Tabs, TabsList, TabsTrigger } from '@/next/components/ui/tabs';
 import { Textarea } from '@/next/components/ui/textarea';
 import { pcbPoStatusVariant } from '@/next/components/pcb/pcb-badges';
+import { NEXT_CORE_ROUTES } from '@/next/core-navigation';
 import { confirmDialog, pendingConfirm, pendingPrompt } from '@/next/lib/dialog';
 import EqActivity from './EqActivity.vue';
+import EqAiBanner from './EqAiBanner.vue';
 import EqCustomerPreview from './EqCustomerPreview.vue';
 import EqItemEditor from './EqItemEditor.vue';
 import EqItemList from './EqItemList.vue';
@@ -54,6 +69,7 @@ import {
   isDraftDirty,
   isOpenReview,
   newItem,
+  openAiFlags,
   sharedFigureCount,
   type EqFigureDraft,
   type EqItemDraft,
@@ -88,7 +104,12 @@ const queryClient = useQueryClient();
 const urls = createEqFigureUrls();
 
 const poId = computed(() => props.po?.poId ?? null);
-const roundsQuery = useAdminPcbEqRounds(poId, computed(() => props.po !== null));
+// 분석 중(ai.status='running')이면 패널이 열려 있는 동안만 목록을 다시 읽는다 — 닫혀 있으면 폴링하지 않는다.
+const roundsQuery = useAdminPcbEqRounds(
+  poId,
+  computed(() => props.po !== null),
+  computed(() => props.open),
+);
 const reviews = computed(() => roundsQuery.data.value?.data.reviews ?? []);
 /** 문항형 회차(번호 있는 것만 — 안 나간 채 닫힌 초안은 번호도 고객 흔적도 없다), 오래된 것 먼저. */
 const rounds = computed(() =>
@@ -110,6 +131,18 @@ const startable = computed(
     openReview.value === null,
 );
 
+// ── AI 분석(D20 P2) ─────────────────────────────────────────────────────────────
+/** 이번 승인요청의 최신 AI 분석(없으면 null)과 유스케이스 on/off(설정 > AI 연동). */
+const ai = computed(() => roundsQuery.data.value?.data.ai ?? null);
+const aiEnabled = computed(() => roundsQuery.data.value?.data.aiEnabled ?? false);
+/** 분석할 파일이 있는가 — 협력사 EQ 질의서(서버 NO_SOURCE 의 화면 미러. 형식 판정은 서버가 한다). */
+const aiHasSource = computed(() => (props.po?.eqFiles ?? []).some((f) => f.fileType === 'eq'));
+/** 열린 문항형 초안 — AI 다시 분석·적용은 이 초안의 문항을 통째로 바꾼다(replaceDraft). */
+const openDraft = computed(() => {
+  const open = openReview.value;
+  return open !== null && open.format === 'items' && open.status === 'draft' ? open : null;
+});
+
 // ── 회차 고르기 ────────────────────────────────────────────────────────────────
 const selection = ref<number | 'new' | null>(null);
 const selectedView = computed(() =>
@@ -124,15 +157,58 @@ const eqRequestedAt = computed((): number | null => {
   return times.length === 0 ? null : Math.max(...times);
 });
 
+/** 이번 승인요청의 회차 — 가장 최근 회차가 열려 있거나 이번 요청 뒤에 만들어졌으면 그것(지난 요청의 회차는 null). */
+const currentRound = computed(() => {
+  const latest = rounds.value.at(-1) ?? null;
+  if (latest === null) return null;
+  const current =
+    isOpenReview(latest) || eqRequestedAt.value === null || Date.parse(latest.requestedAt) >= eqRequestedAt.value;
+  return current ? latest : null;
+});
+
 function defaultSelection(): number | 'new' | null {
   // 지금 할 일부터 연다 — 열린 회차·이번 요청의 회차(회신 도착·전달 필요 등)가 있으면 그것, 지난 요청의
   // 회차뿐이고 새로 시작할 수 있으면 새 회차 카드(지난 회차는 탭 한 번 거리), 아니면 최신 회차.
+  if (currentRound.value !== null) return currentRound.value.id;
   const latest = rounds.value.at(-1) ?? null;
-  const current =
-    latest !== null &&
-    (isOpenReview(latest) || eqRequestedAt.value === null || Date.parse(latest.requestedAt) >= eqRequestedAt.value);
-  if (latest !== null && (current || !startable.value)) return latest.id;
+  if (latest !== null && !startable.value) return latest.id;
   return startable.value ? 'new' : null;
+}
+
+/**
+ * AI 띠에 무엇을 보일까 — 분석 중이면 언제나, 안 됨·결과 준비는 **아직 고객에게 안 보낸 때만**(새로 시작할 수
+ * 있거나 초안을 쓰는 중). 이번 요청의 회차를 이미 보냈으면 지난 분석 결과는 더 할 말이 아니다. 결과가 초안에
+ * 들어갔으면(appliedReviewId) 띠 대신 회차 배지 'AI 초안 · 검토 필요'가 말한다.
+ */
+/** 이번 요청을 아직 고객에게 안 보냈다 — 새로 시작할 수 있거나 초안을 쓰는 중. */
+const aiBeforeSend = computed(
+  () =>
+    props.po?.status === 'eq_requested' &&
+    (startable.value || openDraft.value !== null) &&
+    (currentRound.value === null || currentRound.value.status === 'draft'),
+);
+const aiBannerKind = computed((): 'running' | 'failed' | 'ready' | null => {
+  const state = ai.value;
+  if (state === null || props.po?.status !== 'eq_requested') return null;
+  if (state.status === 'running') return 'running';
+  if (!aiBeforeSend.value) return null;
+  if (state.status === 'failed') return 'failed';
+  return state.appliedReviewId === null ? 'ready' : null;
+});
+/**
+ * 분석이 **됐을 때의 주의 문구**(ai.detail — 예: 표에는 있는데 AI 가 빠뜨렸을 수 있는 문항). 초안 위에 주의 띠로
+ * 세우고, 닫으면 그 분석(잡)에 대해서는 다시 띄우지 않는다(이 Case 화면 안에서). 보낸 뒤에는 할 말이 아니다.
+ */
+const dismissedCautions = ref<string[]>([]);
+const aiCaution = computed((): string | null => {
+  const state = ai.value;
+  if (state?.status !== 'done' || !aiBeforeSend.value) return null;
+  const detail = state.detail?.trim() ?? '';
+  return detail === '' || dismissedCautions.value.includes(state.jobId) ? null : detail;
+});
+function dismissCaution(): void {
+  const jobId = ai.value?.jobId;
+  if (jobId !== undefined) dismissedCautions.value = [...dismissedCautions.value, jobId];
 }
 watch(
   [rounds, startable, loaded],
@@ -333,6 +409,47 @@ async function startDraft(fromPrevious: boolean): Promise<void> {
   }
 }
 
+/**
+ * [AI 분석]·[AI 다시 분석]·[AI 결과를 초안에 적용] — 잡만 띄우고 돌아온다(202). 열린 초안이 있으면 그 문항이
+ * AI 결과로 통째 바뀌므로 먼저 묻고(저장 안 된 변경이 있으면 그것도 사라진다), 버퍼를 서버 판으로 되돌려
+ * 결과가 들어올 때 따라가게 한다(변경이 남아 있으면 충돌로 굳는다).
+ */
+async function runAi(): Promise<void> {
+  const target = props.po;
+  if (target === null || mut.aiAnalyze.isPending.value) return;
+  const draftView = openDraft.value;
+  if (draftView !== null) {
+    const buffer = buffers.value.get(draftView.id);
+    const unsaved = buffer !== undefined && isDraftDirty(buffer);
+    const ok = await confirmDialog({
+      title: 'AI 결과로 초안 바꾸기',
+      message:
+        `${String(draftView.roundNo ?? '')}차 초안의 문항·그림이 AI 분석 결과로 통째로 바뀝니다.` +
+        (unsaved ? '\n\n저장 안 된 변경이 사라집니다.' : '') +
+        '\n\n계속할까요?',
+      confirmLabel: 'AI 결과로 바꾸기',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    buffers.value.set(draftView.id, draftFromView(draftView));
+  }
+  errorText.value = '';
+  serverConflict.value = false;
+  try {
+    await mut.aiAnalyze.mutateAsync({ poId: target.poId, replaceDraft: draftView !== null });
+  } catch (error) {
+    fail(error, 'AI 분석을 시작하지 못했습니다.');
+    void roundsQuery.refetch();
+  }
+}
+// 분석이 끝나면(중 → 됨·안 됨) 행 칩도 같은 사실을 말해야 한다 — 발주 목록(행 요약)을 다시 읽는다.
+watch(
+  () => ai.value?.status,
+  (now, before) => {
+    if (before === 'running' && now !== 'running') void queryClient.invalidateQueries({ queryKey: ['admin', 'pcbPo'] });
+  },
+);
+
 // ── 초안 저장·발송·삭제 ─────────────────────────────────────────────────────────
 const saveProblem = computed(() => (draft.value === null ? null : draftSaveProblem(draft.value)));
 const sendProblem = computed(() => (draft.value === null ? null : draftSendProblem(draft.value)));
@@ -375,12 +492,20 @@ async function sendRound(): Promise<void> {
   const saved = buffers.value.get(view.id);
   if (saved === undefined) return;
   const due = saved.dueOn === '' ? '기한 없음' : `기한 ${saved.dueOn}`;
+  // 확인 안 한 AI 표시가 남아 있으면 알린다 — 막지는 않는다(표시는 검사 결과일 뿐, 보낼지는 관리자가 정한다).
+  const flags = openAiFlags(saved);
+  const flagWarning =
+    flags.count === 0
+      ? ''
+      : `주의: 확인 안 한 AI 표시 ${String(flags.count)}건(문항 ${flags.itemNos.join('·')})이 남아 있습니다 — 원문과 대조했는지 확인하세요.\n\n`;
   const ok = await confirmDialog({
     title: `${String(view.roundNo ?? nextRoundNo.value)}차 제조 확인 보내기`,
     message:
       `고객에게 보낼까요?\n\n문항 ${String(saved.items.length)} · 공개 그림 ${String(sharedFigureCount(saved))} · ${due}\n\n` +
+      flagWarning +
       '고객에게 메일(주문 상세 링크만)이 나가고, 보낸 뒤에는 문항을 고칠 수 없습니다.',
     confirmLabel: '고객에게 보내기',
+    ...(flags.count === 0 ? {} : { tone: 'danger' as const }),
   });
   if (!ok) return;
   errorText.value = '';
@@ -572,7 +697,8 @@ const busy = computed(
     mut.send.isPending.value ||
     mut.cancel.isPending.value ||
     mut.forward.isPending.value ||
-    mut.createDraft.isPending.value,
+    mut.createDraft.isPending.value ||
+    mut.aiAnalyze.isPending.value,
 );
 
 // 열 때마다 최신으로 — 고객이 그사이 회신했을 수 있다(패널은 Case 화면 수명 동안 산다). 행 칩도 같은 사실을
@@ -673,6 +799,18 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
               <Badge :variant="roundBadge.variant" data-eq-round-status>{{ roundBadge.label }}</Badge>
               <span v-if="roundBadge.detail !== null" class="text-muted-foreground text-xs">{{ roundBadge.detail }}</span>
             </template>
+            <!-- AI 초안을 다시 받고 싶을 때(설정·파일이 그대로면 최근 결과를 다시 쓴다) — 초안의 문항이 통째로 바뀐다. -->
+            <Button
+              v-if="draft !== null && selectedView?.aiDraft === true && aiEnabled && aiHasSource && ai?.status !== 'running'"
+              variant="ghost"
+              size="xs"
+              :disabled="busy"
+              title="EQ 파일을 다시 분석해 이 초안의 문항을 AI 결과로 바꿉니다."
+              @click="void runAi()"
+            >
+              <RefreshCwIcon />
+              AI 다시 분석
+            </Button>
             <span v-if="sourceFiles.length > 0" class="flex flex-wrap items-center gap-1 text-xs">
               <span class="text-muted-foreground">근거</span>
               <Button
@@ -700,6 +838,22 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
             </Button>
           </div>
         </header>
+
+        <!-- AI 분석 띠(D20 P2) — 분석 중 · 안 됨(사유) · 결과 준비(초안에 적용). 됐으면 회차 배지가 말하고,
+             서버가 주의 문구(ai.detail)를 남겼으면 초안 위에 주의 띠가 선다(닫을 수 있다). -->
+        <EqAiBanner
+          v-if="po !== null && loaded && ai !== null && (aiBannerKind !== null || aiCaution !== null)"
+          :kind="aiBannerKind"
+          :ai="ai"
+          :caution="aiCaution"
+          :has-draft="openDraft !== null"
+          :can-write-direct="startable"
+          :ai-enabled="aiEnabled"
+          :busy="busy"
+          @analyze="void runAi()"
+          @direct="void startDraft(false)"
+          @dismiss-caution="dismissCaution"
+        />
 
         <!-- 발주서가 사라졌다(삭제·회차 이동) -->
         <div v-if="po === null" class="p-6">
@@ -752,16 +906,36 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
                 <CopyIcon />
                 직전 회차에서 가져오기
               </Button>
-              <Button variant="outline" disabled title="준비 중 — P2(공장 EQ 엑셀을 읽어 문항·번역 초안을 만든다)">
+              <!-- 승인요청 때 자동으로 돌지만(유스케이스 on), 꺼져 있었거나 안 됐을 때 여기서 눌러 돌린다. -->
+              <Button
+                variant="outline"
+                :disabled="busy || !aiEnabled || !aiHasSource || ai?.status === 'running'"
+                title="협력사 EQ 엑셀을 읽어 문항·번역 초안을 만듭니다 — 만든 뒤 검토하고 보내세요."
+                data-eq-ai-analyze
+                @click="void runAi()"
+              >
                 <SparklesIcon />
-                AI 분석
-                <Badge variant="secondary">준비 중 — P2</Badge>
+                {{ ai?.status === 'running' ? 'AI 분석 중…' : 'AI 분석' }}
               </Button>
               <Button variant="outline" :disabled="busy" title="D16 문구형 — 문구 하나로 승인/반려만 묻습니다" @click="emit('simple', po)">
                 <FileTextIcon />
                 간단 문구로 묻기
               </Button>
             </div>
+            <!-- [AI 분석]이 꺼져 있는 이유 — 유스케이스가 꺼졌거나 분석할 EQ 파일이 없다. -->
+            <p v-if="!aiEnabled" class="text-muted-foreground text-xs" data-eq-ai-disabled>
+              AI 분석이 꺼져 있습니다 — 'PCB EQ 분석'을 켜면 협력사가 승인요청을 누를 때 자동으로 분석합니다.
+              <RouterLink
+                :to="{ name: NEXT_CORE_ROUTES.settings, query: { tab: 'aiIntegration' } }"
+                target="_blank"
+                class="text-primary font-medium underline underline-offset-2"
+              >
+                설정 &gt; AI 연동 열기
+              </RouterLink>
+            </p>
+            <p v-else-if="!aiHasSource" class="text-muted-foreground text-xs" data-eq-ai-disabled>
+              협력사가 올린 EQ 질의서가 없어 AI 가 분석할 파일이 없습니다 — 직접 작성하세요.
+            </p>
           </Panel>
         </div>
 
@@ -921,6 +1095,7 @@ const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
             <p v-else-if="draft !== null && sendProblem !== null" class="text-muted-foreground">{{ sendProblem.message }}</p>
             <p v-else-if="draft !== null" class="text-muted-foreground">
               문항 {{ draft.items.length }} · 공개 그림 {{ sharedFigureCount(draft) }}
+              <template v-if="openAiFlags(draft).count > 0"> · <b class="text-warning">확인 안 한 AI 표시 {{ openAiFlags(draft).count }}</b></template>
               <template v-if="dirty"> · <b class="text-warning">저장 안 된 변경</b></template>
             </p>
             <p v-else-if="selectedView?.status === 'requested'" class="text-muted-foreground">

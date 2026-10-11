@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DateOnly } from './common';
-import { PartnerPcbEqRound, PcbPoEqReviewSummary } from './pcb-eq-review';
+import { PartnerPcbEqRound, PcbPoEqAiSummary, PcbPoEqReviewSummary } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
 import { BomInvoiceData, BomShipmentMode, BomShipmentStatus, ShipmentTransport } from './bom-po';
 
@@ -838,6 +838,9 @@ export const AdminPcbPoView = z.object({
   childCount: z.number().int(),
   /** EQ 고객 확인 요약(P4.4) — 모달을 열지 않아도 행이 상태를 안다. null=미요청. */
   eqReview: PcbPoEqReviewSummary.nullable(),
+  /** EQ AI 분석 요약(D20 P2) — **이번 승인요청**의 분석이 도는 중이거나 안 됐을 때만(칩 "AI 분석 중"·
+   *  "AI 분석 안 됨"). 됐으면 null 이고 eqReview.aiDraft 가 말한다. 승인요청 상태가 아니면 null. */
+  eqAi: PcbPoEqAiSummary.nullable(),
 });
 export type AdminPcbPoViewType = z.infer<typeof AdminPcbPoView>;
 
@@ -1005,6 +1008,8 @@ export const AdminPcbPoWorkItem = z.object({
   /** EQ 고객 확인 요약(Case 상세와 같은 요약) — 'EQ 승인 대기' 탭에서 지금 승인하면 되는
    *  건(고객 승인)과 고객 확인중·고객 반려·미요청을 목록에서 가른다. null=미요청. */
   eqReview: PcbPoEqReviewSummary.nullable(),
+  /** EQ AI 분석 요약(D20 P2) — Case 행(AdminPcbPoView.eqAi)과 같은 값·같은 규칙. */
+  eqAi: PcbPoEqAiSummary.nullable(),
 });
 export type AdminPcbPoWorkItemType = z.infer<typeof AdminPcbPoWorkItem>;
 

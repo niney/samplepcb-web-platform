@@ -11,6 +11,7 @@ import type {
   PcbEqFileTypeType,
   PcbEqFileViewType,
   PcbEqRoleType,
+  PcbPoEqAiSummaryType,
   PcbPoEqReviewSummaryType,
   PcbPoFulfillmentModeType,
   PcbPoStatusType,
@@ -51,6 +52,7 @@ import {
   loadEqReviewRowSummaries,
   loadPartnerEqRounds,
 } from './pcb-eq-review';
+import { loadEqAiRowSummaries } from './pcb-eq-ai';
 import type { PcbDeliveryDateRange } from './pcb-delivery-filter';
 import { resolvePcbRemittanceDueOn } from './pcb-payment-terms';
 import { loadRemittanceSummaries, summarizePcbRemittances } from './pcb-remittance';
@@ -138,7 +140,7 @@ const appendEq = (
  * 다시 올라오면 지난 회차의 고객 확인은 이력일 뿐이라, 행 요약은 이 시점 이후만 봐야 한다.
  * 이력이 없으면(이관·구데이터) null — 제한하지 않는다.
  */
-const eqRoundStartOf = (po: SpPcbPo): Date | null => {
+export const eqRoundStartOf = (po: Pick<SpPcbPo, 'eqHistory'>): Date | null => {
   const events = parseEqHistory(po.eqHistory);
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const at = events[i]?.toStatus === 'eq_requested' ? events[i]?.at : undefined;
@@ -313,6 +315,8 @@ interface AdminPoExtras {
   eqBlocked: boolean;
   childCount: number;
   eqReview: PcbPoEqReviewSummaryType | null;
+  /** EQ AI 분석 요약(D20 P2) — 분석 중·안 됨일 때만. 협력사 포털로 나가는 직렬화에서는 늘 null. */
+  eqAi: PcbPoEqAiSummaryType | null;
   /** 송금 원장 파생(P3.11) — 행 배지가 부분/완납을 구분하려면 날짜만으론 부족하다. */
   remittance: { paidAmount: number; balance: number; count: number };
 }
@@ -351,9 +355,14 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   eqBlocked: extras.eqBlocked,
   childCount: extras.childCount,
   eqReview: extras.eqReview,
+  eqAi: extras.eqAi,
 });
 
-const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewType[]> => {
+const serializeAdminPos = async (
+  rows: PoWithPartner[],
+  /** 관리자 화면용인가 — 포털(MD 가 보는 하위 발주)로 나가는 직렬화는 AI 분석 상태를 싣지 않는다. */
+  audience: 'admin' | 'partner' = 'admin',
+): Promise<AdminPcbPoViewType[]> => {
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
   const parents =
     parentIds.length === 0
@@ -361,10 +370,22 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
       : await prisma.spPartner.findMany({ where: { id: { in: parentIds } } });
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
   const filesMap = await loadEqFilesMap(rows);
+  const roundStarts = eqRoundStartMap(rows);
   const reviewMap = await loadEqReviewRowSummaries(
     rows.map((r) => r.id),
-    eqRoundStartMap(rows),
+    roundStarts,
   );
+  // EQ AI 분석 요약(D20 P2) — 승인요청 중인 행만 묻는다(없으면 쿼리 0).
+  const aiMap =
+    audience === 'admin'
+      ? await loadEqAiRowSummaries(
+          rows.map((r) => ({
+            id: r.id,
+            status: r.status,
+            roundStart: roundStarts.get(r.id.toString()) ?? null,
+          })),
+        )
+      : new Map<string, PcbPoEqAiSummaryType>();
   // 송금 요약은 원장(sp_pcb_remittance)이 정본 — 한 번에 모아 온다(행마다 조회하면 N+1).
   const remitMap = await loadRemittanceSummaries(rows);
   const portalSet = await loadPartnersWithPortal(rows.map((r) => r.partnerId));
@@ -391,6 +412,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
         eqBlocked: delegation.blocked,
         childCount,
         eqReview: reviewMap.get(row.id.toString()) ?? null,
+        eqAi: aiMap.get(row.id.toString()) ?? null,
         remittance: {
           paidAmount: remit.paidAmount,
           balance: remit.balance,
@@ -1283,7 +1305,7 @@ export const loadPartnerPcbPoDetail = async (
       specJson: stripInternalSpecKeys(po.spec.specJson),
       files: await loadPcbSpecFiles(po.specId),
     },
-    children: await serializeAdminPos(childrenRows),
+    children: await serializeAdminPos(childrenRows, 'partner'),
     childRfqs: await serializeAdminPcbRfqRows(childRfqRows),
     originChildPos: originChildRows.map((row) => ({
       poId: Number(row.id),
@@ -1369,7 +1391,8 @@ export const loadAdminPcbPoWorkItems = async (
     orderBy: { issuedAt: 'desc' },
   });
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
-  const [parents, shipmentLinks, reviewMap, customerNames] = await Promise.all([
+  const roundStarts = eqRoundStartMap(rows);
+  const [parents, shipmentLinks, reviewMap, customerNames, aiMap] = await Promise.all([
     parentIds.length === 0
       ? Promise.resolve([])
       : prisma.spPartner.findMany({ where: { id: { in: parentIds } } }),
@@ -1380,12 +1403,16 @@ export const loadAdminPcbPoWorkItems = async (
     // Case 상세와 같은 요약을 목록에도 싣는다(1쿼리) — 행을 열지 않아도 고객이 답했는지 안다.
     loadEqReviewRowSummaries(
       rows.map((r) => r.id),
-      eqRoundStartMap(rows),
+      roundStarts,
     ),
     // 고객명 — 협력사 축 목록이라도 운영자는 "누구 건"으로 발주를 기억한다. 스펙 단위로
     // 한 벌만 뽑는다(회원 1쿼리 + 주문 1쿼리 — 행마다 부르면 N+1).
     loadPcbCustomerNames(
       rows.map((r) => ({ specId: r.specId, mbId: r.spec.mbId, ctId: r.spec.ctId })),
+    ),
+    // EQ AI 분석 요약(D20 P2) — 승인요청 중인 행만(1쿼리). 분석 중·안 됨일 때만 칩이 뜬다.
+    loadEqAiRowSummaries(
+      rows.map((r) => ({ id: r.id, status: r.status, roundStart: roundStarts.get(r.id.toString()) ?? null })),
     ),
   ]);
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
@@ -1437,6 +1464,7 @@ export const loadAdminPcbPoWorkItems = async (
         // 계약의 순수 함수가 한다(Case 상세의 반려 배너와 같은 사전).
         rejectedAt: lastPcbEqRejectedAt(parseEqHistory(po.eqHistory)),
         eqReview,
+        eqAi: aiMap.get(po.id.toString()) ?? null,
       },
       tabs,
     });

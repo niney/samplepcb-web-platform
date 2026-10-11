@@ -36,7 +36,9 @@ export const aiJobStageLabel = (t: Translate, stage: string | null): string =>
           ? t('admin.settings.ai.jobs.stageFollowup')
           : stage === 'docmail'
             ? t('admin.settings.ai.jobs.stageDocmail')
-            : '-';
+            : stage === 'eqparse'
+              ? t('admin.settings.ai.jobs.stageEqparse')
+              : '-';
 
 /** AI 유스케이스 구역(AiUseCaseSection)의 문구 i18n 키 — 구역마다 옛 화면이 쓰던 키를 그대로 넘긴다. */
 export interface AiUseCaseKeys {

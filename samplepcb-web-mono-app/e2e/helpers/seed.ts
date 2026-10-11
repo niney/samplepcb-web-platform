@@ -366,6 +366,11 @@ export async function cleanupPcbPos(poIds: bigint[]): Promise<void> {
   const prisma = getPrisma();
   await prisma.spPcbShipment.deleteMany({ where: { poId: { in: poIds } } });
   await prisma.spPcbShipmentPo.deleteMany({ where: { poId: { in: poIds } } });
+  // EQ AI 분석 잡(D20 P2)은 발주서에 FK 가 없다(업무 대상 규약 targetType·targetId) — cascade 로 안 지워진다.
+  // 로컬에서 'PCB EQ 분석'이 켜져 있으면 승인요청을 올리는 **모든** 스펙이 잡을 남기므로 여기서 한 번에 거둔다.
+  await prisma.spAiJob.deleteMany({
+    where: { useCase: 'pcb.eq-parse', targetType: 'pcb_po', targetId: { in: poIds } },
+  });
   await prisma.spPcbPo.deleteMany({ where: { id: { in: poIds } } });
 }
 

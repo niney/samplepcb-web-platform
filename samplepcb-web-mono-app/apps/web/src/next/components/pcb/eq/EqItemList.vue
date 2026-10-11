@@ -2,7 +2,13 @@
 // EQ 작업공간 1열 — 문항 목록. 번호·유형·변화·답 상태를 한 줄에, 편집 중이면 추가·삭제·순서 이동.
 // 순서가 곧 저장 순서(seq)다 — 공장 원문 번호(factoryNo)는 따로 있어 순서를 바꿔도 협력사 번호는 안 바뀐다.
 import { ArrowDownIcon, ArrowUpIcon, ImageIcon, PlusIcon, Trash2Icon } from '@lucide/vue';
-import { PCB_EQ_ITEM_CATEGORY_LABELS, PCB_EQ_ITEM_CHANGE_LABELS } from '@sp/api-contract';
+import {
+  PCB_EQ_AI_FLAG_CODES,
+  PCB_EQ_AI_FLAG_LABELS,
+  PCB_EQ_ITEM_CATEGORY_LABELS,
+  PCB_EQ_ITEM_CHANGE_LABELS,
+  type PcbEqAiFlagCodeType,
+} from '@sp/api-contract';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Item, ItemContent, ItemDescription, ItemTitle } from '@/next/components/ui/item';
@@ -17,6 +23,15 @@ defineProps<{
   /** 저장·발송을 막고 있는 문항(검증) — 붉은 점. */
   problemIndex: number | null;
 }>();
+
+/** 문항에 남은 AI 검토 표시(D20 P2)의 종류 — 같은 종류가 여럿이어도 배지는 하나(사전 순서). */
+const flagCodes = (item: EqItemDraft): PcbEqAiFlagCodeType[] =>
+  PCB_EQ_AI_FLAG_CODES.filter((code) => item.aiFlags.some((f) => f.code === code));
+const flagTitle = (item: EqItemDraft, code: PcbEqAiFlagCodeType): string =>
+  item.aiFlags
+    .filter((f) => f.code === code)
+    .map((f) => f.detail)
+    .join('\n');
 
 const emit = defineEmits<{
   select: [index: number];
@@ -69,6 +84,12 @@ const emit = defineEmits<{
               <span v-if="problemIndex === index" class="bg-destructive size-2 rounded-full" title="저장·발송 전에 고칠 곳이 있습니다" />
             </ItemTitle>
             <ItemDescription>{{ item.question.trim() === '' ? '(질문 미입력)' : item.question }}</ItemDescription>
+            <!-- AI 초안의 검토 표시 — 관리자가 [확인함]으로 지우기 전까지 남는다(고객에게는 안 보인다). -->
+            <span v-if="item.aiFlags.length > 0" class="flex flex-wrap items-center gap-1 text-xs" data-eq-item-flags>
+              <Badge v-for="code in flagCodes(item)" :key="code" variant="warning" :title="flagTitle(item, code)">
+                {{ PCB_EQ_AI_FLAG_LABELS[code] }}
+              </Badge>
+            </span>
             <span v-if="showAnswers" class="flex flex-wrap items-center gap-1 text-xs">
               <Badge v-if="item.answer !== null" variant="success">답 {{ item.answer.key }}</Badge>
               <Badge v-else variant="outline">답 없음</Badge>

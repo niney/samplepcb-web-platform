@@ -436,8 +436,12 @@ model SpAiJob {
   error         String?   @db.VarChar(100)
   startedAt     DateTime
   finishedAt    DateTime?
+  // 잡이 다루는 업무 대상(선택) — pcb.eq-parse: targetType 'pcb_po'·targetId=발주서 id(D20 P2). 회원 소유 잡은 null.
+  targetType    String?   @db.VarChar(32)
+  targetId      BigInt?
 
   @@index([mbId, startedAt], map: "sp_ai_job_owner_idx")
+  @@index([useCase, targetType, targetId, startedAt], map: "sp_ai_job_target_idx")
   @@index([useCase, mbId, model, promptVersion, inputHash, status], map: "sp_ai_job_reuse_idx")
   @@map("sp_ai_job")
 }
@@ -1992,6 +1996,7 @@ model SpPcbEqReviewItem {
   change        String?       @db.VarChar(16) // new|changed|same(첫 회차 null)
   answerKey     String?       @db.VarChar(8)
   answerComment String?       @db.Text
+  aiFlags       Json? // PcbEqAiFlag[] — AI 초안의 검토 표시(D20 P2), 관리자가 확인하면 지운다
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   review        SpPcbEqReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)

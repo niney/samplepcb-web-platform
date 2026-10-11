@@ -13,7 +13,8 @@ import {
 } from '@sp/api-contract';
 import { glossaryPromptLines } from './glossary';
 
-export const EQ_PARSE_PROMPT_VERSION = 'eq-parse-v1';
+/** 출하 판(D20 P2-4) — 러너·잡 기록이 이 값을 쓴다. v1·v2 는 프로빙 비교용으로만 남긴다. */
+export const EQ_PARSE_PROMPT_VERSION = 'eq-parse-v3';
 export const EQ_TRANSLATE_PROMPT_VERSION = 'eq-translate-v1';
 
 const nullableString = { type: ['string', 'null'] } as const;
@@ -66,7 +67,11 @@ const categoryLines = (): string =>
 //  ① 선택지가 열마다 있는 표(方案A|方案B)에서 직렬화 표기의 **열 문자(E·F)를 기호로** 썼다(deepseek-v4.1-flash·gemma4)
 //  ② 'Option 1:' 숫자 기호를 A·B 로 바꾸고 labelOrig 에 'Option 1:' 머리를 남겼다(kimi-k3·glm-5.3-flash·gemma4)
 // 그리고 질문이 중문·영문 두 칸으로 나뉜 양식(n)의 원문 잇기를 분명히 한다.
-export const EQ_PARSE_PROMPT_VERSIONS = ['eq-parse-v1', 'eq-parse-v2'] as const;
+// v3(D20 P2-5·P2-7, 사용자 결정 2026-10-11) — v2 에 번역 문체 두 규칙을 보탠다:
+//  ③ 이중언어 문항은 같은 뜻이면 한 번만 옮기되 **한쪽에만 있는 정보(수치·파일명·품번)는 반드시 남긴다**
+//     (kimi-k3 가 합쳐 옮기며 영문에만 있던 파일명을 빠뜨린 실측 — 실샘플 4번)
+//  ④ 선택지 문구는 **고객이 고르는 답의 문장** — '请贵司指示' 류는 "직접 지시하겠습니다(의견 작성)", '귀사'를 쓰지 않는다
+export const EQ_PARSE_PROMPT_VERSIONS = ['eq-parse-v1', 'eq-parse-v2', 'eq-parse-v3'] as const;
 export type EqParsePromptVersion = (typeof EQ_PARSE_PROMPT_VERSIONS)[number];
 
 const RULE5_V1 =
@@ -78,8 +83,24 @@ const RULE3_V1 =
   '3. questionOrig = 원문 질문 셀 텍스트를 **글자 그대로 복사**(중국어·영어 모두, 번역·요약·수정 금지, ⏎ 는 공백으로). 이전 회차의 고객 답·비고 칸은 넣지 않는다.';
 const RULE3_V2 = `${RULE3_V1} 질문이 중문 칸·영문 칸처럼 두 칸으로 나뉘어 있으면 두 칸을 공백 하나로 이어 넣는다. 질문 앞의 라벨("问题：" 등)은 뺀다.`;
 
-export function buildEqParsePrompt(serialized: string, version: EqParsePromptVersion = 'eq-parse-v1'): string {
-  const v2 = version === 'eq-parse-v2';
+const RULE4_V1 =
+  '4. question = 한국 고객이 읽을 자연스러운 한국어(존댓말). 원문에 없는 내용을 더하지 않는다. 파일명·품번·수치·단위는 그대로 둔다. 공장 자신(我司/we)은 "제조사", 고객(贵司/you)은 "귀사"로 옮긴다. 아래 용어집을 따른다.';
+const RULE4_V3 = `${RULE4_V1}
+   원문이 중문·영문 이중언어일 때: 두 언어가 같은 뜻이면 **한 번만** 옮긴다(같은 말을 두 번 쓰지 않는다). 다만 **한쪽 언어에만 있는 정보(수치·치수·파일명·품번·그림 번호)는 반드시 번역에 남긴다** — 따옴표 속 파일명은 글자 그대로 옮겨 적는다.`;
+const RULE5_V3 = `${RULE5_V2}
+   label 은 **고객이 고르는 답의 문장**(고객 자신의 말)으로 쓴다 — 接受/Accept → "수용합니다", 请贵司指示 / Pls send your suggestion / please advise → "직접 지시하겠습니다(의견 작성)", 贵司重新提供 → "다시 제공하겠습니다". 선택지 문구(label)에는 '귀사'라는 말을 쓰지 않는다(고객 화면에서 귀사는 자기 자신이다). 원문의 수치·파일명은 label 에도 그대로 남긴다.`;
+
+/** 관리자 추가 지침 상한 — 프롬프트 끝에 붙는다(계약 AI_EXTRA_INSTRUCTIONS_MAX 와 별개의 방어). */
+const EXTRA_INSTRUCTIONS_MAX = 2_000;
+
+export function buildEqParsePrompt(
+  serialized: string,
+  version: EqParsePromptVersion = EQ_PARSE_PROMPT_VERSION,
+  extraInstructions = '',
+): string {
+  const v2 = version !== 'eq-parse-v1';
+  const v3 = version === 'eq-parse-v3';
+  const extra = extraInstructions.trim().slice(0, EXTRA_INSTRUCTIONS_MAX);
   return `너는 PCB 제조 공장이 보낸 EQ(Engineering Query, 제조 확인 사항) 엑셀 표를 읽어, 한국 고객이 문항별로 답할 수 있는 JSON 으로 바꾸는 도우미다.
 
 ## 입력 표기
@@ -91,8 +112,8 @@ export function buildEqParsePrompt(serialized: string, version: EqParsePromptVer
 1. 문항 = 공장이 고객에게 묻는 질문 하나. 질문 칸이 빈 번호 슬롯(빈 템플릿 줄)은 버린다. 문구가 빈 선택지는 버린다.
 2. factoryNo = 원문 번호를 그대로(예 "1", "EQ-03"). 번호를 새로 매기거나 빠진 번호를 채우지 않는다.
 ${v2 ? RULE3_V2 : RULE3_V1}
-4. question = 한국 고객이 읽을 자연스러운 한국어(존댓말). 원문에 없는 내용을 더하지 않는다. 파일명·품번·수치·단위는 그대로 둔다. 공장 자신(我司/we)은 "제조사", 고객(贵司/you)은 "귀사"로 옮긴다. 아래 용어집을 따른다.
-${v2 ? RULE5_V2 : RULE5_V1}
+${v3 ? RULE4_V3 : RULE4_V1}
+${v3 ? RULE5_V3 : v2 ? RULE5_V2 : RULE5_V1}
 6. requiresComment = 고객이 직접 지시·의견을 써야 하는 선택지(请贵司指示 / Pls send your suggestion / 其他请注明 / please advise / specify 등)면 true.
 7. recommended = 원문에 권장 표시(推荐 / 建议选此 / recommended 등)가 **글로 적힌** 선택지만 true. 첫 선택지라는 이유만으로 true 로 하지 않는다.
 8. category = 아래 목록의 영문 값 하나. 원문에 문제 유형 칸(问题类型/Category)이 있으면 그것을 우선한다.
@@ -111,7 +132,7 @@ ${glossaryPromptLines()}
 
 ## 입력
 ${serialized}
-`;
+${extra === '' ? '' : `\n## 관리자 추가 지침(위 규칙과 어긋나면 위 규칙이 이긴다)\n${extra}\n`}`;
 }
 
 // ── 번역만(템플릿 구조 + LLM 번역) ──────────────────────────────────────────
@@ -346,9 +367,14 @@ const squash = (s: string): string => s.replace(/\s+/g, '').toLowerCase();
  * ('图1'·'2x3' 같은 것 — 번역에서 풀어 쓰는 일이 흔하다).
  */
 export function findDroppedFacts(orig: string, korean: string): string[] {
-  const target = squash(korean);
+  const target = squash(korean).replace(/(\d),(?=\d{3})/g, '$1'); // 2,865개 = 2865
   const facts = new Set<string>();
-  for (const m of orig.matchAll(/['"‘“]([^'"’”]{4,})['"’”]/g)) if (m[1] !== undefined) facts.add(m[1]);
+  for (const m of orig.matchAll(/['"‘“]([^'"’”\n]{4,120})['"’”]/g)) {
+    const q = m[1]?.trim() ?? '';
+    // 따옴표 속이 파일명(확장자)이거나 공백 없는 식별자일 때만 — 인치 기호(2u")가 따옴표로 읽혀 문장 조각이
+    // '사실'로 걸리는 오경보를 막는다(e 6번 `2u"，我司常规1u"` 실측).
+    if (/\.[A-Za-z0-9]{2,5}$/.test(q) || /^[A-Za-z0-9][\w.-]{3,}$/.test(q)) facts.add(q);
+  }
   for (const m of orig.matchAll(/\d+(?:\.\d+)?/g)) if (m[0].length >= 2) facts.add(m[0]);
   return [...facts].filter((f) => !target.includes(squash(f)));
 }

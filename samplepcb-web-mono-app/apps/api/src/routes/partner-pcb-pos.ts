@@ -73,6 +73,7 @@ import {
   sendPcbMail,
 } from '../lib/pcb-rfq-email';
 import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
+import { autoStartEqAnalysis } from '../lib/ai/pcb-eq-runner';
 import { kstDateStr } from '../lib/kst';
 import type { MailLogMeta } from '../lib/mail-log';
 
@@ -366,6 +367,11 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       );
       if (!res.ok)
         return reply.status(409).send({ error: res.error, message: transitionMessage(res.error) });
+
+      // D20 P2 — 승인요청이 들어선 지금 EQ 질의서를 AI 가 분석해 문항 초안을 만든다(꺼져 있거나 스텐실·첨부
+      // 없음이면 아무 일도 없다). 응답을 기다리게 하지 않고, 분석이 실패해도 이 요청은 성공이다.
+      // MD 가 하위 수주자 대신 누른 경우에도 po 는 전이가 일어난 그 발주서(하위)다.
+      autoStartEqAnalysis(po.id, request.log);
 
       // EQ 승인은 항상 루트 관리자(D3) — 운영자 메일로 통지.
       const [profile, spec] = await Promise.all([

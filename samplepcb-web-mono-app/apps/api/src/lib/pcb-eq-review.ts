@@ -4,8 +4,10 @@ import type {
   AdminPcbEqReviewViewType,
   CustomerPcbEqReviewViewType,
   PartnerPcbEqRoundType,
+  PcbEqAiFlagType,
   PcbEqAnswerInputType,
   PcbEqAnswerChannelType,
+  PcbEqDraftItemType,
   PcbEqItemFigureType,
   PcbEqReviewFileType,
   PcbEqReviewFormatType,
@@ -23,7 +25,9 @@ import {
   eqFigureMime,
   eqRoundNumbers,
   isEqReviewCustomerVisible,
+  linkEqRevision,
   looseEqFigures,
+  parseEqAiFlags,
   parseEqItemFigures,
   parseEqItemOptions,
   planEqItemCopyLink,
@@ -125,10 +129,16 @@ const loadEqRoundNumbers = async (poIds: readonly bigint[]): Promise<Map<string,
   if (poIds.length === 0) return new Map();
   const rows = await prisma.spPcbEqReview.findMany({
     where: { poId: { in: [...poIds] }, format: 'items' },
-    select: { id: true, format: true, status: true, events: SENT_EVENT },
+    select: { id: true, poId: true, format: true, status: true, events: SENT_EVENT },
   });
   return eqRoundNumbers(
-    rows.map((r) => ({ id: r.id, format: r.format, status: r.status, sent: r.events.length > 0 })),
+    rows.map((r) => ({
+      id: r.id,
+      poId: r.poId,
+      format: r.format,
+      status: r.status,
+      sent: r.events.length > 0,
+    })),
   );
 };
 
@@ -195,6 +205,7 @@ export const listAdminEqReviews = async (
   const rounds = eqRoundNumbers(
     rows.map((r) => ({
       id: r.id,
+      poId: r.poId,
       format: r.format,
       status: r.status,
       sent: r.events.some((e) => e.action === 'sent'),
@@ -238,6 +249,8 @@ export const listAdminEqReviews = async (
         const view = toEqEvent(e);
         return view === null ? [] : [view];
       }),
+      // AI 가 문항을 채운 회차(D20 P2) — 발송 뒤에도 이력으로 남는다(관리자가 고쳤더라도 출발은 AI 초안).
+      aiDraft: r.events.some((e) => e.action === 'ai_drafted'),
     };
   });
 };
@@ -599,6 +612,18 @@ export const loadEqReviewRowSummaries = async (
   // 문항형 회차가 하나도 없으면(대부분의 목록) 번호 조회를 건너뛴다.
   const itemPoIds = [...new Set(rows.filter((r) => r.format === 'items').map((r) => r.poId))];
   const rounds = await loadEqRoundNumbers(itemPoIds);
+  // AI 초안(D20 P2) 표시 — 작성 중인 회차만 묻는다(대개 0~몇 건). 칩 "AI 초안 · 검토 필요".
+  const draftIds = rows.filter((r) => r.status === 'draft').map((r) => r.id);
+  const aiDrafted = new Set(
+    draftIds.length === 0
+      ? []
+      : (
+          await prisma.spPcbEqReviewEvent.findMany({
+            where: { reviewId: { in: draftIds }, action: 'ai_drafted' },
+            select: { reviewId: true },
+          })
+        ).map((e) => e.reviewId.toString()),
+  );
   const now = new Date();
   for (const r of rows) {
     const key = r.poId.toString();
@@ -619,6 +644,7 @@ export const loadEqReviewRowSummaries = async (
       format,
       roundNo: format === 'items' ? (rounds.get(r.id.toString()) ?? null) : null,
       forwardedAt: iso(r.forwardedAt),
+      aiDraft: r.status === 'draft' && aiDrafted.has(r.id.toString()),
     });
   }
   return map;
@@ -841,6 +867,9 @@ export const createEqDraft = async (
             figures: toEqFiguresJson(figures),
             prevItemId: link.prevItemId,
             change: link.change,
+            // AI 검토 표시는 **안 나간 초안**에서 가져올 때만 따라온다(아직 아무도 확인하지 않았다).
+            // 발송된 회차의 문항은 관리자가 검토를 끝낸 것이라 표시를 물려주지 않는다.
+            aiFlags: sourceSent ? [] : parseEqAiFlags(item.aiFlags),
           },
         });
       }
@@ -918,6 +947,8 @@ export const saveEqDraft = async (
         figures: toEqFiguresJson(item.figures.map((f) => ({ fileId: BigInt(f.fileId), shared: f.shared }))),
         prevItemId: item.prevItemId === null ? null : BigInt(item.prevItemId),
         change: item.change,
+        // AI 검토 표시도 통째 교체 — 관리자가 [확인함]으로 지운 것은 입력에서 빠져 있다(안 보내면 전부 지워진다).
+        aiFlags: item.aiFlags,
       };
       if (item.id === undefined) {
         await tx.spPcbEqReviewItem.create({ data: { reviewId, ...data } });
@@ -1192,6 +1223,197 @@ export const forwardEqReview = async (
     });
     return { ok: true };
   });
+};
+
+// ── D20 P2 — AI 분석 결과를 초안으로 ─────────────────────────────────────────
+// 분석(추출·LLM·사후 검사)은 lib/ai/pcb-eq-runner.ts 가 하고, 여기는 **결과를 회차에 써 넣는 일**만 한다
+// (열린 회차 규칙·발주서 잠금·개정 대조가 손으로 만드는 초안과 같은 자리에 있게).
+
+/** 러너가 파일 서버에 먼저 올려 둔 그림 — 여기서 회차 그림(sp_file) 행이 된다. */
+export interface EqAiDraftFigure {
+  /** 분석 결과의 그림 id(`figureRefs` 의 값) — 문항에 붙일 때의 열쇠. */
+  ref: string;
+  uploadFileName: string;
+  pathToken: string;
+  originFileName: string;
+  size: number;
+}
+
+export interface EqAiDraftItem extends PcbEqDraftItemType {
+  figureRefs: string[];
+  aiFlags: PcbEqAiFlagType[];
+}
+
+/** 적용하지 않은 사유 — 분석은 됐는데 초안에 못 넣은 경우(잡은 done·미적용으로 남는다). */
+export type EqAiApplySkip = 'PO_NOT_FOUND' | 'NOT_EQ_REQUESTED' | 'DRAFT_EXISTS' | 'ALREADY_OPEN';
+
+/**
+ * 그림 실파일 정리 — 어느 회차 그림 행도 가리키지 않는 pathToken 만 파일 서버에서 지운다(개정 회차가
+ * 행을 복제해 같은 실파일을 함께 쓴다). 실패한 토큰을 돌려준다(부르는 쪽이 로그로 남긴다 — 고아 파일일 뿐
+ * 흐름을 막을 일은 아니다).
+ */
+export const deleteUnsharedEqFigureBlobs = async (pathTokens: readonly string[]): Promise<string[]> => {
+  const failed: string[] = [];
+  for (const token of new Set(pathTokens)) {
+    try {
+      const sharers = await prisma.spFile.count({
+        where: { refType: EQ_FIGURE_REF_TYPE, pathToken: token },
+      });
+      if (sharers === 0) await deleteFromFileServer(token);
+    } catch {
+      failed.push(token);
+    }
+  }
+  return failed;
+};
+
+/**
+ * AI 분석 결과를 문항형 초안으로 써 넣는다(D20 P2).
+ *  · 열린 회차가 없으면 새 초안.
+ *  · 열린 **초안**이 있고 `replaceDraft` 면 그 초안의 문항·그림을 통째로 바꾼다(머리말·기한은 둔다, version+1 —
+ *    열어 둔 편집기의 늦은 저장은 409 로 튕긴다).
+ *  · 초안이 있는데 replaceDraft 가 아니면 `DRAFT_EXISTS`, 이미 고객에게 나간 회차가 열려 있으면 `ALREADY_OPEN`.
+ * 그림은 문항에 **공개(shared)** 로 붙인다(P2-8 — 고객은 그림이 있어야 답한다. 관리자는 예외만 끈다).
+ * 개정 연결은 **고객이 마지막으로 본 회차**와의 결정적 대조(linkEqRevision) — 그런 회차가 없으면 첫 회차라
+ * 변화 표시가 없다. 이벤트는 `ai_drafted`(system) 하나.
+ */
+export const applyEqAiDraft = async (
+  poId: bigint,
+  input: {
+    replaceDraft: boolean;
+    sourceFileId: bigint;
+    /** 수동 요청이면 누른 관리자, 자동이면 null. */
+    actorMbId: string | null;
+    /** 이벤트 메모 — 모델·프롬프트 판·문항 수. */
+    note: string;
+    items: readonly EqAiDraftItem[];
+    figures: readonly EqAiDraftFigure[];
+  },
+): Promise<
+  | { ok: true; reviewId: bigint; replaced: boolean; staleTokens: string[] }
+  | { ok: false; reason: EqAiApplySkip }
+> => {
+  const po = await prisma.spPcbPo.findUnique({ where: { id: poId }, select: { specId: true } });
+  if (po === null) return { ok: false, reason: 'PO_NOT_FOUND' };
+
+  // 직전 회차 = 고객에게 나간 적 있는 문항형 회차 중 가장 최근(안 나간 초안은 고객이 본 적 없어 견줄 대상이 아니다).
+  const prev = await prisma.spPcbEqReview.findFirst({
+    where: { poId, format: 'items', items: { some: {} }, events: { some: { action: 'sent' } } },
+    orderBy: { id: 'desc' },
+    include: { items: { orderBy: { seq: 'asc' } } },
+  });
+  const links =
+    prev === null
+      ? null
+      : linkEqRevision(
+          input.items,
+          prev.items.map((i) => ({
+            factoryNo: i.factoryNo,
+            questionOrig: i.questionOrig,
+            options: parseEqItemOptions(i.options),
+          })),
+        );
+  const sourceFileIds = [Number(input.sourceFileId)];
+
+  return prisma.$transaction(
+    async (
+      tx,
+    ): Promise<
+      | { ok: true; reviewId: bigint; replaced: boolean; staleTokens: string[] }
+      | { ok: false; reason: EqAiApplySkip }
+    > => {
+      if ((await lockPoStatus(tx, poId)) !== 'eq_requested') return { ok: false, reason: 'NOT_EQ_REQUESTED' };
+      const open = await tx.spPcbEqReview.findFirst({
+        where: { poId, status: { in: [...PCB_EQ_OPEN_STATUSES] } },
+        select: { id: true, status: true, format: true },
+      });
+      let reviewId: bigint;
+      let staleTokens: string[] = [];
+      if (open === null) {
+        const created = await tx.spPcbEqReview.create({
+          data: {
+            poId,
+            specId: po.specId,
+            status: 'draft',
+            format: 'items',
+            message: '',
+            sharedFileIds: [],
+            sourceFileIds,
+            requestedBy: input.actorMbId ?? 'system',
+            prevReviewId: prev?.id ?? null,
+          },
+        });
+        reviewId = created.id;
+      } else {
+        if (open.status !== 'draft' || open.format !== 'items') return { ok: false, reason: 'ALREADY_OPEN' };
+        if (!input.replaceDraft) return { ok: false, reason: 'DRAFT_EXISTS' };
+        const updated = await tx.spPcbEqReview.updateMany({
+          where: { id: open.id, status: 'draft' },
+          data: { sourceFileIds, prevReviewId: prev?.id ?? null, version: { increment: 1 } },
+        });
+        if (updated.count !== 1) return { ok: false, reason: 'ALREADY_OPEN' };
+        reviewId = open.id;
+        const oldFigures = await tx.spFile.findMany({
+          where: { refType: EQ_FIGURE_REF_TYPE, refId: reviewId },
+          select: { pathToken: true },
+        });
+        staleTokens = oldFigures.map((f) => f.pathToken);
+        await tx.spPcbEqReviewItem.deleteMany({ where: { reviewId } });
+        await tx.spFile.deleteMany({ where: { refType: EQ_FIGURE_REF_TYPE, refId: reviewId } });
+      }
+
+      const fileIdByRef = new Map<string, bigint>();
+      for (const f of input.figures) {
+        const row = await tx.spFile.create({
+          data: {
+            refType: EQ_FIGURE_REF_TYPE,
+            refId: reviewId,
+            uploadFileName: f.uploadFileName,
+            originFileName: f.originFileName,
+            pathToken: f.pathToken,
+            size: BigInt(f.size),
+            writeDate: new Date(),
+            fileType: EQ_FIGURE_FILE_TYPE,
+            uploadedBy: 'AI',
+          },
+        });
+        fileIdByRef.set(f.ref, row.id);
+      }
+      for (const [seq, item] of input.items.entries()) {
+        const link = links?.[seq];
+        const prevItem = link?.prevIndex == null ? undefined : prev?.items[link.prevIndex];
+        const figures = item.figureRefs.flatMap((ref) => {
+          const fileId = fileIdByRef.get(ref);
+          return fileId === undefined ? [] : [{ fileId, shared: true }];
+        });
+        await tx.spPcbEqReviewItem.create({
+          data: {
+            reviewId,
+            seq,
+            factoryNo: item.factoryNo,
+            category: item.category,
+            question: item.question,
+            questionOrig: item.questionOrig,
+            options: item.options,
+            figures: toEqFiguresJson(figures),
+            prevItemId: prevItem?.id ?? null,
+            change: link?.change ?? null,
+            aiFlags: item.aiFlags,
+          },
+        });
+      }
+      await tx.spPcbEqReviewEvent.create({
+        data: {
+          reviewId,
+          action: 'ai_drafted',
+          actorRole: 'system',
+          actorMbId: input.actorMbId,
+          note: input.note,
+        },
+      });
+      return { ok: true, reviewId, replaced: open !== null, staleTokens };
+    },
+  );
 };
 
 /**

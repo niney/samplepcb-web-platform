@@ -24,7 +24,7 @@
           },
           {
             "key": "C",
-            "label": "귀사 지시 바람(의견을 주세요)",
+            "label": "직접 지시하겠습니다(의견 작성)",
             "labelOrig": "请贵司指示 Pls advise",
             "recommended": false,
             "requiresComment": true
@@ -54,7 +54,7 @@
           },
           {
             "key": "C",
-            "label": "귀사 지시 바람(의견을 주세요)",
+            "label": "직접 지시하겠습니다(의견 작성)",
             "labelOrig": "请贵司指示 Pls advise",
             "recommended": false,
             "requiresComment": true
@@ -70,7 +70,7 @@
         "options": [
           {
             "key": "A",
-            "label": "자료를 보완해 드리겠습니다(고객 제공)",
+            "label": "자료를 보완해 제공하겠습니다",
             "labelOrig": "我司补充资料 We will provide",
             "recommended": false,
             "requiresComment": false

@@ -7,7 +7,6 @@ import { fmtKstDate as fmtDate, kstDateOnly, kstToday } from '@sp/utils';
 import { useAdminPcbPoWork, type AdminPcbPoWorkFilters } from '@/admin/useAdminPcbPos';
 import { useAdminPcbTodoCounts } from '@/admin/useAdminPcbCases';
 import { fmtPcbAmount, pcbKrwSuffix } from '@/lib/pcb-money';
-import { pcbEqReviewTitle } from '@/lib/pcb-eq-review';
 import { pcbCaseTo, queryPage, queryString, queryTab, replacePcbListQuery } from '@/next/pcb-navigation';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
@@ -23,7 +22,8 @@ import type { QueueTab } from '@/next/components/common/queue-tabs';
 import CustomerCell from '@/next/components/common/CustomerCell.vue';
 import TodoQueue from '@/next/components/pcb/TodoQueue.vue';
 import PoDeliveryFilter from '@/next/components/pcb/pos/PoDeliveryFilter.vue';
-import { pcbEqReviewBadge, pcbPoStatusBadge } from '@/next/components/pcb/pos/pos-badges';
+import { usePollWhile } from '@/next/components/pcb/eq/usePollWhile';
+import { pcbEqReviewBadge, pcbEqRowTitle, pcbPoStatusBadge } from '@/next/components/pcb/pos/pos-badges';
 
 // PCB 발주·EQ 워크큐(P2) — 구매 담당의 화면. 큐 흐름:
 //   발주 대기(결제 완료+미발주 — 스펙 축) → 협력사 진행 → EQ 승인 대기 → 생산 진행 → 생산완료.
@@ -103,8 +103,14 @@ const isOverdueRow = (row: AdminPcbPoWorkItemType): boolean =>
 // "고객 답을 기다리는 건"이 섞인다. 그 갈림을 배지가 말한다. 승인 대기가 아니어도 결정이 있으면
 // 남긴다(승인의 근거 — Case 와 동형). 문항형 회차(D20)면 배지가 회차 칩이 된다 — "EQ 2차 · 회신 대기
 // D+2" · "회신 도착 · 전달 필요"(전달해야 공장이 움직인다 — 관리자 차례라 주의색).
+// D20 P2 — 회차가 아직 없으면 AI 분석 상태(분석 중·안 됨)가 그 자리에 선다. 분석 중인 줄이 있는 동안만 다시 읽는다.
 const showEqReview = (row: AdminPcbPoWorkItemType): boolean =>
-  row.status === 'eq_requested' || row.eqReview !== null;
+  row.status === 'eq_requested' || row.eqReview !== null || row.eqAi !== null;
+usePollWhile(
+  () => rows.value.some((row) => row.eqAi?.status === 'running'),
+  () => void list.refetch(),
+  5_000,
+);
 
 function openCase(specId: number): void {
   void router.push(pcbCaseTo(specId, 'pos', route.fullPath));
@@ -205,9 +211,11 @@ function openCase(specId: number): void {
                     </Tooltip>
                     <Tooltip v-if="showEqReview(row)">
                       <TooltipTrigger as-child>
-                        <Badge :variant="pcbEqReviewBadge(row.eqReview).variant">{{ pcbEqReviewBadge(row.eqReview).label }}</Badge>
+                        <Badge :variant="pcbEqReviewBadge(row.eqReview, row.eqAi).variant">
+                          {{ pcbEqReviewBadge(row.eqReview, row.eqAi).label }}
+                        </Badge>
                       </TooltipTrigger>
-                      <TooltipContent>{{ pcbEqReviewTitle(row.eqReview) }}</TooltipContent>
+                      <TooltipContent>{{ pcbEqRowTitle(row.eqReview, row.eqAi) }}</TooltipContent>
                     </Tooltip>
                   </span>
                 </TableCell>

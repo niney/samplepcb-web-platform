@@ -324,7 +324,7 @@ async function writeFixture(b: Built): Promise<{ file: string; bytes: number; im
   return { file, bytes: buf.length, images: extract.images.length };
 }
 
-const B: FxOption = { key: 'B', orig: '请贵司指示Pls send your suggestion', ko: '귀사 지시 바람(의견을 보내 주세요)', req: true };
+const B: FxOption = { key: 'B', orig: '请贵司指示Pls send your suggestion', ko: '직접 지시하겠습니다(의견 작성)', req: true };
 const C: FxOption = { ...B, key: 'C' };
 
 // ── (a) LHD 유사 이중언어 ─────────────────────────────────────────────────────
@@ -745,14 +745,14 @@ const B_ITEMS: FxItem[] = [
     ko: '솔더마스크 파일에 윗면(TOP)이 빠져 있습니다. 패드보다 한쪽 0.05mm 크게 오픈해서 제작할까요?',
     opts: [
       { key: 'A', orig: '同意', ko: '동의' },
-      { key: 'B', orig: '贵司重新提供文件', ko: '귀사(고객)에서 파일을 다시 제공' },
+      { key: 'B', orig: '贵司重新提供文件', ko: '파일을 다시 제공하겠습니다' },
     ],
   },
   {
     no: '5', type: '叠层', cat: 'stackup', attach: '叠层结构',
     orig: '6层板贵司未提供叠层，我司按常规叠层（见叠层结构）制作，板厚1.6mm，是否接受？',
     ko: '6층 보드인데 적층 구조를 주지 않으셨습니다. 제조사 표준 적층(시트 \'叠层结构\' 참고)으로 보드 두께 1.6mm 로 제작하려는데 수용하시겠습니까?',
-    opts: [{ key: 'A', orig: '接受', ko: '수용' }, { key: 'B', orig: '请贵司指示', ko: '귀사 지시 바람(의견을 주세요)', req: true }],
+    opts: [{ key: 'A', orig: '接受', ko: '수용' }, { key: 'B', orig: '请贵司指示', ko: '직접 지시하겠습니다(의견 작성)', req: true }],
   },
   {
     no: '6', type: '其他', cat: 'other', alt: ['drill'],
@@ -814,8 +814,8 @@ const C_ITEMS: FxItem[] = [
     ko: '회로 최소 선폭/간격이 3.5/3.5mil 로 제조사 표준 4/4mil 보다 작습니다. 일부 선폭을 4mil 로 보정하기를 권하는데 수용하시겠습니까?',
     opts: [
       { key: 'A', orig: '接受补偿（推荐）Accept compensation (recommended)', ko: '보정 수용(권장)', rec: true },
-      { key: 'B', orig: '按原稿制作，良率风险由贵司承担 Make as original, yield risk on customer', ko: '원본대로 제작 — 수율 위험은 귀사 부담' },
-      { key: 'C', orig: '请贵司指示 Pls advise', ko: '귀사 지시 바람(의견을 주세요)', req: true },
+      { key: 'B', orig: '按原稿制作，良率风险由贵司承担 Make as original, yield risk on customer', ko: '원본대로 제작(수율 위험은 저희가 부담합니다)' },
+      { key: 'C', orig: '请贵司指示 Pls advise', ko: '직접 지시하겠습니다(의견 작성)', req: true },
     ],
   },
   {
@@ -921,7 +921,7 @@ const D_ITEMS: FxItem[] = [
     ko: '골드 핑거에 30° 베벨이 필요한데 자료에 베벨 깊이가 없습니다. 제조사 표준인 1.0mm 로 제작할까요?',
     opts: [
       { key: 'A', orig: '按常规 Default 1.0mm', ko: '표준대로(1.0mm)' },
-      { key: 'B', orig: '请贵司指示 Pls advise', ko: '귀사 지시 바람(의견을 주세요)', req: true },
+      { key: 'B', orig: '请贵司指示 Pls advise', ko: '직접 지시하겠습니다(의견 작성)', req: true },
     ],
   },
 ];
@@ -981,7 +981,7 @@ const G_ITEMS: FxItem[] = [
     ko: '4층 1.6mm 보드인데 적층 구조를 받지 못했습니다. 제조사 표준 적층 구조(그림 1 참고)를 적용하겠습니다.',
     opts: [
       { key: '1', orig: 'Accept standard stack-up', ko: '표준 적층 구조 수용' },
-      { key: '2', orig: 'Customer will provide stack-up', ko: '고객이 적층 구조를 제공' },
+      { key: '2', orig: 'Customer will provide stack-up', ko: '적층 구조를 제공하겠습니다' },
     ],
   },
   {
@@ -1000,7 +1000,7 @@ const G_ITEMS: FxItem[] = [
     ko: '패널 도면은 3x4 배열인데 분리 레일이 정의되어 있지 않습니다. 긴 두 변에 5mm 레일과 피듀셜 3개, 툴링 홀 4개를 두기를 제안합니다(그림 2).',
     opts: [
       { key: '1', orig: 'Accept', ko: '수용' },
-      { key: '2', orig: 'Please advise', ko: '지시 바람(의견을 주세요)', req: true },
+      { key: '2', orig: 'Please advise', ko: '직접 지시하겠습니다(의견 작성)', req: true },
     ],
   },
 ];
@@ -1046,7 +1046,7 @@ const I_ITEMS: FxItem[] = [
     ko: '솔더마스크 댐(绿油桥): 0805 패키지 패드 간격이 너무 좁아 솔더마스크 댐을 남길 수 없으므로 통 오픈으로 제작하겠습니다. 참고해 주세요.',
     opts: [
       { key: 'A', orig: '知悉接受 Noted & accept', ko: '확인·수용' },
-      { key: 'C', orig: '请贵司指示 Pls advise', ko: '귀사 지시 바람(의견을 주세요)', req: true },
+      { key: 'C', orig: '请贵司指示 Pls advise', ko: '직접 지시하겠습니다(의견 작성)', req: true },
     ],
   },
   {
@@ -1056,7 +1056,7 @@ const I_ITEMS: FxItem[] = [
     opts: [
       { key: 'A', orig: '以钻孔文件为准 Follow drill file', ko: '드릴 파일 기준' },
       { key: 'B', orig: '以钻孔图为准 Follow drawing', ko: '드릴 도면 기준' },
-      { key: 'C', orig: '请贵司指示 Pls advise', ko: '귀사 지시 바람(의견을 주세요)', req: true },
+      { key: 'C', orig: '请贵司指示 Pls advise', ko: '직접 지시하겠습니다(의견 작성)', req: true },
     ],
   },
   {
@@ -1064,7 +1064,7 @@ const I_ITEMS: FxItem[] = [
     orig: '贵司要求阻抗控制但未提供阻抗线位置，请标示需控阻抗的线路或确认不做阻抗。Impedance control required but no impedance traces indicated, please mark them or confirm no impedance control.',
     ko: '임피던스 제어를 요구하셨으나 임피던스 대상 선로 위치가 없습니다. 임피던스를 제어할 회로를 표시해 주시거나, 임피던스 제어를 하지 않는 것으로 확인해 주세요.',
     opts: [
-      { key: 'A', orig: '我司补充资料 We will provide', ko: '자료를 보완해 드리겠습니다(고객 제공)' },
+      { key: 'A', orig: '我司补充资料 We will provide', ko: '자료를 보완해 제공하겠습니다' },
       { key: 'B', orig: '不做阻抗控制 No impedance control', ko: '임피던스 제어 안 함' },
     ],
   },
@@ -1257,7 +1257,7 @@ const M_ITEMS: FxItem[] = [
     ko: '임피던스 선로가 분할된 플레인을 가로지릅니다(그림 참고). 임피던스 연속성을 보장할 수 없어 동박 보강 또는 배선 변경을 권합니다.',
     opts: [
       { key: 'A', orig: '同意补铜 Agree to add copper', ko: '동박 보강에 동의' },
-      { key: 'B', orig: '贵司修改设计 Customer will modify design', ko: '귀사(고객)가 설계 수정' },
+      { key: 'B', orig: '贵司修改设计 Customer will modify design', ko: '설계를 수정하겠습니다' },
       { key: 'C', orig: '接受阻抗偏差 Accept impedance deviation', ko: '임피던스 편차 수용' },
     ],
   },
@@ -1334,7 +1334,7 @@ const N_ITEMS: NItem[] = [
   { no: '1', type: '阻抗 Impedance', cat: 'impedance', sep: 'colon', cn: '差分阻抗90Ω±10%，按叠层计算线宽0.11mm/间距0.15mm，是否接受？', en: '90ohm diff impedance needs 0.11/0.15mm width/space per stackup, OK?', ko: '차동 임피던스 90Ω±10% 를 맞추려면 적층 구조 계산상 선폭 0.11mm/간격 0.15mm 가 필요합니다. 수용하시겠습니까?', opts: [['A', '接受', 'Accept', '수용'], ['B', '其他，请注明', 'Other, pls specify', '기타(내용을 적어 주세요)', 'c']] },
   { no: '2', type: '钻孔 Drill', cat: 'drill', sep: 'paren', cn: '最小钻孔0.15mm超出机械钻能力，改为0.2mm？', en: 'Min drill 0.15mm exceeds mechanical capability, change to 0.2mm?', ko: '최소 드릴 0.15mm 는 기계 드릴 능력을 넘습니다. 0.2mm 로 바꿀까요?', opts: [['A', '改为0.2mm', 'Change to 0.2mm', '0.2mm 로 변경'], ['B', '激光钻孔（加价）', 'Laser drill (extra cost)', '레이저 드릴(추가 비용)']] },
   { no: '3', type: '过孔 Via', cat: 'via', sep: 'wrap', rows: 2, cn: '过孔塞孔方式未注明，按阻焊塞孔制作？', en: 'Via plugging not specified, plug with solder mask?', ko: '비아 홀 메움 방식이 지정되어 있지 않습니다. 솔더마스크 잉크로 홀 메움 할까요?', opts: [['A', '同意', 'Agree', '동의'], ['B', '树脂塞孔', 'Resin plug', '레진 홀 메움'], ['C', '不塞孔', 'No plug', '홀 메움 안 함']] },
-  { no: '5', type: '阻焊桥 S/M dam', cat: 'soldermask_dam', sep: 'colon', cn: 'IC脚间阻焊桥0.06mm无法保留，开通窗？', en: 'S/M dam 0.06mm between IC pins can not be kept, gang opening?', ko: 'IC 핀 사이 솔더마스크 댐 0.06mm 는 남길 수 없습니다. 통 오픈으로 할까요?', opts: [['A', '接受（建议）', 'Accept (recommended)', '수용(권장)', 'r'], ['B', '请贵司指示', 'Pls advise', '귀사 지시 바람(의견을 주세요)', 'c']] },
+  { no: '5', type: '阻焊桥 S/M dam', cat: 'soldermask_dam', sep: 'colon', cn: 'IC脚间阻焊桥0.06mm无法保留，开通窗？', en: 'S/M dam 0.06mm between IC pins can not be kept, gang opening?', ko: 'IC 핀 사이 솔더마스크 댐 0.06mm 는 남길 수 없습니다. 통 오픈으로 할까요?', opts: [['A', '接受（建议）', 'Accept (recommended)', '수용(권장)', 'r'], ['B', '请贵司指示', 'Pls advise', '직접 지시하겠습니다(의견 작성)', 'c']] },
   { no: '6', type: '字符 Legend', cat: 'legend', sep: 'dash', cn: '字符上焊盘，削字符处理？', en: 'Legend on pads, clip the legend?', ko: '실크가 패드 위에 올라가 있습니다. 실크를 깎아낼까요?', opts: [['A', '同意', 'Agree', '동의'], ['B', '不同意', 'Disagree', '동의하지 않음']] },
   { no: '7', type: '焊盘 Pad', cat: 'pad', sep: 'colon', cn: 'BGA焊盘0.25mm偏小，补偿至0.28mm？', en: 'BGA pad 0.25mm is small, compensate to 0.28mm?', ko: 'BGA 패드 0.25mm 가 작습니다. 0.28mm 로 보정할까요?', opts: [['A', '同意', 'Agree', '동의'], ['B', '按原稿', 'As original', '원본대로']] },
   { no: '8', type: '外形 Outline', cat: 'outline', sep: 'colon', rows: 2, cn: '外形图无公差，按±0.15mm制作？', en: 'No tolerance on outline drawing, use ±0.15mm?', ko: '외형 도면에 공차가 없습니다. ±0.15mm 로 제작할까요?', opts: [['A', '接受', 'Accept', '수용'], ['B', '其他，请注明', 'Other, pls specify', '기타(내용을 적어 주세요)', 'c']] },
@@ -1348,7 +1348,7 @@ const N_ITEMS: NItem[] = [
   { no: '18', type: '过孔 Via', cat: 'via', sep: 'colon', fig: 'main', cn: '盘中孔需电镀填平，加收费用？', en: 'Via-in-pad needs plating fill, extra charge?', ko: '패드 내 비아는 도금 평탄화가 필요하며 추가 비용이 듭니다. 수용하시겠습니까?', opts: [['A', '接受', 'Accept', '수용'], ['B', '移开过孔', 'Move vias out of pads', '비아를 패드 밖으로 이동']] },
   { no: '19', type: '阻焊 S/M', cat: 'soldermask', sep: 'dash', cn: '阻焊颜色哑黑，交期+1天？', en: 'Matte black solder mask, +1 day?', ko: '솔더마스크 색상이 무광 검정이라 납기가 1일 늘어납니다. 수용하시겠습니까?', opts: [['A', '接受', 'Accept', '수용'], ['B', '改亮黑', 'Glossy black', '유광 검정으로 변경']] },
   { no: '20', type: '外形 Outline', cat: 'outline', alt: ['drill'], sep: 'colon', fig: 'main', rows: 2, cn: '槽孔最小宽度0.5mm，锣刀最小0.6mm，加宽至0.6mm？', en: 'Min slot width 0.5mm, router min 0.6mm, widen to 0.6mm?', ko: '슬롯 최소 폭이 0.5mm 인데 라우터 비트 최소치는 0.6mm 입니다. 0.6mm 로 넓힐까요?', opts: [['A', '同意', 'Agree', '동의'], ['B', '改钻孔连孔', 'Use overlapping drill holes', '드릴 홀을 겹쳐 가공']] },
-  { no: '22', type: '叠层 Stackup', cat: 'stackup', sep: 'colon', cn: '4层板未提供叠层，按常规1.6mm叠层？', en: 'No stackup for 4L, use standard 1.6mm?', ko: '4층 보드의 적층 구조가 없습니다. 제조사 표준 1.6mm 적층으로 할까요?', opts: [['A', '接受', 'Accept', '수용'], ['B', '贵司提供', 'Customer provides', '귀사(고객)가 제공']] },
+  { no: '22', type: '叠层 Stackup', cat: 'stackup', sep: 'colon', cn: '4层板未提供叠层，按常规1.6mm叠层？', en: 'No stackup for 4L, use standard 1.6mm?', ko: '4층 보드의 적층 구조가 없습니다. 제조사 표준 1.6mm 적층으로 할까요?', opts: [['A', '接受', 'Accept', '수용'], ['B', '贵司提供', 'Customer provides', '적층 구조를 제공하겠습니다']] },
   { no: '23', type: '其他 Other', cat: 'other', sep: 'wrap', cn: '贵司数量100pcs，交货可否多交2%？', en: 'Qty 100pcs, may we ship +2% overs?', ko: '수량 100pcs 인데 2% 여유분을 더 납품해도 될까요?', opts: [['A', '可以', 'OK', '가능'], ['B', '不可以', 'No', '불가']] },
   { no: '24', type: '其他 Other', cat: 'other', sep: 'colon', cn: 'Gerber文件名含空格，存档时改为下划线？', en: 'Gerber file names contain spaces, replace with underscores for archive?', ko: '거버 파일 이름에 공백이 있습니다. 보관할 때 밑줄로 바꿔도 될까요?', opts: [['A', '可以', 'OK', '가능'], ['B', '不可以', 'No', '불가']] },
   { no: '25', type: '字符 Legend', cat: 'legend', sep: 'paren', cn: '字符颜色白色，板色白色，看不清，改黑色字符？', en: 'White legend on white solder mask is unreadable, change to black legend?', ko: '솔더마스크가 흰색인데 실크도 흰색이라 잘 보이지 않습니다. 검은색 실크로 바꿀까요?', opts: [['A', '改黑色', 'Black', '검은색으로 변경'], ['B', '保持白色', 'Keep white', '흰색 유지']] },

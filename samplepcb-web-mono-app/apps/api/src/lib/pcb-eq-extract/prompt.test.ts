@@ -48,18 +48,32 @@ describe('용어집·유형 사전', () => {
 describe('프롬프트', () => {
   it('직렬화 입력·유형 16종·용어집을 싣는다', () => {
     const p = buildEqParsePrompt('R8 A:1 | D:测试');
-    expect(EQ_PARSE_PROMPT_VERSION).toBe('eq-parse-v1');
+    expect(EQ_PARSE_PROMPT_VERSION).toBe('eq-parse-v3'); // 출하 판(D20 P2-4) — 기본 인자도 이 판이다
     expect(p).toContain('R8 A:1 | D:测试');
     for (const c of PCB_EQ_ITEM_CATEGORIES) expect(p).toContain(`${c}=`);
     expect(p).toContain('阻焊桥/soldermask dam/solder mask dam → 솔더마스크 댐');
   });
   it('v2 는 열 문자·숫자 기호 규칙과 두 칸 질문 잇기를 보탠다(v1 은 그대로)', () => {
-    const v1 = buildEqParsePrompt('X');
+    const v1 = buildEqParsePrompt('X', 'eq-parse-v1');
     const v2 = buildEqParsePrompt('X', 'eq-parse-v2');
     expect(v1).not.toContain('열 문자는 셀 위치일 뿐');
     expect(v2).toContain('열 문자는 셀 위치일 뿐 선택지 기호가 아니다');
     expect(v2).toContain('A·B 로 바꾸지 않는다');
     expect(v2).toContain('두 칸을 공백 하나로 이어');
+  });
+  it('v3 = v2 + 번역 문체 두 규칙(P2-5 한쪽에만 있는 정보 보존 · P2-7 선택지는 고객의 답 문장) + 추가 지침', () => {
+    const v2 = buildEqParsePrompt('X', 'eq-parse-v2');
+    const v3 = buildEqParsePrompt('X');
+    for (const rule of ['한쪽 언어에만 있는 정보', '고객이 고르는 답의 문장', '직접 지시하겠습니다(의견 작성)', "'귀사'라는 말을 쓰지 않는다"]) {
+      expect(v2).not.toContain(rule);
+      expect(v3).toContain(rule);
+    }
+    expect(v3).toContain('열 문자는 셀 위치일 뿐 선택지 기호가 아니다'); // v2 규칙은 그대로
+    expect(v3).toContain('글로 적힌'); // recommended 규칙 유지(P2-6)
+    expect(v3).not.toContain('관리자 추가 지침');
+    const withExtra = buildEqParsePrompt('X', 'eq-parse-v3', `  ${'가'.repeat(3000)}  `);
+    expect(withExtra).toContain('## 관리자 추가 지침');
+    expect(withExtra.length - v3.length).toBeLessThan(2100); // 2,000자에서 자른다
   });
   it('번역만 프롬프트는 원문과 기호만 넘긴다(그림·의견필수는 템플릿 몫)', () => {
     const p = buildEqTranslatePrompt(gold.draft);
@@ -111,6 +125,9 @@ describe('findDroppedFacts — 번역이 빠뜨린 수치·파일명', () => {
   });
   it('영문에만 있던 파일명·수치를 떨어뜨리면 잡는다', () => {
     expect(findDroppedFacts(orig, '최소 홀 크기 0.2mm 에 패드가 작습니다. 원본 기준으로 제작합니다.')).toEqual(['KM100_1025.zip', '0.35', '100', '1025']);
+  });
+  it('천 단위 쉼표를 넣어 옮긴 수는 같은 수로 본다', () => {
+    expect(findDroppedFacts('孔径0.3mm的过孔共2865个', '홀 크기 0.3mm 비아가 2,865개')).toEqual([]);
   });
 });
 

@@ -13,9 +13,9 @@ import AiSampleTest from './AiSampleTest.vue';
 import AiUseCaseSection from './AiUseCaseSection.vue';
 import type { AiUseCaseKeys } from './ai-labels';
 
-// AI 연동 탭 — 옛 components/admin/AiSettingsForm.vue 와 같은 여덟 블록·같은 저장 본문:
+// AI 연동 탭 — 옛 components/admin/AiSettingsForm.vue 와 같은 아홉 블록·같은 저장 본문:
 // ① 연결 ② 검토서 생성(+첨부 판독 모델·샘플 테스트) ③ 정밀 시스템 구성도 ④·⑤ 개발의뢰 검토서·구성도
-// ⑥ 개발의뢰 후속 질문 ⑦ 개발의뢰 문서 메일 초안 → 저장 → ⑧ 실행 이력.
+// ⑥ 개발의뢰 후속 질문 ⑦ 개발의뢰 문서 메일 초안 ⑧ PCB EQ 분석(D20 P2) → 저장 → ⑨ 실행 이력.
 // 프롬프트 본문은 코드 정본(docs/AI_DEV_REVIEW.md §6)이라 화면에 없다. 상태는 여기 한 곳에 두고
 // 구역 조각에 v-model 로 내려준다(저장은 한 번에).
 const { t } = useI18n();
@@ -53,6 +53,11 @@ const devmEnabled = ref(false);
 const devmModel = ref('');
 const devmThink = ref<AiThinkLevelType>('low');
 const devmExtra = ref('');
+// 협력사 EQ 엑셀 → 문항 초안(pcb.eq-parse, D20 P2) — 승인요청 때 자동으로 도는 잡. 프로빙 결정값(kimi-k3·low)이 기본.
+const eqpEnabled = ref(false);
+const eqpModel = ref('');
+const eqpThink = ref<AiThinkLevelType>('low');
+const eqpExtra = ref('');
 const models = ref<string[]>([]);
 
 // 로드/저장 에코 시 폼 리필(키 입력칸은 항상 초기화).
@@ -85,13 +90,17 @@ watch(
     devmModel.value = d.developDocMail.model;
     devmThink.value = d.developDocMail.think;
     devmExtra.value = d.developDocMail.extraInstructions;
+    eqpEnabled.value = d.pcbEqParse.enabled;
+    eqpModel.value = d.pcbEqParse.model;
+    eqpThink.value = d.pcbEqParse.think;
+    eqpExtra.value = d.pcbEqParse.extraInstructions;
     apiKeyInput.value = '';
     clearApiKey.value = false;
   },
   { immediate: true },
 );
 
-// 여섯 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
+// 일곱 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
 const canSubmit = computed(
   () =>
     !save.isPending.value &&
@@ -100,7 +109,8 @@ const canSubmit = computed(
     devrModel.value.trim() !== '' &&
     devdModel.value.trim() !== '' &&
     devfModel.value.trim() !== '' &&
-    devmModel.value.trim() !== '',
+    devmModel.value.trim() !== '' &&
+    eqpModel.value.trim() !== '',
 );
 
 // 구역별 문구 — 옛 화면이 구역마다 쓰던 i18n 키 그대로(일부 구역은 devReview·devDiagram 의 공용 문구를 빌린다).
@@ -149,6 +159,19 @@ const DEVELOP_REVIEW_KEYS: AiUseCaseKeys = {
   promptVersion: 'admin.settings.ai.devReview.promptVersion',
   promptVersionHint: 'admin.settings.ai.devReview.promptVersionHint',
   updatedAt: 'admin.settings.ai.devReview.updatedAt',
+};
+// PCB EQ 분석 — thinking 안내가 다르다(프로빙에서 낮음이 같은 정확도로 가장 빨랐다).
+const PCB_EQ_PARSE_KEYS: AiUseCaseKeys = {
+  title: 'admin.settings.ai.pcbEqParse.title',
+  enabled: 'admin.settings.ai.pcbEqParse.enabled',
+  enabledHint: 'admin.settings.ai.pcbEqParse.enabledHint',
+  model: 'admin.settings.ai.pcbEqParse.model',
+  modelHint: 'admin.settings.ai.pcbEqParse.modelHint',
+  think: 'admin.settings.ai.pcbEqParse.think',
+  thinkHint: 'admin.settings.ai.pcbEqParse.thinkHint',
+  extra: 'admin.settings.ai.pcbEqParse.extraInstructions',
+  extraHint: 'admin.settings.ai.pcbEqParse.extraInstructionsHint',
+  ...DIAGRAM_COMMON,
 };
 const developKeys = (name: 'developDiagram' | 'developFollowup' | 'developDocMail'): AiUseCaseKeys => ({
   title: `admin.settings.ai.${name}.title`,
@@ -222,6 +245,12 @@ function onSubmit(): void {
       model: devmModel.value.trim(),
       think: devmThink.value,
       extraInstructions: devmExtra.value.trim(),
+    },
+    pcbEqParse: {
+      enabled: eqpEnabled.value,
+      model: eqpModel.value.trim(),
+      think: eqpThink.value,
+      extraInstructions: eqpExtra.value.trim(),
     },
   });
 }
@@ -349,6 +378,19 @@ function onSubmit(): void {
           :updated-at="data?.data.developDocMail.updatedAt"
         />
 
+        <!-- ⑧ PCB EQ 분석(D20 P2) — 협력사 승인요청 때 자동으로 돈다. 자동은 초안까지, 고객 발송은 관리자 검토 뒤. -->
+        <AiUseCaseSection
+          v-model:enabled="eqpEnabled"
+          v-model:model="eqpModel"
+          v-model:think="eqpThink"
+          v-model:extra="eqpExtra"
+          id-prefix="ai-eqp"
+          code="pcb.eq-parse"
+          :keys="PCB_EQ_PARSE_KEYS"
+          :prompt-version="data?.data.pcbEqParse.promptVersion"
+          :updated-at="data?.data.pcbEqParse.updatedAt"
+        />
+
         <datalist id="ai-models">
           <option v-for="m in models" :key="m" :value="m" />
         </datalist>
@@ -356,7 +398,7 @@ function onSubmit(): void {
         <SaveRow :pending="save.isPending.value" :disabled="!canSubmit" :saved="save.isSuccess.value" />
       </form>
 
-      <!-- ⑧ 실행 이력 -->
+      <!-- ⑨ 실행 이력 -->
       <AiJobLogSection />
     </template>
   </div>

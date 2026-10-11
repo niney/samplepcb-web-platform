@@ -43,6 +43,7 @@ import {
   DEVELOP_FOLLOWUP_USECASE,
   DEVELOP_DOC_MAIL_USECASE,
   DEVELOP_REVIEW_USECASE,
+  PCB_EQ_PARSE_USECASE,
   asThinkLevel,
   ensureAiUsecaseRows,
   getAiConnection,
@@ -156,7 +157,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
   const aiSettingsData = async () => {
     await ensureAiUsecaseRows();
-    const [conn, vision, row, diagramRow, developReviewRow, developDiagramRow, developFollowupRow, developDocMailRow] = await Promise.all([
+    const [conn, vision, row, diagramRow, developReviewRow, developDiagramRow, developFollowupRow, developDocMailRow, pcbEqParseRow] = await Promise.all([
       getAiConnection(),
       getAiVisionModel(),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEV_REVIEW_USECASE } }),
@@ -165,13 +166,19 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_DIAGRAM_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_FOLLOWUP_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_DOC_MAIL_USECASE } }),
+      prisma.spAiUsecase.findUnique({ where: { useCase: PCB_EQ_PARSE_USECASE } }),
     ]);
     const def = AI_USECASE_DEFS[DEV_REVIEW_USECASE];
     const diagramDef = AI_USECASE_DEFS[DEV_DIAGRAM_USECASE];
-    // 개발의뢰(develop.*) 두 유스케이스는 같은 모양(사용·모델·thinking·추가 지침).
+    // 개발의뢰(develop.*)와 PCB EQ 분석은 같은 모양(사용·모델·thinking·추가 지침).
     const thinkBlock = (
       r: { enabled: boolean; model: string; think: string | null; extraInstructions: string | null; updatedAt: Date } | null,
-      key: typeof DEVELOP_REVIEW_USECASE | typeof DEVELOP_DIAGRAM_USECASE | typeof DEVELOP_FOLLOWUP_USECASE | typeof DEVELOP_DOC_MAIL_USECASE,
+      key:
+        | typeof DEVELOP_REVIEW_USECASE
+        | typeof DEVELOP_DIAGRAM_USECASE
+        | typeof DEVELOP_FOLLOWUP_USECASE
+        | typeof DEVELOP_DOC_MAIL_USECASE
+        | typeof PCB_EQ_PARSE_USECASE,
     ) => {
       const d = AI_USECASE_DEFS[key];
       return {
@@ -209,6 +216,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       developDiagram: thinkBlock(developDiagramRow, DEVELOP_DIAGRAM_USECASE),
       developFollowup: thinkBlock(developFollowupRow, DEVELOP_FOLLOWUP_USECASE),
       developDocMail: thinkBlock(developDocMailRow, DEVELOP_DOC_MAIL_USECASE),
+      pcbEqParse: thinkBlock(pcbEqParseRow, PCB_EQ_PARSE_USECASE),
     };
   };
 
@@ -339,12 +347,13 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           },
         });
       }
-      // 개발의뢰(develop.*) — 검토서·구성도 둘 다 thinking 단계까지 만진다.
+      // 개발의뢰(develop.*)·PCB EQ 분석 — thinking 단계까지 만진다(같은 모양).
       for (const [key, patch] of [
         [DEVELOP_REVIEW_USECASE, body.developReview],
         [DEVELOP_DIAGRAM_USECASE, body.developDiagram],
         [DEVELOP_FOLLOWUP_USECASE, body.developFollowup],
         [DEVELOP_DOC_MAIL_USECASE, body.developDocMail],
+        [PCB_EQ_PARSE_USECASE, body.pcbEqParse],
       ] as const) {
         if (patch === undefined) continue;
         await ensureAiUsecaseRows();

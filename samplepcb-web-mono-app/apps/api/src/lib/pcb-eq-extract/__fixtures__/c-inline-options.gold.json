@@ -24,14 +24,14 @@
           },
           {
             "key": "B",
-            "label": "원본대로 제작 — 수율 위험은 귀사 부담",
+            "label": "원본대로 제작(수율 위험은 저희가 부담합니다)",
             "labelOrig": "按原稿制作，良率风险由贵司承担 Make as original, yield risk on customer",
             "recommended": false,
             "requiresComment": false
           },
           {
             "key": "C",
-            "label": "귀사 지시 바람(의견을 주세요)",
+            "label": "직접 지시하겠습니다(의견 작성)",
             "labelOrig": "请贵司指示 Pls advise",
             "recommended": false,
             "requiresComment": true

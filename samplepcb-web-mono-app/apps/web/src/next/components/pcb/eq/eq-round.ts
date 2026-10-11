@@ -2,6 +2,7 @@ import {
   PCB_EQ_ANSWER_CHANNEL_LABELS,
   type AdminPcbEqDraftUpdateBodyType,
   type AdminPcbEqReviewViewType,
+  type PcbEqAiFlagType,
   type PcbEqItemAnswerType,
   type PcbEqItemCategoryType,
   type PcbEqItemChangeType,
@@ -49,6 +50,11 @@ export interface EqItemDraft {
   prev: PcbEqPrevItemType | null;
   /** 고객(또는 대리) 답 — 발송 뒤 회차의 읽기 전용 표시. */
   answer: PcbEqItemAnswerType | null;
+  /**
+   * AI 초안의 검토 표시(D20 P2) — 관리자가 [확인함]으로 하나씩 지운다. ⚠ 저장 몸통에 **남은 표시를 항상** 싣는다:
+   * 서버는 안 실린 표시를 지워진 것으로 본다(계약 AdminPcbEqItemInput.aiFlags 기본 []).
+   */
+  aiFlags: PcbEqAiFlagType[];
 }
 
 export interface EqRoundDraft {
@@ -107,6 +113,7 @@ export const newItem = (hasPrevRound: boolean): EqItemDraft => {
     change: hasPrevRound ? 'new' : null,
     prev: null,
     answer: null,
+    aiFlags: [],
   };
 };
 
@@ -133,6 +140,7 @@ function bodyOf(draft: Pick<EqRoundDraft, 'message' | 'dueOn' | 'items'>): Omit<
       figures: item.figures.map((f) => ({ fileId: f.fileId, shared: f.shared })),
       prevItemId: item.prevItemId,
       change: item.change,
+      aiFlags: item.aiFlags.map((f) => ({ code: f.code, detail: f.detail })),
     })),
   };
 }
@@ -169,6 +177,7 @@ export function draftFromView(view: AdminPcbEqReviewViewType): EqRoundDraft {
     change: item.change,
     prev: item.prev,
     answer: item.answer,
+    aiFlags: item.aiFlags.map((f) => ({ code: f.code, detail: f.detail })),
   }));
   const base = { message: view.message, dueOn: kstDateInput(view.dueOn), items };
   return {
@@ -212,6 +221,15 @@ export function draftSendProblem(draft: EqRoundDraft): { itemIndex: number | nul
   return draftSaveProblem(draft);
 }
 
+/** 확인 안 한 AI 표시 — 건수와 표시가 남은 문항 번호(발송 확인창의 경고. 막지는 않는다). */
+export function openAiFlags(draft: Pick<EqRoundDraft, 'items'>): { count: number; itemNos: string[] } {
+  const flagged = draft.items.flatMap((item, index) => (item.aiFlags.length > 0 ? [{ item, index }] : []));
+  return {
+    count: flagged.reduce((sum, { item }) => sum + item.aiFlags.length, 0),
+    itemNos: flagged.map(({ item, index }) => eqItemNoOf(item, index)),
+  };
+}
+
 /** 고객에게 공개되는 그림 수(발송 확인창). */
 export const sharedFigureCount = (draft: EqRoundDraft): number =>
   draft.items.reduce((sum, item) => sum + item.figures.filter((f) => f.shared).length, 0);
@@ -227,7 +245,7 @@ export interface EqRoundBadge {
 
 /** 회차 표시 상태 — 행 칩(pcbEqRoundState)과 같은 칸에 요청 취소를 더한다. */
 export const eqRoundDisplayOf = (view: AdminPcbEqReviewViewType): PcbEqRoundDisplay | 'canceled' => {
-  if (view.status === 'draft') return 'draft';
+  if (view.status === 'draft') return view.aiDraft ? 'ai_draft' : 'draft';
   if (view.status === 'requested') return view.overdue ? 'overdue' : 'pending';
   if (view.status === 'answered') return view.forwardedAt === null ? 'needs_forward' : 'forwarded';
   return 'canceled';

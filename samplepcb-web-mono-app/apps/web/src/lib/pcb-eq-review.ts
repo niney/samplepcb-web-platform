@@ -1,4 +1,4 @@
-import type { PcbPoEqReviewSummaryType } from '@sp/api-contract';
+import { PCB_EQ_AI_FAIL_LABELS, type PcbPoEqAiSummaryType, type PcbPoEqReviewSummaryType } from '@sp/api-contract';
 import { fmtKstDate, kstDateOnly, kstToday } from '@sp/utils';
 
 // EQ 고객 확인 표시(P4.4, docs/PCB_PARTNER_TRACK.md D16) — Case 상세(버튼)와 발주 워크큐
@@ -54,7 +54,11 @@ export const pcbEqReviewTitle = (r: PcbPoEqReviewSummaryType | null): string => 
   // 트랙 중립 문구 — 스텐실 발주에도 이 축(고객 확인)은 그대로 쓰인다(EQ 라는 말만 뺀다).
   if (r === null) return '고객에게 제작 확인을 요청합니다';
   // D20 작성 중 — 아직 고객에게 안 갔다(요청일은 초안을 만든 시각이라 싣지 않는다).
-  if (r.status === 'draft') return '관리자가 문항을 작성 중입니다 — 고객에게는 아직 보이지 않습니다';
+  if (r.status === 'draft') {
+    return r.aiDraft
+      ? 'AI 가 EQ 파일로 초안을 만들었습니다 — 검토한 뒤 고객에게 보내세요(고객에게는 아직 보이지 않습니다)'
+      : '관리자가 문항을 작성 중입니다 — 고객에게는 아직 보이지 않습니다';
+  }
   const parts = [`요청 ${fmtKstDate(r.requestedAt)}`];
   if (r.dueOn !== null) parts.push(`기한 ${fmtKstDate(r.dueOn)}`);
   if (r.status === 'answered') parts.push(`회신 ${fmtKstDate(r.decidedAt)}`);
@@ -66,15 +70,16 @@ export const pcbEqReviewTitle = (r: PcbPoEqReviewSummaryType | null): string => 
 // ── D20 문항형 회차 칩 — "EQ 2차 · 회신 대기 D+2" / "회신 도착 · 전달 필요" ─────────────
 // 문항형은 '답했다'로 끝나지 않는다 — 회신을 협력사에 **전달**해야 공장이 움직인다. 그래서 승인/반려
 // 두 칸 대신 작성 중 → 회신 대기 → 전달 필요 → 전달됨 네 칸으로 말한다(Case 행·워크큐 같은 판정).
+// D20 P2 — AI 가 만든 초안은 '작성 중'과 가른다(ai_draft): 아무도 아직 읽지 않은 초안이라 검토가 관리자 몫이다.
 
-export type PcbEqRoundDisplay = 'draft' | 'pending' | 'overdue' | 'needs_forward' | 'forwarded';
+export type PcbEqRoundDisplay = 'draft' | 'ai_draft' | 'pending' | 'overdue' | 'needs_forward' | 'forwarded';
 
 /** 문항형 회차의 표시 상태 — 문구형(D16)·요약 없음이면 null(옛 표시를 쓴다). */
 export const pcbEqRoundState = (r: PcbPoEqReviewSummaryType | null): PcbEqRoundDisplay | null => {
   if (r?.format !== 'items') return null;
   switch (r.status) {
     case 'draft':
-      return 'draft';
+      return r.aiDraft ? 'ai_draft' : 'draft';
     case 'requested':
       return r.overdue ? 'overdue' : 'pending';
     case 'answered':
@@ -101,6 +106,8 @@ export const pcbEqRoundStateLabel = (
   switch (state) {
     case 'draft':
       return '작성 중';
+    case 'ai_draft':
+      return 'AI 초안 · 검토 필요';
     case 'pending':
       return `회신 대기 D+${String(pcbEqWaitDays(r.requestedAt, today))}`;
     case 'overdue':
@@ -119,3 +126,25 @@ export const pcbEqRoundChipLabel = (r: PcbPoEqReviewSummaryType | null, today: s
   const round = r.roundNo === null ? 'EQ' : `EQ ${String(r.roundNo)}차`;
   return `${round} · ${pcbEqRoundStateLabel(state, r, today)}`;
 };
+
+// ── D20 P2 AI 분석 칩 — 승인요청 때 자동 분석이 도는 중이거나 초안을 못 만든 때 ─────────────
+// 됐으면 회차 요약(aiDraft)이 말하므로 여기는 running·failed 둘뿐이다. 회차 칩이 있으면 그쪽이 우선이다
+// (실패 칩은 초안이 없을 때만 — 관리자가 직접 쓰기 시작했으면 '분석 안 됨'은 더 할 말이 아니다).
+
+export type PcbEqAiDisplay = 'ai_running' | 'ai_failed';
+
+export const pcbEqAiState = (ai: PcbPoEqAiSummaryType | null): PcbEqAiDisplay | null =>
+  ai === null ? null : ai.status === 'running' ? 'ai_running' : 'ai_failed';
+
+export const PCB_EQ_AI_CHIP_LABELS: Record<PcbEqAiDisplay, string> = {
+  ai_running: 'AI 분석 중',
+  ai_failed: 'AI 분석 안 됨',
+};
+
+/** AI 칩 툴팁 — 실패면 사유 문구(계약 사전), 분석 중이면 끝난 뒤의 일을 말한다. */
+export const pcbEqAiTitle = (ai: PcbPoEqAiSummaryType): string =>
+  ai.status === 'running'
+    ? 'AI 가 협력사 EQ 파일을 분석 중입니다 — 끝나면 문항 초안이 만들어집니다'
+    : ai.reason === null
+      ? 'AI 분석이 초안을 만들지 못했습니다 — EQ 열기에서 직접 작성하거나 다시 분석하세요'
+      : PCB_EQ_AI_FAIL_LABELS[ai.reason];

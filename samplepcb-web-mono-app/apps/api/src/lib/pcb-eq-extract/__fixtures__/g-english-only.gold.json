@@ -77,7 +77,7 @@
           },
           {
             "key": "2",
-            "label": "고객이 적층 구조를 제공",
+            "label": "적층 구조를 제공하겠습니다",
             "labelOrig": "Customer will provide stack-up",
             "recommended": false,
             "requiresComment": false
@@ -132,7 +132,7 @@
           },
           {
             "key": "2",
-            "label": "지시 바람(의견을 주세요)",
+            "label": "직접 지시하겠습니다(의견 작성)",
             "labelOrig": "Please advise",
             "recommended": false,
             "requiresComment": true

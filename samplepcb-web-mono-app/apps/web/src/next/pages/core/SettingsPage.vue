@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRoute } from 'vue-router';
 import type { SettingsTabKey } from '@/admin/useAdminSettings';
 import PageHeader from '@/next/components/common/PageHeader.vue';
 import AiSettingsForm from '@/next/components/core/settings/ai/AiSettingsForm.vue';
@@ -14,7 +15,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/next/components/ui/t
 // 보이는 탭의 폼만 마운트한다(TabsContent 는 비활성 탭을 그리지 않는다 — 탭을 열 때 그 탭만 조회).
 const { t } = useI18n();
 const TABS: SettingsTabKey[] = ['businessInfo', 'gerberPricing', 'aiIntegration', 'bomQuote'];
-const activeTab = ref<SettingsTabKey>('businessInfo');
+// 다른 화면이 탭을 짚어 보낼 수 있게 진입 때 한 번만 ?tab= 을 읽는다(예: EQ 작업공간의 "AI 연동에서 켜기").
+const route = useRoute();
+const activeTab = ref<SettingsTabKey>(TABS.find((tab) => tab === route.query.tab) ?? 'businessInfo');
 
 const onTabPick = (value: string | number): void => {
   const hit = TABS.find((tab) => tab === value);

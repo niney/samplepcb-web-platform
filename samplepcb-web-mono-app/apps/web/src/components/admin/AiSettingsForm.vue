@@ -63,6 +63,11 @@ const devmEnabled = ref(false);
 const devmModel = ref('');
 const devmThink = ref<AiThinkLevelType>('low');
 const devmExtra = ref('');
+// 협력사 EQ 엑셀 → 문항 초안(pcb.eq-parse, D20 P2) — 승인요청 때 자동으로 도는 잡. 프로빙 결정값(kimi-k3·low)이 기본.
+const eqpEnabled = ref(false);
+const eqpModel = ref('');
+const eqpThink = ref<AiThinkLevelType>('low');
+const eqpExtra = ref('');
 const models = ref<string[]>([]);
 
 const testJobId = ref<string | null>(null);
@@ -129,13 +134,17 @@ watch(
     devmModel.value = d.developDocMail.model;
     devmThink.value = d.developDocMail.think;
     devmExtra.value = d.developDocMail.extraInstructions;
+    eqpEnabled.value = d.pcbEqParse.enabled;
+    eqpModel.value = d.pcbEqParse.model;
+    eqpThink.value = d.pcbEqParse.think;
+    eqpExtra.value = d.pcbEqParse.extraInstructions;
     apiKeyInput.value = '';
     clearApiKey.value = false;
   },
   { immediate: true },
 );
 
-// 여섯 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
+// 일곱 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
 const canSubmit = computed(
   () =>
     !save.isPending.value &&
@@ -144,7 +153,8 @@ const canSubmit = computed(
     devrModel.value.trim() !== '' &&
     devdModel.value.trim() !== '' &&
     devfModel.value.trim() !== '' &&
-    devmModel.value.trim() !== '',
+    devmModel.value.trim() !== '' &&
+    eqpModel.value.trim() !== '',
 );
 const thinkLabel = (level: AiThinkLevelType): string =>
   level === 'off'
@@ -176,7 +186,9 @@ const jobStageLabel = (stage: string | null): string =>
           ? t('admin.settings.ai.jobs.stageFollowup')
           : stage === 'docmail'
             ? t('admin.settings.ai.jobs.stageDocmail')
-            : '-';
+            : stage === 'eqparse'
+              ? t('admin.settings.ai.jobs.stageEqparse')
+              : '-';
 
 function onTest(): void {
   modelsTest.mutate(undefined, {
@@ -254,6 +266,12 @@ function onSubmit(): void {
       model: devmModel.value.trim(),
       think: devmThink.value,
       extraInstructions: devmExtra.value.trim(),
+    },
+    pcbEqParse: {
+      enabled: eqpEnabled.value,
+      model: eqpModel.value.trim(),
+      think: eqpThink.value,
+      extraInstructions: eqpExtra.value.trim(),
     },
   });
 }
@@ -712,6 +730,63 @@ function onSubmit(): void {
             <template v-if="data !== undefined">
               · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
               {{ formatDateTime(data.data.developDocMail.updatedAt) }}
+            </template>
+          </span>
+        </div>
+      </div>
+
+      <!-- ⑧ PCB EQ 분석(D20 P2) — 협력사 승인요청 때 자동으로 돈다. 자동은 초안까지, 고객 발송은 관리자 검토 뒤. -->
+      <div class="space-y-3 rounded-md border border-gray-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-800">
+            {{ t('admin.settings.ai.pcbEqParse.title') }}
+            <span class="ml-1 font-mono text-xs font-normal text-gray-400">pcb.eq-parse</span>
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input v-model="eqpEnabled" type="checkbox">
+            {{ t('admin.settings.ai.pcbEqParse.enabled') }}
+          </label>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.ai.pcbEqParse.enabledHint') }}</p>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.pcbEqParse.model') }}</span>
+          <input v-model="eqpModel" type="text" list="ai-models" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm">
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.pcbEqParse.modelHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.pcbEqParse.think') }}</span>
+          <select v-model="eqpThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
+          </select>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.pcbEqParse.thinkHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.pcbEqParse.extraInstructions') }}</span>
+          <textarea
+            v-model="eqpExtra"
+            rows="4"
+            :maxlength="AI_EXTRA_INSTRUCTIONS_MAX"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          />
+          <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {{ t('admin.settings.ai.pcbEqParse.extraInstructionsHint') }}
+            <span class="ml-auto font-mono text-[11px] text-gray-400">
+              {{ t('admin.settings.ai.devDiagram.extraInstructionsCount', { count: eqpExtra.length, max: AI_EXTRA_INSTRUCTIONS_MAX }) }}
+            </span>
+          </span>
+        </label>
+
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.promptVersion') }}</span>
+          <p class="font-mono text-sm text-gray-700">{{ data?.data.pcbEqParse.promptVersion }}</p>
+          <span class="text-xs text-gray-500">
+            {{ t('admin.settings.ai.devDiagram.promptVersionHint') }}
+            <template v-if="data !== undefined">
+              · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
+              {{ formatDateTime(data.data.pcbEqParse.updatedAt) }}
             </template>
           </span>
         </div>

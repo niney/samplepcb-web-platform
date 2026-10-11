@@ -78,6 +78,7 @@ import {
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
 import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
+import { autoStartEqAnalysis } from '../lib/ai/pcb-eq-runner';
 import { resolvePcbDeliveryDateRange } from '../lib/pcb-delivery-filter';
 import { kstDateStr } from '../lib/kst';
 
@@ -492,6 +493,9 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
                   : `${stepLabel} 대행을 진행할 수 없는 상태입니다.`,
           });
         }
+        // D20 P2 — 대행 승인요청도 협력사가 누른 것과 같다: 승인요청이 들어선 지금 EQ 질의서를 AI 가
+        // 분석한다(P2-1). 기다리지 않고, 실패해도 대행 전이는 성공이다.
+        if (step.path === 'eq-request') autoStartEqAnalysis(po.id, request.log);
         return { result: true as const };
       },
     );

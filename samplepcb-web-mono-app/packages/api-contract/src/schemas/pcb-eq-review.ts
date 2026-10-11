@@ -176,6 +176,76 @@ export const PcbEqPrevItem = z.object({
 });
 export type PcbEqPrevItemType = z.infer<typeof PcbEqPrevItem>;
 
+// ── D20 P2 AI 분석 — 승인요청 때 자동으로 협력사 EQ 엑셀을 문항 초안으로 만든다 ──────────
+// 정본 docs/PCB_PARTNER_TRACK.md D20 P2 · docs/PCB_EQ_AI_PROBE.md. 자동은 **초안까지**다 — 고객 발송은
+// 관리자가 검토한 뒤(D20-1). 분석이 안 되면 초안 없이 화면에만 알린다(사용자 결정 2026-10-11).
+
+/**
+ * 문항에 붙는 AI 검토 표시(관리자 전용) — 결정적 사후 검사가 붙인다. 관리자가 [확인함]으로 지운다.
+ *  · structure   = 템플릿 파서가 읽은 구조와 LLM 구조가 다르다(번호·선택지 기호·그림 연결)
+ *  · translation = 번역이 원문의 수치·파일명을 떨어뜨렸다
+ *  · figure      = 그림이 브라우저에서 못 그리는 형식(EMF·WMF 등)이라 올리지 않았다
+ */
+export const PCB_EQ_AI_FLAG_CODES = ['structure', 'translation', 'figure'] as const;
+export type PcbEqAiFlagCodeType = (typeof PCB_EQ_AI_FLAG_CODES)[number];
+
+export const PCB_EQ_AI_FLAG_LABELS = {
+  structure: '구조 확인 필요',
+  translation: '번역 확인 필요',
+  figure: '그림 확인 필요',
+} as const satisfies Record<PcbEqAiFlagCodeType, string>;
+
+export const PcbEqAiFlag = z.object({
+  code: z.enum(PCB_EQ_AI_FLAG_CODES),
+  /** 무엇이 어긋났는지 한 줄(예: "원문의 0.25mm 가 번역에 없습니다"). */
+  detail: z.string().max(300),
+});
+export type PcbEqAiFlagType = z.infer<typeof PcbEqAiFlag>;
+
+/** 분석이 초안을 못 만든 사유 — 관리자 화면 칩·배너의 문구 원천. */
+export const PCB_EQ_AI_FAIL_REASONS = [
+  'unsupported_file',
+  'unreadable',
+  'no_items',
+  'llm_failed',
+] as const;
+export type PcbEqAiFailReasonType = (typeof PCB_EQ_AI_FAIL_REASONS)[number];
+
+export const PCB_EQ_AI_FAIL_LABELS = {
+  unsupported_file: '엑셀(.xls·.xlsx·.zip)이 아니라 자동 분석하지 못했습니다 — 직접 작성해 주세요.',
+  unreadable: 'EQ 파일을 읽지 못했습니다(암호·손상) — 직접 작성하거나 협력사에 다시 받아 주세요.',
+  no_items: 'EQ 파일에서 문항을 찾지 못했습니다 — 양식을 확인하고 직접 작성해 주세요.',
+  llm_failed: 'AI 분석이 실패했습니다 — 잠시 뒤 [AI 다시 분석]을 눌러 주세요.',
+} as const satisfies Record<PcbEqAiFailReasonType, string>;
+
+/**
+ * 발주서의 **이번 승인요청**에 대한 최신 AI 분석 상태(sp_ai_job, useCase pcb.eq-parse, target=발주서).
+ *  · running = 분석 중 · failed = 초안을 못 만듦(reason) · done = 결과 있음
+ *  · done 인데 appliedReviewId 가 null 이면 결과가 초안에 안 들어갔다(관리자가 먼저 초안을 열었다) —
+ *    화면은 [AI 결과를 초안에 적용]을 낸다.
+ */
+export const PcbEqAiState = z.object({
+  jobId: z.string(),
+  status: z.enum(['running', 'done', 'failed']),
+  trigger: z.enum(['auto', 'manual']),
+  reason: z.enum(PCB_EQ_AI_FAIL_REASONS).nullable(),
+  /** 실패 사유의 덧말(파일명·오류 한 줄) 또는 성공 시 주의(AI 가 빠뜨렸을 수 있는 문항 등) — 관리자 화면 전용. */
+  detail: z.string().nullable(),
+  model: z.string(),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  appliedReviewId: z.number().nullable(),
+});
+export type PcbEqAiStateType = z.infer<typeof PcbEqAiState>;
+
+/** 발주 행·워크큐에 싣는 AI 요약 — 분석 중이거나 안 된 때만(됐으면 회차 요약의 aiDraft 가 말한다). */
+export const PcbPoEqAiSummary = z.object({
+  status: z.enum(['running', 'failed']),
+  reason: z.enum(PCB_EQ_AI_FAIL_REASONS).nullable(),
+  at: z.string(),
+});
+export type PcbPoEqAiSummaryType = z.infer<typeof PcbPoEqAiSummary>;
+
 /** 관리자 화면 문항 — 원문·전체 그림(공개 여부 포함)·이전 회차 연결을 안다. */
 export const AdminPcbEqItem = PcbEqDraftItem.extend({
   id: z.number(),
@@ -185,6 +255,8 @@ export const AdminPcbEqItem = PcbEqDraftItem.extend({
   change: PcbEqItemChange.nullable(),
   prev: PcbEqPrevItem.nullable(),
   answer: PcbEqItemAnswer.nullable(),
+  /** AI 초안의 검토 표시(없으면 빈 배열) — 저장 입력에 실어 보내지 않으면 지워진다. */
+  aiFlags: z.array(PcbEqAiFlag),
 });
 export type AdminPcbEqItemType = z.infer<typeof AdminPcbEqItem>;
 
@@ -238,6 +310,7 @@ export const PCB_EQ_ANSWER_CHANNEL_LABELS = {
 
 export const PCB_EQ_REVIEW_EVENT_ACTIONS = [
   'drafted',
+  'ai_drafted',
   'sent',
   'answered',
   'proxy_answered',
@@ -249,6 +322,7 @@ export const PcbEqReviewEventAction = z.enum(PCB_EQ_REVIEW_EVENT_ACTIONS);
 
 export const PCB_EQ_REVIEW_EVENT_ACTION_LABELS = {
   drafted: '문항 작성 시작',
+  ai_drafted: 'AI 가 초안 작성',
   sent: '고객에게 발송',
   answered: '고객 회신',
   proxy_answered: '관리자 대리 회신',
@@ -283,6 +357,8 @@ export const PcbPoEqReviewSummary = z.object({
   roundNo: z.number().int().nullable(),
   /** 문항형 회신을 협력사에 전달한 시각 — 전달 전이면 '전달 필요' 배지. */
   forwardedAt: z.string().nullable(),
+  /** AI 가 만든 초안이고 아직 작성 중이다 — 행 칩 "AI 초안 · 검토 필요". */
+  aiDraft: z.boolean(),
 });
 export type PcbPoEqReviewSummaryType = z.infer<typeof PcbPoEqReviewSummary>;
 
@@ -325,6 +401,8 @@ export const AdminPcbEqReviewView = z.object({
   forwardedAt: z.string().nullable(),
   forwardedBy: z.string().nullable(),
   events: z.array(PcbEqReviewEvent),
+  /** 이 회차의 문항을 AI 가 채웠다(이벤트 ai_drafted). */
+  aiDraft: z.boolean(),
 });
 export type AdminPcbEqReviewViewType = z.infer<typeof AdminPcbEqReviewView>;
 
@@ -349,6 +427,8 @@ export const AdminPcbEqItemInput = PcbEqDraftItem.extend({
     .default([]),
   prevItemId: z.number().int().positive().nullable().default(null),
   change: PcbEqItemChange.nullable().default(null),
+  /** 남길 AI 검토 표시 — 관리자가 [확인함]으로 지운 것은 빼고 보낸다(안 보내면 전부 지워진다). */
+  aiFlags: z.array(PcbEqAiFlag).max(10).default([]),
 });
 export type AdminPcbEqItemInputType = z.input<typeof AdminPcbEqItemInput>;
 
@@ -427,7 +507,13 @@ export type AdminPcbEqReviewCreateBodyType = z.infer<typeof AdminPcbEqReviewCrea
 
 export const AdminPcbEqReviewListResponse = z.object({
   result: z.literal(true),
-  data: z.object({ reviews: z.array(AdminPcbEqReviewView) }),
+  data: z.object({
+    reviews: z.array(AdminPcbEqReviewView),
+    /** 이번 승인요청의 최신 AI 분석(없으면 null) — running 이면 화면이 다시 읽는다. */
+    ai: PcbEqAiState.nullable(),
+    /** AI 분석 유스케이스가 켜져 있는가(설정 > AI 연동) — 꺼져 있으면 [AI 분석]이 안내만 한다. */
+    aiEnabled: z.boolean(),
+  }),
 });
 export type AdminPcbEqReviewListResponseType = z.infer<typeof AdminPcbEqReviewListResponse>;
 
@@ -596,3 +682,20 @@ export type CustomerPcbEqDecisionResponseType = z.infer<typeof CustomerPcbEqDeci
 /** 고객 문항형 회신(D20) 응답 — 결정 응답과 같은 모양(갱신된 회차 하나). */
 export const CustomerPcbEqAnswerResponse = CustomerPcbEqDecisionResponse;
 export type CustomerPcbEqAnswerResponseType = CustomerPcbEqDecisionResponseType;
+
+/**
+ * 관리자 [AI 분석]·[AI 다시 분석]·[AI 결과를 초안에 적용] — `POST /admin/pcb-eq-reviews/:poId/ai-analyze`.
+ * 열린 초안이 있으면 replaceDraft 가 있어야 한다(초안의 문항을 AI 결과로 통째 바꾼다, 409 DRAFT_EXISTS).
+ * 같은 파일·같은 설정의 1시간 안 결과는 다시 묻지 않고 쓴다(잡 재사용).
+ */
+export const AdminPcbEqAiAnalyzeBody = z
+  .object({ replaceDraft: z.boolean().default(false) })
+  .nullish()
+  .transform((v) => v ?? { replaceDraft: false });
+export type AdminPcbEqAiAnalyzeBodyType = z.input<typeof AdminPcbEqAiAnalyzeBody>;
+
+export const AdminPcbEqAiAnalyzeResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ ai: PcbEqAiState }),
+});
+export type AdminPcbEqAiAnalyzeResponseType = z.infer<typeof AdminPcbEqAiAnalyzeResponse>;

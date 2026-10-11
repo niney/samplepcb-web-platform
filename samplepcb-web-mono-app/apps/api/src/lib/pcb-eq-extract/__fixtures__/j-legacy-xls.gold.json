@@ -31,7 +31,7 @@
           },
           {
             "key": "C",
-            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "label": "직접 지시하겠습니다(의견 작성)",
             "labelOrig": "请贵司指示Pls send your suggestion",
             "recommended": false,
             "requiresComment": true
@@ -54,7 +54,7 @@
           },
           {
             "key": "B",
-            "label": "귀사 지시 바람(의견을 보내 주세요)",
+            "label": "직접 지시하겠습니다(의견 작성)",
             "labelOrig": "请贵司指示Pls send your suggestion",
             "recommended": false,
             "requiresComment": true

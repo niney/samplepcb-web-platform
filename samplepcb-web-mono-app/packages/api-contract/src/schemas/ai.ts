@@ -17,7 +17,8 @@ import { DevelopDocMailResult } from './develop-docs';
 // develop.* = 개발의뢰(docs/DEVELOP_FLOW.md §6) — 같은 프롬프트·러너, 별도 행(관리자 대기라 정밀 모델을 기본으로 둘 수 있다).
 // develop.followup = 개발의뢰 위저드 AI 후속 질문(docs/DEVELOP_FLOW.md §7.2.2) — 고객이 기다리는 유일한 잡(빠른 설정 기본).
 // develop.doc-mail = 개발의뢰 프로젝트 문서 → 고객 메일 초안(docs/DEVELOP_FLOW.md §13) — 관리자가 확인 뒤 발송.
-export const AI_USECASES = ['market.dev-review', 'market.dev-diagram', 'develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.doc-mail'] as const;
+// pcb.eq-parse = 협력사 EQ 엑셀 → 문항 초안(docs/PCB_PARTNER_TRACK.md D20 P2 · docs/PCB_EQ_AI_PROBE.md) — 승인요청 때 자동, 관리자가 검토 뒤 발송.
+export const AI_USECASES = ['market.dev-review', 'market.dev-diagram', 'develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.doc-mail', 'pcb.eq-parse'] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
 
@@ -50,7 +51,7 @@ export const AiJobStatus = z.enum(['running', 'done', 'error']);
 export type AiJobStatusType = z.infer<typeof AiJobStatus>;
 
 // 진행 표시("첨부 확인 중 → 검토서 작성 중")의 원천. 완료 잡은 null.
-export const AiJobStage = z.enum(['attachments', 'review', 'diagram', 'followup', 'docmail']);
+export const AiJobStage = z.enum(['attachments', 'review', 'diagram', 'followup', 'docmail', 'eqparse']);
 export type AiJobStageType = z.infer<typeof AiJobStage>;
 
 export const AiJobResponse = z.object({
@@ -119,6 +120,8 @@ export const AiSettingsResponse = z.object({
     developFollowup: AiDevDiagramSettings,
     // 개발의뢰 프로젝트 문서 → 고객 메일 초안(관리자 대기, 짧은 잡).
     developDocMail: AiDevDiagramSettings,
+    // 협력사 EQ 엑셀 분석(D20 P2) — 승인요청 때 자동으로 도는 잡. 프로빙 결정값(kimi-k3·low)이 기본.
+    pcbEqParse: AiDevDiagramSettings,
   }),
 });
 export type AiSettingsResponseType = z.infer<typeof AiSettingsResponse>;
@@ -168,6 +171,14 @@ export const AiSettingsUpdate = z.object({
     })
     .optional(),
   developDocMail: z
+    .object({
+      enabled: z.boolean(),
+      model: z.string().trim().min(1).max(100),
+      think: AiThinkLevel,
+      extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
+    })
+    .optional(),
+  pcbEqParse: z
     .object({
       enabled: z.boolean(),
       model: z.string().trim().min(1).max(100),

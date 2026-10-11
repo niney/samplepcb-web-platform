@@ -199,6 +199,8 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
         });
       }
       await prisma.spFile.deleteMany({ where: { refType: 'sp_pcb_po_eq', refId: BigInt(poId) } });
+      // AI 분석 유스케이스(D20 P2)가 켜진 환경에서는 승인요청마다 잡이 생긴다 — 발주서에 FK 가 없어 cascade 로 안 지워진다.
+      await prisma.spAiJob.deleteMany({ where: { useCase: 'pcb.eq-parse', targetType: 'pcb_po', targetId: BigInt(poId) } });
     }
     if (specId > 0n) {
       await prisma.spMailLog.deleteMany({
@@ -236,7 +238,10 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     await card.waitFor({ state: 'visible' });
     expect(await card.innerText()).toContain('1차 회차 시작');
     expect(await card.getByRole('button', { name: '직전 회차에서 가져오기' }).count(), '첫 회차엔 가져올 것이 없다').toBe(0);
-    expect(await card.getByRole('button', { name: /AI 분석/ }).isDisabled(), 'AI 분석은 P2').toBe(true);
+    // [AI 분석]은 유스케이스(설정 > AI 연동)가 켜져 있을 때만 살아 있다 — 이 주행은 그 전역 설정을 건드리지 않으므로
+    // 켜짐/꺼짐을 단정하지 않고, 꺼짐 안내가 떠 있으면 비활성·없으면 활성인지만 본다(AI 화면은 journey-eq-items-ai-admin).
+    const aiOff = (await card.locator('[data-eq-ai-disabled]').count()) > 0;
+    expect(await card.getByRole('button', { name: /AI 분석/ }).isDisabled(), `[AI 분석] 꺼짐 안내=${String(aiOff)}`).toBe(aiOff);
     expect(await card.getByRole('checkbox').first().getAttribute('aria-checked'), '근거 첨부 기본 선택').toBe('true');
     await shot('02-new-round');
 

@@ -16,6 +16,9 @@ import { prisma } from '../prisma';
 // resultJson 은 유스케이스별로 다르다: dev-review = MarketDevReview 직렬화(등록 시 프로젝트로 복사),
 // dev-diagram = { meta: MarketDevDiagram, html }(§13.7 — 3단계에서 프로젝트 없이 시작되므로 본문도 잡에
 // 두고, 등록 시 프로젝트 컬럼으로 복사한다).
+// pcb.eq-parse(D20 P2)는 **업무 대상(targetType·targetId = 발주서)에 묶인 잡**이라 여기 회원 소유 저장소를
+// 타지 않는다 — 만들고 끝내는 것은 lib/ai/pcb-eq-runner.ts, 읽는 것은 lib/pcb-eq-ai.ts(resultJson 모양도 거기).
+// 이 파일은 그 잡을 실행 이력 목록(listAiJobs)에 싣고 단계(eqparse)를 알아볼 뿐이다.
 
 export interface AiJob {
   id: string;
@@ -57,7 +60,9 @@ const asStatus = (v: string): AiJobStatusType =>
   v === 'done' || v === 'error' ? v : 'running';
 
 const asStage = (v: string | null): AiJobStageType | null =>
-  v === 'attachments' || v === 'review' || v === 'diagram' || v === 'followup' || v === 'docmail' ? v : null;
+  v === 'attachments' || v === 'review' || v === 'diagram' || v === 'followup' || v === 'docmail' || v === 'eqparse'
+    ? v
+    : null;
 
 const parseJson = (json: string): unknown => {
   try {

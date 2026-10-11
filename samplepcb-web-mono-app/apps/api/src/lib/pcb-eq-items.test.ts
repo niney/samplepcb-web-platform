@@ -5,8 +5,13 @@ import {
   eqFigureMime,
   eqItemNo,
   eqRoundNumbers,
+  eqTextSimilarity,
   isEqReviewCustomerVisible,
+  linkEqRevision,
   looseEqFigures,
+  normalizeEqFactoryNo,
+  normalizeEqOrigText,
+  parseEqAiFlags,
   parseEqItemFigures,
   parseEqItemOptions,
   planEqItemCopyLink,
@@ -19,6 +24,7 @@ import {
   validateEqAnswers,
   validateEqDraftItems,
   type AdminEqItemInput,
+  type EqRevisionSide,
 } from './pcb-eq-items';
 
 // D20 문항형 회차의 규칙 — 회차 번호·고객 노출·개정 연결·답 검증·뷰 조립(공급망 미노출).
@@ -44,6 +50,7 @@ const item = (over: Partial<SpPcbEqReviewItem> = {}): SpPcbEqReviewItem => ({
   change: null,
   answerKey: null,
   answerComment: null,
+  aiFlags: null,
   createdAt: new Date('2026-10-11T00:00:00Z'),
   updatedAt: new Date('2026-10-11T00:00:00Z'),
   ...over,
@@ -72,17 +79,29 @@ const FILES = new Map([
 describe('회차 번호·고객 노출', () => {
   it('문항형 회차만 id 순으로 세고, 안 나간 채 닫힌 초안은 번호가 없다', () => {
     const rounds = eqRoundNumbers([
-      { id: 5n, format: 'items', status: 'answered', sent: true },
-      { id: 3n, format: 'message', status: 'approved', sent: false },
-      { id: 7n, format: 'items', status: 'canceled', sent: false }, // 작성 중에 EQ 가 움직여 닫힘
-      { id: 9n, format: 'items', status: 'canceled', sent: true }, // 보낸 뒤 닫힘 — 고객이 봤다
-      { id: 12n, format: 'items', status: 'draft', sent: false }, // 지금 작성 중 — 다음 번호
+      { id: 5n, poId: 1n, format: 'items', status: 'answered', sent: true },
+      { id: 3n, poId: 1n, format: 'message', status: 'approved', sent: false },
+      { id: 7n, poId: 1n, format: 'items', status: 'canceled', sent: false }, // 작성 중에 EQ 가 움직여 닫힘
+      { id: 9n, poId: 1n, format: 'items', status: 'canceled', sent: true }, // 보낸 뒤 닫힘 — 고객이 봤다
+      { id: 12n, poId: 1n, format: 'items', status: 'draft', sent: false }, // 지금 작성 중 — 다음 번호
     ]);
     expect(rounds.get('5')).toBe(1);
     expect(rounds.get('3')).toBeUndefined();
     expect(rounds.get('7')).toBeUndefined();
     expect(rounds.get('9')).toBe(2);
     expect(rounds.get('12')).toBe(3);
+  });
+
+  it('발주서마다 1부터 센다 — 목록이 여러 발주서의 회차를 한 번에 넘겨도 남의 회차가 번호를 밀지 않는다', () => {
+    // 회귀: 통째로 세던 때 마이페이지에 "5차 확인"이 떴다(다른 발주서의 문항형 회차 넷이 앞에 있었다).
+    const rounds = eqRoundNumbers([
+      { id: 20n, poId: 1n, format: 'items', status: 'answered', sent: true },
+      { id: 21n, poId: 2n, format: 'items', status: 'answered', sent: true },
+      { id: 22n, poId: 3n, format: 'items', status: 'draft', sent: false },
+      { id: 23n, poId: 2n, format: 'items', status: 'requested', sent: true },
+      { id: 24n, poId: 1n, format: 'items', status: 'draft', sent: false },
+    ]);
+    expect([20, 21, 22, 23, 24].map((id) => rounds.get(String(id)))).toEqual([1, 1, 1, 2, 2]);
   });
 
   it('draft 와 안 나간 채 닫힌 문항형 초안은 고객에게 없다 — 문구형은 취소 이력까지 보인다', () => {
@@ -125,6 +144,7 @@ describe('초안 저장 검증', () => {
     figures: [],
     prevItemId: null,
     change: null,
+    aiFlags: [],
     ...over,
   });
   const ctx = {
@@ -335,5 +355,119 @@ describe('Json 방어·그림 파일 형식', () => {
     expect(eqFigureMime('fig.xls', 'application/vnd.ms-excel')).toBeNull();
     expect(eqFigureContentType('a.webp')).toBe('image/webp');
     expect(eqFigureContentType('a.html')).toBe('application/octet-stream');
+  });
+});
+
+// ── D20 P2 — AI 초안의 개정 대조·검토 표시 ───────────────────────────────────
+
+describe('개정 회차 대조(linkEqRevision) — 결정적, LLM 아님', () => {
+  const side = (factoryNo: string | null, questionOrig: string | null, options = OPTIONS): EqRevisionSide => ({
+    factoryNo,
+    questionOrig,
+    options,
+  });
+  const Q_UL = '是否需要在板上加UL标记？ Please confirm whether UL marking is required.';
+  const Q_VIA = '0.2mm孔径加大到0.25mm可以吗？ Can we enlarge the 0.2mm via to 0.25mm?';
+  const Q_OUTLINE = '外形公差按±0.15mm制作是否可以？ Is outline tolerance ±0.15mm acceptable?';
+  const PREV = [side('1', Q_UL), side('2', Q_VIA), side('3', Q_OUTLINE)];
+
+  it('번호·원문·선택지가 그대로면 동일 — 공백·구두점·전각 차이는 같은 글로 본다', () => {
+    const next = [
+      side('1.0', '是否需要在板上加 UL 标记?  Please confirm whether UL marking is required'),
+      side('2', Q_VIA),
+      side('3', Q_OUTLINE),
+    ];
+    expect(linkEqRevision(next, PREV)).toEqual([
+      { prevIndex: 0, change: 'same' },
+      { prevIndex: 1, change: 'same' },
+      { prevIndex: 2, change: 'same' },
+    ]);
+  });
+
+  it('원문의 수치가 바뀌면 변경 — 같은 번호에 잇되 이전 답을 미리 고르지 않는다', () => {
+    const next = [side('1', Q_UL), side('2', Q_VIA.replaceAll('0.25mm', '0.3mm')), side('3', Q_OUTLINE)];
+    expect(linkEqRevision(next, PREV).map((l) => l.change)).toEqual(['same', 'changed', 'same']);
+    expect(linkEqRevision(next, PREV)[1]).toEqual({ prevIndex: 1, change: 'changed' });
+  });
+
+  it('소수점은 구두점으로 지우지 않는다 — 1.5mm 와 15mm 는 다른 글', () => {
+    expect(normalizeEqOrigText('孔径 1.5mm。')).toBe('孔径1.5mm');
+    expect(normalizeEqOrigText('孔径 1.5mm')).not.toBe(normalizeEqOrigText('孔径 15mm'));
+    expect(normalizeEqOrigText('公差 -0.05 / +0.1')).toBe('公差-0.05+0.1');
+    const prev = [side('1', '孔径按1.5mm制作是否可以？')];
+    expect(linkEqRevision([side('1', '孔径按15mm制作是否可以？')], prev)).toEqual([
+      { prevIndex: 0, change: 'changed' },
+    ]);
+  });
+
+  it('번호가 당겨져도 원문이 같은 문항끼리 잇는다(문항 삭제 뒤 번호 바뀜)', () => {
+    // 옛 2번이 빠지고 옛 3번이 2번이 됐다 — 번호로 이으면 옛 2번(다른 질문)의 답이 붙는다.
+    const next = [side('1', Q_UL), side('2', Q_OUTLINE)];
+    expect(linkEqRevision(next, PREV)).toEqual([
+      { prevIndex: 0, change: 'same' },
+      { prevIndex: 2, change: 'same' },
+    ]);
+  });
+
+  it('짝이 없는 문항은 신규, 번호만 물려받은 딴 질문도 신규', () => {
+    const next = [
+      side('1', Q_UL),
+      side('2', '阻焊桥宽度不足，是否允许开通窗？ Solder mask dam is too narrow, may we open the window?'),
+      side('4', '表面处理改为沉金是否可以？ May we change the surface finish to ENIG?'),
+    ];
+    expect(linkEqRevision(next, PREV)).toEqual([
+      { prevIndex: 0, change: 'same' },
+      { prevIndex: null, change: 'new' },
+      { prevIndex: null, change: 'new' },
+    ]);
+  });
+
+  it('원문은 같은데 선택지가 바뀌면 변경(이전 답의 기호가 다른 뜻일 수 있다)', () => {
+    const optionsV2 = [OPT_A, { ...OPT_B, labelOrig: '取消该要求' }];
+    expect(linkEqRevision([side('1', Q_UL, optionsV2)], PREV)).toEqual([{ prevIndex: 0, change: 'changed' }]);
+    expect(linkEqRevision([side('1', Q_UL, [OPT_A])], PREV)).toEqual([{ prevIndex: 0, change: 'changed' }]);
+  });
+
+  it('번호가 없어도 원문이 거의 같으면 변경으로 잇는다 — 조금 닮은 정도로는 잇지 않는다', () => {
+    const prev = [side(null, Q_VIA)];
+    expect(linkEqRevision([side(null, Q_VIA.replace('0.25mm?', '0.3mm?'))], prev)).toEqual([
+      { prevIndex: 0, change: 'changed' },
+    ]);
+    expect(linkEqRevision([side(null, Q_OUTLINE)], prev)).toEqual([{ prevIndex: null, change: 'new' }]);
+  });
+
+  it('직전 문항에 원문이 없으면(손으로 쓴 문항) 번호를 믿고 변경 — 동일이라 하지 않는다', () => {
+    expect(linkEqRevision([side('2', Q_VIA)], [side('1', null), side('2', null)])).toEqual([
+      { prevIndex: 1, change: 'changed' },
+    ]);
+  });
+
+  it('직전 문항 하나는 한 번만 이어진다', () => {
+    const links = linkEqRevision([side('1', Q_UL), side('5', Q_UL)], [side('1', Q_UL)]);
+    expect(links).toEqual([
+      { prevIndex: 0, change: 'same' },
+      { prevIndex: null, change: 'new' },
+    ]);
+  });
+
+  it('번호 정규화·유사도', () => {
+    expect(['1', '1.0', '01', '(1)', '1.', '１'].map(normalizeEqFactoryNo)).toEqual(['1', '1', '1', '1', '1', '1']);
+    expect(normalizeEqFactoryNo('  ')).toBeNull();
+    expect(normalizeEqFactoryNo(null)).toBeNull();
+    expect(eqTextSimilarity('abcdef', 'abcdef')).toBe(1);
+    expect(eqTextSimilarity('abcdef', 'uvwxyz')).toBe(0);
+    expect(eqTextSimilarity('', '')).toBe(0);
+  });
+});
+
+describe('AI 검토 표시', () => {
+  it('깨진 원소는 버리고, 관리자 문항에만 실린다', () => {
+    const flags = [{ code: 'translation', detail: '원문의 0.25mm 가 번역에 없습니다' }, { code: 'nope', detail: 'x' }, 'x'];
+    expect(parseEqAiFlags(flags)).toEqual([{ code: 'translation', detail: '원문의 0.25mm 가 번역에 없습니다' }]);
+    expect(parseEqAiFlags(null)).toEqual([]);
+    const row = item({ aiFlags: flags });
+    expect(toAdminEqItem(row, FILES, null).aiFlags).toHaveLength(1);
+    expect(JSON.stringify(toCustomerEqItem(row, FILES, null, false))).not.toContain('aiFlags');
+    expect(JSON.stringify(toPartnerEqItem(row))).not.toContain('aiFlags');
   });
 });

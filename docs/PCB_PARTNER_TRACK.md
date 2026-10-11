@@ -3520,3 +3520,27 @@ SQL 을 직접 쓰는 코어에는 맞지만, **JSON 으로 sp-node 에 넘기�
 - **검증**: e2e `php-bridge-escape` 6/6(고치기 전 1/6) — 네 브리지의 저장값 === 입력(따옴표·백슬래시·줄바꿈·한글·이모지), 길이 검사, 주문 상세 4화면 표시. 회귀 `journey-eq-reply` 8 · `customer-eq-menu` 6 · `journey-eq-items-customer` 9 · `-portal` 5 · `customer-as-menu` 6 · 여정 22호 10 · 여정 44호 9.
 - **기존 데이터**: 로컬 DB 오염 0건(값이 있는 행에 따옴표·백슬래시 자체가 없다). **운영 DB 는 미조사** — 탐지는 `LOCATE(CONCAT(CHAR(92),CHAR(39)), col)` 류, 복구는 눈으로 확인한 id 만·**수정 배포 시각 이전 행에 한정**(배포 뒤 행의 정상 백슬래시가 깨진다).
 - **남은 것**: 브라우저 폼은 줄바꿈을 CRLF 로 보낸다(Vue 경로는 LF) — 정규화하지 않았다. maxlength 는 줄바꿈을 1자로 세고 전송은 2자라 줄바꿈 많은 긴 글이 서버 상한에 걸릴 수 있다.
+
+#### D20 P2 구현 기록 (2026-10-11 — 승인요청 때 자동 AI 분석)
+
+- **분석 파이프라인** `apps/api/src/lib/pcb-eq-extract/analyze.ts` — `analyzeEqFile({buf, fileName, extraInstructions}, chat)`: 추출 → 프롬프트 `eq-parse-v3` → JSON(재시도 1회) → `coerceEqDraft` →
+  템플릿 파서 대조(`structure` 표시·작성일 보충) → `findDroppedFacts`(`translation` 표시) → EMF·WMF 그림 제외(`figure` 표시) → 문항이 참조한 그림만 돌려준다(로고 제외, 중립 이름 `figure-N.png`).
+  실패 사유: 엑셀·zip 아님/zip 안에 통합문서 없음 `unsupported_file` · 암호·손상·크기 초과 `unreadable` · 시트가 비었거나 문항 0 `no_items` · LLM 실패·계약 불통과 `llm_failed`. 단위 106.
+- **프롬프트 v3**(kimi-k3·low, 15파일×3회, v2 와 나란히): 종합 99.7 → 99.6(동률) · 기호·의견필수·그림 1.00 유지 · 수치·파일명 보존 342/348 → **348/348** · 선택지의 '귀사' 111/627 → **0** · p50 14.4초. 상세 `docs/PCB_EQ_AI_PROBE.md` §5.9.
+- **러너** `lib/ai/pcb-eq-runner.ts` + 읽기 면 `lib/pcb-eq-ai.ts`: 잡 = `sp_ai_job`(useCase `pcb.eq-parse`, targetType `pcb_po`). 대상 = 그 발주서 EQ 첨부(fileType eq)의 최신. 전송 실패(시간 초과·연결 끊김·5xx·429·408)만 chat 안에서 1회 재시도, 전체 예산 timeout×2.
+  **잡에는 LLM 원출력만 저장**하고 그림은 미리 올리지 않는다 — 재사용·[AI 결과를 초안에 적용]은 같은 파일에 원출력을 다시 먹여 초안·표시·그림을 재현한다(모델 호출 없음, 실측 0.65초). base64 는 MEDIUMTEXT 를 넘고 선업로드는 주인 없는 파일을 남긴다.
+  적용 = 열린 회차가 없으면 초안 생성(이벤트 `ai_drafted`, requestedBy 'system', 그림 uploadedBy 'AI'·`shared=true`), 열린 초안 + `replaceDraft` 면 문항 통째 교체, 그 밖엔 done·미적용.
+- **트리거**: 협력사·관리자 대행 `eq-request` 가 전이 성공 뒤 `autoStartEqAnalysis` 를 던진다 — 기다리지 않고, 어떤 실패도 전이를 실패시키지 않는다(로그만). MD 위임은 전이가 일어난 하위 발주서에.
+- **개정 대조**(`linkEqRevision`, 결정적): **원문 일치를 번호보다 먼저** 본다(공장이 문항을 빼고 번호를 당기면 번호 우선은 딴 문항을 짝짓는다). `same` = 원문·선택지(기호+원문)가 정규화 후 완전히 같을 때만, 선택지만 바뀌면 `changed`.
+  번호만 같고 내용이 딴판(2-gram 유사도 0.4 미만)이면 `new`, 번호가 안 맞는 나머지는 0.8 이상일 때 `changed`. 정규화는 숫자 사이 소수점·쉼표·음수 부호를 남긴다("1.5mm" ≠ "15mm").
+- **라우트**: `POST /api/admin/pcb-eq-reviews/:poId/ai-analyze`(202 `{ai}`; 404 `PO_NOT_FOUND` · 409 `NOT_EQ_REQUESTED`·`AI_DISABLED`·`ALREADY_OPEN`·`DRAFT_EXISTS`·`NO_SOURCE`·`NOT_EQ_TRACK`) · 목록 응답 `ai`·`aiEnabled`(발주가 `eq_requested` 일 때만) ·
+  발주 행·워크큐 행 `eqAi`(running·failed) · 설정 GET/PATCH `pcbEqParse`. 성공 시 analyze 경고(AI 가 빠뜨렸을 수 있는 문항)는 `ai.detail` 과 `ai_drafted` 이벤트 note 에.
+- **화면**: 작업공간 AI 띠(분석 중 — 패널이 열린 동안만 4.5초 폴링 / 안 됨 — 사유·[AI 다시 분석]·[직접 작성] / 결과 준비 — [AI 결과를 초안에 적용] / 주의 — `ai.detail`) · 새 회차 카드 [AI 분석](꺼짐이면 설정 링크) ·
+  "AI 초안 · 검토 필요" 배지 · 문항 표시 배지·표시 상자 [확인함](남은 표시를 저장에 항상 실어 보낸다) · 보내기 확인창 "확인 안 한 AI 표시 N건" · 행 칩(AI 분석 중·AI 분석 안 됨·AI 초안) · 'AI 분석 중' 행이 있는 동안 Case·워크큐 5초 재조회 ·
+  관리자 설정 > AI 연동 "PCB EQ 분석" 구역(새·옛 화면).
+- **P1 결함 교정**: 회차 번호가 발주서별이 아니라 넘겨받은 목록 전체로 세어지고 있었다(워크큐 행 요약·고객 목록 — 다른 발주서의 문항형 회차만큼 번호가 밀려 "5차 확인"). `eqRoundNumbers` 가 poId 로 묶어 세게 하고 단위 회귀를 넣었다.
+- **검증**: 단위(AI lib·추출·문항·러너) 241 · api/web/contract typecheck 0 오류(기존 `bom-confirm-types.test.ts` 타입 오류 1건도 같이 교정) ·
+  e2e `journey-eq-items-ai` 8(실 LLM 옵트인 `EQ_AI_E2E=1`: 초안 16초·개정 연결·재사용) · `journey-eq-items-ai-admin` 6 + EQ 회귀.
+  ⚠ **두 AI 스펙은 한 vitest 실행에 묶어 돌릴 것** — 둘 다 전역 설정 `pcbEqParse.enabled` 를 켰다 끈다(따로 동시에 돌려 원복이 어긋난 일이 두 번 있었다).
+- **남은 것**: 서버 재시작으로 끊긴 잡은 재개하지 않는다(실패로 보이고 [AI 다시 분석]) · 발주서를 지워도 `sp_ai_job` 행은 남는다(다른 유스케이스와 같은 이력 관례) · 분석 실패 뒤 손으로 초안을 열면 `eqAi` 는 failed 로 내려가되 화면은 회차 칩을 우선한다 ·
+  EMF·WMF `figure` 표시는 단위 테스트만(실파일 없음) · 운영에서 실 EQ 가 쌓이면 추출 경고율·관리자 수정률을 다시 잴 것.

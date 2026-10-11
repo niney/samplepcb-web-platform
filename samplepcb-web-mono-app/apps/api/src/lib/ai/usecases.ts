@@ -4,6 +4,8 @@ import { DEV_REVIEW_PROMPT_VERSION } from './dev-review';
 import { DEV_DIAGRAM_PROMPT_VERSION } from './dev-diagram';
 import { DEVELOP_FOLLOWUP_PROMPT_VERSION } from './develop-followup';
 import { DEVELOP_DOC_MAIL_PROMPT_VERSION } from './develop-doc-mail';
+// 프롬프트 판만 가져온다(prompt.ts 는 계약·용어집만 문다) — analyze.ts 를 물면 엑셀 추출기(xlsx·cfb)가 여기까지 딸려 온다.
+import { EQ_PARSE_PROMPT_VERSION } from '../pcb-eq-extract/prompt';
 import type { OllamaThink } from './ollama';
 import { prisma } from '../prisma';
 
@@ -22,6 +24,8 @@ export const DEVELOP_DIAGRAM_USECASE = 'develop.dev-diagram' as const;
 export const DEVELOP_FOLLOWUP_USECASE = 'develop.followup' as const;
 // 개발의뢰 프로젝트 문서 → 고객 메일 초안(docs/DEVELOP_FLOW.md §13) — 관리자가 확인 뒤 발송.
 export const DEVELOP_DOC_MAIL_USECASE = 'develop.doc-mail' as const;
+// 협력사 EQ 엑셀 → 문항 초안(docs/PCB_PARTNER_TRACK.md D20 P2) — 승인요청 때 자동으로 돈다. 러너는 lib/ai/pcb-eq-runner.ts.
+export const PCB_EQ_PARSE_USECASE = 'pcb.eq-parse' as const;
 
 // 유스케이스 키의 "종류"(검토서/구성도) — 잡 저장소·러너가 market/develop 을 가르지 않고 이걸 본다.
 export const isReviewUsecase = (key: string): boolean => key.endsWith('.dev-review');
@@ -81,6 +85,15 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
     promptVersion: DEVELOP_DOC_MAIL_PROMPT_VERSION,
     think: 'low',
     timeoutMs: 300_000,
+  },
+  // EQ 엑셀 분석 — 프로빙 결정값(docs/PCB_EQ_AI_PROBE.md §7.1): kimi-k3·low 가 정확도 동률 중 가장 빠르고 안정적
+  // (p50 11.6초·최대 39초). 사고를 올려도 정확도는 안 오르고 지연만 3배라 낮게 둔다. 600초를 기다릴 이유가 없다.
+  'pcb.eq-parse': {
+    defaultModel: 'kimi-k3',
+    promptVersion: EQ_PARSE_PROMPT_VERSION,
+    think: 'low',
+    temperature: 0,
+    timeoutMs: 120_000,
   },
 };
 

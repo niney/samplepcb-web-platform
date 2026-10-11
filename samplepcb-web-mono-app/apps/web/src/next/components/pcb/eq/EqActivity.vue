@@ -46,7 +46,14 @@ const rows = computed((): Row[] => {
     label: PCB_EQ_REVIEW_EVENT_ACTION_LABELS[e.action],
     variant: e.action === 'canceled' ? 'secondary' : e.action === 'answered' || e.action === 'proxy_answered' ? 'success' : 'info',
     actor: [
-      e.actorRole === 'customer' ? '고객' : e.actorRole === 'admin' ? `관리자${e.actorMbId === null ? '' : ` ${e.actorMbId}`}` : '시스템',
+      // 승인요청 때 자동으로 돈 AI 분석은 사람이 아니다(D20 P2) — 관리자가 눌러 돌린 분석은 그 관리자로 남는다.
+      e.actorRole === 'customer'
+        ? '고객'
+        : e.actorRole === 'admin'
+          ? `관리자${e.actorMbId === null ? '' : ` ${e.actorMbId}`}`
+          : e.action === 'ai_drafted'
+            ? 'AI 자동 분석'
+            : '시스템',
       e.channel === null ? null : PCB_EQ_ANSWER_CHANNEL_LABELS[e.channel],
     ]
       .filter((part) => part !== null)

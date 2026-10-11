@@ -71,6 +71,7 @@ export function extOfPath(path: string): EqImageExt {
   if (e === 'png') return 'png';
   if (e === 'jpg' || e === 'jpeg' || e === 'jpe') return 'jpg';
   if (e === 'gif') return 'gif';
+  if (e === 'webp') return 'webp';
   if (e === 'emf') return 'emf';
   if (e === 'wmf') return 'wmf';
   return 'bin';

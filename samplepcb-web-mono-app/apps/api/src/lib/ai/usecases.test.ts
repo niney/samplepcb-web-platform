@@ -20,6 +20,19 @@ describe('asThinkLevel', () => {
   });
 });
 
+describe('pcb.eq-parse 기본값(프로빙 결정 — docs/PCB_EQ_AI_PROBE.md §7.1)', () => {
+  it('kimi-k3 · think low · temperature 0 · 120초 · 출하 프롬프트 판', () => {
+    // 승인요청마다 도는 잡이라 기본값이 조용히 바뀌면 지연·비용이 통째로 달라진다.
+    expect(AI_USECASE_DEFS['pcb.eq-parse']).toEqual({
+      defaultModel: 'kimi-k3',
+      promptVersion: 'eq-parse-v3',
+      think: 'low',
+      temperature: 0,
+      timeoutMs: 120_000,
+    });
+  });
+});
+
 describe('usecaseTimeoutMs', () => {
   it('max 만 def.timeoutMs × 배수, 나머지는 def 값', () => {
     const def = AI_USECASE_DEFS['market.dev-diagram'];

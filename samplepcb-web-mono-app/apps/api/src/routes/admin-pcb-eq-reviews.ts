@@ -2,6 +2,8 @@ import type { FastifyBaseLogger, FastifyReply } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  AdminPcbEqAiAnalyzeBody,
+  AdminPcbEqAiAnalyzeResponse,
   AdminPcbEqDraftCreateBody,
   AdminPcbEqDraftUpdateBody,
   AdminPcbEqFigureUploadResponse,
@@ -30,6 +32,9 @@ import {
   type EqItemsError,
 } from '../lib/pcb-eq-review';
 import { eqFigureContentType, eqItemNo } from '../lib/pcb-eq-items';
+import { isEqAiEnabled, loadEqAiState } from '../lib/pcb-eq-ai';
+import { EQ_ANALYSIS_ERRORS, startEqAnalysis } from '../lib/ai/pcb-eq-runner';
+import { eqRoundStartOf } from '../lib/pcb-po';
 import { getMembersByIds, getOrderInfoByCtId } from '../lib/g5-db';
 import {
   buildPcbEqAnswerForwardedEmail,
@@ -51,6 +56,9 @@ import { downloadFromFileServer } from '../lib/file-server';
 //
 // D20 문항형 회차 — 초안(drafts) → 편집(draft) → 그림(figures) → 발송(send) → 고객 회신 |
 // 대리 회신(answer) → 협력사 전달(forward). 변경 응답은 모두 그 회차의 최신 뷰다(화면이 덮어쓴다).
+//
+// D20 P2 AI 분석 — 승인요청 때 자동으로 돌고(전이 라우트가 건다), 여기는 그 상태를 목록 응답에 싣고
+// (ai·aiEnabled) 관리자의 [AI 분석]·[AI 다시 분석]·[AI 결과를 초안에 적용](ai-analyze)을 받는다.
 
 const PoParams = z.object({ poId: z.coerce.bigint() });
 const ReviewParams = PoParams.extend({ reviewId: z.coerce.bigint() });
@@ -145,14 +153,28 @@ export const adminPcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts,
     return { result: true as const, data: { review } };
   };
 
-  // ── GET /pcb-eq-reviews/:poId — 이 발주서의 확인 요청 이력 ──────────────────
+  /**
+   * 목록 응답 — 회차들 + 이번 승인요청의 AI 분석 상태(D20 P2). AI 상태는 **승인요청 중일 때만** 싣는다:
+   * 발주가 지나간 뒤(승인·반려)에는 "분석 안 됨" 배너가 볼 일이 없는 옛 소식이다(행 칩 eqAi 와 같은 규칙).
+   */
+  const listPayload = async (poId: bigint) => {
+    const po = await prisma.spPcbPo.findUnique({
+      where: { id: poId },
+      select: { status: true, eqHistory: true },
+    });
+    const [reviews, ai, aiEnabled] = await Promise.all([
+      listAdminEqReviews(poId),
+      po?.status === 'eq_requested' ? loadEqAiState(poId, eqRoundStartOf(po)) : Promise.resolve(null),
+      isEqAiEnabled(),
+    ]);
+    return { result: true as const, data: { reviews, ai, aiEnabled } };
+  };
+
+  // ── GET /pcb-eq-reviews/:poId — 이 발주서의 확인 요청 이력 + AI 분석 상태 ────
   fastify.get(
     '/pcb-eq-reviews/:poId',
     { schema: { params: PoParams, response: { 200: AdminPcbEqReviewListResponse } } },
-    async (request) => ({
-      result: true as const,
-      data: { reviews: await listAdminEqReviews(request.params.poId) },
-    }),
+    async (request) => listPayload(request.params.poId),
   );
 
   // ── POST /pcb-eq-reviews/:poId — 고객에게 확인 요청 보내기(D16 문구형) ──────
@@ -195,10 +217,7 @@ export const adminPcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts,
         request.user.mbId,
       );
 
-      return {
-        result: true as const,
-        data: { reviews: await listAdminEqReviews(request.params.poId) },
-      };
+      return listPayload(request.params.poId);
     },
   );
 
@@ -213,10 +232,36 @@ export const adminPcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts,
         request.user.mbId,
       );
       if (!ok) return reply.notFound('취소할 수 있는 확인 요청이 없습니다');
-      return {
-        result: true as const,
-        data: { reviews: await listAdminEqReviews(request.params.poId) },
-      };
+      return listPayload(request.params.poId);
+    },
+  );
+
+  // ═══ D20 P2 AI 분석 ════════════════════════════════════════════════════════
+
+  // ── POST /pcb-eq-reviews/:poId/ai-analyze — [AI 분석]·[AI 다시 분석]·[AI 결과를 초안에 적용] ──
+  // 분석은 백그라운드로 돈다 — 202 와 잡 상태를 돌려주고, 화면은 목록 GET 의 ai 를 다시 읽는다.
+  // 같은 파일·같은 설정의 1시간 안 결과는 모델을 다시 부르지 않고 쓴다(잡은 새로 서지만 곧 끝난다).
+  fastify.post(
+    '/pcb-eq-reviews/:poId/ai-analyze',
+    {
+      schema: {
+        params: PoParams,
+        body: AdminPcbEqAiAnalyzeBody,
+        response: { 202: AdminPcbEqAiAnalyzeResponse, 404: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const outcome = await startEqAnalysis(request.params.poId, {
+        trigger: 'manual',
+        actorMbId: request.user.mbId,
+        replaceDraft: request.body.replaceDraft,
+        log: request.log,
+      });
+      if (!outcome.ok) {
+        const mapped = EQ_ANALYSIS_ERRORS[outcome.error];
+        return reply.status(mapped.code).send({ error: outcome.error, message: mapped.message });
+      }
+      return reply.status(202).send({ result: true as const, data: { ai: outcome.state } });
     },
   );
 

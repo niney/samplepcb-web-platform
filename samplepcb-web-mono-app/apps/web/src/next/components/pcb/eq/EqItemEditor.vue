@@ -5,8 +5,19 @@
 // 열어도 초안이 남는 이유 — 상태는 한 곳).
 // ⚠ 원문(questionOrig·labelOrig)은 고객에게 절대 안 간다(D20-5) — 화면이 그 사실을 칸 이름으로 말한다.
 import { computed, ref } from 'vue';
-import { ArrowDownIcon, ArrowUpIcon, ImagePlusIcon, Link2Icon, PlusIcon, Trash2Icon, XIcon } from '@lucide/vue';
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  ImagePlusIcon,
+  Link2Icon,
+  PlusIcon,
+  SparklesIcon,
+  Trash2Icon,
+  XIcon,
+} from '@lucide/vue';
+import {
+  PCB_EQ_AI_FLAG_LABELS,
   PCB_EQ_ITEM_CATEGORIES,
   PCB_EQ_ITEM_CATEGORY_LABELS,
   PCB_EQ_ITEM_CHANGE_LABELS,
@@ -15,7 +26,7 @@ import {
 } from '@sp/api-contract';
 import { formatBytes } from '@/lib/format';
 import Panel from '@/next/components/common/Panel.vue';
-import { Alert, AlertDescription } from '@/next/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/next/components/ui/alert';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { Checkbox } from '@/next/components/ui/checkbox';
@@ -70,6 +81,12 @@ const text = (value: string | number): string => String(value);
 const isChecked = (value: boolean | 'indeterminate'): boolean => value === true;
 
 const no = computed(() => eqItemNoOf(props.item, props.index));
+
+// ── AI 검토 표시(D20 P2) ───────────────────────────────────────────────────────────
+// [확인함] = 이 표시를 버퍼에서 뺀다. 저장은 **남은 표시를 실어** 보내므로(eq-round bodyOf) 뺀 것만 지워진다.
+function confirmFlag(index: number): void {
+  patch({ aiFlags: props.item.aiFlags.filter((_, i) => i !== index) });
+}
 
 // ── 선택지 ─────────────────────────────────────────────────────────────────────
 function setOption(index: number, value: Partial<EqOptionDraft>): void {
@@ -213,6 +230,27 @@ const answeredOption = computed(() =>
       </template>
       <Badge v-if="!editable && item.change !== null" :variant="EQ_CHANGE_VARIANT[item.change]">{{ PCB_EQ_ITEM_CHANGE_LABELS[item.change] }}</Badge>
     </div>
+
+    <!-- AI 검토 표시 — 자동 검사(구조·번역·그림)가 걸어 둔 것. 고친 뒤 [확인함]으로 지운다. 고객에게는 안 보인다. -->
+    <Alert v-if="item.aiFlags.length > 0" variant="warning" size="sm" data-eq-ai-flags>
+      <SparklesIcon />
+      <AlertTitle>AI 검토 표시 {{ item.aiFlags.length }}건</AlertTitle>
+      <AlertDescription>
+        <p class="text-xs">
+          AI 초안의 자동 검사가 걸어 둔 표시입니다 — 공장 원문과 대조해 고친 뒤 [확인함]으로 지우세요(고객에게는 보이지 않습니다).
+        </p>
+        <ul class="mt-1.5 grid gap-1">
+          <li v-for="(flag, fi) in item.aiFlags" :key="`${flag.code}-${String(fi)}`" class="flex flex-wrap items-center gap-1.5 text-xs">
+            <Badge variant="warning">{{ PCB_EQ_AI_FLAG_LABELS[flag.code] }}</Badge>
+            <span class="text-foreground min-w-0 flex-1">{{ flag.detail }}</span>
+            <Button v-if="editable" variant="outline" size="xs" :aria-label="`${PCB_EQ_AI_FLAG_LABELS[flag.code]} 확인함`" @click="confirmFlag(fi)">
+              <CheckIcon />
+              확인함
+            </Button>
+          </li>
+        </ul>
+      </AlertDescription>
+    </Alert>
 
     <!-- 직전 회차 연결 — 개정 회차에서만. 고객 화면의 '동일' 접기·이전 답 미리 채우기가 이 연결로 정해진다. -->
     <Panel v-if="prevRound !== null || item.prev !== null" tone="muted" class="grid gap-2">

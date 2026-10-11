@@ -24,7 +24,7 @@
           },
           {
             "key": "B",
-            "label": "귀사(고객)가 설계 수정",
+            "label": "설계를 수정하겠습니다",
             "labelOrig": "贵司修改设计 Customer will modify design",
             "recommended": false,
             "requiresComment": false
