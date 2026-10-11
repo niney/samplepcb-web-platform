@@ -85,7 +85,13 @@ export async function chatWithOptionFallback(
       log.warn({ model, alt }, 'ai: model tag not found — retrying with alternate tag');
       return ollamaChatDetailed(conn, alt, prompt, timeoutMs, images, extra);
     }
-    if (/HTTP 4\d\d/.test(msg) && (extra.format !== undefined || extra.think !== undefined)) {
+    // 인증(401·403)·시간 초과(408)·속도 제한(429)은 옵션 문제가 아니다 — 옵션을 빼고 다시 부르면
+    // 구조화 출력 없이 같은 벽에 부딪히거나(429), 통과해도 형식이 깨진 답을 받는다(2026-10-11 EQ 프로빙 중 발견).
+    if (
+      /HTTP 4\d\d/.test(msg) &&
+      !/HTTP (401|403|408|429)/.test(msg) &&
+      (extra.format !== undefined || extra.think !== undefined)
+    ) {
       const rest: OllamaChatExtra = { ...extra };
       delete rest.format;
       delete rest.think;
