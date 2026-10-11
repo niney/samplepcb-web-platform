@@ -119,11 +119,14 @@ export const pcbEqRoundStateLabel = (
   }
 };
 
-/** 행 칩 문구 — "EQ 2차 · 작성 중". 문항형이 아니면 null. */
+/** 행 칩 문구 — "고객 확인 2차 · 작성 중". 문항형이 아니면 null.
+ *  ⚠ 이 '차'는 **고객 확인 회차**다(고객에게 문항을 보낸 횟수). 협력사가 승인요청을 올린 횟수(EQ 요청 회차 —
+ *  포털 타임라인의 'N차 요청', Case 의 EQ 줄 칩)와 다른 수라 — 묻지 않고 반려·승인한 요청이 있으면 어긋난다 —
+ *  'EQ N차'라고만 쓰면 어느 수인지 알 수 없다(2026-10-11). */
 export const pcbEqRoundChipLabel = (r: PcbPoEqReviewSummaryType | null, today: string = kstToday()): string | null => {
   const state = pcbEqRoundState(r);
   if (state === null || r === null) return null;
-  const round = r.roundNo === null ? 'EQ' : `EQ ${String(r.roundNo)}차`;
+  const round = r.roundNo === null ? '고객 확인' : `고객 확인 ${String(r.roundNo)}차`;
   return `${round} · ${pcbEqRoundStateLabel(state, r, today)}`;
 };
 

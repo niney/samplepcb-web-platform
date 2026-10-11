@@ -3,6 +3,7 @@ import {
   PCB_SHIPMENT_FILE_LABELS,
   SHIPMENT_TRANSPORTS,
   SHIPMENT_TRANSPORT_LABELS,
+  bomShipmentActorOf,
   bomShipmentNextStatus,
   shipmentTransportDocType,
   shipmentTransportOf,
@@ -177,6 +178,13 @@ export function useCaseShipment(core: CaseCore) {
     if (next === null || (s.mode === 'domestic' && next === 'delivered')) return null;
     // 직송 국제 체인은 '국내도착' 대신 '현지도착'(표시층 치환 — 상태 코드는 공유 그대로).
     return pcbShipmentStatusLabel(s.mode, next, { directShip: isPcbDirectShipIntl(s.destinationCountry) });
+  };
+  /** [○○ 진행]이 **협력사 몫 대행**인가 — 다음 단계로 들이는 주체가 보내는 쪽(협력사)이면 그렇다
+   *  (국제: 선적 요청 · 국내: 배송 중 — 계약 BOM_SHIPMENT_ACTORS). 받는 쪽이 MD 인 선적은 받는 쪽 단계도
+   *  관리자 몫이 아니다(receiverKind). 대행이면 [협력사 대행 동작 보기]가 켜졌을 때만 보인다. */
+  const isShipAdvanceProxy = (s: PcbShipmentViewType): boolean => {
+    const next = bomShipmentNextStatus(s.mode, s.status);
+    return next !== null && (bomShipmentActorOf(s.mode, next) === 'PARTNER' || s.receiverKind !== 'admin');
   };
   // 발송 시작(담기) — 생산완료인데 아직 어느 박스에도 안 담긴 발주. 원칙은 협력사 포털의 [담기]지만 연결
   // 계정이 0인 조직은 누를 사람이 없다(여정 12호 P5). 담기까지만 하고 멈춘다 — 다음 단계 필수값이
@@ -407,6 +415,7 @@ export function useCaseShipment(core: CaseCore) {
     shipMatesOf,
     openMateCase,
     adminShipAdvanceLabel,
+    isShipAdvanceProxy,
     canStartShipment,
     startShipment,
     canAdminReceive,

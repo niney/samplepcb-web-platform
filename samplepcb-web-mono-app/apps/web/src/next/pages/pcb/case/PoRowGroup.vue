@@ -7,17 +7,17 @@ import { Badge } from '@/next/components/ui/badge';
 import { TableCell, TableRow } from '@/next/components/ui/table';
 import ChildPoRow from './ChildPoRow.vue';
 import PoActionsCell from './PoActionsCell.vue';
-import PoEqCell from './PoEqCell.vue';
+import PoEqBand from './PoEqBand.vue';
 import ShipmentRow from './ShipmentRow.vue';
 import { pcbPoStatusVariant as poStatusVariant } from '@/next/components/pcb/pcb-badges';
 import { pcbEqReworkBadge } from '@/next/components/pcb/pos/pos-badges';
 import { dateOnly, rateNote } from './case-core';
 import { usePcbCaseContext } from './usePcbCase';
 
-// 발주서 한 건 — 본행 + 선적 줄(대표 발주 아래 1줄, 묶음 포함) + MD 하위 발주 요약 줄.
+// 발주서 한 건 — 본행 + EQ 줄(파일·고객 확인·판정을 요청 회차로) + 선적 줄(대표 발주 아래 1줄, 묶음 포함) + MD 하위 발주 요약 줄.
 const props = defineProps<{ po: AdminPcbPoViewType }>();
 
-const { poRework, poReopenAuthor, isPoOverdue, shipRowsOf, childPosOf } = usePcbCaseContext();
+const { poRework, poReopenAuthor, isPoOverdue, shipRowsOf, childPosOf, showEqBand } = usePcbCaseContext();
 
 // 발주접수로 돌아온 이유 — 관리자 반려(우리가 돌려보냄) 또는 협력사 추가 EQ 요청(승인 뒤 협력사가 다시 연 것, D20 후속).
 const rework = computed(() => poRework(props.po));
@@ -25,8 +25,8 @@ const reworkBadge = computed(() => (rework.value === null ? null : pcbEqReworkBa
 </script>
 
 <template>
-  <!-- EQ 승인요청 = 관리자 차례 — 행을 강조해 표에서 먼저 눈에 걸리게 한다. -->
-  <TableRow :data-state="po.status === 'eq_requested' ? 'selected' : undefined">
+  <!-- EQ 승인요청 = 관리자 차례 — 행을 강조해 표에서 먼저 눈에 걸리게 한다(바로 아래 EQ 줄도 같이 강조된다). -->
+  <TableRow :data-state="po.status === 'eq_requested' ? 'selected' : undefined" data-po-row>
     <!-- 협력사 이름은 줄바꿈 금지 — 옆 칸의 긴 결제조건이 폭을 가져가면 이 칸이 0폭으로 붕괴한다 -->
     <TableCell class="whitespace-nowrap">
       <p class="flex items-center gap-1.5 font-medium">
@@ -61,9 +61,10 @@ const reworkBadge = computed(() => (rework.value === null ? null : pcbEqReworkBa
           {{ reworkBadge.label }} {{ fmtKstDate(rework.at) }}
         </Badge>
       </span>
-      <!-- 사유 — 반려는 내가 쓴 말, 추가 EQ 요청은 협력사가 쓴 말(누구 말인지 색과 머리말로 가른다). -->
+      <!-- 사유 — 반려는 내가 쓴 말, 추가 EQ 요청은 협력사가 쓴 말(누구 말인지 색과 머리말로 가른다). 전문은 바로 아래
+           EQ 줄이 잘리지 않게 보이므로, 여기서는 EQ 줄이 없는 행(위임·차단 발주)에서만 줄여서 남긴다. -->
       <p
-        v-if="rework !== null && rework.note !== '' && (po.status === 'issued' || po.status === 'eq_requested')"
+        v-if="!showEqBand(po) && rework !== null && rework.note !== '' && (po.status === 'issued' || po.status === 'eq_requested')"
         class="mt-1 max-w-52 truncate text-xs"
         :class="rework.kind === 'reopen' ? 'text-warning' : 'text-destructive'"
         :title="rework.kind === 'reopen' ? `추가 EQ 요청 사유(${poReopenAuthor(po, rework)}): ${rework.note}` : rework.note"
@@ -100,13 +101,11 @@ const reworkBadge = computed(() => (rework.value === null ? null : pcbEqReworkBa
       {{ dateOnly(po.deliveryDate) }}
       <Badge v-if="isPoOverdue(po)" variant="danger" title="납기일이 지났는데 아직 생산완료가 아닙니다.">납기 초과</Badge>
     </TableCell>
-    <TableCell>
-      <PoEqCell :po="po" />
-    </TableCell>
     <TableCell class="text-right">
       <PoActionsCell :po="po" />
     </TableCell>
   </TableRow>
+  <PoEqBand v-if="showEqBand(po)" :po="po" />
   <ShipmentRow v-for="s in shipRowsOf(po.poId)" :key="`ship-${String(s.shipmentId)}`" :po="po" :shipment="s" />
   <ChildPoRow v-if="childPosOf(po).length > 0" :po="po" />
 </template>

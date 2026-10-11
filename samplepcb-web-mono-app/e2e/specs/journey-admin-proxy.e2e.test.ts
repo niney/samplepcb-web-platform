@@ -380,8 +380,11 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     // ── P5 화면 — 발주접수(issued) 시점이 대행 버튼이 다 뜨는 유일한 순간이다.
     await rp.view(adminView, `/app/admin/pcb/cases/${String(specId)}`, 'P03-case-substitute-buttons');
     const caseBody = await bodyTextOf(adminView);
-    expect(caseBody, 'Case — EQ 대행 업로드 버튼(eq)').toContain('⬆ eq');
-    expect(caseBody, 'Case — EQ 대행 업로드 버튼(working)').toContain('⬆ working');
+    // 대행 동작은 발주 행 아래 EQ 줄에 있다(2026-10-11 재편). 이 조직은 **포털 계정이 없어** [협력사 대행 동작 보기]를
+    // 켜지 않아도 보인다 — 대행이 유일한 길인 줄에서 버튼이 숨으면 그 건은 영영 진행되지 않는다.
+    expect(await adminView.page.locator('[data-pcb-proxy-switch]').getAttribute('aria-checked'), '스위치는 꺼진 채').toBe('false');
+    expect(await adminView.page.locator('[data-eq-band-upload="eq"]').count(), 'Case — EQ 대행 업로드 버튼(eq)').toBe(1);
+    expect(await adminView.page.locator('[data-eq-band-upload="working"]').count(), 'Case — EQ 대행 업로드 버튼(working)').toBe(1);
     expect(caseBody, 'Case — 전이 대행 버튼').toContain('EQ 요청 대행');
     expect(caseBody, 'Case — 대행 대상 조직 표기').toContain(PROXY_ORG);
     // 대행 버튼은 어느 조직에나 뜬다(D11 — 담당자 부재 등 어떤 사정이든 대신 민다). 그래서

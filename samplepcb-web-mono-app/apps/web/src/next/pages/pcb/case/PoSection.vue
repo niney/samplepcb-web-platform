@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDownIcon, ChevronRightIcon, FilePlusIcon } from '@lucide/vue';
 import { Button } from '@/next/components/ui/button';
+import { Switch } from '@/next/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/next/components/ui/table';
 import SectionCard from '@/next/components/common/SectionCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
@@ -23,6 +24,8 @@ const {
   selectedPoRfq,
   rfqGate,
   openPoModal,
+  proxyActionsOn,
+  setProxyActions,
 } = usePcbCaseContext();
 </script>
 
@@ -40,6 +43,16 @@ const {
       {{ adminPos.length }}건<template v-if="olderRoundsCollapsed"> (현재 회차 {{ latestPoCount }}건 · 이전 회차 접힘)</template>
     </template>
     <template #actions>
+      <!-- 협력사 몫 대행(승인요청·생산·발송 시작·첨부) 버튼은 기본으로 숨긴다 — 관리자 자신의 판정 버튼과 섞여
+           잘못 누르기 쉽다. 포털 계정이 없는 조직의 줄은 스위치와 무관하게 보인다(대행이 유일한 길). -->
+      <label
+        class="text-muted-foreground flex items-center gap-1.5 text-xs"
+        title="협력사가 포털에서 하는 일(승인요청·생산 시작·완료·발송 시작·첨부)을 관리자가 대신 누르는 버튼입니다. 포털 계정이 없는 조직은 항상 보입니다."
+      >
+        <Switch :model-value="proxyActionsOn" aria-label="협력사 대행 동작 보기" data-pcb-proxy-switch @update:model-value="setProxyActions" />
+        협력사 대행 동작 보기
+        <span v-if="!proxyActionsOn" data-pcb-proxy-hidden>(숨김)</span>
+      </label>
       <!-- 선정이 없으면 버튼이 안내로 바뀐다(누르면 RFQ 패널의 선정 자리로 데려간다). -->
       <Button
         size="sm"
@@ -67,7 +80,7 @@ const {
     </p>
     <p v-else class="text-muted-foreground border-b px-4 py-2 text-xs">
       발행은 고객 결제(입금 확인) 후에만 가능합니다. 진행: 발주접수(EQ 선택·Working 업로드 권장) → EQ 승인요청 →
-      (필요하면 EQ 칸의 <b class="text-foreground">[EQ 열기]</b>로 고객 확인 — 문항 작성 → 고객 회신 → 협력사 전달) →
+      (필요하면 EQ 줄의 <b class="text-foreground">[EQ 열기]</b>로 고객 확인 — 문항 작성 → 고객 회신 → 협력사 전달) →
       <b class="text-foreground">EQ 승인(관리자)</b> → 생산시작 → 생산완료.
     </p>
 
@@ -79,7 +92,6 @@ const {
           <TableHead>발주가</TableHead>
           <TableHead>조건/송금</TableHead>
           <TableHead>납기</TableHead>
-          <TableHead>{{ isStencilCase ? '문의·첨부' : 'EQ 첨부' }}</TableHead>
           <TableHead class="text-right">액션</TableHead>
         </TableRow>
       </TableHeader>
@@ -87,13 +99,13 @@ const {
         <PoRowGroup v-for="po in adminPos.filter(inLatestRound)" :key="po.poId" :po="po" />
         <TableEmptyRow
           v-if="adminPos.length === 0"
-          :colspan="7"
+          :colspan="6"
           text="발주서가 없습니다 — 선정 후 결제가 확인되면 [발주서 발행]으로 시작하세요."
         />
         <!-- 이전 회차 토글 — RFQ 섹션과 같은 상태를 접고 편다. RFQ 표 하단에만 있으면 발주 쪽 접힘의
              출구가 안 보인다(재점검 08-10). -->
         <TableRow v-if="olderRoundCount > 0">
-          <TableCell :colspan="7">
+          <TableCell :colspan="6">
             <Button variant="ghost" size="xs" @click="roundsExpanded = !roundsExpanded">
               <ChevronDownIcon v-if="roundsExpanded" />
               <ChevronRightIcon v-else />

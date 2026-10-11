@@ -220,16 +220,40 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     await disconnectPrisma();
   }, 60_000);
 
-  test('A1. Case 행 — 고객 확인 버튼 더미 대신 [EQ 열기] 하나, 승인·반려·송금 등 다른 동작은 그대로', async () => {
+  // 2026-10-11 — 좁은 'EQ 첨부' 칸 대신 발주 행 아래에 전체 폭 **EQ 줄**이 선다: 협력사 제출(파일명) → 고객 확인
+  // (칩·[EQ 열기]) → 판정(EQ 승인·반려). 행 액션에는 발주 자체에 대한 것(송금·조건 수정)만 남는다.
+  test('A1. Case 행 + EQ 줄 — [EQ 열기] 하나, 판정은 EQ 줄에·송금과 조건 수정은 행에, 협력사 대행은 스위치로', async () => {
     await openCase();
-    const row = page.locator('tr', { has: page.locator('[data-eq-row-chip]') }).first();
-    expect(await row.getByRole('button', { name: 'EQ 열기' }).count(), '[EQ 열기]').toBe(1);
+    const band = page.locator('tr[data-eq-band]').first();
+    const row = page.locator('tr[data-po-row]').first();
+    expect(await band.getByRole('button', { name: 'EQ 열기' }).count(), '[EQ 열기]').toBe(1);
     // 옛 '고객 확인' 버튼은 사라졌다(작업공간 안 [간단 문구로 묻기]로 옮김).
-    expect(await row.getByRole('button', { name: /^고객 확인/ }).count(), '옛 고객 확인 버튼').toBe(0);
-    for (const name of ['EQ 승인', '반려', '송금', '조건 수정']) {
-      expect(await row.getByRole('button', { name, exact: true }).count(), `기존 동작 ${name}`).toBeGreaterThan(0);
+    expect(await band.getByRole('button', { name: /^고객 확인/ }).count(), '옛 고객 확인 버튼').toBe(0);
+    for (const name of ['EQ 승인', '반려']) {
+      expect(await band.getByRole('button', { name, exact: true }).count(), `EQ 줄의 판정 ${name}`).toBe(1);
+      expect(await row.getByRole('button', { name, exact: true }).count(), `행 액션에는 없다 ${name}`).toBe(0);
     }
+    for (const name of ['송금', '조건 수정']) {
+      expect(await row.getByRole('button', { name, exact: true }).count(), `행 액션 ${name}`).toBe(1);
+    }
+    // 협력사가 올린 파일이 **이름으로** 보인다(전에는 종류만 보이고 이름은 툴팁이었다).
+    expect(await band.locator('[data-eq-band-submit]').innerText(), '파일명').toContain('EQ-factory-r1.xls');
+    expect(await band.locator('[data-eq-band-submit]').innerText(), '승인요청 시각').toContain('EQ 승인요청');
+    // 회차가 하나뿐이면 회차 칩이 없다(고를 것이 없다).
+    expect(await band.locator('[data-eq-round]').count(), '회차 칩').toBe(0);
+    // 협력사 대행 동작 — 포털 계정이 있는 조직이라 기본은 숨김. 스위치를 켜면 보이고 끄면 다시 숨는다.
+    const sw = page.locator('[data-pcb-proxy-switch]');
+    expect(await sw.getAttribute('aria-checked'), '기본은 꺼짐').toBe('false');
+    expect(await page.locator('[data-pcb-proxy-hidden]').count(), '숨김 표시').toBe(1);
+    expect(await page.locator('[data-eq-band-proxy], [data-eq-band-proxy-upload], [data-po-proxy]').count(), '대행 동작은 숨어 있다').toBe(0);
     await shot('01-case-row');
+    await sw.click();
+    expect(await sw.getAttribute('aria-checked')).toBe('true');
+    expect(await page.locator('[data-pcb-proxy-hidden]').count(), '켜면 숨김 표시가 없다').toBe(0);
+    // 승인요청 중이라 지금 대행할 것(승인요청·첨부·생산)은 없다 — 켜도 판정 버튼만 선다.
+    expect(await band.getByRole('button', { name: 'EQ 승인', exact: true }).count()).toBe(1);
+    await sw.click();
+    expect(await sw.getAttribute('aria-checked'), '다시 끈다(이 스펙의 나머지는 기본 상태로)').toBe('false');
   });
 
   test('A2. 새 회차 카드 — 근거 첨부 기본 선택, [직접 작성]으로 초안', async () => {
@@ -373,10 +397,10 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     expect(after.items[0].figures.map((f: any) => f.name), '다른 문항 그림은 그대로').toEqual(['ul-mark.png', 'factory-logo.png']);
   });
 
-  test('A5. 작성 이어가기 — 닫아도 저장 안 된 변경이 남고, 행 칩은 "EQ 1차 · 작성 중"', async () => {
+  test('A5. 작성 이어가기 — 닫아도 저장 안 된 변경이 남고, 행 칩은 "고객 확인 1차 · 작성 중"', async () => {
     await ws().locator('#eq-round-message').fill(`머리말 ${token}`);
     await closeWorkspace();
-    await untilText('행 칩', rowChip(), 'EQ 1차 · 작성 중');
+    await untilText('행 칩', rowChip(), '고객 확인 1차 · 작성 중');
     expect(await rowChip().getByRole('button', { name: '작성 이어가기' }).count(), '작성 이어가기').toBe(1);
     await shot('05-row-continue');
     await openWorkspace();
@@ -436,7 +460,7 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     expect(await footer().getByRole('button', { name: '개정 EQ 요청(반려)' }).count()).toBe(1);
     await shot('09-forwarded');
     await closeWorkspace();
-    await untilText('행 칩 전달됨', rowChip(), 'EQ 1차 · 전달됨');
+    await untilText('행 칩 전달됨', rowChip(), '고객 확인 1차 · 전달됨');
   });
 
   test('A8. 워크큐 EQ 승인 대기 — 회차 칩', async () => {
@@ -445,7 +469,7 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     });
     const row = page.locator('tr', { hasText: projectName }).first();
     await row.waitFor({ state: 'visible', timeout: 30_000 });
-    await untilText('워크큐 칩', row, 'EQ 1차 · 전달됨');
+    await untilText('워크큐 칩', row, '고객 확인 1차 · 전달됨');
     await shot('10-workqueue');
   });
 
@@ -589,6 +613,58 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20) — 관리자 작업공간 화�
     expect(overflow, '390px 가로 넘침').toEqual([]);
     await shot('16-390');
     await page.setViewportSize({ width: 1440, height: 900 });
+    expect(admin.pageErrors, '페이지 오류').toEqual([]);
+  });
+
+  // 2026-10-11 — 생산이 시작되면 EQ 는 끝난 일이다. EQ 줄은 한 줄로 접히고, [이력 보기]로 펴면 요청 회차마다
+  // 그때의 파일·고객 확인·결말이 읽기 전용으로 보인다(조작은 없다).
+  test('A12. 생산 시작 뒤 — EQ 줄이 한 줄로 접히고, [이력 보기]로 회차별 기록을 읽기 전용으로 본다', async () => {
+    await closeWorkspace().catch(() => undefined);
+    const approved = await api(A, 'POST', `/api/admin/pcb-projects/${specId.toString()}/pos/${String(poId)}/eq-approve`, {});
+    expect(approved.status, `EQ 승인: ${JSON.stringify(approved.json)}`).toBe(200);
+    const started = await api(P, 'POST', `/api/partner/pcb-pos/${String(poId)}/production-start`);
+    expect(started.status, `생산 시작: ${JSON.stringify(started.json)}`).toBe(200);
+    expect(await poStatus()).toBe('producing');
+
+    await openCase();
+    const band = page.locator('tr[data-eq-band]').first();
+    await band.locator('[data-eq-band-collapsed]').waitFor();
+    const line = (await band.innerText()).replace(/\s+/g, ' ');
+    expect(line).toContain('EQ 완료');
+    expect(line, '요청 회차 — A9 의 반려·재요청으로 둘').toContain('요청 2회');
+    expect(line, '고객 확인 회차 — 1차·2차').toContain('고객 확인 2회');
+    expect(await band.getByRole('button', { name: 'EQ 열기', exact: true }).count(), '접혀도 [EQ 열기]는 남는다').toBe(1);
+    expect(await band.locator('[data-eq-round]').count(), '접힌 동안엔 회차 칩이 없다').toBe(0);
+    // 행 액션 — 협력2 는 포털 계정이 있어 생산 완료 대행은 스위치가 꺼진 동안 숨는다. 송금·조건 수정은 그대로.
+    const row = page.locator('tr[data-po-row]').first();
+    expect(await row.getByRole('button', { name: '생산 완료 대행', exact: true }).count(), '대행은 숨김').toBe(0);
+    expect(await row.getByRole('button', { name: '송금', exact: true }).count()).toBe(1);
+    await shot('17-band-collapsed');
+
+    await band.locator('[data-eq-band-toggle]').click();
+    const chips = band.locator('[data-eq-round]');
+    expect(await chips.allInnerTexts().then((t) => t.map((x) => x.trim())), '회차 칩').toEqual(['1차', '2차']);
+    expect(await chips.nth(0).getAttribute('data-eq-round-outcome'), '1차 = 반려로 닫힘').toBe('rejected');
+    expect(await chips.nth(1).getAttribute('data-eq-round-outcome'), '2차 = 승인').toBe('approved');
+    expect(await chips.nth(1).getAttribute('aria-pressed'), '기본은 최신').toBe('true');
+    expect(await band.locator('[data-eq-band-submit]').innerText(), '2차의 파일').toContain('EQ-factory-r2.xls');
+    await untilText('2차의 고객 확인', rowChip(), '고객 확인 2차');
+    expect(await band.locator('[data-eq-band-judge]').innerText(), '2차의 결말').toContain('EQ 승인');
+    // 생산이 시작된 뒤에는 판정·대행·첨부 어느 것도 없다 — 기록이다.
+    expect(await band.getByRole('button', { name: /^(EQ 승인|반려|승인 취소|회신 첨부)$/ }).count(), '조작 버튼 없음').toBe(0);
+    await shot('18-band-expanded');
+
+    // 1차 — 반려로 닫혔다. 그때의 파일·고객 답·반려 사유 전문.
+    await chips.nth(0).click();
+    await band.locator('[data-eq-band-readonly]').waitFor();
+    expect(await band.locator('[data-eq-band-submit]').innerText(), '1차의 파일').toContain('EQ-factory-r1.xls');
+    await untilText('1차의 고객 확인', rowChip(), '고객 확인 1차 · 전달됨');
+    expect(await band.locator('[data-eq-band-judge]').innerText(), '1차의 결말').toContain('반려됨');
+    expect(await band.locator('[data-eq-band-note]').innerText(), '반려 사유 전문').toContain('고객 회신 반영 개정 EQ 요청');
+    await shot('19-band-round1');
+
+    await band.locator('[data-eq-band-toggle]').click();
+    await band.locator('[data-eq-band-collapsed]').waitFor();
     expect(admin.pageErrors, '페이지 오류').toEqual([]);
   });
 });

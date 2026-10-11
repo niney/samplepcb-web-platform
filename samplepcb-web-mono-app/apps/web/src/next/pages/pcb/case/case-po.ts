@@ -58,6 +58,16 @@ export const substituteActionOf = (status: string): AdminPcbEqSubstituteAction |
 export const substituteLabelOf = (po: AdminPcbPoViewType, action: AdminPcbEqSubstituteAction): string =>
   action === 'eq-request' && po.track === 'stencil' ? '확인 요청 대행' : SUBSTITUTE_LABELS[action];
 
+/** 협력사 대행 동작 보기 — 브라우저에 기억한다(옛 화면과 키를 나눈다). */
+const PROXY_ACTIONS_KEY = 'sp.next.pcbCase.proxyActions';
+const readProxyActions = (): boolean => {
+  try {
+    return localStorage.getItem(PROXY_ACTIONS_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
 export function useCasePo(core: CaseCore, rfq: CaseRfq) {
   const {
     specId,
@@ -496,24 +506,34 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
   const isPoOverdue = (po: AdminPcbPoViewType): boolean =>
     isPcbDeliveryOverdue(po.status, kstDateOnly(po.deliveryDate), kstToday());
 
-  // EQ 첨부는 **누적**이다(같은 종류를 다시 올려도 이전 파일을 지우지 않는다). 기본은 종류별 최신만
-  // 펼치고 이전 것은 접는다 — 전부 늘어놓으면 맨 앞(=가장 오래된) 버튼을 눌러 옛 도면을 보고 승인한다
-  // (여정 22호). 최신 판정·정렬은 서버가 계약(orderPcbEqFiles)으로 해서 내려 준다.
-  const eqHistoryOpen = ref<number[]>([]);
-  const toggleEqHistory = (poId: number): void => {
-    eqHistoryOpen.value = eqHistoryOpen.value.includes(poId)
-      ? eqHistoryOpen.value.filter((id) => id !== poId)
-      : [...eqHistoryOpen.value, poId];
+  // ── EQ 줄(PoEqBand) — 발주 행 아래 전체 폭. 파일·고객 확인·판정을 **요청 회차**로 갈라 보인다 ─────────
+  // 전에는 좁은 칸에 종류별 최신만 펼치고 나머지를 [이전 N]으로 접었다(여정 22호 — 옛 도면을 보고 승인하지 않게).
+  // 그 걱정은 회차가 대신 맡는다: 기본은 최신 회차이고, 같은 회차에서 다시 올려 밀린 파일은 뒤로 가며 '이전'이 붙는다.
+  /** 줄을 둘까 — 위임(MD 경유)·차단(하위 발주 대기) 발주는 하위에서 진행하므로 보여 줄 것이 있을 때만. */
+  const showEqBand = (po: AdminPcbPoViewType): boolean =>
+    (po.eqDelegatePoId === null && !po.eqBlocked) || po.eqFiles.length > 0 || po.eqHistory.length > 0 || po.eqReview !== null;
+  /** 생산이 시작되면 EQ 줄은 한 줄로 접힌다 — [이력 보기]로 편 발주서. */
+  const eqBandExpanded = ref<number[]>([]);
+  const toggleEqBand = (poId: number): void => {
+    eqBandExpanded.value = eqBandExpanded.value.includes(poId)
+      ? eqBandExpanded.value.filter((id) => id !== poId)
+      : [...eqBandExpanded.value, poId];
   };
-  // 협력사 산출물(eq·working)과 관리자 회신(reply)은 방향이 반대라 한 줄에 섞지 않는다.
-  const partnerEqFiles = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
-    po.eqFiles.filter((f) => f.fileType !== 'reply');
-  const eqFilesShown = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
-    eqHistoryOpen.value.includes(po.poId) ? partnerEqFiles(po) : partnerEqFiles(po).filter((f) => f.isLatest);
-  const eqOlderCount = (po: AdminPcbPoViewType): number => partnerEqFiles(po).filter((f) => !f.isLatest).length;
-  /** 관리자 회신 첨부 — 반려하며 돌려보내는 수정지시. 협력사는 못 지운다. */
-  const replyFilesOf = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
-    po.eqFiles.filter((f) => f.fileType === 'reply');
+
+  // ── 협력사 대행 동작 보기(2026-10-11) ─────────────────────────────────────────────
+  // 관리자는 협력사 몫(승인요청·생산 시작·완료·발송 시작·첨부)도 다 대행할 수 있다(D11). 그 버튼이 관리자 자신의
+  // 판정 버튼과 같은 줄·같은 모양으로 늘 서 있으면 잘못 누르기 쉽다 — 기본은 숨기고 스위치로 편다.
+  // **포털 계정이 없는 조직은 스위치와 무관하게 보인다** — 대행이 유일한 길이라 꺼 둔 채 막히면 안 된다.
+  const proxyActionsOn = ref(readProxyActions());
+  const setProxyActions = (on: boolean): void => {
+    proxyActionsOn.value = on;
+    try {
+      localStorage.setItem(PROXY_ACTIONS_KEY, on ? '1' : '0');
+    } catch {
+      /* 저장 못 해도 이번 화면에서는 동작한다 */
+    }
+  };
+  const showProxy = (po: AdminPcbPoViewType): boolean => proxyActionsOn.value || !po.partnerHasPortal;
   /** EQ 를 다시 돌게 만든 가장 최근의 경계(시각·사유·종류) — 관리자 반려 또는 협력사 추가 EQ 요청(D20 후속).
    *  상태 칸이 "왜 발주접수로 돌아왔는지"를 말하고 사유를 보여 준다. 둘을 갈라 읽는 건 kind 다. */
   const poRework = (po: AdminPcbPoViewType): PcbEqReworkBoundary | null => lastPcbEqReworkBoundary(po.eqHistory);
@@ -617,11 +637,12 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
     revertPo,
     removePo,
     isPoOverdue,
-    eqHistoryOpen,
-    toggleEqHistory,
-    eqFilesShown,
-    eqOlderCount,
-    replyFilesOf,
+    showEqBand,
+    eqBandExpanded,
+    toggleEqBand,
+    proxyActionsOn,
+    setProxyActions,
+    showProxy,
     poRework,
     poReopenAuthor,
     canSubstituteReopen,

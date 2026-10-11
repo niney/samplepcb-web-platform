@@ -46,7 +46,7 @@ const download = (poId: number, fileId: number, name: string): void => {
 
 <template>
   <TableRow>
-    <TableCell :colspan="7" class="bg-muted/40">
+    <TableCell :colspan="6" class="bg-muted/40">
       <div class="pl-6">
         <p class="text-info text-xs font-medium">하위 발주(MD {{ po.partnerName }} 경유 — 승인/반려는 여기서)</p>
         <div class="mt-1 grid gap-1">

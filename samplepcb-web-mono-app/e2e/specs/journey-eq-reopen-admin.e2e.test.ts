@@ -202,7 +202,14 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
     await ws().waitFor({ state: 'hidden' });
   };
   const rowChip = (): Locator => page.locator('[data-eq-row-chip]').first();
-  const mainRow = (): Locator => page.locator('tr', { has: page.locator('[data-eq-row-chip]') }).first();
+  /** 발주 본행(협력사·상태·배지·사유·행 액션) — EQ 에 관한 것은 그 아래 EQ 줄(band)에 있다(2026-10-11 재편). */
+  const mainRow = (): Locator => page.locator('tr[data-po-row]').first();
+  const band = (): Locator => page.locator('tr[data-eq-band]').first();
+  /** 협력사 대행 동작 보기 — 포털 계정이 있는 조직은 기본이 숨김이라, 대행 버튼을 보려면 켠다(브라우저에 기억된다). */
+  const showProxyActions = async (): Promise<void> => {
+    const sw = page.locator('[data-pcb-proxy-switch]');
+    if ((await sw.getAttribute('aria-checked')) !== 'true') await sw.click();
+  };
   const reworkBadge = (): Locator => page.locator('[data-eq-rework-badge]');
   const reworkNote = (): Locator => page.locator('[data-eq-rework-note]');
 
@@ -294,7 +301,7 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
   test('R1. Case 행 [EQ 승인] — 되묻지 않고 "승인하면 고객 회신이 협력사에 함께 전달됩니다"를 알린다', async () => {
     await openCase();
     await untilText('행 칩 전달 필요', rowChip(), '회신 도착 · 전달 필요');
-    await mainRow().getByRole('button', { name: 'EQ 승인', exact: true }).click();
+    await band().getByRole('button', { name: 'EQ 승인', exact: true }).click();
     await confirmAlert().waitFor({ state: 'visible' });
     const text = await confirmAlert().innerText();
     expect(text).toContain(APPROVE_NOTICE);
@@ -329,11 +336,19 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
     expect(review?.forwardedAt, '승인이 회신을 함께 전달했다').not.toBeNull();
     await untilText('회차 상태 전달됨', ws().locator('[data-eq-round-status]'), '전달됨');
     await closeWorkspace();
-    await untilText('행 칩 전달됨', rowChip(), 'EQ 1차 · 전달됨');
-    // 승인 뒤·생산 시작 전 — 대행 자리에 [추가 EQ 요청(대행)]이 선다.
-    expect(await mainRow().getByRole('button', { name: PROXY_BUTTON, exact: true }).count(), PROXY_BUTTON).toBe(1);
+    await untilText('행 칩 전달됨', rowChip(), '고객 확인 1차 · 전달됨');
+    // 승인 뒤·생산 시작 전 — EQ 줄의 대행 자리에 [추가 EQ 요청(대행)]이 선다. 협력2 는 포털 계정이 있어 기본은 숨김이다.
+    expect(await band().getByRole('button', { name: PROXY_BUTTON, exact: true }).count(), '스위치가 꺼져 있으면 숨는다').toBe(0);
+    expect(await page.getByRole('button', { name: '생산 시작 대행', exact: true }).count(), '생산 대행도 숨는다').toBe(0);
+    await showProxyActions();
+    expect(await band().getByRole('button', { name: PROXY_BUTTON, exact: true }).count(), PROXY_BUTTON).toBe(1);
+    expect(await mainRow().getByRole('button', { name: '생산 시작 대행', exact: true }).count(), '생산 시작 대행은 행 액션에').toBe(1);
     expect(await reworkBadge().count(), '아직 돌아온 적 없다').toBe(0);
-    await shot('04-approved-forwarded', mainRow());
+    // 승인된 회차의 판정 칸 — 승인 시각과 [승인 취소], 고객 선택 요약.
+    expect(await band().locator('[data-eq-band-judge]').innerText(), '판정 칸').toContain('EQ 승인');
+    expect(await band().getByRole('button', { name: '승인 취소', exact: true }).count(), '[승인 취소]').toBe(1);
+    await untilText('고객 선택 요약', band().locator('[data-eq-band-answers]'), '1: B');
+    await shot('04-approved-forwarded', band());
   });
 
   test('R3. (API) 협력사 추가 EQ 요청 → 발주접수 행에 배지·사유, 워크큐에도 배지', async () => {
@@ -350,9 +365,40 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
     const note = await reworkNote().first().innerText();
     expect(note, '누구 말인지').toContain('협력사:');
     expect(note, '사유 인용').toContain(REASON);
-    // 돌아온 뒤엔 다시 열 것이 없다 — 대행 버튼은 eq_done 에서만.
-    expect(await mainRow().getByRole('button', { name: PROXY_BUTTON, exact: true }).count(), '발주접수엔 대행 버튼 없음').toBe(0);
-    await shot('05-case-reopened', mainRow());
+    // 돌아온 뒤엔 다시 열 것이 없다 — 대행 버튼은 eq_done 에서만(스위치는 R2 에서 켜 둔 그대로 기억된다).
+    expect(await page.locator('[data-pcb-proxy-switch]').getAttribute('aria-checked'), '스위치는 기억된다').toBe('true');
+    expect(await band().getByRole('button', { name: PROXY_BUTTON, exact: true }).count(), '발주접수엔 대행 버튼 없음').toBe(0);
+    // EQ 줄 — 회차가 둘이 됐다(1차는 승인 뒤 추가 EQ 요청으로 닫힘, 2차는 방금 열림). 기본은 최신.
+    const chipsNow = band().locator('[data-eq-round]');
+    expect(await chipsNow.allInnerTexts().then((t) => t.map((x) => x.trim())), '회차 칩').toEqual(['1차', '2차']);
+    expect(await chipsNow.nth(1).getAttribute('aria-pressed'), '기본은 최신 회차').toBe('true');
+    expect(await chipsNow.nth(0).getAttribute('data-eq-round-outcome'), '1차의 결말').toBe('reopened');
+    expect(await band().locator('[data-eq-band-prev-note]').innerText(), '왜 돌아왔는지(직전 회차의 결말)').toContain(REASON);
+    expect(await band().locator('[data-eq-band-submit]').innerText(), '2차엔 아직 올라온 파일이 없다').toContain('아직 올라온 파일이 없습니다');
+    // 방금 열린 2차에는 고객에게 물은 것이 없다 — 1차의 답(전달됨)이 2차에 붙으면 안 된다(요약은 마지막 요청의 것이라
+    // 돌아온 직후엔 지난 회차의 것이다).
+    const latestChip = await rowChip().innerText();
+    expect(latestChip, '2차의 고객 확인').toContain('고객 확인 없음');
+    expect(latestChip, '1차의 답이 2차에 붙지 않는다').not.toContain('전달됨');
+    expect(await band().locator('[data-eq-band-proxy-upload]').count(), '발주접수 + 스위치 켬 = 대행 첨부가 열린다').toBe(1);
+    expect(await band().getByRole('button', { name: 'EQ 요청 대행', exact: true }).count(), '승인요청 대행').toBe(1);
+    await shot('05-case-reopened', band());
+    // 지난 회차(1차) — 그때의 파일·고객 답·결말이 읽기 전용으로 보인다. 조작 버튼은 없다.
+    await chipsNow.nth(0).click();
+    await band().locator('[data-eq-band-readonly]').waitFor();
+    expect(await band().locator('[data-eq-band-submit]').innerText(), '1차의 파일').toContain('EQ-factory-r1.pdf');
+    await untilText('1차의 고객 확인', rowChip(), '고객 확인 1차 · 전달됨');
+    expect(await band().locator('[data-eq-band-answers]').innerText(), '1차의 고객 선택').toContain('1: B');
+    const judge = await band().locator('[data-eq-band-judge]').innerText();
+    expect(judge, '승인됐었다').toContain('EQ 승인');
+    expect(judge, '그 뒤 협력사가 다시 열었다').toContain('추가 EQ 요청');
+    expect(judge).toContain('협력사');
+    expect(await band().locator('[data-eq-band-note]').innerText(), '사유 전문').toContain(REASON);
+    expect(await band().locator('[data-eq-band-proxy], [data-eq-band-proxy-upload]').count(), '지난 회차엔 대행 동작이 없다').toBe(0);
+    expect(await band().getByRole('button', { name: /EQ 승인|반려|승인 취소/ }).count(), '지난 회차엔 판정 버튼이 없다').toBe(0);
+    await shot('05b-case-round1-readonly', band());
+    await chipsNow.nth(1).click();
+    expect(await band().locator('[data-eq-band-readonly]').count(), '최신으로 돌아오면 보기 전용 표시가 없다').toBe(0);
 
     const listed = await poView(specId, poId);
     expect(listed.eqHistory.at(-1), '이력 = 협력사가 다시 열었다').toMatchObject({
@@ -382,7 +428,7 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
     expect(await unfixed.first().innerText(), '반려 문구가 아니다').not.toContain('반려');
     // 사유는 승인요청 중에도 남는다(무엇을 확인하려 다시 열었는지 — 승인 판단의 근거).
     expect(await reworkNote().first().innerText()).toContain(REASON);
-    await shot('07-case-rerequest-unfixed', mainRow());
+    await shot('07-case-rerequest-unfixed', band());
 
     await openWorkspace();
     const card = ws().locator('[data-eq-new-round]');
@@ -421,7 +467,8 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
     // 협력사가 읽고 다시 연 그 고객 회신(1차)을 여전히 열어 볼 수 있어야 한다(회차 수로 판정 — 안 나간 2차 초안은 안 센다).
     expect(await poView(specId, poId), '요약은 비고 회차 수는 남는다').toMatchObject({ eqReview: null, eqRoundCount: 1 });
     await openCase();
-    const proxy = mainRow().getByRole('button', { name: PROXY_BUTTON, exact: true });
+    await showProxyActions();
+    const proxy = band().getByRole('button', { name: PROXY_BUTTON, exact: true });
     await proxy.waitFor({ state: 'visible' });
     expect(await reworkBadge().count(), '승인되면 배지는 내린다').toBe(0);
     await openWorkspace();
@@ -452,7 +499,7 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
     expect(note, '관리자가 대신 쓴 사유').toContain('관리자 대행:');
     expect(note).toContain(PROXY_REASON);
     expect(note, '협력사가 쓴 말로 보이면 안 된다').not.toContain('협력사:');
-    await shot('11-case-proxy-reopened', mainRow());
+    await shot('11-case-proxy-reopened', band());
   });
 
   test('R5b. 반려로 발주접수에 돌아온 행에서도 [EQ 열기] → 지난 회차의 고객 답이 읽기 전용으로 보인다', async () => {
@@ -469,7 +516,7 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
     await openCase();
     await untilText('반려 배지', reworkBadge(), '반려됨');
     expect(await reworkNote().first().innerText()).toContain(REJECT_REASON);
-    expect(await mainRow().getByRole('button', { name: 'EQ 열기', exact: true }).count(), '반려 뒤에도 [EQ 열기]').toBe(1);
+    expect(await band().getByRole('button', { name: 'EQ 열기', exact: true }).count(), '반려 뒤에도 [EQ 열기]').toBe(1);
     await openWorkspace();
     await untilText('지난 회차(1차)', ws().locator('[data-eq-round-status]'), '전달됨');
     expect(await ws().locator('[data-eq-item="1"]').innerText(), '1차 고객 답').toContain('답 B');
@@ -496,7 +543,8 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 관리자 화면(D20 후속)', () =>
 
     await openCase(spec.id as bigint, () => page.getByRole('button', { name: '확인 취소', exact: true }).first());
     expect(await page.getByRole('button', { name: /추가 (EQ|확인) 요청/ }).count(), '스텐실엔 추가 요청 대행 없음').toBe(0);
-    // 대행 자리의 다른 동작(생산 시작)은 그대로다.
+    // 대행 자리의 다른 동작(생산 시작)은 그대로다 — 스위치가 켜져 있을 때.
+    await showProxyActions();
     expect(await page.getByRole('button', { name: /생산 시작/ }).count(), '생산 시작 대행은 있다').toBeGreaterThan(0);
     const res = await api(A, 'POST', `/api/admin/pcb-projects/${spec.id.toString()}/pos/${String(po.id)}/eq-reopen`, {
       reason: '좌표를 고치고 싶습니다',

@@ -610,6 +610,110 @@ export const buildPcbEqTimeline = <
   return rounds;
 };
 
+// ── EQ 요청 회차 요약 — 관리자 Case 의 'EQ 줄'(회차 칩 1차·2차·3차) ─────────────────
+// 타임라인(buildPcbEqTimeline)은 대화를 그리는 모양이고, 이 요약은 **회차 하나를 한 줄로** 말하는 모양이다:
+// 그 회차에 무엇이 올라왔고(파일) · 언제 요청됐고 · 어떻게 끝났는가(승인·반려·추가 EQ 요청). 회차 번호는
+// 타임라인과 같은 수다(포털의 'N차 요청') — 관리자와 협력사가 같은 번호로 말한다.
+// ⚠ 고객 확인 회차(sp_pcb_eq_review.roundNo)와는 **다른 수**다 — 고객에게 묻지 않고 반려·승인한 요청이 있으면
+//   어긋난다. 화면은 둘을 'EQ 요청 N차' / '고객 확인 N차'로 갈라 부른다.
+
+/** 회차의 결말 — open(아직 요청 전·요청을 물림) · requested(승인 대기) · approved · rejected · reopened(승인 뒤 추가 EQ 요청). */
+export type PcbEqRoundOutcome = 'open' | 'requested' | 'approved' | 'rejected' | 'reopened';
+
+export interface PcbEqRoundSummary<F> {
+  /** 1부터 — buildPcbEqTimeline 의 회차와 같은 번호. */
+  index: number;
+  /** 이 회차의 시간 창 (startAt, endAt] — 고객 확인 회차를 어느 요청 회차에 붙일지 정하는 기준.
+   *  첫 회차는 startAt null, 진행 중인 마지막 회차는 endAt null. */
+  startAt: string | null;
+  endAt: string | null;
+  /** 협력사 산출물(관리자 회신 제외) — 올린 순. */
+  files: F[];
+  /** 관리자가 돌려보낸 회신 첨부. */
+  replyFiles: F[];
+  /** 같은 회차 안에서 같은 종류가 다시 올라와 밀린 파일(문의 사진은 누적이라 밀리지 않는다). */
+  supersededFileIds: number[];
+  /** 유효한 승인요청 — 요청 취소로 물린 것은 지운다. */
+  requestedAt: string | null;
+  requestedBy: string | null;
+  /** 요청에 실린 글 — 스텐실 트랙의 고객문의사항. */
+  requestNote: string | null;
+  outcome: PcbEqRoundOutcome;
+  /** 승인 시각(승인 취소로 물리면 null). 추가 EQ 요청으로 닫힌 회차에는 그 전 승인 시각이 남는다. */
+  approvedAt: string | null;
+  /** 회차를 닫은 경계(반려·추가 EQ 요청)의 시각·주체·사유. */
+  closedAt: string | null;
+  closedBy: string | null;
+  closedNote: string | null;
+}
+
+export const summarizePcbEqRounds = <
+  F extends { fileId: number; fileType: string; uploadedAt: string; uploadedBy: string | null },
+>(
+  history: readonly { at: string; byRole: string; fromStatus: string; toStatus: string; note: string | null }[],
+  files: readonly F[],
+): PcbEqRoundSummary<F>[] => {
+  let startAt: string | null = null;
+  return buildPcbEqTimeline(history, files).map((round) => {
+    const s: PcbEqRoundSummary<F> = {
+      index: round.index,
+      startAt,
+      endAt: null,
+      files: [],
+      replyFiles: [],
+      supersededFileIds: [],
+      requestedAt: null,
+      requestedBy: null,
+      requestNote: null,
+      outcome: 'open',
+      approvedAt: null,
+      closedAt: null,
+      closedBy: null,
+      closedNote: null,
+    };
+    for (const item of round.items) {
+      if (item.kind === 'files') {
+        for (const f of item.files ?? []) (f.fileType === 'reply' ? s.replyFiles : s.files).push(f);
+        continue;
+      }
+      const from = item.fromStatus ?? '';
+      const to = item.toStatus ?? '';
+      if (isPcbEqRejectionEvent(item) || isPcbEqReopenEvent(item)) {
+        s.outcome = isPcbEqReopenEvent(item) ? 'reopened' : 'rejected';
+        s.closedAt = item.at;
+        s.closedBy = item.byRole;
+        s.closedNote = item.note ?? '';
+      } else if (from === 'issued' && to === 'eq_requested') {
+        s.outcome = 'requested';
+        s.requestedAt = item.at;
+        s.requestedBy = item.byRole;
+        s.requestNote = item.note ?? null;
+      } else if (from === 'eq_requested' && to === 'issued') {
+        // 요청 취소(사유 없는 되돌림) — 같은 회차에서 잠깐 물린 것이라 회차는 닫지 않는다.
+        s.outcome = 'open';
+        s.requestedAt = null;
+        s.requestedBy = null;
+        s.requestNote = null;
+      } else if (from === 'eq_requested' && to === 'eq_done') {
+        s.outcome = 'approved';
+        s.approvedAt = item.at;
+      } else if (from === 'eq_done' && to === 'eq_requested') {
+        s.outcome = 'requested'; // 승인 취소
+        s.approvedAt = null;
+      }
+      // 생산 전이(eq_done ↔ producing ↔ produced)는 EQ 의 결말을 바꾸지 않는다.
+    }
+    const newest = new Map<string, number>();
+    for (const f of s.files) newest.set(f.fileType, Math.max(newest.get(f.fileType) ?? 0, f.fileId));
+    s.supersededFileIds = s.files
+      .filter((f) => f.fileType !== 'inquiry' && f.fileId !== newest.get(f.fileType))
+      .map((f) => f.fileId);
+    s.endAt = s.closedAt;
+    startAt = s.closedAt ?? startAt;
+    return s;
+  });
+};
+
 export const PcbEqEvent = z.object({
   at: z.string(),
   byRole: z.string(), // ADMIN|PARTNER|MASTER_DEALER

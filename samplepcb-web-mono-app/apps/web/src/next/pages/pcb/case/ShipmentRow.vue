@@ -9,6 +9,7 @@ import {
   TruckIcon,
   Undo2Icon,
   UploadIcon,
+  UserCogIcon,
 } from '@lucide/vue';
 import {
   PCB_SHIPMENT_FILE_LABELS,
@@ -39,6 +40,8 @@ const {
   shipDocTypeOf,
   shipDocLabelOf,
   adminShipAdvanceLabel,
+  isShipAdvanceProxy,
+  showProxy,
   adminShipAdvance,
   openCaseRef,
   canAdminReceive,
@@ -62,7 +65,7 @@ const caseRefWaiting = (s: AdminPcbShipmentViewType): boolean =>
 
 <template>
   <TableRow>
-    <TableCell :colspan="7" class="bg-muted/40">
+    <TableCell :colspan="6" class="bg-muted/40">
       <div class="flex flex-wrap items-center gap-2 pl-6 text-xs">
         <span class="text-info inline-flex items-center gap-1 font-semibold">
           <TruckIcon class="size-3.5" />
@@ -144,7 +147,16 @@ const caseRefWaiting = (s: AdminPcbShipmentViewType): boolean =>
         <span class="grow" />
         <!-- 국내 종점('입고 완료')은 [입고 확인]이 함께 처리한다 — 전이 버튼을 따로 두면 눌러도 다음 일이
              안 열리는 상태가 만들어진다(서버도 RECEIVE_REQUIRED). -->
-        <Button v-if="adminShipAdvanceLabel(shipment) !== null" size="sm" @click="void adminShipAdvance(po.poId, shipment)">
+        <!-- 다음 단계가 협력사 몫(선적 요청·배송 중)이면 대행이다 — [협력사 대행 동작 보기]를 따른다. -->
+        <Button
+          v-if="adminShipAdvanceLabel(shipment) !== null && (!isShipAdvanceProxy(shipment) || showProxy(po))"
+          size="sm"
+          :variant="isShipAdvanceProxy(shipment) ? 'outline' : 'default'"
+          :title="isShipAdvanceProxy(shipment) ? '협력사가 포털에서 하는 단계입니다 — 관리자 대행으로 진행합니다.' : undefined"
+          :data-ship-proxy="isShipAdvanceProxy(shipment) ? '' : undefined"
+          @click="void adminShipAdvance(po.poId, shipment)"
+        >
+          <UserCogIcon v-if="isShipAdvanceProxy(shipment)" />
           {{ adminShipAdvanceLabel(shipment) }} 진행
         </Button>
         <!-- Case ID 입력 — 요청 대기면 강조(협력사가 이 값에 막혀 있다), 그 외엔 기록·정정 -->

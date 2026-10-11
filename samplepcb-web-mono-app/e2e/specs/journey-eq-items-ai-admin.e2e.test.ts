@@ -362,7 +362,7 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20 P2) — AI 분석의 관리자 �
     expect(draft, '직접 작성 초안').toMatchObject({ format: 'items', aiDraft: false, roundNo: 1 });
     r1 = Number(draft.id);
     await closeWorkspace();
-    await untilText('행 칩은 회차 칩', rowChip(), 'EQ 1차 · 작성 중');
+    await untilText('행 칩은 회차 칩', rowChip(), '고객 확인 1차 · 작성 중');
     expect(await rowChip().innerText()).not.toContain('AI 분석 안 됨');
   });
 
@@ -518,7 +518,7 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20 P2) — AI 분석의 관리자 �
       const pos0 = overlay.posGets;
       await until('분석 중이면 행을 다시 읽는다', () => Promise.resolve(overlay.posGets >= pos0 + 1), 12_000);
       overlay.row = undefined;
-      await untilText('분석이 끝나면 회차 칩', rowChip(), 'EQ 1차 · 작성 중', 12_000);
+      await untilText('분석이 끝나면 회차 칩', rowChip(), '고객 확인 1차 · 작성 중', 12_000);
       const pos1 = overlay.posGets;
       await sleep(6_500);
       expect(overlay.posGets, '분석 중인 줄이 없으면 다시 읽지 않는다').toBe(pos1);
@@ -566,7 +566,7 @@ describe.skipIf(!RUN)('EQ 문항형 회차(D20 P2) — AI 분석의 관리자 �
       await caution.getByRole('button', { name: 'AI 분석 주의 닫기' }).click();
       await until('주의 띠 닫힘', async () => (await banner().count()) === 0);
       await closeWorkspace();
-      await untilText('행 칩 AI 초안', rowChip(), 'EQ 1차 · AI 초안 · 검토 필요');
+      await untilText('행 칩 AI 초안', rowChip(), '고객 확인 1차 · AI 초안 · 검토 필요');
       await shotRow('32-ai-draft-row');
       await openWorkspace();
       await untilText('다시 열어도 배지', ws().locator('[data-eq-round-status]'), 'AI 초안 · 검토 필요');
