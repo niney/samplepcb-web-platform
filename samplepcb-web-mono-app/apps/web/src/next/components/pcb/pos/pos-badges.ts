@@ -6,7 +6,14 @@ import {
   type PcbPoStatusType,
   type PcbPoTrackType,
 } from '@sp/api-contract';
-import { pcbEqReviewBadgeLabel, pcbEqReviewState, type PcbEqReviewDisplay } from '@/lib/pcb-eq-review';
+import {
+  pcbEqReviewBadgeLabel,
+  pcbEqReviewState,
+  pcbEqRoundChipLabel,
+  pcbEqRoundState,
+  type PcbEqReviewDisplay,
+  type PcbEqRoundDisplay,
+} from '@/lib/pcb-eq-review';
 import { pcbPoStatusVariant, type BadgeVariant, type PcbBadge } from '../pcb-badges';
 
 // 발주·EQ 화면 배지 — 옛 화면의 색 클래스(STATUS_CLS·PCB_EQ_REVIEW_BADGE_CLS) 대신 variant 로 말한다.
@@ -27,10 +34,25 @@ const EQ_REVIEW_VARIANT: Record<PcbEqReviewDisplay, BadgeVariant> = {
   rejected: 'danger',
 };
 
-export const pcbEqReviewBadge = (review: PcbPoEqReviewSummaryType | null): PcbBadge => ({
-  label: pcbEqReviewBadgeLabel(review),
-  variant: EQ_REVIEW_VARIANT[pcbEqReviewState(review)],
-});
+// D20 문항형 회차 — 작성 중(중립) · 회신 대기(진행 — 우리가 보낸 물음) · 기한 지남(문제) ·
+// 회신 도착·전달 필요(주의 — 관리자 차례) · 전달됨(끝남). Case 행 칩과 같은 색.
+export const EQ_ROUND_VARIANT: Record<PcbEqRoundDisplay, BadgeVariant> = {
+  draft: 'secondary',
+  pending: 'info',
+  overdue: 'danger',
+  needs_forward: 'warning',
+  forwarded: 'success',
+};
+
+export const pcbEqReviewBadge = (review: PcbPoEqReviewSummaryType | null): PcbBadge => {
+  const round = pcbEqRoundState(review);
+  const roundLabel = pcbEqRoundChipLabel(review);
+  if (round !== null && roundLabel !== null) return { label: roundLabel, variant: EQ_ROUND_VARIANT[round] };
+  return {
+    label: pcbEqReviewBadgeLabel(review),
+    variant: EQ_REVIEW_VARIANT[pcbEqReviewState(review)],
+  };
+};
 
 // QR 패키지 상태 — 무효는 문제, 입고는 끝남, 그 밖(인쇄·선적 중)은 기다림.
 export const pcbPackageStatusBadge = (status: AdminPcbPackageDetailType['status']): PcbBadge => ({

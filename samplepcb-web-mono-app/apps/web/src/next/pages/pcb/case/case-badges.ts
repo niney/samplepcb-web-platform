@@ -1,6 +1,5 @@
 import { PCB_RFQ_STATUS_LABELS } from '@sp/api-contract';
 import type { BadgeVariant, PcbBadge } from '@/next/components/pcb/pcb-badges';
-import type { PcbEqReviewDisplay } from '@/lib/pcb-eq-review';
 
 // Case 상세 전용 배지 사전 — 옛 화면의 색 클래스 사전(STATUS_CLS·PO_STATUS_CLS·SHIP_STATUS_CLS·
 // PCB_EQ_REVIEW_BTN_CLS)을 Badge variant 로 옮겼다. 뜻은 키트 pcb-badges.ts 와 같다:
@@ -20,12 +19,4 @@ export const rfqStatusBadge = (status: keyof typeof PCB_RFQ_STATUS_LABELS): PcbB
 });
 
 // 발주·선적 상태 색은 목록 화면과 같아야 해서 키트(pcb-badges.ts)의 pcbPoStatusVariant·pcbShipmentStatusVariant 를 쓴다.
-
-/** EQ 고객 확인 상태 → 버튼 안 점(dot)의 색 토큰 클래스. 버튼 자체는 outline 이라 색을 덮지 않는다. */
-export const EQ_REVIEW_DOT: Record<PcbEqReviewDisplay, string> = {
-  none: 'bg-info',
-  pending: 'bg-warning',
-  overdue: 'bg-destructive',
-  approved: 'bg-success',
-  rejected: 'bg-destructive',
-};
+// EQ 고객 확인 칩은 워크큐 배지와 같은 판정·색(pos-badges.ts pcbEqReviewBadge)이라 여기 따로 두지 않는다.

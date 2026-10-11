@@ -3,6 +3,7 @@ import DeleteQuoteDialog from '@/next/components/pcb/DeleteQuoteDialog.vue';
 import CustomerShipDialog from '@/next/components/pcb/CustomerShipDialog.vue';
 import EqRejectDialog from '@/next/components/pcb/EqRejectDialog.vue';
 import EqReviewPanel from '@/next/components/pcb/EqReviewPanel.vue';
+import EqWorkspacePanel from '@/next/components/pcb/eq/EqWorkspacePanel.vue';
 import OrderCancelDialog from '@/next/components/pcb/OrderCancelDialog.vue';
 import RemittancePanel from '@/next/components/pcb/RemittancePanel.vue';
 import SpecEditDialog from '@/next/components/pcb/SpecEditDialog.vue';
@@ -18,6 +19,10 @@ const {
   editableSpec,
   specEditSaved,
   eqReviewPo,
+  eqWorkspaceOpen,
+  eqWorkspacePo,
+  eqDirtyPoIds,
+  approvePo,
   remittancePoId,
   adminInvoiceApiRef,
   invoicePoId,
@@ -51,7 +56,22 @@ const {
     @saved="specEditSaved"
   />
 
-  <!-- EQ 고객 확인 패널 -->
+  <!-- EQ 고객 확인 작업공간(D20 문항형 회차) — Case 화면 수명 동안 살아 있다(닫으면 숨기만 — 저장 안 된 변경 유지). -->
+  <EqWorkspacePanel
+    v-if="detail !== null"
+    :open="eqWorkspaceOpen"
+    :po="eqWorkspacePo"
+    :spec-id="specId"
+    :project-name="detail.projectName"
+    :overlay-open="rejectPoId !== null || eqReviewPo !== null"
+    @close="eqWorkspaceOpen = false"
+    @approve="(po) => void approvePo(po)"
+    @reject="(po) => (rejectPoId = po.poId)"
+    @simple="(po) => (eqReviewPo = po)"
+    @dirty="(ids) => (eqDirtyPoIds = ids)"
+  />
+
+  <!-- EQ 고객 확인 패널(D16 문구형) — 작업공간의 [간단 문구로 묻기]·스텐실 행이 연다 -->
   <EqReviewPanel v-if="eqReviewPo !== null" :po="eqReviewPo" @close="eqReviewPo = null" />
 
   <!-- 송금 원장 패널 — 송금 워크큐와 같은 컴포넌트(창구는 여럿, 원장은 하나) -->

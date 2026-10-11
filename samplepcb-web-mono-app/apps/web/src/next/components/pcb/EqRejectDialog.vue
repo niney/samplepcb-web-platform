@@ -54,10 +54,13 @@ const replyFiles = computed(() => props.po?.eqFiles.filter((f) => f.fileType ===
 const canSubmit = computed(() => reason.value.trim() !== '' && !props.busy);
 // 트랙별 어휘 — 스텐실의 되돌리기는 반려가 아니라 **보완 요청**이다(단어는 계약 사전 하나).
 const stencil = computed(() => props.po?.track === 'stencil');
-const actWord = computed(() => pcbEqRejectActionLabel(props.po?.track ?? 'eq'));
+// D20 — 문항형 고객 회신 뒤의 반려는 "틀렸다"가 아니라 **개정 EQ 요청**이다(공장이 회신을 반영해 다시 올린다 →
+// 재요청이 오면 새 회차를 '직전 회차에서 가져오기'로 잇는다). 전이는 같은 반려라 문구만 그 뜻으로 맞춘다.
+const revision = computed(() => props.po?.eqReview?.format === 'items' && props.po.eqReview.status === 'answered');
+const actWord = computed(() => (revision.value ? '개정 요청' : pcbEqRejectActionLabel(props.po?.track ?? 'eq')));
 const submitLabel = computed(() => {
   if (props.busy) return '보내는 중…';
-  const base = stencil.value ? '보완 요청 보내기' : '반려하고 알리기';
+  const base = revision.value ? '개정 EQ 요청 보내기' : stencil.value ? '보완 요청 보내기' : '반려하고 알리기';
   return replyFiles.value.length > 0 ? `${base} (첨부 ${String(replyFiles.value.length)})` : base;
 });
 
@@ -105,8 +108,13 @@ const setReason = (value: string | number): void => {
   <Dialog :open="po !== null" @update:open="onOpenChange">
     <DialogContent v-if="po !== null" class="sm:max-w-lg">
       <DialogHeader>
-        <DialogTitle>{{ stencil ? '보완 요청' : 'EQ 반려' }} — {{ po.partnerName }}</DialogTitle>
-        <DialogDescription>협력사에게 메일로 전달되고, 발주는 '발주접수'로 되돌아갑니다.</DialogDescription>
+        <DialogTitle>{{ revision ? '개정 EQ 요청' : stencil ? '보완 요청' : 'EQ 반려' }} — {{ po.partnerName }}</DialogTitle>
+        <DialogDescription>
+          협력사에게 메일로 전달되고, 발주는 '발주접수'로 되돌아갑니다.
+          <template v-if="revision">
+            공장이 개정 EQ 로 다시 승인요청하면 EQ 작업공간에서 새 회차를 '직전 회차에서 가져오기'로 시작하세요.
+          </template>
+        </DialogDescription>
       </DialogHeader>
 
       <Field>
@@ -117,13 +125,17 @@ const setReason = (value: string | number): void => {
           id="eq-reject-reason"
           :model-value="reason"
           rows="3"
-          :placeholder="stencil ? '예) 좌표파일이 최신 도면과 다릅니다 — 다시 확인해 주세요.' : '예) 실크 위치를 좌측으로 옮겨 주세요.'"
+          :placeholder="revision
+            ? '예) 고객 회신(2번 B·의견)을 반영한 개정 EQ 를 올려 주세요.'
+            : stencil ? '예) 좌표파일이 최신 도면과 다릅니다 — 다시 확인해 주세요.' : '예) 실크 위치를 좌측으로 옮겨 주세요.'"
           @update:model-value="setReason"
         />
         <FieldDescription>
           {{ prefillReason === ''
             ? '이 문장이 협력사에게 메일로 전달됩니다.'
-            : '고객이 남긴 사유를 채워 두었습니다 — 그대로 보내거나 다듬어 주세요.' }}
+            : revision
+              ? '개정 요청 문장을 채워 두었습니다 — 바꿀 문항을 짚어 다듬어 주세요.'
+              : '고객이 남긴 사유를 채워 두었습니다 — 그대로 보내거나 다듬어 주세요.' }}
         </FieldDescription>
       </Field>
 

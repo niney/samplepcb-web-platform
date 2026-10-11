@@ -67,7 +67,8 @@ const {
     </p>
     <p v-else class="text-muted-foreground border-b px-4 py-2 text-xs">
       발행은 고객 결제(입금 확인) 후에만 가능합니다. 진행: 발주접수(EQ 선택·Working 업로드 권장) → EQ 승인요청 →
-      (필요하면 <b class="text-foreground">고객 확인</b>) → <b class="text-foreground">EQ 승인(관리자)</b> → 생산시작 → 생산완료.
+      (필요하면 EQ 칸의 <b class="text-foreground">[EQ 열기]</b>로 고객 확인 — 문항 작성 → 고객 회신 → 협력사 전달) →
+      <b class="text-foreground">EQ 승인(관리자)</b> → 생산시작 → 생산완료.
     </p>
 
     <Table>

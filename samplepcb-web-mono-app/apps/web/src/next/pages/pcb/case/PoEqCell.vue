@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { CornerDownLeftIcon, DownloadIcon, HistoryIcon, MessageSquareTextIcon, UploadIcon, XIcon } from '@lucide/vue';
+import { computed } from 'vue';
+import {
+  ClipboardListIcon,
+  CornerDownLeftIcon,
+  DownloadIcon,
+  HistoryIcon,
+  MessageSquareTextIcon,
+  UploadIcon,
+  XIcon,
+} from '@lucide/vue';
 import { canEditPcbEqFile, type AdminPcbPoViewType } from '@sp/api-contract';
 import { downloadAdminPcbEqFile } from '@/admin/useAdminPcbPos';
+import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { ButtonGroup } from '@/next/components/ui/button-group';
 import Panel from '@/next/components/common/Panel.vue';
@@ -9,10 +19,20 @@ import { usePcbCaseContext } from './usePcbCase';
 
 // 발주 행의 EQ(스텐실: 문의·첨부) 칸 — 협력사 산출물(eq·working·coord·inquiry)과 관리자 회신(reply)을
 // 줄로 갈라 방향을 보이게 한다. 최신만 펼치고 이전 업로드는 [이전 N]으로(여정 22호).
+// 맨 위 줄은 고객 확인 — 상태 칩("EQ 2차 · 회신 대기 D+2")과 [EQ 열기] 하나(D20). 버튼 더미는 작업공간 안으로 옮겼다.
 const props = defineProps<{ po: AdminPcbPoViewType }>();
+
+// MD 위임 상위는 EQ 를 하위에서 진행한다 — 열기는 하위 줄([EQ 열기])에 두고, 여기선 자기 이력이 있을 때만.
+const eqOpenHere = computed(() => showEqOpen(props.po) && (props.po.eqDelegatePoId === null || props.po.eqReview !== null));
+const chip = computed(() => eqChipOf(props.po));
 
 const {
   specId,
+  eqChipOf,
+  eqReviewTitleOf,
+  eqOpenLabelOf,
+  showEqOpen,
+  openEqWorkspace,
   stencilInquiryOf,
   eqFilesShown,
   eqOlderCount,
@@ -31,6 +51,15 @@ const download = (fileId: number, name: string): void => {
 
 <template>
   <div class="flex flex-col gap-1.5">
+    <!-- 고객 확인 — 칩이 상태를 말하고(작성 중·회신 대기·전달 필요·전달됨), 조작은 [EQ 열기] 안에서 한다. -->
+    <div v-if="eqOpenHere || chip !== null" class="flex flex-wrap items-center gap-1" data-eq-row-chip>
+      <Badge v-if="chip !== null" :variant="chip.variant" :title="eqReviewTitleOf(po)">{{ chip.label }}</Badge>
+      <Button v-if="eqOpenHere" variant="outline" size="xs" :title="eqReviewTitleOf(po)" @click="openEqWorkspace(po)">
+        <ClipboardListIcon />
+        {{ eqOpenLabelOf(po) }}
+      </Button>
+    </div>
+
     <!-- 스텐실 — 협력사가 보낸 고객문의사항(현행 제출분). 확인/보완을 결정하는 근거 본문이라 첨부보다 먼저 선다. -->
     <Panel
       v-if="stencilInquiryOf(po) !== null"

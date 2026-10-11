@@ -39,9 +39,17 @@ const emit = defineEmits<{ close: [] }>();
 
 const poId = computed(() => props.po.poId);
 const list = useAdminPcbEqReviews(poId);
-const reviews = computed(() => list.data.value?.data.reviews ?? []);
+// 이 패널은 D16 문구형만 다룬다 — 문항형 회차(D20)는 EQ 작업공간이 맡는다(문구가 비어 있어 여기선 읽을 것이 없다).
+const reviews = computed(() => (list.data.value?.data.reviews ?? []).filter((r) => r.format === 'message'));
 const openReview = computed(() => reviews.value.find((r) => r.status === 'requested') ?? null);
 const history = computed(() => reviews.value.filter((r) => r.status !== 'requested'));
+/** 열린 문항형 회차(작성 중·회신 대기) — 발주서당 열린 회차는 하나라 문구형을 새로 보낼 수 없다(서버 ALREADY_OPEN). */
+const openItemsRound = computed(
+  () =>
+    (list.data.value?.data.reviews ?? []).find(
+      (r) => r.format === 'items' && (r.status === 'draft' || r.status === 'requested'),
+    ) ?? null,
+);
 
 const createMut = useCreatePcbEqReview();
 const cancelMut = useCancelPcbEqReview();
@@ -154,6 +162,14 @@ const setDueOn = (value: string | number): void => {
           <AlertDescription>
             <p class="text-xs">
               새 확인 요청은 발주서가 <b class="text-foreground">{{ stencil ? '확인 요청' : 'EQ 승인요청' }}</b> 단계일 때만 보낼 수 있습니다.
+            </p>
+          </AlertDescription>
+        </Alert>
+        <Alert v-else-if="openItemsRound !== null" variant="muted" size="sm">
+          <AlertDescription>
+            <p class="text-xs">
+              문항형 회차({{ openItemsRound.roundNo ?? '' }}차 · {{ PCB_EQ_REVIEW_STATUS_LABELS[openItemsRound.status] }})가 열려 있습니다 —
+              EQ 작업공간에서 마무리하거나 취소한 뒤에 간단 문구로 물을 수 있습니다.
             </p>
           </AlertDescription>
         </Alert>

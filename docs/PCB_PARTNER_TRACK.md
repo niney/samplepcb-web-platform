@@ -3457,3 +3457,16 @@ P1 과 P2 연구(추출기·프로빙)는 **병행**한다 — 둘의 접점은 
 - **화면**: 타임라인과 '지금 할 일' 사이(읽고 → 판단하고 → 누르는 순서). 회차 2개 이상이면 탭(최신 기본). 전달·회신 시각(KST) · 고객 선택 요약 `1: B · 2: A` · 문항별 **원문 질문 · 원문 선택지 · 고른 기호 강조(32px)** · 고객 의견("고객 원문(한국어)" — 번역은 P2) · 고객이 본 한국어 문장(접힘).
 - **판단**: "회신 도착" 안내는 최신 전달 시각이 마지막 승인요청보다 뒤일 때만(이전 요청의 답을 또 '도착'이라 하면 반영한 답을 다시 반영한다; 승인요청 이력이 없는 이관 데이터는 도착으로 본다) · 시각에 KST(중국 공장이 현지 시각으로 읽지 않게) · MD 위임 상위는 하위 발주서 회차를, MD 하위 관전은 주어를 "하위 협력사(이름)"로.
 - **검증**: e2e `journey-eq-items-portal` 5/5(전달 전 영역 없음 · 원문·강조·의견·요약·위치·390px · en/zh-CN 한글 잔류 없음 · 반려→재요청 뒤 1차 답을 '도착'이라 하지 않음·회차 탭 · MD 3화면) + 회귀 `md-eq-observe`·`journey-eq-reply`·`partner-i18n`.
+
+#### D20 P1 관리자 작업공간 구현 기록 (2026-10-11)
+
+- **파일**: `apps/web/src/next/components/pcb/eq/`(신규 — `EqWorkspacePanel`·`EqItemList`·`EqItemEditor`·`EqCustomerPreview`·`EqActivity`·`EqProxyAnswerDialog`·`EqFigureThumb`·`eq-round.ts`(편집 모형·저장 몸통·dirty·계약 미러 검증)·`useAdminPcbEqRounds.ts`(그림 = 인증 fetch → blob → objectURL)) ·
+  `lib/pcb-eq-review.ts`(회차 칩 `pcbEqRoundState`·`pcbEqRoundChipLabel`) · `pos/pos-badges.ts`(워크큐·Case 행 공용 칩) · `case/case-po.ts`(작업공간 상태·라벨 answered/draft·승인 확인창 `isPcbEqReviewDecided`·draft 있으면 "승인하면 초안이 닫힘") ·
+  `PoEqCell`(칩 + [EQ 열기]/'작성 이어가기') · `PoActionsCell`(고객 확인 버튼 2개 제거 — 승인·반려·대행·송금·조건 수정·발주 취소 유지) · `ChildPoRow`(MD 하위에 칩 + [EQ 열기]) · `EqRejectDialog`·`EqReviewPanel`(문구형 전용) · 옛 `AdminPcbCase.vue`(라벨만).
+- **화면**: 넓은 오른쪽 패널(D43 관례) — 머리(회차 탭 `activation-mode=manual`·상태 칩·근거 EQ 첨부·문구형 확인 건수) / 3열(문항 목록 | 한국어↔원문·선택지·그림·직전 회차 연결·변화 | 고객 미리보기·활동) / 바닥 상태별 버튼
+  (초안: 기한·초안 삭제·임시저장·고객에게 보내기 · 회신 대기: 요청 취소·대리 회신 · 회신: 협력사에 전달·개정 EQ 요청(반려)·고객 회신대로 EQ 승인). 1280px 미만 탭, 모바일 목록 위·편집 아래.
+- **판단**: 칩·[EQ 열기]는 액션 칸이 아니라 EQ 칸 맨 위 · 스텐실 행은 '고객 확인'으로 문구형 패널(EQ 어휘·문항형이 스텐실에 새지 않게) · MD 위임 상위 행엔 [EQ 열기] 없음(하위 줄에서) ·
+  기본 회차 = 열린 회차 또는 이번 승인요청 뒤 회차, 아니면 '+ 새 회차' · 칩 색(작성 중 중립·회신 대기 info·기한 지남 danger·전달 필요 warning·전달됨 success, D+n = 보낸 날(KST)부터) ·
+  전달 전 [고객 회신대로 EQ 승인]은 "전달하지 않고 승인?" 한 번 · 버전 충돌은 파생값(서버 409 + 버퍼 버전 < 서버 버전 — 저장 직후 캐시 선갱신 찰나의 오판 실측 교정) · 패널을 열 때마다 회차·발주 목록 재조회.
+- **검증**: e2e `journey-eq-items-admin` 11/11 + 회귀 `journey-eq-items`·`journey-eq-reply`·`md-eq-observe` 24/24 · web typecheck · 만진 파일 eslint 0(전체 `eslint .` 는 이 리포에서 15분+·메모리 3GB+ 로 끝나지 않는다 — 변경 파일만 돌릴 것).
+- **남은 것**: 올리고 저장(PUT)하지 않은 그림은 문항에 안 붙어 다시 열면 안 보인다(sp_file 고아 — 후속 교정) · P2 [AI 분석] 연결 · 옛 AdminPcbCase 는 작업공간 없음.

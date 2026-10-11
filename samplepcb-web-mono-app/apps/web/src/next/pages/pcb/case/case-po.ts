@@ -4,6 +4,7 @@ import {
   PCB_PAYMENT_TERM_CUSTOM_DATE,
   PCB_PAYMENT_TERM_NET_7,
   isPcbDeliveryOverdue,
+  isPcbEqReviewDecided,
   lastPcbEqRejectedAt,
   lastPcbEqRejection,
   lastPcbStencilInquiry,
@@ -27,6 +28,8 @@ import {
   type AdminPcbEqSubstituteAction,
 } from '@/admin/useAdminPcbPos';
 import { pcbEqReviewState, pcbEqReviewTitle, type PcbEqReviewDisplay } from '@/lib/pcb-eq-review';
+import type { PcbBadge } from '@/next/components/pcb/pcb-badges';
+import { pcbEqReviewBadge } from '@/next/components/pcb/pos/pos-badges';
 import { confirmDialog, promptDialog } from '@/next/lib/dialog';
 import { addDateOnlyDays, type CaseCore } from './case-core';
 import type { CaseRfq } from './case-rfq';
@@ -231,8 +234,36 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
 
   /** 송금 원장 패널 — 워크큐(송금 메뉴)와 같은 컴포넌트. */
   const remittancePoId = ref<number | null>(null);
-  /** EQ 고객 확인 패널 — 승인 전에 고객에게 물어보는 별도 축. */
+  /** EQ 고객 확인 패널(D16 문구형) — 작업공간의 [간단 문구로 묻기]·스텐실 행·문구형 이력이 연다. */
   const eqReviewPo = ref<AdminPcbPoViewType | null>(null);
+
+  // ── EQ 고객 확인 작업공간(D20 문항형 회차) — 넓은 오른쪽 패널. 대상은 **id 로** 들고 목록에서 다시 찾는다
+  //    (행 스냅샷을 잡아 두면 승인·첨부로 발주가 바뀌어도 패널이 옛 상태를 본다 — 반려 대화상자와 같은 이유).
+  //    패널은 Case 화면 수명 동안 살아 있어(닫으면 숨기만) 저장 안 된 변경이 남는다 — 행 버튼이 '작성 이어가기'.
+  const eqWorkspacePoId = ref<number | null>(null);
+  const eqWorkspaceOpen = ref(false);
+  const eqWorkspacePo = computed<AdminPcbPoViewType | null>(() =>
+    eqWorkspacePoId.value === null ? null : (allPos.value.find((p) => p.poId === eqWorkspacePoId.value) ?? null),
+  );
+  /** 저장 안 된 문항 변경이 있는 발주서(작업공간이 알린다). */
+  const eqDirtyPoIds = ref<number[]>([]);
+  /** 행의 [EQ 열기] — 스텐실은 문항형 회차가 아니라 문구형 고객 확인 하나다(EQ 라는 말도 없다). */
+  function openEqWorkspace(po: AdminPcbPoViewType): void {
+    if (po.track === 'stencil') {
+      eqReviewPo.value = po;
+      return;
+    }
+    eqWorkspacePoId.value = po.poId;
+    eqWorkspaceOpen.value = true;
+  }
+  /** 행 버튼 문구 — 같은 Case 안에서 닫아 둔 초안 변경이 있으면 이어 쓰게 한다. */
+  const eqOpenLabelOf = (po: AdminPcbPoViewType): string =>
+    po.track === 'stencil' ? '고객 확인' : eqDirtyPoIds.value.includes(po.poId) ? '작성 이어가기' : 'EQ 열기';
+  /** 행에 [EQ 열기]를 둘까 — 승인요청 중이거나 고객 확인 이력이 있을 때(승인의 근거는 단계가 지나도 남긴다). */
+  const showEqOpen = (po: AdminPcbPoViewType): boolean => po.status === 'eq_requested' || po.eqReview !== null;
+  /** 행 칩 — 문항형이면 "EQ 2차 · 회신 대기 D+2", 문구형이면 옛 배지 문구. 워크큐 배지와 같은 판정·색. */
+  const eqChipOf = (po: AdminPcbPoViewType): PcbBadge | null =>
+    po.eqReview === null ? null : pcbEqReviewBadge(po.eqReview);
 
   // EQ 고객 확인 표시 — 대화상자를 열지 않아도 "보냈는지·답했는지"가 보인다. 버튼 하나가 상태를
   // 입는다: 미요청 → 확인중 → 승인/반려. 판정은 lib/pcb-eq-review 공용(워크큐 배지와 같은 상태).
@@ -246,11 +277,12 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
       case 'overdue':
         return '고객 회신 기한초과';
       case 'approved':
-        return `고객 승인 ${fmtKstDate(r?.decidedAt ?? null)}`;
+        // D20 문항형 회신(answered)도 '답한 상태' 칸이다 — 승인이 아니라 회신이라 말을 가른다.
+        return `${r?.status === 'answered' ? '고객 회신' : '고객 승인'} ${fmtKstDate(r?.decidedAt ?? null)}`;
       case 'rejected':
         return `고객 반려 ${fmtKstDate(r?.decidedAt ?? null)}`;
       default:
-        return '고객 확인';
+        return r?.status === 'draft' ? '작성 중' : '고객 확인';
     }
   };
   const eqReviewTitleOf = (po: AdminPcbPoViewType): string => pcbEqReviewTitle(po.eqReview);
@@ -342,15 +374,23 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
     if (specId.value === null) return;
     // 고객 확인을 띄워 놓고도 답을 기다리지 않거나, 반려된 건을 그대로 승인하는 사고를 막는다. 서버는
     // 막지 않는다 — 관리자 만능 대행(D11)이 원칙이라 여기서 되묻기만 한다. 어휘는 계약 라벨 사전 하나.
+    // 답한 상태(문구형 승인·반려 + 문항형 회신)는 계약 isPcbEqReviewDecided 하나로 판정한다 — 반려만 한 번 더
+    // 묻는다. 작성 중(D20 draft)은 고객에게 안 갔지만, 승인하면 EQ 전이가 그 초안을 닫으므로 그 사실을 묻는다.
     const approveWord = pcbEqForwardLabel('eq_requested', po.track);
-    const state = eqReviewStateOf(po);
-    const note = po.eqReview?.decisionNote ?? null;
+    const review = po.eqReview;
+    const note = review?.decisionNote ?? null;
     const ask =
-      state === 'rejected'
-        ? `고객이 반려한 건입니다${note === null ? '' : `\n사유: ${note}`}\n\n그래도 ${approveWord} 처리할까요?`
-        : state === 'pending' || state === 'overdue'
-          ? `고객 회신을 기다리는 중입니다.\n\n답을 기다리지 않고 ${approveWord} 처리할까요?`
-          : null;
+      review === null
+        ? null
+        : review.status === 'rejected'
+          ? `고객이 반려한 건입니다${note === null ? '' : `\n사유: ${note}`}\n\n그래도 ${approveWord} 처리할까요?`
+          : isPcbEqReviewDecided(review.status)
+            ? null
+            : review.status === 'requested'
+              ? `고객 회신을 기다리는 중입니다.\n\n답을 기다리지 않고 ${approveWord} 처리할까요?`
+              : review.status === 'draft'
+                ? `작성 중인 고객 확인 초안이 있습니다(고객에게는 아직 안 보냄).\n\n${approveWord}하면 초안은 닫힙니다. 그래도 진행할까요?`
+                : null;
     if (ask !== null && !(await confirmDialog({ message: ask, confirmLabel: '그래도 진행', tone: 'danger' }))) return;
     actionError.value = '';
     try {
@@ -366,10 +406,18 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
   const rejectTarget = computed<AdminPcbPoViewType | null>(() =>
     rejectPoId.value === null ? null : (allPos.value.find((p) => p.poId === rejectPoId.value) ?? null),
   );
-  // 고객이 반려한 건이면 그 사유를 채워 둔다(다시 타이핑하지 않게).
+  // 고객이 반려한 건이면 그 사유를 채워 둔다(다시 타이핑하지 않게). D20 문항형 회신 뒤의 반려는 '개정 EQ 요청'이라
+  // 회신을 반영해 다시 올려 달라는 문장을 채운다(회신 내용은 전달로 이미 포털에 있다).
   const rejectPrefill = computed<string>(() => {
-    const po = rejectTarget.value;
-    return po?.eqReview?.status === 'rejected' ? (po.eqReview.decisionNote ?? '') : '';
+    const review = rejectTarget.value?.eqReview ?? null;
+    if (review?.status === 'rejected') return review.decisionNote ?? '';
+    if (review?.format === 'items' && review.status === 'answered') {
+      const round = review.roundNo === null ? '' : `${String(review.roundNo)}차 `;
+      return review.forwardedAt === null
+        ? `고객 회신(${round}제조 확인)을 반영한 개정 EQ 를 올려 주세요.`
+        : `포털에 전달한 고객 회신(${round}제조 확인)을 반영한 개정 EQ 를 올려 주세요.`;
+    }
+    return '';
   });
   async function submitReject(reason: string): Promise<void> {
     const po = rejectTarget.value;
@@ -484,6 +532,14 @@ export function useCasePo(core: CaseCore, rfq: CaseRfq) {
     submitPoEdit,
     remittancePoId,
     eqReviewPo,
+    eqWorkspacePoId,
+    eqWorkspaceOpen,
+    eqWorkspacePo,
+    eqDirtyPoIds,
+    openEqWorkspace,
+    eqOpenLabelOf,
+    showEqOpen,
+    eqChipOf,
     eqReviewStateOf,
     eqReviewLabelOf,
     eqReviewTitleOf,

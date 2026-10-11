@@ -101,7 +101,8 @@ const isOverdueRow = (row: AdminPcbPoWorkItemType): boolean =>
 
 // EQ 고객 확인 축(D16) — 'EQ 승인 대기' 행은 모두 eq_requested 라 "지금 승인하면 되는 건"과
 // "고객 답을 기다리는 건"이 섞인다. 그 갈림을 배지가 말한다. 승인 대기가 아니어도 결정이 있으면
-// 남긴다(승인의 근거 — Case 와 동형).
+// 남긴다(승인의 근거 — Case 와 동형). 문항형 회차(D20)면 배지가 회차 칩이 된다 — "EQ 2차 · 회신 대기
+// D+2" · "회신 도착 · 전달 필요"(전달해야 공장이 움직인다 — 관리자 차례라 주의색).
 const showEqReview = (row: AdminPcbPoWorkItemType): boolean =>
   row.status === 'eq_requested' || row.eqReview !== null;
 

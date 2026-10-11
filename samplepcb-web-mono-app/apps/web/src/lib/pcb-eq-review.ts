@@ -1,5 +1,5 @@
 import type { PcbPoEqReviewSummaryType } from '@sp/api-contract';
-import { fmtKstDate } from '@sp/utils';
+import { fmtKstDate, kstDateOnly, kstToday } from '@sp/utils';
 
 // EQ 고객 확인 표시(P4.4, docs/PCB_PARTNER_TRACK.md D16) — Case 상세(버튼)와 발주 워크큐
 // (배지)가 **같은 상태를 같은 색으로** 말해야 해서 판정·팔레트·툴팁을 여기 하나에 둔다.
@@ -53,8 +53,69 @@ export const pcbEqReviewBadgeLabel = (r: PcbPoEqReviewSummaryType | null): strin
 export const pcbEqReviewTitle = (r: PcbPoEqReviewSummaryType | null): string => {
   // 트랙 중립 문구 — 스텐실 발주에도 이 축(고객 확인)은 그대로 쓰인다(EQ 라는 말만 뺀다).
   if (r === null) return '고객에게 제작 확인을 요청합니다';
+  // D20 작성 중 — 아직 고객에게 안 갔다(요청일은 초안을 만든 시각이라 싣지 않는다).
+  if (r.status === 'draft') return '관리자가 문항을 작성 중입니다 — 고객에게는 아직 보이지 않습니다';
   const parts = [`요청 ${fmtKstDate(r.requestedAt)}`];
   if (r.dueOn !== null) parts.push(`기한 ${fmtKstDate(r.dueOn)}`);
+  if (r.status === 'answered') parts.push(`회신 ${fmtKstDate(r.decidedAt)}`);
+  if (r.forwardedAt !== null) parts.push(`협력사 전달 ${fmtKstDate(r.forwardedAt)}`);
   if (r.decisionNote !== null && r.decisionNote !== '') parts.push(`고객 의견: ${r.decisionNote}`);
   return parts.join(' · ');
+};
+
+// ── D20 문항형 회차 칩 — "EQ 2차 · 회신 대기 D+2" / "회신 도착 · 전달 필요" ─────────────
+// 문항형은 '답했다'로 끝나지 않는다 — 회신을 협력사에 **전달**해야 공장이 움직인다. 그래서 승인/반려
+// 두 칸 대신 작성 중 → 회신 대기 → 전달 필요 → 전달됨 네 칸으로 말한다(Case 행·워크큐 같은 판정).
+
+export type PcbEqRoundDisplay = 'draft' | 'pending' | 'overdue' | 'needs_forward' | 'forwarded';
+
+/** 문항형 회차의 표시 상태 — 문구형(D16)·요약 없음이면 null(옛 표시를 쓴다). */
+export const pcbEqRoundState = (r: PcbPoEqReviewSummaryType | null): PcbEqRoundDisplay | null => {
+  if (r?.format !== 'items') return null;
+  switch (r.status) {
+    case 'draft':
+      return 'draft';
+    case 'requested':
+      return r.overdue ? 'overdue' : 'pending';
+    case 'answered':
+      return r.forwardedAt === null ? 'needs_forward' : 'forwarded';
+    default:
+      return null;
+  }
+};
+
+/** KST 달력 날짜 차(일) — 'YYYY-MM-DD' 둘. 발송일 당일이 D+0. */
+export const kstDayDiff = (fromYmd: string, toYmd: string): number =>
+  Math.round((Date.parse(`${toYmd}T00:00:00Z`) - Date.parse(`${fromYmd}T00:00:00Z`)) / 86_400_000);
+
+/** 회신 대기 경과 — 보낸 날(KST)부터 오늘까지. "D+2" = 이틀째 답이 없다. */
+export const pcbEqWaitDays = (requestedAt: string, today: string = kstToday()): number =>
+  Math.max(0, kstDayDiff(kstDateOnly(requestedAt) ?? today, today));
+
+/** 칩 문구의 상태 부분(회차 번호 없이) — 작업공간 머리의 배지와 같은 말. */
+export const pcbEqRoundStateLabel = (
+  state: PcbEqRoundDisplay,
+  r: Pick<PcbPoEqReviewSummaryType, 'requestedAt'>,
+  today: string = kstToday(),
+): string => {
+  switch (state) {
+    case 'draft':
+      return '작성 중';
+    case 'pending':
+      return `회신 대기 D+${String(pcbEqWaitDays(r.requestedAt, today))}`;
+    case 'overdue':
+      return '기한 지남';
+    case 'needs_forward':
+      return '회신 도착 · 전달 필요';
+    case 'forwarded':
+      return '전달됨';
+  }
+};
+
+/** 행 칩 문구 — "EQ 2차 · 작성 중". 문항형이 아니면 null. */
+export const pcbEqRoundChipLabel = (r: PcbPoEqReviewSummaryType | null, today: string = kstToday()): string | null => {
+  const state = pcbEqRoundState(r);
+  if (state === null || r === null) return null;
+  const round = r.roundNo === null ? 'EQ' : `EQ ${String(r.roundNo)}차`;
+  return `${round} · ${pcbEqRoundStateLabel(state, r, today)}`;
 };

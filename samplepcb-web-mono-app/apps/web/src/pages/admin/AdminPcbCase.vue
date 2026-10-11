@@ -823,11 +823,13 @@ const eqReviewLabelOf = (po: AdminPcbPoViewType): string => {
     case 'overdue':
       return '고객 회신 기한초과';
     case 'approved':
-      return `고객 승인 ${fmtKstDate(r?.decidedAt ?? null)}`;
+      // D20 문항형 회신(answered)도 이 칸(답한 상태)이다 — 승인이 아니라 회신이라 말을 가른다.
+      return `${r?.status === 'answered' ? '고객 회신' : '고객 승인'} ${fmtKstDate(r?.decidedAt ?? null)}`;
     case 'rejected':
       return `고객 반려 ${fmtKstDate(r?.decidedAt ?? null)}`;
     default:
-      return '고객 확인';
+      // D20 작성 중(draft)은 고객에게 안 간 것이라 '미요청' 칸이지만, 초안이 있다는 사실은 말한다.
+      return r?.status === 'draft' ? '작성 중' : '고객 확인';
   }
 };
 const eqReviewTitleOf = (po: AdminPcbPoViewType): string => pcbEqReviewTitle(po.eqReview);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckIcon, DownloadIcon, TruckIcon, Undo2Icon, XIcon } from '@lucide/vue';
+import { CheckIcon, ClipboardListIcon, DownloadIcon, TruckIcon, Undo2Icon, XIcon } from '@lucide/vue';
 import {
   PCB_PO_STATUS_LABELS,
   pcbEqForwardLabel,
@@ -18,9 +18,22 @@ import { usePcbCaseContext } from './usePcbCase';
 
 // MD 하위 발주(EQ 실작업 문서) 요약 줄 — 한 줄 요약이라 첨부는 **최신만**. 여기서도 승인/반려를 누를 수 있다
 // (여정 22호). 라벨은 본행과 같은 계약 사전 — 같은 표의 부모·자식 행이 다른 말을 하면 안 된다.
+// 고객 확인(D20)도 하위가 실작업이라 여기서 연다 — 포털의 위임 상위도 하위 발주서의 회차를 본다.
 defineProps<{ po: AdminPcbPoViewType }>();
 
-const { specId, childPosOf, shipRowsOf, approvePo, rejectPoId, revertPo } = usePcbCaseContext();
+const {
+  specId,
+  childPosOf,
+  shipRowsOf,
+  approvePo,
+  rejectPoId,
+  revertPo,
+  eqChipOf,
+  eqReviewTitleOf,
+  eqOpenLabelOf,
+  showEqOpen,
+  openEqWorkspace,
+} = usePcbCaseContext();
 
 const download = (poId: number, fileId: number, name: string): void => {
   if (specId.value === null) return;
@@ -55,6 +68,13 @@ const download = (poId: number, fileId: number, name: string): void => {
             >
               <DownloadIcon />
               {{ f.fileType }}
+            </Button>
+            <Badge v-if="eqChipOf(child) !== null" :variant="eqChipOf(child)?.variant ?? 'outline'" :title="eqReviewTitleOf(child)">
+              {{ eqChipOf(child)?.label }}
+            </Badge>
+            <Button v-if="showEqOpen(child)" variant="outline" size="xs" :title="eqReviewTitleOf(child)" @click="openEqWorkspace(child)">
+              <ClipboardListIcon />
+              {{ eqOpenLabelOf(child) }}
             </Button>
             <template v-if="child.status === 'eq_requested'">
               <Button size="xs" @click="void approvePo(child)">

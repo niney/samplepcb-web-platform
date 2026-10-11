@@ -12,18 +12,14 @@ import {
 import { pcbEqForwardLabel, pcbEqRejectActionLabel, pcbEqRevertLabel, type AdminPcbPoViewType } from '@sp/api-contract';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
-import { EQ_REVIEW_DOT } from './case-badges';
 import { substituteActionOf, substituteLabelOf } from './case-po';
 import { usePcbCaseContext } from './usePcbCase';
 
-// 발주 행의 액션 칸 — EQ 판정(고객 확인·승인·반려·되돌리기), 협력사 몫 대행, 발송 시작, 송금, 조건 수정, 취소.
+// 발주 행의 액션 칸 — EQ 판정(승인·반려·되돌리기), 협력사 몫 대행, 발송 시작, 송금, 조건 수정, 취소.
+// 고객 확인은 EQ 칸(PoEqCell)의 칩 + [EQ 열기] 가 맡는다(D20 — 작업공간 하나로 모았다).
 defineProps<{ po: AdminPcbPoViewType }>();
 
 const {
-  eqReviewPo,
-  eqReviewStateOf,
-  eqReviewLabelOf,
-  eqReviewTitleOf,
   eqUnfixedAfterReject,
   approvePo,
   rejectPoId,
@@ -39,12 +35,8 @@ const {
 
 <template>
   <span class="inline-flex flex-wrap justify-end gap-1">
+    <!-- 고객 확인(D16 문구형·D20 문항형)은 EQ 칸의 상태 칩 + [EQ 열기] 하나로 옮겼다 — 여기는 판정·대행 버튼만. -->
     <template v-if="po.status === 'eq_requested' && po.eqDelegatePoId === null">
-      <!-- 고객 확인 — 승인 전에 고객에게 물어볼 수 있다. 버튼이 상태를 입는다: 미요청 → 확인중 → 승인/반려. -->
-      <Button variant="outline" size="sm" :title="eqReviewTitleOf(po)" @click="eqReviewPo = po">
-        <span class="size-2 rounded-full" :class="EQ_REVIEW_DOT[eqReviewStateOf(po)]" />
-        {{ eqReviewLabelOf(po) }}
-      </Button>
       <!-- 반려(보완 요청)했는데 그 뒤로 올라온 파일이 없다 = 같은 파일로 온 재요청. 승인 버튼 옆이 아니면
            볼 이유가 없는 정보다. -->
       <Badge
@@ -70,11 +62,6 @@ const {
         {{ pcbEqRejectActionLabel(po.track) }}
       </Button>
     </template>
-    <!-- EQ 단계가 지나도 고객 확인 결과는 남긴다(승인의 근거) — 클릭하면 이력. -->
-    <Button v-else-if="po.eqReview !== null" variant="outline" size="sm" :title="eqReviewTitleOf(po)" @click="eqReviewPo = po">
-      <span class="size-2 rounded-full" :class="EQ_REVIEW_DOT[eqReviewStateOf(po)]" />
-      {{ eqReviewLabelOf(po) }}
-    </Button>
     <Button v-if="po.status === 'eq_done' && po.eqDelegatePoId === null" variant="ghost" size="sm" @click="void revertPo(po)">
       <Undo2Icon />
       {{ pcbEqRevertLabel('eq_done', po.track) }}
