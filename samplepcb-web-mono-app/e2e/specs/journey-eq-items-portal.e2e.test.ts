@@ -73,7 +73,7 @@ const partnerMessages: PartnerMessages = {
 const tr = (source: string, locale: PartnerLocale, params?: Record<string, string | number>): string =>
   translatePartnerMessage(partnerMessages, source, locale, true, params);
 
-const TODO_ARRIVED = '고객 회신이 도착했습니다 — 위 \'고객 회신\'에서 문항별 선택을 확인해 주세요.';
+const TODO_ARRIVED = '고객 회신이 도착했습니다 — 아래 \'고객 회신\'에서 문항별 선택을 확인해 주세요.';
 const TODO_WAITING = '샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.';
 
 describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () => {
@@ -217,12 +217,19 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
       expect(wide, `${label} 영역 넘침`).toEqual([]);
     }
   };
-  const chosenOf = async (page: Page, itemIndex: number): Promise<string[]> =>
-    page
+  /** 문항은 한 줄(번호·유형·질문·선택·의견)이다 — 전체 선택지는 [자세히]로 펼쳐야 보인다. */
+  const expandItem = async (page: Page, itemIndex: number): Promise<void> => {
+    const btn = page.getByTestId('partner-eq-answer-item').nth(itemIndex).getByTestId('partner-eq-answer-expand');
+    if ((await btn.getAttribute('aria-expanded')) !== 'true') await btn.click();
+  };
+  const chosenOf = async (page: Page, itemIndex: number): Promise<string[]> => {
+    await expandItem(page, itemIndex);
+    return page
       .getByTestId('partner-eq-answer-item')
       .nth(itemIndex)
       .getByTestId('partner-eq-option')
       .evaluateAll((els) => els.map((el) => el.getAttribute('data-chosen') ?? ''));
+  };
 
   beforeAll(async () => {
     const health = await fetch(`${API_URL}/api/health`).catch(() => null);
@@ -321,6 +328,12 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
     const first = items.nth(0);
     expect(await first.getByTestId('partner-eq-question').innerText(), '공장 원문 질문').toBe(ITEMS[0]?.questionOrig);
     expect(await first.innerText()).toContain(tr('마킹(UL·주기)', 'ko'));
+    // 한 줄에 고른 것이 이미 보인다 — 펼치지 않아도 기호와 원문 선택지를 읽는다(기호는 크게).
+    const chosenCell = first.getByTestId('partner-eq-chosen');
+    expect(await chosenCell.innerText(), '줄에 고른 기호·원문').toContain('贵司指示位置');
+    expect((await chosenCell.locator('span').first().boundingBox())?.height ?? 0, '줄의 선택 기호 크기').toBeGreaterThanOrEqual(28);
+    expect(await first.getByTestId('partner-eq-option').count(), '펼치기 전엔 전체 선택지가 없다').toBe(0);
+    await expandItem(page, 0);
     const optTexts = await first.getByTestId('partner-eq-option').allInnerTexts();
     expect(optTexts[0], '원문 선택지').toContain('按我司建议不加');
     expect(optTexts[1]).toContain('贵司指示位置');
@@ -345,9 +358,18 @@ describe.skipIf(!RUN)('EQ 고객 회신 — 협력사 포털 화면(D20)', () =>
     expect(todoText).toContain(tr(TODO_ARRIVED, 'ko'));
     expect(todoText, '되돌리기 버튼 이름으로 안내').toContain(`[${tr('EQ 요청 취소', 'ko')}]`);
     expect(await page.getByRole('button', { name: tr('EQ 요청 취소', 'ko') }).count(), '안내한 버튼이 실제로 있다').toBe(1);
-    // 안내가 "위 '고객 회신'"이라 말하므로 영역은 할 일 칸보다 위에 있어야 한다.
+    // 고객 회신은 EQ 카드 **아래의 별도 카드**다(2026-10-11) — 안내가 "아래 '고객 회신'"이라 말하고,
+    // '지금 할 일'이 요약 한 줄과 [회신 보기]로 그 카드를 가리킨다.
     const [areaTop, todoTop] = [(await box.boundingBox())?.y ?? 0, (await todo(page).boundingBox())?.y ?? 0];
-    expect(areaTop, '고객 회신은 할 일 칸 위').toBeLessThan(todoTop);
+    expect(areaTop, '고객 회신은 할 일 칸 아래').toBeGreaterThan(todoTop);
+    const pointer = page.getByTestId('partner-eq-answer-pointer');
+    expect(await pointer.innerText(), '할 일 칸의 선택 요약').toContain('1: B');
+    expect(await pointer.innerText()).toContain('2: A');
+    await page.getByTestId('partner-eq-answers-toggle').click();
+    await page.getByTestId('partner-eq-answers-collapsed').waitFor();
+    await page.getByTestId('partner-eq-answer-jump').click();
+    await page.getByTestId('partner-eq-answer-item').first().waitFor();
+    expect(await page.getByTestId('partner-eq-answers-collapsed').count(), '[회신 보기]가 카드를 펼친다').toBe(0);
 
     await shot(page, 'ko-desktop');
     await box.screenshot({ path: join(SHOTS, 'ko-area.png') });

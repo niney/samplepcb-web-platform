@@ -34,9 +34,13 @@ const props = defineProps<{
    *  기본 'eq'. 라벨 사전은 계약(pcbEqEventLabel) 하나 — 여기 하드코딩했다가 스텐실
    *  대화가 'EQ 승인요청/EQ 반려'로 그려졌다(2026-08-17 교정). */
   track?: PcbPoTrackType;
-  /** 지금 첨부를 바꿀 수 있는가(EQ_LOCKED 판정은 부모가) — **내가 올린 것에만** ✕ 가 뜬다.
-   *  받은 자료(관리자 회신)를 받는 쪽이 지우면 반려 근거가 사라진다. */
+  /** 지금 첨부를 바꿀 수 있는가(EQ_LOCKED 판정은 부모가). ✕ 는 지울 수 있는 것에만 뜬다:
+   *  기록으로 굳지 않았고(locked 아님), 관리자 회신(reply — 받은 자료, 지우면 반려 근거가 사라진다)이 아니고,
+   *  올린 사람이 deletableRoles 에 든 것. */
   editable?: boolean;
+  /** 지울 수 있는 올린 사람(uploadedBy) — 비우면 '내 역할이 올린 것'만. 수주 발주서는 협력사 자리에서 올라온 것
+   *  전부(본인·관리자 대행·MD 대행)를 부모가 넘긴다 — 관리자 대리 접속으로 올린 파일을 올린 사람이 못 지우던 것 교정. */
+  deletableRoles?: readonly string[];
 }>();
 const emit = defineEmits<{
   download: [fileId: number, name: string];
@@ -215,7 +219,7 @@ const when = (at: string): string => {
                     :title="pt('같은 종류로 더 나중 파일이 있습니다 — 이건 이전 것입니다.')"
                   >{{ pt('이전') }}</span>
                   <button
-                    v-if="editable === true && isMine(item.byRole) && !f.locked"
+                    v-if="editable === true && !f.locked && f.fileType !== 'reply' && (deletableRoles ?? [meRole]).includes(item.byRole)"
                     type="button"
                     class="shrink-0 text-gray-300 hover:text-red-600"
                     :aria-label="pt('파일 삭제')"

@@ -374,7 +374,7 @@ export const pcbMessages = {
   '고객 의견': ['고객 의견', 'Customer comment', '客户意见'],
   '고객 원문(한국어)': ['고객 원문(한국어)', 'Original text (Korean)', '客户原文（韩语）'],
   '고객이 본 문장(한국어)': ['고객이 본 문장(한국어)', 'Wording shown to the customer (Korean)', '客户看到的内容（韩语）'],
-  '고객 회신이 도착했습니다 — 위 \'고객 회신\'에서 문항별 선택을 확인해 주세요.': ['고객 회신이 도착했습니다 — 위 \'고객 회신\'에서 문항별 선택을 확인해 주세요.', 'The customer\'s answers have arrived. Check the choice for each item under \'Customer answers\' above.', '客户回复已送达，请在上方“客户回复”中查看各项选择。'],
+  '고객 회신이 도착했습니다 — 아래 \'고객 회신\'에서 문항별 선택을 확인해 주세요.': ['고객 회신이 도착했습니다 — 아래 \'고객 회신\'에서 문항별 선택을 확인해 주세요.', 'The customer\'s answers have arrived. Check the choice for each item under \'Customer answers\' below.', '客户回复已送达，请在下方“客户回复”中查看各项选择。'],
   '회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다려 주세요. EQ를 고쳐야 하면 [{value1}] 후 수정한 EQ를 올려 다시 승인요청해 주세요.': ['회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다려 주세요. EQ를 고쳐야 하면 [{value1}] 후 수정한 EQ를 업로드하고 다시 승인 요청해 주세요.', 'If you can produce as answered, wait for the administrator\'s EQ approval. If the EQ needs changes, click [{value1}], upload the revised EQ and request approval again.', '如可按回复生产，请等待管理员批准 EQ。如需修改 EQ，请先点击 [{value1}]，上传修改后的 EQ 并重新申请批准。'],
   '{value1}가 회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다립니다. EQ를 고쳐야 하면 [{value2}] 후 수정한 EQ를 올려 다시 승인요청합니다(필요하면 MD 대행).': ['{value1}가 회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다립니다. EQ를 고쳐야 하면 [{value2}] 후 수정한 EQ를 업로드하고 다시 승인 요청합니다(필요하면 MD 대행).', 'If {value1} can produce as answered, wait for the administrator\'s EQ approval. If the EQ needs changes, {value1} clicks [{value2}], uploads the revised EQ and requests approval again (the master dealer can do this on the supplier\'s behalf if needed).', '如{value1}可按回复生产，则等待管理员批准 EQ。如需修改 EQ，由{value1}点击 [{value2}]，上传修改后的 EQ 并重新申请批准（必要时可由主经销商代为操作）。'],
   // 추가 EQ 요청(D20 후속) — 승인 뒤 협력사가 사유와 함께 EQ 를 다시 연다
@@ -422,4 +422,10 @@ export const pcbMessages = {
   '접기': ['접기', 'Collapse', '收起'],
   '펼치기': ['펼치기', 'Expand', '展开'],
   '문항별 내용은 접어 두었습니다 — [펼치기]로 다시 볼 수 있습니다.': ['문항별 내용은 접어 두었습니다 — [펼치기]로 다시 볼 수 있습니다.', 'Item details are collapsed — press [Expand] to view them again.', '各问题内容已收起 — 点击[展开]可再次查看。'],
+  // 고객 회신 카드(표) — 번호·유형·질문·선택·의견 한 줄, [자세히]로 펼침. '지금 할 일'의 [회신 보기]
+  '회신 보기': ['회신 보기', 'View answers', '查看回复'],
+  '자세히': ['자세히', 'Details', '详情'],
+  '번호': ['번호', 'No.', '序号'],
+  '유형': ['유형', 'Type', '类型'],
+  '질문': ['질문', 'Question', '问题'],
 } as const;

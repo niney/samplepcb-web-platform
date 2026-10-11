@@ -2,7 +2,7 @@
 import { usePartnerI18n } from '../../partner/i18n';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ApiRequestError } from '@sp/shared';
+import { ApiRequestError, actAsPartnerId } from '@sp/shared';
 import {
   PCB_SHIPMENT_FILE_LABELS,
   PCB_EQ_FORWARD,
@@ -134,15 +134,47 @@ const filesEditable = computed(() => detail.value?.status === 'issued');
 // 올린 파일은 타임라인 말풍선으로 나타나는데, 추가 EQ 요청으로 돌아온 화면에서는 그 사이에 '고객 회신'이
 // 화면 한두 장을 차지해 버튼을 누른 자리에서 결과가 안 보였다. 여기 목록은 **지금 손댈 수 있는 파일**이다:
 // 기록으로 굳은 파일(locked — 승인됐거나 고객 확인에 쓰인 것)은 빼고 건수만 알린다. 타임라인은 그대로 둔다(시간순 기록).
-const myUploadRole = computed(() => (detail.value?.direction === 'issued' ? 'MASTER_DEALER' : 'PARTNER'));
-const workingSetFiles = computed(() =>
-  (detail.value?.eq.files ?? []).filter((f) => (f.fileType === 'eq' || f.fileType === 'working') && !f.locked),
+// 2026-10-11 재편(사용자 지적) — 같은 파일이 타임라인 말풍선과 이 목록 양쪽에 나오던 것을 가른다:
+//  · 올린 파일 = **아직 승인요청 전**(발주가 발주접수로 (되)돌아온 뒤에 올린 것). 여기서만 보이고 여기서 지운다.
+//  · 타임라인 = **요청에 실려 나간 것**(기록). 승인요청을 누르면 목록의 파일이 요청 말풍선과 함께 넘어간다.
+// 가름은 목록이 실제로 그려질 때만 한다 — 목록이 없는 화면(차례 아님·스텐실)에서 타임라인까지 비우면 파일이 사라진다.
+const showUploadList = computed(
+  () => !isStencil.value && filesEditable.value && detail.value?.eq.myRole === 'RECEIVER',
 );
+/** 발주가 발주접수로 돌아온 마지막 시각(반려·요청 취소·추가 EQ 요청) — 없으면 한 번도 요청한 적이 없다. */
+const pendingSince = computed<string | null>(() => {
+  const history = detail.value?.eq.history ?? [];
+  return history.filter((e) => e.toStatus === 'issued' && e.at !== '').at(-1)?.at ?? null;
+});
+const pendingFiles = computed(() => {
+  if (!showUploadList.value) return [];
+  const since = pendingSince.value;
+  return (detail.value?.eq.files ?? []).filter(
+    (f) => (f.fileType === 'eq' || f.fileType === 'working') && !f.locked && (since === null || f.uploadedAt > since),
+  );
+});
+const timelineFiles = computed(() => {
+  const pending = new Set(pendingFiles.value.map((f) => f.fileId));
+  return (detail.value?.eq.files ?? []).filter((f) => !pending.has(f.fileId));
+});
+
+// 지울 수 있는 올린 사람 — 내 발주서(수주)면 협력사 자리에서 올라온 것 전부(본인·관리자 대행·MD 대행)다.
+// 전에는 '내 역할이 올린 것'만 지울 수 있어, **관리자 대리 접속**으로 올린 파일(uploadedBy=ADMIN)은 올린 사람도
+// 못 지웠다(서버는 허용 — 화면만 막았다). MD 가 하위 발주서를 볼 때는 자기 대행분만(하위 협력사가 올린 것은
+// 받은 자료다), 대리 접속 중이면 그 자리에서 올린 ADMIN 분까지.
+const deletableRoles = computed<readonly string[]>(() =>
+  detail.value?.direction === 'issued'
+    ? actAsPartnerId.value !== null
+      ? ['MASTER_DEALER', 'ADMIN']
+      : ['MASTER_DEALER']
+    : ['PARTNER', 'ADMIN', 'MASTER_DEALER'],
+);
+const canDeleteFile = (f: { uploadedBy: string | null }): boolean => deletableRoles.value.includes(f.uploadedBy ?? 'PARTNER');
 const lockedFileCount = computed(
   () => (detail.value?.eq.files ?? []).filter((f) => (f.fileType === 'eq' || f.fileType === 'working') && f.locked).length,
 );
 const workingSetCount = (fileType: 'eq' | 'working'): number =>
-  workingSetFiles.value.filter((f) => f.fileType === fileType).length;
+  pendingFiles.value.filter((f) => f.fileType === fileType).length;
 const uploadCountSuffix = (fileType: 'eq' | 'working'): string => {
   const n = workingSetCount(fileType);
   return n > 0 ? ` (${pn(n)})` : '';
@@ -234,6 +266,12 @@ const answerForThisRequest = computed<boolean>(() => {
 const answerArrived = computed<boolean>(
   () => detail.value?.status === 'eq_requested' && answerForThisRequest.value,
 );
+// 고객 회신 카드는 EQ 카드 **아래**에 따로 있다 — 읽어야 하는 단계면 '지금 할 일'이 요약 한 줄과 [회신 보기]로 가리킨다.
+// (.vue 타입을 ref 주석에 물리면 ESLint 가 error type 으로 읽는다 — 쓰는 모양만 적는다.)
+const answersCard = ref<{ reveal: () => Promise<void> } | null>(null);
+const answerSummary = computed(() =>
+  (eqRounds.value[0]?.items ?? []).map((item, i) => ({ no: item.factoryNo ?? String(i + 1), key: item.answer?.key ?? '—' })),
+);
 /** 승인됐고 회신이 와 있다(승인이 자동 전달한다, D20 후속 R-1) — 읽고 생산하거나 다시 묻는다. */
 const answerToReview = computed<boolean>(
   () => detail.value?.status === 'eq_done' && answerForThisRequest.value,
@@ -289,7 +327,7 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
     }
     if (d.status === 'eq_requested' && !st && answerArrived.value) {
       return {
-        title: pt('고객 회신이 도착했습니다 — 위 \'고객 회신\'에서 문항별 선택을 확인해 주세요.'),
+        title: pt('고객 회신이 도착했습니다 — 아래 \'고객 회신\'에서 문항별 선택을 확인해 주세요.'),
         hint: pt('{value1}가 회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다립니다. EQ를 고쳐야 하면 [{value2}] 후 수정한 EQ를 올려 다시 승인요청합니다(필요하면 MD 대행).', { value1: sub, value2: revertLabel.value }),
       };
     }
@@ -365,7 +403,7 @@ const nowTodo = computed<{ title: string; hint: string }>(() => {
   // 답 때문에 EQ 를 고쳐야 하면 요청을 물리고 새 EQ 를 올린다(승인요청 중에는 첨부가 잠긴다).
   if (d.status === 'eq_requested' && answerArrived.value) {
     return {
-      title: pt('고객 회신이 도착했습니다 — 위 \'고객 회신\'에서 문항별 선택을 확인해 주세요.'),
+      title: pt('고객 회신이 도착했습니다 — 아래 \'고객 회신\'에서 문항별 선택을 확인해 주세요.'),
       hint: pt('회신대로 생산할 수 있으면 관리자의 EQ 승인을 기다려 주세요. EQ를 고쳐야 하면 [{value1}] 후 수정한 EQ를 올려 다시 승인요청해 주세요.', { value1: revertLabel.value }),
     };
   }
@@ -853,25 +891,16 @@ watch(locale, () => {
                MD 는 자기 대행 업로드만 지울 수 있게 된다(받은 자료 보존 원칙과 정합). -->
           <PcbEqTimeline
             :history="detail.eq.history"
-            :files="detail.eq.files"
+            :files="timelineFiles"
             :me-role="detail.direction === 'issued' ? 'MASTER_DEALER' : 'PARTNER'"
             :track="track"
             :editable="filesEditable && detail.eq.myRole === 'RECEIVER'"
+            :deletable-roles="deletableRoles"
             @download="downloadEq"
             @delete="(fileId) => void askDeleteFile(fileId)"
           />
         </div>
 
-        <!-- 고객 회신(D20) — 대화(타임라인)와 할 일 사이: 읽고 → 판단하고 → 누른다. 위임 상위(MD
-             관전)는 타임라인이 없어도 하위의 회차를 받으므로 위임 조건 밖에 둔다. -->
-        <!-- 발주접수로 돌아와 수정 EQ 를 올리는 단계(업로드가 열린 내 차례)면 접어 둔다 — 지금 할 일은 읽기가
-             아니라 올리기이고, 펼쳐 두면 올린 결과와 버튼 사이를 문항이 가른다. -->
-        <PartnerPcbEqAnswers
-          v-if="eqRounds.length > 0"
-          :rounds="eqRounds"
-          :collapsed-by-default="filesEditable && detail.eq.myRole === 'RECEIVER'"
-          class="mt-4"
-        />
 
         <div v-if="detail.eq.delegatePoId === null && !detail.eq.blocked">
           <!-- 지금 할 일 — 타임라인의 마지막 칸. 무엇을 해야 하는지 한 문장으로 못박고,
@@ -881,6 +910,27 @@ watch(locale, () => {
             <p v-if="nowTodo.hint !== ''" class="mt-1 text-xs leading-5 text-blue-700">
               {{ nowTodo.hint }}
             </p>
+            <!-- 고객 회신을 읽어야 하는 단계 — 요약만으로도 판단할 수 있게 한 줄로 보이고, 자세한 것은 아래 카드로 보낸다 -->
+            <div
+              v-if="eqRounds.length > 0 && (answerArrived || answerToReview)"
+              class="mt-2 flex flex-wrap items-center gap-1.5 text-xs"
+              data-testid="partner-eq-answer-pointer"
+            >
+              <span class="font-semibold text-blue-900">{{ pt('고객 선택 요약') }}</span>
+              <span
+                v-for="s in answerSummary"
+                :key="s.no"
+                class="rounded-md bg-surface px-2 py-0.5 font-mono font-bold text-violet-900 ring-1 ring-violet-200"
+              >{{ s.no }}: {{ s.key }}</span>
+              <button
+                type="button"
+                class="rounded-md border border-violet-200 bg-surface px-2 py-0.5 font-semibold text-violet-700 hover:bg-violet-50"
+                data-testid="partner-eq-answer-jump"
+                @click="void answersCard?.reveal()"
+              >
+                {{ pt('회신 보기') }} ↓
+              </button>
+            </div>
             <!-- 추가 EQ 요청으로 돌아온 건 — 무엇을 더 확인하려 했는지(요청 때 쓴 사유)를 다시 보인다.
                  수정 EQ 를 만드는 동안 이 문장이 작업 지시다. 사유는 쓴 그대로(번역하지 않는다). -->
             <div
@@ -951,9 +1001,9 @@ watch(locale, () => {
               <!-- 올린 파일 — 누른 자리에서 결과를 보고, 잘못 올렸으면 바로 지운다 -->
               <div class="mt-2 rounded-lg border border-blue-100 bg-surface p-2.5" data-testid="partner-eq-upload-list">
                 <p class="text-xs font-bold text-blue-900">{{ pt('올린 파일') }}</p>
-                <ul v-if="workingSetFiles.length > 0" class="mt-1.5 space-y-1">
+                <ul v-if="pendingFiles.length > 0" class="mt-1.5 space-y-1">
                   <li
-                    v-for="f in workingSetFiles"
+                    v-for="f in pendingFiles"
                     :key="f.fileId"
                     class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-2 py-1.5 text-xs transition-colors"
                     :class="freshFileIds.has(f.fileId) ? 'bg-emerald-50 ring-1 ring-emerald-300' : 'bg-gray-50'"
@@ -976,7 +1026,7 @@ watch(locale, () => {
                       :title="pt('같은 종류로 더 나중 파일이 있습니다 — 이건 이전 것입니다.')"
                     >{{ pt('이전') }}</span>
                     <button
-                      v-if="f.uploadedBy === myUploadRole"
+                      v-if="canDeleteFile(f)"
                       type="button"
                       class="ml-auto shrink-0 rounded-md border border-red-200 bg-surface px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40"
                       :disabled="removeFile.isPending.value"
@@ -1037,6 +1087,17 @@ watch(locale, () => {
           </button>
         </div>
       </section>
+
+      <!-- 고객 회신(D20) — EQ 카드 **아래의 별도 카드**. 타임라인과 '지금 할 일' 사이에 끼어 있을 때는 올린 파일과
+           업로드 버튼 사이를 갈랐다(2026-10-11 사용자 지적). 읽어야 하는 단계(승인 직후·승인 대기 중 회신 도착)에만
+           펼치고 그 밖에는 접는다 — '지금 할 일'의 요약 한 줄과 [회신 보기]가 이 카드를 가리킨다. 위임 상위(MD 관전)는
+           타임라인이 없어도 하위의 회차를 받으므로 위임 조건 밖에 둔다. -->
+      <PartnerPcbEqAnswers
+        v-if="eqRounds.length > 0"
+        ref="answersCard"
+        :rounds="eqRounds"
+        :collapsed-by-default="!(answerArrived || answerToReview)"
+      />
 
       <!-- P3 선적 — 발송 준비/핑퐁/입고확인 -->
       <section

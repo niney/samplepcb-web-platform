@@ -198,7 +198,7 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
   const todo = (page: Page) => page.getByTestId('partner-eq-now-todo');
   const reopenBtn = (page: Page) => page.getByTestId('partner-eq-reopen');
   const dialog = (page: Page) => page.getByRole('dialog');
-  /** 'EQ · 생산 진행' 카드 — 스텝퍼·타임라인·고객 회신·지금 할 일·액션 줄이 다 여기 있다. */
+  /** 'EQ · 생산 진행' 카드 — 스텝퍼·타임라인·지금 할 일·액션 줄. 고객 회신은 그 아래의 별도 카드다. */
   const eqSection = (page: Page) => page.locator('section', { has: page.getByTestId('partner-eq-now-todo') });
   const setLocale = async (page: Page, locale: PartnerLocale): Promise<void> => {
     await page.getByTestId('partner-language').selectOption(locale);
@@ -223,6 +223,19 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     await row.waitFor({ timeout: 30_000 });
     expect(await row.count(), '검색으로 좁힌 한 줄').toBe(1);
     return row.innerText();
+  };
+  const occurrences = (text: string, needle: string): number => text.split(needle).length - 1;
+  /** 관리자 대리 접속으로 올린다 — 서버가 올린 사람을 ADMIN 으로 적는다. */
+  const uploadEqAsProxy = async (partnerId: bigint | number, id: number, name: string): Promise<number> => {
+    const form = new FormData();
+    form.set('fileType', 'eq');
+    form.set('file', new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], name, { type: 'application/pdf' }));
+    const res = await fetch(`${API_URL}/api/partner/pcb-pos/${String(id)}/eq-files`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${A}`, 'x-sp-act-as-partner': String(partnerId) },
+      body: form,
+    });
+    return res.status;
   };
   const narrow = async (page: Page, label: string, name: string): Promise<void> => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -311,6 +324,12 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     const page = await openPo(owner.mbId ?? '', poId, projectName);
     await area(page).waitFor();
     expect(await area(page).innerText(), '승인 뒤 고객 회신 영역').toContain(COMMENT);
+    // 고객 회신은 EQ 카드 아래의 별도 카드 — 읽어야 하는 단계라 펼쳐져 있고, '지금 할 일'이 요약과 [회신 보기]로 가리킨다.
+    expect(await eqSection(page).getByTestId('partner-eq-answers').count(), 'EQ 카드 안에 있지 않다').toBe(0);
+    expect((await area(page).boundingBox())?.y ?? 0, 'EQ 카드 아래').toBeGreaterThan((await todo(page).boundingBox())?.y ?? 0);
+    expect(await page.getByTestId('partner-eq-answer-item').count(), '펼쳐져 있다').toBe(1);
+    expect(await page.getByTestId('partner-eq-answer-pointer').innerText(), '할 일 칸의 선택 요약').toContain('1: B');
+    expect(await page.getByTestId('partner-eq-answer-jump').count(), '[회신 보기]').toBe(1);
 
     const start = page.getByRole('button', { name: tr(START, 'ko'), exact: true });
     expect(await start.count(), '[생산 시작]').toBe(1);
@@ -417,6 +436,7 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     expect(await reopenBtn(page).count(), '돌아온 뒤엔 버튼 없음').toBe(0);
     expect(await page.getByRole('button', { name: tr('EQ 승인요청', 'ko'), exact: true }).count(), '다음 수 = 승인요청').toBe(1);
     expect(await area(page).count(), '고객 회신은 계속 보인다').toBe(1);
+    expect(await page.getByTestId('partner-eq-answer-pointer').count(), '준비 단계엔 할 일 칸이 회신을 가리키지 않는다').toBe(0);
 
     await shot(page, 'ko-issued');
     await assertNoOverflow(page, 'ko issued 1440');
@@ -508,6 +528,9 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     expect(btnBox !== null && rowBox !== null, '위치를 잴 수 있다').toBe(true);
     expect((rowBox?.y ?? 0) - ((btnBox?.y ?? 0) + (btnBox?.height ?? 0)), '올린 줄은 버튼 바로 아래(120px 안)').toBeLessThan(120);
     expect((rowBox?.y ?? 0) > (btnBox?.y ?? 0), '버튼보다 아래').toBe(true);
+    // 같은 파일이 타임라인 말풍선에 또 나오지 않는다 — 승인요청 전의 파일은 이 목록에만 있다.
+    expect(occurrences(await page.locator('main').innerText(), 'EQ-wrong.pdf'), '올린 파일은 한 곳에만').toBe(1);
+    expect(occurrences(await page.locator('main').innerText(), 'EQ-factory.pdf'), '승인된 1차 EQ 는 타임라인에만').toBe(1);
     await shot(page, 'ko-upload-uploaded');
 
     // ⑤ en/zh-CN — 목록에 한글이 남지 않는다. 390px 넘침 0.
@@ -531,6 +554,97 @@ describe.skipIf(!RUN)('추가 EQ 요청 — 협력사 포털 화면(D20 후속)'
     const after = await portalDetail(P, poId);
     expect(after.eq.files.map((f: any) => f.name), '서버에서도 지워졌고 승인된 파일은 남았다').toEqual(['EQ-factory.pdf']);
   });
+
+  // 2026-10-11 사용자 지적 둘: ① 같은 파일이 타임라인과 올린 파일 목록 양쪽에 나왔다 ② 관리자 대리 접속으로 올린
+  // 파일(올린 사람 ADMIN)은 올린 자리에서도 [삭제]가 없어 같은 파일을 세 번 올린 흔적이 남았다.
+  //  · 올린 파일 = 아직 승인요청 전인 것(목록에서 지운다) / 타임라인 = 요청에 실려 나간 것(기록)
+  //  · 반려돼 돌아온 파일은 기록이지만 승인된 적이 없으니 타임라인에서 ✕ 로 지울 수 있다
+  test('R3c. 파일은 한 곳에만 — 대리 접속으로 올린 것도 지울 수 있고, 반려된 파일은 타임라인에서 지운다', async () => {
+    const order = await createG5OrderFixture(customerId, 'e2e 추가 EQ 요청 파일');
+    orders.push(order);
+    const name = `E2E-EQR-FILE-${token}`;
+    const spec = await createOrderSpec({ mbId: customerId, ctId: order.ctId, projectName: name, category: 'standard' });
+    specIds.push(spec.id as bigint);
+    const po = await createPcbPo({ specId: spec.id, partnerId: owner.id, status: 'issued' });
+    seeded.push(po.id);
+    const id = Number(po.id);
+    const rows = (page: Page) => page.getByTestId('partner-eq-upload-row');
+    const timelineX = (page: Page) => page.getByRole('button', { name: tr('파일 삭제', 'ko') });
+
+    // ① 관리자 대리 접속 업로드 — 올린 사람이 ADMIN 으로 적힌다. 협력사 화면의 목록에 [삭제]가 선다.
+    expect(await uploadEqAsProxy(owner.id, id, 'EQ-proxy.pdf'), '대리 접속 업로드').toBe(200);
+    const first = await portalDetail(P, id);
+    expect(first.eq.files.map((f: any) => [f.name, f.uploadedBy]), '올린 사람 = ADMIN').toEqual([['EQ-proxy.pdf', 'ADMIN']]);
+    let page = await openPo(owner.mbId ?? '', id, name);
+    await rows(page).first().waitFor();
+    expect(await rows(page).first().innerText()).toContain('EQ-proxy.pdf');
+    expect(await page.getByTestId('partner-eq-upload-delete').count(), '대행이 올린 파일도 [삭제]').toBe(1);
+    expect(occurrences(await page.locator('main').innerText(), 'EQ-proxy.pdf'), '한 곳에만').toBe(1);
+    expect(await timelineX(page).count(), '타임라인엔 아직 아무 파일도 없다').toBe(0);
+
+    // ② 관리자가 대리 접속한 화면 — 띠가 서고, 자기가 올린 파일의 [삭제]가 보이고, 지워진다.
+    const admin = await newSession({ mbId: 'e2e-admin', isAdmin: true, ttlSec: 3600 });
+    sessions.push(admin);
+    await gotoApp(admin.page, `/partner/pcb/pos/${String(id)}?actAs=${String(owner.id)}`);
+    await admin.page.getByTestId('partner-act-as-banner').waitFor({ timeout: 30_000 });
+    await rows(admin.page).first().waitFor({ timeout: 30_000 });
+    expect(await admin.page.getByTestId('partner-eq-upload-delete').count(), '대리 접속 화면의 [삭제]').toBe(1);
+    await admin.page.screenshot({ path: join(SHOTS, 'reopen-ko-proxy-upload.png'), fullPage: true });
+    await admin.page.getByTestId('partner-eq-upload-delete').click();
+    const proxyConfirm = admin.page.getByRole('alertdialog');
+    await proxyConfirm.waitFor();
+    await proxyConfirm.getByRole('button', { name: tr('삭제', 'ko') }).click();
+    await admin.page.getByTestId('partner-eq-upload-empty').waitFor();
+    expect((await portalDetail(P, id)).eq.files, '대리 접속으로 지웠다').toEqual([]);
+
+    // ③ 올리고 승인요청 → 반려. 반려된 파일은 요청에 실려 나간 기록이라 타임라인에 있고, 승인된 적이 없으니 ✕ 가 선다.
+    expect(await uploadEq(P, id, 'EQ-rejected.pdf'), 'EQ 업로드').toBe(200);
+    await eqRequest(P, id);
+    const reject = await api(A, 'POST', `/api/admin/pcb-projects/${String(spec.id)}/pos/${String(id)}/eq-reject`, {
+      reason: '도면 번호가 다릅니다',
+    });
+    expect(reject.status, `반려: ${JSON.stringify(reject.json)}`).toBe(200);
+    const rejected = await portalDetail(P, id);
+    expect(rejected.status).toBe('issued');
+    expect(rejected.eq.files.map((f: any) => [f.name, f.locked]), '반려된 파일은 굳지 않았다').toEqual([['EQ-rejected.pdf', false]]);
+    page = await openPo(owner.mbId ?? '', id, name);
+    await page.getByTestId('partner-eq-upload-empty').waitFor();
+    expect(await rows(page).count(), '새로 올린 것은 아직 없다').toBe(0);
+    expect(occurrences(await page.locator('main').innerText(), 'EQ-rejected.pdf'), '반려된 파일은 타임라인에만').toBe(1);
+    expect(await timelineX(page).count(), '반려된 파일의 ✕').toBe(1);
+    expect(await page.getByTestId('partner-eq-upload-locked').count(), '굳은 파일은 없다').toBe(0);
+
+    // ④ 보완 파일을 올린다 — 새 것은 목록에만, 반려된 것은 타임라인에만(양쪽에 겹치지 않는다).
+    expect(await uploadEq(P, id, 'EQ-fixed.pdf'), '보완 업로드').toBe(200);
+    page = await openPo(owner.mbId ?? '', id, name);
+    await rows(page).first().waitFor();
+    expect(await rows(page).allInnerTexts().then((t) => t.filter((x) => x.includes('EQ-')).length), '목록엔 보완 파일 하나').toBe(1);
+    expect(await rows(page).first().innerText()).toContain('EQ-fixed.pdf');
+    const text = await page.locator('main').innerText();
+    expect(occurrences(text, 'EQ-fixed.pdf'), '보완 파일 한 곳').toBe(1);
+    expect(occurrences(text, 'EQ-rejected.pdf'), '반려 파일 한 곳').toBe(1);
+    await shot(page, 'ko-files-split');
+    await narrow(page, 'ko files split', 'ko-files-split-390');
+
+    // ⑤ 반려된 파일을 타임라인에서 지운다 — 한 번 묻고 지우고, 보완 파일은 남는다.
+    await timelineX(page).click();
+    const confirm = page.getByRole('alertdialog');
+    await confirm.waitFor();
+    expect(await confirm.innerText(), '무엇을 지우는지 말한다').toContain('EQ-rejected.pdf');
+    await confirm.getByRole('button', { name: tr('삭제', 'ko') }).click();
+    await expect.poll(async () => timelineX(page).count(), { timeout: 15_000 }).toBe(0);
+    expect((await portalDetail(P, id)).eq.files.map((f: any) => f.name), '반려 파일만 지워졌다').toEqual(['EQ-fixed.pdf']);
+
+    // ⑥ 승인요청을 누르면 목록의 파일이 요청과 함께 타임라인으로 넘어간다(잠김 — ✕ 없음).
+    await eqRequest(P, id);
+    page = await openPo(owner.mbId ?? '', id, name);
+    await todo(page).waitFor();
+    expect(await page.getByTestId('partner-eq-upload-list').count(), '요청 뒤엔 목록이 없다').toBe(0);
+    expect(occurrences(await page.locator('main').innerText(), 'EQ-fixed.pdf'), '타임라인으로 넘어갔다').toBe(1);
+    expect(await timelineX(page).count(), '요청 중엔 ✕ 없음').toBe(0);
+    for (const s of sessions) expect(s.pageErrors, '화면 예외').toEqual([]);
+  });
+
   test('R4. 새 파일 → 재승인 → 생산 시작 — 이전 회차의 답을 다시 확인하라 하지 않고, 시작 뒤엔 버튼이 없다', async () => {
     // 수정한 EQ 를 올리면 안내가 "승인요청을 진행"으로 바뀐다.
     expect(await uploadEq(P, poId, 'EQ-factory-rev2.pdf'), '수정 EQ 업로드').toBe(200);
