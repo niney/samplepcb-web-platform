@@ -1005,13 +1005,13 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 5호 — 공급 차질 → 잔량 
       partnerBView,
       '/app/partner/bom/shipments/done',
       'E07-recovery-partner-done',
-      ['완료된 발송', `발송 #${String(shipmentBId)}`, '완료된 발송 · 문서 잠금'],
+      ['선적 완료 내역', `선적 #${String(shipmentBId)}`, '완료된 선적 · 문서 잠금'],
     );
     const doneCard = partnerBView.page
-      .getByText(`📦 발송 #${String(shipmentBId)}`, { exact: true })
+      .getByText(`📦 선적 #${String(shipmentBId)}`, { exact: true })
       .locator('../..');
     expect(
-      await doneCard.getByText('완료된 발송 · 문서 잠금', { exact: false }).count(),
+      await doneCard.getByText('완료된 선적 · 문서 잠금', { exact: false }).count(),
     ).toBe(1);
     expect(await doneCard.getByRole('button', { name: '삭제', exact: true }).count()).toBe(0);
     expect(await doneCard.getByText('교체', { exact: true }).count()).toBe(0);

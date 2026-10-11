@@ -193,7 +193,7 @@ watch(locale, () => {
           :class="boxes.length === 0 ? 'border-gray-200 bg-gray-50/50' : 'border-teal-300 bg-teal-50/40'"
         >
           <h2 class="text-sm font-bold" :class="boxes.length === 0 ? 'text-gray-500' : 'text-teal-800'">
-            {{ pt('📦 PCB 출하 목록') }} <span v-if="boxes.length > 1" class="font-normal text-teal-600">{{ pt('— 받는 곳별 {value1}개', { value1: pn(boxes.length) }) }}</span>
+            {{ pt('📦 PCB 선적 목록') }} <span v-if="boxes.length > 1" class="font-normal text-teal-600">{{ pt('— 받는 곳별 {value1}개', { value1: pn(boxes.length) }) }}</span>
           </h2>
 
           <p

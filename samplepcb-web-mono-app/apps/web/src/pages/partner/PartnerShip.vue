@@ -152,7 +152,7 @@ async function takeOut(poId: number): Promise<void> {
         :class="box === null ? 'border-gray-200 bg-gray-50/50' : 'border-indigo-300 bg-indigo-50/40'"
       >
         <h2 class="text-sm font-bold" :class="box === null ? 'text-gray-500' : 'text-indigo-800'">
-          {{ pt('📦 이번 출하 목록') }} <span v-if="box !== null" class="font-normal text-indigo-500">{{ pt('— {value1}건 담김', { value1: box.groupPos.length }) }}</span>
+          {{ pt('📦 이번 선적 목록') }} <span v-if="box !== null" class="font-normal text-indigo-500">{{ pt('— {value1}건 담김', { value1: box.groupPos.length }) }}</span>
           <span v-if="box !== null" class="ml-1 rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">
             {{ pt(BOM_SHIPMENT_MODE_LABELS[box.mode]) }}
           </span>

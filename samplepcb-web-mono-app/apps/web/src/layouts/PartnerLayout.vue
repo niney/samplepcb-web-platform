@@ -23,8 +23,8 @@ import AppThemeToggle from '../components/AppThemeToggle.vue';
 const MENU_LABELS: Record<string, string> = {
   'partner.modules.bom': 'BOM 부품', 'partner.modules.pcb': 'PCB 제작',
   'partner.menu.home': '홈 · 오늘 할 일', 'partner.menu.rfqs': '견적요청',
-  'partner.menu.pos': '발주 관리', 'partner.menu.ship': '출하 준비',
-  'partner.menu.pcbShip': '출하 준비', 'partner.menu.shipmentsDone': '출하 완료 내역',
+  'partner.menu.pos': '발주 관리', 'partner.menu.ship': '선적 관리',
+  'partner.menu.pcbShip': '선적 관리', 'partner.menu.shipmentsDone': '선적 완료 내역',
   'partner.menu.as': 'A/S', 'partner.menu.remittances': '수금 현황', 'partner.menu.parts': '보유 부품',
   'partner.menu.children': '하위 협력사',
 };
