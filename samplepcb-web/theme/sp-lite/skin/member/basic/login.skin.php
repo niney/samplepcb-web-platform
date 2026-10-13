@@ -32,7 +32,7 @@ add_stylesheet('<link rel="stylesheet" href="'.$member_skin_url.'/style.css?ver=
 
                 <div class="mb_login_field mb_login_field--id">
                     <label for="login_id" class="sound_only">회원아이디<strong class="sound_only"> 필수</strong></label>
-                    <input type="text" name="mb_id" id="login_id" required class="frm_input required" size="20" maxLength="20" placeholder="User ID" autocomplete="username">
+                    <input type="text" name="mb_id" id="login_id" required class="frm_input required" size="20" maxLength="30" placeholder="User ID" autocomplete="username">
                 </div>
                 <div class="mb_login_field mb_login_field--pw">
                     <label for="login_pw" class="sound_only">비밀번호<strong class="sound_only"> 필수</strong></label>
