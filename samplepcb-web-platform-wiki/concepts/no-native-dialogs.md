@@ -1,6 +1,6 @@
 ---
 concept: 네이티브 대화상자를 쓰지 않는다 (No Native Dialogs)
-last_compiled: 2026-09-19
+last_compiled: 2026-10-12
 topics_connected: [sp-vue-web, theme-sp-lite, spcb-bridge, sp-develop-web, docs-knowledge, partner-tracks]
 status: active
 ---
@@ -18,6 +18,9 @@ status: active
 대체물은 두 벌이다 — Vue 쪽 `confirmDialog()` + 앱 루트 `UiConfirmHost` 하나(+값 입력은 `UiPromptModal`), PHP 테마 쪽 `js/sp-dialog.js`. 둘 다 **호출 모양은 네이티브 그대로**(`if (!(await confirmDialog('…'))) return;`) 유지해 교체 비용을 호출부에 떠넘기지 않았다.
 
 ## Instances
+- **2026-10-11** in [theme-sp-lite](../topics/theme-sp-lite.md) / [spcb-bridge](../topics/spcb-bridge.md) / [partner-tracks](../topics/partner-tracks.md): 고객 결정 화면 2종(EQ 문항형 회신·부품 확인)도 `spDialog`, 브리지 결과 안내는 `sp_msg` + sp-dialog. 묻는 **때**도 정했다 — 의견을 적은 뒤 선택을 바꾸면 그 자리에서 묻지도 지우지도 않고 알리기만 하고, [회신] 버튼에서 한 번만 묻는다
+- **2026-10-11** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): **확인은 무언가를 덮을 때만** — 마스터딜러 견적 화면은 회신을 만드는 두 길(하위 선정·직접 입력) 중 다른 길의 회신을 덮을 때만 `confirmDialog` 를 띄운다. 반대로 확인을 붙일 수 없는 자리에는 조작 자체를 두지 않는다 — 파트너 관리 목록에 마스터딜러 토글을 두지 않은 이유(행 클릭과 겹쳐 오조작)
+- **2026-10-06** in [sp-vue-web](../topics/sp-vue-web.md): 리뉴얼 화면이 규율을 **같은 호출 문법으로** 받았다 — `next/lib/dialog.ts` 의 `confirmDialog`·`promptDialog`(약 82곳; 옛 화면·포털의 `confirmDialog` 는 약 77곳). 값 입력 뒤 저장이 따르는 경우 `submit`·`errorFallback` 으로 **대화상자를 연 채 저장**해 실패해도 입력이 날아가지 않는다
 - **2026-09-19 (스캔)** in [sp-vue-web](../topics/sp-vue-web.md): 실측 성적표 — `apps/*/src`·`packages/*/src` 전체에서 `window.confirm` 실호출 **0건**(남은 3건은 전부 "쓰지 말라"는 주석), `window.prompt` 실호출 **1건**(`BomRfqPanel.vue` — 클립보드 복사 실패 시 링크를 직접 복사하게 하는 폴백). `confirmDialog(` 호출은 63곳
 - **2026-09-09~11** in [sp-develop-web](../topics/sp-develop-web.md): 개발 모듈이 규율을 그대로 상속 — 위저드의 확인 대화는 **전부 인라인 패널**(파일 헤더가 "네이티브 confirm 금지"를 명시), 편집 중 이탈 가드는 `confirmDialog`(라우터) + `beforeunload` 조합. 관리자 상세의 상태 사유 입력도 인라인
 - **2026-09-05 ~ 09-08** in [docs-knowledge](../topics/docs-knowledge.md) / [sp-vue-web](../topics/sp-vue-web.md): **워커 지시서의 공통 불변식에 들어갔다** — `docs/prompts/` 지시서 골격의 불변식 목록이 파일 스코프·타입 강성·커밋 금지와 나란히 **"네이티브 confirm 금지"**를 적는다. 관리자 화면 지시서 5편(`develop-phase1b`·`2b`·`wizard-v2b`·`followup-admin`·`dev-review-phase4b`)이 같은 줄을 반복한다 — 규율이 코드 리뷰가 아니라 **작업 계약**으로 굳은 지점

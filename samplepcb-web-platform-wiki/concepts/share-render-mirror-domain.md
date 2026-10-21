@@ -1,7 +1,7 @@
 ---
 concept: 렌더는 추출해 공유, 도메인 어휘는 격리 (Share Render, Mirror Domain)
-last_compiled: 2026-09-19
-topics_connected: [shared-packages, sp-market-web, sp-develop-web, api-contract, sp-node-api, partner-tracks]
+last_compiled: 2026-10-12
+topics_connected: [shared-packages, sp-market-web, sp-develop-web, api-contract, sp-node-api, partner-tracks, sp-vue-web]
 status: active
 ---
 
@@ -17,6 +17,9 @@ status: active
 [judgment-single-owner](judgment-single-owner.md)와 짝이되 **방향이 반대**다 — 그쪽은 "같은 판단을 두 번 구현하지 말라", 이쪽은 "다른 도메인의 어휘를 한 벌로 합치지 말라". 두 규율이 만나는 자리가 계약 패키지다: 판정 함수는 한 곳, 트랙 사전은 파일별로 따로.
 
 ## Instances
+- **2026-10-11 (공유가 낳은 결합)** in [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md): 포털 문구 파일(`partner/locales`)이 BOM·PCB **공용**이라 PCB 를 보고 정한 '선적' 어휘 통일이 BOM 포털 화면도 함께 바꿨다. 같은 날 선적 상태 사전이 두 트랙 공용이라 '선적 완료'를 상태로 넣지 못했다([record-not-state](record-not-state.md)). 공유한 것은 한쪽만 고칠 수 없다 — 이 개념의 비용 쪽 사례
+- **2026-10-09** in [api-contract](../topics/api-contract.md) / [partner-tracks](../topics/partner-tracks.md): BOM 송금 원장은 PCB 와 **같은 모양·같은 규칙**이되 사전은 따로(`BOM_REMITTANCE_STATUSES`) — 08-06 "공용화 아님" 결정을 유지했다. 문항형 고객 확인도 같다: D43(부품 확인)과 D20(EQ 문항)이 요청 1건 = 문항 N × 선택지·낙관적 잠금·대리 회신(채널+메모)이라는 형식을 공유하지만 유형·선택지 사전은 격리돼 있다
+- **2026-10-06~11** in [sp-vue-web](../topics/sp-vue-web.md): 관리자 리뉴얼 키트 — `next/components/common` 의 모듈 무관 조각(`PageHeader`·`QueueTabs`·`TableCard`·`SectionCard`·`Panel`…)은 공유하고 모듈 폴더는 업무 부품, **배지 색은 모듈마다 한 곳**. 손으로 지은 상자 123건을 `next-ui-audit` 가 키트로 되돌렸다. 화면 사이에서도 "같은 일은 같은 모양" — EQ 작업공간은 D43 작성 패널과 같은 넓은 오른쪽 패널이고, 선적 스텝퍼는 `lib/pcb-ship-steps.ts` 하나를 보내기 카드와 발주 상세가 같이 쓴다
 - **2026-09-11** in [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰 문서·업무표가 마켓과 무관한 자체 사전(`DEVELOP_DOC_*`·업무 단계 6)으로 서고, 달성도 산식만 계약 순수 함수로 공유. 같은 "문서"라는 낱말이 두 트랙에서 다른 것을 가리킨다
 - **2026-09-08** in [api-contract](../topics/api-contract.md) / [sp-market-web](../topics/sp-market-web.md): **팩토리는 공유, 내용물은 분리** — `area-registry.ts`의 `createAreaRegistry()` 하나에서 `MARKET_REGISTRY`/`DEVELOP_REGISTRY`가 갈라진다. 마켓 export 이름·시그니처·프롬프트·JSON 스키마는 **바이트 동일**(회귀 e2e-market 148/0이 그 가드)이고, 개발의뢰는 `mech` 분야·`kind:'text'` 서술 문항을 자기 쪽에만 더한다. `DEVELOP_BUDGET_RANGES`는 마켓 것과 **단위 자체가 달라** 교차 import 금지
 - **2026-09-05** in [shared-packages](../topics/shared-packages.md) / [sp-market-web](../topics/sp-market-web.md): **`@sp/ui` 신설이 이 개념의 정의 사건** — 관리자가 고객과 같은 렌더러로 검토서를 미리 봐야 하는데 복사하면 3앱이 갈린다. 마켓에서 i18n 미사용·`@sp/*` 의존만인 7컴포넌트를 옮기고 `copper-*`→`brand-*`. 추출의 조건 넷이 패키지 헤더에 명문화됐다 — **i18n 미사용**(도메인 라벨은 계약 상수) · **시맨틱 토큰 이름만**(`brand-*`·`ink-*`·`--color-area-*`, 값은 각 앱 `@theme`이 정함 — 마켓은 카퍼 별칭, develop 은 일렉트릭 블루) · **API 경로 비하드코딩**(`filesPath` prop) · **레지스트리는 인자**(`DevReviewView :registry`)
@@ -41,3 +44,4 @@ status: active
 - [api-contract](../topics/api-contract.md)
 - [sp-node-api](../topics/sp-node-api.md)
 - [partner-tracks](../topics/partner-tracks.md)
+- [sp-vue-web](../topics/sp-vue-web.md)

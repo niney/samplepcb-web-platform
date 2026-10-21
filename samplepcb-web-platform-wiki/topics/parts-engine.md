@@ -1,7 +1,7 @@
 ---
 topic: parts-engine
-last_compiled: 2026-09-19
-sources_count: 36
+last_compiled: 2026-10-12
+sources_count: 38
 status: active
 ---
 
@@ -9,7 +9,7 @@ status: active
 
 ## Purpose [coverage: high — 8 sources]
 
-소스 범위는 2026-07-18(이식 커밋)부터 2026-09-18([BOM_QUOTE](../../docs/BOM_QUOTE.md) 최종 갱신)까지, 엔진 코드 자체의 마지막 변경은 2026-09-14다. **최근 합의(2026-08-19~09-14)**는 "엔진의 입구를 넓히되 판단은 여전히 엔진 안에서만"이다 — 두 번째 추출 프로필(`inventory`), 로컬 소스 주입(`local_products`), 강제 라이브(`force_live`), 조회 identity 덮어쓰기(`identity_overrides`)가 모두 **옵션·입력 통로**로만 추가됐고, 후보 판정·조달 판정 경로는 하나다. **이전 패턴(2026-07-18~07-27)**은 패리티 이식과 판단 계약 단일화였다. 2026-07-27 컴파일 이후 엔진 커밋 18건(파일 변경 횟수: 검색 src 35·추출 src 12·app src 9) 중 엔진만 고친 커밋은 2건(07-27 핀헤더 정밀화·08-21 다단 헤더)이고 나머지 16건은 sp-node·sp-vue와 한 커밋에 묶였다 — 엔진 변경은 거의 항상 소비자 계약 변경을 동반한다.
+소스 범위는 2026-07-18(이식 커밋)부터 2026-10-05([BOM_QUOTE](../../docs/BOM_QUOTE.md) 최종 갱신)까지, 엔진 코드 자체의 마지막 변경은 2026-09-30(양산 Reel 사유 충돌 교정, `procurement.py` 6줄 — 2026-09-19 컴파일 이후 유일한 엔진 변경)이다. **최근 합의(2026-08-19~09-14)**는 "엔진의 입구를 넓히되 판단은 여전히 엔진 안에서만"이다 — 두 번째 추출 프로필(`inventory`), 로컬 소스 주입(`local_products`), 강제 라이브(`force_live`), 조회 identity 덮어쓰기(`identity_overrides`)가 모두 **옵션·입력 통로**로만 추가됐고, 후보 판정·조달 판정 경로는 하나다. **이전 패턴(2026-07-18~07-27)**은 패리티 이식과 판단 계약 단일화였다. 2026-07-27 컴파일 이후 엔진 커밋 19건(파일 변경 횟수: 검색 src 36·추출 src 12·app src 9) 중 엔진만 고친 커밋은 3건(07-27 핀헤더 정밀화·08-21 다단 헤더·09-30 양산 Reel 사유)이고 나머지 16건은 sp-node·sp-vue와 한 커밋에 묶였다 — 엔진 변경은 거의 항상 소비자 계약 변경을 동반한다.
 
 `samplepcb-parts-engine/`(별칭 **sp-engine**)은 PCB 부품 **BOM 추출 + 공급사 검색**을 담당하는 Python 엔진이다. `samplepcb-web-platform` 단일 repo의 형제 서브폴더로 폴리글랏 우산을 완성한다: `samplepcb-web/`=PHP, `samplepcb-web-mono-app/`=Vue+Node, `samplepcb-parts-engine/`=**Python**. 출처는 `sp-smartbom-eye/bom_probing_web` 실험용 웹앱이며, 2026-08-23부터는 협력사 재고표까지 읽는 **두 번째 입력 프로필**을 가진다([PARTNER_PARTS](../../docs/PARTNER_PARTS.md)).
 
@@ -20,7 +20,7 @@ status: active
 - **sp-engine ↔ sp-vue 직접 연결 금지.** sp-vue는 `selection_eligibility`·`reason_codes`·`search_scope`·수명주기 상태를 *표시*할 뿐 재판정하지 않는다.
 - 필요한 판단이 엔진에 없으면 응용 계층에서 추측하지 말고, 엔진 수정 필요성을 사용자에게 알린 뒤 **엔진부터 고친다**. 2026-08-04 `search_scope`(Any Vendor 근거)·2026-09-14 수량 누락 상태가 이 규칙의 실제 사례다 — 화면이 필요로 한 구분을 엔진 필드로 먼저 만들었다.
 
-## Architecture [coverage: high — 10 sources]
+## Architecture [coverage: high — 11 sources]
 
 **uv workspace** (루트는 aggregator, `[tool.uv] package = false`). `requires-python >= 3.11`, 공유 `.venv` 하나(`uv sync`). 멤버는 `packages/*` + `app`:
 
@@ -33,7 +33,7 @@ status: active
 - **두 추출 프로필은 모드 플래그가 아니라 모듈 분리**: BOM 추출기는 단가·재고·stock 열을 `_IGNORE_PAT`로 명시 폐기하고 재고 시트를 fail-closed 기각하는데, 재고표는 정확히 그 반대의 표라 같은 파이프라인에 분기를 넣으면 회귀 위험만 커진다(`inventory.py` 머리말, 2026-08-23). `inventory-rules/1.0`은 무유실(`part_number_raw`·`raw_fields`·`flags`)·판단 최소·`role_overrides` 재실행이 원칙이다.
 - **로컬 회귀 코퍼스(2026-08-21)**: `local-corpus/bom-extraction/`에 실제 고객 BOM을 SHA-256 단위로 보관한다(`workbooks/`·`manifest.local.json`·`reports/`는 Git 제외, [corpus README](../../samplepcb-parts-engine/local-corpus/bom-extraction/README.md)·[manifest.example.json](../../samplepcb-parts-engine/local-corpus/bom-extraction/manifest.example.json)만 추적). `scripts/verify-bom-extraction-corpus.py --check headers|extraction|all`이 시트 단위 정답(헤더 블록·anchor 허용 행·component 첫 행·금지 행·기대 열)을 검사하며, **정답은 엔진 결과를 보기 전에 원본 셀로 작성**한다(runner는 엔진 출력에서 기대값을 절대 유도하지 않는다). 08-21 실측 206파일·350시트·0이슈, 사람 확인 헤더 정답 111/111. 새 실파일 패턴은 개인정보를 뺀 합성 테스트로도 `tests/`에 고정한다.
 - 의존성 대비: 추출 엔진은 pandas·openpyxl·python-calamine·xlrd·rapidfuzz·model2vec·scikit-learn 등 두터운 편, 검색 엔진은 httpx+pydantic 최소, app은 fastapi+uvicorn+python-multipart+python-dotenv.
-- 테스트: 루트 pytest가 세 워크스페이스 `tests/`를 한꺼번에 수집(`asyncio_mode = "auto"`). 이식 시점 171 → 07-27 537 → **2026-09-19 수집 기준 640건 / 29파일**(08-24 커밋 메시지 627, 09-14 추출 패키지만 179). 검색 엔진 15본·추출 10본·app 4본.
+- 테스트: 루트 pytest가 세 워크스페이스 `tests/`를 한꺼번에 수집(`asyncio_mode = "auto"`). 이식 시점 171 → 07-27 537 → **2026-09-19 수집 기준 640건 / 29파일**(08-24 커밋 메시지 627, 09-14 추출 패키지만 179) → 2026-09-30 **642 passed·1 skipped**(커밋 `6638bfe37` 본문 — `test_procurement.py` 에 회귀 3건 추가, 파일 수는 29 그대로). 검색 엔진 15본·추출 10본·app 4본.
 - 실행 스크립트 `run.sh` / `run.ps1`(uv 확인 + `.env` 부트스트랩 + `uv sync` + uvicorn, 포트 인자 지원).
 
 ## Talks To [coverage: high — 9 sources]
@@ -42,7 +42,7 @@ status: active
 - **nginx location 없음.** README 머리말의 "nginx `/engine` 프록시" 문구와 달리 로컬·운영 nginx 어디에도 `/engine`은 없다 — 운영 설정 주석대로 "sp-engine :8400 은 sp-api 가 내부 호출하므로 location 을 만들지 않는다"(dev 호스트는 `sp-engine-dev :8401`). 운영 기동은 `ops/systemd/sp-engine.service`(`uv run --no-sync uvicorn … --host 127.0.0.1 --port 8400`, 127.0.0.1 바인딩 필수)와 루트 `deploy.sh` 케이스 10(`uv sync --frozen` + `systemctl restart sp-engine` + `/health` 확인) — 상세는 [infrastructure](infrastructure.md).
 - **외부 공급사 API**(supplier-search-engine만): Mouser(API key), DigiKey(OAuth2 client_credentials, 2026-08-02부터 **Substitutions API**를 재고 부족 시 조건부 1회 추가 호출), UniKeyIC(API key + base URL). 동시 호출 수 `SEARCH_SUPPLIER_CONCURRENCY`(기본 4), 작업 시간 상한 `SEARCH_JOB_TIMEOUT_SECONDS`(기본 60초). BOM 추출은 네트워크·자격증명 모두 불필요.
 - **로컬 소스 identity**(외부 호출 아님): `CatalogSupplier` enum — `samplepcb`·`yeonho`·`walsin`·`yageo`·`samsung`·`murata`·`tdk`·`vishay`·`koa` + 2026-08 추가 `eleparts`·`icbanq`·**`partner`**. "never routed as external clients" — DB는 sp-node가 조회하고 엔진은 그 히트를 **판정만** 한다. `partner`는 sp-node가 검색 잡 옵션 `local_products`(키=정규 품번)로 주입하는 협력사 보유 부품([partner-tracks](partner-tracks.md))이며, **exact 품번 질의에만** 붙고 파라메트릭 질의에는 주입하지 않는다(스펙 호환 판정을 협력사 주장에 기대지 않는다).
-- **엔진이 관여하지 않는 인접 기능(명시)**: DigiKey/Mouser API 카트 인계(D41)와 ECIA 2D 라벨 바코드 입고 스캔(D42)은 엔진 소스에 흔적이 없다(`cart|barcode|ecia` grep 0건) — 전부 sp-node 몫이다. 2026-09-17~18 단일 검색 "공급사 확인 후 최종 후보 누락 없이 표시"(커밋 `59a232e85`)도 sp-node·sp-vue·api-contract만 바꿨고 엔진 응답 계약은 그대로다.
+- **엔진이 관여하지 않는 인접 기능(명시)**: DigiKey/Mouser API 카트 인계(D41)와 ECIA 2D 라벨 바코드 입고 스캔(D42)은 엔진 소스에 흔적이 없다(`cart|barcode|ecia` grep 0건) — 전부 sp-node 몫이다. 2026-09-17~18 단일 검색 "공급사 확인 후 최종 후보 누락 없이 표시"(커밋 `59a232e85`)도 sp-node·sp-vue·api-contract만 바꿨고 엔진 응답 계약은 그대로다. 2026-10-01 단일 검색 "구매 조건 없는 후보 목록" 제거(커밋 `a3c410a83`)도 같다 — 원인은 DB 에서 사라진 부품의 옛 ES 문서였고, sp-node 카탈로그 검색이 그런 부품을 응답에서 빼도록 고쳤을 뿐 엔진·DB 스키마·API 계약 변경은 없다(운영 ES 의 옛 문서는 `parts:reindex --recreate` 로 별도 정리).
 
 ## API Surface [coverage: high — 6 sources]
 
@@ -72,8 +72,9 @@ status: active
 - **2026-08 신설 enum**: `SearchScope`(`part_number`·`manufacturer_spec`·`any_vendor_spec`·`not_searchable`, 컴포넌트 결과가 최종 질의에서 파생), `LifecycleCode`(`nrnd`·`eol`·`discontinued`·`obsolete` + `unknown`), `ReplacementSource`(`digikey_substitution`·`engine_stock_fallback`·`engine_procurement_fallback`·`engine_mpn_fallback`), trace 시도 종류 `stock_alternative`. `CatalogProductMetadata`에 `partner_id`·`partner_stock_qty`·`partner_date_code`·`partner_lead_time`·`partner_uploaded_at`(조직명은 담지 않음).
 - DB(Prisma/그누보드)와 직접 연결 없음 — 파일 업로드 또는 JSON 스냅샷 입력, JSON 구조화 출력. `contracts/fixtures/component-record.json`은 sp-node와 공유하는 골든(2026-07-24).
 
-## Key Decisions [coverage: high — 14 sources]
+## Key Decisions [coverage: high — 16 sources]
 
+- **2026-09-30 — 후보 교체 사유는 하나뿐: 양산 Reel 선택은 그룹이 그대로일 때만 포장 사유로 올린다**: `mass` 모드에서 동급 그룹을 가격으로 교체(`price_optimization_used`)한 뒤 Reel 오퍼를 고르면 `packaging_preference_used` 까지 켜져 사유가 둘이 됐고, `ComponentProcurementDecision` 검증기("changed application candidates require exactly one application reason")가 거부했다(운영 견적 231·226, 양산에서만 발생). 수정은 `procurement.py` 6줄 — 적용 그룹이 기술 1순위(`preselected_group`) 그대로일 때만 포장 플래그를 올리고, 가격·기술 대체로 이미 바뀐 경우엔 그 사유를 유지한 채 `mass_production_reel_preferred` **사유 코드**로만 남긴다. sp-node 는 Reel 표시를 사유 코드에서 읽어 화면 표시는 유지되고, 양산 기술 대체+Reel 이 포장 사유로 오표기되던 것도 샘플과 같은 기술 대체로 교정됐다. 정책 버전 리터럴(`supplier-selection-application-v4`)은 올리지 않았다. 회귀 테스트 3건(가격 교체+Reel·기술 대체+Reel·더 비싼 Reel 동급 그룹 — 수정 전 코드에서 2건 실패 확인), 운영 231 행을 같은 캐시·API 0회로 재생해 확인.
 - **2026-09-14 — 기술 사양 개수 열은 구매 수량이 아니다**: `outputs/inputs/channels/circuits/gates/pins/positions/contacts`(+한글 출력·입력·채널·회로·핀·접점 수) 헤더를 `_TECHNICAL_COUNT_PAT`로 수량 분류·참조번호 상관 추론·숫자 내용 추론 **세 곳 모두에서 제외**. 수량 열이 없는 BOM은 기본값 1 대신 `quantityState=missing`으로 내려 sp-vue가 재업로드/행별 직접 입력을 안내한다. 기존 견적 스냅샷은 일괄 수정하지 않고 새 업로드부터 적용.
 - **2026-08-24 — 합성 코퍼스는 회귀 방지용이지 발견용이 아니다**: 재고표 병리(헤더 5행 아래·품번의 날짜 변환·앞자리 0 손실·소계 행·중간 머리글·병합 셀·전각·숨긴 열)를 3본에 **섞어** 담았다(실제 파일이 그렇게 오고 겹칠 때가 사고 지점). 그래도 결함 둘을 즉시 잡았다 — `1k`가 1로 읽힘(`_parse_int` k 접미 ×1,000), 소계·재출현 머리글이 검토 표시 없이 부품으로 앉음(영숫자 없는 값은 `mpn_needs_review`, 버리지 않는다).
 - **2026-08-23 — 협력사 보유 부품 = 같은 자리·뒤순위 후보(D43)**: 별도 폴백 티어를 만들지 않는다. ① 외부 후보와 **같은 matcher·조달 정책** ② 기술 판정 동률이면 `_source_rank`(실공급사 0·로컬 카탈로그 1·협력사 2 — 알파벳순이면 `partner`가 `unikeyic`을 앞지른다) ③ 외부 호출·캐시·trace 미오염(`api_calls` 0 유지). offers가 없어 자동 선정은 불가, 값은 RFQ 회신이 정본. 같은 날 실검색으로 잡은 결함 둘: 엔진 회신 `catalog_metadata`는 **snake_case**(`partner_id`, 보낼 땐 alias `partnerId`)·대체 폴백 재검색과 병합 재평가에도 `local_products`를 다시 넘겨야 한다(안 넘기면 협력사가 유일한 근거인 희귀 품번에서 정확히 사라진다).
@@ -98,22 +99,23 @@ status: active
 - **2026-07-21 — 후보 판단 단일 소유권**(`supplier-candidate-decision-v3`, [sp-engine-candidate-decision](../../docs/prompts/sp-engine-candidate-decision.md)): 후보마다 완결된 `decision`을 반환, 근거 부족은 `blocked`로 축퇴.
 - **2026-07-18 — 패리티 우선·리팩토링 나중**(연구 계보 re-sync 대상 vendored 코드, 리팩토링은 `app/`에 집중) · **기본 포트 8400**(Windows Hyper-V/WSL 예약 범위 8089–8188 회피).
 
-## Gotchas [coverage: high — 9 sources]
+## Gotchas [coverage: high — 10 sources]
 
-- **README 머리·구조 절이 뒤처진다**(본문은 2026-08-19까지 갱신됨): "현재 437 passed"(실제 수집 640)·`parser_version="smartbom-rules/1.6"`(실제 `1.12`)·`app/ ← Phase 2 (예정)`(운영 중)·"nginx `/engine` 프록시"(location 없음). 버전·개수는 코드 상수(`engine.py PARSER_VERSION`, `models.py`, `inventory.py`)를 정본으로 볼 것([manual-sync-drift](../concepts/manual-sync-drift.md)).
+- **한 행의 세 공급사가 한꺼번에 "미실행·0ms·오류"면 공급사 장애가 아니라 엔진 후처리 예외다(2026-09-30 실측)**: `service.py` 의 배치 격리(`except Exception … # Batch isolation: preserve every component row`)가 행 단위 예외를 삼키고 `_batch_failure_result` 로 합성한다 — 메시지는 고정 문구("공급사 검색 작업을 완료하지 못했습니다.")로 바뀌고 남는 단서는 `error_type`(예외 클래스명, `_batch_error_type`)뿐이다. 양산 Reel 결함이 운영에서 이 모양(`ValidationError`)으로만 보였고, 원인은 같은 행을 같은 캐시로 재생해서야 드러났다.
+- **README 머리·구조 절이 뒤처진다**(본문은 2026-08-19까지 갱신됨): "현재 437 passed"(실제 2026-09-30 기준 642 passed·1 skipped)·`parser_version="smartbom-rules/1.6"`(실제 `1.12`)·`app/ ← Phase 2 (예정)`(운영 중)·"nginx `/engine` 프록시"(location 없음). 버전·개수는 코드 상수(`engine.py PARSER_VERSION`, `models.py`, `inventory.py`)를 정본으로 볼 것([manual-sync-drift](../concepts/manual-sync-drift.md)).
 - **운영 배포 문서가 갈려 있다**: [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md)(2026-09-16 갱신)에는 엔진 절이 **없다** — 구성 표가 nginx·php-fpm·sp-api·mariadb 넷뿐이다. 엔진 운영 정본은 `ops/systemd/sp-engine.service` 머리말(uv 설치 → `uv sync` → `.env` → 유닛 등록 → `/health`) + `deploy.sh` 케이스 10 + `ops/README.md`. 유닛은 `--no-sync`라 배포 스크립트가 sync를 먼저 해야 하고, `TimeoutStopSec=30`은 공급사 타임아웃 대비다.
 - **포트 함정**: app pyproject 주석 예시는 `--port 8100`이지만 Windows에서 8100대는 예약 범위에 걸릴 수 있다(`netsh interface ipv4 show excludedportrange protocol=tcp`). 운영은 8400, dev 호스트는 8401. 변경 시 sp-node `BOM_ENGINE_URL` 동기화 필수.
 - **엔진 왕복 필드명 비대칭**: pydantic alias로 받는 필드(`partnerId`)는 **필드명(`partner_id`)으로 직렬화**된다. "보낸 이름으로 읽으면 된다"는 가정이 깨져 `matchEvidence.partnerStock`이 조용히 null이 됐다(2026-08-23 실측).
 - **로컬 소스는 `supplier_results` 밖에 산다**: 외부 호출·캐시·trace를 오염시키지 않으려는 설계 때문에, 후보를 다시 계산하는 경로(대체 폴백 재검색·병합 재평가)마다 `local_products`를 명시적으로 다시 넘겨야 한다. 안 넘기면 판정 결과가 아니라 후보 자체가 사라진다.
 - **pandas `attrs`에 큰 리스트를 넣지 말 것**: 거의 모든 연산이 `__finalize__`로 `attrs`를 deepcopy해 `df.iat` 한 번이 행 수 길이 리스트 복사가 된다(12,000행 CSV 84초). 공유 불변 값이면 `__deepcopy__`가 self를 반환하는 래퍼(`_SharedRowWidths`)로.
 - **`resultCount` 의미 혼동**: 화면의 "검색 과정" 건수는 **가공 전 공급사 원응답** 수, 후보 목록 수는 기술 검증·중복 제거·shortlist를 거친 **최종 후보** 수다. 특히 응답 상한이 없는 UniKeyIC.
-- **연구 계보 re-sync 전제**: 동기화 기준은 여전히 `sp-smartbom-eye 62d3bab`(README 하단)인데 07-27 이후 검색 엔진 src만 35회 바뀌었다 — 역동기화 갭이 커졌고 seam 밖 수정도 늘었다(service.py 대체 폴백·소스 순위). 재동기화 시 diff 기준을 다시 잡아야 한다.
+- **연구 계보 re-sync 전제**: 동기화 기준은 여전히 `sp-smartbom-eye 62d3bab`(README 하단)인데 07-27 이후 검색 엔진 src만 36회 바뀌었다 — 역동기화 갭이 커졌고 seam 밖 수정도 늘었다(service.py 대체 폴백·소스 순위). 재동기화 시 diff 기준을 다시 잡아야 한다.
 - **preflight는 차단 게이트가 아니다**: 예상 호출이 한도를 넘어도 검색은 시작하고, 실제 호출 시점의 **원자적 job budget**이 `max_calls`를 강제한다(`job_call_limit_exhausted`).
 - **인메모리 잡은 만료되지 않는다**: TTL이 없어 `DELETE /jobs/{id}` 또는 재시작만이 지운다. 반대로 재시작 뒤 결과 GET은 sp-node `ENGINE_JOB_GONE`(재업로드 또는 영속 스냅샷에서 `/supplier-jobs` 재개)로 표면화된다.
 - **엔진 결과 원문을 통째로 DB 열에 넣지 말 것**: 재고표 12,175행(6.36MB) `previewJson`이 MySQL 패킷 벽에 부딪혀 `BOM_ENGINE_ERROR`로 위장됐다(2026-08-23). 표본 200행 + 보관 원본 재실행(추출은 결정론적이라 결과가 같다)이 처방이다 — sp-node 측 규칙이지만 엔진 출력 크기를 설계할 때 같이 볼 것.
 - **공급사 키는 백엔드 전용**: 추출 엔진은 키가 불필요하므로 키 없이도 BOM 추출 경로는 동작한다.
 
-## Sources [coverage: high — 36 sources]
+## Sources [coverage: high — 38 sources]
 
 - [samplepcb-parts-engine/README.md](../../samplepcb-parts-engine/README.md) — 정본(추출/검색 계약·관계 기반 추출·대체 검색·기술 순위와 구매 적용 후보, 2026-08-19)
 - [samplepcb-parts-engine/.env.example](../../samplepcb-parts-engine/.env.example) — 자격증명 + `SUPPLIER_MAX_CALLS`
@@ -122,7 +124,7 @@ status: active
 - [samplepcb-parts-engine/pyproject.toml](../../samplepcb-parts-engine/pyproject.toml) — uv workspace 루트·pytest 수집
 - [app/pyproject.toml](../../samplepcb-parts-engine/app/pyproject.toml) · [bom-extraction-engine/pyproject.toml](../../samplepcb-parts-engine/packages/bom-extraction-engine/pyproject.toml) · [supplier-search-engine/pyproject.toml](../../samplepcb-parts-engine/packages/supplier-search-engine/pyproject.toml) — 의존성·성격 주석
 - [docs/PARTS_SEARCH.md](../../docs/PARTS_SEARCH.md) — 유형별 로컬 카탈로그 우선 조회·fallback 4단계·역할 경계
-- [docs/BOM_QUOTE.md](../../docs/BOM_QUOTE.md) — 견적 파이프라인에서의 엔진 위치·조달 투영 v13·대체 검색·단일 검색 최종 목록(2026-09-18)
+- [docs/BOM_QUOTE.md](../../docs/BOM_QUOTE.md) — 견적 파이프라인에서의 엔진 위치·조달 투영 v13·대체 검색·단일 검색 최종 목록(2026-09-18)·구매 조건 없는 후보 제외(2026-10-01)
 - [docs/BOM_INGESTED_RC_EXPERIMENT.md](../../docs/BOM_INGESTED_RC_EXPERIMENT.md) — 저장 부품 R/C 우선 검색 실험
 - [docs/PARTNER_PARTS.md](../../docs/PARTNER_PARTS.md) — `inventory` 프로필·`local_products` 주입·로더 교정 실측
 - [docs/BOM_SERVICE_API.md](../../docs/BOM_SERVICE_API.md) — 사내 서비스 API의 엔진 오류 코드
@@ -135,8 +137,9 @@ status: active
 - [app/src/parts_engine_app/config.py](../../samplepcb-parts-engine/app/src/parts_engine_app/config.py) · [refresh.py](../../samplepcb-parts-engine/app/src/parts_engine_app/refresh.py) · [capabilities.py](../../samplepcb-parts-engine/app/src/parts_engine_app/capabilities.py)
 - [supplier_search_engine/models.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/models.py) — 정책 버전 리터럴·`CatalogSupplier`·`SearchScope`·`LifecycleCode`·`ReplacementSource`
 - [supplier_search_engine/contract.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/contract.py) · [service.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/service.py) · [settings.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/settings.py)
+- [supplier_search_engine/procurement.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/procurement.py) · [tests/test_procurement.py](../../samplepcb-parts-engine/packages/supplier-search-engine/tests/test_procurement.py) — 양산 Reel 사유 단일화(2026-09-30)·회귀 테스트 3건
 - [bom_extraction_engine/engine.py](../../samplepcb-parts-engine/packages/bom-extraction-engine/src/bom_extraction_engine/engine.py) · [inventory.py](../../samplepcb-parts-engine/packages/bom-extraction-engine/src/bom_extraction_engine/inventory.py) — `PARSER_VERSION`·재고표 프로필 원칙
 - [scripts/verify-bom-extraction-corpus.py](../../samplepcb-parts-engine/scripts/verify-bom-extraction-corpus.py) — 코퍼스 runner
 - [tests/test_partner_local_products.py](../../samplepcb-parts-engine/packages/supplier-search-engine/tests/test_partner_local_products.py) · [tests/test_inventory_synthetic_corpus.py](../../samplepcb-parts-engine/packages/bom-extraction-engine/tests/test_inventory_synthetic_corpus.py) — 설계 결정을 담은 테스트 머리말
 - [apps/api/src/lib/engine-client.ts](../../samplepcb-web-mono-app/apps/api/src/lib/engine-client.ts) · [apps/api/.env.example](../../samplepcb-web-mono-app/apps/api/.env.example) — 소비자 측 접속 설정
-- git log `samplepcb-parts-engine` 2026-07-27~09-14 — 커밋 18건 본문(결정 근거·실측 수치)
+- git log `samplepcb-parts-engine` 2026-07-27~09-30 — 커밋 19건 본문(결정 근거·실측 수치) + sp-node 커밋 `a3c410a83`(2026-10-01) 본문

@@ -1,6 +1,6 @@
 ---
 concept: 관리=sp-vue / 소비=sp-php (공유 DB 브릿지 + 쓰기 브리지)
-last_compiled: 2026-09-19
+last_compiled: 2026-10-12
 topics_connected: [sp-vue-web, sp-node-api, theme-sp-lite, spcb-bridge, gnuboard-integration, partner-tracks]
 status: active
 ---
@@ -16,6 +16,8 @@ status: active
 - **쓰기·판정** = PHP 는 로그인·CSRF 만 보고 sp-node 를 호출하며 **원장은 sp-node 가 쓴다** — "PHP 는 sp_* 에 쓰지 않는다"가 명문 규칙(권한·상태·회차 판정을 두 곳에 복제하면 반드시 어긋난다 → [server-single-truth](server-single-truth.md)·[judgment-single-owner](judgment-single-owner.md))
 
 ## Instances
+- **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [partner-tracks](../topics/partner-tracks.md): **고객 쓰기 브리지 4종 → 6종** — POST `eq-answer`(EQ 문항형 회신 D20)가 `eq-decide` 와 따로 섰고, 09-30 에 `bom-confirm-answer`(결제 후 부품 확인 D43)가 먼저 붙었다. 여섯 모두 같은 규칙이다: PHP 는 로그인·CSRF·빈 선택만 보고 2분짜리 회원 JWT 로 sp-node 에 넘기며 판정·저장은 sp-node. `eq-answer` 는 "항목 N 을 골라 주세요" 같은 안내조차 스스로 판정하지 않고 **sp-node 가 거절한 뒤 재조회로** 만든다
+- **2026-09-30** in [spcb-bridge](../topics/spcb-bridge.md) / [theme-sp-lite](../topics/theme-sp-lite.md) / [sp-vue-web](../topics/sp-vue-web.md): **읽기 축의 예외가 늘었다** — 마이페이지 '부품 확인' 메뉴 노출·배지는 sp-node 를 부르지 않고 PHP 가 `sp_*` 세 표를 직접 SELECT 해 센다. 같은 모수를 sp-node `openCount` 와 PHP SQL 이 각자 구현하고, 관리자 미리보기의 금액 효과 문구도 sp-vue `bomConfirmPreviewDelta` ↔ PHP `sp_bom_confirm_delta_text` 로 짝을 이룬다 — 관리자가 본 문장과 고객이 볼 문장을 맞추려는 짝이지만 손으로 맞춘다([manual-sync-drift](manual-sync-drift.md))
 - **2026-09-18** in [theme-sp-lite](../topics/theme-sp-lite.md) / [sp-vue-web](../topics/sp-vue-web.md): **소비가 관리보다 먼저 생긴 변형** — 홈 히어로 템플릿 on/off 는 `sp_config.home_slides`(Node/Prisma 소유 표)를 테마 `inc/main_slider.php` 가 `sql_fetch(…, false)` 로 **읽기만** 하는데 **관리 UI 가 아직 없다**(운영에선 SQL 로 직접 넣어야 한다). 행이 없으면 조용히 기본값 5장. 이미지 슬라이드 쪽은 정상 짝(`/app/admin/slides` ↔ `g5_shop_banner`)
 - **2026-08-25** in [spcb-bridge](../topics/spcb-bridge.md) / [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): **주문 진행 표시가 트랙 공용 파생 하나를 양쪽이 소비** — sp-node `/api/order-progress`(PCB 7칸·BOM 6칸)를 PHP 브리지(`sp_pcb_progress[_batch]`, 50건 청크)와 sp-vue 관리자 드로어가 **같이** 읽고, 배지·줄·카드·스텝퍼가 같은 축을 쓴다. od 는 안 건드린다(D6). 라벨은 서버가 완성해 내려주므로 PHP 는 그대로 출력
 - **2026-08-25** in [spcb-bridge](../topics/spcb-bridge.md): 계정 진입점 2종(`/shop/eq` 제조 확인·`/shop/as` A/S)이 **서버사이드 브리지 렌더 패턴** — PHP 안에서 `sp_pcb_node_call()` 이 sp-node 를 부르고 PHP 가 그린다(견적관리처럼 브라우저 JS 로 부르지 않는 이유는 "EQ 축이 이미 서버사이드 관례를 쓰고 화면이 한 벌이면 되기 때문"). 목록은 **목록만** — 결정·접수 폼은 복제하지 않고 주문 상세 앵커로 보낸다(폼이 두 곳이면 첨부·기한·수량 검증이 갈린다)

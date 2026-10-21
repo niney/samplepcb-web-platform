@@ -1,6 +1,6 @@
 ---
 concept: 역할별 워크큐 + 단일 Case 척추 (Workqueue & Case Spine)
-last_compiled: 2026-09-19
+last_compiled: 2026-10-12
 topics_connected: [sp-vue-web, partner-tracks, sp-develop-web, sp-node-api, api-contract]
 status: active
 ---
@@ -19,6 +19,10 @@ BOM·PCB·협력사 포털·개발 네 모듈이 같은 화면 문법을 반복�
 그리고 이 문법을 떠받치는 것은 저장이 아니라 **파생**이다. 12단계 타임라인·대기 큐 소속·`myTurn`·배지 숫자는 어느 것도 컬럼이 아니고 서버가 원장에서 계산해 내려준다([lazy-derived-state](lazy-derived-state.md)).
 
 ## Instances
+- **2026-10-11** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): **Case 안에서도 "순서대로"** — 발주 행 아래 EQ 줄이 요청 회차 → 협력사 제출 → 고객 확인 → 판정을 절차 순으로 세우고(지난 회차는 읽기 전용), Case ID 요청 건은 윗줄의 두 버튼 대신 **아래 스트립 3칸이 유일한 작업 자리**다(인보이스 → 운송서류 → Case ID·운송장, 3 은 2 전까지 잠기고 이유를 말한다). 워크큐가 "누구 차례"를 말했다면 줄은 "다음에 무엇"을 말한다
+- **2026-10-09** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 포털 — 하위 협력사는 모듈이 아니라 **공통 영역 메뉴**, 마스터딜러 중개는 새 페이지 없이 발주·견적 **상세 안 패널**. 역할이 늘어도 화면 수를 늘리지 않고 Case(상세) 안에 얹는다
+- **2026-10-06~10** in [sp-vue-web](../topics/sp-vue-web.md): 관리자 리뉴얼이 골격을 **그대로 이식**했다 — 머리 → 탭(건수 배지)+검색 → 카드 안의 표 → 페이지네이션, `?from=` 큐 복귀, 대기 큐가 첫 탭, URL 이 상태 정본(`next/lib/list-query.ts`). 바뀐 것은 표현뿐: 옛 화면의 행 바탕 강조(내 차례·미입금 노랑)를 **배지로** 옮겼다. 디자인을 갈아도 문법은 안 바뀐다는 확인
+- **2026-09-30 / 10-05** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 워크큐가 둘 늘었다 — BOM 모듈 '부품 확인'(배지 = 관리자 차례 수; 답을 받지 않는 알림은 모수에서 빠진다), 통합 '삭제 기록'. 둘 다 새 화면 문법을 만들지 않고 기존 큐·넓은 오른쪽 패널에 들어갔다
 - **2026-09-16** in [sp-vue-web](../topics/sp-vue-web.md): 모듈 정리 — 통합 안에 얹혀 있던 마켓 4메뉴가 **마켓 모듈**로 독립하고, 중복 BOM 견적요청(`/admin/bom-quotes`)은 **리다이렉트 없이 제거**해 Case 상세로 일원화. 저빈도 메뉴(BOM 업로드)는 `placement:'bottom'`으로 사이드바 하단. 모듈 5종 = 통합·PCB·BOM·개발·마켓
 - **2026-09-09~11** in [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰가 **네 번째 모듈**로 같은 문법을 그대로 받는다 — 통합 메뉴 2개였던 것을 스위처 「개발」 + **단계별 워크큐 8메뉴**(접수·검토 / 견적·계약 / 진행 프로젝트 / 납품·검수 / 문의·A/S …)로, 배지 6종은 전부 "관리자 차례"(`useDevelopModuleSignals` 60초). 상세는 단일 컬럼 1120px + 탭 6(`?tab=`, **`v-show`로 전부 마운트**해 탭 이동에 편집 초안이 안 날아간다). 큐 복귀는 `develop-navigation.ts`가 `lt/ls/lq/lp`를 실어 「← 목록으로」가 떠난 자리로 돌려놓는다 — PCB 가 08-14 에 세운 `pcb-navigation.ts` 규약의 이식
 - **2026-08-22** in [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md): **포털 R3 사이드바 셸** — 허브-앤-스포크(홈만 허브)에서 관리자 `AdminLayout` 동형으로 전환하되 홈 '오늘 할 일'은 유지한 하이브리드. 워크큐 목록 4화면(`bom|pcb/rfqs·pos`)에 `useRouteTab.ts`(`?tab=`, 기본 탭은 쿼리에서 생략, 탭 바뀌면 page 리셋), 헤더는 `PartnerPageHeader`로 통일. 결정적인 것은 배지 — **홈 카드와 같은 vue-query 캐시**(`usePartnerWork`)를 구독해 숫자 불일치와 추가 요청을 **구조로** 없앴다. 모듈 스위처는 보유 트랙이 2개일 때만 뜬다(1트랙이면 사이드바 상단 모듈명이 정체성)

@@ -1,6 +1,6 @@
 ---
 concept: 골든 표가 곧 명세 (Golden as Spec)
-last_compiled: 2026-09-19
+last_compiled: 2026-10-12
 topics_connected: [shared-packages, parts-engine, testing, sp-node-api, api-contract, partner-tracks, docs-knowledge]
 status: active
 ---
@@ -15,6 +15,9 @@ status: active
 이 패턴은 [judgment-single-owner](judgment-single-owner.md)와 짝이다 — FE/BE 가 **같은 함수를 공유**하는 형태가 허용되는 근거가 "골든 벡터가 명세 노릇을 한다"이기 때문이다. 골든이 없으면 공유 함수도, 두 계층의 사전도 조용히 갈린다([manual-sync-drift](manual-sync-drift.md)).
 
 ## Instances
+- **2026-10-11** in [testing](../topics/testing.md) / [sp-node-api](../topics/sp-node-api.md) / [partner-tracks](../topics/partner-tracks.md): **EQ 엑셀 합성 코퍼스 14종 + `gold.json`** — 사양 하나에서 파일과 정답을 **같이** 만들어(`gen-pcb-eq-fixtures.ts`) 기대값이 구현 출력에서 나오지 않는다. 홀드아웃 묶음을 따로 두고, 프로빙 채점·단위 테스트·e2e 가 같은 표를 쓴다. LLM 없는 사후 검사(`coerceEqDraft`·`findDroppedFacts`)의 기대값도 여기서 온다 — 프로빙용 표가 결정 뒤 골든이 된 경로([probe-before-decide](probe-before-decide.md))
+- **2026-10-11** in [api-contract](../topics/api-contract.md) / [testing](../topics/testing.md): 계약 사전 ↔ 포털 문구 대조를 e2e 가 맡는다 — 회신서 엑셀이 서버에서 만들어져 EQ 문항 유형 라벨만은 계약(`PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE`)에 3개 언어로 있고, 포털 `partner/locales/pcb.ts` 와 같은지를 `journey-eq-items-portal` 이 본다. ⚠ 계약 주석은 그 스펙을 `journey-eq-reply-xlsx` 라 적었는데 그런 파일은 없다. 계약 순수 함수의 단위 테스트는 여전히 `apps/api` 쪽에 산다(`pcb-ship-confirm`·`pcb-eq-rounds`·`bom-confirm-types`·`bom-remittance`·`exchange-rate.pcb`)
+- **2026-09-30** in [parts-engine](../topics/parts-engine.md): 양산 Reel 결함의 회귀 3건(`test_procurement.py`) — 검증기의 불변식 **"후보가 바뀌었으면 사유는 정확히 하나"**가 곧 명세이고, 수정 6줄은 그 문장을 지키는 쪽으로만 움직였다(642 passed, 버전 리터럴 불변)
 - **2026-09-19** in [shared-packages](../topics/shared-packages.md) / [api-contract](../topics/api-contract.md): 구조적 사실 하나 — **계약 패키지엔 테스트 러너가 없다**(`@sp/api-contract` package.json 에 `test` 도 vitest 도 없음). 그래서 계약 순수 함수의 골든·회귀(`market-areas` 14·`develop-areas` 11·`develop-docs` 9+5·`develop-quote` 8 = 47)는 **`packages/utils/src/*.test.ts` 에 살고**, PCB 판정 함수는 `apps/api/src/lib/*.test.ts` 에 산다. 함수를 옮기면 표가 있는 자리를 같이 봐야 한다
 - **2026-08-27** in [shared-packages](../topics/shared-packages.md) / [partner-tracks](../topics/partner-tracks.md): 협력사 회신 실효 수량을 `effectiveRfqReplyQty` **한 공식**으로 모으고(폼 금액·RFQ 합계·비교 모달이 같은 함수) 골든이 MOQ→회신수량 한 방향 파생을 고정 — 셋이 각자 반올림하던 시절로 돌아갈 수 없게 만든 것이 표의 역할이다
 - **2026-08-24** in [parts-engine](../topics/parts-engine.md): **"합성 코퍼스는 회귀 방지용이지 발견용이 아니다"** — 재고표 병리(헤더 5행 아래·품번의 날짜 변환·앞자리 0 손실·소계 행·병합 셀·전각·숨긴 열)를 3본에 **섞어** 담았다(실제 파일은 그렇게 오고, 겹칠 때가 사고 지점이므로). 처방도 표가 정했다 — 영숫자 없는 값은 버리지 않고 `mpn_needs_review`

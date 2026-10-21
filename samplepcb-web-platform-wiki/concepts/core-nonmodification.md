@@ -1,6 +1,6 @@
 ---
 concept: 코어 비수정 우회 기법
-last_compiled: 2026-09-19
+last_compiled: 2026-10-12
 topics_connected: [gnuboard-integration, theme-sp-lite, spcb-bridge, sp-node-api, infrastructure, api-contract, sp-develop-web]
 status: active
 ---
@@ -13,6 +13,9 @@ status: active
 2026-08 이후 원칙 자체가 두 방향으로 자랐다. ① **해석이 넓어졌다** — "코어 파일을 안 고친다"는 그대로지만, 컬럼을 새로 추가하거나 코어 필드를 공유하는 것은 허용으로 정리됐다(코어가 스스로 런타임 ALTER 하는 전례가 근거). ② **예외를 운영한다** — 피할 수 없는 코어 한 줄 수정은 주석 + 가드 스크립트 등록이 규칙이 됐다([exception-ledger](exception-ledger.md)). 그리고 `extend/` 가 단순 훅에서 **PHP→sp-node 브리지 계층**으로 자라면서, 코어 무수정으로 얹을 수 있는 기능의 상한이 크게 올라갔다.
 
 ## Instances
+- **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): 코어 `common.php` 가 `$_POST` 전체에 거는 `addslashes` 를 **고치지 않고** 브리지가 `filter_input` 으로 원문을 다시 읽는다(`sp_bridge_text`·`sp_bridge_text_map`). 역변환(`stripslashes`)이 아니라 재읽기라 코어가 이스케이프 방식을 바꿔도 깨지지 않는다 — 코어용 방어가 다른 런타임으로 새는 문제를 코어 0줄로 막은 사례([silent-degradation](silent-degradation.md)). 10-12 재확인: 코어 수정 7파일·가드 5건 그대로
+- **2026-09-30** in [gnuboard-integration](../topics/gnuboard-integration.md) / [spcb-bridge](../topics/spcb-bridge.md): sp 훅 6 → **7종** — `sp_bom_confirm.extend.php` 가 주문 상세·마이페이지에 부품 확인 섹션을 얹고, 추가결제 앵커 `sp-bom-extra` 가 it_id 사전에 **다섯 번째 계열**로 합류했다. 앵커 상품 패턴(기법 #1)의 다섯 번째 재사용 — 이번에는 "원 주문은 1건 그대로 두고 차액만 별도 주문"이라는 용도
+- **2026-09-21** in [theme-sp-lite](../topics/theme-sp-lite.md): 마이페이지 쿠폰 개편 — 코어의 쿠폰 판정(사용 가능·만료)을 테마가 **재조회**해 피그마 요약·목록으로 다시 그렸고 발급·할인·DB 는 무변경
 - **2026-09-19 (스캔)** in [gnuboard-integration](../topics/gnuboard-integration.md): 성적표 = sp 심 마커가 있는 코어 파일 **7개**(`lib/common.lib.php`·`shop/orderform.php`·`shop/orderform.sub.php`·`mobile/shop/orderform.sub.php`·`shop/orderformupdate.php`·`mobile/shop/orderformupdate.php`·`shop/ordermail1.inc.php`), 그 밖은 순정. ⚠ 가드는 **5 assert** 뿐이라 `mobile/shop/orderform.sub.php`·`shop/ordermail1.inc.php`(커밋 4b4ec853d)가 미등록이고, 게다가 **subtree pull 실행 이력이 0회**(초기 커밋 `d4323b882` 이후)라 가드가 실 pull 로 검증된 적이 없다
 - **2026-09-05** in [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰 결제 앵커 `sp-develop-svc` 가 `extend/sp_quote_cart.extend.php` 의 it_id 사전 union 에 **네 번째**로 합류(quote·market·bom·develop) — 주문서·주문 메일이 코어 수정 0으로 새 트랙을 받아들인다. 앵커 상품 패턴(기법 #1)의 네 번째 재사용
 - **2026-08~09** in [theme-sp-lite](../topics/theme-sp-lite.md): 테마가 코어의 **실행 순서**를 우회 수단으로 쓴다 — 코어 `get_paging` 이 sub include 뒤에 돌아가는 성질을 이용해 `$total_count`/`$total_page`/`$qstr` 를 덮어 주문내역 유형 탭·페이지네이션을 구현 · `head.sub.php` 의 `SP_INLINE_ACCOUNT` 가 코어가 팝업으로 여는 포인트·쿠폰·쪽지·스크랩을 계정 레이아웃으로 **승격** · `js/orderform-defaults.js` 가 코어 핸들러를 프로그램적 click 으로 태워 기본값을 채운다

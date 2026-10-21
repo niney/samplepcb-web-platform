@@ -1,7 +1,7 @@
 ---
 concept: 판단 단일 소유권 (Judgment Single Owner)
-last_compiled: 2026-09-19
-topics_connected: [api-contract, parts-engine, sp-node-api, spcb-bridge, gnuboard-integration, sp-vue-web, sp-develop-web, sp-market-web, infrastructure]
+last_compiled: 2026-10-12
+topics_connected: [api-contract, parts-engine, sp-node-api, spcb-bridge, gnuboard-integration, sp-vue-web, sp-develop-web, sp-market-web, infrastructure, partner-tracks, theme-sp-lite]
 status: active
 ---
 
@@ -15,6 +15,11 @@ status: active
 [server-single-truth](server-single-truth.md)가 "클라이언트를 불신"한다면 이 패턴은 **"중복 구현을 불신"**한다 — 같은 판단이 두 곳에 있으면 반드시 드리프트한다([manual-sync-drift](manual-sync-drift.md)의 코드판 예방). 다만 반대편 규율도 같이 선다: 트랙 사이 **어휘·사전은 오히려 공유하지 않는다**([share-render-mirror-domain](share-render-mirror-domain.md)).
 
 ## Instances
+- **2026-10-11** in [api-contract](../topics/api-contract.md) / [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md): **계약 순수 함수가 한날 넷** — `pcbMdQuoteAmount`·`roundPcbAmount`(서버 박제와 포털 미리보기가 따로 계산하면 1원·1센트가 갈린다 — 산식을 api 에서 계약으로 옮겼다) · `pcbShipConfirmPending`·`pcbShipmentSenderDone`(보드 건수와 완료 내역이 같은 함수) · `isPcbEqFileRecord`(파일을 지울 수 있는가) · `summarizePcbEqRounds`. 상태를 늘리지 않기로 한 값이 여기서 치러진다([record-not-state](record-not-state.md))
+- **2026-10-11** in [sp-node-api](../topics/sp-node-api.md) / [partner-tracks](../topics/partner-tracks.md): PCB 견적 회신이 만들어지는 세 길(포털·매직링크·마스터딜러의 하위 선정)이 `notifyPcbRfqReplied` **하나**를 쓴다 — 셋째 길에만 통지가 없던 결함이 계기. 길이 늘 때 통지를 복사하면 하나는 빠진다
+- **2026-10-10 (지금 어긋나 있는 곳)** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 하위 협력사 메뉴 노출 — 서버 `canManageChildren` 과 [PARTNER_PORTAL](../../docs/PARTNER_PORTAL.md) §5.1 은 "견적 트랙 중 하나라도"인데 `partner/menu.ts` 는 `requiresTrack: 'pcb'`. 판정이 두 곳에 있어 부품 조달만 하는 마스터딜러에게는 사이드바 메뉴가 안 뜬다(코드 읽기 기준). 10-09 `bomMdPoActionsFor`(서버 판정=화면 버튼)와 정확히 반대 꼴
+- **2026-10-05** in [api-contract](../topics/api-contract.md) / [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md): 고객 견적의 삭제·취소 가능 상태를 계약 사전 하나(`BOM_QUOTE_CUSTOMER_DELETABLE_STATUSES`·`..._CANCELABLE_STATUSES`)로 — 화면 버튼과 서버 가드가 같은 값을 본다. 여정 25호가 "검토 중에는 화면엔 버튼이 있는데 서버가 거절"을 드러낸 뒤의 조치
+- **2026-09-30** in [sp-node-api](../topics/sp-node-api.md) / [spcb-bridge](../topics/spcb-bridge.md) / [parts-engine](../topics/parts-engine.md): 결제 후 부품 확인(D43)의 결정 판정·저장은 `bom-confirm.ts` 한 곳(PHP 브리지·sp-vue 는 그리기만), "적용하면 품목이 바뀌는가·추가결제 확인이 필요한가"는 계약 `bomConfirmKindChangesItem`·`bomConfirmKindNeedsPayment`. 같은 날 엔진 쪽 — 후보 교체 사유는 **하나뿐**이라는 검증기 불변식을 엔진이 지키고 sp-node 는 사유 코드만 읽는다
 - **2026-09-16** in [infrastructure](../topics/infrastructure.md) / [sp-node-api](../topics/sp-node-api.md): 운영 재이관 보존 정책의 정본이 파일 하나 `apps/api/src/scripts/migrate/lib/reset-data-policy.ts` — 보존/삭제/부분 보존(고정 결제 상품 7종)을 여기서만 판정하고, **분류되지 않은 테이블은 삭제하지 않고 중단**한다(fail-closed 의 운영판, [destructive-op-guardrails](destructive-op-guardrails.md))
 - **2026-09-14** in [parts-engine](../topics/parts-engine.md): 수량 열이 없는 BOM 을 기본값 1 로 때우지 않고 엔진이 `quantityState='missing'` 으로 내려 화면이 재업로드·행별 입력을 안내. 기술 사양 개수 열(`outputs/channels/pins`…)을 수량으로 읽던 세 경로를 엔진 한 곳(`_TECHNICAL_COUNT_PAT`)에서 동시에 제외
 - **2026-09-11** in [api-contract](../topics/api-contract.md) / [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰 달성도·지연을 계약 순수 함수로 — `developTaskWeights`(기간 일수 가중)·`developProgressSummary`·`developOverdueTaskCount`. 단순 평균이 "착수회의 1일 = 펌웨어 18일"로 왜곡되던 것을 **입력 없이** 산식 하나로 막았다
@@ -48,3 +53,5 @@ status: active
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-market-web](../topics/sp-market-web.md)
 - [infrastructure](../topics/infrastructure.md)
+- [partner-tracks](../topics/partner-tracks.md)
+- [theme-sp-lite](../topics/theme-sp-lite.md)

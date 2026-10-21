@@ -1,5 +1,5 @@
 {
-  "last_compiled": "2026-09-19",
+  "last_compiled": "2026-10-12",
   "topics": [
     "sp-node-api",
     "sp-vue-web",
@@ -33,11 +33,17 @@
     "share-render-mirror-domain",
     "workqueue-case-spine",
     "no-native-dialogs",
-    "get-opens-post-decides"
+    "get-opens-post-decides",
+    "act-as-actor-stamp",
+    "parallel-build-cutover",
+    "probe-before-decide",
+    "record-not-state",
+    "silent-degradation"
   ],
   "source_locations": [
     "AGENTS.md",
     "CLAUDE.md",
+    "docs/ADMIN_NEXT_UI.md",
     "docs/AI_DEV_REVIEW.md",
     "docs/AI_DIAGRAM.md",
     "docs/AI_WORKFLOW_PLAYBOOK.md",
@@ -59,6 +65,7 @@
     "docs/LEGACY_DB_MIGRATION.md",
     "docs/LEGACY_SITE.md",
     "docs/legacy-production-reimport.md",
+    "docs/legacy-smartbom/currency-link-model-redesign.md",
     "docs/legacy-smartbom/README.md",
     "docs/LOCAL_MAIL_TESTING.md",
     "docs/local-mysql-recovery-2026-09-09.md",
@@ -70,6 +77,7 @@
     "docs/PARTNER_PORTAL.md",
     "docs/partner-i18n.md",
     "docs/PARTS_SEARCH.md",
+    "docs/PCB_EQ_AI_PROBE.md",
     "docs/PCB_PARTNER_TRACK.md",
     "docs/pricing-engine-parity.md",
     "docs/prompts/develop-followup-admin.md",
@@ -88,7 +96,6 @@
     "docs/prompts/sp-engine-candidate-decision.md",
     "docs/review-naming.md",
     "docs/samplepcb-pricing-api-body-cases.md",
-    "docs/samplepcb-subdomain-nginx.md",
     "docs/SEO_MANAGEMENT.md",
     "docs/SMARTBOM_PARTNER_RFQ.md",
     "docs/UPSTREAM_SYNC.md",
@@ -119,5 +126,5 @@
     "samplepcb-web-mono-app/e2e/fixtures/README.md",
     "samplepcb-web-mono-app/e2e/README.md"
   ],
-  "total_sources_scanned": 82
+  "total_sources_scanned": 84
 }

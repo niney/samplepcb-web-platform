@@ -1,7 +1,7 @@
 ---
 concept: 비동기 잡 — 인메모리에서 DB 원장으로
-last_compiled: 2026-09-19
-topics_connected: [sp-node-api, parts-engine, api-contract, sp-develop-web, sp-market-web, sp-vue-web]
+last_compiled: 2026-10-12
+topics_connected: [sp-node-api, parts-engine, api-contract, sp-develop-web, sp-market-web, sp-vue-web, partner-tracks]
 status: active
 ---
 
@@ -13,6 +13,8 @@ status: active
 **2026-08-28 전환 완료** — 07-27 판이 예고한 방향이 끝까지 갔다. ⚠ **[2026-08-28, 대체됨]** "AI 잡 = 인메모리 잡 스토어 + 재시도" 서술은 낡았다: AI 잡은 `sp_ai_job`(DB)로 이전돼 재시작에 견딘다. 이제 지형은 **"돈이 드는 것은 원장, 값싼 진행 상태만 인메모리"** 로 갈린다.
 
 ## Instances
+- **2026-10-11** in [sp-node-api](../topics/sp-node-api.md) / [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md): **업무 대상에 묶인 잡** — `pcb.eq-parse` 는 회원 소유 저장소를 타지 않고 `sp_ai_job.targetType='pcb_po'`·`targetId`(발주서)로 선다. 승인요청 전이에 매달려 돌되 **전이를 실패시키지 않고**, 실패는 계약 사유 코드 4종으로만 남는다. 잡에는 **LLM 원출력만** 저장해 재사용·[AI 결과를 초안에 적용]이 모델을 다시 부르지 않는다. ⚠ 재시작하면 재개되지 않고, 발주서에 FK 가 없어 발주서 삭제에 cascade 로 안 지워진다(e2e `cleanupPcbPos` 가 직접 정리)
+- **2026-10-05** in [sp-node-api](../topics/sp-node-api.md): 서버 타이머가 하나 늘었다 — 취소 견적 보존 기간 정리 6시간(기동 시 1회·회당 50건, 타이머와 [지금 실행]이 겹치면 뒤쪽은 `running`). 실행 이력 테이블은 두지 않고 정상 여부는 데이터에서 센다 — "원장에 둘 것과 안 둘 것"의 경계 사례
 - **2026-09-11** in [sp-node-api](../topics/sp-node-api.md) / [sp-develop-web](../topics/sp-develop-web.md): 잡 계층을 **타깃 어댑터로 재사용** — 같은 러너가 `DevReviewTarget {market|develop}`·`DiagramTargetRef` 로 두 트랙을 돌리고 `features.schedule` 은 develop 일 때만 켜져 마켓 프롬프트는 바이트 동일. 잡 저장소·폴링·재사용 규칙(`inputHash` 같으면 1시간 재사용)은 공유하고 도메인만 갈린다
 - **2026-09-04~08 (아직 인메모리)** in [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): **정밀 구성도는 프로세스 내 큐 동시 1**(`dev-diagram-runner.ts`, 프로빙 141~581초, 기동 시 `resumeDevDiagramQueue` 로 재개·중단 표기). 잡 레코드 자체는 `sp_ai_job` 이라 살아남지만 **대기열 순서는 프로세스 메모리**다. 고객이 기다리는 `develop.followup` 은 300초 초과·실패·유스케이스 꺼짐이면 **고정 3문항으로 조용히 폴백**한다 — 잡 소실을 기능 소실로 만들지 않는 설계
 - **2026-08-28** in [sp-node-api](../topics/sp-node-api.md): **AI 잡 = `sp_ai_job`(DB)** — 인메모리 폐기. 재시작 내성, `useCase`·`mbId`·`inputHash`·`resultJson` 저장, 동일 입력 1시간 재사용, 등록은 `devReviewJobId` 만 보내고 **서버가 소유자·done·inputHash 를 대조**한다(미연결 잡은 방치되지 않고 버려진다). 이유는 단순하다 — 잡 하나가 실 LLM 수백 초이고 고객·관리자가 그 결과를 기다린다
@@ -38,3 +40,4 @@ status: active
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-market-web](../topics/sp-market-web.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
+- [partner-tracks](../topics/partner-tracks.md)

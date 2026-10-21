@@ -1,6 +1,6 @@
 ---
 concept: cron 없는 lazy 파생 상태
-last_compiled: 2026-09-19
+last_compiled: 2026-10-12
 topics_connected: [sp-node-api, partner-tracks, sp-develop-web, sp-vue-web, spcb-bridge, api-contract, sp-market-web, parts-engine]
 status: active
 ---
@@ -13,6 +13,10 @@ status: active
 2026-08~09 에 이 패턴은 **"아예 저장하지 않는다"** 쪽으로 더 갔다. 협력 트랙의 12단계 타임라인·워크큐 대기 큐·고객 진행 표시·`bom-orders` 주문 축은 컬럼이 없다 — 원장(RFQ·PO·선적·od·`sp_file`)에서 조회 시점에 계산해 내려준다. 덕분에 영카트 `od` 를 **무접촉**으로 두고도 고객이 제작 진행을 본다. [snapshot-freeze](snapshot-freeze.md)와는 정확히 반대편 짝이다 — 결정 시점의 **사실**은 굳히고, 원장에서 다시 셀 수 있는 **상태**는 굳히지 않는다.
 
 ## Instances
+- **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md) / [api-contract](../topics/api-contract.md): 협력사 '선적 완료'는 저장된 단계가 아니라 **가상 단계**(기록 `shipConfirmedAt` + 조회 시점 판정), 고객 확인 회차 번호·발송 여부도 파생. 관리자가 미확인 채 다음 단계로 넘기면 협력사 쪽은 끝난 것으로 **보이되** 기록은 생기지 않는다([record-not-state](record-not-state.md))
+- **2026-10-10 (반례 — 파생에서 저장으로)** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): 마스터딜러 판정: "하위 소속 링크가 하나라도 있으면"(파생) → **`sp_partner.isMasterDealer` 저장 표시**. 하위 없이 처음부터 마스터딜러로 지정해야 하는 사실은 원장에서 셀 수 없었다. 저장으로 돌아가자 가드가 따라 붙었다(끄기는 `HAS_CHILDREN` 이 막는다) — 파생이 공짜로 주던 정합성을 손으로 지켜야 한다
+- **2026-10-05 (경계 — 타이머가 필요한 곳)** in [sp-node-api](../topics/sp-node-api.md): 취소 견적 보존 기간 정리는 lazy 가 아니라 **서버 타이머 6시간**이다. 취소한 고객은 그 견적을 다시 조회하지 않으니 "조회 시점에 판정"할 조회가 없다. 그래도 정상 여부(`backlog`)는 실행 기록이 아니라 데이터에서 센다 — 원칙의 뒤 절반은 유지
+- **2026-09-30** in [sp-node-api](../topics/sp-node-api.md) / [spcb-bridge](../topics/spcb-bridge.md): 추가결제 앵커 `sp-bom-extra` 의 paid 승격도 조회 시점 **lazy 라인 검증** — 마켓·개발의뢰에 이은 세 번째 같은 꼴. 마이페이지 배지는 PHP 가 같은 모수를 SQL 로 다시 센다(결제 대기 `orderPending` 은 모수에서 뺀다)
 - **2026-09-05~11** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): **`ensureDevelopLazy` 3종** — 마일스톤 paid 승격(영카트 라인 `ct_status ∈ PAID ∧ io_id==paymentKey ∧ io_price==amount` 을 조회 시점 검증, **단방향 래칫**이라 되돌지 않는다) · `reviewDays` 자동확정 · 견적 `validUntil` 만료. 첫 paid 가 `accepted→in_progress` 를 연다. 여기에 납품확인서 자동 동기화(`closeDeliveryConfirmDocs`)가 붙어 문서 상태도 액션 경로에서 수렴한다. cron 없음
 - **2026-08-25** in [partner-tracks](../topics/partner-tracks.md) / [spcb-bridge](../topics/spcb-bridge.md): **주문 진행 표시 = od 무접촉 파생**. 트랙 공용 `/api/order-progress` 가 PCB 7칸·BOM 6칸을 조회 시점에 만들고 PHP 주문내역과 Vue 관리자 드로어가 **같이** 소비한다. PHP 쪽 `sp_order_customer_steps()` 는 결제 뒤·배송 전 구간에서만 이 파생이 od 배지를 덮게 우선순위를 준다 — g5 미러 컬럼을 두지 않는다
 - **2026-08-05~11** in [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md): **워크큐 대기 큐가 파생** — `todo_rfq`/`todo_po`(PCB Case 탭 7 = 구간 5 + 대기 2)는 RFQ/PO 행이 없어도 모수에 들어야 해서 저장 대신 계산한다. 배지는 "대기 + 진행 중 내 차례" 합산이고 `_legacy` 이관분은 **대기 큐에서만** 제외한다(안 하면 요청 330·발주 195건이 눌러앉아 실제 6·5건을 덮는다)

@@ -12,20 +12,20 @@
 ## Topics
 | Slug | Description |
 |---|---|
-| sp-node-api | Fastify 5 API(apps/api) — 거버 담기·라이브 가격, 고객 BOM 견적+`/api/svc`, SmartBOM·PCB 협력 트랙(RFQ→발주→물류→클레임)의 관리자·포털·매직링크 API, 부품 카탈로그+ES·sp-engine 게이트웨이, 재능마켓·AI 사전 검토서·개발의뢰, 발송 이력·배송방법·환불 기록, g5 접근 카탈로그 ①~㉑, 레거시 이관·운영 재이관·DB 스냅샷 |
-| sp-vue-web | Vue 3 SPA(apps/web, `/app`) — 관리자 업무 모듈 5종(통합·PCB·BOM·개발·마켓)의 역할별 워크큐·Case 상세 + 회원 BOM 워크벤치(`/app/bom`) + 협력사 포털(`/app/partner`, BOM/PCB 모듈·3개 언어) + 매직링크 회신 페이지. 판정·보안은 sp-node |
-| partner-tracks | 협력사(파트너) 트랙 — BOM·PCB 두 트랙의 RFQ→선정·확정가→발주(PO)→EQ/생산→선적·입고→고객 배송→클레임 업무 흐름, 조직 모델 `sp_partner` 3축·포털·매직링크, 가드 코드 체계, 돈(링크 통화·송금 원장·환차·환불), 문서(견적서·인보이스·패킹리스트·QR) |
+| sp-node-api | Fastify 5 API(apps/api, 라우트 69본·Prisma 89모델) — 거버 담기·라이브 가격, 고객 BOM 견적(취소 = 동결된 기록 + 보존 기간 자동 정리)+`/api/svc`, SmartBOM·PCB 협력 트랙(RFQ→발주→물류→클레임)의 관리자·포털·매직링크 API 와 결제 후 부품 확인·외화/마스터딜러 중개·EQ 문항형 회차(AI 초안·번역), 관리자 대리 접속(헤더+쓰기 원장), 부품 카탈로그+ES·sp-engine 게이트웨이, 재능마켓·AI 사전 검토서·개발의뢰, 발송 이력·배송방법·환불 기록·삭제 기록, g5 접근 카탈로그 ①~㉒, 레거시 이관·운영 재이관·DB 스냅샷 |
+| sp-vue-web | Vue 3 SPA(apps/web, `/app`) — 관리자 업무 모듈 5종(통합·PCB·BOM·개발·마켓)의 역할별 워크큐·Case 상세. **2026-10-10 컷오버**: shadcn-vue 리뉴얼(`src/next`)이 정식 `/app/admin/*`, 옛 화면은 `/app/admin/legacy/*`, 견적관리·마켓은 옛 셸 그대로. + 회원 BOM 워크벤치(`/app/bom`, 단일 모드 셸) + 협력사 포털(`/app/partner`, BOM/PCB 모듈·하위 협력사·관리자 대리 접속·3개 언어) + 매직링크 회신·초대 수락 페이지. 판정·보안은 sp-node |
+| partner-tracks | 협력사(파트너) 트랙 — BOM·PCB 두 트랙의 RFQ→선정·확정가→발주(PO)→EQ/생산→선적·입고→고객 배송→클레임 업무 흐름, 조직 모델 `sp_partner` 3축·마스터딜러 중개·하위 협력사 직접 관리·관리자 대리 접속, 포털·매직링크, 가드 코드 체계, 돈(링크 통화·환율 세 겹·송금 원장·환차·환불), 결제 후 부품 확인 요청(D43·D44)·EQ 문항형 회차(D20)·협력사 선적 완료 확인, 문서(견적서·인보이스·패킹리스트·QR·EQ 회신서) |
 | sp-market-web | 재능마켓 고객 Vue SPA(apps/market, `/market`:5176) — 분야 레지스트리 파생 3스텝 의뢰 위저드·AI 사전 검토서(동기)+정밀 구성도(비동기)·블라인드 입찰·계약·영카트 결제·의뢰 수정 이력. 렌더 컴포넌트는 `@sp/ui` 로 추출 |
-| sp-develop-web | 개발의뢰 Vue SPA(apps/develop, `/develop`:5177) — 당사 직접 개발 용역: 5스텝 위저드·관리자 주도 AI 검토서 3층+버전 원장·항목별 견적/마일스톤 결제·프로젝트 문서 5종·업무표 + 관리자 「개발」 모듈 + `develop-*`·`admin-develop-*` 라우트 |
+| sp-develop-web | 개발의뢰 Vue SPA(apps/develop, `/develop`:5177) — 당사 직접 개발 용역: 5스텝 위저드·관리자 주도 AI 검토서 3층+버전 원장·항목별 견적/마일스톤 결제·프로젝트 문서 5종·업무표 + 관리자 「개발」 모듈(2026-10-10 리뉴얼 컷오버, 옛 화면 `/app/admin/legacy/develop`) + `develop-*`·`admin-develop-*` 라우트. 프로세스 검토 23건 미결(DEVELOP_FLOW §15) |
 | parts-engine | samplepcb-parts-engine — Python(uv workspace) BOM 추출·공급사 검색 엔진, FastAPI 잡 API(:8400, 무인증·127.0.0.1, sp-node 만 소비). 2026-07-21부터 기술·조달 판단의 단일 원본; 08월부터 협력사 재고 프로필(inventory)·로컬 소스 주입(local_products)·대체 검색 3단·로컬 회귀 코퍼스까지 품되 판단 경로는 하나 |
-| api-contract | `@sp/api-contract` Zod 계약 — 41개 도메인 스키마(BOM·PCB 협력 트랙·주문 진행·마켓·개발의뢰·AI·메일·미리보기)의 요청/응답·코드 사전·한글 라벨·`apiRoutes` 67종에 더해, 반려 판정·납기 경과·주문 진행 병합·마진 역산 같은 **업무 판정을 순수 함수로 소유** |
-| shared-packages | `@sp/config`·`shared`·`utils`·`ui` 모노레포 공용 패키지 — 설정 프리셋, FE/BE 가 같은 함수를 쓰는 도메인 순수 로직(골든 테스트), 인증 fetch 코어, 세 Vue 앱(web·market·develop) 공용 렌더 컴포넌트 |
-| spcb-bridge | `samplepcb-web/spcb` — 코어 비수정 브리지 영역: 인증(me.php)·주문 알림(sp-node→PHP)·고객 쓰기 브리지 4종(EQ 결정·첨부·좌표파일·A/S 접수, PHP→sp-node)·사용자 노출 페이지(계정 셸·후기·피그마 정적 3종)·프로빙 실험실(previews) |
-| theme-sp-lite | sp-lite 테마 — 코어 비수정 오버라이드 지점(cart 스킨·계정 셸 4종·헤더/푸터·CSS 토큰·공용 팝업) 겸 **피그마 → sp-php 페이지 구현 착지점**(홈 하이브리드 히어로·회사소개/연혁/위치·마이페이지·주문내역·로그인·포인트) |
-| gnuboard-integration | 그누보드5/영카트 코어를 subtree(pull only)로 두고 extend·spcb·테마·모노레포에만 커스텀하는 통합 전략 — 코어 최소 수정 7파일과 가드 스크립트, PHP→sp-node 브리지 훅, 공유 DB 이관·스냅샷·재이관 절차 |
-| infrastructure | 로컬 nginx 통합 호스트(`/`·`/app`·`/market`·`/develop`·`/api`)와 운영 3사이트(centrafab-main·dev.centrafab·new.samplepcb 직결 TLS) 라우팅, `deploy.sh` 10케이스·systemd, 배포 전 DB 스냅샷·원복·운영 재이관·프로토타입 정리 절차, 코어 패치 가드·헤드리스 검증 도구, 파일서버·Mailpit·DB 튜닝·복구 기록 |
-| testing | 전 계층 검증 체계 — 모노레포 E2E 하네스(vitest+playwright-core, `/spcb/api/me` 스텁 로그인, 여정 편 재점검 루프)·옵트인 통합·루트 API 하네스(market·develop)·엔진 pytest·코어 비수정 가드·헤드리스 스크린샷 헬퍼 |
-| docs-knowledge | `docs/` 설계·운영 기록 문서군(루트 47 + `prompts/` 14 + 회수 자료)의 안내 지도 — 문서별 요지·정본을 쓰는 토픽·최종 커밋, "어떤 질문에 어떤 문서" 진입 규칙, 정본 우선순위(§정정 우선)와 문서 자체의 함정 |
+| api-contract | `@sp/api-contract` Zod 계약 — 44개 도메인 스키마(BOM·PCB 협력 트랙·부품 확인·주문 진행·마켓·개발의뢰·AI·메일·미리보기·삭제 기록)의 요청/응답·코드 사전·한글 라벨·`apiRoutes` 74종에 더해, 반려 판정·납기 경과·주문 진행 병합·마진 역산·MD 회신가·선적 완료·굳은 파일 같은 **업무 판정을 순수 함수로 소유** |
+| shared-packages | `@sp/config`·`shared`·`utils`·`ui` 모노레포 공용 패키지 — 설정 프리셋, FE/BE 가 같은 함수를 쓰는 도메인 순수 로직(골든 테스트), 인증 fetch 코어(+관리자 대리 접속 헤더 주입 `act-as.ts`), 세 Vue 앱(web·market·develop) 공용 렌더 컴포넌트 |
+| spcb-bridge | `samplepcb-web/spcb` — 코어 비수정 브리지 영역: 인증(me.php)·주문 알림(sp-node→PHP)·고객 쓰기 브리지 6종(EQ 결정·EQ 문항 회신·부품 확인 회신·A/S 접수 + 첨부·좌표파일, PHP→sp-node, 자유 입력은 `sp_bridge_text` 로 원문 재읽기)·사용자 노출 페이지(계정 셸 5종·후기·피그마 정적 3종)·프로빙 실험실(previews) |
+| theme-sp-lite | sp-lite 테마 — 코어 비수정 오버라이드 지점(cart 스킨·계정 셸·헤더/푸터·CSS 토큰·공용 팝업) 겸 **피그마 → sp-php 페이지 구현 착지점**(홈 하이브리드 히어로+저사양 강등·회사소개/연혁/위치·마이페이지·쿠폰·주문내역·로그인·포인트)과 결제 뒤 고객 결정 화면(EQ 문항·부품 확인)의 부분 파일 |
+| gnuboard-integration | 그누보드5/영카트 코어를 subtree(pull only)로 두고 extend·spcb·테마·모노레포에만 커스텀하는 통합 전략 — 코어 최소 수정 7파일과 가드 스크립트, PHP→sp-node 브리지 훅 7종·앵커 상품 5계열, 공유 DB 이관·스냅샷·재이관 절차 |
+| infrastructure | 로컬 nginx 통합 호스트(`/`·`/app`·`/market`·`/develop`·`/api`)와 운영 3사이트(centrafab-main·dev.centrafab·new.samplepcb 직결 TLS) 라우팅(`X-Real-IP` 계약 포함), `deploy.sh` 10케이스·systemd, 배포 전 DB 스냅샷·원복·운영 재이관·프로토타입 정리 절차와 스크립트 밖 뒤처리, 코어 패치 가드·헤드리스 검증 도구(shot·hero-perf), 파일서버·Mailpit·DB 튜닝·복구 기록 |
+| testing | 전 계층 검증 체계 — 모노레포 E2E 하네스(vitest+playwright-core, 스펙 145, `/spcb/api/me` 스텁 로그인, 여정 편 재점검 루프, 옛·새 화면 양쪽 주행, 실 LLM 옵트인)·EQ 합성 코퍼스와 프로빙 하네스·옵트인 통합·루트 API 하네스(market·develop)·엔진 pytest·코어 비수정 가드·리뉴얼 린트 두 겹·헤드리스 스크린샷/성능 헬퍼 |
+| docs-knowledge | `docs/` 설계·운영 기록 문서군(루트 md 41 + `prompts/` 14 + 회수 자료 + 전달용 HTML 가이드)의 안내 지도 — 문서별 요지·정본을 쓰는 토픽·최종 커밋, "어떤 질문에 어떤 문서" 진입 규칙, 정본 우선순위(§정정 우선)와 문서 자체의 함정 |
 
 ## Concepts
 | Slug | Description |
@@ -47,6 +47,11 @@
 | destructive-op-guardrails | 삭제 경로가 공통으로 밟는 다섯 계단(미리보기 기본·명시 플래그·검증된 백업·미분류 중단·복원 전 재백업)과 앱 가드의 잠김→정리→열림 |
 | get-opens-post-decides | 메일·매직링크 URL 은 GET 으로 화면만 열고 결정은 화면 안 POST 로 — 보안 게이트웨이 자동 프리페치 방어가 근거 |
 | no-native-dialogs | `alert/confirm/prompt` 전면 금지와 공용 대화상자 대체 — "추가 대화상자 표시 안 함" 체크가 조작을 통째로 막던 실결함이 근거 |
+| record-not-state | 새 단계가 필요하면 상태 값을 늘리거나 상태 기계를 가르지 않고 기록 필드 + 계약 판정 함수 + 가상 단계로 넓힌다 — 공유 상태 사전을 읽는 곳이 많을수록 그쪽이 싸다 |
+| parallel-build-cutover | 쓰이는 것은 제자리에서 고치지 않는다 — 옆에 새로 짓고, 양쪽 주행으로 동치를 확인하고, 이름·경로 한 점으로 넘기고, 옛 것은 물려 둔다. 철거 조건은 넘기기 전에 정할 것 |
+| act-as-actor-stamp | 대행 통로는 넓게 열되(무계정 협력사·무응답 고객) 그 사람인 척하지 않고 누가·어느 길로 했는지를 기록에 박제한다 — `byRole`·대리 회신 채널·`sp_partner_act_log` |
+| silent-degradation | 폴백·기본값·격리·자동 이스케이프가 실패 신호를 삼켜 오류 대신 그럴듯한 값이 나오는 반복 결함 — 멈추기·원문 다시 읽기·폴백 입구 좁히기·지문 남기기 |
+| probe-before-decide | 모델·성능·정책을 정하기 전에 재는 단계를 따로 둔다 — 프로빙 문서·관측 러너·자족 실험실이 표를 내고 결정은 그 표에 달린다. 도구는 남겨 회귀 감시로 |
 
 ## Evolution Log
 - 2026-07-03: Initial schema generated from 9 topics, 3 concepts
@@ -55,3 +60,4 @@
 - 2026-07-20: 토픽 parts-engine 신설. 개념 2종 추가 — snapshot-freeze, in-memory-async-jobs. 6개 토픽 갱신
 - 2026-07-27: 개념 judgment-single-owner 신설. in-memory-async-jobs 방향 전환 기록(인메모리 → BOM 트랙 DB 원장 승격). 6개 토픽 갱신
 - 2026-09-19: **대규모 재컴파일**(직전 컴파일 이후 커밋 479건). 토픽 3종 신설 — **partner-tracks**(BOM·PCB 협력사 트랙이 리포 최대 축으로 성장, 정본 문서 2편 4,983줄), **sp-develop-web**(개발의뢰 앱·API·관리자 모듈 신설 08-28~09-11), **testing**(E2E 스펙 117·하네스 3종·가드·스크린샷 헬퍼가 독립 계층이 됨). 기존 11토픽 전부 갱신. 개념 9종 신설 — share-render-mirror-domain·workqueue-case-spine·journey-recheck-loop·golden-as-spec·exception-ledger·new-app-onboarding·destructive-op-guardrails·get-opens-post-decides·no-native-dialogs(이 중 new-app-onboarding 은 2026-07-20 로그가 "3회째에 승격 검토"로 예고한 항목 — market→rnd→develop 로 성립). 기존 8개념 전부 갱신: **in-memory-async-jobs** 는 2026-08-28 AI 잡의 `sp_ai_job` DB 이전으로 "인메모리 전제"를 대체 표기, **admin-vue-consume-php** 는 "PHP→Node HTTP 호출 없음" 단언을 08월 브리지 계층 신설로 대체하고 읽기/쓰기 두 축으로 분리, **judgment-single-owner** 는 계약(@sp/api-contract)이 업무 판정을 순수 함수로 소유하는 세 번째 형태를 추가. 개념↔개념 링크를 마크다운으로 통일
+- 2026-10-12: 증분 재컴파일(직전 2026-09-19 이후 커밋 97건). 토픽 슬러그 무변경 — 13토픽 갱신(sp-market-web 은 변경 없어 건너뜀). **개념 5종 신설** — **record-not-state**(상태 기계를 포크하지 않고 기록+판정 함수로: 스텐실 08-16 → D20·선적 완료·추가 EQ 10-11, 작업자 3곳이 독립적으로 제안), **parallel-build-cutover**(관리자 리뉴얼 컷오버·G/C 프로토타입·레거시 이관·가격 패리티 — 4곳 제안), **act-as-actor-stamp**(만능 대행 D11 → 대리 회신 → 대리 접속), **silent-degradation**(오류 없이 값이 평탄해지는 반복 결함 9건), **probe-before-decide**(프로빙 문서·관측 러너·실험실). 기존 17개념 전부에 새 사례 추가. 방향 전환 기록 2건 — **lazy-derived-state** 에 반례(마스터딜러 판정 파생 → `isMasterDealer` 저장)와 경계(취소 견적 정리는 서버 타이머), **judgment-single-owner** 에 지금 어긋나 있는 곳(하위 협력사 메뉴 `requiresTrack:'pcb'` ↔ 서버). 개념 승격 보류 후보는 log.md 참조

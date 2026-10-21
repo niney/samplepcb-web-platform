@@ -1,7 +1,7 @@
 ---
 concept: 수동 동기화 지점과 드리프트 리스크
-last_compiled: 2026-09-19
-topics_connected: [sp-node-api, api-contract, spcb-bridge, theme-sp-lite, gnuboard-integration, docs-knowledge, infrastructure, parts-engine, testing, sp-develop-web]
+last_compiled: 2026-10-12
+topics_connected: [sp-node-api, api-contract, spcb-bridge, theme-sp-lite, gnuboard-integration, docs-knowledge, infrastructure, parts-engine, testing, sp-develop-web, sp-vue-web, shared-packages, partner-tracks]
 status: active
 ---
 
@@ -13,6 +13,10 @@ status: active
 2026-08~09 에 지점 수가 크게 늘었다(협력 트랙 2개·개발의뢰·운영 도메인 3개). 아래는 전수가 아니라 **범주별 대표 사례 + 위험도**다.
 
 ## Instances
+- **실동작이 어긋나 있는 곳 (2026-10-12 현재)** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 하위 협력사 메뉴 — `partner/menu.ts` 는 `requiresTrack: 'pcb'`, 서버 `canManageChildren` 과 [PARTNER_PORTAL](../../docs/PARTNER_PORTAL.md) §5.1 은 "견적 트랙 중 하나라도". 부품 조달만 하는 마스터딜러는 사이드바에 메뉴가 안 뜬다(코드 읽기 기준, 미실행). 계약·라우터 주석과 같은 문서의 화면 트리도 "PCB 트랙"으로 남아 있다
+- **운영 반영 지점이 흩어졌다 (2026-09-30~10-11)** in [infrastructure](../topics/infrastructure.md) / [docs-knowledge](../topics/docs-knowledge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): 마이그레이션 12본과 **스크립트가 안 해 주는 뒤처리 둘**(`smartbom:seed-extra-anchor` 1회, 관리자 설정에서 "PCB EQ 분석" 켜기)이 다섯 문서에 나뉘어 적혀 있고 [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md)·`deploy.sh` 에는 없다. 한 겹 더 — `reset-data-policy.ts` 와 재이관 시드 목록에 `sp-bom-extra` 가 없어 `migrate:reset-data` 뒤에는 추가결제 앵커가 사라진다
+- **PHP 미러 3종 → 6종 (2026-09-30~10-11)** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md) / [api-contract](../topics/api-contract.md) / [theme-sp-lite](../topics/theme-sp-lite.md): EQ 문항 유형 16·변화 3·회차 상태 라벨(계약 ↔ `sp_pcb_eq.extend.php`) · `sp-bom-extra` it_id 가 네 곳 · 부품 확인 배지 SQL ↔ sp-node `openCount` · sp-vue `bomConfirmPreviewDelta` ↔ PHP `sp_bom_confirm_delta_text`. 테마 쪽에도 하나 — 헤더 `$sp_header_labels` 가 DB `me_name` **문자열 일치**라 /adm 에서 메뉴 이름을 바꾸면 조용히 빗나간다
+- **문서 드리프트 (2026-10-10~11)** in [docs-knowledge](../topics/docs-knowledge.md) / [testing](../topics/testing.md) / [sp-vue-web](../topics/sp-vue-web.md) / [sp-node-api](../topics/sp-node-api.md): [ADMIN_NEXT_UI](../../docs/ADMIN_NEXT_UI.md) §1·§10~§12 가 컷오버 전 경로(§0 우선) · [PCB_PARTNER_TRACK](../../docs/PCB_PARTNER_TRACK.md) '선적 완료' 절과 [partner-i18n](../../docs/partner-i18n.md) 표현표가 `출하`(같은 날 화면은 `선적`) · D20 P1 기록이 `stripslashes`·`G5_CSS_VER 26101101`(코드는 `sp_bridge_text_map`·`26101102`) · [PCB_EQ_AI_PROBE](../../docs/PCB_EQ_AI_PROBE.md) §8·§10 이 구현과 다름 · e2e README 미등재 스펙 40 → **64**(145개 중) · `schema.prisma` 주석 2곳(`issueType` 유형 목록·"MD 중개는 후속") · `pcb-eq-extract/index.ts` 헤더 `eq-parse-v2` ↔ 상수 `v3` · `index.html` 부팅 스크립트 ↔ `pinTheme`
 - **런북 드리프트 — 위험도 최상 (2026-09-19 현재)** in [infrastructure](../topics/infrastructure.md): ① **`SPCB_BRIDGE_URL` 값이 어긋난다** — `docs/DEPLOY_CENTRAFAB.md` STEP 5 는 `https://centrafab.co.kr/spcb/api/me` 로 적혀 있는데 `php-bridge.ts` 는 이 값을 **base** 로 보고 `/spcb/api/order-notify` 를 붙인다. 런북대로 넣으면 경로가 `/spcb/api/me/spcb/api/order-notify` 가 돼 **알림 브리지가 조용히 깨진다**(실패는 삼켜져 전이는 성공한다). ② 같은 런북 STEP 9 의 인라인 nginx 전문은 구판(`/rnd` 잔존·`/develop` 없음·`/shop/eq|as` rewrite 없음·슬러그를 `try_files` 로 찾아 **PHP 소스 다운로드** 함정)이고 정본은 **gitignore 된 `ops/nginx-live/` 보관본** — 클론만으로는 없고 서버 `/etc/nginx` 에서 다시 복사해야 한다
 - **PHP 사전 ↔ 계약 미러 4종 (2026-08~09)** in [gnuboard-integration](../topics/gnuboard-integration.md) / [api-contract](../topics/api-contract.md) / [spcb-bridge](../topics/spcb-bridge.md): 앵커 it_id 목록(`sp_quote_it_ids`↔`TEMPLATE_ITEMS`, `sp-market-svc`↔`MARKET_ANCHOR_IT_ID`, `sp-develop-svc`↔`DEVELOP_ANCHOR_IT_ID`, `sp-bom-parts`) · 스텝퍼 stage 순서표(`sp_order_slowest_progress` rank ↔ 계약 배열) · EQ/클레임 라벨(`sp_pcb_eq_status_label`↔`PCB_EQ_REVIEW_STATUS_LABELS`, `PCB_CLAIM_*`·`BOM_CLAIM_*`) · 배송방법 한글 라벨(↔ `/adm`·메일 `{택배회사}` 치환). 게다가 **`ORDER_STATUS_CUSTOMER_LABELS` 는 역방향** — PHP `sp_order_status_customer()` 가 정본이고 계약이 사본이다(Node 가 죽어도 주문내역은 그려야 하므로). 배지 count 의 상태 문자열(`'requested'`·`'open'`·`'reviewing'`)도 PHP 가 직접 SELECT 하므로 sp-node 가 상태값을 바꾸면 **배지만 조용히 0**
 - **운영 스키마는 sync 가 나르지 않는다 (2026-08-17)** in [gnuboard-integration](../topics/gnuboard-integration.md) / [sp-node-api](../topics/sp-node-api.md): `od_delivery_method` DDL 은 운영 DB 에 **수동 실행**이고 `SET SESSION sql_mode=''` 선행이 필요하며(기존 zero-date 기본값이 strict 재검증에 걸림), **DDL 먼저·배포 나중**이어야 한다(미적용 상태로 배포하면 목록·상세 SELECT 가 `Unknown column`). 같은 계열의 환경 편차 — 191자 초과 프로젝트명이 비 strict 에선 조용히 잘리고 strict 에선 500 이라 **환경마다 실패 모양이 갈린다**(여정 36호 → 계약 `clampPcbProjectName` 으로 우리가 자른다)
@@ -42,3 +46,6 @@ status: active
 - [parts-engine](../topics/parts-engine.md)
 - [testing](../topics/testing.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
+- [sp-vue-web](../topics/sp-vue-web.md)
+- [shared-packages](../topics/shared-packages.md)
+- [partner-tracks](../topics/partner-tracks.md)

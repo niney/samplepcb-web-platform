@@ -1,7 +1,7 @@
 ---
 topic: infrastructure
-last_compiled: 2026-09-19
-sources_count: 40
+last_compiled: 2026-10-12
+sources_count: 44
 status: active
 ---
 
@@ -9,11 +9,11 @@ status: active
 
 ## Purpose [coverage: high — 12 sources]
 
-samplepcb 웹 플랫폼의 로컬/운영 라우팅·배포·DB 운영·인프라 계층. 소스 날짜 범위는 2026-06-30(CLAUDE.md)~2026-09-18(`shot.mjs`)이며 무게중심은 2026-09(서브도메인 nginx·DB 스냅샷 원복·운영 재이관·프로토타입 정리). 두 코드 영역(sp-php = 그누보드5/영카트 `samplepcb-web/`, sp-vue·sp-market·sp-develop·sp-node = `samplepcb-web-mono-app/`)을 **같은 도메인**에서 함께 돌리는 것이 핵심 목표다 — 같은 도메인이어야 PHPSESSID 쿠키가 공유되어 인증 브리지(그누보드=IdP, [spcb-bridge](spcb-bridge.md))가 성립한다.
+samplepcb 웹 플랫폼의 로컬/운영 라우팅·배포·DB 운영·인프라 계층. 소스 날짜 범위는 2026-06-30(CLAUDE.md)~2026-10-11(마지막 신규 마이그레이션)이며 무게중심은 여전히 2026-09(서브도메인 nginx·DB 스냅샷 원복·운영 재이관·프로토타입 정리). 2026-09-19 컴파일 이후 `ops/` 의 git 추적 변경은 `hero-perf.mjs` 하나이고 `deploy.sh`·배포 문서·로컬 nginx 스니펫은 그대로다 — 대신 운영 반영을 기다리는 마이그레이션 12본과 수동 뒤처리 둘이 쌓였다(Data). 두 코드 영역(sp-php = 그누보드5/영카트 `samplepcb-web/`, sp-vue·sp-market·sp-develop·sp-node = `samplepcb-web-mono-app/`)을 **같은 도메인**에서 함께 돌리는 것이 핵심 목표다 — 같은 도메인이어야 PHPSESSID 쿠키가 공유되어 인증 브리지(그누보드=IdP, [spcb-bridge](spcb-bridge.md))가 성립한다.
 
-2026-09-19 현재 로컬은 nginx 4경로 분기(`/`·`/app`·`/market`·`/develop`·`/api` — **`/rnd` 는 2026-08-28 폐지**, 5177 포트와 `deploy.sh` 9번 자리를 sp-develop 이 이어받음)가 가동 중이다. 운영은 한 Ubuntu 서버(`qn391`, 유저 samplepcb)에 **세 nginx 사이트**가 산다: `centrafab.co.kr`(운영 정본 `centrafab-main`, Cloudflare Flexible) · `dev.centrafab.co.kr`(개발용 — `-dev` 작업트리·`sp-api-dev` 3334·`sp-engine-dev` 8401) · `new.samplepcb.co.kr`(Cafe24 DNS 직결 + Let's Encrypt 443, 2026-09-16 설계·미커밋). 재배포는 루트 `deploy.sh` 메뉴 10케이스, 배포 전 DB 스냅샷은 `db:prepare` 가 자동으로 남기고(2026-09-11), 전체 원복·운영 재이관(`migrate:reset-data`, 2026-09-16)·프로토타입 정리(`prod-develop-cleanup.sh`, 2026-09-11 운영 실행)·그누보드 코어 패치 가드(`check-core-patches.sh`, 2026-08-05)까지 `ops/`·`docs/` 가 절차로 붙든다. 실파일 저장은 외부 파일서버 `file.samplepcb.kr` 위임, 로컬 메일은 Mailpit, DB 런타임 튜닝은 `docs/DB_TUNING.md`(2026-07-24) 그대로다.
+2026-10-12 현재 로컬은 nginx 4경로 분기(`/`·`/app`·`/market`·`/develop`·`/api` — **`/rnd` 는 2026-08-28 폐지**, 5177 포트와 `deploy.sh` 9번 자리를 sp-develop 이 이어받음)가 가동 중이다. 운영은 한 Ubuntu 서버(`qn391`, 유저 samplepcb)에 **세 nginx 사이트**가 산다: `centrafab.co.kr`(운영 정본 `centrafab-main`, Cloudflare Flexible) · `dev.centrafab.co.kr`(개발용 — `-dev` 작업트리·`sp-api-dev` 3334·`sp-engine-dev` 8401) · `new.samplepcb.co.kr`(Cafe24 DNS 직결 + Let's Encrypt 443, 2026-09-16 설계 — 절차 문서는 사라짐(2026-10-12 확인), 보관본 설정 파일은 남아 있다). 재배포는 루트 `deploy.sh` 메뉴 10케이스, 배포 전 DB 스냅샷은 `db:prepare` 가 자동으로 남기고(2026-09-11), 전체 원복·운영 재이관(`migrate:reset-data`, 2026-09-16)·프로토타입 정리(`prod-develop-cleanup.sh`, 2026-09-11 운영 실행)·그누보드 코어 패치 가드(`check-core-patches.sh`, 2026-08-05)까지 `ops/`·`docs/` 가 절차로 붙든다. 실파일 저장은 외부 파일서버 `file.samplepcb.kr` 위임, 로컬 메일은 Mailpit, DB 런타임 튜닝은 `docs/DB_TUNING.md`(2026-07-24) 그대로다.
 
-## Architecture [coverage: high — 14 sources]
+## Architecture [coverage: high — 16 sources]
 
 **로컬 통합 호스트 `local-web.samplepcb.co.kr` — nginx 443 리버스프록시, 경로 분기 (2026-09-05 기준 [local-web.conf](../../ops/nginx/local-web.conf)):**
 
@@ -26,14 +26,14 @@ samplepcb 웹 플랫폼의 로컬/운영 라우팅·배포·DB 운영·인프라
 (nginx 미노출)  127.0.0.1:8400  Python (FastAPI/uvicorn) ← samplepcb-parts-engine (sp-engine) ★sp-node 내부 프록시
 ```
 
-- location 순서 규칙: 구체 경로를 먼저, catch-all `/` 을 마지막에. **`/app`·`/api`·`/market`·`/develop` 는 그누보드가 점유하지 않는 예약 경로**([AGENTS.md](../../AGENTS.md)). `/spcb`(인증·알림 브리지)는 별도 location 없이 catch-all 로 PHP 가 처리.
+- location 순서 규칙: 구체 경로를 먼저, catch-all `/` 을 마지막에. **`/app`·`/api`·`/market`·`/develop` 는 그누보드가 점유하지 않는 예약 경로**([AGENTS.md](../../AGENTS.md)). `/spcb`(인증·알림 브리지)는 별도 location 없이 catch-all 로 PHP 가 처리. sp-php 의 새 사용자 URL 도 로컬에선 nginx 를 안 고친다 — 2026-09-30 `/shop/parts-confirm`(부품 확인)은 catch-all 이 Apache 로 넘기고 [samplepcb-web/.htaccess](../../samplepcb-web/.htaccess) 의 `RewriteRule ^shop/parts-confirm/?$ /spcb/pages/parts-confirm.php` 가 받는다(`local-web.conf` 무변경). 운영은 Apache 가 없어 nginx 보관본에 같은 rewrite 가 따로 있어야 한다(아래).
 - **upstream keepalive 는 선택이 아니다(2026-08-16 실측)**: Vite dev 는 모듈 하나가 요청 하나라 e2e 여정을 연속으로 돌리면 수만 건이 나가고, 연결을 재사용하지 않으면 TIME_WAIT 이 쌓여 **Windows 임시 포트(이 머신 13,977개)가 고갈** → error.log `10048 Only one usage of each socket address` → 502 → SPA 빈 화면. 범인은 `Connection "upgrade"` 고정값(HMR 용인데 일반 요청까지 새 연결). 처방은 http{} 의 `map $http_upgrade $connection_upgrade { default upgrade; '' ''; }` + 각 upstream `keepalive` + `proxy_http_version 1.1`(`/api` 는 `Connection ""`).
 - **Vite dev 서버 바인딩 규율**(`apps/*/vite.config.ts`): `host: '127.0.0.1'`(기본 localhost 는 Windows 에서 IPv6 ::1 만 열려 nginx IPv4 프록시가 502) · `allowedHosts: ['local-web.samplepcb.co.kr']`(Vite 는 비허용 Host 403) · `/api`·`/spcb` 프록시(nginx 없이 5173 직결 시) · sp-develop 은 **`strictPort: true`** — nginx 가 5177 고정 프록시라 점유 시 조용히 밀리면 라우팅이 끊기므로 명시적으로 실패시킨다. 포트 대역: 5173=sp-vue, 5174·5175=worktree 병렬, 5176=sp-market, 5177=sp-develop.
 - **설정 파일 이원화**: 실제 구동 config 는 `D:\nginx\conf\nginx.conf`(repo **밖**). `ops/nginx/local-web.conf` 는 repo 가 추적하는 **레퍼런스 스니펫**(라이브 `/app`·`/market` 엔 `X-Forwarded-Proto` 한 줄 추가). 80 포트는 https 301, 와일드카드 인증서 `_wildcard.samplepcb.co.kr`(mkcert), `client_max_body_size 100M`. 각 앱은 dev(Vite 프록시) / 운영(빌드 `dist/` alias + `try_files … /{app,market,develop}/index.html`) 블록 **택1**(운영 블록은 주석).
 - **로컬 nginx = Windows 서비스('nginx', 자동 시작)**: `nginx -s reload` 는 관리자여도 Access denied — 반영은 관리자 `net stop nginx & net start nginx`(순단 ~1초). 부가 호스트(repo 미추적) `local`·`local-www`→5173, `local2`·`local3`→5174·5175 — 통합 라우팅은 `local-web` 하나뿐.
 - HTTPS/도메인 독립성: `G5_DOMAIN=''` + `g5_path()` 가 `HTTP_HOST` 를 쓰므로 nginx 가 `Host $host` 만 전달하면 도메인이 달라도 무관([core-nonmodification](../concepts/core-nonmodification.md)). 로컬 프록시 뒤 https 인식은 `proxy_fix.php`(php.ini `auto_prepend_file`).
 
-**`ops/` 폴더 구성(2026-09-19)**: `nginx/local-web.conf`(로컬 스니펫, 추적) · `nginx-live/`(**운영 서버 `/etc/nginx` 스냅샷 — gitignore, 커밋 금지**: `nginx.conf`·`sites-enabled/{centrafab-main,centrafab,new-samplepcb,default,sp_projects,niney_life_pickr*}`·`bootstrap/new-samplepcb-http.conf` — 같은 서버에 easypcb.co.kr 계열 타 프로젝트 사이트도 동거) · `systemd/sp-engine.service` · `scripts/`(`check-core-patches.sh`·`prod-develop-cleanup.sh`·`shot.mjs`·`e2e-market.mts`·`e2e-develop.mts`) · `README.md`(2026-07-20 판 — `/develop` 미반영, 아래 Gotchas). `docker-compose.yml` 은 여전히 "예정"[as of 2026-07].
+**`ops/` 폴더 구성(2026-10-12)**: `nginx/local-web.conf`(로컬 스니펫, 추적) · `nginx-live/`(**운영 서버 `/etc/nginx` 스냅샷 — gitignore, 커밋 금지**: `nginx.conf`·`sites-enabled/{centrafab-main,centrafab,new-samplepcb,default,sp_projects,niney_life_pickr*}`·`bootstrap/new-samplepcb-http.conf` — 같은 서버에 easypcb.co.kr 계열 타 프로젝트 사이트도 동거) · `systemd/sp-engine.service` · `scripts/`(`check-core-patches.sh`·`prod-develop-cleanup.sh`·`shot.mjs`·**`hero-perf.mjs`**(2026-09-21)·`e2e-market.mts`·`e2e-develop.mts`) · `README.md`(2026-07-20 판 — `/develop` 미반영, 아래 Gotchas). `docker-compose.yml` 은 여전히 "예정"[as of 2026-07].
 
 **운영 배포 — centrafab.co.kr ([DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md), Ubuntu 22.04 · nginx 단독 · Cloudflare Flexible):**
 
@@ -49,8 +49,8 @@ samplepcb 웹 플랫폼의 로컬/운영 라우팅·배포·DB 운영·인프라
 ```
 
 - **Apache 불필요** — PHP 는 nginx + php-fpm 직결(Apache 를 끼우면 REMOTE_ADDR=127.0.0.1 이 돼 `cloudflare.check.php` https 자동감지가 깨짐). Cloudflare 경유 사이트의 https 인식은 코어 `cloudflare.check.php`(CF-Connecting-IP + X-Forwarded-Proto). **DNS 직결 사이트(new.samplepcb)는 CF 헤더가 없으므로 `fastcgi_param HTTPS on` 을 두 PHP 핸들러에 명시**하고 Node 엔 `$remote_addr`·`$scheme` 을 그대로 전달한다.
-- **운영 nginx 의 정본은 서버 `/etc/nginx/`, 리포 참고본은 `ops/nginx-live/`(gitignore)**. 2026-09-05 부터 운영 반영 안내가 "런북 STEP 9 인라인 전문" 에서 **"보관본을 서버에 그대로 복사 → `./deploy.sh 7`"** 방식으로 바뀌었다(`deploy.sh` 머리말·[DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) 운영 반영 절). 보관본이 담은 `.htaccess` 번역: `= /app|/market|/develop` 무슬래시 301(슬러그 정규식보다 `=` 가 먼저라 PHP 로 안 샘) · data/ PHP 실행차단(RCE 방지)·`/data/session/` 차단 · `/spcb/lib/`·`/plugin/okname/key/` 차단 · `/spcb` 무확장 라우팅 + `HTTP_AUTHORIZATION` 패스스루(Bearer) · `/shop/quotes`·`/shop/quotes/archive`·**`/shop/eq`·`/shop/as`(끝 슬래시 유무 모두)** rewrite · 루트 짧은 URL `/슬러그` → `spcb/pages/슬러그.php`(**`if (-f …) rewrite … last`** — `try_files` 로 .php 를 찾으면 그 location 엔 fastcgi 가 없어 소스가 다운로드된다) · `fastcgi_read_timeout 420s`. 서버 공통 `nginx.conf` 는 `user samplepcb`, client/proxy/keepalive/send 타임아웃 전부 420s, `keepalive_requests 1000`, gzip.
-- **new.samplepcb.co.kr 2단계 적용([samplepcb-subdomain-nginx](../../docs/samplepcb-subdomain-nginx.md))**: ① `bootstrap/new-samplepcb-http.conf` 를 `/etc/nginx/sites-enabled/new-samplepcb` 로 복사(ACME `/.well-known/acme-challenge/` 만 서빙, 나머지 503) → 외부에서 검증 파일 curl 확인 → ② `certbot certonly --webroot … --cert-name new.samplepcb.co.kr --deploy-hook 'nginx -t && systemctl reload nginx'` → ③ `sites-enabled/new-samplepcb` HTTPS 파일로 **같은 경로를 교체**(HTTP 파일을 별도 이름으로 남기지 않는다). 검증 5종: 80→301 · 443 응답 · `/api/health` JSON · `/app/` · `/data/session/` 403. 대표 주소 전환 시 운영 `.env` 의 `WEB_BASE_URL`·`SPCB_BRIDGE_URL` 만 바꾸고 `systemctl restart sp-api`; PHP `G5_DOMAIN`·`G5_HTTPS_DOMAIN`·`G5_COOKIE_DOMAIN` 은 빈 문자열 유지. `www.samplepcb.co.kr` 레거시는 기존 Cafe24 서버 그대로.
+- **운영 nginx 의 정본은 서버 `/etc/nginx/`, 리포 참고본은 `ops/nginx-live/`(gitignore)**. 2026-09-05 부터 운영 반영 안내가 "런북 STEP 9 인라인 전문" 에서 **"보관본을 서버에 그대로 복사 → `./deploy.sh 7`"** 방식으로 바뀌었다(`deploy.sh` 머리말·[DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) 운영 반영 절). 보관본이 담은 `.htaccess` 번역: `= /app|/market|/develop` 무슬래시 301(슬러그 정규식보다 `=` 가 먼저라 PHP 로 안 샘) · data/ PHP 실행차단(RCE 방지)·`/data/session/` 차단 · `/spcb/lib/`·`/plugin/okname/key/` 차단 · `/spcb` 무확장 라우팅 + `HTTP_AUTHORIZATION` 패스스루(Bearer) · `/shop/quotes`·`/shop/quotes/archive`·**`/shop/eq`·`/shop/as`(끝 슬래시 유무 모두)** rewrite · **`/shop/parts-confirm`**(2026-09-30 부품 확인 — 보관본 세 사이트 `centrafab-main`·`centrafab`·`new-samplepcb` 에 모두 있음, 파일 수정 시각 2026-10-05) · 루트 짧은 URL `/슬러그` → `spcb/pages/슬러그.php`(**`if (-f …) rewrite … last`** — `try_files` 로 .php 를 찾으면 그 location 엔 fastcgi 가 없어 소스가 다운로드된다) · `fastcgi_read_timeout 420s`. 서버 공통 `nginx.conf` 는 `user samplepcb`, client/proxy/keepalive/send 타임아웃 전부 420s, `keepalive_requests 1000`, gzip.
+- **new.samplepcb.co.kr 2단계 적용(`docs/samplepcb-subdomain-nginx.md` — 사라짐(2026-10-12 확인): 미커밋 상태로 읽었고 지금은 작업트리·git 이력 어디에도 없다. 아래는 2026-09-19 컴파일 때 읽은 내용)**: ① `bootstrap/new-samplepcb-http.conf` 를 `/etc/nginx/sites-enabled/new-samplepcb` 로 복사(ACME `/.well-known/acme-challenge/` 만 서빙, 나머지 503) → 외부에서 검증 파일 curl 확인 → ② `certbot certonly --webroot … --cert-name new.samplepcb.co.kr --deploy-hook 'nginx -t && systemctl reload nginx'` → ③ `sites-enabled/new-samplepcb` HTTPS 파일로 **같은 경로를 교체**(HTTP 파일을 별도 이름으로 남기지 않는다). 검증 5종: 80→301 · 443 응답 · `/api/health` JSON · `/app/` · `/data/session/` 403. 대표 주소 전환 시 운영 `.env` 의 `WEB_BASE_URL`·`SPCB_BRIDGE_URL` 만 바꾸고 `systemctl restart sp-api`; PHP `G5_DOMAIN`·`G5_HTTPS_DOMAIN`·`G5_COOKIE_DOMAIN` 은 빈 문자열 유지. `www.samplepcb.co.kr` 레거시는 기존 Cafe24 서버 그대로.
 - 빌드 산출물 = `apps/{web,market,develop}/dist`·`apps/api/dist/server.js`(`pnpm -r build`, api 는 tsup `noExternal:[/^@sp\//]`). Node 는 systemd 유닛 `sp-api`(`ExecStart=/usr/bin/node --env-file=.env dist/server.js` — **시스템 node 절대경로 필수**, fnm 경로는 203/EXEC). MariaDB 는 charset utf8 + **`sql_mode=''` 영구화**(strict 면 그누보드 쓰기 실패). 초기 설치는 STEP 6 `pnpm db:seed-initial`(템플릿 상품 5종 `sp-pcb-std/sp-mask/sp-pcb-adv/sp-pcb-flex/sp-bom-parts` + 사업자정보 11필드 + 무통장 2필드, 멱등) 확인 없이는 진행 금지.
 - **sp-engine systemd 유닛**([sp-engine.service](../../ops/systemd/sp-engine.service), 2026-07-20): 유저/그룹 samplepcb, `ExecStart=~/.local/bin/uv run --no-sync uvicorn parts_engine_app.main:app --host 127.0.0.1 --port 8400`(`--no-sync` = 기동 시 네트워크 의존 제거), `Restart=always`/`RestartSec=3`/`TimeoutStopSec=30`, 하드닝 `NoNewPrivileges`·`PrivateTmp`·`ProtectSystem=full`. 최초 설치는 uv → `uv sync` → `.env`(MOUSER/DIGIKEY/UNIKEYIC) → 유닛 복사+`enable --now` → `/health`. 상세는 [parts-engine](parts-engine.md).
 - **재배포 = 루트 [deploy.sh](../../deploy.sh)** (운영 전용, 메뉴식 10케이스, 2026-09-11 판): 1 sp-api / 2 sp-api+DB / 3 web / 4 market / **5 풀(api+web+market+develop+DB)** / 6 sp-php(pull+php-fpm reload) / 7 nginx reload / 8 .env(sp-api 재시작) / **9 sp-develop**(구 rnd 자리) / 10 sp-engine(pull → `uv sync --frozen` → restart → `/health`). `pull` 에 **스테일 emit 정리 가드**(`clean_stale`, 옛 `vue-tsc -b` 가 src/ 에 남긴 `.js`·`.tsbuildinfo` 제거). **DB 단계는 `pnpm --filter api db:prepare --always-backup --code-ref <배포 전 HEAD>`** — 스냅샷을 먼저 남기고 미적용 migration 만 `migrate deploy`(reset/dev 금지), 이어 `develop:seed-anchor`(sp-develop 앵커 상품, 멱등). 파괴적 마이그레이션 여부를 물어 sp-api 중단/무중단 선택. 말미에 `sp-api`·`sp-engine`·`php8.1-fpm`·`nginx`·`mariadb` 상태 요약. sp-develop 첫 배포 체크리스트(스크립트 밖): 보관본 nginx 복사 → 7 · 관리자 AI 설정에서 `develop.dev-review`·`develop.dev-diagram` 켜기(기본 꺼짐) · 파일서버 serviceType `develop` 수용 확인(안 되면 `DEVELOP_FILE_SERVICE_TYPE` → 8).
@@ -63,9 +63,9 @@ samplepcb 웹 플랫폼의 로컬/운영 라우팅·배포·DB 운영·인프라
 
 **코어 패치 가드 ([check-core-patches.sh](../../ops/scripts/check-core-patches.sh), 2026-08-05·08-17)**: `git subtree pull` 이 원본으로 덮어써 **코어 최소 수정이 충돌 경고 없이 조용히 되돌아가는 것**을 잡는다 — `assert_contains` 5건(get_member 이메일 아이디 필터 `0-9a-z_@` · orderform `G5_IS_MOBILE` · orderform.sub `sp_custom_row_it_ids_in` · orderformupdate `sp_order_cart_count_sql` pc+mobile). subtree pull 직후 필수, 새 코어 수정은 여기 한 줄 등록이 규칙([UPSTREAM_SYNC](../../docs/UPSTREAM_SYNC.md)).
 
-**개발 검증 도구**: [shot.mjs](../../ops/scripts/shot.mjs)(2026-09-18) 는 playwright-core + 시스템 Chrome→Edge 채널 **헤드리스** 스크린샷(`--full`·`--selector`·`--scroll`·`--hover`·`--click`·`--mobile`, JSON 치수·`.sp-home` 섹션 좌표·콘솔 error/4xx 목록 출력) — 피그마 대조용이며 헤드리스라 Aside/Chrome 확장(실로그인 관찰용)과 충돌하지 않는다([FIGMA_PAGES](../../docs/FIGMA_PAGES.md)). API 하네스 `e2e-market.mts`(134항목)·`e2e-develop.mts`(181 PASS) 는 `apps/api` 에서 `tsx --env-file=.env` 로 실행, sp-node 3333·Mailpit 8025 전제, 실 LLM 유스케이스를 시작 시 끄고 끝날 때 원복. 브라우저 하네스는 [testing](testing.md).
+**개발 검증 도구**: [shot.mjs](../../ops/scripts/shot.mjs)(2026-09-18) 는 playwright-core + 시스템 Chrome→Edge 채널 **헤드리스** 스크린샷(`--full`·`--selector`·`--scroll`·`--hover`·`--click`·`--mobile`, JSON 치수·`.sp-home` 섹션 좌표·콘솔 error/4xx 목록 출력) — 피그마 대조용이며 헤드리스라 Aside/Chrome 확장(실로그인 관찰용)과 충돌하지 않는다([FIGMA_PAGES](../../docs/FIGMA_PAGES.md)). [hero-perf.mjs](../../ops/scripts/hero-perf.mjs)(2026-09-21) 는 같은 playwright-core 헤드리스에 **CDP CPU 스로틀**을 얹은 홈 히어로 배경 성능·강등 회귀 점검이다 — `perf`(배너 5장 각각 rAF 프레임 간격 평균·최대·50ms 초과 수·longtask 를 3초씩, `--widths`·`--cpu`·`--dpr`) / `verify`(① 정상 기기는 라이트 아님 ② sessionStorage 플래그로 처음부터 라이트 ③ cpu×20 에서 감시가 `.is-lite` 를 붙이는 시간 ④ 1920→3400 리사이즈에 팬 translateX 가 안 뛰는가 ⑤ 3400 폭 이음새 픽셀 점프). 메인스레드를 쓰는 것은 배너 01(SVG 윤곽 회전)뿐이라 팬·backdrop 의 컴포지터 부담은 여기 안 잡힌다. 기준값(이 PC, cpu×4, 1920): 01 평균 8.2ms / 나머지 6.9ms. API 하네스 `e2e-market.mts`(134항목)·`e2e-develop.mts`(181 PASS) 는 `apps/api` 에서 `tsx --env-file=.env` 로 실행, sp-node 3333·Mailpit 8025 전제, 실 LLM 유스케이스를 시작 시 끄고 끝날 때 원복. 브라우저 하네스는 [testing](testing.md).
 
-## Talks To [coverage: high — 11 sources]
+## Talks To [coverage: high — 12 sources]
 
 | 구성요소 | 상대 | 방식 |
 |---|---|---|
@@ -80,11 +80,11 @@ samplepcb 웹 플랫폼의 로컬/운영 라우팅·배포·DB 운영·인프라
 | deploy.sh · prepare-dev · cleanup | MySQL advisory lock `samplepcb-schema-<DB>` · `samplepcb-db-backups/` | 배포/기동 전 스냅샷, 동시 DB 준비 직렬화 |
 | migrate:sync / reset-data (운영) | 레거시 운영 DB(읽기전용 직결, `.env.migration`) | 델타 diff · 초기화 후 전량 재이관 — 삭제/이상은 리포트만 |
 | sp-php 메일 / sp-node nodemailer | **로컬 Mailpit `127.0.0.1:25`**(UI `:8025`) | config.php `G5_SMTP` SMTP 모드 · `SMTP_HOST/PORT` — 외부 0통 |
-| e2e 하네스 · shot.mjs | `E2E_BASE_URL`(기본 `https://local-web…`, mkcert) · `E2E_API_URL` · `E2E_BOM_ENGINE_URL` · `E2E_MAILPIT_URL` · 시스템 Chrome/Edge | nginx(Windows 서비스) 꺼져 있으면 beforeAll 중단, 5173 직결 우회 시 `/bbs` 불가 |
+| e2e 하네스 · shot.mjs · hero-perf.mjs | `E2E_BASE_URL`(기본 `https://local-web…`, mkcert) · `E2E_API_URL` · `E2E_BOM_ENGINE_URL` · `E2E_MAILPIT_URL` · 시스템 Chrome/Edge | nginx(Windows 서비스) 꺼져 있으면 beforeAll 중단, 5173 직결 우회 시 `/bbs` 불가 |
 | 거버 뷰어 (local-gerber) | local-web `/spcb/api/me` · `/api` | 교차 서브도메인 same-site 쿠키 전달 — 도메인와이드 PHPSESSID 충돌 재발 지점(Gotchas) |
 | sp-node·sp-engine HOST 바인딩 | 127.0.0.1 (로컬·운영 공통, `HOST` env) | 공개 포트는 운영 80(CF 경유)·443(new.samplepcb)뿐 |
 
-## API Surface [coverage: medium — 4 sources]
+## API Surface [coverage: medium — 6 sources]
 
 파일서버 `file.samplepcb.kr`(기본값, `FILE_SERVER_URL` 오버라이드): `POST /api/uploadFileByAnonymous`(multipart `serviceType`+`files` → `{ uploadFileName, originFileName, pathToken, size }`) · `GET /api/download/:pathToken`(404 는 null, content-type 미제공 시 octet-stream 보정) · `GET /api/delete/:pathToken`(404=성공, 멱등). **serviceType 버킷은 트랙마다 분리**: 거버 `gerber`(테스트 `demo`, `FILE_SERVICE_TYPE`) · BOM `bom` · 선적 서류 `bom_shipment`(`BOM_SHIPMENT_FILE_SERVICE_TYPE`) · 마켓 `market`(`MARKET_FILE_SERVICE_TYPE`) · 개발의뢰 `develop`(`DEVELOP_FILE_SERVICE_TYPE`) · PCB 협력 트랙(EQ·송금·선적·클레임·A/S 각자 상수). 파일서버가 **신규 버킷을 받는지는 운영 전 1회 실측**이 관례(market·develop 미실측).
 
@@ -92,10 +92,11 @@ samplepcb 웹 플랫폼의 로컬/운영 라우팅·배포·DB 운영·인프라
 
 sp-node 환경변수([.env.example](../../samplepcb-web-mono-app/apps/api/.env.example), 2026-08-29): `PORT`·`HOST`·`JWT_SECRET`(그누보드 `spcb/lib/secret.php` 와 수동 동기화 — 회원 JWT·서비스 JWT 공통 대칭키)·`DATABASE_URL`·`LEGACY_DATABASE_URL`·`G5_DATABASE_URL`·`G5_DATA_PATH`·`SPCB_BRIDGE_URL`·`SMTP_HOST/PORT`(+`SMTP_USER/PASS`·`MAIL_FROM`)·`ALIMTALK_ENABLED/URL/AUTH_TOKEN`·`WEB_BASE_URL`·`FILE_SERVER_URL`·`FILE_SERVICE_TYPE`·`AI_BASE_URL`·`AI_API_KEY`·`AI_ATTACHMENT_VISION_MODEL`(파일 값이 관리자 화면 저장값보다 **우선**)·`ES_NODE_URL`·`PART_INGEST_DB_CONCURRENCY`·`BOM_ENGINE_URL`·`BOM_ENGINE_TIMEOUT_MS`·`KOREAEXIM_API_KEY`·`DIGIKEY_CLIENT_ID/SECRET`·`DIGIKEY_OAUTH_REDIRECT_URI`(DigiKey 앱당 1개라 로컬/운영 환경별). sp-engine `.env`: `MOUSER_API_KEY`·`DIGIKEY_*`·`UNIKEYIC_*`·`SEARCH_SUPPLIER_CONCURRENCY=4`·`SUPPLIER_MAX_CALLS=3000`(관리자 화면 상한도 이 값을 못 넘음).
 
-운영 명령 표면: `./deploy.sh 1–10` · `pnpm --filter api db:snapshot backup|inspect <폴더>|restore <폴더> --confirm-database <DB>|prepare` · `pnpm migrate:gate|dry|run|files|sync [--dry-run|--final]|verify|reset-data [-- --yes --confirm-database samplepcb]` · `pnpm db:seed-initial [-- --force-shop-defaults]` · `pnpm market:seed-anchor`·`develop:seed-anchor` · `bash ops/scripts/check-core-patches.sh` · `bash prod-develop-cleanup.sh [--yes|--skip-db|--skip-deploy|--deploy-case N|--delete-remote]` · `node ops/scripts/shot.mjs <url> <out.png> [옵션]`.
+운영 명령 표면: `./deploy.sh 1–10` · `pnpm --filter api db:snapshot backup|inspect <폴더>|restore <폴더> --confirm-database <DB>|prepare` · `pnpm migrate:gate|dry|run|files|sync [--dry-run|--final]|verify|reset-data [-- --yes --confirm-database samplepcb]` · `pnpm db:seed-initial [-- --force-shop-defaults]` · `pnpm market:seed-anchor`·`develop:seed-anchor` · **`pnpm --filter api smartbom:seed-extra-anchor`**(2026-09-30, 추가결제 앵커 `sp-bom-extra`) · `bash ops/scripts/check-core-patches.sh` · `bash prod-develop-cleanup.sh [--yes|--skip-db|--skip-deploy|--deploy-case N|--delete-remote]` · `node ops/scripts/shot.mjs <url> <out.png> [옵션]` · `node ops/scripts/hero-perf.mjs perf|verify [--url=…]`.
 
-## Data [coverage: high — 7 sources]
+## Data [coverage: high — 9 sources]
 
+- **운영 반영 대기 마이그레이션 12본(2026-09-30~10-11, 전부 추가형·`sp_*` 만 — g5_* 무접촉)**: `20260930120000_add_bom_confirm_request` · `20261005120000_bom_quote_cancel_retention` · `20261009120000_partner_children_self_service` · `20261010120000_bom_partner_fx` · `20261010130000_bom_md_rfq` · `20261010140000_bom_md_po` · `20261010150000_bom_remittance` · `20261010160000_partner_master_dealer_flag` · `20261011120000_pcb_eq_review_items` · `20261011130000_pcb_eq_ai_parse` · `20261011140000_pcb_eq_comment_i18n` · `20261011150000_pcb_ship_confirm`. 각 정본 문서가 "운영은 `migrate deploy` 필요"로 적어 둔 상태다(실제 운영 적용 여부는 리포에서 확인 불가) — `./deploy.sh 2|5` 의 `db:prepare` 가 스냅샷 뒤 한꺼번에 올린다. **스크립트가 안 해 주는 뒤처리 둘**: `smartbom:seed-extra-anchor` 1회([SMARTBOM_PARTNER_RFQ](../../docs/SMARTBOM_PARTNER_RFQ.md) §6.39), 관리자 설정 > AI 연동에서 "PCB EQ 분석" 켜기(기본 꺼짐, [PCB_PARTNER_TRACK](../../docs/PCB_PARTNER_TRACK.md) D20 P2). 배포 문서(DEPLOY_CENTRAFAB·ops/README)는 이 기간 무변경.
 - **실파일** 소유 = file.samplepcb.kr. sp-node 는 `pathToken` 만 `sp_file` 폴리모픽(ref_type/ref_id)에 보관. DB 를 비우거나 원복해도 **외부 파일은 그대로**(재이관·원복 절차 모두 파일서버 무접촉).
 - **공유 DB**: sp_* 는 그누보드 DB(`samplepcb`) 동거(2026-07-03 통합). ⚠ `prisma migrate reset`/`migrate dev` 금지 — g5_* 전체 드랍. 배포도 `migrate deploy` 만(`db:prepare` 경유). charset `utf8`(utf8mb4 아님), 운영 MariaDB `sql_mode=''` 영구.
 - **배포 전 스냅샷(2026-09-11~)**: 리포 밖 `samplepcb-db-backups/<ISO시각>-<label>-<hex6>/` — 라벨 `before-migration`·`before-deploy`·`before-restore`·`before-develop-g-rollback`·`manual`. 스키마·데이터·뷰·루틴·이벤트·트리거·`_prisma_migrations` 포함, 64KB INSERT 묶음+테이블별 트랜잭션. 2026-09-09 개발 DB 스냅샷 `2026-09-09T11-00-07-116Z-before-migration-148b5f`(수행관리 적용 전, **개발 PC 용 — 운영 원복엔 운영 배포가 만든 스냅샷만**). 검증 실측: 압축 143MB 백업을 별도 3344 서버에 복원, 151 테이블·회원 6,387·주문 16,349 확인.
@@ -105,8 +106,10 @@ sp-node 환경변수([.env.example](../../samplepcb-web-mono-app/apps/api/.env.e
 - **로컬 메일 영속**: Mailpit 기본 인메모리(재시작 시 비움), `--database` 로 영속. nssm 서비스 등록(`Mailpit`)으로 부팅 자동 실행([LOCAL_MAIL_TESTING](../../docs/LOCAL_MAIL_TESTING.md)).
 - 운영 영속 경로: 그누보드 `data/`(업로드·세션·`dbconfig.php`) — sp-api 실행 유저(samplepcb)가 `data/banner/` 쓰기 권한 필요. 로컬 `.env` 실측 키(2026-09): `PORT JWT_SECRET DATABASE_URL LEGACY_DATABASE_URL AI_BASE_URL AI_API_KEY KOREAEXIM_API_KEY MOUSER_ORDER_API_KEY DIGIKEY_*`.
 
-## Key Decisions [coverage: high — 13 sources]
+## Key Decisions [coverage: high — 15 sources]
 
+- **2026-10-05 — 방문자 IP 는 `trustProxy` 가 아니라 nginx 의 `X-Real-IP` 로**: sp-node 는 nginx 뒤에서 127.0.0.1 로만 들어 `request.ip` 가 늘 프록시 주소였고, 그대로 적으면 감사·증빙 IP(개발의뢰 수락·검수, NDA 서명, 카트 `ct_ip`, 삭제 감사)가 전부 같은 값이 된다. `apps/api/src/lib/client-ip.ts` 가 **연결 상대가 루프백일 때만** `X-Real-IP` 를 믿는다 — Cloudflare 호스트(`$http_cf_connecting_ip`)와 직결 호스트(`$remote_addr`)의 홉 수가 달라 XFF 한 설정으로 안 맞고 XFF 왼쪽 값은 위조 가능하다는 이유. 이로써 모든 nginx 블록의 `proxy_set_header X-Real-IP` 줄이 장식이 아니라 기능 계약이 됐다.
+- **2026-09-21 — 히어로 배경 성능은 측정 스크립트로 회귀를 붙든다**: 제보("배경 움직임 적용 시 wide 로 조정하면 끊김") 대응의 측정 도구 `hero-perf.mjs` 를 `ops/scripts` 에 남겨 `verify` 5항목을 회귀 점검으로 쓴다. 원인은 둘로 갈렸다 — 프레임 드롭은 배너 01 SVG 윤곽 회전의 메인스레드 점유, "wide 로 조정"은 `100vw` 기반 팬 진폭의 리사이즈 점프([FIGMA_PAGES](../../docs/FIGMA_PAGES.md)). 화면 쪽 처방(라이트 모드 강등·팬 진폭 상수·WebP)은 [theme-sp-lite](theme-sp-lite.md).
 - **2026-09-16 — new.samplepcb.co.kr 은 Cloudflare 를 거치지 않는 DNS 직결 + Let's Encrypt**: 신규 운영 도메인을 Cafe24 DNS 의 A 레코드로 원본 IP 에 직접 붙이고(CF 프록시 IP 복사 금지) 인증서는 certbot webroot(무중단, deploy-hook reload). 같은 파일 경로를 HTTP 부트스트랩 → HTTPS 순서로 교체하는 2단계 적용. `centrafab.co.kr`·개발 도메인 설정은 유지, 레거시 `www` 는 기존 서버 계속. 대표 주소 전환은 `.env` 두 값만(PHP 도메인 상수는 계속 빈 값).
 - **2026-09-16 — 운영 재이관은 "설정 보존 초기화" 전용 명령으로**: `migrate:reset-data`(미리보기 기본·전체 백업+SHA-256 검증 후에만 삭제·보존 정책 정본 파일·미분류 시 중단). `prisma migrate reset` 도, 거래 일부만 지우는 `migrate:wipe` 도 대체 수단이 아니다. 유지보수는 nginx 503 블록 교체 + sp-api 중지(php-fpm·개발 서비스는 유지). `admin` 도 레거시 정본으로 이관(증분 sync 기본 보호 대상에서 제외).
 - **2026-09-11 — 배포·기동 전 DB 스냅샷을 코드로 강제**: `deploy.sh` 의 DB 단계가 `db:prepare --always-backup` 로 바뀌어 매 배포 전 원복점을 남기고, 로컬 `pnpm dev` 도 미적용 migration 이 있을 때만 스냅샷→deploy. advisory lock 으로 동시 준비 직렬화. 원복 도구는 복원 직전 상태도 백업하고 패킷 한도를 DB 변경 전에 검사한다.
@@ -125,12 +128,15 @@ sp-node 환경변수([.env.example](../../samplepcb-web-mono-app/apps/api/.env.e
 - **2026-07-06 — 택배(CJ) API 연동은 조사만, 채택 보류**([DELIVERY_CARRIER_INTEGRATION](../../docs/DELIVERY_CARRIER_INTEGRATION.md)): 송장 발급은 굿스플로, 추적·자동완료는 딜리버리트래커/스마트택배 후보. CJ 계약·라벨 프린터·물량 확정 전엔 수동 3필드+엑셀 유지.
 - **같은 도메인 경로 분기**(도메인 분리 대신): PHPSESSID 공유 → 인증 브리지가 CORS/서드파티쿠키 문제 없이 성립. **레퍼런스 스니펫 방식**: 실구동 conf 는 repo 밖. **파일 업로드 대행**: 서버-to-서버, 하드 삭제는 실파일 먼저 → DB, 404 는 성공. **메일은 코어 SMTP 모드에 종속**: 로컬은 25번 무인증 SMTP(Mailpit), 운영은 인증형 릴레이/`mail_options` 커스텀 필요. **코어 비수정**: `G5_DOMAIN=''`, 로컬 https 는 `proxy_fix.php`.
 
-## Gotchas [coverage: high — 12 sources]
+## Gotchas [coverage: high — 14 sources]
 
+- **new.samplepcb 절차 문서가 사라졌다(2026-10-12 확인)**: `docs/samplepcb-subdomain-nginx.md` 는 커밋된 적 없이 작업트리에서 없어졌다. 남은 것은 gitignore 보관본(`ops/nginx-live/bootstrap/new-samplepcb-http.conf`·`sites-enabled/new-samplepcb`)과 이 문서 Architecture 의 요약뿐 — 2단계 적용을 다시 해야 하면 절차를 새로 써야 한다.
+- **`X-Real-IP` 줄을 빠뜨린 nginx 블록은 증빙 IP 가 조용히 127.0.0.1 이 된다(2026-10-05~)**: `client-ip.ts` 는 헤더가 없거나 IP 형식이 아니면 오류 없이 연결 주소로 돌아간다. 새 server 블록·`/api/` location 을 만들 때 `proxy_set_header X-Real-IP` 를 반드시 옮길 것(로컬 스니펫 `$remote_addr`, `centrafab-main` `$http_cf_connecting_ip`, `new-samplepcb` `$remote_addr`).
+- **sp-node `xlsx` 는 npm 레지스트리가 아니라 SheetJS CDN tarball**(`https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`, 2026-10-11 EQ 엑셀 추출용, `cfb` 동반) — `deploy.sh` `pull` 의 `pnpm install --frozen-lockfile` 이 받는 의존성 출처가 둘이 됐다.
 - **운영 nginx 의 "정본" 이 문서상 두 곳**([manual-sync-drift](../concepts/manual-sync-drift.md)): 런북 STEP 9 인라인 전문은 2026-07 판(`/rnd` 블록 잔존·`/develop` 없음·`/shop/eq|as` rewrite 없음·슬러그를 `try_files` 로 찾아 **PHP 소스 다운로드 함정**)이고, `deploy.sh` 머리말·DEVELOP_FLOW 가 가리키는 `ops/nginx-live/sites-enabled/centrafab-main` 이 신판이다. 런북 §0 구조도도 `/rnd` 그대로. 서버에 올릴 땐 보관본을 쓰고, 보관본은 gitignore 라 **클론만으로는 없다**(서버 `/etc/nginx` 에서 다시 복사).
 - **`SPCB_BRIDGE_URL` 런북 값이 코드 관례와 어긋난다**: 런북 STEP 5 는 `https://centrafab.co.kr/spcb/api/me` 로 적혀 있는데 `php-bridge.ts` 는 이 값을 **base** 로 보고 `/spcb/api/order-notify` 를 뒤에 붙인다(`.env.example`·서브도메인 문서는 base 만). 런북대로 넣으면 알림 브리지 경로가 `/spcb/api/me/spcb/api/order-notify` 가 된다 — 확인 필요.
 - **`ops/README.md` 는 2026-07-20 판**: "현재" 절이 4경로(`/develop` 없음), `deploy.sh 9` 를 R&D 로 기술. AGENTS.md 는 `/develop` 반영됐으나 "배포(Docker, 예정)" 절은 그대로. 문서 부분 갱신 상태.
-- **`deploy.sh` 풀 재배포(5)에 sp-engine 이 없다** — 엔진 코드가 바뀐 배포는 `./deploy.sh 10` 을 따로. 또 **일반 재배포는 `db:seed-initial` 을 자동 실행하지 않는다** — `TEMPLATE_ITEMS` 가 바뀐 배포 뒤엔 STEP 6 시드를 손으로(누락 시 BOM 주문 `TEMPLATE_ITEM_MISSING`). `develop:seed-anchor` 만 2·5 에 자동.
+- **`deploy.sh` 풀 재배포(5)에 sp-engine 이 없다** — 엔진 코드가 바뀐 배포는 `./deploy.sh 10` 을 따로. 또 **일반 재배포는 `db:seed-initial` 을 자동 실행하지 않는다** — `TEMPLATE_ITEMS` 가 바뀐 배포 뒤엔 STEP 6 시드를 손으로(누락 시 BOM 주문 `TEMPLATE_ITEM_MISSING`). `develop:seed-anchor` 만 2·5 에 자동 — 2026-09-30 신설 `smartbom:seed-extra-anchor`(추가결제 앵커 `sp-bom-extra`)도 자동이 아니다(운영 반영 시 1회 수동).
 - **`systemctl restart sp-api` 는 포트가 열리기 전에 돌아온다** — 직후 curl 은 `000`(2026-09-11 운영 1차 실행 오탐). `/api/health` 는 30초 재시도(cleanup 스크립트·재이관 절차 `--retry-connrefused`).
 - **DB 원복은 전체를 되돌린다**: 회원·주문 포함 백업 시점으로, 결제사 실결제·발송 메일은 취소 안 됨. 복원 중 쓰기 서비스는 도구가 안 멈추므로 **먼저 API·PHP 를 멈춰야** 한다. 로컬 `max_allowed_packet` 1MB 한도에선 대형 BOM 행 복원이 막힌다 — `SET GLOBAL max_allowed_packet=268435456`(런타임 값, `.env` 아님). 스냅샷 코드 ref 는 배포 시작 HEAD 라 복원할 코드는 실제 이전 배포 버전으로 고른다.
 - **`aria_chk` 는 실행 중인 서버 파일에 쓰면 안 된다**(중지 후 별도 복사본에서 먼저 시험). 강제 복구 모드는 추출 수단이지 파일을 고치지 않는다 — 2026-09-09 는 정상 모드 덤프로 해결, `innodb_force_recovery` 를 남기지 않았다.
@@ -150,11 +156,11 @@ sp-node 환경변수([.env.example](../../samplepcb-web-mono-app/apps/api/.env.e
 - **check-core-patches 는 subtree pull 뒤에만 의미** — CI/pre-commit 에 안 걸려 있어 사람이 돌려야 한다. `shot.mjs --full` 은 `loading="lazy"` 이미지가 빈 상자 — 뷰포트+`--scroll` 로 다시. 이 PC 엔 python·ImageMagick·ffmpeg 가 없어 이미지 가공도 헤드리스 Edge 캔버스로.
 - location 순서: 구체 경로를 catch-all 보다 먼저 두지 않으면 `/api`·`/app`·`/market`·`/develop` 가 PHP 로 흘러간다. 무슬래시 `= /develop` 301 은 슬러그 정규식보다 앞에 있어야 한다.
 
-## Sources [coverage: high — 40 sources]
+## Sources [coverage: high — 44 sources]
 
 - [ops/README.md](../../ops/README.md) — 예약 경로·Windows 서비스·nginx-live·sp-engine 유닛(2026-07-20 판, `/develop` 미반영)
 - [ops/nginx/local-web.conf](../../ops/nginx/local-web.conf) — 로컬 4경로 스니펫, upstream keepalive·map(2026-08-16), `/develop` 5177(2026-09-05), `/rnd` 폐지 주석
-- [ops/nginx-live/sites-enabled/centrafab-main](../../ops/nginx-live/sites-enabled/centrafab-main) — 운영 centrafab.co.kr 실설정 스냅샷(gitignore, 2026-09-16 복사본)
+- [ops/nginx-live/sites-enabled/centrafab-main](../../ops/nginx-live/sites-enabled/centrafab-main) — 운영 centrafab.co.kr 실설정 스냅샷(gitignore, 2026-10-05 수정본 — `/shop/parts-confirm` rewrite 포함)
 - [ops/nginx-live/sites-enabled/centrafab](../../ops/nginx-live/sites-enabled/centrafab) — dev.centrafab.co.kr(sp-api-dev 3334·sp-engine-dev 8401·`-dev` 작업트리)
 - [ops/nginx-live/sites-enabled/new-samplepcb](../../ops/nginx-live/sites-enabled/new-samplepcb) — new.samplepcb.co.kr HTTPS(Let's Encrypt·`HTTPS on`·독립 map)
 - [ops/nginx-live/bootstrap/new-samplepcb-http.conf](../../ops/nginx-live/bootstrap/new-samplepcb-http.conf) — 인증서 최초 발급용 HTTP(ACME 만, 나머지 503)
@@ -163,11 +169,12 @@ sp-node 환경변수([.env.example](../../samplepcb-web-mono-app/apps/api/.env.e
 - [ops/scripts/check-core-patches.sh](../../ops/scripts/check-core-patches.sh) — 코어 최소 수정 가드 5 assert(2026-08-05·08-17)
 - [ops/scripts/prod-develop-cleanup.sh](../../ops/scripts/prod-develop-cleanup.sh) — 운영 프로토타입 G 정리 4단계(2026-09-11)
 - [ops/scripts/shot.mjs](../../ops/scripts/shot.mjs) — 헤드리스 스크린샷 헬퍼(2026-09-18)
+- [ops/scripts/hero-perf.mjs](../../ops/scripts/hero-perf.mjs) — 홈 히어로 배경 성능·강등 회귀 점검(perf·verify, CDP CPU 스로틀, 2026-09-21)
 - [ops/scripts/e2e-develop.mts](../../ops/scripts/e2e-develop.mts) — 개발의뢰 API 하네스(sp-node 3333·Mailpit 전제)
 - [ops/scripts/e2e-market.mts](../../ops/scripts/e2e-market.mts) — 재능마켓 API 하네스 134항목
 - [deploy.sh](../../deploy.sh) — 운영 재배포 10케이스(5 에 develop·9=develop·db:prepare 스냅샷·seed_develop, 2026-09-11)
 - [docs/DEPLOY_CENTRAFAB.md](../../docs/DEPLOY_CENTRAFAB.md) — centrafab 런북(STEP 4 admin 정책 2026-09-16·STEP 6 시드·STEP 9 인라인 nginx 구판·STEP 11 재이관 링크)
-- [docs/samplepcb-subdomain-nginx.md](../../docs/samplepcb-subdomain-nginx.md) — new.samplepcb.co.kr DNS 직결·certbot 2단계 절차(2026-09-16, 미커밋 untracked)
+- `docs/samplepcb-subdomain-nginx.md` — **사라짐(2026-10-12 확인)**. new.samplepcb.co.kr DNS 직결·certbot 2단계 절차(2026-09-16). 미커밋 상태로 읽었고 지금은 작업트리·git 이력에 없다(파일 수에서 제외)
 - [docs/db-snapshot-rollback.md](../../docs/db-snapshot-rollback.md) — 배포 전 스냅샷·전체 원복 절차·검증(2026-09-11)
 - [docs/local-mysql-recovery-2026-09-09.md](../../docs/local-mysql-recovery-2026-09-09.md) — XAMPP MariaDB 시스템 테이블 손상 복구 기록
 - [docs/legacy-production-reimport.md](../../docs/legacy-production-reimport.md) — 운영 DB 초기화·재이관(유지보수 503·reset-data·시드·검증, 2026-09-16)
@@ -177,7 +184,10 @@ sp-node 환경변수([.env.example](../../samplepcb-web-mono-app/apps/api/.env.e
 - [docs/LOCAL_MAIL_TESTING.md](../../docs/LOCAL_MAIL_TESTING.md) — Mailpit·SMTP 모드·nssm·발송 경로
 - [docs/DELIVERY_CARRIER_INTEGRATION.md](../../docs/DELIVERY_CARRIER_INTEGRATION.md) — 택배 API 조사·보류(2026-07-06)
 - [docs/UPSTREAM_SYNC.md](../../docs/UPSTREAM_SYNC.md) — 코어 수정 시 가드 등록 규칙
-- [docs/FIGMA_PAGES.md](../../docs/FIGMA_PAGES.md) — shot.mjs 사용법·lazy 이미지 함정
+- [docs/FIGMA_PAGES.md](../../docs/FIGMA_PAGES.md) — shot.mjs 사용법·lazy 이미지 함정·히어로 배경 저사양 대응 실측(2026-09-21)
+- [docs/SMARTBOM_PARTNER_RFQ.md](../../docs/SMARTBOM_PARTNER_RFQ.md) — §6.39 운영 반영(마이그레이션 + `smartbom:seed-extra-anchor` 1회)
+- [samplepcb-web/.htaccess](../../samplepcb-web/.htaccess) — 로컬 Apache 쪽 사용자 URL rewrite(`/shop/parts-confirm` 2026-09-30)
+- [samplepcb-web-mono-app/apps/api/prisma/migrations/](../../samplepcb-web-mono-app/apps/api/prisma/migrations) — 2026-09-30 이후 신규 12본(이름만)
 - [docs/PCB_PARTNER_TRACK.md](../../docs/PCB_PARTNER_TRACK.md) — 도메인와이드 PHPSESSID 재발 실측(2026-08-13)
 - [docs/GERBER_ORDER_FLOW.md](../../docs/GERBER_ORDER_FLOW.md) — 파일서버 대행·pathToken(2026-07 컴파일 시 기여)
 - [AGENTS.md](../../AGENTS.md) — sp-develop 별칭·예약 경로 4종·통합 라우팅·인증 브리지(2026-09-05)
@@ -185,7 +195,8 @@ sp-node 환경변수([.env.example](../../samplepcb-web-mono-app/apps/api/.env.e
 - [samplepcb-web-mono-app/e2e/README.md](../../samplepcb-web-mono-app/e2e/README.md) — E2E_* 환경 변수·mkcert·keepalive 함정·Mailpit 기준선
 - [samplepcb-web-mono-app/apps/api/.env.example](../../samplepcb-web-mono-app/apps/api/.env.example) — sp-node 환경변수 전체(2026-08-29)
 - [samplepcb-parts-engine/.env.example](../../samplepcb-parts-engine/.env.example) — 공급사 키·동시성·호출 상한
-- [samplepcb-web-mono-app/apps/api/package.json](../../samplepcb-web-mono-app/apps/api/package.json) — db:prepare·db:snapshot·migrate:*·seed 스크립트
+- [samplepcb-web-mono-app/apps/api/package.json](../../samplepcb-web-mono-app/apps/api/package.json) — db:prepare·db:snapshot·migrate:*·seed 스크립트(+`smartbom:seed-extra-anchor`·`xlsx` CDN tarball, 2026-09-30·10-11)
+- [samplepcb-web-mono-app/apps/api/src/lib/client-ip.ts](../../samplepcb-web-mono-app/apps/api/src/lib/client-ip.ts) — 루프백 연결일 때만 `X-Real-IP` 신뢰(2026-10-05)
 - [samplepcb-web-mono-app/apps/api/src/lib/db-prepare.ts](../../samplepcb-web-mono-app/apps/api/src/lib/db-prepare.ts) — advisory lock·미적용 migration·스냅샷→deploy
 - [samplepcb-web-mono-app/apps/api/src/lib/db-snapshot.ts](../../samplepcb-web-mono-app/apps/api/src/lib/db-snapshot.ts) — 백업 폴더·manifest·restore·max_allowed_packet
 - [samplepcb-web-mono-app/apps/api/src/lib/file-server.ts](../../samplepcb-web-mono-app/apps/api/src/lib/file-server.ts) — 파일서버 3 엔드포인트·serviceType 기본 gerber

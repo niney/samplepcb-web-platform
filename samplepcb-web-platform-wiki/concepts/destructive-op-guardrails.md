@@ -1,7 +1,7 @@
 ---
 concept: 파괴 작업 가드레일 (Destructive Op Guardrails)
-last_compiled: 2026-09-19
-topics_connected: [infrastructure, sp-node-api, gnuboard-integration, partner-tracks, sp-vue-web, sp-develop-web]
+last_compiled: 2026-10-12
+topics_connected: [infrastructure, sp-node-api, gnuboard-integration, partner-tracks, sp-vue-web, sp-develop-web, api-contract]
 status: active
 ---
 
@@ -21,6 +21,9 @@ status: active
 확인 UI 의 형태는 [no-native-dialogs](no-native-dialogs.md)가 맡고, 업무 데이터의 시점 보존인 [snapshot-freeze](snapshot-freeze.md)와는 결이 다르다 — 이쪽은 **운영 안전장치**다.
 
 ## Instances
+- **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md): **굳은 EQ 파일** — 그 뒤에 승인이 있었거나 고객에게 나간 회차의 근거가 된 파일은 포털에서 지울 수 없다(`isPcbEqFileRecord`). 추가 EQ 요청으로 상태가 `issued` 로 돌아가도 삭제 판정은 상태가 아니라 **기록**을 본다([record-not-state](record-not-state.md))
+- **2026-10-09** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md): **잠김→정리→열림의 포털판** — 마스터딜러의 하위 협력사 삭제는 이력이 없을 때만 진짜 삭제이고, 있으면 같은 버튼이 '사용 중지'로 수렴하며, 진행 중이면 `RELATION_ACTIVE`(PCB 견적·발주 + BOM 회신 왕복 중 견적요청·수령 전 하위 발주를 함께 센다). 내가 등록한 조직에만(`NOT_OWNED`). 마스터딜러 표시 끄기도 `HAS_CHILDREN` 이 막는다
+- **2026-10-05** in [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md) / [api-contract](../topics/api-contract.md): **취소는 삭제가 아니다 + 자동 정리는 사람의 길을 탄다** — 고객 삭제 대상 `draft`·`canceled` → **`draft` 만**(협력사 회신 같은 업무 기록이 cascade 로 사라지던 것을 막는다). 취소 견적은 고지한 `purgeAfter` 뒤에 지워지는데, 삭제 로직을 새로 만들지 않고 관리자 "Case 강제 영구 삭제"(`loadBomCaseDeletePlan`→`purgeBomCase`, audited)를 실행자 `system:retention` 으로 부른다 — 범위·순서(엔진 잡→파일서버→DB)·감사 기록이 사람이 지울 때와 같다(mb_id 에 콜론을 쓸 수 없어 사람 계정과 겹치지 않는다). 통합 메뉴 '삭제 기록'이 `sp_delete_audit` 과 자동 정리 상태·[지금 실행]을 보여 준다
 - **2026-09-16** in [infrastructure](../topics/infrastructure.md) / [sp-node-api](../topics/sp-node-api.md): **`migrate:reset-data` 가 다섯 계단의 완성형** — 기본 미리보기, `-- --yes --confirm-database samplepcb` 필수, 전체 백업+SHA-256 **검증 성공 뒤에만** 업무 행 삭제, 보존 정책 정본은 파일 하나 `reset-data-policy.ts`(설정·`_prisma_migrations`·고정 결제 상품 7종 부분 보존), **분류되지 않은 테이블은 삭제하지 않고 중단**, 결과는 `reset-report.json`. 유지보수 진입도 절차다 — `centrafab-main` 을 **503 서버 블록으로 잠시 교체**(원본은 `mktemp -d` 보관) + `systemctl stop sp-api`. 기존 `migrate:wipe` 는 거래 일부만 지워 "대체 수단이 아님"을 문서가 못박는다
 - **2026-09-11** in [infrastructure](../topics/infrastructure.md): **원복점을 코드로 강제** — `deploy.sh` 의 DB 단계가 `db:prepare --always-backup`, 로컬 `pnpm dev` 도 미적용 migration 앞에서 같은 함수를 돈다(MySQL advisory lock `samplepcb-schema-<DB>` 로 동시 실행 직렬화). 백업은 리포 **밖 형제 디렉터리** `samplepcb-db-backups/`에 `database.sql.gz`+`manifest.json`(SHA-256·테이블 목록, 비밀번호 없음). 복원 `db:snapshot restore … --confirm-database` 는 **복원 직전 상태를 또 백업**(`before-restore`)하고, DB 를 바꾸기 **전에** `max_allowed_packet` 을 검사해 모자라면 중단한다
 - **2026-09-11** in [infrastructure](../topics/infrastructure.md) / [sp-develop-web](../topics/sp-develop-web.md): 운영 프로토타입 정리 `prod-develop-cleanup.sh` — dry-run → `--check` 가 `"work":true` 일 때만, **스냅샷 먼저**(`before-develop-g-rollback`) 뜨고 G 테이블 3개를 FK 순서로. 되돌릴 지점은 태그 `proto-gc-coexist-20260910` + 그 스냅샷 둘. 끝에 검증 4종(`/api/health` 200 · 옛 경로 404 · 새 경로 401 · 유닛 상태)
@@ -47,3 +50,4 @@ status: active
 - [partner-tracks](../topics/partner-tracks.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
+- [api-contract](../topics/api-contract.md)

@@ -1,6 +1,6 @@
 ---
 concept: 스냅샷 박제 + 서버 재계산 (Snapshot Freeze)
-last_compiled: 2026-09-19
+last_compiled: 2026-10-12
 topics_connected: [partner-tracks, sp-node-api, api-contract, sp-market-web, sp-develop-web, parts-engine, sp-vue-web, gnuboard-integration]
 status: active
 ---
@@ -13,6 +13,10 @@ status: active
 2026-08~09 에 박제 대상이 값에서 **문서와 이력**으로 넓어졌다. 발주서·견적서·프로젝트 문서는 "생성 시점에 굳은 한 벌"이고, 마켓 수정 이력·개발의뢰 검토서 버전 원장은 스냅샷을 **이력으로 승격**한 변형이다. 반대 방향의 규율도 같이 섰다 — **박제하지 말아야 할 것은 파생으로 둔다**([lazy-derived-state](lazy-derived-state.md)). 원장에서 매번 계산할 수 있는 것을 굳히면 동기화 코드가 생기고, 결정 시점의 사실을 안 굳히면 과거 거래가 소급 오염된다.
 
 ## Instances
+- **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md) / [sp-node-api](../topics/sp-node-api.md): **번역이 어긋나도 사실은 어긋나지 않게** — EQ 문항 선택지의 `key` 는 공장 원문 기호(A·B·C) 그대로 굳히고, 번역은 원문을 치우지 않고 병기하며, AI 잡에는 LLM 원출력을 저장한다. 마스터딜러의 하위 선정도 `sourceCurrency`·`sourceAmount`·`sourceRate`·`marginRate` 를 박제한 뒤 계약 산식으로만 회신가를 낸다
+- **2026-10-09** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): **BOM 외화 — 굳히는 시점이 PCB 와 다르다** — 링크 통화는 배정 순간 박제, 환율은 **견적 단위로 통화별 1회** 고정(PCB 는 선정할 때 행마다 — BOM 은 품목 수십 줄을 공급사 달러가와 한 표에서 비교하므로), 선정은 원화 박제 + `sourcePrice` 원본. 환율은 세 겹(고객가=견적 고정+마진 → 장부=발행일 실제 → 지급=송금일 실제)이고 섞지 않는다
+- **2026-10-05** in [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): `purgeAfter` 는 고객에게 **고지한 값**이라 나중에 보존 기간 설정을 줄여도 이미 취소된 견적의 삭제일은 바뀌지 않는다 — 스냅샷이 값이 아니라 **약속**을 굳힌 사례
+- **2026-09-30** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md): 결제 후 부품 확인(D43) — 묻는 순간의 근거(`BomConfirmEvidence`: 원 부품 + 관찰)와 선택지를 박제하고, 원 주문은 1건 그대로 두고 **차액만** 오간다. 동시에 불변식 하나를 명시적으로 고쳤다: D31-4 "결제 후 고객 금액 불변" → "고객이 답한 확인 요청에 한해 변경" — 박제를 푸는 문은 고객의 답 하나뿐
 - **2026-09-11** in [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰 문서 5종 중 `kickoff` 의 **계약부 = 수락 견적 스냅샷**(읽기 전용, PATCH 가 원값을 복원한다). 견적은 **발송 시** `supply/vat/total`+마일스톤 금액이 확정돼 설정이 바뀌어도 불변, 문서 재발송은 새 판(`revise`)이며 **첨부는 복사하지 않는다**(파일 행 복제 → 한쪽 삭제가 실파일을 지운다)
 - **2026-09-05** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-market-web](../topics/sp-market-web.md): **스냅샷의 이력 승격 두 갈래** — 마켓 `sp_market_project_revision.snapshot` 은 수정 직전 값을 한 덩어리로 담아 필드가 늘어도 스키마가 안 변하고, 개발의뢰 `sp_develop_review_version` 은 `seq`·`kind`·`contentHash`·`parentSeq` 로 검토서 판을 원장화한다(직전 판과 `kind`+`contentHash` 가 같으면 미기록, 복원은 `parentSeq`). 공개본은 작업본의 스냅샷이다
 - **2026-08-23** in [parts-engine](../topics/parts-engine.md) / [sp-node-api](../topics/sp-node-api.md): 대형 스냅샷은 **표본만** — 재고표 12,175행 엔진 결과 6.36MB 를 `previewJson` 에 통째로 넣자 MySQL 패킷 한도에서 연결이 끊겼다(화면엔 `BOM_ENGINE_ERROR` 로 위장). 처방은 표본 200행 저장 + 커밋 시 **보관 원본 재실행**(추출이 결정론적이라 결과가 같다)

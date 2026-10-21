@@ -1,7 +1,7 @@
 ---
 concept: 서버 단일 진실 (Server as Single Source of Truth)
-last_compiled: 2026-09-19
-topics_connected: [sp-node-api, api-contract, spcb-bridge, sp-vue-web, sp-market-web, sp-develop-web, partner-tracks, gnuboard-integration]
+last_compiled: 2026-10-12
+topics_connected: [sp-node-api, api-contract, spcb-bridge, sp-vue-web, sp-market-web, sp-develop-web, partner-tracks, gnuboard-integration, shared-packages, theme-sp-lite, testing]
 status: active
 ---
 
@@ -15,6 +15,10 @@ status: active
 [judgment-single-owner](judgment-single-owner.md)가 "중복 구현을 불신"한다면 이 패턴은 **"클라이언트를 불신"**한다. 둘은 한 쌍으로 붙어 다닌다 — 판정 함수를 계약에 올려도(②) 그 함수를 **호출하는 주체**는 서버여야 하고, FE 가 같은 함수를 부르는 것은 선반영일 뿐 진실이 아니다.
 
 ## Instances
+- **2026-10-11** in [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md) / [testing](../topics/testing.md): AI 분석의 주의 띠·실패 안내는 **서버가 만든 문구**다 — 계약 `PCB_EQ_AI_FAIL_REASONS` 의 라벨이 곧 관리자 안내문이고 e2e 도 서버 문구로 확인한다. 번역도 서버가 저장 시 1회 하고, 원문의 숫자가 번역에 그대로 없으면 번역을 **버린다**(화면은 있는 것만 병기)
+- **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [theme-sp-lite](../topics/theme-sp-lite.md): 고객 결정 화면(EQ 문항·부품 확인)의 클라이언트 검사는 안내용이다 — 판정은 sp-node 가 하고 거절 사유는 재조회로 표시한다. PHP·JS 가 "이 조합은 안 된다"를 미리 알지 않는다
+- **2026-10-11** in [sp-vue-web](../topics/sp-vue-web.md) / [api-contract](../topics/api-contract.md): 포털의 마스터딜러 회신가 미리보기는 서버 박제와 **같은 계약 함수**로 계산하고, 화면은 저장된 값과 아직 저장 안 한 값을 라벨로 가른다('저장된 회신가' / '예상 회신가'). 폼 키에 서버 회신 값을 넣어 서버 상태가 달라지면 폼을 새로 띄운다
+- **2026-10-09** in [shared-packages](../topics/shared-packages.md) / [sp-node-api](../topics/sp-node-api.md): 관리자 대리 접속 — 클라이언트는 **조직 id 만** 기억하고(sessionStorage) 헤더로 싣는다. 인가는 서버가 다시 판정한다(`requirePartner`: 비관리자 403·없는 조직이나 형식 오류 404) — 헤더는 요청이지 권한이 아니다([act-as-actor-stamp](act-as-actor-stamp.md))
 - **2026-09-11** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 개발의뢰의 판정이 전부 서버 파생 — 마일스톤 `payable`(`manual` 은 `milestone_opened` 로 연 것만) · `nextAction`(`answer_document` 는 결제·검수보다 뒤) · 미답변 문의 · 회신 기한 초과 · **기간 가중 달성도**. 화면은 재계산하지 않는다
 - **2026-09-05** in [sp-market-web](../topics/sp-market-web.md): 검토서 **신선도의 진실은 서버 `inputHash`** — FE 로컬 서명(제목·분야·설명·답변·1스텝 참고 자료)은 앞단 선반영이고, 실행 라우트와 등록 라우트가 같은 `devReviewAttachmentHashes` 를 공유해 400 `REVIEW_STALE` 을 낸다. 두 규칙이 어긋나면 **정상 등록이 튕긴다**(e2e 가 출하 코드의 해시 함수를 그대로 import 하는 이유). 같은 날 **수정 이력 diff 도 서버가 스냅샷 사슬에서 만들어 내려주고** 화면은 계산하지 않는다
 - **2026-09-04** in [sp-market-web](../topics/sp-market-web.md) / [api-contract](../topics/api-contract.md): 필수 조건 검사를 `marketRequiredMissing` **한 함수**가 2스텝 "다음" 버튼과 등록 라우트에서 같이 쓰인다 — 화면이 통과시킨 것을 서버가 거부하거나 그 반대가 되는 구멍을 구조로 막는다(`ANSWERS_REQUIRED`)
@@ -42,3 +46,6 @@ status: active
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [partner-tracks](../topics/partner-tracks.md)
 - [gnuboard-integration](../topics/gnuboard-integration.md)
+- [shared-packages](../topics/shared-packages.md)
+- [theme-sp-lite](../topics/theme-sp-lite.md)
+- [testing](../topics/testing.md)

@@ -1,7 +1,7 @@
 ---
 concept: 예외·편차는 원장에 등록한다 (Exception Ledger)
-last_compiled: 2026-09-19
-topics_connected: [gnuboard-integration, theme-sp-lite, docs-knowledge, infrastructure, partner-tracks, sp-develop-web, sp-node-api]
+last_compiled: 2026-10-12
+topics_connected: [gnuboard-integration, theme-sp-lite, docs-knowledge, infrastructure, partner-tracks, sp-develop-web, sp-node-api, testing]
 status: active
 ---
 
@@ -18,6 +18,11 @@ status: active
 공통 구조는 같다 — **편차 + 이유 + (가능하면) 검사**. 세 번째가 없으면 원장은 낡고, 원장이 낡으면 편차는 추적 가능한 부채가 아니라 조용한 회귀가 된다([manual-sync-drift](manual-sync-drift.md)).
 
 ## Instances
+- **2026-10-09** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md): **통로를 열면서 행을 남긴다** — 관리자 대리 접속의 쓰기 전량(GET 이외)이 `sp_partner_act_log` 에 1행씩, 진행 중 발주가 있는 조직을 하위로 묶는 강제 전환은 관리자에게만 열리고 사유(`force`+`forceReason`)가 필수다. 규칙을 넘는 일을 막지 않고 원장에 등록하는 형태([act-as-actor-stamp](act-as-actor-stamp.md))
+- **2026-10-07** in [sp-develop-web](../topics/sp-develop-web.md) / [docs-knowledge](../topics/docs-knowledge.md) / [testing](../topics/testing.md): **고치지 않고 등록한 23건** — 개발 모듈 리뉴얼과 옛·새 양쪽 e2e 가 찾은 프로세스 결함을 [DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) §15 에 사용자 결정 대기로 올렸다. 항목마다 근거 등급(확인=코드 직접 읽음 / 실측=e2e 로그 / 보고=미검증)이 붙는다 — 원장이 "얼마나 믿을 수 있는가"까지 적는 첫 사례
+- **2026-10-05** in [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): `sp_delete_audit` 이 **모듈 횡단 원장**으로 승격 — 사람의 강제 삭제와 자동 정리(`system:retention`)가 같은 표에 남고 관리자 '삭제 기록' 화면이 그것을 읽는다(계약 `admin-delete-audit.ts`). 09-19 까지는 쓰기만 하고 볼 곳이 없던 원장이다
+- **2026-09-30** in [sp-node-api](../topics/sp-node-api.md) / [docs-knowledge](../topics/docs-knowledge.md): g5 접근 카탈로그 ㉒ — "주문행 `io_price` 불변"(08-10 W6)의 **유일한 명시 예외**로 BOM 환불 감액을 등록했다(감액으로 미수가 음수가 돼야 영카트 부분취소가 열린다). ⚠ 문서([GERBER_ORDER_FLOW](../../docs/GERBER_ORDER_FLOW.md))는 ⑲ 다음이 ㉒이고 ⑳·㉑은 `g5-db.ts` 주석에만 있다 — 원장 자체의 드리프트
+- **2026-09-21 / 10-04** in [theme-sp-lite](../topics/theme-sp-lite.md) / [docs-knowledge](../topics/docs-knowledge.md): 피그마 대장에서 **항목이 종결되는 첫 사례** — 09-06 에 "기록만" 해 둔 항목(Customer 카드 숫자 충돌·미완성 배너 부제)이 새 시안으로 소멸했다. 새 예외 유형도 생겼다: "알린 뒤 사용자 확정"(iStock 워터마크 유지·푸터 설정값 유지·복사한 제목 교정). 10-04 에는 대장이 sp-vue 견적서(A4 구성·인쇄)까지 넓어졌다. ⚠ 표의 커밋 칸 6행이 "(이번 변경)"으로 비어 있다
 - **2026-09-19** in [gnuboard-integration](../topics/gnuboard-integration.md): 스캔 실측 — sp 심(seam) 마커가 있는 코어 파일은 **7개**인데 `check-core-patches.sh` 의 `assert_contains` 는 **5건**. `mobile/shop/orderform.sub.php` 와 `shop/ordermail1.inc.php` 의 `sp_custom_row_it_ids_in` 심이 **미등록**이라 subtree pull 한 번이면 모바일 주문서·주문 메일이 조용히 순정으로 돌아간다. **원장이 비면 가드도 비는 것** — 이 패턴의 실패 모드가 그대로 드러난 자리다(⚠ 커밋 이력상 실제 pull 은 아직 0회라 가드도 실전 검증 전)
 - **2026-09-18** in [theme-sp-lite](../topics/theme-sp-lite.md): 피그마 대장이 **운영 배포 전 체크리스트**로 굳었다 — 자리표시 수치(홈 통계 3칸·연혁 4칸)·로고 20여 종 사용 허락·Unsplash+ 워터마크 프리뷰·Flaticon 출처 표기·4.7MB GIF·히어로 05 의 스크린샷 확대. **코드는 피그마 그대로라 이 목록을 읽지 않으면 그대로 나간다** — 원장이 유일한 방어선인 사례
 - **2026-09-16** in [infrastructure](../topics/infrastructure.md) / [sp-node-api](../topics/sp-node-api.md): 운영 재이관 보존 정책의 정본이 **문서가 아니라 파일 하나** — `apps/api/src/scripts/migrate/lib/reset-data-policy.ts`. 보존/삭제/부분 보존(고정 결제 상품 7종)을 여기서만 판정하고 **분류되지 않은 테이블은 삭제하지 않고 중단한다**. 원장이 실행 가능한 형태가 되면 가드가 따로 필요 없다는 최선형([judgment-single-owner](judgment-single-owner.md))
@@ -47,3 +52,4 @@ status: active
 - [partner-tracks](../topics/partner-tracks.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-node-api](../topics/sp-node-api.md)
+- [testing](../topics/testing.md)

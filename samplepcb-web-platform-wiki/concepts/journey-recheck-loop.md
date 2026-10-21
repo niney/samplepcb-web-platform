@@ -1,7 +1,7 @@
 ---
 concept: 완주 여정 재점검 루프 (Journey Recheck Loop)
-last_compiled: 2026-09-19
-topics_connected: [testing, partner-tracks, sp-node-api, api-contract, sp-develop-web, sp-market-web, docs-knowledge]
+last_compiled: 2026-10-12
+topics_connected: [testing, partner-tracks, sp-node-api, api-contract, sp-develop-web, sp-market-web, docs-knowledge, sp-vue-web]
 status: active
 ---
 
@@ -15,6 +15,10 @@ status: active
 이 패턴의 값은 잡은 결함 수(PCB 계열 확정 60여 건)가 아니라 **검증이 조용히 비는 자리를 알게 된 것**이다. 판정을 복제하지 않는 규율([judgment-single-owner](judgment-single-owner.md))의 테스트판이기도 하다 — 하네스는 출하 코드와 **같은 함수를 임포트**한다.
 
 ## Instances
+- **2026-10-11** in [testing](../topics/testing.md): **검증이 조용히 비는 네 번째 패턴 — 전역 설정을 건드리는 스펙** — AI e2e 는 `pcbEqParse.enabled` 를 켰다가 원래 값으로 되돌리는데, 따로 돌리면 서로의 되돌림을 밟는다(실측 2회; 31호의 `cf_email_use` 가 선례). 규율: 그런 스펙은 **한 실행에 묶는다**. 반대 방향 함정도 있다 — 옵트인(`EQ_AI_E2E`)을 꺼도 로컬 설정이 켜져 있으면 승인요청마다 실 LLM 잡이 선다
+- **2026-10-09** in [testing](../topics/testing.md) / [partner-tracks](../topics/partner-tracks.md): BOM 외화·마스터딜러 **상세 여정**(SMARTBOM §6.45)이 API 여정은 통과하던 화면 결함 3건을 잡았고 재점검에서 가드 2건이 더해졌다 — "API 로 박제하고 화면별로 다시 주행한다"가 편의 기본 꼴이 됐다
+- **2026-10-07** in [testing](../topics/testing.md) / [sp-develop-web](../topics/sp-develop-web.md) / [sp-vue-web](../topics/sp-vue-web.md): 화면 이식을 검증하려고 접수→완료를 끝까지 몬 주행(`admin-develop-journey`, 옛·새 양쪽 9/9)이 화면이 아니라 **업무 흐름** 결함 23건을 찾았다. 고치지 않고 [DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) §15 에 등록 — 루프의 "엄선" 단계가 "이번엔 고치지 않는다"로 끝난 첫 편([parallel-build-cutover](parallel-build-cutover.md))
+- **2026-10-05** in [testing](../topics/testing.md) / [sp-node-api](../topics/sp-node-api.md): **여정 25호 — 관찰을 정책보다 먼저** — 고객 BOM 견적 취소의 현행 동작을 상태별로 따라가 다섯 가지(취소 뒤 열린 RFQ·삭제 시 회신 유실·검토 중 화면/서버 불일치·검색 중 굳음·확정↔취소 겹침)를 드러낸 뒤 사용자가 정책을 정했고, 구현 뒤 **기대값을 뒤집어** 12장면 회귀선이 됐다(K09 는 확정 도중 여러 시점에 취소를 끼워 매번 한쪽만 성공하는지 본다)
 - **2026-09-11** in [sp-develop-web](../topics/sp-develop-web.md) / [testing](../topics/testing.md): 개발의뢰 간편 서식 간소화(문서 8종→5종·단계 6·기간 가중)를 API 하네스 **191/0** 으로 닫았다. 브라우저 쪽은 스모크 2본뿐이고, 화면 판단은 `tools/dev-review-v2-walk.ts`(**"자동 판정 없음"**)가 실브라우저로 훑어 사람이 본다 — 어서션이 못 잡는 "실브라우저 사각"을 육안 1회로 메우는 플레이북 규율
 - **2026-08-25** in [testing](../topics/testing.md) / [api-contract](../topics/api-contract.md): **관측 러너를 회귀 스펙에서 분리**(`status-matrix`·`status-matrix-bom`) — 어서션은 "조작 API 가 200 인가"뿐이고 산출물은 표(관리자 조작 → od_status → 배지·탭 → 고객 배지·스텝퍼). 시안을 정하기 **전에** "지금 무엇이 보이는가"를 먼저 확정했고, 그 표가 트랙 공용 `/api/order-progress` 와 PHP 사전 교정의 근거가 됐다
 - **2026-08-11** in [testing](../topics/testing.md): **검증이 조용히 비는 3패턴**을 자기 실수에서 명문화 — ① 워크큐 **기본 탭이 우리 건의 탭이 아니다**(`pos`=발주 대기·`orders`=입금 대기, 그 탭엔 검색창도 없다. P4 가 멈추자 P5~P8 이 연쇄 붕괴) ② **없는 필드를 읽으면 기본값이 조용히 어서션을 통과한다**(29호 `-1·-1·-1`) ③ 픽스처 이름·시드 메모에 검사 키워드가 들어가면 자기가 심은 글자를 자기가 찾는다(2회 오탐). + 규율 "**라우트·body 스키마를 먼저 읽을 것**"(1차 11회 + 2차 4회 추측 실수)
@@ -41,3 +45,4 @@ status: active
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-market-web](../topics/sp-market-web.md)
 - [docs-knowledge](../topics/docs-knowledge.md)
+- [sp-vue-web](../topics/sp-vue-web.md)

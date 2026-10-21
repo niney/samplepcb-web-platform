@@ -1,7 +1,7 @@
 ---
 concept: 신규 앱 온보딩 체크리스트 (New App Onboarding)
-last_compiled: 2026-09-19
-topics_connected: [infrastructure, sp-develop-web, sp-market-web, sp-node-api, api-contract, gnuboard-integration, shared-packages, testing]
+last_compiled: 2026-10-12
+topics_connected: [infrastructure, sp-develop-web, sp-market-web, sp-node-api, api-contract, gnuboard-integration, shared-packages, testing, sp-vue-web]
 status: active
 ---
 
@@ -15,6 +15,8 @@ status: active
 앱이 늘 때마다 대가도 함께 는다 — 런북·`ops/README` 같은 문서가 뒤처지고([manual-sync-drift](manual-sync-drift.md)), 폐지한 앱의 흔적이 남는다.
 
 ## Instances
+- **2026-10-06~10** in [sp-vue-web](../topics/sp-vue-web.md) / [testing](../topics/testing.md): **새 앱을 붙이지 않은 사례** — 관리자 리뉴얼은 별도 앱이 아니라 `apps/web/src/next` 에 지어 온보딩 11단계(포트·Vite·nginx·deploy 케이스·하네스)가 하나도 필요 없었다. 전환은 라우트 이름 상수뿐([parallel-build-cutover](parallel-build-cutover.md)). "앱을 하나 더"가 기본값이 아니라는 기준점
+- **2026-09-30** in [infrastructure](../topics/infrastructure.md) / [gnuboard-integration](../topics/gnuboard-integration.md) / [sp-node-api](../topics/sp-node-api.md): **앱 없이 앵커 상품만 늘어도 체크리스트 뒤쪽 절반은 돈다** — 추가결제 앵커 `sp-bom-extra`: 시드 `smartbom:seed-extra-anchor` 는 `deploy.sh` 에 편입되지 않아 수동 1회(09-11 `develop:seed-anchor` 는 자동 편입됐다), `extend/sp_quote_cart` it_id 사전 등록(다섯 번째 계열), ⚠ `reset-data-policy.ts` 보존 목록에는 미등록. "앵커 상품" 단계가 앱과 따로 떨어져 나올 수 있다
 - **2026-09-16** in [infrastructure](../topics/infrastructure.md) / [sp-develop-web](../topics/sp-develop-web.md): 운영 런북 [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md) 이 09-16 에 갱신됐는데도 nginx 전문·pnpm 필터에 **`/rnd` 가 남고 `/develop` 은 없다**. `ops/README.md` 도 2026-07-20 판이라 `deploy.sh 9` 를 R&D 로 기술한다. 배포 절차의 진실은 `deploy.sh` 헤더와 `ops/nginx-live/` 보관본(gitignore — 클론만으로는 없다)
 - **2026-09-11** in [infrastructure](../topics/infrastructure.md): `deploy.sh` 의 DB 단계가 `db:prepare --always-backup --code-ref <배포 전 HEAD>` 로 바뀌며 **마이그레이션 뒤 `develop:seed-anchor` 가 자동**으로 붙었다(케이스 2·5). 새 앱의 앵커 시드는 이 자리에 편입하는 것이 관례 — 반면 `db:seed-initial`(템플릿 상품 5종)은 여전히 수동이라 누락 시 BOM 주문이 `TEMPLATE_ITEM_MISSING` 으로 죽는다
 - **2026-09-05** in [sp-develop-web](../topics/sp-develop-web.md) / [infrastructure](../topics/infrastructure.md): sp-develop 이 **폐지된 rnd 의 자리를 회수** — 포트 **5177**, `/develop/` nginx 블록(구 `/rnd` 5177 블록 재활용), `deploy.sh` **9번**. 체크리스트에 "폐지 앱의 자리 회수"가 들어간다. `strictPort: true` 인 이유가 명시적이다: nginx 가 5177 고정 프록시라 **점유 시 조용히 밀리면 `/develop` 이 끊기므로** 기동을 실패시킨다
@@ -42,3 +44,4 @@ status: active
 - [gnuboard-integration](../topics/gnuboard-integration.md)
 - [shared-packages](../topics/shared-packages.md)
 - [testing](../topics/testing.md)
+- [sp-vue-web](../topics/sp-vue-web.md)

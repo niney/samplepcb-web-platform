@@ -1,7 +1,7 @@
 ---
 concept: 링크는 열기만, 결정은 POST (GET Opens, POST Decides)
-last_compiled: 2026-09-19
-topics_connected: [spcb-bridge, gnuboard-integration, partner-tracks, sp-node-api, theme-sp-lite]
+last_compiled: 2026-10-12
+topics_connected: [spcb-bridge, gnuboard-integration, partner-tracks, sp-node-api, theme-sp-lite, sp-vue-web]
 status: active
 ---
 
@@ -17,6 +17,9 @@ status: active
 이것은 sp-php 를 처음으로 쓰기 경로에 넣을 때(2026-08-07) 세운 네 규칙 중 첫째이며, [core-nonmodification](core-nonmodification.md)의 브리지 설계 및 [server-single-truth](server-single-truth.md)("판정은 서버 POST 경로에서")와 맞물려 하나의 배관을 이룬다.
 
 ## Instances
+- **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [theme-sp-lite](../topics/theme-sp-lite.md) / [partner-tracks](../topics/partner-tracks.md): EQ 문항형 회신(D20) — 메일은 링크만, `/shop/eq` 목록에는 폼이 없고, 결정은 주문 상세 안의 POST `eq-answer`. 거절되면 고른 값을 세션 플래시(`sp_eqi_draft`)로 한 번 되살려 다시 고르지 않게 한다
+- **2026-10-09** in [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 포털 초대 — `GET /api/partner-invite/:token` 은 무인증 **조회**만(상태 valid·expired·accepted·unavailable), 수락은 로그인한 본인의 POST. 초대 수락 화면은 셸 밖 공개 문서라 메일 스캐너가 열어도 아무 일도 일어나지 않는다
+- **2026-09-30** in [spcb-bridge](../topics/spcb-bridge.md) / [partner-tracks](../topics/partner-tracks.md): 결제 후 부품 확인(D43) — 메일은 링크만, `/shop/parts-confirm` 목록에는 폼이 없고, 결정은 주문 상세의 POST `bom-confirm-answer`. "목록은 목록만" 진입점이 셋이 됐다(제조 확인·A/S·부품 확인) — 셋 다 메일이 쓰는 바로 그 앵커로 보낸다
 - **2026-08-25** in [spcb-bridge](../topics/spcb-bridge.md) / [theme-sp-lite](../topics/theme-sp-lite.md): 마이페이지 진입점 2종(`/shop/eq` 제조 확인 · `/shop/as` A/S 접수)은 **"목록은 목록만"** — 결정·접수 폼을 복제하지 않고 주문 상세 앵커(`#eq-{id}`·`#sp_as_wrap`)로 보낸다. 그 앵커가 **메일이 쓰는 바로 그 링크**다. 폼이 두 곳이면 첨부·기한·확인 모달·수량 검증이 갈린다
 - **2026-08-16** in [spcb-bridge](../topics/spcb-bridge.md) / [partner-tracks](../topics/partner-tracks.md): 메탈마스크 **좌표파일은 통보 없는 열람** — `coord-file.php`에는 `review` 파라미터가 **아예 없다**. 확인 요청(D16)과 다른 축이라 요청도 결정도 통보도 없고, 종류·단계(관리자 확인 완료)·소유권 판정과 파일명 중립화는 전부 sp-node 가 건다. "열람 신호조차 만들지 않는다"의 가장 순수한 형태
 - **2026-08-15** in [spcb-bridge](../topics/spcb-bridge.md): A/S 접수 `claim-create.php` — **POST 전용**, 로그인 + CSRF, 사진 ≤10장을 `CURLFile`로 1회 multipart 중계. 배송 후·활성 클레임 1건·수량 게이트는 sp-node 판정. 접수라는 되돌리기 어려운 행위가 링크 한 번으로 일어나지 않는다
@@ -42,3 +45,4 @@ status: active
 - [partner-tracks](../topics/partner-tracks.md)
 - [sp-node-api](../topics/sp-node-api.md)
 - [theme-sp-lite](../topics/theme-sp-lite.md)
+- [sp-vue-web](../topics/sp-vue-web.md)
