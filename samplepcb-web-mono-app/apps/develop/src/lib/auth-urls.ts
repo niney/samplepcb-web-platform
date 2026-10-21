@@ -14,3 +14,7 @@ export function loginUrl(returnPath: string): string {
 export function logoutUrl(returnPath: string): string {
   return `/bbs/logout.php?url=${encodeURIComponent(returnPath)}`;
 }
+
+export function registerUrl(): string {
+  return '/bbs/register.php';
+}

@@ -33,7 +33,8 @@ export const router = createRouter({
   history: createWebHistory('/develop/'),
   routes,
   scrollBehavior(to) {
-    if (to.hash !== '') return { el: to.hash, behavior: 'smooth' };
+    // 고정 헤더(72px) 아래로 40px 띄워 멈춘다 — vue-router 는 CSS scroll-margin 을 보지 않는다.
+    if (to.hash !== '') return { el: to.hash, top: 112, behavior: 'smooth' };
     return { top: 0 };
   },
 });

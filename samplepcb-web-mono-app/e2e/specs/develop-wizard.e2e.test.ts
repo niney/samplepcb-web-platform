@@ -223,6 +223,33 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     }
   });
 
+  // 랜딩(피그마 00-1, 2026-10-21) 분야 카드 → 위저드 1스텝이 그 메뉴를 고른 채 열린다(?menu=<code>).
+  test('랜딩 분야 카드 — 메뉴를 고른 채 위저드 진입', async () => {
+    const s = await newSession(identity);
+    try {
+      // 히어로 카드(PCB 설계) → 개별 견적 PCB설계 선택
+      await s.page.goto('/develop/');
+      await s.page.getByRole('link', { name: /PCB 설계/ }).first().click();
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      expect(new URL(s.page.url()).searchParams.get('menu')).toBe('pcb');
+      expect(await s.page.getByRole('button', { name: /^PCB설계/ }).getAttribute('aria-pressed')).toBe('true');
+      expect(await s.page.getByRole('button', { name: /^시스템개발/ }).getAttribute('aria-pressed')).toBe('false');
+      // 개발 분야 섹션의 첫 카드(시스템 개발) → 시스템개발 선택
+      await s.page.goto('/develop/');
+      await s.page.locator('#areas ~ ul a').first().click();
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      expect(new URL(s.page.url()).searchParams.get('menu')).toBe('system');
+      expect(await s.page.getByRole('button', { name: /^시스템개발/ }).getAttribute('aria-pressed')).toBe('true');
+      // 모르는 코드는 무시 — 아무것도 고르지 않은 채 연다.
+      await s.page.goto('/develop/request?menu=firmware');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      expect(await s.page.locator('button[aria-pressed="true"]').count()).toBe(0);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+
   // 실 LLM 경로(kimi-k3, 10초 안팎) — FOLLOWUP_LLM=1 일 때만. 질문이 뜨고 답이 저장되는지까지 본다.
   test.skipIf(process.env.FOLLOWUP_LLM !== '1')('시스템개발 — AI 가 자료를 읽고 고른 질문 → 답 저장', async () => {
     const prev = await setFollowupEnabled(true);

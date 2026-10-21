@@ -313,6 +313,13 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     else fields.serviceAreas.push(code);
     if (fields.serviceAreas.length === 0) fields.requestMode = null;
   }
+  // 랜딩의 분야 카드에서 들어오면(?menu=system|pcb|mech|app|server) 그 메뉴를 고른 채 시작한다.
+  // 아직 아무것도 고르지 않았을 때만 — 작성 중인 폼을 덮지 않는다(초안 복원은 그 뒤에 해도 초안이 이긴다).
+  function preselectMenu(code: string): void {
+    if (fields.requestMode !== null) return;
+    if (code === 'system') selectSystemMenu();
+    else if (DEVELOP_INDIVIDUAL_AREA_CODES.includes(code)) toggleIndividualArea(code);
+  }
 
   // 저장·검증에 쓰는 분야 — 시스템개발이면 6분야 전부, 개별이면 고른 것(메뉴 미선택이면 빈 배열).
   const effectiveAreas = computed<string[]>(() =>
@@ -793,6 +800,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     isAreaPicked,
     selectSystemMenu,
     toggleIndividualArea,
+    preselectMenu,
     effectiveAreas,
     pickedAreas,
     pickedAreaDefs,

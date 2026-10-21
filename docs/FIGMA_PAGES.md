@@ -14,6 +14,7 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 | 회사 연혁 `/history` (2026-09-21 갱신) | 2122:6658 GNB > 회사 연혁, 본문 2337:36933~37117 | `spcb/pages/history.php`, `css/history.css`, `js/history.js`, `img/history/` | (이번 변경) |
 | 회사 위치 `/location` | 2122:7157 GNB > 회사 위치 (지사 선택 시) — Contact Us 제외 | `spcb/pages/location.php`, `css/location.css`, `img/location/` | 0fd2c43b8 이전 |
 | PCB 견적서 (sp-vue 관리자 A4, 2026-10-04) | 2428:36055 | mono-app `apps/web/src/components/admin/{EstimateSheet,EstimateModal}.vue`, `public/img/{logo.svg,stamp.png}`, `i18n/locales/{ko,en}.ts` | (이번 변경) |
+| 개발의뢰 랜딩 `/develop` + 개발의뢰 공용 헤더·푸터 (2026-10-21) | **다른 파일** 「개발 의뢰」(U7VKC9FSkojpDXqZ5qnJQN) 37:6768 = Design done 70:1296(렌더 동일) | mono-app `apps/develop/src/pages/Home.vue`, `layouts/DevelopLayout.vue`, `components/layout/{HeaderLogo,SiteFooter}.vue`, `assets/{home,brand,footer}/`, 위저드 `?menu=` 미리 고르기(`useRequestForm.preselectMenu`) | (이번 변경) |
 
 옛 홈(2122:5280, 커밋 5d7340df3)은 피그마에서 노드가 삭제됐고 새 「웹 메인」이 히어로부터 푸터 앞까지 전면 교체라, 옛 섹션(서비스 탭·왜 우리를 선택·특징 카드·세 가지 방법·FAQ 아코디언)과 자산·스킨(`skin/latest/home-fig`)은 제거했다.
 
@@ -152,6 +153,21 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 제목·사양 제목은 메탈마스크 등 전 제품군에서 `PCB 견적서`/`PCB 사양` 고정(시안에 제품군별 변형 없음).
 - 자산은 시안 원본: 로고 `logo.svg`, 직인 `stamp.png`(79×76 — 인쇄 12.7mm 기준 약 150dpi, 더 큰 원본이 있으면 교체). BOM 견적서·주문서는 아직 `logo.png`·`stamp.jpg`.
 - 검증: 헤드리스 캡처로 블록 좌표 대조(제목·로고·수신/공급자·직인·품목표·비고·사양 시작점 ±1px), 인쇄 PDF 1쪽·'배경 그래픽' 꺼도 배경색 출력, 표준·메탈마스크·Advance·FPCB·191자 파일명 렌더, eslint·vue-tsc 통과.
+
+## 개발의뢰 랜딩 `/develop` — 피그마와 다르게 둔 것 · 미결(사용자 결정 2026-10-21)
+- **정본**: 「개발 의뢰」 파일 37:6768(Page 3). 「Design done」 페이지의 70:1296 과 렌더 PNG 가 바이트 동일. 같은 파일에 내의뢰(00-2)·의뢰 상세(00-3)·위저드 5스텝(01-1~01-5) 시안이 더 있다 — 이번에는 랜딩과 공용 헤더·푸터만.
+- 데스크톱(≥1280)은 1920 좌표 그대로(실측 오차 ≤1.2px — 텍스트 박스 폭 반올림 차). 1280 미만은 시안이 없어 우리 정의로 세로로 쌓는다(390·1024·1280 가로 넘침 0).
+- **미결 ① 히어로 회로 이미지(37:6831)는 Unsplash+ 워터마크가 찍힌 캡처** — 사용자 결정으로 임시로 그대로 쓴다. **운영 반영 전 라이선스 원본으로 교체**(`assets/home/hero-circuit.jpg`). 아래 깔린 X-ray 회로 사진(37:6830)은 위 사진이 불투명하게 덮어 안 보여 히어로에선 뺐다(시스템 개발 카드에서만 씀).
+- 진행 방식 05 '개발'·06 '납품·검수' 설명은 피그마가 01·02 문구 복사본 → **기존 개발의뢰 문구 유지**(사용자 결정).
+- FAQ 는 피그마가 4문항(1번 '양산 주문을 어떻게 하죠?'는 PCB 쇼핑몰 자리표시, 2~4번 답 없음) → **기존 개발의뢰 6문항을 피그마 모양으로**(사용자 결정), 첫 항목 펼침.
+- 푸터 자리(37:7074)는 빈 #0a1220 321px 블록 → **메인 사이트 공용 푸터 구성 이식**(사용자 결정), 배경·높이만 시안 값. 회사정보는 PHP 기본값과 같은 고정값(SPA 에 공개 조회 API 없음).
+- 헤더는 개발의뢰 전 화면 공용(사용자 결정). 로그인 상태는 시안에 없어 메인 사이트 관례(로그아웃 회색 알약). '내 의뢰'는 비로그인에도 보인다(그 화면이 로그인으로 보낸다). 390px 에선 회원가입 알약을 펼친 메뉴로 옮겼다(로고와 겹침). 옛 '개발(G) 의뢰하기' 링크·'개발(C)' 배지는 시안에 없어 제거.
+- 분야 카드(히어로 5 + 개발 분야 5)는 위저드를 그 메뉴를 고른 채 연다(`/develop/request?menu=system|pcb|mech|app|server`, 사용자 결정). 카드 제목은 시안 표기('시스템 개발'·'PCB 설계' 띄어 씀) — 위저드·계약은 '시스템개발'·'PCB설계'(붙여 씀)라 **표기가 갈린다**(미결 ②, 맞출지 결정 필요). 한 줄 설명·꼬리표는 계약(`DEVELOP_*`)과 시안이 같아 계약에서 읽는다.
+- 히어로 제목 폰트가 시안에선 Inter Bold(한글 글리프 없음 → 대체 폰트) → Pretendard Bold.
+- 하단 CTA 버튼 묶음이 시안에서 가운데보다 4px 오른쪽(797~1131) — 가운데 정렬로 뒀다.
+- 아이콘 operational-system·milestone·deal 은 파일명상 Flaticon 계열로 보인다 — 무료 라이선스면 출처 표기 의무 확인 필요(미결 ③).
+- 이미지: 피그마 원본(JPEG 최대 10MB, 합계 약 40MB)을 표시 상자 2배로 줄여 다시 인코딩(JPEG q0.9·아이콘 PNG, 합계 1.7MB) — 헤드리스 Chrome 캔버스. 크롭 위치·그라데이션은 시안 마스크 그룹 값 그대로(사진 상자 px 좌표 + `linear-gradient` sRGB — Tailwind v4 `bg-linear-*` 는 oklab 보간이라 안 씀).
+- 검증: `PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard` 의 '랜딩 분야 카드 — 메뉴를 고른 채 위저드 진입'.
 
 ## 공통 함정
 - 그누보드 `latest()` 는 1시간 캐시(`data/cache/latest-*.php`) — 홈 게시판 스킨(`home-help`)을 고치면 지울 것.

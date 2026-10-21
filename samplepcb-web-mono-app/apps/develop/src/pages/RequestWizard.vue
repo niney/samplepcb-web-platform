@@ -54,6 +54,10 @@ const {
   resetAll,
 } = form;
 
+// 랜딩 분야 카드(?menu=<code>)에서 들어오면 그 메뉴를 고른 채 1스텝을 연다.
+const menuQuery = route.query.menu;
+if (typeof menuQuery === 'string') form.preselectMenu(menuQuery);
+
 // AI 후속 질문 잡 — 3스텝에 들어설 때 시작하고, 진행 중에는 "다음 단계"를 막는다(질문이 나오기 전에 지나치지 않게).
 const followup = useFollowupJob(form);
 const nextBlocked = computed(() => currentStep.value === 'questions' && followup.running.value);

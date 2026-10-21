@@ -1,38 +1,122 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { DEVELOP_INDIVIDUAL_AREAS, DEVELOP_INDIVIDUAL_TAG, DEVELOP_SYSTEM_MENU } from '@sp/api-contract';
-import { AreaIcon } from '@sp/ui';
+import heroCircuit from '../assets/home/hero-circuit.jpg';
+import heroIconSystem from '../assets/home/hero-icon-system.png';
+import heroIconPcb from '../assets/home/hero-icon-pcb.png';
+import heroIconMech from '../assets/home/hero-icon-mech.png';
+import heroIconApp from '../assets/home/hero-icon-app.png';
+import heroIconServer from '../assets/home/hero-icon-server.png';
+import pcbXray from '../assets/home/pcb-xray.jpg';
+import areaPcb from '../assets/home/area-pcb.jpg';
+import areaMech from '../assets/home/area-mech.jpg';
+import areaApp from '../assets/home/area-app.jpg';
+import areaServer from '../assets/home/area-server.jpg';
+import stepCircle from '../assets/home/step-circle.svg';
+import stepArrow from '../assets/home/step-arrow.svg';
+import whyPhoto from '../assets/home/why-photo.jpg';
+import whyIconFlow from '../assets/home/why-icon-flow.png';
+import whyIconOwnership from '../assets/home/why-icon-ownership.png';
+import whyIconAs from '../assets/home/why-icon-as.png';
+import chevronDown from '../assets/home/chevron-down.svg';
 
-// 개발의뢰 랜딩 — 로그인 여부와 무관한 공개 페이지.
-// 구성: 히어로 → 개발 메뉴 5(#areas) → 진행 방식 7단계(#how, 레거시 estimate.php 계승)
-//      → 왜 직접 개발인가 → 자주 묻는 질문 → 하단 CTA.
-// 메뉴는 위저드 1스텝과 **같은 계약**에서 온다(시스템개발 + 개별 견적 4분야) — 분야가 늘어도 이 파일은 안 바뀐다.
+// 개발의뢰 랜딩 — 피그마 개발의뢰(U7VKC9FSkojpDXqZ5qnJQN) 「00-1 랜딩 페이지」 37:6768(= Design done 70:1296), 2026-10-21.
+// 1920 화면 기준 좌표를 그대로 옮겼다(안쪽 1280, 히어로만 1380). 1280 미만은 피그마에 없어 세로로 쌓는다.
+// 구성: 히어로(분야 카드 5) → 개발 분야(#areas) → 진행 방식 7단계(#how) → 왜 직접 개발인가(아코디언) → 자주 묻는 질문 → 하단 CTA.
+// 분야 카드는 위저드 1스텝 메뉴를 고른 채 연다(?menu=<code>). 꼬리표·한 줄 설명은 계약(DEVELOP_*)이 정본이고,
+// 카드 제목은 피그마 표기("시스템 개발"·"PCB 설계" — 띄어 씀)를 따른다.
+// 피그마와 다르게 둔 것(사용자 결정): 진행 방식 05·06 설명(피그마는 01·02 복사본)·FAQ(피그마는 PCB 양산 주문 자리표시)는
+// 기존 개발의뢰 문구. 히어로 회로 이미지는 Unsplash+ 워터마크가 찍힌 캡처라 운영 전 라이선스 원본으로 바꿔야 한다
+// (docs/FIGMA_PAGES.md "개발의뢰 랜딩").
 
-interface MenuCard {
-  key: string;
+const areaHint = (code: string): string => DEVELOP_INDIVIDUAL_AREAS.find((a) => a.code === code)?.hint ?? '';
+
+// ── 히어로 분야 카드 — 218×166, 카드 묶음(726×368) 안 좌표. x 는 묶음 폭 대비 %(1380 상자에서 정확히 피그마 값) ──
+interface HeroCard {
+  code: string;
   label: string;
-  hint: string;
   tag: string;
-  what: string;
-  featured: boolean;
+  icon: string;
+  x: number;
+  y: number;
+  iconNudge: boolean; // PCB 설계 아이콘만 피그마에서 3px 왼쪽(25px)
 }
-const menus: readonly MenuCard[] = [
+const heroCards: readonly HeroCard[] = [
+  { code: 'system', label: '시스템 개발', tag: DEVELOP_SYSTEM_MENU.tag, icon: heroIconSystem, x: 0, y: 0, iconNudge: false },
+  { code: 'pcb', label: 'PCB 설계', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconPcb, x: 34.986, y: 0, iconNudge: true },
+  { code: 'mech', label: '기구 설계', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconMech, x: 69.972, y: 0, iconNudge: false },
+  { code: 'app', label: '앱 개발', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconApp, x: 17.493, y: 202, iconNudge: false },
+  { code: 'server', label: '서버 개발', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconServer, x: 52.479, y: 202, iconNudge: false },
+];
+
+// ── 개발 분야 카드 — 사진 상자(크롭 원본 크기·위치)와 그 위 그라데이션은 피그마 마스크 그룹 값 그대로 ──
+interface AreaCard {
+  code: string;
+  title: string;
+  hint: string;
+  desc: string;
+  img: string;
+  box: { left: number; top: number; w: number; h: number };
+  overlay: string;
+  dark: boolean; // 어두운 사진 — 흰 글자
+  wide: boolean; // 시스템 개발 — 두 칸
+}
+const areaCards: readonly AreaCard[] = [
   {
-    key: 'system',
-    label: DEVELOP_SYSTEM_MENU.label,
+    code: 'system',
+    title: '시스템 개발',
     hint: DEVELOP_SYSTEM_MENU.hint,
-    tag: DEVELOP_SYSTEM_MENU.tag,
-    what: '제품 개발에 필요한 전체 업무를 한 번에 분석해 필요한 분야와 순서, 견적 전제를 정리해 드리는 일',
-    featured: true,
+    desc: '제품 개발에 필요한 전체 업무를 한 번에 분석해 필요한 분야와 순서, 견적 전제를 정리해 제품 개발 프로세스를 제시하고 제품 양산까지 원스톱 서비스를 제공합니다.',
+    img: pcbXray,
+    box: { left: 0, top: -150, w: 845, h: 669 },
+    overlay: 'linear-gradient(to top, #5a5a5a 37.145%, rgba(102,102,102,0) 67.19%)',
+    dark: true,
+    wide: true,
   },
-  ...DEVELOP_INDIVIDUAL_AREAS.map((a) => ({
-    key: a.code,
-    label: a.label,
-    hint: a.hint,
-    tag: DEVELOP_INDIVIDUAL_TAG,
-    what: a.prompt.what,
-    featured: false,
-  })),
+  {
+    code: 'pcb',
+    title: 'PCB 설계',
+    hint: areaHint('pcb'),
+    desc: '회로도를 실제 기판 도면(아트웍)과 제작 파일(거버)로 만들어 드립니다.',
+    img: areaPcb,
+    box: { left: -83, top: -106, w: 576, h: 432 },
+    overlay: 'linear-gradient(to top, #a5f1ea 26.968%, rgba(74,155,148,0) 62.153%)',
+    dark: false,
+    wide: false,
+  },
+  {
+    code: 'mech',
+    title: '기구 설계',
+    hint: areaHint('mech'),
+    desc: '케이스·내부 구조·방열·고정 구조를 설계해 3D·2D 도면과 제작 자료를 만들어 전달 드립니다.',
+    img: areaMech,
+    box: { left: -8.068, top: -52.484, w: 500.107, h: 333.446 },
+    overlay: 'linear-gradient(to top, #ececec 4.167%, rgba(175,175,175,0) 63.988%)',
+    dark: false,
+    wide: false,
+  },
+  {
+    code: 'app',
+    title: '앱 개발',
+    hint: areaHint('app'),
+    desc: '장치와 연결해 보고 조작하는 스마트폰·태블릿·웹 화면을 제작해 드립니다.',
+    img: areaApp,
+    box: { left: -5.463, top: -2.986, w: 392.401, h: 261.633 },
+    overlay: 'linear-gradient(to top, #a9ebff, rgba(102,102,102,0) 73.54%)',
+    dark: false,
+    wide: false,
+  },
+  {
+    code: 'server',
+    title: '서버 개발',
+    hint: areaHint('server'),
+    desc: '장치·앱이 주고받는 데이터를 저장하고 관리하는 서버(API·데이터베이스·관리 화면)를 셋팅해 드립니다.',
+    img: areaServer,
+    box: { left: -102, top: -12, w: 513, h: 384 },
+    overlay: 'linear-gradient(to top, #404040 40.625%, rgba(102,102,102,0) 59.375%)',
+    dark: true,
+    wide: false,
+  },
 ];
 
 interface Step {
@@ -42,13 +126,40 @@ interface Step {
 }
 const steps: readonly Step[] = [
   { no: '01', title: '접수', body: '만들고 싶은 것을 적어 보내 주시면 담당자에게 바로 전달됩니다. 회로도·사양서가 없어도 됩니다.' },
-  { no: '02', title: '상담 · 검토', body: '전화나 메일로 요구사항을 함께 정리합니다. AI 사전 검토서와 시스템 구성도를 만들어 담당자 검토 뒤 보여드립니다.' },
+  { no: '02', title: '상담·검토', body: '전화나 메일로 요구사항을 함께 정리합니다. AI 사전 검토서와 시스템 구성도를 만들어 담당자 검토 뒤 보여드립니다.' },
   { no: '03', title: '견적서', body: '항목별 금액·개발 기간·산출물·별도 실비·표준 조건을 한 장으로 보내드립니다. 회사 결재에 그대로 쓰실 수 있습니다.' },
-  { no: '04', title: '수락 · 착수금', body: '견적 조건에 동의하시면 계약이 성립합니다. 결제는 마일스톤으로 나눌 수 있고 세금계산서를 발행합니다.' },
+  { no: '04', title: '수락·착수금', body: '견적 조건에 동의하시면 계약이 성립합니다. 결제는 마일스톤으로 나눌 수 있고 세금계산서를 발행합니다.' },
   { no: '05', title: '개발', body: '회로도·아트웍처럼 되돌리기 어려운 단계에서는 확인을 요청드립니다. 진행 상황은 의뢰 상세에 계속 쌓입니다.' },
-  { no: '06', title: '납품 · 검수', body: '산출물을 올려 드리면 정해진 검수 기간 안에 확인하십니다. 수정이 필요하면 요청해 주세요.' },
-  { no: '07', title: '잔금 · 인도 · A/S', body: '잔금 결제와 함께 소스·원본 설계 파일을 인도합니다. 하자보수 기간 안에는 무상으로 고쳐 드립니다.' },
+  { no: '06', title: '납품·검수', body: '산출물을 올려 드리면 정해진 검수 기간 안에 확인하십니다. 수정이 필요하면 요청해 주세요.' },
+  { no: '07', title: '잔금·인도·A/S', body: '잔금 결제와 함께 소스·원본 설계 파일을 인도합니다. 하자보수 기간 안에는 무상으로 고쳐 드립니다.' },
 ];
+
+interface Why {
+  icon: string;
+  title: string;
+  body: string;
+}
+const whys: readonly Why[] = [
+  {
+    icon: whyIconFlow,
+    title: '양산까지 한 흐름',
+    body: '설계가 끝난 그 데이터로 PCB 제작과 부품 구매를 이어서 합니다. 개발사와 제조사가 갈릴 때 생기는 재설계·재견적이 없습니다.',
+  },
+  {
+    icon: whyIconOwnership,
+    title: '소유권은 의뢰인에게',
+    body: '인도 범위를 의뢰 단계에서 정하고 견적서 산출물 목록에 명시합니다. 잔금과 함께 소스·원본 설계 파일의 소유권이 이관됩니다.',
+  },
+  {
+    icon: whyIconAs,
+    title: '하자보수와 A/S',
+    body: '납품 뒤 하자보수 기간 동안 설계 결함은 무상으로 고칩니다. 그 뒤 개선·추가 개발도 같은 담당자가 이어서 맡습니다.',
+  },
+];
+const openWhy = ref<number | null>(0);
+const toggleWhy = (i: number): void => {
+  openWhy.value = openWhy.value === i ? null : i;
+};
 
 interface Faq {
   q: string;
@@ -80,7 +191,6 @@ const faqs: readonly Faq[] = [
     a: '착수 뒤 범위가 늘어나면 추가 견적서를 따로 드립니다. 원래 견적은 그대로 두고 바뀐 부분만 별도 항목으로 확인하신 뒤 진행합니다.',
   },
 ];
-
 const openFaq = ref<number | null>(0);
 const toggleFaq = (i: number): void => {
   openFaq.value = openFaq.value === i ? null : i;
@@ -88,187 +198,203 @@ const toggleFaq = (i: number): void => {
 </script>
 
 <template>
-  <div>
-    <!-- 히어로 -->
-    <section class="relative overflow-hidden bg-ink-950 text-white">
-      <div
-        class="pointer-events-none absolute inset-0 opacity-[0.12]"
-        style="background-image: linear-gradient(var(--color-brand-400) 1px, transparent 1px), linear-gradient(90deg, var(--color-brand-400) 1px, transparent 1px); background-size: 48px 48px;"
-        aria-hidden="true"
-      />
-      <div class="relative mx-auto grid w-full max-w-[1280px] gap-9 px-6 py-16 sm:py-20 lg:grid-cols-[1.15fr_1fr] lg:items-center">
-        <div class="grid gap-5">
-          <p class="font-mono text-micro tracking-[.18em] text-brand-300">SAMPLEPCB DEVELOPMENT</p>
-          <h1 class="text-h1 font-extrabold leading-tight sm:text-display">
-            아이디어를 회로 · PCB · 펌웨어 · 기구 · 앱 · 서버까지,<br class="hidden sm:block">
-            <span class="text-brand-400">샘플피씨비가 직접</span> 개발합니다
+  <div class="bg-white tracking-normal break-normal text-black">
+    <!-- 히어로 — 1380×534 r20 상자(top 102). 회로 사진 위에 오른쪽부터 #5a47cb 그라데이션 -->
+    <section class="px-4 pt-[30px]">
+      <div class="relative mx-auto max-w-[1380px] overflow-hidden rounded-[20px] bg-[#5a47cb] px-6 py-12 sm:px-10 xl:h-[534px] xl:p-0">
+        <div class="pointer-events-none absolute left-0 top-[-431px] h-[1059px] w-[1483px]" aria-hidden="true">
+          <img :src="heroCircuit" alt="" class="absolute inset-0 size-full max-w-none object-cover">
+          <div class="absolute inset-0 bg-[linear-gradient(to_left,#5a47cb_58.615%,rgba(73,52,192,0))]" />
+        </div>
+
+        <div class="relative xl:absolute xl:left-[50px] xl:top-[140px] xl:w-[496px]">
+          <h1 class="text-[26px] font-bold leading-[1.4] text-white max-sm:break-keep sm:text-[36px]">
+            아이디어를 회로 · PCB · 펌웨어 · <br class="hidden sm:inline">기구 · 앱 · 서버까지,<br>샘플피씨비가 직접 개발합니다
           </h1>
-          <p class="max-w-xl text-lead leading-relaxed text-dk-tx-2">
-            중개가 아닙니다. 상담·설계·시제품·양산을 한 회사가 이어서 맡습니다.
-            자료가 없어도 됩니다 — 무엇을 만들고 싶은지만 적어 주세요.
-          </p>
-          <div class="mt-1 flex flex-wrap items-center gap-3">
+          <div class="mt-[40px] flex flex-wrap gap-[24px] max-sm:gap-3 xl:mt-[38.8px]">
             <RouterLink
-              to="/c/request"
-              class="h-12 rounded-lg bg-brand-500 px-7 text-body font-bold leading-[3rem] text-white transition hover:bg-brand-400"
+              :to="{ name: 'request' }"
+              class="flex h-[64px] w-[200px] items-center justify-center rounded-[8px] bg-[#0a1220] text-[20px] font-semibold leading-[32px] tracking-[-0.4px] text-white transition-colors hover:bg-[#22303b] max-sm:h-14 max-sm:w-[calc(50%-6px)] max-sm:text-[17px]"
             >
               개발 의뢰하기
             </RouterLink>
-            <a href="#how" class="h-12 rounded-lg border border-white/25 px-6 text-body font-bold leading-[3rem] text-white transition hover:border-white/60">
+            <RouterLink
+              :to="{ name: 'home', hash: '#how' }"
+              class="flex h-[64px] w-[200px] items-center justify-center rounded-[8px] border-[1.5px] border-[#0b1424] bg-[rgba(231,228,255,0.08)] text-[20px] font-semibold leading-[32px] tracking-[-0.4px] text-[#0c1423] backdrop-blur-[13px] transition-colors hover:bg-[rgba(231,228,255,0.2)] max-sm:h-14 max-sm:w-[calc(50%-6px)] max-sm:text-[17px]"
+            >
               진행 방식 보기
-            </a>
+            </RouterLink>
           </div>
-          <p class="text-label text-dk-tx-2">접수 후 영업일 2~3일 안에 담당자가 연락드립니다 · 상담과 견적은 무료입니다</p>
         </div>
 
-        <ul class="grid gap-2.5">
+        <ul class="relative mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:absolute xl:left-[43.768%] xl:top-[83px] xl:mt-0 xl:block xl:h-[368px] xl:w-[52.609%]">
           <li
-            v-for="menu in menus"
-            :key="menu.key"
-            class="flex items-center gap-3 rounded-xl px-4 py-3 ring-1"
-            :class="menu.featured ? 'bg-white/[0.12] ring-white/25' : 'bg-white/[0.06] ring-white/10'"
+            v-for="card in heroCards"
+            :key="card.code"
+            class="xl:absolute xl:left-(--x) xl:top-(--y) xl:h-[166px] xl:w-[30.028%]"
+            :style="{ '--x': `${card.x}%`, '--y': `${card.y}px` }"
           >
-            <span v-if="menu.featured" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white" aria-hidden="true">
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
-                <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" /><path d="M17.25 13.5v7.5M13.5 17.25h7.5" />
-              </svg>
-            </span>
-            <AreaIcon v-else :code="menu.key" size="sm" />
-            <span class="text-body font-bold">{{ menu.label }}</span>
-            <span class="ml-auto text-label text-dk-tx-2">{{ menu.tag }}</span>
+            <RouterLink :to="{ name: 'request', query: { menu: card.code } }" class="group relative block h-full min-h-[150px] rounded-[16px] px-4 pb-6 pt-4 max-sm:break-keep sm:px-[28px] xl:min-h-0">
+              <span class="absolute inset-0 rounded-[16px] bg-[#917fff] opacity-[0.23] shadow-[0_10px_20px_rgba(61,41,183,0.3)] transition-opacity group-hover:opacity-[0.34]" aria-hidden="true" />
+              <img :src="card.icon" alt="" class="relative block size-[60px] max-w-none" :class="card.iconNudge ? '-ml-[3px]' : ''">
+              <span class="relative mt-[12px] block text-[19px] font-bold leading-[1.2] text-white sm:text-[22px]">{{ card.label }}</span>
+              <span class="relative mt-[6.6px] block text-[15px] font-bold leading-[1.2] text-[#c2bbef] sm:text-[17px]">{{ card.tag }}</span>
+            </RouterLink>
           </li>
         </ul>
       </div>
     </section>
 
-    <!-- 개발 분야 -->
-    <section id="areas" class="mx-auto w-full max-w-[1280px] scroll-mt-20 px-6 py-16">
-      <p class="font-mono text-micro tracking-[.14em] text-tx-3">AREAS</p>
-      <h2 class="mt-1.5 text-h1 font-extrabold text-tx-1">개발 분야</h2>
-      <p class="mt-2 max-w-2xl text-lead leading-relaxed text-tx-2">
-        제품 전체를 맡기시려면 시스템개발, 필요한 분야만 맡기시려면 개별 견적입니다. 여러 분야가 얽힌 제품일수록 한 회사가 맡는 편이 빠릅니다.
-      </p>
-      <div class="mt-7 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-        <article
-          v-for="menu in menus"
-          :key="menu.key"
-          class="grid content-start gap-3 rounded-2xl bg-white p-5 transition"
-          :class="menu.featured ? 'border-2 border-ink-950 sm:col-span-2 lg:col-span-4' : 'border border-line hover:border-line-2'"
-        >
-          <span v-if="menu.featured" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-950 text-white" aria-hidden="true">
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
-              <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" /><path d="M17.25 13.5v7.5M13.5 17.25h7.5" />
-            </svg>
-          </span>
-          <AreaIcon v-else :code="menu.key" />
-          <h3 class="flex flex-wrap items-center gap-2 text-title font-extrabold text-tx-1">
-            {{ menu.label }}
-            <span class="rounded-full bg-paper px-2.5 py-0.5 text-micro font-bold text-tx-2">{{ menu.tag }}</span>
-          </h3>
-          <p class="text-body leading-relaxed text-tx-2">{{ menu.hint }}</p>
-          <p class="text-label leading-relaxed text-tx-3">{{ menu.what }}</p>
-        </article>
+    <!-- 개발 분야 — 카드 408(시스템 844)×352 r18, 사진 상자 12px 안쪽 r14 h258 -->
+    <section class="px-4 pt-[100px] xl:pt-[140px]">
+      <div class="mx-auto max-w-[1280px]">
+        <h2 id="areas" class="text-[32px] font-bold leading-[1.2] sm:text-[40px]">개발 분야</h2>
+        <p class="mt-[12px] text-[18px] font-medium leading-[1.3] text-[#666] sm:text-[22px]">
+          제품 전체를 맡기시려면 시스템개발, 필요한 분야만 맡기시려면 개별 견적입니다. 여러 분야가 얽힌 제품일수록 한 회사가 맡는 편이 빠릅니다.
+        </p>
+        <ul class="mt-[34px] grid gap-[28px] md:grid-cols-2 lg:grid-cols-3">
+          <li v-for="card in areaCards" :key="card.code" :class="card.wide ? 'md:col-span-2' : ''">
+            <RouterLink
+              :to="{ name: 'request', query: { menu: card.code } }"
+              class="flex h-full min-h-[352px] flex-col rounded-[18px] bg-white p-[12px] shadow-[0_8px_30px_rgba(0,0,0,0.1)] transition-shadow hover:shadow-[0_12px_36px_rgba(0,0,0,0.16)]"
+            >
+              <span class="relative block h-[258px] shrink-0 overflow-hidden rounded-[14px]">
+                <span
+                  class="absolute max-lg:inset-0 max-lg:size-full lg:left-(--l) lg:top-(--t) lg:h-(--h) lg:w-(--w)"
+                  :style="{ '--l': `${card.box.left}px`, '--t': `${card.box.top}px`, '--w': `${card.box.w}px`, '--h': `${card.box.h}px` }"
+                  aria-hidden="true"
+                >
+                  <img :src="card.img" alt="" class="absolute inset-0 size-full max-w-none object-cover">
+                  <span class="absolute inset-0" :style="{ backgroundImage: card.overlay }" />
+                </span>
+                <span class="absolute inset-x-[18px] bottom-[20px] block">
+                  <span
+                    class="block text-[26px] font-semibold leading-[1.3] tracking-[-0.6px] sm:text-[30px]"
+                    :class="card.dark ? 'text-white' : 'text-[#1b2b39]'"
+                  >{{ card.title }}</span>
+                  <span
+                    class="mt-[6px] block whitespace-pre-wrap text-[17px] font-medium leading-[1.3] tracking-[-0.4px] sm:text-[20px]"
+                    :class="card.dark ? 'text-white/70' : 'text-[#333] opacity-90'"
+                  >{{ `-  ${card.hint}` }}</span>
+                </span>
+              </span>
+              <span
+                class="mb-[5px] ml-[8px] mt-[17px] block text-[16px] font-medium leading-[1.5] text-[#666]"
+                :class="card.wide ? 'mr-0' : 'mr-[8px]'"
+              >{{ card.desc }}</span>
+            </RouterLink>
+          </li>
+        </ul>
       </div>
     </section>
 
-    <!-- 진행 방식 -->
-    <section id="how" class="scroll-mt-20 bg-white py-16">
-      <div class="mx-auto w-full max-w-[1280px] px-6">
-        <p class="font-mono text-micro tracking-[.14em] text-tx-3">HOW IT WORKS</p>
-        <h2 class="mt-1.5 text-h1 font-extrabold text-tx-1">진행 방식</h2>
-        <p class="mt-2 max-w-2xl text-lead leading-relaxed text-tx-2">
+    <!-- 진행 방식 — 번호 원 44 + 회색 띠 h88 r10(제목 x+30 · 본문 x+220), 단계 사이 24 에 이중 화살표 -->
+    <section class="px-4 pt-[100px] xl:pt-[140px]">
+      <div class="mx-auto max-w-[1280px]">
+        <h2 id="how" class="text-[32px] font-bold leading-[1.2] sm:text-[40px]">진행 방식</h2>
+        <p class="mt-[12px] text-[18px] font-medium leading-[1.3] text-[#666] sm:text-[22px]">
           접수부터 인도까지 일곱 단계입니다. 각 단계에서 무엇이 정해지고 무엇을 확인하시는지 미리 밝혀 둡니다.
         </p>
-        <ol class="mt-8 grid gap-px overflow-hidden rounded-2xl bg-line">
-          <li
-            v-for="step in steps"
-            :key="step.no"
-            class="grid gap-2 bg-white px-5 py-5 sm:grid-cols-[64px_180px_1fr] sm:items-baseline sm:gap-5"
-          >
-            <span class="font-mono text-label font-bold tabular-nums text-brand-500">{{ step.no }}</span>
-            <h3 class="text-title font-extrabold text-tx-1">{{ step.title }}</h3>
-            <p class="text-body leading-relaxed text-tx-2">{{ step.body }}</p>
+        <ol class="mt-[34px]">
+          <li v-for="(step, i) in steps" :key="step.no">
+            <div class="flex items-center gap-[20px] max-sm:gap-3">
+              <span class="relative flex size-[44px] shrink-0 items-center justify-center">
+                <img :src="stepCircle" alt="" class="absolute inset-0 block size-full max-w-none">
+                <span class="relative text-[20px] font-extrabold leading-[1.3] tracking-[-0.4px] text-white">{{ step.no }}</span>
+              </span>
+              <div class="flex min-h-[88px] flex-1 items-center rounded-[10px] bg-[#f5f6f8] px-[30px] py-4 max-md:flex-col max-md:items-start max-md:gap-1 max-sm:px-5">
+                <h3 class="shrink-0 text-[22px] font-extrabold leading-[1.3] tracking-[-0.52px] text-[#0a1220] opacity-90 sm:text-[26px] md:w-[190px]">{{ step.title }}</h3>
+                <p class="text-[16px] font-medium leading-[1.3] tracking-[-0.36px] text-[#555] opacity-90 sm:text-[18px]">{{ step.body }}</p>
+              </div>
+            </div>
+            <div v-if="i < steps.length - 1" class="relative h-[24px]" aria-hidden="true">
+              <img :src="stepArrow" alt="" class="absolute left-[12px] top-[0px] block h-[24.924px] w-[19px] max-w-none">
+            </div>
           </li>
         </ol>
       </div>
     </section>
 
-    <!-- 왜 직접 개발인가 -->
-    <section class="mx-auto w-full max-w-[1280px] px-6 py-16">
-      <p class="font-mono text-micro tracking-[.14em] text-tx-3">WHY DIRECT</p>
-      <h2 class="mt-1.5 text-h1 font-extrabold text-tx-1">왜 직접 개발인가</h2>
-      <div class="mt-7 grid gap-3.5 md:grid-cols-3">
-        <article class="grid content-start gap-2.5 rounded-2xl border-2 border-ink-950 bg-white p-6">
-          <h3 class="text-title font-extrabold text-tx-1">양산까지 한 흐름</h3>
-          <p class="text-body leading-relaxed text-tx-2">
-            설계가 끝난 그 데이터로 PCB 제작과 부품 구매를 이어서 합니다. 개발사와 제조사가 갈릴 때 생기는
-            재설계·재견적이 없습니다.
-          </p>
-        </article>
-        <article class="grid content-start gap-2.5 rounded-2xl border border-line bg-white p-6">
-          <h3 class="text-title font-extrabold text-tx-1">소유권은 의뢰인에게</h3>
-          <p class="text-body leading-relaxed text-tx-2">
-            인도 범위를 의뢰 단계에서 정하고 견적서 산출물 목록에 명시합니다. 잔금과 함께 소스·원본 설계
-            파일의 소유권이 이관됩니다.
-          </p>
-        </article>
-        <article class="grid content-start gap-2.5 rounded-2xl border border-line bg-white p-6">
-          <h3 class="text-title font-extrabold text-tx-1">하자보수와 A/S</h3>
-          <p class="text-body leading-relaxed text-tx-2">
-            납품 뒤 하자보수 기간 동안 설계 결함은 무상으로 고칩니다. 그 뒤 개선·추가 개발도 같은 담당자가
-            이어서 맡습니다.
-          </p>
-        </article>
+    <!-- 왜 직접 개발인가 — 전폭 띠(아래 55% 부터 #f5f6f8), 사진 610×405 r20 + 아코디언 620 -->
+    <section class="bg-[linear-gradient(to_top,#f5f6f8_55%,rgba(245,246,248,0))] px-4 pb-[100px] pt-[120px] xl:pb-[140px] xl:pt-[160px]">
+      <div class="mx-auto max-w-[1280px]">
+        <h2 class="text-[32px] font-bold leading-[1.2] sm:text-[40px]">왜 직접 개발인가</h2>
+        <div class="mt-[40px] grid gap-[24px] lg:grid-cols-[minmax(0,610fr)_minmax(0,620fr)] lg:gap-[50px]">
+          <div class="relative h-[240px] overflow-hidden rounded-[20px] sm:h-[405px]">
+            <img :src="whyPhoto" alt="" class="absolute left-[-6.2px] top-[-20.587px] block h-[430.792px] w-[765.72px] max-w-none object-cover">
+          </div>
+          <ul class="flex flex-col gap-[24px]">
+            <li
+              v-for="(why, i) in whys"
+              :key="why.title"
+              class="rounded-[14px] py-[30px] transition-colors"
+              :class="openWhy === i ? 'border border-[#eaeef7] bg-white px-[27px] max-sm:px-[19px]' : 'border-2 border-[#eaeef7] bg-[#edeff3] px-[26px] max-sm:px-[18px]'"
+            >
+              <button
+                type="button"
+                class="flex w-full items-center gap-[17px] text-left"
+                :aria-expanded="openWhy === i"
+                @click="toggleWhy(i)"
+              >
+                <img :src="why.icon" alt="" class="block size-[30px] shrink-0 max-w-none object-cover">
+                <span class="min-w-0 flex-1 text-[20px] font-semibold leading-[1.3] text-[#1b2b39] sm:text-[24px]">{{ why.title }}</span>
+                <span class="relative block h-[8px] w-[15px] shrink-0 transition-transform" :class="openWhy === i ? 'rotate-180' : ''" aria-hidden="true">
+                  <img :src="chevronDown" alt="" class="absolute left-[-1px] top-[-1px] block h-[10.462px] w-[17px] max-w-none">
+                </span>
+              </button>
+              <p v-if="openWhy === i" class="mt-[20px] text-[16px] font-medium leading-[1.5] text-[#666] sm:text-[18px]">{{ why.body }}</p>
+            </li>
+          </ul>
+        </div>
       </div>
     </section>
 
-    <!-- FAQ -->
-    <section class="bg-white py-16">
-      <div class="mx-auto w-full max-w-[900px] px-6">
-        <p class="font-mono text-micro tracking-[.14em] text-tx-3">FAQ</p>
-        <h2 class="mt-1.5 text-h1 font-extrabold text-tx-1">자주 묻는 질문</h2>
-        <ul class="mt-7 grid gap-2.5">
-          <li v-for="(faq, i) in faqs" :key="faq.q" class="overflow-hidden rounded-xl border border-line">
-            <button
-              type="button"
-              class="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-paper"
-              :aria-expanded="openFaq === i"
-              @click="toggleFaq(i)"
-            >
-              <span class="text-body font-bold text-tx-1">{{ faq.q }}</span>
-              <span class="ml-auto shrink-0 text-title text-tx-3">{{ openFaq === i ? '−' : '+' }}</span>
-            </button>
-            <p v-if="openFaq === i" class="border-t border-line bg-paper px-5 py-4 text-body leading-relaxed text-tx-2">
-              {{ faq.a }}
-            </p>
+    <!-- 자주 묻는 질문 — 1280 상자 r20(테두리 #eaeef7, 흰 80%) 안 30/28 패딩, 항목 사이 16 + 구분선 -->
+    <section class="px-4 pt-[100px] xl:pt-[140px]">
+      <div class="mx-auto max-w-[1280px]">
+        <h2 class="text-[32px] font-bold leading-[1.2] sm:text-[40px]">자주 묻는 질문</h2>
+        <ul class="mt-[40px] flex flex-col gap-[16px] rounded-[20px] border border-[#eaeef7] bg-[rgba(255,255,255,0.8)] px-[30px] py-[28px] max-sm:px-5">
+          <li v-for="(faq, i) in faqs" :key="faq.q" class="flex flex-col gap-[24px]">
+            <div class="flex flex-col gap-[10px]">
+              <button
+                type="button"
+                class="flex min-h-[40px] w-full items-center justify-between gap-4 pr-[14px] text-left max-sm:pr-0"
+                :aria-expanded="openFaq === i"
+                @click="toggleFaq(i)"
+              >
+                <span class="text-[19px] font-semibold leading-[1.4] text-[#1b2b39] sm:text-[24px]">{{ faq.q }}</span>
+                <span class="relative block size-[16px] shrink-0" aria-hidden="true">
+                  <span class="absolute left-0 top-[7px] block h-[2px] w-[16px] rounded-[9px] bg-[#8793ab]" />
+                  <span v-if="openFaq !== i" class="absolute left-[7px] top-0 block h-[16px] w-[2px] rounded-[9px] bg-[#8793ab]" />
+                </span>
+              </button>
+              <p v-if="openFaq === i" class="text-[16px] leading-[1.5] text-[#666] sm:text-[18px]">{{ faq.a }}</p>
+            </div>
+            <div v-if="i < faqs.length - 1" class="h-px w-full bg-[#d4d7de]" />
           </li>
         </ul>
       </div>
     </section>
 
-    <!-- 하단 CTA -->
-    <section class="mx-auto w-full max-w-[1280px] px-6 pb-4">
-      <div class="grid gap-5 rounded-2xl bg-ink-950 px-7 py-12 text-center text-white sm:px-12">
-        <h2 class="text-h1 font-extrabold">무엇을 만들고 싶으신가요?</h2>
-        <p class="mx-auto max-w-xl text-lead leading-relaxed text-dk-tx-2">
-          자료가 없어도, 분야를 몰라도 괜찮습니다. 적어 주신 내용으로 담당자가 함께 정리해 드립니다.
-        </p>
-        <div class="flex flex-wrap justify-center gap-3">
-          <RouterLink
-            to="/c/request"
-            class="h-12 rounded-lg bg-brand-500 px-8 text-body font-bold leading-[3rem] text-white transition hover:bg-brand-400"
-          >
-            개발 의뢰하기
-          </RouterLink>
-          <RouterLink
-            to="/c/me"
-            class="h-12 rounded-lg border border-white/25 px-6 text-body font-bold leading-[3rem] text-white transition hover:border-white/60"
-          >
-            내 의뢰 보기
-          </RouterLink>
-        </div>
+    <!-- 하단 CTA — 전폭 415px 보라 그라데이션, 푸터에 바로 붙는다 -->
+    <section class="mt-[100px] bg-[linear-gradient(to_right,#604acc,#433bf6)] px-4 pb-[90px] pt-[100px] text-center text-white xl:mt-[141px]">
+      <h2 class="text-[30px] font-bold leading-[1.2] sm:text-[40px]">무엇을 만들고 싶으신가요?</h2>
+      <p class="mx-auto mt-[30px] max-w-[872px] text-[18px] font-medium leading-[1.3] opacity-60 sm:text-[24px]">
+        자료가 없어도, 분야를 몰라도 괜찮습니다. 적어 주신 내용으로 담당자가 함께 정리해 드립니다.
+      </p>
+      <div class="mt-[64px] flex flex-wrap justify-center gap-[12px]">
+        <RouterLink
+          :to="{ name: 'request' }"
+          class="flex h-[52px] items-center justify-center rounded-[50px] border border-white bg-white px-[23px] text-[20px] font-medium leading-[30px] text-[#5d49d1] backdrop-blur-[2.5px] transition-opacity hover:opacity-90 sm:text-[22px]"
+        >
+          개발 의뢰하기
+        </RouterLink>
+        <RouterLink
+          :to="{ name: 'me' }"
+          class="flex h-[52px] items-center justify-center rounded-[50px] border border-white bg-[rgba(255,255,255,0.05)] px-[23px] text-[20px] font-medium leading-[30px] text-white backdrop-blur-[2.5px] transition-colors hover:bg-white/15 sm:text-[22px]"
+        >
+          내 의뢰 보기
+        </RouterLink>
       </div>
     </section>
   </div>

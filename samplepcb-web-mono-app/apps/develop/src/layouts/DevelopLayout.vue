@@ -2,18 +2,26 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
-import { developPath, loginUrl, logoutUrl } from '../lib/auth-urls';
+import { developPath, loginUrl, logoutUrl, registerUrl } from '../lib/auth-urls';
+import HeaderLogo from '../components/layout/HeaderLogo.vue';
+import SiteFooter from '../components/layout/SiteFooter.vue';
 
-// 개발의뢰 셸(docs/DEVELOP_FLOW.md §7.2) — 밝은 종이 위 짙은 잉크, 브랜드 블루 하나.
-// 마켓과 달리 공개 목록·전문가 내비가 없다: 진행 방식 · 개발 분야(홈 앵커) · 내 의뢰 · CTA(의뢰하기).
-// 인쇄용 라우트(meta.bare)는 헤더·푸터를 그리지 않는다.
+// 개발의뢰 셸(docs/DEVELOP_FLOW.md §7.2) — 헤더는 피그마 개발의뢰 「00-1 랜딩 페이지」 top(37:6772):
+// 72px 흰 바 · 안쪽 1280 space-between · [로고 177×30] +50+ [진행 방식 · 개발 분야 · 내 의뢰 · 개발 의뢰하기(검정 버튼)]
+// … [로그인 검정 알약 + 회원가입 회색 알약]. 로그인 상태는 피그마에 없어 메인 사이트 헤더 관례(로그아웃 회색 알약)를 따른다.
+// 푸터는 메인 사이트 공용 푸터 이식(SiteFooter). 인쇄용 라우트(meta.bare)는 헤더·푸터를 그리지 않는다.
 const auth = useAuthStore();
 const route = useRoute();
 const mobileOpen = ref(false);
 const bare = computed(() => route.meta.bare === true);
+// 랜딩은 하단 CTA 띠가 푸터에 바로 붙는다(피그마 4636). 다른 화면은 본문과 푸터 사이를 띄운다.
+const isHome = computed(() => route.name === 'home');
 
 function goLogin(): void {
   window.location.assign(loginUrl(developPath(route.fullPath)));
+}
+function goRegister(): void {
+  window.location.assign(registerUrl());
 }
 function goLogout(): void {
   window.location.assign(logoutUrl(developPath('/')));
@@ -23,45 +31,70 @@ function goLogout(): void {
 <template>
   <RouterView v-if="bare" />
   <div v-else class="flex min-h-screen flex-col bg-paper">
-    <header class="print-hidden sticky top-0 z-40 border-b border-line bg-white/95 backdrop-blur">
-      <div class="mx-auto flex h-16 w-full max-w-[1280px] items-center gap-6 px-6">
-        <RouterLink :to="{ name: 'home' }" class="flex shrink-0 items-center gap-2">
-          <span class="font-mono text-lg font-bold tracking-tight text-ink-950">SAMPLEPCB</span>
-          <span class="rounded-md bg-brand-500 px-1.5 py-0.5 text-[11px] font-extrabold text-white">개발(C)</span>
-        </RouterLink>
-
-        <a href="/develop/request" class="text-xs font-semibold text-brand-600">개발(G) 의뢰하기</a>
-        <nav class="hidden items-center gap-5 text-sm font-semibold text-tx-2 md:flex">
-          <RouterLink :to="{ name: 'home', hash: '#how' }" class="hover:text-tx-1">{{ $t('nav.how') }}</RouterLink>
-          <RouterLink :to="{ name: 'home', hash: '#areas' }" class="hover:text-tx-1">{{ $t('nav.areas') }}</RouterLink>
-          <RouterLink v-if="auth.isLoggedIn" to="/c/me" class="hover:text-tx-1" active-class="text-brand-600">{{ $t('nav.me') }}</RouterLink>
-        </nav>
-
-        <div class="ml-auto flex items-center gap-3">
-          <template v-if="auth.isLoggedIn">
-            <RouterLink to="/c/me" class="hidden text-sm font-medium text-tx-2 hover:text-tx-1 sm:block">
-              {{ $t('auth.greeting', { nick: auth.me?.mbNick ?? '' }) }}
-            </RouterLink>
-            <button type="button" class="hidden text-xs text-tx-3 hover:text-tx-1 sm:block" @click="goLogout">{{ $t('auth.logout') }}</button>
-          </template>
-          <button v-else type="button" class="text-sm font-medium text-tx-2 hover:text-tx-1" @click="goLogin">{{ $t('auth.login') }}</button>
-          <RouterLink
-            to="/c/request"
-            class="rounded-lg bg-ink-950 px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-600"
-          >
-            {{ $t('nav.request') }}
+    <header class="print-hidden sticky top-0 z-40 bg-white px-5 tracking-normal shadow-[0_8px_10px_rgba(168,185,205,0.1)]">
+      <div class="mx-auto flex h-[72px] w-full max-w-[1280px] items-center justify-between gap-6">
+        <div class="flex min-w-0 items-center gap-[50px]">
+          <RouterLink :to="{ name: 'home' }" class="flex shrink-0 items-center justify-center" aria-label="SAMPLEPCB 개발의뢰 홈">
+            <HeaderLogo />
           </RouterLink>
-          <button type="button" class="text-xl text-tx-2 md:hidden" aria-label="메뉴" @click="mobileOpen = !mobileOpen">☰</button>
+          <nav class="hidden items-center gap-[24px] text-[16px] font-medium leading-[1.3] text-[#0a151e] md:flex">
+            <RouterLink :to="{ name: 'home', hash: '#how' }" class="whitespace-nowrap hover:opacity-60">{{ $t('nav.how') }}</RouterLink>
+            <RouterLink :to="{ name: 'home', hash: '#areas' }" class="whitespace-nowrap hover:opacity-60">{{ $t('nav.areas') }}</RouterLink>
+            <RouterLink :to="{ name: 'me' }" class="whitespace-nowrap hover:opacity-60">{{ $t('nav.me') }}</RouterLink>
+            <RouterLink
+              :to="{ name: 'request' }"
+              class="flex items-center justify-center whitespace-nowrap rounded-[6px] bg-[#0a1220] px-[14px] py-[8px] text-white transition-colors hover:bg-[#22303b]"
+            >
+              {{ $t('nav.request') }}
+            </RouterLink>
+          </nav>
+        </div>
+
+        <div class="flex shrink-0 items-center gap-[10px] text-[13px] font-medium leading-[1.3]">
+          <button
+            v-if="auth.isLoggedIn"
+            type="button"
+            class="flex items-center justify-center whitespace-nowrap rounded-[48px] bg-[#f0f3f5] px-[10px] py-[6px] text-[#576065] transition-colors hover:bg-[#e3e8ec] hover:text-[#0a151e]"
+            @click="goLogout"
+          >
+            {{ $t('auth.logout') }}
+          </button>
+          <template v-else>
+            <button
+              type="button"
+              class="flex items-center justify-center whitespace-nowrap rounded-[48px] bg-[#0a151e] px-[10px] py-[6px] text-[#fcfdfd] transition-colors hover:bg-[#22303b]"
+              @click="goLogin"
+            >
+              {{ $t('auth.login') }}
+            </button>
+            <!-- 좁은 화면은 로고·로그인·메뉴만 — 회원가입은 펼친 메뉴로 -->
+            <button
+              type="button"
+              class="flex items-center justify-center whitespace-nowrap rounded-[48px] bg-[#f0f3f5] px-[10px] py-[6px] text-[#576065] transition-colors hover:bg-[#e3e8ec] hover:text-[#0a151e] max-sm:hidden"
+              @click="goRegister"
+            >
+              {{ $t('auth.register') }}
+            </button>
+          </template>
+          <button
+            type="button"
+            class="flex size-10 items-center justify-center text-[19px] text-[#0a151e] md:hidden"
+            :aria-expanded="mobileOpen"
+            aria-label="메뉴"
+            @click="mobileOpen = !mobileOpen"
+          >
+            ☰
+          </button>
         </div>
       </div>
 
-      <div v-if="mobileOpen" class="border-t border-line bg-white md:hidden">
-        <nav class="mx-auto flex w-full max-w-[1280px] flex-col px-6 py-2 text-sm font-semibold text-tx-2">
+      <div v-if="mobileOpen" class="-mx-5 border-t border-[#eaeef7] bg-white md:hidden">
+        <nav class="flex flex-col px-5 py-2 text-[16px] font-medium text-[#0a151e]">
           <RouterLink :to="{ name: 'home', hash: '#how' }" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.how') }}</RouterLink>
           <RouterLink :to="{ name: 'home', hash: '#areas' }" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.areas') }}</RouterLink>
-          <RouterLink v-if="auth.isLoggedIn" to="/c/me" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.me') }}</RouterLink>
-          <button v-if="auth.isLoggedIn" type="button" class="py-2.5 text-left" @click="goLogout">{{ $t('auth.logout') }}</button>
-          <button v-else type="button" class="py-2.5 text-left" @click="goLogin">{{ $t('auth.login') }}</button>
+          <RouterLink :to="{ name: 'me' }" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.me') }}</RouterLink>
+          <RouterLink :to="{ name: 'request' }" class="py-2.5" @click="mobileOpen = false">{{ $t('nav.request') }}</RouterLink>
+          <button v-if="!auth.isLoggedIn" type="button" class="py-2.5 text-left sm:hidden" @click="goRegister">{{ $t('auth.register') }}</button>
         </nav>
       </div>
     </header>
@@ -70,29 +103,6 @@ function goLogout(): void {
       <RouterView />
     </main>
 
-    <footer class="print-hidden mt-16 border-t border-line bg-white">
-      <div class="mx-auto grid w-full max-w-[1280px] gap-8 px-6 py-10 sm:grid-cols-3">
-        <div>
-          <p class="font-mono text-sm font-bold text-ink-950">SAMPLEPCB 개발의뢰</p>
-          <p class="mt-2 text-xs leading-relaxed text-tx-3">{{ $t('app.tagline') }}</p>
-        </div>
-        <div class="text-xs text-tx-3">
-          <p class="mb-2 font-semibold text-tx-2">{{ $t('footer.service') }}</p>
-          <ul class="space-y-1.5">
-            <li><RouterLink :to="{ name: 'home', hash: '#how' }" class="hover:text-brand-600">{{ $t('nav.how') }}</RouterLink></li>
-            <li><RouterLink to="/c/request" class="hover:text-brand-600">{{ $t('nav.request') }}</RouterLink></li>
-            <li><RouterLink to="/c/me" class="hover:text-brand-600">{{ $t('nav.me') }}</RouterLink></li>
-          </ul>
-        </div>
-        <div class="text-xs text-tx-3">
-          <p class="mb-2 font-semibold text-tx-2">문의</p>
-          <p class="font-mono">{{ $t('app.tel') }}</p>
-          <p class="mt-1"><a href="/" class="hover:text-brand-600">samplepcb.co.kr</a> · <a href="/market/" class="hover:text-brand-600">재능마켓</a></p>
-        </div>
-      </div>
-      <div class="border-t border-line">
-        <p class="mx-auto w-full max-w-[1280px] px-6 py-4 text-[11px] leading-relaxed text-tx-3">{{ $t('footer.corp') }}</p>
-      </div>
-    </footer>
+    <SiteFooter :class="isHome ? '' : 'mt-12'" />
   </div>
 </template>
