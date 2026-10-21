@@ -1,0 +1,1019 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>거버 담기 연동 가이드</title>
+<style>
+  :root {
+    --bg: #f5f6f3;
+    --surface: #ffffff;
+    --surface-2: #eef1ec;
+    --ink: #161a17;
+    --ink-2: #485049;
+    --ink-3: #727b73;
+    --line: #dde2da;
+    --accent: #0a6b4f;
+    --accent-ink: #ffffff;
+    --accent-soft: #e2f0e9;
+    --warn: #8a5200;
+    --warn-soft: #fcf2dc;
+    --warn-line: #ecd9ad;
+    --code-bg: #12171a;
+    --code-ink: #e4eae6;
+    --code-line: #252f33;
+    --code-mute: #8b9792;
+    --tok-com: #7f8c87;
+    --tok-str: #a5d8ad;
+    --tok-key: #8fc4ff;
+    --tok-num: #f0b877;
+    --radius: 10px;
+    --mono: ui-monospace, "Cascadia Code", "D2Coding", Consolas, "SFMono-Regular", Menlo, monospace;
+    --sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1311;
+      --surface: #161b18;
+      --surface-2: #1d2420;
+      --ink: #e7ebe8;
+      --ink-2: #b2bbb4;
+      --ink-3: #87918a;
+      --line: #29322d;
+      --accent: #4cc79a;
+      --accent-ink: #05261b;
+      --accent-soft: #15322a;
+      --warn: #f0b877;
+      --warn-soft: #2c2415;
+      --warn-line: #4a3c1f;
+      --code-bg: #0a0e0f;
+      --code-line: #1e272a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1311;
+    --surface: #161b18;
+    --surface-2: #1d2420;
+    --ink: #e7ebe8;
+    --ink-2: #b2bbb4;
+    --ink-3: #87918a;
+    --line: #29322d;
+    --accent: #4cc79a;
+    --accent-ink: #05261b;
+    --accent-soft: #15322a;
+    --warn: #f0b877;
+    --warn-soft: #2c2415;
+    --warn-line: #4a3c1f;
+    --code-bg: #0a0e0f;
+    --code-line: #1e272a;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code, pre, kbd { font-family: var(--mono); }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  li > ul { margin-top: 4px; }
+
+  /* 상단 주소 설정 띠 */
+  .basebar {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .basebar-in {
+    max-width: 1120px; margin: 0 auto; padding: 10px 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  }
+  .basebar label { font-size: 13px; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+  .basebar input {
+    flex: 1 1 260px; min-width: 0; max-width: 420px;
+    font: 14px/1.4 var(--mono); color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  }
+  .basebar input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .basebar .hint { font-size: 13px; color: var(--ink-3); }
+  .btn-ghost {
+    font: 600 13px/1 var(--sans); color: var(--ink-2); background: transparent;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer;
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  .shell {
+    max-width: 1120px; margin: 0 auto; padding: 0 16px 80px;
+    display: grid; grid-template-columns: 204px minmax(0, 1fr); gap: 44px;
+  }
+  nav.toc { position: sticky; top: 72px; align-self: start; padding-top: 36px; font-size: 14px; }
+  nav.toc p { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--ink-3); }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+  nav.toc a {
+    display: block; padding: 5px 0 5px 14px; margin-left: -1px;
+    color: var(--ink-2); text-decoration: none; border-left: 2px solid transparent;
+  }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc a.on { color: var(--accent); border-left-color: var(--accent); font-weight: 700; }
+
+  main { min-width: 0; }
+  header.hero { padding: 40px 0 8px; }
+  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .06em; color: var(--accent); margin: 0 0 8px; }
+  h1 { font-size: clamp(26px, 4vw, 34px); line-height: 1.25; margin: 0 0 12px; letter-spacing: -.01em; text-wrap: balance; }
+  .lede { font-size: 17px; color: var(--ink-2); max-width: 46em; margin: 0 0 8px; }
+  .meta { font-size: 13px; color: var(--ink-3); margin: 0; }
+
+  section { padding-top: 44px; }
+  h2 {
+    display: flex; align-items: baseline; gap: 10px;
+    font-size: 22px; line-height: 1.35; margin: 0 0 14px; letter-spacing: -.01em;
+  }
+  h2 .no {
+    flex: none; font: 700 13px/1 var(--mono); color: var(--accent-ink); background: var(--accent);
+    border-radius: 6px; padding: 5px 7px; transform: translateY(-2px);
+  }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  .sub { color: var(--ink-2); }
+
+  /* 흐름 3단계 */
+  .flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 20px; }
+  .flow > div {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 14px 12px; position: relative;
+  }
+  .flow .step { font: 700 12px/1 var(--mono); color: var(--accent); margin-bottom: 8px; }
+  .flow strong { display: block; font-size: 15px; margin-bottom: 4px; }
+  .flow code { font-size: 12.5px; color: var(--ink-2); }
+  .flow p { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+
+  /* 표 */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); margin: 10px 0 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12.5px; font-weight: 700; color: var(--ink-3); background: var(--surface-2); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.nowrap, th.nowrap { white-space: nowrap; }
+  td code { font-size: 13px; }
+
+  /* 인라인 코드와 복사 칩 */
+  :not(pre) > code {
+    font-size: .88em; background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 5px; white-space: nowrap;
+  }
+  td :not(pre) > code, .wrapcode { white-space: normal; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+    font: 13px/1.35 var(--mono); color: var(--ink); text-align: left;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 7px; cursor: pointer; vertical-align: baseline; white-space: nowrap;
+  }
+  .chip::after {
+    content: ""; flex: none; width: 11px; height: 11px; opacity: .55;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 1h8a2 2 0 0 1 2 2v8h-2V3H5V1zM3 5h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 1h8a2 2 0 0 1 2 2v8h-2V3H5V1zM3 5h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .chip.done { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .chip:focus-visible, .copy:focus-visible, .btn-ghost:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chip.url { white-space: normal; word-break: break-all; }
+
+  /* 요청 한 줄 */
+  .endpoint {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 10px 12px; margin: 10px 0 14px;
+  }
+  .method { font: 700 12px/1 var(--mono); color: var(--accent-ink); background: var(--accent); border-radius: 5px; padding: 5px 7px; }
+
+  /* 코드 블록 */
+  figure.code { margin: 10px 0 18px; border-radius: var(--radius); overflow: hidden; background: var(--code-bg); border: 1px solid var(--code-line); }
+  figure.code figcaption {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 7px 8px 7px 14px; border-bottom: 1px solid var(--code-line);
+    font: 600 12px/1 var(--sans); color: var(--code-mute);
+  }
+  .copy {
+    font: 700 12px/1 var(--sans); color: var(--code-ink); background: #ffffff14;
+    border: 1px solid #ffffff26; border-radius: 6px; padding: 7px 12px; cursor: pointer; white-space: nowrap;
+  }
+  .copy:hover { background: #ffffff26; }
+  .copy.done { background: var(--tok-str); color: #0b1a10; border-color: transparent; }
+  figure.code pre { margin: 0; padding: 14px 16px 16px; overflow-x: auto; }
+  figure.code code { font-size: 13.5px; line-height: 1.65; color: var(--code-ink); white-space: pre; tab-size: 2; }
+  .t-com { color: var(--tok-com); }
+  .t-str { color: var(--tok-str); }
+  .t-key { color: var(--tok-key); }
+  .t-num { color: var(--tok-num); }
+
+  /* 알림 상자 */
+  .note, .warn { border-radius: var(--radius); padding: 12px 14px; margin: 12px 0 16px; font-size: 14.5px; }
+  .note { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent); }
+  .warn { background: var(--warn-soft); border: 1px solid var(--warn-line); }
+  .note > strong:first-child, .warn > strong:first-child { display: block; margin-bottom: 2px; }
+  .warn > strong:first-child { color: var(--warn); }
+  .note p:last-child, .warn p:last-child, .note ul:last-child, .warn ul:last-child { margin-bottom: 0; }
+
+  details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); margin: 12px 0 16px; }
+  details > summary { cursor: pointer; padding: 11px 14px; font-weight: 700; font-size: 15px; }
+  details > .in { padding: 0 14px 6px; }
+
+  /* 세트 선택기 */
+  .picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 8px; }
+  .picker label { font-size: 13px; font-weight: 700; color: var(--ink-2); }
+  select {
+    font: 14px/1.4 var(--sans); color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: 100%;
+  }
+  .setmeta { font-size: 14px; color: var(--ink-2); margin: 0 0 6px; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; margin-left: 6px; }
+  .badge.auto { background: var(--accent-soft); color: var(--accent); }
+  .badge.rfq { background: var(--surface-2); color: var(--ink-3); }
+  .vals { display: flex; flex-wrap: wrap; gap: 5px; }
+  .vals .chip { font-size: 12.5px; }
+  .vname { color: var(--ink-3); font-family: var(--sans); font-size: 12px; }
+  .free { color: var(--ink-3); font-size: 13.5px; }
+
+  .checklist { list-style: none; padding: 0; counter-reset: c; }
+  .checklist > li {
+    counter-increment: c; position: relative; padding: 10px 12px 10px 44px; margin: 8px 0;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .checklist > li::before {
+    content: counter(c); position: absolute; left: 12px; top: 11px;
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+    font: 700 12px/22px var(--mono); text-align: center;
+  }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 12px);
+    background: var(--ink); color: var(--bg); font-size: 14px; font-weight: 600;
+    padding: 9px 16px; border-radius: 999px; opacity: 0; pointer-events: none;
+    transition: opacity .15s, transform .15s; z-index: 30;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+
+  @media (max-width: 880px) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    nav.toc { position: static; padding-top: 20px; }
+    nav.toc ol { display: flex; gap: 6px; overflow-x: auto; border-left: 0; padding-bottom: 4px; }
+    nav.toc a { white-space: nowrap; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; margin: 0; background: var(--surface); }
+    nav.toc a.on { border-color: var(--accent); }
+    header.hero { padding-top: 24px; }
+    .flow { grid-template-columns: minmax(0, 1fr); }
+    .table-wrap table { min-width: 540px; }
+    .basebar .hint { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } #toast { transition: none; } }
+  @media print {
+    .basebar, nav.toc, .copy, #toast { display: none !important; }
+    .shell { display: block; }
+    figure.code, .table-wrap, details { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="basebar">
+  <div class="basebar-in">
+    <label for="base">플랫폼 주소</label>
+    <input id="base" type="url" value="https://new.samplepcb.co.kr" spellcheck="false" autocomplete="off">
+    <button type="button" class="btn-ghost" id="base-reset">기본값</button>
+    <span class="hint">바꾸면 아래의 모든 주소와 코드에 반영됩니다.</span>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="toc" aria-label="목차">
+    <p>목차</p>
+    <ol>
+      <li><a href="#overview">한눈에 보기</a></li>
+      <li><a href="#token">1단계 · 로그인 확인</a></li>
+      <li><a href="#submit">2단계 · 담기 요청</a></li>
+      <li><a href="#response">응답과 오류</a></li>
+      <li><a href="#spec">사양(spec) 키와 값</a></li>
+      <li><a href="#check">점검 순서</a></li>
+      <li><a href="#trouble">문제 해결</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <p class="eyebrow">샘플PCB 플랫폼 연동</p>
+      <h1>거버 뷰어에서 플랫폼으로 담기</h1>
+      <p class="lede">거버 뷰어에서 [주문하기]·[견적요청]을 누르면 거버 파일과 사양을 플랫폼으로 보내 장바구니나 견적관리에 담습니다. 브라우저에서 호출 두 번이면 됩니다.</p>
+      <p class="meta">2026-10-11 기준 · 회색 칩은 누르면 복사되고, 코드 상자는 오른쪽 위 [복사] 버튼으로 복사합니다.</p>
+    </header>
+
+    <!-- ───────────── 한눈에 보기 ───────────── -->
+    <section id="overview">
+      <h2><span class="no">0</span>한눈에 보기</h2>
+      <div class="flow">
+        <div>
+          <div class="step">STEP 1</div>
+          <strong>로그인 확인</strong>
+          <code>GET /spcb/api/me</code>
+          <p>로그인돼 있으면 10분짜리 토큰을 받습니다. 아니면 401입니다.</p>
+        </div>
+        <div>
+          <div class="step">STEP 2</div>
+          <strong>담기 요청</strong>
+          <code>POST /api/pcb-projects</code>
+          <p>토큰과 함께 거버 zip · 썸네일 · 사양 JSON을 한 번에 보냅니다.</p>
+        </div>
+        <div>
+          <div class="step">STEP 3</div>
+          <strong>이동</strong>
+          <code>redirectUrl</code>
+          <p>응답에 담긴 주소(장바구니 또는 견적관리)로 이동합니다.</p>
+        </div>
+      </div>
+
+      <h3>동작 조건</h3>
+      <ul>
+        <li><strong>사용자의 브라우저에서 직접 호출합니다.</strong> 서버에서 대신 호출하면 로그인 쿠키가 없어 동작하지 않습니다.</li>
+        <li><strong>거버 뷰어 주소가 <code>https://○○.samplepcb.co.kr</code> 형태여야 합니다.</strong> 이 조건이면 플랫폼 로그인 쿠키가 자동으로 실립니다. 거버 뷰어가 어느 서버에 올라가 있는지는 상관없습니다.</li>
+        <li><strong>사용자는 플랫폼에 로그인돼 있어야 합니다.</strong> 플랫폼은 위쪽 입력칸의 주소이고, 예전 사이트(<code>www.samplepcb.co.kr</code>) 로그인과는 별개입니다.</li>
+        <li><strong>가격과 납기는 보내지 않습니다.</strong> 플랫폼이 사양으로 다시 계산하고, 그 값이 주문 금액이 됩니다.</li>
+      </ul>
+    </section>
+
+    <!-- ───────────── 1단계 ───────────── -->
+    <section id="token">
+      <h2><span class="no">1</span>로그인 확인과 토큰 받기</h2>
+      <div class="endpoint">
+        <span class="method">GET</span>
+        <button type="button" class="chip url" data-base>https://new.samplepcb.co.kr/spcb/api/me</button>
+      </div>
+      <p>옵션 <button type="button" class="chip">credentials: 'include'</button> 를 반드시 붙입니다. 다른 헤더는 필요 없습니다.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>상태</th><th>뜻</th><th>할 일</th></tr></thead>
+          <tbody>
+            <tr><td class="nowrap"><code>200</code></td><td>로그인됨</td><td>응답의 <code>token</code>을 2단계에 씁니다.</td></tr>
+            <tr><td class="nowrap"><code>401</code></td><td>로그인 안 됨</td><td>"로그인 후 이용해 주세요" 안내를 띄우고 멈춥니다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <figure class="code" data-lang="json">
+        <figcaption><span>200 응답</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code>{
+  "token": "eyJhbGciOiJIUzI1NiIs…",
+  "member": { "mbId": "hong", "mbNick": "홍길동", "level": 2, "isAdmin": false }
+}</code></pre>
+      </figure>
+
+      <figure class="code" data-lang="js">
+        <figcaption><span>JavaScript</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code data-base>const BASE = 'https://new.samplepcb.co.kr';
+
+// 로그인돼 있으면 토큰을, 아니면 null 을 돌려줍니다.
+async function getToken() {
+  const res = await fetch(BASE + '/spcb/api/me', { credentials: 'include' });
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error('로그인 확인 실패: HTTP ' + res.status);
+  const { token } = await res.json();
+  return token;
+}</code></pre>
+      </figure>
+
+      <div class="note">
+        <strong>토큰은 저장하지 않습니다</strong>
+        유효 시간이 10분입니다. localStorage나 전역 변수에 두지 말고, 제출할 때마다 새로 받으세요.
+      </div>
+    </section>
+
+    <!-- ───────────── 2단계 ───────────── -->
+    <section id="submit">
+      <h2><span class="no">2</span>담기 요청</h2>
+      <div class="endpoint">
+        <span class="method">POST</span>
+        <button type="button" class="chip url" data-base>https://new.samplepcb.co.kr/api/pcb-projects</button>
+      </div>
+
+      <h3>헤더</h3>
+      <ul>
+        <li><button type="button" class="chip">Authorization: Bearer &lt;토큰&gt;</button> 하나만 넣습니다.</li>
+        <li><code>Content-Type</code>은 직접 넣지 않습니다. <code>FormData</code>를 본문으로 주면 브라우저가 알아서 채웁니다.</li>
+        <li>이 호출에는 <code>credentials</code> 옵션이 필요 없습니다.</li>
+      </ul>
+
+      <h3>본문 — multipart/form-data, 파트 3개</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>이름</th><th>종류</th><th>필수</th><th>내용</th></tr></thead>
+          <tbody>
+            <tr><td><button type="button" class="chip">gerber</button></td><td class="nowrap">파일</td><td class="nowrap">필수</td><td>거버 zip. 여기에 붙인 파일명이 그대로 보관됩니다.</td></tr>
+            <tr><td><button type="button" class="chip">thumbnail</button></td><td class="nowrap">파일</td><td class="nowrap">선택</td><td>보드 미리보기 PNG. 장바구니와 견적 목록의 그림으로 쓰입니다.</td></tr>
+            <tr><td><button type="button" class="chip">payload</button></td><td class="nowrap">텍스트</td><td class="nowrap">필수</td><td>아래 JSON을 <code>JSON.stringify</code> 한 문자열.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="sub">요청 전체 크기는 100MB까지입니다.</p>
+
+      <figure class="code" data-lang="js">
+        <figcaption><span>JavaScript</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code>const form = new FormData();
+form.append('gerber', gerberZipBlob, 'my-board.zip');        // 필수
+form.append('thumbnail', thumbnailPngBlob, 'thumbnail.png'); // 선택
+form.append('payload', JSON.stringify(payload));             // 필수
+
+const res = await fetch(BASE + '/api/pcb-projects', {
+  method: 'POST',
+  headers: { Authorization: 'Bearer ' + token }, // Content-Type 은 넣지 않습니다
+  body: form,
+});</code></pre>
+      </figure>
+
+      <h3>payload 필드</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>필드</th><th>형식</th><th>내용</th></tr></thead>
+          <tbody>
+            <tr><td><button type="button" class="chip">flow</button></td><td class="nowrap"><code>"order"</code> · <code>"rfq"</code></td><td>[주문하기]는 <code>order</code>, [견적요청]은 <code>rfq</code>.</td></tr>
+            <tr><td><button type="button" class="chip">projectName</button></td><td class="nowrap">문자열, 1자 이상</td><td>보통 올린 파일명. 191자를 넘으면 뒤가 잘립니다.</td></tr>
+            <tr><td><button type="button" class="chip">category</button></td><td class="nowrap">문자열</td><td>제품군. <code>standard</code> · <code>advance</code> · <code>flexible</code> · <code>metalMask</code></td></tr>
+            <tr><td><button type="button" class="chip">orderCategory</button></td><td class="nowrap"><code>"sample"</code> · <code>"mass"</code></td><td>샘플 / 양산.</td></tr>
+            <tr><td><button type="button" class="chip">qty</button></td><td class="nowrap">양의 정수</td><td>수량. 숫자여야 합니다. 문자열 <code>"5"</code>는 오류입니다.</td></tr>
+            <tr><td><button type="button" class="chip">message</button></td><td class="nowrap">문자열</td><td>요청사항. 없으면 빈 문자열 <code>""</code>. 필드를 빼면 오류입니다.</td></tr>
+            <tr><td><button type="button" class="chip">spec</button></td><td class="nowrap">객체</td><td>사양. 키와 값은 <a href="#spec">사양(spec) 키와 값</a> 참고.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="warn">
+        <strong>이름이 엇갈립니다</strong>
+        예전 거버 코드의 <code>menu</code>(제품군)가 여기서는 <code>category</code>이고, 예전 코드의 <code>category</code>(sample/mass)가 여기서는 <code>orderCategory</code>입니다.
+      </div>
+
+      <h3>예시 — Standard 샘플 주문</h3>
+      <p class="sub">실제로 자동 견적이 계산되어 장바구니에 담긴 요청입니다.</p>
+      <figure class="code" data-lang="json">
+        <figcaption><span>payload</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code>{
+  "flow": "order",
+  "projectName": "my-board.zip",
+  "category": "standard",
+  "orderCategory": "sample",
+  "qty": 5,
+  "message": "",
+  "spec": {
+    "kindPcb": "FR-4",
+    "material": "TG130-140",
+    "layers": "2",
+    "width": "68.580",
+    "length": "53.340",
+    "panel": "No",
+    "edgeRail": "no",
+    "pcbThickness": "1.6",
+    "solderMask": "green",
+    "silkscreen": "white",
+    "surfaceFinish": "hasl",
+    "copperWeights": "1oz",
+    "minTraceSpacing": "6/6mil",
+    "minHole": "0.3mm",
+    "goldFingers": "no",
+    "differentDesign": "1",
+    "viaProcess": "Tenting",
+    "halfHole": "no",
+    "etest": "Flying",
+    "cutting": "Single"
+  }
+}</code></pre>
+      </figure>
+
+      <h3>예시 — Metal Mask 주문</h3>
+      <figure class="code" data-lang="json">
+        <figcaption><span>payload</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code>{
+  "flow": "order",
+  "projectName": "my-board.zip",
+  "category": "metalMask",
+  "orderCategory": "sample",
+  "qty": 1,
+  "message": "",
+  "spec": {
+    "framework": "nonFramework",
+    "size": "300x400",
+    "stencilSide": "Top Side",
+    "stThickness": "0.12"
+  }
+}</code></pre>
+      </figure>
+    </section>
+
+    <!-- ───────────── 응답 ───────────── -->
+    <section id="response">
+      <h2><span class="no">3</span>응답과 오류</h2>
+      <p>HTTP 상태가 200이고 <code>result</code>가 <code>true</code>일 때만 성공입니다. 성공하면 <code>data.redirectUrl</code>로 이동합니다.</p>
+
+      <figure class="code" data-lang="json">
+        <figcaption><span>성공 응답</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code data-base>{
+  "result": true,
+  "data": {
+    "projectId": 21744,
+    "quoteId": "997e1315-…",
+    "quoteStatus": "priced",
+    "price": 38500,
+    "eta": "2026.10.19",
+    "cartAdded": true,
+    "redirectUrl": "https://new.samplepcb.co.kr/shop/cart.php"
+  }
+}</code></pre>
+      </figure>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>필드</th><th>형식</th><th>내용</th></tr></thead>
+          <tbody>
+            <tr><td><code>projectId</code></td><td class="nowrap">숫자</td><td>플랫폼에 저장된 견적 번호.</td></tr>
+            <tr><td><code>quoteId</code></td><td class="nowrap">문자열</td><td>견적 계산 기록의 ID.</td></tr>
+            <tr><td><code>quoteStatus</code></td><td class="nowrap"><code>"priced"</code> · <code>"rfq"</code></td><td><code>priced</code>는 자동 견적 완료, <code>rfq</code>는 담당자가 견적을 내야 하는 건.</td></tr>
+            <tr><td><code>price</code></td><td class="nowrap">숫자 · <code>null</code></td><td>플랫폼이 계산한 금액(원). <code>rfq</code>이면 <code>null</code>.</td></tr>
+            <tr><td><code>eta</code></td><td class="nowrap">문자열</td><td>예상 납기일 <code>YYYY.MM.DD</code>. 없으면 <code>""</code>.</td></tr>
+            <tr><td><code>cartAdded</code></td><td class="nowrap">불리언</td><td>장바구니에 담겼는지.</td></tr>
+            <tr><td><code>redirectUrl</code></td><td class="nowrap">문자열</td><td>이동할 주소. 주소를 직접 만들지 말고 이 값을 쓰세요.</td></tr>
+            <tr><td><code>unknownSpecKeys</code></td><td class="nowrap">문자열 배열, 선택</td><td>플랫폼이 모르는 spec 키가 있을 때만 옵니다. 키 이름을 확인해야 한다는 신호입니다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>어디로 이동하나</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>경우</th><th><code>cartAdded</code></th><th>이동하는 곳</th></tr></thead>
+          <tbody>
+            <tr><td><code>flow</code>가 <code>order</code>이고 자동 견적이 된 경우</td><td class="nowrap"><code>true</code></td><td>장바구니 <code>/shop/cart.php</code></td></tr>
+            <tr><td>그 밖 — <code>flow</code>가 <code>rfq</code>이거나 자동 견적이 안 되는 사양</td><td class="nowrap"><code>false</code></td><td>견적관리 <code>/shop/quotes</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>자동 견적은 <code>category</code>가 <code>standard</code> 또는 <code>metalMask</code>이고 <code>orderCategory</code>가 <code>sample</code>일 때만 됩니다. <code>advance</code> · <code>flexible</code> · 양산은 항상 <code>rfq</code>입니다.</p>
+
+      <h3>오류</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>상태</th><th>본문</th><th>원인과 할 일</th></tr></thead>
+          <tbody>
+            <tr><td class="nowrap"><code>401</code></td><td><code>{ "message": "로그인이 필요합니다", … }</code></td><td>토큰이 없거나 만료됐습니다. 1단계를 다시 해서 한 번만 재시도합니다.</td></tr>
+            <tr><td class="nowrap"><code>400</code></td><td><code>{ "message": "gerber 파일 파트가 없습니다", … }</code></td><td>본문이 multipart가 아니거나, <code>gerber</code>·<code>payload</code> 파트가 없거나, <code>payload</code>가 JSON이 아닙니다. <code>message</code>에 이유가 있습니다.</td></tr>
+            <tr><td class="nowrap"><code>400</code></td><td><code>{ "result": false, "error": "PAYLOAD_SCHEMA_MISMATCH", "issues": […] }</code></td><td><code>payload</code> 필드의 형식이 틀렸습니다. <code>issues</code>에 어느 필드인지 나옵니다.</td></tr>
+            <tr><td class="nowrap"><code>413</code></td><td>—</td><td>파일이 100MB를 넘습니다.</td></tr>
+            <tr><td class="nowrap"><code>502</code></td><td><code>{ "result": false, "error": "FILE_UPLOAD_FAILED" }</code></td><td>파일 보관에 실패했습니다. 저장된 것이 없으니 잠시 뒤 다시 보내면 됩니다.</td></tr>
+            <tr><td class="nowrap"><code>500</code></td><td><code>{ "message": "…", … }</code></td><td>플랫폼 쪽 오류입니다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>구현할 때 지킬 순서</h3>
+      <ol>
+        <li>버튼을 누를 때마다 로그인 확인을 호출해 토큰을 새로 받습니다. 401이면 로그인 안내를 띄우고 끝냅니다.</li>
+        <li>거버 zip · 썸네일 · payload로 <code>FormData</code>를 만들어 담기 요청을 보냅니다.</li>
+        <li>담기 요청이 401이면 토큰을 새로 받아 같은 본문으로 한 번만 다시 보냅니다. 그래도 401이면 실패로 처리합니다.</li>
+        <li>HTTP 200이고 <code>result</code>가 <code>true</code>이면 <code>data.redirectUrl</code>로 이동합니다.</li>
+        <li>그 밖의 응답과 네트워크 오류(<code>fetch</code> 예외)는 실패로 보고, 사용자에게 알린 뒤 버튼과 로딩 표시를 원래대로 돌려놓습니다.</li>
+      </ol>
+    </section>
+
+    <!-- ───────────── 사양 ───────────── -->
+    <section id="spec">
+      <h2><span class="no">4</span>사양(spec) 키와 값</h2>
+
+      <h3>규칙</h3>
+      <ul>
+        <li><strong>값은 문자열로 보냅니다.</strong> 숫자도 받지만 예전 거버와 맞추려면 문자열이 안전합니다.</li>
+        <li><strong>선택 항목은 저장값을 대소문자까지 그대로 보냅니다.</strong> 화면 표시명(녹색)이 아니라 저장값(<code>green</code>)입니다.</li>
+        <li><strong>수량은 spec에 넣지 않습니다.</strong> 위쪽 <code>qty</code> 필드로 보냅니다.</li>
+        <li><strong>화면에서 숨긴 항목은 빼도 됩니다.</strong> 모르는 키를 보내도 거절하지 않고 저장하되, 응답의 <code>unknownSpecKeys</code>로 알려 줍니다.</li>
+        <li><strong>가로·세로는 mm입니다.</strong> 예: <code>"68.580"</code></li>
+      </ul>
+
+      <div class="warn">
+        <strong>자동 견적이 조용히 빠지는 두 가지</strong>
+        <ul>
+          <li><code>differentDesign</code>(파일 개수)이 비어 있거나 0이면 Standard 자동 견적이 되지 않고 견적요청으로 넘어갑니다. 최소 <code>"1"</code>을 보내세요.</li>
+          <li><code>panel</code>은 배열을 안 하면 <code>"no"</code>, 하면 <code>"2x3"</code>처럼 가로x세로로 보냅니다. <code>"yes"</code>만 보내면 자동 견적이 되지 않습니다.</li>
+        </ul>
+      </div>
+
+      <h3>키 목록</h3>
+      <p class="sub">"예전 이름"은 예전 거버가 쓰던 전송 이름이 다를 때만 적었습니다. 예전 이름으로 사양을 모으고 있다면 이름만 이 표대로 바꾸고 값은 그대로 보내면 됩니다. 예전의 <code>qty</code>는 spec에서 빼서 위쪽 <code>qty</code> 필드에 정수로 넣습니다.</p>
+      <div class="table-wrap">
+        <table id="keys">
+          <thead><tr><th>키</th><th>뜻</th><th>예전 이름</th><th>값 예시</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <noscript><p class="sub">키 목록과 아래 유형별 표는 자바스크립트가 켜져 있어야 보입니다.</p></noscript>
+
+      <h3>유형별 항목과 선택지</h3>
+      <p class="sub">예전 거버 뷰어 기준으로 플랫폼이 가지고 있는 사전입니다. 새 뷰어에서 항목이나 선택지를 바꿨다면 알려 주세요.</p>
+      <div class="picker">
+        <label for="set">유형</label>
+        <select id="set"></select>
+      </div>
+      <p class="setmeta" id="setmeta"></p>
+      <div class="table-wrap">
+        <table id="setfields">
+          <thead><tr><th>키</th><th>화면 이름</th><th>보낼 값</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h3>자동 견적 계산에 쓰이는 값</h3>
+      <p>아래 값은 가격표와 글자 그대로 비교합니다. 표에 없는 값을 보내면 오류 없이 그 항목의 추가 금액만 빠지므로, 화면에 보여 준 가격과 주문 금액이 달라집니다.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Standard 키</th><th>인식하는 값</th></tr></thead>
+          <tbody>
+            <tr><td><code>layers</code></td><td>층수 숫자. <code>1</code> <code>2</code> <code>4</code> <code>6</code></td></tr>
+            <tr><td><code>width</code> · <code>length</code></td><td>mm 숫자</td></tr>
+            <tr><td><code>panel</code></td><td><code>no</code> 또는 <code>가로x세로</code></td></tr>
+            <tr><td><code>edgeRail</code></td><td><code>no</code> 또는 그 밖의 값(추가 금액)</td></tr>
+            <tr><td><code>surfaceFinish</code></td><td><code>hasl</code> <code>haslLf</code> <code>osp</code> <code>enig</code></td></tr>
+            <tr><td><code>pcbThickness</code></td><td><code>0.6</code> <code>0.8</code> <code>1.0</code> <code>1.2</code> <code>1.6</code> <code>2.0</code></td></tr>
+            <tr><td><code>copperWeights</code></td><td><code>0.5oz</code> <code>1oz</code> <code>2oz</code></td></tr>
+            <tr><td><code>finishedCopperAdvance</code></td><td>4층 이상에서만. <code>0.5oz</code> <code>1oz</code> <code>1.5oz</code> <code>2oz</code></td></tr>
+            <tr><td><code>solderMask</code></td><td><code>green</code> <code>red</code> <code>yellow</code> <code>blue</code> <code>black</code> <code>white</code></td></tr>
+            <tr><td><code>minTraceSpacing</code></td><td><code>4/4mil</code> <code>5/5mil</code> <code>6/6mil</code></td></tr>
+            <tr><td><code>minHole</code></td><td><code>0.2mm</code> <code>0.25mm</code> <code>0.3mm</code></td></tr>
+            <tr><td><code>goldFingers</code> · <code>halfHole</code></td><td><code>no</code> <code>yes</code></td></tr>
+            <tr><td><code>impedance</code></td><td><code>none</code> <code>50</code> <code>90</code> <code>100</code></td></tr>
+            <tr><td><code>cutting</code></td><td><code>Single</code> <code>V-Cut</code> <code>Tap Route</code> <code>Both</code></td></tr>
+            <tr><td><code>differentDesign</code></td><td>1 이상의 정수</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Metal Mask 키</th><th>인식하는 값</th></tr></thead>
+          <tbody>
+            <tr><td><code>framework</code></td><td><code>framework</code> <code>nonFramework</code></td></tr>
+            <tr><td><code>size</code></td><td>프레임 있음: <code>320x320</code> <code>370x470</code> <code>400x320</code> <code>450x320</code> <code>650x550</code> <code>736x736</code> <code>800x736</code> — 이 밖의 크기는 자동 견적이 되지 않습니다.<br>프레임 없음: 어떤 크기든 됩니다.</td></tr>
+            <tr><td><code>stencilSide</code></td><td><code>Top Side</code> <code>Bottom Side</code> <code>Both Side</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ───────────── 점검 ───────────── -->
+    <section id="check">
+      <h2><span class="no">5</span>점검 순서</h2>
+      <ol class="checklist">
+        <li>
+          <strong>로그인 확인이 되는지</strong> — 플랫폼에 로그인한 뒤, 거버 뷰어 페이지의 개발자 도구 콘솔에서 아래를 실행합니다. <code>200</code>이 찍히면 됩니다.
+          <figure class="code" data-lang="js">
+            <figcaption><span>콘솔</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code data-base>fetch('https://new.samplepcb.co.kr/spcb/api/me', { credentials: 'include' })
+  .then((r) => console.log('로그인 확인:', r.status)); // 200 로그인됨 · 401 로그인 안 됨</code></pre>
+          </figure>
+        </li>
+        <li><strong>로그아웃 상태에서 제출</strong> — 401을 받고 로그인 안내가 뜨는지 봅니다.</li>
+        <li><strong>Standard 샘플 [주문하기]</strong> — 응답이 <code>cartAdded: true</code>이고, 이동한 장바구니에 "Standard PCB · 파일명" 행이 가격과 함께 보이는지 봅니다.</li>
+        <li><strong>[견적요청]</strong> — 응답이 <code>quoteStatus: "rfq"</code>이고 견적관리로 이동하는지 봅니다.</li>
+        <li><strong>제품군마다 한 번씩 제출</strong> — 응답에 <code>unknownSpecKeys</code>가 없는지, 화면에 보여 준 가격과 응답의 <code>price</code>가 같은지 봅니다.</li>
+      </ol>
+      <div class="warn">
+        <strong>시험 제출도 실제로 저장됩니다</strong>
+        시험이 끝나면 플랫폼의 <button type="button" class="chip url" data-base>https://new.samplepcb.co.kr/shop/quotes</button> 와 장바구니에서 지워 주세요.
+      </div>
+    </section>
+
+    <!-- ───────────── 문제 해결 ───────────── -->
+    <section id="trouble">
+      <h2><span class="no">6</span>문제 해결</h2>
+
+      <h3>로그인했는데 로그인 확인이 401로 나옵니다</h3>
+      <p>예전 사이트(<code>www.samplepcb.co.kr</code>)의 로그인 쿠키가 플랫폼 쿠키와 이름이 같아서 겹친 경우입니다. 두 사이트를 같은 브라우저에서 쓰면 생깁니다.</p>
+      <ul>
+        <li>시크릿 창을 열어 플랫폼에만 로그인하고 시험하거나,</li>
+        <li>콘솔에서 아래 한 줄로 겹친 쿠키를 지운 뒤 새로고침합니다. 예전 사이트에서는 로그아웃됩니다.</li>
+      </ul>
+      <figure class="code" data-lang="js">
+        <figcaption><span>콘솔</span><button type="button" class="copy">복사</button></figcaption>
+<pre><code>document.cookie = 'PHPSESSID=; Max-Age=0; path=/; domain=.samplepcb.co.kr';</code></pre>
+      </figure>
+
+      <h3>콘솔에 CORS 오류가 납니다</h3>
+      <ul>
+        <li>거버 뷰어 주소가 <code>https://</code>로 시작하고 <code>.samplepcb.co.kr</code>로 끝나는지 확인합니다. <code>http://</code>나 <code>localhost</code>에서는 로그인 확인이 막힙니다.</li>
+        <li>로그인 확인 호출에 <code>credentials: 'include'</code>가 있는지 확인합니다.</li>
+        <li>100MB를 넘는 파일은 서버가 받기 전에 끊어서, 오류 응답이 아니라 네트워크 오류나 CORS 오류처럼 보일 수 있습니다.</li>
+      </ul>
+
+      <h3>400 PAYLOAD_SCHEMA_MISMATCH</h3>
+      <ul>
+        <li><code>qty</code>를 문자열로 보냈거나 0 이하입니다.</li>
+        <li><code>message</code> 필드가 빠졌습니다. 요청사항이 없어도 <code>""</code>를 넣어야 합니다.</li>
+        <li><code>orderCategory</code>가 <code>sample</code>·<code>mass</code>가 아니거나, <code>projectName</code>이 빈 문자열입니다.</li>
+        <li>spec 값에 객체·배열·<code>null</code>·불리언이 들어 있습니다. 문자열이나 숫자만 됩니다.</li>
+      </ul>
+
+      <h3>400 "multipart/form-data 요청이어야 합니다"</h3>
+      <p><code>Content-Type</code> 헤더를 직접 넣었을 가능성이 큽니다. 헤더에서 빼고 <code>FormData</code>만 본문으로 넘기세요.</p>
+
+      <h3>주문하기인데 가격이 <code>null</code>로 옵니다</h3>
+      <ul>
+        <li><code>category</code>가 <code>standard</code>·<code>metalMask</code>가 아니거나 <code>orderCategory</code>가 <code>mass</code>이면 정상입니다.</li>
+        <li>Standard라면 <code>differentDesign</code>과 <code>panel</code> 값을 확인합니다.</li>
+        <li>Metal Mask라면 프레임이 있을 때 <code>size</code>가 위 표의 크기인지 확인합니다.</li>
+      </ul>
+
+      <h3>성공했는데 장바구니에 안 보입니다</h3>
+      <p>응답의 <code>cartAdded</code>가 <code>false</code>이면 견적관리에 들어가 있습니다. <code>true</code>인데도 안 보이면, 이동한 브라우저가 제출할 때와 같은 계정으로 플랫폼에 로그인돼 있는지 확인합니다.</p>
+
+      <footer>
+        이 문서의 주소·응답 형식은 2026-10-11 플랫폼 코드 기준입니다.
+      </footer>
+    </section>
+  </main>
+</div>
+
+<div id="toast" role="status" aria-live="polite">복사했습니다</div>
+
+<script type="application/json" id="spec-sets">[{"set":"sampleStandard","category":"standard","orderCategory":"sample","kindPcb":"FR-4","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"]]},{"key":"material","label":"PCB재료","options":[["TG130","TG130-140"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","검정"]]},{"key":"silkscreen","label":"실크색상","options":[["white","흰색"],["Black","검정"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"]]},{"key":"copperWeights","label":"동박두께","options":[["0.5oz","0.5"],["1oz","1"],["2oz","2"]]},{"key":"finishedCopperAdvance","label":"내부동박두께","options":[["0.5oz","0.5OZ"],["1oz","1OZ"],["2oz","2OZ"]]},{"key":"minTraceSpacing","label":"패턴폭/간격","options":[["5/5mil","5/5 mil"],["6/6mil","6/6 mil"],["8/8mil","8/8 mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"파일갯수","options":[],"note":"파일 개수 (1 이상)"},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"]]},{"key":"halfHole","label":"반홀가공","options":[["yes","Yes"],["no","No"]]},{"key":"etest","label":"E-Test","options":[["Flying","Flying"]]},{"key":"cutting","label":"컷팅","options":[["Single","Single"],["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"massStandard","category":"standard","orderCategory":"mass","kindPcb":"FR-4","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"]]},{"key":"material","label":"PCB재료","options":[["TG130","TG130-140"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"mqty","label":"원판수량","options":[],"note":"숫자"},{"key":"panel","label":"배열","options":[["no","No"],["고객사제공","고객사제공"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"],["10mm","10mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","검정"]]},{"key":"silkscreen","label":"실크색상","options":[["white","흰색"],["black","검정"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"]]},{"key":"copperWeights","label":"동박두께","options":[["0.5oz","0.5"],["1oz","1"],["2oz","2"]]},{"key":"finishedCopperAdvance","label":"내부동박두께","options":[["0.5oz","0.5OZ"],["1oz","1OZ"],["2oz","2OZ"]]},{"key":"minTraceSpacing","label":"패턴폭/간격","options":[["5/5mil","5/5 mil"],["6/6mil","6/6 mil"],["8/8mil","8/8 mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"파일갯수","options":[],"note":"파일 개수 (1 이상)"},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"],["Open","Open"]]},{"key":"halfHole","label":"반홀가공","options":[["yes","Yes"],["no","No"]]},{"key":"etest","label":"E-Test","options":[["Flying","Flying"]]},{"key":"cutting","label":"컷팅","options":[["Single","Single"],["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"sampleAdvanceFR4","category":"advance","orderCategory":"sample","kindPcb":"FR-4","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"],["METAL","METAL"],["ROGERS","ROGERS"]]},{"key":"material","label":"PCB재료","options":[["TG150","TG150-160"],["TG170","TG170-180"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"],["10mm","10mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.2","0.2"],["0.4","0.4"],["0.6","0.6"],["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"],["2.4","2.4"],["2.8","2.8"],["3.2","3.2"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","유광검정"],["matteBlack","무광검정"]]},{"key":"silkscreen","label":"실크색상","options":[["white","흰색"],["black","검정"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"],["hardGold","Hard Gold"],["ag","Ag"]]},{"key":"copperWeights","label":"동박두께","options":[["1/3oz","1/3"],["1/2oz","1/2"],["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"],["~12oz","~12"]]},{"key":"finishedCopperAdvance","label":"내부동박두께","options":[["1/3oz","1/3"],["1/2oz","1/2"],["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"],["~12oz","~12"]]},{"key":"minTraceSpacing","label":"최소트랙간격","options":[["3/3mil","3/3mil"],["4/4mil","4/4mil"],["5/5mil","5/5mil"],["6/6mil","6/6mil"],["8/8mil","8/8mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.1mm","0.1mm"],["0.15mm","0.15mm"],["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"파일갯수","options":[],"note":"파일 개수 (1 이상)"},{"key":"impedance","label":"임피던스","options":[["none","No"],["yes","Yes"]]},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"],["Plugged vias","Plugged"],["Not Covered","Not Covered"],["Buried","Buried"],["Blind","Blind"]]},{"key":"etest","label":"E-Test","options":[["프로브","프로브"],["BBT","BBT"],["No","No"]]},{"key":"cutting","label":"컷팅","options":[["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"massAdvanceFR4","category":"advance","orderCategory":"mass","kindPcb":"FR-4","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"],["METAL","METAL"],["ROGERS","ROGERS"]]},{"key":"material","label":"PCB재료","options":[["TG150","TG150-160"],["TG170","TG170-180"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"mqty","label":"원판수량","options":[],"note":"숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"],["10mm","10mm"],["고객데이터","고객데이터"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.2","0.2"],["0.4","0.4"],["0.6","0.6"],["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"],["2.4","2.4"],["2.8","2.8"],["3.2","3.2"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","유광검정"],["matteBlack","무광검정"]]},{"key":"silkscreen","label":"실크색상","options":[["white","흰색"],["black","검정"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"],["hardGold","Hard Gold"],["ag","Ag"]]},{"key":"copperWeights","label":"동박두께","options":[["1/3oz","1/3"],["1/2oz","1/2"],["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"],["~12oz","~12"]]},{"key":"finishedCopperAdvance","label":"내부동박두께","options":[["1/3oz","1/3"],["1/2oz","1/2"],["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"],["~12oz","~12"]]},{"key":"minTraceSpacing","label":"최소트랙간격","options":[["3/3mil","3/3mil"],["4/4mil","4/4mil"],["5/5mil","5/5mil"],["6/6mil","6/6mil"],["8/8mil","8/8mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.15mm","0.15mm"],["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"],["none","none"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"파일갯수","options":[],"note":"파일 개수 (1 이상)"},{"key":"impedance","label":"임피던스","options":[["none","No"],["yes","Yes"]]},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"],["Plugged vias","Plugged"],["Not Covered","Not Covered"],["Buried","Buried"],["Blind","Blind"]]},{"key":"etest","label":"E-Test","options":[["프로브","프로브"],["BBT","BBT"],["No","No"]]},{"key":"cutting","label":"컷팅","options":[["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"sampleAdvanceMetal","category":"advance","orderCategory":"sample","kindPcb":"METAL","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"],["METAL","METAL"],["ROGERS","ROGERS"]]},{"key":"material","label":"PCB재료","options":[["알루미늄(1W)","알루미늄(1W)"],["알루미늄(2W)","알루미늄(2W)"],["Steel","Steel"],["Bronze","Bronze"]]},{"key":"wvoltage","label":"내전압","options":[["500V","500V"],["1000V","1000V"],["1500V","1500V"],["3000V","3000V"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"],["10mm","10mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.2","0.2"],["0.4","0.4"],["0.6","0.6"],["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"],["2.4","2.4"],["2.8","2.8"],["3.2","3.2"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","검정"]]},{"key":"silkscreen","label":"실크색상","options":[["black","검정"],["white","흰색"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"],["hardGold","Hard Gold"],["ag","Ag"]]},{"key":"copperWeights","label":"동박두께","options":[["1oz","1"],["2oz","2"]]},{"key":"minTraceSpacing","label":"최소트랙간격","options":[["4/4mil","4/4mil"],["5/5mil","5/5mil"],["6/6mil","6/6mil"],["8/8mil","8/8mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"],["none","none"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"여러디자인","options":[["yes","Yes"],["no","No"]]},{"key":"impedance","label":"임피던스","options":[["none","No"],["yes","Yes"]]},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"],["Plugged vias","Plugged"],["Not Covered","Not Covered"]]},{"key":"etest","label":"E-Test","options":[["프로브","프로브"],["BBT","BBT"]]},{"key":"cutting","label":"컷팅","options":[["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"massAdvanceMetal","category":"advance","orderCategory":"mass","kindPcb":"METAL","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"],["METAL","METAL"],["ROGERS","ROGERS"]]},{"key":"material","label":"PCB재료","options":[["알루미늄(1W)","알루미늄(1W)"],["알루미늄(2W)","알루미늄(2W)"],["Steel","Steel"],["Bronze","Bronze"]]},{"key":"wvoltage","label":"내전압","options":[["500V","500V"],["1000V","1000V"],["1500V","1500V"],["3000V","3000V"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"mqty","label":"원판수량","options":[],"note":"숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"],["10mm","10mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.2","0.2"],["0.4","0.4"],["0.6","0.6"],["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"],["2.4","2.4"],["2.8","2.8"],["3.2","3.2"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","검정"]]},{"key":"silkscreen","label":"실크색상","options":[["black","검정"],["white","흰색"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"],["hardGold","Hard Gold"],["ag","Ag"]]},{"key":"copperWeights","label":"동박두께","options":[["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"]]},{"key":"minTraceSpacing","label":"최소트랙간격","options":[["4/4mil","4/4mil"],["5/5mil","5/5mil"],["6/6mil","6/6mil"],["8/8mil","8/8mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"],["none","none"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"여러디자인","options":[["yes","Yes"],["no","No"]]},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"],["Plugged vias","Plugged"],["Not Covered","Not Covered"]]},{"key":"etest","label":"E-Test","options":[["프로브","프로브"],["BBT","BBT"]]},{"key":"cutting","label":"컷팅","options":[["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"sampleAdvanceRogers","category":"advance","orderCategory":"sample","kindPcb":"ROGERS","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"],["METAL","METAL"],["ROGERS","ROGERS"]]},{"key":"material","label":"PCB재료","options":[["4003C","4003C"],["4350B","4350B"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"],["10mm","10mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.2","0.2"],["0.4","0.4"],["0.6","0.6"],["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"],["2.4","2.4"],["2.8","2.8"],["3.2","3.2"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","검정"]]},{"key":"silkscreen","label":"실크색상","options":[["white","흰색"],["black","검정"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"],["hardGold","Hard Gold"],["ag","Ag"]]},{"key":"copperWeights","label":"동박두께","options":[["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"]]},{"key":"finishedCopperAdvance","label":"내부동박두께","options":[["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"]]},{"key":"minTraceSpacing","label":"최소트랙간격","options":[["3/3mil","3/3mil"],["4/4mil","4/4mil"],["5/5mil","5/5mil"],["6/6mil","6/6mil"],["8/8mil","8/8mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.15mm","0.15mm"],["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"],["none","none"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"여러디자인","options":[["no","No"],["yes","Yes"]]},{"key":"impedance","label":"임피던스","options":[["no","No"],["yes","Yes"]]},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"],["Plugged vias","Plugged"],["Not Covered","Not Covered"],["Buried","Buried"],["Blind","Blind"]]},{"key":"etest","label":"E-Test","options":[["프로브","프로브"],["BBT","BBT"],["No","No"]]},{"key":"cutting","label":"컷팅","options":[["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"massAdvanceRogers","category":"advance","orderCategory":"mass","kindPcb":"ROGERS","fields":[{"key":"kindPcb","label":"PCB선택","options":[["FR-4","FR-4"],["METAL","METAL"],["ROGERS","ROGERS"]]},{"key":"material","label":"PCB재료","options":[["4003C","4003C"],["4350B","4350B"],["직접입력","직접입력"]]},{"key":"layers","label":"PCB층수","options":[]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"mqty","label":"원판수량","options":[],"note":"숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"],["10mm","10mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.2","0.2"],["0.4","0.4"],["0.6","0.6"],["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"],["2.4","2.4"],["2.8","2.8"],["3.2","3.2"]]},{"key":"solderMask","label":"PCB색상","options":[["green","녹색"],["red","빨강"],["yellow","노랑"],["blue","파랑"],["white","흰색"],["black","검정"]]},{"key":"silkscreen","label":"실크색상","options":[["white","흰색"],["black","검정"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"],["hardGold","Hard Gold"],["ag","Ag"]]},{"key":"copperWeights","label":"동박두께","options":[["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"]]},{"key":"finishedCopperAdvance","label":"내부동박두께","options":[["1oz","1"],["2oz","2"],["3oz","3"],["4oz","4"],["5oz","5"],["6oz","6"]]},{"key":"minTraceSpacing","label":"최소트랙간격","options":[["3/3mil","3/3mil"],["4/4mil","4/4mil"],["5/5mil","5/5mil"],["6/6mil","6/6mil"],["8/8mil","8/8mil"]]},{"key":"minHole","label":"최소홀크기","options":[["0.15mm","0.15mm"],["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"],["none","none"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"여러디자인","options":[["no","No"],["yes","Yes"]]},{"key":"impedance","label":"임피던스","options":[["no","No"],["yes","Yes"]]},{"key":"viaProcess","label":"VIA가공","options":[["Tenting vias","Tenting"],["Plugged vias","Plugged"],["Not Covered","Not Covered"],["Buried","Buried"],["Blind","Blind"]]},{"key":"etest","label":"E-Test","options":[["프로브","프로브"],["BBT","BBT"],["No","No"]]},{"key":"cutting","label":"컷팅","options":[["V-Cut","V-Cut"],["Tap Route","Tap Route"],["Both","Both"]]}]},{"set":"flexibleFPCB","category":"flexible","orderCategory":"sample","kindPcb":"FPCB","fields":[{"key":"kindPcb","label":"FPCB타입","options":[["FPCB","FPCB"],["Rigid-Flex","Rigid-Flex"]]},{"key":"material","label":"FPCB재료","options":[["POLYAMIDE","POLYAMIDE"]]},{"key":"layers","label":"PCB층수","options":[["1","1"],["2","2"],["4","4"],["6","6"],["8","8"],["10","10"]]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"]]},{"key":"pcbThickness","label":"PCB두께","options":[["0.08","0.08"],["0.1","0.1"],["0.13","0.13"],["0.15","0.15"],["0.22","0.22"]]},{"key":"solderMask","label":"PCB색상","options":[["yellow","노랑"],["white","흰색"],["black","검정"]]},{"key":"silkscreen","label":"실크색상","options":[["black","검정"],["white","흰색"]]},{"key":"minTraceSpacing","label":"패턴크기","options":[["0.06mm","0.06mm"]]},{"key":"minHole","label":"최소 홀 크기","options":[["0.15mm","0.15mm"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"stiffener","label":"보강판","options":[["None","None"],["TOP","TOP"],["Bottom","Bottom"],["Both","Both"]]},{"key":"surfaceFinish","label":"표면마감","options":[["enig","ENIG"],["osp","OSP"],["ag","AG"],["tin","TIN"]]},{"key":"surfaceFinishWeights","label":"표면마감두께","options":[["1U","1U"],["2U","2U"],["3U","3U"]]},{"key":"copperWeights","label":"동박두께","options":[["0.5oz","0.5OZ"],["1oz","1OZ"]]},{"key":"finishedCopperAdvance","label":"내부동박두께","options":[["1oz","1OZ"],["1.5oz","1.5OZ"],["2oz","2OZ"]]},{"key":"tape3m","label":"3M Tape","options":[["None","None"],["Top","Top"],["Bottom","Bottom"],["Both","Both"]]},{"key":"etest","label":"E-TEST","options":[["프로브","프로브"],["BBT","BBT"],["No","No"]]},{"key":"differentDesign","label":"파일 개수","options":[],"note":"파일 개수 (1 이상)"},{"key":"impedance","label":"임피던스제어","options":[["50","50Ω"],["90","90Ω"],["100","100Ω"],["none","No"]]},{"key":"halfHole","label":"반홀가공","options":[["yes","Yes"],["no","No"]]}]},{"set":"flexibleRigid","category":"flexible","orderCategory":"sample","kindPcb":"Rigid-Flex","fields":[{"key":"kindPcb","label":"FPCB 타입","options":[["FPCB","FPCB"],["Rigid-Flex","Rigid-Flex"]]},{"key":"layersRigid","label":"층수","options":[["1","1"],["2","2"],["4","4"],["6","6"],["8","8"],["10","10"]]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"panel","label":"배열","options":[["no","No"]],"note":"배열을 하면 \"2x3\" 처럼 가로x세로"},{"key":"edgeRail","label":"자삽바","options":[["no","No"],["5mm","5mm"],["7mm","7mm"]]},{"key":"mat","label":"재료","options":[["폴리아미드+FR4","폴리아미드+FR4"]]},{"key":"pcbThickness","label":"Rigid-Flex 두께","options":[["0.6","0.6"],["0.8","0.8"],["1.0","1.0"],["1.2","1.2"],["1.6","1.6"],["2.0","2.0"]]},{"key":"minTraceSpacing","label":"패턴크기","options":[["4/4mil","4/4mil"],["5/5mil","5/5mil"],["6/6mil","6/6mil"]]},{"key":"minHole","label":"최소 홀 크기","options":[["0.2mm","0.2mm"],["0.25mm","0.25mm"],["0.3mm","0.3mm"]]},{"key":"surfaceFinish","label":"표면마감","options":[["hasl","HASL(lead)"],["haslLf","HASL(free)"],["enig","ENIG"],["osp","OSP"]]},{"key":"goldFingers","label":"골드핑거","options":[["no","No"],["yes","Yes"]]},{"key":"differentDesign","label":"파일 개수","options":[],"note":"파일 개수 (1 이상)"},{"key":"halfHole","label":"반홀가공","options":[["yes","Yes"],["no","No"]]}]},{"set":"metalMask","category":"metalMask","orderCategory":"sample","kindPcb":"","fields":[{"key":"framework","label":"프레임제작","options":[["framework","Framework"],["nonFramework","Non Framework"]]},{"key":"size","label":"스텐실크기","options":[["300x400","프레임 없음"],["direct","프레임 없음 · 직접 입력"],["320x320","프레임"],["370x470","프레임"],["400x320","프레임"],["450x320","프레임"],["650x550","프레임"],["736x736","프레임"],["800x736","프레임"]]},{"key":"sizeCustom","label":"스텐실크기(직접입력)","options":[],"note":"size 가 direct 일 때 직접 입력한 크기"},{"key":"stencilSide","label":"스텐실제작","options":[["Top Side","TOP"],["Bottom Side","BOT"],["Both Side","BOTH"]]},{"key":"stThickness","label":"스텐실두께","options":[["0.05","0.05mm"],["0.08","0.08mm"],["0.10","0.10mm"],["0.12","0.12mm"],["0.15","0.15mm"],["0.20","0.20mm"]]},{"key":"width","label":"가로","options":[],"note":"mm 숫자"},{"key":"length","label":"세로","options":[],"note":"mm 숫자"},{"key":"minHole","label":"최소홀크기","options":[]},{"key":"layers","label":"PCB층수","options":[]}]}]</script>
+<script>
+(function () {
+  'use strict';
+  var DEFAULT_BASE = 'https://new.samplepcb.co.kr';
+  var STORE_KEY = 'sp.gerberGuide.base';
+  var input = document.getElementById('base');
+  var toast = document.getElementById('toast');
+
+  // ── 주소 치환 대상과 코드 블록 ──
+  var targets = [];
+  document.querySelectorAll('pre code, [data-base]').forEach(function (el) {
+    targets.push({ el: el, isCode: el.matches('pre code'), tpl: el.textContent.split(DEFAULT_BASE).join('{{BASE}}') });
+  });
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  var TOKEN = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|\b(const|let|var|function|async|await|return|if|else|new|throw|try|catch|for|of|continue|type|true|false|null)\b|\b(\d+(?:\.\d+)?)\b/g;
+
+  function highlight(src) {
+    var out = '';
+    var last = 0;
+    var m;
+    TOKEN.lastIndex = 0;
+    while ((m = TOKEN.exec(src)) !== null) {
+      out += esc(src.slice(last, m.index));
+      var cls = m[1] ? 't-com' : m[2] ? 't-str' : m[3] ? 't-key' : 't-num';
+      out += '<span class="' + cls + '">' + esc(m[0]) + '</span>';
+      last = m.index + m[0].length;
+    }
+    return out + esc(src.slice(last));
+  }
+
+  function currentBase() {
+    var v = (input.value || '').trim().replace(/\/+$/, '');
+    return v === '' ? DEFAULT_BASE : v;
+  }
+
+  function render() {
+    var base = currentBase();
+    targets.forEach(function (t) {
+      var text = t.tpl.split('{{BASE}}').join(base);
+      if (t.isCode) t.el.innerHTML = highlight(text);
+      else t.el.textContent = text;
+    });
+  }
+
+  try {
+    var saved = window.localStorage.getItem(STORE_KEY);
+    if (saved) input.value = saved;
+  } catch (e) { /* 저장소를 못 쓰면 기본값으로 */ }
+
+  input.addEventListener('input', function () {
+    render();
+    try { window.localStorage.setItem(STORE_KEY, currentBase()); } catch (e) { /* 무시 */ }
+  });
+  document.getElementById('base-reset').addEventListener('click', function () {
+    input.value = DEFAULT_BASE;
+    render();
+    try { window.localStorage.removeItem(STORE_KEY); } catch (e) { /* 무시 */ }
+  });
+
+  // ── 복사 ──
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return fallbackCopy(text); });
+    }
+    return Promise.resolve(fallbackCopy(text));
+  }
+
+  var toastTimer = null;
+  function flash(el, label) {
+    toast.textContent = '복사했습니다';
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 1400);
+    el.classList.add('done');
+    var old = label ? el.textContent : null;
+    if (label) el.textContent = '복사됨';
+    setTimeout(function () {
+      el.classList.remove('done');
+      if (label) el.textContent = old;
+    }, 1400);
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target instanceof Element ? ev.target : null;
+    if (t === null) return;
+    var btn = t.closest('.copy');
+    if (btn) {
+      var code = btn.closest('figure').querySelector('code');
+      copyText(code.textContent).then(function (ok) {
+        if (ok) flash(btn, true);
+        else { toast.textContent = '복사하지 못했습니다. 직접 선택해 주세요.'; toast.classList.add('show'); }
+      });
+      return;
+    }
+    var chip = t.closest('.chip');
+    if (chip) {
+      copyText(chip.getAttribute('data-copy') || chip.textContent).then(function (ok) {
+        if (ok) flash(chip, false);
+      });
+    }
+  });
+
+  // ── 키 목록 ──
+  var KEYS = [
+    ['kindPcb', 'PCB 종류', 'kindpcb', 'FR-4'],
+    ['material', 'PCB 재료', '', 'TG130'],
+    ['layers', '층수', '', '2'],
+    ['width', '가로 (mm)', '', '68.580'],
+    ['length', '세로 (mm)', '', '53.340'],
+    ['panel', '배열', '', 'no · 2x3'],
+    ['edgeRail', '자삽바', 'edgerail', 'no · 5mm'],
+    ['pcbThickness', 'PCB 두께', '', '1.6'],
+    ['solderMask', 'PCB 색상', '', 'green'],
+    ['silkscreen', '실크 색상', '', 'white'],
+    ['surfaceFinish', '표면마감', '', 'hasl'],
+    ['surfaceFinishWeights', '표면마감 두께', '', '1U'],
+    ['copperWeights', '동박 두께', '', '1oz'],
+    ['finishedCopperAdvance', '내부 동박 두께', '', '0.5oz'],
+    ['minTraceSpacing', '최소 패턴 폭/간격', 'mixTrace', '6/6mil'],
+    ['minHole', '최소 홀 크기', '', '0.3mm'],
+    ['goldFingers', '골드핑거', 'goldfingers', 'no · yes'],
+    ['differentDesign', '파일(디자인) 개수', '', '1'],
+    ['impedance', '임피던스', 'impedence', 'none'],
+    ['viaProcess', 'VIA 가공', '', 'Tenting vias'],
+    ['halfHole', '반홀 가공', '', 'no · yes'],
+    ['etest', 'E-Test', '', 'Flying'],
+    ['cutting', '컷팅', '', 'Single'],
+    ['mqty', '원판 수량 (양산)', '', ''],
+    ['wvoltage', '내전압 (METAL)', '', '1000V'],
+    ['stiffener', '보강판 (FPCB)', 'gusset', 'None'],
+    ['tape3m', '3M Tape (FPCB)', '', 'None'],
+    ['layersRigid', '층수 (Rigid-Flex)', '', '4'],
+    ['mat', '재료 (Rigid-Flex)', '', '폴리아미드+FR4'],
+    ['framework', '프레임 제작 (Metal Mask)', 'frame', 'nonFramework'],
+    ['size', '스텐실 크기', '', '300x400'],
+    ['sizeCustom', '스텐실 크기 직접 입력', 'sizeExtra', ''],
+    ['stencilSide', '스텐실 제작 면', 'stDirection', 'Top Side'],
+    ['stThickness', '스텐실 두께', '', '0.12'],
+    ['fiducial', '기준점 표시', '', ''],
+    ['electroPolish', '전해연마', 'electrop', ''],
+    ['metalCore', '메탈코어 위치', '', ''],
+    ['placeOfOrigin', '원산지', '', ''],
+    ['coordinate', '부품 좌표', '', '']
+  ];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  function chip(text) {
+    var b = el('button', 'chip', text);
+    b.type = 'button';
+    return b;
+  }
+
+  var keyBody = document.querySelector('#keys tbody');
+  KEYS.forEach(function (k) {
+    var tr = el('tr');
+    var td1 = el('td'); td1.appendChild(chip(k[0])); tr.appendChild(td1);
+    tr.appendChild(el('td', '', k[1]));
+    var td3 = el('td'); if (k[2]) td3.appendChild(el('code', '', k[2])); else td3.appendChild(el('span', 'free', '—')); tr.appendChild(td3);
+    var td4 = el('td'); if (k[3]) td4.appendChild(el('code', '', k[3])); else td4.appendChild(el('span', 'free', '—')); tr.appendChild(td4);
+    keyBody.appendChild(tr);
+  });
+
+  // ── 유형별 항목 ──
+  var SETS = [];
+  try { SETS = JSON.parse(document.getElementById('spec-sets').textContent); } catch (e) { SETS = []; }
+  var SET_LABEL = {
+    sampleStandard: 'Standard · 샘플',
+    massStandard: 'Standard · 양산',
+    sampleAdvanceFR4: 'Advance · 샘플 · FR-4',
+    massAdvanceFR4: 'Advance · 양산 · FR-4',
+    sampleAdvanceMetal: 'Advance · 샘플 · METAL',
+    massAdvanceMetal: 'Advance · 양산 · METAL',
+    sampleAdvanceRogers: 'Advance · 샘플 · ROGERS',
+    massAdvanceRogers: 'Advance · 양산 · ROGERS',
+    flexibleFPCB: 'FPCB · FPCB',
+    flexibleRigid: 'FPCB · Rigid-Flex',
+    metalMask: 'Metal Mask'
+  };
+  var AUTO = { sampleStandard: true, metalMask: true };
+  var select = document.getElementById('set');
+  var meta = document.getElementById('setmeta');
+  var setBody = document.querySelector('#setfields tbody');
+
+  SETS.forEach(function (s, i) {
+    var o = el('option', '', SET_LABEL[s.set] || s.set);
+    o.value = String(i);
+    select.appendChild(o);
+  });
+
+  function renderSet() {
+    var s = SETS[Number(select.value)];
+    if (!s) return;
+    meta.textContent = '';
+    meta.appendChild(document.createTextNode('payload: '));
+    meta.appendChild(el('code', '', 'category = "' + s.category + '"'));
+    meta.appendChild(document.createTextNode(' · '));
+    meta.appendChild(el('code', '', 'orderCategory = "' + s.orderCategory + '"'));
+    if (s.kindPcb) {
+      meta.appendChild(document.createTextNode(' · '));
+      meta.appendChild(el('code', '', 'spec.kindPcb = "' + s.kindPcb + '"'));
+    }
+    meta.appendChild(el('span', 'badge ' + (AUTO[s.set] ? 'auto' : 'rfq'), AUTO[s.set] ? '자동 견적' : '견적요청으로 처리'));
+
+    setBody.textContent = '';
+    s.fields.forEach(function (f) {
+      var tr = el('tr');
+      var td1 = el('td'); td1.appendChild(chip(f.key)); tr.appendChild(td1);
+      tr.appendChild(el('td', '', f.label));
+      var td3 = el('td');
+      if (f.note) td3.appendChild(el('span', 'free', f.note));
+      if (f.options.length > 0) {
+        var wrap = el('div', 'vals');
+        f.options.forEach(function (o) {
+          var b = chip(o[0]);
+          b.setAttribute('data-copy', o[0]);
+          if (o[1] && o[1].toLowerCase() !== o[0].toLowerCase()) { b.appendChild(el('span', 'vname', o[1])); }
+          wrap.appendChild(b);
+        });
+        td3.appendChild(wrap);
+      } else if (!f.note) {
+        td3.appendChild(el('span', 'free', '자유 입력'));
+      }
+      tr.appendChild(td3);
+      setBody.appendChild(tr);
+    });
+  }
+  select.addEventListener('change', renderSet);
+
+  // ── 목차 현재 위치 ──
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+  var sections = links.map(function (a) { return document.querySelector(a.getAttribute('href')); });
+  function spy() {
+    var y = window.scrollY + 120;
+    var idx = 0;
+    sections.forEach(function (s, i) { if (s && s.offsetTop <= y) idx = i; });
+    links.forEach(function (a, i) { a.classList.toggle('on', i === idx); });
+  }
+  window.addEventListener('scroll', spy, { passive: true });
+
+  render();
+  renderSet();
+  spy();
+})();
+</script>
+</body>
+</html>
