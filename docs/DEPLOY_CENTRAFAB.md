@@ -137,6 +137,22 @@ ALIMTALK_ENABLED=false
 **(c) 그누보드 DB 접속** `samplepcb-web/data/dbconfig.php` (STEP 4 설치가 생성, 값 확인):
 `G5_MYSQL_HOST=localhost · USER=samplepcb · PASSWORD=<DB비번> · DB=samplepcb`
 
+**(d) (임시) 레거시 도메인 쿠키 충돌 우회** — `new.samplepcb.co.kr` 에서 로그인이 안 붙는 문제(2026-10-22).
+레거시 `samplepcb.co.kr` 은 `PHPSESSID` 를 `.samplepcb.co.kr` 도메인 전체에 심어서, 같은 브라우저로 두 사이트를
+쓰면 new 요청에 `PHPSESSID` 가 둘 실리고 PHP 는 먼저 만들어진 레거시 쪽을 읽는다(→ `/spcb/api/me` 401).
+`spcb/lib/legacy-session-pick.php` 가 세션 시작 전에 둘 중 **이 서버에 실제로 있는 세션**을 고른다(세션 이름 유지,
+`*.samplepcb.co.kr` 호스트에서만 동작 — centrafab.co.kr 은 그대로). 세션 시작 전에 읽히는 코어 밖 파일이
+`dbconfig.php` 뿐이라 거기에 한 줄을 넣는다(`?>` 앞):
+```php
+// 레거시(.samplepcb.co.kr) PHPSESSID 와 겹칠 때 이 서버의 세션을 고른다 — 임시, spcb/lib/legacy-session-pick.php
+if (is_file(__DIR__.'/../spcb/lib/legacy-session-pick.php')) include_once __DIR__.'/../spcb/lib/legacy-session-pick.php';
+```
+- `dbconfig.php` 는 git 밖 파일이라 **STEP 4 재설치로 다시 만들면 이 줄도 다시 넣어야 한다**. 파일이 없으면 줄은 아무것도 안 한다.
+- 전제: PHP 세션 저장이 `files`(Ubuntu 기본 `/var/lib/php/sessions`). 다른 저장 방식이면 이 우회는 꺼진 채로 지나간다.
+- 확인: 레거시에서 먼저 로그인한 브라우저로 new 에 로그인 → `/app` 이 로그인 상태로 뜨면 된다.
+- 걷어내는 때: 운영 교체 뒤에도 브라우저에 남은 레거시 쿠키(세션 쿠키는 브라우저를 닫을 때까지, 자동 로그인은 최대 31일)가
+  사라질 때까지는 둔다. 자동 로그인 쿠키(`ck_auto`) 충돌은 이 우회가 다루지 않는다.
+
 ## STEP 6 — sp_* 스키마 + 필수 초기 데이터 시드·검증
 
 > 이 단계는 생략 금지. Prisma 마이그레이션은 `sp_*` 스키마만 관리하며, 영카트
