@@ -19,6 +19,7 @@ const props = defineProps<{
   diagramGeneratedAt: string | null;
   versionLabel: string;
   pendingNote: string;
+  wishLabel: string; // 의뢰의 희망 완료 시기(날짜 또는 자유문) — 일정 카드의 희망 시점 칸
 }>();
 
 const view = computed(() => (props.review === null ? null : buildDevReviewView(props.review, DEVELOP_REGISTRY)));
@@ -78,7 +79,7 @@ const schedule = computed(() => props.review?.schedule ?? null);
     <ReviewDiagram v-if="diagramHtml !== null" :html="diagramHtml" :meta-line="diagramMeta" />
 
     <template v-if="review !== null">
-      <ReviewSchedule v-if="schedule !== null && schedule.phases.length > 0" :schedule="schedule" />
+      <ReviewSchedule v-if="schedule !== null && schedule.phases.length > 0" :schedule="schedule" :wish-label="wishLabel" />
       <ReviewSpec :review="review" />
 
       <!-- 담당자 의견(시안에 없음 — 같은 카드 모양) -->

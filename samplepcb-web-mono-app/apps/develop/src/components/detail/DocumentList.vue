@@ -20,6 +20,7 @@ const props = defineProps<{
   decidingDocId: number | null;
   decidePending: boolean;
   decideError: string;
+  balanceNote?: string; // 납품확인서 안내의 잔금 문장(부모가 마일스톤으로 정한다)
 }>();
 const emit = defineEmits<{
   decide: [{ documentId: number; decision: DevelopDocDecisionType; note: string; name: string }];
@@ -116,6 +117,7 @@ function togglePrev(id: number): void {
           :default-name="contactName"
           :pending="decidePending && decidingDocId === d.documentId"
           :error="decidingDocId === d.documentId ? decideError : ''"
+          :balance-note="balanceNote ?? ''"
           @submit="emit('decide', { documentId: d.documentId, ...$event })"
         />
 

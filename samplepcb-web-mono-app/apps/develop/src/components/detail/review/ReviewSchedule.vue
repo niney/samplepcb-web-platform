@@ -8,7 +8,9 @@ import type { DevReviewScheduleType } from '@sp/api-contract';
 // 진한 막대 = 최소 기간, 옅은 연장 = 최대까지. 다음 단계는 앞 단계 최소가 끝난 뒤 시작한다.
 // 눈금은 개월(가장 늦게 끝나는 막대까지). 이름이 막대에 안 들어가면 막대 오른쪽(끝이면 왼쪽)에 적는다.
 // 표 머리는 시안이 '기간(주)'를 세 번 복사해 둔 자리라 산출물·선행 조건으로 바로잡았다.
-const props = defineProps<{ schedule: DevReviewScheduleType }>();
+// 희망 시점: 검토서의 wishCode 는 마켓 공통 질문('timeline') 코드라 개발의뢰(희망 시기를 날짜·자유문으로 받음)에선 대개 비어 있다.
+// 개발의뢰에선 의뢰에 적힌 희망 시기가 정본이라 그것을 먼저 보이고, 없을 때만 wishCode 라벨 — 둘 다 없으면 '미응답'.
+const props = defineProps<{ schedule: DevReviewScheduleType; wishLabel?: string }>();
 
 const ROW = 37;
 const ROW_GAP = 4;
@@ -17,6 +19,11 @@ const WEEKS_PER_MONTH = 52 / 12;
 const phases = computed(() => props.schedule.phases);
 const totals = computed(() => devReviewScheduleTotals(props.schedule));
 const fit = computed(() => devReviewScheduleFit(props.schedule));
+const wishText = computed(() => {
+  const own = (props.wishLabel ?? '').trim();
+  if (own !== '') return own;
+  return fit.value.wishLabel === '' ? '미응답' : fit.value.wishLabel;
+});
 
 interface Bar {
   name: string;
@@ -149,11 +156,12 @@ const labelPlace = (b: Bar): LabelPlace => {
       </p>
       <p class="flex flex-wrap items-center gap-[6px] rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px]">
         <span class="text-[15px] text-[#141e34]">희망 완료 시점 :</span>
-        <span class="text-[16px] font-semibold text-black">{{ fit.wishLabel === '' ? '미응답' : fit.wishLabel }}</span>
+        <span class="text-[16px] font-semibold text-black">{{ wishText }}</span>
       </p>
     </div>
     <div class="flex flex-col gap-[2px] text-[14px] leading-[1.8] text-[#666]">
-      <p v-if="fit.status !== 'unknown'">{{ fit.text }}</p>
+      <!-- 대조 문장은 wishCode 기준이라, 의뢰의 희망 시기를 보일 때는 서로 다른 말을 하지 않게 뺀다 -->
+      <p v-if="fit.status !== 'unknown' && wishText === fit.wishLabel">{{ fit.text }}</p>
       <p v-if="schedule.assumptions !== ''">전제 — {{ schedule.assumptions }}</p>
       <p>{{ DEV_REVIEW_SCHEDULE_CAPTION }}</p>
     </div>

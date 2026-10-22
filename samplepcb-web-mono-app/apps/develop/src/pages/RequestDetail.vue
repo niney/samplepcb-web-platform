@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { developAreaBadge } from '@sp/api-contract';
+import { developAreaBadge, developWishLabel } from '@sp/api-contract';
 import type { DevelopDocDecisionType, DevelopEventViewType, DevelopFileMetaType, MarketFileMetaType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import { FilePreviewModal } from '@sp/ui';
@@ -287,6 +287,20 @@ const autoConfirmOn = computed(() => {
   return addDaysKst(d.deliveredAt, d.reviewDays);
 });
 
+// 납품 확정 안내의 잔금 문장 — 잔금 조건이 '납품 시'면 이미 결제할 수 있고, '완료 시'면 확정 뒤에 열린다.
+// (예전 문구 "확정하시면 … 잔금 결제가 열립니다"는 기본 조건 '납품 시'에서 사실과 달랐다.)
+const balanceNote = computed(() => {
+  const ms = (detail.value?.quotes ?? []).filter((q) => q.status === 'accepted').flatMap((q) => q.milestones);
+  if (ms.some((m) => m.payable)) return '잔금은 견적서 탭에서 지금 결제하실 수 있습니다.';
+  if (ms.some((m) => m.trigger === 'on_completion' && m.status !== 'paid' && m.status !== 'cancelled')) return '확정 뒤 잔금 결제가 열립니다.';
+  return '';
+});
+const deliveryHint = computed(() =>
+  ['확정하시면 개발이 완료됩니다.', balanceNote.value, autoConfirmOn.value === '' ? '' : `${autoConfirmOn.value}까지 회신이 없으면 자동으로 확정됩니다.`]
+    .filter((s) => s !== '')
+    .join(' '),
+);
+
 // 아직 답하지 않은 중간 확인 요청 — 그 뒤에 자기를 가리키는 승인·수정 요청 이벤트가 없는 것.
 const pendingReviewIds = computed<number[]>(() => {
   const d = detail.value;
@@ -506,6 +520,7 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
               :diagram-generated-at="detail.diagram?.meta?.generatedAt ?? detail.diagram?.publishedAt ?? null"
               :version-label="reviewVersionLabel"
               :pending-note="reviewPendingNote"
+              :wish-label="developWishLabel(detail.wishDate, detail.wishNote)"
             />
 
             <!-- 3. 견적서 -->
@@ -563,6 +578,7 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
                     :deciding-doc-id="decidingDocId"
                     :decide-pending="decideDocument.isPending.value"
                     :decide-error="documentError"
+                    :balance-note="balanceNote"
                     @decide="void onDecideDocument($event)"
                     @download="void downloadDocFile($event)"
                     @preview="previewDocFile"
@@ -594,11 +610,7 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
                       class="mt-2"
                       primary-label="검수 확정"
                       secondary-label="수정 요청"
-                      :hint="
-                        autoConfirmOn === ''
-                          ? '확정하시면 개발이 완료되고 잔금 결제가 열립니다.'
-                          : `확정하시면 개발이 완료되고 잔금 결제가 열립니다. ${autoConfirmOn}까지 회신이 없으면 자동으로 확정됩니다.`
-                      "
+                      :hint="deliveryHint"
                       :pending="deliveryDecision.isPending.value"
                       :error="decisionError"
                       @decide="(kind, note) => void onDelivery(kind, note)"

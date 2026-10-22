@@ -37,7 +37,9 @@ function move(step: number): void {
   if (n > 0) index.value = (index.value + step + n) % n;
 }
 
-// 원문 전체 보기(모달)
+// 원문 전체 보기(모달) — AI 원문은 도면을 원본 크기(1900px)로 두고 가로 스크롤시키므로 모달 폭에 맞춰 줄인다.
+const FIT_STYLE = '<style>svg{max-width:100%!important;height:auto!important}</style>';
+const zoomDoc = computed(() => (/<\/head>/i.test(props.html) ? props.html.replace(/<\/head>/i, `${FIT_STYLE}</head>`) : `${FIT_STYLE}${props.html}`));
 const zoom = ref(false);
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') zoom.value = false;
@@ -159,7 +161,7 @@ const sectionsAfter = computed<DiagramSection[]>(() => parsed.value?.after ?? []
               닫기 ✕
             </button>
           </div>
-          <iframe sandbox="" :srcdoc="html" title="시스템 구성도 전체" class="min-h-0 flex-1 border-0" />
+          <iframe sandbox="" :srcdoc="zoomDoc" title="시스템 구성도 전체" class="min-h-0 flex-1 border-0" />
         </div>
       </div>
     </Teleport>

@@ -7,7 +7,6 @@ import type {
   DevelopRequestStatusType,
   DevelopTaskPhaseType,
   DevelopTaskStatusType,
-  DevelopTaskViewType,
 } from '@sp/api-contract';
 
 // 진행 현황(docs/DEVELOP_FLOW.md §13) — 서버가 계산해 내려준 값을 그대로 그린다(화면이 다시 계산하지 않는다).
@@ -41,8 +40,6 @@ const taskTone: Record<DevelopTaskStatusType, string> = {
   skipped: 'bg-line text-tx-3', // 서버가 고객 응답에서 제외 행을 빼므로 보통 보이지 않는다
 };
 const taskLabel = (s: DevelopTaskStatusType): string => DEVELOP_TASK_STATUS_LABELS[s];
-const period = (t: DevelopTaskViewType): string =>
-  t.startOn === null && t.endOn === null ? '—' : `${t.startOn ?? '—'} ~ ${t.endOn ?? '—'}`;
 </script>
 
 <template>
@@ -114,7 +111,11 @@ const period = (t: DevelopTaskViewType): string =>
               <td class="py-2.5 pl-3">
                 <span class="rounded-full px-2 py-0.5 text-micro font-bold" :class="taskTone[t.status]">{{ taskLabel(t.status) }}</span>
               </td>
-              <td class="py-2.5 pl-3 font-mono text-label tabular-nums text-tx-2">{{ period(t) }}</td>
+              <td class="py-2.5 pl-3 font-mono text-label tabular-nums text-tx-2">
+                <!-- 기간은 '~' 뒤에서만 줄을 바꾼다(좁은 칸에서 날짜가 '2026-10-' / '22' 로 끊기던 것). -->
+                <template v-if="t.startOn === null && t.endOn === null">—</template>
+                <template v-else><span class="whitespace-nowrap">{{ t.startOn ?? '—' }} ~</span> <span class="whitespace-nowrap">{{ t.endOn ?? '—' }}</span></template>
+              </td>
               <td class="py-2.5 pl-3">
                 <div class="flex items-center justify-end gap-2">
                   <span class="h-1.5 w-16 overflow-hidden rounded-full bg-line">

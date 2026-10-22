@@ -12,6 +12,7 @@ const props = defineProps<{
   defaultName: string;
   pending: boolean;
   error: string;
+  balanceNote?: string; // 잔금이 지금 결제 가능한지·확정 뒤 열리는지(부모가 마일스톤으로 정한다)
 }>();
 const emit = defineEmits<{ submit: [{ decision: DevelopDocDecisionType; note: string; name: string }] }>();
 
@@ -34,7 +35,7 @@ const canSubmit = computed(() => decision.value !== null && agree.value && name.
 // 납품확인서만 결정이 의뢰 상태를 바꾼다 — 무엇이 일어나는지 고르기 전에 알려 준다.
 const hint = computed(() =>
   props.type === 'delivery_confirm'
-    ? '납품 승인을 보내시면 개발이 완료되고 잔금 결제가 열립니다. 보완 후 승인을 고르시면 담당자가 재작업합니다.'
+    ? ['납품 승인을 보내시면 개발이 완료됩니다.', props.balanceNote ?? '', '보완 후 승인을 고르시면 담당자가 재작업합니다.'].filter((s) => s !== '').join(' ')
     : '',
 );
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DEVELOP_EVENT_TYPE_LABELS } from '@sp/api-contract';
+import { DEVELOP_EVENT_TYPE_LABELS, DEVELOP_REQUEST_STATUS_LABELS } from '@sp/api-contract';
 import type { DevelopEventTypeType, DevelopEventViewType, DevelopFileMetaType } from '@sp/api-contract';
 import { canPreview } from '@sp/ui';
 import { dateTimeDot, fileSize } from '../../lib/format';
@@ -11,7 +11,20 @@ import { dateTimeDot, fileSize } from '../../lib/format';
 defineProps<{ events: DevelopEventViewType[] }>();
 const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType]; openDocuments: [] }>();
 
-const label = (t: DevelopEventTypeType): string => DEVELOP_EVENT_TYPE_LABELS[t];
+// 고객이 누른 버튼이 '견적 수정 요청'이라 거절 이벤트도 그 말로(관리자 화면은 계약 라벨 그대로).
+const label = (t: DevelopEventTypeType): string => (t === 'quote_declined' ? '견적 수정 요청' : DEVELOP_EVENT_TYPE_LABELS[t]);
+
+// 한 줄 문구 — 서버가 저장한 제목(관리자 화면과 공용)을 고객 어휘로 다듬는다.
+// 상태 변경은 '상태가 바뀌었습니다'만 저장돼 있어 어느 상태로 갔는지 payload.to 로 밝힌다. 견적 거절은 '수정 요청'으로.
+const titleOf = (e: DevelopEventViewType): string => {
+  if (e.type === 'status_changed') {
+    const to = e.payload?.to;
+    const hit = Object.entries(DEVELOP_REQUEST_STATUS_LABELS).find(([code]) => code === to);
+    if (hit !== undefined) return `진행 상태: ${hit[1]}`;
+  }
+  if (e.type === 'quote_declined') return e.title.replace(/\s*을 거절했습니다$/, ' 수정을 요청했습니다');
+  return e.title;
+};
 
 // 문서 사건(§13)의 문서번호 칩 — payload 는 계약상 Record<string, unknown> 이라 좁혀 읽는다.
 const docNo = (e: DevelopEventViewType): string => {
@@ -76,7 +89,7 @@ const toneOf = (t: DevelopEventTypeType): Tone => {
             >
               {{ docNo(e) }}
             </button>
-            <span class="min-w-0 text-[15px] leading-[1.3] text-[#141e34]">{{ e.title }}</span>
+            <span class="min-w-0 text-[15px] leading-[1.3] text-[#141e34]">{{ titleOf(e) }}</span>
             <!-- 누가 썼는지는 문의·A/S 에서만 뜻이 있다(나머지는 늘 '담당자'라 시안처럼 뺀다) -->
             <span v-if="(e.type === 'comment' || e.type === 'as_request') && e.actorName !== ''" class="text-[13px] leading-[1.3] text-[#999]">{{ e.actorName }}</span>
           </div>

@@ -39,7 +39,8 @@ const emit = defineEmits<{
 const q = computed(() => props.quote);
 const vatLabel = computed(() => DEVELOP_VAT_MODE_LABELS[q.value.vatMode]);
 const kindLabel = computed(() => DEVELOP_QUOTE_KIND_LABELS[q.value.kind]);
-const statusLabel = computed(() => DEVELOP_QUOTE_STATUS_LABELS[q.value.status]);
+// 고객이 누른 버튼이 '견적 수정 요청'이라 거절 상태도 그 말로 보인다(관리자 화면은 계약 라벨 '거절' 그대로).
+const statusLabel = computed(() => (q.value.status === 'declined' ? '수정 요청' : DEVELOP_QUOTE_STATUS_LABELS[q.value.status]));
 
 const statusTone: Record<DevelopQuoteStatusType, string> = {
   draft: 'bg-[#e8e8e8] text-[#333]',
