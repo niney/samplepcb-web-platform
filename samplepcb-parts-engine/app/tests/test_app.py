@@ -131,6 +131,123 @@ def test_delete_running_job_is_rejected(tmp_path):
     assert upload_path.exists()
 
 
+def _idle_service(tmp_path, ttl: int = 60) -> JobService:
+    return JobService(
+        Config(
+            data_dir=tmp_path,
+            m2v_path="off",
+            component_limit=5000,
+            max_upload_bytes=30 * 1024 * 1024,
+            supplier_max_calls=3_000,
+            job_idle_ttl_seconds=ttl,
+        )
+    )
+
+
+def _idle_job(tmp_path, job_id: str, *, idle_for: float, **fields) -> Job:
+    upload_path = tmp_path / "uploads" / f"{job_id}.csv"
+    upload_path.parent.mkdir(parents=True, exist_ok=True)
+    upload_path.write_text(_CSV, encoding="utf-8")
+    job = Job(
+        id=job_id,
+        engine="smartbom",
+        filename="parts.csv",
+        upload_path=upload_path,
+        **{"status": "completed", **fields},
+    )
+    job.touched_at = time.monotonic() - idle_for
+    return job
+
+
+def test_idle_finished_jobs_are_evicted_with_upload(tmp_path):
+    service = _idle_service(tmp_path, ttl=60)
+    stale = _idle_job(tmp_path, "stale", idle_for=120)
+    failed = _idle_job(tmp_path, "failed", idle_for=120, status="failed")
+    fresh = _idle_job(tmp_path, "fresh", idle_for=5)
+    for job in (stale, failed, fresh):
+        service._jobs[job.id] = job
+
+    assert service._sweep_expired(force=True) == 2
+
+    assert set(service._jobs) == {"fresh"}
+    assert stale.deleted and not stale.upload_path.exists()
+    assert failed.deleted and not failed.upload_path.exists()
+    assert fresh.upload_path.exists()
+    try:
+        service.get("stale")
+    except JobError as error:
+        assert str(error) == "job_not_found: stale"
+    else:
+        raise AssertionError("evicted job should be gone")
+
+
+def test_running_jobs_are_never_evicted(tmp_path):
+    service = _idle_service(tmp_path, ttl=60)
+    parsing = _idle_job(tmp_path, "parsing", idle_for=10_000, status="running")
+    searching = _idle_job(tmp_path, "searching", idle_for=10_000, supplier_status="running")
+    for job in (parsing, searching):
+        service._jobs[job.id] = job
+
+    assert service._sweep_expired(force=True) == 0
+    assert set(service._jobs) == {"parsing", "searching"}
+    assert parsing.upload_path.exists() and searching.upload_path.exists()
+
+
+def test_reading_a_job_keeps_it_alive(tmp_path):
+    service = _idle_service(tmp_path, ttl=60)
+    job = _idle_job(tmp_path, "polled", idle_for=120)
+    service._jobs[job.id] = job
+
+    # 정리보다 먼저 읽힌 잡은 아직 쓰이는 잡이다(첫 조회가 정리도 함께 돈다).
+    assert service.get("polled") is job
+    assert service._sweep_expired(force=True) == 0
+    assert "polled" in service._jobs
+
+
+def test_zero_ttl_disables_eviction(tmp_path):
+    service = _idle_service(tmp_path, ttl=0)
+    job = _idle_job(tmp_path, "kept", idle_for=10_000_000)
+    service._jobs[job.id] = job
+
+    assert service._sweep_expired(force=True) == 0
+    assert "kept" in service._jobs
+
+
+def test_new_upload_sweeps_idle_jobs(tmp_path):
+    config = Config(
+        data_dir=tmp_path,
+        m2v_path="off",
+        component_limit=5000,
+        max_upload_bytes=30 * 1024 * 1024,
+        supplier_max_calls=3_000,
+        job_idle_ttl_seconds=60,
+    )
+    config.uploads_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config)
+    client = TestClient(app)
+    stale = _idle_job(tmp_path, "stale", idle_for=120)
+    app.state.jobs._jobs[stale.id] = stale
+
+    created = client.post(
+        "/jobs",
+        files={"file": ("parts.csv", _CSV.encode(), "text/csv")},
+    )
+
+    assert created.status_code == 202
+    assert "stale" not in app.state.jobs._jobs
+    assert not stale.upload_path.exists()
+    assert client.get("/jobs/stale").status_code == 404
+    assert _await_completed(client, created.json()["job_id"])["status"] == "completed"
+
+
+def test_idle_ttl_defaults_to_six_hours(tmp_path, monkeypatch):
+    monkeypatch.delenv("JOB_IDLE_TTL_SECONDS", raising=False)
+    monkeypatch.setenv("PARTS_ENGINE_DATA_DIR", str(tmp_path))
+    assert Config.from_env().job_idle_ttl_seconds == 6 * 3600
+    monkeypatch.setenv("JOB_IDLE_TTL_SECONDS", "0")
+    assert Config.from_env().job_idle_ttl_seconds == 0
+
+
 def test_supplier_start_marks_running_before_delete_can_enter(tmp_path, monkeypatch):
     service = JobService(
         Config(

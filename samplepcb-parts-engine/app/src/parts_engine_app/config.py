@@ -19,6 +19,9 @@ class Config:
     supplier_max_calls: int
     # 협력사 재고표 행 상한 — BOM 컴포넌트 상한과 별개(재고표는 만 단위가 정상).
     inventory_row_limit: int = 50_000
+    # 끝난 잡을 이 시간(초) 동안 아무도 읽지 않으면 메모리·업로드 원본에서 지운다. 0 = 끄기.
+    # 결과는 sp-node 가 끝나는 즉시 DB 에 옮겨 두므로 엔진에 오래 남길 이유가 없다.
+    job_idle_ttl_seconds: int = 6 * 3600
 
     @property
     def uploads_dir(self) -> Path:
@@ -38,6 +41,7 @@ class Config:
             inventory_row_limit=int(os.getenv("INVENTORY_ROW_LIMIT", "50000")),
             max_upload_bytes=int(os.getenv("MAX_UPLOAD_BYTES", str(60 * _MB))),
             supplier_max_calls=int(os.getenv("SUPPLIER_MAX_CALLS", "3000")),
+            job_idle_ttl_seconds=int(os.getenv("JOB_IDLE_TTL_SECONDS", str(6 * 3600))),
         )
         cfg.uploads_dir.mkdir(parents=True, exist_ok=True)
         return cfg

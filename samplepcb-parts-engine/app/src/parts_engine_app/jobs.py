@@ -45,6 +45,9 @@ _ALLOWED_EXTS = {".xlsx", ".xlsm", ".xls", ".csv", ".tsv", ".bom"}
 # (재고·단가가 정보). 의미가 반대라 파이프라인이 다르다.
 _PARSE_ENGINES = {"smartbom", "inventory"}
 
+# 유휴 잡 정리 주기 — 조회(폴링)마다 전체를 훑지 않도록 이 간격으로만 돈다.
+_SWEEP_INTERVAL_SECONDS = 60.0
+
 
 class JobError(RuntimeError):
     """호출부에서 4xx로 매핑하기 위한 도메인 예외."""
@@ -148,6 +151,8 @@ class Job:
     # 재고표(inventory) 프로필 전용 교정 옵션
     inventory_options: InventoryOptions | None = None
     deleted: bool = False
+    # 마지막으로 읽히거나 끝난 시각(time.monotonic) — 유휴 잡 정리의 기준
+    touched_at: float = field(default_factory=time.monotonic)
 
 
 class JobService:
@@ -156,6 +161,11 @@ class JobService:
     잡은 요청 이벤트 루프와 무관한 ThreadPoolExecutor에서 돈다(요청 종료 후에도
     지속) — 추출은 동기·CPU 바운드라 스레드에 자연스럽고, 공급사 검색(async)은
     스레드 안에서 asyncio.run 으로 구동한다(원본 supplier_search 와 동일 패턴).
+
+    끝난 잡은 `config.job_idle_ttl_seconds` 동안 아무도 읽지 않으면 지운다. 결과는
+    sp-node 가 끝나는 즉시 DB 원장으로 옮기므로(분석 실행·공급사 결과 아티팩트) 엔진에
+    남길 이유가 없는데, 지우는 길이 Case 삭제와 재시작뿐이라 운영에서 프로세스가
+    수 GB 까지 자랐다(2026-10-22 실측 4.6GB). 실행 중인 잡은 지우지 않는다.
     """
 
     def __init__(self, config: Config, workers: int = 4) -> None:
@@ -169,13 +179,61 @@ class JobService:
         self._supplier_state_lock = Lock()
         self._active_supplier_searches = 0
         self._cache_reset_running = False
+        self._last_sweep = 0.0
 
     # ── 조회 ──────────────────────────────────────────────
     def get(self, job_id: str) -> Job:
         job = self._jobs.get(job_id)
         if job is None or job.deleted:
+            self._sweep_expired()
             raise JobError(f"job_not_found: {job_id}")
+        # 읽히는 잡은 아직 쓰이는 잡이다 — 정리보다 먼저 시각을 갱신한다.
+        job.touched_at = time.monotonic()
+        self._sweep_expired()
         return job
+
+    def _sweep_expired(self, *, force: bool = False) -> int:
+        """유휴 시간을 넘긴 끝난 잡을 레지스트리와 업로드 원본에서 지운다."""
+        ttl = self.config.job_idle_ttl_seconds
+        if ttl <= 0:
+            return 0
+        now = time.monotonic()
+        if not force and now - self._last_sweep < _SWEEP_INTERVAL_SECONDS:
+            return 0
+        self._last_sweep = now
+        evicted: list[Job] = []
+        # 다른 요청 스레드가 잡을 넣는 중일 수 있어 사본을 훑는다.
+        for job_id, job in list(self._jobs.items()):
+            if now - job.touched_at < ttl:
+                continue
+            # delete()·submit_supplier()와 같은 락 — 방금 검색이 시작된 잡을 지우지 않는다.
+            with self._supplier_state_lock:
+                if (
+                    self._jobs.get(job_id) is not job
+                    or job.deleted
+                    or job.status == "running"
+                    or job.supplier_status == "running"
+                    or now - job.touched_at < ttl
+                ):
+                    continue
+                job.deleted = True
+                self._jobs.pop(job_id, None)
+            evicted.append(job)
+        for job in evicted:
+            if job.upload_path == Path():
+                continue
+            try:
+                job.upload_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("유휴 잡 업로드 원본 삭제 실패: %s", job.upload_path)
+        if evicted:
+            logger.info(
+                "유휴 잡 %d건 정리(유휴 %d초 기준, 남은 잡 %d건)",
+                len(evicted),
+                ttl,
+                len(self._jobs),
+            )
+        return len(evicted)
 
     def delete(self, job_id: str) -> None:
         """완료·실패 잡과 업로드 임시 원본을 함께 제거한다.
@@ -213,6 +271,7 @@ class JobService:
             raise JobError("file_too_large")
         if engine not in _PARSE_ENGINES:
             raise JobError(f"unsupported_engine: {engine}")
+        self._sweep_expired(force=True)
         job_id = uuid4().hex
         upload_path = self.config.uploads_dir / f"{job_id}{ext}"
         upload_path.write_bytes(data)
@@ -269,6 +328,7 @@ class JobService:
         ):
             raise JobError("analysis_snapshot_requirement_overrides_invalid")
 
+        self._sweep_expired(force=True)
         job_id = uuid4().hex
         filename = str(result.get("source_file") or "persisted-analysis")
         engine = str(result.get("engine") or "smartbom")
@@ -327,6 +387,8 @@ class JobService:
             logger.exception("추출 실패(%s): %s", job.engine, job.id)
             job.status = "failed"
             job.error = f"{type(error).__name__}: {str(error)[:500]}"
+        finally:
+            job.touched_at = time.monotonic()  # 유휴 시간은 끝난 때부터 센다
 
     # ── 공급사 검색 ───────────────────────────────────────
     def preflight_supplier(
@@ -443,6 +505,7 @@ class JobService:
             job.supplier_status = "failed"
             job.supplier_error = f"{type(error).__name__}: {str(error)[:500]}"
         finally:
+            job.touched_at = time.monotonic()  # 유휴 시간은 끝난 때부터 센다
             with self._supplier_state_lock:
                 self._active_supplier_searches = max(
                     0, self._active_supplier_searches - 1
