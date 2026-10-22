@@ -10,7 +10,7 @@ import type { DevReviewScheduleType } from '@sp/api-contract';
 // 표 머리는 시안이 '기간(주)'를 세 번 복사해 둔 자리라 산출물·선행 조건으로 바로잡았다.
 // 희망 시점: 검토서의 wishCode 는 마켓 공통 질문('timeline') 코드라 개발의뢰(희망 시기를 날짜·자유문으로 받음)에선 대개 비어 있다.
 // 개발의뢰에선 의뢰에 적힌 희망 시기가 정본이라 그것을 먼저 보이고, 없을 때만 wishCode 라벨 — 둘 다 없으면 '미응답'.
-const props = defineProps<{ schedule: DevReviewScheduleType; wishLabel?: string }>();
+const props = defineProps<{ schedule: DevReviewScheduleType; wishLabel?: string; no?: string }>(); // no = 소제목 번호 접두('2-3. ')
 
 const ROW = 37;
 const ROW_GAP = 4;
@@ -84,7 +84,7 @@ const labelPlace = (b: Bar): LabelPlace => {
 <template>
   <section class="flex flex-col gap-[16px] rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]">
     <div class="flex flex-col gap-[4px] leading-[1.8]">
-      <h3 class="text-[18px] font-bold text-black">예상 개발 일정</h3>
+      <h3 class="text-[18px] font-bold text-black">{{ no }}예상 개발 일정</h3>
       <p class="text-[14px] text-[#666]">단계마다 최소~최대 주로 적었습니다. 고객이 먼저 주셔야 할 자료가 있는 단계는 선행 조건에 적혀 있습니다.</p>
     </div>
 

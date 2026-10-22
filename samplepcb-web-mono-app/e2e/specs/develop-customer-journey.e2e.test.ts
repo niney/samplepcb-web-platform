@@ -287,6 +287,11 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     const page = s.page;
     await openTab('#review', '2. AI 사전 검토서');
     await page.getByText(REVIEW.summary).waitFor();
+    // 소제목 번호 — 시안 70:7029 처럼 2-1(요약)~2-4(명세서)
+    expect(await page.getByRole('heading', { name: `2-1. ${REVIEW.summary}` }).count()).toBe(1);
+    for (const h of ['2-2. 시스템 구성도', '2-3. 예상 개발 일정', '2-4. 개발 명세서']) {
+      expect(await page.getByRole('heading', { name: h, exact: true }).count(), h).toBe(1);
+    }
     for (const r of REVIEW.requirements) expect(await page.getByText(r.text, { exact: true }).count()).toBe(1);
     expect(await page.getByText('e2e-model-hidden').count(), '모델명은 고객에게 안 보인다').toBe(0);
     // 구성도 — 문서를 읽어 요약·도면 2장·정리로 가른다

@@ -32,6 +32,7 @@ import DecisionPanel from '../components/detail/DecisionPanel.vue';
 import ProjectProgress from '../components/detail/ProjectProgress.vue';
 import DocumentList from '../components/detail/DocumentList.vue';
 import DevelopReview from '../components/detail/review/DevelopReview.vue';
+import icoPrint from '../assets/detail/ico-print.svg';
 
 // 의뢰 상세(docs/DEVELOP_FLOW.md §7.2) — 소유자 전용. 서버가 **공개본만** 내려주므로(초안·작업본은 어떤
 // 응답에도 없다) 화면은 온 것을 그대로 그린다. 고객 행동: 견적 수락·수정 요청(QuoteCard), 마일스톤 결제(영카트
@@ -415,7 +416,9 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
             <button v-if="viewer?.canCancel === true && !cancelOpen" type="button" :class="SMALL_BTN" @click="cancelOpen = true">
               의뢰 취소
             </button>
-            <a :href="`/develop/requests/${String(detail.requestId)}/print`" target="_blank" rel="noopener" :class="SMALL_BTN">출력하기</a>
+            <a :href="`/develop/requests/${String(detail.requestId)}/print`" target="_blank" rel="noopener" :class="SMALL_BTN" class="gap-[4px]">
+              <img :src="icoPrint" alt="" width="14" height="14" class="block size-[14px]">출력하기
+            </a>
           </div>
         </header>
         <div class="mt-[12px] h-px bg-[#0a151e]" />
@@ -522,6 +525,7 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
               :version-label="reviewVersionLabel"
               :pending-note="reviewPendingNote"
               :wish-label="developWishLabel(detail.wishDate, detail.wishNote)"
+              :section-no="activeIndex + 1"
             />
 
             <!-- 3. 견적서 -->

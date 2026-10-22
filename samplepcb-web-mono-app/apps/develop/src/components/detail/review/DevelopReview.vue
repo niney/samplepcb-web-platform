@@ -21,7 +21,23 @@ const props = defineProps<{
   pendingNote: string;
   wishLabel: string; // 의뢰의 희망 완료 시기(날짜 또는 자유문) — 일정 카드의 희망 시점 칸
   print?: boolean; // 출력물 — 구성도는 이미지로, 전문가 검토는 펼친 채
+  sectionNo?: number; // 상위 섹션 번호(탭 '2. AI 사전 검토서') — 있으면 소제목에 '2-1.'~'2-4.'를 붙인다(시안 70:7029·출력 슬라이드)
 }>();
+
+// 소제목 번호 — 시안 순서(요약 → 구성도 → 일정 → 명세서)대로, 실제로 그려지는 것만 센다(구성도가 없으면 일정이 2-2).
+type Part = 'summary' | 'diagram' | 'schedule' | 'spec';
+const parts = computed<Part[]>(() => {
+  const list: Part[] = [];
+  if (props.review !== null) list.push('summary');
+  if (props.diagramHtml !== null) list.push('diagram');
+  if (props.review !== null && (props.review.schedule?.phases.length ?? 0) > 0) list.push('schedule');
+  if (props.review !== null) list.push('spec');
+  return list;
+});
+const noOf = (part: Part): string => {
+  const i = parts.value.indexOf(part);
+  return props.sectionNo === undefined || i < 0 ? '' : `${String(props.sectionNo)}-${String(i + 1)}. `;
+};
 
 const view = computed(() => (props.review === null ? null : buildDevReviewView(props.review, DEVELOP_REGISTRY)));
 const TAIL = '고객이 적어 주신 내용과 자료만으로 만든 AI 사전 검토입니다.';
@@ -54,7 +70,7 @@ const schedule = computed(() => props.review?.schedule ?? null);
       class="flex flex-col gap-[16px] rounded-[14px] bg-[linear-gradient(to_left,#bfd5ff,#e1edf3)] px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]"
     >
       <div class="flex flex-col gap-[4px] leading-[1.8]">
-        <h3 class="text-[18px] font-semibold text-black">{{ review.summary !== '' ? review.summary : 'AI 사전 검토서' }}</h3>
+        <h3 class="text-[18px] font-semibold text-black">{{ noOf('summary') }}{{ review.summary !== '' ? review.summary : 'AI 사전 검토서' }}</h3>
         <p class="text-[14px] text-[#666]">{{ reviewMeta }}</p>
       </div>
       <ul v-if="review.requirements.length > 0" class="grid gap-[8px] md:grid-cols-2">
@@ -77,11 +93,11 @@ const schedule = computed(() => props.review?.schedule ?? null);
       </div>
     </section>
 
-    <ReviewDiagram v-if="diagramHtml !== null" :html="diagramHtml" :meta-line="diagramMeta" :print="print" />
+    <ReviewDiagram v-if="diagramHtml !== null" :html="diagramHtml" :meta-line="diagramMeta" :print="print" :no="noOf('diagram')" />
 
     <template v-if="review !== null">
-      <ReviewSchedule v-if="schedule !== null && schedule.phases.length > 0" :schedule="schedule" :wish-label="wishLabel" />
-      <ReviewSpec :review="review" :print="print" />
+      <ReviewSchedule v-if="schedule !== null && schedule.phases.length > 0" :schedule="schedule" :wish-label="wishLabel" :no="noOf('schedule')" />
+      <ReviewSpec :review="review" :print="print" :no="noOf('spec')" />
 
       <!-- 담당자 의견(시안에 없음 — 같은 카드 모양) -->
       <section v-if="review.adminComment" class="flex flex-col gap-[8px] rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]">

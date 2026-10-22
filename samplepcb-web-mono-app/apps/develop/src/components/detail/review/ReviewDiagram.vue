@@ -16,6 +16,7 @@ const props = defineProps<{
   html: string;
   metaLine: string; // "2026-09-25 14:51 생성 · v2 공개본 · …" — 모델명은 고객에게 보이지 않는다(사용자 결정)
   print?: boolean;
+  no?: string; // 소제목 번호 접두('2-2. ') — DevelopReview 가 정한다
 }>();
 
 const parsed = computed(() => parseDiagramDoc(props.html));
@@ -61,7 +62,7 @@ const sectionsAfter = computed<DiagramSection[]>(() => parsed.value?.after ?? []
 <template>
   <section class="flex flex-col gap-[16px] rounded-[14px] bg-[#f0f1f4] px-[10px] pb-[10px] pt-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]">
     <div class="flex flex-col gap-[2px] px-[14px] leading-[1.8]">
-      <h3 class="text-[18px] font-bold text-black">시스템 구성도</h3>
+      <h3 class="text-[18px] font-bold text-black">{{ no }}시스템 구성도</h3>
       <p class="text-[14px] text-[#666]">{{ metaLine }}</p>
     </div>
 

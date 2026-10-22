@@ -181,6 +181,7 @@ const CARD = 'rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgb
               :version-label="reviewVersionLabel"
               pending-note="검토서는 담당자 검토 후 공개됩니다."
               :wish-label="wishLabel"
+              :section-no="si + 1"
               print
             />
 
