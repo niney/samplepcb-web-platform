@@ -130,7 +130,7 @@ const issueOf = (index: number): string =>
     )
     .join(' · ');
 
-const scheduleRows = computed(() => developTaskRowsFromSchedule(props.reviewSchedule));
+const scheduleRows = computed(() => developTaskRowsFromSchedule(props.reviewSchedule, baseStartOn.value)); // 착수일이 있으면 날짜까지 깐다
 const progressOf = (row: DevelopTaskRow): number => Number(row.progressPct.replace(/[^\d.-]/g, '')) || 0;
 const hasDates = computed(() => rows.value.some((r) => r.startOn !== '' || r.endOn !== ''));
 const skippedCount = computed(() => rows.value.filter((r) => r.status === 'skipped').length);

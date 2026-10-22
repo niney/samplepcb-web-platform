@@ -2,11 +2,13 @@ import {
   DEVELOP_DEFAULT_TASKS,
   DEVELOP_DOC_DATE_RE,
   DEVELOP_DOC_FIELDS,
+  developAddDays,
   developAutoScheduleDates,
   developDocFieldActive,
   developOverdueTaskCount,
   developProgressSummary,
   developTaskCoherent,
+  developTaskPhaseGuess,
   emptyDevelopDocContent,
 } from '@sp/api-contract';
 import type {
@@ -197,7 +199,7 @@ export const developTaskRowsFromDefaults = (): DevelopTaskRow[] => DEVELOP_DEFAU
 
 /**
  * 착수일 기준 자동배치(간편 서식 autoSchedule) — 날짜만 새로 깐다(이름·상태·진행률은 그대로, 제외 행도 날짜는 받되 상태는 안 건드린다).
- * 이름이 기본 업무와 같은 행은 그 오프셋·기간, 아니면 직전 행 다음 날부터 5일(계약 developAutoScheduleDates).
+ * 이름이 기본 업무와 같은 행은 그 오프셋·기간, 아니면 직전 행 다음 날부터 그 행의 지금 기간(없으면 5일)(계약 developAutoScheduleDates).
  */
 export function developTaskRowsAutoScheduled(rows: readonly DevelopTaskRow[], baseStartOn: string): DevelopTaskRow[] {
   const dates = developAutoScheduleDates(rows, baseStartOn);
@@ -205,21 +207,32 @@ export function developTaskRowsAutoScheduled(rows: readonly DevelopTaskRow[], ba
 }
 
 /**
- * 검토서 개발 일정(예상)에서 시드 — 단계 이름을 업무명으로, 가중치는 균등 배분한다.
- * 주 단위 기간은 실제 착수일을 모르면 날짜로 못 바꾸므로 일정은 비워 두고 담당자가 채운다.
+ * 검토서 개발 일정(예상)에서 시드 — 단계 이름을 업무명으로, 단계는 이름으로 추정(developTaskPhaseGuess), 가중치는 균등 배분한다.
+ * 착수일을 알면 단계마다 최대 주 × 7일로 차례로 잇는다 — 견적 「검토서 일정 가져오기」가 최대 주 합을 기간으로 쓰는 것과 같은 기준이라
+ * 마지막 업무가 계획 완료일에 닿는다(2026-10-22). 착수일을 모르면 날짜는 비워 두고 담당자가 채운다.
  */
-export function developTaskRowsFromSchedule(schedule: DevReviewScheduleType | null): DevelopTaskRow[] {
+export function developTaskRowsFromSchedule(schedule: DevReviewScheduleType | null, baseStartOn = ''): DevelopTaskRow[] {
   const phases = (schedule?.phases ?? []).filter((p) => p.name.trim() !== '');
   if (phases.length === 0) return [];
   const each = Math.floor(10_000 / phases.length);
-  return phases.map((p, i) => ({
-    ...emptyDevelopTaskRow(),
-    name: p.name.trim().slice(0, 200),
-    // 남는 bp 는 첫 행에 몰아 합이 정확히 100% 가 되게 한다.
-    weightPct: String((i === 0 ? each + (10_000 - each * phases.length) : each) / 100),
-    note: p.prerequisite.trim().slice(0, 500),
-    visibleToCustomer: true,
-  }));
+  const dated = DEVELOP_DOC_DATE_RE.test(baseStartOn);
+  let cursor = baseStartOn;
+  return phases.map((p, i) => {
+    const days = Math.max(1, p.maxWeeks) * 7;
+    const startOn = dated ? cursor : '';
+    const endOn = dated ? developAddDays(cursor, days - 1) : '';
+    if (dated) cursor = developAddDays(cursor, days);
+    return {
+      ...emptyDevelopTaskRow(developTaskPhaseGuess(p.name)),
+      name: p.name.trim().slice(0, 200),
+      startOn,
+      endOn,
+      // 남는 bp 는 첫 행에 몰아 합이 정확히 100% 가 되게 한다.
+      weightPct: String((i === 0 ? each + (10_000 - each * phases.length) : each) / 100),
+      note: p.prerequisite.trim().slice(0, 500),
+      visibleToCustomer: true,
+    };
+  });
 }
 
 const clampInt = (raw: string, min: number, max: number): number => {

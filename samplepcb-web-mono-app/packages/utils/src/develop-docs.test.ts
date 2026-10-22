@@ -14,6 +14,7 @@ import {
   developDocStatusLabel,
   developKickoffContractContent,
   developProgressSummary,
+  developTaskPhaseGuess,
   developTaskWeights,
   emptyDevelopDocContent,
 } from '@sp/api-contract';
@@ -203,5 +204,47 @@ describe('develop-docs contract', () => {
     expect(custom[1]).toEqual({ startOn: '2026-10-14', endOn: '2026-10-18' });
     // 기본 이름과 안 맞는 첫 행은 착수일부터.
     expect(developAutoScheduleDates([{ name: '사전 조사' }], '2026-10-01')[0]).toEqual({ startOn: '2026-10-01', endOn: '2026-10-05' });
+  });
+
+  it('자동배치 — 이름 모르는 행은 지금 기간(일수)을 지킨다(검토서 일정 시드 행이 5일로 줄지 않게)', () => {
+    const rows = [
+      { name: '요구사항 분석·Reference 실측', startOn: '2026-10-22', endOn: '2026-11-04' }, // 14일
+      { name: '펌웨어 개발', startOn: '2026-11-05', endOn: '2026-12-16' }, // 42일
+      { name: '날짜 없는 행', startOn: '', endOn: '' },
+    ];
+    // 착수일을 옮기면 기간은 그대로 두고 차례로 다시 잇는다.
+    expect(developAutoScheduleDates(rows, '2026-11-02')).toEqual([
+      { startOn: '2026-11-02', endOn: '2026-11-15' },
+      { startOn: '2026-11-16', endOn: '2026-12-27' },
+      { startOn: '2026-12-28', endOn: '2027-01-01' },
+    ]);
+    // 기본 업무 이름이어도 기간을 따로 가진 행(검토서에서 시드한 '회로설계' 28일)은 그 기간을 지켜 차례로 잇는다(계획 자리로 돌아가 겹치지 않게).
+    expect(developAutoScheduleDates([{ name: '사전 조사', startOn: '2026-10-01', endOn: '2026-10-14' }, { name: '회로설계', startOn: '2026-10-15', endOn: '2026-11-11' }], '2026-11-02')).toEqual([
+      { startOn: '2026-11-02', endOn: '2026-11-15' },
+      { startOn: '2026-11-16', endOn: '2026-12-13' },
+    ]);
+    // 기본 업무를 한 번 배치한 표(계획 기간 그대로)는 착수일을 옮겨도 계획 오프셋(병행 포함)을 그대로 따른다.
+    const first = developAutoScheduleDates(DEVELOP_DEFAULT_TASKS, '2026-10-01');
+    const placed = DEVELOP_DEFAULT_TASKS.map((t, i) => ({ name: t.name, ...first[i] }));
+    expect(developAutoScheduleDates(placed, '2026-10-11')).toEqual(developAutoScheduleDates(DEVELOP_DEFAULT_TASKS, '2026-10-11'));
+  });
+
+  it('업무 이름으로 단계 추정 — 검토서 일정 단계명·기본 업무명', () => {
+    const cases: [string, string][] = [
+      ['요구사항 분석·Reference 실측', 'design'],
+      ['제품디자인·기구설계', 'design'],
+      ['펌웨어 개발', 'design'],
+      ['PCB 제작·부품조달·SMT', 'assembly'], // SMT 가 걸리면 조립·시험(기본 업무 '부품입고·SMT'와 같은 갈래)
+      ['PCB 제작', 'fabrication'],
+      ['부품 조달', 'fabrication'],
+      ['Bring-up·디버깅·보드 수정', 'assembly'],
+      ['통합 시제품·기능검증', 'assembly'],
+      ['인증·보완', 'certification'],
+      ['최종 납품', 'delivery'],
+      ['개발착수회의', 'contract'],
+    ];
+    for (const [name, phase] of cases) expect(developTaskPhaseGuess(name), name).toBe(phase);
+    // 기본 업무 11개는 정의된 단계와 같게 추정된다(같은 낱말 규칙이 기본 업무와 어긋나지 않는다).
+    for (const p of DEVELOP_DEFAULT_TASK_PLAN) expect(developTaskPhaseGuess(p.name), p.name).toBe(p.phase);
   });
 });

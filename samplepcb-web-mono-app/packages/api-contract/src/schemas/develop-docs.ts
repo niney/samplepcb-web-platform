@@ -506,6 +506,19 @@ export const DEVELOP_TASK_PHASE_LABELS = {
 // 2026-09-11 전 단계 → 새 단계(서버 읽기 폴백·마이그레이션 공용).
 export const DEVELOP_TASK_LEGACY_PHASES: Readonly<Record<string, DevelopTaskPhaseType>> = { requirements: 'contract' };
 
+// 업무 이름으로 단계 추정 — 검토서 개발 일정의 단계명은 AI·담당자가 쓴 자유 문구라 낱말로 가른다(모르면 설계·개발).
+// 위에서부터 먼저 맞는 것 — 기본 업무 11개와 같은 갈래(SMT·실장은 조립·시험, 'PCB 제작·입고'는 제작·입고, '부품발주'는 설계·개발)라
+// 'PCB 제작·부품조달·SMT' 처럼 둘 다 걸린 이름은 조립·시험으로 간다. 담당자가 표에서 고칠 수 있다(2026-10-22).
+const DEVELOP_TASK_PHASE_HINTS: readonly (readonly [DevelopTaskPhaseType, RegExp])[] = [
+  ['contract', /계약|착수\s*회의|킥오프|kick-?off/i],
+  ['delivery', /납품|인도|완료\s*보고/],
+  ['certification', /인증|보완|\bKC\b|EMC|FCC|\bCE\b/i],
+  ['assembly', /조립|SMT|실장|PCBA|bring-?up|디버깅|시험|테스트|검증|시제품/i],
+  ['fabrication', /제작|조달|입고/],
+];
+export const developTaskPhaseGuess = (name: string): DevelopTaskPhaseType =>
+  DEVELOP_TASK_PHASE_HINTS.find(([, re]) => re.test(name))?.[0] ?? 'design';
+
 // skipped(제외) — 진행 이력이 있는 행은 지우지 않고 제외한다(G 수행관리 규칙 이식, 2026-09-10). 달성도 가중치·고객 화면에서 빠진다.
 export const DEVELOP_TASK_STATUSES = ['planned', 'in_progress', 'customer_review', 'on_hold', 'delayed', 'done', 'skipped'] as const;
 export type DevelopTaskStatusType = (typeof DEVELOP_TASK_STATUSES)[number];
@@ -630,16 +643,30 @@ export const developDaysBetween = (from: string, to: string): number => {
   return Math.round(p(to) - p(from));
 };
 
-// 착수일 기준 자동배치(간편 서식 autoSchedule) — 이름이 기본 업무와 같은 행은 그 오프셋·기간, 아니면 직전 행 완료 다음 날부터 5일.
+// 착수일 기준 자동배치(간편 서식 autoSchedule) — 이름이 기본 업무와 같고 기간이 비었거나 계획 기간 그대로인 행은 그 오프셋·기간.
+// 나머지는 지금까지 가장 늦은 완료일 다음 날부터 그 행의 지금 기간(시작~완료 일수)을 지키고, 기간이 없으면 5일.
 // 행을 넣거나 이름을 바꿔도 어긋나지 않게 순서가 아니라 이름으로 맞춘다.
-export function developAutoScheduleDates(rows: readonly { name: string }[], baseStartOn: string): { startOn: string; endOn: string }[] {
+// 기간을 지키는 이유: 검토서 일정에서 시드한 행(단계마다 최대 주 × 7일)이 자동배치 한 번에 5일로 줄거나, 이름이 기본 업무와 같은
+// 행('회로설계')만 기본 계획 자리로 돌아가 일정이 겹치던 문제(2026-10-22).
+export function developAutoScheduleDates(
+  rows: readonly { name: string; startOn?: string | null; endOn?: string | null }[],
+  baseStartOn: string,
+): { startOn: string; endOn: string }[] {
   const byName = new Map(DEVELOP_DEFAULT_TASK_PLAN.map((p) => [p.name, p]));
   const out: { startOn: string; endOn: string }[] = [];
   let cursor = baseStartOn; // 이름이 안 맞는 행이 이어 붙을 자리 — 지금까지 가장 늦은 완료일 다음 날
+  const ownDays = (row: { startOn?: string | null; endOn?: string | null }): number => {
+    const { startOn, endOn } = row;
+    if (typeof startOn !== 'string' || typeof endOn !== 'string' || !DEVELOP_DOC_DATE_RE.test(startOn) || !DEVELOP_DOC_DATE_RE.test(endOn)) return 0;
+    return Math.max(0, developDaysBetween(startOn, endOn) + 1);
+  };
   for (const row of rows) {
-    const plan = byName.get(row.name.trim());
+    const own = ownDays(row);
+    const named = byName.get(row.name.trim());
+    const plan = named !== undefined && (own === 0 || own === named.durationDays) ? named : undefined;
     const startOn = plan === undefined ? cursor : developAddDays(baseStartOn, plan.offsetDays);
-    const endOn = developAddDays(startOn, (plan?.durationDays ?? 5) - 1);
+    const days = plan?.durationDays ?? (own > 0 ? own : 5);
+    const endOn = developAddDays(startOn, days - 1);
     out.push({ startOn, endOn });
     const next = developAddDays(endOn, 1);
     if (next > cursor) cursor = next;
