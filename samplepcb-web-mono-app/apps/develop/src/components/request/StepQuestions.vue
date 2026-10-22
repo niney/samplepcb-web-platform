@@ -57,7 +57,7 @@ const leadText = computed(() => {
 <template>
   <div class="grid gap-7">
     <div class="grid gap-2">
-      <h2 class="text-title font-extrabold text-tx-1">{{ isSystem ? '시스템개발 추가 확인' : '개별 개발 전문 질문' }}</h2>
+      <h2 class="text-title font-extrabold text-tx-1">{{ isSystem ? '시스템 개발 추가 확인' : '개별 개발 전문 질문' }}</h2>
       <p class="text-body leading-relaxed text-tx-2">{{ leadText }}</p>
       <div class="flex flex-wrap gap-2">
         <span v-if="isSystem" class="rounded-full bg-ink-950 px-3 py-1 text-micro font-bold text-white">{{ systemMenu.label }}</span>

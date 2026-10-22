@@ -4,9 +4,10 @@ import { developSlotLabel } from '@sp/api-contract';
 import type { DevelopFileMetaType } from '@sp/api-contract';
 import { canPreview } from '@sp/ui';
 import { fileSize } from '../../lib/format';
+import iconFile from '../../assets/detail/file-pdf.svg';
 
-// 의뢰 첨부 목록 — 참고 자료(일반)와 분야별 추가자료(슬롯)를 한 목록에서 라벨로 가른다.
-// 삭제는 수정 화면에만 있다(여기는 읽기 + 받기 + 보기).
+// 의뢰 첨부 목록 — 피그마 「00-3 의뢰 상세」 38:9541: 파일 아이콘 + 이름 + 오른쪽 미리보기·다운로드.
+// 참고 자료(일반)와 분야별 추가자료(슬롯)를 한 목록에서 라벨로 가른다. 삭제는 수정 화면에만 있다.
 const props = defineProps<{ files: DevelopFileMetaType[] }>();
 const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType] }>();
 
@@ -16,33 +17,36 @@ const sorted = computed(() => [...props.files].sort((a, b) => Number(a.area !== 
 </script>
 
 <template>
-  <ul v-if="sorted.length > 0" class="grid gap-1.5">
+  <ul class="flex flex-col">
     <li
-      v-for="f in sorted"
+      v-for="(f, i) in sorted"
       :key="f.fileId"
-      class="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-line bg-white px-3.5 py-2.5 text-label"
+      class="flex min-w-0 flex-wrap items-center justify-between gap-[10px]"
+      :class="i > 0 ? 'mt-[16px] border-t border-[#eee] pt-[16px]' : ''"
     >
-      <span class="min-w-0 flex-1 truncate font-semibold text-tx-1">{{ f.name }}</span>
-      <span v-if="slotLabel(f) !== ''" class="shrink-0 rounded-full bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">{{ slotLabel(f) }}</span>
-      <span class="shrink-0 tabular-nums text-tx-3">{{ fileSize(f.size) }}</span>
-      <button
-        v-if="canPreview(f)"
-        type="button"
-        class="h-7 shrink-0 rounded-md border border-line-2 px-2.5 font-bold text-tx-2 transition hover:border-tx-3"
-        @click="emit('preview', f)"
-      >
-        보기
-      </button>
-      <button
-        type="button"
-        class="h-7 shrink-0 rounded-md border border-line-2 px-2.5 font-bold text-tx-2 transition hover:border-tx-3"
-        @click="emit('download', f)"
-      >
-        받기
-      </button>
+      <div class="flex min-w-0 flex-1 items-center gap-[10px]">
+        <img :src="iconFile" alt="" class="block size-[22px] shrink-0">
+        <span class="min-w-0 truncate text-[16px] font-medium leading-[1.8] text-black">{{ f.name }}</span>
+        <span v-if="slotLabel(f) !== ''" class="shrink-0 rounded-[37px] bg-[#f5f6f8] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] text-[#475569]">{{ slotLabel(f) }}</span>
+        <span class="shrink-0 text-[14px] tabular-nums text-[#999]">{{ fileSize(f.size) }}</span>
+      </div>
+      <div class="flex shrink-0 items-center gap-[10px]">
+        <button
+          v-if="canPreview(f)"
+          type="button"
+          class="flex h-[34px] w-[82px] items-center justify-center rounded-[6px] border border-[#d9d9d9] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad]"
+          @click="emit('preview', f)"
+        >
+          미리보기
+        </button>
+        <button
+          type="button"
+          class="flex h-[34px] w-[84px] items-center justify-center rounded-[6px] border border-[#d9d9d9] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad]"
+          @click="emit('download', f)"
+        >
+          다운로드
+        </button>
+      </div>
     </li>
   </ul>
-  <p v-else class="rounded-2xl border border-dashed border-line-2 bg-white px-6 py-8 text-center text-body text-tx-3">
-    첨부한 자료가 없습니다.
-  </p>
 </template>

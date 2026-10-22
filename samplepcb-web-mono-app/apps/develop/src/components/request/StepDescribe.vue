@@ -172,7 +172,7 @@ const chipClass = (on: boolean): string =>
             입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다. <span class="text-red-500">*</span>
           </span>
           <span class="text-label leading-relaxed text-tx-3">
-            시스템개발에서 'AI 가 자료를 보고 몇 가지만 묻기'를 고르면 다음 단계에서 AI 가 자료를 읽고 질문을 고릅니다.
+            시스템 개발에서 'AI 가 자료를 보고 몇 가지만 묻기'를 고르면 다음 단계에서 AI 가 자료를 읽고 질문을 고릅니다.
           </span>
         </span>
       </label>

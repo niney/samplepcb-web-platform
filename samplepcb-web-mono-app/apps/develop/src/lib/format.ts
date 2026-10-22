@@ -18,6 +18,19 @@ export function dateTimeKst(iso: string): string {
 // 헤더와 하루가 어긋난다) dateTimeKst 와 같은 기준으로 자른다.
 export const dateShort = (iso: string): string => dateTimeKst(iso).slice(0, 10);
 
+// "YYYY.MM.DD" · "YYYY.MM.DD  HH:MM" — 의뢰 상세(피그마 00-3)의 접수일자·진행 사항 시각 표기(KST).
+export const dateDotFull = (iso: string): string => dateShort(iso).replace(/-/g, '.');
+export const dateTimeDot = (iso: string): string => {
+  const s = dateTimeKst(iso);
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s) ? `${s.slice(0, 10).replace(/-/g, '.')}  ${s.slice(11)}` : s;
+};
+
+// "YY.MM.DD" — 내 의뢰 목록(피그마 00-2)의 접수일 표기. 기준은 dateShort 와 같은 KST.
+export const dateDot = (iso: string): string => {
+  const d = dateShort(iso);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.slice(2).replace(/-/g, '.') : d;
+};
+
 export const fileSize = (n: number): string =>
   n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024)).toLocaleString()} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
@@ -27,7 +40,7 @@ export const statusToneClass: Record<DevelopRequestStatusType, string> = {
   reviewing: 'bg-brand-100 text-brand-700',
   quoted: 'bg-amber-100 text-amber-800',
   accepted: 'bg-amber-100 text-amber-800',
-  in_progress: 'bg-ink-900 text-white',
+  in_progress: 'bg-[#1b2b39] text-white', // 피그마 00-2 '개발 진행 중' 칩
   delivered: 'bg-emerald-100 text-emerald-700',
   completed: 'bg-emerald-600 text-white',
   cancelled: 'bg-line text-tx-3',

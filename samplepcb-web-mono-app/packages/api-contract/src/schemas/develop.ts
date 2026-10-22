@@ -26,7 +26,7 @@ export const DEVELOP_REQUEST_MODES = ['system', 'individual'] as const;
 export type DevelopRequestModeType = (typeof DEVELOP_REQUEST_MODES)[number];
 export const DevelopRequestMode = z.enum(DEVELOP_REQUEST_MODES);
 export const DEVELOP_REQUEST_MODE_LABELS = {
-  system: '시스템개발',
+  system: '시스템 개발',
   individual: '개별 견적',
 } as const satisfies Record<DevelopRequestModeType, string>;
 

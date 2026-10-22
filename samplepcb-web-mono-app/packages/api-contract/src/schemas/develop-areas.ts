@@ -23,7 +23,7 @@ const base = (code: string): MarketAreaDef => {
 export const DEVELOP_INDIVIDUAL_AREA_CODES: readonly string[] = ['pcb', 'mech', 'app', 'server'];
 export const DEVELOP_INDIVIDUAL_TAG = '전문 질문 제공';
 export const DEVELOP_SYSTEM_MENU = {
-  label: '시스템개발',
+  label: '시스템 개발',
   hint: '회로·PCB·펌웨어·기구·앱·서버·시제품을 통합 분석',
   tag: '설명과 첨부자료 중심',
 } as const;
@@ -100,7 +100,7 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
   { ...base('circuit'), questions: [] },
   {
     ...base('pcb'),
-    label: 'PCB설계',
+    label: 'PCB 설계',
     hint: '회로자료 검토, 회로도 복원·작성, PCB Layout',
     questions: [
       {
@@ -185,7 +185,7 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
   { ...base('firmware'), questions: [] },
   {
     code: 'mech',
-    label: '기구설계',
+    label: '기구 설계',
     short: '기구',
     hint: '케이스·내부 구조·방열·시제품·양산 설계',
     kind: 'hardware',
@@ -286,7 +286,7 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
   },
   {
     ...base('app'),
-    label: '앱개발',
+    label: '앱 개발',
     hint: '모바일·태블릿·웹 화면과 장치·서버 연동',
     questions: [
       {
@@ -354,7 +354,7 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
   },
   {
     ...base('server'),
-    label: '서버개발',
+    label: '서버 개발',
     hint: 'API·데이터베이스·관리자 화면·운영 환경',
     questions: [
       {

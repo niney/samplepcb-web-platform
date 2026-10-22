@@ -74,9 +74,9 @@ describe('개발의뢰 레지스트리 정합성', () => {
   });
 
   it('배지 — 전 분야는 시스템개발, 둘 이상은 " + ", 하나는 분야명', () => {
-    expect(developAreaBadge(DEVELOP_SYSTEM_AREA_CODES)).toBe('시스템개발');
+    expect(developAreaBadge(DEVELOP_SYSTEM_AREA_CODES)).toBe('시스템 개발');
     expect(developAreaBadge(['app', 'pcb'])).toBe('PCB + 앱');
-    expect(developAreaBadge(['mech'])).toBe('기구설계');
+    expect(developAreaBadge(['mech'])).toBe('기구 설계');
     expect(developAreaBadge([])).toBe('');
     // 마켓 배지는 그대로.
     expect(marketAreaBadge(MARKET_AREA_CODES)).toBe('풀 개발(회로·PCB·펌웨어·앱·서버)');

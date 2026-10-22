@@ -18,7 +18,7 @@ const { individualAreas, systemMenu, isSystem, isAreaPicked, selectSystemMenu, t
         어떤 개발이 필요하신가요? <span class="text-red-500">*</span>
       </h2>
       <p class="text-body leading-relaxed text-tx-2">
-        시스템개발은 제품 개발에 필요한 전체 업무를 분석합니다. 개별 견적은 여러 분야를 함께 선택할 수 있습니다.
+        시스템 개발은 제품 개발에 필요한 전체 업무를 분석합니다. 개별 견적은 여러 분야를 함께 선택할 수 있습니다.
       </p>
     </div>
 
@@ -76,7 +76,7 @@ const { individualAreas, systemMenu, isSystem, isAreaPicked, selectSystemMenu, t
     </div>
 
     <p class="rounded-xl bg-paper px-4 py-3 text-label leading-relaxed text-tx-2">
-      <b class="font-bold text-tx-1">시스템개발</b>은 다른 메뉴와 동시에 선택하지 않습니다. PCB·기구·앱·서버는 복수 선택할 수 있습니다.
+      <b class="font-bold text-tx-1">시스템 개발</b>은 다른 메뉴와 동시에 선택하지 않습니다. PCB·기구·앱·서버는 복수 선택할 수 있습니다.
     </p>
   </div>
 </template>

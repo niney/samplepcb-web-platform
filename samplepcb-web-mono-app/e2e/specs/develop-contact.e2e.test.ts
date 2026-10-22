@@ -15,7 +15,7 @@ async function next(page: Page): Promise<void> {
 }
 
 async function reachReview(page: Page): Promise<void> {
-  await page.getByText('시스템개발', { exact: true }).first().click();
+  await page.getByText('시스템 개발', { exact: true }).first().click();
   await next(page);
   await page.getByPlaceholder('예: 매장용 자동 음료 디스펜서 개발').fill('연락처 자동 입력 확인');
   await page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill('센서의 값을 모아 펌프를 자동 제어하는 장비 개발');

@@ -30,7 +30,7 @@ function goLogout(): void {
 
 <template>
   <RouterView v-if="bare" />
-  <div v-else class="flex min-h-screen flex-col bg-paper">
+  <div v-else class="flex min-h-screen flex-col" :class="route.meta.bg === 'white' ? 'bg-white' : 'bg-paper'">
     <header class="print-hidden sticky top-0 z-40 bg-white px-5 tracking-normal shadow-[0_8px_10px_rgba(168,185,205,0.1)]">
       <div class="mx-auto flex h-[72px] w-full max-w-[1280px] items-center justify-between gap-6">
         <div class="flex min-w-0 items-center gap-[50px]">

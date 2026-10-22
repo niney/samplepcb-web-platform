@@ -168,7 +168,7 @@ interface Faq {
 const faqs: readonly Faq[] = [
   {
     q: '아이디어만 있는데 의뢰할 수 있나요?',
-    a: '가능합니다. 실제로 가장 많은 형태입니다. "무엇을 하고 싶은지"만 적어 주시면 담당자가 통화로 필요한 조건을 함께 정리합니다. 분야를 모르시면 "시스템개발"을 고르시면 됩니다.',
+    a: '가능합니다. 실제로 가장 많은 형태입니다. "무엇을 하고 싶은지"만 적어 주시면 담당자가 통화로 필요한 조건을 함께 정리합니다. 분야를 모르시면 "시스템 개발"을 고르시면 됩니다.',
   },
   {
     q: '견적은 얼마나 걸리나요?',
@@ -250,7 +250,7 @@ const toggleFaq = (i: number): void => {
       <div class="mx-auto max-w-[1280px]">
         <h2 id="areas" class="text-[32px] font-bold leading-[1.2] sm:text-[40px]">개발 분야</h2>
         <p class="mt-[12px] text-[18px] font-medium leading-[1.3] text-[#666] sm:text-[22px]">
-          제품 전체를 맡기시려면 시스템개발, 필요한 분야만 맡기시려면 개별 견적입니다. 여러 분야가 얽힌 제품일수록 한 회사가 맡는 편이 빠릅니다.
+          제품 전체를 맡기시려면 시스템 개발, 필요한 분야만 맡기시려면 개별 견적입니다. 여러 분야가 얽힌 제품일수록 한 회사가 맡는 편이 빠릅니다.
         </p>
         <ul class="mt-[34px] grid gap-[28px] md:grid-cols-2 lg:grid-cols-3">
           <li v-for="card in areaCards" :key="card.code" :class="card.wide ? 'md:col-span-2' : ''">

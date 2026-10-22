@@ -104,8 +104,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.goto('/develop/request');
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
       // ① 시스템개발을 고르면 개별 카드가 풀린다.
-      await s.page.getByText('PCB설계', { exact: true }).first().click();
-      await s.page.getByText('시스템개발', { exact: true }).first().click();
+      await s.page.getByText('PCB 설계', { exact: true }).first().click();
+      await s.page.getByText('시스템 개발', { exact: true }).first().click();
       await next(s);
       // ② 후속 질문 방식은 시스템개발일 때만 보인다 → 전문가에게 맡김.
       await s.page.getByText('의뢰 내용을 알려주세요').waitFor();
@@ -163,8 +163,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     try {
       await s.page.goto('/develop/request');
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
-      await s.page.getByText('PCB설계', { exact: true }).first().click();
-      await s.page.getByText('기구설계', { exact: true }).first().click();
+      await s.page.getByText('PCB 설계', { exact: true }).first().click();
+      await s.page.getByText('기구 설계', { exact: true }).first().click();
       await next(s);
       await fillDescribe(s, titles.individual);
       // 개별 견적엔 후속 질문 방식이 없다.
@@ -210,7 +210,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     try {
       await s.page.goto('/develop/request');
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
-      await s.page.getByText('시스템개발', { exact: true }).first().click();
+      await s.page.getByText('시스템 개발', { exact: true }).first().click();
       await next(s);
       await fillDescribe(s, '[e2e] 위저드 v2 폴백');
       await next(s);
@@ -223,23 +223,72 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     }
   });
 
+  // 내 의뢰(피그마 00-2, 2026-10-22) — 위에서 접수한 건이 표 행으로: 분야 표기·접수일(YY.MM.DD)·상태 칩·'진행 상태' 버튼,
+  // 할 일이 없으니 검정 할 일 버튼은 없다. 행 빈 곳을 눌러도 상세로 간다(제목 링크를 행 전체로 늘림).
+  test('내 의뢰 — 접수한 의뢰가 표 행으로, 행 클릭 → 상세', async () => {
+    const s = await newSession(identity);
+    try {
+      await s.page.goto('/develop/me');
+      const row = s.page.locator('main li', { hasText: titles.individual });
+      await row.waitFor({ timeout: 15_000 });
+      expect(await row.getByText('PCB + 기구', { exact: true }).count()).toBe(1);
+      expect(await row.getByText(/^접수 \d{2}\.\d{2}\.\d{2}$/).count()).toBe(1);
+      expect(await row.getByText('접수됨', { exact: true }).count()).toBe(1);
+      expect(await row.getByRole('link', { name: '진행 상태' }).count()).toBe(1);
+      expect(await row.locator('a.bg-\\[\\#1b2b39\\]').count()).toBe(0);
+      const sysRow = s.page.locator('main li', { hasText: titles.system });
+      expect(await sysRow.getByText('시스템 개발', { exact: true }).count()).toBe(1);
+      await sysRow.click({ position: { x: 700, y: 60 } });
+      await s.page.waitForURL(/\/develop\/requests\/\d+$/);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+
+  // 의뢰 상세(피그마 00-3 탭형, 2026-10-22) — 탭이 한 번에 한 섹션을 보이고 번호 제목이 붙는다. 탭은 주소 해시와 맞물려
+  // 해시로 바로 들어오면 그 탭이 열린다. 첨부가 없으면 첨부 탭이 없다.
+  test('의뢰 상세 — 탭 전환·해시 진입·빈 상태', async () => {
+    const s = await newSession(identity);
+    try {
+      const { requestId } = await findByTitle(titles.individual);
+      await s.page.goto(`/develop/requests/${String(requestId)}`);
+      const tabs = s.page.locator('nav[aria-label="의뢰 상세 탭"] button');
+      await tabs.first().waitFor();
+      expect((await tabs.allTextContents()).map((t) => t.trim())).toEqual(['상세 의뢰 내용', 'AI 사전 검토서', '견적서', '진행 현황·문서', '진행·문의']);
+      await s.page.getByRole('heading', { name: '1. 상세 의뢰 내용' }).waitFor();
+      await s.page.getByRole('tab', { name: '진행·문의' }).click();
+      await s.page.getByRole('heading', { name: '5. 진행 · 문의' }).waitFor();
+      expect(new URL(s.page.url()).hash).toBe('#timeline');
+      expect(await s.page.getByText('진행 사항', { exact: true }).count()).toBe(1);
+      // 해시로 바로 — 견적서 탭(아직 없음 안내)
+      await s.page.goto(`/develop/requests/${String(requestId)}#quotes`);
+      await s.page.getByRole('heading', { name: '3. 견적서' }).waitFor();
+      expect(await s.page.getByText('아직 견적서가 없습니다').count()).toBe(1);
+      expect(await s.page.getByRole('tab', { name: '견적서' }).getAttribute('aria-selected')).toBe('true');
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+
   // 랜딩(피그마 00-1, 2026-10-21) 분야 카드 → 위저드 1스텝이 그 메뉴를 고른 채 열린다(?menu=<code>).
   test('랜딩 분야 카드 — 메뉴를 고른 채 위저드 진입', async () => {
     const s = await newSession(identity);
     try {
-      // 히어로 카드(PCB 설계) → 개별 견적 PCB설계 선택
+      // 히어로 카드(PCB 설계) → 개별 견적 PCB 설계 선택
       await s.page.goto('/develop/');
       await s.page.getByRole('link', { name: /PCB 설계/ }).first().click();
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
       expect(new URL(s.page.url()).searchParams.get('menu')).toBe('pcb');
-      expect(await s.page.getByRole('button', { name: /^PCB설계/ }).getAttribute('aria-pressed')).toBe('true');
-      expect(await s.page.getByRole('button', { name: /^시스템개발/ }).getAttribute('aria-pressed')).toBe('false');
-      // 개발 분야 섹션의 첫 카드(시스템 개발) → 시스템개발 선택
+      expect(await s.page.getByRole('button', { name: /^PCB 설계/ }).getAttribute('aria-pressed')).toBe('true');
+      expect(await s.page.getByRole('button', { name: /^시스템 개발/ }).getAttribute('aria-pressed')).toBe('false');
+      // 개발 분야 섹션의 첫 카드 → 시스템 개발 선택
       await s.page.goto('/develop/');
       await s.page.locator('#areas ~ ul a').first().click();
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
       expect(new URL(s.page.url()).searchParams.get('menu')).toBe('system');
-      expect(await s.page.getByRole('button', { name: /^시스템개발/ }).getAttribute('aria-pressed')).toBe('true');
+      expect(await s.page.getByRole('button', { name: /^시스템 개발/ }).getAttribute('aria-pressed')).toBe('true');
       // 모르는 코드는 무시 — 아무것도 고르지 않은 채 연다.
       await s.page.goto('/develop/request?menu=firmware');
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
@@ -257,7 +306,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     try {
       await s.page.goto('/develop/request');
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
-      await s.page.getByText('시스템개발', { exact: true }).first().click();
+      await s.page.getByText('시스템 개발', { exact: true }).first().click();
       await next(s);
       await fillDescribe(s, titles.ai);
       await s.page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill(

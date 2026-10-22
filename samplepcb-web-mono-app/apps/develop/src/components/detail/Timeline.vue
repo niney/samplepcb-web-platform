@@ -2,99 +2,114 @@
 import { DEVELOP_EVENT_TYPE_LABELS } from '@sp/api-contract';
 import type { DevelopEventTypeType, DevelopEventViewType, DevelopFileMetaType } from '@sp/api-contract';
 import { canPreview } from '@sp/ui';
-import { dateTimeKst, fileSize } from '../../lib/format';
+import { dateTimeDot, fileSize } from '../../lib/format';
 
-// 진행·문의 타임라인 — 서버가 visibleToCustomer 이벤트만 내려준다(비공개 메모는 오지 않는다).
+// 진행 사항 — 피그마 「00-3 의뢰 상세」 38:9471: 세로선 위 색 점 + 종류 칩 + 한 줄 + 오른쪽 시각.
+// 서버가 visibleToCustomer 이벤트만 내려준다(비공개 메모는 오지 않는다). 본문·첨부·작성자·응답 패널은 그 줄 아래에 붙인다.
 // 잠긴 산출물(locked)은 파일명·크기만 보이고 받기가 막힌다 — 서버도 403 LOCKED_UNTIL_PAID 로 막는다.
-// P2: 내가 답할 차례인 이벤트(산출물 검수·중간 확인 요청)에는 부모가 `event-actions` 슬롯으로 패널을
-// 꽂는다. 어떤 이벤트가 미응답인지는 뒤따르는 이벤트를 봐야 알 수 있어 판정은 부모(상세)가 한다.
+// 내가 답할 차례인 이벤트(산출물 검수·중간 확인 요청)에는 부모가 `event-actions` 슬롯으로 패널을 꽂는다.
 defineProps<{ events: DevelopEventViewType[] }>();
-const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType] }>();
+const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType]; openDocuments: [] }>();
 
 const label = (t: DevelopEventTypeType): string => DEVELOP_EVENT_TYPE_LABELS[t];
 
 // 문서 사건(§13)의 문서번호 칩 — payload 는 계약상 Record<string, unknown> 이라 좁혀 읽는다.
-// 칩은 "진행 현황·문서" 섹션으로 보내는 앵커다(문서 본문은 그 섹션이 정본이라 여기서 다시 그리지 않는다).
 const docNo = (e: DevelopEventViewType): string => {
   if (e.type !== 'document_sent' && e.type !== 'document_decided') return '';
   const v = e.payload?.docNo;
   return typeof v === 'string' ? v : '';
 };
 
-// 타입별 점 색 — 상태·산출물처럼 흐름이 바뀌는 사건만 브랜드색을 쓴다.
-const dotClass = (t: DevelopEventTypeType): string => {
+// 종류별 톤 — 시안의 네 가지(보라·검정·파랑·회색)로 묶는다. 점 색 = 칩 글자색.
+type Tone = 'purple' | 'black' | 'blue' | 'gray';
+const TONE: Record<Tone, { chip: string; dot: string }> = {
+  purple: { chip: 'bg-[#e6dbff] text-[#6a11a6]', dot: 'bg-[#6a11a6]' },
+  black: { chip: 'bg-black text-white', dot: 'bg-black' },
+  blue: { chip: 'bg-[#dbe7ff] text-[#1147a6]', dot: 'bg-[#1147a6]' },
+  gray: { chip: 'bg-[#e8e8e8] text-[#333]', dot: 'bg-[#333]' },
+};
+const toneOf = (t: DevelopEventTypeType): Tone => {
   switch (t) {
-    case 'status_changed':
+    case 'comment':
+    case 'as_request':
+    case 'review_request':
     case 'quote_sent':
+    case 'document_sent':
+      return 'purple'; // 오가는 요청·전달
     case 'quote_accepted':
     case 'payment_confirmed':
-      return 'bg-brand-500';
+    case 'review_approved':
+    case 'document_decided':
     case 'deliverable':
+    case 'tax_invoice':
+      return 'black'; // 확정·완료
+    case 'status_changed':
     case 'published':
-      return 'bg-emerald-600';
-    case 'quote_declined':
-    case 'review_changes':
-      return 'bg-red-500';
+    case 'schedule_changed':
+    case 'milestone_opened':
+      return 'blue'; // 진행 흐름
     default:
-      return 'bg-line-2';
+      return 'gray'; // 수정·메모·거절
   }
 };
 </script>
 
 <template>
-  <ol v-if="events.length > 0" class="grid gap-0">
-    <li v-for="(e, i) in events" :key="e.eventId" class="grid grid-cols-[16px_1fr] gap-x-3.5">
+  <ol v-if="events.length > 0" class="flex flex-col px-[12px]">
+    <li v-for="(e, i) in events" :key="e.eventId" class="grid grid-cols-[10px_1fr] gap-x-[14px]">
       <!-- 세로선 + 점 -->
       <div class="relative flex justify-center">
-        <span v-if="i > 0" class="absolute top-0 h-2.5 w-px bg-line" />
-        <span class="mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="dotClass(e.type)" />
-        <span v-if="i < events.length - 1" class="absolute top-5 bottom-0 w-px bg-line" />
+        <span v-if="i > 0" class="absolute top-0 h-[7px] w-px bg-[#d9d9d9]" aria-hidden="true" />
+        <span class="relative mt-[7px] size-[10px] shrink-0 rounded-full" :class="TONE[toneOf(e.type)].dot" />
+        <span v-if="i < events.length - 1" class="absolute bottom-0 top-[17px] w-px bg-[#d9d9d9]" aria-hidden="true" />
       </div>
 
-      <div class="grid gap-1.5 pb-6">
-        <div class="flex flex-wrap items-baseline gap-2">
-          <span class="rounded-full bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">{{ label(e.type) }}</span>
-          <a
-            v-if="docNo(e) !== ''"
-            href="#documents"
-            class="rounded-full bg-brand-50 px-2 py-0.5 font-mono text-micro font-bold tabular-nums text-brand-700 transition hover:bg-brand-100"
-          >
-            {{ docNo(e) }}
-          </a>
-          <span class="text-body font-bold text-tx-1">{{ e.title }}</span>
-          <span class="ml-auto font-mono text-micro tabular-nums text-tx-3">{{ dateTimeKst(e.createdAt) }}</span>
+      <div class="flex min-w-0 flex-col gap-[6px]" :class="i < events.length - 1 ? 'pb-[20px]' : ''">
+        <div class="flex flex-wrap items-center justify-between gap-x-[12px] gap-y-[4px]">
+          <div class="flex min-w-0 flex-wrap items-center gap-[8px]">
+            <span class="shrink-0 rounded-[37px] px-[8px] py-[4px] text-center text-[12px] font-semibold leading-[1.3]" :class="TONE[toneOf(e.type)].chip">{{ label(e.type) }}</span>
+            <button
+              v-if="docNo(e) !== ''"
+              type="button"
+              class="shrink-0 rounded-[37px] bg-[#f1f6ff] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] tabular-nums text-[#1147a6] transition-colors hover:bg-[#dbe7ff]"
+              @click="emit('openDocuments')"
+            >
+              {{ docNo(e) }}
+            </button>
+            <span class="min-w-0 text-[15px] leading-[1.3] text-[#141e34]">{{ e.title }}</span>
+            <!-- 누가 썼는지는 문의·A/S 에서만 뜻이 있다(나머지는 늘 '담당자'라 시안처럼 뺀다) -->
+            <span v-if="(e.type === 'comment' || e.type === 'as_request') && e.actorName !== ''" class="text-[13px] leading-[1.3] text-[#999]">{{ e.actorName }}</span>
+          </div>
+          <span class="shrink-0 whitespace-pre text-[14px] leading-[1.3] tabular-nums text-[#666]">{{ dateTimeDot(e.createdAt) }}</span>
         </div>
-        <p class="text-label text-tx-3">{{ e.actorName }}</p>
-        <p v-if="e.body !== null" class="whitespace-pre-wrap text-body leading-relaxed text-tx-2">{{ e.body }}</p>
+        <p v-if="e.body !== null" class="whitespace-pre-wrap rounded-[10px] bg-[#f5f6f8] px-[14px] py-[10px] text-[15px] leading-[1.8] text-[#141e34]">{{ e.body }}</p>
 
-        <ul v-if="e.files.length > 0" class="mt-1 grid gap-1.5">
+        <ul v-if="e.files.length > 0" class="flex flex-col gap-[6px]">
           <li
             v-for="f in e.files"
             :key="f.fileId"
-            class="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-label"
+            class="flex min-w-0 flex-wrap items-center gap-[8px] rounded-[10px] border border-[#d9d9d9] px-[12px] py-[8px] text-[14px]"
           >
-            <span class="min-w-0 flex-1 truncate font-semibold" :class="f.locked ? 'text-tx-3' : 'text-tx-1'">
+            <span class="min-w-0 flex-1 truncate font-medium" :class="f.locked ? 'text-[#999]' : 'text-black'">
               <span v-if="f.locked" aria-hidden="true">🔒 </span>{{ f.name }}
             </span>
-            <span class="shrink-0 tabular-nums text-tx-3">{{ fileSize(f.size) }}</span>
-            <template v-if="f.locked">
-              <span class="shrink-0 text-tx-3">잔금 결제 후 내려받기</span>
-            </template>
+            <span class="shrink-0 tabular-nums text-[#999]">{{ fileSize(f.size) }}</span>
+            <span v-if="f.locked" class="shrink-0 text-[#999]">잔금 결제 후 내려받기</span>
             <template v-else>
               <button
                 v-if="canPreview(f)"
                 type="button"
-                class="h-7 shrink-0 rounded-md border border-line-2 px-2.5 font-bold text-tx-2 transition hover:border-tx-3"
+                class="flex h-[30px] shrink-0 items-center rounded-[6px] border border-[#d9d9d9] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad]"
                 @click="emit('preview', f)"
               >
-                보기
+                미리보기
               </button>
               <button
                 type="button"
-                class="h-7 shrink-0 rounded-md border border-line-2 px-2.5 font-bold text-tx-2 transition hover:border-tx-3"
+                class="flex h-[30px] shrink-0 items-center rounded-[6px] border border-[#d9d9d9] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad]"
                 @click="emit('download', f)"
               >
-                받기
+                다운로드
               </button>
             </template>
           </li>
@@ -105,7 +120,7 @@ const dotClass = (t: DevelopEventTypeType): string => {
       </div>
     </li>
   </ol>
-  <p v-else class="rounded-2xl border border-dashed border-line-2 bg-white px-6 py-10 text-center text-body text-tx-3">
+  <p v-else class="rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px] text-[15px] leading-[1.8] text-[#666]">
     아직 진행 기록이 없습니다. 담당자가 검토를 시작하면 여기에 쌓입니다.
   </p>
 </template>
