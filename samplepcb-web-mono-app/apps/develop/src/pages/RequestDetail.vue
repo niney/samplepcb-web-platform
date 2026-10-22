@@ -39,7 +39,7 @@ import DevelopReview from '../components/detail/review/DevelopReview.vue';
 // 화면 = 피그마 「개발 의뢰」 00-3 의뢰 상세(Design done 70:5924 등 탭형, 사용자 결정 2026-10-22):
 // 제목·정보 줄 → 스텝퍼 → 탭(한 번에 한 섹션, 번호 제목). 탭은 URL 해시(#quotes 등)와 맞물린다 — 내 의뢰의
 // 할 일 버튼·타임라인 문서번호가 그 탭을 연다. 첨부는 없으면 탭째 숨기고, 종결된 의뢰는 진행 현황 탭이 없다.
-// '출력하기'(프레젠테이션 인쇄)는 별도 작업으로 미뤘다.
+// '출력하기'는 전 섹션을 이어 붙인 인쇄 화면(RequestPrint)을 새 창으로 연다.
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -415,6 +415,7 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
             <button v-if="viewer?.canCancel === true && !cancelOpen" type="button" :class="SMALL_BTN" @click="cancelOpen = true">
               의뢰 취소
             </button>
+            <a :href="`/develop/requests/${String(detail.requestId)}/print`" target="_blank" rel="noopener" :class="SMALL_BTN">출력하기</a>
           </div>
         </header>
         <div class="mt-[12px] h-px bg-[#0a151e]" />

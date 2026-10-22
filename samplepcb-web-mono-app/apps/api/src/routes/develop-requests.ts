@@ -267,10 +267,17 @@ const toListItem = (
   };
 };
 
+// 출력물 표지의 담당자 이름 — 그누보드 기본 관리자 이름('최고관리자' 등)은 사람 이름이 아니라 내보내지 않는다.
+const assigneeNameOf = async (mbId: string | null): Promise<string | null> => {
+  if (mbId === null) return null;
+  const name = (await getMembersByIds([mbId])).get(mbId)?.name.trim() ?? '';
+  return name === '' || name.endsWith('관리자') ? null : name;
+};
+
 // 상세 — 소유자용. 공개본만·visibleToCustomer 이벤트만·draft 견적 제외.
 export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<DevelopRequestDetailType> {
   const status = asDevelopStatus(r.status);
-  const [files, quotes, events, locked, documents, tasks, opened] = await Promise.all([
+  const [files, quotes, events, locked, documents, tasks, opened, assigneeName] = await Promise.all([
     requestFilesOf(r.id),
     prisma.spDevelopQuote.findMany({
       where: { requestId: r.id, status: { not: 'draft' } },
@@ -282,6 +289,7 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
     loadDevelopDocuments(r.id, { includeDrafts: false }),
     loadDevelopTasks(r.id),
     openedDevelopMilestones(r.id),
+    assigneeNameOf(r.assigneeMbId),
   ]);
   const [eventFiles, poFiles] = await Promise.all([
     developEventFiles(events.map((e) => e.id)),
@@ -334,6 +342,7 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
     cancelledAt: r.cancelledAt?.toISOString() ?? null,
     cancelReason: r.cancelReason,
     declinedReason: r.declinedReason,
+    assigneeName,
     viewer: {
       canEdit: isDevelopEditable(status),
       canCancel: isDevelopCustomerCancellable(status),

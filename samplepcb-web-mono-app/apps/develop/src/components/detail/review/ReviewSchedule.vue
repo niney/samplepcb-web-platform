@@ -89,7 +89,7 @@ const labelPlace = (b: Bar): LabelPlace => {
     </div>
 
     <!-- 간트 -->
-    <div class="overflow-x-auto">
+    <div class="print-keep overflow-x-auto">
       <div ref="chartEl" class="relative min-w-[640px]" :style="{ height: `${chartHeight}px` }">
         <!-- 개월 눈금(점선) -->
         <span

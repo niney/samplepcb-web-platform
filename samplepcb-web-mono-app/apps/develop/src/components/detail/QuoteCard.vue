@@ -18,6 +18,7 @@ import checkboxEmpty from '../../assets/detail/checkbox.svg';
 // 두 번째 버튼은 시안 문구 '견적 수정 요청' — 동작은 기존 거절(사유)과 같고 담당자가 새 견적을 보낸다(사용자 결정 2026-10-22).
 // `payable` 은 서버 파생이라 화면이 다시 계산하지 않는다 — 그 행에만 결제 버튼을 세운다.
 // 시안에 없는 결제 조건·처리 결과·표준 조건·인쇄 링크는 같은 모양 언어로 붙인다.
+// print = 출력물(RequestPrint) — 읽기 전용: 인쇄 링크·결제 버튼·수락 패널 없이, 표준 조건은 펼친 채.
 const props = withDefaults(
   defineProps<{
     quote: DevelopQuoteViewType;
@@ -27,8 +28,9 @@ const props = withDefaults(
     declinePending?: boolean;
     payingMilestoneId?: number | null;
     actionError?: string;
+    print?: boolean;
   }>(),
-  { contactName: '', acceptPending: false, declinePending: false, payingMilestoneId: null, actionError: '' },
+  { contactName: '', acceptPending: false, declinePending: false, payingMilestoneId: null, actionError: '', print: false },
 );
 const emit = defineEmits<{
   accept: [{ quoteId: number; name: string }];
@@ -76,7 +78,7 @@ const terms = computed(() => {
 });
 
 // ── 수락·수정 요청(sent 만) ───────────────────────────────────────────────────
-const open = computed(() => q.value.status === 'sent');
+const open = computed(() => q.value.status === 'sent' && !props.print);
 const agree = ref(false);
 const name = ref(props.contactName);
 watch(
@@ -110,7 +112,7 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
       <h3 class="text-[18px] font-semibold leading-[1.8] text-black">{{ q.title }}</h3>
       <span class="rounded-[37px] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3]" :class="statusTone[q.status]">{{ statusLabel }}</span>
       <span class="rounded-[37px] bg-[#f5f6f8] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] text-[#475569]">{{ kindLabel }}</span>
-      <div class="ml-auto flex shrink-0 flex-wrap gap-[10px]">
+      <div v-if="!print" class="ml-auto flex shrink-0 flex-wrap gap-[10px]">
         <!-- 계약서 = 수락 견적서의 인쇄 뷰(§2 결정 11) — 수락된 견적에만 뜻이 있다. -->
         <a
           v-if="q.status === 'accepted'"
@@ -151,7 +153,7 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
     </div>
 
     <!-- 금액 -->
-    <dl class="flex w-full flex-col gap-[16px] rounded-[8px] border border-[#d9d9d9] bg-white px-[16px] py-[20px] md:w-[calc(50%-10px)]">
+    <dl class="print-keep flex w-full flex-col gap-[16px] rounded-[8px] border border-[#d9d9d9] bg-white px-[16px] py-[20px] md:w-[calc(50%-10px)]">
       <div class="flex items-center justify-between">
         <dt class="text-[14px] leading-[14px] tracking-[-0.56px] text-[#39404d]">공급가</dt>
         <dd class="text-right text-[15px] leading-[14px] text-[#5f6777]"><b class="font-bold text-black">{{ amountParts(q.supplyAmount) }}</b>원</dd>
@@ -172,7 +174,7 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
     </ul>
 
     <!-- 결제 조건(시안에 없음 — 표 모양 맞춤) -->
-    <div v-if="q.milestones.length > 0" class="flex flex-col gap-[8px]">
+    <div v-if="q.milestones.length > 0" class="print-keep flex flex-col gap-[8px]">
       <h4 class="text-[16px] font-bold leading-[1.3] text-black">결제 조건</h4>
       <div class="overflow-x-auto">
         <div class="flex min-w-[640px] flex-col gap-[4px] leading-[1.8]">
@@ -193,7 +195,7 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
             <span class="w-[150px] shrink-0 text-[14px]">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger] }}</span>
             <span class="flex w-[150px] shrink-0 flex-col items-end gap-[2px]">
               <button
-                v-if="m.payable"
+                v-if="m.payable && !print"
                 type="button"
                 class="flex h-[34px] items-center rounded-[6px] bg-[#212121] px-[10px] text-[14px] font-medium leading-[1.3] text-white transition-opacity hover:opacity-85 disabled:opacity-50"
                 :disabled="payingMilestoneId !== null"
@@ -222,7 +224,11 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
     </p>
 
     <!-- 표준 조건 -->
-    <details class="rounded-[10px] border border-[#d9d9d9] px-[16px] py-[12px]">
+    <div v-if="print" class="rounded-[10px] border border-[#d9d9d9] px-[16px] py-[12px]">
+      <p class="text-[15px] font-semibold leading-[1.8] text-black">표준 조건</p>
+      <p class="mt-[8px] whitespace-pre-wrap text-[14px] leading-[1.8] text-[#141e34]">{{ q.terms }}</p>
+    </div>
+    <details v-else class="rounded-[10px] border border-[#d9d9d9] px-[16px] py-[12px]">
       <summary class="cursor-pointer list-none text-[15px] font-semibold leading-[1.8] text-black">표준 조건 <span class="text-[14px] font-normal text-[#666]">눌러서 펼치기</span></summary>
       <p class="mt-[8px] whitespace-pre-wrap text-[14px] leading-[1.8] text-[#141e34]">{{ q.terms }}</p>
     </details>
@@ -312,6 +318,6 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
     </div>
 
     <!-- 결제 오류(수락 이후 카드에서도 보이게) -->
-    <p v-else-if="actionError !== ''" class="rounded-[10px] bg-red-50 px-[16px] py-[12px] text-[14px] font-semibold text-red-700">{{ actionError }}</p>
+    <p v-else-if="actionError !== '' && !print" class="rounded-[10px] bg-red-50 px-[16px] py-[12px] text-[14px] font-semibold text-red-700">{{ actionError }}</p>
   </article>
 </template>

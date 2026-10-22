@@ -12,6 +12,12 @@ const children: RouteRecordRaw[] = [
   { path: 'requests/:id(\\d+)', name: 'request-detail', component: () => import('./pages/RequestDetail.vue'), meta: { bg: 'white' } },
   { path: 'requests/:id(\\d+)/edit', name: 'request-edit', component: () => import('./pages/RequestEdit.vue') },
   {
+    path: 'requests/:id(\\d+)/print',
+    name: 'request-print',
+    component: () => import('./pages/RequestPrint.vue'),
+    meta: { bare: true }, // 의뢰 출력물('출력하기') — 견적서 인쇄 라우트와 같은 관례
+  },
+  {
     path: 'requests/:id(\\d+)/quotes/:qid(\\d+)/print',
     name: 'quote-print',
     component: () => import('./pages/QuotePrint.vue'),

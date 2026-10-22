@@ -6,23 +6,12 @@ import snsFacebook from '../../assets/footer/sns-facebook.svg';
 import snsBlog from '../../assets/footer/sns-blog.svg';
 import snsYoutube from '../../assets/footer/sns-youtube.svg';
 import snsKakao from '../../assets/footer/sns-kakao.svg';
+import { COMPANY as company } from '../../lib/company';
 
 // 개발의뢰 푸터 — 피그마 개발의뢰 「00-1 랜딩 페이지」의 푸터 자리(37:7074)는 빈 #0a1220 321px 블록뿐이라
 // 메인 사이트 공용 푸터(samplepcb-web/theme/sp-lite/inc/footer.php · css/default.css .sp-footer)의 구성을 옮기고
-// 배경·높이만 피그마 값으로 맞췄다(사용자 결정 2026-10-21). 회사정보는 PHP 쪽 기본값과 같다 —
-// PHP 는 쇼핑몰 설정(de_admin_*)이 있으면 그 값을 쓰지만 이 SPA 에는 공개 조회 API 가 없다.
+// 배경·높이만 피그마 값으로 맞췄다(사용자 결정 2026-10-21). 회사정보는 lib/company(PHP 쪽 기본값과 같다).
 // SNS·전화·이메일은 메인 사이트처럼 아이콘·문구만(링크 미정).
-const company = {
-  name: '주식회사 샘플피씨비',
-  owner: '오혜영',
-  addr: '경기도 광명시 하안로 60 광명SK테크노파크 A-1303,1407',
-  fax: '02-6455-4490',
-  saupja: '331-88-01750',
-  tongsin: '2024-경기광명-0624',
-  privacy: '오혜영',
-  tel: '070-8667-1080~1',
-  email: 'info@samplepcb.co.kr',
-} as const;
 
 const links: readonly { label: string; href: string }[] = [
   { label: '회사소개', href: '/about' },

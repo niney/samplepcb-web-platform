@@ -11,6 +11,8 @@
 //   8. 관리자: 최종 납품(잠금) → 🔒 → 검수 확정 → 완료 → 잔금 결제 버튼 → 주문서 → 수동 입금 확인 → 다운로드 열림
 //   9. 완료 뒤 A/S 요청 → 진행 사항 'A/S 요청'
 //  10. 내 의뢰 '완료' · 390px 가로 넘침 0 · 고객 알림 메일(Mailpit) · pageErrors 0
+//  11. '출력하기' 출력물 — 완료 뒤 '개발 진행 보고서'(구성도 이미지 2장·조작 UI 0·PDF 여러 쪽).
+//      접수 직후 판('제품 개발 제안서', 내용 없는 섹션 생략)은 1-1 에서 본다.
 //
 // 데이터는 **지우지 않는다**(사용자 요청 2026-10-22 — 화면으로 다시 볼 수 있게). 실행마다 제목에 시각을 붙여 새 의뢰를 만든다.
 // 의뢰인 = cf_admin(로컬에서 평소 로그인으로 내 의뢰에 바로 보인다). DEVELOP_JOURNEY_MB 로 다른 계정을 지정할 수 있다.
@@ -157,6 +159,22 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     await s.page.goto(`/develop/requests/${String(rid)}?_t=${String(Date.now())}${hash}`);
     await s.page.getByRole('heading', { name: heading }).waitFor({ timeout: 20_000 });
   };
+  // 출력물 — 섹션 제목·표지 제목·조작 UI 수를 읽는다(이미지는 디코드까지 기다린다).
+  const openPrint = async (): Promise<{ cover: string; sections: string[]; buttons: number; iframes: number; figures: number[] }> => {
+    await s.page.goto(`/develop/requests/${String(rid)}/print?_t=${String(Date.now())}`);
+    await s.page.getByRole('heading', { name: '1. 상세 의뢰 내용' }).waitFor({ timeout: 20_000 });
+    return s.page.evaluate(async () => {
+      await Promise.all([...document.images].map((i) => i.decode().catch(() => null)));
+      const root = document.querySelector('.develop-print');
+      return {
+        cover: root?.querySelector('h1')?.textContent?.trim() ?? '',
+        sections: [...(root?.querySelectorAll('[data-print-section] > h2') ?? [])].map((h) => h.textContent?.trim() ?? ''),
+        buttons: root?.querySelectorAll('button, a, input, textarea, select, details').length ?? -1,
+        iframes: root?.querySelectorAll('iframe').length ?? -1,
+        figures: [...(root?.querySelectorAll('figure img') ?? [])].map((i) => (i as HTMLImageElement).naturalWidth),
+      };
+    });
+  };
   // 마일스톤 결제 — 화면의 결제 버튼이 주문서로 보내는지까지 보고, 완료는 관리자 수동 입금 확인. 체크아웃이 넣은 장바구니 행만 지운다.
   const payMilestone = async (title: string): Promise<void> => {
     await openTab('#quotes', '3. 견적서');
@@ -243,6 +261,18 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     await row.waitFor();
     expect(await row.getByText('접수됨', { exact: true }).count()).toBe(1);
     expect(await row.getByText('PCB + 앱', { exact: true }).count()).toBe(1);
+  }, LONG);
+
+  test('1-1. 접수 직후 출력물 — 제품 개발 제안서, 내용 없는 섹션은 뺀다', async () => {
+    await s.page.goto(`/develop/requests/${String(rid)}`);
+    const link = s.page.getByRole('link', { name: '출력하기' });
+    await link.waitFor();
+    expect(await link.getAttribute('href')).toBe(`/develop/requests/${String(rid)}/print`);
+    expect(await link.getAttribute('target')).toBe('_blank');
+    const p = await openPrint();
+    expect(p.cover).toBe('제품 개발 제안서');
+    expect(p.sections).toEqual(['1. 상세 의뢰 내용', '2. 진행 사항']);
+    expect(p.buttons, '출력물에 누를 것이 없다').toBe(0);
   }, LONG);
 
   test('2. 관리자 검토서·구성도 공개 → 검토서 탭(요약·도면 2장·간트·전문가 검토·모델명 숨김)', async () => {
@@ -453,6 +483,27 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await hrefOf('착수금 결제가 확인되었습니다')).toMatch(/\/develop\/requests\/\d+#documents$/);
     expect(await hrefOf('확인 요청이 도착했습니다')).toMatch(/\/develop\/requests\/\d+#timeline$/);
     expect(await hrefOf('담당자 답변')).toMatch(/\/develop\/requests\/\d+#timeline$/);
+    expect(s.pageErrors).toEqual([]);
+  }, LONG);
+
+  test('11. 완료 뒤 출력물 — 개발 진행 보고서(섹션 5·구성도 이미지 2장·조작 UI 0·PDF 여러 쪽)', async () => {
+    const p = await openPrint();
+    expect(p.cover).toBe('개발 진행 보고서');
+    expect(p.sections).toEqual(['1. 상세 의뢰 내용', '2. AI 사전 검토서', '3. 견적서', '4. 진행 현황 · 프로젝트 문서', '5. 진행 사항']);
+    expect(p.buttons, '출력물에 누를 것이 없다(수락·결제·검수·받기·접기)').toBe(0);
+    expect(p.iframes, '구성도는 iframe 이 아니라 이미지로').toBe(0);
+    expect(p.figures.length).toBe(2);
+    expect(p.figures.every((w) => w > 0), '도면 이미지가 디코드된다').toBe(true);
+    const page = s.page;
+    // 견적서는 수락한 v2 하나 — 수정 요청한 v1 은 싣지 않는다
+    const quotes = page.locator('[data-print-section="quotes"]');
+    expect(await quotes.locator('article').count()).toBe(1);
+    expect(await quotes.getByText('수락', { exact: true }).count()).toBe(1);
+    expect(await quotes.getByText('수정 요청', { exact: true }).count()).toBe(0);
+    // 인쇄(A4 가로) — 표지 + 섹션마다 새 쪽이라 최소 6쪽. 배경 그래픽을 끈 기본 설정으로도 찍힌다(print-color-adjust).
+    const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: false });
+    const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+    expect(pages).toBeGreaterThanOrEqual(6);
     expect(s.pageErrors).toEqual([]);
   }, LONG);
 });

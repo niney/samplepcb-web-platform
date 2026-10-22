@@ -8,7 +8,8 @@ import { dateTimeDot, fileSize } from '../../lib/format';
 // 서버가 visibleToCustomer 이벤트만 내려준다(비공개 메모는 오지 않는다). 본문·첨부·작성자·응답 패널은 그 줄 아래에 붙인다.
 // 잠긴 산출물(locked)은 파일명·크기만 보이고 받기가 막힌다 — 서버도 403 LOCKED_UNTIL_PAID 로 막는다.
 // 내가 답할 차례인 이벤트(산출물 검수·중간 확인 요청)에는 부모가 `event-actions` 슬롯으로 패널을 꽂는다.
-defineProps<{ events: DevelopEventViewType[] }>();
+// print = 출력물 — 파일은 이름·크기만, 문서번호 칩은 누를 수 없는 글자로.
+defineProps<{ events: DevelopEventViewType[]; print?: boolean }>();
 const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType]; openDocuments: [] }>();
 
 // 고객이 누른 버튼이 '견적 수정 요청'이라 거절 이벤트도 그 말로(관리자 화면은 계약 라벨 그대로).
@@ -81,8 +82,12 @@ const toneOf = (t: DevelopEventTypeType): Tone => {
         <div class="flex flex-wrap items-center justify-between gap-x-[12px] gap-y-[4px]">
           <div class="flex min-w-0 flex-wrap items-center gap-[8px]">
             <span class="shrink-0 rounded-[37px] px-[8px] py-[4px] text-center text-[12px] font-semibold leading-[1.3]" :class="TONE[toneOf(e.type)].chip">{{ label(e.type) }}</span>
+            <span
+              v-if="docNo(e) !== '' && print"
+              class="shrink-0 rounded-[37px] bg-[#f1f6ff] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] tabular-nums text-[#1147a6]"
+            >{{ docNo(e) }}</span>
             <button
-              v-if="docNo(e) !== ''"
+              v-else-if="docNo(e) !== ''"
               type="button"
               class="shrink-0 rounded-[37px] bg-[#f1f6ff] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] tabular-nums text-[#1147a6] transition-colors hover:bg-[#dbe7ff]"
               @click="emit('openDocuments')"
@@ -103,12 +108,12 @@ const toneOf = (t: DevelopEventTypeType): Tone => {
             :key="f.fileId"
             class="flex min-w-0 flex-wrap items-center gap-[8px] rounded-[10px] border border-[#d9d9d9] px-[12px] py-[8px] text-[14px]"
           >
-            <span class="min-w-0 flex-1 truncate font-medium" :class="f.locked ? 'text-[#999]' : 'text-black'">
+            <span class="min-w-0 flex-1 font-medium" :class="[f.locked ? 'text-[#999]' : 'text-black', print ? '[overflow-wrap:anywhere]' : 'truncate']">
               <span v-if="f.locked" aria-hidden="true">🔒 </span>{{ f.name }}
             </span>
             <span class="shrink-0 tabular-nums text-[#999]">{{ fileSize(f.size) }}</span>
             <span v-if="f.locked" class="shrink-0 text-[#999]">잔금 결제 후 내려받기</span>
-            <template v-else>
+            <template v-else-if="!print">
               <button
                 v-if="canPreview(f)"
                 type="button"

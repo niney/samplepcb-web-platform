@@ -4,9 +4,12 @@
 // 여기서는 그 순서를 읽어 요약(도면 앞)·도면·정리(도면 뒤)로 가른다. 글은 textContent 만 꺼내 텍스트로 그리고,
 // 도면 SVG 는 문서의 <style> 과 함께 sandbox iframe 으로만 그린다(LLM 문자열을 v-html 로 흘리지 않는 원칙 유지).
 // 모델마다 마크업이 달라 못 읽으면 null — 부모가 문서 전체를 iframe 한 장으로 그린다.
+// 출력물(인쇄)은 iframe 대신 도면마다 `img`(SVG data URI)로 그린다 — 이미지로 그린 SVG 는 스크립트·외부 로드가
+// 아예 돌지 않아 안전하고, 쪽 폭에 맞춰 줄어들며, iframe 처럼 인쇄 중 잘리거나 비지 않는다.
 
 export interface DiagramFigure {
   svg: string;
+  img: string; // 인쇄용 — 원문 <style> 을 SVG 안에 넣은 독립 SVG 의 data URI
   caption: string;
 }
 export interface DiagramSection {
@@ -29,6 +32,7 @@ export function parseDiagramDoc(html: string): DiagramDoc | null {
   if (typeof DOMParser === 'undefined' || html.trim() === '') return null;
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const styles = [...doc.querySelectorAll('style')].map((s) => s.outerHTML).join('');
+  const css = [...doc.querySelectorAll('style')].map((s) => s.textContent).join('\n');
 
   let title = '';
   const before: DiagramSection[] = [];
@@ -61,7 +65,7 @@ export function parseDiagramDoc(html: string): DiagramDoc | null {
   for (let node = walker.nextNode() as Element | null; node !== null; node = walker.nextNode() as Element | null) {
     const tag = node.tagName.toLowerCase();
     if (tag === 'svg') {
-      const fig: DiagramFigure = { svg: node.outerHTML, caption: '' };
+      const fig: DiagramFigure = { svg: node.outerHTML, img: svgImageSrc(node, css), caption: '' };
       figures.push(fig);
       captionFor = fig;
       current = null;
@@ -103,6 +107,19 @@ export function parseDiagramDoc(html: string): DiagramDoc | null {
 
   if (figures.length === 0) return null;
   return { title, styles, before: before.filter((s) => s.items.length > 0), figures, after: after.filter((s) => s.items.length > 0) };
+}
+
+// 도면 한 장을 독립 SVG 로 — XMLSerializer 가 SVG 네임스페이스와 XML 이스케이프를 맞춰 준다(HTML 직렬화의
+// &nbsp; 같은 엔티티는 이미지로 읽을 때 깨진다). 클래스 스타일은 원문 CSS 를 SVG 첫 자식 <style> 로 싣는다.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgImageSrc(svg: Element, css: string): string {
+  const clone = svg.cloneNode(true) as Element;
+  if (css.trim() !== '') {
+    const style = clone.ownerDocument.createElementNS(SVG_NS, 'style');
+    style.textContent = css;
+    clone.insertBefore(style, clone.firstChild);
+  }
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(clone))}`;
 }
 
 // 도면 한 장을 iframe 에 넣을 문서 — 원문 <style> 을 같이 실어 클래스 스타일을 잃지 않는다.

@@ -637,6 +637,9 @@ export const DevelopRequestDetail = DevelopRequestListItem.extend({
   cancelledAt: z.string().nullable(),
   cancelReason: z.string().nullable(),
   declinedReason: z.string().nullable(),
+  // 배정 담당자 이름 — 출력물 표지에만 쓴다(사용자 결정 2026-10-22). 미배정·이름 없음·관리자 기본 이름이면 null.
+  // 진행 기록은 여전히 '담당자'로만 보인다(누가 썼는지 가르지 않는다).
+  assigneeName: z.string().nullable(),
   viewer: z.object({
     canEdit: z.boolean(),
     canCancel: z.boolean(),

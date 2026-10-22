@@ -20,6 +20,7 @@ const props = defineProps<{
   versionLabel: string;
   pendingNote: string;
   wishLabel: string; // 의뢰의 희망 완료 시기(날짜 또는 자유문) — 일정 카드의 희망 시점 칸
+  print?: boolean; // 출력물 — 구성도는 이미지로, 전문가 검토는 펼친 채
 }>();
 
 const view = computed(() => (props.review === null ? null : buildDevReviewView(props.review, DEVELOP_REGISTRY)));
@@ -76,11 +77,11 @@ const schedule = computed(() => props.review?.schedule ?? null);
       </div>
     </section>
 
-    <ReviewDiagram v-if="diagramHtml !== null" :html="diagramHtml" :meta-line="diagramMeta" />
+    <ReviewDiagram v-if="diagramHtml !== null" :html="diagramHtml" :meta-line="diagramMeta" :print="print" />
 
     <template v-if="review !== null">
       <ReviewSchedule v-if="schedule !== null && schedule.phases.length > 0" :schedule="schedule" :wish-label="wishLabel" />
-      <ReviewSpec :review="review" />
+      <ReviewSpec :review="review" :print="print" />
 
       <!-- 담당자 의견(시안에 없음 — 같은 카드 모양) -->
       <section v-if="review.adminComment" class="flex flex-col gap-[8px] rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]">

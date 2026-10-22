@@ -10,7 +10,8 @@ import iconExpert from '../../../assets/detail/spec-expert.svg';
 // 개발 명세서 카드 — 피그마 「00-3 의뢰 상세」 45:10535: 분야마다 파란 제목 + 명세 상자 2열 + 그 분야의
 // "전문가 검토"(상의 항목) 상자. 상자는 접힌 채 질문 한 줄을 보이고, 펼치면 이유·확인 결과까지 보인다.
 // 분야에 안 속하는 상의 항목(general)은 맨 뒤 "공통"으로 모은다. 아이콘은 시안에 있는 회로·PCB·펌웨어만.
-const props = defineProps<{ review: MarketDevReviewType }>();
+// print = 출력물 — 전문가 검토를 전부 펼친 채, 접기 버튼 없이.
+const props = defineProps<{ review: MarketDevReviewType; print?: boolean }>();
 
 const ICONS: Record<string, string> = { circuit: iconCircuit, pcb: iconPcb, firmware: iconFirmware };
 
@@ -44,7 +45,7 @@ const groups = computed<Group[]>(() => {
 
 // 펼친 상의 항목 — "분야:순번" 키
 const opened = ref(new Set<string>());
-const isOpen = (k: string): boolean => opened.value.has(k);
+const isOpen = (k: string): boolean => props.print || opened.value.has(k);
 function toggle(k: string): void {
   const next = new Set(opened.value);
   if (next.has(k)) next.delete(k);
@@ -68,13 +69,13 @@ const hasMore = (q: DevReviewOpenQuestionType): boolean => q.why !== '' || (q.re
 
       <div v-if="g.key !== 'general'" class="grid gap-[20px] md:grid-cols-2">
         <template v-if="!g.empty">
-          <div class="flex flex-col gap-[14px] rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px]">
+          <div class="print-keep flex flex-col gap-[14px] rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px]">
             <div v-for="(row, ri) in g.left" :key="ri" class="flex flex-col gap-[4px]">
               <p class="text-[16px] font-semibold leading-[1.3] text-black">{{ row.item }}</p>
               <p class="whitespace-pre-line text-[15px] leading-[1.8] text-[#141e34]">{{ row.text }}</p>
             </div>
           </div>
-          <div v-if="g.right.length > 0" class="flex flex-col gap-[14px] rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px]">
+          <div v-if="g.right.length > 0" class="print-keep flex flex-col gap-[14px] rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px]">
             <div v-for="(row, ri) in g.right" :key="ri" class="flex flex-col gap-[4px]">
               <p class="text-[16px] font-semibold leading-[1.3] text-black">{{ row.item }}</p>
               <p class="whitespace-pre-line text-[15px] leading-[1.8] text-[#141e34]">{{ row.text }}</p>
@@ -88,7 +89,7 @@ const hasMore = (q: DevReviewOpenQuestionType): boolean => q.why !== '' || (q.re
       <div
         v-for="(q, qi) in g.questions"
         :key="qi"
-        class="flex flex-col gap-[4px] rounded-[10px] border border-[#d7deec] bg-[#f1f6ff] px-[16px] py-[14px]"
+        class="print-keep flex flex-col gap-[4px] rounded-[10px] border border-[#d7deec] bg-[#f1f6ff] px-[16px] py-[14px]"
       >
         <div class="flex items-center justify-between gap-[12px]">
           <div class="flex min-w-0 flex-wrap items-center gap-x-[16px] gap-y-[4px]">
@@ -100,7 +101,7 @@ const hasMore = (q: DevReviewOpenQuestionType): boolean => q.why !== '' || (q.re
             </p>
           </div>
           <button
-            v-if="hasMore(q)"
+            v-if="hasMore(q) && print !== true"
             type="button"
             class="flex h-[34px] w-[84px] shrink-0 items-center justify-center rounded-[6px] bg-white text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:bg-[#e6ecf7]"
             :aria-expanded="isOpen(`${g.key}:${qi}`)"

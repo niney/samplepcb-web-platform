@@ -8,7 +8,8 @@ import iconFile from '../../assets/detail/file-pdf.svg';
 
 // 의뢰 첨부 목록 — 피그마 「00-3 의뢰 상세」 38:9541: 파일 아이콘 + 이름 + 오른쪽 미리보기·다운로드.
 // 참고 자료(일반)와 분야별 추가자료(슬롯)를 한 목록에서 라벨로 가른다. 삭제는 수정 화면에만 있다.
-const props = defineProps<{ files: DevelopFileMetaType[] }>();
+// print = 출력물 — 버튼 없이 목록만.
+const props = defineProps<{ files: DevelopFileMetaType[]; print?: boolean }>();
 const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType] }>();
 
 const slotLabel = (f: DevelopFileMetaType): string =>
@@ -26,11 +27,11 @@ const sorted = computed(() => [...props.files].sort((a, b) => Number(a.area !== 
     >
       <div class="flex min-w-0 flex-1 items-center gap-[10px]">
         <img :src="iconFile" alt="" class="block size-[22px] shrink-0">
-        <span class="min-w-0 truncate text-[16px] font-medium leading-[1.8] text-black">{{ f.name }}</span>
+        <span class="min-w-0 text-[16px] font-medium leading-[1.8] text-black" :class="print ? '[overflow-wrap:anywhere]' : 'truncate'">{{ f.name }}</span>
         <span v-if="slotLabel(f) !== ''" class="shrink-0 rounded-[37px] bg-[#f5f6f8] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] text-[#475569]">{{ slotLabel(f) }}</span>
         <span class="shrink-0 text-[14px] tabular-nums text-[#999]">{{ fileSize(f.size) }}</span>
       </div>
-      <div class="flex shrink-0 items-center gap-[10px]">
+      <div v-if="!print" class="flex shrink-0 items-center gap-[10px]">
         <button
           v-if="canPreview(f)"
           type="button"

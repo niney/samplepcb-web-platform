@@ -13,6 +13,7 @@ import DocumentDecision from './DocumentDecision.vue';
 // 프로젝트 문서 목록(docs/DEVELOP_FLOW.md §13) — 서버는 **보낸 판만** 내려준다(draft 는 어떤 응답에도 없다).
 // 같은 종류·번호(docNo)의 판이 여러 개면 최신 판(isCurrent)만 카드로 세우고 이전 판은 그 안에 접어 둔다.
 // 회신할 문서(승인형 sent)는 처음부터 펼쳐 둔다 — 고객이 이 화면에 온 이유가 그것이다.
+// print = 출력물 — 본문은 펼치지 않고 문서마다 머리(종류·번호·발송일)와 회신 결과 한 줄만(목록 = 진행 기록의 요약).
 const props = defineProps<{
   documents: DevelopDocumentViewType[];
   requestId: number;
@@ -21,6 +22,7 @@ const props = defineProps<{
   decidePending: boolean;
   decideError: string;
   balanceNote?: string; // 납품확인서 안내의 잔금 문장(부모가 마일스톤으로 정한다)
+  print?: boolean;
 }>();
 const emit = defineEmits<{
   decide: [{ documentId: number; decision: DevelopDocDecisionType; note: string; name: string }];
@@ -82,7 +84,26 @@ function togglePrev(id: number): void {
 </script>
 
 <template>
-  <div v-if="current.length > 0" class="grid gap-3">
+  <!-- 출력물 — 문서마다 한 행 -->
+  <ul v-if="print && current.length > 0" class="grid gap-2">
+    <li v-for="d in current" :key="d.documentId" class="grid gap-1 rounded-xl border border-line bg-white px-4 py-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="rounded-full px-2.5 py-1 text-micro font-bold" :class="badgeClass(d)">{{ badgeText(d) }}</span>
+        <span class="font-mono text-micro font-bold tabular-nums text-tx-2">{{ d.docNo }}</span>
+        <span v-if="d.version > 1" class="rounded-full bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">v{{ d.version }}</span>
+        <span class="text-body font-bold text-tx-1">{{ typeLabel(d) }}</span>
+        <span v-if="d.sentAt !== null" class="ml-auto font-mono text-micro tabular-nums text-tx-3">발송 {{ dateShort(d.sentAt) }}</span>
+      </div>
+      <p v-if="d.decision !== null" class="text-label text-tx-2">
+        회신 · {{ developDocDecisionLabel(d.type, d.decision) }}
+        <span v-if="d.decidedName !== null"> · {{ d.decidedName }}</span>
+        <span v-if="d.decidedAt !== null" class="font-mono tabular-nums text-tx-3"> · {{ dateTimeKst(d.decidedAt) }}</span>
+        <span v-if="d.decisionNote !== null"> — {{ d.decisionNote }}</span>
+      </p>
+    </li>
+  </ul>
+
+  <div v-else-if="current.length > 0" class="grid gap-3">
     <article
       v-for="d in current"
       :id="`document-${String(d.documentId)}`"

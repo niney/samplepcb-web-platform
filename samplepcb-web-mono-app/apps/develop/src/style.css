@@ -78,3 +78,18 @@ body {
   body { background: #fff; }
   .print-hidden { display: none !important; }
 }
+
+/* 의뢰 출력물(RequestPrint) — 브라우저는 인쇄 때 배경을 지우므로(간트 막대·칩·요약 카드가 사라진다) 그대로 찍게 하고,
+   표지 뒤 섹션은 새 쪽에서 시작, 카드·행·도면은 쪽 경계에서 쪼개지 않는다. 용지(A4 가로)는 화면이 @page 를 붙인다. */
+.develop-print {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+@media print {
+  .develop-print .print-page + .print-page { break-before: page; }
+  .develop-print :is(h2, h3, h4) { break-after: avoid; }
+  .develop-print :is(li, tr, img, figure, .print-keep) { break-inside: avoid; }
+  /* 카드 그림자는 쪽 경계에서 검은 띠로 찍힌다 — 종이에선 얇은 테두리로 바꾸고, 쪽을 넘는 카드는 쪽마다 모서리·여백을 다시 두른다. */
+  .develop-print [class*='shadow-']:not(.print-page) { box-shadow: none !important; outline: 1px solid #e3e6eb; outline-offset: -1px; }
+  .develop-print .print-page > div > * { -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+}
