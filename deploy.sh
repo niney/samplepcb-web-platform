@@ -37,7 +37,8 @@ MONO="$ROOT/samplepcb-web-mono-app"
 
 [[ -d "$MONO" ]] || { echo "경로 없음: $MONO"; exit 1; }
 cd "$MONO"
-PRE_DEPLOY_CODE_REF="$(git -C "$ROOT" rev-parse HEAD)"
+# 자기 갱신 뒤 다시 시작할 때(아래 pull)는 처음 실행 때의 HEAD 를 물려받는다 — DB 원복 백업의 기준 커밋.
+PRE_DEPLOY_CODE_REF="${PRE_DEPLOY_CODE_REF:-$(git -C "$ROOT" rev-parse HEAD)}"
 
 # ── 헬퍼 ────────────────────────────────────────────────
 step()         { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
@@ -48,7 +49,20 @@ clean_stale()  { step "스테일 emit 정리";
   git -C "$ROOT" status --porcelain | sed -n 's/^?? //p' \
     | grep -E '/src/.*\.js$|\.tsbuildinfo$' \
     | while IFS= read -r f; do rm -f "$ROOT/$f" && echo "  삭제: $f"; done || true; }
-pull()         { step "코드 받기";             git -C "$ROOT" pull --ff-only; clean_stale; pnpm install --frozen-lockfile; }
+# 이 스크립트는 실행 중에 자기 자신을 pull 한다. bash 는 함수를 시작할 때 이미 읽어 두므로, 그대로 가면
+# 이번 실행은 옛 단계로 돈다(2026-10-22: 빌드에서 뺀 vue-tsc 가 첫 배포에 그대로 돌았다).
+# 받은 deploy.sh 가 바뀌었으면 같은 케이스로 한 번만 다시 시작한다.
+pull() {
+  step "코드 받기"
+  local self="$ROOT/deploy.sh" before
+  before="$(sha1sum "$self" | cut -d' ' -f1)"
+  git -C "$ROOT" pull --ff-only
+  if [[ -z "${DEPLOY_REEXEC:-}" && "$(sha1sum "$self" | cut -d' ' -f1)" != "$before" ]]; then
+    printf '\ndeploy.sh 가 갱신됐다 — 새 내용으로 케이스 %s 를 다시 시작한다\n' "$choice"
+    DEPLOY_REEXEC=1 PRE_DEPLOY_CODE_REF="$PRE_DEPLOY_CODE_REF" exec bash "$self" "$choice"
+  fi
+  clean_stale; pnpm install --frozen-lockfile
+}
 gen()          { step "prisma generate";       pnpm --filter api db:generate; }
 migrate()      { step "DB 원복 백업 · 변경 확인 · prisma migrate deploy"; pnpm --filter api db:prepare --always-backup --code-ref "$PRE_DEPLOY_CODE_REF"; }
 build_api()    { step "sp-api 빌드";           pnpm --filter api build; }
