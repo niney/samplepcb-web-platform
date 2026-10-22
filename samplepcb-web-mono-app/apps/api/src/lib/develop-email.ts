@@ -7,7 +7,7 @@ import type { MailLogMeta } from './mail-log';
 
 // ── 개발의뢰 알림 메일(docs/DEVELOP_FLOW.md §9) — 비차단, sp_mail_log 기록 ─────────────────
 // market-email.ts 매체 원칙 미러: table + inline style, 동적 값 esc(). 발송은 액션 성패와 독립(로그만).
-// 고객: 접수 확인 · 견적 발송 · 결제 확인 · 납품 · 검수 확정 · 진행 불가/취소 · 문의 답변
+// 고객: 접수 확인 · 견적 발송 · 결제 확인 · 납품 · 검수 확정 · 진행 불가/취소 · 문의 답변 · 중간 확인 요청
 // 관리자(settings.notifyEmails): 새 의뢰 · 수락 · 결제 확인 · 고객 문의 · 검수 확정
 
 const esc = (v: string | number | null | undefined): string =>
@@ -56,7 +56,8 @@ const table = (rows: string): string =>
 
 const para = (text: string): string => `<p style="margin:0 0 10px;font-size:14px;line-height:1.6;color:#334155;">${esc(text)}</p>`;
 
-const customerPath = (requestId: number): string => `/develop/requests/${String(requestId)}`;
+// 고객 상세는 탭 구조(2026-10-22) — 메일은 할 일이 있는 탭으로 바로 연다(#quotes·#documents·#timeline, 없으면 첫 탭).
+const customerPath = (requestId: number, tab = ''): string => `/develop/requests/${String(requestId)}${tab === '' ? '' : `#${tab}`}`;
 const adminPath = (requestId: number): string => `/app/admin/develop/requests/${String(requestId)}`;
 
 interface RequestBrief { requestId: number; title: string; serviceAreas: readonly string[] }
@@ -120,7 +121,7 @@ export function buildQuoteSentEmail(p: RequestBrief & { version: number; totalAm
             row('합계(VAT 포함)', won(p.totalAmount)) +
             row('유효기간', `${p.validUntil} 까지`),
         ),
-      customerPath(p.requestId),
+      customerPath(p.requestId, 'quotes'),
       '견적서 보기',
     ),
   };
@@ -147,7 +148,7 @@ export function buildPaymentConfirmedEmail(p: RequestBrief & { milestoneTitle: s
       `${p.milestoneTitle} 결제가 확인되었습니다`,
       para(p.started ? '개발에 착수합니다. 진행 상황은 의뢰 화면의 타임라인으로 알려드립니다.' : '결제 내용이 반영되었습니다.') +
         table(row('의뢰', p.title) + row('결제', `${p.milestoneTitle} · ${won(p.amount)}`)),
-      customerPath(p.requestId),
+      customerPath(p.requestId, p.started ? 'documents' : 'timeline'),
       '의뢰 확인',
     ),
   };
@@ -161,7 +162,7 @@ export function buildDeliveredEmail(p: RequestBrief & { reviewDays: number; auto
       '산출물이 납품되었습니다',
       para(`의뢰 화면에서 산출물을 확인하시고 검수 결과를 알려 주세요. ${String(p.reviewDays)}일(${p.autoConfirmAt}) 안에 의견이 없으면 납품이 확정된 것으로 봅니다.`) +
         table(row('의뢰', p.title)),
-      customerPath(p.requestId),
+      customerPath(p.requestId, 'timeline'),
       '산출물 확인',
     ),
   };
@@ -175,8 +176,22 @@ export function buildCompletedEmail(p: RequestBrief & { confirmedBy: 'client' | 
     html: shell(
       '검수가 확정되었습니다',
       table(row('의뢰', p.title) + row('확정', how)),
-      p.forAdmin ? adminPath(p.requestId) : customerPath(p.requestId),
+      p.forAdmin ? adminPath(p.requestId) : customerPath(p.requestId, 'timeline'),
       '의뢰 확인',
+    ),
+  };
+}
+
+// 고객 — 중간 확인 요청(담당자가 중간 결과의 확인·승인을 요청). 고객이 답할 차례라 진행·문의 탭으로 바로 연다.
+export function buildReviewRequestEmail(p: RequestBrief & { reviewTitle: string; excerpt: string }): DevelopEmail {
+  return {
+    subject: `[샘플피씨비 개발의뢰] 확인 요청이 도착했습니다 — ${p.title}`,
+    html: shell(
+      '담당자가 확인을 요청했습니다',
+      para('중간 결과를 확인하시고 의뢰 화면에서 승인하시거나 수정 요청을 남겨 주세요. 승인하시면 다음 단계로 진행합니다.') +
+        table(row('의뢰', p.title) + row('요청', p.reviewTitle) + (p.excerpt === '' ? '' : row('내용', p.excerpt))),
+      customerPath(p.requestId, 'timeline'),
+      '확인하러 가기',
     ),
   };
 }
@@ -188,7 +203,7 @@ export function buildCommentEmail(p: RequestBrief & { forAdmin: boolean; excerpt
     html: shell(
       p.forAdmin ? '고객이 문의를 남겼습니다' : '담당자가 답변을 남겼습니다',
       table(row('의뢰', p.title) + row('내용', p.excerpt)),
-      p.forAdmin ? adminPath(p.requestId) : customerPath(p.requestId),
+      p.forAdmin ? adminPath(p.requestId) : customerPath(p.requestId, 'timeline'),
       '문의 보기',
     ),
   };
@@ -205,7 +220,7 @@ export function buildDocumentSentEmail(p: RequestBrief & { docNo: string; docLab
     html: shell(
       `${p.docLabel} (${p.docNo})`,
       paragraphs + table(row('의뢰', p.title) + row('문서', `${p.docNo} ${p.docLabel}`) + (p.replyDueOn === null ? '' : row('회신 요청일', p.replyDueOn))),
-      `${customerPath(p.requestId)}#documents`,
+      customerPath(p.requestId, 'documents'),
       '문서 확인·회신',
     ),
   };

@@ -54,7 +54,14 @@ import {
 import { developReviewDraftRunning, startDevelopAiDrafts } from '../lib/develop-ai';
 import { REF_DEVELOP_DOCUMENT, buildDevelopProgress, closeDeliveryConfirmDocs, developOpsFor, emptyDevelopOps, loadDevelopDocuments, loadDevelopTasks, toAdminDevelopDocumentView } from '../lib/develop-docs';
 import { developReferenceFiles, developSourceSignature } from '../lib/develop-ai-source';
-import { buildCompletedEmail, buildDeliveredEmail, buildStatusChangedEmail, sendDevelopMail } from '../lib/develop-email';
+import {
+  buildCommentEmail,
+  buildCompletedEmail,
+  buildDeliveredEmail,
+  buildReviewRequestEmail,
+  buildStatusChangedEmail,
+  sendDevelopMail,
+} from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy } from '../lib/develop-payment';
 import { buildFilePreview } from '../lib/file-preview';
 import {
@@ -730,6 +737,19 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         await customerEmailOf(r),
         buildDeliveredEmail({ requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas), reviewDays: r.reviewDays, autoConfirmAt }),
         { kind: 'develop_delivered', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: r.mbId },
+      );
+    }
+    // 고객이 답할 차례인 기록(문의 답변·중간 확인 요청)은 메일로도 알린다(사용자 결정 2026-10-22). 비공개 기록은 보내지 않는다.
+    if (p.visibleToCustomer && (p.type === 'comment' || p.type === 'review_request')) {
+      const brief = { requestId: Number(r.id), title: r.title, serviceAreas: toDevelopAreaCodes(r.serviceAreas) };
+      const excerpt = p.body.slice(0, 200);
+      void sendDevelopMail(
+        request.log,
+        await customerEmailOf(r),
+        p.type === 'comment'
+          ? buildCommentEmail({ ...brief, forAdmin: false, excerpt: excerpt === '' ? '첨부 파일을 보냈습니다' : excerpt })
+          : buildReviewRequestEmail({ ...brief, reviewTitle: event.title, excerpt }),
+        { kind: p.type === 'comment' ? 'develop_reply' : 'develop_review_request', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: r.mbId },
       );
     }
     const eventFiles = await developEventFiles([event.id]);
