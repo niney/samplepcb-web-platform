@@ -52,9 +52,12 @@ pull()         { step "코드 받기";             git -C "$ROOT" pull --ff-only
 gen()          { step "prisma generate";       pnpm --filter api db:generate; }
 migrate()      { step "DB 원복 백업 · 변경 확인 · prisma migrate deploy"; pnpm --filter api db:prepare --always-backup --code-ref "$PRE_DEPLOY_CODE_REF"; }
 build_api()    { step "sp-api 빌드";           pnpm --filter api build; }
-build_web()    { step "sp-vue(web) 빌드";      pnpm --filter web build; }
-build_market() { step "sp-market 빌드";        pnpm --filter market build; }
-build_develop(){ step "sp-develop 빌드";        pnpm --filter develop build; }
+# 정적 빌드는 타입 검사(vue-tsc) 없이 vite build 만 돈다 — vue-tsc 가 web 하나에 약 3.5GB 를 써서
+# 다른 서비스가 같이 도는 운영 서버에서는 스왑까지 다 차 빌드가 멈췄다(2026-10-22). vite build 는 약 1.4GB.
+# 타입 검사는 푸시 전에 로컬에서: pnpm --filter web typecheck (market·develop 도 같은 이름).
+build_web()    { step "sp-vue(web) 빌드";      pnpm --filter web exec vite build; }
+build_market() { step "sp-market 빌드";        pnpm --filter market exec vite build; }
+build_develop(){ step "sp-develop 빌드";        pnpm --filter develop exec vite build; }
 # 마이그레이션 뒤 시드 — 개발의뢰 영카트 앵커 상품(sp-develop-svc). 있으면 skip 이라 매번 돌려도 된다.
 seed_develop() { step "개발의뢰 앵커 시드";     pnpm --filter api run develop:seed-anchor; }
 api_restart()  { step "sp-api 재시작";         sudo systemctl restart sp-api; }
