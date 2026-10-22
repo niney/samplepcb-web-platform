@@ -1,82 +1,61 @@
 <script setup lang="ts">
-import { DEVELOP_INDIVIDUAL_TAG } from '@sp/api-contract';
-import { AreaIcon } from '@sp/ui';
+import { computed } from 'vue';
 import type { DevelopRequestForm } from '../../composables/useRequestForm';
+import radioOn from '../../assets/wizard/radio-on.svg';
+import radioOff from '../../assets/wizard/radio-off.svg';
+import photoSystem from '../../assets/wizard/photo-system.jpg';
+import photoPcb from '../../assets/wizard/photo-pcb.jpg';
+import photoApp from '../../assets/wizard/photo-app.jpg';
+import photoServer from '../../assets/wizard/photo-server.jpg';
+import photoMech from '../../assets/wizard/photo-mech.jpg';
 
-// 위저드 1스텝 — 개발 메뉴(2026-09-08 v2).
-// 카드 5장: 「시스템개발」(배타 — 회로·펌웨어는 여기서만 다룬다) + 개별 견적 4분야(PCB·기구·앱·서버, 복수 선택).
-// 카드 목록·라벨·꼬리표는 전부 계약(DEVELOP_SYSTEM_MENU · DEVELOP_INDIVIDUAL_AREAS)에서 온다.
-// 수정 화면도 이 컴포넌트를 그대로 쓴다(분야를 바꾸면 3스텝 질문이 통째로 바뀐다).
+// 위저드 1스텝 — 개발 메뉴. 피그마 01-1(70:800): 510×120 카드 2열 — 라디오(30) · 이름(22 굵게) · 오른쪽 사진 170×120.
+// 시안은 6장(펌웨어·'기타 소프트웨어 개발'·'디자인 및 기구 설계')이지만 메뉴는 계약 5개 그대로(사용자 결정 2026-10-22):
+// 시안 자리 순서대로 시스템·PCB / 앱(시안 '기타 소프트웨어' 사진) · 서버 / 기구(시안 '디자인 및 기구' 사진). 펌웨어 카드는 없다.
+// 사진은 시안 마스크 안에서 보이는 영역만 2배로 잘라 둔 것(assets/wizard/photo-*.jpg). 시스템 개발은 단독 선택(계약 규칙).
+// 수정 화면도 이 컴포넌트를 그대로 쓴다.
 const props = defineProps<{ form: DevelopRequestForm }>();
 const { individualAreas, systemMenu, isSystem, isAreaPicked, selectSystemMenu, toggleIndividualArea } = props.form;
+
+const PHOTOS: Record<string, string> = { pcb: photoPcb, app: photoApp, server: photoServer, mech: photoMech };
+const ORDER = ['pcb', 'app', 'server', 'mech'];
+const areaCards = computed(() =>
+  [...individualAreas].sort((a, b) => ORDER.indexOf(a.code) - ORDER.indexOf(b.code)).map((a) => ({ code: a.code, label: a.label, photo: PHOTOS[a.code] ?? null })),
+);
+
+const CARD = 'relative flex h-[100px] w-full items-center overflow-hidden rounded-[14px] bg-white pl-[24px] text-left transition-shadow hover:shadow-[0_6px_14px_rgba(0,0,0,0.06)] sm:h-[120px] sm:pl-[34px]';
 </script>
 
 <template>
-  <div class="grid gap-5">
-    <div class="grid gap-1.5">
-      <h2 class="text-title font-extrabold text-tx-1">
-        어떤 개발이 필요하신가요? <span class="text-red-500">*</span>
-      </h2>
-      <p class="text-body leading-relaxed text-tx-2">
-        시스템 개발은 제품 개발에 필요한 전체 업무를 분석합니다. 개별 견적은 여러 분야를 함께 선택할 수 있습니다.
-      </p>
-    </div>
-
-    <div class="grid gap-2.5 sm:grid-cols-2">
-      <!-- 시스템개발(배타) -->
-      <button
-        type="button"
-        class="flex items-start gap-3 rounded-xl border-2 p-5 text-left transition sm:col-span-2"
-        :class="isSystem ? 'border-brand-500 bg-brand-50' : 'border-ink-950 bg-white hover:bg-paper'"
-        :aria-pressed="isSystem"
-        @click="selectSystemMenu"
-      >
-        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-950 text-white">
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
-            <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" /><path d="M17.25 13.5v7.5M13.5 17.25h7.5" />
-          </svg>
+  <div class="grid gap-[16px] md:grid-cols-2 md:gap-x-[40px] md:gap-y-[30px]">
+    <!-- 시스템 개발(단독) -->
+    <button type="button" :class="CARD" :aria-pressed="isSystem" @click="selectSystemMenu">
+      <span class="flex min-w-0 flex-1 items-center gap-[16px] pr-[12px] sm:gap-[22px]">
+        <img :src="isSystem ? radioOn : radioOff" alt="" width="30" height="30" class="block size-[30px] shrink-0">
+        <span class="flex flex-wrap items-baseline gap-x-[8px] leading-[1.2]">
+          <span class="text-[19px] font-bold text-black sm:text-[22px]">{{ systemMenu.label }}</span>
+          <span class="text-[15px] font-medium text-[#595e67] sm:text-[16px]">(통합)</span>
         </span>
-        <span class="grid min-w-0 gap-1">
-          <span class="flex flex-wrap items-center gap-2">
-            <span class="text-title font-extrabold text-tx-1">{{ systemMenu.label }}</span>
-            <span class="rounded-full bg-ink-950 px-2.5 py-0.5 text-micro font-bold text-white">{{ systemMenu.tag }}</span>
-          </span>
-          <span class="text-body leading-relaxed text-tx-2">{{ systemMenu.hint }}</span>
-        </span>
-        <span
-          class="ml-auto mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-black text-white"
-          :class="isSystem ? 'border-brand-500 bg-brand-500' : 'border-line-2 bg-white'"
-        >{{ isSystem ? '✓' : '' }}</span>
-      </button>
+      </span>
+      <img :src="photoSystem" alt="" width="170" height="120" class="hidden h-full w-[142px] shrink-0 rounded-r-[14px] object-cover min-[400px]:block sm:w-[170px]">
+      <span class="pointer-events-none absolute inset-0 rounded-[14px]" :class="isSystem ? 'border-2 border-[#2945e8]' : 'border border-[#d9d9d9]'" aria-hidden="true" />
+    </button>
 
-      <!-- 개별 견적 4분야(복수 선택) -->
-      <button
-        v-for="area in individualAreas"
-        :key="area.code"
-        type="button"
-        class="flex items-start gap-3 rounded-xl border-2 bg-white p-4 text-left transition"
-        :class="isAreaPicked(area.code) ? 'border-brand-500 shadow-[0_1px_0_0_var(--color-brand-500)]' : 'border-line hover:border-line-2'"
-        :aria-pressed="isAreaPicked(area.code)"
-        @click="toggleIndividualArea(area.code)"
-      >
-        <AreaIcon :code="area.code" />
-        <span class="grid min-w-0 gap-1">
-          <span class="flex flex-wrap items-center gap-2">
-            <span class="text-body font-extrabold text-tx-1">{{ area.label }}</span>
-            <span class="rounded-full bg-paper px-2 py-0.5 text-micro font-bold text-tx-2">{{ DEVELOP_INDIVIDUAL_TAG }}</span>
-          </span>
-          <span class="text-label leading-relaxed text-tx-3">{{ area.hint }}</span>
-        </span>
-        <span
-          class="ml-auto mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-black text-white"
-          :class="isAreaPicked(area.code) ? 'border-brand-500 bg-brand-500' : 'border-line-2 bg-white'"
-        >{{ isAreaPicked(area.code) ? '✓' : '' }}</span>
-      </button>
-    </div>
-
-    <p class="rounded-xl bg-paper px-4 py-3 text-label leading-relaxed text-tx-2">
-      <b class="font-bold text-tx-1">시스템 개발</b>은 다른 메뉴와 동시에 선택하지 않습니다. PCB·기구·앱·서버는 복수 선택할 수 있습니다.
-    </p>
+    <!-- 개별 견적 4분야(복수 선택) -->
+    <button
+      v-for="area in areaCards"
+      :key="area.code"
+      type="button"
+      :class="CARD"
+      :aria-pressed="isAreaPicked(area.code)"
+      @click="toggleIndividualArea(area.code)"
+    >
+      <span class="flex min-w-0 flex-1 items-center gap-[16px] pr-[12px] sm:gap-[22px]">
+        <img :src="isAreaPicked(area.code) ? radioOn : radioOff" alt="" width="30" height="30" class="block size-[30px] shrink-0">
+        <span class="text-[19px] font-bold leading-[1.2] text-black sm:text-[22px]">{{ area.label }}</span>
+      </span>
+      <img v-if="area.photo !== null" :src="area.photo" alt="" width="170" height="120" class="hidden h-full w-[142px] shrink-0 rounded-r-[14px] object-cover min-[400px]:block sm:w-[170px]">
+      <span class="pointer-events-none absolute inset-0 rounded-[14px]" :class="isAreaPicked(area.code) ? 'border-2 border-[#2945e8]' : 'border border-[#d9d9d9]'" aria-hidden="true" />
+    </button>
   </div>
 </template>

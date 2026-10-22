@@ -226,28 +226,28 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     await page.getByText('어떤 개발이 필요하신가요?').waitFor();
     expect(await page.getByRole('button', { name: /^PCB 설계/ }).getAttribute('aria-pressed')).toBe('true');
     await page.getByRole('button', { name: /^앱 개발/ }).click();
-    await page.getByRole('button', { name: /다음 단계/ }).click();
+    await page.getByRole('button', { name: /^NEXT/ }).click();
 
-    await page.getByPlaceholder('예: 매장용 자동 음료 디스펜서 개발').fill(TITLE);
+    await page.getByPlaceholder('의뢰 제목을 입력하세요.').fill(TITLE);
     await page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill('[e2e 여정] 배터리로 1년 동작하는 BLE 온습도 로거. 스마트폰 앱에서 기록을 조회하고 내보냅니다.');
     await page.getByRole('button', { name: '아이디어', exact: true }).click();
     await page.getByRole('button', { name: '시제품 완성', exact: true }).click();
     await page.getByPlaceholder('계약 후 3개월').fill('계약 후 3개월');
     await page.locator('select').first().selectOption({ label: '1천만~3천만원' });
     await page.getByText('입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다.').click();
-    await page.getByRole('button', { name: /다음 단계/ }).click();
+    await page.getByRole('button', { name: /^NEXT/ }).click();
 
     await page.getByText('개별 개발 전문 질문').waitFor();
     await page.getByRole('button', { name: '신규 설계', exact: true }).click();
     await page.getByRole('button', { name: 'KiCad', exact: true }).click();
-    await page.getByRole('button', { name: /다음 단계/ }).click();
+    await page.getByRole('button', { name: /^NEXT/ }).click();
     await page.getByText('제작 없음', { exact: true }).click();
-    await page.getByRole('button', { name: /다음 단계/ }).click();
+    await page.getByRole('button', { name: /^NEXT/ }).click();
 
     await page.getByPlaceholder('홍길동').fill('여정고객');
     await page.getByPlaceholder('010-0000-0000').fill('010-2345-6789');
     await page.getByPlaceholder('name@company.com').fill(JOURNEY_EMAIL);
-    await page.getByRole('button', { name: '개발의뢰 접수' }).click();
+    await page.getByRole('button', { name: /^DONE/ }).click();
     await page.getByText('개발의뢰가 접수되었습니다').waitFor({ timeout: 20_000 });
 
     const list = await call('GET', '/api/develop/my/requests?pageSize=50', customerToken);

@@ -11,13 +11,13 @@ const key = `${prefix}:${encodeURIComponent(identity.mbId)}`;
 const notice = '회원정보로 채웠습니다. 이번 의뢰의 담당자 정보로 수정할 수 있습니다.';
 
 async function next(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /다음 단계/ }).click();
+  await page.getByRole('button', { name: /^NEXT/ }).click();
 }
 
 async function reachReview(page: Page): Promise<void> {
   await page.getByText('시스템 개발', { exact: true }).first().click();
   await next(page);
-  await page.getByPlaceholder('예: 매장용 자동 음료 디스펜서 개발').fill('연락처 자동 입력 확인');
+  await page.getByPlaceholder('의뢰 제목을 입력하세요.').fill('연락처 자동 입력 확인');
   await page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill('센서의 값을 모아 펌프를 자동 제어하는 장비 개발');
   await page.getByRole('button', { name: '아이디어', exact: true }).click();
   await page.getByRole('button', { name: '시제품 완성', exact: true }).click();
@@ -68,7 +68,7 @@ describe.skipIf(!RUN)('개발의뢰 회원정보 자동 채움', () => {
       expect(await s.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await s.page.getByPlaceholder('홍길동').fill('이번 의뢰 담당자');
       await s.page.getByPlaceholder('(주)샘플피씨비').fill('');
-      await s.page.getByRole('button', { name: '이전', exact: true }).click();
+      await s.page.getByRole('button', { name: /^previous$/i }).click();
       await next(s.page);
       expect((await values(s.page)).slice(0, 2)).toEqual(['이번 의뢰 담당자', '']);
       expect(requests).toBe(1);

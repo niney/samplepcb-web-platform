@@ -8,213 +8,196 @@ import {
   DEVELOP_TARGET_STAGES,
   DEVELOP_TARGET_STAGE_LABELS,
 } from '@sp/api-contract';
-import { FileDropZone } from '@sp/ui';
 import type { DevelopRequestForm } from '../../composables/useRequestForm';
+import { WIZ } from '../../lib/wizard-copy';
+import WizDropZone from './WizDropZone.vue';
+import WizCheck from './WizCheck.vue';
+import stageOn from '../../assets/wizard/stage-on.svg';
+import stageOff from '../../assets/wizard/stage-off.svg';
+import radioOn from '../../assets/wizard/radio-on.svg';
+import radioOff from '../../assets/wizard/radio-off.svg';
+import icoCalendar from '../../assets/wizard/ico-calendar.svg';
+import icoSelect from '../../assets/wizard/ico-select.svg';
 
-// 위저드 2스텝 — 의뢰 내용(2026-09-08 v2).
-// 제목 · 개발 목적(≥10자) · 현재/목표 개발단계 · 희망 완료 시기(날짜 또는 자유문) · 예상 예산
-// · 참고 자료 + 자료 사용 동의(필수) · (시스템개발일 때) 후속 질문 방식.
-// 동의 체크가 여기 있는 이유: 시스템개발 AI 후속 질문(§7.2.2)이 2→3 전환에서 설명문과 첨부를 외부 AI 로 보낸다.
-// 단계·예산 라벨은 계약 사전(DEVELOP_*_LABELS)에서만 온다.
-// 수정 화면도 이 컴포넌트를 쓴다 — 다만 첨부는 거기서 서버에 즉시 반영하므로 그 블록을 끈다(동의도 접수 때 이미 받았다).
+// 위저드 2스텝 — 의뢰 내용. 피그마 01-2(70:1069, 900 폭): 제목 입력(72) + 개발 목적(회색 상자) · 현재/목표 개발단계(점선으로
+// 이은 라디오 줄) · 희망 완료 시기(날짜 상자)와 예산(선택 상자) · 참고 자료 드롭존 + 자료 사용 동의 · (시스템 개발이면) 진행 절차 2택.
+// 희망 시기는 시안의 날짜 상자에 더해 기간 문구 칸을 둔다(사용자 결정 2026-10-22 — 실제 의뢰 대부분이 '계약 후 n개월').
+// 동의 체크가 여기 있는 이유: 시스템 개발 AI 질의가 2→3 전환에서 설명문과 첨부를 외부 AI 로 보낸다.
+// 수정 화면도 이 컴포넌트를 쓴다 — 첨부는 거기서 즉시 반영하므로 그 블록을 끈다(동의도 접수 때 이미 받았다).
 const props = withDefaults(defineProps<{ form: DevelopRequestForm; showAttachments?: boolean }>(), {
   showAttachments: true,
 });
 const { fields, isSystem, attachments, addAttachments, removeAttachment } = props.form;
 
-const currentStages = DEVELOP_CURRENT_STAGES;
-const currentStageLabels = DEVELOP_CURRENT_STAGE_LABELS;
-const targetStages = DEVELOP_TARGET_STAGES;
-const targetStageLabels = DEVELOP_TARGET_STAGE_LABELS;
-const budgetRanges = DEVELOP_BUDGET_RANGES;
-const budgetLabels = DEVELOP_BUDGET_RANGE_LABELS;
+// 개발단계 두 줄 — 같은 모양이라 한 목록으로 그리고, 고른 코드는 각 사전에서 다시 찾아 넣는다(문자열 캐스팅 없이).
+type StageKey = 'current' | 'target';
+const STAGE_GROUPS = [
+  { key: 'current', title: '현재 개발단계', options: DEVELOP_CURRENT_STAGES.map((c) => ({ code: c, label: DEVELOP_CURRENT_STAGE_LABELS[c] })) },
+  { key: 'target', title: '목표 개발단계', options: DEVELOP_TARGET_STAGES.map((c) => ({ code: c, label: DEVELOP_TARGET_STAGE_LABELS[c] })) },
+] as const satisfies readonly { key: StageKey; title: string; options: { code: string; label: string }[] }[];
+const stageOf = (key: StageKey): string | null => (key === 'current' ? fields.currentStage : fields.targetStage);
+function pickStage(key: StageKey, code: string): void {
+  if (key === 'current') {
+    const hit = DEVELOP_CURRENT_STAGES.find((c) => c === code);
+    if (hit !== undefined) fields.currentStage = hit;
+    return;
+  }
+  const hit = DEVELOP_TARGET_STAGES.find((c) => c === code);
+  if (hit !== undefined) fields.targetStage = hit;
+}
 
-const titleLength = computed(() => fields.title.length);
-const descriptionLength = computed(() => fields.description.length);
-const chipClass = (on: boolean): string =>
-  on ? 'border-ink-900 bg-ink-900 text-white' : 'border-line-2 bg-white text-tx-2 hover:border-tx-3';
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const;
+const wishDateLabel = computed(() => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fields.wishDate)) return '';
+  const [y, mo, da] = fields.wishDate.split('-').map(Number) as [number, number, number];
+  const d = new Date(y, mo - 1, da);
+  return `${fields.wishDate.replace(/-/g, '.')} (${WEEKDAYS[d.getDay()] ?? ''}요일)`;
+});
+// 날짜 상자 전체를 누르면 달력을 연다(지원 안 하는 브라우저는 입력 칸 기본 동작 그대로).
+function openPicker(e: Event): void {
+  const input = e.currentTarget as HTMLInputElement;
+  try {
+    input.showPicker();
+  } catch {
+    // 일부 브라우저는 사용자 제스처 밖이거나 미지원이면 던진다 — 기본 동작에 맡긴다.
+  }
+}
 </script>
 
 <template>
-  <div class="grid gap-7">
-    <div class="grid gap-1.5">
-      <h2 class="text-title font-extrabold text-tx-1">의뢰 내용을 알려주세요</h2>
-      <p class="text-body leading-relaxed text-tx-2">기술용어보다 개발 목적과 사용 상황을 중심으로 작성해도 충분합니다.</p>
-    </div>
-
+  <div class="flex flex-col gap-[40px]">
     <!-- 제목 · 목적 -->
-    <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6">
-      <label class="grid gap-2">
-        <span class="flex items-baseline gap-2 text-label font-bold text-tx-2">
-          의뢰 제목 <span class="text-red-500">*</span>
-          <span class="ml-auto font-mono text-micro tabular-nums text-tx-3">{{ titleLength }} / 200</span>
-        </span>
+    <section :class="WIZ.section">
+      <h2 :class="WIZ.sectionTitle">무엇을 개발하고 어떤 문제를 해결하고 싶으신가요? <span class="text-red-500">*</span></h2>
+      <div class="flex flex-col gap-[14px]">
         <input
           v-model="fields.title"
           type="text"
           maxlength="200"
-          placeholder="예: 매장용 자동 음료 디스펜서 개발"
-          class="h-11 rounded-lg border border-line-2 bg-white px-3.5 text-body text-tx-1 outline-none focus:border-brand-500"
+          placeholder="의뢰 제목을 입력하세요."
+          aria-label="의뢰 제목"
+          class="font-bold placeholder:font-bold placeholder:text-[#555]"
+          :class="WIZ.input"
         >
-      </label>
-
-      <label class="grid gap-2">
-        <span class="flex items-baseline gap-2 text-label font-bold text-tx-2">
-          무엇을 개발하고 어떤 문제를 해결하고 싶으신가요? <span class="text-red-500">*</span>
-          <span class="ml-auto font-mono text-micro tabular-nums" :class="descriptionLength < 10 ? 'text-tx-3' : 'text-brand-600'">
-            {{ descriptionLength }} / 3,000
-          </span>
-        </span>
         <textarea
           v-model="fields.description"
-          rows="7"
+          rows="8"
           maxlength="3000"
-          placeholder="예: 여러 센서의 값을 수집하고 설정 범위를 벗어나면 펌프와 솔레노이드 밸브를 자동으로 제어하는 장비가 필요합니다. 스마트폰에서 상태 확인과 설정 변경도 가능해야 합니다."
-          class="rounded-lg border border-line-2 bg-white p-3.5 text-body leading-relaxed text-tx-1 outline-none focus:border-brand-500"
+          aria-label="개발 목적"
+          placeholder="예) 여러 센서의 값을 수집하고 설정 범위를 벗어나면 펌프와 솔레노이드 밸브를 자동으로 제어하는 장비가 필요합니다. 스마트폰에서 상태 확인과 설정 변경도 가능해야 합니다."
+          class="min-h-[240px] sm:min-h-[314px]"
+          :class="WIZ.textarea"
         />
-        <span class="text-label text-tx-3">10자 이상. 자세히 적을수록 검토와 견적이 빨라집니다.</span>
-      </label>
-    </section>
-
-    <!-- 개발단계 -->
-    <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6 md:grid-cols-2">
-      <div class="grid content-start gap-2">
-        <p class="text-label font-bold text-tx-2">현재 개발단계 <span class="text-red-500">*</span></p>
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="s in currentStages"
-            :key="s"
-            type="button"
-            class="h-9 rounded-full border px-3.5 text-label font-semibold transition"
-            :class="chipClass(fields.currentStage === s)"
-            :aria-pressed="fields.currentStage === s"
-            @click="fields.currentStage = s"
-          >
-            {{ currentStageLabels[s] }}
-          </button>
-        </div>
-      </div>
-      <div class="grid content-start gap-2">
-        <p class="text-label font-bold text-tx-2">목표 개발단계 <span class="text-red-500">*</span></p>
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="s in targetStages"
-            :key="s"
-            type="button"
-            class="h-9 rounded-full border px-3.5 text-label font-semibold transition"
-            :class="chipClass(fields.targetStage === s)"
-            :aria-pressed="fields.targetStage === s"
-            @click="fields.targetStage = s"
-          >
-            {{ targetStageLabels[s] }}
-          </button>
-        </div>
+        <p class="flex justify-between gap-[12px] text-[14px] text-[#999]">
+          <span>10자 이상. 자세히 적을수록 검토와 견적이 빨라집니다.</span>
+          <span class="shrink-0 tabular-nums" :class="fields.description.length < 10 ? '' : 'text-[#2945e8]'">{{ fields.description.length }} / 3,000</span>
+        </p>
       </div>
     </section>
 
-    <!-- 일정 · 예산 -->
-    <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6 md:grid-cols-2">
-      <div class="grid content-start gap-2">
-        <p class="text-label font-bold text-tx-2">희망 완료 시기 <span class="text-red-500">*</span></p>
-        <div class="flex flex-wrap items-center gap-2.5">
-          <input
-            v-model="fields.wishDate"
-            type="date"
-            class="h-11 min-w-[10.5rem] rounded-lg border border-line-2 bg-white px-3 text-body text-tx-1 outline-none focus:border-brand-500"
+    <!-- 현재 · 목표 개발단계 -->
+    <section v-for="group in STAGE_GROUPS" :key="group.key" :class="WIZ.section">
+      <h2 :class="WIZ.sectionTitle">{{ group.title }} <span class="text-red-500">*</span></h2>
+      <div class="flex flex-wrap items-center gap-x-[10px] gap-y-[12px]" role="group" :aria-label="group.title">
+        <template v-for="(opt, oi) in group.options" :key="opt.code">
+          <span v-if="oi > 0" class="hidden h-px w-[24px] bg-[#d9d9d9] sm:block" aria-hidden="true" />
+          <button
+            type="button"
+            class="flex items-center gap-[6px] text-[17px] font-bold leading-[1.2] sm:text-[20px]"
+            :class="stageOf(group.key) === opt.code ? 'text-[#2945e8]' : 'text-black'"
+            :aria-pressed="stageOf(group.key) === opt.code"
+            @click="pickStage(group.key, opt.code)"
           >
-          <span class="text-label text-tx-3">또는</span>
-          <input
-            v-model="fields.wishNote"
-            type="text"
-            maxlength="200"
-            placeholder="계약 후 3개월"
-            class="h-11 min-w-0 flex-1 rounded-lg border border-line-2 bg-white px-3.5 text-body text-tx-1 outline-none focus:border-brand-500"
-          >
-        </div>
-        <span class="text-label text-tx-3">날짜와 기간 중 하나만 적으셔도 됩니다.</span>
+            <img :src="stageOf(group.key) === opt.code ? stageOn : stageOff" alt="" width="24" height="24" class="block size-[24px] shrink-0">
+            {{ opt.label }}
+          </button>
+        </template>
       </div>
+    </section>
 
-      <label class="grid content-start gap-2">
-        <span class="text-label font-bold text-tx-2">예상 개발 예산 <span class="text-red-500">*</span></span>
-        <select
-          v-model="fields.budgetRange"
-          class="h-11 rounded-lg border bg-white px-3 text-body text-tx-1 outline-none focus:border-brand-500"
-          :class="fields.budgetRange === null ? 'border-line-2' : 'border-ink-900'"
-        >
-          <option :value="null" disabled>선택해 주세요</option>
-          <option v-for="r in budgetRanges" :key="r" :value="r">{{ budgetLabels[r] }}</option>
-        </select>
-        <span class="text-label text-tx-3">정확한 금액이 아니라 구간입니다. 견적서에서 항목별로 다시 안내드립니다.</span>
-      </label>
+    <!-- 희망 완료 시기 · 예산 -->
+    <section :class="WIZ.section">
+      <h2 :class="WIZ.sectionTitle">희망 완료 시기와 예상 예산을 선택해 주세요. <span class="text-red-500">*</span></h2>
+      <div class="grid gap-[16px] md:grid-cols-2 md:gap-[40px]">
+        <div class="flex flex-col gap-[12px]">
+          <label :class="WIZ.selectBox" class="cursor-pointer justify-between gap-[12px]">
+            <img :src="icoCalendar" alt="" width="30" height="30" class="block size-[30px] shrink-0">
+            <span :class="[WIZ.selectText, wishDateLabel === '' ? 'text-[#999]' : '']">{{ wishDateLabel === '' ? '희망 완료일 선택' : wishDateLabel }}</span>
+            <input
+              v-model="fields.wishDate"
+              type="date"
+              aria-label="희망 완료일"
+              class="absolute inset-0 size-full cursor-pointer opacity-0"
+              @click="openPicker"
+            >
+          </label>
+          <label class="flex items-center gap-[10px]">
+            <span class="shrink-0 text-[15px] font-medium text-[#666]">또는 기간</span>
+            <input
+              v-model="fields.wishNote"
+              type="text"
+              maxlength="200"
+              placeholder="계약 후 3개월"
+              class="h-[48px] min-w-0 flex-1 rounded-[10px] border border-[#d9d9d9] bg-white px-[14px] text-[17px] font-medium text-black outline-none placeholder:text-[#888] focus:border-[#2945e8]"
+            >
+          </label>
+        </div>
+        <label :class="WIZ.selectBox">
+          <select
+            v-model="fields.budgetRange"
+            aria-label="예상 개발 예산"
+            class="absolute inset-0 size-full cursor-pointer appearance-none rounded-[14px] bg-transparent pl-[24px] pr-[64px] outline-none sm:pl-[30px]"
+            :class="[WIZ.selectText, fields.budgetRange === null ? 'text-[#999]' : '']"
+          >
+            <option :value="null" disabled>예상 예산 선택</option>
+            <option v-for="r in DEVELOP_BUDGET_RANGES" :key="r" :value="r">{{ DEVELOP_BUDGET_RANGE_LABELS[r] }}</option>
+          </select>
+          <img :src="icoSelect" alt="" width="30" height="30" class="pointer-events-none absolute right-[24px] block size-[30px] sm:right-[30px]">
+        </label>
+      </div>
     </section>
 
     <!-- 참고 자료 — 수정 화면은 첨부를 즉시 반영으로 따로 다룬다(showAttachments=false) -->
-    <section v-if="showAttachments" class="grid gap-3.5">
-      <div class="flex flex-wrap items-baseline gap-2.5">
-        <h2 class="text-title font-extrabold text-tx-1">개발명세서와 참고자료를 올려주세요</h2>
-        <span class="rounded-full bg-brand-50 px-2.5 py-1 text-micro font-bold text-brand-700">AI 분석 대상</span>
-        <span class="text-label text-tx-3">선택 · 없어도 접수됩니다</span>
+    <section v-if="showAttachments" :class="WIZ.section">
+      <h2 :class="WIZ.sectionTitle">개발명세서와 참고자료를 올려주세요. (선택 사항)</h2>
+      <div class="flex flex-col gap-[18px]">
+        <WizDropZone :files="attachments" @add="addAttachments" @remove="removeAttachment" />
+        <WizCheck
+          v-model="fields.aiConsent"
+          label="입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다."
+          required
+          hint="시스템 개발에서 'AI 사전 검토 및 질의'를 고르면 다음 단계에서 AI 가 자료를 읽고 질문을 고릅니다."
+        />
       </div>
-      <FileDropZone
-        :files="attachments"
-        label="회로도, PCB 원본, Gerber, DXF·STEP, BOM, 데이터시트, 사진·영상 등을 한 번만 등록합니다."
-        hint="pdf · 이미지 · 엑셀 · 압축 파일 — 끌어다 놓거나 눌러서 선택"
-        variant="panel"
-        @add="addAttachments"
-        @remove="removeAttachment"
-      />
-
-      <!-- 자료 사용 동의 — 다음 단계에서 설명문과 이 자료가 AI 로 나간다. 그래서 체크가 여기(업로드 존 아래)에 있다. -->
-      <label class="flex items-start gap-3 rounded-xl border-2 bg-white p-4" :class="fields.aiConsent ? 'border-brand-500' : 'border-line'">
-        <input v-model="fields.aiConsent" type="checkbox" class="mt-0.5 h-4.5 w-4.5 shrink-0 accent-[var(--color-brand-500)]">
-        <span class="grid gap-1">
-          <span class="text-body font-bold text-tx-1">
-            입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다. <span class="text-red-500">*</span>
-          </span>
-          <span class="text-label leading-relaxed text-tx-3">
-            시스템 개발에서 'AI 가 자료를 보고 몇 가지만 묻기'를 고르면 다음 단계에서 AI 가 자료를 읽고 질문을 고릅니다.
-          </span>
-        </span>
-      </label>
     </section>
 
-    <!-- 후속 질문 방식 — 시스템개발에서만. 비밀유지(NDA) 체크는 5스텝(검토·접수)에 있다. -->
-    <section v-if="isSystem" class="grid gap-3 rounded-2xl border border-line bg-white p-5 sm:p-6">
-      <h2 class="text-title font-extrabold text-tx-1">후속 질문 방식</h2>
-      <button
-        type="button"
-        class="flex items-start gap-3 rounded-xl border-2 p-4 text-left transition"
-        :class="fields.expertDelegate ? 'border-line bg-white hover:border-line-2' : 'border-brand-500 bg-brand-50'"
-        :aria-pressed="!fields.expertDelegate"
-        @click="fields.expertDelegate = false"
-      >
-        <span
-          class="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border-2"
-          :class="fields.expertDelegate ? 'border-line-2 bg-white' : 'border-brand-500 bg-brand-500'"
-        ><span class="h-1.5 w-1.5 rounded-full bg-white" /></span>
-        <span class="grid gap-1">
-          <span class="text-body font-bold text-tx-1">AI 가 자료를 보고 몇 가지만 묻기</span>
-          <span class="text-label leading-relaxed text-tx-3">
-            설명과 첨부에서 확인되지 않는 것만 묻습니다. 자료를 읽는 데 30초~3분 걸립니다.
+    <!-- 진행 절차 — 시스템 개발에서만 -->
+    <section v-if="isSystem" :class="WIZ.section">
+      <h2 :class="WIZ.sectionTitle">진행 절차를 선택해 주세요.</h2>
+      <div class="grid gap-[16px] md:grid-cols-2 md:gap-[40px]" role="group" aria-label="진행 절차">
+        <button
+          v-for="opt in [
+            { delegate: false, title: 'AI 사전 검토 및 질의', desc: '자료 검토 후 필요한 사항을 질문으로 확인합니다.' },
+            { delegate: true, title: '전문가에게 맡김', desc: '기술값을 묻지 않고 담당자가 제안합니다.' },
+          ]"
+          :key="opt.title"
+          type="button"
+          class="relative flex min-h-[90px] items-center gap-[20px] rounded-[14px] bg-white px-[24px] py-[14px] text-left sm:px-[30px]"
+          :aria-pressed="fields.expertDelegate === opt.delegate"
+          @click="fields.expertDelegate = opt.delegate"
+        >
+          <img :src="fields.expertDelegate === opt.delegate ? radioOn : radioOff" alt="" width="30" height="30" class="block size-[30px] shrink-0">
+          <span class="flex min-w-0 flex-col gap-[6px]">
+            <span class="text-[18px] font-bold text-black sm:text-[20px]">{{ opt.title }}</span>
+            <span class="text-[15px] font-medium leading-[1.3] text-[#666] sm:text-[16px]">{{ opt.desc }}</span>
           </span>
-        </span>
-      </button>
-      <button
-        type="button"
-        class="flex items-start gap-3 rounded-xl border-2 p-4 text-left transition"
-        :class="fields.expertDelegate ? 'border-brand-500 bg-brand-50' : 'border-line bg-white hover:border-line-2'"
-        :aria-pressed="fields.expertDelegate"
-        @click="fields.expertDelegate = true"
-      >
-        <span
-          class="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border-2"
-          :class="fields.expertDelegate ? 'border-brand-500 bg-brand-500' : 'border-line-2 bg-white'"
-        ><span class="h-1.5 w-1.5 rounded-full bg-white" /></span>
-        <span class="grid gap-1">
-          <span class="text-body font-bold text-tx-1">전문가에게 맡김</span>
-          <span class="text-label leading-relaxed text-tx-3">기술값을 묻지 않고 담당자가 제안합니다.</span>
-        </span>
-      </button>
+          <span
+            class="pointer-events-none absolute inset-0 rounded-[14px]"
+            :class="fields.expertDelegate === opt.delegate ? 'border-2 border-[#2945e8]' : 'border border-[#d9d9d9]'"
+            aria-hidden="true"
+          />
+        </button>
+      </div>
     </section>
   </div>
 </template>

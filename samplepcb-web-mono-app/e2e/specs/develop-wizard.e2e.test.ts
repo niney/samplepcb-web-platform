@@ -47,12 +47,12 @@ async function findByTitle(title: string): Promise<DetailLite> {
 }
 
 const next = async (s: E2eSession): Promise<void> => {
-  await s.page.getByRole('button', { name: /다음 단계/ }).click();
+  await s.page.getByRole('button', { name: /^NEXT/ }).click();
 };
 
 // 2스텝 공통 입력 — 제목·목적·단계·희망 시기(자유문)·예산.
 async function fillDescribe(s: E2eSession, title: string): Promise<void> {
-  await s.page.getByPlaceholder('예: 매장용 자동 음료 디스펜서 개발').fill(title);
+  await s.page.getByPlaceholder('의뢰 제목을 입력하세요.').fill(title);
   await s.page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill('[e2e] 여러 센서 값을 모아 설정 범위를 벗어나면 펌프를 자동 제어하는 장비. 스마트폰 상태 확인.');
   await s.page.getByRole('button', { name: '아이디어', exact: true }).click();
   await s.page.getByRole('button', { name: '시제품 완성', exact: true }).click();
@@ -67,7 +67,7 @@ async function fillReviewAndSubmit(s: E2eSession): Promise<void> {
   await s.page.getByPlaceholder('홍길동').fill('위저드 고객');
   await s.page.getByPlaceholder('010-0000-0000').fill('010-1234-5678');
   await s.page.getByPlaceholder('name@company.com').fill('e2e-develop-wizard@example.com');
-  await s.page.getByRole('button', { name: '개발의뢰 접수' }).click();
+  await s.page.getByRole('button', { name: /^DONE/ }).click();
   await s.page.getByText('개발의뢰가 접수되었습니다').waitFor({ timeout: 15_000 });
 }
 
@@ -127,11 +127,11 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.getByRole('button', { name: '다른 업체가 진행 중·진행 예정', exact: true }).nth(1).click();
       await vendorNote.fill('기구설계 업체, 10월 초 도면 전달');
       await next(s);
-      // ④ 시제품 수량 미정 + 제작 범위 하나 → 제조 연계 확인이 열린다.
-      await s.page.getByText('시제품과 생산 계획').waitFor();
+      // ④ 시제품 수량 미정 + 제작 범위 하나 → 자재 조달·납품 형태 선택이 열린다.
+      await s.page.getByRole('heading', { name: '시제품과 생산 계획' }).waitFor();
       await s.page.getByText('수량 미정', { exact: true }).click();
       await s.page.getByText('PCB 제작', { exact: true }).click();
-      await s.page.getByText('제조 연계 확인').waitFor();
+      await s.page.getByText('자재 조달 방식', { exact: true }).waitFor();
       await next(s);
       // ⑤ 요약에 메뉴·단계·계획이 보이고 접수된다.
       await s.page.getByText('입력 내용을 확인해 주세요').waitFor();

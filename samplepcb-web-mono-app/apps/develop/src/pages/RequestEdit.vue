@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { isDevelopEditable, sortDevelopAreas } from '@sp/api-contract';
 import type { DevelopFileMetaType, DevelopRequestUpdateBodyType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
-import { FileDropZone } from '@sp/ui';
 import {
   useAddDevelopFiles,
   useDeleteDevelopFile,
@@ -16,6 +15,9 @@ import { developPath, loginUrl } from '../lib/auth-urls';
 import { errorMessage } from '../lib/error-msg';
 import { fileSize } from '../lib/format';
 import ContactFields from '../components/request/ContactFields.vue';
+import WizCheck from '../components/request/WizCheck.vue';
+import WizDropZone from '../components/request/WizDropZone.vue';
+import { INDIVIDUAL_QUESTIONS_COPY, STEP_COPY } from '../lib/wizard-copy';
 import StepDescribe from '../components/request/StepDescribe.vue';
 import StepMenu from '../components/request/StepMenu.vue';
 import StepProduction from '../components/request/StepProduction.vue';
@@ -200,6 +202,10 @@ onBeforeUnmount(() => {
 function goLogin(): void {
   window.location.assign(loginUrl(developPath(route.fullPath)));
 }
+
+// 섹션 카드 — 위저드 본문 판과 같은 흰 카드·22px 제목(피그마 01-x 모양 언어). 수정 화면 자체는 사이트 셸 그대로.
+const EDIT_CARD = 'flex flex-col gap-[26px] rounded-[14px] bg-white px-[20px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)] sm:px-[30px] sm:py-[34px]';
+const EDIT_TITLE = 'text-[22px] font-bold leading-[1.3] text-black sm:text-[26px]';
 </script>
 
 <template>
@@ -248,28 +254,35 @@ function goLogin(): void {
       </p>
 
       <div class="mt-7 grid gap-7">
-        <StepMenu :form="form" />
-        <StepDescribe :form="form" :show-attachments="false" />
-        <StepQuestions :form="form" />
-        <StepProduction :form="form" />
+        <!-- 위저드 1~4스텝 — 스텝 컴포넌트는 본문만 그리므로 제목은 여기서(위저드 문구 STEP_COPY) -->
+        <section :class="EDIT_CARD">
+          <h2 :class="EDIT_TITLE">{{ STEP_COPY.menu.title }}</h2>
+          <StepMenu :form="form" />
+        </section>
+        <section :class="EDIT_CARD">
+          <h2 :class="EDIT_TITLE">{{ STEP_COPY.describe.title }}</h2>
+          <StepDescribe :form="form" :show-attachments="false" />
+        </section>
+        <section :class="EDIT_CARD">
+          <h2 :class="EDIT_TITLE">{{ isSystem ? STEP_COPY.questions.title : INDIVIDUAL_QUESTIONS_COPY.title }}</h2>
+          <StepQuestions :form="form" />
+        </section>
+        <section :class="EDIT_CARD">
+          <h2 :class="EDIT_TITLE">{{ STEP_COPY.production.title }}</h2>
+          <StepProduction :form="form" />
+        </section>
 
         <!-- 연락처 · 비밀유지 -->
-        <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6">
-          <h2 class="text-title font-extrabold text-tx-1">연락처</h2>
+        <section :class="EDIT_CARD">
+          <h2 :class="EDIT_TITLE">연락처</h2>
           <ContactFields :form="form" />
-          <label class="flex items-start gap-3 rounded-xl border border-line bg-paper p-4">
-            <input v-model="fields.ndaWanted" type="checkbox" class="mt-0.5 h-4.5 w-4.5 shrink-0 accent-[var(--color-brand-500)]">
-            <span class="grid gap-1">
-              <span class="text-body font-bold text-tx-1">비밀유지 계약(NDA)을 맺고 싶습니다 <span class="font-normal text-tx-3">선택</span></span>
-              <span class="text-label leading-relaxed text-tx-3">담당자가 계약서를 준비해 연락드립니다.</span>
-            </span>
-          </label>
+          <WizCheck v-model="fields.ndaWanted" label="비밀유지 계약(NDA)을 맺고 싶습니다. (선택)" hint="담당자가 계약서를 준비해 연락드립니다." />
         </section>
 
         <!-- 이미 올린 첨부 -->
-        <section class="grid gap-4 rounded-2xl border border-line bg-white p-5 sm:p-6">
+        <section :class="EDIT_CARD">
           <div class="grid gap-1">
-            <h2 class="text-title font-extrabold text-tx-1">올려 둔 자료</h2>
+            <h2 :class="EDIT_TITLE">올려 둔 자료</h2>
             <p class="text-label leading-relaxed text-tx-3">
               여기서 지우거나 더하는 것은 저장을 기다리지 않고 바로 반영됩니다.
             </p>
@@ -296,11 +309,9 @@ function goLogin(): void {
           <p v-else class="rounded-xl bg-paper px-4 py-3 text-body text-tx-3">올려 둔 자료가 없습니다.</p>
 
           <div class="grid gap-3 border-t border-line pt-4">
-            <FileDropZone
+            <WizDropZone
               :files="attachments"
-              label="자료 추가"
-              hint="회로도 · 사양서 · 화면 시안 · 참고 링크 캡처 등 무엇이든"
-              variant="panel"
+              label="자료 추가 — 회로도 · 사양서 · 화면 시안 · 참고 링크 캡처 등 무엇이든"
               @add="form.addAttachments"
               @remove="form.removeAttachment"
             />

@@ -7,7 +7,8 @@ import DevelopLayout from './layouts/DevelopLayout.vue';
 const children: RouteRecordRaw[] = [
   // meta.bg 'white' = 피그마 시안대로 흰 바탕(랜딩·내 의뢰). 나머지는 아직 옛 셸의 종이색 바탕.
   { path: '', name: 'home', component: () => import('./pages/Home.vue'), meta: { bg: 'white' } },
-  { path: 'request', name: 'request', component: () => import('./pages/RequestWizard.vue') },
+  // 위저드는 자체 앱 셸(WizardShell — 피그마 01-x)이라 사이트 헤더·푸터를 그리지 않는다.
+  { path: 'request', name: 'request', component: () => import('./pages/RequestWizard.vue'), meta: { bare: true } },
   { path: 'me', name: 'me', component: () => import('./pages/Me.vue'), meta: { bg: 'white' } },
   { path: 'requests/:id(\\d+)', name: 'request-detail', component: () => import('./pages/RequestDetail.vue'), meta: { bg: 'white' } },
   { path: 'requests/:id(\\d+)/edit', name: 'request-edit', component: () => import('./pages/RequestEdit.vue') },

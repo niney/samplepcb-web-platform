@@ -12,34 +12,31 @@ import {
   developWishLabel,
 } from '@sp/api-contract';
 import { buildDevReviewBriefRows } from '@sp/utils';
+import type { DevelopRequestForm, StepKey } from '../../composables/useRequestForm';
+import { WIZ } from '../../lib/wizard-copy';
 import ContactFields from './ContactFields.vue';
-import type { DevelopRequestForm } from '../../composables/useRequestForm';
+import WizCheck from './WizCheck.vue';
+import icoEdit from '../../assets/wizard/ico-edit.svg';
 
-// 위저드 5스텝 — 검토·접수(2026-09-08 v2).
-// 연락처를 여기서 받고(접수 뒤 통화·미팅으로 요구사항을 좁히는 것이 실무다), 앞 네 스텝의 입력을 한 장으로
-// 되짚는다. 여기서 고치지 않고 "고치기" 로 해당 스텝에 돌아간다 — 값의 정본은 언제나 그 스텝이다.
-// 답변 행은 검토서·관리자 화면과 **같은 함수**(buildDevReviewBriefRows)로 만든다(라벨이 어긋나지 않게).
-// AI 후속 질문의 답도 같은 자리에 실린다(문구 규칙은 계약 developFollowupAnswerText — 폼이 만들어 준다).
-// 자료 사용 동의는 2스텝으로 옮겼다(§7.2.2) — 자료가 AI 로 나가는 시점이 2→3 전환이기 때문이다.
+// 위저드 5스텝 — 검토·접수. 피그마 01-5(70:12570, 900 폭): 연락처 4칸 → '내용을 확인해 주세요.' 흰 상자(개발 메뉴 · 의뢰 정보 ·
+// 개발 목적 · 첨부 자료 · 세부 질문 답변 · 시제품·제조 — 블록마다 '수정하기', 행 = 120px 굵은 라벨 + 밑줄 값) → 비밀유지 체크 상자.
+// 값은 여기서 고치지 않고 '수정하기'로 해당 스텝에 돌아간다(값의 정본은 그 스텝). 개발 메뉴 블록은 시안처럼 '수정하기'가 없다.
+// 답변 행은 검토서·관리자 화면과 **같은 함수**(buildDevReviewBriefRows)로 만든다. AI 후속 질문의 답도 같은 자리에 실린다.
 const props = defineProps<{ form: DevelopRequestForm }>();
 const {
   fields,
   contact,
   contactPrefilled,
-  isSystem,
   skipQuestions,
   menuBadge,
-  pickedAreaDefs,
   attachments,
   aiAnswerRows,
-  aiFollowupUsed,
   buildAnswers,
   buildProduction,
   goToStep,
 } = props.form;
 
 const briefRows = computed(() => buildDevReviewBriefRows(buildAnswers(), DEVELOP_REGISTRY));
-// AI 질문 답 + 레지스트리 문항 답 — 둘 다 비면 "답한 항목이 없습니다".
 const answerRowCount = computed(() => aiAnswerRows.value.length + briefRows.value.length);
 const fileNames = computed(() => attachments.value.map((f) => f.name));
 const wishLabel = computed(() =>
@@ -51,169 +48,144 @@ const stageLabel = computed(() =>
     ? '미선택'
     : `${DEVELOP_CURRENT_STAGE_LABELS[fields.currentStage]} → ${DEVELOP_TARGET_STAGE_LABELS[fields.targetStage]}`,
 );
-const productionSummary = computed(() => developProductionSummary(buildProduction()));
-const priorityLabel = computed(() => (fields.production.priority === null ? '' : DEVELOP_PRIORITY_LABELS[fields.production.priority]));
-const sourcingLabel = computed(() => (fields.production.sourcing === null ? '' : DEVELOP_SOURCING_MODE_LABELS[fields.production.sourcing]));
-const deliveryLabel = computed(() => (fields.production.delivery === null ? '' : DEVELOP_DELIVERY_FORM_LABELS[fields.production.delivery]));
-const contactLine = computed(() => {
-  const who = contact.company.trim() === '' ? contact.name : `${contact.name} · ${contact.company}`;
-  return [who, contact.phone, contact.email].filter((s) => s.trim() !== '').join(' · ');
+const productionRows = computed(() => {
+  const p = fields.production;
+  return [
+    { label: '계획', value: developProductionSummary(buildProduction()) },
+    { label: '우선순위', value: p.priority === null ? '' : DEVELOP_PRIORITY_LABELS[p.priority] },
+    { label: '자재 조달', value: p.sourcing === null ? '' : DEVELOP_SOURCING_MODE_LABELS[p.sourcing] },
+    { label: '납품 형태', value: p.delivery === null ? '' : DEVELOP_DELIVERY_FORM_LABELS[p.delivery] },
+  ].filter((r) => r.value !== '');
 });
+// 시안 '홍길동·01030618700' — 이름·전화만(회사·이메일은 바로 위 연락처 칸에 있다).
+const contactLine = computed(() => [contact.name, contact.phone].filter((s) => s.trim() !== '').join('·'));
+const infoRows = computed(() => [
+  { label: '의뢰 제목', value: fields.title.trim() === '' ? '미입력' : fields.title },
+  { label: '의뢰자·연락처', value: contactLine.value === '' ? '미입력' : contactLine.value },
+  { label: '개발 단계', value: stageLabel.value },
+  { label: '일정·예산', value: `${wishLabel.value === '' ? '미입력' : wishLabel.value}·${budgetLabel.value}` },
+]);
+
+const BLOCK_HEAD = 'flex items-center justify-between gap-[12px]';
+const BLOCK_TITLE = 'text-[17px] font-medium leading-[1.3] text-black sm:text-[18px]';
+const ROW = 'flex flex-col gap-[4px] sm:flex-row sm:gap-[14px]';
+const ROW_LABEL = 'shrink-0 text-[16px] font-bold leading-[1.8] text-black sm:w-[120px] sm:pb-[12px] sm:pl-[10px] sm:text-[18px]';
+const ROW_VALUE = 'min-w-0 flex-1 whitespace-pre-wrap border-b border-[#d9d9d9] pb-[12px] text-[16px] font-medium leading-[1.8] text-black sm:text-[18px]';
+const edit = (key: StepKey): void => {
+  goToStep(key);
+  window.scrollTo({ top: 0 });
+};
 </script>
 
 <template>
-  <div class="grid gap-7">
-    <div class="grid gap-1.5">
-      <h2 class="text-title font-extrabold text-tx-1">입력 내용을 확인해 주세요</h2>
-      <p class="text-body leading-relaxed text-tx-2">접수 후 담당자가 개발 범위·일정·비용을 검토하여 견적제안서를 전달합니다.</p>
-    </div>
-
+  <div class="flex flex-col gap-[40px]">
     <!-- 연락처 -->
-    <section class="grid gap-5 rounded-2xl border-2 border-ink-950 bg-white p-5 sm:p-6">
-      <div class="grid gap-1">
-        <h3 class="text-body font-extrabold text-tx-1">어떻게 연락드릴까요?</h3>
-        <p class="text-label leading-relaxed text-tx-3">
-          접수 후 담당자가 전화나 메일로 요구사항을 함께 정리합니다. 그 뒤에 견적제안서를 보내드립니다.
-        </p>
+    <section :class="WIZ.section">
+      <div class="flex flex-col gap-[6px]">
+        <h2 :class="WIZ.sectionTitle">어떻게 연락드릴까요?</h2>
+        <p :class="WIZ.sectionLead">접수 후 담당자가 전화나 메일로 요구사항을 함께 정리합니다. 그 뒤에 견적 제안서를 보내드립니다.</p>
       </div>
       <ContactFields :form="form" />
-      <p v-if="contactPrefilled" class="text-label leading-relaxed text-tx-3" role="status">
-        회원정보로 채웠습니다. 이번 의뢰의 담당자 정보로 수정할 수 있습니다.
-      </p>
+      <p v-if="contactPrefilled" :class="WIZ.sectionLead" role="status">회원정보로 채웠습니다. 이번 의뢰의 담당자 정보로 수정할 수 있습니다.</p>
     </section>
 
-    <!-- 검토 카드 -->
-    <section class="grid gap-5 rounded-2xl border border-line bg-white p-5 sm:p-6">
-      <!-- 선택 메뉴 -->
-      <div class="grid gap-2">
-        <div class="flex items-baseline gap-2">
-          <h3 class="text-label font-bold text-tx-3">선택 메뉴</h3>
-          <button type="button" class="ml-auto text-label font-bold text-brand-600 hover:underline" @click="goToStep('menu')">고치기</button>
+    <!-- 확인 -->
+    <section :class="WIZ.section">
+      <h2 :class="WIZ.sectionTitle">내용을 확인해 주세요.</h2>
+      <div class="flex flex-col gap-[26px] rounded-[10px] bg-white px-[20px] py-[26px] sm:px-[24px]">
+        <!-- 개발 메뉴 -->
+        <div class="flex flex-col gap-[20px]">
+          <p :class="BLOCK_TITLE">개발 메뉴</p>
+          <p class="pb-[12px] pl-[10px] text-[17px] font-bold leading-[1.8] text-black sm:text-[18px]">
+            {{ menuBadge === '' ? '선택 안 됨' : menuBadge }}<span v-if="skipQuestions" class="font-medium text-[#666]"> · 전문가에게 맡김</span>
+          </p>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <span v-if="menuBadge === ''" class="text-body text-tx-3">선택 안 됨</span>
-          <span v-else-if="isSystem" class="rounded-full bg-ink-950 px-3 py-1 text-micro font-bold text-white">{{ menuBadge }}</span>
-          <template v-else>
-            <span
-              v-for="area in pickedAreaDefs"
-              :key="area.code"
-              class="rounded-full bg-paper px-3 py-1 text-micro font-bold text-tx-2"
-            >{{ area.label }}</span>
-          </template>
-          <span v-if="skipQuestions" class="rounded-full border border-line-2 px-3 py-1 text-micro font-bold text-tx-2">전문가에게 맡김</span>
-        </div>
-      </div>
 
-      <!-- 의뢰 정보 -->
-      <div class="grid gap-2 border-t border-line pt-5">
-        <div class="flex items-baseline gap-2">
-          <h3 class="text-label font-bold text-tx-3">의뢰 정보</h3>
-          <button type="button" class="ml-auto text-label font-bold text-brand-600 hover:underline" @click="goToStep('describe')">고치기</button>
+        <!-- 의뢰 정보 -->
+        <div class="flex flex-col gap-[20px]">
+          <div :class="BLOCK_HEAD">
+            <p :class="BLOCK_TITLE">의뢰 정보</p>
+            <button type="button" class="flex h-[34px] w-[84px] shrink-0 items-center justify-center gap-[4px] rounded-[6px] bg-[#f0f4fa] text-[14px] text-[#0a151e] hover:bg-[#e2e8f2]" @click="edit('describe')">
+              <img :src="icoEdit" alt="" width="14" height="14" class="block size-[14px]">수정하기
+            </button>
+          </div>
+          <div class="flex flex-col gap-[12px]">
+            <div v-for="row in infoRows" :key="row.label" :class="ROW">
+              <p :class="ROW_LABEL">{{ row.label }}</p>
+              <p :class="ROW_VALUE">{{ row.value }}</p>
+            </div>
+          </div>
         </div>
-        <dl class="grid gap-px overflow-hidden rounded-xl bg-line">
-          <div class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">의뢰 제목</dt>
-            <dd class="text-body font-bold text-tx-1">{{ fields.title.trim() === '' ? '미입력' : fields.title }}</dd>
-          </div>
-          <div class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">의뢰자 · 연락처</dt>
-            <dd class="text-body text-tx-1">{{ contactLine === '' ? '미입력' : contactLine }}</dd>
-          </div>
-          <div class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">개발단계</dt>
-            <dd class="text-body text-tx-1">{{ stageLabel }}</dd>
-          </div>
-          <div class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">일정 · 예산</dt>
-            <dd class="text-body text-tx-1">{{ wishLabel === '' ? '미입력' : wishLabel }} · {{ budgetLabel }}</dd>
-          </div>
-        </dl>
-      </div>
 
-      <!-- 개발 목적 -->
-      <div class="grid gap-2 border-t border-line pt-5">
-        <div class="flex items-baseline gap-2">
-          <h3 class="text-label font-bold text-tx-3">개발 목적</h3>
-          <button type="button" class="ml-auto text-label font-bold text-brand-600 hover:underline" @click="goToStep('describe')">고치기</button>
+        <!-- 개발 목적 -->
+        <div class="flex flex-col gap-[20px]">
+          <div :class="BLOCK_HEAD">
+            <p :class="BLOCK_TITLE">개발 목적</p>
+            <button type="button" class="flex h-[34px] w-[84px] shrink-0 items-center justify-center gap-[4px] rounded-[6px] bg-[#f0f4fa] text-[14px] text-[#0a151e] hover:bg-[#e2e8f2]" @click="edit('describe')">
+              <img :src="icoEdit" alt="" width="14" height="14" class="block size-[14px]">수정하기
+            </button>
+          </div>
+          <p :class="ROW_VALUE">{{ fields.description.trim() === '' ? '미입력' : fields.description }}</p>
         </div>
-        <p class="whitespace-pre-wrap rounded-xl bg-paper px-4 py-3 text-body leading-relaxed text-tx-1">
-          {{ fields.description.trim() === '' ? '미입력' : fields.description }}
-        </p>
-      </div>
 
-      <!-- 첨부자료 -->
-      <div class="grid gap-2 border-t border-line pt-5">
-        <div class="flex items-baseline gap-2">
-          <h3 class="text-label font-bold text-tx-3">첨부자료</h3>
-          <button type="button" class="ml-auto text-label font-bold text-brand-600 hover:underline" @click="goToStep('describe')">고치기</button>
+        <!-- 첨부 자료 -->
+        <div class="flex flex-col gap-[20px]">
+          <div :class="BLOCK_HEAD">
+            <p :class="BLOCK_TITLE">첨부 자료</p>
+            <button type="button" class="flex h-[34px] w-[84px] shrink-0 items-center justify-center gap-[4px] rounded-[6px] bg-[#f0f4fa] text-[14px] text-[#0a151e] hover:bg-[#e2e8f2]" @click="edit('describe')">
+              <img :src="icoEdit" alt="" width="14" height="14" class="block size-[14px]">수정하기
+            </button>
+          </div>
+          <p :class="ROW_VALUE">{{ fileNames.length === 0 ? '등록된 파일 없음' : fileNames.join('\n') }}</p>
         </div>
-        <ul v-if="fileNames.length > 0" class="grid gap-1">
-          <li v-for="(name, i) in fileNames" :key="`${name}:${i}`" class="truncate text-body text-tx-1">{{ name }}</li>
-        </ul>
-        <p v-else class="text-body text-tx-3">등록된 파일 없음</p>
-      </div>
 
-      <!-- 세부 질문 답변 — AI 가 고른 질문의 답(있으면)과 레지스트리 문항의 답을 한 곳에 모은다 -->
-      <div class="grid gap-2 border-t border-line pt-5">
-        <div class="flex flex-wrap items-baseline gap-2">
-          <h3 class="text-label font-bold text-tx-3">세부 질문 답변</h3>
-          <span v-if="aiFollowupUsed" class="rounded-full bg-brand-50 px-2.5 py-0.5 text-micro font-bold text-brand-700">AI 질문</span>
-          <button type="button" class="ml-auto text-label font-bold text-brand-600 hover:underline" @click="goToStep('questions')">고치기</button>
+        <!-- 세부 질문 답변 — AI 질문의 답(있으면)과 레지스트리 문항의 답 -->
+        <div class="flex flex-col gap-[20px]">
+          <div :class="BLOCK_HEAD">
+            <p :class="BLOCK_TITLE">세부 질문 답변</p>
+            <button type="button" class="flex h-[34px] w-[84px] shrink-0 items-center justify-center gap-[4px] rounded-[6px] bg-[#f0f4fa] text-[14px] text-[#0a151e] hover:bg-[#e2e8f2]" @click="edit('questions')">
+              <img :src="icoEdit" alt="" width="14" height="14" class="block size-[14px]">수정하기
+            </button>
+          </div>
+          <div v-if="answerRowCount > 0" class="flex flex-col gap-[12px]">
+            <!-- AI 질문은 문장이 길어 라벨을 한 줄 위에 둔다 -->
+            <div v-for="row in aiAnswerRows" :key="row.id" class="flex flex-col gap-[4px]">
+              <p class="pl-[10px] text-[16px] font-bold leading-[1.6] text-black sm:text-[18px]">{{ row.label }}</p>
+              <p :class="[ROW_VALUE, 'pl-[10px]', row.unknown ? 'text-[#999]' : '']">{{ row.value }}</p>
+            </div>
+            <div v-for="row in briefRows" :key="row.code" :class="ROW">
+              <p :class="ROW_LABEL">{{ row.label }}</p>
+              <p :class="[ROW_VALUE, row.unknown ? 'text-[#999]' : '']">{{ row.value }}</p>
+            </div>
+          </div>
+          <p v-else :class="ROW_VALUE">{{ skipQuestions ? '전문가 검토로 접수합니다 — 담당자가 사양을 제안합니다.' : '답한 항목이 없습니다.' }}</p>
         </div>
-        <dl v-if="answerRowCount > 0" class="grid gap-px overflow-hidden rounded-xl bg-line">
-          <!-- AI 질문은 문장이 길어 라벨을 한 줄 위에 둔다(잘라 쓰면 무엇을 물었는지 사라진다) -->
-          <div v-for="row in aiAnswerRows" :key="row.id" class="grid gap-1 bg-white px-4 py-3">
-            <dt class="text-label font-semibold text-tx-3">{{ row.label }}</dt>
-            <dd class="whitespace-pre-wrap text-body" :class="row.unknown ? 'text-tx-3' : 'text-tx-1'">{{ row.value }}</dd>
-          </div>
-          <div v-for="row in briefRows" :key="row.code" class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">{{ row.label }}</dt>
-            <dd class="whitespace-pre-wrap text-body" :class="row.unknown ? 'text-tx-3' : 'text-tx-1'">{{ row.value }}</dd>
-          </div>
-        </dl>
-        <p v-else class="text-body text-tx-3">
-          {{ skipQuestions ? '전문가 검토로 접수합니다 — 담당자가 사양을 제안합니다.' : '답한 항목이 없습니다.' }}
-        </p>
-      </div>
 
-      <!-- 시제품 · 제조 -->
-      <div class="grid gap-2 border-t border-line pt-5">
-        <div class="flex items-baseline gap-2">
-          <h3 class="text-label font-bold text-tx-3">시제품 · 제조</h3>
-          <button type="button" class="ml-auto text-label font-bold text-brand-600 hover:underline" @click="goToStep('production')">고치기</button>
+        <!-- 시제품 · 제조 -->
+        <div class="flex flex-col gap-[20px]">
+          <div :class="BLOCK_HEAD">
+            <p :class="BLOCK_TITLE">시제품·제조</p>
+            <button type="button" class="flex h-[34px] w-[84px] shrink-0 items-center justify-center gap-[4px] rounded-[6px] bg-[#f0f4fa] text-[14px] text-[#0a151e] hover:bg-[#e2e8f2]" @click="edit('production')">
+              <img :src="icoEdit" alt="" width="14" height="14" class="block size-[14px]">수정하기
+            </button>
+          </div>
+          <div class="flex flex-col gap-[12px]">
+            <div v-for="row in productionRows" :key="row.label" :class="ROW">
+              <p :class="ROW_LABEL">{{ row.label }}</p>
+              <p :class="ROW_VALUE">{{ row.value }}</p>
+            </div>
+          </div>
         </div>
-        <dl class="grid gap-px overflow-hidden rounded-xl bg-line">
-          <div class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">계획</dt>
-            <dd class="text-body text-tx-1">{{ productionSummary }}</dd>
-          </div>
-          <div v-if="priorityLabel !== ''" class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">우선순위</dt>
-            <dd class="text-body text-tx-1">{{ priorityLabel }}</dd>
-          </div>
-          <div v-if="sourcingLabel !== ''" class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">자재 조달</dt>
-            <dd class="text-body text-tx-1">{{ sourcingLabel }}</dd>
-          </div>
-          <div v-if="deliveryLabel !== ''" class="grid gap-1 bg-white px-4 py-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-            <dt class="text-label font-semibold text-tx-3">납품 형태</dt>
-            <dd class="text-body text-tx-1">{{ deliveryLabel }}</dd>
-          </div>
-        </dl>
       </div>
     </section>
 
-    <!-- 자료 사용 동의(aiConsent)는 2스텝에서 받았다 — 여기 남는 체크는 비밀유지 희망(선택)뿐이다. -->
-    <label class="flex items-start gap-3 rounded-xl border border-line bg-white p-4">
-      <input v-model="fields.ndaWanted" type="checkbox" class="mt-0.5 h-4.5 w-4.5 shrink-0 accent-[var(--color-brand-500)]">
-      <span class="grid gap-1">
-        <span class="text-body font-bold text-tx-1">비밀유지 계약(NDA)을 맺고 싶습니다 <span class="font-normal text-tx-3">선택</span></span>
-        <span class="text-label leading-relaxed text-tx-3">담당자가 계약서를 준비해 연락드립니다. 체크하지 않아도 자료는 외부에 공개되지 않습니다.</span>
-      </span>
-    </label>
-
-    <p class="rounded-xl bg-paper px-4 py-3 text-label leading-relaxed text-tx-2">
-      <b class="font-bold text-tx-1">다음 단계</b> — AI 검토 초안 작성 → 담당자 기술검토 → 개발 범위·일정·비용 제안
-    </p>
+    <!-- 비밀유지(선택) — 자료 사용 동의는 2스텝에서 받았다 -->
+    <div class="rounded-[10px] bg-white px-[20px] py-[26px] sm:px-[24px]">
+      <WizCheck
+        v-model="fields.ndaWanted"
+        label="비밀유지 계약(NDA)을 맺고 싶습니다. (선택)"
+        hint="담당자가 계약서를 준비해 연락드립니다. 체크하지 않아도 자료는 외부에 공개되지 않습니다."
+      />
+    </div>
   </div>
 </template>
