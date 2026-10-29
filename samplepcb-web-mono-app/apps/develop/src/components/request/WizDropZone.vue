@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { fileSize } from '../../lib/format';
+import fileX from '../../assets/wizard/file-x.svg';
+import filePlus from '../../assets/wizard/file-plus.svg';
 
 // 참고 자료 드롭존 — 피그마 01-2 70:1201: 파란 2px 점선 상자 · 'Data' 폴더 아이콘(114) · 안내 2줄 · 'Select file' 테두리 버튼.
-// 동작은 공용 FileDropZone(@sp/ui) 과 같다 — 파일 입력은 sr-only(Playwright setInputFiles 가 잡는다), 누적은 부모가 소유,
-// 지우기 버튼은 label 밖. 아이콘은 시안의 벡터 조각(배경 그라데이션·폴더·화살표·'Data')을 인라인 SVG 로 다시 얹었다
+// 파일을 고르면 01-2 '참고자료 추가 업로드'(190:23198) 모양 — 아이콘·안내가 빠지고 상자 안에 '파일명 ×' 를 줄 바꿈으로 잇고
+// 버튼은 '+ Add file'. 시안이 비워 둔 것: 긴 이름은 말줄임(시안은 줄바꿈 금지라 넘친다), 상자 높이는 파일 수만큼 늘고(시안 174 고정),
+// 크기는 title. 동작은 공용 FileDropZone(@sp/ui) 과 같다 — 파일 입력은 sr-only(Playwright setInputFiles 가 잡는다), 누적은 부모가
+// 소유, 지우기 버튼은 label 밖(안이면 누를 때 파일 선택 창이 열린다). 끌어 놓기는 두 상태 모두 상자 전체.
+// 아이콘은 시안의 벡터 조각(배경 그라데이션·폴더·화살표·'Data')을 인라인 SVG 로 다시 얹었다
 // (export PNG 는 114px 한 장이라 고해상도에서 흐리고, 인라인이라 'Data' 가 앱 글꼴로 그려진다).
 withDefaults(defineProps<{ files: File[]; label?: string; hint?: string }>(), {
   label: 'Drag & drop  회로도, PCB 원본, Gerber, DXF·STEP, BOM, 데이터시트, 사진·영상 등',
@@ -36,15 +41,16 @@ function onPick(e: Event): void {
 </script>
 
 <template>
-  <div class="flex flex-col gap-[12px]">
-    <label
-      class="flex cursor-pointer flex-col items-center rounded-[14px] border-2 border-dashed border-[#2945e8] p-[20px] transition-colors sm:p-[30px]"
-      :class="dragging ? 'bg-[#f1f6ff]' : 'bg-white'"
-      @dragenter.prevent="onEnter"
-      @dragover.prevent
-      @dragleave="onLeave"
-      @drop.prevent="onDrop"
-    >
+  <div
+    class="rounded-[14px] border-2 border-dashed border-[#2945e8] transition-colors"
+    :class="dragging ? 'bg-[#f1f6ff]' : 'bg-white'"
+    @dragenter.prevent="onEnter"
+    @dragover.prevent
+    @dragleave="onLeave"
+    @drop.prevent="onDrop"
+  >
+    <!-- 빈 상태 — 상자 전체가 파일 선택 -->
+    <label v-if="files.length === 0" class="flex cursor-pointer flex-col items-center p-[20px] sm:p-[30px]">
       <input type="file" multiple class="sr-only" @change="onPick">
       <span class="flex w-full flex-wrap items-center gap-[20px] sm:flex-nowrap sm:gap-[26px]">
         <svg class="hidden size-[114px] shrink-0 sm:block" width="114" height="114" viewBox="0 0 114 114" fill="none" aria-hidden="true">
@@ -83,23 +89,31 @@ function onPick(e: Event): void {
       </span>
     </label>
 
-    <ul v-if="files.length > 0" class="flex flex-col gap-[8px]">
-      <li
-        v-for="(f, i) in files"
-        :key="`${f.name}:${f.size}:${f.lastModified}`"
-        class="flex min-w-0 items-center gap-[10px] rounded-[10px] border border-[#d9d9d9] bg-white px-[16px] py-[10px] text-[16px]"
-      >
-        <span class="min-w-0 flex-1 truncate font-medium text-black">{{ f.name }}</span>
-        <span class="shrink-0 tabular-nums text-[#999]">{{ fileSize(f.size) }}</span>
-        <button
-          type="button"
-          class="flex size-[28px] shrink-0 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-[#f0f4fa] hover:text-black"
-          :aria-label="`${f.name} 빼기`"
-          @click="emit('remove', i)"
+    <!-- 파일 있음 — 상자 안 '파일명 ×'(간격 16·6) + '+ Add file' 144×51 -->
+    <div v-else class="flex min-h-[170px] flex-col gap-[20px] p-[20px] sm:flex-row sm:items-center sm:p-[30px]">
+      <ul class="flex min-w-0 flex-1 flex-wrap content-start gap-x-[16px] gap-y-[6px] self-stretch">
+        <li
+          v-for="(f, i) in files"
+          :key="`${f.name}:${f.size}:${f.lastModified}`"
+          class="flex min-w-0 max-w-full items-center gap-[10px]"
+          :title="`${f.name} · ${fileSize(f.size)}`"
         >
-          ✕
-        </button>
-      </li>
-    </ul>
+          <span class="truncate text-[17px] font-medium leading-[1.4] text-black sm:text-[20px]">{{ f.name }}</span>
+          <button
+            type="button"
+            class="flex size-[26px] shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[#f0f4fa]"
+            :aria-label="`${f.name} 빼기`"
+            @click="emit('remove', i)"
+          >
+            <img :src="fileX" alt="" width="18" height="18" class="block size-[18px]">
+          </button>
+        </li>
+      </ul>
+      <label class="flex h-[51px] w-full shrink-0 cursor-pointer items-center justify-center gap-[4px] rounded-[8px] border border-[#2945e8] text-[16px] font-bold text-[#2945e8] transition-colors hover:bg-[#f1f6ff] sm:w-[144px]">
+        <input type="file" multiple class="sr-only" @change="onPick">
+        <img :src="filePlus" alt="" width="18" height="18" class="block size-[18px]">
+        Add file
+      </label>
+    </div>
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { RouteLocationRaw } from 'vue-router';
 import { developAreaBadge } from '@sp/api-contract';
@@ -18,12 +18,18 @@ import icoReceived from '../assets/me/ico-received.svg';
 // **내가 할 일이 있나**. 할 일이 있으면 상태 칩 자리에 파란 할 일 칩이 서고(사용자 결정), 오른쪽에 그 일로 가는
 // 검정 버튼이 '진행 상태' 앞에 붙는다. 행 아무 곳이나 누르면 상세(제목 링크를 행 전체로 늘림 — 버튼은 그 위에).
 // 시안에 없는 상태(비로그인·불러오는 중·빈 목록·오류)는 같은 표 안에 가운데 문구로.
+// ?scope=active = 위저드 사이드바 '진행 사항'(사용자 결정 2026-10-29) — 끝난 의뢰(완료·취소·진행 불가)를 뺀 같은 표.
+// 시안이 없어 제목만 '진행 중인 의뢰'로 바꾸고 건수 줄에 '전체 보기'를 둔다.
 
 const auth = useAuthStore();
 const route = useRoute();
 const loggedIn = computed(() => auth.isLoggedIn);
 
-const filters = ref<MyRequestFilters>({ page: 1, pageSize: 20 });
+const activeOnly = computed(() => route.query.scope === 'active');
+const filters = ref<MyRequestFilters>({ page: 1, pageSize: 20, scope: activeOnly.value ? 'active' : 'all' });
+watch(activeOnly, (on) => {
+  filters.value = { ...filters.value, page: 1, scope: on ? 'active' : 'all' };
+});
 const listQ = useMyDevelopRequests(filters, loggedIn);
 const items = computed(() => listQ.data.value?.data.items ?? []);
 const total = computed(() => listQ.data.value?.data.total ?? 0);
@@ -55,7 +61,7 @@ const detailTo = (r: DevelopRequestListItemType, hash = ''): RouteLocationRaw =>
 <template>
   <section class="px-5 pb-[60px] pt-[60px] tracking-normal">
     <div class="mx-auto w-full max-w-[1280px]">
-      <h1 class="text-[32px] font-bold leading-[1.2] text-black sm:text-[40px]">내 의뢰</h1>
+      <h1 class="text-[32px] font-bold leading-[1.2] text-black sm:text-[40px]">{{ activeOnly ? '진행 중인 의뢰' : '내 의뢰' }}</h1>
       <div class="mt-[16px] h-px bg-[#0a151e]" />
 
       <!-- 비로그인 -->
@@ -79,6 +85,16 @@ const detailTo = (r: DevelopRequestListItemType, hash = ''): RouteLocationRaw =>
         </p>
 
         <!-- 빈 상태 -->
+        <div v-else-if="items.length === 0 && activeOnly" class="border-b border-[#d9d9d9] px-[10px] py-[60px] text-center">
+          <p class="text-[18px] font-bold leading-[1.3] text-[#141e34]">진행 중인 의뢰가 없습니다</p>
+          <p class="mx-auto mt-[8px] max-w-[460px] text-[15px] leading-[1.5] text-[#666]">완료되었거나 취소된 의뢰는 전체 목록에서 볼 수 있습니다.</p>
+          <RouterLink
+            :to="{ name: 'me' }"
+            class="mt-[20px] inline-flex h-[34px] items-center rounded-[6px] border border-[#d8d8d8] bg-white px-[14px] text-[14px] font-medium leading-[1.3] text-[#141e34] transition-colors hover:border-[#9aa3ad]"
+          >
+            전체 보기
+          </RouterLink>
+        </div>
         <div v-else-if="items.length === 0" class="border-b border-[#d9d9d9] px-[10px] py-[60px] text-center">
           <p class="text-[18px] font-bold leading-[1.3] text-[#141e34]">아직 맡기신 개발이 없습니다</p>
           <p class="mx-auto mt-[8px] max-w-[460px] text-[15px] leading-[1.5] text-[#666]">
@@ -93,8 +109,9 @@ const detailTo = (r: DevelopRequestListItemType, hash = ''): RouteLocationRaw =>
         </div>
 
         <template v-else>
-          <p class="h-[50px] px-[10px] pt-[16px] text-[15px] leading-[1.3] text-[#666]">
-            전체 <b class="font-bold text-[#654eff]">{{ total }}</b><b class="font-bold text-black">건</b>
+          <p class="flex h-[50px] items-start gap-[12px] px-[10px] pt-[16px] text-[15px] leading-[1.3] text-[#666]">
+            <span>{{ activeOnly ? '진행 중' : '전체' }} <b class="font-bold text-[#654eff]">{{ total }}</b><b class="font-bold text-black">건</b></span>
+            <RouterLink v-if="activeOnly" :to="{ name: 'me' }" class="ml-auto text-[#141e34] underline underline-offset-2 hover:text-black">전체 보기</RouterLink>
           </p>
           <ul class="border-b border-[#d9d9d9]">
             <li

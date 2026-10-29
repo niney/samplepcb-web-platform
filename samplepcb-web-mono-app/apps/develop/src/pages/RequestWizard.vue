@@ -18,11 +18,13 @@ import WizardStepper from '../components/request/WizardStepper.vue';
 import { INDIVIDUAL_QUESTIONS_COPY, STEP_COPY } from '../lib/wizard-copy';
 import arrowNext from '../assets/wizard/arrow-next.svg';
 import stepDone from '../assets/wizard/step-done.svg';
+import lockIcon from '../assets/wizard/lock.png';
 
 // 개발의뢰 위저드 v2 — 5스텝(개발 메뉴 → 의뢰 내용 → 세부 질문 → 제작 계획 → 검토·접수).
-// 화면 = 피그마 「개발 의뢰」 01-1~01-5(Design done, 사용자 결정 2026-10-22): 위저드 전용 어두운 앱 셸(WizardShell — 사이트
-// 헤더·푸터 없음, 라우트 meta.bare) · 위 바에 스텝 제목·안내·PREVIOUS/NEXT(마지막 DONE) · 본문 판에 큰 제목·부제·진행 표시·스텝.
-// 오류는 안내 자리에 빨갛게 바꿔 띄운다. 임시저장·처음부터는 위 바 버튼 앞에, 이어쓰기·처음부터 확인은 본문 맨 위 띠(사용자 결정).
+// 화면 = 피그마 「개발 의뢰」 01-0~01-5(Design done, 사용자 결정 2026-10-22·10-29): 위저드 전용 어두운 앱 셸(WizardShell — 사이트
+// 헤더·푸터 없음, 라우트 meta.bare) · 위 바에 스텝 제목 + Save Draft · 안내 · PREVIOUS/NEXT(마지막 DONE) · 본문 판에 큰 제목·부제·
+// 진행 표시·스텝. 오류는 안내 자리에 빨갛게 바꿔 띄운다. 시안에 없는 '처음부터'는 사용자 메뉴에, 이어쓰기·처음부터 확인은 본문
+// 맨 위 띠. 비로그인은 01-0(자물쇠 화면) — 바 제목은 'Step1' 대신 '개발 의뢰', 오른쪽은 시안 숨김 레이어의 Login 버튼.
 // 검토서·구성도는 등록 뒤 서버가 관리자용 초안으로 만들고 담당자가 검토한 뒤 공개한다 — 여기서 기다리지 않는다.
 // 고객이 기다리는 잡은 **하나뿐**이다: 시스템개발 3스텝의 AI 후속 질문(§7.2.2, useFollowupJob).
 // 2→3 전환에서 시작해 3스텝이 진행을 보이고, 실패·시간 초과면 고정 3문항으로 조용히 폴백한다.
@@ -75,6 +77,19 @@ const savedLabel = computed(() => {
   const d = new Date(at);
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 });
+// Save Draft 는 시안 98px 버튼 하나뿐이라 '저장됨' 표시는 누른 직후 버튼 글자로 잠깐 바꾼다(시각은 title).
+// 저장소가 막혀 실패하면 안내 자리에 빨갛게 띄운다.
+const draftFlash = ref<'saved' | 'failed' | null>(null);
+let draftFlashTimer: ReturnType<typeof setTimeout> | undefined;
+function onSaveDraft(): void {
+  saveDraft();
+  draftFlash.value = draftSavedAt.value === null ? 'failed' : 'saved';
+  clearTimeout(draftFlashTimer);
+  draftFlashTimer = setTimeout(() => { draftFlash.value = null; }, draftFlash.value === 'saved' ? 2000 : 4000);
+}
+onBeforeUnmount(() => {
+  clearTimeout(draftFlashTimer);
+});
 const draftSavedDateLabel = computed(() => {
   const at = draftFound.value?.savedAt ?? '';
   const d = new Date(at);
@@ -91,16 +106,19 @@ const barTitle = computed(() => {
   return createdId.value !== null ? '접수 완료' : copy.value.bar;
 });
 const guideError = computed(() => tried.value && currentError.value !== '' && createdId.value === null);
+const draftFailed = computed(() => draftFlash.value === 'failed');
 const guide = computed(() => {
-  if (!loggedIn.value) return '로그인 후 의뢰하실 수 있습니다.';
+  if (!loggedIn.value) return '로그인 해주세요.';
   if (createdId.value !== null) return '담당자가 검토한 뒤 연락드립니다.';
   if (submitError.value !== '') return submitError.value;
+  if (draftFailed.value) return '이 브라우저에서는 임시저장을 할 수 없습니다.';
   return guideError.value ? currentError.value : copy.value.guide;
 });
 
-// "수정하기"·내비로 스텝이 바뀌어도 앞 스텝의 오류 문구를 끌고 가지 않는다.
+// "수정하기"·내비로 스텝이 바뀌어도 앞 스텝의 오류 문구·'Saved' 표시를 끌고 가지 않는다.
 watch(stepIndex, () => {
   tried.value = false;
+  draftFlash.value = null;
 });
 
 // 3스텝에 들어서면 잡을 확인한다 — 같은 입력이면 기존 잡으로 폴링만 하고, 바뀐 입력이면 다시 읽는다.
@@ -173,6 +191,11 @@ function acceptDraft(): void {
   restoreDraft();
   window.scrollTo({ top: 0 });
 }
+// 사용자 메뉴에서 열면 확인 띠가 본문 맨 위에 뜬다 — 거기로 올려 보여 준다.
+function openReset(): void {
+  askReset.value = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 function confirmReset(): void {
   resetAll();
   clearDraft();
@@ -204,15 +227,34 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <WizardShell :bar-title="barTitle" :guide="guide" :guide-error="guideError || submitError !== ''">
-    <template v-if="loggedIn && createdId === null" #actions>
-      <span v-if="savedLabel !== ''" class="hidden text-[13px] text-[#999] 2xl:inline">저장됨 · {{ savedLabel }}</span>
-      <button type="button" class="h-[40px] rounded-[8px] border border-[#666] px-[10px] text-[13px] font-bold text-[#d9d9d9] transition-colors hover:border-[#d9d9d9] hover:text-white sm:px-[12px] sm:text-[14px]" @click="saveDraft">
-        임시저장
+  <WizardShell :bar-title="barTitle" :guide="guide" :guide-error="guideError || submitError !== '' || draftFailed">
+    <!-- Save Draft — 시안 98×34 흰 테두리(01-1 183:22720). 누른 직후 'Saved' 로 잠깐 바뀐다. -->
+    <template v-if="loggedIn && createdId === null" #title-actions>
+      <button
+        type="button"
+        class="flex h-[34px] min-w-[98px] items-center justify-center whitespace-nowrap rounded-[8px] border border-white px-[10px] text-[14px] font-bold text-white transition-colors hover:bg-white/10"
+        :title="savedLabel === '' ? '작성 중인 내용을 이 브라우저에 저장합니다(첨부 파일 제외).' : `저장됨 · ${savedLabel}`"
+        @click="onSaveDraft"
+      >
+        {{ draftFlash === 'saved' ? 'Saved ✓' : 'Save Draft' }}
       </button>
-      <button type="button" class="h-[40px] rounded-[8px] border border-[#666] px-[10px] text-[13px] font-bold text-[#d9d9d9] transition-colors hover:border-[#ff8f8f] hover:text-[#ff8f8f] sm:px-[12px] sm:text-[14px]" @click="askReset = true">
-        처음부터
+      <span class="sr-only" role="status">{{ draftFlash === 'saved' ? `임시저장했습니다 · ${savedLabel}` : '' }}</span>
+    </template>
+    <template v-if="loggedIn && createdId === null" #menu>
+      <button type="button" class="rounded-[6px] px-[10px] py-[8px] text-left hover:bg-white/10" @click="openReset">처음부터 다시 작성</button>
+    </template>
+
+    <!-- 비로그인 — 시안 숨김 레이어(183:22538)의 'Login' 버튼 -->
+    <template v-if="!loggedIn" #actions>
+      <button
+        type="button"
+        class="flex h-[40px] w-[96px] items-center justify-center gap-[4px] rounded-[8px] bg-[#08d3e1] text-[14px] font-bold text-[#061023] transition-colors hover:bg-[#1bfffb] sm:w-[120px]"
+        @click="goLogin"
+      >
+        Login <img :src="arrowNext" alt="" width="14" height="14" class="block size-[14px]">
       </button>
+    </template>
+    <template v-else-if="createdId === null" #actions>
       <button
         type="button"
         class="flex h-[40px] w-[96px] items-center justify-center rounded-[8px] bg-[#d9d9d9] text-[14px] font-bold uppercase text-[#061023] transition-opacity disabled:opacity-40 sm:w-[120px]"
@@ -245,12 +287,17 @@ async function submit(): Promise<void> {
       </button>
     </template>
 
-    <!-- 비로그인 -->
-    <div v-if="!loggedIn" class="mx-auto flex max-w-[900px] flex-col items-center gap-[20px] py-[60px] text-center">
-      <h1 class="text-[30px] font-bold leading-[1.2] text-[#061023] sm:text-[38px]">개발 의뢰는 로그인 후 진행할 수 있습니다</h1>
-      <p class="text-[17px] font-medium leading-[1.4] text-[#666] sm:text-[20px]">견적서·진행 상황·산출물을 계정에서 확인하실 수 있도록 회원 전용으로 운영합니다.</p>
-      <button type="button" class="mt-[10px] h-[56px] rounded-[8px] bg-[#2945e8] px-[28px] text-[18px] font-bold text-white transition-colors hover:bg-[#1f37c4]" @click="goLogin">
-        로그인하고 의뢰하기
+    <!-- 비로그인 — 피그마 01-0(183:22384): 자물쇠 112 → 60 → 제목 38 → 20 → 부제 22 → 40 → LOGIN 200×51(본문 판 위에서 120) -->
+    <div v-if="!loggedIn" class="mx-auto flex max-w-[900px] flex-col items-center text-center lg:mt-[50px]">
+      <img :src="lockIcon" alt="" width="112" height="112" class="block size-[88px] sm:size-[112px]">
+      <h1 class="mt-[40px] text-[28px] font-bold leading-[1.2] text-[#061023] sm:mt-[60px] sm:text-[38px]">개발 의뢰는 로그인 후 진행할 수 있습니다.</h1>
+      <p class="mt-[20px] text-[17px] font-medium leading-[1.3] text-[#666] sm:text-[22px]">견적서·진행 상황·산출물을 계정에서 확인하실 수 있도록 회원 전용으로 운영합니다.</p>
+      <button
+        type="button"
+        class="mt-[40px] flex h-[51px] w-[200px] items-center justify-center rounded-[8px] bg-[#08d3e1] px-[26px] text-[16px] font-bold uppercase text-black transition-colors hover:bg-[#1bfffb]"
+        @click="goLogin"
+      >
+        Login
       </button>
     </div>
 
@@ -322,7 +369,7 @@ async function submit(): Promise<void> {
       <div class="mx-auto mt-[26px] w-full sm:mt-[34px]" :class="currentStep === 'menu' ? 'max-w-[1060px]' : 'max-w-[900px]'">
         <StepMenu v-if="currentStep === 'menu'" :form="form" />
         <StepDescribe v-else-if="currentStep === 'describe'" :form="form" />
-        <StepQuestions v-else-if="currentStep === 'questions'" :form="form" :followup="followup" />
+        <StepQuestions v-else-if="currentStep === 'questions'" :form="form" :followup="followup" toc />
         <StepProduction v-else-if="currentStep === 'production'" :form="form" />
         <StepReview v-else :form="form" />
 

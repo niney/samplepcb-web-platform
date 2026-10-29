@@ -21,7 +21,7 @@ async function reachReview(page: Page): Promise<void> {
   await page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill('센서의 값을 모아 펌프를 자동 제어하는 장비 개발');
   await page.getByRole('button', { name: '아이디어', exact: true }).click();
   await page.getByRole('button', { name: '시제품 완성', exact: true }).click();
-  await page.getByPlaceholder('계약 후 3개월').fill('계약 후 3개월');
+  await page.getByLabel('희망 기간', { exact: true }).fill('계약 후 3개월');
   await page.locator('select').first().selectOption({ label: '1천만~3천만원' });
   await page.getByText('입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다.').click();
   await page.getByText('전문가에게 맡김', { exact: false }).first().click();
@@ -72,11 +72,12 @@ describe.skipIf(!RUN)('개발의뢰 회원정보 자동 채움', () => {
       await next(s.page);
       expect((await values(s.page)).slice(0, 2)).toEqual(['이번 의뢰 담당자', '']);
       expect(requests).toBe(1);
-      await s.page.getByRole('button', { name: '임시저장', exact: true }).click();
+      await s.page.getByRole('button', { name: /^Save(d| Draft)/ }).click();
       await s.page.reload();
       await s.page.getByRole('button', { name: '이어쓰기', exact: true }).click();
       expect((await values(s.page)).slice(0, 2)).toEqual(['이번 의뢰 담당자', '']);
-      await s.page.getByRole('button', { name: '처음부터', exact: true }).click();
+      await s.page.locator('header button[aria-expanded]').click(); // 처음부터는 사용자 메뉴 안(시안 위 바엔 Save Draft 만)
+      await s.page.getByRole('button', { name: '처음부터 다시 작성' }).click();
       await s.page.getByRole('button', { name: '모두 지우고 처음부터' }).click();
       await reachReview(s.page);
       expect(await values(s.page)).toEqual([contact.name, contact.company, contact.phone, contact.email]);
@@ -116,7 +117,7 @@ describe.skipIf(!RUN)('개발의뢰 회원정보 자동 채움', () => {
       const response = s.page.waitForResponse('**/api/me/contact');
       release();
       await response;
-      await s.page.getByRole('button', { name: '임시저장', exact: true }).click();
+      await s.page.getByRole('button', { name: /^Save(d| Draft)/ }).click();
       expect(await values(s.page)).toEqual(['다른 담당자', '', '02-123-4567', 'other@example.com']);
       expect(await s.page.getByText(notice).count()).toBe(0);
       expect(s.pageErrors).toEqual([]);
@@ -133,7 +134,7 @@ describe.skipIf(!RUN)('개발의뢰 회원정보 자동 채움', () => {
       await s.page.goto('/develop/request');
       await reachReview(s.page);
       expect(await s.page.getByRole('heading', { name: '이어서 작성할까요?' }).count()).toBe(0);
-      await s.page.getByRole('button', { name: '임시저장', exact: true }).click();
+      await s.page.getByRole('button', { name: /^Save(d| Draft)/ }).click();
       const saved = await s.page.evaluate(({ key, otherKey, prefix }) => ({
         own: JSON.parse(localStorage.getItem(key) ?? '{}') as { mbId?: string; v?: number },
         other: localStorage.getItem(otherKey), legacy: localStorage.getItem(prefix),
@@ -170,14 +171,14 @@ describe.skipIf(!RUN)('개발의뢰 회원정보 자동 채움', () => {
       await s.page.goto('/develop/request');
       await reachReview(s.page);
       await s.page.getByPlaceholder('홍길동').fill('이전 회원 작성값');
-      await s.page.getByRole('button', { name: '임시저장', exact: true }).click();
+      await s.page.getByRole('button', { name: /^Save(d| Draft)/ }).click();
       switched = true;
       release();
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
       expect(await s.page.getByRole('heading', { name: '이어서 작성할까요?' }).count()).toBe(0);
       await reachReview(s.page);
       expect(await values(s.page)).toEqual([nextContact.name, nextContact.company, nextContact.phone, nextContact.email]);
-      await s.page.getByRole('button', { name: '임시저장', exact: true }).click();
+      await s.page.getByRole('button', { name: /^Save(d| Draft)/ }).click();
       const owners = await s.page.evaluate(({ key, nextKey }) => [key, nextKey].map((k) => {
         const value = JSON.parse(localStorage.getItem(k) ?? '{}') as { mbId?: string; contact?: { name?: string } };
         return [value.mbId, value.contact?.name];
@@ -202,7 +203,7 @@ describe.skipIf(!RUN)('개발의뢰 회원정보 자동 채움', () => {
       await s.page.getByPlaceholder('홍길동').fill('직접 담당자');
       await s.page.getByPlaceholder('010-0000-0000').fill('010-1111-2222');
       await s.page.getByPlaceholder('name@company.com').fill('manual@example.com');
-      await s.page.getByRole('button', { name: '임시저장', exact: true }).click();
+      await s.page.getByRole('button', { name: /^Save(d| Draft)/ }).click();
       expect((await values(s.page))[0]).toBe('직접 담당자');
       expect(s.pageErrors).toEqual([]);
     } finally { await s.close(); }

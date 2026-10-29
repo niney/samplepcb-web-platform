@@ -40,7 +40,7 @@ const MCAD_TOOLS: readonly MarketToolOption[] = [
 // ── 시스템개발 전용 문항 — 서술 3 + 디자인·기구 범위 2(선택지) ────
 // 디자인·기구의 담당을 각각 묻고, 같은 내용을 합쳐 묻던 system.collab 은 제거했다.
 // 범위 2문항은 견적 전제라 **전문가에게 맡김을 골라도 묻는다**(askOnDelegate).
-const DELEGATE_UNKNOWN_LABEL = '잘 모르겠음·전문가 판단 요청';
+const DELEGATE_UNKNOWN_LABEL = '잘 모르겠음 (전문가 판단 요청)'; // 피그마 01-3(135:21830) 표기
 export const DEVELOP_SYSTEM_COLLAB_QUESTIONS: readonly MarketQuestionDef[] = [
   {
     code: 'system.product_design', label: '제품 외관 디자인은 어떻게 준비하시나요?', short: '제품디자인', multi: false, askOnDelegate: true,

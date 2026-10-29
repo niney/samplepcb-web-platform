@@ -239,6 +239,10 @@ export const DEVELOP_PROGRESS_STEPS = [
 ] as const satisfies readonly DevelopRequestStatusType[];
 
 export const isDevelopClosed = (s: DevelopRequestStatusType): boolean => s === 'cancelled' || s === 'declined';
+// 끝난 의뢰(완료 + 종결) — 고객 '진행 사항'(내 의뢰 scope=active)이 빼는 상태.
+export const DEVELOP_ENDED_STATUSES = ['completed', 'cancelled', 'declined'] as const satisfies readonly DevelopRequestStatusType[];
+export const DEVELOP_MY_LIST_SCOPES = ['all', 'active'] as const;
+export type DevelopMyListScopeType = (typeof DEVELOP_MY_LIST_SCOPES)[number];
 // 고객 의뢰 수정 창 — 견적이 나가기 전까지만(그 뒤 원천이 바뀌면 견적의 전제가 달라진다).
 export const isDevelopEditable = (s: DevelopRequestStatusType): boolean => s === 'received' || s === 'reviewing';
 // 고객 취소 창 — 착수(첫 결제) 전까지. 그 뒤는 관리자 운영 취소만.
@@ -583,6 +587,7 @@ export type DevelopRequestListItemType = z.infer<typeof DevelopRequestListItem>;
 export const DevelopRequestListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  scope: z.enum(DEVELOP_MY_LIST_SCOPES).default('all'), // active = 끝난 의뢰(DEVELOP_ENDED_STATUSES) 제외
 });
 export type DevelopRequestListQueryType = z.infer<typeof DevelopRequestListQuery>;
 

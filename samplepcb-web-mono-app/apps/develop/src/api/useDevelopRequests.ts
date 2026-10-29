@@ -12,6 +12,7 @@ import {
 } from '@sp/api-contract';
 import type {
   DevelopDocDecisionType,
+  DevelopMyListScopeType,
   DevelopQuoteAcceptBodyType,
   DevelopRequestDetailResponseType,
   DevelopRequestUpdateBodyType,
@@ -30,12 +31,14 @@ export const developFilesPath = (requestId: number): string => `${developRequest
 export interface MyRequestFilters {
   page: number;
   pageSize: number;
+  scope: DevelopMyListScopeType; // active = 진행 사항(끝난 의뢰 제외)
 }
 
 const myListPath = (f: MyRequestFilters): string => {
   const params = new URLSearchParams();
   params.set('page', String(f.page));
   params.set('pageSize', String(f.pageSize));
+  if (f.scope !== 'all') params.set('scope', f.scope);
   return `${apiRoutes.developMyRequests}?${params.toString()}`;
 };
 

@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { DEVELOP_INDIVIDUAL_AREAS, DEVELOP_INDIVIDUAL_TAG, DEVELOP_SYSTEM_MENU } from '@sp/api-contract';
-import heroCircuit from '../assets/home/hero-circuit.jpg';
-import heroIconSystem from '../assets/home/hero-icon-system.png';
-import heroIconPcb from '../assets/home/hero-icon-pcb.png';
-import heroIconMech from '../assets/home/hero-icon-mech.png';
-import heroIconApp from '../assets/home/hero-icon-app.png';
-import heroIconServer from '../assets/home/hero-icon-server.png';
+import { DEVELOP_INDIVIDUAL_AREAS, DEVELOP_SYSTEM_MENU } from '@sp/api-contract';
+import heroLayers from '../assets/home/hero-layers.jpg';
 import pcbXray from '../assets/home/pcb-xray.jpg';
 import areaPcb from '../assets/home/area-pcb.jpg';
 import areaMech from '../assets/home/area-mech.jpg';
@@ -21,33 +16,18 @@ import whyIconAs from '../assets/home/why-icon-as.png';
 import chevronDown from '../assets/home/chevron-down.svg';
 
 // 개발의뢰 랜딩 — 피그마 개발의뢰(U7VKC9FSkojpDXqZ5qnJQN) 「00-1 랜딩 페이지」 37:6768(= Design done 70:1296), 2026-10-21.
-// 1920 화면 기준 좌표를 그대로 옮겼다(안쪽 1280, 히어로만 1380). 1280 미만은 피그마에 없어 세로로 쌓는다.
-// 구성: 히어로(분야 카드 5) → 개발 분야(#areas) → 진행 방식 7단계(#how) → 왜 직접 개발인가(아코디언) → 자주 묻는 질문 → 하단 CTA.
+// 1920 화면 기준 좌표를 그대로 옮겼다(안쪽 1280). 1280 미만은 피그마에 없어 세로로 쌓는다.
+// 구성: 히어로 → 개발 분야(#areas) → 진행 방식 7단계(#how) → 왜 직접 개발인가(아코디언) → 자주 묻는 질문 → 하단 CTA.
+// 히어로는 2026-10 시안 교체(145:22298~22308): 전폭 어두운 띠 + 큐브 사진 + 문구. 옛 히어로의 분야 카드 5장·버튼 2개는 시안에서
+// 빠졌다(분야 입구는 아래 '개발 분야' 카드가 맡는다). 시안의 같은 마스크 안 GIF(hero-banner (2), 252프레임 일러스트)는 불투명한
+// 큐브 사진 아래에 깔려 보이지 않아 쓰지 않는다(docs/FIGMA_PAGES.md "개발의뢰 랜딩").
 // 분야 카드는 위저드 1스텝 메뉴를 고른 채 연다(?menu=<code>). 꼬리표·한 줄 설명은 계약(DEVELOP_*)이 정본이고,
-// 카드 제목은 피그마 표기("시스템 개발"·"PCB 설계" — 띄어 씀)를 따른다.
+// 카드 제목은 피그마 표기("시스템 개발"·"PCB 설계" — 띄어 씀)를 따른다. 2026-10 시안의 카드 구성 변경(기구 → '회로 설계' 제목만
+// 바뀜)은 계약 메뉴를 그대로 두기로 해 따르지 않는다(사용자 결정 2026-10-29).
 // 피그마와 다르게 둔 것(사용자 결정): 진행 방식 05·06 설명(피그마는 01·02 복사본)·FAQ(피그마는 PCB 양산 주문 자리표시)는
-// 기존 개발의뢰 문구. 히어로 회로 이미지는 Unsplash+ 워터마크가 찍힌 캡처라 운영 전 라이선스 원본으로 바꿔야 한다
-// (docs/FIGMA_PAGES.md "개발의뢰 랜딩").
+// 기존 개발의뢰 문구.
 
 const areaHint = (code: string): string => DEVELOP_INDIVIDUAL_AREAS.find((a) => a.code === code)?.hint ?? '';
-
-// ── 히어로 분야 카드 — 218×166, 카드 묶음(726×368) 안 좌표. x 는 묶음 폭 대비 %(1380 상자에서 정확히 피그마 값) ──
-interface HeroCard {
-  code: string;
-  label: string;
-  tag: string;
-  icon: string;
-  x: number;
-  y: number;
-  iconNudge: boolean; // PCB 설계 아이콘만 피그마에서 3px 왼쪽(25px)
-}
-const heroCards: readonly HeroCard[] = [
-  { code: 'system', label: '시스템 개발', tag: DEVELOP_SYSTEM_MENU.tag, icon: heroIconSystem, x: 0, y: 0, iconNudge: false },
-  { code: 'pcb', label: 'PCB 설계', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconPcb, x: 34.986, y: 0, iconNudge: true },
-  { code: 'mech', label: '기구 설계', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconMech, x: 69.972, y: 0, iconNudge: false },
-  { code: 'app', label: '앱 개발', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconApp, x: 17.493, y: 202, iconNudge: false },
-  { code: 'server', label: '서버 개발', tag: DEVELOP_INDIVIDUAL_TAG, icon: heroIconServer, x: 52.479, y: 202, iconNudge: false },
-];
 
 // ── 개발 분야 카드 — 사진 상자(크롭 원본 크기·위치)와 그 위 그라데이션은 피그마 마스크 그룹 값 그대로 ──
 interface AreaCard {
@@ -199,49 +179,29 @@ const toggleFaq = (i: number): void => {
 
 <template>
   <div class="bg-white tracking-normal break-normal text-black">
-    <!-- 히어로 — 1380×534 r20 상자(top 102). 회로 사진 위에 오른쪽부터 #5a47cb 그라데이션 -->
-    <section class="px-4 pt-[30px]">
-      <div class="relative mx-auto max-w-[1380px] overflow-hidden rounded-[20px] bg-[#5a47cb] px-6 py-12 sm:px-10 xl:h-[534px] xl:p-0">
-        <div class="pointer-events-none absolute left-0 top-[-431px] h-[1059px] w-[1483px]" aria-hidden="true">
-          <img :src="heroCircuit" alt="" class="absolute inset-0 size-full max-w-none object-cover">
-          <div class="absolute inset-0 bg-[linear-gradient(to_left,#5a47cb_58.615%,rgba(73,52,192,0))]" />
-        </div>
-
-        <div class="relative xl:absolute xl:left-[50px] xl:top-[140px] xl:w-[496px]">
-          <h1 class="text-[26px] font-bold leading-[1.4] text-white max-sm:break-keep sm:text-[36px]">
-            아이디어를 회로 · PCB · 펌웨어 · <br class="hidden sm:inline">기구 · 앱 · 서버까지,<br>샘플피씨비가 직접 개발합니다
+    <!-- 히어로 — 전폭 띠 450(#040e1c→#000109) · 안쪽 1280 상자에 큐브 사진 1350×450 을 가운데로(양옆 35 잘림 = 시안 마스크) ·
+         글 묶음은 상자 왼쪽 위 92. 제목은 시안 Lexend(한글 글리프 없음 → 대체 글꼴)라 Pretendard Medium, 영문 줄만 Lexend Light.
+         lg 미만은 시안이 없어 글 → 사진 순으로 쌓는다. -->
+    <section class="bg-[linear-gradient(to_bottom,#040e1c,#000109)]">
+      <div class="relative mx-auto flex max-w-[1280px] flex-col overflow-hidden lg:block lg:h-[450px]">
+        <div class="relative z-10 px-5 pt-[40px] lg:absolute lg:left-0 lg:top-[92px] lg:w-[560px] lg:p-0">
+          <h1 class="text-[32px] font-medium leading-[1.24] tracking-[-0.02em] text-white sm:text-[45px]">
+            여러분의 아이디어를 <br>실현시켜 드립니다.
           </h1>
-          <div class="mt-[40px] flex flex-wrap gap-[24px] max-sm:gap-3 xl:mt-[38.8px]">
-            <RouterLink
-              :to="{ name: 'request' }"
-              class="flex h-[64px] w-[200px] items-center justify-center rounded-[8px] bg-[#0a1220] text-[20px] font-semibold leading-[32px] tracking-[-0.4px] text-white transition-colors hover:bg-[#22303b] max-sm:h-14 max-sm:w-[calc(50%-6px)] max-sm:text-[17px]"
-            >
-              개발 의뢰하기
-            </RouterLink>
-            <RouterLink
-              :to="{ name: 'home', hash: '#how' }"
-              class="flex h-[64px] w-[200px] items-center justify-center rounded-[8px] border-[1.5px] border-[#0b1424] bg-[rgba(231,228,255,0.08)] text-[20px] font-semibold leading-[32px] tracking-[-0.4px] text-[#0c1423] backdrop-blur-[13px] transition-colors hover:bg-[rgba(231,228,255,0.2)] max-sm:h-14 max-sm:w-[calc(50%-6px)] max-sm:text-[17px]"
-            >
-              진행 방식 보기
-            </RouterLink>
-          </div>
+          <p class="mt-[14px] font-[Lexend] text-[24px] font-light leading-[1.25] tracking-[-0.02em] text-white/90 sm:text-[34px]">
+            Your Idea, Our Expertise
+          </p>
+          <p class="mt-[28px] text-[17px] font-medium leading-[1.7] tracking-[-0.02em] text-white/60 sm:text-[20px]">
+            아이디어 구상부터 제작까지, <br>전문 담당자가 함께 실현해 드립니다.
+          </p>
         </div>
-
-        <ul class="relative mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:absolute xl:left-[43.768%] xl:top-[83px] xl:mt-0 xl:block xl:h-[368px] xl:w-[52.609%]">
-          <li
-            v-for="card in heroCards"
-            :key="card.code"
-            class="xl:absolute xl:left-(--x) xl:top-(--y) xl:h-[166px] xl:w-[30.028%]"
-            :style="{ '--x': `${card.x}%`, '--y': `${card.y}px` }"
-          >
-            <RouterLink :to="{ name: 'request', query: { menu: card.code } }" class="group relative block h-full min-h-[150px] rounded-[16px] px-4 pb-6 pt-4 max-sm:break-keep sm:px-[28px] xl:min-h-0">
-              <span class="absolute inset-0 rounded-[16px] bg-[#917fff] opacity-[0.23] shadow-[0_10px_20px_rgba(61,41,183,0.3)] transition-opacity group-hover:opacity-[0.34]" aria-hidden="true" />
-              <img :src="card.icon" alt="" class="relative block size-[60px] max-w-none" :class="card.iconNudge ? '-ml-[3px]' : ''">
-              <span class="relative mt-[12px] block text-[19px] font-bold leading-[1.2] text-white sm:text-[22px]">{{ card.label }}</span>
-              <span class="relative mt-[6.6px] block text-[15px] font-bold leading-[1.2] text-[#c2bbef] sm:text-[17px]">{{ card.tag }}</span>
-            </RouterLink>
-          </li>
-        </ul>
+        <img
+          :src="heroLayers"
+          alt=""
+          width="1350"
+          height="450"
+          class="pointer-events-none block h-[240px] w-full max-w-none object-cover sm:h-[340px] lg:absolute lg:left-1/2 lg:top-0 lg:h-[450px] lg:w-[1350px] lg:-translate-x-1/2"
+        >
       </div>
     </section>
 

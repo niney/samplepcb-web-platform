@@ -1,4 +1,4 @@
-// 위저드 스텝별 문구 — 피그마 「개발 의뢰」 01-1~01-5(Design done 70:566·70:868·70:11679·70:12081·70:12369).
+// 위저드 스텝별 문구 — 피그마 「개발 의뢰」 01-1~01-5(Design done 70:566·70:868·135:21515(옛 70:11679)·70:12081·70:12369).
 // bar = 상단 바 제목, title·lead = 본문 큰 제목·부제, guide = 상단 바 가운데 안내(하늘색). 수정 화면은 title 만 섹션 제목으로 쓴다.
 // 시안 오탈자는 바로잡았다(docs/FIGMA_PAGES.md "개발의뢰 위저드"): 4스텝 안내가 1스텝 문구 복사본이던 것, '확인 되지' 띄어쓰기 등.
 import type { StepKey } from '../composables/useRequestForm';
@@ -60,17 +60,18 @@ export const WIZ = {
   input:
     'h-[60px] w-full rounded-[10px] border border-[#d9d9d9] bg-white px-[18px] text-[18px] font-medium leading-[1.8] text-black outline-none placeholder:text-[#888] focus:border-[#2945e8] sm:h-[72px] sm:text-[20px]',
   textarea:
-    'w-full rounded-[10px] border border-[#d9d9d9] bg-[#fafafa] px-[18px] py-[14px] text-[17px] font-medium leading-[1.8] text-black outline-none placeholder:text-[#888] focus:border-[#2945e8] sm:text-[18px]',
+    'w-full rounded-[10px] border border-[#d9d9d9] bg-white px-[18px] py-[14px] text-[17px] font-medium leading-[1.8] text-black outline-none placeholder:text-[#888] focus:border-[#2945e8] sm:text-[18px]',
+  // 3스텝 묶음 제목(번호 · 접기) — 피그마 01-3 135:21718: 26 Bold + 부제 18 #666
+  groupTitle: 'text-[22px] font-bold leading-[1.3] text-black sm:text-[26px]',
+  groupLead: 'text-[16px] font-medium leading-[1.3] text-[#666] sm:text-[18px]',
   selectBox:
     'relative flex h-[72px] w-full items-center rounded-[14px] border border-[#d9d9d9] bg-white px-[24px] sm:h-[90px] sm:px-[30px]',
   selectText: 'text-[18px] font-bold text-black sm:text-[20px]',
 } as const;
 
-// 칩(알약) — 선택 = 파란 2px 테두리·파란 글자. 탈출구(잘 모르겠음)는 점선으로 가른다.
-export const chipClass = (on: boolean, escape = false): string =>
+// 칩(알약) — 선택 = 파란 2px 테두리·파란 글자. 탈출구(잘 모르겠음)도 시안 01-3(135:21829)처럼 같은 실선 칩이다.
+export const chipClass = (on: boolean): string =>
   [
     'flex min-h-[48px] items-center justify-center rounded-full bg-white px-[20px] py-[8px] text-[17px] font-bold leading-[1.3] transition-colors sm:min-h-[56px] sm:text-[20px]',
-    on
-      ? 'border-2 border-[#2945e8] text-[#2945e8]'
-      : `border ${escape ? 'border-dashed' : ''} border-[#d9d9d9] text-black hover:border-[#9aa3ad]`,
+    on ? 'border-2 border-[#2945e8] text-[#2945e8]' : 'border border-[#d9d9d9] text-black hover:border-[#9aa3ad]',
   ].join(' ');

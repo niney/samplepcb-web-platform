@@ -56,7 +56,7 @@ async function fillDescribe(s: E2eSession, title: string): Promise<void> {
   await s.page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill('[e2e] 여러 센서 값을 모아 설정 범위를 벗어나면 펌프를 자동 제어하는 장비. 스마트폰 상태 확인.');
   await s.page.getByRole('button', { name: '아이디어', exact: true }).click();
   await s.page.getByRole('button', { name: '시제품 완성', exact: true }).click();
-  await s.page.getByPlaceholder('계약 후 3개월').fill('계약 후 3개월');
+  await s.page.getByLabel('희망 기간', { exact: true }).fill('계약 후 3개월');
   await s.page.locator('select').first().selectOption({ label: '1천만~3천만원' });
   // AI 동의는 2스텝 업로드 존 아래(자료가 AI 로 나가는 시점 앞, §7.2.2).
   await s.page.getByText('입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다.').click();
@@ -276,7 +276,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
   test('랜딩 분야 카드 — 메뉴를 고른 채 위저드 진입', async () => {
     const s = await newSession(identity);
     try {
-      // 히어로 카드(PCB 설계) → 개별 견적 PCB 설계 선택
+      // 분야 카드(PCB 설계) → 개별 견적 PCB 설계 선택(2026-10 히어로 교체로 히어로 카드는 없어졌다)
       await s.page.goto('/develop/');
       await s.page.getByRole('link', { name: /PCB 설계/ }).first().click();
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();

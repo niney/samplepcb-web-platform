@@ -232,7 +232,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     await page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill('[e2e 여정] 배터리로 1년 동작하는 BLE 온습도 로거. 스마트폰 앱에서 기록을 조회하고 내보냅니다.');
     await page.getByRole('button', { name: '아이디어', exact: true }).click();
     await page.getByRole('button', { name: '시제품 완성', exact: true }).click();
-    await page.getByPlaceholder('계약 후 3개월').fill('계약 후 3개월');
+    await page.getByLabel('희망 기간', { exact: true }).fill('계약 후 3개월');
     await page.locator('select').first().selectOption({ label: '1천만~3천만원' });
     await page.getByText('입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다.').click();
     await page.getByRole('button', { name: /^NEXT/ }).click();

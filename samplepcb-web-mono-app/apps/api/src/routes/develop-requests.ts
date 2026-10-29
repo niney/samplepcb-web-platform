@@ -17,6 +17,7 @@ import {
   DevelopRequestUpdateBody,
   DevelopReviewDecisionBody,
   DEVELOP_BUDGET_RANGE_LABELS,
+  DEVELOP_ENDED_STATUSES,
   DEVELOP_REGISTRY,
   applyDevelopFollowupAnswers,
   computeDevelopQuoteAmounts,
@@ -525,8 +526,10 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     '/develop/my/requests',
     { schema: { querystring: DevelopRequestListQuery }, preHandler: fastify.authenticate },
     async (request) => {
-      const { page, pageSize } = request.query;
-      const where = { mbId: request.user.mbId };
+      const { page, pageSize, scope } = request.query;
+      const where = scope === 'active'
+        ? { mbId: request.user.mbId, status: { notIn: [...DEVELOP_ENDED_STATUSES] } }
+        : { mbId: request.user.mbId };
       const [rows, total] = await Promise.all([
         prisma.spDevelopRequest.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
         prisma.spDevelopRequest.count({ where }),
