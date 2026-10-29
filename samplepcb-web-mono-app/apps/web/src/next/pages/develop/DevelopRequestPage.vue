@@ -207,6 +207,12 @@ async function downloadFromPreview(fileId: number, name: string): Promise<void> 
         </p>
       </header>
 
+      <!-- 역설계 권리 확인(유지보수 목적·상담) — 견적 전에 담당자가 확인할 일이라 머리 바로 아래 첫 줄에 -->
+      <Alert v-if="detail.rightsCheck" variant="destructive">
+        <TriangleAlertIcon />
+        <AlertDescription>{{ t('admin.develop.rightsCheckAlert') }}</AlertDescription>
+      </Alert>
+
       <Panel size="md" class="grid gap-3">
         <DevelopStatusBar :request-id="detail.requestId" :status="detail.status" :assignee-mb-id="detail.assigneeMbId" />
         <Separator />

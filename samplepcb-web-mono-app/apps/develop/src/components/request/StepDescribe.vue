@@ -21,7 +21,7 @@ import icoSelect from '../../assets/wizard/ico-select.svg';
 
 // 위저드 2스텝 — 의뢰 내용. 피그마 01-2(70:1069, 900 폭): 제목 입력(72) + 개발 목적(흰 상자 278) · 현재/목표 개발단계(점선으로
 // 이은 라디오 줄) · 희망 완료 시기(날짜 242 + 'N개월' 칸)와 예산(선택 상자) · 참고 자료 드롭존 + 자료 사용 동의 · (시스템 개발이면)
-// 진행 절차 2택. 제목은 입력·안내 모두 Medium(디자이너 체크리스트 2026-10 — 굵기 통일).
+// 진행 절차 2택. 개발단계는 역설계만 고른 의뢰에서 숨긴다(2026-10-30). 제목은 입력·안내 모두 Medium(디자이너 체크리스트 2026-10 — 굵기 통일).
 // 희망 시기는 날짜와 기간 중 하나만 있어도 된다(사용자 결정 2026-10-22). 기간 칸은 시안대로 'N개월' 모양이지만 저장은 예전 그대로
 // 문구(wishNote)라, 숫자만 치면 '개월'을 붙이고 예전 의뢰의 '계약 후 3개월' 같은 문구도 그대로 둔다.
 // 동의 체크가 여기 있는 이유: 시스템 개발 AI 질의가 2→3 전환에서 설명문과 첨부를 외부 AI 로 보낸다.
@@ -29,7 +29,7 @@ import icoSelect from '../../assets/wizard/ico-select.svg';
 const props = withDefaults(defineProps<{ form: DevelopRequestForm; showAttachments?: boolean }>(), {
   showAttachments: true,
 });
-const { fields, isSystem, attachments, addAttachments, removeAttachment } = props.form;
+const { fields, isSystem, needsStages, attachments, addAttachments, removeAttachment } = props.form;
 
 // 개발단계 두 줄 — 같은 모양이라 한 목록으로 그리고, 고른 코드는 각 사전에서 다시 찾아 넣는다(문자열 캐스팅 없이).
 type StageKey = 'current' | 'target';
@@ -107,8 +107,8 @@ function openPicker(e: Event): void {
       </div>
     </section>
 
-    <!-- 현재 · 목표 개발단계 -->
-    <section v-for="group in STAGE_GROUPS" :key="group.key" :class="WIZ.section">
+    <!-- 현재 · 목표 개발단계 — 역설계만 고른 의뢰는 이미 실물이 있어 묻지 않는다(검토 회신 7) -->
+    <section v-for="group in needsStages ? STAGE_GROUPS : []" :key="group.key" :class="WIZ.section">
       <h2 :class="WIZ.sectionTitle">{{ group.title }} <span class="text-red-500">*</span></h2>
       <div class="flex flex-wrap items-center gap-x-[10px] gap-y-[12px]" role="group" :aria-label="group.title">
         <template v-for="(opt, oi) in group.options" :key="opt.code">

@@ -1,10 +1,12 @@
 import { computed, reactive, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
 import {
+  DEVELOP_APP_SERVER_SCOPE_CODE,
   DEVELOP_BUDGET_RANGES,
   DEVELOP_CURRENT_STAGES,
   DEVELOP_DELIVERY_FORMS,
-  DEVELOP_INDIVIDUAL_AREAS,
   DEVELOP_INDIVIDUAL_AREA_CODES,
+  DEVELOP_MENU_CARDS,
+  DEVELOP_NO_PRODUCTION,
   DEVELOP_PRIORITIES,
   DEVELOP_PRODUCTION_SCOPES,
   DEVELOP_PROTOTYPE_MODES,
@@ -12,17 +14,22 @@ import {
   DEVELOP_REQUEST_MODES,
   DEVELOP_SOURCING_MODES,
   DEVELOP_SYSTEM_MENU,
+  DEVELOP_SYSTEM_SUGGEST_CARDS,
   DEVELOP_TARGET_STAGES,
   DevelopContact,
   EMPTY_DEVELOP_PRODUCTION,
   EMPTY_MARKET_TOOLS,
-  developArea,
   developAreaBadge,
   developAreaQuestionsFor,
   developFollowupAnswerText,
+  developNeedsProduction,
+  developNeedsStages,
+  developQuestion,
   developQuestionsFor,
+  developRequiredMissing,
   isDevelopFollowupAnswered,
   isDevelopFollowupUnknown,
+  isDevelopQuestionVisible,
   isMarketAnswered,
   isTextQuestion,
   normalizeDevelopProduction,
@@ -47,20 +54,21 @@ import type {
   DevelopRequestDetailType,
   DevelopRequestModeType,
   DevelopSourcingModeType,
+  DevelopMenuCard,
   DevelopTargetStageType,
   MarketAnswerType,
-  MarketAreaDef,
   MarketQuestionDef,
   MeContactType,
 } from '@sp/api-contract';
 import type { QuestionState } from '@sp/ui';
 
 // 개발의뢰 폼 상태 — 위저드 v2 5스텝(2026-09-08)과 수정 화면이 **같은 상태**를 쓴다.
-//   ① 개발 메뉴   시스템개발(배타) 또는 개별 견적(PCB·기구·앱·서버 복수)
-//   ② 의뢰 내용   제목·목적·현재/목표 단계·희망 시기·예산·참고 자료 + 자료 사용 동의(aiConsent, 필수)
+//   ① 개발 메뉴   시스템개발(배타) 또는 개별 메뉴 카드(회로·PCB·펌웨어·역설계·앱 및 서버 복수, 2026-10-30 피그마 6장)
+//   ② 의뢰 내용   제목·목적·현재/목표 단계(역설계만이면 묻지 않음)·희망 시기·예산·참고 자료 + 자료 사용 동의(aiConsent, 필수)
 //                 (+시스템개발 후속 질문 방식) — 자료가 AI 로 나가는 시점이 2→3 전환이라 동의를 여기서 받는다
-//   ③ 세부 질문   시스템개발 = AI 후속 질문(§7.2.2, 폴백은 고정 서술 3문항) + 디자인·기구 범위 2, 개별 견적 = 고른 분야의 전문 질문
-//   ④ 제작 계획   시제품 수량·제작 범위·연간 수량(+범위가 있으면 조달·납품 형태)
+//   ③ 세부 질문   시스템개발 = AI 후속 질문(§7.2.2, 폴백은 고정 문항) + 디자인·기구 범위 2, 개별 = 고른 카드의 전문 질문
+//                 ('앱 및 서버'는 첫 문항 범위 답대로 앱·서버 질문이 나온다)
+//   ④ 제작 계획   시제품 수량·제작 범위·연간 수량(+범위가 있으면 조달·납품 형태) — 펌웨어·앱·서버만이면 스텝째 건너뛴다
 //   ⑤ 검토·접수  연락처 + 요약 + 비밀유지(NDA)
 // 분야·질문·라벨의 정본은 개발의뢰 레지스트리(DEVELOP_REGISTRY)라 이 파일에 분야 코드나
 // 한글 라벨을 박지 않는다. 마켓 사전(MARKET_*)은 다른 상품이라 여기서 쓰지 않는다.
@@ -193,6 +201,8 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     questionState[code] = created;
     return created;
   }
+  // 여러 개 고르는 문항에서 '잘 모르겠어요'(unknown)·'없음'(none)은 혼자만 선택된다 — 다른 칩과 같이 고르면 뜻이 서로 부딪힌다.
+  const EXCLUSIVE_CHOICES: readonly string[] = ['unknown', 'none'];
   function toggleChoice(question: MarketQuestionDef, choice: string): void {
     const state = stateOf(question.code);
     if (!question.multi) {
@@ -201,7 +211,8 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     }
     const i = state.choices.indexOf(choice);
     if (i >= 0) state.choices.splice(i, 1);
-    else state.choices.push(choice);
+    else if (EXCLUSIVE_CHOICES.includes(choice)) state.choices = [choice];
+    else state.choices = [...state.choices.filter((c) => !EXCLUSIVE_CHOICES.includes(c)), choice];
   }
 
   // ── AI 후속 질문(§7.2.2) — 질문은 서버가 만들고, 이 폼은 **답만** 든다 ──────────────
@@ -293,56 +304,105 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   const aiQuestionDefs = computed(() => aiQuestions.value.map((q) => ({ id: q.id, def: toAiQuestionDef(q) })));
 
   // ── 1스텝 메뉴 ─────────────────────────────────────────────────────────────
+  // 개별 메뉴는 카드 단위로 고른다 — '앱 및 서버' 카드 하나가 app·server 두 분야를 고른다(fields.serviceAreas 는 카드가 고른
+  // 분야 그대로이고, 범위 답으로 줄이는 건 effectiveAreas 가 한다).
   const isSystem = computed(() => fields.requestMode === 'system');
-  const individualAreas = DEVELOP_INDIVIDUAL_AREAS;
-  const isAreaPicked = (code: string): boolean => fields.serviceAreas.includes(code);
+  const menuCards = DEVELOP_MENU_CARDS;
+  const isCardPicked = (card: DevelopMenuCard): boolean => card.areas.some((a) => fields.serviceAreas.includes(a));
+  const pickedCards = computed<DevelopMenuCard[]>(() => menuCards.filter(isCardPicked));
+  // 개별 메뉴를 3개 이상 고르면 시스템개발을 권한다(질문 수는 그대로 — 검토 회신 5).
+  const suggestSystem = computed(() => fields.requestMode === 'individual' && pickedCards.value.length >= DEVELOP_SYSTEM_SUGGEST_CARDS);
+  // '앱 및 서버' 범위 첫 문항 — 카드를 고르면 '앱과 서버 모두'로 시작한다(검토 회신 4). 이미 답했으면 그대로.
+  function presetAppServerScope(scope: string): void {
+    const state = stateOf(DEVELOP_APP_SERVER_SCOPE_CODE);
+    if (state.choices.length === 0) state.choices = [scope];
+  }
   // 시스템개발은 배타다 — 고르면 개별 선택을 지우고, 개별을 고르면 시스템개발을 놓는다.
   function selectSystemMenu(): void {
     fields.requestMode = 'system';
     fields.serviceAreas = [];
   }
-  function toggleIndividualArea(code: string): void {
+  function toggleMenuCard(code: string): void {
+    const card = menuCards.find((c) => c.code === code);
+    if (card === undefined) return;
     if (fields.requestMode !== 'individual') {
       fields.requestMode = 'individual';
-      fields.serviceAreas = [code];
+      fields.serviceAreas = [...card.areas];
       fields.expertDelegate = false;
+    } else if (isCardPicked(card)) {
+      fields.serviceAreas = fields.serviceAreas.filter((a) => !card.areas.includes(a));
+      if (fields.serviceAreas.length === 0) fields.requestMode = null;
       return;
+    } else {
+      fields.serviceAreas = sortDevelopAreas([...fields.serviceAreas, ...card.areas]);
     }
-    const i = fields.serviceAreas.indexOf(code);
-    if (i >= 0) fields.serviceAreas.splice(i, 1);
-    else fields.serviceAreas.push(code);
-    if (fields.serviceAreas.length === 0) fields.requestMode = null;
+    if (card.areas.includes('app')) presetAppServerScope('both');
   }
-  // 랜딩의 분야 카드에서 들어오면(?menu=system|pcb|mech|app|server) 그 메뉴를 고른 채 시작한다.
+  // 랜딩의 분야 카드에서 들어오면(?menu=<code>) 그 메뉴를 고른 채 시작한다. 랜딩은 아직 옛 카드(기구·앱·서버 따로)라
+  // 기구는 시스템개발로, 앱·서버는 '앱 및 서버' 카드 + 그 범위로 연다(랜딩 개편은 디자이너 확인 뒤 — 사용자 결정 2026-10-29).
   // 아직 아무것도 고르지 않았을 때만 — 작성 중인 폼을 덮지 않는다(초안 복원은 그 뒤에 해도 초안이 이긴다).
   function preselectMenu(code: string): void {
     if (fields.requestMode !== null) return;
-    if (code === 'system') selectSystemMenu();
-    else if (DEVELOP_INDIVIDUAL_AREA_CODES.includes(code)) toggleIndividualArea(code);
+    if (code === 'system' || code === 'mech') {
+      selectSystemMenu();
+    } else if (code === 'app' || code === 'server') {
+      presetAppServerScope(code);
+      toggleMenuCard('appserver');
+    } else {
+      toggleMenuCard(code);
+    }
   }
 
-  // 저장·검증에 쓰는 분야 — 시스템개발이면 6분야 전부, 개별이면 고른 것(메뉴 미선택이면 빈 배열).
+  // 지금 답(조건부 문항·범위 판정용) — 질문 상태를 계약 답 모양으로 읽는다.
+  const currentAnswers = computed(() =>
+    Object.entries(questionState).map(([code, state]) => ({ code, choices: state.choices })),
+  );
+  // 저장·검증에 쓰는 분야 — 시스템개발이면 6분야, 개별이면 고른 것('앱 및 서버'는 범위 답대로, 메뉴 미선택이면 빈 배열).
   const effectiveAreas = computed<string[]>(() =>
-    fields.requestMode === null ? [] : resolveDevelopServiceAreas(fields.requestMode, fields.serviceAreas),
+    fields.requestMode === null ? [] : resolveDevelopServiceAreas(fields.requestMode, fields.serviceAreas, currentAnswers.value),
   );
-  const pickedAreas = computed(() => sortDevelopAreas(fields.serviceAreas));
-  const pickedAreaDefs = computed<MarketAreaDef[]>(() =>
-    pickedAreas.value.map((c) => developArea(c)).filter((d): d is MarketAreaDef => d !== undefined),
-  );
-  // 1스텝 요약·검토 카드 배지 — 전 분야면 '시스템개발', 개별이면 분야명(들).
+  const pickedAreas = computed(() => (isSystem.value ? [] : effectiveAreas.value));
+  // 역설계만이면 2스텝 단계를, 펌웨어·앱·서버만이면 4스텝 제작 계획을 묻지 않는다(검토 회신 7). 메뉴 미선택이면 묻는 쪽.
+  const needsStages = computed(() => effectiveAreas.value.length === 0 || developNeedsStages(effectiveAreas.value));
+  const needsProduction = computed(() => effectiveAreas.value.length === 0 || developNeedsProduction(effectiveAreas.value));
+  // 1스텝 요약·검토 카드 배지 — 6분야면 '시스템개발', 개별이면 분야명(들).
   const menuBadge = computed(() => (fields.requestMode === null ? '' : developAreaBadge(effectiveAreas.value)));
 
   // ── 3스텝 질문 ─────────────────────────────────────────────────────────────
-  const activeQuestions = computed<MarketQuestionDef[]>(() => developQuestionsFor(effectiveAreas.value));
-  const areaQuestionsOf = (area: string): MarketQuestionDef[] => developAreaQuestionsFor([area]);
+  const isVisible = (q: MarketQuestionDef): boolean => isDevelopQuestionVisible(q, currentAnswers.value);
+  const activeQuestions = computed<MarketQuestionDef[]>(() => developQuestionsFor(effectiveAreas.value).filter(isVisible));
   // 전문가에게 맡김이면 기술 문항은 건너뛰고 역할·협업 문항(askOnDelegate)만 남긴다(서버도 같은 규칙으로 버린다).
   const skipQuestions = computed(() => isSystem.value && fields.expertDelegate);
-  // 고정 서술 3문항을 감추는 조건 — 맡김(담당자가 정한다) 또는 AI 질문을 쓰는 중(그 질문이 대신한다).
+  // 고정 문항(분석 후 추가 확인)을 감추는 조건 — 맡김(담당자가 정한다) 또는 AI 질문을 쓰는 중(그 질문이 대신한다).
   // 감춘 문항은 답변에서도 빠진다(임시저장 복원으로 옛 답이 남아 있어도 등록 payload 에 실리지 않는다).
   const hideSystemQuestions = computed(() => skipQuestions.value || (isSystem.value && aiFollowupUsed.value));
   const askedQuestions = computed<MarketQuestionDef[]>(() =>
     hideSystemQuestions.value ? activeQuestions.value.filter((q) => q.askOnDelegate === true) : activeQuestions.value,
   );
+  // 개별 메뉴 묶음 — 고른 카드마다 한 묶음. 공유 문항(회로·펌웨어 통신)은 앞 카드 묶음에서 한 번만. '앱 및 서버'는
+  // 범위·작업 종류 다음에 앱·서버 질문이 소제목과 함께 이어진다(heading = 그 문항 앞에 그릴 소제목).
+  interface QuestionGroupItem { question: MarketQuestionDef; heading: string | null }
+  interface QuestionGroup { code: string; label: string; items: QuestionGroupItem[] }
+  const SUB_HEADINGS: Readonly<Record<string, string>> = { app: '앱 개발', server: '서버 개발' };
+  const questionGroups = computed<QuestionGroup[]>(() => {
+    if (isSystem.value) return [];
+    const seen = new Set<string>();
+    return pickedCards.value.map((card) => {
+      const areas = card.areas.filter((a) => effectiveAreas.value.includes(a));
+      const items: QuestionGroupItem[] = [];
+      let lastHeading: string | null = null;
+      for (const area of areas) {
+        for (const q of developAreaQuestionsFor([area]).filter(isVisible)) {
+          if (seen.has(q.code)) continue;
+          seen.add(q.code);
+          const sub = q.code.startsWith(`${area}.`) ? (SUB_HEADINGS[area] ?? null) : null;
+          items.push({ question: q, heading: sub !== null && sub !== lastHeading ? sub : null });
+          if (sub !== null) lastHeading = sub;
+        }
+      }
+      return { code: card.code, label: card.label, items };
+    });
+  });
 
   // 메모 필수(noteRequiredFor 선택지를 고른 문항) 미충족 목록.
   const noteMissingCodes = computed<string[]>(() => {
@@ -367,6 +427,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     });
   }
   function buildProduction(): DevelopProductionPlanType {
+    if (!needsProduction.value) return DEVELOP_NO_PRODUCTION; // 4스텝을 건너뛴 의뢰 — 서버도 같은 값으로 저장한다
     const p = fields.production;
     return normalizeDevelopProduction({
       prototype: p.prototype ?? 'undecided', // 4스텝 게이트가 null 을 막는다 — 타입 방어
@@ -388,7 +449,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     };
   }
   // 등록 payload 의 AI 질문 조각 — 시스템개발 + 맡김 아님 + AI 질문을 쓴 경우만. 폴백이면 null 이고
-  // 고정 3문항 답은 지금처럼 answers 로 간다. 질문 본문은 싣지 않는다(서버가 jobId 로 되읽는다).
+  // 고정 문항 답은 지금처럼 answers 로 간다. 질문 본문은 싣지 않는다(서버가 jobId 로 되읽는다).
   function buildAiQuestionsInput(): DevelopFollowupAnswersInputType | null {
     const jobId = aiJobId.value;
     if (jobId === null || !isSystem.value || skipQuestions.value) return null;
@@ -399,13 +460,14 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     return {
       requestMode: fields.requestMode ?? 'individual', // 1스텝 게이트가 null 을 막는다 — 타입 방어
       title: fields.title.trim(),
-      serviceAreas: isSystem.value ? [] : [...pickedAreas.value],
+      serviceAreas: [...pickedAreas.value],
       tools: EMPTY_MARKET_TOOLS, // 희망 툴 UI 는 뺐다(PCB 설계 툴은 문항 pcb.tool)
       description: fields.description.trim(),
       answers: buildAnswers(),
       aiQuestions: buildAiQuestionsInput(),
-      currentStage: fields.currentStage ?? 'idea',
-      targetStage: fields.targetStage ?? 'spec_fixed',
+      // 역설계만이면 단계를 묻지 않는다(null). 그 밖에는 2스텝 게이트가 null 을 막는다 — 타입 방어.
+      currentStage: needsStages.value ? (fields.currentStage ?? 'idea') : null,
+      targetStage: needsStages.value ? (fields.targetStage ?? 'spec_fixed') : null,
       wishDate: fields.wishDate === '' ? null : fields.wishDate,
       wishNote: wishNote === '' ? null : wishNote,
       budgetRange: fields.budgetRange ?? 'after_quote',
@@ -445,23 +507,26 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   const menuValid = computed(
     () => fields.requestMode === 'system' || (fields.requestMode === 'individual' && fields.serviceAreas.length > 0),
   );
+  const stagesValid = computed(() => !needsStages.value || (fields.currentStage !== null && fields.targetStage !== null));
   const describeValid = computed(
     () =>
       fields.title.trim().length >= 2 &&
       fields.description.trim().length >= 10 &&
-      fields.currentStage !== null &&
-      fields.targetStage !== null &&
+      stagesValid.value &&
       (fields.wishDate !== '' || fields.wishNote.trim() !== '') &&
       fields.budgetRange !== null,
   );
   // 2스텝 게이트는 동의 체크까지 본다 — 자료가 외부 AI 로 나가는 시점이 2→3 전환이기 때문이다.
   // (describeValid 자체는 수정 화면도 쓴다 — 이미 접수한 의뢰에 동의를 다시 묻지 않는다.)
   const describeStepValid = computed(() => describeValid.value && fields.aiConsent);
-  const questionsValid = computed(() => noteMissingCodes.value.length === 0);
+  // 필수 문항(역설계 권리 확인) 미응답 — 서버와 같은 함수(숨은 문항은 묻지 않는다).
+  const requiredMissingCodes = computed<string[]>(() => developRequiredMissing(buildAnswers(), effectiveAreas.value));
+  const questionsValid = computed(() => noteMissingCodes.value.length === 0 && requiredMissingCodes.value.length === 0);
   const productionValid = computed(
     () =>
-      fields.production.prototype !== null &&
-      (fields.production.prototype !== 'count' || fields.production.prototypeQty !== null),
+      !needsProduction.value ||
+      (fields.production.prototype !== null &&
+        (fields.production.prototype !== 'count' || fields.production.prototypeQty !== null)),
   );
   const reviewValid = computed(() => contactValid.value);
   const formValid = computed(
@@ -474,13 +539,17 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     if (key === 'menu') return menuValid.value ? '' : '견적을 요청할 개발 메뉴를 선택해 주세요.';
     if (key === 'describe') {
       if (fields.title.trim().length < 2 || fields.description.trim().length < 10) return '의뢰 제목과 개발 목적을 입력해 주세요.';
-      if (fields.currentStage === null || fields.targetStage === null) return '현재 단계와 목표 단계를 선택해 주세요.';
+      if (!stagesValid.value) return '현재 단계와 목표 단계를 선택해 주세요.';
       if (fields.wishDate === '' && fields.wishNote.trim() === '') return '희망 완료일 또는 기간을 입력해 주세요.';
       if (fields.budgetRange === null) return '예상 개발 예산을 선택해 주세요.';
       if (!fields.aiConsent) return '입력 내용과 자료를 견적 검토와 AI 사전 검토에 사용하는 데 동의해 주세요.';
       return '';
     }
-    if (key === 'questions') return questionsValid.value ? '' : '선택하신 항목에 내용을 적어 주세요.';
+    if (key === 'questions') {
+      const required = requiredMissingCodes.value[0];
+      if (required !== undefined) return `'${developQuestion(required)?.short ?? required}' 질문에 답해 주세요.`;
+      return noteMissingCodes.value.length === 0 ? '' : '선택하신 항목에 내용을 적어 주세요.';
+    }
     if (key === 'production') {
       if (fields.production.prototype === null) return '시제품 제작 수량을 선택해 주세요.';
       if (fields.production.prototype === 'count' && fields.production.prototypeQty === null) return '시제품 수량을 입력해 주세요.';
@@ -493,17 +562,19 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   }
 
   // ── 스텝(수정 화면은 안 쓴다) ────────────────────────────────────────────────
-  const steps = [
+  // 제작 계획은 만들 하드웨어가 있는 의뢰에서만(펌웨어·앱·서버만이면 4스텝 없이 검토·접수로 — 검토 회신 7).
+  const ALL_STEPS = [
     { key: 'menu', label: '개발 메뉴', sub: '필요한 업무 선택' },
     { key: 'describe', label: '의뢰 내용', sub: '목적·단계·자료' },
     { key: 'questions', label: '세부 질문', sub: '선택 분야 확인' },
     { key: 'production', label: '제작 계획', sub: '시제품·생산' },
     { key: 'review', label: '검토·접수', sub: '입력 내용 확인' },
-  ] as const;
+  ] as const satisfies readonly { key: StepKey; label: string; sub: string }[];
+  const steps = computed(() => ALL_STEPS.filter((s) => s.key !== 'production' || needsProduction.value));
 
   const stepIndex = ref(0);
-  const currentStep = computed<StepKey>(() => steps[stepIndex.value]?.key ?? 'menu');
-  const isLastStep = computed(() => stepIndex.value === steps.length - 1);
+  const currentStep = computed<StepKey>(() => steps.value[stepIndex.value]?.key ?? 'menu');
+  const isLastStep = computed(() => stepIndex.value === steps.value.length - 1);
   const stepValid = computed<boolean>(() => {
     const key = currentStep.value;
     if (key === 'menu') return menuValid.value;
@@ -514,13 +585,13 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   });
   const currentError = computed(() => errorMessageOfStep(currentStep.value));
   function next(): void {
-    if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
+    if (stepIndex.value < steps.value.length - 1) stepIndex.value += 1;
   }
   function prev(): void {
     if (stepIndex.value > 0) stepIndex.value -= 1;
   }
   function goToStep(key: StepKey): void {
-    const i = steps.findIndex((s) => s.key === key);
+    const i = steps.value.findIndex((s) => s.key === key);
     if (i >= 0) stepIndex.value = i;
   }
 
@@ -771,7 +842,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     // AI 질문·답은 초안에 담지 않는다 — 3스텝에 들어가면 같은 입력의 잡을 다시 받아 온다.
     clearAiFollowup();
     const savedStep = asIntOrNull(obj.stepIndex) ?? 0;
-    stepIndex.value = Math.min(Math.max(savedStep, 0), steps.length - 1);
+    stepIndex.value = Math.min(Math.max(savedStep, 0), steps.value.length - 1);
     draftSavedAt.value = asString(obj.savedAt);
     draftFound.value = null;
     return true;
@@ -794,21 +865,25 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     prefillContact,
     attachments,
     totalAttachmentCount,
-    individualAreas,
+    menuCards,
     systemMenu: DEVELOP_SYSTEM_MENU,
     isSystem,
-    isAreaPicked,
+    isCardPicked,
+    pickedCards,
+    suggestSystem,
     selectSystemMenu,
-    toggleIndividualArea,
+    toggleMenuCard,
     preselectMenu,
     effectiveAreas,
     pickedAreas,
-    pickedAreaDefs,
+    needsStages,
+    needsProduction,
     menuBadge,
     registry: DEVELOP_REGISTRY,
     activeQuestions,
     askedQuestions,
-    areaQuestionsOf,
+    questionGroups,
+    requiredMissingCodes,
     skipQuestions,
     hideSystemQuestions,
     noteMissingCodes,

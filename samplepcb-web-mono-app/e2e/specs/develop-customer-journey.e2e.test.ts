@@ -1,7 +1,7 @@
 // 개발의뢰 고객 화면 여정 — 첫 의뢰부터 완료·A/S 까지 **고객 화면**을 실제로 눌러 몰고, 관리자 쪽은 관리자 API 로 낸다
 // (admin-develop-journey 의 거울상 — 그쪽은 관리자 화면·고객 API). 피그마 랜딩·내 의뢰·의뢰 상세(탭형) 재구현의 고객 행동 검증.
 //
-//   1. 랜딩 분야 카드(PCB 설계) → 위저드(미리 선택 + 앱 추가) → 접수 → 내 의뢰 '접수됨'
+//   1. 랜딩 분야 카드(PCB 설계) → 위저드(미리 선택 + 앱 및 서버 → 앱만) → 접수 → 내 의뢰 '접수됨'
 //   2. 관리자: 검토 시작 · 검토서(일정 8단계·전문가 검토·담당자 의견) 공개 · 구성도(도면 2장 HTML) 공개 → 검토서 탭
 //   3. 관리자: 견적 v1 발송 → 내 의뢰 '견적 확인' 칩·'견적서 확인' 버튼 → 견적 탭 → 견적 수정 요청 → 관리자 v2 → 동의·성함 → 수락
 //   4. 착수금 결제 버튼 → 쇼핑몰 주문서로 이동 → 관리자 수동 입금 확인 → 개발 진행 중
@@ -225,7 +225,8 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     await page.getByRole('link', { name: /PCB 설계/ }).first().click();
     await page.getByText('어떤 개발이 필요하신가요?').waitFor();
     expect(await page.getByRole('button', { name: /^PCB 설계/ }).getAttribute('aria-pressed')).toBe('true');
-    await page.getByRole('button', { name: /^앱 개발/ }).click();
+    // 2026-10-30 메뉴 6장 — '앱 및 서버 개발' 카드(앱·서버 두 분야) + 3스텝 첫 문항에서 '앱만'으로 줄인다.
+    await page.getByRole('button', { name: /^앱 및 서버 개발/ }).click();
     await page.getByRole('button', { name: /^NEXT/ }).click();
 
     await page.getByPlaceholder('의뢰 제목을 입력하세요.').fill(TITLE);
@@ -240,6 +241,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     await page.getByText('개별 개발 전문 질문').waitFor();
     await page.getByRole('button', { name: '신규 설계', exact: true }).click();
     await page.getByRole('button', { name: 'KiCad', exact: true }).click();
+    await page.getByRole('button', { name: '앱만', exact: true }).click();
     await page.getByRole('button', { name: /^NEXT/ }).click();
     await page.getByText('제작 없음', { exact: true }).click();
     await page.getByRole('button', { name: /^NEXT/ }).click();

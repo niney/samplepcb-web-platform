@@ -57,6 +57,7 @@ const {
   skipQuestions,
   effectiveAreas,
   pickedAreas,
+  needsProduction,
   buildAnswers,
   buildAiAnswersAll,
   buildContact,
@@ -267,7 +268,8 @@ const EDIT_TITLE = 'text-[22px] font-bold leading-[1.3] text-black sm:text-[26px
           <h2 :class="EDIT_TITLE">{{ isSystem ? STEP_COPY.questions.title : INDIVIDUAL_QUESTIONS_COPY.title }}</h2>
           <StepQuestions :form="form" />
         </section>
-        <section :class="EDIT_CARD">
+        <!-- 펌웨어·앱·서버만이면 제작 계획을 묻지 않는다(위저드 4스텝과 같은 규칙) -->
+        <section v-if="needsProduction" :class="EDIT_CARD">
           <h2 :class="EDIT_TITLE">{{ STEP_COPY.production.title }}</h2>
           <StepProduction :form="form" />
         </section>

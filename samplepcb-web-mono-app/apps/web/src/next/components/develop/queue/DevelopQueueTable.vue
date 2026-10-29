@@ -186,6 +186,7 @@ const openDetail = (requestId: number): void => {
                 <Badge :variant="developRequestModeVariant(r.requestMode)">
                   {{ DEVELOP_REQUEST_MODE_LABELS[r.requestMode] }}
                 </Badge>
+                <Badge v-if="r.rightsCheck" variant="danger">{{ t('admin.develop.queue.rightsCheck') }}</Badge>
                 <span v-if="areaBadge(r) !== ''">{{ areaBadge(r) }} ·</span>
                 <span>{{ DEVELOP_BUDGET_RANGE_LABELS[r.budgetRange] }}</span>
               </span>

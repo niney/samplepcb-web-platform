@@ -151,9 +151,11 @@ const sel = (key: string, label: string, options: readonly DevelopDocOption[], m
 const ro = (key: string, label: string, kind: 'text' | 'textarea' | 'date' = 'text'): DevelopDocFieldSpec =>
   kind === 'textarea' ? { key, label, kind, readonly: true } : { key, label, kind, readonly: true, meta: true };
 
-// 검토 단계 8종(간편 서식 03) — 설계 검토·제작 승인·시험 결과를 한 서식이 나눠 쓴다. 제작 단계(fabrication·smt)에서만 승인 범위 체크리스트가 뜬다.
+// 검토 단계 9종(간편 서식 03) — 설계 검토·제작 승인·시험 결과를 한 서식이 나눠 쓴다. 제작 단계(fabrication·smt)에서만 승인 범위 체크리스트가 뜬다.
+// 역설계 분석은 2026-10-30 메뉴 6장(역설계 메뉴 신설)과 함께 더했다(검토 회신 8).
 export const DEVELOP_DOC_REVIEW_STAGES: readonly DevelopDocOption[] = [
   { code: 'system', label: '요구사항·시스템 구성' },
+  { code: 'reverse', label: '역설계 분석(분해·회로 추적)' },
   { code: 'circuit', label: '회로설계' },
   { code: 'pcb', label: 'PCB 부품배치·배선' },
   { code: 'firmware_app', label: '펌웨어·앱·서버' },

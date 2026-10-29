@@ -1,28 +1,31 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
+import { DEVELOP_REVERSE_NOTICE } from '@sp/api-contract';
 import type { MarketQuestionDef } from '@sp/api-contract';
 import type { DevelopRequestForm } from '../../composables/useRequestForm';
 import type { FollowupJob } from '../../composables/useFollowupJob';
 import WizQuestion from './WizQuestion.vue';
 import WizGroup from './WizGroup.vue';
 
-// 위저드 3스텝 — 세부 질문(§7.2.2). 피그마 01-3(135:21515, 900 폭)은 시스템 개발의 폴백 판(기본 서술 3문항 + 외관·기구 범위 2문항)만
+// 위저드 3스텝 — 세부 질문(§7.2.2). 피그마 01-3(135:21515, 900 폭)은 시스템 개발의 폴백 판(기본 문항 + 외관·기구 범위 2문항)만
 // 있다 — AI 가 읽는 중 · AI 질문 · 전문가에게 맡김 · 개별 견적 분야 질문은 같은 모양 언어로 그린다.
 // 질문 묶음은 번호 붙은 접이식 제목(WizGroup, 26px) — 번호는 목차와 같게 실제로 그려지는 묶음만 센다(시안은 목차 1 = '분석 후 추가
 // 확인'인데 본문은 외관·기구가 '1.' 이라 본문을 목차에 맞췄다). 목차(240, 본문 왼쪽 100 띄움)는 위저드에서만(toc) — 묶음이 2개
 // 이상이고 화면이 1600 이상일 때(그보다 좁으면 본문 왼쪽에 자리가 없다). 시안 목차의 3~6번은 복사본 자리표시라 따르지 않는다.
 // 시스템개발: AI 가 설명문과 첨부를 읽고 고른 질문(선택지형·서술형 섞임, 최대 8) + 디자인·기구 범위 2문항.
-//   AI 가 꺼져 있거나 실패·시간 초과면 고정 서술 3문항으로 조용히 폴백한다. 맡김이면 기술 질문을 건너뛰고 범위 2문항만.
-// 개별 견적: 고른 분야마다 문항을 그대로 나열한다(AI 질문은 시스템개발 전용이다).
-// 전부 선택 사항이라 필수 검증이 없다 — 다만 선택지가 메모를 요구하면(noteRequiredFor) 막는다.
+//   AI 가 꺼져 있거나 실패·시간 초과면 고정 문항(동작·환경·전원·연결·인증 5, 2026-10-30)으로 조용히 폴백한다. 맡김이면 기술 질문을 건너뛰고 범위 2문항만.
+// 개별 메뉴: 고른 카드마다 한 묶음(AI 질문은 시스템개발 전용이다). 회로·펌웨어를 같이 고르면 통신 문항은 앞 묶음에서 한 번만,
+//   '앱 및 서버'는 범위·작업 종류 뒤에 앱·서버 질문이 소제목과 함께, 역설계는 묶음 맨 위에 권리 안내(DEVELOP_REVERSE_NOTICE).
+//   다른 답에 따라 나오는 문항(역설계 펌웨어 추출 자료·PCBA 검증)은 그 선택지를 골랐을 때만 보인다(계약 showWhen).
+// 필수는 역설계 권리 확인 하나 — 그 밖엔 선택지가 메모를 요구할 때만(noteRequiredFor) 막는다.
 // 수정 화면도 이 컴포넌트를 쓴다 — 거기엔 잡이 없고(followup 미전달) 저장된 AI 질문을 그대로 편집한다. 목차는 끈다.
 const props = defineProps<{ form: DevelopRequestForm; followup?: FollowupJob; toc?: boolean }>();
 const {
   isSystem,
   skipQuestions,
   askedQuestions,
-  pickedAreaDefs,
-  areaQuestionsOf,
+  questionGroups,
+  requiredMissingCodes,
   stateOf,
   toggleChoice,
   noteMissingCodes,
@@ -56,7 +59,7 @@ const GROUP_AI: Group = { id: 'q-ai', title: '확인이 필요한 항목' };
 const GROUP_BASIC: Group = { id: 'q-basic', title: '분석 후 추가 확인' };
 const GROUP_COLLAB: Group = { id: 'q-collab', title: '제품 외관·기구 개발 범위' };
 const groups = computed<Group[]>(() => {
-  if (!isSystem.value) return pickedAreaDefs.value.map((a) => ({ id: `q-area-${a.code}`, title: a.label }));
+  if (!isSystem.value) return questionGroups.value.map((g) => ({ id: `q-area-${g.code}`, title: g.label }));
   const list: Group[] = [];
   if (!skipQuestions.value && !running.value) {
     if (aiFollowupUsed.value) list.push(GROUP_AI);
@@ -68,16 +71,17 @@ const groups = computed<Group[]>(() => {
 const noOf = (id: string): number => groups.value.findIndex((g) => g.id === id) + 1;
 const showToc = computed(() => props.toc && groups.value.length >= 2);
 
-// 접힘은 기본 펼침 — 닫은 것만 기억한다. 메모가 빠진 문항이 든 묶음은 접어 두었어도 펼친다(오류 칸이 숨지 않게).
+// 접힘은 기본 펼침 — 닫은 것만 기억한다. 메모가 빠졌거나 필수 답이 없는 문항이 든 묶음은 접어 두었어도 펼친다(오류 칸이 숨지 않게).
 const closed = ref<Record<string, boolean>>({});
 function groupCodes(id: string): string[] {
   if (id === GROUP_BASIC.id) return systemTechQuestions.value.map((q) => q.code);
   if (id === GROUP_COLLAB.id) return systemCollabQuestions.value.map((q) => q.code);
-  if (id.startsWith('q-area-')) return areaQuestionsOf(id.slice('q-area-'.length)).map((q) => q.code);
-  return [];
+  const group = questionGroups.value.find((g) => `q-area-${g.code}` === id);
+  return group === undefined ? [] : group.items.map((item) => item.question.code);
 }
 const isOpen = (id: string): boolean =>
-  closed.value[id] !== true || groupCodes(id).some((code) => noteMissingCodes.value.includes(code));
+  closed.value[id] !== true
+  || groupCodes(id).some((code) => noteMissingCodes.value.includes(code) || requiredMissingCodes.value.includes(code));
 function toggleGroup(id: string): void {
   closed.value = { ...closed.value, [id]: isOpen(id) };
 }
@@ -177,7 +181,7 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
           <p v-else class="text-[16px] font-medium text-[#666]">자료가 충분해 추가 질문이 없습니다.</p>
         </WizGroup>
 
-        <!-- 폴백 — 고정 서술 3문항(시안 판) -->
+        <!-- 폴백 — 고정 문항(분석 후 추가 확인) -->
         <WizGroup
           v-else-if="systemTechQuestions.length > 0"
           :id="GROUP_BASIC.id"
@@ -221,26 +225,30 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
       </WizGroup>
     </template>
 
-    <!-- 개별 견적 — 고른 분야마다 -->
+    <!-- 개별 메뉴 — 고른 카드마다 -->
     <template v-else>
       <WizGroup
-        v-for="area in pickedAreaDefs"
-        :id="`q-area-${area.code}`"
-        :key="area.code"
-        :no="noOf(`q-area-${area.code}`)"
-        :title="area.label"
-        :open="isOpen(`q-area-${area.code}`)"
-        @toggle="toggleGroup(`q-area-${area.code}`)"
+        v-for="group in questionGroups"
+        :id="`q-area-${group.code}`"
+        :key="group.code"
+        :no="noOf(`q-area-${group.code}`)"
+        :title="group.label"
+        :lead="group.code === 'reverse' ? DEVELOP_REVERSE_NOTICE : ''"
+        :open="isOpen(`q-area-${group.code}`)"
+        @toggle="toggleGroup(`q-area-${group.code}`)"
       >
-        <WizQuestion
-          v-for="q in areaQuestionsOf(area.code)"
-          :key="q.code"
-          :question="q"
-          :state="stateOf(q.code)"
-          :note-missing="noteMissingCodes.includes(q.code)"
-          @toggle="toggleChoice(q, $event)"
-          @note="stateOf(q.code).note = $event"
-        />
+        <template v-for="item in group.items" :key="item.question.code">
+          <p v-if="item.heading !== null" class="border-t border-[#e5e5e5] pt-[24px] text-[20px] font-bold leading-[1.3] text-[#2438ad] sm:text-[22px]">
+            {{ item.heading }}
+          </p>
+          <WizQuestion
+            :question="item.question"
+            :state="stateOf(item.question.code)"
+            :note-missing="noteMissingCodes.includes(item.question.code)"
+            @toggle="toggleChoice(item.question, $event)"
+            @note="stateOf(item.question.code).note = $event"
+          />
+        </template>
       </WizGroup>
     </template>
   </div>

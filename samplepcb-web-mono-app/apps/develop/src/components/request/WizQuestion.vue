@@ -18,13 +18,16 @@ const textKind = computed(() => isTextQuestion(props.question));
 const noteVisible = computed(() => props.question.noteVisibleFor === undefined
   || props.question.noteVisibleFor.some((code) => props.state.choices.includes(code)));
 const textPlaceholder = computed(() => `${props.question.notePlaceholder ?? ''} / 담당자 제안 필요`.replace(/^ \/ /, ''));
+// 설명이 한 마디면 시안처럼 질문 뒤 괄호로, 문장 여럿이면(역설계 분해 허용 안내 등) 칩 아래 줄로 내린다 — 괄호가 질문을 덮지 않게.
+const WHY_INLINE_MAX = 40;
+const whyInline = computed(() => !textKind.value && (props.question.why?.length ?? 0) <= WHY_INLINE_MAX);
 </script>
 
 <template>
   <div class="flex flex-col gap-[16px] sm:gap-[26px]">
     <p :class="WIZ.sectionTitle">
       {{ question.label }}
-      <span v-if="question.why !== undefined && !textKind">({{ question.why }})</span>
+      <span v-if="question.why !== undefined && whyInline">({{ question.why }})</span>
       <span v-if="question.required" class="text-red-500">*</span>
       <span v-if="question.multi && !textKind" class="text-[#999]"> (여러 개 가능)</span>
     </p>
@@ -50,7 +53,7 @@ const textPlaceholder = computed(() => `${props.question.notePlaceholder ?? ''} 
         {{ opt.label }}
       </button>
     </div>
-    <p v-if="question.why !== undefined && textKind" class="text-[15px] font-medium text-[#666]">{{ question.why }}</p>
+    <p v-if="question.why !== undefined && !whyInline" class="text-[15px] font-medium leading-[1.6] text-[#666]">{{ question.why }}</p>
     <label v-if="!textKind && noteVisible && question.notePlaceholder !== undefined" class="flex flex-col gap-[6px]">
       <input
         :value="state.note"

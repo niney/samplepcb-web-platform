@@ -16,6 +16,7 @@ import {
   DevelopRequestListQuery,
   DevelopRequestUpdateBody,
   DevelopReviewDecisionBody,
+  DEVELOP_NO_PRODUCTION,
   DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_ENDED_STATUSES,
   DEVELOP_REGISTRY,
@@ -24,6 +25,8 @@ import {
   developDocDecisionLabel,
   developDocNo,
   developMergedIssues,
+  developNeedsProduction,
+  developNeedsStages,
   developQuestionsFor,
   developRequiredMissing,
   fileViewKind,
@@ -35,6 +38,7 @@ import {
   needsServerPreview,
   normalizeDevelopProduction,
   normalizeDevelopTools,
+  pruneDevelopHiddenAnswers,
   resolveDevelopServiceAreas,
   resolveFileMime,
   splitDevelopMilestoneAmounts,
@@ -56,8 +60,10 @@ import {
   REF_DEVELOP_REQUEST,
   addDevelopEvent,
   asDevelopBudgetRange,
+  asDevelopCurrentStage,
   asDevelopRequestMode,
   asDevelopStatus,
+  asDevelopTargetStage,
   asMilestoneStatus,
   asMilestoneTrigger,
   asQuoteKind,
@@ -395,19 +401,24 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH', issues: parsed.error.issues });
     }
     const payload = parsed.data;
-    // 저장 분야 — 시스템개발은 전 분야, 개별 견적은 고른 것(계약 superRefine 이 개별 메뉴 밖 코드를 이미 막았다).
-    const serviceAreas = resolveDevelopServiceAreas(payload.requestMode, payload.serviceAreas);
+    // 저장 분야 — 시스템개발은 6분야, 개별 견적은 고른 것(계약 superRefine 이 개별 메뉴 밖 코드를 이미 막았다).
+    // '앱 및 서버'는 범위 답(appserver.scope)대로 줄인다.
+    const serviceAreas = resolveDevelopServiceAreas(payload.requestMode, payload.serviceAreas, payload.answers);
     const split = splitMarketAttachments(files, serviceAreas, DEVELOP_REGISTRY);
     if (split.invalid.length > 0) return reply.status(400).send({ result: false, error: 'ATTACHMENT_FIELD_INVALID' });
     const attachments = split.accepted;
-    // 필수 문항(레지스트리 required) 미응답 — 위저드 "다음" 게이트와 같은 함수(지금 개발의뢰 문항엔 필수가 없다).
-    const requiredMissing = developRequiredMissing(payload.answers, serviceAreas);
+    // 조건이 안 맞아 숨은 문항(역설계 펌웨어 추출 자료 등)의 답은 버린다(화면 상태 잔재).
+    const visibleAnswers = pruneDevelopHiddenAnswers(payload.answers);
+    // 필수 문항(레지스트리 required — 역설계 권리 확인) 미응답 — 위저드 "다음" 게이트와 같은 함수.
+    const requiredMissing = developRequiredMissing(visibleAnswers, serviceAreas);
     if (requiredMissing.length > 0) {
       return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing: requiredMissing });
     }
     // 시스템개발 "전문가에게 맡김"은 기술 문항을 건너뛴다 — 역할·협업 문항(askOnDelegate)만 남기고 나머지는 버린다(화면 상태 잔재).
     const expertDelegate = payload.requestMode === 'system' && payload.expertDelegate;
-    const answers = expertDelegate ? keepDevelopDelegateAnswers(payload.answers) : payload.answers;
+    const answers = expertDelegate ? keepDevelopDelegateAnswers(visibleAnswers) : visibleAnswers;
+    // 역설계만이면 단계를, 펌웨어·앱·서버만이면 제작 계획을 묻지 않는다 — 화면 잔재가 와도 저장하지 않는다.
+    const needsStages = developNeedsStages(serviceAreas);
     // AI 후속 질문(§7.2.2) — 잡에서 질문을 되읽어(클라이언트가 문항을 지어내지 못한다) 답만 합친다. 본인 잡·완료 잡만.
     let aiQuestions: DevelopAiQuestionsType | null = null;
     if (payload.requestMode === 'system' && !expertDelegate && payload.aiQuestions !== null) {
@@ -443,12 +454,12 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
           tools: normalizeDevelopTools(payload.tools, serviceAreas),
           description: payload.description,
           answers: answers.length > 0 ? answers : Prisma.DbNull,
-          currentStage: payload.currentStage,
-          targetStage: payload.targetStage,
+          currentStage: needsStages ? payload.currentStage : null,
+          targetStage: needsStages ? payload.targetStage : null,
           wishDate: payload.wishDate,
           wishNote: payload.wishNote === '' ? null : payload.wishNote,
           expertDelegate,
-          production: normalizeDevelopProduction(payload.production),
+          production: developNeedsProduction(serviceAreas) ? normalizeDevelopProduction(payload.production) : DEVELOP_NO_PRODUCTION,
           aiQuestions: aiQuestions ?? Prisma.DbNull,
           contactName: payload.contact.name,
           contactCompany: payload.contact.company,
@@ -598,17 +609,24 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       // 부분 본문을 저장분과 합친 뒤 등록과 같은 교차 검증(분야·답변·툴·희망 시기)을 한다.
       const mode = b.requestMode ?? asDevelopRequestMode(r.requestMode);
       const pickedAreas = b.serviceAreas ?? toDevelopAreaCodes(r.serviceAreas);
-      const areas = resolveDevelopServiceAreas(mode, pickedAreas);
-      const areasChanged = b.requestMode !== undefined || b.serviceAreas !== undefined;
+      const storedAnswers = toAnswers(r.answers);
+      // '앱 및 서버' 범위 답이 바뀌어도 분야가 바뀐다 — 보낸 답(없으면 저장분)으로 분야를 정한다.
+      const areas = resolveDevelopServiceAreas(mode, pickedAreas, b.answers ?? storedAnswers);
+      const storedAreas = toDevelopAreaCodes(r.serviceAreas);
+      const areasChanged = mode !== r.requestMode || areas.length !== storedAreas.length || areas.some((c) => !storedAreas.includes(c));
       const expertDelegate = mode === 'system' && (b.expertDelegate ?? r.expertDelegate);
-      // 답변을 안 보냈는데 분야가 바뀌면 저장분에서 새 분야 밖 문항을 걷어낸다(맡김이면 역할·협업 문항만 남긴다).
+      // 답변을 안 보냈는데 분야가 바뀌면 저장분에서 새 분야 밖 문항을 걷어낸다(맡김이면 역할·협업 문항만 남긴다). 숨은 문항의 답도 버린다.
       const allowed = new Set(developQuestionsFor(areas).map((q) => q.code));
-      const merged = b.answers ?? toAnswers(r.answers).filter((a) => allowed.has(a.code));
+      const merged = pruneDevelopHiddenAnswers(b.answers ?? storedAnswers.filter((a) => allowed.has(a.code)));
       const answers = expertDelegate ? keepDevelopDelegateAnswers(merged) : merged;
       const tools = b.tools ?? toTools(r.tools);
       const wishDate = b.wishDate !== undefined ? b.wishDate : r.wishDate;
       const wishNote = b.wishNote !== undefined ? (b.wishNote === '' ? null : b.wishNote) : r.wishNote;
-      const issues = developMergedIssues({ requestMode: mode, serviceAreas: pickedAreas, answers, tools, wishDate, wishNote });
+      // 역설계만이면 단계를 비운다(묻지 않는다). 그 밖에는 보낸 값, 없으면 저장분 — 비어 있으면 STAGE_REQUIRED.
+      const needsStages = developNeedsStages(areas);
+      const currentStage = needsStages ? (b.currentStage !== undefined ? b.currentStage : asDevelopCurrentStage(r.currentStage)) : null;
+      const targetStage = needsStages ? (b.targetStage !== undefined ? b.targetStage : asDevelopTargetStage(r.targetStage)) : null;
+      const issues = developMergedIssues({ requestMode: mode, serviceAreas: pickedAreas, answers, tools, currentStage, targetStage, wishDate, wishNote });
       if (issues.length > 0) return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH', issues });
       const missing = developRequiredMissing(answers, areas);
       if (missing.length > 0) return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing });
@@ -622,15 +640,18 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         data.answers = answers.length > 0 ? answers : Prisma.DbNull;
         if (b.answers !== undefined) changed.push('answers');
       }
-      if (b.currentStage !== undefined && b.currentStage !== r.currentStage) { data.currentStage = b.currentStage; changed.push('currentStage'); }
-      if (b.targetStage !== undefined && b.targetStage !== r.targetStage) { data.targetStage = b.targetStage; changed.push('targetStage'); }
+      if (currentStage !== r.currentStage) { data.currentStage = currentStage; if (b.currentStage !== undefined) changed.push('currentStage'); }
+      if (targetStage !== r.targetStage) { data.targetStage = targetStage; if (b.targetStage !== undefined) changed.push('targetStage'); }
       if ((b.wishDate !== undefined || b.wishNote !== undefined) && (wishDate !== r.wishDate || wishNote !== r.wishNote)) {
         data.wishDate = wishDate;
         data.wishNote = wishNote;
         changed.push('wish');
       }
       if (b.expertDelegate !== undefined && expertDelegate !== r.expertDelegate) { data.expertDelegate = expertDelegate; changed.push('expertDelegate'); }
-      if (b.production !== undefined) { data.production = normalizeDevelopProduction(b.production); changed.push('production'); }
+      // 펌웨어·앱·서버만인 의뢰는 제작 계획을 묻지 않는다 — 시제품 제작 없음으로 저장한다.
+      const needsProduction = developNeedsProduction(areas);
+      if (b.production !== undefined) { data.production = needsProduction ? normalizeDevelopProduction(b.production) : DEVELOP_NO_PRODUCTION; changed.push('production'); }
+      else if (areasChanged && !needsProduction) { data.production = DEVELOP_NO_PRODUCTION; }
       // AI 후속 질문 답(§7.2.2) — 질문은 불변, 답만 갱신. 맡김으로 바꾸거나 개별 견적으로 바꾸면 통째로 비운다.
       if (b.aiQuestions !== undefined) {
         const stored = toDevelopAiQuestions(r.aiQuestions);

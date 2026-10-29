@@ -1,7 +1,8 @@
 // 개발의뢰 위저드 v2(docs/DEVELOP_FLOW.md §7.2.1) 브라우저 스모크 — 실 Vue(5177, nginx /develop/) + 실 Node API.
 // 로그인은 /spcb/api/me 스텁(helpers/browser.ts). 두 여정:
 //   ① 시스템개발 → 전문가 맡김 → 5스텝 완주 → 접수 → API 로 저장값 대조(전 분야 6·기구 포함·범위 답변 2)
-//   ② 개별 견적(PCB+기구) → 3스텝 기구설계 서술 문항 → 접수 → 답변에 mech 서술이 남는다
+//   ② 개별 메뉴(회로+펌웨어+역설계, 2026-10-30 메뉴 6장) → 3장 권유·통신 한 번·권리 확인 필수·조건부 문항 → 접수
+//   ③ 개별 메뉴(펌웨어+앱 및 서버 → 서버만) → 제작 계획 건너뜀 → 접수 → 분야 = 펌웨어·서버, 시제품 제작 없음
 // 만든 의뢰는 afterAll 이 지운다(공유 DB — 스스로 만들고 스스로 지운다). pageErrors 0 이 게이트.
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -85,7 +86,12 @@ async function setFollowupEnabled(enabled: boolean): Promise<boolean> {
 }
 
 describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', () => {
-  const titles = { system: '[e2e] 위저드 v2 시스템개발', individual: '[e2e] 위저드 v2 개별 PCB+기구', ai: '[e2e] 위저드 v2 AI 질문' };
+  const titles = {
+    system: '[e2e] 위저드 v2 시스템개발',
+    individual: '[e2e] 위저드 v2 개별 회로+펌웨어+역설계',
+    software: '[e2e] 위저드 v2 개별 펌웨어+서버',
+    ai: '[e2e] 위저드 v2 AI 질문',
+  };
 
   beforeAll(async () => {
     await mustReach(`${API_URL}/api/health`, 'API 서버를 켜세요: pnpm dev:api (127.0.0.1:3333)');
@@ -158,44 +164,55 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     }
   });
 
-  test('개별 견적 — PCB+기구 → 기구설계 서술 문항 → 답변 저장', async () => {
+  test('개별 메뉴 — 회로+펌웨어+역설계 → 3장 권유·통신 한 번·권리 확인 필수·조건부 문항', async () => {
     const s = await newSession(identity);
     try {
       await s.page.goto('/develop/request');
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
-      await s.page.getByText('PCB 설계', { exact: true }).first().click();
-      await s.page.getByText('기구 설계', { exact: true }).first().click();
+      await s.page.getByRole('button', { name: /^회로 설계/ }).click();
+      await s.page.getByRole('button', { name: /^펌웨어 개발/ }).click();
+      expect(await s.page.getByRole('button', { name: '시스템 개발로 바꾸기' }).count()).toBe(0);
+      await s.page.getByRole('button', { name: /^역설계/ }).click();
+      // 3장부터 시스템 개발 권유(고르지 않아도 진행).
+      await s.page.getByRole('button', { name: '시스템 개발로 바꾸기' }).waitFor();
       await next(s);
       await fillDescribe(s, titles.individual);
       // 개별 견적엔 후속 질문 방식이 없다.
-      expect(await s.page.getByText('기술값을 묻지 않고').count()).toBe(0); // 후속 질문 방식 라디오(도움 카드 문구와 구분)
+      expect(await s.page.getByText('기술값을 묻지 않고').count()).toBe(0);
       await next(s);
-      // ③ 분야 카드 둘 — 기구설계 서술 문항(text)은 textarea, 선택지 문항은 칩.
+      // ③ 카드 셋 = 묶음 셋. 회로·펌웨어 공유 통신 문항은 한 번만, 역설계 묶음엔 권리 안내.
       await s.page.getByText('개별 개발 전문 질문').waitFor();
-      await s.page.getByText('목표 외형 크기와 무게 제한을 알려주세요.').waitFor();
-      await s.page.getByPlaceholder(/가로×세로×높이/).fill('80×50×30mm, 200g 이하');
-      await s.page.getByRole('button', { name: '신규 설계', exact: true }).click();
-      // 문항은 전부 펼쳐 나열(접기·희망 툴·자료 슬롯 없음, 2026-09-08 간소화) — PCB 설계 툴은 문항이다.
-      expect(await s.page.getByText('주의가 필요한 신호와 배선 조건이 있나요?').isVisible()).toBe(true);
-      expect(await s.page.getByText('더 자세히 답하기').count()).toBe(0);
-      expect(await s.page.getByText('있으면 좋은 자료').count()).toBe(0);
-      expect(await s.page.getByText('눌러서 펼치기').count()).toBe(0);
-      await s.page.getByRole('button', { name: 'KiCad', exact: true }).click();
-      await s.page.getByRole('button', { name: 'USB', exact: true }).click();
+      expect(await s.page.getByText('어떤 통신 기능이 필요한가요?').count()).toBe(1);
+      expect(await s.page.getByText('잠긴 칩의 프로그램은 추출하지 않습니다', { exact: false }).count()).toBeGreaterThan(0);
+      // 권리 확인 없이 다음 → 막힌다.
       await next(s);
+      await s.page.getByText("'권리 확인' 질문에 답해 주세요.").waitFor();
+      await s.page.getByRole('button', { name: '자사 제품이며 관련 권리 보유', exact: true }).click();
+      await s.page.getByPlaceholder(/입력값 → 판단 조건/).fill('[e2e] 온도 3점 → 임계 초과 → 밸브 닫기');
+      await s.page.getByRole('button', { name: 'BLE', exact: true }).click();
+      // 조건부 — '펌웨어 추출'을 고를 때만 추출 자료 문항이 나온다. 답한 뒤 선택을 빼면 그 답은 접수에 안 실린다.
+      expect(await s.page.getByText('펌웨어 추출 관련 자료가 있나요?').count()).toBe(0);
+      await s.page.getByRole('button', { name: '펌웨어 추출', exact: true }).click();
+      await s.page.getByText('펌웨어 추출 관련 자료가 있나요?').waitFor();
+      await s.page.getByRole('button', { name: 'MCU·메모리 부품명을 알고 있음', exact: true }).click();
+      await s.page.getByRole('button', { name: '펌웨어 추출', exact: true }).click();
+      expect(await s.page.getByText('펌웨어 추출 관련 자료가 있나요?').count()).toBe(0);
+      await s.page.getByRole('button', { name: '회로도 작성', exact: true }).click();
+      await next(s);
+      // ④ 회로·역설계가 있으니 제작 계획을 묻는다.
       await s.page.getByText('제작 없음', { exact: true }).click();
       await next(s);
       await fillReviewAndSubmit(s);
 
       const d = await findByTitle(titles.individual);
       expect(d.requestMode).toBe('individual');
-      expect(d.serviceAreas).toEqual(['pcb', 'mech']);
-      const size = d.answers.find((a) => a.code === 'mech.size');
-      expect(size?.choices).toEqual([]);
-      expect(size?.note).toContain('80×50×30');
-      expect(d.answers.find((a) => a.code === 'pcb.type')?.choices).toEqual(['new']);
-      expect(d.answers.find((a) => a.code === 'pcb.signal')?.choices).toEqual(['usb']);
-      expect(d.answers.find((a) => a.code === 'pcb.tool')?.choices).toEqual(['kicad']);
+      expect(d.serviceAreas).toEqual(['circuit', 'firmware', 'reverse']);
+      expect(d.answers.find((a) => a.code === 'hw.comm')?.choices).toEqual(['ble']);
+      expect(d.answers.find((a) => a.code === 'reverse.rights')?.choices).toEqual(['own']);
+      expect(d.answers.find((a) => a.code === 'reverse.work')?.choices).toEqual(['schematic']);
+      expect(d.answers.some((a) => a.code === 'reverse.firmware')).toBe(false);
+      expect(d.answers.find((a) => a.code === 'firmware.flow')?.note).toContain('밸브 닫기');
+      expect(d.currentStage).toBe('idea');
       expect(d.production?.prototype).toBe('none');
       expect(s.pageErrors).toEqual([]);
     } finally {
@@ -203,8 +220,44 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     }
   });
 
-  // 시스템개발 + "몇 가지 질문에 답하기" — 유스케이스가 꺼져 있으면(기본) 고정 서술 3문항으로 즉시 폴백한다.
-  test('시스템개발 — AI 질문 유스케이스 꺼짐 → 고정 3문항 폴백', async () => {
+  test('개별 메뉴 — 펌웨어+앱 및 서버(서버만) → 제작 계획 건너뜀', async () => {
+    const s = await newSession(identity);
+    try {
+      await s.page.goto('/develop/request');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      await s.page.getByRole('button', { name: /^펌웨어 개발/ }).click();
+      await s.page.getByRole('button', { name: /^앱 및 서버 개발/ }).click();
+      await next(s);
+      await fillDescribe(s, titles.software);
+      await next(s);
+      // ③ '앱 및 서버'는 '앱과 서버 모두'로 시작 — '서버만'으로 줄이면 앱 질문이 사라진다.
+      await s.page.getByText('어디까지 개발이 필요하신가요?').waitFor();
+      expect(await s.page.getByRole('button', { name: '앱과 서버 모두', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      expect(await s.page.getByText('어떤 플랫폼에서 사용할 앱인가요?').count()).toBe(1);
+      await s.page.getByRole('button', { name: '서버만', exact: true }).click();
+      expect(await s.page.getByText('어떤 플랫폼에서 사용할 앱인가요?').count()).toBe(0);
+      await s.page.getByText('서버에서 어떤 기능이 필요한가요?').waitFor();
+      await s.page.getByRole('button', { name: 'MQTT', exact: true }).click();
+      await next(s);
+      // ④ 없이 바로 검토·접수(만들 하드웨어가 없다). 요약에 시제품·제조 블록도 없다.
+      await s.page.getByText('입력 내용을 확인해 주세요').waitFor();
+      expect(await s.page.getByText('시제품·제조', { exact: true }).count()).toBe(0);
+      await fillReviewAndSubmit(s);
+
+      const d = await findByTitle(titles.software);
+      expect(d.serviceAreas).toEqual(['firmware', 'server']);
+      expect(d.answers.find((a) => a.code === 'appserver.scope')?.choices).toEqual(['server']);
+      expect(d.answers.find((a) => a.code === 'server.protocol')?.choices).toEqual(['mqtt']);
+      expect(d.production?.prototype).toBe('none');
+      expect(d.production?.scopes).toEqual([]);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+
+  // 시스템개발 + "몇 가지 질문에 답하기" — 유스케이스가 꺼져 있으면(기본) 고정 문항(분석 후 추가 확인)으로 즉시 폴백한다.
+  test('시스템개발 — AI 질문 유스케이스 꺼짐 → 고정 문항 폴백', async () => {
     const prev = await setFollowupEnabled(false);
     const s = await newSession(identity);
     try {
@@ -214,7 +267,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await next(s);
       await fillDescribe(s, '[e2e] 위저드 v2 폴백');
       await next(s);
-      await s.page.getByText('제품은 누가, 어디에서, 어떻게 사용하나요?').waitFor({ timeout: 15_000 });
+      await s.page.getByText('제품이 어떤 동작을 해야 하나요?').waitFor({ timeout: 15_000 });
+      expect(await s.page.getByText('제품의 입력 전원은 어떻게 준비할까요?').count()).toBe(1);
       expect(await s.page.getByText('기본 질문').count()).toBeGreaterThan(0);
       expect(s.pageErrors).toEqual([]);
     } finally {
@@ -231,7 +285,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.goto('/develop/me');
       const row = s.page.locator('main li', { hasText: titles.individual });
       await row.waitFor({ timeout: 15_000 });
-      expect(await row.getByText('PCB + 기구', { exact: true }).count()).toBe(1);
+      expect(await row.getByText('회로 + 펌웨어 + 역설계', { exact: true }).count()).toBe(1);
       expect(await row.getByText(/^접수 \d{2}\.\d{2}\.\d{2}$/).count()).toBe(1);
       expect(await row.getByText('접수됨', { exact: true }).count()).toBe(1);
       expect(await row.getByRole('link', { name: '진행 상태' }).count()).toBe(1);
@@ -289,8 +343,15 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
       expect(new URL(s.page.url()).searchParams.get('menu')).toBe('system');
       expect(await s.page.getByRole('button', { name: /^시스템 개발/ }).getAttribute('aria-pressed')).toBe('true');
+      // 옛 랜딩 카드(기구·앱·서버 따로) — 기구는 시스템 개발로, 앱은 '앱 및 서버' 카드로 연다(랜딩 개편은 디자이너 확인 뒤).
+      await s.page.goto('/develop/request?menu=mech');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      expect(await s.page.getByRole('button', { name: /^시스템 개발/ }).getAttribute('aria-pressed')).toBe('true');
+      await s.page.goto('/develop/request?menu=app');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      expect(await s.page.getByRole('button', { name: /^앱 및 서버 개발/ }).getAttribute('aria-pressed')).toBe('true');
       // 모르는 코드는 무시 — 아무것도 고르지 않은 채 연다.
-      await s.page.goto('/develop/request?menu=firmware');
+      await s.page.goto('/develop/request?menu=unknown');
       await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
       expect(await s.page.locator('button[aria-pressed="true"]').count()).toBe(0);
       expect(s.pageErrors).toEqual([]);
@@ -346,7 +407,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.getByText(titles.system).first().waitFor({ timeout: 20_000 });
       const row = s.page.locator('tr', { hasText: titles.individual });
       expect(await row.getByText('개별 견적').count()).toBeGreaterThan(0);
-      expect(await row.getByText('PCB + 기구').count()).toBeGreaterThan(0);
+      expect(await row.getByText('회로 + 펌웨어 + 역설계').count()).toBeGreaterThan(0);
+      expect(await row.getByText('권리 확인 필요').count()).toBe(0); // 자사 제품 — 신호 없음
 
       await s.page.goto(`${web}/app/admin/develop/requests/${String(sys.requestId)}`);
       await s.page.getByText('시제품·생산 계획').first().waitFor({ timeout: 20_000 });
@@ -355,8 +417,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(await s.page.getByText('아이디어 → 시제품 완성').count()).toBeGreaterThan(0);
 
       await s.page.goto(`${web}/app/admin/develop/requests/${String(ind.requestId)}`);
-      await s.page.getByText('목표 외형 크기와 무게 제한을 알려주세요.').first().waitFor({ timeout: 20_000 }).catch(() => undefined);
-      expect(await s.page.getByText('80×50×30mm, 200g 이하').count()).toBeGreaterThan(0);
+      await s.page.getByText('[e2e] 온도 3점 → 임계 초과 → 밸브 닫기').first().waitFor({ timeout: 20_000 });
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();

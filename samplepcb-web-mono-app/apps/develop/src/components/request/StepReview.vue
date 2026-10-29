@@ -33,6 +33,8 @@ const {
   aiAnswerRows,
   buildAnswers,
   buildProduction,
+  needsStages,
+  needsProduction,
   goToStep,
 } = props.form;
 
@@ -62,7 +64,8 @@ const contactLine = computed(() => [contact.name, contact.phone].filter((s) => s
 const infoRows = computed(() => [
   { label: '의뢰 제목', value: fields.title.trim() === '' ? '미입력' : fields.title },
   { label: '의뢰자·연락처', value: contactLine.value === '' ? '미입력' : contactLine.value },
-  { label: '개발 단계', value: stageLabel.value },
+  // 역설계만이면 개발 단계를 묻지 않았다 — 행째 뺀다.
+  ...(needsStages.value ? [{ label: '개발 단계', value: stageLabel.value }] : []),
   { label: '일정·예산', value: `${wishLabel.value === '' ? '미입력' : wishLabel.value}·${budgetLabel.value}` },
 ]);
 
@@ -161,8 +164,8 @@ const edit = (key: StepKey): void => {
           <p v-else :class="ROW_VALUE">{{ skipQuestions ? '전문가 검토로 접수합니다 — 담당자가 사양을 제안합니다.' : '답한 항목이 없습니다.' }}</p>
         </div>
 
-        <!-- 시제품 · 제조 -->
-        <div class="flex flex-col gap-[20px]">
+        <!-- 시제품 · 제조 — 펌웨어·앱·서버만이면 4스텝이 없어 블록째 뺀다 -->
+        <div v-if="needsProduction" class="flex flex-col gap-[20px]">
           <div :class="BLOCK_HEAD">
             <p :class="BLOCK_TITLE">시제품·제조</p>
             <button type="button" class="flex h-[34px] w-[84px] shrink-0 items-center justify-center gap-[4px] rounded-[6px] bg-[#f0f4fa] text-[14px] text-[#0a151e] hover:bg-[#e2e8f2]" @click="edit('production')">

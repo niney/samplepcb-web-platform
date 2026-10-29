@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { DEVELOP_INDIVIDUAL_AREAS, DEVELOP_SYSTEM_MENU } from '@sp/api-contract';
+import { DEVELOP_SYSTEM_MENU, developArea } from '@sp/api-contract';
 import heroLayers from '../assets/home/hero-layers.jpg';
 import pcbXray from '../assets/home/pcb-xray.jpg';
 import areaPcb from '../assets/home/area-pcb.jpg';
@@ -27,7 +27,8 @@ import chevronDown from '../assets/home/chevron-down.svg';
 // 피그마와 다르게 둔 것(사용자 결정): 진행 방식 05·06 설명(피그마는 01·02 복사본)·FAQ(피그마는 PCB 양산 주문 자리표시)는
 // 기존 개발의뢰 문구.
 
-const areaHint = (code: string): string => DEVELOP_INDIVIDUAL_AREAS.find((a) => a.code === code)?.hint ?? '';
+// 위저드 개별 메뉴에서 기구가 빠져도(2026-10-30) 랜딩 카드는 디자이너 확인 전까지 그대로라 레지스트리 전체에서 찾는다.
+const areaHint = (code: string): string => developArea(code)?.hint ?? '';
 
 // ── 개발 분야 카드 — 사진 상자(크롭 원본 크기·위치)와 그 위 그라데이션은 피그마 마스크 그룹 값 그대로 ──
 interface AreaCard {

@@ -145,7 +145,9 @@ const optionRowsByIoId = (ioId) => g5q(`SELECT io_id, io_price FROM g5_shop_item
 // 시제품 계획 + 연락처. 시스템개발 등록은 §1 에서 따로 한 건 만든다.
 const baseAnswers = [
   { code: 'pcb.type', choices: ['new'] },
-  { code: 'app.flow', choices: [], note: '로그인 → 제품 등록 → 상태 확인 → 제어' },
+  // '앱 및 서버' 카드는 범위 답으로 앱만 고른다(없으면 서버까지 붙는다 — 2026-10-30 메뉴 6장).
+  { code: 'appserver.scope', choices: ['app'] },
+  { code: 'app.features', choices: ['device', 'status'], note: '로그인 → 제품 등록 → 상태 확인 → 제어' },
 ];
 const baseProduction = { prototype: 'count', prototypeQty: 5, scopes: ['pcb_fab', 'smt'], annualQty: 5000, priority: 'cost', sourcing: 'samplepcb_all', delivery: 'pcba' };
 const basePayload = (title, extra = {}) => ({
@@ -304,9 +306,9 @@ async function run() {
   // ── 1. 등록 ──────────────────────────────────────────────────────────────────
   const bad = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 희망 시기 누락', { wishDate: null, wishNote: null })) });
   assert(bad.status === 400 && bad.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 희망 완료 시기(날짜·자유문) 둘 다 없으면 400', bad);
-  const badArea = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 개별 메뉴 밖 분야', { serviceAreas: ['circuit'] })) });
-  assert(badArea.status === 400 && badArea.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 개별 견적에 회로(개별 메뉴 밖)는 400', badArea);
-  const badText = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 서술 문항에 선택지', { answers: [{ code: 'app.flow', choices: ['x'] }] })) });
+  const badArea = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 개별 메뉴 밖 분야', { serviceAreas: ['mech'] })) });
+  assert(badArea.status === 400 && badArea.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 개별 견적에 기구(개별 메뉴 밖, 2026-10-30)는 400', badArea);
+  const badText = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 서술 문항에 선택지', { serviceAreas: ['pcb', 'firmware'], answers: [{ code: 'firmware.flow', choices: ['x'] }] })) });
   assert(badText.status === 400 && badText.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 서술(text) 문항에 선택지를 실으면 400', badText);
   const badQty = await req('POST', '/api/develop/requests', { token: tClient, form: createForm(basePayload('[e2e] 시제품 수량 누락', { production: { ...baseProduction, prototypeQty: null } })) });
   assert(badQty.status === 400 && badQty.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 시제품 직접입력인데 수량 없으면 400', badQty);
@@ -316,7 +318,7 @@ async function run() {
     form: createForm(basePayload('[e2e] 시스템개발 통합', {
       requestMode: 'system', serviceAreas: [], expertDelegate: true,
       answers: [
-        { code: 'system.use', choices: [], note: '공장 라인, 하루 종일, 실내' },
+        { code: 'system.io', choices: [], note: '공장 라인 센서 → 임계 초과 시 정지' },
         { code: 'system.product_design', choices: ['request'] }, // 협업 범위(askOnDelegate) — 맡김에서도 남는다(b9146b75 에서 system.collab 제거)
       ],
     })),
@@ -344,6 +346,52 @@ async function run() {
   save();
   const sysAnsweredDetail = await req('GET', `/api/develop/requests/${sysAnswered.json.data.requestId}`, { token: tClient });
   assert(sysAnsweredDetail.json.data.answers.length === 1 && sysAnsweredDetail.json.data.answers[0].note.startsWith('온도'), '시스템개발 서술 답변 저장', sysAnsweredDetail.json?.data?.answers);
+  // 메뉴 6장(2026-10-30) — 역설계 권리 확인 필수·역설계만이면 단계 없음·조건부 문항 잔재 버림·관리자 권리 확인 신호.
+  const revNoRights = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 역설계 권리 누락', { serviceAreas: ['reverse'], currentStage: null, targetStage: null, answers: [] })),
+  });
+  assert(revNoRights.status === 400 && revNoRights.json?.error === 'ANSWERS_REQUIRED' && revNoRights.json.missing.includes('reverse.rights'), '역설계: 권리 확인 없으면 400 ANSWERS_REQUIRED', revNoRights.json);
+  const rev = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 역설계 유지보수', {
+      serviceAreas: ['reverse'], currentStage: null, targetStage: null,
+      answers: [
+        { code: 'reverse.rights', choices: ['maintenance'] },
+        { code: 'reverse.work', choices: ['schematic', 'bom'] },
+        { code: 'reverse.firmware', choices: ['known_part'] }, // '펌웨어 추출'을 안 골랐으니 숨은 문항 — 저장하지 않는다
+      ],
+    })),
+  });
+  assert(rev.status === 200, '역설계(단계 없이) 등록 200', rev.json);
+  ids.requestIds.push(rev.json.data.requestId);
+  save();
+  const revDetail = await req('GET', `/api/develop/requests/${rev.json.data.requestId}`, { token: tClient });
+  assert(
+    revDetail.json.data.serviceAreas.join() === 'reverse' && revDetail.json.data.currentStage === null && revDetail.json.data.targetStage === null
+      && revDetail.json.data.answers.map((a) => a.code).join() === 'reverse.rights,reverse.work',
+    '역설계 상세: 단계 null·숨은 문항 답 버림',
+    revDetail.json?.data,
+  );
+  const revAdmin = await req('GET', `/api/admin/develop/requests/${rev.json.data.requestId}`, { token: tAdmin });
+  assert(revAdmin.status === 200 && revAdmin.json.data.rightsCheck === true, '관리자 상세: 역설계 권리 확인 필요 신호', revAdmin.json?.data?.rightsCheck);
+  const swOnly = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 펌웨어+서버만', {
+      serviceAreas: ['firmware', 'app', 'server'],
+      answers: [{ code: 'appserver.scope', choices: ['server'] }, { code: 'hw.comm', choices: ['ble', 'wifi'] }],
+    })),
+  });
+  assert(swOnly.status === 200, '펌웨어+앱 및 서버(서버만) 등록 200', swOnly.json);
+  ids.requestIds.push(swOnly.json.data.requestId);
+  save();
+  const swDetail = await req('GET', `/api/develop/requests/${swOnly.json.data.requestId}`, { token: tClient });
+  assert(
+    swDetail.json.data.serviceAreas.join() === 'firmware,server' && swDetail.json.data.production.prototype === 'none'
+      && swDetail.json.data.production.scopes.length === 0 && swDetail.json.data.answers.length === 2,
+    '범위 답대로 서버만·하드웨어 없으면 제작 계획은 제작 없음으로 저장',
+    swDetail.json?.data,
+  );
   // AI 후속 질문(§7.2.2) 폴백 경로 — 유스케이스가 꺼져 있으면 상태 false·run 409, 없는 잡으로 등록하면 400.
   const fuStatus = await req('GET', '/api/ai/develop.followup/status');
   assert(fuStatus.status === 200 && fuStatus.json?.data?.enabled === false, '후속 질문 상태: 하네스 중 비활성', fuStatus.json);
@@ -421,7 +469,11 @@ async function run() {
     patchAreas.json?.data?.answers,
   );
   const patchBack = await req('PATCH', `/api/develop/requests/${rid}`, { token: tClient, body: { serviceAreas: ['pcb', 'app'], answers: baseAnswers } });
-  assert(patchBack.status === 200 && patchBack.json.data.answers.length === 2, '수정: 분야·답변 복구', patchBack.json?.data?.answers);
+  assert(
+    patchBack.status === 200 && patchBack.json.data.answers.length === 3 && patchBack.json.data.serviceAreas.join() === 'pcb,app',
+    '수정: 분야·답변 복구(범위 답 = 앱만)',
+    patchBack.json?.data?.answers,
+  );
 
   // ── 4. 관리자 워크큐·상세·메모 ─────────────────────────────────────────────
   const list = await req('GET', '/api/admin/develop/requests?tab=received&q=%5Be2e%5D', { token: tAdmin });

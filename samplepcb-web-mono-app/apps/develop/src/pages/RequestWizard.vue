@@ -27,7 +27,7 @@ import lockIcon from '../assets/wizard/lock.png';
 // 맨 위 띠. 비로그인은 01-0(자물쇠 화면) — 바 제목은 'Step1' 대신 '개발 의뢰', 오른쪽은 시안 숨김 레이어의 Login 버튼.
 // 검토서·구성도는 등록 뒤 서버가 관리자용 초안으로 만들고 담당자가 검토한 뒤 공개한다 — 여기서 기다리지 않는다.
 // 고객이 기다리는 잡은 **하나뿐**이다: 시스템개발 3스텝의 AI 후속 질문(§7.2.2, useFollowupJob).
-// 2→3 전환에서 시작해 3스텝이 진행을 보이고, 실패·시간 초과면 고정 3문항으로 조용히 폴백한다.
+// 2→3 전환에서 시작해 3스텝이 진행을 보이고, 실패·시간 초과면 고정 문항으로 조용히 폴백한다.
 // 셸이 하는 일 = 로그인 게이트 · 스텝 내비 · 잡 시작 신호 · 임시저장 · 제출 · 완료 화면. 폼 값은 useRequestForm 이 소유한다.
 // 확인 대화는 전부 인라인 패널이다(네이티브 confirm 금지).
 
@@ -100,7 +100,7 @@ const draftSavedDateLabel = computed(() => {
 
 // 스텝 문구 — 3스텝은 시스템 개발/개별 견적에 따라 제목이 다르다. 완료·비로그인은 바 안내만 바꾼다.
 const copy = computed(() => (currentStep.value === 'questions' && !form.isSystem.value ? INDIVIDUAL_QUESTIONS_COPY : STEP_COPY[currentStep.value]));
-const stepLabels = steps.map((s) => s.label);
+const stepLabels = computed(() => steps.value.map((s) => s.label));
 const barTitle = computed(() => {
   if (!loggedIn.value) return '개발 의뢰';
   return createdId.value !== null ? '접수 완료' : copy.value.bar;

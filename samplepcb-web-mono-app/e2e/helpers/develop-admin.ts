@@ -110,7 +110,8 @@ export async function createDevelopRequestAsCustomer(title: string): Promise<num
     description: '[e2e-ui] 관리자 개발 화면 여정 픽스처입니다. BLE 온습도 로거, 배터리 구동, 스마트폰 앱 연동.',
     answers: [
       { code: 'pcb.type', choices: ['new'] },
-      { code: 'app.flow', choices: [], note: '로그인 → 제품 등록 → 상태 확인' },
+      { code: 'appserver.scope', choices: ['app'] }, // '앱 및 서버' 카드 — 앱만(2026-10-30 메뉴 6장)
+      { code: 'app.features', choices: ['device', 'status'], note: '로그인 → 제품 등록 → 상태 확인' },
     ],
     currentStage: 'idea',
     targetStage: 'prototype_done',

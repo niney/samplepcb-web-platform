@@ -4,7 +4,9 @@ import { EMPTY_MARKET_TOOLS, MarketAnswers, MarketAreaCodeLoose, MarketTools } f
 import {
   DEVELOP_INDIVIDUAL_AREA_CODES,
   DEVELOP_SYSTEM_AREA_CODES,
+  applyDevelopAppServerScope,
   developAnswerIssues,
+  developNeedsStages,
   developToolIssues,
   sortDevelopAreas,
 } from './develop-areas';
@@ -21,7 +23,7 @@ import { AdminDevelopDocumentView, DevelopDocumentView, DevelopProgressView, Dev
 // 라벨 정본은 이 파일(DEVELOP_*_LABELS) — sp-develop·sp-vue·sp-node 메일 빌더가 공유한다.
 
 // ── 위저드 v2 사전(2026-09-08, 프로토타입 samplepcb-development-request 기준) ─────────────
-// 의뢰 방식 — 시스템개발(전 분야 통합, 회로·펌웨어 포함) / 개별 견적(PCB·기구·앱·서버 복수).
+// 의뢰 방식 — 시스템개발(6분야 통합) / 개별 견적(회로·PCB·펌웨어·역설계·앱·서버 복수, 2026-10-30 메뉴 6장).
 export const DEVELOP_REQUEST_MODES = ['system', 'individual'] as const;
 export type DevelopRequestModeType = (typeof DEVELOP_REQUEST_MODES)[number];
 export const DevelopRequestMode = z.enum(DEVELOP_REQUEST_MODES);
@@ -150,6 +152,8 @@ export const EMPTY_DEVELOP_PRODUCTION: DevelopProductionPlanType = {
   sourcing: null,
   delivery: null,
 };
+// 제작 계획을 묻지 않는 의뢰(펌웨어·앱·서버만 — developNeedsProduction)의 저장값 = 시제품 제작 없음.
+export const DEVELOP_NO_PRODUCTION: DevelopProductionPlanType = { ...EMPTY_DEVELOP_PRODUCTION, prototype: 'none' };
 // 저장 정규화 — count 가 아니면 수량을 비우고, 제작 범위가 없으면 조달·납품 형태를 비운다.
 export function normalizeDevelopProduction(p: DevelopProductionPlanType): DevelopProductionPlanType {
   const scopes = [...new Set(p.scopes)];
@@ -193,10 +197,15 @@ export function developWishCode(wishDate: string | null, from: Date | string): D
 export const developWishLabel = (wishDate: string | null, wishNote: string | null): string =>
   wishDate !== null && wishNote !== null && wishNote !== '' ? `${wishDate} · ${wishNote}` : (wishDate ?? wishNote ?? '');
 
-// 의뢰 방식에 따른 저장 분야 — 시스템개발은 전 분야, 개별은 고른 것(개별 메뉴 밖 코드는 버린다).
-export function resolveDevelopServiceAreas(mode: DevelopRequestModeType, areas: readonly string[]): string[] {
+// 의뢰 방식에 따른 저장 분야 — 시스템개발은 6분야, 개별은 고른 것(개별 메뉴 밖 코드는 버린다). '앱 및 서버'는
+// 3스텝 범위 답(appserver.scope)대로 앱·서버를 줄인다 — 위저드와 서버가 같은 답으로 같은 분야를 얻는다.
+export function resolveDevelopServiceAreas(
+  mode: DevelopRequestModeType,
+  areas: readonly string[],
+  answers: readonly { code: string; choices: readonly string[] }[] = [],
+): string[] {
   if (mode === 'system') return [...DEVELOP_SYSTEM_AREA_CODES];
-  return sortDevelopAreas(areas).filter((c) => DEVELOP_INDIVIDUAL_AREA_CODES.includes(c));
+  return applyDevelopAppServerScope(sortDevelopAreas(areas).filter((c) => DEVELOP_INDIVIDUAL_AREA_CODES.includes(c)), answers);
 }
 
 // ── 의뢰 상태 ─────────────────────────────────────────────────────────────────
@@ -390,8 +399,9 @@ const developEditableShape = {
   tools: MarketTools.default(EMPTY_MARKET_TOOLS),
   description: z.string().trim().min(10).max(20000),
   answers: MarketAnswers.default([]),
-  currentStage: DevelopCurrentStage,
-  targetStage: DevelopTargetStage,
+  // 역설계만 고른 의뢰는 묻지 않는다(null) — 그 밖에는 필수(STAGE_REQUIRED, developNeedsStages).
+  currentStage: DevelopCurrentStage.nullable().default(null),
+  targetStage: DevelopTargetStage.nullable().default(null),
   wishDate: DevelopWishDate.nullable().default(null),
   wishNote: z.string().trim().max(200).nullable().default(null),
   budgetRange: DevelopBudgetRange,
@@ -400,7 +410,7 @@ const developEditableShape = {
   production: DevelopProductionPlan,
   ndaWanted: z.boolean().default(false), // 비밀유지 계약 희망 — 당사가 NDA 문서를 준비한다(오프라인)
 } as const;
-// 시스템개발 AI 후속 질문 답(§7.2.2) — 잡 id + 답. 서버가 잡에서 질문을 되읽어 박제한다. 폴백(고정 3문항)이면 null.
+// 시스템개발 AI 후속 질문 답(§7.2.2) — 잡 id + 답. 서버가 잡에서 질문을 되읽어 박제한다. 폴백(고정 문항)이면 null.
 const developAiQuestionsInput = DevelopFollowupAnswersInput.nullable().default(null);
 
 interface DevelopEditableCheck {
@@ -408,6 +418,8 @@ interface DevelopEditableCheck {
   serviceAreas: string[];
   answers: z.infer<typeof MarketAnswers>;
   tools: z.infer<typeof MarketTools>;
+  currentStage: string | null;
+  targetStage: string | null;
   wishDate: string | null;
   wishNote: string | null;
 }
@@ -418,7 +430,10 @@ function developEditableIssues(p: DevelopEditableCheck, ctx: z.RefinementCtx): v
     if (new Set(p.serviceAreas).size !== p.serviceAreas.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DUPLICATE_AREA', path: ['serviceAreas'] });
     if (p.serviceAreas.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AREA_REQUIRED', path: ['serviceAreas'] });
   }
-  const areas = resolveDevelopServiceAreas(p.requestMode, p.serviceAreas);
+  const areas = resolveDevelopServiceAreas(p.requestMode, p.serviceAreas, p.answers);
+  if (developNeedsStages(areas) && (p.currentStage === null || p.targetStage === null)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'STAGE_REQUIRED', path: ['currentStage'] });
+  }
   for (const issue of developAnswerIssues(p.answers, areas)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['answers'] });
   }
@@ -453,8 +468,8 @@ export const DevelopRequestUpdateBody = z
     tools: MarketTools,
     description: developEditableShape.description,
     answers: MarketAnswers,
-    currentStage: developEditableShape.currentStage,
-    targetStage: developEditableShape.targetStage,
+    currentStage: DevelopCurrentStage.nullable(),
+    targetStage: DevelopTargetStage.nullable(),
     wishDate: DevelopWishDate.nullable(),
     wishNote: z.string().trim().max(200).nullable(),
     budgetRange: developEditableShape.budgetRange,
@@ -860,6 +875,8 @@ export const AdminDevelopRequestListItem = z.object({
   contact: DevelopContact,
   assigneeMbId: z.string().nullable(),
   aiConsent: z.boolean(),
+  // 역설계 권리 확인 답이 '유지보수 목적'·'상담' — 담당자가 견적 전에 작업 가능 여부를 확인해야 한다(목록 배지·상세 첫 줄).
+  rightsCheck: z.boolean(),
   ai: AdminDevelopAiSummary,
   quoteCount: z.number(),
   latestQuote: z

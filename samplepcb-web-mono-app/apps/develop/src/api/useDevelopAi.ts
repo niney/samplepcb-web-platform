@@ -10,7 +10,7 @@ import { apiGet, apiSendForm } from '@sp/shared';
 
 const DEVELOP_FOLLOWUP_USECASE = 'develop.followup';
 
-// 활성 여부(공개·비밀 없음) — 꺼져 있으면 위저드는 AI 를 부르지 않고 고정 3문항으로 간다.
+// 활성 여부(공개·비밀 없음) — 꺼져 있으면 위저드는 AI 를 부르지 않고 고정 문항(분석 후 추가 확인)으로 간다.
 // 관리자 토글은 드물어 오래 캐시한다.
 export function useDevelopFollowupStatus() {
   return useQuery({

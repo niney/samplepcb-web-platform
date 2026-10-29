@@ -15,6 +15,7 @@ import {
   ApiError,
   DEVELOP_REQUEST_STATUSES,
   DevelopRequestStatusResponse,
+  developReverseRightsCheckNeeded,
   fileViewKind,
   isDevelopClosed,
   needsServerPreview,
@@ -149,6 +150,7 @@ const toItem = async (
     contact: toDevelopContact(r),
     assigneeMbId: r.assigneeMbId,
     aiConsent: r.aiConsent,
+    rightsCheck: developReverseRightsCheckNeeded(toAnswers(r.answers)),
     ai: await aiSummaryOf(r, files),
     quoteCount: quotes.length,
     latestQuote:

@@ -29,6 +29,8 @@ export interface MarketQuestionDef {
   readonly noteVisibleFor?: readonly string[]; // 지정한 선택지에서만 메모 표시·폼 전송(생략하면 항상)
   readonly noteRequiredFor?: readonly string[]; // 이 선택지를 고르면 메모 필수
   readonly required?: boolean; // 등록 전 답해야 한다(모르면 탈출구 선택지) — 공통 조건이 쓴다
+  // 다른 문항에서 특정 선택지를 골랐을 때만 묻는다(개발의뢰 역설계 '펌웨어 추출' → 추출 자료 문항). 숨은 문항의 답은 저장 전에 버린다.
+  readonly showWhen?: { readonly code: string; readonly anyOf: readonly string[] };
   readonly promptHint?: string; // 검토서 프롬프트에 주는 "이 답이 개발에서 뜻하는 것" 한 줄
   readonly why?: string; // 위저드 문항 아래 "왜 묻나요" 한 줄(고객용 — promptHint 와 다르다)
 }
@@ -123,6 +125,8 @@ export interface AreaRegistryConfig {
   readonly common: readonly MarketQuestionDef[]; // 선택 공통 질문
   readonly fullAreaQuestionCap: number; // 전 분야 선택 시 분야당 질문 상한(fullQuestions 가 없을 때)
   readonly fullQuestions?: readonly MarketQuestionDef[]; // 전 분야 선택 시 분야별 질문 **대신** 묻는 문항(개발의뢰 시스템개발)
+  // '전 분야'를 이루는 분야(생략하면 레지스트리 전부). 개발의뢰는 역설계가 시스템개발에 들지 않아 6분야로 고정한다.
+  readonly fullCodes?: readonly string[];
   readonly fullBadge: (shorts: readonly string[]) => string; // 전 분야 배지 문구
 }
 
@@ -149,6 +153,9 @@ export interface AreaRegistry {
   readonly questionArea: (code: string) => string | null;
   readonly areaQuestionsFor: (areas: readonly string[]) => MarketQuestionDef[];
   readonly questionsFor: (areas: readonly string[]) => MarketQuestionDef[];
+  readonly isQuestionVisible: (question: MarketQuestionDef, answers: readonly { code: string; choices: readonly string[] }[]) => boolean;
+  readonly visibleQuestionsFor: (areas: readonly string[], answers: readonly { code: string; choices: readonly string[] }[]) => MarketQuestionDef[];
+  readonly pruneHiddenAnswers: <T extends { code: string; choices: readonly string[] }>(answers: readonly T[]) => T[];
   readonly requiredMissing: (
     answers: readonly { code: string; choices: readonly string[]; note?: string | undefined }[],
     areas: readonly string[],
@@ -169,13 +176,15 @@ export function createAreaRegistry(config: AreaRegistryConfig): AreaRegistry {
   const codes: readonly string[] = areas.map((a) => a.code);
   const map: ReadonlyMap<string, MarketAreaDef> = new Map(areas.map((a) => [a.code, a]));
   const fullQuestions = config.fullQuestions ?? [];
+  // 여러 분야가 같은 문항을 공유할 수 있다(개발의뢰 회로·펌웨어의 통신 문항) — 사전에는 한 번만(앞 분야 자리).
   const questions: readonly MarketQuestionDef[] = [
     ...config.conditions,
     ...config.common,
     ...areas.flatMap((a) => a.questions),
     ...fullQuestions,
-  ];
+  ].filter((q, i, all) => all.findIndex((x) => x.code === q.code) === i);
   const questionMap: ReadonlyMap<string, MarketQuestionDef> = new Map(questions.map((q) => [q.code, q]));
+  const fullCodes: readonly string[] = config.fullCodes ?? codes;
 
   const isAreaCode = (code: string): boolean => map.has(code);
   const area = (code: string): MarketAreaDef | undefined => map.get(code);
@@ -184,13 +193,13 @@ export function createAreaRegistry(config: AreaRegistryConfig): AreaRegistry {
   const areaShort = (code: string): string => map.get(code)?.short ?? code;
   // 레지스트리 순서로 정렬 + 미지 코드 제거.
   const sortAreas = (list: readonly string[]): string[] => codes.filter((c) => list.includes(c));
-  const isFull = (list: readonly string[]): boolean => codes.every((c) => list.includes(c));
+  const isFull = (list: readonly string[]): boolean => fullCodes.every((c) => list.includes(c));
 
   // 분야 배지 — 1개=분야명, 2개 이상="회로 + PCB", 전부=fullBadge.
   const areaBadge = (list: readonly string[]): string => {
     const sorted = sortAreas(list);
     if (sorted.length === 0) return '';
-    if (sorted.length === codes.length) return config.fullBadge(sorted.map(areaShort));
+    if (isFull(sorted)) return config.fullBadge(sorted.map(areaShort));
     if (sorted.length >= 2) return sorted.map(areaShort).join(' + ');
     return areaLabel(sorted[0] ?? '');
   };
@@ -208,11 +217,14 @@ export function createAreaRegistry(config: AreaRegistryConfig): AreaRegistry {
     const dot = code.indexOf('.');
     return dot > 0 ? code.slice(0, dot) : null;
   };
-  // 선택 분야에서 물을 분야별 질문 — 전 분야면 fullQuestions(있으면) 또는 분야당 앞 cap 개만.
+  // 선택 분야에서 물을 분야별 질문 — 전 분야면 fullQuestions(있으면) 또는 분야당 앞 cap 개만. 공유 문항은 앞 분야에서 한 번만.
   const areaQuestionsFor = (list: readonly string[]): MarketQuestionDef[] => {
     if (isFull(list) && config.fullQuestions !== undefined) return [...config.fullQuestions];
     const cap = isFull(list) ? config.fullAreaQuestionCap : Number.POSITIVE_INFINITY;
-    return sortAreas(list).flatMap((c) => (map.get(c)?.questions ?? []).slice(0, cap));
+    const seen = new Set<string>();
+    return sortAreas(list)
+      .flatMap((c) => (map.get(c)?.questions ?? []).slice(0, cap))
+      .filter((q) => (seen.has(q.code) ? false : (seen.add(q.code), true)));
   };
   // 선택 분야에서 물을 질문 전체(조건 → 공통 → 분야 순) — 답변 검증·브리프 순서·프롬프트가 같은 목록을 쓴다.
   const questionsFor = (list: readonly string[]): MarketQuestionDef[] => [
@@ -220,13 +232,27 @@ export function createAreaRegistry(config: AreaRegistryConfig): AreaRegistry {
     ...config.common,
     ...areaQuestionsFor(list),
   ];
-  // 필수 문항 중 미응답 코드 — 등록 라우트와 위저드 "다음" 게이트가 같은 함수를 쓴다.
+  // showWhen 조건 — 조건 문항에서 지정 선택지를 하나라도 골랐을 때만 보인다.
+  const isQuestionVisible = (q: MarketQuestionDef, answers: readonly { code: string; choices: readonly string[] }[]): boolean => {
+    const cond = q.showWhen;
+    if (cond === undefined) return true;
+    return answers.find((a) => a.code === cond.code)?.choices.some((c) => cond.anyOf.includes(c)) ?? false;
+  };
+  const visibleQuestionsFor = (list: readonly string[], answers: readonly { code: string; choices: readonly string[] }[]): MarketQuestionDef[] =>
+    questionsFor(list).filter((q) => isQuestionVisible(q, answers));
+  // 숨은 문항의 답을 버린다(조건 선택지를 다시 뺀 뒤 남은 잔재). 사전에 없는 코드는 그대로 둔다 — 검증이 따로 막는다.
+  const pruneHiddenAnswers = <T extends { code: string; choices: readonly string[] }>(answers: readonly T[]): T[] =>
+    answers.filter((a) => {
+      const q = questionMap.get(a.code);
+      return q === undefined || isQuestionVisible(q, answers);
+    });
+  // 필수 문항 중 미응답 코드 — 등록 라우트와 위저드 "다음" 게이트가 같은 함수를 쓴다. 숨은 문항은 묻지 않는다.
   const requiredMissing = (
     answers: readonly { code: string; choices: readonly string[]; note?: string | undefined }[],
     list: readonly string[],
   ): string[] => {
     const byCode = new Map(answers.map((a) => [a.code, a]));
-    return questionsFor(list)
+    return visibleQuestionsFor(list, answers)
       .filter((q) => {
         if (q.required !== true) return false;
         const a = byCode.get(q.code);
@@ -346,6 +372,9 @@ export function createAreaRegistry(config: AreaRegistryConfig): AreaRegistry {
     questionArea,
     areaQuestionsFor,
     questionsFor,
+    isQuestionVisible,
+    visibleQuestionsFor,
+    pruneHiddenAnswers,
     requiredMissing,
     answerIssues,
     answerText,

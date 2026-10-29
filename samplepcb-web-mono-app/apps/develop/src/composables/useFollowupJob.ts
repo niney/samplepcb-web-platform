@@ -11,7 +11,7 @@ import type { DevelopRequestForm } from './useRequestForm';
 // 스텝을 오가는 것만으로 모델을 다시 돌리면 고객이 같은 화면에서 두 번 기다리게 된다(서버도 같은 입력의
 // 완료 잡을 1시간 재사용하므로 부담은 서버가 아니라 **대기 시간**이다).
 //
-// 폴백은 조용하다 — 꺼져 있거나(disabled) 실패·시간 초과(error·timeout)면 고정 3문항으로 돌아가고 안내 한 줄만 남긴다.
+// 폴백은 조용하다 — 꺼져 있거나(disabled) 실패·시간 초과(error·timeout)면 고정 문항으로 돌아가고 안내 한 줄만 남긴다.
 // 폴백 상태에서는 등록 payload 의 aiQuestions 가 null 이 된다(폼이 jobId 없음으로 판정).
 
 const CLIENT_TIMEOUT_SECS = 300; // 5분 — 서버 타임아웃이 더 길더라도 고객을 여기 붙잡아 두지 않는다

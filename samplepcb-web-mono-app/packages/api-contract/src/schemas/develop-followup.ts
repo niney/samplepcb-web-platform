@@ -5,7 +5,7 @@ import { z } from 'zod';
 // 읽고 **견적 산출에 꼭 필요한데 자료에서 확인되지 않는 것만** 쉬운 말로 묻는다. 의뢰자는 비전문가라는 전제(기술값 금지).
 // 흐름: 2→3스텝 전환 때 run(비동기 잡) → 폴링 → 질문 표시 → 답은 등록 payload `aiQuestions` 로. 서버는 잡에서 질문을 다시
 // 읽어(클라이언트가 문항을 지어내지 못한다) 답만 합쳐 `sp_develop_request.aiQuestions` 에 박제한다.
-// 유스케이스가 꺼져 있거나 실패·시간 초과면 위저드는 고정 서술 3문항(DEVELOP_SYSTEM_QUESTIONS)으로 조용히 폴백한다.
+// 유스케이스가 꺼져 있거나 실패·시간 초과면 위저드는 고정 문항(DEVELOP_SYSTEM_QUESTIONS — 분석 후 추가 확인 5)으로 조용히 폴백한다.
 // 이 파일은 leaf 다 — zod 외에 아무것도 import 하지 않는다(ai.ts 가 가져다 쓴다).
 
 export const DEVELOP_FOLLOWUP_VERSION = 1 as const;
