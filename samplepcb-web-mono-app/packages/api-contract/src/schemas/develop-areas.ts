@@ -7,7 +7,7 @@ import { MARKET_AREA_MAP } from './market-areas';
 // 통합 분석) 또는 개별 메뉴(회로 설계·PCB 설계·펌웨어 개발·역설계·앱 및 서버 개발, 복수 선택) 중 하나를 고른다.
 // 메뉴 구성은 피그마 01-1(70:566) 6장 그대로다(사용자 결정 2026-10-29) — 기구 설계 메뉴는 없고, 기구는 시스템개발
 // 안에서만 다룬다. '앱 및 서버 개발'은 카드 한 장이 계약 두 분야(app·server)를 고르고, 3스텝 첫 문항(범위)으로 줄인다.
-// 세부 질문은 검토자 정리본(docs/prototypes/development_questions_final.html, 2026-10-30)을 이 계약 틀에 맞춘 것이다.
+// 세부 질문은 비개발자 검토를 거친 확정본(docs/prototypes/develop-menu-questions-plan.html, 2026-10-30)과 같다.
 //
 // 저장 `serviceAreas` 는 시스템개발이면 **6분야**(circuit·pcb·firmware·mech·app·server — 역설계는 들지 않는다),
 // 개별이면 고른 것만이다 — 배지·검토서 분야 카드·프롬프트가 분야 코드만 보고 동작하게(6분야 = 시스템개발 배지).
