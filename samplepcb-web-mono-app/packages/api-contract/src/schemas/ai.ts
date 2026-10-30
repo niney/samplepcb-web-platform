@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { MarketDevReview } from './market-dev-review';
 import { MarketDevDiagram } from './market-dev-diagram';
 import { DevelopFollowupResult } from './develop-followup';
+import { DevelopAreaFollowupResult } from './develop-area-followup';
 import { DevelopDocMailResult } from './develop-docs';
 
 // ── AI 유스케이스 계약 ───────────────────────────────────────────────────────
@@ -16,9 +17,19 @@ import { DevelopDocMailResult } from './develop-docs';
 // (비동기, 등록 뒤 — docs/AI_DEV_REVIEW.md §13.5). 둘 다 sp_ai_usecase 한 행(사용·모델·추가 지침).
 // develop.* = 개발의뢰(docs/DEVELOP_FLOW.md §6) — 같은 프롬프트·러너, 별도 행(관리자 대기라 정밀 모델을 기본으로 둘 수 있다).
 // develop.followup = 개발의뢰 위저드 AI 후속 질문(docs/DEVELOP_FLOW.md §7.2.2) — 고객이 기다리는 유일한 잡(빠른 설정 기본).
+// develop.area-followup = 개발의뢰 개별 메뉴 AI 맞춤 질문(docs/DEVELOP_FLOW.md §7.2.4) — 기본 질문을 의뢰 자료에 맞춰 채우거나 고쳐 묻는다(고객 대기).
 // develop.doc-mail = 개발의뢰 프로젝트 문서 → 고객 메일 초안(docs/DEVELOP_FLOW.md §13) — 관리자가 확인 뒤 발송.
 // pcb.eq-parse = 협력사 EQ 엑셀 → 문항 초안(docs/PCB_PARTNER_TRACK.md D20 P2 · docs/PCB_EQ_AI_PROBE.md) — 승인요청 때 자동, 관리자가 검토 뒤 발송.
-export const AI_USECASES = ['market.dev-review', 'market.dev-diagram', 'develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.doc-mail', 'pcb.eq-parse'] as const;
+export const AI_USECASES = [
+  'market.dev-review',
+  'market.dev-diagram',
+  'develop.dev-review',
+  'develop.dev-diagram',
+  'develop.followup',
+  'develop.area-followup',
+  'develop.doc-mail',
+  'pcb.eq-parse',
+] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
 
@@ -63,6 +74,7 @@ export const AiJobResponse = z.object({
     review: MarketDevReview.nullable(), // dev-review 가 done 일 때만 — 후처리까지 끝난 검토서
     diagram: MarketDevDiagram.nullable(), // dev-diagram 잡의 메타(본문 HTML 은 프로젝트에 붙은 뒤 상세에서)
     followup: DevelopFollowupResult.nullable(), // develop.followup 이 done 일 때만 — 후처리까지 끝난 질문 목록
+    areaFollowup: DevelopAreaFollowupResult.nullable(), // develop.area-followup 이 done 일 때만 — 채운 답·고쳐 물을 질문·새 질문
     docMail: DevelopDocMailResult.nullable(), // develop.doc-mail 이 done 일 때만 — 고객 메일 초안(§13)
     error: z.string().nullable(),
     elapsedSecs: z.number(),
@@ -118,6 +130,8 @@ export const AiSettingsResponse = z.object({
     developDiagram: AiDevDiagramSettings,
     // 개발의뢰 위저드 AI 후속 질문(고객 대기) — 빠른 모델·낮은 thinking 이 기본.
     developFollowup: AiDevDiagramSettings,
+    // 개발의뢰 개별 메뉴 AI 맞춤 질문(고객 대기) — 후속 질문과 같은 빠른 기본.
+    developAreaFollowup: AiDevDiagramSettings,
     // 개발의뢰 프로젝트 문서 → 고객 메일 초안(관리자 대기, 짧은 잡).
     developDocMail: AiDevDiagramSettings,
     // 협력사 EQ 엑셀 분석(D20 P2) — 승인요청 때 자동으로 도는 잡. 프로빙 결정값(kimi-k3·low)이 기본.
@@ -163,6 +177,14 @@ export const AiSettingsUpdate = z.object({
     })
     .optional(),
   developFollowup: z
+    .object({
+      enabled: z.boolean(),
+      model: z.string().trim().min(1).max(100),
+      think: AiThinkLevel,
+      extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
+    })
+    .optional(),
+  developAreaFollowup: z
     .object({
       enabled: z.boolean(),
       model: z.string().trim().min(1).max(100),

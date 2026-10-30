@@ -71,8 +71,26 @@ export const DevelopAiAnswer = z.object({
   text: z.string().max(500),
 });
 export type DevelopAiAnswerType = z.infer<typeof DevelopAiAnswer>;
-export const DevelopAiQuestion = DevelopFollowupQuestion.extend({ answer: DevelopAiAnswer.nullable() });
+// area = 개별 메뉴 AI 맞춤 질문(§7.2.4)의 새 질문이 들 묶음(분야). 시스템개발 질문엔 없다.
+export const DevelopAiQuestion = DevelopFollowupQuestion.extend({ answer: DevelopAiAnswer.nullable(), area: z.string().max(20).optional() });
 export type DevelopAiQuestionType = z.infer<typeof DevelopAiQuestion>;
+
+// 개별 메뉴 AI 맞춤 질문(§7.2.4)의 저장 메타 — 저장분 스키마라 여기 둔다(실행·결과는 develop-area-followup.ts).
+// covered = AI 가 자료에서 채운 기본 질문(근거·고객이 그대로 두었는지) · asked = AI 가 고쳐 물은 문장(기본 질문 코드별).
+export const DevelopAreaFollowupCovered = z.object({
+  area: z.string().max(20),
+  base: z.string().max(40),
+  choices: z.array(z.string().max(40)).max(12),
+  note: z.string().max(200),
+  evidence: z.string().max(160),
+});
+export type DevelopAreaFollowupCoveredType = z.infer<typeof DevelopAreaFollowupCovered>;
+export const DevelopAreaAiMeta = z.object({
+  covered: z.array(DevelopAreaFollowupCovered.extend({ kept: z.boolean() })).max(64),
+  asked: z.array(z.object({ code: z.string().max(40), question: z.string().max(200) })).max(64),
+});
+export type DevelopAreaAiMetaType = z.infer<typeof DevelopAreaAiMeta>;
+
 export const DevelopAiQuestions = z.object({
   version: z.literal(DEVELOP_FOLLOWUP_VERSION),
   jobId: z.string(),
@@ -80,6 +98,7 @@ export const DevelopAiQuestions = z.object({
   generatedAt: z.string(),
   understood: z.string().max(300),
   questions: z.array(DevelopAiQuestion).max(DEVELOP_FOLLOWUP_MAX_QUESTIONS),
+  area: DevelopAreaAiMeta.optional(), // 있으면 개별 메뉴 AI 맞춤 질문 저장분, 없으면 시스템개발 후속 질문
 });
 export type DevelopAiQuestionsType = z.infer<typeof DevelopAiQuestions>;
 

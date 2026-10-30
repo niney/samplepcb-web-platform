@@ -41,6 +41,7 @@ import {
   DEV_REVIEW_USECASE,
   DEVELOP_DIAGRAM_USECASE,
   DEVELOP_FOLLOWUP_USECASE,
+  DEVELOP_AREA_FOLLOWUP_USECASE,
   DEVELOP_DOC_MAIL_USECASE,
   DEVELOP_REVIEW_USECASE,
   PCB_EQ_PARSE_USECASE,
@@ -157,7 +158,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
   const aiSettingsData = async () => {
     await ensureAiUsecaseRows();
-    const [conn, vision, row, diagramRow, developReviewRow, developDiagramRow, developFollowupRow, developDocMailRow, pcbEqParseRow] = await Promise.all([
+    const [conn, vision, row, diagramRow, developReviewRow, developDiagramRow, developFollowupRow, developAreaFollowupRow, developDocMailRow, pcbEqParseRow] = await Promise.all([
       getAiConnection(),
       getAiVisionModel(),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEV_REVIEW_USECASE } }),
@@ -165,6 +166,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_REVIEW_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_DIAGRAM_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_FOLLOWUP_USECASE } }),
+      prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_AREA_FOLLOWUP_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: DEVELOP_DOC_MAIL_USECASE } }),
       prisma.spAiUsecase.findUnique({ where: { useCase: PCB_EQ_PARSE_USECASE } }),
     ]);
@@ -177,6 +179,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         | typeof DEVELOP_REVIEW_USECASE
         | typeof DEVELOP_DIAGRAM_USECASE
         | typeof DEVELOP_FOLLOWUP_USECASE
+        | typeof DEVELOP_AREA_FOLLOWUP_USECASE
         | typeof DEVELOP_DOC_MAIL_USECASE
         | typeof PCB_EQ_PARSE_USECASE,
     ) => {
@@ -215,6 +218,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       developReview: thinkBlock(developReviewRow, DEVELOP_REVIEW_USECASE),
       developDiagram: thinkBlock(developDiagramRow, DEVELOP_DIAGRAM_USECASE),
       developFollowup: thinkBlock(developFollowupRow, DEVELOP_FOLLOWUP_USECASE),
+      developAreaFollowup: thinkBlock(developAreaFollowupRow, DEVELOP_AREA_FOLLOWUP_USECASE),
       developDocMail: thinkBlock(developDocMailRow, DEVELOP_DOC_MAIL_USECASE),
       pcbEqParse: thinkBlock(pcbEqParseRow, PCB_EQ_PARSE_USECASE),
     };
@@ -352,6 +356,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         [DEVELOP_REVIEW_USECASE, body.developReview],
         [DEVELOP_DIAGRAM_USECASE, body.developDiagram],
         [DEVELOP_FOLLOWUP_USECASE, body.developFollowup],
+        [DEVELOP_AREA_FOLLOWUP_USECASE, body.developAreaFollowup],
         [DEVELOP_DOC_MAIL_USECASE, body.developDocMail],
         [PCB_EQ_PARSE_USECASE, body.pcbEqParse],
       ] as const) {

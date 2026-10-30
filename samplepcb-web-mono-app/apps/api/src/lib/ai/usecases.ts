@@ -3,6 +3,7 @@ import type { AiThinkLevelType, AiUsecaseKeyType } from '@sp/api-contract';
 import { DEV_REVIEW_PROMPT_VERSION } from './dev-review';
 import { DEV_DIAGRAM_PROMPT_VERSION } from './dev-diagram';
 import { DEVELOP_FOLLOWUP_PROMPT_VERSION } from './develop-followup';
+import { DEVELOP_AREA_FOLLOWUP_PROMPT_VERSION } from './develop-area-followup';
 import { DEVELOP_DOC_MAIL_PROMPT_VERSION } from './develop-doc-mail';
 // 프롬프트 판만 가져온다(prompt.ts 는 계약·용어집만 문다) — analyze.ts 를 물면 엑셀 추출기(xlsx·cfb)가 여기까지 딸려 온다.
 import { EQ_PARSE_PROMPT_VERSION } from '../pcb-eq-extract/prompt';
@@ -22,6 +23,9 @@ export const DEVELOP_REVIEW_USECASE = 'develop.dev-review' as const;
 export const DEVELOP_DIAGRAM_USECASE = 'develop.dev-diagram' as const;
 // 개발의뢰 위저드 AI 후속 질문(docs/DEVELOP_FLOW.md §7.2.2) — 고객이 3스텝에서 기다리는 유일한 잡.
 export const DEVELOP_FOLLOWUP_USECASE = 'develop.followup' as const;
+// 개발의뢰 개별 메뉴 AI 맞춤 질문(docs/DEVELOP_FLOW.md §7.2.4) — 기본 질문을 의뢰 자료에 맞춰 채우거나 고쳐 묻는다.
+// 키 접미가 '.followup' 이 아니다(잡 저장소가 접미로 결과 모양을 가른다 — '-followup').
+export const DEVELOP_AREA_FOLLOWUP_USECASE = 'develop.area-followup' as const;
 // 개발의뢰 프로젝트 문서 → 고객 메일 초안(docs/DEVELOP_FLOW.md §13) — 관리자가 확인 뒤 발송.
 export const DEVELOP_DOC_MAIL_USECASE = 'develop.doc-mail' as const;
 // 협력사 EQ 엑셀 → 문항 초안(docs/PCB_PARTNER_TRACK.md D20 P2) — 승인요청 때 자동으로 돈다. 러너는 lib/ai/pcb-eq-runner.ts.
@@ -76,6 +80,13 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
   'develop.followup': {
     defaultModel: 'kimi-k3',
     promptVersion: DEVELOP_FOLLOWUP_PROMPT_VERSION,
+    think: 'low',
+    timeoutMs: 300_000,
+  },
+  // 개별 메뉴 맞춤 질문 — 프로빙(2026-10-30, 예시 17건×2): kimi-k3·low 가 3~13초, 형식 오류 0.
+  'develop.area-followup': {
+    defaultModel: 'kimi-k3',
+    promptVersion: DEVELOP_AREA_FOLLOWUP_PROMPT_VERSION,
     think: 'low',
     timeoutMs: 300_000,
   },

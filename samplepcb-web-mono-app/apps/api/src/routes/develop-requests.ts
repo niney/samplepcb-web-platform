@@ -34,7 +34,9 @@ import {
   isDevelopDocApproval,
   isDevelopEditable,
   keepDevelopDelegateAnswers,
+  mergeDevelopAreaFollowup,
   mergeDevelopFollowupAnswers,
+  refreshDevelopAreaAiMeta,
   needsServerPreview,
   normalizeDevelopProduction,
   normalizeDevelopTools,
@@ -96,7 +98,7 @@ import {
   toDocContent,
 } from '../lib/develop-docs';
 import { getAiJob } from '../lib/ai/jobs';
-import { DEVELOP_FOLLOWUP_USECASE } from '../lib/ai/usecases';
+import { DEVELOP_AREA_FOLLOWUP_USECASE, DEVELOP_FOLLOWUP_USECASE } from '../lib/ai/usecases';
 import {
   buildAdminDocumentDecidedEmail,
   buildAdminNewRequestEmail,
@@ -427,6 +429,22 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         return reply.status(400).send({ result: false, error: 'FOLLOWUP_JOB_INVALID' });
       }
       aiQuestions = mergeDevelopFollowupAnswers(job.followup, payload.aiQuestions.answers);
+    } else if (payload.requestMode === 'individual' && payload.aiQuestions !== null) {
+      // 개별 메뉴 AI 맞춤 질문(§7.2.4) — 고쳐 물은 질문의 답은 이미 코드 답(answers)으로 왔다. 잡에서 새 질문을 되읽어 그 답만 합치고,
+      // 채운 답·고쳐 물은 문장은 메타로 남긴다. '앱 및 서버' 범위로 빠진 분야의 것은 버린다.
+      const job = await getAiJob(payload.aiQuestions.jobId);
+      if (job?.mbId !== mbId || job.useCase !== DEVELOP_AREA_FOLLOWUP_USECASE || job.status !== 'done' || job.areaFollowup === null) {
+        return reply.status(400).send({ result: false, error: 'FOLLOWUP_JOB_INVALID' });
+      }
+      const allowed = new Set(developQuestionsFor(serviceAreas).map((q) => q.code));
+      const r = job.areaFollowup;
+      const scoped = {
+        ...r,
+        covered: r.covered.filter((c) => allowed.has(c.base)),
+        asked: r.asked.filter((q) => allowed.has(q.base)),
+        added: r.added.filter((q) => serviceAreas.includes(q.area)),
+      };
+      aiQuestions = mergeDevelopAreaFollowup(scoped, payload.aiQuestions.answers, answers);
     }
 
     let uploaded: UploadedFileType[] = [];
@@ -652,14 +670,21 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const needsProduction = developNeedsProduction(areas);
       if (b.production !== undefined) { data.production = needsProduction ? normalizeDevelopProduction(b.production) : DEVELOP_NO_PRODUCTION; changed.push('production'); }
       else if (areasChanged && !needsProduction) { data.production = DEVELOP_NO_PRODUCTION; }
-      // AI 후속 질문 답(§7.2.2) — 질문은 불변, 답만 갱신. 맡김으로 바꾸거나 개별 견적으로 바꾸면 통째로 비운다.
-      if (b.aiQuestions !== undefined) {
-        const stored = toDevelopAiQuestions(r.aiQuestions);
-        if (stored === null) return reply.status(409).send({ result: false, error: 'NO_AI_QUESTIONS' });
-        data.aiQuestions = applyDevelopFollowupAnswers(stored, b.aiQuestions.answers);
-        changed.push('aiQuestions');
+      // AI 질문 저장분 — 시스템개발 후속 질문(§7.2.2, area 메타 없음)·개별 메뉴 맞춤 질문(§7.2.4, area 메타 있음) 둘 다 질문은 불변, 답만 갱신.
+      // 맡김으로 바꾸거나 저장분과 다른 메뉴 종류로 바꾸면 통째로 비운다. 맞춤 질문은 코드 답이 바뀌면 'AI 가 채움 그대로' 표시를 다시 계산한다.
+      const storedAi = toDevelopAiQuestions(r.aiQuestions);
+      if (b.aiQuestions !== undefined && storedAi === null) return reply.status(409).send({ result: false, error: 'NO_AI_QUESTIONS' });
+      if (storedAi !== null) {
+        const keepAi = !expertDelegate && (mode === 'system') === (storedAi.area === undefined);
+        if (!keepAi) {
+          data.aiQuestions = Prisma.DbNull;
+        } else {
+          let nextAi = b.aiQuestions !== undefined ? applyDevelopFollowupAnswers(storedAi, b.aiQuestions.answers) : storedAi;
+          if (nextAi.area !== undefined && (b.answers !== undefined || areasChanged)) nextAi = { ...nextAi, area: refreshDevelopAreaAiMeta(nextAi.area, answers) };
+          if (nextAi !== storedAi) data.aiQuestions = nextAi;
+          if (b.aiQuestions !== undefined) changed.push('aiQuestions');
+        }
       }
-      if ((expertDelegate || mode !== 'system') && r.aiQuestions !== null) { data.aiQuestions = Prisma.DbNull; }
       if (b.budgetRange !== undefined && b.budgetRange !== r.budgetRange) { data.budgetRange = b.budgetRange; changed.push('budgetRange'); }
       if (b.ndaWanted !== undefined && b.ndaWanted !== r.ndaWanted) { data.ndaWanted = b.ndaWanted; changed.push('ndaWanted'); }
       if (b.contact !== undefined) {

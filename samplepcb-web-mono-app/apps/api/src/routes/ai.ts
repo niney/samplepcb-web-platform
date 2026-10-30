@@ -5,13 +5,16 @@ import {
   AiRunResponse,
   AiUsecaseStatusResponse,
   ApiMemberError,
+  DEVELOP_INDIVIDUAL_AREA_CODES,
   DevReviewRunPayload,
+  DevelopAreaFollowupRunPayload,
   DevelopFollowupRunPayload,
   DevelopFollowupRunResponse,
   MARKET_ATTACHMENT_FIELD,
   parseMarketAttachmentField,
 } from '@sp/api-contract';
-import { DEVELOP_FOLLOWUP_USECASE, DEV_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from '../lib/ai/usecases';
+import { DEVELOP_AREA_FOLLOWUP_USECASE, DEVELOP_FOLLOWUP_USECASE, DEV_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from '../lib/ai/usecases';
+import { startDevelopAreaFollowupJob } from '../lib/ai/area-followup-runner';
 import { getAiJob } from '../lib/ai/jobs';
 import { devReviewAttachmentHashes, devReviewInputHash } from '../lib/ai/dev-review';
 import type { DevReviewSource } from '../lib/ai/dev-review';
@@ -241,6 +244,98 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     },
   );
 
+  // ── GET /ai/develop.area-followup/status — 공개: 개별 메뉴 3스텝 게이트(꺼져 있으면 기본 질문 그대로) ──
+  fastify.get(
+    '/ai/develop.area-followup/status',
+    { schema: { response: { 200: AiUsecaseStatusResponse } } },
+    async () => {
+      const runtime = await getAiUsecaseRuntime(DEVELOP_AREA_FOLLOWUP_USECASE);
+      return { result: true as const, data: { useCase: DEVELOP_AREA_FOLLOWUP_USECASE, enabled: runtime.enabled } };
+    },
+  );
+
+  // ── POST /ai/develop.area-followup/run — 로그인 사용자, 비동기 잡 시작(docs/DEVELOP_FLOW.md §7.2.4) ─────────
+  // multipart(payload {title, description, areas} + attachment[]). 시스템개발 후속 질문과 같은 첨부 처리·같은 입력 재사용.
+  fastify.post(
+    '/ai/develop.area-followup/run',
+    {
+      schema: {
+        response: {
+          200: DevelopFollowupRunResponse,
+          400: ApiMemberError,
+          401: ApiMemberError,
+          409: ApiMemberError,
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!request.isMultipart()) {
+        return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
+      }
+      try {
+        await request.jwtVerify();
+      } catch {
+        return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
+      }
+      const { files, rawPayload } = await collectMultipart(request);
+      if (rawPayload === undefined) {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_REQUIRED' });
+      }
+      let payloadJson: unknown;
+      try {
+        payloadJson = JSON.parse(rawPayload);
+      } catch {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      }
+      const parsed = DevelopAreaFollowupRunPayload.safeParse(payloadJson);
+      if (!parsed.success) {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      }
+      const payload = parsed.data;
+      // 개별 메뉴 분야만(시스템개발·기구는 이 질문을 쓰지 않는다). 순서·중복은 입력 해시가 흔들리지 않게 정리한다.
+      const areas = DEVELOP_INDIVIDUAL_AREA_CODES.filter((c) => payload.areas.includes(c));
+      if (areas.length === 0) {
+        return reply.status(400).send({ result: false, error: 'AREA_REQUIRED' });
+      }
+      const runtime = await getAiUsecaseRuntime(DEVELOP_AREA_FOLLOWUP_USECASE);
+      if (!runtime.enabled) {
+        return reply.status(409).send({ result: false, error: 'USECASE_DISABLED' });
+      }
+      const attachments = files.filter((f) => f.field === MARKET_ATTACHMENT_FIELD);
+      const attachmentHashes = devReviewAttachmentHashes(attachments);
+      const expanded = expandAiArchives(
+        attachments.map((f) => ({ buffer: f.buffer, mimetype: f.mimetype, filename: f.filename })),
+      );
+      const prepared = await prepareAiAttachments(
+        expanded.files.map((f) => ({ ...f, filename: f.displayPath })),
+        { maxFiles: 50 },
+      );
+      const inputHash = hashAiInput({ title: payload.title.trim(), description: payload.description.trim(), areas, attachmentHashes });
+      const started = await startDevelopAreaFollowupJob({
+        mbId: request.user.mbId,
+        model: runtime.model,
+        think: toOllamaThink(runtime.think),
+        extraInstructions: runtime.extraInstructions,
+        source: {
+          areas,
+          title: payload.title,
+          description: payload.description,
+          attachmentContext: prepared.context,
+          attachmentFiles: attachments.map((f) => f.filename).slice(0, 20),
+        },
+        images: prepared.images,
+        inputHash,
+        timeoutMs: runtime.timeoutMs,
+        log: request.log,
+      });
+      request.log.info(
+        { jobId: started.job.id, cached: started.cached, areas, attachments: attachments.length, imageCount: prepared.images.length },
+        'develop area followup job requested',
+      );
+      return { result: true as const, data: { jobId: started.job.id, cached: started.cached } };
+    },
+  );
+
   // ── GET /ai/jobs/:jobId — 소유자 폴링 ──────────────────────────────────────
   fastify.get(
     '/ai/jobs/:jobId',
@@ -263,6 +358,7 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
           review: job.review,
           diagram: job.diagram,
           followup: job.followup,
+          areaFollowup: job.areaFollowup,
           docMail: job.docMail,
           error: job.error,
           elapsedSecs: Math.round(

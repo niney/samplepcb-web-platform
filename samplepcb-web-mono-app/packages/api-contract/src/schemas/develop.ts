@@ -410,7 +410,8 @@ const developEditableShape = {
   production: DevelopProductionPlan,
   ndaWanted: z.boolean().default(false), // 비밀유지 계약 희망 — 당사가 NDA 문서를 준비한다(오프라인)
 } as const;
-// 시스템개발 AI 후속 질문 답(§7.2.2) — 잡 id + 답. 서버가 잡에서 질문을 되읽어 박제한다. 폴백(고정 문항)이면 null.
+// AI 질문 답 — 잡 id + 답. 서버가 잡에서 질문을 되읽어 박제한다. 폴백(고정 문항)이면 null.
+// 시스템개발 = 후속 질문(§7.2.2)의 답 · 개별 메뉴 = 맞춤 질문(§7.2.4) 중 새 질문의 답(고쳐 물은 기본 질문의 답은 answers 로 온다).
 const developAiQuestionsInput = DevelopFollowupAnswersInput.nullable().default(null);
 
 interface DevelopEditableCheck {
