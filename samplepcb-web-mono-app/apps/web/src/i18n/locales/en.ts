@@ -527,6 +527,7 @@ export const en = {
           modelHint: 'Text model that handles the base questions. The probed default is kimi-k3 with medium thinking (about a minute) — low takes around 10 s but sometimes fills in answers the materials do not state.',
           think: 'Thinking level',
           extraInstructions: 'Extra instructions',
+          thinkHint: 'Only medium, high and max can be chosen. Low and off are blocked because they sometimes fill in answers the materials do not state (higher is slower).',
           extraInstructionsHint: 'Operational guidance appended to the end of the prompt. The base question list, the questions kept from the AI, the extra-question limit and the output format stay fixed in code.',
         },
         pcbEqParse: {

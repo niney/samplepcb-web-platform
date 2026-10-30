@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AiSettingsUpdate,
   DEVELOP_AREA_CUSTOM_PREFIX,
+  DEVELOP_AREA_FOLLOWUP_LOCKED,
+  DEVELOP_APP_SERVER_SCOPE_CODE,
+  DEVELOP_REVERSE_RIGHTS_CODE,
   DevelopAiQuestions,
+  developQuestion,
   developAreaCoveredKept,
   developAreaStateToAnswer,
   mergeDevelopAreaFollowup,
@@ -36,6 +41,23 @@ describe('developAreaStateToAnswer', () => {
 
   it("'기타'가 없는 질문이면 라벨만 메모로 남긴다", () => {
     expect(developAreaStateToAnswer({ choices: ['new', `${DEVELOP_AREA_CUSTOM_PREFIX}복각`], note: '' }, false)).toEqual({ choices: ['new'], note: '복각' });
+  });
+});
+
+describe('AI 에 맡기지 않는 질문·추론 단계', () => {
+  it('고정 질문 목록은 레지스트리의 범위·권리 확인·조건부 질문의 근거와 같다', () => {
+    expect(DEVELOP_AREA_FOLLOWUP_LOCKED).toEqual([DEVELOP_APP_SERVER_SCOPE_CODE, DEVELOP_REVERSE_RIGHTS_CODE, 'reverse.work']);
+    expect(developQuestion('reverse.firmware')?.showWhen?.code).toBe('reverse.work');
+  });
+
+  it('맞춤 질문 설정은 낮음·끔을 저장하지 못한다', () => {
+    const body = (think: string) => ({ developAreaFollowup: { enabled: true, model: 'kimi-k3', think, extraInstructions: '' } });
+    expect(AiSettingsUpdate.safeParse(body('low')).success).toBe(false);
+    expect(AiSettingsUpdate.safeParse(body('off')).success).toBe(false);
+    expect(AiSettingsUpdate.safeParse(body('medium')).success).toBe(true);
+    expect(AiSettingsUpdate.safeParse(body('max')).success).toBe(true);
+    // 다른 유스케이스는 그대로 낮음을 받는다
+    expect(AiSettingsUpdate.safeParse({ developFollowup: { enabled: true, model: 'kimi-k3', think: 'low', extraInstructions: '' } }).success).toBe(true);
   });
 });
 

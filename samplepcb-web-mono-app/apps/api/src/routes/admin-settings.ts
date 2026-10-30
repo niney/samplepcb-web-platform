@@ -46,6 +46,7 @@ import {
   DEVELOP_REVIEW_USECASE,
   PCB_EQ_PARSE_USECASE,
   asThinkLevel,
+  usecaseThinkLevel,
   ensureAiUsecaseRows,
   getAiConnection,
   getAiVisionModel,
@@ -187,7 +188,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return {
         enabled: r?.enabled ?? false,
         model: r?.model ?? d.defaultModel,
-        think: asThinkLevel(r?.think, d.think),
+        think: usecaseThinkLevel(d, r?.think), // 막아 둔 단계가 DB 에 남아 있으면 기본값으로 보인다(맞춤 질문의 낮음·끔)
         extraInstructions: r?.extraInstructions ?? '',
         promptVersion: d.promptVersion,
         updatedAt: (r?.updatedAt ?? new Date()).toISOString(),

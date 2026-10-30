@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { AI_EXTRA_INSTRUCTIONS_MAX, AI_THINK_LEVELS, MarketDevReview } from '@sp/api-contract';
+import { AI_EXTRA_INSTRUCTIONS_MAX, AI_THINK_LEVELS, DEVELOP_AREA_FOLLOWUP_THINK_LEVELS, MarketDevReview } from '@sp/api-contract';
 import type { AiThinkLevelType } from '@sp/api-contract';
 import { formatDateTime } from '../../lib/format';
 import {
@@ -61,7 +61,7 @@ const devfExtra = ref('');
 // 개별 메뉴 AI 맞춤 질문(develop.area-followup) — 같은 고객 대기 잡.
 const devaEnabled = ref(false);
 const devaModel = ref('');
-const devaThink = ref<AiThinkLevelType>('low');
+const devaThink = ref<AiThinkLevelType>('medium');
 const devaExtra = ref('');
 // 프로젝트 문서 → 고객 메일 초안(develop.doc-mail) — 관리자가 발송 패널에서 기다리는 짧은 잡.
 const devmEnabled = ref(false);
@@ -274,7 +274,8 @@ function onSubmit(): void {
     developAreaFollowup: {
       enabled: devaEnabled.value,
       model: devaModel.value.trim(),
-      think: devaThink.value,
+      // 선택지가 이미 막지만 저장 본문 타입도 좁힌다(낮음·끔이면 기본 보통)
+      think: DEVELOP_AREA_FOLLOWUP_THINK_LEVELS.find((level) => level === devaThink.value) ?? 'medium',
       extraInstructions: devaExtra.value.trim(),
     },
     developDocMail: {
@@ -716,9 +717,9 @@ function onSubmit(): void {
         <label class="block text-sm">
           <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developAreaFollowup.think') }}</span>
           <select v-model="devaThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
-            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
+            <option v-for="level in DEVELOP_AREA_FOLLOWUP_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
           </select>
-          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.thinkHint') }}</span>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.developAreaFollowup.thinkHint') }}</span>
         </label>
 
         <label class="block text-sm">

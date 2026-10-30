@@ -526,6 +526,7 @@ export const ko = {
           modelHint: '기본 질문을 처리하는 텍스트 모델. 프로빙 결정값은 kimi-k3·thinking 보통(대개 1분 안팎) — 낮음은 10초 안팎이지만 자료에 없는 답을 짐작해 채우는 일이 있습니다.',
           think: 'thinking 단계',
           extraInstructions: '추가 지침',
+          thinkHint: '보통·높음·최대만 고를 수 있습니다. 낮음·끔은 자료에 없는 답을 짐작해 채우는 일이 있어 막아 두었습니다(높일수록 느려집니다).',
           extraInstructionsHint: '프롬프트 끝에 붙는 운영 지침입니다. 기본 질문 목록·AI 에 맡기지 않는 질문·새 질문 상한·출력 형식은 코드가 고정합니다.',
         },
         pcbEqParse: {

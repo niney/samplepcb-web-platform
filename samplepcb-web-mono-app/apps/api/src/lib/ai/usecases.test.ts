@@ -3,7 +3,24 @@ import { describe, expect, it, vi } from 'vitest';
 // thinking 단계 가드·타임아웃 배수 — 'max'(§13.13)는 사고량이 high 의 ~23배라 def.timeoutMs 의 2배로 잡는다.
 vi.mock('../prisma', () => ({ prisma: {} }));
 
-import { AI_USECASE_DEFS, THINK_MAX_TIMEOUT_MULTIPLIER, asThinkLevel, toOllamaThink, usecaseTimeoutMs } from './usecases';
+import { AI_USECASE_DEFS, THINK_MAX_TIMEOUT_MULTIPLIER, asThinkLevel, toOllamaThink, usecaseThinkLevel, usecaseTimeoutMs } from './usecases';
+
+describe('usecaseThinkLevel', () => {
+  it('개별 메뉴 맞춤 질문은 낮음·끔이 저장돼 있어도 기본값(medium)으로 돈다', () => {
+    const def = AI_USECASE_DEFS['develop.area-followup'];
+    expect(def.think).toBe('medium');
+    expect(usecaseThinkLevel(def, 'low')).toBe('medium');
+    expect(usecaseThinkLevel(def, 'off')).toBe('medium');
+    expect(usecaseThinkLevel(def, 'high')).toBe('high');
+    expect(usecaseThinkLevel(def, 'max')).toBe('max');
+    expect(usecaseThinkLevel(def, null)).toBe('medium');
+  });
+
+  it('제한이 없는 유스케이스는 저장값 그대로', () => {
+    expect(usecaseThinkLevel(AI_USECASE_DEFS['develop.followup'], 'low')).toBe('low');
+    expect(usecaseThinkLevel(AI_USECASE_DEFS['develop.followup'], 'off')).toBe('off');
+  });
+});
 
 describe('asThinkLevel', () => {
   it('허용 5단계는 그대로, 그 밖(null·옛 값·오타)은 fallback', () => {

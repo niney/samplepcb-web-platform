@@ -1,4 +1,4 @@
-import { AI_USECASES } from '@sp/api-contract';
+import { AI_USECASES, DEVELOP_AREA_FOLLOWUP_THINK_LEVELS } from '@sp/api-contract';
 import type { AiThinkLevelType, AiUsecaseKeyType } from '@sp/api-contract';
 import { DEV_REVIEW_PROMPT_VERSION } from './dev-review';
 import { DEV_DIAGRAM_PROMPT_VERSION } from './dev-diagram';
@@ -39,6 +39,8 @@ export interface AiUsecaseDef {
   defaultModel: string;
   promptVersion: string;
   think: AiThinkLevelType;
+  // 고를 수 있는 thinking 단계(없으면 전부). 저장분이 밖이면 실행·설정 응답 모두 기본값(think)으로 본다.
+  thinkLevels?: readonly AiThinkLevelType[];
   temperature?: number;
   seed?: number;
   timeoutMs: number;
@@ -90,6 +92,7 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
     defaultModel: 'kimi-k3',
     promptVersion: DEVELOP_AREA_FOLLOWUP_PROMPT_VERSION,
     think: 'medium',
+    thinkLevels: DEVELOP_AREA_FOLLOWUP_THINK_LEVELS, // 낮음·끔 불가(사용자 결정)
     timeoutMs: 300_000,
   },
   // 문서 → 메일 초안 — 관리자가 상세에서 기다리는 짧은 잡. 후속 질문과 같은 기본(사용자 결정 6: kimi-k3).
@@ -114,6 +117,11 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
 export const toOllamaThink = (level: AiThinkLevelType): OllamaThink => (level === 'off' ? false : level);
 export const asThinkLevel = (v: string | null | undefined, fallback: AiThinkLevelType): AiThinkLevelType =>
   v === 'off' || v === 'low' || v === 'medium' || v === 'high' || v === 'max' ? v : fallback;
+// 유스케이스가 고를 수 있는 단계로 좁힌다 — 막아 둔 단계(맞춤 질문의 낮음·끔)가 DB 에 남아 있어도 기본값으로 돈다.
+export const usecaseThinkLevel = (def: AiUsecaseDef, stored: string | null | undefined): AiThinkLevelType => {
+  const think = asThinkLevel(stored, def.think);
+  return def.thinkLevels === undefined || def.thinkLevels.includes(think) ? think : def.think;
+};
 // think 'max' 는 사고량이 high 의 ~23배·시간 ~4배(kimi-k3 실측 2026-09-08)라 정밀 구성도(high 566초)가 def.timeoutMs 를
 // 넘길 수 있다 — 2배로 잡는다. 러너는 def.timeoutMs 대신 이 값을 쓴다.
 export const THINK_MAX_TIMEOUT_MULTIPLIER = 2;
@@ -250,7 +258,7 @@ export interface AiUsecaseRuntime {
 export async function getAiUsecaseRuntime(key: AiUsecaseKeyType): Promise<AiUsecaseRuntime> {
   const row = await getAiUsecase(key);
   const def = AI_USECASE_DEFS[key];
-  const think = asThinkLevel(row?.think, def.think);
+  const think = usecaseThinkLevel(def, row?.think);
   return {
     enabled: row?.enabled ?? false,
     model: row?.model ?? def.defaultModel,

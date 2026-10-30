@@ -28,8 +28,10 @@ const props = withDefaults(
     updatedAt?: string | undefined;
     /** 추가 지침 칸 높이 — 옛 화면 rows 6(검토서)·4(나머지). */
     tallExtra?: boolean;
+    /** 고를 수 있는 thinking 단계(개발의뢰 맞춤 질문은 낮음·끔 불가). 생략하면 전부. */
+    thinkLevels?: readonly AiThinkLevelType[];
   }>(),
-  { promptVersion: undefined, updatedAt: undefined, tallExtra: false },
+  { promptVersion: undefined, updatedAt: undefined, tallExtra: false, thinkLevels: () => AI_THINK_LEVELS },
 );
 
 const enabled = defineModel<boolean>('enabled', { required: true });
@@ -42,7 +44,7 @@ const { t } = useI18n();
 // NativeSelect 의 change 는 select 원소에 그대로 붙는다 — 사전에 있는 값으로 좁혀 받는다.
 const onThinkPick = (event: Event): void => {
   const value = event.target instanceof HTMLSelectElement ? event.target.value : '';
-  const hit = AI_THINK_LEVELS.find((level) => level === value);
+  const hit = props.thinkLevels.find((level) => level === value);
   if (hit !== undefined) think.value = hit;
 };
 </script>
@@ -73,7 +75,7 @@ const onThinkPick = (event: Event): void => {
     <Field v-if="props.keys.think !== undefined">
       <FieldLabel :for="`${props.idPrefix}-think`">{{ t(props.keys.think) }}</FieldLabel>
       <NativeSelect :id="`${props.idPrefix}-think`" :model-value="think" @change="onThinkPick">
-        <NativeSelectOption v-for="level in AI_THINK_LEVELS" :key="level" :value="level">
+        <NativeSelectOption v-for="level in props.thinkLevels" :key="level" :value="level">
           {{ aiThinkLabel(t, level) }}
         </NativeSelectOption>
       </NativeSelect>

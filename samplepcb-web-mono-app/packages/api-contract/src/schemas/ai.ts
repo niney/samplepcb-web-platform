@@ -101,6 +101,10 @@ export type AiDevReviewSettingsType = z.infer<typeof AiDevReviewSettings>;
 export const AI_THINK_LEVELS = ['off', 'low', 'medium', 'high', 'max'] as const;
 export const AiThinkLevel = z.enum(AI_THINK_LEVELS);
 export type AiThinkLevelType = z.infer<typeof AiThinkLevel>;
+// 개발의뢰 개별 메뉴 맞춤 질문(develop.area-followup)은 낮음·끔을 받지 않는다 — 프로빙에서 자료에 없는 답을 짐작해
+// 채웠다(2026-10-30, 사용자 결정). 관리자 화면 선택지·저장 검증·실행 시 보정이 이 목록 하나를 본다.
+export const DEVELOP_AREA_FOLLOWUP_THINK_LEVELS = ['medium', 'high', 'max'] as const satisfies readonly AiThinkLevelType[];
+export const DevelopAreaFollowupThinkLevel = z.enum(DEVELOP_AREA_FOLLOWUP_THINK_LEVELS);
 
 export const AiDevDiagramSettings = z.object({
   enabled: z.boolean(),
@@ -188,7 +192,7 @@ export const AiSettingsUpdate = z.object({
     .object({
       enabled: z.boolean(),
       model: z.string().trim().min(1).max(100),
-      think: AiThinkLevel,
+      think: DevelopAreaFollowupThinkLevel, // 낮음·끔 불가
       extraInstructions: z.string().trim().max(AI_EXTRA_INSTRUCTIONS_MAX),
     })
     .optional(),

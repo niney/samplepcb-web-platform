@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { DEVELOP_AREA_FOLLOWUP_THINK_LEVELS } from '@sp/api-contract';
 import type { AiThinkLevelType } from '@sp/api-contract';
 import { useAiModels, useAiSettings, useSaveAiSettings } from '@/admin/useAdminSettings';
 import { Field, FieldDescription, FieldLabel } from '@/next/components/ui/field';
@@ -50,7 +51,7 @@ const devfThink = ref<AiThinkLevelType>('low');
 const devfExtra = ref('');
 const devaEnabled = ref(false);
 const devaModel = ref('');
-const devaThink = ref<AiThinkLevelType>('low');
+const devaThink = ref<AiThinkLevelType>('medium');
 const devaExtra = ref('');
 // 프로젝트 문서 → 고객 메일 초안(develop.doc-mail) — 관리자가 발송 패널에서 기다리는 짧은 잡.
 const devmEnabled = ref(false);
@@ -252,7 +253,8 @@ function onSubmit(): void {
     developAreaFollowup: {
       enabled: devaEnabled.value,
       model: devaModel.value.trim(),
-      think: devaThink.value,
+      // 선택지가 이미 막지만 저장 본문 타입도 좁힌다(낮음·끔이면 기본 보통)
+      think: DEVELOP_AREA_FOLLOWUP_THINK_LEVELS.find((level) => level === devaThink.value) ?? 'medium',
       extraInstructions: devaExtra.value.trim(),
     },
     developDocMail: {
@@ -388,7 +390,8 @@ function onSubmit(): void {
           v-model:extra="devaExtra"
           id-prefix="ai-deva"
           code="develop.area-followup"
-          :keys="developKeys('developAreaFollowup')"
+          :keys="{ ...developKeys('developAreaFollowup'), thinkHint: 'admin.settings.ai.developAreaFollowup.thinkHint' }"
+          :think-levels="DEVELOP_AREA_FOLLOWUP_THINK_LEVELS"
           :prompt-version="data?.data.developAreaFollowup.promptVersion"
           :updated-at="data?.data.developAreaFollowup.updatedAt"
         />
