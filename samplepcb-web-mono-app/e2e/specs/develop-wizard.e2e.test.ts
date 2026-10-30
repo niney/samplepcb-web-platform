@@ -421,7 +421,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await next(s);
       await s.page.getByText('AI 가 이해한 내용', { exact: false }).waitFor({ timeout: 300_000 });
       expect(await s.page.getByText('AI 가 채움', { exact: true }).count()).toBeGreaterThan(0);
-      await s.page.screenshot({ path: `${process.env.E2E_SHOT_DIR ?? '.'}/develop-area-followup-step3.png` }).catch(() => undefined);
+      const shotDir = process.env.E2E_SHOT_DIR; // 화면 확인용 — 지정했을 때만 남긴다
+      if (shotDir !== undefined) await s.page.screenshot({ path: `${shotDir}/develop-area-followup-step3.png` }).catch(() => undefined);
       await next(s);
       await s.page.getByText('수량 미정', { exact: true }).click();
       await next(s);
