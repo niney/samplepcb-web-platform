@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { DEVELOP_SYSTEM_MENU, developArea } from '@sp/api-contract';
-import heroLayers from '../assets/home/hero-layers.jpg';
+import HeroVideo from '../components/home/HeroVideo.vue';
 import pcbXray from '../assets/home/pcb-xray.jpg';
 import areaPcb from '../assets/home/area-pcb.jpg';
 import areaMech from '../assets/home/area-mech.jpg';
@@ -18,9 +18,9 @@ import chevronDown from '../assets/home/chevron-down.svg';
 // 개발의뢰 랜딩 — 피그마 개발의뢰(U7VKC9FSkojpDXqZ5qnJQN) 「00-1 랜딩 페이지」 37:6768(= Design done 70:1296), 2026-10-21.
 // 1920 화면 기준 좌표를 그대로 옮겼다(안쪽 1280). 1280 미만은 피그마에 없어 세로로 쌓는다.
 // 구성: 히어로 → 개발 분야(#areas) → 진행 방식 7단계(#how) → 왜 직접 개발인가(아코디언) → 자주 묻는 질문 → 하단 CTA.
-// 히어로는 2026-10 시안 교체(145:22298~22308): 전폭 어두운 띠 + 큐브 사진 + 문구. 옛 히어로의 분야 카드 5장·버튼 2개는 시안에서
-// 빠졌다(분야 입구는 아래 '개발 분야' 카드가 맡는다). 시안의 같은 마스크 안 GIF(hero-banner (2), 252프레임 일러스트)는 불투명한
-// 큐브 사진 아래에 깔려 보이지 않아 쓰지 않는다(docs/FIGMA_PAGES.md "개발의뢰 랜딩").
+// 히어로는 2026-10 시안 교체(145:22298~22308): 전폭 어두운 띠 + 반복 영상(HeroVideo) + 문구. 옛 히어로의 분야 카드 5장·버튼 2개는
+// 시안에서 빠졌다(분야 입구는 아래 '개발 분야' 카드가 맡는다). 시안의 같은 마스크 안 GIF(hero-banner (2), 252프레임 일러스트)는
+// 불투명한 영상 아래에 깔려 보이지 않아 쓰지 않는다(docs/FIGMA_PAGES.md "개발의뢰 랜딩").
 // 분야 카드는 위저드 1스텝 메뉴를 고른 채 연다(?menu=<code>). 꼬리표·한 줄 설명은 계약(DEVELOP_*)이 정본이고,
 // 카드 제목은 피그마 표기("시스템 개발"·"PCB 설계" — 띄어 씀)를 따른다. 2026-10 시안의 카드 구성 변경(기구 → '회로 설계' 제목만
 // 바뀜)은 계약 메뉴를 그대로 두기로 해 따르지 않는다(사용자 결정 2026-10-29).
@@ -180,12 +180,14 @@ const toggleFaq = (i: number): void => {
 
 <template>
   <div class="bg-white tracking-normal break-normal text-black">
-    <!-- 히어로 — 전폭 띠 450(#040e1c→#000109) · 안쪽 1280 상자에 큐브 사진 1350×450 을 가운데로(양옆 35 잘림 = 시안 마스크) ·
+    <!-- 히어로 — 전폭 띠 450(#040e1c→#000109) · 안쪽 1280 상자에 영상 1350×450 을 왼쪽 -35 에(1280 에서 양옆 35 잘림 = 시안 마스크) ·
          글 묶음은 상자 왼쪽 위 92. 제목은 시안 Lexend(한글 글리프 없음 → 대체 글꼴)라 Pretendard Medium, 영문 줄만 Lexend Light.
-         lg 미만은 시안이 없어 글 → 사진 순으로 쌓는다. -->
+         영상 양끝 48px 는 띠 색으로 흐린다 — 1280 넘는 화면에서 영상 가장자리(오른쪽 아래 빛줄·펼쳐진 패널)가 띠와 끊겨 보이던 경계.
+         1024~1279 는 가운데 맞춤이면 펼쳐진 회로판이 글을 덮어, 왼쪽 기준으로 두고 오른쪽(서버·클라우드)을 잘라 낸다.
+         글 왼쪽은 헤더와 같은 20 여백(1320 미만). lg 미만은 시안이 없어 글 → 정지 화면 순으로 쌓는다. -->
     <section class="bg-[linear-gradient(to_bottom,#040e1c,#000109)]">
       <div class="relative mx-auto flex max-w-[1280px] flex-col overflow-hidden lg:block lg:h-[450px]">
-        <div class="relative z-10 px-5 pt-[40px] lg:absolute lg:left-0 lg:top-[92px] lg:w-[560px] lg:p-0">
+        <div class="relative z-10 px-5 pt-[40px] lg:absolute lg:top-[92px] lg:w-[560px] lg:p-0 lg:max-[1319px]:left-5 min-[1320px]:left-0">
           <h1 class="text-[32px] font-medium leading-[1.24] tracking-[-0.02em] text-white sm:text-[45px]">
             여러분의 아이디어를 <br>실현시켜 드립니다.
           </h1>
@@ -196,13 +198,9 @@ const toggleFaq = (i: number): void => {
             아이디어 구상부터 제작까지, <br>전문 담당자가 함께 실현해 드립니다.
           </p>
         </div>
-        <img
-          :src="heroLayers"
-          alt=""
-          width="1350"
-          height="450"
-          class="pointer-events-none block h-[240px] w-full max-w-none object-cover sm:h-[340px] lg:absolute lg:left-1/2 lg:top-0 lg:h-[450px] lg:w-[1350px] lg:-translate-x-1/2"
-        >
+        <HeroVideo
+          class="pointer-events-none block h-[240px] w-full sm:h-[340px] lg:absolute lg:left-[-35px] lg:top-0 lg:h-[450px] lg:w-[1350px] lg:[mask-image:linear-gradient(to_right,transparent_35px,#000_83px,#000_calc(100%_-_83px),transparent_calc(100%_-_35px))]"
+        />
       </div>
     </section>
 
