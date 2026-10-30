@@ -74,8 +74,10 @@ export async function ollamaChatDetailed(
   let text = '';
   let thinkingChars = 0;
   let buf = '';
+  // 조각마다 따로 디코딩하면 조각 경계에 걸린 한글(3바이트)이 U+FFFD 로 깨진다 — 스트림 디코더로 이어 붙인다.
+  const decoder = new TextDecoder('utf-8');
   for await (const chunk of res.body) {
-    buf += Buffer.from(chunk).toString('utf8');
+    buf += decoder.decode(chunk as Uint8Array, { stream: true });
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, nl).trim();

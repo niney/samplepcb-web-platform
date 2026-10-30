@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { extractJsonObject } from './ollama';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { extractJsonObject, ollamaChatDetailed } from './ollama';
 
 // LLM 응답 JSON 추출 — 프로빙 실측 실패 3종(추론문 혼입·제어문자·코드펜스)을 고정한다.
 
@@ -49,5 +49,26 @@ describe('extractJsonObject', () => {
 
   it('객체가 없으면 던진다', () => {
     expect(() => extractJsonObject('그냥 문장입니다')).toThrow('no JSON object');
+  });
+});
+
+describe('ollamaChatDetailed', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('조각 경계에 걸린 한글을 깨뜨리지 않는다(열처리 → 열처� 실측)', async () => {
+    const bytes = new TextEncoder().encode(`${JSON.stringify({ message: { content: '열처리 설비' } })}\n${JSON.stringify({ done: true })}\n`);
+    const cut = bytes.indexOf(0xb2) + 1; // '처'(EC B2 98)의 가운데를 자른다
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, cut));
+        controller.enqueue(bytes.slice(cut));
+        controller.close();
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(body))));
+    const res = await ollamaChatDetailed({ baseUrl: 'http://ai.test', apiKey: null }, 'm', 'p');
+    expect(res.text).toBe('열처리 설비');
   });
 });
