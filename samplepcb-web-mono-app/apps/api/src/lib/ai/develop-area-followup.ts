@@ -1,9 +1,8 @@
 import {
+  DEVELOP_AREA_FOLLOWUP_LOCKED,
   DEVELOP_AREA_FOLLOWUP_VERSION,
   DEVELOP_FOLLOWUP_MAX_QUESTIONS,
-  DEVELOP_APP_SERVER_SCOPE_CODE,
   DEVELOP_REVERSE_NOTICE,
-  DEVELOP_REVERSE_RIGHTS_CODE,
   MARKET_UNKNOWN_CHOICE,
   developArea,
   isTextQuestion,
@@ -12,17 +11,15 @@ import {
 import type { DevelopAreaFollowupResultType, MarketQuestionDef } from '@sp/api-contract';
 import { extractJsonObject } from './ollama';
 
-// ── 개별 메뉴 AI 맞춤 질문(시험 단계, docs/DEVELOP_FLOW.md §7.2.4 예정) ─────────────────────────────
+// ── 개별 메뉴 AI 맞춤 질문(docs/DEVELOP_FLOW.md §7.2.4) — 프롬프트(코드 정본)·JSON 스키마·파서·정규화 ─────────────────
 // 시스템개발 후속 질문(develop-followup.ts)은 "무엇을 물을지"부터 AI 가 정한다. 개별 메뉴는 물을 거리가 이미 정해져 있다
 // (검토 끝난 기본 질문). 그래서 AI 는 기본 질문 하나하나를 ① 자료에 답이 있으면 채우고(covered) ② 없으면 이 제품에 맞게
 // 다시 써서 묻고(ask) ③ 기본 질문 밖에서 꼭 필요한 것만 메뉴당 2개까지 더한다(new).
 // 답의 코드를 잃지 않게 ask 의 선택지마다 원래 선택지 코드(maps)를 받는다 — 등록 때 지금과 같은 코드 답으로 바꿔 저장한다.
-// 분기·필수에 쓰이는 질문 3개는 AI 에 맡기지 않는다(LOCKED). 모델이 빠뜨린 기본 질문은 원래 문구 그대로 되살린다.
+// 분기·필수에 쓰이는 질문 3개는 AI 에 맡기지 않는다(계약 DEVELOP_AREA_FOLLOWUP_LOCKED). 모델이 빠뜨린 기본 질문은 원래 문구 그대로 되살린다.
 
 export const DEVELOP_AREA_FOLLOWUP_PROMPT_VERSION = 'develop-area-followup.v5';
 
-// 고정 질문 — 범위(분야 판정·4스텝 생략), 권리 확인(필수·관리자 신호), 필요 작업(조건부 질문의 근거).
-export const DEVELOP_AREA_FOLLOWUP_LOCKED: readonly string[] = [DEVELOP_APP_SERVER_SCOPE_CODE, DEVELOP_REVERSE_RIGHTS_CODE, 'reverse.work'];
 export const DEVELOP_AREA_FOLLOWUP_MAX_NEW_PER_AREA = 2;
 export const DEVELOP_AREA_FOLLOWUP_MAX_CUSTOM_OPTIONS = 2;
 const MAX_OPTIONS = 12; // 통신 질문의 기본 선택지가 12개다

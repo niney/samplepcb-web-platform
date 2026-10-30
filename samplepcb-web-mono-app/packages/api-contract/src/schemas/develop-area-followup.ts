@@ -23,6 +23,9 @@ import type {
 // (결과에 없으면 위저드가 기본 질문을 그대로 그린다).
 
 export const DEVELOP_AREA_FOLLOWUP_VERSION = 1 as const;
+// AI 에 맡기지 않는 질문 — 범위(분야 판정·4스텝 생략) · 권리 확인(필수·관리자 신호) · 필요 작업(조건부 질문의 근거).
+// 위저드는 AI 가 도는 동안 이 질문을 먼저 보여 준다. (develop-areas.ts 를 물지 않으려고 코드를 그대로 적는다.)
+export const DEVELOP_AREA_FOLLOWUP_LOCKED: readonly string[] = ['appserver.scope', 'reverse.rights', 'reverse.work'];
 // 원래 선택지에 없는 선택지(maps null)의 위저드 상태 표기 — 레지스트리 코드와 섞이지 않게 접두를 붙여 둔다. 저장 땐 'other' + 메모.
 export const DEVELOP_AREA_CUSTOM_PREFIX = '~';
 

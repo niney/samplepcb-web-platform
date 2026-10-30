@@ -1,6 +1,7 @@
-import { computed, reactive, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
+import { computed, reactive, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue';
 import {
   DEVELOP_APP_SERVER_SCOPE_CODE,
+  DEVELOP_AREA_CUSTOM_PREFIX,
   DEVELOP_BUDGET_RANGES,
   DEVELOP_CURRENT_STAGES,
   DEVELOP_DELIVERY_FORMS,
@@ -21,6 +22,7 @@ import {
   EMPTY_MARKET_TOOLS,
   developAreaBadge,
   developAreaQuestionsFor,
+  developAreaStateToAnswer,
   developFollowupAnswerText,
   developNeedsProduction,
   developNeedsStages,
@@ -39,6 +41,9 @@ import {
 import type {
   DevelopAiAnswerType,
   DevelopAiQuestionType,
+  DevelopAreaFollowupAskedType,
+  DevelopAreaFollowupCoveredType,
+  DevelopAreaFollowupResultType,
   DevelopBudgetRangeType,
   DevelopContactType,
   DevelopCurrentStageType,
@@ -67,7 +72,8 @@ import type { QuestionState } from '@sp/ui';
 //   ② 의뢰 내용   제목·목적·현재/목표 단계(역설계만이면 묻지 않음)·희망 시기·예산·참고 자료 + 자료 사용 동의(aiConsent, 필수)
 //                 (+시스템개발 후속 질문 방식) — 자료가 AI 로 나가는 시점이 2→3 전환이라 동의를 여기서 받는다
 //   ③ 세부 질문   시스템개발 = AI 후속 질문(§7.2.2, 폴백은 고정 문항) + 디자인·기구 범위 2, 개별 = 고른 카드의 전문 질문
-//                 ('앱 및 서버'는 첫 문항 범위 답대로 앱·서버 질문이 나온다)
+//                 ('앱 및 서버'는 첫 문항 범위 답대로 앱·서버 질문이 나온다) — AI 맞춤 질문(§7.2.4)이 켜져 있으면 자료에 답이
+//                 있는 질문은 채워 두고, 나머지는 의뢰에 맞게 고쳐 묻고, 꼭 필요한 새 질문을 더한다
 //   ④ 제작 계획   시제품 수량·제작 범위·연간 수량(+범위가 있으면 조달·납품 형태) — 펌웨어·앱·서버만이면 스텝째 건너뛴다
 //   ⑤ 검토·접수  연락처 + 요약 + 비밀유지(NDA)
 // 분야·질문·라벨의 정본은 개발의뢰 레지스트리(DEVELOP_REGISTRY)라 이 파일에 분야 코드나
@@ -303,6 +309,69 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   };
   const aiQuestionDefs = computed(() => aiQuestions.value.map((q) => ({ id: q.id, def: toAiQuestionDef(q) })));
 
+  // ── 개별 메뉴 AI 맞춤 질문(§7.2.4) — 답은 **기본 질문의 상태(questionState)에 그대로** 든다 ──────────────
+  // 고쳐 물은 질문의 선택지는 원래 선택지 코드(maps)로 이어져 있어 같은 상태를 읽고 쓴다(임시저장·검토 카드·등록이 지금 그대로).
+  // 원래 선택지에 없는 선택지만 '~라벨'로 적어 두고 저장할 때 'other' + 메모로 바꾼다(developAreaStateToAnswer).
+  // 자료에서 채운 답·미리 체크는 고객이 아직 손대지 않은 질문에만 넣고(seed), 잡이 바뀌면 그대로인 것만 거둔다.
+  // 새 질문(기본 질문 밖)은 시스템개발 AI 질문과 같은 자리(aiQuestions)에 들고, 어느 묶음에 그릴지만 aiQuestionAreas 로 안다.
+  interface AreaAi {
+    jobId: string;
+    understood: string;
+    covered: ReadonlyMap<string, DevelopAreaFollowupCoveredType>;
+    asked: ReadonlyMap<string, DevelopAreaFollowupAskedType>;
+  }
+  const areaAi = shallowRef<AreaAi | null>(null);
+  const areaSeeds = new Map<string, QuestionState>();
+  const aiQuestionAreas = ref<Record<string, string>>({});
+  const sameState = (a: QuestionState, b: QuestionState): boolean =>
+    a.note === b.note && a.choices.length === b.choices.length && a.choices.every((c) => b.choices.includes(c));
+  const isEmptyState = (s: QuestionState | undefined): boolean => s === undefined || (s.choices.length === 0 && s.note.trim() === '');
+  function dropUntouchedSeeds(): void {
+    for (const [code, seed] of areaSeeds) {
+      const s = questionState[code];
+      if (s !== undefined && sameState(s, seed)) {
+        s.choices = [];
+        s.note = '';
+      }
+    }
+    areaSeeds.clear();
+  }
+  function seed(code: string, choices: readonly string[], note: string): void {
+    if (!isEmptyState(questionState[code])) return;
+    questionState[code] = { choices: [...choices], note };
+    areaSeeds.set(code, { choices: [...choices], note });
+  }
+  function setAreaFollowup(result: DevelopAreaFollowupResultType): void {
+    if (areaAi.value?.jobId === result.meta.jobId) return; // 폴링이 done 응답을 여러 번 준다
+    dropUntouchedSeeds();
+    areaAi.value = {
+      jobId: result.meta.jobId,
+      understood: result.understood,
+      covered: new Map(result.covered.map((c) => [c.base, c])),
+      asked: new Map(result.asked.map((q) => [q.base, q])),
+    };
+    for (const c of result.covered) seed(c.base, c.choices, c.note);
+    for (const q of result.asked) {
+      const preset = q.options.flatMap((o) => (o.preset && o.maps !== null ? [o.maps] : []));
+      if (preset.length > 0) seed(q.base, preset, '');
+    }
+    setAiFollowup(result.meta.jobId, result.understood, result.added);
+    aiQuestionAreas.value = Object.fromEntries(result.added.map((q) => [q.id, q.area]));
+  }
+  function clearAreaFollowup(): void {
+    dropUntouchedSeeds();
+    areaAi.value = null;
+    aiQuestionAreas.value = {};
+  }
+  // 고쳐 물은 질문을 기본 질문 모양으로 — 질문 문장·선택지 라벨만 AI 것이고 코드·여러 개 여부·메모 칸은 기본 질문 그대로.
+  const toAskedDef = (asked: DevelopAreaFollowupAskedType, base: MarketQuestionDef): MarketQuestionDef => ({
+    ...base,
+    label: asked.question,
+    options: asked.options.map((o) => ({ code: o.maps ?? `${DEVELOP_AREA_CUSTOM_PREFIX}${o.label}`, label: o.label })),
+    ...(asked.why === '' ? {} : { why: asked.why }),
+  });
+  const areaUnderstood = computed(() => areaAi.value?.understood ?? '');
+
   // ── 1스텝 메뉴 ─────────────────────────────────────────────────────────────
   // 개별 메뉴는 카드 단위로 고른다 — '앱 및 서버' 카드 하나가 app·server 두 분야를 고른다(fields.serviceAreas 는 카드가 고른
   // 분야 그대로이고, 범위 답으로 줄이는 건 effectiveAreas 가 한다).
@@ -381,12 +450,16 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   );
   // 개별 메뉴 묶음 — 고른 카드마다 한 묶음. 공유 문항(회로·펌웨어 통신)은 앞 카드 묶음에서 한 번만. '앱 및 서버'는
   // 범위·작업 종류 다음에 앱·서버 질문이 소제목과 함께 이어진다(heading = 그 문항 앞에 그릴 소제목).
-  interface QuestionGroupItem { question: MarketQuestionDef; heading: string | null }
-  interface QuestionGroup { code: string; label: string; items: QuestionGroupItem[] }
+  // AI 맞춤 질문(§7.2.4)을 쓰면 문항마다 출처가 갈린다 — bank(기본 질문 그대로) · asked(AI 가 고쳐 물음) · covered(자료에서 채움, 근거 함께).
+  // added = 그 묶음에 더한 새 질문(기본 질문 밖, aiStateOf 로 답한다).
+  type QuestionSource = 'bank' | 'asked' | 'covered';
+  interface QuestionGroupItem { question: MarketQuestionDef; heading: string | null; source: QuestionSource; evidence: string }
+  interface QuestionGroup { code: string; label: string; items: QuestionGroupItem[]; added: { id: string; def: MarketQuestionDef }[] }
   const SUB_HEADINGS: Readonly<Record<string, string>> = { app: '앱 개발', server: '서버 개발' };
   const questionGroups = computed<QuestionGroup[]>(() => {
     if (isSystem.value) return [];
     const seen = new Set<string>();
+    const ai = areaAi.value;
     return pickedCards.value.map((card) => {
       const areas = card.areas.filter((a) => effectiveAreas.value.includes(a));
       const items: QuestionGroupItem[] = [];
@@ -396,11 +469,20 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
           if (seen.has(q.code)) continue;
           seen.add(q.code);
           const sub = q.code.startsWith(`${area}.`) ? (SUB_HEADINGS[area] ?? null) : null;
-          items.push({ question: q, heading: sub !== null && sub !== lastHeading ? sub : null });
+          const heading = sub !== null && sub !== lastHeading ? sub : null;
+          const asked = ai?.asked.get(q.code);
+          const covered = ai?.covered.get(q.code);
+          if (asked !== undefined) items.push({ question: toAskedDef(asked, q), heading, source: 'asked', evidence: '' });
+          else if (covered !== undefined) items.push({ question: q, heading, source: 'covered', evidence: covered.evidence });
+          else items.push({ question: q, heading, source: 'bank', evidence: '' });
           if (sub !== null) lastHeading = sub;
         }
       }
-      return { code: card.code, label: card.label, items };
+      const added = aiQuestionDefs.value.filter((item) => {
+        const area = aiQuestionAreas.value[item.id];
+        return area !== undefined && areas.includes(area);
+      });
+      return { code: card.code, label: card.label, items, added };
     });
   });
 
@@ -415,15 +497,18 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   });
 
   // 등록에 실을 답변 — 응답한 문항만(서술형은 note, 선택형은 choices). 선택 분야 밖 문항은 버린다.
+  // AI 맞춤 질문의 새 선택지('~라벨')는 여기서 'other' + 메모로 바뀐다(없으면 상태 그대로).
   function buildAnswers(): MarketAnswerType[] {
     return askedQuestions.value.flatMap((q) => {
       const state = questionState[q.code];
-      if (state === undefined || !isMarketAnswered(q, state)) return [];
+      if (state === undefined) return [];
+      const answer = developAreaStateToAnswer(state, q.options.some((o) => o.code === 'other'));
+      if (!isMarketAnswered(q, answer)) return [];
       // 선택을 바꿔 숨겨진 외부 업체 메모는 접수에 싣지 않는다. 다시 선택하면 입력은 복원된다.
-      const noteVisible = q.noteVisibleFor === undefined || q.noteVisibleFor.some((code) => state.choices.includes(code));
-      const note = noteVisible ? state.note.trim() : '';
+      const noteVisible = q.noteVisibleFor === undefined || q.noteVisibleFor.some((code) => answer.choices.includes(code));
+      const note = noteVisible ? answer.note : '';
       if (isTextQuestion(q)) return [{ code: q.code, choices: [], note }];
-      return [{ code: q.code, choices: [...state.choices], ...(note !== '' ? { note } : {}) }];
+      return [{ code: q.code, choices: answer.choices, ...(note !== '' ? { note } : {}) }];
     });
   }
   function buildProduction(): DevelopProductionPlanType {
@@ -448,11 +533,12 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       hours: contact.hours.trim() === '' ? null : contact.hours.trim(),
     };
   }
-  // 등록 payload 의 AI 질문 조각 — 시스템개발 + 맡김 아님 + AI 질문을 쓴 경우만. 폴백이면 null 이고
-  // 고정 문항 답은 지금처럼 answers 로 간다. 질문 본문은 싣지 않는다(서버가 jobId 로 되읽는다).
+  // 등록 payload 의 AI 질문 조각 — 맡김 아님 + AI 질문을 쓴 경우만(시스템개발 후속 질문 · 개별 메뉴 맞춤 질문의 새 질문).
+  // 폴백이면 null 이고 기본 문항 답은 지금처럼 answers 로 간다. 질문 본문은 싣지 않는다(서버가 jobId 로 되읽는다).
   function buildAiQuestionsInput(): DevelopFollowupAnswersInputType | null {
     const jobId = aiJobId.value;
-    if (jobId === null || !isSystem.value || skipQuestions.value) return null;
+    if (jobId === null || skipQuestions.value) return null;
+    if (!isSystem.value && areaAi.value === null) return null;
     return { jobId, answers: buildAiAnswers() };
   }
   function buildPayload(): DevelopRequestCreatePayloadType {
@@ -652,13 +738,16 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     contact.phone = detail.contact.phone;
     contact.email = detail.contact.email;
     contact.hours = detail.contact.hours ?? '';
+    clearAreaFollowup();
     resetQuestions();
     for (const a of detail.answers) questionState[a.code] = { choices: [...a.choices], note: a.note ?? '' };
-    // AI 후속 질문 저장분 — 질문은 못 바꾸고 답만 고친다(재생성 없음).
+    // AI 질문 저장분 — 질문은 못 바꾸고 답만 고친다(재생성 없음). 개별 메뉴 맞춤 질문은 새 질문만 여기 있고(묶음 = q.area),
+    // 고쳐 물은 질문은 수정 화면에서 기본 질문 문구로 보인다(답은 같은 코드).
     const stored = detail.aiQuestions;
     clearAiFollowup();
     if (stored !== null) {
       setAiFollowup(stored.jobId, stored.understood, stored.questions);
+      aiQuestionAreas.value = Object.fromEntries(stored.questions.flatMap((q) => (q.area === undefined ? [] : [[q.id, q.area]])));
       for (const q of stored.questions) {
         if (q.answer !== null) {
           aiQuestionState[q.id] = { choices: q.answer.choice === null ? [] : [q.answer.choice], note: q.answer.text };
@@ -690,6 +779,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     editedContact.clear();
     contactPrefillApplied = false;
     contactPrefilled.value = false;
+    clearAreaFollowup();
     resetQuestions();
     clearAiFollowup();
     clearFiles();
@@ -834,12 +924,14 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     contact.phone = asString(c.phone);
     contact.email = asString(c.email);
     contact.hours = asString(c.hours);
+    clearAreaFollowup();
     resetQuestions();
     for (const [code, value] of Object.entries(asRecord(obj.questions))) {
       const state = asRecord(value);
       questionState[code] = { choices: asStringList(state.choices), note: asString(state.note) };
     }
     // AI 질문·답은 초안에 담지 않는다 — 3스텝에 들어가면 같은 입력의 잡을 다시 받아 온다.
+    // (맞춤 질문의 고쳐 물은 질문·채운 답은 기본 질문 상태에 들어 있어 초안에 남는다.)
     clearAiFollowup();
     const savedStep = asIntOrNull(obj.stepIndex) ?? 0;
     stepIndex.value = Math.min(Math.max(savedStep, 0), steps.value.length - 1);
@@ -901,6 +993,9 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     toggleAiChoice,
     setAiFollowup,
     clearAiFollowup,
+    areaUnderstood,
+    setAreaFollowup,
+    clearAreaFollowup,
     buildAiAnswers,
     buildAiAnswersAll,
     buildAiQuestionsInput,

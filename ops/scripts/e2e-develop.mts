@@ -12,7 +12,7 @@
 //   pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-develop.mts run
 //   pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-develop.mts cleanup
 // 검증 맥락: docs/DEVELOP_FLOW.md §4(상태 머신)·§5(견적)·§8(API).
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -27,7 +27,7 @@ const IDS_FILE = join(tmpdir(), 'sp-develop-e2e-ids.json');
 const MODE = process.argv[2] ?? 'run';
 const ANCHOR_IT_ID = 'sp-develop-svc';
 const CART_BUCKET = '7777000002'; // 마켓 하네스(…001)와 다른 합성 버킷
-const USECASES = ['develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.doc-mail'];
+const USECASES = ['develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.area-followup', 'develop.doc-mail'];
 
 const secret = process.env.JWT_SECRET;
 if (!secret) throw new Error('JWT_SECRET 없음 (apps/api/.env — 실행법 주석 참조)');
@@ -261,6 +261,8 @@ async function cleanup() {
   }
   // 의뢰 삭제 → events·quotes·items·milestones cascade.
   await prisma.spDevelopRequest.deleteMany({ where: { id: { in: rids } } });
+  // 하네스가 직접 심은 AI 잡(맞춤 질문 완료 잡).
+  if ((ids.aiJobIds ?? []).length > 0) await prisma.spAiJob.deleteMany({ where: { id: { in: ids.aiJobIds } } });
   // 유스케이스 원복.
   for (const [useCase, enabled] of Object.entries(ids.usecaseEnabled ?? {})) {
     await prisma.spAiUsecase.updateMany({ where: { useCase }, data: { enabled } });
@@ -292,7 +294,7 @@ async function run() {
   const tAdmin = sign({ mbId: cfAdmin, mbNick: 'admin', level: 10, isAdmin: true });
   console.log(`주체: client=${cm.mb_id} stranger=${sm.mb_id} admin=${cfAdmin}`);
 
-  const ids = { requestIds: [], paymentKeys: [], simOdIds: [], usecaseEnabled: {} };
+  const ids = { requestIds: [], paymentKeys: [], simOdIds: [], usecaseEnabled: {}, aiJobIds: [] };
   const save = () => writeFileSync(IDS_FILE, JSON.stringify(ids));
   // 실 LLM 차단 — develop.* 유스케이스 비활성(원복은 cleanup).
   for (const useCase of USECASES) {
@@ -413,6 +415,109 @@ async function run() {
   assert(fuPatch.status === 409 && fuPatch.json?.error === 'NO_AI_QUESTIONS', '수정: 저장된 AI 질문이 없으면 409', fuPatch);
   const fuDetail = await req('GET', `/api/develop/requests/${fuIgnored.json.data.requestId}`, { token: tClient });
   assert(fuDetail.json?.data?.aiQuestions === null, '상세: aiQuestions null', fuDetail.json?.data?.aiQuestions);
+
+  // 개별 메뉴 AI 맞춤 질문(§7.2.4) — 비활성 409·분야 검증 400·없는 잡 400, 그리고 완료 잡(하네스가 직접 심는다)으로 등록·수정.
+  const afStatus = await req('GET', '/api/ai/develop.area-followup/status');
+  assert(afStatus.status === 200 && afStatus.json?.data?.enabled === false, '맞춤 질문 상태: 하네스 중 비활성', afStatus.json);
+  const afRunBody = (areas) => createForm({ title: '[e2e] 맞춤', description: '열 글자가 넘는 설명입니다 정말로', areas });
+  const afRun = await req('POST', '/api/ai/develop.area-followup/run', { token: tClient, form: afRunBody(['circuit']) });
+  assert(afRun.status === 409 && afRun.json?.error === 'USECASE_DISABLED', '맞춤 질문 run: 비활성 409', afRun);
+  const afNoArea = await req('POST', '/api/ai/develop.area-followup/run', { token: tClient, form: afRunBody(['mech']) });
+  assert(afNoArea.status === 400 && afNoArea.json?.error === 'AREA_REQUIRED', '맞춤 질문 run: 개별 메뉴 분야가 없으면 400', afNoArea);
+  const afBad = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 없는 맞춤 잡', { aiQuestions: { jobId: '11111111-1111-4111-8111-111111111111', answers: [] } })),
+  });
+  assert(afBad.status === 400 && afBad.json?.error === 'FOLLOWUP_JOB_INVALID', '등록: 없는 맞춤 질문 잡이면 400', afBad);
+  const afJobId = randomUUID();
+  const afResult = {
+    version: 1,
+    understood: '[e2e] 스마트 화분 컨트롤러',
+    covered: [
+      { area: 'circuit', base: 'circuit.type', choices: ['new'], note: '', evidence: "설명: '새로 만든다'" },
+      { area: 'circuit', base: 'circuit.power', choices: ['battery_rechargeable'], note: '18650', evidence: "설명: '18650'" },
+    ],
+    asked: [{
+      area: 'circuit', base: 'hw.comm', question: 'BLE 말고 더 필요한 통신이 있나요?', why: '',
+      options: [{ code: 'o1', label: 'BLE', maps: 'ble', preset: true }, { code: 'o2', label: '전용 무선', maps: null, preset: false }, { code: 'unknown', label: '잘 모르겠어요', maps: 'unknown', preset: false }],
+    }],
+    added: [
+      { id: 'q9', area: 'circuit', question: '보드 크기 제한이 있나요?', why: '', options: [{ code: 'o1', label: '있음' }, { code: 'o2', label: '없음' }, { code: 'unknown', label: '잘 모르겠음' }] },
+      { id: 'q10', area: 'server', question: '[e2e] 고르지 않은 분야의 새 질문', why: '', options: [] },
+    ],
+    meta: { jobId: afJobId, model: 'e2e', promptVersion: 'e2e', generatedAt: new Date().toISOString(), areas: ['circuit', 'server'], attachmentFiles: [] },
+  };
+  await prisma.spAiJob.create({
+    data: {
+      id: afJobId, useCase: 'develop.area-followup', mbId: cm.mb_id, status: 'done', stage: null, model: 'e2e', promptVersion: 'e2e',
+      inputHash: '0'.repeat(64), resultJson: JSON.stringify(afResult), error: null, startedAt: new Date(), finishedAt: new Date(),
+    },
+  });
+  ids.aiJobIds.push(afJobId);
+  save();
+  const afStranger = await req('POST', '/api/develop/requests', {
+    token: tStranger,
+    form: createForm(basePayload('[e2e] 남의 맞춤 잡', { serviceAreas: ['circuit'], answers: [], aiQuestions: { jobId: afJobId, answers: [] } })),
+  });
+  assert(afStranger.status === 400 && afStranger.json?.error === 'FOLLOWUP_JOB_INVALID', '등록: 남의 맞춤 질문 잡이면 400', afStranger);
+  const afSysJob = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 시스템에 맞춤 잡', { requestMode: 'system', serviceAreas: [], answers: [], aiQuestions: { jobId: afJobId, answers: [] } })),
+  });
+  assert(afSysJob.status === 400 && afSysJob.json?.error === 'FOLLOWUP_JOB_INVALID', '등록: 시스템개발에 맞춤 질문 잡이면 400', afSysJob);
+  const afReg = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 맞춤 질문', {
+      serviceAreas: ['circuit'],
+      answers: [
+        { code: 'circuit.type', choices: ['new'] },
+        { code: 'circuit.power', choices: ['battery_rechargeable', 'usb'], note: '18650' },
+        { code: 'hw.comm', choices: ['ble', 'other'], note: '전용 무선' },
+      ],
+      aiQuestions: { jobId: afJobId, answers: [{ id: 'q9', choice: 'o1', text: '60x40mm' }, { id: 'q10', choice: null, text: '버려질 답' }] },
+    })),
+  });
+  assert(afReg.status === 200 && afReg.json?.data?.requestId > 0, '맞춤 질문 등록 200', afReg.json);
+  if (afReg.status === 200) {
+    const afRid = afReg.json.data.requestId;
+    ids.requestIds.push(afRid);
+    save();
+    const afDetail = await req('GET', `/api/develop/requests/${afRid}`, { token: tClient });
+    const afAi = afDetail.json?.data?.aiQuestions;
+    assert(
+      afAi?.area?.covered.map((c) => `${c.base}:${String(c.kept)}`).join() === 'circuit.type:true,circuit.power:false',
+      '저장 메타: 채운 답과 고객이 그대로 두었는지(kept)',
+      afAi?.area,
+    );
+    assert(afAi?.area?.asked.map((q) => q.code).join() === 'hw.comm', '저장 메타: 고쳐 물은 문장', afAi?.area);
+    assert(
+      afAi?.questions.length === 1 && afAi.questions[0].id === 'q9' && afAi.questions[0].area === 'circuit' && afAi.questions[0].answer?.choice === 'o1',
+      '새 질문: 고른 분야 것만 답과 함께 저장(고르지 않은 분야 질문은 버림)',
+      afAi?.questions,
+    );
+    const comm = afDetail.json?.data?.answers.find((a) => a.code === 'hw.comm');
+    assert(comm?.choices.join() === 'ble,other' && comm.note === '전용 무선', '고쳐 물은 질문의 답은 코드 답(새 선택지 = 기타 + 메모)', comm);
+    const afPatch = await req('PATCH', `/api/develop/requests/${afRid}`, {
+      token: tClient,
+      body: { answers: [{ code: 'circuit.type', choices: ['modify'] }, { code: 'circuit.power', choices: ['battery_rechargeable'], note: '18650' }] },
+    });
+    assert(afPatch.status === 200, '수정: 맞춤 질문 의뢰의 답 수정 200', afPatch.json);
+    const afDetail2 = await req('GET', `/api/develop/requests/${afRid}`, { token: tClient });
+    assert(
+      afDetail2.json?.data?.aiQuestions?.area?.covered.map((c) => `${c.base}:${String(c.kept)}`).join() === 'circuit.type:false,circuit.power:true',
+      '수정: 답이 바뀌면 그대로 둔 여부를 다시 계산',
+      afDetail2.json?.data?.aiQuestions?.area,
+    );
+    const afPatchAi = await req('PATCH', `/api/develop/requests/${afRid}`, { token: tClient, body: { aiQuestions: { answers: [{ id: 'q9', choice: 'o2', text: '' }] } } });
+    const afDetail3 = await req('GET', `/api/develop/requests/${afRid}`, { token: tClient });
+    assert(afPatchAi.status === 200 && afDetail3.json?.data?.aiQuestions?.questions[0]?.answer?.choice === 'o2', '수정: 새 질문의 답만 바꾼다', afDetail3.json?.data?.aiQuestions);
+    const afToSystem = await req('PATCH', `/api/develop/requests/${afRid}`, {
+      token: tClient,
+      body: { requestMode: 'system', serviceAreas: [], answers: [{ code: 'system.io', choices: [], note: '[e2e] 동작' }] },
+    });
+    const afDetail4 = await req('GET', `/api/develop/requests/${afRid}`, { token: tClient });
+    assert(afToSystem.status === 200 && afDetail4.json?.data?.aiQuestions === null, '수정: 시스템개발로 바꾸면 맞춤 질문 저장분을 비운다', afDetail4.json?.data?.aiQuestions);
+  }
   const badContact = await req('POST', '/api/develop/requests', { token: tClient, form: createForm({ ...basePayload('[e2e] 연락처 누락'), contact: undefined }) });
   assert(badContact.status === 400 && badContact.json?.error === 'PAYLOAD_SCHEMA_MISMATCH', '등록: 연락처 누락 400', badContact);
   const noAuth = await req('POST', '/api/develop/requests', { form: createForm(basePayload('[e2e] 비로그인')) });

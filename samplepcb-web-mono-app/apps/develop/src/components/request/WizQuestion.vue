@@ -8,6 +8,7 @@ import { WIZ, chipClass } from '../../lib/wizard-copy';
 // 질문 하나 — 공용 QuestionField(@sp/ui, 마켓 공용)와 동작이 같은 개발의뢰 위저드 전용 모양(피그마 01-3 135:21721·135:21815):
 // 22px 질문 + (선택지형) 56px 알약 칩 / (서술형) 140px 흰 입력 상자. 문항 설명(why)은 시안처럼 질문 뒤 괄호로 붙인다.
 // 메모 칸은 그 선택지를 고를 때만(noteVisibleFor). 마켓 화면은 공용 QuestionField 그대로다.
+// 슬롯: badge = 질문 끝의 작은 표시(AI 질문·AI 가 채움), hint = 질문 바로 아래 한 줄(채운 답의 근거).
 const props = defineProps<{
   question: MarketQuestionDef;
   state: QuestionState;
@@ -30,7 +31,9 @@ const whyInline = computed(() => !textKind.value && (props.question.why?.length 
       <span v-if="question.why !== undefined && whyInline">({{ question.why }})</span>
       <span v-if="question.required" class="text-red-500">*</span>
       <span v-if="question.multi && !textKind" class="text-[#999]"> (여러 개 가능)</span>
+      <slot name="badge" />
     </p>
+    <slot name="hint" />
     <textarea
       v-if="textKind"
       :value="state.note"

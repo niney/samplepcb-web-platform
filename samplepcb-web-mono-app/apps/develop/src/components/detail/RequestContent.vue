@@ -26,8 +26,12 @@ import { buildDevReviewBriefRows } from '@sp/utils';
 const props = defineProps<{ detail: DevelopRequestDetailType }>();
 
 const briefRows = computed(() => buildDevReviewBriefRows(props.detail.answers, DEVELOP_REGISTRY));
-// AI 후속 질문(§7.2.2) — 저장분이 있을 때만. 미응답도 행을 남긴다(무엇을 물었는지가 견적 근거의 일부다).
-const aiFollowup = computed(() => props.detail.aiQuestions);
+// AI 질문(§7.2.2 시스템개발 후속 질문 · §7.2.4 개별 메뉴 맞춤 질문의 새 질문) — 저장분이 있을 때만. 미응답도 행을 남긴다
+// (무엇을 물었는지가 견적 근거의 일부다). 맞춤 질문은 새 질문이 없으면 블록째 감춘다(답은 아래 '세부 질문 답변'에 있다).
+const aiFollowup = computed(() => {
+  const stored = props.detail.aiQuestions;
+  return stored?.area !== undefined && stored.questions.length === 0 ? null : stored;
+});
 const aiRows = computed(() =>
   (aiFollowup.value?.questions ?? []).map((q) => ({
     id: q.id,

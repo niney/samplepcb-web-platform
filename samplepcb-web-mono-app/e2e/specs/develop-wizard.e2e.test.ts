@@ -3,6 +3,7 @@
 //   ① 시스템개발 → 전문가 맡김 → 5스텝 완주 → 접수 → API 로 저장값 대조(전 분야 6·기구 포함·범위 답변 2)
 //   ② 개별 메뉴(회로+펌웨어+역설계, 2026-10-30 메뉴 6장) → 3장 권유·통신 한 번·권리 확인 필수·조건부 문항 → 접수
 //   ③ 개별 메뉴(펌웨어+앱 및 서버 → 서버만) → 제작 계획 건너뜀 → 접수 → 분야 = 펌웨어·서버, 시제품 제작 없음
+// 실 LLM 경로 둘(FOLLOWUP_LLM=1): 시스템개발 AI 후속 질문 · 개별 메뉴 AI 맞춤 질문(§7.2.4). 그 밖의 여정은 두 유스케이스를 꺼 둔다.
 // 만든 의뢰는 afterAll 이 지운다(공유 DB — 스스로 만들고 스스로 지운다). pageErrors 0 이 게이트.
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -72,18 +73,20 @@ async function fillReviewAndSubmit(s: E2eSession): Promise<void> {
   await s.page.getByText('개발의뢰가 접수되었습니다').waitFor({ timeout: 15_000 });
 }
 
-// develop.followup 유스케이스 토글 — AI 경로 테스트 전후로 켜고 원복한다(실 LLM 호출, FOLLOWUP_LLM=1 게이트).
-async function setFollowupEnabled(enabled: boolean): Promise<boolean> {
+// 위저드 3스텝 AI 유스케이스 토글 — AI 경로 테스트 전후로 켜고 원복한다(실 LLM 호출, FOLLOWUP_LLM=1 게이트).
+type WizardAiUsecase = 'develop.followup' | 'develop.area-followup';
+async function setUsecaseEnabled(useCase: WizardAiUsecase, enabled: boolean): Promise<boolean> {
   const prisma = getPrisma();
-  const row = await prisma.spAiUsecase.findUnique({ where: { useCase: 'develop.followup' } });
+  const row = await prisma.spAiUsecase.findUnique({ where: { useCase } });
   const prev: boolean = row?.enabled ?? false;
   if (row === null) {
-    await prisma.spAiUsecase.create({ data: { useCase: 'develop.followup', enabled, model: 'kimi-k3', think: 'low', promptTemplate: '', extraInstructions: null } });
+    await prisma.spAiUsecase.create({ data: { useCase, enabled, model: 'kimi-k3', think: 'low', promptTemplate: '', extraInstructions: null } });
   } else {
-    await prisma.spAiUsecase.update({ where: { useCase: 'develop.followup' }, data: { enabled } });
+    await prisma.spAiUsecase.update({ where: { useCase }, data: { enabled } });
   }
   return prev;
 }
+const setFollowupEnabled = (enabled: boolean): Promise<boolean> => setUsecaseEnabled('develop.followup', enabled);
 
 describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', () => {
   const titles = {
@@ -91,13 +94,18 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     individual: '[e2e] 위저드 v2 개별 회로+펌웨어+역설계',
     software: '[e2e] 위저드 v2 개별 펌웨어+서버',
     ai: '[e2e] 위저드 v2 AI 질문',
+    areaAi: '[e2e] 위저드 v2 개별 AI 맞춤 질문',
   };
+  // 개별 메뉴 여정이 실 LLM 을 부르지 않게 맞춤 질문을 꺼 두고 끝나면 원복한다.
+  let areaPrev = false;
 
   beforeAll(async () => {
     await mustReach(`${API_URL}/api/health`, 'API 서버를 켜세요: pnpm dev:api (127.0.0.1:3333)');
+    areaPrev = await setUsecaseEnabled('develop.area-followup', false);
   });
 
   afterAll(async () => {
+    await setUsecaseEnabled('develop.area-followup', areaPrev);
     const prisma = getPrisma();
     await prisma.spDevelopRequest.deleteMany({ where: { mbId: MB } });
     await disconnectPrisma();
@@ -392,6 +400,43 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     } finally {
       await s.close();
       await setFollowupEnabled(prev);
+    }
+  });
+
+  // 실 LLM 경로 — 개별 메뉴 AI 맞춤 질문(§7.2.4). 자세한 설명이면 기본 질문 대부분을 근거와 함께 채운다('AI 가 채움').
+  test.skipIf(process.env.FOLLOWUP_LLM !== '1')('개별 메뉴 — AI 가 자료에서 채운 답·고쳐 물은 질문 → 코드 답 저장', async () => {
+    await setUsecaseEnabled('develop.area-followup', true);
+    const s = await newSession(identity);
+    try {
+      await s.page.goto('/develop/request');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      await s.page.getByText('회로 설계', { exact: true }).first().click();
+      await next(s);
+      await fillDescribe(s, titles.areaAi);
+      await s.page.getByPlaceholder(/여러 센서의 값을 수집하고/).fill(
+        '[e2e] 스마트 화분 컨트롤러를 새로 만들려고 합니다. 토양 수분 센서와 조도 센서 값을 읽어 물이 부족하면 DC 5V 워터펌프를 돌립니다. ' +
+          '1.3인치 OLED 와 버튼 2개, 18650 충전식 배터리(USB-C 충전), 스마트폰과 BLE 연결. 국내 판매라 KC 인증 필요. 결과물은 Altium 원본·PDF·BOM.',
+      );
+      await next(s);
+      await s.page.getByText('AI 가 이해한 내용', { exact: false }).waitFor({ timeout: 300_000 });
+      expect(await s.page.getByText('AI 가 채움', { exact: true }).count()).toBeGreaterThan(0);
+      await s.page.screenshot({ path: `${process.env.E2E_SHOT_DIR ?? '.'}/develop-area-followup-step3.png` }).catch(() => undefined);
+      await next(s);
+      await s.page.getByText('수량 미정', { exact: true }).click();
+      await next(s);
+      await fillReviewAndSubmit(s);
+      const d = (await apiGet(`/api/develop/requests/${String((await findByTitle(titles.areaAi)).requestId)}`)).json as {
+        data: { answers: { code: string }[]; aiQuestions: { area?: { covered: { base: string; kept: boolean }[] } } | null };
+      };
+      const covered = d.data.aiQuestions?.area?.covered ?? [];
+      expect(covered.length).toBeGreaterThan(0);
+      // 채운 답은 그대로 두었으니 전부 kept, 그리고 코드 답으로 저장돼 있다.
+      expect(covered.every((c) => c.kept)).toBe(true);
+      expect(covered.every((c) => d.data.answers.some((a) => a.code === c.base))).toBe(true);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+      await setUsecaseEnabled('develop.area-followup', false);
     }
   });
 
