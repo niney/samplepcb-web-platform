@@ -519,6 +519,16 @@ export const en = {
           extraInstructions: 'Extra instructions',
           extraInstructionsHint: 'Operational guidance appended to the end of the prompt. The question limit and output format stay fixed in code.',
         },
+        developAreaFollowup: {
+          title: 'Development request tailored questions (single menus)',
+          enabled: 'Enabled',
+          enabledHint: 'When on, step 3 of the circuit, PCB, firmware, reverse engineering and app & server menus has the AI read the description and attachments: base questions already answered there are pre-filled for the customer to confirm, the rest are reworded for the request, and up to two extra questions per menu are added. When off, the base questions are asked as they are. On trial — turning it off restores the original screen immediately.',
+          model: 'Model',
+          modelHint: 'Text model that handles the base questions. The probed default is kimi-k3 (3–13 s).',
+          think: 'Thinking level',
+          extraInstructions: 'Extra instructions',
+          extraInstructionsHint: 'Operational guidance appended to the end of the prompt. The base question list, the questions kept from the AI, the extra-question limit and the output format stay fixed in code.',
+        },
         pcbEqParse: {
           title: 'PCB EQ analysis',
           enabled: 'Enabled',

@@ -518,6 +518,16 @@ export const ko = {
           extraInstructions: '추가 지침',
           extraInstructionsHint: '프롬프트 끝에 붙는 운영 지침입니다. 질문 개수 상한·출력 형식은 코드가 고정합니다.',
         },
+        developAreaFollowup: {
+          title: '개발의뢰 개별 메뉴 맞춤 질문',
+          enabled: '사용',
+          enabledHint: '켜면 회로·PCB·펌웨어·역설계·앱 및 서버 메뉴의 3스텝에서 AI 가 설명·첨부를 읽고 기본 질문 중 자료에 답이 있는 것은 채워 두고(고객이 확인), 나머지는 의뢰에 맞게 고쳐 묻고, 꼭 필요한 새 질문을 메뉴당 2개까지 더합니다. 꺼져 있으면 기본 질문 그대로입니다. 시험 운영 중 — 품질이 안 나오면 끄면 바로 원래 화면입니다.',
+          model: '모델',
+          modelHint: '기본 질문을 처리하는 텍스트 모델. 프로빙 결정값은 kimi-k3(3~13초).',
+          think: 'thinking 단계',
+          extraInstructions: '추가 지침',
+          extraInstructionsHint: '프롬프트 끝에 붙는 운영 지침입니다. 기본 질문 목록·AI 에 맡기지 않는 질문·새 질문 상한·출력 형식은 코드가 고정합니다.',
+        },
         pcbEqParse: {
           title: 'PCB EQ 분석',
           enabled: '사용',

@@ -58,6 +58,11 @@ const devfEnabled = ref(false);
 const devfModel = ref('');
 const devfThink = ref<AiThinkLevelType>('low');
 const devfExtra = ref('');
+// 개별 메뉴 AI 맞춤 질문(develop.area-followup) — 같은 고객 대기 잡.
+const devaEnabled = ref(false);
+const devaModel = ref('');
+const devaThink = ref<AiThinkLevelType>('low');
+const devaExtra = ref('');
 // 프로젝트 문서 → 고객 메일 초안(develop.doc-mail) — 관리자가 발송 패널에서 기다리는 짧은 잡.
 const devmEnabled = ref(false);
 const devmModel = ref('');
@@ -130,6 +135,10 @@ watch(
     devfModel.value = d.developFollowup.model;
     devfThink.value = d.developFollowup.think;
     devfExtra.value = d.developFollowup.extraInstructions;
+    devaEnabled.value = d.developAreaFollowup.enabled;
+    devaModel.value = d.developAreaFollowup.model;
+    devaThink.value = d.developAreaFollowup.think;
+    devaExtra.value = d.developAreaFollowup.extraInstructions;
     devmEnabled.value = d.developDocMail.enabled;
     devmModel.value = d.developDocMail.model;
     devmThink.value = d.developDocMail.think;
@@ -144,7 +153,7 @@ watch(
   { immediate: true },
 );
 
-// 일곱 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
+// 여덟 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
 const canSubmit = computed(
   () =>
     !save.isPending.value &&
@@ -153,6 +162,7 @@ const canSubmit = computed(
     devrModel.value.trim() !== '' &&
     devdModel.value.trim() !== '' &&
     devfModel.value.trim() !== '' &&
+    devaModel.value.trim() !== '' &&
     devmModel.value.trim() !== '' &&
     eqpModel.value.trim() !== '',
 );
@@ -260,6 +270,12 @@ function onSubmit(): void {
       model: devfModel.value.trim(),
       think: devfThink.value,
       extraInstructions: devfExtra.value.trim(),
+    },
+    developAreaFollowup: {
+      enabled: devaEnabled.value,
+      model: devaModel.value.trim(),
+      think: devaThink.value,
+      extraInstructions: devaExtra.value.trim(),
     },
     developDocMail: {
       enabled: devmEnabled.value,
@@ -672,6 +688,63 @@ function onSubmit(): void {
             <template v-if="data !== undefined">
               · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
               {{ formatDateTime(data.data.developFollowup.updatedAt) }}
+            </template>
+          </span>
+        </div>
+      </div>
+
+      <!-- ⑥-2 개발의뢰 개별 메뉴 맞춤 질문(§7.2.4) — 고객 대기 잡. 끄면 기본 질문 그대로(시험 운영의 롤백 스위치). -->
+      <div class="space-y-3 rounded-md border border-gray-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-800">
+            {{ t('admin.settings.ai.developAreaFollowup.title') }}
+            <span class="ml-1 font-mono text-xs font-normal text-gray-400">develop.area-followup</span>
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input v-model="devaEnabled" type="checkbox">
+            {{ t('admin.settings.ai.developAreaFollowup.enabled') }}
+          </label>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.ai.developAreaFollowup.enabledHint') }}</p>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developAreaFollowup.model') }}</span>
+          <input v-model="devaModel" type="text" list="ai-models" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm">
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.developAreaFollowup.modelHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developAreaFollowup.think') }}</span>
+          <select v-model="devaThink" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option v-for="level in AI_THINK_LEVELS" :key="level" :value="level">{{ thinkLabel(level) }}</option>
+          </select>
+          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.devDiagram.thinkHint') }}</span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.developAreaFollowup.extraInstructions') }}</span>
+          <textarea
+            v-model="devaExtra"
+            rows="4"
+            :maxlength="AI_EXTRA_INSTRUCTIONS_MAX"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
+          />
+          <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {{ t('admin.settings.ai.developAreaFollowup.extraInstructionsHint') }}
+            <span class="ml-auto font-mono text-[11px] text-gray-400">
+              {{ t('admin.settings.ai.devDiagram.extraInstructionsCount', { count: devaExtra.length, max: AI_EXTRA_INSTRUCTIONS_MAX }) }}
+            </span>
+          </span>
+        </label>
+
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium text-gray-800">{{ t('admin.settings.ai.devDiagram.promptVersion') }}</span>
+          <p class="font-mono text-sm text-gray-700">{{ data?.data.developAreaFollowup.promptVersion }}</p>
+          <span class="text-xs text-gray-500">
+            {{ t('admin.settings.ai.devDiagram.promptVersionHint') }}
+            <template v-if="data !== undefined">
+              · {{ t('admin.settings.ai.devDiagram.updatedAt') }}
+              {{ formatDateTime(data.data.developAreaFollowup.updatedAt) }}
             </template>
           </span>
         </div>

@@ -48,6 +48,10 @@ const devfEnabled = ref(false);
 const devfModel = ref('');
 const devfThink = ref<AiThinkLevelType>('low');
 const devfExtra = ref('');
+const devaEnabled = ref(false);
+const devaModel = ref('');
+const devaThink = ref<AiThinkLevelType>('low');
+const devaExtra = ref('');
 // 프로젝트 문서 → 고객 메일 초안(develop.doc-mail) — 관리자가 발송 패널에서 기다리는 짧은 잡.
 const devmEnabled = ref(false);
 const devmModel = ref('');
@@ -86,6 +90,10 @@ watch(
     devfModel.value = d.developFollowup.model;
     devfThink.value = d.developFollowup.think;
     devfExtra.value = d.developFollowup.extraInstructions;
+    devaEnabled.value = d.developAreaFollowup.enabled;
+    devaModel.value = d.developAreaFollowup.model;
+    devaThink.value = d.developAreaFollowup.think;
+    devaExtra.value = d.developAreaFollowup.extraInstructions;
     devmEnabled.value = d.developDocMail.enabled;
     devmModel.value = d.developDocMail.model;
     devmThink.value = d.developDocMail.think;
@@ -100,7 +108,7 @@ watch(
   { immediate: true },
 );
 
-// 일곱 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
+// 여덟 유스케이스 모두 model 이 계약 min(1) 이라 전부 채워야 저장할 수 있다.
 const canSubmit = computed(
   () =>
     !save.isPending.value &&
@@ -109,6 +117,7 @@ const canSubmit = computed(
     devrModel.value.trim() !== '' &&
     devdModel.value.trim() !== '' &&
     devfModel.value.trim() !== '' &&
+    devaModel.value.trim() !== '' &&
     devmModel.value.trim() !== '' &&
     eqpModel.value.trim() !== '',
 );
@@ -173,7 +182,7 @@ const PCB_EQ_PARSE_KEYS: AiUseCaseKeys = {
   extraHint: 'admin.settings.ai.pcbEqParse.extraInstructionsHint',
   ...DIAGRAM_COMMON,
 };
-const developKeys = (name: 'developDiagram' | 'developFollowup' | 'developDocMail'): AiUseCaseKeys => ({
+const developKeys = (name: 'developDiagram' | 'developFollowup' | 'developAreaFollowup' | 'developDocMail'): AiUseCaseKeys => ({
   title: `admin.settings.ai.${name}.title`,
   enabled: `admin.settings.ai.${name}.enabled`,
   enabledHint: `admin.settings.ai.${name}.enabledHint`,
@@ -239,6 +248,12 @@ function onSubmit(): void {
       model: devfModel.value.trim(),
       think: devfThink.value,
       extraInstructions: devfExtra.value.trim(),
+    },
+    developAreaFollowup: {
+      enabled: devaEnabled.value,
+      model: devaModel.value.trim(),
+      think: devaThink.value,
+      extraInstructions: devaExtra.value.trim(),
     },
     developDocMail: {
       enabled: devmEnabled.value,
@@ -363,6 +378,19 @@ function onSubmit(): void {
           :keys="developKeys('developFollowup')"
           :prompt-version="data?.data.developFollowup.promptVersion"
           :updated-at="data?.data.developFollowup.updatedAt"
+        />
+
+        <!-- ⑥-2 개발의뢰 개별 메뉴 맞춤 질문(§7.2.4) — 고객 대기, 후속 질문과 같은 빠른 기본. 끄면 기본 질문 그대로(시험 운영의 롤백 스위치). -->
+        <AiUseCaseSection
+          v-model:enabled="devaEnabled"
+          v-model:model="devaModel"
+          v-model:think="devaThink"
+          v-model:extra="devaExtra"
+          id-prefix="ai-deva"
+          code="develop.area-followup"
+          :keys="developKeys('developAreaFollowup')"
+          :prompt-version="data?.data.developAreaFollowup.promptVersion"
+          :updated-at="data?.data.developAreaFollowup.updatedAt"
         />
 
         <!-- ⑦ 개발의뢰 문서 메일 초안 — 꺼져 있으면 발송 패널은 계약의 결정적 초안(buildDevelopDocMailDraft)만 쓴다. -->

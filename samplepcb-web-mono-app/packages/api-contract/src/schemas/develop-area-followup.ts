@@ -138,6 +138,20 @@ export function refreshDevelopAreaAiMeta(
   return { ...meta, covered: meta.covered.map((c) => ({ ...c, kept: developAreaCoveredKept(c, answers) })) };
 }
 
+// 관리자 답변 표의 문항별 AI 표시 — filled(AI 가 채우고 고객이 그대로) · edited(AI 가 채웠는데 고객이 고침) · asked(AI 가 고쳐 물음).
+// note = 채운 답의 근거 또는 실제로 물은 문장.
+export interface DevelopAreaAnswerMark {
+  kind: 'filled' | 'edited' | 'asked';
+  note: string;
+}
+export function developAreaAnswerMarks(meta: DevelopAreaAiMetaType | undefined): Map<string, DevelopAreaAnswerMark> {
+  const marks = new Map<string, DevelopAreaAnswerMark>();
+  if (meta === undefined) return marks;
+  for (const c of meta.covered) marks.set(c.base, { kind: c.kept ? 'filled' : 'edited', note: c.evidence });
+  for (const q of meta.asked) marks.set(q.code, { kind: 'asked', note: q.question });
+  return marks;
+}
+
 // 위저드 상태(원래 코드 + 새 선택지 표기) → 저장 답. 새 선택지는 'other' 로 모으고 라벨을 메모 앞에 붙인다.
 // 'other' 가 없는 질문에는 새 선택지가 오지 않는다(서버 정규화가 막는다) — 그래도 오면 라벨만 메모로 남긴다.
 export function developAreaStateToAnswer(

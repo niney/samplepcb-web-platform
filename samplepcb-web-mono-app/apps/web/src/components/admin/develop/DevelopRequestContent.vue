@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
+  developAreaAnswerMarks,
   DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_CURRENT_STAGE_LABELS,
   DEVELOP_DELIVERY_FORM_LABELS,
@@ -20,7 +21,7 @@ import {
   isDevelopFollowupUnknown,
   isMarketAnswerUnknown,
 } from '@sp/api-contract';
-import type { AdminDevelopRequestDetailType } from '@sp/api-contract';
+import type { AdminDevelopRequestDetailType, DevelopAreaAnswerMark } from '@sp/api-contract';
 import { apiErrorMessage, canPreview } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
 import { formatBytes, formatDateTime } from '../../../lib/format';
@@ -36,6 +37,18 @@ const emit = defineEmits<{ preview: [file: PreviewTarget] }>();
 
 const { t } = useI18n();
 
+// 개별 메뉴 AI 맞춤 질문(§7.2.4) — 답변 줄마다 AI 가 채웠는지(고객이 그대로 두었는지)·고쳐 물었는지. 견적 담당이 믿을 정도를 가늠한다.
+const aiMarks = computed(() => developAreaAnswerMarks(props.detail.aiQuestions?.area));
+const aiMarkLabel = (kind: DevelopAreaAnswerMark['kind']): string =>
+  t(kind === 'filled' ? 'admin.develop.content.aiFilled' : kind === 'edited' ? 'admin.develop.content.aiEdited' : 'admin.develop.content.aiAsked');
+const aiMarkNote = (mark: DevelopAreaAnswerMark): string =>
+  t(mark.kind === 'asked' ? 'admin.develop.content.aiAskedAs' : 'admin.develop.content.aiEvidence', { text: mark.note });
+// 시스템개발 후속 질문 블록 — 맞춤 질문 저장분은 새 질문이 있을 때만(채운 답·고쳐 물은 질문은 답변 표에 표시로 붙는다).
+const showAiBlock = computed(() => {
+  const ai = props.detail.aiQuestions;
+  return ai !== null && (ai.area === undefined || ai.questions.length > 0);
+});
+
 const answerRows = computed(() => {
   const byCode = new Map(props.detail.answers.map((a) => [a.code, a]));
   const known = developQuestionsFor(props.detail.serviceAreas).flatMap((q) => {
@@ -50,6 +63,7 @@ const answerRows = computed(() => {
         value: developAnswerText(answer),
         unknown: isMarketAnswerUnknown(answer),
         text: q.kind === 'text', // 서술 문항 — 줄바꿈을 그대로 보인다
+        mark: aiMarks.value.get(q.code) ?? null,
       },
     ];
   });
@@ -61,6 +75,7 @@ const answerRows = computed(() => {
     value: developAnswerText(a),
     unknown: isMarketAnswerUnknown(a),
     text: false,
+    mark: null,
   }));
   return [...known, ...rest];
 });
@@ -193,7 +208,7 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
     </div>
 
     <!-- AI 추가 질문 — 조건 답변 표보다 앞에 둔다(질문 자체가 이 의뢰 고유라 견적 근거로 먼저 읽힌다). -->
-    <div v-if="detail.aiQuestions !== null" class="mt-4">
+    <div v-if="showAiBlock && detail.aiQuestions !== null" class="mt-4">
       <p class="flex flex-wrap items-baseline gap-2 text-sm font-bold text-gray-500">
         {{ t('admin.develop.content.aiQuestions', { count: aiQuestionRows.length }) }}
         <span class="font-mono text-[11px] font-normal text-gray-400">{{ detail.aiQuestions.model }}</span>
@@ -227,6 +242,13 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
           <dt class="text-gray-500" :title="row.question">{{ row.label }}</dt>
           <dd :class="[row.unknown ? 'text-amber-700' : 'text-gray-800', row.text ? 'whitespace-pre-line leading-relaxed' : '']">
             {{ row.value }}
+            <template v-if="row.mark !== null">
+              <span
+                class="ml-1 rounded-full px-1.5 py-0.5 align-middle text-[11px] font-semibold"
+                :class="row.mark.kind === 'edited' ? 'border border-gray-300 text-gray-600' : 'bg-indigo-50 text-indigo-700'"
+              >{{ aiMarkLabel(row.mark.kind) }}</span>
+              <span class="block text-xs leading-relaxed text-gray-500">{{ aiMarkNote(row.mark) }}</span>
+            </template>
           </dd>
         </template>
       </dl>
