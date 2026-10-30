@@ -80,7 +80,8 @@ async function setUsecaseEnabled(useCase: WizardAiUsecase, enabled: boolean): Pr
   const row = await prisma.spAiUsecase.findUnique({ where: { useCase } });
   const prev: boolean = row?.enabled ?? false;
   if (row === null) {
-    await prisma.spAiUsecase.create({ data: { useCase, enabled, model: 'kimi-k3', think: 'low', promptTemplate: '', extraInstructions: null } });
+    // 행이 없을 때만 — 서버 기본값과 같게(후속 질문 low · 맞춤 질문 medium).
+    await prisma.spAiUsecase.create({ data: { useCase, enabled, model: 'kimi-k3', think: useCase === 'develop.area-followup' ? 'medium' : 'low', promptTemplate: '', extraInstructions: null } });
   } else {
     await prisma.spAiUsecase.update({ where: { useCase }, data: { enabled } });
   }
@@ -369,7 +370,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
   });
 
   // 실 LLM 경로(kimi-k3, 10초 안팎) — FOLLOWUP_LLM=1 일 때만. 질문이 뜨고 답이 저장되는지까지 본다.
-  test.skipIf(process.env.FOLLOWUP_LLM !== '1')('시스템개발 — AI 가 자료를 읽고 고른 질문 → 답 저장', async () => {
+  test.skipIf(process.env.FOLLOWUP_LLM !== '1')('시스템개발 — AI 가 자료를 읽고 고른 질문 → 답 저장', { timeout: 360_000 }, async () => {
     const prev = await setFollowupEnabled(true);
     const s = await newSession(identity);
     try {
@@ -403,8 +404,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     }
   });
 
-  // 실 LLM 경로 — 개별 메뉴 AI 맞춤 질문(§7.2.4). 자세한 설명이면 기본 질문 대부분을 근거와 함께 채운다('AI 가 채움').
-  test.skipIf(process.env.FOLLOWUP_LLM !== '1')('개별 메뉴 — AI 가 자료에서 채운 답·고쳐 물은 질문 → 코드 답 저장', async () => {
+  // 실 LLM 경로 — 개별 메뉴 AI 맞춤 질문(§7.2.4, think medium 이라 1분 안팎). 자세한 설명이면 기본 질문 대부분을 근거와 함께 채운다('AI 가 채움').
+  test.skipIf(process.env.FOLLOWUP_LLM !== '1')('개별 메뉴 — AI 가 자료에서 채운 답·고쳐 물은 질문 → 코드 답 저장', { timeout: 360_000 }, async () => {
     await setUsecaseEnabled('develop.area-followup', true);
     const s = await newSession(identity);
     try {

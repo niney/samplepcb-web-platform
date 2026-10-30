@@ -83,11 +83,13 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
     think: 'low',
     timeoutMs: 300_000,
   },
-  // 개별 메뉴 맞춤 질문 — 프로빙(2026-10-30, 예시 17건×2): kimi-k3·low 가 3~13초, 형식 오류 0.
+  // 개별 메뉴 맞춤 질문 — 프로빙(2026-10-30, 예시 17건×2): kimi-k3·low 는 3~13초지만 정황으로 짐작한 답을 채우는 일이
+  // 있었고(서버 경유 → '직접 연결 없음' 등), medium 은 그런 채움이 사라진 대신 14~118초(중간값 약 50초)다. 잘못 채운 답은
+  // 고객이 그냥 넘기면 고객 답처럼 저장되므로 정확도를 택했다(사용자 결정 — 추론 한 단계 올림).
   'develop.area-followup': {
     defaultModel: 'kimi-k3',
     promptVersion: DEVELOP_AREA_FOLLOWUP_PROMPT_VERSION,
-    think: 'low',
+    think: 'medium',
     timeoutMs: 300_000,
   },
   // 문서 → 메일 초안 — 관리자가 상세에서 기다리는 짧은 잡. 후속 질문과 같은 기본(사용자 결정 6: kimi-k3).

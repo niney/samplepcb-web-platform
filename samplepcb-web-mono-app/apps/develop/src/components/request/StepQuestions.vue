@@ -251,7 +251,7 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
           </span>
           <div class="flex min-w-0 flex-1 flex-col gap-[4px]">
             <p class="text-[20px] font-bold leading-[1.3] text-black">{{ stageLabel }}</p>
-            <p class="text-[15px] font-medium text-[#666]">경과 {{ elapsedLabel }} · 보통 10초 안팎입니다. 자료에 이미 있는 답은 채워 두고 나머지만 여쭙니다.</p>
+            <p class="text-[15px] font-medium text-[#666]">경과 {{ elapsedLabel }} · 보통 1분 안팎(길면 2분)입니다. 자료에 이미 있는 답은 채워 두고 나머지만 여쭙니다. 그동안 아래 질문에 먼저 답하셔도 됩니다.</p>
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-[12px] border-t border-[#eee] pt-[16px]">
