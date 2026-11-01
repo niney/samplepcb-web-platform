@@ -366,7 +366,9 @@ async function submit(): Promise<void> {
         <WizardStepper :labels="stepLabels" :current="stepIndex" />
       </div>
 
-      <div class="mx-auto mt-[26px] w-full sm:mt-[34px]" :class="currentStep === 'menu' ? 'max-w-[1060px]' : 'max-w-[900px]'">
+      <!-- 진행 표시 이름 아래 ~ 본문 60px(시안 01-3: 이름 아래 354.6 → 본문 415, 디자인 체크리스트 3번). 위 칸(원 40 + pb 34)
+           안에 이름 아래 6px 이 남아 54 를 더 띄운다. -->
+      <div class="mx-auto mt-[26px] w-full sm:mt-[54px]" :class="currentStep === 'menu' ? 'max-w-[1060px]' : 'max-w-[900px]'">
         <StepMenu v-if="currentStep === 'menu'" :form="form" />
         <StepDescribe v-else-if="currentStep === 'describe'" :form="form" />
         <StepQuestions v-else-if="currentStep === 'questions'" :form="form" :followup="followup" toc />

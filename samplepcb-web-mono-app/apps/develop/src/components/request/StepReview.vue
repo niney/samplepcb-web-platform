@@ -73,7 +73,8 @@ const BLOCK_HEAD = 'flex items-center justify-between gap-[12px]';
 const BLOCK_TITLE = 'text-[17px] font-medium leading-[1.3] text-black sm:text-[18px]';
 const ROW = 'flex flex-col gap-[4px] sm:flex-row sm:gap-[14px]';
 const ROW_LABEL = 'shrink-0 text-[16px] font-bold leading-[1.8] text-black sm:w-[120px] sm:pb-[12px] sm:pl-[10px] sm:text-[18px]';
-const ROW_VALUE = 'min-w-0 flex-1 whitespace-pre-wrap border-b border-[#d9d9d9] pb-[12px] text-[16px] font-medium leading-[1.8] text-black sm:text-[18px]';
+// 값 글자는 #444 · normal(디자인 체크리스트 6번 — 라벨보다 한 단계 옅게).
+const ROW_VALUE = 'min-w-0 flex-1 whitespace-pre-wrap border-b border-[#d9d9d9] pb-[12px] text-[16px] font-normal leading-[1.8] text-[#444] sm:text-[18px]';
 const edit = (key: StepKey): void => {
   goToStep(key);
   window.scrollTo({ top: 0 });

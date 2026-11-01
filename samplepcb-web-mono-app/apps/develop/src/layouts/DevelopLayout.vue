@@ -16,6 +16,12 @@ const mobileOpen = ref(false);
 const bare = computed(() => route.meta.bare === true);
 // 랜딩은 하단 CTA 띠가 푸터에 바로 붙는다(피그마 4636). 다른 화면은 본문과 푸터 사이를 띄운다.
 const isHome = computed(() => route.name === 'home');
+// 바탕 — meta.bg(라우트 표). 없으면 옛 셸의 종이색.
+const BG: Record<string, string> = { white: 'bg-white', soft: 'bg-[#fdfdfd]' };
+const bgClass = computed(() => {
+  const bg = route.meta.bg;
+  return (typeof bg === 'string' ? BG[bg] : undefined) ?? 'bg-paper';
+});
 
 function goLogin(): void {
   window.location.assign(loginUrl(developPath(route.fullPath)));
@@ -30,7 +36,7 @@ function goLogout(): void {
 
 <template>
   <RouterView v-if="bare" />
-  <div v-else class="flex min-h-screen flex-col" :class="route.meta.bg === 'white' ? 'bg-white' : 'bg-paper'">
+  <div v-else class="flex min-h-screen flex-col" :class="bgClass">
     <header class="print-hidden sticky top-0 z-40 bg-white px-5 tracking-normal shadow-[0_8px_10px_rgba(168,185,205,0.1)]">
       <div class="mx-auto flex h-[72px] w-full max-w-[1280px] items-center justify-between gap-6">
         <div class="flex min-w-0 items-center gap-[50px]">

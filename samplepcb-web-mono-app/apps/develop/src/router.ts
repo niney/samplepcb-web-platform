@@ -5,12 +5,13 @@ import DevelopLayout from './layouts/DevelopLayout.vue';
 // 로그인이 필요한 화면은 라우트 가드가 아니라 각 화면이 그누보드 로그인으로 보낸다(/bbs/login.php?url=… 왕복).
 // 2026-09-10 G/C 공존(/develop/c) 종료 — C 구현이 루트 경로의 정본이다. 옛 /c/* 주소는 같은 화면으로 돌려보낸다.
 const children: RouteRecordRaw[] = [
-  // meta.bg 'white' = 피그마 시안대로 흰 바탕(랜딩·내 의뢰). 나머지는 아직 옛 셸의 종이색 바탕.
+  // meta.bg 'white' = 피그마 시안대로 흰 바탕(랜딩·내 의뢰), 'soft' = #fdfdfd(의뢰 상세 — 디자인 체크리스트 9번).
+  // 나머지는 아직 옛 셸의 종이색 바탕.
   { path: '', name: 'home', component: () => import('./pages/Home.vue'), meta: { bg: 'white' } },
   // 위저드는 자체 앱 셸(WizardShell — 피그마 01-x)이라 사이트 헤더·푸터를 그리지 않는다.
   { path: 'request', name: 'request', component: () => import('./pages/RequestWizard.vue'), meta: { bare: true } },
   { path: 'me', name: 'me', component: () => import('./pages/Me.vue'), meta: { bg: 'white' } },
-  { path: 'requests/:id(\\d+)', name: 'request-detail', component: () => import('./pages/RequestDetail.vue'), meta: { bg: 'white' } },
+  { path: 'requests/:id(\\d+)', name: 'request-detail', component: () => import('./pages/RequestDetail.vue'), meta: { bg: 'soft' } },
   { path: 'requests/:id(\\d+)/edit', name: 'request-edit', component: () => import('./pages/RequestEdit.vue') },
   {
     path: 'requests/:id(\\d+)/print',

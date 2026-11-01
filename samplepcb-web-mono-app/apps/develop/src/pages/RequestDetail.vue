@@ -499,7 +499,8 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
                 @click="selectTab(t.id)"
               >
                 {{ t.label }}
-                <span v-if="activeTab === t.id" class="absolute bottom-[2px] left-0 h-[3px] w-full bg-[#05f]" aria-hidden="true" />
+                <!-- 선택 표시 바는 회색 기준선 위에 겹친다(디자인 체크리스트 7번 — 2px 떠 있었다) -->
+                <span v-if="activeTab === t.id" class="absolute bottom-0 left-0 h-[3px] w-full bg-[#05f]" aria-hidden="true" />
               </button>
             </li>
           </ul>
