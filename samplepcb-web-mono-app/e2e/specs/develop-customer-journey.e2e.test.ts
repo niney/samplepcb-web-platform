@@ -507,10 +507,14 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await quotes.locator('article').count()).toBe(1);
     expect(await quotes.getByText('수락', { exact: true }).count()).toBe(1);
     expect(await quotes.getByText('수정 요청', { exact: true }).count()).toBe(0);
-    // 인쇄(A4 가로) — 표지 + 섹션마다 새 쪽이라 최소 6쪽. 배경 그래픽을 끈 기본 설정으로도 찍힌다(print-color-adjust).
+    // 인쇄(PPT 4:3, 디자인 체크리스트 8번) — 표지 + 섹션마다 새 쪽이라 최소 6쪽이고, 화면 판 수(data-pages)와 인쇄 쪽 수가 같다
+    // (화면이 민 자리에서 인쇄도 끊는다). 배경 그래픽을 끈 기본 설정으로도 찍힌다(print-color-adjust).
+    await page.waitForFunction(() => Number(document.querySelector('.develop-print')?.getAttribute('data-pages') ?? '0') > 0, undefined, { timeout: 20_000 });
+    const screenPages = Number(await page.locator('.develop-print').getAttribute('data-pages'));
     const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: false });
     const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
     expect(pages).toBeGreaterThanOrEqual(6);
+    expect(pages, '화면 판 수 = 인쇄 쪽 수').toBe(screenPages);
     expect(s.pageErrors).toEqual([]);
   }, LONG);
 });
