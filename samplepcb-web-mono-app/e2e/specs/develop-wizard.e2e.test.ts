@@ -3,6 +3,7 @@
 //   ① 시스템개발 → 전문가 맡김 → 5스텝 완주 → 접수 → API 로 저장값 대조(전 분야 6·기구 포함·범위 답변 2)
 //   ② 개별 메뉴(회로+펌웨어+역설계, 2026-10-30 메뉴 6장) → 3장 권유·통신 한 번·권리 확인 필수·조건부 문항 → 접수
 //   ③ 개별 메뉴(펌웨어+앱 및 서버 → 서버만) → 제작 계획 건너뜀 → 접수 → 분야 = 펌웨어·서버, 시제품 제작 없음
+//   ④ 개별 메뉴(회로) → 기타는 칩 옆 입력칸·직접 입력은 수량 칸(디자인 체크리스트 4번) → 기타 + 메모 저장 · 수정 화면에 되돌림
 // 실 LLM 경로 둘(FOLLOWUP_LLM=1): 시스템개발 AI 후속 질문 · 개별 메뉴 AI 맞춤 질문(§7.2.4). 그 밖의 여정은 두 유스케이스를 꺼 둔다.
 // 만든 의뢰는 afterAll 이 지운다(공유 DB — 스스로 만들고 스스로 지운다). pageErrors 0 이 게이트.
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard
@@ -94,6 +95,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     system: '[e2e] 위저드 v2 시스템개발',
     individual: '[e2e] 위저드 v2 개별 회로+펌웨어+역설계',
     software: '[e2e] 위저드 v2 개별 펌웨어+서버',
+    other: '[e2e] 위저드 v2 기타·직접 입력',
     ai: '[e2e] 위저드 v2 AI 질문',
     areaAi: '[e2e] 위저드 v2 개별 AI 맞춤 질문',
   };
@@ -259,6 +261,98 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(d.answers.find((a) => a.code === 'server.protocol')?.choices).toEqual(['mqtt']);
       expect(d.production?.prototype).toBe('none');
       expect(d.production?.scopes).toEqual([]);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+
+  // 디자인 체크리스트 4번(2026-10-30) — 기타·직접 입력은 칩을 누르면 옆에 입력칸이 열리고, 마치면 칩이 적은 글로 바뀐다.
+  // 세부 정보 칸은 따로 남고, 기타 글은 저장할 때 'other' + 메모 앞 조각, 수정 화면은 그 글을 다시 칩에 보인다.
+  test('개별 메뉴 — 기타는 칩 옆 입력칸·직접 입력은 수량 칸 → 기타 + 메모로 저장·수정 화면에 되돌림', async () => {
+    const s = await newSession(identity);
+    const shotDir = process.env.E2E_SHOT_DIR; // 화면 확인용 — 지정했을 때만 남긴다
+    const shot = async (name: string): Promise<void> => {
+      if (shotDir !== undefined) await s.page.screenshot({ path: `${shotDir}/${name}.png`, fullPage: true }).catch(() => undefined);
+    };
+    // 질문 하나(WizQuestion) — 질문 문장 p 의 부모.
+    const question = (label: string) => s.page.getByText(label, { exact: false }).first().locator('xpath=..');
+    try {
+      await s.page.goto('/develop/request');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      await s.page.getByRole('button', { name: /^회로 설계/ }).click();
+      await next(s);
+      await fillDescribe(s, titles.other);
+      await next(s);
+      await s.page.getByText('개별 개발 전문 질문').waitFor();
+
+      const comm = question('어떤 통신 기능이 필요한가요?');
+      await comm.getByRole('button', { name: 'BLE', exact: true }).click();
+      expect(await comm.getByPlaceholder('내용을 입력해 주세요.').count()).toBe(0);
+      await comm.getByRole('button', { name: '기타', exact: true }).click();
+      const otherInput = comm.getByPlaceholder('내용을 입력해 주세요.');
+      await otherInput.waitFor();
+      expect(await otherInput.evaluate((el) => el === document.activeElement)).toBe(true);
+      await otherInput.fill('RS-422');
+      await shot('develop-other-typing');
+      await otherInput.press('Enter');
+      expect(await otherInput.count()).toBe(0);
+      const done = comm.getByRole('button', { name: 'RS-422', exact: true });
+      expect(await done.getAttribute('aria-pressed')).toBe('true');
+      expect(await comm.getByRole('button', { name: '기타', exact: true }).count()).toBe(0);
+      // 다시 누르면 고친다 — Esc 는 취소, 비우고 마치면 기타가 풀린다.
+      await done.click();
+      await otherInput.fill('바뀐 글');
+      await otherInput.press('Escape');
+      expect(await comm.getByRole('button', { name: 'RS-422', exact: true }).count()).toBe(1);
+      await done.click();
+      await otherInput.fill('');
+      await otherInput.press('Enter');
+      expect(await comm.getByRole('button', { name: '기타', exact: true }).getAttribute('aria-pressed')).toBe('false');
+      await comm.getByRole('button', { name: '기타', exact: true }).click();
+      await otherInput.fill('RS-422');
+      await otherInput.press('Enter');
+      // 세부 정보 칸은 기타와 따로 — 어떤 선택지를 골라도 적는다.
+      await comm.getByPlaceholder(/연결할 장비·통신 규격/).fill('PLC 연결');
+      // 여러 개 고르는 질문 — 칸 밖(다른 칩)을 눌러도 마친다.
+      const power = question('제품의 입력 전원은 어떻게 준비할까요?');
+      await power.getByRole('button', { name: '기타', exact: true }).click();
+      await power.getByPlaceholder('내용을 입력해 주세요.').fill('PoE');
+      await power.getByRole('button', { name: '어댑터', exact: true }).click();
+      expect(await power.getByRole('button', { name: 'PoE', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      expect(await power.getByRole('button', { name: '어댑터', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      await shot('develop-other-done');
+      await next(s);
+
+      // ④ 직접 입력 — 칩을 누르면 수량 칸, 마치면 칩이 'N개'.
+      await s.page.getByRole('heading', { name: '시제품과 생산 계획' }).waitFor();
+      expect(await s.page.getByLabel('시제품 수량').count()).toBe(0);
+      await s.page.getByRole('button', { name: '직접 입력', exact: true }).click();
+      await s.page.getByLabel('시제품 수량').fill('120');
+      await shot('develop-count-typing');
+      await s.page.getByLabel('시제품 수량').press('Enter');
+      expect(await s.page.getByRole('button', { name: '120개', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      expect(await s.page.getByLabel('시제품 수량').count()).toBe(0);
+      await next(s);
+
+      // ⑤ 요약엔 기타 글이 메모 앞에 붙어 보인다.
+      await s.page.getByText('입력 내용을 확인해 주세요').waitFor();
+      expect(await s.page.getByText('BLE, 기타 (RS-422 / PLC 연결)').count()).toBe(1);
+      await shot('develop-other-review');
+      await fillReviewAndSubmit(s);
+
+      const d = await findByTitle(titles.other);
+      expect(d.answers.find((a) => a.code === 'hw.comm')).toEqual({ code: 'hw.comm', choices: ['ble', 'other'], note: 'RS-422 / PLC 연결' });
+      expect(d.answers.find((a) => a.code === 'circuit.power')).toEqual({ code: 'circuit.power', choices: ['adapter', 'other'], note: 'PoE' });
+      expect(d.production?.prototype).toBe('count');
+      expect(d.production?.prototypeQty).toBe(120);
+
+      // 수정 화면 — 기타 칩이 적은 글을, 세부 정보 칸이 나머지를 다시 보인다.
+      await s.page.goto(`/develop/requests/${String(d.requestId)}/edit?_t=${String(Date.now())}`);
+      const commEdit = question('어떤 통신 기능이 필요한가요?');
+      await commEdit.getByRole('button', { name: 'RS-422', exact: true }).waitFor({ timeout: 15_000 });
+      expect(await commEdit.getByPlaceholder(/연결할 장비·통신 규격/).inputValue()).toBe('PLC 연결');
+      expect(await s.page.getByRole('button', { name: '120개', exact: true }).count()).toBe(1);
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();

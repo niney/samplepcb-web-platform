@@ -7,6 +7,7 @@ import {
   DEVELOP_REVERSE_RIGHTS_CODE,
   DevelopAiQuestions,
   developQuestion,
+  developAreaAnswerToState,
   developAreaCoveredKept,
   developAreaStateToAnswer,
   mergeDevelopAreaFollowup,
@@ -41,6 +42,36 @@ describe('developAreaStateToAnswer', () => {
 
   it("'기타'가 없는 질문이면 라벨만 메모로 남긴다", () => {
     expect(developAreaStateToAnswer({ choices: ['new', `${DEVELOP_AREA_CUSTOM_PREFIX}복각`], note: '' }, false)).toEqual({ choices: ['new'], note: '복각' });
+  });
+});
+
+// 수정 화면이 저장 답을 다시 열 때 — 기타 칩이 고객이 적은 글을 다시 보여 주게 되돌린다(디자인 체크리스트 4번).
+describe('developAreaAnswerToState', () => {
+  const OPTS = { hasOther: true, hasDetailNote: true };
+  it("기타 글과 세부 정보는 ' / ' 에서 가른다 — 저장 → 되돌림 → 저장이 같다", () => {
+    const state = { choices: ['ble', `${DEVELOP_AREA_CUSTOM_PREFIX}RS-422`], note: 'PLC 연결' };
+    const saved = developAreaStateToAnswer(state, true);
+    expect(saved).toEqual({ choices: ['ble', 'other'], note: 'RS-422 / PLC 연결' });
+    const back = developAreaAnswerToState(saved, OPTS);
+    expect(back).toEqual({ choices: ['ble', `${DEVELOP_AREA_CUSTOM_PREFIX}RS-422`], note: 'PLC 연결' });
+    expect(developAreaStateToAnswer(back, true)).toEqual(saved);
+  });
+
+  it('세부 정보 없이 기타만 적었으면 메모 전체가 기타 글이다', () => {
+    expect(developAreaAnswerToState({ choices: ['other'], note: 'RS-422' }, OPTS)).toEqual({ choices: [`${DEVELOP_AREA_CUSTOM_PREFIX}RS-422`], note: '' });
+  });
+
+  it("세부 정보 칸이 없는 질문은 ' / ' 가 들어 있어도 메모 전체가 기타 글이다", () => {
+    expect(developAreaAnswerToState({ choices: ['other'], note: 'MQTT / 자체 TCP' }, { hasOther: true, hasDetailNote: false })).toEqual({
+      choices: [`${DEVELOP_AREA_CUSTOM_PREFIX}MQTT / 자체 TCP`],
+      note: '',
+    });
+  });
+
+  it("기타를 안 골랐거나 메모가 없거나 '기타'가 없는 질문이면 그대로", () => {
+    expect(developAreaAnswerToState({ choices: ['ble'], note: 'PLC 연결' }, OPTS)).toEqual({ choices: ['ble'], note: 'PLC 연결' });
+    expect(developAreaAnswerToState({ choices: ['other'] }, OPTS)).toEqual({ choices: ['other'], note: '' });
+    expect(developAreaAnswerToState({ choices: ['other'], note: '가' }, { hasOther: false, hasDetailNote: true })).toEqual({ choices: ['other'], note: '가' });
   });
 });
 

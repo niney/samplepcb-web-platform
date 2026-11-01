@@ -164,3 +164,18 @@ export function developAreaStateToAnswer(
   const note = [custom.join(', '), state.note.trim()].filter((s) => s !== '').join(' / ');
   return { choices: codes, note };
 }
+
+// 저장 답 → 위저드 상태(수정 화면이 다시 열 때) — developAreaStateToAnswer 의 반대. 위저드는 '기타'를 글과 함께만 고르게 하므로
+// (빈 기타는 풀린다) 'other' 를 고른 답의 메모 앞 조각(' / ' 앞)이 기타에 적은 글이다. 세부 정보 칸이 없는 질문은 메모 전체가 그 글.
+// 기타 글에 ' / ' 가 들어 있으면 거기서 갈린다(저장 표기의 한계 — 드물다).
+export function developAreaAnswerToState(
+  answer: { readonly choices: readonly string[]; readonly note?: string | undefined },
+  opts: { readonly hasOther: boolean; readonly hasDetailNote: boolean },
+): { choices: string[]; note: string } {
+  const note = (answer.note ?? '').trim();
+  if (!opts.hasOther || !answer.choices.includes('other') || note === '') return { choices: [...answer.choices], note };
+  const cut = opts.hasDetailNote ? note.indexOf(' / ') : -1;
+  const custom = cut < 0 ? note : note.slice(0, cut);
+  const rest = cut < 0 ? '' : note.slice(cut + ' / '.length);
+  return { choices: [...answer.choices.filter((c) => c !== 'other'), `${DEVELOP_AREA_CUSTOM_PREFIX}${custom}`], note: rest };
+}

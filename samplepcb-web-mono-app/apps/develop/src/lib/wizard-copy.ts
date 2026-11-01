@@ -67,11 +67,15 @@ export const WIZ = {
   selectBox:
     'relative flex h-[72px] w-full items-center rounded-[14px] border border-[#d9d9d9] bg-white px-[24px] sm:h-[90px] sm:px-[30px]',
   selectText: 'text-[18px] font-bold text-black sm:text-[20px]',
+  // 칩 옆·아래 알약 입력칸(기타 · 직접 입력 · 세부 정보) — 디자인 체크리스트(259:25245): 칩과 같은 56 높이 · 18 Medium · 안내 #999.
+  pillInput:
+    'h-[48px] rounded-full border border-[#d9d9d9] bg-white px-[20px] text-[17px] font-medium text-black caret-[#2945e8] outline-none placeholder:text-[#999] sm:h-[56px] sm:text-[18px]',
 } as const;
 
 // 칩(알약) — 선택 = 파란 2px 테두리·파란 글자. 탈출구(잘 모르겠음)도 시안 01-3(135:21829)처럼 같은 실선 칩이다.
+// 글자는 시안 01-3·01-4 대로 18 Medium(디자인 체크리스트 5번 — 20 Bold 였다).
 export const chipClass = (on: boolean): string =>
   [
-    'flex min-h-[48px] items-center justify-center rounded-full bg-white px-[20px] py-[8px] text-[17px] font-bold leading-[1.3] transition-colors sm:min-h-[56px] sm:text-[20px]',
+    'flex min-h-[48px] items-center justify-center rounded-full bg-white px-[20px] py-[8px] text-[17px] font-medium leading-[1.3] transition-colors sm:min-h-[56px] sm:text-[18px]',
     on ? 'border-2 border-[#2945e8] text-[#2945e8]' : 'border border-[#d9d9d9] text-black hover:border-[#9aa3ad]',
   ].join(' ');

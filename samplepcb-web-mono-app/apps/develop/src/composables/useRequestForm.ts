@@ -21,6 +21,7 @@ import {
   EMPTY_DEVELOP_PRODUCTION,
   EMPTY_MARKET_TOOLS,
   developAreaBadge,
+  developAreaAnswerToState,
   developAreaQuestionsFor,
   developAreaStateToAnswer,
   developFollowupAnswerText,
@@ -219,6 +220,17 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     if (i >= 0) state.choices.splice(i, 1);
     else if (EXCLUSIVE_CHOICES.includes(choice)) state.choices = [choice];
     else state.choices = [...state.choices.filter((c) => !EXCLUSIVE_CHOICES.includes(c)), choice];
+  }
+  // '기타'에 적은 글(WizQuestion otherInline) — 새 선택지 표기('~글')로 든다. 빈 글이면 기타를 푼다.
+  // 선택지 목록에 있는 '~' 코드(AI 맞춤 질문이 낸 새 선택지 칩)는 고객의 기타 글이 아니라 건드리지 않는다.
+  function setOtherText(question: MarketQuestionDef, text: string): void {
+    const state = stateOf(question.code);
+    const listed = (c: string): boolean => question.options.some((o) => o.code === c);
+    const kept = state.choices.filter((c) => c !== 'other' && (!c.startsWith(DEVELOP_AREA_CUSTOM_PREFIX) || listed(c)));
+    const value = text.trim();
+    if (value === '') state.choices = kept;
+    else if (!question.multi) state.choices = [`${DEVELOP_AREA_CUSTOM_PREFIX}${value}`];
+    else state.choices = [...kept.filter((c) => !EXCLUSIVE_CHOICES.includes(c)), `${DEVELOP_AREA_CUSTOM_PREFIX}${value}`];
   }
 
   // ── AI 후속 질문(§7.2.2) — 질문은 서버가 만들고, 이 폼은 **답만** 든다 ──────────────
@@ -740,7 +752,14 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     contact.hours = detail.contact.hours ?? '';
     clearAreaFollowup();
     resetQuestions();
-    for (const a of detail.answers) questionState[a.code] = { choices: [...a.choices], note: a.note ?? '' };
+    // '기타'에 적은 글은 메모 앞에 붙어 저장됐다 — 기타 칩이 그 글을 다시 보이게 새 선택지 표기로 되돌린다.
+    for (const a of detail.answers) {
+      const q = developQuestion(a.code);
+      questionState[a.code] = developAreaAnswerToState(a, {
+        hasOther: q?.options.some((o) => o.code === 'other') ?? false,
+        hasDetailNote: q !== undefined && !isTextQuestion(q) && q.notePlaceholder !== undefined,
+      });
+    }
     // AI 질문 저장분 — 질문은 못 바꾸고 답만 고친다(재생성 없음). 개별 메뉴 맞춤 질문은 새 질문만 여기 있고(묶음 = q.area),
     // 고쳐 물은 질문은 수정 화면에서 기본 질문 문구로 보인다(답은 같은 코드).
     const stored = detail.aiQuestions;
@@ -982,6 +1001,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     questionState,
     stateOf,
     toggleChoice,
+    setOtherText,
     aiJobId,
     aiUnderstood,
     aiQuestions,

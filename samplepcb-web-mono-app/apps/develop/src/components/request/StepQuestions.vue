@@ -21,6 +21,8 @@ import WizGroup from './WizGroup.vue';
 //   끝나면 자료에서 채운 질문엔 'AI 가 채움'과 근거, 고쳐 물은 질문엔 'AI 질문' 표시, 묶음 끝엔 새 질문이 붙는다.
 //   꺼져 있거나 실패·기다리지 않음이면 기본 질문 그대로.
 // 필수는 역설계 권리 확인 하나 — 그 밖엔 선택지가 메모를 요구할 때만(noteRequiredFor) 막는다.
+// 레지스트리 문항의 '기타'는 칩 옆 입력칸으로 받는다(WizQuestion otherInline · setOtherText). 잡이 준 AI 질문은 답 구조가
+// 달라({choice, text}) 그대로 둔다.
 // 수정 화면도 이 컴포넌트를 쓴다 — 거기엔 잡이 없고(followup 미전달) 저장된 AI 질문을 그대로 편집한다. 목차는 끈다.
 const props = defineProps<{ form: DevelopRequestForm; followup?: FollowupJob; toc?: boolean }>();
 const {
@@ -31,6 +33,7 @@ const {
   requiredMissingCodes,
   stateOf,
   toggleChoice,
+  setOtherText,
   noteMissingCodes,
   aiUnderstood,
   aiQuestionDefs,
@@ -211,8 +214,10 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
             :question="q"
             :state="stateOf(q.code)"
             :note-missing="noteMissingCodes.includes(q.code)"
+            other-inline
             @toggle="toggleChoice(q, $event)"
             @note="stateOf(q.code).note = $event"
+            @other="setOtherText(q, $event)"
           />
         </WizGroup>
       </template>
@@ -233,8 +238,10 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
           :question="q"
           :state="stateOf(q.code)"
           :note-missing="noteMissingCodes.includes(q.code)"
+          other-inline
           @toggle="toggleChoice(q, $event)"
           @note="stateOf(q.code).note = $event"
+          @other="setOtherText(q, $event)"
         />
       </WizGroup>
     </template>
@@ -287,8 +294,10 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
             :question="item.question"
             :state="stateOf(item.question.code)"
             :note-missing="noteMissingCodes.includes(item.question.code)"
+            other-inline
             @toggle="toggleChoice(item.question, $event)"
             @note="stateOf(item.question.code).note = $event"
+            @other="setOtherText(item.question, $event)"
           >
             <template v-if="item.source === 'covered'" #badge>
               <span :class="BADGE" class="bg-[#e6f4ee] text-[#0f7a55]">AI 가 채움</span>
@@ -297,7 +306,7 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
               <span :class="BADGE" class="bg-[#eef2ff] text-[#2945e8]">AI 질문</span>
             </template>
             <template v-if="item.source === 'covered' && item.evidence !== ''" #hint>
-              <p class="-mt-[6px] text-[14px] font-medium leading-[1.6] text-[#666] sm:-mt-[14px]">근거 {{ item.evidence }}</p>
+              <p class="-mt-[6px] text-[14px] font-medium leading-[1.6] text-[#666] sm:-mt-[8px]">근거 {{ item.evidence }}</p>
             </template>
           </WizQuestion>
         </template>

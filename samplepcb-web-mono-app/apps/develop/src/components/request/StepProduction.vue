@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import {
   DEVELOP_DELIVERY_FORMS,
   DEVELOP_DELIVERY_FORM_LABELS,
@@ -10,15 +10,17 @@ import {
   DEVELOP_SOURCING_MODES,
   DEVELOP_SOURCING_MODE_LABELS,
 } from '@sp/api-contract';
-import type { DevelopProductionScopeType } from '@sp/api-contract';
+import type { DevelopProductionScopeType, DevelopPrototypeModeType } from '@sp/api-contract';
 import type { DevelopRequestForm } from '../../composables/useRequestForm';
 import { WIZ, chipClass } from '../../lib/wizard-copy';
 import icoSelect from '../../assets/wizard/ico-select.svg';
 
 // 위저드 4스텝 — 제작 계획. 피그마 01-4(70:12282, 900 폭): 시제품 수량 칩(제작 없음·수량 미정·직접 입력 + 수량 칸) ·
 // 제작 범위 칩 · 자재 조달·납품 형태 선택 상자(2열) · 연간 생산수량 입력. 이 값이 견적서 '별도 실비'의 근거가 된다.
-// 수량 칸은 시안처럼 늘 보이고, 거기에 적으면 '직접 입력'이 골라진다. 자재 조달·납품 형태는 제작 범위를 하나라도 골랐을 때만
-// 묻는다(시안 판은 범위를 고른 상태). 칩 라벨은 계약 사전(시안 'SMT수삽'은 계약 'SMT·수삽'으로).
+// '직접 입력'은 디자인 체크리스트(10-30, 기타와 같은 순서)대로: 칩을 누르면 옆에 수량 칸이 열리고, 입력을 마치면(Enter·칸 밖)
+// 칩이 'N개'로 바뀐다. 다시 누르면 고치고, 비우고 마치면 직접 입력을 푼다(Esc 는 취소) — 01-4 시안은 수량 칸이 늘 보였다.
+// 자재 조달·납품 형태는 제작 범위를 하나라도 골랐을 때만 묻는다(시안 판은 범위를 고른 상태).
+// 칩 라벨은 계약 사전(시안 'SMT수삽'은 계약 'SMT·수삽'으로).
 // 수량 입력은 화면에서 문자열로 다루고 폼에는 정수 또는 null 로만 넣는다(빈 칸·0·문자는 null).
 const props = defineProps<{ form: DevelopRequestForm }>();
 const { fields } = props.form;
@@ -38,27 +40,63 @@ const parseQty = (text: string | number, min: number): number | null => {
   const n = Number(trimmed);
   return Number.isInteger(n) && n >= min ? n : null;
 };
-const protoQtyText = ref<string | number>(plan.prototypeQty === null ? '' : String(plan.prototypeQty));
 const annualQtyText = ref<string | number>(plan.annualQty === null ? '' : String(plan.annualQty));
-watch(protoQtyText, (text) => {
-  plan.prototypeQty = parseQty(text, 1);
-  if (String(text).trim() !== '') plan.prototype = 'count';
-});
 watch(annualQtyText, (text) => {
   plan.annualQty = parseQty(text, 0);
 });
-watch(
-  () => plan.prototypeQty,
-  (v) => {
-    if (parseQty(protoQtyText.value, 1) !== v) protoQtyText.value = v === null ? '' : String(v);
-  },
-);
 watch(
   () => plan.annualQty,
   (v) => {
     if (parseQty(annualQtyText.value, 0) !== v) annualQtyText.value = v === null ? '' : String(v);
   },
 );
+
+const qtyEditing = ref(false);
+const qtyDraft = ref<string | number>('');
+let qtyInput: HTMLInputElement | null = null;
+let countChip: HTMLButtonElement | null = null;
+const setQtyInput = (el: unknown): void => {
+  qtyInput = el instanceof HTMLInputElement ? el : null;
+};
+const setCountChip = (el: unknown): void => {
+  countChip = el instanceof HTMLButtonElement ? el : null;
+};
+const countLabel = computed(() =>
+  plan.prototype === 'count' && plan.prototypeQty !== null && !qtyEditing.value
+    ? `${plan.prototypeQty.toLocaleString('ko-KR')}개`
+    : DEVELOP_PROTOTYPE_MODE_LABELS.count,
+);
+async function startQty(): Promise<void> {
+  qtyDraft.value = plan.prototypeQty === null ? '' : String(plan.prototypeQty);
+  qtyEditing.value = true;
+  await nextTick();
+  qtyInput?.focus();
+}
+function commitQty(): void {
+  if (!qtyEditing.value) return;
+  qtyEditing.value = false;
+  const n = parseQty(qtyDraft.value, 1);
+  if (n !== null) {
+    plan.prototype = 'count';
+    plan.prototypeQty = n;
+  } else if (plan.prototype === 'count') {
+    plan.prototype = null;
+    plan.prototypeQty = null;
+  }
+}
+function cancelQty(): void {
+  qtyEditing.value = false;
+  countChip?.focus();
+}
+// 입력 중에 직접 입력 칩을 누르면 마침 — 칸의 blur 가 먼저 마치고 클릭이 다시 여는 일이 없게 mousedown 의 포커스 이동을 막는다.
+function onCountDown(e: MouseEvent): void {
+  if (qtyEditing.value) e.preventDefault();
+}
+function pickPrototype(mode: DevelopPrototypeModeType): void {
+  if (mode !== 'count') plan.prototype = mode;
+  else if (qtyEditing.value) commitQty();
+  else void startQty();
+}
 </script>
 
 <template>
@@ -67,26 +105,43 @@ watch(
     <section :class="WIZ.section">
       <h2 :class="WIZ.sectionTitle">개발 과정에서 시제품을 몇 개 제작해야 하나요? <span class="text-red-500">*</span></h2>
       <div class="flex flex-wrap items-center gap-[12px] sm:gap-[20px]">
-        <button
-          v-for="m in DEVELOP_PROTOTYPE_MODES"
-          :key="m"
-          type="button"
-          :class="chipClass(plan.prototype === m)"
-          :aria-pressed="plan.prototype === m"
-          @click="plan.prototype = m"
-        >
-          {{ DEVELOP_PROTOTYPE_MODE_LABELS[m] }}
-        </button>
-        <label class="flex min-h-[48px] w-[200px] items-center rounded-full border bg-white px-[20px] sm:min-h-[56px] sm:w-[230px]" :class="plan.prototype === 'count' ? 'border-2 border-[#2945e8]' : 'border-[#d9d9d9]'">
+        <template v-for="m in DEVELOP_PROTOTYPE_MODES" :key="m">
+          <button
+            v-if="m === 'count'"
+            :ref="setCountChip"
+            type="button"
+            :class="chipClass(qtyEditing || plan.prototype === m)"
+            :aria-pressed="plan.prototype === m"
+            :aria-expanded="qtyEditing"
+            @mousedown="onCountDown"
+            @click="pickPrototype(m)"
+          >
+            {{ countLabel }}
+          </button>
+          <button
+            v-else
+            type="button"
+            :class="chipClass(plan.prototype === m)"
+            :aria-pressed="plan.prototype === m"
+            @click="pickPrototype(m)"
+          >
+            {{ DEVELOP_PROTOTYPE_MODE_LABELS[m] }}
+          </button>
+        </template>
+        <label v-if="qtyEditing" class="flex w-[200px] items-center gap-[6px] sm:w-[230px]" :class="WIZ.pillInput">
           <input
-            v-model="protoQtyText"
+            :ref="setQtyInput"
+            v-model="qtyDraft"
             type="number"
             min="1"
             placeholder="예) 100"
             aria-label="시제품 수량"
-            class="w-full min-w-0 bg-transparent text-[17px] font-bold text-black outline-none placeholder:text-[#999] sm:text-[20px]"
+            class="w-full min-w-0 bg-transparent outline-none placeholder:text-[#999]"
+            @keydown.enter.prevent="commitQty"
+            @keydown.esc.prevent="cancelQty"
+            @blur="commitQty"
           >
-          <span class="shrink-0 text-[17px] font-bold text-[#999] sm:text-[20px]">개</span>
+          <span class="shrink-0 text-[#999]">개</span>
         </label>
       </div>
     </section>
