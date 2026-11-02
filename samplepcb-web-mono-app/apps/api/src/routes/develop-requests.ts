@@ -412,7 +412,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     const attachments = split.accepted;
     // 조건이 안 맞아 숨은 문항(역설계 펌웨어 추출 자료 등)의 답은 버린다(화면 상태 잔재).
     const visibleAnswers = pruneDevelopHiddenAnswers(payload.answers);
-    // 필수 문항(레지스트리 required — 역설계 권리 확인) 미응답 — 위저드 "다음" 게이트와 같은 함수.
+    // 필수 문항(레지스트리 required — 역설계 권리 확인 · PCB 회로도·BOM) 미응답 — 위저드 "다음" 게이트와 같은 함수.
     const requiredMissing = developRequiredMissing(visibleAnswers, serviceAreas);
     if (requiredMissing.length > 0) {
       return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing: requiredMissing });
@@ -420,7 +420,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     // 시스템개발 "전문가에게 맡김"은 기술 문항을 건너뛴다 — 역할·협업 문항(askOnDelegate)만 남기고 나머지는 버린다(화면 상태 잔재).
     const expertDelegate = payload.requestMode === 'system' && payload.expertDelegate;
     const answers = expertDelegate ? keepDevelopDelegateAnswers(visibleAnswers) : visibleAnswers;
-    // 역설계만이면 단계를, 펌웨어·앱·서버만이면 제작 계획을 묻지 않는다 — 화면 잔재가 와도 저장하지 않는다.
+    // 역설계·PCB 만이면 단계를, 펌웨어·앱·서버만이면 제작 계획을 묻지 않는다 — 화면 잔재가 와도 저장하지 않는다.
     const needsStages = developNeedsStages(serviceAreas);
     // AI 후속 질문(§7.2.2) — 잡에서 질문을 되읽어(클라이언트가 문항을 지어내지 못한다) 답만 합친다. 본인 잡·완료 잡만.
     let aiQuestions: DevelopAiQuestionsType | null = null;
@@ -642,7 +642,7 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const tools = b.tools ?? toTools(r.tools);
       const wishDate = b.wishDate !== undefined ? b.wishDate : r.wishDate;
       const wishNote = b.wishNote !== undefined ? (b.wishNote === '' ? null : b.wishNote) : r.wishNote;
-      // 역설계만이면 단계를 비운다(묻지 않는다). 그 밖에는 보낸 값, 없으면 저장분 — 비어 있으면 STAGE_REQUIRED.
+      // 역설계·PCB 만이면 단계를 비운다(묻지 않는다). 그 밖에는 보낸 값, 없으면 저장분 — 비어 있으면 STAGE_REQUIRED.
       const needsStages = developNeedsStages(areas);
       const currentStage = needsStages ? (b.currentStage !== undefined ? b.currentStage : asDevelopCurrentStage(r.currentStage)) : null;
       const targetStage = needsStages ? (b.targetStage !== undefined ? b.targetStage : asDevelopTargetStage(r.targetStage)) : null;

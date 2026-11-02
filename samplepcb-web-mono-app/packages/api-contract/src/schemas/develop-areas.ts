@@ -300,35 +300,64 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
     ...base('pcb'),
     label: 'PCB 설계',
     hint: '회로자료 검토, 회로도 복원·작성, PCB Layout',
+    // 설계 자료 칸(DEVELOP_PCB_MATERIALS)이 질문 옆에서 받는 첨부 — 마켓 정의의 슬롯(설계 파일·외형 도면·회로도)에 BOM 을 더한다.
+    attachmentSlots: [...base('pcb').attachmentSlots, { code: 'bom', label: 'BOM', hint: '부품 목록(엑셀·CSV)' }],
+    // 앞 다섯(작업 범위 ~ 외형)은 설계 자료 질문 — PCB 설계만 고르면 2스텝에서 첨부와 함께 묻는다(2026-11-02, 의뢰서 시안
+    // 'PCB 설계 의뢰서' 02. 설계 자료). 회로도·BOM 은 필수(모르면 '잘 모르겠어요').
     questions: [
       {
-        code: 'pcb.source', label: '회로도와 부품 정보가 준비되어 있나요?', short: '회로 자료', multi: false,
-        options: withUnknown([
-          { code: 'editable', label: '편집 가능한 회로도·BOM 있음' },
-          { code: 'pdf_image', label: 'PDF·이미지 회로도만 있음' },
-          { code: 'partial', label: '일부 자료만 있음' },
-          { code: 'none', label: '자료 없음' },
-        ], '상담 필요'),
-        why: '회로도가 PDF나 이미지뿐이면 설계 프로그램에 다시 그리는 작업이 먼저 필요합니다.',
-        promptHint: '편집 가능한 회로도가 없으면 회로도 작성(재입력)이 PCB 설계 앞에 선다',
-      },
-      {
-        code: 'pcb.type', label: 'PCB 설계 작업 범위는 무엇인가요?', short: '작업 종류', multi: false,
+        code: 'pcb.type', label: 'PCB 설계 작업 범위는 무엇인가요?', short: '작업 범위', multi: false,
         options: withUnknown([
           { code: 'new', label: '신규 설계' },
           { code: 'modify', label: '기존 PCB 수정' },
+          { code: 'placement', label: '부품 배치만' },
+          { code: 'routing', label: '배선만' },
         ], '전문가와 상담'),
-        notePlaceholder: '변경 범위가 있으면 적어 주세요',
-        promptHint: '수정이면 기존 설계 자료의 형태와 변경 범위가 작업량을 정한다',
+        notePlaceholder: '수정·작업할 범위를 적어 주세요',
+        noteVisibleFor: ['modify', 'placement', 'routing'],
+        promptHint: '수정·배치만·배선만이면 기존 설계 자료의 형태와 맡길 범위가 작업량을 정한다',
       },
       {
-        code: 'pcb.size', label: '원하는 PCB 크기와 형태가 있나요?', short: '크기·형태', multi: false,
+        code: 'pcb.original', label: '기존 PCB 설계 원본이 있나요?', short: '기존 원본', multi: false,
+        // 배선만도 배치가 끝난 원본이 있어야 한다.
+        showWhen: { code: 'pcb.type', anyOf: ['modify', 'routing'] },
         options: withUnknown([
-          { code: 'fixed', label: '크기 지정' },
-          { code: 'drawing', label: '기구 도면 제공' },
+          { code: 'source', label: '설계 원본 파일 있음' },
+          { code: 'gerber', label: 'Gerber만 있음' },
+          { code: 'board', label: '실물만 있음' },
+        ]),
+        why: 'Gerber만 있으면 설계 프로그램으로 가져오는 작업이, 실물만 있으면 역설계가 먼저 필요합니다(1단계 역설계 메뉴).',
+        promptHint: '수정·배선의 출발점 — 설계 원본이 없으면 Gerber 가져오기, 실물만 있으면 역설계(실물 분석)가 앞선다',
+      },
+      {
+        code: 'pcb.schematic', label: '회로도가 있나요?', short: '회로도', multi: false, required: true,
+        options: withUnknown([
+          { code: 'source', label: '회로도 원본 파일' },
+          { code: 'pdf_image', label: 'PDF·이미지만' },
+          { code: 'none', label: '없음' },
+        ]),
+        why: 'PDF·이미지뿐이면 설계 프로그램에 다시 그리는 작업이 먼저 필요하고, 없으면 회로 설계부터 해야 합니다(1단계에서 회로 설계도 함께 골라 주세요).',
+        promptHint: '편집 가능한 회로도가 없으면 회로도 작성(재입력)이 PCB 설계 앞에 서고, 회로도가 없으면 회로 설계가 먼저다',
+      },
+      {
+        code: 'pcb.bom', label: 'BOM(부품 목록)이 있나요?', short: 'BOM', multi: false, required: true,
+        options: withUnknown([
+          { code: 'full', label: '있음' },
+          { code: 'partial', label: '일부만 있음' },
+          { code: 'none', label: '없음' },
+        ]),
+        why: 'BOM이 없거나 일부면 부품 선정과 풋프린트 작업이 더해집니다.',
+        promptHint: 'BOM 이 없거나 일부면 부품 선정·풋프린트 작성이 작업에 더해진다',
+      },
+      {
+        code: 'pcb.size', label: 'PCB 외형(크기·형태)이 정해져 있나요?', short: '외형', multi: false,
+        options: withUnknown([
+          { code: 'drawing', label: '외형도 파일 있음' },
+          { code: 'fixed', label: '크기만 정해짐' },
           { code: 'free', label: '제한 없음' },
-        ], '상담 필요'),
-        notePlaceholder: '가로×세로(mm), 고정홀·커넥터 위치, 높이 제한',
+        ]),
+        notePlaceholder: '가로×세로(mm), 고정홀·커넥터·스위치 위치, 높이 제한',
+        noteVisibleFor: ['drawing', 'fixed'],
         why: '크기와 고정 위치가 정해져 있으면 그 안에서 부품을 배치합니다.',
         promptHint: '외형·고정홀·커넥터·높이 제한은 배치 제약으로 명세에 적는다',
       },
@@ -804,8 +833,33 @@ export function applyDevelopAppServerScope(areas: readonly string[], answers: re
 // 4스텝 '제작 계획'을 묻는 의뢰 — 만들 하드웨어가 있는 분야가 하나라도 있을 때(펌웨어·앱·서버만이면 건너뛴다, 검토 회신 7).
 const PRODUCTION_AREA_CODES: readonly string[] = ['circuit', 'pcb', 'reverse', 'mech'];
 export const developNeedsProduction = (areas: readonly string[]): boolean => areas.some((c) => PRODUCTION_AREA_CODES.includes(c));
-// 2스텝 '현재 단계 → 목표 단계'를 묻는 의뢰 — 역설계만 고른 의뢰는 이미 실물이 있어 맞는 선택지가 없다(검토 회신 7).
-export const developNeedsStages = (areas: readonly string[]): boolean => !(areas.length > 0 && areas.every((c) => c === 'reverse'));
+// 2스텝 '현재 단계 → 목표 단계'를 묻는 의뢰 — 역설계만 고른 의뢰는 이미 실물이 있어 맞는 선택지가 없고(검토 회신 7),
+// PCB 설계는 정해진 설계 작업이라 제품 개발 단계가 맞지 않는다(2026-11-02). 둘만 고른 의뢰도 묻지 않는다.
+const STAGELESS_AREA_CODES: readonly string[] = ['reverse', 'pcb'];
+export const developNeedsStages = (areas: readonly string[]): boolean =>
+  !(areas.length > 0 && areas.every((c) => STAGELESS_AREA_CODES.includes(c)));
+
+// PCB 설계만 고른 개별 의뢰는 2스텝 참고 자료 칸이 '설계 자료'가 된다(2026-11-02, 사용자 결정 — 설계 자료를 항목마다 제대로
+// 받으려고). 질문은 3스텝 PCB 묶음과 같은 코드이고 자리만 옮긴다 — 다른 분야와 같이 고르면 3스텝에서 첨부 칸 없이 묻는다.
+// slot = 그 질문 옆 첨부 칸(분야별 첨부 attachment:pcb:<slot>), fileFor = 첨부 칸을 여는 선택지(파일을 이미 고른 칸은 계속 보인다),
+// fileHint = 칸 안내. 순서 = 화면 순서(기존 원본은 작업 범위 바로 아래에 열린다).
+export interface DevelopMaterialDef {
+  readonly code: string;
+  readonly slot: string | null;
+  readonly fileFor: readonly string[];
+  readonly fileHint: string;
+}
+export const DEVELOP_PCB_MATERIAL_AREA = 'pcb';
+export const DEVELOP_PCB_MATERIALS: readonly DevelopMaterialDef[] = [
+  { code: 'pcb.type', slot: null, fileFor: [], fileHint: '' },
+  { code: 'pcb.original', slot: 'gerber', fileFor: ['source', 'gerber'], fileHint: '설계 원본 파일 또는 Gerber(ZIP)' },
+  { code: 'pcb.schematic', slot: 'schematic', fileFor: ['source', 'pdf_image'], fileHint: '설계 프로그램 원본 파일 또는 PDF·이미지' },
+  { code: 'pcb.bom', slot: 'bom', fileFor: ['full', 'partial'], fileHint: '엑셀·CSV 등' },
+  { code: 'pcb.size', slot: 'outline', fileFor: ['drawing', 'fixed'], fileHint: 'DXF·DWG·STEP·PDF, 손그림 사진도 좋아요' },
+];
+export const DEVELOP_PCB_MATERIAL_CODES: readonly string[] = DEVELOP_PCB_MATERIALS.map((m) => m.code);
+export const developPcbMaterialsMode = (mode: string | null, areas: readonly string[]): boolean =>
+  mode === 'individual' && areas.length === 1 && areas[0] === DEVELOP_PCB_MATERIAL_AREA;
 
 // 개별 메뉴 분야 정의(레지스트리 순서).
 export const DEVELOP_INDIVIDUAL_AREAS: readonly MarketAreaDef[] = DEVELOP_INDIVIDUAL_AREA_CODES.map((c) => {

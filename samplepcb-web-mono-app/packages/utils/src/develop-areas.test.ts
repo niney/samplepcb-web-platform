@@ -4,7 +4,11 @@ import {
   DEVELOP_AREA_CODES,
   DEVELOP_DELEGATE_KEPT_CODES,
   DEVELOP_INDIVIDUAL_AREA_CODES,
+  DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_MENU_CARDS,
+  DEVELOP_PCB_MATERIALS,
+  DEVELOP_PCB_MATERIAL_AREA,
+  DEVELOP_PCB_MATERIAL_CODES,
   DEVELOP_QUESTIONS,
   DEVELOP_SYSTEM_AREA_CODES,
   DEVELOP_SYSTEM_QUESTIONS,
@@ -14,12 +18,17 @@ import {
   developAnswerIssues,
   developAnswerText,
   developAreaBadge,
+  developBudgetOptions,
   developNeedsProduction,
   developNeedsStages,
+  developPcbMaterialsMode,
   developProductionSummary,
+  developQuestion,
   developQuestionsFor,
   developRequiredMissing,
   developReverseRightsCheckNeeded,
+  developSlotLabel,
+  developVisibleQuestionsFor,
   developWishCode,
   isDevelopSystemAreas,
   isTextQuestion,
@@ -62,10 +71,45 @@ describe('개발의뢰 레지스트리 정합성', () => {
     expect(DEVELOP_SYSTEM_QUESTIONS.filter((q) => q.askOnDelegate === true).length).toBe(2);
     // 기구는 개별 메뉴가 없으니 분야별 질문도 없다(시스템개발 외관·기구 2문항이 대신한다).
     expect(DEVELOP_AREAS.find((a) => a.code === 'mech')?.questions).toEqual([]);
-    // 탈출구 없는 choice 문항은 역설계 권리 확인(필수) 하나뿐이다.
+    // 탈출구 없는 choice 문항은 역설계 권리 확인(필수) 하나뿐이다. 필수는 그것과 PCB 회로도·BOM(탈출구 있음, 2026-11-02).
     const noEscape = DEVELOP_QUESTIONS.filter((q) => !isTextQuestion(q) && !q.options.some((o) => o.code === 'unknown')).map((q) => q.code);
     expect(noEscape).toEqual(['reverse.rights']);
-    expect(DEVELOP_QUESTIONS.filter((q) => q.required === true).map((q) => q.code)).toEqual(['reverse.rights']);
+    expect(DEVELOP_QUESTIONS.filter((q) => q.required === true).map((q) => q.code)).toEqual(['pcb.schematic', 'pcb.bom', 'reverse.rights']);
+  });
+
+  it('PCB 설계 설계 자료(2026-11-02) — 2스텝 질문 다섯·질문 옆 첨부 칸·기존 원본 조건·필수 회로도·BOM', () => {
+    expect(DEVELOP_PCB_MATERIAL_CODES).toEqual(['pcb.type', 'pcb.original', 'pcb.schematic', 'pcb.bom', 'pcb.size']);
+    for (const m of DEVELOP_PCB_MATERIALS) {
+      const q = developQuestion(m.code);
+      expect(q?.code.startsWith(`${DEVELOP_PCB_MATERIAL_AREA}.`)).toBe(true);
+      // 첨부 칸을 여는 선택지는 그 질문의 선택지다.
+      const options = q?.options.map((o) => o.code) ?? [];
+      expect(m.fileFor.every((c) => options.includes(c))).toBe(true);
+      // 첨부 칸은 서버가 받는 분야별 첨부 슬롯이다.
+      if (m.slot !== null) expect(parseDevelopAttachmentField(`attachment:pcb:${m.slot}`)).toEqual({ area: 'pcb', slot: m.slot });
+    }
+    // BOM 슬롯은 개발의뢰에만 더했다 — 마켓 레지스트리는 그대로.
+    expect(developSlotLabel('pcb', 'bom')).toBe('BOM');
+    expect(parseMarketAttachmentField('attachment:pcb:bom')).toBeUndefined();
+    // 필수 = 회로도·BOM('잘 모르겠어요'도 답이다). 시스템개발은 PCB 질문을 묻지 않으니 필수도 없다.
+    expect(developRequiredMissing([], ['pcb'])).toEqual(['pcb.schematic', 'pcb.bom']);
+    expect(developRequiredMissing([{ code: 'pcb.schematic', choices: ['unknown'] }, { code: 'pcb.bom', choices: ['none'] }], ['pcb'])).toEqual([]);
+    expect(developRequiredMissing([], DEVELOP_SYSTEM_AREA_CODES)).toEqual([]);
+    // 기존 원본은 작업 범위가 수정·배선만일 때만.
+    const originalShown = (choice: string): boolean =>
+      developVisibleQuestionsFor(['pcb'], [{ code: 'pcb.type', choices: [choice] }]).some((q) => q.code === 'pcb.original');
+    expect(['new', 'modify', 'placement', 'routing', 'unknown'].map(originalShown)).toEqual([false, true, false, true, false]);
+    // 모드 — PCB 하나만 고른 개별 의뢰만.
+    expect(developPcbMaterialsMode('individual', ['pcb'])).toBe(true);
+    expect(developPcbMaterialsMode('individual', ['pcb', 'circuit'])).toBe(false);
+    expect(developPcbMaterialsMode('system', ['pcb'])).toBe(false);
+    expect(developPcbMaterialsMode(null, ['pcb'])).toBe(false);
+  });
+
+  it('예산 선택지 — PCB 설계만이면 낮은 구간, 라벨은 한 사전', () => {
+    expect(developBudgetOptions(false)).toEqual(['under1000', 'r1000_3000', 'r3000_5000', 'r5000_10000', 'over10000', 'after_quote']);
+    expect(developBudgetOptions(true)).toEqual(['under100', 'r100_300', 'r300_500', 'r500_1000', 'over1000', 'after_quote']);
+    for (const code of [...developBudgetOptions(false), ...developBudgetOptions(true)]) expect(DEVELOP_BUDGET_RANGE_LABELS[code]).not.toBe('');
   });
 
   it('시스템개발이면 분야별 질문 대신 시스템 문항(분석 후 확인 5 + 외관·기구 2), 개별이면 고른 분야 문항만', () => {
@@ -80,7 +124,7 @@ describe('개발의뢰 레지스트리 정합성', () => {
       { code: 'system.io' }, { code: 'system.product_design' }, { code: 'system.mech_design' },
     ]).map((a) => a.code)).toEqual(['system.product_design', 'system.mech_design']);
     expect(developQuestionsFor(['pcb']).map((q) => q.code)).toEqual([
-      'pcb.source', 'pcb.type', 'pcb.size', 'pcb.board', 'pcb.signal', 'pcb.tool', 'pcb.deliver',
+      'pcb.type', 'pcb.original', 'pcb.schematic', 'pcb.bom', 'pcb.size', 'pcb.board', 'pcb.signal', 'pcb.tool', 'pcb.deliver',
     ]);
     expect(developQuestionsFor([])).toEqual([]);
   });
@@ -118,13 +162,15 @@ describe('개발의뢰 레지스트리 정합성', () => {
     expect(resolveDevelopServiceAreas('individual', ['pcb'], scope('app'))).toEqual(['pcb']);
   });
 
-  it('건너뛰는 스텝 — 펌웨어·앱·서버만이면 제작 계획 없음, 역설계만이면 개발 단계 없음', () => {
+  it('건너뛰는 스텝 — 펌웨어·앱·서버만이면 제작 계획 없음, 역설계·PCB 만이면 개발 단계 없음', () => {
     expect(developNeedsProduction(['firmware', 'app', 'server'])).toBe(false);
     expect(developNeedsProduction(['firmware', 'pcb'])).toBe(true);
     expect(developNeedsProduction(['reverse'])).toBe(true);
     expect(developNeedsProduction(DEVELOP_SYSTEM_AREA_CODES)).toBe(true);
     expect(developNeedsStages(['reverse'])).toBe(false);
-    expect(developNeedsStages(['reverse', 'pcb'])).toBe(true);
+    expect(developNeedsStages(['pcb'])).toBe(false);
+    expect(developNeedsStages(['reverse', 'pcb'])).toBe(false); // 둘 다 단계를 안 묻는 메뉴(2026-11-02)
+    expect(developNeedsStages(['reverse', 'circuit'])).toBe(true);
   });
 });
 
@@ -146,7 +192,7 @@ describe('답변 검증·표시', () => {
   it('역설계 — 권리 확인은 필수, 조건부 문항은 그 선택지를 골랐을 때만(숨은 답은 버린다)', () => {
     expect(developRequiredMissing([], ['reverse'])).toEqual(['reverse.rights']);
     expect(developRequiredMissing([{ code: 'reverse.rights', choices: ['own'] }], ['reverse'])).toEqual([]);
-    expect(developRequiredMissing([], ['pcb'])).toEqual([]);
+    expect(developRequiredMissing([], ['firmware'])).toEqual([]);
     const answers = [
       { code: 'reverse.rights', choices: ['own'] },
       { code: 'reverse.work', choices: ['schematic'] },
@@ -209,11 +255,15 @@ describe('등록 payload·생산 계획·희망 시기', () => {
     expect(sys.success).toBe(true);
   });
 
-  it('개발 단계 — 역설계만이면 비워도 되고, 그 밖에는 STAGE_REQUIRED', () => {
+  it('개발 단계 — 역설계·PCB 만이면 비워도 되고(둘만 골라도), 그 밖에는 STAGE_REQUIRED', () => {
     const noStage = { ...base, currentStage: null, targetStage: null };
-    expect(messages(DevelopRequestCreatePayload.safeParse(noStage))).toContain('STAGE_REQUIRED');
+    expect(DevelopRequestCreatePayload.safeParse(noStage).success).toBe(true); // base = PCB 만
     expect(DevelopRequestCreatePayload.safeParse({ ...noStage, serviceAreas: ['reverse'] }).success).toBe(true);
-    expect(messages(DevelopRequestCreatePayload.safeParse({ ...noStage, serviceAreas: ['reverse', 'pcb'] }))).toContain('STAGE_REQUIRED');
+    expect(DevelopRequestCreatePayload.safeParse({ ...noStage, serviceAreas: ['reverse', 'pcb'] }).success).toBe(true);
+    expect(messages(DevelopRequestCreatePayload.safeParse({ ...noStage, serviceAreas: ['pcb', 'circuit'] }))).toContain('STAGE_REQUIRED');
+    expect(messages(DevelopRequestCreatePayload.safeParse({ ...noStage, serviceAreas: ['firmware'] }))).toContain('STAGE_REQUIRED');
+    expect(developNeedsStages(DEVELOP_SYSTEM_AREA_CODES)).toBe(true);
+    expect(developNeedsStages([])).toBe(true);
   });
 
   it('생산 계획 — 직접입력이면 수량 필수, 정규화는 범위 없으면 조달·납품을 비운다', () => {

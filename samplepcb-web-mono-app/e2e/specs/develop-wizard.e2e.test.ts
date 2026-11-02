@@ -4,6 +4,7 @@
 //   ② 개별 메뉴(회로+펌웨어+역설계, 2026-10-30 메뉴 6장) → 3장 권유·통신 한 번·권리 확인 필수·조건부 문항 → 접수
 //   ③ 개별 메뉴(펌웨어+앱 및 서버 → 서버만) → 제작 계획 건너뜀 → 접수 → 분야 = 펌웨어·서버, 시제품 제작 없음
 //   ④ 개별 메뉴(회로) → 기타는 칩 옆 입력칸·직접 입력은 수량 칸(디자인 체크리스트 4번) → 기타 + 메모 저장 · 수정 화면에 되돌림
+//   ⑤ 개별 메뉴(PCB 설계만, 2026-11-02 §7.2.6) → 2스텝 설계 자료(항목마다 첨부·회로도·BOM 필수)·단계 없음 → 분야별 첨부로 저장
 // 실 LLM 경로 둘(FOLLOWUP_LLM=1): 시스템개발 AI 후속 질문 · 개별 메뉴 AI 맞춤 질문(§7.2.4). 그 밖의 여정은 두 유스케이스를 꺼 둔다.
 // 만든 의뢰는 afterAll 이 지운다(공유 DB — 스스로 만들고 스스로 지운다). pageErrors 0 이 게이트.
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard
@@ -39,6 +40,8 @@ interface DetailLite {
   currentStage: string | null;
   targetStage: string | null;
   wishNote: string | null;
+  budgetRange: string;
+  files: { name: string; area: string | null; slot: string | null }[];
 }
 
 async function findByTitle(title: string): Promise<DetailLite> {
@@ -96,6 +99,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     individual: '[e2e] 위저드 v2 개별 회로+펌웨어+역설계',
     software: '[e2e] 위저드 v2 개별 펌웨어+서버',
     other: '[e2e] 위저드 v2 기타·직접 입력',
+    pcb: '[e2e] 위저드 v2 PCB 설계만',
     ai: '[e2e] 위저드 v2 AI 질문',
     areaAi: '[e2e] 위저드 v2 개별 AI 맞춤 질문',
   };
@@ -353,6 +357,84 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await commEdit.getByRole('button', { name: 'RS-422', exact: true }).waitFor({ timeout: 15_000 });
       expect(await commEdit.getByPlaceholder(/연결할 장비·통신 규격/).inputValue()).toBe('PLC 연결');
       expect(await s.page.getByRole('button', { name: '120개', exact: true }).count()).toBe(1);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+
+  test('개별 메뉴 — PCB 설계만 → 2스텝 설계 자료(항목마다 첨부·회로도·BOM 필수·기존 원본 조건)·단계 없음 → 분야별 첨부로 저장', async () => {
+    const s = await newSession(identity);
+    const shotDir = process.env.E2E_SHOT_DIR; // 화면 확인용 — 지정했을 때만 남긴다
+    const shot = async (name: string): Promise<void> => {
+      if (shotDir !== undefined) await s.page.screenshot({ path: `${shotDir}/${name}.png`, fullPage: true }).catch(() => undefined);
+    };
+    const file = (name: string, body: string) => ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(body) });
+    try {
+      await s.page.goto('/develop/request');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      await s.page.getByRole('button', { name: /^PCB 설계/ }).click();
+      await next(s);
+      // ② 개발 단계 없음 · 참고 자료 칸 대신 '설계 자료' · 예산은 낮은 구간.
+      await s.page.getByText('설계 자료를 알려주세요.').waitFor();
+      expect(await s.page.getByText('현재 개발단계', { exact: true }).count()).toBe(0);
+      expect(await s.page.getByText('개발명세서와 참고자료를 올려주세요.', { exact: false }).count()).toBe(0);
+      expect(await s.page.getByText('기존 PCB 설계 원본이 있나요?').count()).toBe(0);
+      await s.page.getByPlaceholder('의뢰 제목을 입력하세요.').fill(titles.pcb);
+      await s.page.getByLabel('개발 목적').fill('[e2e] 모터 드라이버 보드 PCB 수정. 4층, 100×80mm, 기존 Gerber 와 회로도 원본이 있습니다.');
+      await s.page.getByLabel('희망 기간', { exact: true }).fill('계약 후 1개월');
+      await s.page.locator('select').first().selectOption({ label: '100만~300만원' });
+      await s.page.getByText('입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다.').click();
+      // 회로도·BOM 은 필수 — 안 고르면 넘어가지 않는다.
+      await next(s);
+      await s.page.getByText("'회로도' 질문에 답해 주세요.").waitFor();
+      // 기존 PCB 수정 → 기존 원본 질문이 작업 범위 바로 아래에 열린다.
+      await s.page.getByRole('button', { name: '기존 PCB 수정', exact: true }).click();
+      await s.page.getByText('기존 PCB 설계 원본이 있나요?').waitFor();
+      await s.page.getByRole('button', { name: 'Gerber만 있음', exact: true }).click();
+      await s.page.getByLabel('PCB 설계 파일·거버 파일 첨부').setInputFiles(file('old-gerber.zip', 'e2e gerber'));
+      await s.page.getByRole('button', { name: '회로도 원본 파일', exact: true }).click();
+      await s.page.getByLabel('회로도 파일 첨부').setInputFiles(file('board.SchDoc', 'e2e schematic'));
+      // 첨부 칸은 '있다'는 선택지에서만 열린다.
+      expect(await s.page.getByLabel('BOM 파일 첨부').count()).toBe(0);
+      await s.page.getByRole('button', { name: '일부만 있음', exact: true }).click();
+      await s.page.getByLabel('BOM 파일 첨부').setInputFiles(file('bom.csv', 'ref,part\nR1,10k'));
+      await s.page.getByRole('button', { name: '크기만 정해짐', exact: true }).click();
+      await s.page.getByPlaceholder('가로×세로(mm), 고정홀·커넥터·스위치 위치, 높이 제한').fill('100×80mm, M3 고정홀 4개');
+      // 그 밖의 참고자료는 일반 첨부.
+      await s.page.locator('label', { hasText: '데이터시트, 요구사항 문서' }).locator('input[type="file"]').setInputFiles(file('datasheet.txt', 'e2e datasheet'));
+      await shot('develop-pcb-materials');
+      await next(s);
+      // ③ PCB 묶음엔 설계 자료 질문이 없다(층수·주의 회로·툴·결과물만).
+      await s.page.getByText('개별 개발 전문 질문').waitFor();
+      await s.page.getByText('PCB 층수와 종류가 정해져 있나요?').waitFor();
+      expect(await s.page.getByText('회로도가 있나요?').count()).toBe(0);
+      await next(s);
+      await s.page.getByText('제작 없음', { exact: true }).click();
+      await next(s);
+      // ⑤ 요약 — 설계 자료는 종류를 앞에 붙여 보이고, 개발 단계 행은 없다.
+      await s.page.getByText('입력 내용을 확인해 주세요').waitFor();
+      expect(await s.page.getByText('[회로도] board.SchDoc', { exact: false }).count()).toBe(1);
+      expect(await s.page.getByText('개발 단계', { exact: true }).count()).toBe(0);
+      await fillReviewAndSubmit(s);
+
+      const d = await findByTitle(titles.pcb);
+      expect(d.serviceAreas).toEqual(['pcb']);
+      expect(d.currentStage).toBeNull();
+      expect(d.targetStage).toBeNull();
+      expect(d.budgetRange).toBe('r100_300');
+      expect(d.answers.find((a) => a.code === 'pcb.original')).toEqual({ code: 'pcb.original', choices: ['gerber'] });
+      expect(d.answers.find((a) => a.code === 'pcb.size')).toEqual({ code: 'pcb.size', choices: ['fixed'], note: '100×80mm, M3 고정홀 4개' });
+      expect(d.files.map((f) => `${f.area ?? ''}:${f.slot ?? ''}:${f.name}`).sort()).toEqual([
+        '::datasheet.txt', 'pcb:bom:bom.csv', 'pcb:gerber:old-gerber.zip', 'pcb:schematic:board.SchDoc',
+      ]);
+
+      // 수정 화면 — 설계 자료 질문은 의뢰 내용 칸에(첨부 칸 없이), 올려 둔 자료엔 종류가 붙는다.
+      await s.page.goto(`/develop/requests/${String(d.requestId)}/edit?_t=${String(Date.now())}`);
+      await s.page.getByText('설계 자료를 알려주세요.').waitFor({ timeout: 15_000 });
+      expect(await s.page.getByRole('button', { name: 'Gerber만 있음', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      expect(await s.page.getByText('PCB 설계 파일·거버', { exact: true }).count()).toBe(1);
+      expect(await s.page.getByLabel('회로도 파일 첨부').count()).toBe(0);
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();

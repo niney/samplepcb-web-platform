@@ -240,6 +240,9 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
 
     await page.getByText('개별 개발 전문 질문').waitFor();
     await page.getByRole('button', { name: '신규 설계', exact: true }).click();
+    // PCB 회로도·BOM 은 필수(2026-11-02) — 다른 분야와 같이 고르면 3스텝에서 첨부 칸 없이 묻는다.
+    await page.getByRole('button', { name: '회로도 원본 파일', exact: true }).click();
+    await page.getByRole('button', { name: '일부만 있음', exact: true }).click();
     await page.getByRole('button', { name: 'KiCad', exact: true }).click();
     await page.getByRole('button', { name: '앱만', exact: true }).click();
     await page.getByRole('button', { name: /^NEXT/ }).click();

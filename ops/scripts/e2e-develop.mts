@@ -145,6 +145,9 @@ const optionRowsByIoId = (ioId) => g5q(`SELECT io_id, io_price FROM g5_shop_item
 // 시제품 계획 + 연락처. 시스템개발 등록은 §1 에서 따로 한 건 만든다.
 const baseAnswers = [
   { code: 'pcb.type', choices: ['new'] },
+  // PCB 회로도·BOM 은 필수(2026-11-02 설계 자료 — 모르면 '잘 모르겠어요').
+  { code: 'pcb.schematic', choices: ['source'] },
+  { code: 'pcb.bom', choices: ['partial'] },
   // '앱 및 서버' 카드는 범위 답으로 앱만 고른다(없으면 서버까지 붙는다 — 2026-10-30 메뉴 6장).
   { code: 'appserver.scope', choices: ['app'] },
   { code: 'app.features', choices: ['device', 'status'], note: '로그인 → 제품 등록 → 상태 확인 → 제어' },
@@ -394,6 +397,48 @@ async function run() {
     '범위 답대로 서버만·하드웨어 없으면 제작 계획은 제작 없음으로 저장',
     swDetail.json?.data,
   );
+  // PCB 설계만(2026-11-02 §7.2.6) — 단계 없이 · 회로도·BOM 필수 · 설계 자료는 질문 옆 칸에서 분야별 첨부(slot)로 ·
+  // 기존 원본은 작업 범위가 수정·배선만일 때만 · 예산은 낮은 구간 코드.
+  const pcbNoMaterials = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] PCB 설계 자료 누락', {
+      serviceAreas: ['pcb'], currentStage: null, targetStage: null, budgetRange: 'r100_300', answers: [{ code: 'pcb.type', choices: ['new'] }],
+    })),
+  });
+  assert(
+    pcbNoMaterials.status === 400 && pcbNoMaterials.json?.error === 'ANSWERS_REQUIRED' && pcbNoMaterials.json.missing.join() === 'pcb.schematic,pcb.bom',
+    'PCB 만: 회로도·BOM 없으면 400 ANSWERS_REQUIRED',
+    pcbNoMaterials.json,
+  );
+  const pcbOnly = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] PCB 설계만', {
+      serviceAreas: ['pcb'], currentStage: null, targetStage: null, budgetRange: 'r100_300',
+      answers: [
+        { code: 'pcb.type', choices: ['new'] },
+        { code: 'pcb.original', choices: ['gerber'] }, // 신규 설계라 숨은 문항 — 저장하지 않는다
+        { code: 'pcb.schematic', choices: ['source'] },
+        { code: 'pcb.bom', choices: ['partial'] },
+        { code: 'pcb.size', choices: ['fixed'], note: '100×80mm, 모서리 M3 고정홀 4개' },
+      ],
+    }), [
+      { field: 'attachment:pcb:bom', name: 'bom.csv', body: 'ref,part\nR1,10k' },
+      { field: 'attachment:pcb:outline', name: 'outline.txt', body: '[e2e] 외형 100x80' },
+      { field: 'attachment', name: 'datasheet.txt', body: '[e2e] 그 밖의 참고자료' },
+    ]),
+  });
+  assert(pcbOnly.status === 200, 'PCB 만(단계 없이·설계 자료 첨부) 등록 200', pcbOnly.json);
+  ids.requestIds.push(pcbOnly.json.data.requestId);
+  save();
+  const pcbDetail = await req('GET', `/api/develop/requests/${pcbOnly.json.data.requestId}`, { token: tClient });
+  const pcbSlots = pcbDetail.json.data.files.map((f) => `${f.area ?? ''}:${f.slot ?? ''}`).sort().join();
+  assert(
+    pcbDetail.json.data.currentStage === null && pcbDetail.json.data.targetStage === null && pcbDetail.json.data.budgetRange === 'r100_300'
+      && pcbDetail.json.data.answers.map((a) => a.code).sort().join() === 'pcb.bom,pcb.schematic,pcb.size,pcb.type'
+      && pcbSlots === ':,pcb:bom,pcb:outline',
+    'PCB 만 상세: 단계 null·낮은 예산 구간·숨은 기존 원본 답 버림·설계 자료는 슬롯(bom·outline) + 일반 첨부',
+    { answers: pcbDetail.json?.data?.answers, files: pcbSlots },
+  );
   // AI 후속 질문(§7.2.2) 폴백 경로 — 유스케이스가 꺼져 있으면 상태 false·run 409, 없는 잡으로 등록하면 400.
   const fuStatus = await req('GET', '/api/ai/develop.followup/status');
   assert(fuStatus.status === 200 && fuStatus.json?.data?.enabled === false, '후속 질문 상태: 하네스 중 비활성', fuStatus.json);
@@ -575,10 +620,16 @@ async function run() {
     '수정: 분야를 줄이면 답변을 안 보내도 분야 밖 문항 답변이 걷힌다',
     patchAreas.json?.data?.answers,
   );
-  const patchBack = await req('PATCH', `/api/develop/requests/${rid}`, { token: tClient, body: { serviceAreas: ['pcb', 'app'], answers: baseAnswers } });
+  assert(patchAreas.json.data.currentStage === null && patchAreas.json.data.targetStage === null, '수정: PCB 만으로 줄이면 개발 단계를 비운다', patchAreas.json?.data?.currentStage);
+  // 다시 앱을 더하면 단계를 묻는 의뢰가 된다 — 비운 단계를 함께 보내야 한다(없으면 STAGE_REQUIRED).
+  const patchBack = await req('PATCH', `/api/develop/requests/${rid}`, {
+    token: tClient,
+    body: { serviceAreas: ['pcb', 'app'], answers: baseAnswers, currentStage: 'idea', targetStage: 'prototype_done' },
+  });
   assert(
-    patchBack.status === 200 && patchBack.json.data.answers.length === 3 && patchBack.json.data.serviceAreas.join() === 'pcb,app',
-    '수정: 분야·답변 복구(범위 답 = 앱만)',
+    patchBack.status === 200 && patchBack.json.data.answers.length === baseAnswers.length && patchBack.json.data.serviceAreas.join() === 'pcb,app'
+      && patchBack.json.data.currentStage === 'idea',
+    '수정: 분야·답변·단계 복구(범위 답 = 앱만)',
     patchBack.json?.data?.answers,
   );
 

@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {
-  DEVELOP_BUDGET_RANGES,
   DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_CURRENT_STAGES,
   DEVELOP_CURRENT_STAGE_LABELS,
+  DEVELOP_PCB_MATERIAL_AREA,
   DEVELOP_TARGET_STAGES,
   DEVELOP_TARGET_STAGE_LABELS,
+  developSlotLabel,
 } from '@sp/api-contract';
 import type { DevelopRequestForm } from '../../composables/useRequestForm';
 import { WIZ } from '../../lib/wizard-copy';
 import WizDropZone from './WizDropZone.vue';
 import WizCheck from './WizCheck.vue';
+import WizQuestion from './WizQuestion.vue';
+import WizSlotFiles from './WizSlotFiles.vue';
 import stageOn from '../../assets/wizard/stage-on.svg';
 import stageOff from '../../assets/wizard/stage-off.svg';
 import radioOn from '../../assets/wizard/radio-on.svg';
@@ -21,7 +24,10 @@ import icoSelect from '../../assets/wizard/ico-select.svg';
 
 // 위저드 2스텝 — 의뢰 내용. 피그마 01-2(70:1069, 900 폭): 제목 입력(72) + 개발 목적(흰 상자 278) · 현재/목표 개발단계(점선으로
 // 이은 라디오 줄) · 희망 완료 시기(날짜 242 + 'N개월' 칸)와 예산(선택 상자) · 참고 자료 드롭존 + 자료 사용 동의 · (시스템 개발이면)
-// 진행 절차 2택. 개발단계는 역설계만 고른 의뢰에서 숨긴다(2026-10-30). 제목은 입력·안내 모두 Medium(디자이너 체크리스트 2026-10 — 굵기 통일).
+// 진행 절차 2택. 개발단계는 역설계·PCB 만 고른 의뢰에서 숨긴다(2026-10-30 · 11-02). 제목은 입력·안내 모두 Medium(디자이너 체크리스트 2026-10 — 굵기 통일).
+// PCB 설계만 고르면(2026-11-02) 참고 자료 칸이 '설계 자료'가 된다 — 작업 범위·기존 원본·회로도·BOM·외형 질문마다 그 자료를 바로
+// 올리는 칸(WizSlotFiles → 분야별 첨부 attachment:pcb:<slot>)이 붙고, 그 밖의 파일은 아래 참고자료 드롭존. 예산은 낮은 구간, 목적 칸은
+// PCB 예시로. 다른 분야와 같이 고르면 지금처럼(그 질문은 3스텝 PCB 묶음에서 첨부 칸 없이).
 // 희망 시기는 날짜와 기간 중 하나만 있어도 된다(사용자 결정 2026-10-22). 기간 칸은 시안대로 'N개월' 모양이지만 저장은 예전 그대로
 // 문구(wishNote)라, 숫자만 치면 '개월'을 붙이고 예전 의뢰의 '계약 후 3개월' 같은 문구도 그대로 둔다.
 // 동의 체크가 여기 있는 이유: 시스템 개발 AI 질의가 2→3 전환에서 설명문과 첨부를 외부 AI 로 보낸다.
@@ -29,7 +35,28 @@ import icoSelect from '../../assets/wizard/ico-select.svg';
 const props = withDefaults(defineProps<{ form: DevelopRequestForm; showAttachments?: boolean }>(), {
   showAttachments: true,
 });
-const { fields, isSystem, needsStages, attachments, addAttachments, removeAttachment } = props.form;
+const {
+  fields,
+  isSystem,
+  needsStages,
+  attachments,
+  addAttachments,
+  removeAttachment,
+  pcbMaterials,
+  budgetOptions,
+  materialQuestions,
+  noteMissingCodes,
+  stateOf,
+  toggleChoice,
+  slotFilesOf,
+  addSlotFiles,
+  removeSlotFile,
+} = props.form;
+
+// 설계 자료 질문 옆 첨부 칸 — 자료가 있다는 선택지를 골랐거나 이미 고른 파일이 있으면 연다(답을 바꿔도 고른 파일은 보이게).
+const fileOpen = (code: string, slot: string, fileFor: readonly string[]): boolean =>
+  fileFor.some((c) => stateOf(code).choices.includes(c)) || slotFilesOf(slot).length > 0;
+const slotLabel = (slot: string): string => developSlotLabel(DEVELOP_PCB_MATERIAL_AREA, slot);
 
 // 개발단계 두 줄 — 같은 모양이라 한 목록으로 그리고, 고른 코드는 각 사전에서 다시 찾아 넣는다(문자열 캐스팅 없이).
 type StageKey = 'current' | 'target';
@@ -78,7 +105,9 @@ function openPicker(e: Event): void {
   <div class="flex flex-col gap-[40px]">
     <!-- 제목 · 목적 -->
     <section :class="WIZ.section">
-      <h2 :class="WIZ.sectionTitle">무엇을 개발하고 어떤 문제를 해결하고 싶으신가요? <span class="text-red-500">*</span></h2>
+      <h2 :class="WIZ.sectionTitle">
+        {{ pcbMaterials ? '어떤 PCB를 설계하려고 하시나요?' : '무엇을 개발하고 어떤 문제를 해결하고 싶으신가요?' }} <span class="text-red-500">*</span>
+      </h2>
       <div class="flex flex-col gap-[14px]">
         <input
           v-model="fields.title"
@@ -95,7 +124,9 @@ function openPicker(e: Event): void {
             rows="8"
             maxlength="3000"
             aria-label="개발 목적"
-            placeholder="예) 여러 센서의 값을 수집하고 설정 범위를 벗어나면 펌프와 솔레노이드 밸브를 자동으로 제어하는 장비가 필요합니다. 스마트폰에서 상태 확인과 설정 변경도 가능해야 합니다."
+            :placeholder="pcbMaterials
+              ? '예) 산업용 센서 제어보드 PCB 설계를 맡기고 싶습니다. 4층, 100×80mm 안에 USB·RS-485 커넥터가 들어가야 하고, 회로도와 BOM은 준비되어 있습니다.'
+              : '예) 여러 센서의 값을 수집하고 설정 범위를 벗어나면 펌프와 솔레노이드 밸브를 자동으로 제어하는 장비가 필요합니다. 스마트폰에서 상태 확인과 설정 변경도 가능해야 합니다.'"
             class="min-h-[240px] leading-[1.6] sm:min-h-[278px]"
             :class="WIZ.textarea"
           />
@@ -107,7 +138,7 @@ function openPicker(e: Event): void {
       </div>
     </section>
 
-    <!-- 현재 · 목표 개발단계 — 역설계만 고른 의뢰는 이미 실물이 있어 묻지 않는다(검토 회신 7) -->
+    <!-- 현재 · 목표 개발단계 — 역설계(이미 실물이 있다, 검토 회신 7)·PCB 설계(정해진 설계 작업, 2026-11-02)만 고른 의뢰는 묻지 않는다 -->
     <section v-for="group in needsStages ? STAGE_GROUPS : []" :key="group.key" :class="WIZ.section">
       <h2 :class="WIZ.sectionTitle">{{ group.title }} <span class="text-red-500">*</span></h2>
       <div class="flex flex-wrap items-center gap-x-[10px] gap-y-[12px]" role="group" :aria-label="group.title">
@@ -171,15 +202,67 @@ function openPicker(e: Event): void {
             :class="[WIZ.selectText, fields.budgetRange === null ? 'text-[#999]' : '']"
           >
             <option :value="null" disabled>예상 예산 선택</option>
-            <option v-for="r in DEVELOP_BUDGET_RANGES" :key="r" :value="r">{{ DEVELOP_BUDGET_RANGE_LABELS[r] }}</option>
+            <option v-for="r in budgetOptions" :key="r" :value="r">{{ DEVELOP_BUDGET_RANGE_LABELS[r] }}</option>
           </select>
           <img :src="icoSelect" alt="" width="30" height="30" class="pointer-events-none absolute right-[24px] block size-[30px] sm:right-[30px]">
         </label>
       </div>
     </section>
 
+    <!-- 설계 자료 — PCB 설계만(2026-11-02, 의뢰서 시안 '02. 설계 자료'). 질문은 수정 화면에도 나오고, 첨부 칸·참고자료·동의는
+         위저드에서만(수정 화면은 첨부를 '올려 둔 자료'에서 즉시 반영한다). -->
+    <section v-if="pcbMaterials" :class="WIZ.section">
+      <div class="flex flex-col gap-[10px]">
+        <h2 :class="WIZ.sectionTitle">설계 자료를 알려주세요.</h2>
+        <p :class="WIZ.sectionLead">
+          {{ showAttachments
+            ? '자료가 아직 없어도 의뢰할 수 있습니다. 있는 자료는 항목마다 바로 올려 주세요.'
+            : '자료는 아래 「올려 둔 자료」에서 더하거나 지울 수 있습니다.' }}
+        </p>
+      </div>
+      <div class="flex flex-col gap-[40px]">
+        <!-- 질문 다섯은 옅은 판 위에 한 묶음으로 — 제목과 질문 글자가 같은 크기라 판이 없으면 묶음이 안 보인다 -->
+        <div class="flex flex-col gap-[36px] rounded-[14px] bg-[#f6f7f9] px-[18px] py-[24px] sm:gap-[40px] sm:px-[30px] sm:py-[30px]">
+          <WizQuestion
+            v-for="m in materialQuestions"
+            :key="m.code"
+            :question="m.question"
+            :state="stateOf(m.code)"
+            :note-missing="noteMissingCodes.includes(m.code)"
+            @toggle="toggleChoice(m.question, $event)"
+            @note="stateOf(m.code).note = $event"
+          >
+            <WizSlotFiles
+              v-if="showAttachments && m.slot !== null && fileOpen(m.code, m.slot, m.fileFor)"
+              :files="slotFilesOf(m.slot)"
+              :label="slotLabel(m.slot)"
+              :hint="m.fileHint"
+              @add="addSlotFiles(m.slot, $event)"
+              @remove="removeSlotFile(m.slot, $event)"
+            />
+          </WizQuestion>
+        </div>
+        <div v-if="showAttachments" class="flex flex-col gap-[16px] sm:gap-[20px]">
+          <p :class="WIZ.sectionTitle">그 밖의 참고자료 <span class="text-[#999]">(선택 사항)</span></p>
+          <WizDropZone
+            :files="attachments"
+            label="Drag & drop  데이터시트, 요구사항 문서, 제품·케이스 사진 등"
+            @add="addAttachments"
+            @remove="removeAttachment"
+          />
+        </div>
+        <WizCheck
+          v-if="showAttachments"
+          v-model="fields.aiConsent"
+          label="입력한 내용과 자료를 견적 검토와 AI 사전 검토 목적으로 사용하는 것에 동의합니다."
+          required
+          hint="접수 뒤 담당자 검토와 AI 사전 검토서 작성에 올려 주신 자료를 씁니다."
+        />
+      </div>
+    </section>
+
     <!-- 참고 자료 — 수정 화면은 첨부를 즉시 반영으로 따로 다룬다(showAttachments=false) -->
-    <section v-if="showAttachments" :class="WIZ.section">
+    <section v-else-if="showAttachments" :class="WIZ.section">
       <h2 :class="WIZ.sectionTitle">개발명세서와 참고자료를 올려주세요. (선택 사항)</h2>
       <div class="flex flex-col gap-[18px]">
         <WizDropZone :files="attachments" @add="addAttachments" @remove="removeAttachment" />

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { isDevelopEditable, sortDevelopAreas } from '@sp/api-contract';
+import { developSlotLabel, isDevelopEditable, sortDevelopAreas } from '@sp/api-contract';
 import type { DevelopFileMetaType, DevelopRequestUpdateBodyType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import {
@@ -297,6 +297,10 @@ const EDIT_TITLE = 'text-[22px] font-bold leading-[1.3] text-black sm:text-[26px
               class="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-line bg-white px-3.5 py-2.5 text-label"
             >
               <span class="min-w-0 flex-1 truncate font-semibold text-tx-1">{{ f.name }}</span>
+              <!-- 설계 자료 칸에서 올린 파일(PCB 설계만)은 종류를 함께 -->
+              <span v-if="f.area !== null && f.slot !== null" class="shrink-0 rounded-full bg-paper px-2 py-0.5 text-[12px] font-semibold text-tx-3">
+                {{ developSlotLabel(f.area, f.slot) }}
+              </span>
               <span class="shrink-0 tabular-nums text-tx-3">{{ fileSize(f.size) }}</span>
               <button
                 type="button"

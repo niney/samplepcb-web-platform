@@ -29,7 +29,7 @@ const {
   contactPrefilled,
   skipQuestions,
   menuBadge,
-  attachments,
+  attachmentNames,
   aiAnswerRows,
   buildAnswers,
   buildProduction,
@@ -40,7 +40,7 @@ const {
 
 const briefRows = computed(() => buildDevReviewBriefRows(buildAnswers(), DEVELOP_REGISTRY));
 const answerRowCount = computed(() => aiAnswerRows.value.length + briefRows.value.length);
-const fileNames = computed(() => attachments.value.map((f) => f.name));
+const fileNames = attachmentNames; // 설계 자료(PCB 설계만)는 '[회로도] 파일명'처럼 종류가 앞에
 const wishLabel = computed(() =>
   developWishLabel(fields.wishDate === '' ? null : fields.wishDate, fields.wishNote.trim() === '' ? null : fields.wishNote.trim()),
 );

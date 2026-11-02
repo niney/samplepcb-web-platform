@@ -8,6 +8,9 @@ import {
   DEVELOP_INDIVIDUAL_AREA_CODES,
   DEVELOP_MENU_CARDS,
   DEVELOP_NO_PRODUCTION,
+  DEVELOP_PCB_MATERIALS,
+  DEVELOP_PCB_MATERIAL_AREA,
+  DEVELOP_PCB_MATERIAL_CODES,
   DEVELOP_PRIORITIES,
   DEVELOP_PRODUCTION_SCOPES,
   DEVELOP_PROTOTYPE_MODES,
@@ -24,10 +27,13 @@ import {
   developAreaAnswerToState,
   developAreaQuestionsFor,
   developAreaStateToAnswer,
+  developBudgetOptions,
   developFollowupAnswerText,
   developNeedsProduction,
   developNeedsStages,
+  developPcbMaterialsMode,
   developQuestion,
+  developSlotLabel,
   developQuestionsFor,
   developRequiredMissing,
   isDevelopFollowupAnswered,
@@ -35,6 +41,7 @@ import {
   isDevelopQuestionVisible,
   isMarketAnswered,
   isTextQuestion,
+  marketAttachmentField,
   normalizeDevelopProduction,
   resolveDevelopServiceAreas,
   sortDevelopAreas,
@@ -70,8 +77,9 @@ import type { QuestionState } from '@sp/ui';
 
 // 개발의뢰 폼 상태 — 위저드 v2 5스텝(2026-09-08)과 수정 화면이 **같은 상태**를 쓴다.
 //   ① 개발 메뉴   시스템개발(배타) 또는 개별 메뉴 카드(회로·PCB·펌웨어·역설계·앱 및 서버 복수, 2026-10-30 피그마 6장)
-//   ② 의뢰 내용   제목·목적·현재/목표 단계(역설계만이면 묻지 않음)·희망 시기·예산·참고 자료 + 자료 사용 동의(aiConsent, 필수)
+//   ② 의뢰 내용   제목·목적·현재/목표 단계(역설계·PCB 만이면 묻지 않음)·희망 시기·예산·참고 자료 + 자료 사용 동의(aiConsent, 필수)
 //                 (+시스템개발 후속 질문 방식) — 자료가 AI 로 나가는 시점이 2→3 전환이라 동의를 여기서 받는다
+//                 PCB 설계만이면 참고 자료 칸이 '설계 자료'(작업 범위·기존 원본·회로도·BOM·외형 + 항목마다 첨부, 2026-11-02)
 //   ③ 세부 질문   시스템개발 = AI 후속 질문(§7.2.2, 폴백은 고정 문항) + 디자인·기구 범위 2, 개별 = 고른 카드의 전문 질문
 //                 ('앱 및 서버'는 첫 문항 범위 답대로 앱·서버 질문이 나온다) — AI 맞춤 질문(§7.2.4)이 켜져 있으면 자료에 답이
 //                 있는 질문은 채워 두고, 나머지는 의뢰에 맞게 고쳐 묻고, 꼭 필요한 새 질문을 더한다
@@ -443,15 +451,32 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     fields.requestMode === null ? [] : resolveDevelopServiceAreas(fields.requestMode, fields.serviceAreas, currentAnswers.value),
   );
   const pickedAreas = computed(() => (isSystem.value ? [] : effectiveAreas.value));
-  // 역설계만이면 2스텝 단계를, 펌웨어·앱·서버만이면 4스텝 제작 계획을 묻지 않는다(검토 회신 7). 메뉴 미선택이면 묻는 쪽.
+  // 역설계·PCB 만이면 2스텝 단계를, 펌웨어·앱·서버만이면 4스텝 제작 계획을 묻지 않는다(검토 회신 7 · 2026-11-02). 메뉴 미선택이면 묻는 쪽.
   const needsStages = computed(() => effectiveAreas.value.length === 0 || developNeedsStages(effectiveAreas.value));
   const needsProduction = computed(() => effectiveAreas.value.length === 0 || developNeedsProduction(effectiveAreas.value));
+  // PCB 설계만이면 2스텝 참고 자료 칸이 '설계 자료'가 된다(계약 DEVELOP_PCB_MATERIALS — 그 질문은 3스텝 묶음에서 빠진다).
+  const pcbMaterials = computed(() => developPcbMaterialsMode(fields.requestMode, effectiveAreas.value));
+  // 예산 선택지 — PCB 설계만이면 낮은 구간. 메뉴를 바꿔 고른 값이 목록에서 빠지면 비운다(다시 고르게).
+  const budgetOptions = computed(() => developBudgetOptions(pcbMaterials.value));
+  watch(budgetOptions, (options) => {
+    if (fields.budgetRange !== null && !options.includes(fields.budgetRange)) fields.budgetRange = null;
+  });
   // 1스텝 요약·검토 카드 배지 — 6분야면 '시스템개발', 개별이면 분야명(들).
   const menuBadge = computed(() => (fields.requestMode === null ? '' : developAreaBadge(effectiveAreas.value)));
 
   // ── 3스텝 질문 ─────────────────────────────────────────────────────────────
   const isVisible = (q: MarketQuestionDef): boolean => isDevelopQuestionVisible(q, currentAnswers.value);
   const activeQuestions = computed<MarketQuestionDef[]>(() => developQuestionsFor(effectiveAreas.value).filter(isVisible));
+  // 2스텝 설계 자료 질문(PCB 설계만) — 보이는 것만(기존 원본은 작업 범위가 수정·배선만일 때). slot·fileFor·fileHint 는 질문 옆
+  // 첨부 칸(계약 DEVELOP_PCB_MATERIALS). 답은 다른 질문과 같은 상태(questionState)에 든다.
+  const materialQuestions = computed(() =>
+    pcbMaterials.value
+      ? DEVELOP_PCB_MATERIALS.flatMap((m) => {
+        const q = developQuestion(m.code);
+        return q !== undefined && isVisible(q) ? [{ ...m, question: q }] : [];
+      })
+      : [],
+  );
   // 전문가에게 맡김이면 기술 문항은 건너뛰고 역할·협업 문항(askOnDelegate)만 남긴다(서버도 같은 규칙으로 버린다).
   const skipQuestions = computed(() => isSystem.value && fields.expertDelegate);
   // 고정 문항(분석 후 추가 확인)을 감추는 조건 — 맡김(담당자가 정한다) 또는 AI 질문을 쓰는 중(그 질문이 대신한다).
@@ -480,6 +505,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
         for (const q of developAreaQuestionsFor([area]).filter(isVisible)) {
           if (seen.has(q.code)) continue;
           seen.add(q.code);
+          if (pcbMaterials.value && DEVELOP_PCB_MATERIAL_CODES.includes(q.code)) continue; // 2스텝 설계 자료에서 묻는다
           const sub = q.code.startsWith(`${area}.`) ? (SUB_HEADINGS[area] ?? null) : null;
           const heading = sub !== null && sub !== lastHeading ? sub : null;
           const asked = ai?.asked.get(q.code);
@@ -591,13 +617,39 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   function removeAttachment(index: number): void {
     attachments.value = attachments.value.filter((_, i) => i !== index);
   }
-  const totalAttachmentCount = computed(() => attachments.value.length);
+  // 설계 자료 첨부(PCB 설계만) — 질문 옆 칸에서 고른 파일을 슬롯별로 들고 분야별 첨부(attachment:pcb:<slot>)로 보낸다.
+  // 메뉴를 바꿔 그 모드를 벗어나면 일반 첨부로 옮긴다 — 다른 분야와 같이 고르면 2스텝은 참고 자료 칸 하나이고,
+  // PCB 를 빼면 서버가 pcb 슬롯을 거절한다.
+  const slotFiles = ref<Record<string, File[]>>({});
+  const slotFilesOf = (slot: string): File[] => slotFiles.value[slot] ?? [];
+  function addSlotFiles(slot: string, files: File[]): void {
+    slotFiles.value = { ...slotFiles.value, [slot]: mergeFiles(slotFilesOf(slot), files) };
+  }
+  function removeSlotFile(slot: string, index: number): void {
+    slotFiles.value = { ...slotFiles.value, [slot]: slotFilesOf(slot).filter((_, i) => i !== index) };
+  }
+  const slotFileList = computed(() =>
+    Object.entries(slotFiles.value).flatMap(([slot, files]) => files.map((file) => ({ slot, file }))),
+  );
+  watch(pcbMaterials, (on, was) => {
+    if (on || !was) return;
+    attachments.value = mergeFiles(attachments.value, slotFileList.value.map((x) => x.file));
+    slotFiles.value = {};
+  });
+  const totalAttachmentCount = computed(() => attachments.value.length + slotFileList.value.length);
+  // 검토 화면 파일 목록 — 설계 자료는 '[회로도] 파일명'처럼 종류를 앞에.
+  const attachmentNames = computed(() => [
+    ...slotFileList.value.map(({ slot, file }) => `[${developSlotLabel(DEVELOP_PCB_MATERIAL_AREA, slot)}] ${file.name}`),
+    ...attachments.value.map((f) => f.name),
+  ]);
 
   function appendAttachments(fd: FormData): void {
     for (const f of attachments.value) fd.append('attachment', f);
+    for (const { slot, file } of slotFileList.value) fd.append(marketAttachmentField(DEVELOP_PCB_MATERIAL_AREA, slot), file);
   }
   function clearFiles(): void {
     attachments.value = [];
+    slotFiles.value = {};
   }
 
   // ── 검증 ──────────────────────────────────────────────────────────────────
@@ -614,12 +666,19 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       (fields.wishDate !== '' || fields.wishNote.trim() !== '') &&
       fields.budgetRange !== null,
   );
-  // 2스텝 게이트는 동의 체크까지 본다 — 자료가 외부 AI 로 나가는 시점이 2→3 전환이기 때문이다.
-  // (describeValid 자체는 수정 화면도 쓴다 — 이미 접수한 의뢰에 동의를 다시 묻지 않는다.)
-  const describeStepValid = computed(() => describeValid.value && fields.aiConsent);
-  // 필수 문항(역설계 권리 확인) 미응답 — 서버와 같은 함수(숨은 문항은 묻지 않는다).
+  // 필수 문항(역설계 권리 확인 · PCB 회로도·BOM) 미응답 — 서버와 같은 함수(숨은 문항은 묻지 않는다).
   const requiredMissingCodes = computed<string[]>(() => developRequiredMissing(buildAnswers(), effectiveAreas.value));
+  // 그중 2스텝 설계 자료 질문(PCB 설계만) — 그 스텝이 막는다. 나머지는 3스텝 몫.
+  const materialsMissingCodes = computed<string[]>(() =>
+    pcbMaterials.value ? requiredMissingCodes.value.filter((c) => DEVELOP_PCB_MATERIAL_CODES.includes(c)) : [],
+  );
+  const questionsStepMissing = computed(() => requiredMissingCodes.value.filter((c) => !materialsMissingCodes.value.includes(c)));
+  // 2스텝 게이트는 동의 체크까지 본다 — 자료가 외부 AI 로 나가는 시점이 2→3 전환이기 때문이다.
+  // (describeValid 자체는 수정 화면도 쓴다 — 이미 접수한 의뢰에 동의를 다시 묻지 않는다. 설계 자료 필수는 거기선 questionsValid 가 본다.)
+  const describeStepValid = computed(() => describeValid.value && fields.aiConsent && materialsMissingCodes.value.length === 0);
+  // questionsValid = 필수 전부(접수 게이트·수정 화면), questionsStepValid = 3스텝 "다음"(설계 자료는 2스텝이 이미 막았다).
   const questionsValid = computed(() => noteMissingCodes.value.length === 0 && requiredMissingCodes.value.length === 0);
+  const questionsStepValid = computed(() => noteMissingCodes.value.length === 0 && questionsStepMissing.value.length === 0);
   const productionValid = computed(
     () =>
       !needsProduction.value ||
@@ -640,11 +699,13 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       if (!stagesValid.value) return '현재 단계와 목표 단계를 선택해 주세요.';
       if (fields.wishDate === '' && fields.wishNote.trim() === '') return '희망 완료일 또는 기간을 입력해 주세요.';
       if (fields.budgetRange === null) return '예상 개발 예산을 선택해 주세요.';
+      const material = materialsMissingCodes.value[0];
+      if (material !== undefined) return `'${developQuestion(material)?.short ?? material}' 질문에 답해 주세요.`;
       if (!fields.aiConsent) return '입력 내용과 자료를 견적 검토와 AI 사전 검토에 사용하는 데 동의해 주세요.';
       return '';
     }
     if (key === 'questions') {
-      const required = requiredMissingCodes.value[0];
+      const required = questionsStepMissing.value[0];
       if (required !== undefined) return `'${developQuestion(required)?.short ?? required}' 질문에 답해 주세요.`;
       return noteMissingCodes.value.length === 0 ? '' : '선택하신 항목에 내용을 적어 주세요.';
     }
@@ -654,8 +715,9 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       return '';
     }
     if (!contactValid.value) return '연락처를 입력해 주세요.';
-    // 동의는 2스텝에서 받는다 — 초안 복원으로 마지막 스텝에 바로 선 경우에만 여기서 걸린다.
+    // 동의·설계 자료는 2스텝에서 받는다 — 초안 복원으로 마지막 스텝에 바로 선 경우에만 여기서 걸린다.
     if (!fields.aiConsent) return '2단계에서 자료 사용 동의에 체크해 주세요.';
+    if (materialsMissingCodes.value.length > 0) return '2단계에서 설계 자료 질문에 답해 주세요.';
     return '';
   }
 
@@ -677,7 +739,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     const key = currentStep.value;
     if (key === 'menu') return menuValid.value;
     if (key === 'describe') return describeStepValid.value;
-    if (key === 'questions') return questionsValid.value;
+    if (key === 'questions') return questionsStepValid.value;
     if (key === 'production') return productionValid.value;
     return formValid.value;
   });
@@ -976,6 +1038,10 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     prefillContact,
     attachments,
     totalAttachmentCount,
+    attachmentNames,
+    slotFilesOf,
+    addSlotFiles,
+    removeSlotFile,
     menuCards,
     systemMenu: DEVELOP_SYSTEM_MENU,
     isSystem,
@@ -989,12 +1055,16 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     pickedAreas,
     needsStages,
     needsProduction,
+    pcbMaterials,
+    budgetOptions,
     menuBadge,
     registry: DEVELOP_REGISTRY,
     activeQuestions,
     askedQuestions,
     questionGroups,
+    materialQuestions,
     requiredMissingCodes,
+    materialsMissingCodes,
     skipQuestions,
     hideSystemQuestions,
     noteMissingCodes,
@@ -1034,6 +1104,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     describeValid,
     describeStepValid,
     questionsValid,
+    questionsStepValid,
     productionValid,
     reviewValid,
     formValid,

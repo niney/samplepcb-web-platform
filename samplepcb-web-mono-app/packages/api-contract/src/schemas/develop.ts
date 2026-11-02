@@ -33,7 +33,12 @@ export const DEVELOP_REQUEST_MODE_LABELS = {
 } as const satisfies Record<DevelopRequestModeType, string>;
 
 // 예산 구간 — 마켓 사전(500만 단위)과 분리(개발 용역 실무 구간). 저장은 코드.
-export const DEVELOP_BUDGET_RANGES = ['under1000', 'r1000_3000', 'r3000_5000', 'r5000_10000', 'over10000', 'after_quote'] as const;
+// PCB 설계만 고른 의뢰는 낮은 구간을 보인다(설계 단독은 대개 1천만원 미만이라 기본 구간으론 정보가 안 된다 — 2026-11-02).
+export const DEVELOP_BUDGET_RANGES = [
+  'under1000', 'r1000_3000', 'r3000_5000', 'r5000_10000', 'over10000',
+  'under100', 'r100_300', 'r300_500', 'r500_1000', 'over1000',
+  'after_quote',
+] as const;
 export type DevelopBudgetRangeType = (typeof DEVELOP_BUDGET_RANGES)[number];
 export const DevelopBudgetRange = z.enum(DEVELOP_BUDGET_RANGES);
 export const DEVELOP_BUDGET_RANGE_LABELS = {
@@ -42,8 +47,18 @@ export const DEVELOP_BUDGET_RANGE_LABELS = {
   r3000_5000: '3천만~5천만원',
   r5000_10000: '5천만~1억원',
   over10000: '1억원 이상',
+  under100: '100만원 미만',
+  r100_300: '100만~300만원',
+  r300_500: '300만~500만원',
+  r500_1000: '500만~1천만원',
+  over1000: '1천만원 이상',
   after_quote: '견적 후 결정',
 } as const satisfies Record<DevelopBudgetRangeType, string>;
+// 위저드 선택지 — 기본 / PCB 설계만(developPcbMaterialsMode). 서버는 어느 쪽 코드든 받는다(표시는 라벨 사전 하나).
+const DEVELOP_BUDGET_OPTIONS: readonly DevelopBudgetRangeType[] = ['under1000', 'r1000_3000', 'r3000_5000', 'r5000_10000', 'over10000', 'after_quote'];
+const DEVELOP_PCB_BUDGET_OPTIONS: readonly DevelopBudgetRangeType[] = ['under100', 'r100_300', 'r300_500', 'r500_1000', 'over1000', 'after_quote'];
+export const developBudgetOptions = (pcbOnly: boolean): readonly DevelopBudgetRangeType[] =>
+  pcbOnly ? DEVELOP_PCB_BUDGET_OPTIONS : DEVELOP_BUDGET_OPTIONS;
 
 export const DEVELOP_CURRENT_STAGES = ['idea', 'requirements', 'design', 'prototype', 'testing', 'mass_prep'] as const;
 export type DevelopCurrentStageType = (typeof DEVELOP_CURRENT_STAGES)[number];
@@ -399,7 +414,7 @@ const developEditableShape = {
   tools: MarketTools.default(EMPTY_MARKET_TOOLS),
   description: z.string().trim().min(10).max(20000),
   answers: MarketAnswers.default([]),
-  // 역설계만 고른 의뢰는 묻지 않는다(null) — 그 밖에는 필수(STAGE_REQUIRED, developNeedsStages).
+  // 역설계·PCB 만 고른 의뢰는 묻지 않는다(null) — 그 밖에는 필수(STAGE_REQUIRED, developNeedsStages).
   currentStage: DevelopCurrentStage.nullable().default(null),
   targetStage: DevelopTargetStage.nullable().default(null),
   wishDate: DevelopWishDate.nullable().default(null),

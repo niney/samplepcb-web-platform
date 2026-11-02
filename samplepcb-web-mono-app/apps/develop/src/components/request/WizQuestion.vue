@@ -8,7 +8,8 @@ import { WIZ, chipClass } from '../../lib/wizard-copy';
 // 질문 하나 — 공용 QuestionField(@sp/ui, 마켓 공용)와 동작이 같은 개발의뢰 위저드 전용 모양(피그마 01-3 135:21721·135:21815):
 // 22px 질문 + (선택지형) 56px 알약 칩 / (서술형) 140px 흰 입력 상자. 문항 설명(why)은 시안처럼 질문 뒤 괄호로 붙인다.
 // 메모 칸은 그 선택지를 고를 때만(noteVisibleFor). 마켓 화면은 공용 QuestionField 그대로다.
-// 슬롯: badge = 질문 끝의 작은 표시(AI 질문·AI 가 채움), hint = 질문 바로 아래 한 줄(채운 답의 근거).
+// 슬롯: badge = 질문 끝의 작은 표시(AI 질문·AI 가 채움), hint = 질문 바로 아래 한 줄(채운 답의 근거),
+// 기본 = 맨 아래(2스텝 설계 자료 질문의 첨부 칸 — StepDescribe).
 // '기타'(otherInline, 레지스트리 문항만) — 디자인 체크리스트(10-30, 피그마 259:25239~25252): 기타를 누르면 옆에 입력칸이 열리고,
 // 입력을 마치면(Enter·칸 밖) 기타 칩이 적은 글로 바뀐다. 다시 누르면 고치고, 비우고 마치면 기타를 푼다(Esc 는 취소).
 // 적은 글은 새 선택지 표기('~글')로 상태에 들고 저장할 때 'other' + 메모가 된다(developAreaStateToAnswer — AI 맞춤 질문의
@@ -156,5 +157,6 @@ function onOtherChipClick(): void {
       >
       <span v-if="noteMissing" class="text-[15px] font-semibold text-red-500">이 선택지는 내용을 적어 주셔야 합니다.</span>
     </label>
+    <slot />
   </div>
 </template>
