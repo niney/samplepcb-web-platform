@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AiSettingsUpdate,
   DEVELOP_AREA_CUSTOM_PREFIX,
+  DEVELOP_AREA_FOLLOWUP_FIXED_AREAS,
   DEVELOP_AREA_FOLLOWUP_LOCKED,
   DEVELOP_APP_SERVER_SCOPE_CODE,
   DEVELOP_REVERSE_RIGHTS_CODE,
@@ -9,7 +10,9 @@ import {
   developQuestion,
   developAreaAnswerToState,
   developAreaCoveredKept,
+  developAreaFollowupAreas,
   developAreaStateToAnswer,
+  isDevelopAreaFollowupFixedQuestion,
   mergeDevelopAreaFollowup,
   refreshDevelopAreaAiMeta,
 } from '@sp/api-contract';
@@ -124,5 +127,16 @@ describe('mergeDevelopAreaFollowup', () => {
     if (stored.area === undefined) throw new Error('meta');
     const next = refreshDevelopAreaAiMeta(stored.area, [{ code: 'circuit.type', choices: ['modify'] }]);
     expect(next.covered[0]?.kept).toBe(false);
+  });
+});
+
+describe('AI 맞춤 질문 분야 — PCB 설계는 고정 질문(2026-11-02)', () => {
+  it('잡에 보낼 분야에서 PCB 를 빼고, PCB 기본 질문은 고정 질문으로 본다(공유 문항은 아니다)', () => {
+    expect(DEVELOP_AREA_FOLLOWUP_FIXED_AREAS).toEqual(['pcb']);
+    expect(developAreaFollowupAreas(['circuit', 'pcb', 'firmware'])).toEqual(['circuit', 'firmware']);
+    expect(developAreaFollowupAreas(['pcb'])).toEqual([]);
+    expect(isDevelopAreaFollowupFixedQuestion('pcb.schematic')).toBe(true);
+    expect(isDevelopAreaFollowupFixedQuestion('hw.comm')).toBe(false);
+    expect(isDevelopAreaFollowupFixedQuestion('circuit.type')).toBe(false);
   });
 });

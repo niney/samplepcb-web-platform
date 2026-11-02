@@ -22,6 +22,7 @@ import {
   DEVELOP_REGISTRY,
   applyDevelopFollowupAnswers,
   computeDevelopQuoteAmounts,
+  developAreaFollowupAreas,
   developDocDecisionLabel,
   developDocNo,
   developMergedIssues,
@@ -431,18 +432,19 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       aiQuestions = mergeDevelopFollowupAnswers(job.followup, payload.aiQuestions.answers);
     } else if (payload.requestMode === 'individual' && payload.aiQuestions !== null) {
       // 개별 메뉴 AI 맞춤 질문(§7.2.4) — 고쳐 물은 질문의 답은 이미 코드 답(answers)으로 왔다. 잡에서 새 질문을 되읽어 그 답만 합치고,
-      // 채운 답·고쳐 물은 문장은 메타로 남긴다. '앱 및 서버' 범위로 빠진 분야의 것은 버린다.
+      // 채운 답·고쳐 물은 문장은 메타로 남긴다. '앱 및 서버' 범위로 빠진 분야의 것과 고정 질문 분야(PCB 설계)의 것은 버린다.
       const job = await getAiJob(payload.aiQuestions.jobId);
       if (job?.mbId !== mbId || job.useCase !== DEVELOP_AREA_FOLLOWUP_USECASE || job.status !== 'done' || job.areaFollowup === null) {
         return reply.status(400).send({ result: false, error: 'FOLLOWUP_JOB_INVALID' });
       }
-      const allowed = new Set(developQuestionsFor(serviceAreas).map((q) => q.code));
+      const aiAreas = developAreaFollowupAreas(serviceAreas);
+      const allowed = new Set(developQuestionsFor(aiAreas).map((q) => q.code));
       const r = job.areaFollowup;
       const scoped = {
         ...r,
         covered: r.covered.filter((c) => allowed.has(c.base)),
         asked: r.asked.filter((q) => allowed.has(q.base)),
-        added: r.added.filter((q) => serviceAreas.includes(q.area)),
+        added: r.added.filter((q) => aiAreas.includes(q.area)),
       };
       aiQuestions = mergeDevelopAreaFollowup(scoped, payload.aiQuestions.answers, answers);
     }

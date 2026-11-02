@@ -424,6 +424,8 @@ async function run() {
   assert(afRun.status === 409 && afRun.json?.error === 'USECASE_DISABLED', '맞춤 질문 run: 비활성 409', afRun);
   const afNoArea = await req('POST', '/api/ai/develop.area-followup/run', { token: tClient, form: afRunBody(['mech']) });
   assert(afNoArea.status === 400 && afNoArea.json?.error === 'AREA_REQUIRED', '맞춤 질문 run: 개별 메뉴 분야가 없으면 400', afNoArea);
+  const afPcbOnly = await req('POST', '/api/ai/develop.area-followup/run', { token: tClient, form: afRunBody(['pcb']) });
+  assert(afPcbOnly.status === 400 && afPcbOnly.json?.error === 'AREA_REQUIRED', '맞춤 질문 run: PCB 설계만이면 400(고정 질문, 2026-11-02)', afPcbOnly);
   const afBad = await req('POST', '/api/develop/requests', {
     token: tClient,
     form: createForm(basePayload('[e2e] 없는 맞춤 잡', { aiQuestions: { jobId: '11111111-1111-4111-8111-111111111111', answers: [] } })),

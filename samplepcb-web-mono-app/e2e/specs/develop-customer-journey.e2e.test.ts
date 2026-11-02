@@ -29,7 +29,7 @@ import { developAdminIdentity } from '../helpers/develop-admin';
 const LONG = 180_000;
 const CART_BUCKET = '7777000003'; // 다른 하네스(…001 마켓·…002 개발 API)와 다른 합성 장바구니 버킷
 const JOURNEY_EMAIL = 'e2e-develop-journey@example.com';
-const USECASES = ['develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.doc-mail'];
+const USECASES = ['develop.dev-review', 'develop.dev-diagram', 'develop.followup', 'develop.area-followup', 'develop.doc-mail'];
 const stamp = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 19).replace('T', ' '); // 초까지 — 같은 분에 두 번 돌려도 제목이 겹치지 않게
 const TITLE = `[e2e 여정] BLE 온습도 로거 ${stamp}`;
 

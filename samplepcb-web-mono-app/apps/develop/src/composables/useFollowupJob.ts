@@ -1,4 +1,5 @@
 import { computed, onScopeDispose, ref, watch } from 'vue';
+import { developAreaFollowupAreas } from '@sp/api-contract';
 import type { AiJobStageType } from '@sp/api-contract';
 import { DEVELOP_AREA_FOLLOWUP_USECASE, DEVELOP_FOLLOWUP_USECASE, useAiJob, useDevelopAiStatus, useRunDevelopAi } from '../api/useDevelopAi';
 import { errorCode } from '../lib/error-msg';
@@ -27,10 +28,12 @@ export function useFollowupJob(form: DevelopRequestForm) {
   const systemStatus = useDevelopAiStatus(DEVELOP_FOLLOWUP_USECASE);
   const areaStatus = useDevelopAiStatus(DEVELOP_AREA_FOLLOWUP_USECASE);
 
-  // 지금 메뉴가 부를 잡 — 시스템개발(맡김 아님) · 개별 메뉴(카드를 하나 이상 골랐을 때) · 없음.
+  // 개별 메뉴 맞춤 질문을 받을 분야 — PCB 설계는 고정 질문이라 뺀다(계약 DEVELOP_AREA_FOLLOWUP_FIXED_AREAS, 2026-11-02).
+  const aiAreas = computed(() => developAreaFollowupAreas(fields.serviceAreas));
+  // 지금 메뉴가 부를 잡 — 시스템개발(맡김 아님) · 개별 메뉴(맞춤 질문 분야가 하나라도 있을 때 — PCB 만이면 안 부른다) · 없음.
   const mode = computed<FollowupMode | null>(() => {
     if (isSystem.value) return skipQuestions.value ? null : 'system';
-    return fields.requestMode === 'individual' && fields.serviceAreas.length > 0 ? 'area' : null;
+    return fields.requestMode === 'individual' && aiAreas.value.length > 0 ? 'area' : null;
   });
   const active = computed(() => mode.value !== null);
   const statusQ = computed(() => (mode.value === 'area' ? areaStatus : systemStatus));
@@ -43,7 +46,7 @@ export function useFollowupJob(form: DevelopRequestForm) {
       mode: mode.value,
       title: fields.title.trim(),
       description: fields.description.trim(),
-      areas: mode.value === 'area' ? [...fields.serviceAreas] : [],
+      areas: mode.value === 'area' ? aiAreas.value : [],
       files: attachments.value.map(fileKey),
     }),
   );
@@ -109,7 +112,7 @@ export function useFollowupJob(form: DevelopRequestForm) {
       const res = await run.mutateAsync({
         input:
           m === 'area'
-            ? { useCase: DEVELOP_AREA_FOLLOWUP_USECASE, payload: { title, description, areas: [...fields.serviceAreas] } }
+            ? { useCase: DEVELOP_AREA_FOLLOWUP_USECASE, payload: { title, description, areas: [...aiAreas.value] } }
             : { useCase: DEVELOP_FOLLOWUP_USECASE, payload: { title, description } },
         appendFiles: appendAttachments,
       });

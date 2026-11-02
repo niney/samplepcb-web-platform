@@ -10,6 +10,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { developAreaFollowupAreas } from '@sp/api-contract';
 import type { AiConnection, OllamaChatExtra, OllamaThink } from '../lib/ai/ollama';
 import { chatWithOptionFallback } from '../lib/ai/runner';
 import {
@@ -48,7 +49,10 @@ const runsFor = modelSpecs.map((spec) => {
   return { model, think: pinned ?? thinkDefault };
 });
 const caseFilter = list('cases', 'all');
-const cases = AREA_FOLLOWUP_PROBE_CASES.filter((c) => caseFilter.includes('all') || caseFilter.some((p) => c.id.startsWith(p)));
+// 실행 라우트와 같게 고정 질문 분야(PCB 설계, 2026-11-02)는 빼고 묻는다 — 남는 분야가 없는 예시(PCB 만)는 건너뛴다.
+const cases = AREA_FOLLOWUP_PROBE_CASES.filter((c) => caseFilter.includes('all') || caseFilter.some((p) => c.id.startsWith(p)))
+  .map((c) => ({ ...c, areas: developAreaFollowupAreas(c.areas) }))
+  .filter((c) => c.areas.length > 0);
 const concurrency = Math.min(10, Math.max(1, Number(args.get('concurrency') ?? '3')));
 const timeoutMs = Math.max(30, Number(args.get('timeout') ?? '300')) * 1000;
 const tag = args.get('tag') ?? 'run';

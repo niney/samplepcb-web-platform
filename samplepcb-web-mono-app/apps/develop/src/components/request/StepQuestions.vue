@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { DEVELOP_AREA_FOLLOWUP_LOCKED, DEVELOP_REVERSE_NOTICE } from '@sp/api-contract';
+import { DEVELOP_AREA_FOLLOWUP_LOCKED, DEVELOP_REVERSE_NOTICE, isDevelopAreaFollowupFixedQuestion } from '@sp/api-contract';
 import type { MarketQuestionDef } from '@sp/api-contract';
 import type { DevelopRequestForm } from '../../composables/useRequestForm';
 import type { FollowupJob } from '../../composables/useFollowupJob';
@@ -19,7 +19,7 @@ import WizGroup from './WizGroup.vue';
 //   다른 답에 따라 나오는 문항(역설계 펌웨어 추출 자료·PCBA 검증)은 그 선택지를 골랐을 때만 보인다(계약 showWhen).
 //   AI 맞춤 질문(§7.2.4)이 켜져 있으면: AI 가 도는 동안은 AI 에 맡기지 않는 질문(범위·권리 확인·필요 작업)만 먼저 보이고,
 //   끝나면 자료에서 채운 질문엔 'AI 가 채움'과 근거, 고쳐 물은 질문엔 'AI 질문' 표시, 묶음 끝엔 새 질문이 붙는다.
-//   꺼져 있거나 실패·기다리지 않음이면 기본 질문 그대로.
+//   꺼져 있거나 실패·기다리지 않음이면 기본 질문 그대로. PCB 설계는 AI 를 쓰지 않는 고정 질문이다(2026-11-02).
 // 필수는 역설계 권리 확인 하나 — 그 밖엔 선택지가 메모를 요구할 때만(noteRequiredFor) 막는다.
 // 레지스트리 문항의 '기타'는 칩 옆 입력칸으로 받는다(WizQuestion otherInline · setOtherText). 잡이 준 AI 질문은 답 구조가
 // 달라({choice, text}) 그대로 둔다.
@@ -59,12 +59,14 @@ function delegateInstead(): void {
 function skipToBasic(): void {
   props.followup?.skipToBasic();
 }
-// 개별 메뉴 맞춤 질문을 기다리는 중 — 그동안은 AI 에 맡기지 않는 질문만 그린다(답이 AI 결과와 부딪히지 않는다).
+// 개별 메뉴 맞춤 질문을 기다리는 중 — 그동안은 AI 에 맡기지 않는 질문(잠근 질문 · 고정 질문 분야 PCB 설계)만 그린다
+// (답이 AI 결과와 부딪히지 않는다).
 const areaRunning = computed(() => !isSystem.value && running.value);
+const notForAi = (code: string): boolean => DEVELOP_AREA_FOLLOWUP_LOCKED.includes(code) || isDevelopAreaFollowupFixedQuestion(code);
 const visibleItems = <T extends { question: MarketQuestionDef }>(items: readonly T[]): readonly T[] =>
-  areaRunning.value ? items.filter((item) => DEVELOP_AREA_FOLLOWUP_LOCKED.includes(item.question.code)) : items;
+  areaRunning.value ? items.filter((item) => notForAi(item.question.code)) : items;
 const BADGE = 'ml-[8px] inline-block rounded-full px-[10px] py-[3px] align-middle text-[13px] font-bold leading-[1.3]';
-// 기다리는 동안 먼저 물을 질문이 없는 묶음(회로·PCB·펌웨어)은 제목도 감춘다 — 빈 묶음 제목만 덩그러니 남지 않게.
+// 기다리는 동안 먼저 물을 질문이 없는 묶음(회로·펌웨어)은 제목도 감춘다 — 빈 묶음 제목만 덩그러니 남지 않게.
 const shownGroups = computed(() => (areaRunning.value ? questionGroups.value.filter((g) => visibleItems(g.items).length > 0) : questionGroups.value));
 
 // ── 묶음 목록 = 번호 · 목차의 정본 ──────────────────────────────────────────

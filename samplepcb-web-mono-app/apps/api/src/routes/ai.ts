@@ -11,6 +11,7 @@ import {
   DevelopFollowupRunPayload,
   DevelopFollowupRunResponse,
   MARKET_ATTACHMENT_FIELD,
+  developAreaFollowupAreas,
   parseMarketAttachmentField,
 } from '@sp/api-contract';
 import { DEVELOP_AREA_FOLLOWUP_USECASE, DEVELOP_FOLLOWUP_USECASE, DEV_REVIEW_USECASE, getAiUsecaseRuntime, toOllamaThink } from '../lib/ai/usecases';
@@ -292,8 +293,9 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
         return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
       }
       const payload = parsed.data;
-      // 개별 메뉴 분야만(시스템개발·기구는 이 질문을 쓰지 않는다). 순서·중복은 입력 해시가 흔들리지 않게 정리한다.
-      const areas = DEVELOP_INDIVIDUAL_AREA_CODES.filter((c) => payload.areas.includes(c));
+      // 개별 메뉴 분야만(시스템개발·기구는 이 질문을 쓰지 않는다) — PCB 설계는 고정 질문이라 뺀다(2026-11-02).
+      // 순서·중복은 입력 해시가 흔들리지 않게 정리한다.
+      const areas = developAreaFollowupAreas(DEVELOP_INDIVIDUAL_AREA_CODES).filter((c) => payload.areas.includes(c));
       if (areas.length === 0) {
         return reply.status(400).send({ result: false, error: 'AREA_REQUIRED' });
       }

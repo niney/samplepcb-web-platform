@@ -26,6 +26,14 @@ export const DEVELOP_AREA_FOLLOWUP_VERSION = 1 as const;
 // AI 에 맡기지 않는 질문 — 범위(분야 판정·4스텝 생략) · 권리 확인(필수·관리자 신호) · 필요 작업(조건부 질문의 근거).
 // 위저드는 AI 가 도는 동안 이 질문을 먼저 보여 준다. (develop-areas.ts 를 물지 않으려고 코드를 그대로 적는다.)
 export const DEVELOP_AREA_FOLLOWUP_LOCKED: readonly string[] = ['appserver.scope', 'reverse.rights', 'reverse.work'];
+// AI 맞춤 질문을 쓰지 않는 분야 — PCB 설계는 고정 질문이다(설계 자료를 2스텝에서 항목마다 받는다, 사용자 결정 2026-11-02).
+// 위저드는 이 분야를 빼고 잡을 부르고(남는 분야가 없으면 안 부른다), 서버도 실행·등록에서 이 분야를 버린다.
+export const DEVELOP_AREA_FOLLOWUP_FIXED_AREAS: readonly string[] = ['pcb'];
+export const developAreaFollowupAreas = (areas: readonly string[]): string[] =>
+  areas.filter((c) => !DEVELOP_AREA_FOLLOWUP_FIXED_AREAS.includes(c));
+// 고정 분야의 기본 질문인가(코드 접두로 — 공유 문항 hw.·appserver. 은 고정 분야에 없다).
+export const isDevelopAreaFollowupFixedQuestion = (code: string): boolean =>
+  DEVELOP_AREA_FOLLOWUP_FIXED_AREAS.some((a) => code.startsWith(`${a}.`));
 // 원래 선택지에 없는 선택지(maps null)의 위저드 상태 표기 — 레지스트리 코드와 섞이지 않게 접두를 붙여 둔다. 저장 땐 'other' + 메모.
 export const DEVELOP_AREA_CUSTOM_PREFIX = '~';
 
