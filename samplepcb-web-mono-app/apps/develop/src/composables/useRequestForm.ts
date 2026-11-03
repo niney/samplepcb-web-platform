@@ -7,6 +7,8 @@ import {
   DEVELOP_CIRCUIT_PCB_YES,
   DEVELOP_CURRENT_STAGES,
   DEVELOP_DELIVERY_FORMS,
+  DEVELOP_FAB_EXTRA_WORKS,
+  DEVELOP_FAB_PURPOSES,
   DEVELOP_INDIVIDUAL_AREA_CODES,
   DEVELOP_MENU_CARDS,
   DEVELOP_NO_PRODUCTION,
@@ -58,6 +60,8 @@ import type {
   DevelopContactType,
   DevelopCurrentStageType,
   DevelopDeliveryFormType,
+  DevelopFabExtraWorkType,
+  DevelopFabPurposeType,
   DevelopFollowupAnswerType,
   DevelopFollowupAnswersInputType,
   DevelopFollowupQuestionType,
@@ -86,6 +90,7 @@ import type { QuestionState } from '@sp/ui';
 //                 ('앱 및 서버'는 첫 문항 범위 답대로 앱·서버 질문이 나온다) — AI 맞춤 질문(§7.2.4)이 켜져 있으면 자료에 답이
 //                 있는 질문은 채워 두고, 나머지는 의뢰에 맞게 고쳐 묻고, 꼭 필요한 새 질문을 더한다
 //   ④ 제작 계획   시제품 수량·제작 범위·연간 수량(+범위가 있으면 조달·납품 형태) — 펌웨어·앱·서버만이면 스텝째 건너뛴다
+//                 PCB 설계만이면 'PCB 제작 · 부품 구매 · SMT 조립'(서비스 칩·PCB/SMT 수량·제조 목적·일정·조달·추가 작업·사전 견적, 2026-11-03)
 //   ⑤ 검토·접수  연락처 + 요약 + 비밀유지(NDA)
 // 분야·질문·라벨의 정본은 개발의뢰 레지스트리(DEVELOP_REGISTRY)라 이 파일에 분야 코드나
 // 한글 라벨을 박지 않는다. 마켓 사전(MARKET_*)은 다른 상품이라 여기서 쓰지 않는다.
@@ -94,6 +99,8 @@ import type { QuestionState } from '@sp/ui';
 export type StepKey = 'menu' | 'describe' | 'questions' | 'production' | 'review';
 
 // 시제품 수량은 "아직 안 골랐다"(null)가 있어야 4스텝 필수 검증이 산다 — 저장 직전 계약 모양으로 정규화한다.
+// pcbQty ~ preQuote 는 PCB 설계만 의뢰의 4스텝('PCB 제작 · 부품 구매 · SMT 조립') 칸이다. 거기선 prototype 이 서비스 칩의
+// 상태를 겸한다(null = 아직 안 고름 · none = 필요 없음(설계만) · undecided = 서비스를 하나라도 고름).
 export interface DevelopProductionFields {
   prototype: DevelopPrototypeModeType | null;
   prototypeQty: number | null;
@@ -102,6 +109,13 @@ export interface DevelopProductionFields {
   priority: DevelopPriorityType | null;
   sourcing: DevelopSourcingModeType | null;
   delivery: DevelopDeliveryFormType | null;
+  pcbQty: number | null;
+  smtQty: number | null;
+  purpose: DevelopFabPurposeType | null;
+  fabWishDate: string; // '' | YYYY-MM-DD
+  extraWork: DevelopFabExtraWorkType[];
+  extraWorkNote: string;
+  preQuote: boolean;
 }
 
 export interface DevelopFormFields {
@@ -146,6 +160,13 @@ const emptyProduction = (): DevelopProductionFields => ({
   priority: EMPTY_DEVELOP_PRODUCTION.priority,
   sourcing: EMPTY_DEVELOP_PRODUCTION.sourcing,
   delivery: EMPTY_DEVELOP_PRODUCTION.delivery,
+  pcbQty: null,
+  smtQty: null,
+  purpose: null,
+  fabWishDate: '',
+  extraWork: [],
+  extraWorkNote: '',
+  preQuote: false,
 });
 
 // ── localStorage 파싱 — 남의 손을 탄 문자열이라 타입을 믿지 않고 좁힌다 ──────────────
@@ -566,18 +587,29 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       return [{ code: q.code, choices: answer.choices, ...(note !== '' ? { note } : {}) }];
     });
   }
+  // PCB 설계만이면 4스텝 모양이 다르다(서비스 칩) — 서버와 같은 정규화로 그 모양의 칸만 남긴다.
   function buildProduction(): DevelopProductionPlanType {
     if (!needsProduction.value) return DEVELOP_NO_PRODUCTION; // 4스텝을 건너뛴 의뢰 — 서버도 같은 값으로 저장한다
     const p = fields.production;
-    return normalizeDevelopProduction({
-      prototype: p.prototype ?? 'undecided', // 4스텝 게이트가 null 을 막는다 — 타입 방어
-      prototypeQty: p.prototypeQty,
-      scopes: [...p.scopes],
-      annualQty: p.annualQty,
-      priority: p.priority,
-      sourcing: p.sourcing,
-      delivery: p.delivery,
-    });
+    return normalizeDevelopProduction(
+      {
+        prototype: p.prototype ?? 'undecided', // 4스텝 게이트가 null 을 막는다 — 타입 방어
+        prototypeQty: p.prototypeQty,
+        scopes: [...p.scopes],
+        annualQty: p.annualQty,
+        priority: p.priority,
+        sourcing: p.sourcing,
+        delivery: p.delivery,
+        pcbQty: p.pcbQty,
+        smtQty: p.smtQty,
+        purpose: p.purpose,
+        fabWishDate: p.fabWishDate === '' ? null : p.fabWishDate,
+        extraWork: [...p.extraWork],
+        extraWorkNote: p.extraWorkNote.trim() === '' ? null : p.extraWorkNote.trim(),
+        preQuote: p.preQuote,
+      },
+      pcbMaterials.value,
+    );
   }
   function buildContact(): DevelopContactType {
     return {
@@ -727,7 +759,9 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       return noteMissingCodes.value.length === 0 ? '' : '선택하신 항목에 내용을 적어 주세요.';
     }
     if (key === 'production') {
-      if (fields.production.prototype === null) return '시제품 제작 수량을 선택해 주세요.';
+      if (fields.production.prototype === null) {
+        return pcbMaterials.value ? 'PCB 제작·부품 구매·SMT 조립 중 필요한 서비스를 선택해 주세요.' : '시제품 제작 수량을 선택해 주세요.';
+      }
       if (fields.production.prototype === 'count' && fields.production.prototypeQty === null) return '시제품 수량을 입력해 주세요.';
       return '';
     }
@@ -784,6 +818,13 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     p.priority = next.priority;
     p.sourcing = next.sourcing;
     p.delivery = next.delivery;
+    p.pcbQty = next.pcbQty;
+    p.smtQty = next.smtQty;
+    p.purpose = next.purpose;
+    p.fabWishDate = next.fabWishDate;
+    p.extraWork = [...next.extraWork];
+    p.extraWorkNote = next.extraWorkNote;
+    p.preQuote = next.preQuote;
   }
 
   function resetQuestions(): void {
@@ -820,6 +861,13 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
           priority: plan.priority,
           sourcing: plan.sourcing,
           delivery: plan.delivery,
+          pcbQty: plan.pcbQty,
+          smtQty: plan.smtQty,
+          purpose: plan.purpose,
+          fabWishDate: plan.fabWishDate ?? '',
+          extraWork: [...plan.extraWork],
+          extraWorkNote: plan.extraWorkNote ?? '',
+          preQuote: plan.preQuote,
         },
     );
     contactPrefillApplied = true;
@@ -931,7 +979,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
         wishNote: fields.wishNote,
         budgetRange: fields.budgetRange,
         expertDelegate: fields.expertDelegate,
-        production: { ...fields.production, scopes: [...fields.production.scopes] },
+        production: { ...fields.production, scopes: [...fields.production.scopes], extraWork: [...fields.production.extraWork] },
         ndaWanted: fields.ndaWanted,
         aiConsent: fields.aiConsent,
       },
@@ -1012,6 +1060,16 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       priority: asMember(p.priority, DEVELOP_PRIORITIES),
       sourcing: asMember(p.sourcing, DEVELOP_SOURCING_MODES),
       delivery: asMember(p.delivery, DEVELOP_DELIVERY_FORMS),
+      pcbQty: asIntOrNull(p.pcbQty),
+      smtQty: asIntOrNull(p.smtQty),
+      purpose: asMember(p.purpose, DEVELOP_FAB_PURPOSES),
+      fabWishDate: asString(p.fabWishDate),
+      extraWork: asStringList(p.extraWork).flatMap((code) => {
+        const hit = asMember(code, DEVELOP_FAB_EXTRA_WORKS);
+        return hit === null ? [] : [hit];
+      }),
+      extraWorkNote: asString(p.extraWorkNote),
+      preQuote: asBool(p.preQuote, false),
     });
     const c = asRecord(obj.contact);
     // 복원된 빈칸도 고객이 저장한 값이다. 진행 중인 회원정보 조회보다 우선한다.

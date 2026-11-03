@@ -28,6 +28,7 @@ import {
   developMergedIssues,
   developNeedsProduction,
   developNeedsStages,
+  developPcbMaterialsMode,
   developQuestionsFor,
   developRequiredMissing,
   fileViewKind,
@@ -84,6 +85,7 @@ import {
   toDevelopContact,
   toDevelopEventView,
   toDevelopFileMeta,
+  toDevelopProduction,
   transitionDevelopStatus,
 } from '../lib/develop';
 import { startDevelopAiDrafts } from '../lib/develop-ai';
@@ -480,7 +482,10 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
           wishDate: payload.wishDate,
           wishNote: payload.wishNote === '' ? null : payload.wishNote,
           expertDelegate,
-          production: developNeedsProduction(serviceAreas) ? normalizeDevelopProduction(payload.production) : DEVELOP_NO_PRODUCTION,
+          // PCB 설계만이면 4스텝이 'PCB 제작 · 부품 구매 · SMT 조립' 모양이다(그 칸만 남기고 정리).
+          production: developNeedsProduction(serviceAreas)
+            ? normalizeDevelopProduction(payload.production, developPcbMaterialsMode(payload.requestMode, serviceAreas))
+            : DEVELOP_NO_PRODUCTION,
           aiQuestions: aiQuestions ?? Prisma.DbNull,
           contactName: payload.contact.name,
           contactCompany: payload.contact.company,
@@ -672,8 +677,14 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       if (b.expertDelegate !== undefined && expertDelegate !== r.expertDelegate) { data.expertDelegate = expertDelegate; changed.push('expertDelegate'); }
       // 펌웨어·앱·서버만인 의뢰는 제작 계획을 묻지 않는다 — 시제품 제작 없음으로 저장한다.
       const needsProduction = developNeedsProduction(areas);
-      if (b.production !== undefined) { data.production = needsProduction ? normalizeDevelopProduction(b.production) : DEVELOP_NO_PRODUCTION; changed.push('production'); }
+      // PCB 설계만이면 4스텝이 'PCB 제작 · 부품 구매 · SMT 조립' 모양 — 분야가 바뀌어 모양이 갈리면 저장분도 그 모양으로 정리한다.
+      const pcbFab = developPcbMaterialsMode(mode, areas);
+      if (b.production !== undefined) { data.production = needsProduction ? normalizeDevelopProduction(b.production, pcbFab) : DEVELOP_NO_PRODUCTION; changed.push('production'); }
       else if (areasChanged && !needsProduction) { data.production = DEVELOP_NO_PRODUCTION; }
+      else if (areasChanged) {
+        const stored = toDevelopProduction(r.production);
+        if (stored !== null) data.production = normalizeDevelopProduction(stored, pcbFab);
+      }
       // AI 질문 저장분 — 시스템개발 후속 질문(§7.2.2, area 메타 없음)·개별 메뉴 맞춤 질문(§7.2.4, area 메타 있음) 둘 다 질문은 불변, 답만 갱신.
       // 맡김으로 바꾸거나 저장분과 다른 메뉴 종류로 바꾸면 통째로 비운다. 맞춤 질문은 코드 답이 바뀌면 'AI 가 채움 그대로' 표시를 다시 계산한다.
       const storedAi = toDevelopAiQuestions(r.aiQuestions);

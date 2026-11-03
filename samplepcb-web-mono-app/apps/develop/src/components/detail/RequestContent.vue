@@ -10,6 +10,7 @@ import {
   DEVELOP_TARGET_STAGE_LABELS,
   developAreaBadge,
   developFollowupAnswerText,
+  developPcbMaterialsMode,
   developProductionSummary,
   developWishLabel,
   isDevelopFollowupAnswered,
@@ -49,13 +50,15 @@ const wishLabel = computed(() => {
   return label === '' ? '—' : label;
 });
 const production = computed(() => props.detail.production);
+// PCB 설계만이면 4스텝이 'PCB 제작 · 부품 구매 · SMT 조립'(2026-11-03) — 요약·제목·부품 공급 방식 라벨을 그 모양으로.
+const pcbFab = computed(() => developPcbMaterialsMode(props.detail.requestMode, props.detail.serviceAreas));
 const productionRows = computed(() => {
   const p = production.value;
   if (p === null) return [];
   return [
-    { label: '계획', value: developProductionSummary(p) },
+    { label: '계획', value: developProductionSummary(p, pcbFab.value) },
     { label: '우선순위', value: p.priority === null ? '' : DEVELOP_PRIORITY_LABELS[p.priority] },
-    { label: '자재 조달', value: p.sourcing === null ? '' : DEVELOP_SOURCING_MODE_LABELS[p.sourcing] },
+    { label: pcbFab.value ? '부품 공급' : '자재 조달', value: p.sourcing === null ? '' : DEVELOP_SOURCING_MODE_LABELS[p.sourcing] },
     { label: '납품 형태', value: p.delivery === null ? '' : DEVELOP_DELIVERY_FORM_LABELS[p.delivery] },
   ].filter((r) => r.value !== '');
 });
@@ -118,7 +121,7 @@ const contactRows = computed(() => {
 
     <!-- 시제품·제조 -->
     <div v-if="productionRows.length > 0" class="flex flex-col gap-[16px]">
-      <h3 class="text-[18px] font-medium leading-[1.3] text-black">시제품·제조</h3>
+      <h3 class="text-[18px] font-medium leading-[1.3] text-black">{{ pcbFab ? 'PCB 제작·조립' : '시제품·제조' }}</h3>
       <dl class="flex flex-col gap-[10px] rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px] leading-[1.8]">
         <div v-for="row in productionRows" :key="row.label" class="flex items-start gap-[14px]">
           <dt class="w-[100px] shrink-0 text-[15px] font-semibold text-black [overflow-wrap:anywhere]">{{ row.label }}</dt>

@@ -15,7 +15,7 @@ import StepProduction from '../components/request/StepProduction.vue';
 import StepReview from '../components/request/StepReview.vue';
 import AppBar from '../components/layout/AppBar.vue';
 import WizardStepper from '../components/request/WizardStepper.vue';
-import { INDIVIDUAL_QUESTIONS_COPY, STEP_COPY } from '../lib/wizard-copy';
+import { INDIVIDUAL_QUESTIONS_COPY, PCB_PRODUCTION_COPY, STEP_COPY } from '../lib/wizard-copy';
 import arrowNext from '../assets/wizard/arrow-next.svg';
 import stepDone from '../assets/wizard/step-done.svg';
 import lockIcon from '../assets/wizard/lock.png';
@@ -99,8 +99,12 @@ const draftSavedDateLabel = computed(() => {
   return `${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 });
 
-// 스텝 문구 — 3스텝은 시스템 개발/개별 견적에 따라 제목이 다르다. 완료·비로그인은 바 안내만 바꾼다.
-const copy = computed(() => (currentStep.value === 'questions' && !form.isSystem.value ? INDIVIDUAL_QUESTIONS_COPY : STEP_COPY[currentStep.value]));
+// 스텝 문구 — 3스텝은 시스템 개발/개별 견적에 따라, 4스텝은 PCB 설계만이면 제목이 다르다. 완료·비로그인은 바 안내만 바꾼다.
+const copy = computed(() => {
+  if (currentStep.value === 'questions' && !form.isSystem.value) return INDIVIDUAL_QUESTIONS_COPY;
+  if (currentStep.value === 'production' && form.pcbMaterials.value) return PCB_PRODUCTION_COPY;
+  return STEP_COPY[currentStep.value];
+});
 const stepLabels = computed(() => steps.value.map((s) => s.label));
 const barTitle = computed(() => {
   if (!loggedIn.value) return '개발 의뢰';

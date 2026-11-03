@@ -13,6 +13,7 @@ import {
   developAnswerText,
   developAreaLabel,
   developFollowupAnswerText,
+  developPcbMaterialsMode,
   developProductionSummary,
   developQuestionsFor,
   developSlotLabel,
@@ -107,7 +108,9 @@ const stageLabel = computed(() => {
 const wishLabel = computed(() => developWishLabel(props.detail.wishDate, props.detail.wishNote));
 
 // 시제품·생산 계획 — 요약 한 줄(계약 함수)과 우선순위·조달·납품 행. 제작 범위가 없으면 조달·납품은 null 이다.
-const productionSummary = computed(() => developProductionSummary(props.detail.production));
+// PCB 설계만이면 4스텝이 'PCB 제작 · 부품 구매 · SMT 조립'이라 요약도 그 모양으로 읽고, 사전 견적 요청은 배지로 띄운다(2026-11-03).
+const pcbFab = computed(() => developPcbMaterialsMode(props.detail.requestMode, props.detail.serviceAreas));
+const productionSummary = computed(() => developProductionSummary(props.detail.production, pcbFab.value));
 const productionRows = computed(() => {
   const p = props.detail.production;
   if (p === null) return [];
@@ -170,9 +173,12 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
     <!-- 시제품·생산 계획(4스텝) — 당사 PCB/BOM 트랙과 직결돼 견적 '별도 실비'의 근거가 된다. -->
     <div class="mt-4">
       <p class="flex flex-wrap items-center gap-2 text-sm font-bold text-gray-500">
-        {{ t('admin.develop.content.production') }}
+        {{ pcbFab ? t('admin.develop.content.productionPcb') : t('admin.develop.content.production') }}
         <span v-if="expertDelegate" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">
           {{ t('admin.develop.content.expertDelegate') }}
+        </span>
+        <span v-if="detail.production?.preQuote === true" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+          {{ t('admin.develop.content.preQuote') }}
         </span>
       </p>
       <p v-if="detail.production === null" class="mt-1.5 text-sm text-gray-400">{{ t('admin.develop.content.productionNone') }}</p>

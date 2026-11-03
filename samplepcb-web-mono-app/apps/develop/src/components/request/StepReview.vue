@@ -35,6 +35,7 @@ const {
   buildProduction,
   needsStages,
   needsProduction,
+  pcbMaterials,
   goToStep,
 } = props.form;
 
@@ -50,12 +51,13 @@ const stageLabel = computed(() =>
     ? '미선택'
     : `${DEVELOP_CURRENT_STAGE_LABELS[fields.currentStage]} → ${DEVELOP_TARGET_STAGE_LABELS[fields.targetStage]}`,
 );
+// 저장될 모양(정규화한 값)으로 읽는다 — PCB 설계만이면 'PCB 제작 · 부품 구매 · SMT 조립' 요약과 부품 공급 방식.
 const productionRows = computed(() => {
-  const p = fields.production;
+  const p = buildProduction();
   return [
-    { label: '계획', value: developProductionSummary(buildProduction()) },
+    { label: '계획', value: developProductionSummary(p, pcbMaterials.value) },
     { label: '우선순위', value: p.priority === null ? '' : DEVELOP_PRIORITY_LABELS[p.priority] },
-    { label: '자재 조달', value: p.sourcing === null ? '' : DEVELOP_SOURCING_MODE_LABELS[p.sourcing] },
+    { label: pcbMaterials.value ? '부품 공급' : '자재 조달', value: p.sourcing === null ? '' : DEVELOP_SOURCING_MODE_LABELS[p.sourcing] },
     { label: '납품 형태', value: p.delivery === null ? '' : DEVELOP_DELIVERY_FORM_LABELS[p.delivery] },
   ].filter((r) => r.value !== '');
 });
@@ -168,7 +170,7 @@ const edit = (key: StepKey): void => {
         <!-- 시제품 · 제조 — 펌웨어·앱·서버만이면 4스텝이 없어 블록째 뺀다 -->
         <div v-if="needsProduction" class="flex flex-col gap-[20px]">
           <div :class="BLOCK_HEAD">
-            <p :class="BLOCK_TITLE">시제품·제조</p>
+            <p :class="BLOCK_TITLE">{{ pcbMaterials ? 'PCB 제작·조립' : '시제품·제조' }}</p>
             <button type="button" class="flex h-[34px] w-[84px] shrink-0 items-center justify-center gap-[4px] rounded-[6px] bg-[#f0f4fa] text-[14px] text-[#0a151e] hover:bg-[#e2e8f2]" @click="edit('production')">
               <img :src="icoEdit" alt="" width="14" height="14" class="block size-[14px]">수정하기
             </button>

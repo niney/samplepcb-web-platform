@@ -13,6 +13,7 @@ import {
   developAnswerText,
   developAreaLabel,
   developFollowupAnswerText,
+  developPcbMaterialsMode,
   developProductionSummary,
   developQuestionsFor,
   developSlotLabel,
@@ -112,7 +113,9 @@ const stageLabel = computed(() => {
 const wishLabel = computed(() => developWishLabel(props.detail.wishDate, props.detail.wishNote));
 
 // 시제품·생산 계획 — 요약 한 줄(계약 함수)과 우선순위·조달·납품 행. 제작 범위가 없으면 조달·납품은 null 이다.
-const productionSummary = computed(() => developProductionSummary(props.detail.production));
+// PCB 설계만이면 4스텝이 'PCB 제작 · 부품 구매 · SMT 조립'이라 요약도 그 모양으로 읽고, 사전 견적 요청은 배지로 띄운다(2026-11-03).
+const pcbFab = computed(() => developPcbMaterialsMode(props.detail.requestMode, props.detail.serviceAreas));
+const productionSummary = computed(() => developProductionSummary(props.detail.production, pcbFab.value));
 const productionRows = computed(() => {
   const p = props.detail.production;
   if (p === null) return [];
@@ -169,8 +172,9 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
       <!-- 시제품·생산 계획(4스텝) — 당사 PCB/BOM 트랙과 직결돼 견적 '별도 실비'의 근거가 된다. -->
       <div class="grid gap-1.5">
         <p class="text-muted-foreground flex flex-wrap items-center gap-2 text-sm font-semibold">
-          {{ t('admin.develop.content.production') }}
+          {{ pcbFab ? t('admin.develop.content.productionPcb') : t('admin.develop.content.production') }}
           <Badge v-if="expertDelegate" variant="warning">{{ t('admin.develop.content.expertDelegate') }}</Badge>
+          <Badge v-if="props.detail.production?.preQuote === true" variant="warning">{{ t('admin.develop.content.preQuote') }}</Badge>
         </p>
         <p v-if="props.detail.production === null" class="text-muted-foreground text-sm">
           {{ t('admin.develop.content.productionNone') }}

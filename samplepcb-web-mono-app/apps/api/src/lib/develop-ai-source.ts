@@ -9,6 +9,7 @@ import {
   DEVELOP_TARGET_STAGE_LABELS,
   MARKET_ATTACHMENT_FIELD,
   developFollowupAnswerText,
+  developPcbMaterialsMode,
   developProductionSummary,
   developWishCode,
   developWishLabel,
@@ -83,7 +84,9 @@ export function developConditionLines(r: SourceColumns): string[] {
   if (wish !== '') lines.push(`- 희망 완료 시기 → ${wish}`);
   const production = toDevelopProduction(r.production);
   if (production !== null) {
-    lines.push(`- 시제품·생산 계획 → ${developProductionSummary(production)}`);
+    // PCB 설계만이면 4스텝이 'PCB 제작 · 부품 구매 · SMT 조립'(사전 견적 요청 포함, 2026-11-03).
+    const pcbFab = developPcbMaterialsMode(asDevelopRequestMode(r.requestMode), toDevelopAreaCodes(r.serviceAreas));
+    lines.push(`- ${pcbFab ? 'PCB 제작·부품 구매·SMT 조립' : '시제품·생산 계획'} → ${developProductionSummary(production, pcbFab)}`);
     if (production.priority !== null) lines.push(`- 가장 중요한 우선순위 → ${DEVELOP_PRIORITY_LABELS[production.priority]}`);
     if (production.sourcing !== null) lines.push(`- 자재 조달 방식 → ${DEVELOP_SOURCING_MODE_LABELS[production.sourcing]}`);
     if (production.delivery !== null) lines.push(`- 납품 형태 → ${DEVELOP_DELIVERY_FORM_LABELS[production.delivery]}`);

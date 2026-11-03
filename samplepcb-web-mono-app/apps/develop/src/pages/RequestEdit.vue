@@ -18,7 +18,7 @@ import AppBar from '../components/layout/AppBar.vue';
 import ContactFields from '../components/request/ContactFields.vue';
 import WizCheck from '../components/request/WizCheck.vue';
 import WizDropZone from '../components/request/WizDropZone.vue';
-import { INDIVIDUAL_QUESTIONS_COPY, STEP_COPY } from '../lib/wizard-copy';
+import { INDIVIDUAL_QUESTIONS_COPY, PCB_PRODUCTION_COPY, STEP_COPY } from '../lib/wizard-copy';
 import StepDescribe from '../components/request/StepDescribe.vue';
 import StepMenu from '../components/request/StepMenu.vue';
 import StepProduction from '../components/request/StepProduction.vue';
@@ -300,7 +300,7 @@ const EDIT_TITLE = 'text-[22px] font-bold leading-[1.3] text-black sm:text-[26px
         </section>
         <!-- 펌웨어·앱·서버만이면 제작 계획을 묻지 않는다(위저드 4스텝과 같은 규칙) -->
         <section v-if="needsProduction" :class="EDIT_CARD">
-          <h2 :class="EDIT_TITLE">{{ STEP_COPY.production.title }}</h2>
+          <h2 :class="EDIT_TITLE">{{ form.pcbMaterials.value ? PCB_PRODUCTION_COPY.title : STEP_COPY.production.title }}</h2>
           <StepProduction :form="form" />
         </section>
 

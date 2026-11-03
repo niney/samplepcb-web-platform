@@ -5,6 +5,7 @@
 //   ③ 개별 메뉴(펌웨어+앱 및 서버 → 서버만) → 제작 계획 건너뜀 → 접수 → 분야 = 펌웨어·서버, 시제품 제작 없음
 //   ④ 개별 메뉴(회로) → 기타는 칩 옆 입력칸·직접 입력은 수량 칸(디자인 체크리스트 4번) → 기타 + 메모 저장 · 수정 화면에 되돌림
 //   ⑤ 개별 메뉴(PCB 설계만, 2026-11-02 §7.2.6) → 2스텝 설계 자료(항목마다 첨부·회로도·BOM 필수)·단계 없음 → 분야별 첨부로 저장
+//      + 4스텝 'PCB 제작 · 부품 구매 · SMT 조립'(2026-11-03 §7.2.8 — 서비스 칩·수량 따로·제조 목적·부품 공급·추가 작업·사전 견적)
 //   ⑥ 개별 메뉴(회로 설계만, 2026-11-03 §7.2.7) → 3스텝 'PCB 설계도 필요한가요?' 필수 → 필요함이면 PCB 묶음(회로도·BOM 없이) → 회로·PCB 로 저장
 // 실 LLM 경로 둘(FOLLOWUP_LLM=1): 시스템개발 AI 후속 질문 · 개별 메뉴 AI 맞춤 질문(§7.2.4). 그 밖의 여정은 두 유스케이스를 꺼 둔다.
 // 만든 의뢰는 afterAll 이 지운다(공유 DB — 스스로 만들고 스스로 지운다). pageErrors 0 이 게이트.
@@ -37,7 +38,19 @@ interface DetailLite {
   serviceAreas: string[];
   expertDelegate: boolean;
   answers: { code: string; choices: string[]; note?: string }[];
-  production: { prototype: string; prototypeQty: number | null; scopes: string[] } | null;
+  production: {
+    prototype: string;
+    prototypeQty: number | null;
+    scopes: string[];
+    annualQty: number | null;
+    sourcing: string | null;
+    delivery: string | null;
+    pcbQty: number | null;
+    smtQty: number | null;
+    purpose: string | null;
+    extraWork: string[];
+    preQuote: boolean;
+  } | null;
   currentStage: string | null;
   targetStage: string | null;
   wishNote: string | null;
@@ -421,12 +434,30 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.getByText('PCB 층수와 종류가 정해져 있나요?').waitFor();
       expect(await s.page.getByText('회로도가 있나요?').count()).toBe(0);
       await next(s);
-      await s.page.getByText('제작 없음', { exact: true }).click();
+      // ④ 'PCB 제작 · 부품 구매 · SMT 조립'(2026-11-03 §7.2.8) — 서비스 칩이 필수, 고른 서비스대로 수량(따로)·제조 목적·부품 공급·
+      // 추가 작업이 열리고 설계만이 아니면 사전 견적. 시제품 수량 질문은 없다.
+      await s.page.getByRole('heading', { name: 'PCB 제작 · 부품 구매 · SMT 조립' }).waitFor();
+      expect(await s.page.getByText('개발 과정에서 시제품을 몇 개 제작해야 하나요?').count()).toBe(0);
       await next(s);
-      // ⑤ 요약 — 설계 자료는 종류를 앞에 붙여 보이고, 개발 단계 행은 없다.
+      await s.page.getByText('PCB 제작·부품 구매·SMT 조립 중 필요한 서비스를 선택해 주세요.').waitFor();
+      expect(await s.page.getByText('설계와 제작 견적을 함께 미리 받고 싶어요').count()).toBe(0);
+      await s.page.getByRole('button', { name: 'PCB 제작', exact: true }).click();
+      await s.page.getByRole('button', { name: 'SMT 조립', exact: true }).click();
+      await s.page.getByPlaceholder('예) 10', { exact: true }).fill('10');
+      await s.page.getByPlaceholder('예) 5', { exact: true }).fill('5');
+      await s.page.getByRole('button', { name: '양산', exact: true }).click();
+      await s.page.getByLabel('예상 연간 생산수량').fill('3000');
+      await s.page.getByRole('button', { name: '일부 고객 지급', exact: true }).click();
+      await s.page.getByRole('button', { name: '수삽', exact: true }).click();
+      await s.page.getByRole('button', { name: '검사', exact: true }).click();
+      await s.page.getByText('설계와 제작 견적을 함께 미리 받고 싶어요').click();
+      await shot('develop-pcb-fab');
+      await next(s);
+      // ⑤ 요약 — 설계 자료는 종류를 앞에 붙여 보이고, 개발 단계 행은 없다. 제작은 'PCB 제작·조립' 한 줄.
       await s.page.getByText('입력 내용을 확인해 주세요').waitFor();
       expect(await s.page.getByText('[회로도] board.SchDoc', { exact: false }).count()).toBe(1);
       expect(await s.page.getByText('개발 단계', { exact: true }).count()).toBe(0);
+      expect(await s.page.getByText('PCB 제작 10개 · SMT 조립 5보드(수삽·검사) · 양산(연간 3,000개) · 사전 견적 요청').count()).toBe(1);
       await fillReviewAndSubmit(s);
 
       const d = await findByTitle(titles.pcb);
@@ -436,6 +467,10 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(d.budgetRange).toBe('r100_300');
       expect(d.answers.find((a) => a.code === 'pcb.original')).toEqual({ code: 'pcb.original', choices: ['gerber'] });
       expect(d.answers.find((a) => a.code === 'pcb.size')).toEqual({ code: 'pcb.size', choices: ['fixed'], note: '100×80mm, M3 고정홀 4개' });
+      expect(d.production).toMatchObject({
+        prototype: 'undecided', prototypeQty: null, scopes: ['pcb_fab', 'smt'], pcbQty: 10, smtQty: 5, purpose: 'mass', annualQty: 3000,
+        sourcing: 'partial_customer', delivery: null, extraWork: ['tht', 'inspection'], preQuote: true,
+      });
       expect(d.files.map((f) => `${f.area ?? ''}:${f.slot ?? ''}:${f.name}`).sort()).toEqual([
         '::datasheet.txt', 'pcb:bom:bom.csv', 'pcb:gerber:old-gerber.zip', 'pcb:schematic:board.SchDoc',
       ]);
@@ -446,6 +481,9 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(await s.page.getByRole('button', { name: 'Gerber만 있음', exact: true }).getAttribute('aria-pressed')).toBe('true');
       expect(await s.page.getByText('PCB 설계 파일·거버', { exact: true }).count()).toBe(1);
       expect(await s.page.getByLabel('회로도 파일 첨부').count()).toBe(0);
+      // 4스텝 칸도 그대로 되돌린다.
+      expect(await s.page.getByRole('button', { name: 'SMT 조립', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      expect(await s.page.getByLabel('설계와 제작 견적을 함께 미리 받고 싶어요').isChecked()).toBe(true);
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();
@@ -702,6 +740,9 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(await row.getByText('개별 견적').count()).toBeGreaterThan(0);
       expect(await row.getByText('회로 + 펌웨어 + 역설계').count()).toBeGreaterThan(0);
       expect(await row.getByText('권리 확인 필요').count()).toBe(0); // 자사 제품 — 신호 없음
+      // PCB 설계만 여정(⑤)은 사전 견적을 요청했다 — 워크큐 배지(2026-11-03).
+      expect(await s.page.locator('tr', { hasText: titles.pcb }).getByText('사전 견적 요청').count()).toBeGreaterThan(0);
+      expect(await row.getByText('사전 견적 요청').count()).toBe(0);
 
       await s.page.goto(`${web}/app/admin/develop/requests/${String(sys.requestId)}`);
       await s.page.getByText('시제품·생산 계획').first().waitFor({ timeout: 20_000 });

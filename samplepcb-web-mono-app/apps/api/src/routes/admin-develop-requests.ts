@@ -50,6 +50,7 @@ import {
   toDevelopContact,
   toDevelopEventView,
   toDevelopFileMeta,
+  toDevelopProduction,
   transitionDevelopStatus,
 } from '../lib/develop';
 import { developReviewDraftRunning, startDevelopAiDrafts } from '../lib/develop-ai';
@@ -151,6 +152,7 @@ const toItem = async (
     assigneeMbId: r.assigneeMbId,
     aiConsent: r.aiConsent,
     rightsCheck: developReverseRightsCheckNeeded(toAnswers(r.answers)),
+    preQuote: toDevelopProduction(r.production)?.preQuote === true,
     ai: await aiSummaryOf(r, files),
     quoteCount: quotes.length,
     latestQuote:

@@ -84,6 +84,10 @@ export const DEVELOP_TARGET_STAGE_LABELS = {
   first_production: '초도 생산',
 } as const satisfies Record<DevelopTargetStageType, string>;
 
+// 희망 완료 시기 — 날짜(YYYY-MM-DD) **또는** 자유문("계약 후 3개월") 중 하나 이상. (제작 계획의 희망 제조 일정도 같은 날짜 형식)
+export const DEVELOP_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const DevelopWishDate = z.string().regex(DEVELOP_DATE_RE, 'YYYY-MM-DD');
+
 // 시제품·생산 계획(4스텝) — 당사 PCB/BOM 트랙과 직결되는 정보라 견적서 '별도 실비' 의 근거가 된다.
 export const DEVELOP_PROTOTYPE_MODES = ['none', 'undecided', 'count'] as const;
 export type DevelopPrototypeModeType = (typeof DEVELOP_PROTOTYPE_MODES)[number];
@@ -139,7 +143,40 @@ export const DEVELOP_DELIVERY_FORM_LABELS = {
   negotiate: '협의 필요',
 } as const satisfies Record<DevelopDeliveryFormType, string>;
 
+// ── PCB 설계만 의뢰의 4스텝 = 'PCB 제작 · 부품 구매 · SMT 조립'(2026-11-03, 의뢰서 시안 'PCB 설계 의뢰서' 04, 사용자 결정) ──
+// 저장은 같은 제작 계획(JSON)이다 — 서비스 = 제작 범위 코드(PCB 제작·부품 구매·SMT 조립, '아직 결정하지 않음' = 범위 협의),
+// '필요 없음(설계만)' = 시제품 제작 없음. 수량은 PCB·SMT 를 따로 받고(시제품 수량은 비운다) 제조 목적이 양산이면 연간
+// 생산수량, 납품 형태는 묻지 않는다(고른 서비스로 정해진다). 사전 견적 = 설계와 제작 견적을 함께 미리 받고 싶다는 요청.
+export const DEVELOP_PCB_FAB_SERVICES = ['pcb_fab', 'parts', 'smt'] as const satisfies readonly DevelopProductionScopeType[];
+export const DEVELOP_PCB_FAB_SERVICE_LABELS = {
+  pcb_fab: 'PCB 제작',
+  parts: '부품 구매',
+  smt: 'SMT 조립',
+} as const satisfies Record<(typeof DEVELOP_PCB_FAB_SERVICES)[number], string>;
+export const DEVELOP_FAB_PURPOSES = ['prototype', 'mass', 'undecided'] as const;
+export type DevelopFabPurposeType = (typeof DEVELOP_FAB_PURPOSES)[number];
+export const DevelopFabPurpose = z.enum(DEVELOP_FAB_PURPOSES);
+export const DEVELOP_FAB_PURPOSE_LABELS = {
+  prototype: '시제품',
+  mass: '양산',
+  undecided: '미정',
+} as const satisfies Record<DevelopFabPurposeType, string>;
+// SMT 조립을 고르면 묻는 추가 작업 — 없음은 혼자만 고른다.
+export const DEVELOP_FAB_EXTRA_WORKS = ['tht', 'inspection', 'programming', 'cleaning', 'packing', 'other', 'none'] as const;
+export type DevelopFabExtraWorkType = (typeof DEVELOP_FAB_EXTRA_WORKS)[number];
+export const DevelopFabExtraWork = z.enum(DEVELOP_FAB_EXTRA_WORKS);
+export const DEVELOP_FAB_EXTRA_WORK_LABELS = {
+  tht: '수삽',
+  inspection: '검사',
+  programming: '프로그래밍',
+  cleaning: '세척',
+  packing: '포장',
+  other: '기타',
+  none: '없음',
+} as const satisfies Record<DevelopFabExtraWorkType, string>;
+
 // 제작 범위를 하나라도 고르면 조달·납품 형태를 묻는다(프로토타입 "제조 연계 확인"). 아니면 둘 다 null.
+// pcbQty ~ preQuote 는 PCB 설계만 의뢰의 4스텝 칸이다(그 밖의 의뢰는 비어 있다 — normalizeDevelopProduction).
 export const DevelopProductionPlan = z
   .object({
     prototype: DevelopPrototypeMode,
@@ -149,6 +186,13 @@ export const DevelopProductionPlan = z
     priority: DevelopPriority.nullable().default(null),
     sourcing: DevelopSourcingMode.nullable().default(null),
     delivery: DevelopDeliveryForm.nullable().default(null),
+    pcbQty: z.number().int().min(1).max(1_000_000).nullable().default(null),
+    smtQty: z.number().int().min(1).max(1_000_000).nullable().default(null),
+    purpose: DevelopFabPurpose.nullable().default(null),
+    fabWishDate: DevelopWishDate.nullable().default(null),
+    extraWork: z.array(DevelopFabExtraWork).max(DEVELOP_FAB_EXTRA_WORKS.length).default([]),
+    extraWorkNote: z.string().trim().max(200).nullable().default(null),
+    preQuote: z.boolean().default(false),
   })
   .superRefine((p, ctx) => {
     if (p.prototype === 'count' && p.prototypeQty === null) {
@@ -157,8 +201,22 @@ export const DevelopProductionPlan = z
     if (new Set(p.scopes).size !== p.scopes.length) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DUPLICATE_SCOPE', path: ['scopes'] });
     }
+    if (new Set(p.extraWork).size !== p.extraWork.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DUPLICATE_EXTRA_WORK', path: ['extraWork'] });
+    }
   });
 export type DevelopProductionPlanType = z.infer<typeof DevelopProductionPlan>;
+// PCB 설계만 의뢰의 칸 — 그 밖의 의뢰는 늘 이 값이다(배열을 나눠 쓰지 않게 새로 만든다).
+type DevelopPcbFabFields = Pick<DevelopProductionPlanType, 'pcbQty' | 'smtQty' | 'purpose' | 'fabWishDate' | 'extraWork' | 'extraWorkNote' | 'preQuote'>;
+const noPcbFab = (): DevelopPcbFabFields => ({
+  pcbQty: null,
+  smtQty: null,
+  purpose: null,
+  fabWishDate: null,
+  extraWork: [],
+  extraWorkNote: null,
+  preQuote: false,
+});
 export const EMPTY_DEVELOP_PRODUCTION: DevelopProductionPlanType = {
   prototype: 'undecided',
   prototypeQty: null,
@@ -167,25 +225,87 @@ export const EMPTY_DEVELOP_PRODUCTION: DevelopProductionPlanType = {
   priority: null,
   sourcing: null,
   delivery: null,
+  ...noPcbFab(),
 };
 // 제작 계획을 묻지 않는 의뢰(펌웨어·앱·서버만 — developNeedsProduction)의 저장값 = 시제품 제작 없음.
 export const DEVELOP_NO_PRODUCTION: DevelopProductionPlanType = { ...EMPTY_DEVELOP_PRODUCTION, prototype: 'none' };
 // 저장 정규화 — count 가 아니면 수량을 비우고, 제작 범위가 없으면 조달·납품 형태를 비운다.
-export function normalizeDevelopProduction(p: DevelopProductionPlanType): DevelopProductionPlanType {
+// pcbFab(PCB 설계만 의뢰, developPcbMaterialsMode) 이면 4스텝이 서비스 칩 모양이다 — 필요 없음(설계만)이면 다 비우고,
+// '아직 결정하지 않음'(범위 협의)은 혼자만, 수량·제조 목적·일정은 PCB 제작·SMT 조립을, 조달은 부품 구매·SMT 조립을,
+// 추가 작업은 SMT 조립을 골랐을 때만 남긴다. 연간 생산수량은 양산일 때만, 시제품 수량·납품 형태는 묻지 않는다.
+export function normalizeDevelopProduction(p: DevelopProductionPlanType, pcbFab = false): DevelopProductionPlanType {
   const scopes = [...new Set(p.scopes)];
+  if (!pcbFab) {
+    return {
+      prototype: p.prototype,
+      prototypeQty: p.prototype === 'count' ? p.prototypeQty : null,
+      scopes,
+      annualQty: p.annualQty,
+      priority: p.priority,
+      sourcing: scopes.length === 0 ? null : p.sourcing,
+      delivery: scopes.length === 0 ? null : p.delivery,
+      ...noPcbFab(),
+    };
+  }
+  if (p.prototype === 'none') return { ...DEVELOP_NO_PRODUCTION, scopes: [], ...noPcbFab(), priority: p.priority };
+  const services: DevelopProductionScopeType[] = scopes.includes('negotiate')
+    ? ['negotiate']
+    : scopes.filter((s) => (DEVELOP_PCB_FAB_SERVICES as readonly string[]).includes(s));
+  const has = (s: DevelopProductionScopeType): boolean => services.includes(s);
+  const making = has('pcb_fab') || has('smt');
+  const purpose = making ? p.purpose : null;
+  const extraWork: DevelopFabExtraWorkType[] = !has('smt') ? [] : p.extraWork.includes('none') ? ['none'] : [...new Set(p.extraWork)];
+  const note = p.extraWorkNote?.trim() ?? '';
   return {
-    prototype: p.prototype,
-    prototypeQty: p.prototype === 'count' ? p.prototypeQty : null,
-    scopes,
-    annualQty: p.annualQty,
+    prototype: 'undecided',
+    prototypeQty: null,
+    scopes: services,
+    annualQty: purpose === 'mass' ? p.annualQty : null,
     priority: p.priority,
-    sourcing: scopes.length === 0 ? null : p.sourcing,
-    delivery: scopes.length === 0 ? null : p.delivery,
+    sourcing: has('parts') || has('smt') ? p.sourcing : null,
+    delivery: null,
+    pcbQty: has('pcb_fab') ? p.pcbQty : null,
+    smtQty: has('smt') ? p.smtQty : null,
+    purpose,
+    fabWishDate: making ? p.fabWishDate : null,
+    extraWork,
+    extraWorkNote: extraWork.includes('other') && note !== '' ? note : null,
+    preQuote: p.preQuote,
   };
 }
+// PCB 설계만 의뢰의 한 줄 — "PCB 제작 10개 · 부품 구매 · SMT 조립 5보드(수삽·검사) · 양산(연간 5,000개) · 제조 희망 2026-12-01 · 사전 견적 요청".
+function pcbFabSummary(p: DevelopProductionPlanType): string {
+  if (p.prototype === 'none') return '제작·조립 없음(설계만)';
+  const qty = (n: number | null, unit: string): string => (n === null ? '' : ` ${n.toLocaleString('ko-KR')}${unit}`);
+  const works = p.extraWork
+    .filter((w) => w !== 'none')
+    .map((w) => (w === 'other' && p.extraWorkNote !== null ? `기타: ${p.extraWorkNote}` : DEVELOP_FAB_EXTRA_WORK_LABELS[w]));
+  const services = p.scopes.includes('negotiate')
+    ? ['제작·조립 미정']
+    : DEVELOP_PCB_FAB_SERVICES.filter((s) => p.scopes.includes(s)).map((s) => {
+      if (s === 'pcb_fab') return `${DEVELOP_PCB_FAB_SERVICE_LABELS[s]}${qty(p.pcbQty, '개')}`;
+      if (s === 'smt') return `${DEVELOP_PCB_FAB_SERVICE_LABELS[s]}${qty(p.smtQty, '보드')}${works.length > 0 ? `(${works.join('·')})` : ''}`;
+      return DEVELOP_PCB_FAB_SERVICE_LABELS[s];
+    });
+  const purpose =
+    p.purpose === null
+      ? null
+      : p.purpose === 'mass' && p.annualQty !== null
+        ? `양산(연간 ${p.annualQty.toLocaleString('ko-KR')}개)`
+        : p.purpose === 'undecided'
+          ? '제조 목적 미정'
+          : DEVELOP_FAB_PURPOSE_LABELS[p.purpose];
+  const date = p.fabWishDate === null ? null : `제조 희망 ${p.fabWishDate}`;
+  const preQuote = p.preQuote ? '사전 견적 요청' : null;
+  return [...(services.length === 0 ? ['제작·조립 범위 없음'] : services), purpose, date, preQuote]
+    .filter((s): s is string => s !== null)
+    .join(' · ');
+}
 // 표시용 한 줄 — "시제품 5개 · PCB 제작, SMT·수삽 · 연간 5,000" (검토 카드·관리자·메일이 같은 문자열).
-export function developProductionSummary(p: DevelopProductionPlanType | null): string {
+// pcbFab(PCB 설계만 의뢰)이면 4스텝 모양대로 서비스·수량·제조 목적을 읽는다.
+export function developProductionSummary(p: DevelopProductionPlanType | null, pcbFab = false): string {
   if (p === null) return '';
+  if (pcbFab) return pcbFabSummary(p);
   const proto =
     p.prototype === 'count'
       ? `시제품 ${p.prototypeQty === null ? '?' : p.prototypeQty.toLocaleString('ko-KR')}개`
@@ -195,9 +315,6 @@ export function developProductionSummary(p: DevelopProductionPlanType | null): s
   return [proto, scopes, annual].filter((s): s is string => s !== null).join(' · ');
 }
 
-// 희망 완료 시기 — 날짜(YYYY-MM-DD) **또는** 자유문("계약 후 3개월") 중 하나 이상.
-export const DEVELOP_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-export const DevelopWishDate = z.string().regex(DEVELOP_DATE_RE, 'YYYY-MM-DD');
 // 검토서 일정 대조(devReviewScheduleFit)가 쓰는 희망 시점 코드를 날짜에서 파생한다 — 접수일 기준 주 수:
 // ≤4 within_1m · ≤13 m2_3 · ≤26 m4_6 · 그 밖 over_6m. 날짜가 없거나(자유문만) 지났으면 null(= unknown).
 export function developWishCode(wishDate: string | null, from: Date | string): DevReviewTimelineWishCodeType | null {
@@ -896,6 +1013,8 @@ export const AdminDevelopRequestListItem = z.object({
   aiConsent: z.boolean(),
   // 역설계 권리 확인 답이 '유지보수 목적'·'상담' — 담당자가 견적 전에 작업 가능 여부를 확인해야 한다(목록 배지·상세 첫 줄).
   rightsCheck: z.boolean(),
+  // PCB 설계만 의뢰에서 '설계와 제작 견적을 함께 미리 받고 싶어요'(2026-11-03) — 담당자가 제작 예상가도 같이 안내한다(목록 배지).
+  preQuote: z.boolean(),
   ai: AdminDevelopAiSummary,
   quoteCount: z.number(),
   latestQuote: z

@@ -51,6 +51,14 @@ export const INDIVIDUAL_QUESTIONS_COPY: StepCopy = {
   guide: '선택한 분야의 내용을 확인해 주세요.',
 };
 
+// PCB 설계만 고른 의뢰의 4스텝 — 의뢰서 시안 'PCB 설계 의뢰서' 04(2026-11-03). 바 제목(Step4. 제작 계획)은 그대로.
+export const PCB_PRODUCTION_COPY: StepCopy = {
+  bar: 'Step4. 제작 계획',
+  title: 'PCB 제작 · 부품 구매 · SMT 조립',
+  lead: 'PCB 제작, 부품 구매 또는 SMT 조립을 희망하시면 선택해 주세요. 설계와 함께 검토합니다.',
+  guide: '설계 뒤 필요한 서비스를 선택해 주세요.',
+};
+
 // 시안 컨트롤 모양(1920 기준) — 스텝 컴포넌트들이 같은 클래스를 쓴다.
 export const WIZ = {
   section: 'flex flex-col gap-[26px]',

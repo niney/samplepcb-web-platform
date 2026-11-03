@@ -6,6 +6,7 @@ import {
   DEVELOP_INDIVIDUAL_AREA_CODES,
   DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_MENU_CARDS,
+  DEVELOP_NO_PRODUCTION,
   DEVELOP_PCB_MATERIALS,
   DEVELOP_PCB_MATERIAL_AREA,
   DEVELOP_PCB_MATERIAL_CODES,
@@ -312,10 +313,45 @@ describe('등록 payload·생산 계획·희망 시기', () => {
   it('생산 계획 — 직접입력이면 수량 필수, 정규화는 범위 없으면 조달·납품을 비운다', () => {
     expect(DevelopProductionPlan.safeParse({ prototype: 'count', prototypeQty: null }).success).toBe(false);
     const p = DevelopProductionPlan.parse({ prototype: 'none', prototypeQty: 3, scopes: [], sourcing: 'negotiate', delivery: 'pcba' });
-    expect(normalizeDevelopProduction(p)).toEqual({ prototype: 'none', prototypeQty: null, scopes: [], annualQty: null, priority: null, sourcing: null, delivery: null });
-    expect(developProductionSummary({ prototype: 'count', prototypeQty: 5, scopes: ['pcb_fab', 'smt'], annualQty: 5000, priority: null, sourcing: null, delivery: null }))
+    expect(normalizeDevelopProduction(p)).toEqual(DEVELOP_NO_PRODUCTION);
+    expect(developProductionSummary(DevelopProductionPlan.parse({ prototype: 'count', prototypeQty: 5, scopes: ['pcb_fab', 'smt'], annualQty: 5000 })))
       .toBe('시제품 5개 · PCB 제작, SMT·수삽 · 연간 5,000개');
     expect(developProductionSummary(null)).toBe('');
+  });
+
+  it('PCB 설계만 4스텝(2026-11-03) — 서비스 칩·수량 따로·제조 목적·추가 작업·사전 견적, 저장 정규화와 한 줄 요약', () => {
+    const full = DevelopProductionPlan.parse({
+      prototype: 'count', prototypeQty: 7, scopes: ['pcb_fab', 'parts', 'smt', 'assembly'], annualQty: 5000, sourcing: 'partial_customer', delivery: 'pcba',
+      pcbQty: 10, smtQty: 5, purpose: 'mass', fabWishDate: '2026-12-01', extraWork: ['tht', 'inspection', 'other'], extraWorkNote: ' 코팅 ', preQuote: true,
+    });
+    const n = normalizeDevelopProduction(full, true);
+    expect(n).toMatchObject({
+      prototype: 'undecided', prototypeQty: null, scopes: ['pcb_fab', 'parts', 'smt'], annualQty: 5000, sourcing: 'partial_customer', delivery: null,
+      pcbQty: 10, smtQty: 5, purpose: 'mass', fabWishDate: '2026-12-01', extraWork: ['tht', 'inspection', 'other'], extraWorkNote: '코팅', preQuote: true,
+    });
+    expect(developProductionSummary(n, true)).toBe('PCB 제작 10개 · 부품 구매 · SMT 조립 5보드(수삽·검사·기타: 코팅) · 양산(연간 5,000개) · 제조 희망 2026-12-01 · 사전 견적 요청');
+    // 부품 구매만 — 수량·제조 목적·일정·추가 작업은 버리고 조달은 남긴다(양산이 아니니 연간 수량도 버린다).
+    expect(normalizeDevelopProduction({ ...full, scopes: ['parts'] }, true)).toMatchObject({
+      scopes: ['parts'], pcbQty: null, smtQty: null, purpose: null, annualQty: null, fabWishDate: null, extraWork: [], extraWorkNote: null, sourcing: 'partial_customer',
+    });
+    // PCB 제작만 — 조달·SMT 수량·추가 작업은 버린다. 시제품이면 연간 수량도.
+    const fabOnly = normalizeDevelopProduction({ ...full, scopes: ['pcb_fab'], purpose: 'prototype' }, true);
+    expect(fabOnly).toMatchObject({ scopes: ['pcb_fab'], sourcing: null, smtQty: null, extraWork: [], annualQty: null, purpose: 'prototype' });
+    expect(developProductionSummary(fabOnly, true)).toBe('PCB 제작 10개 · 시제품 · 제조 희망 2026-12-01 · 사전 견적 요청');
+    // 아직 결정하지 않음은 혼자만, 필요 없음(설계만)이면 다 비운다(사전 견적도).
+    expect(normalizeDevelopProduction({ ...full, scopes: ['negotiate', 'smt'] }, true).scopes).toEqual(['negotiate']);
+    expect(developProductionSummary(normalizeDevelopProduction({ ...full, scopes: ['negotiate'] }, true), true)).toBe('제작·조립 미정 · 사전 견적 요청');
+    const none = normalizeDevelopProduction({ ...full, prototype: 'none' }, true);
+    expect(none).toMatchObject({ prototype: 'none', scopes: [], preQuote: false, pcbQty: null, sourcing: null });
+    expect(developProductionSummary(none, true)).toBe('제작·조립 없음(설계만)');
+    // 추가 작업 '없음'은 혼자만.
+    expect(normalizeDevelopProduction({ ...full, extraWork: ['none', 'tht'] }, true).extraWork).toEqual(['none']);
+    // PCB 설계만이 아니면 그 칸은 늘 비어 있다(분야를 바꿔도 남지 않게).
+    expect(normalizeDevelopProduction(full)).toMatchObject({
+      prototype: 'count', prototypeQty: 7, delivery: 'pcba', pcbQty: null, smtQty: null, purpose: null, fabWishDate: null, extraWork: [], extraWorkNote: null, preQuote: false,
+    });
+    // 옛 저장분(새 칸 없음)도 읽힌다 — 기본값.
+    expect(DevelopProductionPlan.parse({ prototype: 'undecided' })).toMatchObject({ pcbQty: null, extraWork: [], preQuote: false });
   });
 
   it('희망 완료일 → 검토서 일정 대조 코드(주 수 경계), 없거나 지났으면 null', () => {

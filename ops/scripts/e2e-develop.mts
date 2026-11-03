@@ -414,6 +414,12 @@ async function run() {
     token: tClient,
     form: createForm(basePayload('[e2e] PCB 설계만', {
       serviceAreas: ['pcb'], currentStage: null, targetStage: null, budgetRange: 'r100_300',
+      // 4스텝 'PCB 제작 · 부품 구매 · SMT 조립'(2026-11-03 §7.2.8) — 시제품 수량·납품 형태·완제품 조립은 묻지 않으니 버린다.
+      production: {
+        prototype: 'count', prototypeQty: 7, scopes: ['pcb_fab', 'smt', 'assembly'], annualQty: 3000, priority: null,
+        sourcing: 'partial_customer', delivery: 'pcba', pcbQty: 10, smtQty: 5, purpose: 'mass', fabWishDate: '2099-01-15',
+        extraWork: ['tht', 'other'], extraWorkNote: '컨포멀 코팅', preQuote: true,
+      },
       answers: [
         { code: 'pcb.type', choices: ['new'] },
         { code: 'pcb.original', choices: ['gerber'] }, // 신규 설계라 숨은 문항 — 저장하지 않는다
@@ -438,6 +444,28 @@ async function run() {
       && pcbSlots === ':,pcb:bom,pcb:outline',
     'PCB 만 상세: 단계 null·낮은 예산 구간·숨은 기존 원본 답 버림·설계 자료는 슬롯(bom·outline) + 일반 첨부',
     { answers: pcbDetail.json?.data?.answers, files: pcbSlots },
+  );
+  const pcbProd = pcbDetail.json.data.production;
+  assert(
+    pcbProd?.prototype === 'undecided' && pcbProd.prototypeQty === null && pcbProd.scopes.join() === 'pcb_fab,smt' && pcbProd.delivery === null
+      && pcbProd.pcbQty === 10 && pcbProd.smtQty === 5 && pcbProd.purpose === 'mass' && pcbProd.annualQty === 3000 && pcbProd.fabWishDate === '2099-01-15'
+      && pcbProd.sourcing === 'partial_customer' && pcbProd.extraWork.join() === 'tht,other' && pcbProd.extraWorkNote === '컨포멀 코팅' && pcbProd.preQuote === true,
+    'PCB 만 4스텝: PCB·SMT 수량 따로·양산 연간·일정·부품 공급·추가 작업·사전 견적 저장(시제품 수량·납품 형태·완제품 조립 버림)',
+    pcbProd,
+  );
+  const pcbQueue = await req('GET', '/api/admin/develop/requests?tab=received&q=%5Be2e%5D%20PCB', { token: tAdmin });
+  const pcbQueueItem = pcbQueue.json?.data?.items.find((i) => i.requestId === pcbOnly.json.data.requestId);
+  assert(pcbQueueItem?.preQuote === true, '관리자 워크큐: 사전 견적 요청 배지 신호(preQuote)', pcbQueueItem);
+  // 분야를 바꿔 PCB 설계만이 아니게 되면 저장분도 일반 모양으로 정리(PCB 칸·사전 견적은 남지 않는다) — 단계는 함께 보낸다.
+  const pcbWiden = await req('PATCH', `/api/develop/requests/${pcbOnly.json.data.requestId}`, {
+    token: tClient,
+    body: { serviceAreas: ['pcb', 'firmware'], currentStage: 'idea', targetStage: 'prototype_done' },
+  });
+  const widened = pcbWiden.json?.data?.production;
+  assert(
+    pcbWiden.status === 200 && widened?.pcbQty === null && widened.smtQty === null && widened.purpose === null && widened.preQuote === false && widened.extraWork.length === 0,
+    '수정: PCB 설계만 → PCB+펌웨어면 4스텝 PCB 칸을 비운다',
+    { status: pcbWiden.status, production: widened, json: pcbWiden.status === 200 ? undefined : pcbWiden.json },
   );
   // 회로 설계 → PCB 설계 연계(2026-11-03 §7.2.7) — PCB 를 안 고르면 'PCB 설계도 필요한가요?'가 필수 · 필요함이면 PCB 설계를
   // 더해 두 메뉴를 같이 고른 의뢰와 같게 저장(그 답과 회로+PCB 의 회로도·BOM 답은 숨은 답이라 버린다) · 필요 없음은 답으로 남고,
