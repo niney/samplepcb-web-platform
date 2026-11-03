@@ -499,7 +499,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.getByRole('tab', { name: '진행·문의' }).click();
       await s.page.getByRole('heading', { name: '5. 진행 · 문의' }).waitFor();
       expect(new URL(s.page.url()).hash).toBe('#timeline');
-      expect(await s.page.getByText('진행 사항', { exact: true }).count()).toBe(1);
+      // 본문만 센다 — 앱 셸 사이드바·사용자 메뉴에도 '진행 사항' 항목이 있다
+      expect(await s.page.locator('main').getByText('진행 사항', { exact: true }).count()).toBe(1);
       // 해시로 바로 — 견적서 탭(아직 없음 안내)
       await s.page.goto(`/develop/requests/${String(requestId)}#quotes`);
       await s.page.getByRole('heading', { name: '3. 견적서' }).waitFor();

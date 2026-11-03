@@ -21,7 +21,8 @@ import {
 import { developPath, loginUrl } from '../lib/auth-urls';
 import { downloadAuthedFile } from '../lib/download';
 import { errorCode, errorMessage } from '../lib/error-msg';
-import { addDaysKst, dateDotFull, dateShort, nextActionLabel, statusLabel, statusToneClass } from '../lib/format';
+import { addDaysKst, dateDotFull, dateShort, NEXT_ACTION_TARGETS, nextActionLabel, statusLabel, statusToneClass } from '../lib/format';
+import AppBar from '../components/layout/AppBar.vue';
 import ProgressStepper from '../components/detail/ProgressStepper.vue';
 import RequestContent from '../components/detail/RequestContent.vue';
 import QuoteCard from '../components/detail/QuoteCard.vue';
@@ -33,6 +34,7 @@ import ProjectProgress from '../components/detail/ProjectProgress.vue';
 import DocumentList from '../components/detail/DocumentList.vue';
 import DevelopReview from '../components/detail/review/DevelopReview.vue';
 import icoPrint from '../assets/detail/ico-print.svg';
+import arrowNext from '../assets/wizard/arrow-next.svg';
 
 // 의뢰 상세(docs/DEVELOP_FLOW.md §7.2) — 소유자 전용. 서버가 **공개본만** 내려주므로(초안·작업본은 어떤
 // 응답에도 없다) 화면은 온 것을 그대로 그린다. 고객 행동: 견적 수락·수정 요청(QuoteCard), 마일스톤 결제(영카트
@@ -41,6 +43,8 @@ import icoPrint from '../assets/detail/ico-print.svg';
 // 제목·정보 줄 → 스텝퍼 → 탭(한 번에 한 섹션, 번호 제목). 탭은 URL 해시(#quotes 등)와 맞물린다 — 내 의뢰의
 // 할 일 버튼·타임라인 문서번호가 그 탭을 연다. 첨부는 없으면 탭째 숨기고, 종결된 의뢰는 진행 현황 탭이 없다.
 // '출력하기'는 전 섹션을 이어 붙인 인쇄 화면(RequestPrint)을 새 창으로 연다.
+// 틀은 앱 셸(사용자 결정 2026-11-03 — 시안 00-3 은 흰 사이트 헤더): 본문은 시안 그대로 판에, 위 바는 '의뢰 상세' + 지금 할 일
+// 안내와 그 탭으로 가는 버튼(내 의뢰 행 버튼과 같은 글자).
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -372,12 +376,49 @@ async function scrollToPendingDoc(): Promise<void> {
   el?.scrollIntoView({ behavior: 'smooth' });
 }
 
+// ── 위 바 — 지금 할 일 ─────────────────────────────────────────────────────
+const nextTarget = computed(() => {
+  const a = detail.value?.nextAction ?? null;
+  return a === null ? null : NEXT_ACTION_TARGETS[a];
+});
+const barGuide = computed(() => {
+  const d = detail.value;
+  if (!loggedIn.value) return '의뢰 상세는 로그인 후 확인할 수 있습니다.';
+  if (d === undefined) return '';
+  return nextTarget.value?.guide ?? `진행 상태: ${statusLabel(d.status)}`;
+});
+const tabNav = ref<HTMLElement | null>(null);
+async function goNextAction(): Promise<void> {
+  const t = nextTarget.value;
+  if (t === null) return;
+  if (detail.value?.nextAction === 'answer_document' && pendingDocs.value.length > 0) {
+    await scrollToPendingDoc();
+    return;
+  }
+  const id = tabFromHash(t.hash);
+  if (id === null) return;
+  selectTab(id);
+  await nextTick();
+  tabNav.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 const CARD = 'rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]';
 const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#f0f4fa] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:bg-[#e2e8f2]';
 </script>
 
 <template>
-  <section class="px-5 pb-[60px] pt-[60px] tracking-normal">
+  <AppBar title="의뢰 상세" :guide="barGuide">
+    <template v-if="nextTarget !== null" #actions>
+      <button
+        type="button"
+        class="flex h-[40px] items-center justify-center gap-[4px] whitespace-nowrap rounded-[8px] bg-[#08d3e1] px-[16px] text-[14px] font-bold text-[#061023] transition-colors hover:bg-[#1bfffb]"
+        @click="void goNextAction()"
+      >
+        {{ nextTarget.button }} <img :src="arrowNext" alt="" width="14" height="14" class="block size-[14px]">
+      </button>
+    </template>
+  </AppBar>
+  <section class="tracking-normal">
     <div class="mx-auto w-full max-w-[1280px]">
       <!-- 비로그인 -->
       <div v-if="!loggedIn" class="border-y border-[#d9d9d9] px-[10px] py-[60px] text-center">
@@ -486,7 +527,8 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
         </div>
 
         <!-- 탭 -->
-        <nav class="print-hidden relative mt-[24px] overflow-x-auto" aria-label="의뢰 상세 탭">
+        <!-- scroll-mt = 위 바(62) 아래로 띄워 멈춘다(위 바 '할 일' 버튼이 여기로 내린다) -->
+        <nav ref="tabNav" class="print-hidden relative mt-[24px] scroll-mt-[86px] overflow-x-auto" aria-label="의뢰 상세 탭">
           <span class="absolute bottom-0 left-0 h-px w-full min-w-max bg-[#d9d9d9]" aria-hidden="true" />
           <ul class="relative flex min-w-max gap-[14px]" role="tablist">
             <li v-for="t in tabs" :key="t.id">

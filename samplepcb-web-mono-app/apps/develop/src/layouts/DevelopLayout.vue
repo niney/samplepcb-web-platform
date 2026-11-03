@@ -10,6 +10,7 @@ import SiteFooter from '../components/layout/SiteFooter.vue';
 // 72px 흰 바 · 안쪽 1280 space-between · [로고 177×30] +50+ [진행 방식 · 개발 분야 · 내 의뢰 · 개발 의뢰하기(검정 버튼)]
 // … [로그인 검정 알약 + 회원가입 회색 알약]. 로그인 상태는 피그마에 없어 메인 사이트 헤더 관례(로그아웃 회색 알약)를 따른다.
 // 푸터는 메인 사이트 공용 푸터 이식(SiteFooter). 인쇄용 라우트(meta.bare)는 헤더·푸터를 그리지 않는다.
+// 이 셸은 랜딩용이다 — 메뉴의 '내 의뢰'·'개발 의뢰하기'는 앱 셸(AppShellLayout — 위저드·내 의뢰·상세)로 들어가는 입구(2026-11-03).
 const auth = useAuthStore();
 const route = useRoute();
 const mobileOpen = ref(false);

@@ -61,6 +61,16 @@ export const NEXT_ACTION_LABELS = {
 export const nextActionLabel = (a: DevelopRequestListItemType['nextAction']): string =>
   a === null ? '' : NEXT_ACTION_LABELS[a];
 
+// 할 일 → 상세의 그 탭(해시)과 거기로 가는 버튼 글자(내 의뢰 행 버튼·의뢰 상세 위 바), 위 바 안내 문장.
+// 견적 확인·결제 → 견적서, 검수·확인 답변 → 진행·문의, 문서 → 프로젝트 문서.
+export const NEXT_ACTION_TARGETS = {
+  review_quote: { hash: '#quotes', button: '견적서 확인', guide: '견적서가 도착했습니다. 확인해 주세요.' },
+  pay: { hash: '#quotes', button: '결제하기', guide: '결제하실 단계가 있습니다.' },
+  inspect: { hash: '#timeline', button: '검수하기', guide: '납품물을 검수해 주세요.' },
+  answer_document: { hash: '#documents', button: '문서 확인·회신', guide: '회신이 필요한 문서가 있습니다.' },
+  answer_review: { hash: '#timeline', button: '확인 요청 답변', guide: '담당자의 확인 요청에 답변해 주세요.' },
+} as const satisfies Record<NonNullable<DevelopRequestListItemType['nextAction']>, { hash: string; button: string; guide: string }>;
+
 // 검수 자동 확정 예정일 — 납품일 + reviewDays(KST 기준 날짜만). 시각은 서버 정책이라 날짜로만 안내한다.
 export function addDaysKst(iso: string, days: number): string {
   const parsed = new Date(iso);

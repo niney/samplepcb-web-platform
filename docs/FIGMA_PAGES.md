@@ -14,7 +14,7 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 | 회사 연혁 `/history` (2026-09-21 갱신) | 2122:6658 GNB > 회사 연혁, 본문 2337:36933~37117 | `spcb/pages/history.php`, `css/history.css`, `js/history.js`, `img/history/` | (이번 변경) |
 | 회사 위치 `/location` | 2122:7157 GNB > 회사 위치 (지사 선택 시) — Contact Us 제외 | `spcb/pages/location.php`, `css/location.css`, `img/location/` | 0fd2c43b8 이전 |
 | PCB 견적서 (sp-vue 관리자 A4, 2026-10-04) | 2428:36055 | mono-app `apps/web/src/components/admin/{EstimateSheet,EstimateModal}.vue`, `public/img/{logo.svg,stamp.png}`, `i18n/locales/{ko,en}.ts` | (이번 변경) |
-| 개발의뢰 위저드 `/develop/request` (2026-10-22, **10-29 시안 업데이트 반영**) | 「개발 의뢰」 Design done 01-0~01-5 183:22384(로그인)·70:566·70:868·190:22845(첨부 있음)·135:21515(옛 70:11679)·70:12081·70:12369 | mono-app `apps/develop/src/pages/RequestWizard.vue`·`RequestEdit.vue`·`Me.vue`(진행 사항), `components/request/{WizardShell,WizardStepper,WizQuestion,WizGroup,WizDropZone,WizCheck,Step*,ContactFields}.vue`, `lib/wizard-copy.ts`, `assets/wizard/` | (이번 변경) |
+| 개발의뢰 위저드 `/develop/request` (2026-10-22, **10-29 시안 업데이트 반영**) | 「개발 의뢰」 Design done 01-0~01-5 183:22384(로그인)·70:566·70:868·190:22845(첨부 있음)·135:21515(옛 70:11679)·70:12081·70:12369 | mono-app `apps/develop/src/pages/RequestWizard.vue`·`RequestEdit.vue`·`Me.vue`(진행 사항), `layouts/AppShellLayout.vue`·`components/layout/AppBar.vue`(11-03 앱 셸 — 내 의뢰·상세·수정도), `components/request/{WizardStepper,WizQuestion,WizGroup,WizDropZone,WizCheck,Step*,ContactFields}.vue`, `lib/wizard-copy.ts`, `assets/wizard/` | (이번 변경) |
 | 개발의뢰 의뢰 상세 `/develop/requests/:id` (2026-10-22) | 「개발 의뢰」 Design done 탭형 70:5924·70:7029·70:8134·70:10344·70:18531·70:1615·70:19640 (기준) + 링크된 Page 3 한 페이지형 37:7085·38:9065(수치·검토서 구성 참조) | mono-app `apps/develop/src/pages/RequestDetail.vue`·`RequestPrint.vue`(출력하기), `components/detail/{ProgressStepper,RequestContent,QuoteCard,Timeline,CommentComposer,AttachmentList}.vue`, `components/detail/review/{DevelopReview,ReviewDiagram,ReviewSchedule,ReviewSpec}.vue`, `lib/diagram-doc.ts`, `assets/detail/` | (이번 변경) |
 | 개발의뢰 내 의뢰 `/develop/me` (2026-10-22) | 「개발 의뢰」 37:7619 = Design done 70:11488(렌더 동일) | mono-app `apps/develop/src/pages/Me.vue`, `lib/format.ts`(`dateDot`·진행 중 톤), `assets/me/ico-received.svg`, 라우트 `meta.bg` | (이번 변경) |
 | 개발의뢰 랜딩 `/develop` + 개발의뢰 공용 헤더·푸터 (2026-10-21, 10-29 히어로 교체, 10-30 히어로 영상, 11-02 캔버스) | **다른 파일** 「개발 의뢰」(U7VKC9FSkojpDXqZ5qnJQN) 37:6768 = Design done 70:1296(10-29 기준 히어로 145:22298~22308 만 다름) | mono-app `apps/develop/src/pages/Home.vue`, `layouts/DevelopLayout.vue`, `components/layout/{HeaderLogo,SiteFooter}.vue`, `components/home/HeroCanvas.vue`(팩 생성 `ops/scripts/hero-frames.mjs`), `assets/{home,brand,footer}/`, 위저드 `?menu=` 미리 고르기(`useRequestForm.preselectMenu`) | (이번 변경) |
@@ -206,7 +206,7 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 검증: 1920 실측(제목 132·윗줄 178·정보 줄 179~229·스텝퍼 254·탭 331·탭 밑줄 361·섹션 제목 402·카드 452/x360/w1200 — 시안과 1px 안), 390·1920 전 탭 가로 넘침 0·콘솔 오류 0, `PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard` '의뢰 상세 — 탭 전환·해시 진입·빈 상태'.
 
 ## 개발의뢰 위저드 `/develop/request` — 피그마와 다르게 둔 것 · 결정(사용자 결정 2026-10-22)
-- **셸**: 시안대로 위저드만 어두운 앱 셸(사이드바 ~~개발 의뢰·진행 방식·개발 분야·내 의뢰~~ → 10-29 신규 의뢰·내 의뢰·진행 사항 + 위 바 스텝 제목·안내·PREVIOUS/NEXT/DONE·사용자) — 사이트 헤더·푸터 없음(라우트 `meta.bare`). 아래 고정 액션 바는 위 바로 옮겼고, 오류는 안내 자리에 빨갛게. 사용자 칸은 시안의 인물 사진 대신 이니셜 원 + 메뉴(내 의뢰·로그아웃). 좁은 화면은 사이드바를 접고 [로고·안내·사용자] + 버튼 줄 2단, 1536 미만은 안내 글자를 줄여 줄바꿈.
+- **셸**: ~~시안대로 위저드만~~ 어두운 앱 셸(사이드바 ~~개발 의뢰·진행 방식·개발 분야·내 의뢰~~ → 10-29 신규 의뢰·내 의뢰·진행 사항 + 위 바 스텝 제목·안내·PREVIOUS/NEXT/DONE·사용자) — 사이트 헤더·푸터 없음(~~라우트 `meta.bare`~~ → 11-03 레이아웃 라우트 `AppShellLayout`, 내 의뢰·상세·수정도 이 틀 — 아래 '2026-11-03 앱 셸 확장'). 아래 고정 액션 바는 위 바로 옮겼고, 오류는 안내 자리에 빨갛게. 사용자 칸은 시안의 인물 사진 대신 이니셜 원 + 메뉴(내 의뢰·로그아웃). 좁은 화면은 사이드바를 접고 [로고·안내·사용자] + 버튼 줄 2단, 1536 미만은 안내 글자를 줄여 줄바꿈.
 - **스텝1 메뉴 = 계약 5개 유지**(사용자 결정): 시안 6장(펌웨어·'기타 소프트웨어 개발'·'디자인 및 기구 설계')은 계약·랜딩(00-1)과 어긋나 이름·구성은 계약대로, 모양만 시안. 사진은 시안 자리대로 앱 ← '기타 SW', 기구 ← '디자인 및 기구'(펌웨어 사진은 안 씀). 시스템 개발 **단독 선택 유지**(시안 예시의 복수 선택 상태는 따르지 않음 — 다른 프레임의 '단독 선택 가능' 문구와 같은 뜻).
 - **희망 완료 시기 = 날짜 + 기간 문구 둘 다**(사용자 결정): 시안은 날짜 상자뿐인데 5스텝 확인 시안엔 '3개월'이 나온다 — 날짜 상자 아래 '또는 기간' 칸.
 - **임시저장·처음부터·이어쓰기 유지**(사용자 결정): ~~위 바 PREVIOUS 앞 작은 버튼~~ → 10-29 스텝 제목 옆 Save Draft·처음부터는 사용자 메뉴 + 본문 맨 위 띠.
@@ -214,7 +214,7 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 숨김 레이어 미사용: '긴급 작업 요청 시 야간·휴일 가산'(가격 정책 문장) · 사이드바의 Quote·Order·Layers 등 템플릿 잔재.
 - 시안에 없어 같은 모양 언어로 만든 것: 비로그인·접수 완료 화면, AI 질문 읽는 중·AI 질문·전문가에게 맡김 안내, 개별 견적 분야 질문(PCB·기구·앱·서버), 수량 칸(시안처럼 늘 보이고 적으면 '직접 입력' 선택), 개발 목적 글자 수, 체크 해제 상태(빈 상자·검정 문구). 5스텝 '개발 메뉴' 블록은 시안처럼 '수정하기' 없음, '의뢰자·연락처'는 이름·전화만.
 - 자산: 사진 5장은 4096px 원본을 시안 마스크(170×120) 안 보이는 영역만 2배(340×240) JPEG 로 잘라 둠(합계 ~110KB), 로고는 스프라이트에서 36×48 영역만 2배. 'Data' 아이콘은 벡터 조각을 인라인 SVG 로 다시 얹음(export PNG 는 114px 한 장). 시안 공용 컴포넌트(@sp/ui QuestionField·FileDropZone)는 마켓이 같이 써서 건드리지 않고 개발의뢰 전용(WizQuestion·WizDropZone)을 만들었다.
-- **수정 화면**(`/requests/:id/edit`)은 사이트 셸 그대로, 스텝 본문만 새 모양(섹션마다 흰 카드 + 위저드 제목).
+- **수정 화면**(`/requests/:id/edit`)은 ~~사이트 셸 그대로~~(11-03 앱 셸로), 스텝 본문만 새 모양(섹션마다 흰 카드 + 위저드 제목).
 - 검증: 1920·1440·1280·390 가로 넘침 0·콘솔 오류 0, `PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard develop-contact develop-customer-journey`(관리자 케이스는 sp-vue 5174 필요).
 
 ### 2026-10-29 시안 업데이트(노트 183:22790 "11/21 update", `update` 배지 프레임) — 반영·결정
@@ -230,6 +230,16 @@ Figma 「Samplepcb_Web」(oviaZUKfcQml2IvwPVICpU)을 sp-lite 테마로 옮긴 �
 - 시안 오탈자 재발·신규는 계속 교정: '개발 필요하신'·'확인 되지'·'줄력'·3번째 서술 문항 placeholder 복사·동의 안내 옛 옵션명('AI 가 자료를 보고 몇 가지만 묻기')·'외관형태사용성'(→ 외관·형태·사용성)·'설계 입니다'. 칩 '샘플피씨비에서 …부터 의뢰'는 계약 '샘플피씨비에 …'(의뢰 대상 조사) 유지.
 - 시안의 다른 잔재(따르지 않음): 01-1 의 PREVIOUS 활성(1스텝은 비활성 유지), 2300 높이 프레임에서 사이드바가 1080 에서 끊김(실제는 화면 높이 고정), 사용자 칸 인물 사진(이니셜 유지).
 - 검증(2026-10-29): `PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard develop-contact develop-customer-journey` 26 통과·1 건너뜀(FOLLOWUP_LLM 게이트)·1 실패(관리자 케이스 — sp-vue 5174 미기동, 사전 조건). 1920·1440·390 캡처 대조, 390 가로 넘침 0, pageErrors 0.
+
+### 2026-11-03 앱 셸 확장 — 내 의뢰·진행 사항·상세·수정도 어두운 틀(사용자 결정)
+- **왜**: 위저드 사이드바의 '내 의뢰'·'진행 사항'을 누르면 흰 사이트 화면(00-2)으로 통째로 바뀌었다(사이드바가 사라지고 헤더·푸터가 생김). 시안엔 어두운 틀 안의 내 의뢰·진행 사항이 없다. 가장 자주 오가는 길은 목록↔상세라, 내 의뢰만 옮기면 그 길에서 틀이 매번 바뀐다 → **상세·수정까지 함께** 앱 셸로(사용자 결정 "추천 진행"). 사이트 셸(흰 헤더·푸터)은 랜딩만, 사이트 메뉴의 '내 의뢰'·'개발 의뢰하기'는 앱 셸 입구.
+- **구조**: `layouts/AppShellLayout.vue`(옛 `WizardShell` — 레이아웃 라우트라 화면을 옮겨도 틀·사이드바가 다시 그려지지 않는다) + `components/layout/AppBar.vue`(화면이 제목·안내·버튼을 위 바 자리로 Teleport). 본문 판 바탕은 `meta.bg`(내 의뢰 흰색·상세 #fdfdfd·위저드와 수정은 그라데이션).
+- **위 바(시안에 없어 정함)**: 내 의뢰·진행 사항 = 제목 + 할 일 건수('확인하실 일이 N건 있습니다.' — 20건을 넘으면 건수 없이)·없으면 전체/진행 중 건수. 상세 = '의뢰 상세' + 지금 할 일 문장 + 그 탭으로 가는 하늘색 버튼(내 의뢰 행 버튼과 같은 글자, 계약 밖 사전 `NEXT_ACTION_TARGETS`)·할 일이 없으면 '진행 상태: ○○'. 수정 = 그만두기·저장을 아래 고정 바에서 위 바로(위저드 PREVIOUS/NEXT 자리), 안내는 바뀐 것 유무·저장 불가 이유·저장 오류.
+- **사이드바 지금 항목 표시**(시안에 없음): 밝은 바탕 + `aria-current`. 상세·수정은 '내 의뢰'. 좁은 화면(<1024)은 사이드바가 접혀 세 항목을 사용자 메뉴에 넣었다(데스크톱 사용자 메뉴는 화면 항목 + 로그아웃).
+- **위저드 나가기 보호**: 저장이 Save Draft 수동뿐이라 사이드바·로고·뒤로 가기로 나가면 입력이 말없이 사라졌다. 2스텝 이상이거나 제목·설명·첨부가 있으면 — 첨부도 옛 초안도 없을 때는 조용히 임시저장하고 보내고(돌아오면 이어쓰기 띠), 첨부가 있거나 옛 초안을 덮어쓰게 되거나 저장소가 막혔으면 본문 맨 위 띠로 묻는다(저장하고 나가기·저장하지 않고 나가기·계속 작성). 주소창 이동·새로고침은 앱 밖이라 못 막는다.
+- 시안과 달라진 것: 00-2·00-3 의 흰 사이트 헤더·푸터 → 어두운 틀(본문은 시안 그대로). 디자이너에게 앱 셸 버전 내 의뢰·상세 시안을 부탁할 것.
+- 참고(이번 범위 밖): 시안 00-2 의 사이트 메뉴에 '포트폴리오'가 추가됐다(update 노트) — 코드엔 아직 없음(포트폴리오 작업은 stash 보관).
+- 검증: 헤드리스 실 API(의뢰 20건 회원) — 위저드→내 의뢰→진행 사항→상세(할 일 버튼 → 견적서 탭, 탭 줄이 위 바 아래 86)→수정(그만두기 → 상세) 내내 틀 유지·지금 항목 표시·푸터 없음, 랜딩→'내 의뢰' 입구, 1920·1440·1280·1024·390 가로 넘침 0, 콘솔 오류·Vue 경고 0, 나가기 보호 4갈래(메뉴만=저장 없이 · 2스텝=조용히 저장 · 옛 초안=확인 띠 · 계속 작성/저장 안 함).
 
 ## 개발의뢰 — 시안 요청 ④ 메뉴 구성 불일치(디자이너에게, 2026-10-29)
 **2026-10-30 갱신**: 위저드 01-1 은 시안 6장대로 바꿨다(계약 `develop-areas.ts` 7분야·메뉴 카드 5장+시스템, §7.2.3). **남은 것은 랜딩 '개발 분야' 카드뿐** — 아직 옛 5장(시스템·PCB·기구·앱·서버)이고 위저드로는 기구→시스템 개발, 앱·서버→'앱 및 서버'(그 범위)로 연다. 랜딩은 디자이너 확인 뒤(사용자 결정 2026-10-29: 시안 카드에 역설계·펌웨어가 없고 회로 카드 문구가 기구 복사본).

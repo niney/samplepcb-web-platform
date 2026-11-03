@@ -14,6 +14,7 @@ import { useRequestForm } from '../composables/useRequestForm';
 import { developPath, loginUrl } from '../lib/auth-urls';
 import { errorMessage } from '../lib/error-msg';
 import { fileSize } from '../lib/format';
+import AppBar from '../components/layout/AppBar.vue';
 import ContactFields from '../components/request/ContactFields.vue';
 import WizCheck from '../components/request/WizCheck.vue';
 import WizDropZone from '../components/request/WizDropZone.vue';
@@ -30,6 +31,7 @@ import StepQuestions from '../components/request/StepQuestions.vue';
 // 생성하지 않는다(질문 불변, 답만 PATCH). 그래서 StepQuestions 에 잡(followup)을 넘기지 않는다.
 // 저장은 세 갈래다 — 본문 필드는 PATCH(바뀐 것만), 새 첨부는 POST files(multipart), 삭제는 DELETE files/:id.
 // 첨부는 서버에 이미 있는 실체라 "저장" 을 기다리지 않고 즉시 반영된다(그게 파일에 대한 사용자의 기대다).
+// 틀은 앱 셸(2026-11-03) — 그만두기·저장은 아래 고정 바 대신 위 바(위저드 PREVIOUS/NEXT 자리), 바뀐 것 유무·저장 오류는 안내 자리.
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -142,6 +144,16 @@ const dirty = computed<boolean>(() => {
   return Object.keys(changedBody()).length > 0;
 });
 
+const formOpen = computed(() => loggedIn.value && detail.value !== undefined && editable.value);
+const barGuide = computed(() => {
+  if (!loggedIn.value) return '의뢰 수정은 로그인 후 진행할 수 있습니다.';
+  if (detail.value === undefined) return '';
+  if (!editable.value) return '견적서가 나간 뒤에는 의뢰 내용을 고칠 수 없습니다.';
+  if (saveError.value !== '') return saveError.value;
+  if (hydrated.value && !editValid.value) return '저장하려면 필수 항목을 모두 채워 주세요.'; // 저장 버튼이 꺼진 이유
+  return dirty.value ? '수정한 내용이 있습니다. 저장을 눌러 반영해 주세요.' : '바뀐 내용이 없습니다.';
+});
+
 async function save(): Promise<void> {
   saveError.value = '';
   const body = changedBody();
@@ -204,13 +216,31 @@ function goLogin(): void {
   window.location.assign(loginUrl(developPath(route.fullPath)));
 }
 
-// 섹션 카드 — 위저드 본문 판과 같은 흰 카드·22px 제목(피그마 01-x 모양 언어). 수정 화면 자체는 사이트 셸 그대로.
+// 섹션 카드 — 위저드 본문 판과 같은 흰 카드·22px 제목(피그마 01-x 모양 언어). 판 바탕도 위저드와 같은 그라데이션.
 const EDIT_CARD = 'flex flex-col gap-[26px] rounded-[14px] bg-white px-[20px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)] sm:px-[30px] sm:py-[34px]';
 const EDIT_TITLE = 'text-[22px] font-bold leading-[1.3] text-black sm:text-[26px]';
 </script>
 
 <template>
-  <section class="mx-auto w-full max-w-[1080px] px-6 pt-9 pb-32">
+  <AppBar title="의뢰 수정" :guide="barGuide" :guide-error="saveError !== ''">
+    <template v-if="formOpen" #actions>
+      <RouterLink
+        :to="detailPath"
+        class="flex h-[40px] w-[96px] items-center justify-center rounded-[8px] bg-[#d9d9d9] text-[14px] font-bold text-[#061023] sm:w-[120px]"
+      >
+        그만두기
+      </RouterLink>
+      <button
+        type="button"
+        class="flex h-[40px] w-[96px] items-center justify-center rounded-[8px] bg-[#08d3e1] text-[14px] font-bold text-[#061023] transition-colors hover:bg-[#1bfffb] disabled:bg-[#08d3e1]/50 sm:w-[120px]"
+        :disabled="!editValid || !dirty || update.isPending.value"
+        @click="void save()"
+      >
+        {{ update.isPending.value ? '저장 중…' : '저장' }}
+      </button>
+    </template>
+  </AppBar>
+  <section class="mx-auto w-full max-w-[1080px]">
     <p class="font-mono text-micro tracking-[.14em] text-tx-3">EDIT REQUEST</p>
     <h1 class="mt-1.5 text-h1 font-extrabold text-tx-1">의뢰 수정</h1>
 
@@ -337,29 +367,6 @@ const EDIT_TITLE = 'text-[22px] font-bold leading-[1.3] text-black sm:text-[26px
         </section>
 
         <p v-if="saveError !== ''" class="rounded-xl bg-red-50 px-4 py-3 text-body font-semibold text-red-700">{{ saveError }}</p>
-      </div>
-
-      <!-- 하단 고정 액션 바 -->
-      <div class="print-hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur">
-        <div class="mx-auto flex w-full max-w-[1080px] items-center gap-3 px-6 py-3.5">
-          <RouterLink
-            :to="detailPath"
-            class="h-11 rounded-lg border border-line-2 bg-white px-5 text-body font-bold leading-[2.75rem] text-tx-2 transition hover:border-tx-3"
-          >
-            그만두기
-          </RouterLink>
-          <p class="hidden min-w-0 flex-1 truncate text-label text-tx-3 sm:block">
-            {{ dirty ? '수정한 내용이 있습니다.' : '바뀐 내용이 없습니다.' }}
-          </p>
-          <button
-            type="button"
-            class="ml-auto h-11 rounded-lg bg-brand-500 px-7 text-body font-bold text-white transition hover:bg-brand-600 disabled:bg-line-2 disabled:text-tx-3"
-            :disabled="!editValid || !dirty || update.isPending.value"
-            @click="void save()"
-          >
-            {{ update.isPending.value ? '저장 중…' : '저장' }}
-          </button>
-        </div>
       </div>
     </template>
   </section>

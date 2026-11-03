@@ -116,7 +116,7 @@ const PANEL = 'flex flex-col gap-[16px] rounded-[14px] border border-[#d9d9d9] b
 
 <template>
   <div class="flex flex-col gap-[40px] sm:gap-[50px]">
-    <!-- 목차 — 피그마 137:21924: 240 폭 · #fdfdfe · 테두리 #eaeaec · r12. 본문 판(WizardShell, relative) 기준으로 본문 900 왼쪽 100 에
+    <!-- 목차 — 피그마 137:21924: 240 폭 · #fdfdfe · 테두리 #eaeaec · r12. 본문 판(AppShellLayout, relative) 기준으로 본문 900 왼쪽 100 에
          붙이고(1920 에서 x130 = 시안), 스크롤하면 위 바 아래에 멈춘다. -->
     <nav
       v-if="showToc"

@@ -10,7 +10,8 @@ import { useMyDevelopRequests } from '../api/useDevelopRequests';
 import type { MyRequestFilters } from '../api/useDevelopRequests';
 import { developPath, loginUrl } from '../lib/auth-urls';
 import { errorMessage } from '../lib/error-msg';
-import { dateDot, nextActionLabel, statusLabel, statusToneClass } from '../lib/format';
+import { dateDot, NEXT_ACTION_TARGETS, nextActionLabel, statusLabel, statusToneClass } from '../lib/format';
+import AppBar from '../components/layout/AppBar.vue';
 import icoReceived from '../assets/me/ico-received.svg';
 
 // 내 의뢰(docs/DEVELOP_FLOW.md §7.2) — 피그마 개발의뢰 「00-2 내의뢰」 37:7619(= Design done 70:11488), 2026-10-22.
@@ -20,6 +21,7 @@ import icoReceived from '../assets/me/ico-received.svg';
 // 시안에 없는 상태(비로그인·불러오는 중·빈 목록·오류)는 같은 표 안에 가운데 문구로.
 // ?scope=active = 위저드 사이드바 '진행 사항'(사용자 결정 2026-10-29) — 끝난 의뢰(완료·취소·진행 불가)를 뺀 같은 표.
 // 시안이 없어 제목만 '진행 중인 의뢰'로 바꾸고 건수 줄에 '전체 보기'를 둔다.
+// 틀은 앱 셸(사용자 결정 2026-11-03 — 시안 00-2 는 흰 사이트 헤더): 표는 시안 그대로 본문 판에, 위 바는 제목 + 할 일 안내.
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -42,14 +44,14 @@ function setPage(p: number): void {
   window.scrollTo({ top: 0 });
 }
 
-// 할 일 버튼 — 상세의 그 섹션으로 바로 보낸다(견적 확인·결제 → 견적서, 검수·확인 답변 → 진행·문의, 문서 → 프로젝트 문서).
-const ACTIONS = {
-  review_quote: { hash: '#quotes', button: '견적서 확인' },
-  pay: { hash: '#quotes', button: '결제하기' },
-  inspect: { hash: '#timeline', button: '검수하기' },
-  answer_document: { hash: '#documents', button: '문서 확인·회신' },
-  answer_review: { hash: '#timeline', button: '확인 요청 답변' },
-} as const satisfies Record<NonNullable<DevelopRequestListItemType['nextAction']>, { hash: string; button: string }>;
+// 위 바 안내 — 할 일이 있으면 그 건수. 한 쪽(20건)을 넘으면 이 쪽만 세게 되니 건수 없이 말한다.
+const guide = computed(() => {
+  if (!loggedIn.value) return '로그인 후 확인할 수 있습니다.';
+  if (listQ.isPending.value || listQ.isError.value || total.value === 0) return '';
+  const todo = items.value.filter((r) => r.nextAction !== null).length;
+  if (todo > 0) return total.value <= filters.value.pageSize ? `확인하실 일이 ${String(todo)}건 있습니다.` : '확인하실 일이 있는 의뢰가 있습니다.';
+  return activeOnly.value ? `진행 중인 의뢰 ${String(total.value)}건` : `전체 의뢰 ${String(total.value)}건`;
+});
 
 const detailTo = (r: DevelopRequestListItemType, hash = ''): RouteLocationRaw => ({
   name: 'request-detail',
@@ -59,7 +61,8 @@ const detailTo = (r: DevelopRequestListItemType, hash = ''): RouteLocationRaw =>
 </script>
 
 <template>
-  <section class="px-5 pb-[60px] pt-[60px] tracking-normal">
+  <AppBar :title="activeOnly ? '진행 사항' : '내 의뢰'" :guide="guide" />
+  <section class="tracking-normal">
     <div class="mx-auto w-full max-w-[1280px]">
       <h1 class="text-[32px] font-bold leading-[1.2] text-black sm:text-[40px]">{{ activeOnly ? '진행 중인 의뢰' : '내 의뢰' }}</h1>
       <div class="mt-[16px] h-px bg-[#0a151e]" />
@@ -147,10 +150,10 @@ const detailTo = (r: DevelopRequestListItemType, hash = ''): RouteLocationRaw =>
               <div class="relative z-10 ml-auto flex shrink-0 items-center gap-[10px] text-[14px] leading-[1.3]">
                 <RouterLink
                   v-if="r.nextAction !== null"
-                  :to="detailTo(r, ACTIONS[r.nextAction].hash)"
+                  :to="detailTo(r, NEXT_ACTION_TARGETS[r.nextAction].hash)"
                   class="flex h-[34px] items-center rounded-[6px] border border-[#1b2b39] bg-[#1b2b39] px-[10px] font-medium text-white transition-colors hover:bg-[#0a151e]"
                 >
-                  {{ ACTIONS[r.nextAction].button }}
+                  {{ NEXT_ACTION_TARGETS[r.nextAction].button }}
                 </RouterLink>
                 <RouterLink
                   :to="detailTo(r)"
