@@ -31,6 +31,9 @@ export interface MarketQuestionDef {
   readonly required?: boolean; // 등록 전 답해야 한다(모르면 탈출구 선택지) — 공통 조건이 쓴다
   // 다른 문항에서 특정 선택지를 골랐을 때만 묻는다(개발의뢰 역설계 '펌웨어 추출' → 추출 자료 문항). 숨은 문항의 답은 저장 전에 버린다.
   readonly showWhen?: { readonly code: string; readonly anyOf: readonly string[] };
+  // 이 분야를 같이 고른 의뢰엔 묻지 않는다(개발의뢰 — PCB 설계를 같이 고르면 회로 설계의 'PCB 설계도 필요한가요?',
+  // 회로 설계를 같이 고르면 PCB 의 회로도·BOM). 표시 판정에 분야를 넘긴 곳만 본다 — 숨은 문항의 답은 저장 전에 버린다.
+  readonly hideWithAreas?: readonly string[];
   readonly promptHint?: string; // 검토서 프롬프트에 주는 "이 답이 개발에서 뜻하는 것" 한 줄
   readonly why?: string; // 위저드 문항 아래 "왜 묻나요" 한 줄(고객용 — promptHint 와 다르다)
 }
@@ -153,9 +156,13 @@ export interface AreaRegistry {
   readonly questionArea: (code: string) => string | null;
   readonly areaQuestionsFor: (areas: readonly string[]) => MarketQuestionDef[];
   readonly questionsFor: (areas: readonly string[]) => MarketQuestionDef[];
-  readonly isQuestionVisible: (question: MarketQuestionDef, answers: readonly { code: string; choices: readonly string[] }[]) => boolean;
+  readonly isQuestionVisible: (
+    question: MarketQuestionDef,
+    answers: readonly { code: string; choices: readonly string[] }[],
+    areas?: readonly string[],
+  ) => boolean;
   readonly visibleQuestionsFor: (areas: readonly string[], answers: readonly { code: string; choices: readonly string[] }[]) => MarketQuestionDef[];
-  readonly pruneHiddenAnswers: <T extends { code: string; choices: readonly string[] }>(answers: readonly T[]) => T[];
+  readonly pruneHiddenAnswers: <T extends { code: string; choices: readonly string[] }>(answers: readonly T[], areas?: readonly string[]) => T[];
   readonly requiredMissing: (
     answers: readonly { code: string; choices: readonly string[]; note?: string | undefined }[],
     areas: readonly string[],
@@ -232,19 +239,24 @@ export function createAreaRegistry(config: AreaRegistryConfig): AreaRegistry {
     ...config.common,
     ...areaQuestionsFor(list),
   ];
-  // showWhen 조건 — 조건 문항에서 지정 선택지를 하나라도 골랐을 때만 보인다.
-  const isQuestionVisible = (q: MarketQuestionDef, answers: readonly { code: string; choices: readonly string[] }[]): boolean => {
+  // showWhen 조건 — 조건 문항에서 지정 선택지를 하나라도 골랐을 때만 보인다. hideWithAreas — 분야를 넘기면 그 분야가 있을 때 숨는다.
+  const isQuestionVisible = (
+    q: MarketQuestionDef,
+    answers: readonly { code: string; choices: readonly string[] }[],
+    list?: readonly string[],
+  ): boolean => {
+    if (list !== undefined && q.hideWithAreas?.some((c) => list.includes(c)) === true) return false;
     const cond = q.showWhen;
     if (cond === undefined) return true;
     return answers.find((a) => a.code === cond.code)?.choices.some((c) => cond.anyOf.includes(c)) ?? false;
   };
   const visibleQuestionsFor = (list: readonly string[], answers: readonly { code: string; choices: readonly string[] }[]): MarketQuestionDef[] =>
-    questionsFor(list).filter((q) => isQuestionVisible(q, answers));
+    questionsFor(list).filter((q) => isQuestionVisible(q, answers, list));
   // 숨은 문항의 답을 버린다(조건 선택지를 다시 뺀 뒤 남은 잔재). 사전에 없는 코드는 그대로 둔다 — 검증이 따로 막는다.
-  const pruneHiddenAnswers = <T extends { code: string; choices: readonly string[] }>(answers: readonly T[]): T[] =>
+  const pruneHiddenAnswers = <T extends { code: string; choices: readonly string[] }>(answers: readonly T[], list?: readonly string[]): T[] =>
     answers.filter((a) => {
       const q = questionMap.get(a.code);
-      return q === undefined || isQuestionVisible(q, answers);
+      return q === undefined || isQuestionVisible(q, answers, list);
     });
   // 필수 문항 중 미응답 코드 — 등록 라우트와 위저드 "다음" 게이트가 같은 함수를 쓴다. 숨은 문항은 묻지 않는다.
   const requiredMissing = (

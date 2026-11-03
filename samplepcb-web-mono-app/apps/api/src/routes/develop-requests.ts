@@ -405,14 +405,15 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     }
     const payload = parsed.data;
     // 저장 분야 — 시스템개발은 6분야, 개별 견적은 고른 것(계약 superRefine 이 개별 메뉴 밖 코드를 이미 막았다).
-    // '앱 및 서버'는 범위 답(appserver.scope)대로 줄인다.
+    // '앱 및 서버'는 범위 답(appserver.scope)대로 줄이고, 회로 설계의 'PCB 설계도 필요함'이면 PCB 설계를 더한다.
     const serviceAreas = resolveDevelopServiceAreas(payload.requestMode, payload.serviceAreas, payload.answers);
     const split = splitMarketAttachments(files, serviceAreas, DEVELOP_REGISTRY);
     if (split.invalid.length > 0) return reply.status(400).send({ result: false, error: 'ATTACHMENT_FIELD_INVALID' });
     const attachments = split.accepted;
-    // 조건이 안 맞아 숨은 문항(역설계 펌웨어 추출 자료 등)의 답은 버린다(화면 상태 잔재).
-    const visibleAnswers = pruneDevelopHiddenAnswers(payload.answers);
-    // 필수 문항(레지스트리 required — 역설계 권리 확인 · PCB 회로도·BOM) 미응답 — 위저드 "다음" 게이트와 같은 함수.
+    // 숨은 문항의 답은 버린다(화면 상태 잔재) — 조건이 안 맞는 문항(역설계 펌웨어 추출 자료 등)과 확정 분야로 숨는 문항
+    // (PCB 를 더한 뒤의 PCB 설계 연계 · 회로+PCB 의 회로도·BOM).
+    const visibleAnswers = pruneDevelopHiddenAnswers(payload.answers, serviceAreas);
+    // 필수 문항(레지스트리 required — 역설계 권리 확인 · PCB 회로도·BOM · PCB 설계 연계) 미응답 — 위저드 "다음" 게이트와 같은 함수.
     const requiredMissing = developRequiredMissing(visibleAnswers, serviceAreas);
     if (requiredMissing.length > 0) {
       return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing: requiredMissing });
@@ -630,14 +631,14 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const mode = b.requestMode ?? asDevelopRequestMode(r.requestMode);
       const pickedAreas = b.serviceAreas ?? toDevelopAreaCodes(r.serviceAreas);
       const storedAnswers = toAnswers(r.answers);
-      // '앱 및 서버' 범위 답이 바뀌어도 분야가 바뀐다 — 보낸 답(없으면 저장분)으로 분야를 정한다.
+      // '앱 및 서버' 범위 답·회로 설계의 PCB 설계 연계 답이 바뀌어도 분야가 바뀐다 — 보낸 답(없으면 저장분)으로 분야를 정한다.
       const areas = resolveDevelopServiceAreas(mode, pickedAreas, b.answers ?? storedAnswers);
       const storedAreas = toDevelopAreaCodes(r.serviceAreas);
       const areasChanged = mode !== r.requestMode || areas.length !== storedAreas.length || areas.some((c) => !storedAreas.includes(c));
       const expertDelegate = mode === 'system' && (b.expertDelegate ?? r.expertDelegate);
       // 답변을 안 보냈는데 분야가 바뀌면 저장분에서 새 분야 밖 문항을 걷어낸다(맡김이면 역할·협업 문항만 남긴다). 숨은 문항의 답도 버린다.
       const allowed = new Set(developQuestionsFor(areas).map((q) => q.code));
-      const merged = pruneDevelopHiddenAnswers(b.answers ?? storedAnswers.filter((a) => allowed.has(a.code)));
+      const merged = pruneDevelopHiddenAnswers(b.answers ?? storedAnswers.filter((a) => allowed.has(a.code)), areas);
       const answers = expertDelegate ? keepDevelopDelegateAnswers(merged) : merged;
       const tools = b.tools ?? toTools(r.tools);
       const wishDate = b.wishDate !== undefined ? b.wishDate : r.wishDate;
@@ -646,7 +647,8 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
       const needsStages = developNeedsStages(areas);
       const currentStage = needsStages ? (b.currentStage !== undefined ? b.currentStage : asDevelopCurrentStage(r.currentStage)) : null;
       const targetStage = needsStages ? (b.targetStage !== undefined ? b.targetStage : asDevelopTargetStage(r.targetStage)) : null;
-      const issues = developMergedIssues({ requestMode: mode, serviceAreas: pickedAreas, answers, tools, currentStage, targetStage, wishDate, wishNote });
+      // 검증은 확정 분야로 — PCB 설계 연계 답(PCB 를 더한 답)은 위에서 숨은 답으로 버려져 고른 분야만으론 PCB 답이 분야 밖이 된다.
+      const issues = developMergedIssues({ requestMode: mode, serviceAreas: areas, answers, tools, currentStage, targetStage, wishDate, wishNote });
       if (issues.length > 0) return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH', issues });
       const missing = developRequiredMissing(answers, areas);
       if (missing.length > 0) return reply.status(400).send({ result: false, error: 'ANSWERS_REQUIRED', missing });

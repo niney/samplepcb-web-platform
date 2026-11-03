@@ -5,6 +5,7 @@
 //   ③ 개별 메뉴(펌웨어+앱 및 서버 → 서버만) → 제작 계획 건너뜀 → 접수 → 분야 = 펌웨어·서버, 시제품 제작 없음
 //   ④ 개별 메뉴(회로) → 기타는 칩 옆 입력칸·직접 입력은 수량 칸(디자인 체크리스트 4번) → 기타 + 메모 저장 · 수정 화면에 되돌림
 //   ⑤ 개별 메뉴(PCB 설계만, 2026-11-02 §7.2.6) → 2스텝 설계 자료(항목마다 첨부·회로도·BOM 필수)·단계 없음 → 분야별 첨부로 저장
+//   ⑥ 개별 메뉴(회로 설계만, 2026-11-03 §7.2.7) → 3스텝 'PCB 설계도 필요한가요?' 필수 → 필요함이면 PCB 묶음(회로도·BOM 없이) → 회로·PCB 로 저장
 // 실 LLM 경로 둘(FOLLOWUP_LLM=1): 시스템개발 AI 후속 질문 · 개별 메뉴 AI 맞춤 질문(§7.2.4). 그 밖의 여정은 두 유스케이스를 꺼 둔다.
 // 만든 의뢰는 afterAll 이 지운다(공유 DB — 스스로 만들고 스스로 지운다). pageErrors 0 이 게이트.
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-wizard
@@ -56,6 +57,10 @@ const next = async (s: E2eSession): Promise<void> => {
   await s.page.getByRole('button', { name: /^NEXT/ }).click();
 };
 
+// 회로 설계의 'PCB 설계도 필요한가요?'(PCB 를 안 고르면 필수, 2026-11-03) — 질문 문장 p 의 부모가 질문 하나(WizQuestion).
+// '필요 없음'은 인증 질문에도 있어 이 질문 안에서 고른다.
+const pcbLinkQuestion = (s: E2eSession) => s.page.getByText('회로 설계 후 PCB 설계도 필요한가요?').first().locator('xpath=..');
+
 // 2스텝 공통 입력 — 제목·목적·단계·희망 시기(자유문)·예산.
 async function fillDescribe(s: E2eSession, title: string): Promise<void> {
   await s.page.getByPlaceholder('의뢰 제목을 입력하세요.').fill(title);
@@ -100,6 +105,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
     software: '[e2e] 위저드 v2 개별 펌웨어+서버',
     other: '[e2e] 위저드 v2 기타·직접 입력',
     pcb: '[e2e] 위저드 v2 PCB 설계만',
+    circuitPcb: '[e2e] 위저드 v2 회로 설계 + PCB 설계도 필요함',
     ai: '[e2e] 위저드 v2 AI 질문',
     areaAi: '[e2e] 위저드 v2 개별 AI 맞춤 질문',
   };
@@ -199,7 +205,10 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await s.page.getByText('개별 개발 전문 질문').waitFor();
       expect(await s.page.getByText('어떤 통신 기능이 필요한가요?').count()).toBe(1);
       expect(await s.page.getByText('잠긴 칩의 프로그램은 추출하지 않습니다', { exact: false }).count()).toBeGreaterThan(0);
-      // 권리 확인 없이 다음 → 막힌다.
+      // 필수 둘 — PCB 를 안 골랐으니 회로 설계의 PCB 설계 연계, 그리고 권리 확인. 답하지 않으면 앞 것부터 막힌다.
+      await next(s);
+      await s.page.getByText("'PCB 설계 연계' 질문에 답해 주세요.").waitFor();
+      await pcbLinkQuestion(s).getByRole('button', { name: '필요 없음', exact: true }).click();
       await next(s);
       await s.page.getByText("'권리 확인' 질문에 답해 주세요.").waitFor();
       await s.page.getByRole('button', { name: '자사 제품이며 관련 권리 보유', exact: true }).click();
@@ -222,6 +231,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       const d = await findByTitle(titles.individual);
       expect(d.requestMode).toBe('individual');
       expect(d.serviceAreas).toEqual(['circuit', 'firmware', 'reverse']);
+      expect(d.answers.find((a) => a.code === 'circuit.pcb')?.choices).toEqual(['no']);
       expect(d.answers.find((a) => a.code === 'hw.comm')?.choices).toEqual(['ble']);
       expect(d.answers.find((a) => a.code === 'reverse.rights')?.choices).toEqual(['own']);
       expect(d.answers.find((a) => a.code === 'reverse.work')?.choices).toEqual(['schematic']);
@@ -325,6 +335,7 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await power.getByRole('button', { name: '어댑터', exact: true }).click();
       expect(await power.getByRole('button', { name: 'PoE', exact: true }).getAttribute('aria-pressed')).toBe('true');
       expect(await power.getByRole('button', { name: '어댑터', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      await pcbLinkQuestion(s).getByRole('button', { name: '필요 없음', exact: true }).click();
       await shot('develop-other-done');
       await next(s);
 
@@ -435,6 +446,62 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(await s.page.getByRole('button', { name: 'Gerber만 있음', exact: true }).getAttribute('aria-pressed')).toBe('true');
       expect(await s.page.getByText('PCB 설계 파일·거버', { exact: true }).count()).toBe(1);
       expect(await s.page.getByLabel('회로도 파일 첨부').count()).toBe(0);
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+
+  // 회로 설계 → PCB 설계 연계(2026-11-03 §7.2.7) — PCB 를 안 고르면 3스텝 회로 묶음 끝에서 필수로 묻는다. 필요함이면 PCB 설계
+  // 묶음이 바로 아래 열리고(회로도·BOM 은 회로 설계 결과물로 이어받으니 묻지 않는다), 저장은 두 메뉴를 같이 고른 의뢰와 같다.
+  test('개별 메뉴 — 회로 설계만 → PCB 설계도 필요함 → PCB 묶음이 열리고 회로·PCB 로 저장', async () => {
+    const s = await newSession(identity);
+    const shotDir = process.env.E2E_SHOT_DIR; // 화면 확인용 — 지정했을 때만 남긴다
+    const shot = async (name: string): Promise<void> => {
+      if (shotDir !== undefined) await s.page.screenshot({ path: `${shotDir}/${name}.png`, fullPage: true }).catch(() => undefined);
+    };
+    const BOARD = 'PCB 층수와 종류가 정해져 있나요?';
+    try {
+      await s.page.goto('/develop/request');
+      await s.page.getByText('어떤 개발이 필요하신가요?').waitFor();
+      await s.page.getByRole('button', { name: /^회로 설계/ }).click();
+      await next(s);
+      await fillDescribe(s, titles.circuitPcb);
+      await next(s);
+      await s.page.getByText('개별 개발 전문 질문').waitFor();
+      // 필수 — 안 고르면 막힌다. 아직 PCB 묶음은 없다.
+      await next(s);
+      await s.page.getByText("'PCB 설계 연계' 질문에 답해 주세요.").waitFor();
+      expect(await s.page.getByText(BOARD).count()).toBe(0);
+      const link = pcbLinkQuestion(s);
+      await link.getByRole('button', { name: '필요함', exact: true }).click();
+      // PCB 설계 묶음이 열린다 — 회로도·BOM 은 묻지 않는다. 질문은 남아 답을 바꿀 수 있고, 필요 없음이면 묶음이 닫힌다.
+      await s.page.getByText(BOARD).waitFor();
+      expect(await s.page.getByText('회로도가 있나요?').count()).toBe(0);
+      expect(await s.page.getByText('BOM(부품 목록)이 있나요?').count()).toBe(0);
+      expect(await link.getByRole('button', { name: '필요함', exact: true }).getAttribute('aria-pressed')).toBe('true');
+      await link.getByRole('button', { name: '필요 없음', exact: true }).click();
+      expect(await s.page.getByText(BOARD).count()).toBe(0);
+      await link.getByRole('button', { name: '필요함', exact: true }).click();
+      await s.page.getByRole('button', { name: '4층', exact: true }).click();
+      await shot('develop-circuit-pcb-link');
+      await next(s);
+      await s.page.getByText('제작 없음', { exact: true }).click();
+      await next(s);
+      // ⑤ 요약 — 분야는 회로 + PCB.
+      await s.page.getByText('입력 내용을 확인해 주세요').waitFor();
+      expect(await s.page.getByText('회로 + PCB', { exact: true }).count()).toBeGreaterThan(0);
+      await fillReviewAndSubmit(s);
+
+      const d = await findByTitle(titles.circuitPcb);
+      expect(d.serviceAreas).toEqual(['circuit', 'pcb']);
+      expect(d.answers.some((a) => ['circuit.pcb', 'pcb.schematic', 'pcb.bom'].includes(a.code))).toBe(false);
+      expect(d.answers.find((a) => a.code === 'pcb.board')?.choices).toEqual(['l4']);
+
+      // 수정 화면 — PCB 가 의뢰에 들어 있으니 그 질문은 없고 PCB 묶음이 보인다.
+      await s.page.goto(`/develop/requests/${String(d.requestId)}/edit?_t=${String(Date.now())}`);
+      await s.page.getByText(BOARD).waitFor({ timeout: 15_000 });
+      expect(await s.page.getByText('회로 설계 후 PCB 설계도 필요한가요?').count()).toBe(0);
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();
@@ -600,6 +667,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(await s.page.getByText('AI 가 채움', { exact: true }).count()).toBeGreaterThan(0);
       const shotDir = process.env.E2E_SHOT_DIR; // 화면 확인용 — 지정했을 때만 남긴다
       if (shotDir !== undefined) await s.page.screenshot({ path: `${shotDir}/develop-area-followup-step3.png` }).catch(() => undefined);
+      // PCB 설계 연계는 AI 에 맡기지 않는 질문 — 직접 답한다.
+      await pcbLinkQuestion(s).getByRole('button', { name: '필요 없음', exact: true }).click();
       await next(s);
       await s.page.getByText('수량 미정', { exact: true }).click();
       await next(s);

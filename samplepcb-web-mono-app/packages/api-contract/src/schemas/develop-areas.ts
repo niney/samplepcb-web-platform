@@ -213,6 +213,12 @@ export const DEVELOP_REVERSE_RIGHTS_CHECK_CHOICES: readonly string[] = ['mainten
 export const developReverseRightsCheckNeeded = (answers: readonly { code: string; choices: readonly string[] }[]): boolean =>
   answers.some((a) => a.code === DEVELOP_REVERSE_RIGHTS_CODE && a.choices.some((c) => DEVELOP_REVERSE_RIGHTS_CHECK_CHOICES.includes(c)));
 
+// ── 회로 설계 → PCB 설계 연계 (2026-11-03, 의뢰서 시안 '회로설계 의뢰서' 03) ──────────────────────
+// 회로 설계만 고른 고객이 PCB 설계를 빠뜨린 경우를 잡는다 — PCB 설계를 같이 고른 의뢰엔 묻지 않는다(hideWithAreas).
+// '필요함'이면 PCB 설계를 의뢰에 더한다(applyDevelopCircuitPcb). 제작(PCB 제작·부품·SMT)은 4스텝 제작 계획이 묻는다.
+export const DEVELOP_CIRCUIT_PCB_CODE = 'circuit.pcb';
+export const DEVELOP_CIRCUIT_PCB_YES = 'yes';
+
 // ── 분야 7종(레지스트리 순서 = 배지·검토서 카드 순서) ────────────────────────────────
 export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
   {
@@ -294,6 +300,18 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
         why: '무엇을 받으실지에 따라 작업 범위와 비용이 정해집니다.',
         promptHint: '납품 결과물 목록은 산출물 범위 그대로다',
       },
+      {
+        // '필요함'을 고르면 아래에 PCB 설계 묶음이 열리고 저장은 두 메뉴를 같이 고른 의뢰와 같다 — 그때 이 답은 숨은 답이 되어
+        // 저장 전에 버린다(필요 없음·상담 필요만 답으로 남는다). AI 맞춤 질문에 맡기지 않는다(DEVELOP_AREA_FOLLOWUP_LOCKED).
+        code: DEVELOP_CIRCUIT_PCB_CODE, label: '회로 설계 후 PCB 설계도 필요한가요?', short: 'PCB 설계 연계', multi: false, required: true,
+        hideWithAreas: ['pcb'],
+        options: withUnknown([
+          { code: DEVELOP_CIRCUIT_PCB_YES, label: '필요함' },
+          { code: 'no', label: '필요 없음' },
+        ], '상담 필요'),
+        why: '회로도와 BOM으로 PCB를 설계해야 보드를 만들 수 있습니다. 필요함을 고르시면 아래에 PCB 설계 질문이 이어지고 함께 견적을 받습니다(PCB 제작·조립은 제작 계획에서 고릅니다).',
+        promptHint: 'PCB 설계 연계 — 필요 없음이면 회로도·BOM 까지가 이번 범위이고, 상담 필요면 PCB 설계를 함께 맡을지는 담당자 확인 사항이다',
+      },
     ],
   },
   {
@@ -303,7 +321,8 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
     // 설계 자료 칸(DEVELOP_PCB_MATERIALS)이 질문 옆에서 받는 첨부 — 마켓 정의의 슬롯(설계 파일·외형 도면·회로도)에 BOM 을 더한다.
     attachmentSlots: [...base('pcb').attachmentSlots, { code: 'bom', label: 'BOM', hint: '부품 목록(엑셀·CSV)' }],
     // 앞 다섯(작업 범위 ~ 외형)은 설계 자료 질문 — PCB 설계만 고르면 2스텝에서 첨부와 함께 묻는다(2026-11-02, 의뢰서 시안
-    // 'PCB 설계 의뢰서' 02. 설계 자료). 회로도·BOM 은 필수(모르면 '잘 모르겠어요').
+    // 'PCB 설계 의뢰서' 02. 설계 자료). 회로도·BOM 은 필수(모르면 '잘 모르겠어요') — 회로 설계를 같이 맡기면 그 결과물로
+    // 이어받으니 묻지 않는다(2026-11-03).
     questions: [
       {
         code: 'pcb.type', label: 'PCB 설계 작업 범위는 무엇인가요?', short: '작업 범위', multi: false,
@@ -331,6 +350,7 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'pcb.schematic', label: '회로도가 있나요?', short: '회로도', multi: false, required: true,
+        hideWithAreas: ['circuit'],
         options: withUnknown([
           { code: 'source', label: '회로도 원본 파일' },
           { code: 'pdf_image', label: 'PDF·이미지만' },
@@ -341,6 +361,7 @@ export const DEVELOP_AREAS: readonly MarketAreaDef[] = [
       },
       {
         code: 'pcb.bom', label: 'BOM(부품 목록)이 있나요?', short: 'BOM', multi: false, required: true,
+        hideWithAreas: ['circuit'],
         options: withUnknown([
           { code: 'full', label: '있음' },
           { code: 'partial', label: '일부만 있음' },
@@ -810,9 +831,15 @@ export const DEVELOP_QUESTIONS = DEVELOP_REGISTRY.questions;
 export const developQuestion = DEVELOP_REGISTRY.question;
 export const developQuestionsFor = DEVELOP_REGISTRY.questionsFor;
 export const developAreaQuestionsFor = DEVELOP_REGISTRY.areaQuestionsFor;
-export const isDevelopQuestionVisible = DEVELOP_REGISTRY.isQuestionVisible;
+// 개발의뢰의 표시 판정은 고른 분야도 본다(hideWithAreas) — 분야를 빠뜨리지 않게 인자를 필수로 둔다.
+export const isDevelopQuestionVisible = (
+  q: MarketQuestionDef,
+  answers: readonly { code: string; choices: readonly string[] }[],
+  areas: readonly string[],
+): boolean => DEVELOP_REGISTRY.isQuestionVisible(q, answers, areas);
 export const developVisibleQuestionsFor = DEVELOP_REGISTRY.visibleQuestionsFor;
-export const pruneDevelopHiddenAnswers = DEVELOP_REGISTRY.pruneHiddenAnswers;
+export const pruneDevelopHiddenAnswers = <T extends { code: string; choices: readonly string[] }>(answers: readonly T[], areas: readonly string[]): T[] =>
+  DEVELOP_REGISTRY.pruneHiddenAnswers(answers, areas);
 export const developRequiredMissing = DEVELOP_REGISTRY.requiredMissing;
 export const developAnswerIssues = DEVELOP_REGISTRY.answerIssues;
 export const developAnswerText = DEVELOP_REGISTRY.answerText;
@@ -828,6 +855,13 @@ export function applyDevelopAppServerScope(areas: readonly string[], answers: re
   const scope = answers.find((a) => a.code === DEVELOP_APP_SERVER_SCOPE_CODE)?.choices[0];
   const keep = scope === 'app' ? ['app'] : scope === 'server' ? ['server'] : ['app', 'server'];
   return sortDevelopAreas([...areas.filter((c) => c !== 'app' && c !== 'server'), ...keep]);
+}
+
+// 회로 설계 '회로 설계 후 PCB 설계도 필요한가요?' → 저장 분야. 필요함이면 PCB 설계를 더한다(PCB 를 이미 골랐으면 그 문항이 없다).
+export function applyDevelopCircuitPcb(areas: readonly string[], answers: readonly { code: string; choices: readonly string[] }[]): string[] {
+  if (!areas.includes('circuit') || areas.includes('pcb')) return [...areas];
+  const yes = answers.some((a) => a.code === DEVELOP_CIRCUIT_PCB_CODE && a.choices.includes(DEVELOP_CIRCUIT_PCB_YES));
+  return yes ? sortDevelopAreas([...areas, 'pcb']) : [...areas];
 }
 
 // 4스텝 '제작 계획'을 묻는 의뢰 — 만들 하드웨어가 있는 분야가 하나라도 있을 때(펌웨어·앱·서버만이면 건너뛴다, 검토 회신 7).

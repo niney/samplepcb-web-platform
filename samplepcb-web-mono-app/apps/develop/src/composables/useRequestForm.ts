@@ -3,6 +3,8 @@ import {
   DEVELOP_APP_SERVER_SCOPE_CODE,
   DEVELOP_AREA_CUSTOM_PREFIX,
   DEVELOP_BUDGET_RANGES,
+  DEVELOP_CIRCUIT_PCB_CODE,
+  DEVELOP_CIRCUIT_PCB_YES,
   DEVELOP_CURRENT_STAGES,
   DEVELOP_DELIVERY_FORMS,
   DEVELOP_INDIVIDUAL_AREA_CODES,
@@ -394,10 +396,12 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
 
   // ── 1스텝 메뉴 ─────────────────────────────────────────────────────────────
   // 개별 메뉴는 카드 단위로 고른다 — '앱 및 서버' 카드 하나가 app·server 두 분야를 고른다(fields.serviceAreas 는 카드가 고른
-  // 분야 그대로이고, 범위 답으로 줄이는 건 effectiveAreas 가 한다).
+  // 분야 그대로이고, 범위 답으로 줄이거나 회로 설계의 PCB 설계 연계 답으로 더하는 건 effectiveAreas 가 한다).
+  // 고른 카드는 확정 분야로 본다 — 'PCB 설계도 필요함'을 고르면 PCB 설계 카드도 고른 것으로 보이고 3스텝에 그 묶음이 열린다.
   const isSystem = computed(() => fields.requestMode === 'system');
   const menuCards = DEVELOP_MENU_CARDS;
-  const isCardPicked = (card: DevelopMenuCard): boolean => card.areas.some((a) => fields.serviceAreas.includes(a));
+  const isCardPicked = (card: DevelopMenuCard): boolean =>
+    fields.requestMode === 'individual' && card.areas.some((a) => effectiveAreas.value.includes(a));
   const pickedCards = computed<DevelopMenuCard[]>(() => menuCards.filter(isCardPicked));
   // 개별 메뉴를 3개 이상 고르면 시스템개발을 권한다(질문 수는 그대로 — 검토 회신 5).
   const suggestSystem = computed(() => fields.requestMode === 'individual' && pickedCards.value.length >= DEVELOP_SYSTEM_SUGGEST_CARDS);
@@ -406,10 +410,17 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
     const state = stateOf(DEVELOP_APP_SERVER_SCOPE_CODE);
     if (state.choices.length === 0) state.choices = [scope];
   }
+  // 'PCB 설계도 필요함'으로 더한 PCB 는 그 답이 붙들고 있다 — 회로 설계·PCB 설계 카드를 끄거나 시스템개발로 바꾸면 답을 지운다
+  // (다시 고르면 다시 묻는다).
+  function clearCircuitPcbYes(): void {
+    const state = questionState[DEVELOP_CIRCUIT_PCB_CODE];
+    if (state?.choices.includes(DEVELOP_CIRCUIT_PCB_YES) === true) state.choices = [];
+  }
   // 시스템개발은 배타다 — 고르면 개별 선택을 지우고, 개별을 고르면 시스템개발을 놓는다.
   function selectSystemMenu(): void {
     fields.requestMode = 'system';
     fields.serviceAreas = [];
+    clearCircuitPcbYes();
   }
   function toggleMenuCard(code: string): void {
     const card = menuCards.find((c) => c.code === code);
@@ -420,6 +431,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       fields.expertDelegate = false;
     } else if (isCardPicked(card)) {
       fields.serviceAreas = fields.serviceAreas.filter((a) => !card.areas.includes(a));
+      if (card.areas.includes('circuit') || card.areas.includes('pcb')) clearCircuitPcbYes();
       if (fields.serviceAreas.length === 0) fields.requestMode = null;
       return;
     } else {
@@ -446,7 +458,8 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   const currentAnswers = computed(() =>
     Object.entries(questionState).map(([code, state]) => ({ code, choices: state.choices })),
   );
-  // 저장·검증에 쓰는 분야 — 시스템개발이면 6분야, 개별이면 고른 것('앱 및 서버'는 범위 답대로, 메뉴 미선택이면 빈 배열).
+  // 저장·검증에 쓰는 분야 — 시스템개발이면 6분야, 개별이면 고른 것('앱 및 서버'는 범위 답대로, 회로 설계의 'PCB 설계도
+  // 필요함'이면 PCB 설계를 더한다, 메뉴 미선택이면 빈 배열).
   const effectiveAreas = computed<string[]>(() =>
     fields.requestMode === null ? [] : resolveDevelopServiceAreas(fields.requestMode, fields.serviceAreas, currentAnswers.value),
   );
@@ -465,7 +478,9 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   const menuBadge = computed(() => (fields.requestMode === null ? '' : developAreaBadge(effectiveAreas.value)));
 
   // ── 3스텝 질문 ─────────────────────────────────────────────────────────────
-  const isVisible = (q: MarketQuestionDef): boolean => isDevelopQuestionVisible(q, currentAnswers.value);
+  // 화면 표시는 카드로 고른 분야로 판정한다(계약 hideWithAreas) — 답으로 더한 PCB 까지 넣으면 'PCB 설계도 필요한가요?'가
+  // 필요함을 누르는 순간 스스로 숨는다(답을 다시 바꿀 수 있게 남긴다). 등록에 싣는 답은 확정 분야로 거른다(buildAnswers).
+  const isVisible = (q: MarketQuestionDef): boolean => isDevelopQuestionVisible(q, currentAnswers.value, fields.serviceAreas);
   const activeQuestions = computed<MarketQuestionDef[]>(() => developQuestionsFor(effectiveAreas.value).filter(isVisible));
   // 2스텝 설계 자료 질문(PCB 설계만) — 보이는 것만(기존 원본은 작업 범위가 수정·배선만일 때). slot·fileFor·fileHint 는 질문 옆
   // 첨부 칸(계약 DEVELOP_PCB_MATERIALS). 답은 다른 질문과 같은 상태(questionState)에 든다.
@@ -485,7 +500,8 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   const askedQuestions = computed<MarketQuestionDef[]>(() =>
     hideSystemQuestions.value ? activeQuestions.value.filter((q) => q.askOnDelegate === true) : activeQuestions.value,
   );
-  // 개별 메뉴 묶음 — 고른 카드마다 한 묶음. 공유 문항(회로·펌웨어 통신)은 앞 카드 묶음에서 한 번만. '앱 및 서버'는
+  // 개별 메뉴 묶음 — 고른 카드마다 한 묶음('PCB 설계도 필요함'으로 더한 PCB 설계도 — 회로 설계 묶음 다음). 공유 문항(회로·펌웨어
+  // 통신)은 앞 카드 묶음에서 한 번만. '앱 및 서버'는
   // 범위·작업 종류 다음에 앱·서버 질문이 소제목과 함께 이어진다(heading = 그 문항 앞에 그릴 소제목).
   // AI 맞춤 질문(§7.2.4)을 쓰면 문항마다 출처가 갈린다 — bank(기본 질문 그대로) · asked(AI 가 고쳐 물음) · covered(자료에서 채움, 근거 함께).
   // added = 그 묶음에 더한 새 질문(기본 질문 밖, aiStateOf 로 답한다).
@@ -535,11 +551,12 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
   });
 
   // 등록에 실을 답변 — 응답한 문항만(서술형은 note, 선택형은 choices). 선택 분야 밖 문항은 버린다.
-  // AI 맞춤 질문의 새 선택지('~라벨')는 여기서 'other' + 메모로 바뀐다(없으면 상태 그대로).
+  // 확정 분야로 숨는 문항도 버린다 — PCB 설계를 더한 'PCB 설계도 필요함' 답은 싣지 않는다(저장은 두 메뉴를 같이 고른 의뢰와 같다,
+  // 서버도 같은 규칙으로 버린다). AI 맞춤 질문의 새 선택지('~라벨')는 여기서 'other' + 메모로 바뀐다(없으면 상태 그대로).
   function buildAnswers(): MarketAnswerType[] {
     return askedQuestions.value.flatMap((q) => {
       const state = questionState[q.code];
-      if (state === undefined) return [];
+      if (state === undefined || !isDevelopQuestionVisible(q, currentAnswers.value, effectiveAreas.value)) return [];
       const answer = developAreaStateToAnswer(state, q.options.some((o) => o.code === 'other'));
       if (!isMarketAnswered(q, answer)) return [];
       // 선택을 바꿔 숨겨진 외부 업체 메모는 접수에 싣지 않는다. 다시 선택하면 입력은 복원된다.
@@ -666,7 +683,7 @@ export function useRequestForm(memberId: MaybeRefOrGetter<string | null> = null)
       (fields.wishDate !== '' || fields.wishNote.trim() !== '') &&
       fields.budgetRange !== null,
   );
-  // 필수 문항(역설계 권리 확인 · PCB 회로도·BOM) 미응답 — 서버와 같은 함수(숨은 문항은 묻지 않는다).
+  // 필수 문항(역설계 권리 확인 · PCB 회로도·BOM · 회로 설계의 PCB 설계 연계) 미응답 — 서버와 같은 함수(숨은 문항은 묻지 않는다).
   const requiredMissingCodes = computed<string[]>(() => developRequiredMissing(buildAnswers(), effectiveAreas.value));
   // 그중 2스텝 설계 자료 질문(PCB 설계만) — 그 스텝이 막는다. 나머지는 3스텝 몫.
   const materialsMissingCodes = computed<string[]>(() =>

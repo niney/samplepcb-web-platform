@@ -5,6 +5,7 @@ import {
   DEVELOP_AREA_FOLLOWUP_FIXED_AREAS,
   DEVELOP_AREA_FOLLOWUP_LOCKED,
   DEVELOP_APP_SERVER_SCOPE_CODE,
+  DEVELOP_CIRCUIT_PCB_CODE,
   DEVELOP_REVERSE_RIGHTS_CODE,
   DevelopAiQuestions,
   developQuestion,
@@ -79,8 +80,8 @@ describe('developAreaAnswerToState', () => {
 });
 
 describe('AI 에 맡기지 않는 질문·추론 단계', () => {
-  it('고정 질문 목록은 레지스트리의 범위·권리 확인·조건부 질문의 근거와 같다', () => {
-    expect(DEVELOP_AREA_FOLLOWUP_LOCKED).toEqual([DEVELOP_APP_SERVER_SCOPE_CODE, DEVELOP_REVERSE_RIGHTS_CODE, 'reverse.work']);
+  it('고정 질문 목록은 레지스트리의 범위·PCB 설계 연계·권리 확인·조건부 질문의 근거와 같다', () => {
+    expect(DEVELOP_AREA_FOLLOWUP_LOCKED).toEqual([DEVELOP_APP_SERVER_SCOPE_CODE, DEVELOP_CIRCUIT_PCB_CODE, DEVELOP_REVERSE_RIGHTS_CODE, 'reverse.work']);
     expect(developQuestion('reverse.firmware')?.showWhen?.code).toBe('reverse.work');
   });
 

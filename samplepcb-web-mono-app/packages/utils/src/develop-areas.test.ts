@@ -10,6 +10,7 @@ import {
   DEVELOP_PCB_MATERIAL_AREA,
   DEVELOP_PCB_MATERIAL_CODES,
   DEVELOP_QUESTIONS,
+  DEVELOP_REGISTRY,
   DEVELOP_SYSTEM_AREA_CODES,
   DEVELOP_SYSTEM_QUESTIONS,
   DevelopProductionPlan,
@@ -71,10 +72,13 @@ describe('개발의뢰 레지스트리 정합성', () => {
     expect(DEVELOP_SYSTEM_QUESTIONS.filter((q) => q.askOnDelegate === true).length).toBe(2);
     // 기구는 개별 메뉴가 없으니 분야별 질문도 없다(시스템개발 외관·기구 2문항이 대신한다).
     expect(DEVELOP_AREAS.find((a) => a.code === 'mech')?.questions).toEqual([]);
-    // 탈출구 없는 choice 문항은 역설계 권리 확인(필수) 하나뿐이다. 필수는 그것과 PCB 회로도·BOM(탈출구 있음, 2026-11-02).
+    // 탈출구 없는 choice 문항은 역설계 권리 확인(필수) 하나뿐이다. 필수는 그것과 PCB 회로도·BOM(탈출구 있음, 2026-11-02),
+    // 회로 설계의 PCB 설계 연계(탈출구 = 상담 필요, 2026-11-03).
     const noEscape = DEVELOP_QUESTIONS.filter((q) => !isTextQuestion(q) && !q.options.some((o) => o.code === 'unknown')).map((q) => q.code);
     expect(noEscape).toEqual(['reverse.rights']);
-    expect(DEVELOP_QUESTIONS.filter((q) => q.required === true).map((q) => q.code)).toEqual(['pcb.schematic', 'pcb.bom', 'reverse.rights']);
+    expect(DEVELOP_QUESTIONS.filter((q) => q.required === true).map((q) => q.code)).toEqual([
+      'circuit.pcb', 'pcb.schematic', 'pcb.bom', 'reverse.rights',
+    ]);
   });
 
   it('PCB 설계 설계 자료(2026-11-02) — 2스텝 질문 다섯·질문 옆 첨부 칸·기존 원본 조건·필수 회로도·BOM', () => {
@@ -106,6 +110,37 @@ describe('개발의뢰 레지스트리 정합성', () => {
     expect(developPcbMaterialsMode(null, ['pcb'])).toBe(false);
   });
 
+  it('회로 설계 → PCB 설계 연계(2026-11-03) — PCB 를 안 고르면 필수로 묻고, 필요함이면 PCB 를 더하고, 회로+PCB 면 회로도·BOM 을 안 묻는다', () => {
+    const yes = [{ code: 'circuit.pcb', choices: ['yes'] }];
+    // PCB 를 안 고른 회로 설계 의뢰엔 필수.
+    expect(developRequiredMissing([], ['circuit'])).toEqual(['circuit.pcb']);
+    expect(developRequiredMissing([], ['circuit', 'firmware'])).toEqual(['circuit.pcb']);
+    expect(developRequiredMissing([{ code: 'circuit.pcb', choices: ['unknown'] }], ['circuit'])).toEqual([]);
+    // PCB 를 같이 고르면 그 문항이 없고, PCB 의 회로도·BOM 도 묻지 않는다(회로 설계 결과물로 이어받는다).
+    const both = developVisibleQuestionsFor(['circuit', 'pcb'], []).map((q) => q.code);
+    expect(both).not.toContain('circuit.pcb');
+    expect(both).not.toContain('pcb.schematic');
+    expect(both).not.toContain('pcb.bom');
+    expect(both).toContain('pcb.board');
+    expect(developRequiredMissing([], ['circuit', 'pcb'])).toEqual([]);
+    // 회로 설계가 없으면 회로도·BOM 은 그대로 필수.
+    expect(developRequiredMissing([], ['pcb', 'firmware'])).toEqual(['pcb.schematic', 'pcb.bom']);
+    // 필요함 → PCB 설계를 더한다(개별만). 필요 없음·상담 필요·회로 설계 없음이면 그대로.
+    expect(resolveDevelopServiceAreas('individual', ['circuit'], yes)).toEqual(['circuit', 'pcb']);
+    expect(resolveDevelopServiceAreas('individual', ['firmware', 'circuit'], yes)).toEqual(['circuit', 'pcb', 'firmware']);
+    expect(resolveDevelopServiceAreas('individual', ['circuit'], [{ code: 'circuit.pcb', choices: ['no'] }])).toEqual(['circuit']);
+    expect(resolveDevelopServiceAreas('individual', ['circuit'], [{ code: 'circuit.pcb', choices: ['unknown'] }])).toEqual(['circuit']);
+    expect(resolveDevelopServiceAreas('individual', ['firmware'], yes)).toEqual(['firmware']);
+    expect(resolveDevelopServiceAreas('system', [], yes)).toEqual(DEVELOP_SYSTEM_AREA_CODES);
+    // 더한 뒤엔 그 답이 숨은 답이라 저장 전에 버린다(두 메뉴를 같이 고른 의뢰와 같게). 회로+PCB 의 회로도·BOM 답도.
+    const answers = [...yes, { code: 'pcb.schematic', choices: ['none'] }, { code: 'pcb.bom', choices: ['none'] }, { code: 'pcb.board', choices: ['l2'] }];
+    expect(pruneDevelopHiddenAnswers(answers, ['circuit', 'pcb']).map((a) => a.code)).toEqual(['pcb.board']);
+    expect(pruneDevelopHiddenAnswers([{ code: 'circuit.pcb', choices: ['no'] }], ['circuit']).map((a) => a.code)).toEqual(['circuit.pcb']);
+    // 분야를 안 넘기는 레지스트리 판정(마켓이 쓰는 모양)은 분야 조건을 보지 않는다.
+    const schematic = developQuestion('pcb.schematic');
+    expect(schematic !== undefined && DEVELOP_REGISTRY.isQuestionVisible(schematic, [])).toBe(true);
+  });
+
   it('예산 선택지 — PCB 설계만이면 낮은 구간, 라벨은 한 사전', () => {
     expect(developBudgetOptions(false)).toEqual(['under1000', 'r1000_3000', 'r3000_5000', 'r5000_10000', 'over10000', 'after_quote']);
     expect(developBudgetOptions(true)).toEqual(['under100', 'r100_300', 'r300_500', 'r500_1000', 'over1000', 'after_quote']);
@@ -134,7 +169,7 @@ describe('개발의뢰 레지스트리 정합성', () => {
     expect(developQuestionsFor(['firmware']).map((q) => q.code)).toContain('hw.comm');
     const both = developQuestionsFor(['circuit', 'firmware']).map((q) => q.code);
     expect(both.filter((c) => c === 'hw.comm').length).toBe(1);
-    expect(both.length).toBe(8 + 7 - 1);
+    expect(both.length).toBe(9 + 7 - 1);
     const appServer = developQuestionsFor(['app', 'server']).map((q) => q.code);
     expect(appServer.slice(0, 2)).toEqual(['appserver.scope', 'appserver.type']);
     expect(appServer.length).toBe(2 + 6 + 6);
@@ -199,9 +234,9 @@ describe('답변 검증·표시', () => {
       { code: 'reverse.firmware', choices: ['known_part'] },
       { code: 'reverse.pcba', choices: ['basic'] },
     ];
-    expect(pruneDevelopHiddenAnswers(answers).map((a) => a.code)).toEqual(['reverse.rights', 'reverse.work']);
+    expect(pruneDevelopHiddenAnswers(answers, ['reverse']).map((a) => a.code)).toEqual(['reverse.rights', 'reverse.work']);
     const withFw = answers.map((a) => (a.code === 'reverse.work' ? { ...a, choices: ['schematic', 'firmware'] } : a));
-    expect(pruneDevelopHiddenAnswers(withFw).map((a) => a.code)).toEqual(['reverse.rights', 'reverse.work', 'reverse.firmware']);
+    expect(pruneDevelopHiddenAnswers(withFw, ['reverse']).map((a) => a.code)).toEqual(['reverse.rights', 'reverse.work', 'reverse.firmware']);
     // 관리자 신호 — 유지보수 목적·상담만.
     expect(developReverseRightsCheckNeeded([{ code: 'reverse.rights', choices: ['maintenance'] }])).toBe(true);
     expect(developReverseRightsCheckNeeded([{ code: 'reverse.rights', choices: ['consult'] }])).toBe(true);
@@ -253,6 +288,14 @@ describe('등록 payload·생산 계획·희망 시기', () => {
       ...base, requestMode: 'system', serviceAreas: [], answers: [{ code: 'system.io', choices: [], note: '공장' }],
     });
     expect(sys.success).toBe(true);
+  });
+
+  it('회로 설계만 + PCB 설계도 필요함이면 PCB 답도 받는다(확정 분야로 검증)', () => {
+    const answers = [{ code: 'circuit.pcb', choices: ['yes'] }, { code: 'pcb.board', choices: ['l4'] }];
+    expect(DevelopRequestCreatePayload.safeParse({ ...base, serviceAreas: ['circuit'], answers }).success).toBe(true);
+    // 필요 없음이면 PCB 는 분야 밖 문항이다.
+    const no = [{ code: 'circuit.pcb', choices: ['no'] }, { code: 'pcb.board', choices: ['l4'] }];
+    expect(messages(DevelopRequestCreatePayload.safeParse({ ...base, serviceAreas: ['circuit'], answers: no }))).toContain('answers[1]: UNKNOWN_QUESTION');
   });
 
   it('개발 단계 — 역설계·PCB 만이면 비워도 되고(둘만 골라도), 그 밖에는 STAGE_REQUIRED', () => {

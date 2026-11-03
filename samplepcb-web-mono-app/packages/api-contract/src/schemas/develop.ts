@@ -5,6 +5,7 @@ import {
   DEVELOP_INDIVIDUAL_AREA_CODES,
   DEVELOP_SYSTEM_AREA_CODES,
   applyDevelopAppServerScope,
+  applyDevelopCircuitPcb,
   developAnswerIssues,
   developNeedsStages,
   developToolIssues,
@@ -213,14 +214,16 @@ export const developWishLabel = (wishDate: string | null, wishNote: string | nul
   wishDate !== null && wishNote !== null && wishNote !== '' ? `${wishDate} · ${wishNote}` : (wishDate ?? wishNote ?? '');
 
 // 의뢰 방식에 따른 저장 분야 — 시스템개발은 6분야, 개별은 고른 것(개별 메뉴 밖 코드는 버린다). '앱 및 서버'는
-// 3스텝 범위 답(appserver.scope)대로 앱·서버를 줄인다 — 위저드와 서버가 같은 답으로 같은 분야를 얻는다.
+// 3스텝 범위 답(appserver.scope)대로 앱·서버를 줄이고, 회로 설계만 고른 의뢰는 'PCB 설계도 필요함'(circuit.pcb)이면
+// PCB 설계를 더한다(2026-11-03) — 위저드와 서버가 같은 답으로 같은 분야를 얻는다.
 export function resolveDevelopServiceAreas(
   mode: DevelopRequestModeType,
   areas: readonly string[],
   answers: readonly { code: string; choices: readonly string[] }[] = [],
 ): string[] {
   if (mode === 'system') return [...DEVELOP_SYSTEM_AREA_CODES];
-  return applyDevelopAppServerScope(sortDevelopAreas(areas).filter((c) => DEVELOP_INDIVIDUAL_AREA_CODES.includes(c)), answers);
+  const picked = sortDevelopAreas(areas).filter((c) => DEVELOP_INDIVIDUAL_AREA_CODES.includes(c));
+  return applyDevelopCircuitPcb(applyDevelopAppServerScope(picked, answers), answers);
 }
 
 // ── 의뢰 상태 ─────────────────────────────────────────────────────────────────

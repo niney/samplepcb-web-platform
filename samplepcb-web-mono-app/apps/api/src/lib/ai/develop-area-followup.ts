@@ -16,7 +16,7 @@ import { extractJsonObject } from './ollama';
 // (검토 끝난 기본 질문). 그래서 AI 는 기본 질문 하나하나를 ① 자료에 답이 있으면 채우고(covered) ② 없으면 이 제품에 맞게
 // 다시 써서 묻고(ask) ③ 기본 질문 밖에서 꼭 필요한 것만 메뉴당 2개까지 더한다(new).
 // 답의 코드를 잃지 않게 ask 의 선택지마다 원래 선택지 코드(maps)를 받는다 — 등록 때 지금과 같은 코드 답으로 바꿔 저장한다.
-// 분기·필수에 쓰이는 질문 3개는 AI 에 맡기지 않는다(계약 DEVELOP_AREA_FOLLOWUP_LOCKED). 모델이 빠뜨린 기본 질문은 원래 문구 그대로 되살린다.
+// 분기·필수에 쓰이는 질문 4개는 AI 에 맡기지 않는다(계약 DEVELOP_AREA_FOLLOWUP_LOCKED). 모델이 빠뜨린 기본 질문은 원래 문구 그대로 되살린다.
 
 export const DEVELOP_AREA_FOLLOWUP_PROMPT_VERSION = 'develop-area-followup.v5';
 

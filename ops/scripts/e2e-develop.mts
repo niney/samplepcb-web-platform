@@ -439,6 +439,64 @@ async function run() {
     'PCB 만 상세: 단계 null·낮은 예산 구간·숨은 기존 원본 답 버림·설계 자료는 슬롯(bom·outline) + 일반 첨부',
     { answers: pcbDetail.json?.data?.answers, files: pcbSlots },
   );
+  // 회로 설계 → PCB 설계 연계(2026-11-03 §7.2.7) — PCB 를 안 고르면 'PCB 설계도 필요한가요?'가 필수 · 필요함이면 PCB 설계를
+  // 더해 두 메뉴를 같이 고른 의뢰와 같게 저장(그 답과 회로+PCB 의 회로도·BOM 답은 숨은 답이라 버린다) · 필요 없음은 답으로 남고,
+  // 수정에서 필요함으로 바꾸면(분야를 안 보내도) PCB 가 더해진다.
+  const circuitNoPcb = { code: 'circuit.pcb', choices: ['no'] };
+  const circuitMissing = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 회로 설계 PCB 연계 누락', { serviceAreas: ['circuit'], answers: [] })),
+  });
+  assert(
+    circuitMissing.status === 400 && circuitMissing.json?.error === 'ANSWERS_REQUIRED' && circuitMissing.json.missing.join() === 'circuit.pcb',
+    '회로 설계만: PCB 설계 연계 답이 없으면 400 ANSWERS_REQUIRED',
+    circuitMissing.json,
+  );
+  const circuitPcb = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 회로 설계 + PCB 설계도 필요함', {
+      serviceAreas: ['circuit'],
+      answers: [
+        { code: 'circuit.pcb', choices: ['yes'] },
+        { code: 'pcb.schematic', choices: ['none'] }, // 회로 설계를 같이 맡기면 묻지 않는다 — 버린다
+        { code: 'pcb.board', choices: ['l4'] },
+      ],
+    })),
+  });
+  assert(circuitPcb.status === 200, '회로 설계만 + PCB 설계도 필요함 등록 200', circuitPcb.json);
+  ids.requestIds.push(circuitPcb.json.data.requestId);
+  save();
+  const circuitPcbDetail = await req('GET', `/api/develop/requests/${circuitPcb.json.data.requestId}`, { token: tClient });
+  assert(
+    circuitPcbDetail.json.data.serviceAreas.join() === 'circuit,pcb' && circuitPcbDetail.json.data.answers.map((a) => a.code).join() === 'pcb.board',
+    '필요함 → 분야 회로·PCB, 그 답과 회로도 답은 버림',
+    { areas: circuitPcbDetail.json?.data?.serviceAreas, answers: circuitPcbDetail.json?.data?.answers },
+  );
+  const circuitOnly = await req('POST', '/api/develop/requests', {
+    token: tClient,
+    form: createForm(basePayload('[e2e] 회로 설계만(PCB 필요 없음)', { serviceAreas: ['circuit'], answers: [circuitNoPcb] })),
+  });
+  assert(circuitOnly.status === 200, '회로 설계만(PCB 필요 없음) 등록 200', circuitOnly.json);
+  const circuitOnlyId = circuitOnly.json.data.requestId;
+  ids.requestIds.push(circuitOnlyId);
+  save();
+  const circuitOnlyDetail = await req('GET', `/api/develop/requests/${circuitOnlyId}`, { token: tClient });
+  assert(
+    circuitOnlyDetail.json.data.serviceAreas.join() === 'circuit'
+      && circuitOnlyDetail.json.data.answers.find((a) => a.code === 'circuit.pcb')?.choices.join() === 'no',
+    '필요 없음 → 분야 회로만, 답으로 남는다',
+    circuitOnlyDetail.json?.data?.answers,
+  );
+  const circuitPatch = await req('PATCH', `/api/develop/requests/${circuitOnlyId}`, {
+    token: tClient,
+    body: { answers: [{ code: 'circuit.pcb', choices: ['yes'] }, { code: 'pcb.board', choices: ['l2'] }] },
+  });
+  assert(
+    circuitPatch.status === 200 && circuitPatch.json.data.serviceAreas.join() === 'circuit,pcb'
+      && circuitPatch.json.data.answers.map((a) => a.code).join() === 'pcb.board',
+    '수정: 답만 필요함으로 바꿔도 PCB 설계를 더하고 그 답은 버린다(확정 분야로 검증)',
+    circuitPatch.json,
+  );
   // AI 후속 질문(§7.2.2) 폴백 경로 — 유스케이스가 꺼져 있으면 상태 false·run 409, 없는 잡으로 등록하면 400.
   const fuStatus = await req('GET', '/api/ai/develop.followup/status');
   assert(fuStatus.status === 200 && fuStatus.json?.data?.enabled === false, '후속 질문 상태: 하네스 중 비활성', fuStatus.json);
@@ -502,9 +560,10 @@ async function run() {
   });
   ids.aiJobIds.push(afJobId);
   save();
+  // 회로 설계만이면 'PCB 설계도 필요한가요?'가 필수(2026-11-03) — 잡 검사까지 가도록 답한다(circuitNoPcb).
   const afStranger = await req('POST', '/api/develop/requests', {
     token: tStranger,
-    form: createForm(basePayload('[e2e] 남의 맞춤 잡', { serviceAreas: ['circuit'], answers: [], aiQuestions: { jobId: afJobId, answers: [] } })),
+    form: createForm(basePayload('[e2e] 남의 맞춤 잡', { serviceAreas: ['circuit'], answers: [circuitNoPcb], aiQuestions: { jobId: afJobId, answers: [] } })),
   });
   assert(afStranger.status === 400 && afStranger.json?.error === 'FOLLOWUP_JOB_INVALID', '등록: 남의 맞춤 질문 잡이면 400', afStranger);
   const afSysJob = await req('POST', '/api/develop/requests', {
@@ -520,6 +579,7 @@ async function run() {
         { code: 'circuit.type', choices: ['new'] },
         { code: 'circuit.power', choices: ['battery_rechargeable', 'usb'], note: '18650' },
         { code: 'hw.comm', choices: ['ble', 'other'], note: '전용 무선' },
+        circuitNoPcb,
       ],
       aiQuestions: { jobId: afJobId, answers: [{ id: 'q9', choice: 'o1', text: '60x40mm' }, { id: 'q10', choice: null, text: '버려질 답' }] },
     })),
@@ -546,7 +606,7 @@ async function run() {
     assert(comm?.choices.join() === 'ble,other' && comm.note === '전용 무선', '고쳐 물은 질문의 답은 코드 답(새 선택지 = 기타 + 메모)', comm);
     const afPatch = await req('PATCH', `/api/develop/requests/${afRid}`, {
       token: tClient,
-      body: { answers: [{ code: 'circuit.type', choices: ['modify'] }, { code: 'circuit.power', choices: ['battery_rechargeable'], note: '18650' }] },
+      body: { answers: [{ code: 'circuit.type', choices: ['modify'] }, { code: 'circuit.power', choices: ['battery_rechargeable'], note: '18650' }, circuitNoPcb] },
     });
     assert(afPatch.status === 200, '수정: 맞춤 질문 의뢰의 답 수정 200', afPatch.json);
     const afDetail2 = await req('GET', `/api/develop/requests/${afRid}`, { token: tClient });

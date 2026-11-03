@@ -19,13 +19,14 @@ import type {
 // ③ 기본 질문 밖에서 꼭 필요한 것만 메뉴당 2개까지 더한다(added).
 // 답의 코드는 잃지 않는다 — asked 의 선택지마다 원래 선택지 코드(maps)가 붙어 있어 위저드가 지금과 같은 코드 답(answers)으로
 // 저장한다. added 는 레지스트리에 없는 질문이라 시스템개발 AI 질문과 같은 저장분(sp_develop_request.aiQuestions)에 담는다.
-// 분기·필수에 쓰이는 질문(개발 범위·권리 확인·필요 작업)은 AI 에 맡기지 않는다. 모델이 빠뜨린 기본 질문은 원래 문구로 묻는다
+// 분기·필수에 쓰이는 질문(개발 범위·PCB 설계 연계·권리 확인·필요 작업)은 AI 에 맡기지 않는다. 모델이 빠뜨린 기본 질문은 원래 문구로 묻는다
 // (결과에 없으면 위저드가 기본 질문을 그대로 그린다).
 
 export const DEVELOP_AREA_FOLLOWUP_VERSION = 1 as const;
-// AI 에 맡기지 않는 질문 — 범위(분야 판정·4스텝 생략) · 권리 확인(필수·관리자 신호) · 필요 작업(조건부 질문의 근거).
+// AI 에 맡기지 않는 질문 — 범위(분야 판정·4스텝 생략) · 회로 설계의 PCB 설계 연계(답이 PCB 설계를 더한다, 2026-11-03) ·
+// 권리 확인(필수·관리자 신호) · 필요 작업(조건부 질문의 근거).
 // 위저드는 AI 가 도는 동안 이 질문을 먼저 보여 준다. (develop-areas.ts 를 물지 않으려고 코드를 그대로 적는다.)
-export const DEVELOP_AREA_FOLLOWUP_LOCKED: readonly string[] = ['appserver.scope', 'reverse.rights', 'reverse.work'];
+export const DEVELOP_AREA_FOLLOWUP_LOCKED: readonly string[] = ['appserver.scope', 'circuit.pcb', 'reverse.rights', 'reverse.work'];
 // AI 맞춤 질문을 쓰지 않는 분야 — PCB 설계는 고정 질문이다(설계 자료를 2스텝에서 항목마다 받는다, 사용자 결정 2026-11-02).
 // 위저드는 이 분야를 빼고 잡을 부르고(남는 분야가 없으면 안 부른다), 서버도 실행·등록에서 이 분야를 버린다.
 export const DEVELOP_AREA_FOLLOWUP_FIXED_AREAS: readonly string[] = ['pcb'];
