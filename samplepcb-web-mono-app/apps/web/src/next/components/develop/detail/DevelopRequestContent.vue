@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { PencilIcon } from '@lucide/vue';
 import {
   developAreaAnswerMarks,
   DEVELOP_BUDGET_RANGE_LABELS,
@@ -28,10 +29,12 @@ import type { PreviewTarget } from '@sp/ui';
 import { downloadAdminDevelopFile } from '@/components/admin/develop/develop-files';
 import { formatDateTime } from '@/lib/format';
 import { Badge } from '@/next/components/ui/badge';
+import { Button } from '@/next/components/ui/button';
 import Panel from '@/next/components/common/Panel.vue';
 import SectionCard from '@/next/components/common/SectionCard.vue';
 import { developRequestModeVariant } from '@/next/components/develop/develop-badges';
 import ActionNotice from './ActionNotice.vue';
+import DevelopContactDialog from './DevelopContactDialog.vue';
 import DevelopFileRow from '@/next/components/develop/DevelopFileRow.vue';
 
 // 의뢰 내용(옛 components/admin/develop/DevelopRequestContent.vue 와 같은 props·emits) — 설명 · 의뢰 방식/예산/단계/희망 시기 ·
@@ -43,6 +46,10 @@ const props = defineProps<{ detail: AdminDevelopRequestDetailType }>();
 const emit = defineEmits<{ preview: [file: PreviewTarget] }>();
 
 const { t } = useI18n();
+
+// 연락처 고치기(관리자, §7.3) — 상태와 상관없이. 저장하면 상세가 다시 불려 와 칸이 바뀌고, 타임라인에 기록이 남는다.
+const contactEditOpen = ref(false);
+const contactNotice = ref('');
 
 // 개별 메뉴 AI 맞춤 질문(§7.2.4) — 답변 줄마다 AI 가 채웠는지(고객이 그대로 두었는지)·고쳐 물었는지. 견적 담당이 믿을 정도를 가늠한다.
 const aiMarks = computed(() => developAreaAnswerMarks(props.detail.aiQuestions?.area));
@@ -191,8 +198,15 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
       </div>
 
       <!-- 연락처 — 접수 뒤 전화·미팅으로 요구사항을 좁히는 것이 실무라 필수 항목이다. -->
-      <Panel size="sm" class="grid gap-1.5">
-        <p class="text-muted-foreground text-sm font-semibold">{{ t('admin.develop.content.contact') }}</p>
+      <Panel size="sm" class="grid gap-1.5" data-testid="develop-contact">
+        <div class="flex items-center gap-2">
+          <p class="text-muted-foreground text-sm font-semibold">{{ t('admin.develop.content.contact') }}</p>
+          <Button variant="ghost" size="xs" class="ml-auto" @click="contactEditOpen = true">
+            <PencilIcon />
+            {{ t('admin.develop.content.contactEdit') }}
+          </Button>
+        </div>
+        <ActionNotice :text="contactNotice" :error="false" />
         <dl class="grid grid-cols-[104px_1fr] gap-y-1.5 text-sm">
           <dt class="text-muted-foreground">{{ t('admin.develop.content.contactName') }}</dt>
           <dd class="font-semibold">
@@ -216,6 +230,13 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
             <dd>{{ props.detail.contact.hours }}</dd>
           </template>
         </dl>
+        <DevelopContactDialog
+          v-if="contactEditOpen"
+          :request-id="props.detail.requestId"
+          :contact="props.detail.contact"
+          @close="contactEditOpen = false"
+          @saved="contactNotice = t('admin.develop.content.contactSaved')"
+        />
       </Panel>
 
       <!-- AI 추가 질문 — 조건 답변 표보다 앞에 둔다(질문 자체가 이 의뢰 고유라 견적 근거로 먼저 읽힌다). -->

@@ -85,6 +85,23 @@ const mailpitTotal = async () => {
   }
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 받는 주소로 찾은 메일 수 — 연락처를 고친 뒤 다음 알림이 새 주소로 갔는지 본다(따옴표 없는 to: 검색).
+const mailpitCountTo = async (addr) => {
+  for (let i = 0; i < 10; i += 1) {
+    try {
+      const res = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${addr}`)}&limit=50`);
+      if (res.ok) {
+        const j = await res.json();
+        const n = Number(j.messages_count ?? j.messages?.length ?? 0);
+        if (n > 0) return n;
+      }
+    } catch {
+      return null;
+    }
+    await sleep(400);
+  }
+  return 0;
+};
 const drainMail = async () => {
   let prev = await mailpitTotal();
   if (prev === null) return null;
@@ -1212,10 +1229,62 @@ async function run() {
   const ms6 = await prisma.spDevelopMilestone.findMany({ where: { quoteId: BigInt(q6d.quoteId) } });
   ids.paymentKeys.push(...ms6.map((m) => m.paymentKey));
   save();
+
+  // ── 15c. 연락처 수정(관리자, §7.3) — 상태와 상관없이 · 고객 기록엔 바뀐 칸 이름만 · 관리자 기록엔 이전 → 이후 · 다음 알림은 새 주소 ──
+  const CONTACT_LABELS = { name: '담당자 이름', company: '회사', phone: '연락처', email: '이메일', hours: '연락 가능 시간' };
+  const contactDiff = (a, b) => ['name', 'company', 'phone', 'email', 'hours'].filter((f) => (a[f] ?? null) !== (b[f] ?? null));
+  const oldContact = (await req('GET', `/api/admin/develop/requests/${rid3}`, { token: tAdmin })).json.data.contact;
+  const newEmail = `e2e-contact-${Date.now().toString(36)}@example.com`;
+  const nextContact = { name: oldContact.name, company: 'E2E연락처상사', phone: '010-9999-0000', email: newEmail, hours: oldContact.hours };
+  const expectedLabels = contactDiff(oldContact, nextContact).map((f) => CONTACT_LABELS[f]).join('·');
+  const cPatch = await req('PATCH', `/api/admin/develop/requests/${rid3}`, { token: tAdmin, body: { contact: { ...nextContact, company: '  E2E연락처상사  ' } } });
+  const cp6 = cPatch.json?.data;
+  assert(
+    cPatch.status === 200 && cp6.contact.company === 'E2E연락처상사' && cp6.contact.phone === '010-9999-0000' && cp6.contact.email === newEmail,
+    '연락처 수정: 관리자 저장(견적 발송 뒤 상태 · 앞뒤 공백 정리)',
+    cp6?.contact,
+  );
+  const internalEv = (cp6?.events ?? []).filter((e) => e.title === '연락처 변경 내역');
+  assert(
+    internalEv.length === 1 &&
+      internalEv[0].visibleToCustomer === false &&
+      String(internalEv[0].body).includes(`${CONTACT_LABELS.phone}: ${oldContact.phone} → 010-9999-0000`) &&
+      String(internalEv[0].body).includes(`${CONTACT_LABELS.email}: ${oldContact.email} → ${newEmail}`),
+    '연락처 수정: 관리자만 보는 기록(이전 → 이후)',
+    internalEv,
+  );
+  const custAfterContact = (await req('GET', `/api/develop/requests/${rid3}`, { token: tClient })).json.data;
+  const custContactEv = custAfterContact.events.filter((e) => String(e.title).startsWith('담당자가 연락처를 수정했습니다'));
+  assert(
+    custContactEv.length === 1 &&
+      custContactEv[0].title === `담당자가 연락처를 수정했습니다(${expectedLabels})` &&
+      custAfterContact.contact.email === newEmail &&
+      !JSON.stringify(custContactEv).includes(oldContact.phone) &&
+      !JSON.stringify(custContactEv).includes(oldContact.email) &&
+      !custAfterContact.events.some((e) => e.title === '연락처 변경 내역'),
+    '연락처 수정: 고객 타임라인엔 바뀐 칸 이름만(이전 값·관리자 기록 없음)',
+    custContactEv,
+  );
+  const cSame = await req('PATCH', `/api/admin/develop/requests/${rid3}`, { token: tAdmin, body: { contact: nextContact } });
+  assert(cSame.status === 200 && cSame.json.data.events.filter((e) => e.title === '연락처 변경 내역').length === 1, '연락처 수정: 바뀐 칸이 없으면 기록을 남기지 않는다');
+  const cBadEmail = await req('PATCH', `/api/admin/develop/requests/${rid3}`, { token: tAdmin, body: { contact: { ...nextContact, email: 'not-an-email' } } });
+  const cBadPhone = await req('PATCH', `/api/admin/develop/requests/${rid3}`, { token: tAdmin, body: { contact: { ...nextContact, phone: '전화 없음' } } });
+  const cNoName = await req('PATCH', `/api/admin/develop/requests/${rid3}`, { token: tAdmin, body: { contact: { ...nextContact, name: ' ' } } });
+  assert(cBadEmail.status === 400 && cBadPhone.status === 400 && cNoName.status === 400, '연락처 수정: 형식 검사 400(이메일·전화번호·이름 빈칸)');
+  const cClient = await req('PATCH', `/api/admin/develop/requests/${rid3}`, { token: tClient, body: { contact: nextContact } });
+  assert(cClient.status === 403, '연락처 수정: 고객 토큰 403');
+
   mail = await drainMail();
   const declinedReq = await req('POST', `/api/admin/develop/requests/${rid3}/status`, { token: tAdmin, body: { to: 'declined', reason: '당사 역량 밖' } });
   assert(declinedReq.status === 200 && declinedReq.json.data.status === 'declined', '관리자 진행 불가');
   mail = await expectMailDelta(mail, 1, '메일: 진행 불가(고객)');
+  if (mail !== null) {
+    const toNew = await mailpitCountTo(newEmail);
+    assert(toNew !== null && toNew >= 1, '연락처 수정: 다음 알림(진행 불가)은 새 이메일로 간다', { newEmail, toNew });
+  }
+  // 종결(진행 불가) 뒤에도 고친다 — 빈 연락 가능 시간은 null 로
+  const cClosed = await req('PATCH', `/api/admin/develop/requests/${rid3}`, { token: tAdmin, body: { contact: { ...nextContact, hours: '  ' } } });
+  assert(cClosed.status === 200 && cClosed.json.data.status === 'declined' && cClosed.json.data.contact.hours === null, '연락처 수정: 종결 뒤에도 고친다 · 빈 연락 가능 시간은 null');
 
   // ── 16. 설정 ─────────────────────────────────────────────────────────────────
   const settings = await req('GET', '/api/admin/develop/settings', { token: tAdmin });

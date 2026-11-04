@@ -582,6 +582,35 @@ export const DevelopContact = z.object({
 });
 export type DevelopContactType = z.infer<typeof DevelopContact>;
 
+// 연락처 칸 이름 — 관리자 연락처 수정(2026-11-04)의 타임라인 기록·화면이 같은 말을 쓴다(고객 등록 폼과 같은 낱말).
+export const DEVELOP_CONTACT_FIELDS = ['name', 'company', 'phone', 'email', 'hours'] as const;
+export type DevelopContactFieldType = (typeof DEVELOP_CONTACT_FIELDS)[number];
+export const DEVELOP_CONTACT_FIELD_LABELS = {
+  name: '담당자 이름',
+  company: '회사',
+  phone: '연락처',
+  email: '이메일',
+  hours: '연락 가능 시간',
+} as const satisfies Record<DevelopContactFieldType, string>;
+
+const blankToNull = (v: string | null): string | null => (v === null || v.trim() === '' ? null : v.trim());
+
+/** 연락처 정리 — 앞뒤 공백을 걷고, 빈 회사·연락 가능 시간은 null(저장·비교가 같은 모양을 쓴다). */
+export const normalizeDevelopContact = (c: DevelopContactType): DevelopContactType => ({
+  name: c.name.trim(),
+  company: blankToNull(c.company),
+  phone: c.phone.trim(),
+  email: c.email.trim(),
+  hours: blankToNull(c.hours),
+});
+
+/** 두 연락처에서 바뀐 칸(DEVELOP_CONTACT_FIELDS 순서). 둘 다 정리한 뒤 견준다 — 공백만 다른 값은 그대로로 본다. */
+export const developContactChanges = (before: DevelopContactType, after: DevelopContactType): DevelopContactFieldType[] => {
+  const a = normalizeDevelopContact(before);
+  const b = normalizeDevelopContact(after);
+  return DEVELOP_CONTACT_FIELDS.filter((f) => a[f] !== b[f]);
+};
+
 // ── 의뢰 등록·수정 (multipart payload 파트 — 파일 파트는 마켓과 같은 `attachment` · `attachment:<area>:<slot>`) ──
 // serviceAreas 는 **개별 견적일 때만** 뜻이 있다(개별 메뉴 코드 1개 이상). 시스템개발이면 서버가 전 분야로 채운다
 // (resolveDevelopServiceAreas). 답변·툴 검증은 그렇게 확정된 분야 목록으로 한다.
@@ -1369,6 +1398,9 @@ export const AdminDevelopRequestPatchBody = z
     // AI 보충 메모 — 코퍼스에 "담당자 보충 자료"로 합류한다(전화 상담으로 알게 된 사양 등). 고객 비노출.
     aiSupplement: z.string().trim().max(20000).nullable(),
     reviewDays: z.number().int().min(1).max(90),
+    // 연락처(2026-11-04) — 고객은 접수·검토 중에만 고치지만 관리자는 상태와 상관없이 고친다(담당자 교체·오타).
+    // 검사는 등록과 같은 스키마. 바뀐 칸이 있으면 서버가 타임라인에 두 줄을 남긴다(고객용 = 바뀐 칸 이름만, 관리자용 = 이전 → 이후).
+    contact: DevelopContact,
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, { message: '최소 한 개 필드가 필요합니다' });

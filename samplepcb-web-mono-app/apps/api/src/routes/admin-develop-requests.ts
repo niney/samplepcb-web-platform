@@ -13,12 +13,15 @@ import {
   AdminDevelopReviewVersionResponse,
   AdminDevelopStatusBody,
   ApiError,
+  DEVELOP_CONTACT_FIELD_LABELS,
   DEVELOP_REQUEST_STATUSES,
   DevelopRequestStatusResponse,
+  developContactChanges,
   developReverseRightsCheckNeeded,
   fileViewKind,
   isDevelopClosed,
   needsServerPreview,
+  normalizeDevelopContact,
   resolveFileMime,
 } from '@sp/api-contract';
 import type {
@@ -357,7 +360,11 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
     return { result: true as const, data: await buildAdminDetail(r) };
   });
 
-  // ── PATCH /admin/develop/requests/:id — 담당자·내부 메모·AI 보충 메모·검수 기간 ─────
+  // ── PATCH /admin/develop/requests/:id — 담당자·내부 메모·AI 보충 메모·검수 기간·연락처 ─────
+  // 연락처(2026-11-04)는 상태와 상관없이 고친다. 바뀐 칸이 있으면 타임라인에 두 줄 — 고객에게도 보이는 '담당자가 연락처를
+  // 수정했습니다(바뀐 칸)'과 관리자만 보는 '이전 → 이후'. 이벤트의 payload·body 는 고객 응답에도 실리므로(담당자가 바뀌면 새
+  // 담당자가 전임자 연락처를 보게 된다) 이전 값은 고객용 줄에 넣지 않는다. 알림 메일은 보내지 않는다(사용자 결정) — 다음
+  // 알림부터 새 이메일로 가고(customerEmailOf), 견적서·문서 인쇄도 지금 연락처를 그린다(보낸 견적의 수락 기록은 따로 남아 있다).
   fastify.patch(
     '/develop/requests/:id',
     { schema: { params: RequestIdParams, body: AdminDevelopRequestPatchBody, response: { 200: AdminDevelopRequestDetailResponse, 404: ApiError } } },
@@ -365,14 +372,49 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       const r = await load(request.params.id);
       if (r === null) return reply.status(404).send(notFound);
       const b = request.body;
-      const updated = await prisma.spDevelopRequest.update({
-        where: { id: r.id },
-        data: {
-          ...(b.assigneeMbId === undefined ? {} : { assigneeMbId: b.assigneeMbId }),
-          ...(b.internalMemo === undefined ? {} : { internalMemo: b.internalMemo }),
-          ...(b.aiSupplement === undefined ? {} : { aiSupplement: b.aiSupplement }),
-          ...(b.reviewDays === undefined ? {} : { reviewDays: b.reviewDays }),
-        },
+      const before = toDevelopContact(r);
+      const nextContact = b.contact === undefined ? null : normalizeDevelopContact(b.contact);
+      const contactChanges = nextContact === null ? [] : developContactChanges(before, nextContact);
+      const updated = await prisma.$transaction(async (tx) => {
+        const u = await tx.spDevelopRequest.update({
+          where: { id: r.id },
+          data: {
+            ...(b.assigneeMbId === undefined ? {} : { assigneeMbId: b.assigneeMbId }),
+            ...(b.internalMemo === undefined ? {} : { internalMemo: b.internalMemo }),
+            ...(b.aiSupplement === undefined ? {} : { aiSupplement: b.aiSupplement }),
+            ...(b.reviewDays === undefined ? {} : { reviewDays: b.reviewDays }),
+            ...(nextContact === null || contactChanges.length === 0
+              ? {}
+              : {
+                  contactName: nextContact.name,
+                  contactCompany: nextContact.company,
+                  contactPhone: nextContact.phone,
+                  contactEmail: nextContact.email,
+                  contactHours: nextContact.hours,
+                }),
+          },
+        });
+        if (nextContact !== null && contactChanges.length > 0) {
+          const labels = contactChanges.map((f) => DEVELOP_CONTACT_FIELD_LABELS[f]).join('·');
+          await addDevelopEvent(tx, r.id, {
+            type: 'edited',
+            actorMbId: request.user.mbId,
+            byAdmin: true,
+            title: `담당자가 연락처를 수정했습니다(${labels})`,
+            payload: { changedFields: ['contact'], contactFields: contactChanges },
+          });
+          await addDevelopEvent(tx, r.id, {
+            type: 'edited',
+            actorMbId: request.user.mbId,
+            byAdmin: true,
+            visibleToCustomer: false,
+            title: '연락처 변경 내역',
+            body: contactChanges
+              .map((f) => `${DEVELOP_CONTACT_FIELD_LABELS[f]}: ${before[f] ?? '(없음)'} → ${nextContact[f] ?? '(없음)'}`)
+              .join('\n'),
+          });
+        }
+        return u;
       });
       return { result: true as const, data: await buildAdminDetail(updated) };
     },

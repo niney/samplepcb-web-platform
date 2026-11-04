@@ -11,6 +11,7 @@
 //   6. 납품(final) → 납품·검수 큐 → 고객 검수 확정(API) → completed
 //   7. 큐 ↔ 상세 왕복: 검색어·페이지가 「목록으로」 뒤에도 남는다
 //   8. (새 화면) 설정 — 인건비 기본값 칸·직무 검사·그대로 저장
+//   9. (새 화면) 의뢰 내용 — 연락처 수정(완료 뒤에도)·형식 검사·고객/관리자 타임라인 기록
 // 실행: PORTAL_E2E=1 [DEVELOP_ADMIN_UI=next] pnpm -F e2e e2e admin-develop-journey
 // 사전 조건: sp-node(3333)·nginx(local-web)·sp-vue 가 떠 있을 것. 메일은 로컬 Mailpit 으로 간다(실발송 없음).
 // 만든 의뢰는 afterAll 이 e2e 계정 단위로 지운다(공유 DB — 스스로 만들고 스스로 지운다).
@@ -457,6 +458,46 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
     await saved('설정을 저장했습니다.');
     const after: any[] = (await api.get('/api/admin/develop/settings')).json?.data?.laborPresets ?? [];
     expect(after).toEqual(before);
+  }, LONG);
+
+  test('9. 의뢰 내용 — 연락처 수정(완료 뒤에도) · 형식 검사 · 고객 타임라인엔 바뀐 칸 이름만, 이전 값은 관리자만', async () => {
+    // 옛 화면엔 연락처 수정이 없다(새 화면만). 이메일은 그대로 둔다 — 아래 Mailpit 확인이 이 주소로 센다.
+    if (UI !== 'next') return;
+    const page = s.page;
+    const before = (await detail()).contact;
+    await page.goto(`${developDetailPath(rid)}?_t=${String(Date.now())}`);
+    await detailTab(page, '의뢰 내용').click();
+    const box = page.getByTestId('develop-contact');
+    await box.getByRole('button', { name: '연락처 수정', exact: true }).click();
+    const dialog = page.getByTestId('develop-contact-dialog');
+    await dialog.waitFor();
+    expect(await dialog.getByRole('button', { name: '저장', exact: true }).isDisabled(), '바뀐 칸이 없으면 저장이 막힌다').toBe(true);
+    await dialog.getByLabel('회사 (선택)', { exact: true }).fill('E2E연락처상사');
+    await dialog.getByLabel('연락처', { exact: true }).fill('전화 없음');
+    await dialog.getByRole('button', { name: '저장', exact: true }).click();
+    await dialog.getByText('전화번호 형식이 아닙니다', { exact: false }).waitFor();
+    await dialog.getByLabel('연락처', { exact: true }).fill('010-7777-8888');
+    await dialog.getByLabel('연락 가능 시간 (선택)', { exact: true }).fill('평일 오전');
+    await dialog.getByRole('button', { name: '저장', exact: true }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await saved('연락처를 고쳤습니다.');
+    await expect.poll(async () => (await detail())?.contact?.phone).toBe('010-7777-8888');
+    const after = (await detail()).contact;
+    expect([after.name, after.company, after.email, after.hours]).toEqual([before.name, 'E2E연락처상사', before.email, '평일 오전']);
+    await box.getByText('010-7777-8888', { exact: true }).waitFor();
+    // 고객 타임라인엔 바뀐 칸 이름만 — 이전 값·관리자 기록은 고객 응답에 없다
+    const LABELS: Record<string, string> = { name: '담당자 이름', company: '회사', phone: '연락처', email: '이메일', hours: '연락 가능 시간' };
+    const labels = ['name', 'company', 'phone', 'email', 'hours'].filter((f) => before[f] !== after[f]).map((f) => LABELS[f]).join('·');
+    const cust = (await customerApi.get(`/api/develop/requests/${String(rid)}`)).json.data;
+    const custEv = cust.events.filter((e: any) => String(e.title).startsWith('담당자가 연락처를 수정했습니다'));
+    expect(custEv.map((e: any) => e.title)).toEqual([`담당자가 연락처를 수정했습니다(${labels})`]);
+    expect(JSON.stringify(custEv)).not.toContain(before.phone);
+    expect(cust.events.some((e: any) => e.title === '연락처 변경 내역')).toBe(false);
+    // 관리자 타임라인 — 내부 기록에 이전 → 이후
+    await detailTab(page, '진행 타임라인').click();
+    await page.getByText('연락처 변경 내역', { exact: true }).first().waitFor();
+    expect(await page.getByText(`연락처: ${before.phone} → 010-7777-8888`, { exact: false }).count()).toBeGreaterThan(0);
+    await snap(page, `admin-develop-${UI}-contact-timeline`);
   }, LONG);
 
   test('메일(Mailpit) — 견적·결제·문서·납품 알림이 고객 주소로 나갔다', async () => {
