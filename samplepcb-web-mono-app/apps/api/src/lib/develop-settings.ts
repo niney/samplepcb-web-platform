@@ -1,5 +1,12 @@
 import type { SpDevelopSettings } from '@prisma/client';
-import { DEVELOP_DEFAULT_EXCLUSIONS, DEVELOP_DEFAULT_TERMS, DevelopMilestonePreset } from '@sp/api-contract';
+import {
+  DEVELOP_DEFAULT_EXCLUSIONS,
+  DEVELOP_DEFAULT_LABOR_PRESETS,
+  DEVELOP_DEFAULT_TERMS,
+  DEVELOP_LABOR_PRESETS_MAX,
+  DevelopLaborPreset,
+  DevelopMilestonePreset,
+} from '@sp/api-contract';
 import type { AdminDevelopSettingsType, AdminDevelopSettingsUpdateType } from '@sp/api-contract';
 import { z } from 'zod';
 import { asVatMode } from './develop';
@@ -16,6 +23,9 @@ const DEFAULT_MILESTONES: AdminDevelopSettingsType['defaultMilestones'] = [
 
 const Presets = z.array(DevelopMilestonePreset);
 const Emails = z.array(z.string());
+// 인건비 기본값 — 칸이 NULL(저장한 적 없음)이거나 읽을 수 없으면 처음 값. 빈 배열은 '모두 지웠다'라 그대로 둔다.
+const LaborPresets = z.array(DevelopLaborPreset).max(DEVELOP_LABOR_PRESETS_MAX);
+const defaultLaborPresets = (): AdminDevelopSettingsType['laborPresets'] => DEVELOP_DEFAULT_LABOR_PRESETS.map((p) => ({ ...p }));
 
 export const developSettingsDefaults = (): AdminDevelopSettingsType => ({
   defaultTerms: DEVELOP_DEFAULT_TERMS,
@@ -27,6 +37,7 @@ export const developSettingsDefaults = (): AdminDevelopSettingsType => ({
   defaultIndirectBp: 1500,
   defaultOverheadBp: 500,
   defaultProfitBp: 1000,
+  laborPresets: defaultLaborPresets(),
   defaultMilestones: DEFAULT_MILESTONES,
   notifyEmails: [],
   aiAutoDraft: true,
@@ -37,6 +48,7 @@ export const developSettingsDefaults = (): AdminDevelopSettingsType => ({
 const toSettings = (row: SpDevelopSettings): AdminDevelopSettingsType => {
   const presets = Presets.safeParse(row.defaultMilestones);
   const emails = Emails.safeParse(row.notifyEmails);
+  const labor = row.laborPresets === null ? null : LaborPresets.safeParse(row.laborPresets);
   return {
     defaultTerms: row.defaultTerms,
     defaultExclusions: row.defaultExclusions,
@@ -47,6 +59,7 @@ const toSettings = (row: SpDevelopSettings): AdminDevelopSettingsType => {
     defaultIndirectBp: row.defaultIndirectBp,
     defaultOverheadBp: row.defaultOverheadBp,
     defaultProfitBp: row.defaultProfitBp,
+    laborPresets: labor?.success === true ? labor.data : defaultLaborPresets(),
     defaultMilestones: presets.success && presets.data.length > 0 ? presets.data : DEFAULT_MILESTONES,
     notifyEmails: emails.success ? emails.data : [],
     aiAutoDraft: row.aiAutoDraft,
@@ -74,6 +87,7 @@ export async function updateDevelopSettings(patch: AdminDevelopSettingsUpdateTyp
     defaultIndirectBp: patch.defaultIndirectBp ?? current.defaultIndirectBp,
     defaultOverheadBp: patch.defaultOverheadBp ?? current.defaultOverheadBp,
     defaultProfitBp: patch.defaultProfitBp ?? current.defaultProfitBp,
+    laborPresets: patch.laborPresets ?? current.laborPresets,
     defaultMilestones: patch.defaultMilestones ?? current.defaultMilestones,
     notifyEmails: patch.notifyEmails ?? current.notifyEmails,
     aiAutoDraft: patch.aiAutoDraft ?? current.aiAutoDraft,
@@ -93,6 +107,7 @@ export async function updateDevelopSettings(patch: AdminDevelopSettingsUpdateTyp
       defaultIndirectBp: next.defaultIndirectBp,
       defaultOverheadBp: next.defaultOverheadBp,
       defaultProfitBp: next.defaultProfitBp,
+      laborPresets: next.laborPresets,
       defaultMilestones: next.defaultMilestones,
       notifyEmails: next.notifyEmails,
       aiAutoDraft: next.aiAutoDraft,
@@ -108,6 +123,7 @@ export async function updateDevelopSettings(patch: AdminDevelopSettingsUpdateTyp
       defaultIndirectBp: next.defaultIndirectBp,
       defaultOverheadBp: next.defaultOverheadBp,
       defaultProfitBp: next.defaultProfitBp,
+      laborPresets: next.laborPresets,
       defaultMilestones: next.defaultMilestones,
       notifyEmails: next.notifyEmails,
       aiAutoDraft: next.aiAutoDraft,

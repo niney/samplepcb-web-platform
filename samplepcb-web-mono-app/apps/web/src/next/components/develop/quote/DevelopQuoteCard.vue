@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { CoinsIcon, DownloadIcon, EyeIcon, PencilIcon, Undo2Icon } from '@lucide/vue';
+import { DownloadIcon, EyeIcon, PencilIcon, Undo2Icon } from '@lucide/vue';
 import {
   DEVELOP_MILESTONE_TRIGGER_LABELS,
   DEVELOP_QUOTE_KIND_LABELS,
   DEVELOP_VAT_MODE_LABELS,
-  computeDevelopQuoteMargin,
   developQuoteNo,
   developQuoteSheetRows,
 } from '@sp/api-contract';
@@ -19,14 +18,12 @@ import {
   useAdminDevelopMilestoneOpen,
   useAdminDevelopQuoteWithdraw,
 } from '@/admin/useAdminDevelop';
-import { marginRateText } from '@/components/admin/develop/develop-quote-edit';
 import { formatDateTime, formatKrw } from '@/lib/format';
 import Panel from '@/next/components/common/Panel.vue';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { confirmDialog, promptDialog } from '@/next/lib/dialog';
 import { developMilestoneStatusBadge, developQuoteStatusBadge } from '@/next/components/develop/develop-badges';
-import DevelopQuoteCostsDialog from './DevelopQuoteCostsDialog.vue';
 import DevelopQuoteSheetDialog from './DevelopQuoteSheetDialog.vue';
 
 // 견적서 한 장(읽기) — 옛 components/admin/develop/DevelopQuoteCard.vue 의 짝(같은 props·emits).
@@ -57,10 +54,6 @@ const statusBadge = computed(() => developQuoteStatusBadge(props.quote.status));
 
 // 산출 내역 줄(§5.1) — 견적서 1쪽과 같은 계약 함수로 항목·소계·가산 행을 뽑는다.
 const sheetRows = computed(() => developQuoteSheetRows(props.quote));
-
-// 내부 원가·마진(관리자 전용, §5.1) — 발송 뒤에도 원가만 고칠 수 있다(작성 중 초안은 편집기에서).
-const margin = computed(() => computeDevelopQuoteMargin(props.quote.items, props.quote.supplyAmount));
-const costsOpen = ref(false);
 
 // 견적서 보기·엑셀 — 고객이 받는 1쪽(작성 중이면 발송 전 모양).
 const sheetOpen = ref(false);
@@ -264,18 +257,6 @@ async function onMarkPaid(milestoneId: number, title: string): Promise<void> {
       </Panel>
     </div>
 
-    <!-- 내부 원가·마진(관리자 전용) -->
-    <Panel size="xs" tone="muted" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums" data-testid="quote-card-margin">
-      <span class="text-warning font-semibold">{{ t('admin.develop.quote.internal') }}</span>
-      <span>{{ t('admin.develop.quote.costTotal') }} {{ formatKrw(margin.costTotal) }}</span>
-      <span>{{ t('admin.develop.quote.margin') }} <b>{{ formatKrw(margin.totalMargin) }}</b> ({{ marginRateText(margin.marginRate) }})</span>
-      <span v-if="margin.missingRows > 0" class="text-warning font-semibold">{{ t('admin.develop.quote.costMissingRows', { count: margin.missingRows }) }}</span>
-      <Button v-if="quote.status !== 'draft'" variant="ghost" size="xs" class="ml-auto" @click="costsOpen = true">
-        <CoinsIcon />
-        {{ t('admin.develop.quote.costEdit') }}
-      </Button>
-    </Panel>
-
     <Panel v-if="quote.internalNote !== null" size="xs" tone="muted" class="text-muted-foreground text-xs">
       {{ t('admin.develop.quote.internalNote') }}: {{ quote.internalNote }}
     </Panel>
@@ -310,8 +291,6 @@ async function onMarkPaid(milestoneId: number, title: string): Promise<void> {
         :class="noticeError ? 'text-destructive' : 'text-success'"
       >{{ notice }}</span>
     </div>
-
-    <DevelopQuoteCostsDialog v-if="costsOpen" :quote="quote" @close="costsOpen = false" />
 
     <DevelopQuoteSheetDialog
       v-if="sheetOpen"

@@ -349,7 +349,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await page.getByText('거절', { exact: true }).count()).toBe(0);
     expect(await page.getByText('수정 요청', { exact: true }).count()).toBe(1);
 
-    // v2 = 산출 내역 견적(§5.1) — 인건비 단가 × 개월 + 직접비 + 가산율. 인건비 7,000,000 × 0.5 + 직접비 1,300,000 × 3회 = 7,400,000
+    // v2 = 산출 내역 견적(§5.1) — 인건비 일일 노임비 × 참여 일수 + 직접비 + 가산율. 인건비 350,000 × 10일 + 직접비 1,300,000 × 3회 = 7,400,000
     // → 간접비 15% 1,110,000 → 제경비 5%(8,510,000 × 5% = 425,500) 425,000 → 이윤 10%(8,935,000 × 10% = 893,500) 893,000 → 공급가 9,828,000
     const q2 = ok(
       await admin.post(`/api/admin/develop/requests/${String(rid)}/quotes`, {
@@ -360,7 +360,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
         recipientDept: '연구소',
         note: '함체는 사급 지원',
         items: [
-          { category: 'labor', title: 'PM', grade: '특급', description: '시스템 설계', unitPrice: 7_000_000, qty: 0.5, unit: '개월' },
+          { category: 'labor', title: 'PM', grade: '특급', description: '시스템 설계', unitPrice: 350_000, qty: 10, unit: '일' },
           { category: 'direct', title: 'PCB 제작', description: '4층', unitPrice: 1_300_000, qty: 3, unit: '회' },
         ],
       }),
@@ -372,7 +372,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     // 카드 — 산출 내역 줄(구분 · 등급 · 담당업무 / 단가 × 수량 / 가산)
     const v2card = page.locator('article', { hasText: '2차 견적(Android 우선)' });
     expect(await v2card.getByText('인건비 · 특급 · 시스템 설계', { exact: true }).count()).toBe(1);
-    expect(await v2card.getByText('7,000,000원 × 0.5개월', { exact: true }).count()).toBe(1);
+    expect(await v2card.getByText('350,000원 × 10일', { exact: true }).count()).toBe(1);
     expect(await v2card.getByText('15% (인건비+직접비)', { exact: true }).count()).toBe(1);
     // 엑셀 — 카드 버튼(Authorization 이 필요한 blob 저장). 서버가 1쪽과 같은 표로 만든다.
     const downloading = page.waitForEvent('download');
@@ -380,7 +380,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     const file = await downloading;
     expect(file.suggestedFilename(), '파일 이름').toBe(`2차 견적(Android 우선) 견적서 Q${String(rid)}-v${String(q2.version)}.xlsx`);
     const sheetText = xlsxText(readFileSync(await file.path()));
-    for (const text of ['견    적    서', '인건비 소계', '15% (인건비+직접비)', '0.5개월', '함체는 사급 지원', '박승한 상무', '연구소']) {
+    for (const text of ['견    적    서', '인건비 소계', '15% (인건비+직접비)', '10일', '함체는 사급 지원', '박승한 상무', '연구소']) {
       expect(sheetText, `엑셀: ${text}`).toContain(text);
     }
     // 인쇄용 보기 — 1쪽 견적서(공용 시트) + 별지

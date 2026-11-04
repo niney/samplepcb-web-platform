@@ -2,10 +2,11 @@ import {
   DEVELOP_QUOTE_AMOUNT_MAX,
   DEVELOP_QUOTE_DEFAULT_UNIT,
   DEVELOP_QUOTE_EDITABLE_VAT_MODES,
+  DEVELOP_QUOTE_ITEM_CATEGORIES,
+  DEVELOP_QUOTE_ITEM_CATEGORY_LABELS,
   DEVELOP_QUOTE_QTY_MAX,
   DEVELOP_QUOTE_RATE_MAX_BP,
   computeDevelopQuoteBreakdown,
-  computeDevelopQuoteMargin,
   developBpPercent,
   developQuoteItemAmount,
   splitDevelopMilestoneAmounts,
@@ -14,12 +15,12 @@ import type {
   AdminDevelopQuoteBodyType,
   AdminDevelopQuoteViewType,
   AdminDevelopSettingsType,
+  DevelopLaborPresetType,
   DevelopMilestoneTriggerType,
   DevelopQuoteBreakdown,
   DevelopQuoteItemCategoryType,
   DevelopQuoteItemViewType,
   DevelopQuoteKindType,
-  DevelopQuoteMargin,
   DevelopQuoteRates,
   DevelopQuoteSheetQuote,
   DevelopVatModeType,
@@ -31,6 +32,8 @@ import { kstToday } from '@sp/utils';
 // 금액은 정수(원). 입력은 콤마를 허용하고 저장 전에 숫자로 만든다.
 // 2026-11-04 산출 내역(docs/DEVELOP_FLOW.md §5.1) — 항목 = 구분 × 단가 × 수량, 가산율 3칸(퍼센트로 들고 bp 로 보낸다).
 // 금액·가산은 계약 computeDevelopQuoteBreakdown 이 서버와 같은 규칙으로 계산한다(미리보기 = 저장 결과).
+// 같은 날 저녁 — 인건비 = 일일 노임비(원/일) × 참여 일수(단위 '일' 고정), 편집기는 인건비·직접비 칸을 나눈다.
+// 폼은 행 배열 하나(items, 행마다 구분)를 그대로 들고, 저장·미리보기 때 인건비 → 직접비 순으로 세운다.
 
 export const DEVELOP_QUOTE_LIMITS = {
   items: 100,
@@ -53,7 +56,6 @@ export const DEVELOP_QUOTE_LIMITS = {
   gradeLen: 50,
   unitLen: 20,
   recipientDeptLen: 100,
-  vendorLen: 100,
   qtyMax: DEVELOP_QUOTE_QTY_MAX,
   ratePctMax: DEVELOP_QUOTE_RATE_MAX_BP / 100,
 } as const;
@@ -62,13 +64,11 @@ export interface DevelopQuoteItemRow {
   category: DevelopQuoteItemCategoryType;
   title: string; // 직무(인건비) · 항목(직접비)
   grade: string; // 기술등급(인건비)
-  description: string; // 담당업무 · 규격
-  unitPrice: string;
-  qty: string | number; // type="number" 입력은 Vue 가 number 로 캐스팅
-  unit: string;
+  description: string; // 담당 업무(인건비) · 내용(직접비)
+  unitPrice: string; // 일일 노임비(인건비, 원/일) · 단가(직접비)
+  qty: string | number; // 참여 일수(인건비) · 수량(직접비). type="number" 입력은 Vue 가 number 로 캐스팅
+  unit: string; // 인건비는 '일'(새 줄) — 옛 줄은 저장된 단위 그대로
   durationDays: string | number; // 옛 항목별 기간 — 새 편집기는 안 보이고 받은 값을 그대로 돌려보낸다
-  costPrice: string; // 내부 원가 단가(관리자 전용, 비우면 미입력)
-  vendor: string; // 내부 원가 업체명
 }
 
 export interface DevelopQuoteMilestoneRow {
@@ -138,9 +138,23 @@ export const emptyQuoteItemRow = (category: DevelopQuoteItemCategoryType = 'labo
   qty: '1',
   unit: DEVELOP_QUOTE_DEFAULT_UNIT[category],
   durationDays: '',
-  costPrice: '',
-  vendor: '',
 });
+
+/** 새 편집기의 인건비 빈 줄 — 참여 일수는 비워 둔다(1일로 깔면 고치는 걸 잊기 쉽다). */
+export const emptyLaborRow = (): DevelopQuoteItemRow => ({ ...emptyQuoteItemRow('labor'), qty: '' });
+
+/** 인건비 기본값(설정) → 인건비 줄. 값을 **복사**하므로 나중에 기본값을 고쳐도 이 줄은 그대로다. 일수는 비워 둔다. */
+export const laborPresetRow = (preset: DevelopLaborPresetType): DevelopQuoteItemRow => ({
+  ...emptyLaborRow(),
+  title: preset.role,
+  grade: preset.grade,
+  description: preset.task,
+  unitPrice: preset.dailyRate.toLocaleString('ko-KR'),
+});
+
+/** 인건비 → 직접비 순(같은 구분 안에서는 화면 순서 그대로) — 저장·미리보기·견적서가 같은 순서를 쓴다. */
+export const developQuoteOrderedItems = <T extends { category: DevelopQuoteItemCategoryType }>(items: readonly T[]): T[] =>
+  DEVELOP_QUOTE_ITEM_CATEGORIES.flatMap((category) => items.filter((it) => it.category === category));
 
 /** 수량 입력 → 숫자(소수 둘째 자리까지). 비었거나 읽을 수 없으면 NaN. */
 export function parseQtyInput(raw: string | number): number {
@@ -150,12 +164,6 @@ export function parseQtyInput(raw: string | number): number {
   return Number.isFinite(n) ? n : Number.NaN;
 }
 const qtyHasTwoDecimals = (n: number): boolean => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
-
-/** 원가 단가 입력 → 숫자. 비면 null(미입력), 읽을 수 없으면 NaN. */
-export function parseCostInput(raw: string): number | null {
-  if (raw.trim() === '') return null;
-  return parseAmountInput(raw);
-}
 
 /** 퍼센트 입력 → bp. 비면 0, 읽을 수 없으면 NaN. */
 export function pctToBp(raw: string | number): number {
@@ -223,7 +231,8 @@ export function newDevelopQuoteForm(
     validUntil: kstDatePlus(settings.defaultValidDays),
     note: '',
     internalNote: '',
-    items: [emptyQuoteItemRow()],
+    // 빈 표로 연다 — 인건비는 '기본값에서 추가'로 채우는 게 보통이라 빈 줄을 미리 깔면 지우는 일만 는다.
+    items: [],
     milestones: milestones.length > 0 ? milestones : [{ title: '', percent: '100', trigger: 'on_accept', unlocksDeliverables: true }],
   };
 }
@@ -257,8 +266,6 @@ export function developQuoteFormFrom(quote: AdminDevelopQuoteViewType): DevelopQ
       qty: String(it.qty),
       unit: it.unit,
       durationDays: it.durationDays === null ? '' : String(it.durationDays),
-      costPrice: it.costPrice === null ? '' : it.costPrice.toLocaleString('ko-KR'),
-      vendor: it.vendor ?? '',
     })),
     milestones: quote.milestones.map((m) => ({
       title: m.title,
@@ -270,33 +277,6 @@ export function developQuoteFormFrom(quote: AdminDevelopQuoteViewType): DevelopQ
 }
 
 export const developQuoteItemAmounts = (form: DevelopQuoteForm): number[] => form.items.map((it) => developQuoteRowAmount(it));
-
-/** 줄 원가 금액 = 원가 단가 × 수량(항목 금액과 같은 계약 함수) — 미입력이면 null. */
-export function developQuoteRowCost(row: DevelopQuoteItemRow): number | null {
-  const cost = parseCostInput(row.costPrice);
-  const qty = parseQtyInput(row.qty);
-  if (cost === null || !Number.isFinite(cost) || !Number.isFinite(qty)) return null;
-  return developQuoteItemAmount(cost, qty);
-}
-
-/** 내부 원가·마진(관리자 전용) — 서버 응답으로 그릴 때와 같은 계약 함수. */
-export function developQuoteMarginOf(form: DevelopQuoteForm): DevelopQuoteMargin {
-  return computeDevelopQuoteMargin(
-    form.items.map((it) => {
-      const cost = parseCostInput(it.costPrice);
-      const qty = parseQtyInput(it.qty);
-      return {
-        amount: developQuoteRowAmount(it),
-        qty: Number.isFinite(qty) ? qty : 0,
-        costPrice: cost === null || !Number.isFinite(cost) ? null : Math.round(cost),
-      };
-    }),
-    developQuoteAmounts(form).supplyAmount,
-  );
-}
-
-/** 마진율 표기 — 0.1234 → '12.3%'. */
-export const marginRateText = (rate: number | null): string => (rate === null ? '—' : `${(Math.round(rate * 1000) / 10).toFixed(1)}%`);
 
 /** 산출 내역(소계·가산·공급가·VAT·합계) — 서버 저장 결과와 같은 계약 함수. */
 export const developQuoteAmounts = (form: DevelopQuoteForm): DevelopQuoteBreakdown =>
@@ -345,30 +325,31 @@ export function developQuoteIssues(form: DevelopQuoteForm): string[] {
 
   if (form.items.length === 0) issues.push('견적 항목을 한 줄 이상 넣어 주세요');
   if (form.items.length > DEVELOP_QUOTE_LIMITS.items) issues.push(`견적 항목은 ${String(DEVELOP_QUOTE_LIMITS.items)}개까지입니다`);
-  form.items.forEach((it, i) => {
-    const row = String(i + 1);
-    if (it.title.trim() === '') issues.push(`${row}번 항목의 ${it.category === 'labor' ? '직무' : '항목명'}을 채워 주세요`);
-    const price = parseAmountInput(it.unitPrice);
-    if (!Number.isFinite(price) || price < 0 || price > DEVELOP_QUOTE_LIMITS.itemAmountMax) {
-      issues.push(`${row}번 항목의 단가를 숫자로 채워 주세요`);
-    }
-    const qty = parseQtyInput(it.qty);
-    if (!Number.isFinite(qty) || qty <= 0 || qty > DEVELOP_QUOTE_LIMITS.qtyMax || !qtyHasTwoDecimals(qty)) {
-      issues.push(`${row}번 항목의 수량은 0보다 크게, 소수 둘째 자리까지 적어 주세요`);
-    }
-    if (it.unit.trim() === '' || it.unit.trim().length > DEVELOP_QUOTE_LIMITS.unitLen) issues.push(`${row}번 항목의 단위를 적어 주세요`);
-    if (it.grade.trim().length > DEVELOP_QUOTE_LIMITS.gradeLen) issues.push(`${row}번 항목의 기술등급은 50자까지입니다`);
-    if (developQuoteRowAmount(it) > DEVELOP_QUOTE_AMOUNT_MAX) issues.push(`${row}번 항목의 금액(단가 × 수량)이 너무 큽니다`);
-    const cost = parseCostInput(it.costPrice);
-    if (cost !== null && (!Number.isFinite(cost) || cost < 0 || cost > DEVELOP_QUOTE_LIMITS.itemAmountMax)) {
-      issues.push(`${row}번 항목의 원가 단가를 숫자로 적거나 비워 주세요`);
-    }
-    if (it.vendor.trim().length > DEVELOP_QUOTE_LIMITS.vendorLen) issues.push(`${row}번 항목의 업체명은 100자까지입니다`);
-    const days = parseIntOrNull(it.durationDays);
-    if (days !== null && (!Number.isFinite(days) || days < 1 || days > DEVELOP_QUOTE_LIMITS.durationDaysMax)) {
-      issues.push(`${row}번 항목의 기간은 1~3650일 사이로 적어 주세요`);
-    }
-  });
+  // 줄 번호는 칸(인건비·직접비)마다 센다 — 화면의 칸별 번호와 같다.
+  for (const category of DEVELOP_QUOTE_ITEM_CATEGORIES) {
+    const labor = category === 'labor';
+    form.items
+      .filter((it) => it.category === category)
+      .forEach((it, i) => {
+        const row = `${DEVELOP_QUOTE_ITEM_CATEGORY_LABELS[category]} ${String(i + 1)}번 줄`;
+        if (it.title.trim() === '') issues.push(`${row}의 ${labor ? '직무를' : '항목을'} 채워 주세요`);
+        const price = parseAmountInput(it.unitPrice);
+        if (!Number.isFinite(price) || price < 0 || price > DEVELOP_QUOTE_LIMITS.itemAmountMax) {
+          issues.push(`${row}의 ${labor ? '일일 노임비를' : '단가를'} 숫자로 채워 주세요`);
+        }
+        const qty = parseQtyInput(it.qty);
+        if (!Number.isFinite(qty) || qty <= 0 || qty > DEVELOP_QUOTE_LIMITS.qtyMax || !qtyHasTwoDecimals(qty)) {
+          issues.push(`${row}의 ${labor ? '참여 일수는' : '수량은'} 0보다 크게, 소수 둘째 자리까지 적어 주세요`);
+        }
+        if (it.unit.trim() === '' || it.unit.trim().length > DEVELOP_QUOTE_LIMITS.unitLen) issues.push(`${row}의 단위를 적어 주세요`);
+        if (it.grade.trim().length > DEVELOP_QUOTE_LIMITS.gradeLen) issues.push(`${row}의 기술등급은 50자까지입니다`);
+        if (developQuoteRowAmount(it) > DEVELOP_QUOTE_AMOUNT_MAX) issues.push(`${row}의 금액(단가 × 수량)이 너무 큽니다`);
+        const days = parseIntOrNull(it.durationDays);
+        if (days !== null && (!Number.isFinite(days) || days < 1 || days > DEVELOP_QUOTE_LIMITS.durationDaysMax)) {
+          issues.push(`${row}의 기간은 1~3650일 사이로 적어 주세요`);
+        }
+      });
+  }
   const rateFields: [string, string | number][] = [
     ['간접비', form.indirectPct],
     ['제경비', form.overheadPct],
@@ -435,7 +416,7 @@ export function developQuoteFormToBody(form: DevelopQuoteForm): AdminDevelopQuot
     validUntil: form.validUntil,
     note: emptyToNull(form.note),
     internalNote: emptyToNull(form.internalNote),
-    items: form.items.map((it) => ({
+    items: developQuoteOrderedItems(form.items).map((it) => ({
       category: it.category,
       title: it.title.trim(),
       grade: it.category === 'labor' ? emptyToNull(it.grade) : null,
@@ -448,11 +429,6 @@ export function developQuoteFormToBody(form: DevelopQuoteForm): AdminDevelopQuot
         const days = parseIntOrNull(it.durationDays);
         return days === null || !Number.isFinite(days) ? null : days;
       })(),
-      costPrice: (() => {
-        const cost = parseCostInput(it.costPrice);
-        return cost === null || !Number.isFinite(cost) ? null : Math.round(cost);
-      })(),
-      vendor: emptyToNull(it.vendor),
     })),
     milestones: form.milestones.map((m) => ({
       title: m.title.trim(),
@@ -488,7 +464,7 @@ export function developQuotePreview(form: DevelopQuoteForm): DevelopQuoteSheetQu
   const rates = developQuoteRates(form);
   const durationDays = parseIntOrNull(form.durationDays);
   const emptyToNull = (value: string): string | null => (value.trim() === '' ? null : value.trim());
-  const items: DevelopQuoteItemViewType[] = form.items.map((it, i) => {
+  const items: DevelopQuoteItemViewType[] = developQuoteOrderedItems(form.items).map((it, i) => {
     const qty = parseQtyInput(it.qty);
     const price = parseAmountInput(it.unitPrice);
     return {

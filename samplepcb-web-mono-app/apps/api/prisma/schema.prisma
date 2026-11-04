@@ -2460,8 +2460,6 @@ model SpDevelopQuoteItem {
   unit         String         @default("식") @db.VarChar(20)
   amount       Int // 공급가(원) = 단가 × 수량(서버 계산)
   durationDays Int?
-  costPrice    Int? // 내부 원가 단가(관리자 전용 — 고객 응답·인쇄·엑셀에 싣지 않는다)
-  vendor       String?        @db.VarChar(100) // 내부 원가 업체명
   quote        SpDevelopQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@unique([quoteId, seq])
@@ -2506,6 +2504,7 @@ model SpDevelopSettings {
   defaultIndirectBp   Int      @default(1500)
   defaultOverheadBp   Int      @default(500)
   defaultProfitBp     Int      @default(1000)
+  laborPresets        Json? // 인건비 기본값 [{role, grade, task, dailyRate}] — null 이면 코드 처음 값(DEVELOP_DEFAULT_LABOR_PRESETS)
   defaultMilestones   Json // [{title, ratioBp, trigger}]
   notifyEmails        Json // string[]
   aiAutoDraft         Boolean  @default(true)

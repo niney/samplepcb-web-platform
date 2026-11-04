@@ -251,24 +251,13 @@ export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusTy
   poFile: poFile === null ? null : toDevelopFileMeta(poFile),
 });
 
-// 관리자 견적 — 고객 뷰 + 내부 메모 + 항목 내부 원가(§5.1). 고객 뷰(toQuoteView)는 원가를 모른다 — 고객 응답·엑셀은 그쪽만 쓴다.
+// 관리자 견적 — 고객 뷰 + 내부 메모. 고객 뷰(toQuoteView)는 내부 메모를 모른다 — 고객 응답·엑셀은 그쪽만 쓴다.
 export const toAdminQuoteView = (
   q: QuoteWithChildren,
   status: DevelopRequestStatusType,
   poFile: SpFile | null,
   opened: ReadonlySet<number> = new Set(),
-): AdminDevelopQuoteViewType => {
-  const view = toQuoteView(q, status, poFile, opened);
-  const byId = new Map(q.items.map((it) => [Number(it.id), it]));
-  return {
-    ...view,
-    internalNote: q.internalNote,
-    items: view.items.map((it) => {
-      const row = byId.get(it.itemId);
-      return { ...it, costPrice: row?.costPrice ?? null, vendor: row?.vendor ?? null };
-    }),
-  };
-};
+): AdminDevelopQuoteViewType => ({ ...toQuoteView(q, status, poFile, opened), internalNote: q.internalNote });
 
 // 고객이 지금 할 일 — 견적 검토 > 결제 > 검수 > 확인 요청 답변.
 const nextActionOf = (

@@ -32,12 +32,10 @@ import {
   developQuoteFormFrom,
   developQuoteFormToBody,
   developQuoteIssues,
-  developQuoteMarginOf,
   developQuoteMilestoneAmounts,
   developQuotePreview,
   developQuoteRatioSum,
   developQuoteVatOptions,
-  marginRateText,
   newDevelopQuoteForm,
 } from '@/components/admin/develop/develop-quote-edit';
 import { formatKrw } from '@/lib/format';
@@ -107,8 +105,6 @@ const busy = computed(
 
 const amounts = computed(() => developQuoteAmounts(form.value));
 const vatOptions = computed(() => developQuoteVatOptions(form.value.vatMode));
-// 내부 원가·마진(관리자 전용, §5.1) — 아래 띠에 늘 보인다(편집기가 길어 합계가 화면 밖으로 나가기 쉽다).
-const margin = computed(() => developQuoteMarginOf(form.value));
 
 // 견적서 미리보기(§5.1) — 저장 전 폼 그대로 고객이 받을 1쪽을 본다. 번호는 저장된 판이 있을 때만, 견적일자는 오늘(발송하면 그날).
 const previewOpen = ref(false);
@@ -351,6 +347,7 @@ async function onDelete(): Promise<void> {
       v-model:overhead-pct="form.overheadPct"
       v-model:profit-pct="form.profitPct"
       :amounts="amounts"
+      :labor-presets="settings.laborPresets"
     />
 
     <QuoteMilestonesField
@@ -393,21 +390,13 @@ async function onDelete(): Promise<void> {
       </Field>
     </Panel>
 
-    <!-- 합계·마진 띠 — 스크롤해도 화면 아래에 붙어 있다 -->
+    <!-- 합계 띠 — 편집기가 길어 합계가 화면 밖으로 나가기 쉬워 스크롤해도 화면 아래에 붙어 있다 -->
     <div
       class="bg-card/95 sticky bottom-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border px-3 py-2 text-sm tabular-nums shadow-sm backdrop-blur"
       data-testid="quote-sticky-totals"
     >
       <span><span class="text-muted-foreground">{{ t('admin.develop.quote.supply') }}</span> {{ formatKrw(amounts.supplyAmount) }}</span>
       <span><span class="text-muted-foreground">{{ t('admin.develop.quote.total') }}</span> <b>{{ formatKrw(amounts.totalAmount) }}</b></span>
-      <span class="ml-auto"><span class="text-muted-foreground">{{ t('admin.develop.quote.costTotal') }}</span> {{ formatKrw(margin.costTotal) }}</span>
-      <span data-testid="quote-sticky-margin">
-        <span class="text-muted-foreground">{{ t('admin.develop.quote.margin') }}</span>
-        {{ formatKrw(margin.totalMargin) }} ({{ marginRateText(margin.marginRate) }})
-      </span>
-      <span v-if="margin.missingRows > 0" class="text-warning text-xs font-semibold">
-        {{ t('admin.develop.quote.costMissingRows', { count: margin.missingRows }) }}
-      </span>
     </div>
 
     <!-- 검사 결과 -->

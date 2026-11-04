@@ -8,7 +8,6 @@ import {
   DEVELOP_VAT_MODE_LABELS,
   devReviewScheduleTotals,
   developQuoteSheetRows,
-  parseDevelopQuoteLines,
 } from '@sp/api-contract';
 import type {
   AdminDevelopQuoteViewType,
@@ -75,8 +74,6 @@ const notice = ref('');
 const noticeError = ref(false);
 const issues = ref<string[]>([]);
 const confirmMode = ref<'none' | 'send' | 'delete'>('none');
-const pasteText = ref('');
-const pasteNote = ref('');
 
 const setNotice = (message: string, isError: boolean): void => {
   notice.value = message;
@@ -107,9 +104,11 @@ const errorCodes = computed(() => ({
 
 // ── 항목 편집 ────────────────────────────────────────────────────────────────
 
+// 옛 화면의 한 줄 = 금액 한 덩어리(수량·단위 칸이 없다) — 직접비 1식으로 넣는다. 인건비는 일일 노임비 × 참여 일수라
+// 새 화면에서 적는다(2026-11-04 저녁, 인건비 단위가 '일'로 바뀌어 덩어리 줄을 인건비로 두면 '1일'로 찍힌다).
 const addItem = (): void => {
   if (form.value.items.length >= DEVELOP_QUOTE_LIMITS.items) return;
-  form.value.items.push(emptyQuoteItemRow());
+  form.value.items.push(emptyQuoteItemRow('direct'));
 };
 
 const moveItem = (index: number, delta: number): void => {
@@ -120,30 +119,6 @@ const moveItem = (index: number, delta: number): void => {
   if (from === undefined || to === undefined) return;
   rows[index] = to;
   rows[next] = from;
-};
-
-// 붙여넣기로 채우기 — 빈 행은 버리고 읽어낸 줄을 뒤에 붙인다. 금액을 못 읽은 줄은 그대로 알려 준다.
-const applyPaste = (): void => {
-  const parsed = parseDevelopQuoteLines(pasteText.value);
-  if (parsed.items.length === 0) {
-    pasteNote.value = t('admin.develop.quote.pasteEmpty');
-    return;
-  }
-  const kept = form.value.items.filter((it) => it.title.trim() !== '' || it.unitPrice.trim() !== '');
-  form.value.items = [
-    ...kept,
-    ...parsed.items.map((it) => ({
-      ...emptyQuoteItemRow('labor'),
-      title: it.title,
-      unitPrice: it.amount.toLocaleString('ko-KR'),
-      unit: '식',
-    })),
-  ].slice(0, DEVELOP_QUOTE_LIMITS.items);
-  pasteText.value = '';
-  pasteNote.value =
-    parsed.rejected.length === 0
-      ? t('admin.develop.quote.pasteAdded', { count: parsed.items.length })
-      : `${t('admin.develop.quote.pasteAdded', { count: parsed.items.length })} ${t('admin.develop.quote.pasteRejected', { lines: parsed.rejected.join(' / ') })}`;
 };
 
 // ── 결제 조건 편집 ────────────────────────────────────────────────────────────
@@ -434,29 +409,6 @@ async function onDeleteConfirm(): Promise<void> {
         >
       </div>
       <p v-if="form.items.length === 0" class="mt-2 text-sm text-gray-400">{{ t('admin.develop.quote.noItems') }}</p>
-
-      <!-- 붙여넣기로 채우기 -->
-      <div class="mt-3 rounded-md border border-dashed border-gray-300 p-2">
-        <p class="text-xs font-bold text-gray-600">{{ t('admin.develop.quote.paste') }}</p>
-        <textarea
-          v-model="pasteText"
-          rows="3"
-          :placeholder="t('admin.develop.quote.pastePlaceholder')"
-          class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-xs leading-relaxed"
-        />
-        <div class="mt-1 flex flex-wrap items-center gap-2">
-          <span class="text-xs text-gray-500">{{ t('admin.develop.quote.pasteHint') }}</span>
-          <button
-            type="button"
-            class="ml-auto rounded-md border border-gray-300 px-2.5 py-1 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-            :disabled="pasteText.trim() === ''"
-            @click="applyPaste"
-          >
-            {{ t('admin.develop.quote.pasteApply') }}
-          </button>
-        </div>
-        <p v-if="pasteNote !== ''" class="mt-1 text-xs text-amber-700">{{ pasteNote }}</p>
-      </div>
 
       <!-- 합계 -->
       <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-t border-gray-100 pt-2 text-sm">

@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { PlusIcon, Trash2Icon } from '@lucide/vue';
+import { ChevronDownIcon, ChevronUpIcon, PlusIcon, Trash2Icon, XIcon } from '@lucide/vue';
 import {
+  DEVELOP_LABOR_PRESETS_MAX,
   DEVELOP_MILESTONE_TRIGGERS,
   DEVELOP_MILESTONE_TRIGGER_LABELS,
+  DEVELOP_QUOTE_AMOUNT_MAX,
+  DEVELOP_QUOTE_GRADE_SUGGESTIONS,
   DEVELOP_VAT_MODES,
   DEVELOP_VAT_MODE_LABELS,
 } from '@sp/api-contract';
 import type { DevelopMilestoneTriggerType, DevelopVatModeType } from '@sp/api-contract';
 import { apiErrorMessage } from '@sp/ui';
 import { useAdminDevelopSettings, useSaveAdminDevelopSettings } from '@/admin/useAdminDevelop';
-import { developQuoteVatOptions } from '@/components/admin/develop/develop-quote-edit';
+import { developQuoteVatOptions, formatAmountInput, parseAmountInput } from '@/components/admin/develop/develop-quote-edit';
 import { formatDateTime } from '@/lib/format';
 import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Button } from '@/next/components/ui/button';
@@ -28,12 +31,19 @@ import SectionCard from '@/next/components/common/SectionCard.vue';
 // 개발의뢰 설정 싱글턴(docs/DEVELOP_FLOW.md §7.3) — 옛 pages/admin/AdminDevelopSettings.vue 의 리뉴얼(같은 배치·검사·저장 본문).
 // 견적 생성이 복사해 쓰는 기본값 + 알림 수신자 + AI 자동 초안. 마일스톤 비율은 bp(1/100 %)로 저장되고 합이 정확히
 // 100% 여야 서버가 받는다 — 같은 검사를 저장 전에 먼저 해서 400 을 문구로 번역하지 않고 애초에 못 보내게 한다.
+// 인건비 기본값(노임 단가표, §5.1) — 견적 편집기 인건비 칸의 '기본값에서 추가'가 이 목록을 줄로 복사한다.
 
 type NumInput = string | number;
 interface MilestoneRow {
   title: string;
   percent: NumInput;
   trigger: DevelopMilestoneTriggerType;
+}
+interface LaborPresetRow {
+  role: string;
+  grade: string;
+  task: string;
+  dailyRate: string; // 콤마 허용 — 저장 때 숫자로
 }
 
 const { t } = useI18n();
@@ -51,6 +61,7 @@ const indirectPct = ref<NumInput>('15');
 const overheadPct = ref<NumInput>('5');
 const profitPct = ref<NumInput>('10');
 const milestones = ref<MilestoneRow[]>([]);
+const laborPresets = ref<LaborPresetRow[]>([]);
 const notifyEmails = ref('');
 const aiAutoDraft = ref(false);
 const aiDiagramAutoDraft = ref(false);
@@ -75,6 +86,12 @@ watch(
       percent: String(m.ratioBp / 100),
       trigger: m.trigger,
     }));
+    laborPresets.value = s.laborPresets.map((lp) => ({
+      role: lp.role,
+      grade: lp.grade,
+      task: lp.task,
+      dailyRate: lp.dailyRate.toLocaleString('ko-KR'),
+    }));
     notifyEmails.value = s.notifyEmails.join('\n');
     aiAutoDraft.value = s.aiAutoDraft;
     aiDiagramAutoDraft.value = s.aiDiagramAutoDraft;
@@ -94,6 +111,11 @@ const emailList = computed(() =>
 );
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const badEmails = computed(() => emailList.value.filter((e) => !EMAIL_RE.test(e)));
+const presetRateOf = (row: LaborPresetRow): number => parseAmountInput(row.dailyRate);
+const presetRateBad = (row: LaborPresetRow): boolean => {
+  const n = presetRateOf(row);
+  return !Number.isFinite(n) || n < 0 || n > DEVELOP_QUOTE_AMOUNT_MAX || !Number.isInteger(n);
+};
 
 const issues = computed<string[]>(() => {
   const list: string[] = [];
@@ -107,12 +129,28 @@ const issues = computed<string[]>(() => {
   if ([indirectPct.value, overheadPct.value, profitPct.value].some((p) => !Number.isFinite(rateBpOf(p)) || rateBpOf(p) < 0 || rateBpOf(p) > RATE_MAX_BP)) {
     list.push(t('admin.develop.settings.errRate'));
   }
+  laborPresets.value.forEach((row, i) => {
+    if (row.role.trim() === '') list.push(t('admin.develop.settings.errPresetRole', { row: i + 1 }));
+    if (presetRateBad(row)) list.push(t('admin.develop.settings.errPresetRate', { row: i + 1 }));
+  });
   return list;
 });
 
 const addMilestone = (): void => {
   if (milestones.value.length >= 10) return;
   milestones.value.push({ title: '', percent: '0', trigger: 'manual' });
+};
+const addPreset = (): void => {
+  if (laborPresets.value.length >= DEVELOP_LABOR_PRESETS_MAX) return;
+  laborPresets.value.push({ role: '', grade: '', task: '', dailyRate: '' });
+};
+const movePreset = (index: number, delta: -1 | 1): void => {
+  const rows = laborPresets.value;
+  const from = rows[index];
+  const to = rows[index + delta];
+  if (from === undefined || to === undefined) return;
+  rows[index] = to;
+  rows[index + delta] = from;
 };
 const isTrigger = (value: unknown): value is DevelopMilestoneTriggerType =>
   typeof value === 'string' && (DEVELOP_MILESTONE_TRIGGERS as readonly string[]).includes(value);
@@ -143,6 +181,12 @@ async function onSubmit(): Promise<void> {
       defaultIndirectBp: rateBpOf(indirectPct.value),
       defaultOverheadBp: rateBpOf(overheadPct.value),
       defaultProfitBp: rateBpOf(profitPct.value),
+      laborPresets: laborPresets.value.map((row) => ({
+        role: row.role.trim(),
+        grade: row.grade.trim(),
+        task: row.task.trim(),
+        dailyRate: Math.round(presetRateOf(row)),
+      })),
       defaultMilestones: milestones.value.map((m) => ({
         title: m.title.trim(),
         ratioBp: ratioBpOf(m),
@@ -217,6 +261,94 @@ async function onSubmit(): Promise<void> {
         </Field>
       </div>
       <FieldDescription>{{ t('admin.develop.settings.ratesHint') }}</FieldDescription>
+    </SectionCard>
+
+    <!-- 인건비 기본값(노임 단가표) -->
+    <SectionCard :title="t('admin.develop.settings.laborPresets')" data-testid="develop-settings-labor-presets">
+      <template #meta>
+        {{ t('admin.develop.settings.presetsCount', { count: laborPresets.length, max: DEVELOP_LABOR_PRESETS_MAX }) }}
+      </template>
+      <template #actions>
+        <Button type="button" variant="outline" size="sm" :disabled="laborPresets.length >= DEVELOP_LABOR_PRESETS_MAX" @click="addPreset">
+          <PlusIcon />
+          {{ t('admin.develop.settings.addPreset') }}
+        </Button>
+      </template>
+      <datalist id="develop-settings-grades">
+        <option v-for="g in DEVELOP_QUOTE_GRADE_SUGGESTIONS" :key="g" :value="g" />
+      </datalist>
+      <div
+        v-if="laborPresets.length > 0"
+        class="text-muted-foreground hidden items-end gap-2 border-b pb-1 text-xs font-medium md:grid md:grid-cols-[1.5rem_9rem_6rem_minmax(0,1fr)_9.5rem_4.75rem]"
+        aria-hidden="true"
+      >
+        <span>#</span>
+        <span>{{ t('admin.develop.settings.presetRole') }}</span>
+        <span>{{ t('admin.develop.settings.presetGrade') }}</span>
+        <span>{{ t('admin.develop.settings.presetTask') }}</span>
+        <span class="text-right">{{ t('admin.develop.settings.presetDailyRate') }}</span>
+        <span />
+      </div>
+      <div
+        v-for="(lp, i) in laborPresets"
+        :key="`preset-${String(i)}`"
+        class="flex flex-wrap items-center gap-2 md:grid md:grid-cols-[1.5rem_9rem_6rem_minmax(0,1fr)_9.5rem_4.75rem]"
+        data-testid="develop-settings-preset-row"
+      >
+        <span class="text-muted-foreground w-6 text-xs font-semibold tabular-nums">{{ i + 1 }}</span>
+        <Input
+          v-model="lp.role"
+          :maxlength="100"
+          :placeholder="t('admin.develop.settings.presetRole')"
+          :aria-label="`${String(i + 1)} ${t('admin.develop.settings.presetRole')}`"
+          class="w-36 md:w-full"
+        />
+        <Input
+          v-model="lp.grade"
+          list="develop-settings-grades"
+          :maxlength="50"
+          :placeholder="t('admin.develop.settings.presetGrade')"
+          :aria-label="`${String(i + 1)} ${t('admin.develop.settings.presetGrade')}`"
+          class="w-24 md:w-full"
+        />
+        <Input
+          v-model="lp.task"
+          :maxlength="200"
+          :placeholder="t('admin.develop.settings.presetTask')"
+          :aria-label="`${String(i + 1)} ${t('admin.develop.settings.presetTask')}`"
+          class="min-w-48 flex-1 md:w-full"
+        />
+        <InputGroup class="w-40 md:w-full">
+          <InputGroupInput
+            v-model="lp.dailyRate"
+            inputmode="numeric"
+            :aria-label="`${String(i + 1)} ${t('admin.develop.settings.presetDailyRate')}`"
+            class="text-right tabular-nums"
+            @blur="lp.dailyRate = formatAmountInput(lp.dailyRate)"
+          />
+          <InputGroupAddon align="inline-end">원/일</InputGroupAddon>
+        </InputGroup>
+        <div class="flex items-center justify-end">
+          <Button type="button" variant="ghost" size="icon-xs" aria-label="위로" title="위로" :disabled="i === 0" @click="movePreset(i, -1)">
+            <ChevronUpIcon />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-xs" aria-label="아래로" title="아래로" :disabled="i === laborPresets.length - 1" @click="movePreset(i, 1)">
+            <ChevronDownIcon />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            :aria-label="`${String(i + 1)} ${t('admin.develop.settings.removePreset')}`"
+            :title="t('admin.develop.settings.removePreset')"
+            @click="laborPresets.splice(i, 1)"
+          >
+            <XIcon class="text-destructive" />
+          </Button>
+        </div>
+      </div>
+      <p v-if="laborPresets.length === 0" class="text-muted-foreground text-sm">{{ t('admin.develop.settings.presetsEmpty') }}</p>
+      <p class="text-muted-foreground text-sm">{{ t('admin.develop.settings.laborPresetsHint') }}</p>
     </SectionCard>
 
     <!-- 기본 마일스톤 -->

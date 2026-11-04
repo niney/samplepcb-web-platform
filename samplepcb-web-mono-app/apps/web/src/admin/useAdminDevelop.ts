@@ -18,7 +18,6 @@ import {
   developQuoteXlsxName,
 } from '@sp/api-contract';
 import type {
-  AdminDevelopQuoteCostsBodyType,
   AdminDevelopDocumentCreateBodyType,
   AdminDevelopDocumentPatchBodyType,
   AdminDevelopDocumentSendBodyType,
@@ -317,18 +316,6 @@ export function useAdminDevelopQuoteSend() {
   return useMutation({
     mutationFn: (quoteId: number) =>
       apiSend('POST', `${quoteBase}/${String(quoteId)}/send`, undefined, AdminDevelopQuoteResponse),
-    onSuccess: () => {
-      invalidateDevelop(qc);
-    },
-  });
-}
-
-// 내부 원가만 고친다(모든 상태, docs/DEVELOP_FLOW.md §5.1) — 고객 금액은 그대로.
-export function useAdminDevelopQuoteCosts() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ quoteId, body }: { quoteId: number; body: AdminDevelopQuoteCostsBodyType }) =>
-      apiSend('PATCH', `${quoteBase}/${String(quoteId)}/costs`, body, AdminDevelopQuoteResponse),
     onSuccess: () => {
       invalidateDevelop(qc);
     },

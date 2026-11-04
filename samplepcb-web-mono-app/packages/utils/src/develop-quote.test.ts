@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AdminDevelopSettings,
+  DEVELOP_DEFAULT_LABOR_PRESETS,
+  DEVELOP_QUOTE_DEFAULT_UNIT,
+  DevelopLaborPreset,
   computeDevelopQuoteAmounts,
   computeDevelopQuoteBreakdown,
-  computeDevelopQuoteMargin,
   developBpPercent,
   developQuoteItemAmount,
   developQuoteQtyText,
@@ -10,41 +13,10 @@ import {
   developQuoteSheetRows,
   developQuoteSurchargeText,
   developQuoteXlsxName,
-  parseDevelopQuoteLines,
   splitDevelopMilestoneAmounts,
 } from '@sp/api-contract';
 
-// 개발의뢰 견적 순수 함수(docs/DEVELOP_FLOW.md §5) — 붙여넣기 파싱·VAT 계산·마일스톤 분배.
-describe('parseDevelopQuoteLines', () => {
-  it('사용자 예시 4줄을 항목으로 읽는다', () => {
-    const text = ['H/W 회로·PCB 설계 3,600,000원', '펌웨어·BLE 통신 3,200,000원', 'Android 앱 2,800,000원', '시제품·통합 검증 2,100,000원'].join('\n');
-    const r = parseDevelopQuoteLines(text);
-    expect(r.rejected).toEqual([]);
-    expect(r.items).toEqual([
-      { title: 'H/W 회로·PCB 설계', amount: 3_600_000 },
-      { title: '펌웨어·BLE 통신', amount: 3_200_000 },
-      { title: 'Android 앱', amount: 2_800_000 },
-      { title: '시제품·통합 검증', amount: 2_100_000 },
-    ]);
-  });
-
-  it('만원 단위·콜론·탭·KRW 표기를 허용하고 금액 없는 줄은 rejected', () => {
-    const r = parseDevelopQuoteLines('회로 설계: 320만원\n앱\t2800000\n검증 - 1,000 KRW\n총액은 협의\n\n');
-    expect(r.items).toEqual([
-      { title: '회로 설계', amount: 3_200_000 },
-      { title: '앱', amount: 2_800_000 },
-      { title: '검증', amount: 1_000 },
-    ]);
-    expect(r.rejected).toEqual(['총액은 협의']);
-  });
-
-  it('0 원·제목 없음은 rejected', () => {
-    const r = parseDevelopQuoteLines('0원\n설계 0');
-    expect(r.items).toEqual([]);
-    expect(r.rejected).toHaveLength(2);
-  });
-});
-
+// 개발의뢰 견적 순수 함수(docs/DEVELOP_FLOW.md §5) — VAT 계산·마일스톤 분배·산출 내역.
 describe('computeDevelopQuoteAmounts', () => {
   it('separate: 공급가 합 + 10%', () => {
     expect(computeDevelopQuoteAmounts([3_600_000, 3_200_000, 2_800_000, 2_100_000], 'separate')).toEqual({
@@ -127,25 +99,26 @@ describe('computeDevelopQuoteBreakdown', () => {
   });
 });
 
-describe('computeDevelopQuoteMargin', () => {
-  it('원가 금액 = 원가 단가 × 같은 수량 · 총 마진 = 공급가 − 원가 합계 · 미입력 줄 수', () => {
-    const items = [
-      { amount: developQuoteItemAmount(8_000_000, 0.5), qty: 0.5, costPrice: 6_000_000 }, // 원가 3,000,000
-      { amount: developQuoteItemAmount(1_300_000, 3), qty: 3, costPrice: 900_000 }, // 원가 2,700,000
-      { amount: 1_000_000, qty: 1, costPrice: null },
-    ];
-    const m = computeDevelopQuoteMargin(items, 10_492_000);
-    expect(m).toEqual({
-      costTotal: 5_700_000,
-      costedRows: 2,
-      missingRows: 1,
-      itemMargin: 4_000_000 - 3_000_000 + 3_900_000 - 2_700_000,
-      totalMargin: 10_492_000 - 5_700_000,
-      marginRate: (10_492_000 - 5_700_000) / 10_492_000,
-    });
+describe('인건비 일 단위·기본값(2026-11-04 저녁)', () => {
+  it('인건비 = 일일 노임비 × 참여 일수 — 새 줄의 단위는 일, 반나절(0.5일)도 받는다', () => {
+    expect(DEVELOP_QUOTE_DEFAULT_UNIT).toEqual({ labor: '일', direct: '식' });
+    expect(developQuoteItemAmount(400_000, 10)).toBe(4_000_000);
+    expect(developQuoteItemAmount(325_000, 0.5)).toBe(162_500);
+    expect(developQuoteQtyText(10, '일')).toBe('10일');
   });
-  it('공급가 0 이면 마진율 null', () => {
-    expect(computeDevelopQuoteMargin([], 0).marginRate).toBeNull();
+  it('처음 값 5줄은 스키마를 통과하고, 참고 자동견적 HTML 의 예시 금액을 재현한다', () => {
+    expect(DEVELOP_DEFAULT_LABOR_PRESETS.every((p) => DevelopLaborPreset.safeParse(p).success)).toBe(true);
+    // PM 10일 · 회로 20일 · PCB 20일 · 펌웨어 14일 · QC 10일 = 20,800,000(참고 HTML 기본 줄)
+    const days = [10, 20, 20, 14, 10];
+    const sum = DEVELOP_DEFAULT_LABOR_PRESETS.reduce((a, p, i) => a + developQuoteItemAmount(p.dailyRate, days[i] ?? 0), 0);
+    expect(sum).toBe(20_800_000);
+  });
+  it('기본값 검증 — 직무는 필수, 등급·담당 업무는 비워도 되고, 50줄까지', () => {
+    expect(DevelopLaborPreset.safeParse({ role: ' ', grade: '', task: '', dailyRate: 1 }).success).toBe(false);
+    expect(DevelopLaborPreset.safeParse({ role: 'QA', grade: '', task: '', dailyRate: 0 }).success).toBe(true);
+    expect(DevelopLaborPreset.safeParse({ role: 'QA', grade: '', task: '', dailyRate: 1.5 }).success).toBe(false);
+    const many = Array.from({ length: 51 }, () => ({ role: 'QA', grade: '', task: '', dailyRate: 1 }));
+    expect(AdminDevelopSettings.shape.laborPresets.safeParse(many).success).toBe(false);
   });
 });
 
@@ -154,8 +127,8 @@ describe('견적서 표기', () => {
     expect(developBpPercent(1500)).toBe('15');
     expect(developBpPercent(250)).toBe('2.5');
     expect(developQuoteSurchargeText('indirect', 1500)).toBe('15% (인건비+직접비)');
-    expect(developQuoteQtyText(0.5, '개월')).toBe('0.5개월');
-    expect(developQuoteQtyText(3, 'M/M')).toBe('3 M/M');
+    expect(developQuoteQtyText(0.5, '개월')).toBe('0.5개월'); // 옛 줄은 저장된 단위 그대로
+    expect(developQuoteQtyText(2, 'EA')).toBe('2 EA');
     expect(developQuoteQtyText(1.25, '')).toBe('1.25');
   });
 

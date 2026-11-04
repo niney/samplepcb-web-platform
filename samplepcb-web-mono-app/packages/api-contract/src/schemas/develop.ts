@@ -439,7 +439,8 @@ export const DEVELOP_VAT_RATE_BP = 1000; // 10%
 export const DEVELOP_QUOTE_EDITABLE_VAT_MODES = ['separate', 'exempt'] as const satisfies readonly DevelopVatModeType[];
 
 // ── 견적 산출 내역(2026-11-04, 참고 견적서 '개발견적서' 서식) ─────────────────────────
-// 항목 = 구분(인건비·직접비) × 단가 × 수량(인건비는 개월·M/M, 직접비는 회·식·EA). 그 뒤 간접비 → 제경비(일반관리비)
+// 항목 = 구분(인건비·직접비) × 단가 × 수량. 인건비는 **일일 노임비(원/일) × 참여 일수(일)**, 직접비는 단가 × 수량(식·회·EA)
+// — 같은 날 저녁 개월 단가를 일 단위로 바꿨다(참고 자동견적 HTML). 그 뒤 간접비 → 제경비(일반관리비)
 // → 기업이윤이 **앞 합계 × 비율**로 계단식으로 붙는다. 가산 세 행은 각각 천 원 미만을 버린다 — 단가가 천 원 단위면
 // 공급가도 천 원 단위로 끝나고, 표의 행을 더한 값이 그대로 공급가다(따로 '단수 정리' 행이 없다).
 export const DEVELOP_QUOTE_ITEM_CATEGORIES = ['labor', 'direct'] as const;
@@ -449,10 +450,17 @@ export const DEVELOP_QUOTE_ITEM_CATEGORY_LABELS = {
   labor: '인건비',
   direct: '직접비',
 } as const satisfies Record<DevelopQuoteItemCategoryType, string>;
-// 단위 — 자유 글(20자)이고 편집기 입력칸이 이 목록을 제안한다.
-export const DEVELOP_QUOTE_UNIT_SUGGESTIONS = ['개월', 'M/M', '일', 'M/D', '식', '회', 'EA', '세트'] as const;
-export const DEVELOP_QUOTE_DEFAULT_UNIT = { labor: '개월', direct: '식' } as const satisfies Record<DevelopQuoteItemCategoryType, string>;
-export const DEVELOP_QUOTE_QTY_MAX = 9999.99; // 소수 둘째 자리까지(0.5개월)
+// 인건비 단위는 '일' 고정 — 편집기에 단위 칸이 없고 새 줄이 이 값을 쓴다. 저장된 옛 '개월' 줄은 그 단위 그대로 읽는다
+// (서버가 고쳐 쓰지 않는다 — 금액은 같아도 '원/일'이라는 뜻이 바뀌므로).
+export const DEVELOP_QUOTE_LABOR_UNIT = '일';
+// 직접비 단위 — 자유 글(20자)이고 편집기 입력칸이 이 목록을 제안한다.
+export const DEVELOP_QUOTE_DIRECT_UNIT_SUGGESTIONS = ['식', '회', 'EA', '세트'] as const;
+export const DEVELOP_QUOTE_DEFAULT_UNIT = { labor: DEVELOP_QUOTE_LABOR_UNIT, direct: '식' } as const satisfies Record<DevelopQuoteItemCategoryType, string>;
+// 기술등급 — 자유 글(50자)이고 인건비 기본값·편집기 입력칸이 이 목록을 제안한다.
+export const DEVELOP_QUOTE_GRADE_SUGGESTIONS = ['특급', '고급', '중급', '일반'] as const;
+// 월 단가 → 일일 노임비 환산 안내(1개월 ≈ 20일, 참고 자동견적 HTML 의 예시 환산). 안내 문구에만 쓰고 계산엔 안 쓴다.
+export const DEVELOP_QUOTE_WORKDAYS_PER_MONTH = 20;
+export const DEVELOP_QUOTE_QTY_MAX = 9999.99; // 소수 둘째 자리까지(0.5일)
 export const DEVELOP_QUOTE_RATE_MAX_BP = 5000; // 가산율 한 칸 상한 50%
 export const DEVELOP_QUOTE_AMOUNT_MAX = 2_000_000_000; // 항목·합계 상한(정수 컬럼)
 export const DEVELOP_QUOTE_SURCHARGES = ['indirect', 'overhead', 'profit'] as const;
@@ -705,13 +713,6 @@ export const DevelopQuoteItemView = z.object({
 });
 export type DevelopQuoteItemViewType = z.infer<typeof DevelopQuoteItemView>;
 
-// 관리자 전용 항목 — 내부 원가(원가 단가·업체). 고객 응답·인쇄 시트·엑셀에는 절대 싣지 않는다(2026-11-04, §5.1).
-export const AdminDevelopQuoteItemView = DevelopQuoteItemView.extend({
-  costPrice: z.number().int().nullable(), // 원가 단가 — 원가 금액 = 원가 단가 × 같은 수량
-  vendor: z.string().nullable(), // 업체명(여러 곳이면 함께 적는다)
-});
-export type AdminDevelopQuoteItemViewType = z.infer<typeof AdminDevelopQuoteItemView>;
-
 export const DevelopMilestoneView = z.object({
   milestoneId: z.number(),
   quoteId: z.number(),
@@ -772,10 +773,9 @@ export const DevelopQuoteView = z.object({
 });
 export type DevelopQuoteViewType = z.infer<typeof DevelopQuoteView>;
 
-// 관리자 견적 — 내부 메모 + 항목 내부 원가.
+// 관리자 견적 — 고객 뷰 + 내부 메모(고객 응답·인쇄·엑셀엔 없다). 항목 내부 원가는 2026-11-04 저녁 사용자 결정으로 뺐다.
 export const AdminDevelopQuoteView = DevelopQuoteView.extend({
   internalNote: z.string().nullable(),
-  items: z.array(AdminDevelopQuoteItemView),
 });
 export type AdminDevelopQuoteViewType = z.infer<typeof AdminDevelopQuoteView>;
 
@@ -934,43 +934,8 @@ export const DevelopCheckoutResponse = z.object({
 });
 export type DevelopCheckoutResponseType = z.infer<typeof DevelopCheckoutResponse>;
 
-// ── 견적 순수 함수(붙여넣기 파싱·금액 계산·마일스톤 분배) — FE·서버 공유 ─────────────
-export interface DevelopQuoteLineParsed {
-  title: string;
-  amount: number;
-}
-export interface DevelopQuoteLinesResult {
-  items: DevelopQuoteLineParsed[];
-  rejected: string[]; // 금액을 못 읽은 줄(그대로 남겨 관리자가 고친다)
-}
-
-// `H/W 회로·PCB 설계 3,600,000원` · `펌웨어 320만원` · `Android 앱  2800000` — 줄 끝의 금액 토큰을 뗀다.
-// "만원" 단위는 ×10,000. 금액이 없거나 0 이하이면 rejected.
-export function parseDevelopQuoteLines(text: string): DevelopQuoteLinesResult {
-  const items: DevelopQuoteLineParsed[] = [];
-  const rejected: string[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/\t/g, ' ').trim();
-    if (line === '') continue;
-    const m = /^(.*?)[\s:：\-–—]*([\d][\d,]*)(?:\s*(만\s*원|만|원|KRW|₩))?\s*$/i.exec(line);
-    if (m === null) {
-      rejected.push(line);
-      continue;
-    }
-    const title = (m[1] ?? '').replace(/[\s:：\-–—]+$/, '').trim();
-    const digits = (m[2] ?? '').replace(/,/g, '');
-    const unit = (m[3] ?? '').replace(/\s/g, '');
-    let amount = Number(digits);
-    if (unit === '만원' || unit === '만') amount *= 10_000;
-    if (title === '' || !Number.isFinite(amount) || amount <= 0 || amount > 2_000_000_000) {
-      rejected.push(line);
-      continue;
-    }
-    items.push({ title, amount: Math.round(amount) });
-  }
-  return { items, rejected };
-}
-
+// ── 견적 순수 함수(금액 계산·마일스톤 분배) — FE·서버 공유 ─────────────
+// (붙여넣기 파서 parseDevelopQuoteLines 는 2026-11-04 저녁 '붙여넣기로 채우기' 기능과 함께 뺐다.)
 export interface DevelopQuoteAmounts {
   supplyAmount: number;
   vatAmount: number;
@@ -1048,41 +1013,6 @@ export function computeDevelopQuoteBreakdown(
   return { laborSubtotal, directSubtotal, indirectAmount, overheadAmount, profitAmount, ...amounts };
 }
 
-export interface DevelopQuoteMargin {
-  costTotal: number; // 원가를 적은 줄의 원가 금액 합
-  costedRows: number;
-  missingRows: number; // 원가를 안 적은 줄 — 있으면 마진이 실제보다 크게 나온다
-  itemMargin: number; // 원가를 적은 줄의 (금액 − 원가 금액) 합
-  totalMargin: number; // 공급가 − 원가 합계(가산 행은 원가가 없어 전부 마진)
-  marginRate: number | null; // totalMargin / 공급가(공급가 0 이면 null)
-}
-
-/** 내부 원가·마진(관리자 전용) — 원가 금액 = 원가 단가 × 같은 수량(항목 금액과 같은 반올림). */
-export function computeDevelopQuoteMargin(
-  items: readonly { amount: number; qty: number; costPrice: number | null }[],
-  supplyAmount: number,
-): DevelopQuoteMargin {
-  let costTotal = 0;
-  let costedRows = 0;
-  let itemMargin = 0;
-  for (const it of items) {
-    if (it.costPrice === null) continue;
-    const cost = developQuoteItemAmount(it.costPrice, it.qty);
-    costTotal += cost;
-    costedRows += 1;
-    itemMargin += it.amount - cost;
-  }
-  const totalMargin = supplyAmount - costTotal;
-  return {
-    costTotal,
-    costedRows,
-    missingRows: items.length - costedRows,
-    itemMargin,
-    totalMargin,
-    marginRate: supplyAmount > 0 ? totalMargin / supplyAmount : null,
-  };
-}
-
 /** 1500 → '15', 250 → '2.5' (퍼센트 숫자만). */
 export const developBpPercent = (bp: number): string => {
   const pct = Math.round(bp) / 100;
@@ -1093,7 +1023,7 @@ export const developBpPercent = (bp: number): string => {
 export const developQuoteSurchargeText = (kind: DevelopQuoteSurchargeType, bp: number): string =>
   `${developBpPercent(bp)}% ${DEVELOP_QUOTE_SURCHARGE_BASIS[kind]}`;
 
-/** 수량 표기 — 0.5 → '0.5', 3 → '3'. 단위가 영문이면 한 칸 띄운다('0.5 M/M', '3회'). */
+/** 수량 표기 — 0.5 → '0.5', 3 → '3'. 단위가 영문이면 한 칸 띄운다('10일', '3회', '2 EA'). */
 export function developQuoteQtyText(qty: number, unit: string): string {
   const n = Math.round(qty * 100) / 100;
   const num = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '');
@@ -1480,7 +1410,7 @@ export const AdminDevelopEventPayload = z.object({
 export type AdminDevelopEventPayloadType = z.infer<typeof AdminDevelopEventPayload>;
 
 // 항목 입력 — 금액은 서버가 단가 × 수량으로 다시 계산한다. unitPrice 가 없으면 amount 를 단가로(수량 1) 읽는다
-// (붙여넣기·옛 호출 호환). 둘 다 없으면 400.
+// (옛 호출 호환). 둘 다 없으면 400.
 export const DevelopQuoteItemInput = z
   .object({
     category: DevelopQuoteItemCategory.default('labor'),
@@ -1497,26 +1427,9 @@ export const DevelopQuoteItemInput = z
     unit: z.string().trim().min(1).max(20).default('식'),
     amount: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX).optional(),
     durationDays: z.number().int().positive().max(3650).nullable().default(null),
-    // 내부 원가(관리자 전용) — 비우면 원가 미입력 줄.
-    costPrice: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX).nullable().default(null),
-    vendor: z.string().trim().max(100).nullable().default(null),
   })
   .refine((it) => it.unitPrice !== undefined || it.amount !== undefined, { message: '단가가 필요합니다', path: ['unitPrice'] });
 
-// 발송 뒤에도 내부 원가만 고친다(고객 금액은 그대로 — 수락 뒤 들어온 실제 매입가 반영). 항목 id 는 그 견적의 것이어야 한다.
-export const AdminDevelopQuoteCostsBody = z.object({
-  items: z
-    .array(
-      z.object({
-        itemId: z.number().int().positive(),
-        costPrice: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX).nullable(),
-        vendor: z.string().trim().max(100).nullable(),
-      }),
-    )
-    .min(1)
-    .max(100),
-});
-export type AdminDevelopQuoteCostsBodyType = z.infer<typeof AdminDevelopQuoteCostsBody>;
 export type DevelopQuoteItemInputType = z.infer<typeof DevelopQuoteItemInput>;
 
 export const DevelopMilestoneInput = z.object({
@@ -1581,6 +1494,26 @@ export const DevelopMilestonePreset = z.object({
   ratioBp: z.number().int().min(1).max(10_000),
   trigger: DevelopMilestoneTrigger,
 });
+// 인건비 기본값(노임 단가표, 2026-11-04) — 설정에서 고치고 편집기 '기본값에서 추가'가 인건비 줄로 **복사**한다
+// (나중에 기본값을 고쳐도 이미 만든 견적은 그대로). 직무 → 항목 title · 등급 → grade · 담당 업무 → description ·
+// 일일 노임비 → unitPrice(원/일). 설정에 저장한 적이 없으면(null) 아래 처음 값으로 답한다.
+export const DEVELOP_LABOR_PRESETS_MAX = 50;
+export const DevelopLaborPreset = z.object({
+  role: z.string().trim().min(1).max(100), // 직무
+  grade: z.string().trim().max(50), // 등급(빈 값 허용)
+  task: z.string().trim().max(200), // 담당 업무(빈 값 허용)
+  dailyRate: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX), // 일일 노임비(원/일)
+});
+export type DevelopLaborPresetType = z.infer<typeof DevelopLaborPreset>;
+// 처음 값 — 참고 자동견적 HTML 의 예시 5줄(옛 월 단가를 1개월 = 20일로 나눈 예시라 실제 단가는 관리자가 확인해 고친다).
+export const DEVELOP_DEFAULT_LABOR_PRESETS: readonly DevelopLaborPresetType[] = [
+  { role: 'PM', grade: '특급', task: '시스템 설계', dailyRate: 400_000 },
+  { role: '회로개발자', grade: '고급', task: 'RF 및 디지털 회로', dailyRate: 350_000 },
+  { role: 'PCB설계자', grade: '고급', task: 'MLB, RF PCB 설계', dailyRate: 150_000 },
+  { role: '펌웨어', grade: '중급', task: '기본 구동 드라이버', dailyRate: 325_000 },
+  { role: 'QC', grade: '중급', task: '디버깅 테스트', dailyRate: 225_000 },
+];
+
 export const AdminDevelopSettings = z.object({
   defaultTerms: z.string().max(20000),
   defaultExclusions: z.string().max(4000),
@@ -1592,6 +1525,7 @@ export const AdminDevelopSettings = z.object({
   defaultIndirectBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP),
   defaultOverheadBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP),
   defaultProfitBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP),
+  laborPresets: z.array(DevelopLaborPreset).max(DEVELOP_LABOR_PRESETS_MAX),
   defaultMilestones: z.array(DevelopMilestonePreset).min(1).max(10),
   notifyEmails: z.array(z.string().trim().email()).max(20),
   aiAutoDraft: z.boolean(),

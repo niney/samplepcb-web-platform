@@ -3,13 +3,14 @@
 // 맞음, 새 화면 green = 동작이 같음. docs/DEVELOP_FLOW.md §4(상태 머신)·§5(견적)·§13(문서·업무표)·§14(큐·배지)·§14.1(왕복·이탈 가드).
 //
 //   1. 접수 큐(검색) → 메뉴 배지 = API counts.received → 행 클릭(from/lt/tab) → 「검토 시작」 → reviewing·담당자 = 나
-//   2. 견적서 탭: 새 견적 → 붙여넣기 2줄 → 초안 저장 → 발송(확인) → quoted, 견적·계약 큐
+//   2. 견적서 탭: 새 견적 → (새 화면) 인건비 기본값·빈 줄 + 직접비 추가 / (옛 화면) 행 추가 2줄 → 초안 저장 → 발송(확인) → quoted, 견적·계약 큐
 //   3. 고객 수락(API) → 결제 대기 배지 → 마일스톤 수동 입금 확인 → in_progress, 진행 프로젝트 큐
 //   4. 프로젝트 문서: 기본 업무 → 저장(11행) · 착수 문서(KO) 작성·저장·발송 → 회신 대기 배지 → 고객 결정(API) → 해소
 //      + 이탈 가드(편집 중 「목록으로」 → 취소면 머묾, 나가기면 떠난 큐로)
 //   5. 타임라인(?tab= 딥링크): 내부 진행 메모 · 고객 문의(API) → 문의·A/S 큐·미답변 배지 → 답변 → 해소
 //   6. 납품(final) → 납품·검수 큐 → 고객 검수 확정(API) → completed
 //   7. 큐 ↔ 상세 왕복: 검색어·페이지가 「목록으로」 뒤에도 남는다
+//   8. (새 화면) 설정 — 인건비 기본값 칸·직무 검사·그대로 저장
 // 실행: PORTAL_E2E=1 [DEVELOP_ADMIN_UI=next] pnpm -F e2e e2e admin-develop-journey
 // 사전 조건: sp-node(3333)·nginx(local-web)·sp-vue 가 떠 있을 것. 메일은 로컬 Mailpit 으로 간다(실발송 없음).
 // 만든 의뢰는 afterAll 이 e2e 계정 단위로 지운다(공유 DB — 스스로 만들고 스스로 지운다).
@@ -19,6 +20,7 @@ import { computeDevelopQuoteBreakdown } from '@sp/api-contract';
 import { RUN, closeBrowser, disconnectPrisma, mailpitSearch, newSession, snap } from '../helpers';
 import type { E2eSession } from '../helpers';
 import {
+  DEVELOP_ADMIN_BASE,
   DEVELOP_ADMIN_UI,
   DEVELOP_UI_CONTACT_EMAIL,
   adminApi,
@@ -123,33 +125,60 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
     await page.getByText('검토 중', { exact: true }).first().waitFor();
   }, LONG);
 
-  test('2. 견적서 — 붙여넣기 2줄 (+새 화면: 직접비 행·가산율·미리보기) → 초안 저장 → 발송(확인) → quoted', async () => {
+  test('2. 견적서 — (새 화면: 인건비 기본값·빈 줄 + 직접비 추가·가산율·미리보기 / 옛 화면: 행 추가 2줄) → 초안 저장 → 발송(확인) → quoted', async () => {
     const page = s.page;
     await detailTab(page, '견적서').click();
     await page.getByRole('button', { name: '새 견적서', exact: true }).click();
-    await page.getByPlaceholder(/H\/W 회로·PCB 설계/).fill('회로·PCB 설계 3,000,000원\n펌웨어 개발 2,000,000원');
-    await page.getByRole('button', { name: '채우기', exact: true }).click();
-    await saved('2줄을 항목으로 넣었습니다.');
     if (UI === 'next') {
-      // 산출 내역(§5.1) — 직접비 한 행(1,300,000 × 3회) + 가산율을 명시값으로(설정 기본값에 기대지 않는다).
-      await page.getByRole('button', { name: '직접비 행', exact: true }).click();
-      await page.getByLabel('3 항목', { exact: true }).fill('PCB 제작');
-      await page.getByLabel('3 규격', { exact: true }).fill('6층 빌드업');
-      await page.getByLabel('3 단가(원)', { exact: true }).fill('1300000');
-      await page.getByLabel('3 수량', { exact: true }).fill('3');
-      await page.getByLabel('3 단위', { exact: true }).fill('회'); // 직접비 기본 단위는 '식'
-      // 내부 원가(관리자 전용) — 원가 900,000 × 3 = 2,700,000 → 그 줄 마진 1,200,000(30.8%)
-      await page.getByLabel('3 원가 단가', { exact: true }).fill('900000');
-      await page.getByLabel('3 업체', { exact: true }).fill('E2E내부업체');
-      expect(await page.getByTestId('quote-item-margin-3').textContent()).toBe('원가 2,700,000원 · 마진 1,200,000원 (30.8%)');
+      // 인건비(§5.1) — 일일 노임비 × 참여 일수. 설정의 인건비 기본값 첫 줄을 불러와 값이 복사되고 커서가 참여 일수로
+      // 가는지 본 뒤(기본값이 없으면 빈 줄), 금액은 명시값으로 고친다(설정 값에 기대지 않는다).
+      const presets: any[] = (await api.get('/api/admin/develop/settings')).json?.data?.laborPresets ?? [];
+      if (presets.length > 0) {
+        const p = presets[0];
+        await page.getByTestId('quote-labor').getByRole('button', { name: '기본값에서 추가' }).click();
+        await page.getByTestId('quote-preset-item').first().click();
+        expect(await page.getByLabel('인건비 1 직무', { exact: true }).inputValue()).toBe(p.role);
+        expect(await page.getByLabel('인건비 1 등급', { exact: true }).inputValue()).toBe(p.grade);
+        expect(await page.getByLabel('인건비 1 담당 업무', { exact: true }).inputValue()).toBe(p.task);
+        expect(await page.getByLabel('인건비 1 일일 노임비(원/일)', { exact: true }).inputValue()).toBe(p.dailyRate.toLocaleString('ko-KR'));
+        await expect.poll(async () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '')).toBe('인건비 1 참여 일수');
+      } else {
+        await page.getByRole('button', { name: '인건비 빈 줄 추가', exact: true }).click();
+      }
+      await page.getByLabel('인건비 1 직무', { exact: true }).fill('PM');
+      await page.getByLabel('인건비 1 등급', { exact: true }).fill('특급');
+      // 등급 칸 제안 = 특급 · 고급 · 중급 · 일반(사용자 지정 — 자유 글도 받는다)
+      const gradeListId = await page.getByLabel('인건비 1 등급', { exact: true }).getAttribute('list');
+      const gradeOptions = await page.locator(`datalist[id="${String(gradeListId)}"] option`).evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value));
+      expect(gradeOptions).toEqual(['특급', '고급', '중급', '일반']);
+      await page.getByLabel('인건비 1 담당 업무', { exact: true }).fill('시스템 설계');
+      await page.getByLabel('인건비 1 일일 노임비(원/일)', { exact: true }).fill('400000');
+      await page.getByLabel('인건비 1 참여 일수', { exact: true }).fill('10');
+      await page.getByRole('button', { name: '인건비 빈 줄 추가', exact: true }).click();
+      await page.getByLabel('인건비 2 직무', { exact: true }).fill('펌웨어 개발');
+      await page.getByLabel('인건비 2 등급', { exact: true }).fill('중급');
+      await page.getByLabel('인건비 2 일일 노임비(원/일)', { exact: true }).fill('250000');
+      await page.getByLabel('인건비 2 참여 일수', { exact: true }).fill('4');
+      expect(await page.getByTestId('quote-labor-subtotal').textContent()).toBe('5,000,000원');
+      // 직접비 — 「직접비 추가」(커서는 항목으로) → 항목·내용·단가·수량·단위(1,300,000 × 3회). 붙여넣기로 채우기는 뺐다.
+      expect(await page.getByText('붙여넣기로 채우기').count()).toBe(0);
+      await page.getByRole('button', { name: '직접비 추가', exact: true }).click();
+      await expect.poll(async () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '')).toBe('직접비 1 항목');
+      await page.getByLabel('직접비 1 항목', { exact: true }).fill('PCB 제작');
+      await page.getByLabel('직접비 1 내용', { exact: true }).fill('6층 빌드업');
+      await page.getByLabel('직접비 1 단가(원)', { exact: true }).fill('1300000');
+      await page.getByLabel('직접비 1 수량', { exact: true }).fill('3');
+      await page.getByLabel('직접비 1 단위', { exact: true }).fill('회'); // 직접비 기본 단위는 '식'
+      expect(await page.getByTestId('quote-direct-subtotal').textContent()).toBe('3,900,000원');
       await page.getByLabel('간접비 %', { exact: true }).fill('15');
       await page.getByLabel('제경비(일반관리비) %', { exact: true }).fill('5');
       await page.getByLabel('기업이윤 %', { exact: true }).fill('10');
       await page.getByLabel('수신 부서', { exact: true }).fill('연구소');
-      // 합계·마진 띠 — 공급가 11,820,000 − 원가 2,700,000 = 9,120,000(77.2%), 원가 안 적은 줄 2
-      const sticky = page.getByTestId('quote-sticky-totals');
-      expect(await sticky.getByTestId('quote-sticky-margin').textContent()).toContain('9,120,000원 (77.2%)');
-      expect(await sticky.getByText('원가 미입력 2행', { exact: false }).count()).toBe(1);
+      // 합계(가산 줄 이름에 비율) · 합계 띠 — 원가·마진 칸은 2026-11-04 저녁 뺐다
+      expect(await page.getByTestId('quote-breakdown').textContent()).toContain('간접비 15%');
+      expect(await page.getByTestId('quote-sticky-totals').textContent()).toContain('13,002,000원');
+      expect(await page.getByText('원가', { exact: true }).count()).toBe(0);
+      await snap(page, `admin-develop-${UI}-quote-editor`);
       // 미리보기 = 고객이 받는 1쪽(저장 전 폼 그대로)
       await page.getByRole('button', { name: '견적서 미리보기', exact: true }).click();
       const sheet = page.getByTestId('develop-quote-preview').getByTestId('develop-quote-sheet');
@@ -158,12 +187,19 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
       expect(await sheet.getByTestId('develop-quote-supply').textContent()).toBe('11,820,000');
       expect(await sheet.getByTestId('develop-quote-total').textContent()).toBe('13,002,000');
       expect(await sheet.getByText('15% (인건비+직접비)', { exact: true }).count()).toBe(1);
+      expect(await sheet.getByText('10일', { exact: true }).count()).toBe(1);
       expect(await sheet.getByText('3회', { exact: true }).count()).toBe(1);
       expect(await sheet.getByText('연구소', { exact: true }).count()).toBe(1);
-      expect(await sheet.getByText(/E2E내부업체|2,700,000/).count(), '미리보기(고객 1쪽)엔 내부 원가가 없다').toBe(0);
       await snap(page, `admin-develop-${UI}-quote-preview`);
       await page.keyboard.press('Escape');
       await sheet.waitFor({ state: 'detached' });
+    } else {
+      // 옛 화면 — 한 줄 = 금액 한 덩어리(수량·단위 칸 없음)라 「행 추가」 줄은 직접비 1식으로 들어간다(붙여넣기는 뺐다)
+      for (const [title, amount] of [['PCB 제작', '3000000'], ['부품 구매', '2000000']] as const) {
+        await page.getByRole('button', { name: '행 추가', exact: true }).first().click();
+        await page.getByPlaceholder('항목명', { exact: true }).last().fill(title);
+        await page.getByPlaceholder('단가(원)', { exact: true }).last().fill(amount);
+      }
     }
     await page.getByRole('button', { name: '초안 저장', exact: true }).click();
     await saved('초안을 저장했습니다.');
@@ -177,34 +213,21 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
     quoteId = q.quoteId;
     expect(q.status).toBe('sent');
     if (UI === 'next') {
-      expect(q.items.map((i: any) => [i.category, i.title, i.amount])).toEqual([
-        ['labor', '회로·PCB 설계', 3_000_000],
-        ['labor', '펌웨어 개발', 2_000_000],
-        ['direct', 'PCB 제작', 3_900_000],
+      // 저장 순서는 인건비 → 직접비, 인건비 단위는 '일'
+      expect(q.items.map((i: any) => [i.category, i.title, i.unitPrice, i.qty, i.unit, i.amount])).toEqual([
+        ['labor', 'PM', 400_000, 10, '일', 4_000_000],
+        ['labor', '펌웨어 개발', 250_000, 4, '일', 1_000_000],
+        ['direct', 'PCB 제작', 1_300_000, 3, '회', 3_900_000],
       ]);
       expect([q.indirectBp, q.overheadBp, q.profitBp, q.recipientDept]).toEqual([1500, 500, 1000, '연구소']);
       expect([q.breakdown.indirectAmount, q.breakdown.overheadAmount, q.breakdown.profitAmount, q.supplyAmount]).toEqual([1_335_000, 511_000, 1_074_000, 11_820_000]);
-      expect(q.items.map((i: any) => [i.costPrice, i.vendor])).toEqual([[null, null], [null, null], [900_000, 'E2E내부업체']]);
-      // 발송 뒤 원가 고치기(카드) — 고객 금액은 그대로, 원가만 바뀐다
-      await page.getByRole('button', { name: '원가 고치기', exact: true }).first().click();
-      const costs = page.getByTestId('develop-quote-costs');
-      await costs.waitFor();
-      await costs.getByLabel('1 원가 단가', { exact: true }).fill('2000000');
-      await costs.getByRole('button', { name: '원가 저장', exact: true }).click();
-      await costs.waitFor({ state: 'detached' });
-      await expect.poll(async () => (await detail())?.quotes?.[0]?.items?.[0]?.costPrice).toBe(2_000_000);
-      const after = (await detail()).quotes[0];
-      expect([after.status, after.totalAmount]).toEqual(['sent', q.totalAmount]);
-      expect(await page.getByTestId('quote-card-margin').first().textContent()).toContain('원가 4,700,000원');
-      // 고객 응답엔 원가가 없다
-      const cust = await customerApi.get(`/api/develop/requests/${String(rid)}`);
-      expect(JSON.stringify(cust.json)).not.toContain('E2E내부업체');
-      expect(cust.json.data.quotes[0].items.some((i: any) => 'costPrice' in i)).toBe(false);
+      expect(q.items.some((i: any) => 'costPrice' in i || 'vendor' in i), '원가 칸은 없다').toBe(false);
+      expect(await page.getByRole('button', { name: '원가 고치기' }).count()).toBe(0);
     } else {
       // 옛 화면은 가산율 칸이 없다 — 새 견적은 설정 기본값을 복사하고, 금액은 서버가 같은 계약 함수로 맞춘다.
-      expect(q.items.map((i: any) => [i.title, i.amount])).toEqual([
-        ['회로·PCB 설계', 3_000_000],
-        ['펌웨어 개발', 2_000_000],
+      expect(q.items.map((i: any) => [i.category, i.title, i.amount])).toEqual([
+        ['direct', 'PCB 제작', 3_000_000],
+        ['direct', '부품 구매', 2_000_000],
       ]);
       const b = computeDevelopQuoteBreakdown(q.items, { indirectBp: q.indirectBp, overheadBp: q.overheadBp, profitBp: q.profitBp }, q.vatMode);
       expect(q.supplyAmount).toBe(b.supplyAmount);
@@ -406,6 +429,34 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
     } else {
       console.log(`[admin-develop-journey:${UI}] 전체 의뢰 ${String(all?.total)}건 — 페이지 왕복은 건너뜀`);
     }
+  }, LONG);
+
+  test('8. 설정 — 인건비 기본값(노임 단가표) 칸 · 직무 검사 · 그대로 저장하면 목록이 그대로', async () => {
+    // 옛 설정 화면엔 이 칸이 없다 — 설정 저장은 보낸 칸만 고치므로 옛 화면에서 저장해도 기본값은 남는다(하네스가 본다).
+    if (UI !== 'next') return;
+    const page = s.page;
+    const before: any[] = (await api.get('/api/admin/develop/settings')).json?.data?.laborPresets ?? [];
+    await page.goto(`${DEVELOP_ADMIN_BASE}/settings?_t=${String(Date.now())}`);
+    const card = page.getByTestId('develop-settings-labor-presets');
+    await card.waitFor();
+    await expect.poll(async () => card.getByTestId('develop-settings-preset-row').count()).toBe(before.length);
+    if (before.length > 0) {
+      expect(await card.getByLabel('1 직무', { exact: true }).inputValue()).toBe(before[0].role);
+      expect(await card.getByLabel('1 일일 노임비(원/일)', { exact: true }).inputValue()).toBe(before[0].dailyRate.toLocaleString('ko-KR'));
+    }
+    // 빈 줄을 더하면 직무·노임비 검사가 저장을 막고, 그 줄을 지우면 풀린다
+    const n = String(before.length + 1);
+    await card.getByRole('button', { name: '줄 추가', exact: true }).click();
+    await page.getByText(`인건비 기본값 ${n}번 줄의 직무를 채워 주세요.`, { exact: false }).first().waitFor();
+    expect(await page.getByRole('button', { name: '저장', exact: true }).isDisabled()).toBe(true);
+    await snap(page, `admin-develop-${UI}-settings-presets`);
+    await card.getByRole('button', { name: `${n} 삭제`, exact: true }).click();
+    await expect.poll(async () => page.getByRole('button', { name: '저장', exact: true }).isDisabled()).toBe(false);
+    // 그대로 저장 — 저장 본문에 인건비 기본값이 실리고 목록이 그대로 돌아온다
+    await page.getByRole('button', { name: '저장', exact: true }).click();
+    await saved('설정을 저장했습니다.');
+    const after: any[] = (await api.get('/api/admin/develop/settings')).json?.data?.laborPresets ?? [];
+    expect(after).toEqual(before);
   }, LONG);
 
   test('메일(Mailpit) — 견적·결제·문서·납품 알림이 고객 주소로 나갔다', async () => {

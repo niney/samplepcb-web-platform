@@ -1000,6 +1000,7 @@ async function run() {
   const adminAfterCr = await req('GET', `/api/admin/develop/requests/${rid}`, { token: tAdmin });
   const changeDraft = adminAfterCr.json.data.quotes.find((q) => q.kind === 'change' && q.status === 'draft');
   assert(crOk.status === 200 && adminAfterCr.json.data.quotes.length === quotesBefore + 1 && changeDraft !== undefined && changeDraft.items[0].title.includes('LED 3개 추가') && changeDraft.totalAmount === 0, '변경요청 승인 → change 견적 초안 자동', adminAfterCr.json?.data?.quotes?.map((q) => [q.kind, q.status]));
+  assert(changeDraft?.items?.[0]?.category === 'labor' && changeDraft.items[0].unit === '일', '추가 견적 초안: 인건비 줄 기본 단위는 일(일일 노임비 × 참여 일수)', changeDraft?.items?.[0]);
   const crMs = await prisma.spDevelopMilestone.findMany({ where: { quoteId: BigInt(changeDraft.quoteId) } });
   ids.paymentKeys.push(...crMs.map((m) => m.paymentKey));
   save();
@@ -1133,7 +1134,7 @@ async function run() {
   save();
 
   // ── 15b. 견적 산출 내역(§5.1) — 구분 × 단가 × 수량 + 간접비 → 제경비 → 기업이윤(천 원 미만 버림) · 엑셀 ──────────
-  // 인건비 8,000,000 × 0.5개월 = 4,000,000 · 직접비 1,300,000 × 3회 = 3,900,000 → 7,900,000
+  // 인건비 일일 노임비 400,000 × 10일 = 4,000,000 · 직접비 1,300,000 × 3회 = 3,900,000 → 7,900,000
   // 간접비 15% 1,185,000 → 제경비 5% (9,085,000 × 5% = 454,250) 454,000 → 이윤 10% (9,539,000 × 10% = 953,900) 953,000
   // 공급가 10,492,000 · VAT 1,049,200 · 합계 11,541,200
   const breakdownBody = quoteBody('revision', {
@@ -1144,14 +1145,14 @@ async function run() {
     recipientDept: '연구소',
     note: '함체는 사급 지원',
     items: [
-      { category: 'labor', title: 'PM', grade: '특급', description: '시스템 설계', unitPrice: 8_000_000, qty: 0.5, unit: '개월' },
-      // 내부 원가(관리자 전용) — 업체명은 고객 응답·엑셀에 새면 안 되는 표식 글자로 둔다.
+      { category: 'labor', title: 'PM', grade: '특급', description: '시스템 설계', unitPrice: 400_000, qty: 10, unit: '일' },
+      // 내부 원가 칸은 2026-11-04 저녁 뺐다 — 옛 호출이 원가·업체를 보내도 무시된다(400 아님). 표식 글자로 새지 않는지 본다.
       { category: 'direct', title: 'PCB 제작', grade: '무시됨', description: '6층 빌드업', unitPrice: 1_300_000, qty: 3, unit: '회', amount: 1, costPrice: 900_000, vendor: 'E2E내부업체표식' },
     ],
   });
   const q6 = await req('POST', `/api/admin/develop/requests/${rid3}/quotes`, { token: tAdmin, body: breakdownBody });
   const q6d = q6.json?.data;
-  assert(q6.status === 200 && q6d.items[0].amount === 4_000_000 && q6d.items[0].qty === 0.5 && q6d.items[0].unit === '개월' && q6d.items[0].grade === '특급', '산출 내역: 인건비 단가 × 0.5개월 = 4,000,000', q6d?.items);
+  assert(q6.status === 200 && q6d.items[0].amount === 4_000_000 && q6d.items[0].qty === 10 && q6d.items[0].unit === '일' && q6d.items[0].grade === '특급', '산출 내역: 인건비 일일 노임비 400,000 × 10일 = 4,000,000', q6d?.items);
   assert(q6d.items[1].category === 'direct' && q6d.items[1].amount === 3_900_000, '산출 내역: 직접비 금액은 서버가 단가 × 수량으로 다시 계산(보낸 amount 무시)', q6d?.items?.[1]);
   assert(q6d.items[1].grade === null, '산출 내역: 직접비 줄의 기술등급은 서버가 버린다(API 로 보내도)', q6d?.items?.[1]);
   assert(
@@ -1161,10 +1162,10 @@ async function run() {
   );
   assert(q6d.supplyAmount === 10_492_000 && q6d.vatAmount === 1_049_200 && q6d.totalAmount === 11_541_200 && q6d.recipientDept === '연구소' && q6d.indirectBp === 1500, '산출 내역: 공급가·VAT·합계·수신 부서', q6d);
   assert(q6d.milestones[0].amount === 5_770_600, '산출 내역: 마일스톤은 가산까지 더한 합계를 나눈다');
-  assert(q6d.items[0].costPrice === null && q6d.items[1].costPrice === 900_000 && q6d.items[1].vendor === 'E2E내부업체표식', '내부 원가: 관리자 응답에 원가 단가·업체(미입력 줄은 null)', q6d.items);
-  const tooLarge = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}`, { token: tAdmin, body: { ...breakdownBody, items: [{ category: 'labor', title: '과대', unitPrice: 2_000_000_000, qty: 2, unit: '개월' }] } });
+  assert(q6d.items.every((it) => !('costPrice' in it) && !('vendor' in it)), '원가 칸 제거: 보낸 원가·업체는 버려지고 관리자 응답에도 키가 없다', q6d.items);
+  const tooLarge = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}`, { token: tAdmin, body: { ...breakdownBody, items: [{ category: 'labor', title: '과대', unitPrice: 2_000_000_000, qty: 2, unit: '일' }] } });
   assert(tooLarge.status === 400 && tooLarge.json?.error === 'AMOUNT_TOO_LARGE', '단가 × 수량이 20억 초과 → 400 AMOUNT_TOO_LARGE', tooLarge.json);
-  const badQtyQ6 = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}`, { token: tAdmin, body: { ...breakdownBody, items: [{ category: 'labor', title: 'x', unitPrice: 1000, qty: 0.125, unit: '개월' }] } });
+  const badQtyQ6 = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}`, { token: tAdmin, body: { ...breakdownBody, items: [{ category: 'labor', title: 'x', unitPrice: 1000, qty: 0.125, unit: '일' }] } });
   assert(badQtyQ6.status === 400, '수량 소수 셋째 자리 400');
   const rawGet = async (path, token) => {
     const res = await fetch(API + path, { headers: { Authorization: `Bearer ${token}` } });
@@ -1186,13 +1187,13 @@ async function run() {
   assert(strangerXlsx.status === 403, '제3자 엑셀 403');
   const custDetail6 = await req('GET', `/api/develop/requests/${rid3}`, { token: tClient });
   const custQ6 = custDetail6.json.data.quotes.find((q) => q.quoteId === q6d.quoteId);
-  assert(custQ6?.breakdown?.profitAmount === 953_000 && custQ6.items[0].unitPrice === 8_000_000, '고객 상세: 산출 내역 그대로');
+  assert(custQ6?.breakdown?.profitAmount === 953_000 && custQ6.items[0].unitPrice === 400_000 && custQ6.items[0].unit === '일', '고객 상세: 산출 내역 그대로(인건비 원/일 × 일)');
   assert(
     custQ6.items.every((it) => !('costPrice' in it) && !('vendor' in it)) && !JSON.stringify(custDetail6.json).includes('E2E내부업체표식') && !('internalNote' in custQ6),
-    '내부 원가: 고객 상세 응답에 원가·업체·내부 메모 키가 없다',
+    '원가 칸 제거·내부 메모: 고객 상세 응답에 원가·업체·내부 메모 키가 없다',
     custQ6.items,
   );
-  // 엑셀(고객·관리자 둘 다) 어느 칸에도 원가·업체가 없다 — ExcelJS 로 다시 읽어 모든 칸 글자를 본다.
+  // 엑셀(고객·관리자 둘 다) 어느 칸에도 보낸 원가·업체가 없다 — ExcelJS 로 다시 읽어 모든 칸 글자를 본다.
   const xlsxCells = async (buf) => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
@@ -1204,22 +1205,10 @@ async function run() {
   const custCells = await xlsxCells(custXlsx.buf);
   const adminCells = await xlsxCells(adminXlsxSent.buf);
   const leaks = (cells) => cells.some((v) => v.includes('E2E내부업체표식') || v === '900000' || v === '2700000');
-  assert(custCells.includes('견    적    서') && !leaks(custCells) && !leaks(adminCells), '내부 원가: 고객·관리자 엑셀 어디에도 원가 단가·원가 금액·업체가 없다');
-  // 발송 뒤 원가만 고친다 — 고객 금액·마일스톤 불변, 다른 견적 항목 id 는 400, 고객 토큰은 403
-  const costsPatch = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}/costs`, {
-    token: tAdmin,
-    body: { items: [{ itemId: q6d.items[0].itemId, costPrice: 3_000_000, vendor: null }, { itemId: q6d.items[1].itemId, costPrice: 1_000_000, vendor: '실제 매입처' }] },
-  });
-  const cp = costsPatch.json?.data;
-  assert(
-    costsPatch.status === 200 && cp.status === 'sent' && cp.items[0].costPrice === 3_000_000 && cp.items[1].vendor === '실제 매입처' && cp.totalAmount === 11_541_200 && cp.milestones[0].amount === 5_770_600,
-    '내부 원가: 발송 뒤 원가만 고침(금액·마일스톤 그대로)',
-    cp,
-  );
-  const costsForeign = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}/costs`, { token: tAdmin, body: { items: [{ itemId: 999_999_999, costPrice: 1, vendor: null }] } });
-  assert(costsForeign.status === 400 && costsForeign.json?.error === 'ITEM_MISMATCH', '내부 원가: 다른 견적 항목 id 400 ITEM_MISMATCH', costsForeign.json);
-  const costsClient = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}/costs`, { token: tClient, body: { items: [{ itemId: q6d.items[0].itemId, costPrice: 1, vendor: null }] } });
-  assert(costsClient.status === 403, '내부 원가: 고객 토큰 403');
+  assert(custCells.includes('견    적    서') && custCells.includes('10일') && !leaks(custCells) && !leaks(adminCells), '엑셀: 인건비 기간 칸 10일 · 보낸 원가·업체는 어디에도 없다');
+  // 원가만 고치던 라우트는 없어졌다(2026-11-04 저녁) — 404
+  const costsGone = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}/costs`, { token: tAdmin, body: { items: [{ itemId: q6d.items[0].itemId, costPrice: 1, vendor: null }] } });
+  assert(costsGone.status === 404, '원가 칸 제거: 원가 고치기 라우트 404', costsGone.status);
   const ms6 = await prisma.spDevelopMilestone.findMany({ where: { quoteId: BigInt(q6d.quoteId) } });
   ids.paymentKeys.push(...ms6.map((m) => m.paymentKey));
   save();
@@ -1238,10 +1227,29 @@ async function run() {
   );
   const sBadRate = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { defaultProfitBp: 6000 } });
   assert(sBadRate.status === 400, '설정: 가산율 50% 초과 400');
+  // 인건비 기본값(노임 단가표) — 저장한 적 없으면 처음 값(참고 HTML 5줄), 바꾸면 그 목록, 검증 400, 부분 PATCH 는 안 건드린다
+  const prevPresets = settings.json.data.laborPresets;
+  assert(
+    Array.isArray(prevPresets) && prevPresets.every((lp) => typeof lp.role === 'string' && lp.role !== '' && typeof lp.grade === 'string' && typeof lp.task === 'string' && Number.isInteger(lp.dailyRate)),
+    '설정: 인건비 기본값 목록(직무·등급·담당 업무·일일 노임비)',
+    prevPresets,
+  );
+  const e2ePresets = [{ role: 'E2E 직무', grade: '고급', task: '하네스 검사', dailyRate: 123_000 }, { role: 'E2E 빈칸', grade: '', task: '', dailyRate: 0 }];
+  const sPresets = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { laborPresets: e2ePresets } });
+  assert(sPresets.status === 200 && JSON.stringify(sPresets.json.data.laborPresets) === JSON.stringify(e2ePresets), '설정: 인건비 기본값 저장(등급·담당 업무는 비워도 됨)', sPresets.json?.data?.laborPresets);
+  const sPresetBadRole = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { laborPresets: [{ role: ' ', grade: '', task: '', dailyRate: 1 }] } });
+  const sPresetBadRate = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { laborPresets: [{ role: 'x', grade: '', task: '', dailyRate: 1.5 }] } });
+  const sPresetTooMany = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { laborPresets: Array.from({ length: 51 }, () => ({ role: 'x', grade: '', task: '', dailyRate: 1 })) } });
+  assert(sPresetBadRole.status === 400 && sPresetBadRate.status === 400 && sPresetTooMany.status === 400, '설정: 인건비 기본값 검증 400(직무 빈칸·소수 노임비·51줄)');
   const prevEmails = settings.json.data.notifyEmails;
   const sPatch = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { notifyEmails: ['e2e-admin@example.com'] } });
-  assert(sPatch.status === 200 && sPatch.json.data.notifyEmails[0] === 'e2e-admin@example.com' && sPatch.json.data.defaultReviewDays === 7, '설정 PATCH(부분)');
+  assert(
+    sPatch.status === 200 && sPatch.json.data.notifyEmails[0] === 'e2e-admin@example.com' && sPatch.json.data.defaultReviewDays === 7 && JSON.stringify(sPatch.json.data.laborPresets) === JSON.stringify(e2ePresets),
+    '설정 PATCH(부분) — 보내지 않은 인건비 기본값은 그대로',
+  );
   await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { notifyEmails: prevEmails } });
+  const sRestore = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { laborPresets: prevPresets } });
+  assert(sRestore.status === 200 && JSON.stringify(sRestore.json.data.laborPresets) === JSON.stringify(prevPresets), '설정: 인건비 기본값 되돌림');
   const sBad = await req('PATCH', '/api/admin/develop/settings', { token: tAdmin, body: { defaultMilestones: [{ title: 'x', ratioBp: 0, trigger: 'manual' }] } });
   assert(sBad.status === 400, '설정 PATCH 검증 400');
   const sCustomer = await req('GET', '/api/admin/develop/settings', { token: tClient });
