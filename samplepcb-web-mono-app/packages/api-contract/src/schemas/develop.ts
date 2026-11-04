@@ -1083,14 +1083,17 @@ export interface DevelopQuoteRemark {
 }
 
 /**
- * 견적서 Remark — 이미 있는 칸에서 문장을 만든다(인쇄 시트·엑셀 공용). 납기 · 견적 유효기간 · 결제 조건 · 승인 후 진행(고정).
- * 결제 조건은 마일스톤마다 '명칭 비율%(청구 시점)'.
+ * 견적서 Remark — 이미 있는 칸에서 문장을 만든다(인쇄 시트·관리자 미리보기·엑셀 공용). 납기 · 견적 유효기간 · 결제 조건 ·
+ * 산출물 · 별도 실비 · 승인 후 진행(고정). 결제 조건은 마일스톤마다 '명칭 비율%(청구 시점)', 산출물은 ' · '로 잇는다.
+ * 산출물·별도 실비는 비어 있으면 줄을 뺀다(2026-11-04 사용자 요청 — 1쪽에서 바로 보이게, 자세한 것은 별지에도 그대로).
  */
 export function developQuoteRemarks(q: {
   durationDays: number | null;
   scheduleNote: string | null;
   validUntil: string;
   milestones: readonly { title: string; ratioBp: number | null; trigger: DevelopMilestoneTriggerType }[];
+  deliverables: readonly string[];
+  exclusions: string | null;
 }): DevelopQuoteRemark[] {
   const note = (q.scheduleNote ?? '').trim();
   const days = q.durationDays === null ? '' : `착수 후 ${String(q.durationDays)}일`;
@@ -1102,10 +1105,17 @@ export function developQuoteRemarks(q: {
       return `${head}(${DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger]})`;
     })
     .join(', ');
+  const deliverables = q.deliverables
+    .map((d) => d.trim())
+    .filter((d) => d !== '')
+    .join(' · ');
+  const exclusions = (q.exclusions ?? '').trim();
   return [
     { label: '납기', text: delivery === '' ? '협의' : delivery },
     { label: '견적 유효기간', text: `${q.validUntil}까지` },
     { label: '결제 조건', text: payment === '' ? '협의' : payment },
+    ...(deliverables === '' ? [] : [{ label: '산출물', text: deliverables }]),
+    ...(exclusions === '' ? [] : [{ label: '별도 실비', text: exclusions }]),
     { label: null, text: DEVELOP_QUOTE_APPROVAL_REMARK },
   ];
 }
@@ -1138,6 +1148,8 @@ export type DevelopQuoteSheetQuote = Pick<
   | 'scheduleNote'
   | 'validUntil'
   | 'note'
+  | 'deliverables'
+  | 'exclusions'
 > & { milestones: readonly { title: string; ratioBp: number | null; trigger: DevelopMilestoneTriggerType }[] };
 
 export type DevelopQuoteSheetRow =

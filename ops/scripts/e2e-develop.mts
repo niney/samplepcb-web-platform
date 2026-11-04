@@ -1223,6 +1223,10 @@ async function run() {
   const adminCells = await xlsxCells(adminXlsxSent.buf);
   const leaks = (cells) => cells.some((v) => v.includes('E2E내부업체표식') || v === '900000' || v === '2700000');
   assert(custCells.includes('견    적    서') && custCells.includes('10일') && !leaks(custCells) && !leaks(adminCells), '엑셀: 인건비 기간 칸 10일 · 보낸 원가·업체는 어디에도 없다');
+  assert(
+    custCells.some((v) => v.includes('산출물 : 회로도 · 거버 · 펌웨어 소스')) && custCells.some((v) => v.includes('별도 실비 : PCB 제작비·부품비 별도')),
+    '엑셀 1쪽 Remark: 산출물 · 별도 실비',
+  );
   // 원가만 고치던 라우트는 없어졌다(2026-11-04 저녁) — 404
   const costsGone = await req('PATCH', `/api/admin/develop/quotes/${q6d.quoteId}/costs`, { token: tAdmin, body: { items: [{ itemId: q6d.items[0].itemId, costPrice: 1, vendor: null }] } });
   assert(costsGone.status === 404, '원가 칸 제거: 원가 고치기 라우트 404', costsGone.status);

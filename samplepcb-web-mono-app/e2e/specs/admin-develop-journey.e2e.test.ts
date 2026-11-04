@@ -175,6 +175,7 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
       await page.getByLabel('제경비(일반관리비) %', { exact: true }).fill('5');
       await page.getByLabel('기업이윤 %', { exact: true }).fill('10');
       await page.getByLabel('수신 부서', { exact: true }).fill('연구소');
+      await page.getByLabel('산출물', { exact: true }).fill('회로도\n펌웨어 소스');
       // 합계(가산 줄 이름에 비율) · 합계 띠 — 원가·마진 칸은 2026-11-04 저녁 뺐다
       expect(await page.getByTestId('quote-breakdown').textContent()).toContain('간접비 15%');
       expect(await page.getByTestId('quote-sticky-totals').textContent()).toContain('13,002,000원');
@@ -191,6 +192,9 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
       expect(await sheet.getByText('10일', { exact: true }).count()).toBe(1);
       expect(await sheet.getByText('3회', { exact: true }).count()).toBe(1);
       expect(await sheet.getByText('연구소', { exact: true }).count()).toBe(1);
+      // 1쪽 Remark 에 산출물(폼에서 적은 줄) · 별도 실비(설정 기본 문구가 복사돼 있다)
+      expect(await sheet.getByText('회로도 · 펌웨어 소스', { exact: true }).count()).toBe(1);
+      expect(await sheet.getByText('별도 실비', { exact: true }).count()).toBe(1);
       await snap(page, `admin-develop-${UI}-quote-preview`);
       await page.keyboard.press('Escape');
       await sheet.waitFor({ state: 'detached' });

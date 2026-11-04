@@ -93,6 +93,9 @@ describe('renderDevelopQuoteXlsx', () => {
     expect(joined).toContain('15% (인건비+직접비)');
     expect(joined).toContain('함체는 사급 지원');
     expect(joined).toContain('결제 조건 : 계약금 40%(견적 수락 시), 잔금 60%(검수 확정 시)');
+    // 1쪽 Remark 에 산출물·별도 실비(2026-11-04 — 조건 시트에도 그대로 있다)
+    expect(joined).toContain('4. 산출물 : 회로도 · 펌웨어 소스');
+    expect(joined).toContain('5. 별도 실비 : 인증 시험비 별도');
     // 값으로 들어간 금액(수식 아님) — 소계·가산·합계
     for (const n of [b.laborSubtotal, b.directSubtotal, b.indirectAmount, b.overheadAmount, b.profitAmount, b.supplyAmount, b.vatAmount, b.totalAmount]) {
       expect(numbers).toContain(n);

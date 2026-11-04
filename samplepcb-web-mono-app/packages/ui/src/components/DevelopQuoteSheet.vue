@@ -172,7 +172,7 @@ const vatLabel = computed(() =>
       <h2>Remark</h2>
       <ol>
         <li v-for="(rm, i) in remarks" :key="i" :class="{ 'dq-b': rm.label === null }">
-          <template v-if="rm.label !== null"><span class="dq-rk">{{ rm.label }}</span> : </template>{{ rm.text }}
+          <template v-if="rm.label !== null"><span class="dq-rk">{{ rm.label }}</span> : </template><span class="dq-rt">{{ rm.text }}</span>
         </li>
       </ol>
     </section>
@@ -392,5 +392,9 @@ td {
 .dq-rk {
   display: inline-block;
   min-width: 82px;
+}
+/* 별도 실비처럼 여러 줄로 적은 글은 줄바꿈 그대로 찍는다. */
+.dq-rt {
+  white-space: pre-line;
 }
 </style>

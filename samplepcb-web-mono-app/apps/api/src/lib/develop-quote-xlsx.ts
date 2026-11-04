@@ -214,8 +214,11 @@ export async function renderDevelopQuoteXlsx(data: DevelopQuoteSheetData): Promi
   put(r, 1, 8, `Remark${quote.vatMode === 'separate' ? '' : `   (${quote.vatMode === 'exempt' ? '면세' : '부가세 포함'})`}`, { bold: true });
   r += 1;
   developQuoteRemarks(quote).forEach((rm, i) => {
-    ws.getRow(r).height = 20;
-    put(r, 1, 8, `   ${String(i + 1)}. ${rm.label === null ? '' : `${rm.label} : `}${rm.text}`, { bold: rm.label === null, wrap: true });
+    const line = `   ${String(i + 1)}. ${rm.label === null ? '' : `${rm.label} : `}${rm.text}`;
+    // 병합 칸(A~H)은 엑셀이 높이를 자동으로 안 잡는다 — 한 줄 약 55자(한글 기준)로 줄 수를 세어 높이를 준다.
+    const lines = line.split('\n').reduce((n, part) => n + Math.max(1, Math.ceil(part.length / 55)), 0);
+    ws.getRow(r).height = Math.max(20, lines * 15);
+    put(r, 1, 8, line, { bold: rm.label === null, wrap: true });
     r += 1;
   });
   ws.pageSetup.printArea = `A1:H${String(r - 1)}`;

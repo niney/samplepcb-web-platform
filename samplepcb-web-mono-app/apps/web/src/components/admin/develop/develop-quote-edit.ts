@@ -500,6 +500,8 @@ export function developQuotePreview(form: DevelopQuoteForm): DevelopQuoteSheetQu
     scheduleNote: emptyToNull(form.scheduleNote),
     validUntil: form.validUntil,
     note: emptyToNull(form.note),
+    deliverables: developQuoteDeliverableLines(form),
+    exclusions: emptyToNull(form.exclusions),
     milestones: form.milestones.map((m) => ({
       title: m.title.trim(),
       ratioBp: Number.isFinite(ratioBpOfRow(m)) ? ratioBpOfRow(m) : null,

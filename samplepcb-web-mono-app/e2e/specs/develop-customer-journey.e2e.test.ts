@@ -380,7 +380,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     const file = await downloading;
     expect(file.suggestedFilename(), '파일 이름').toBe(`2차 견적(Android 우선) 견적서 Q${String(rid)}-v${String(q2.version)}.xlsx`);
     const sheetText = xlsxText(readFileSync(await file.path()));
-    for (const text of ['견    적    서', '인건비 소계', '15% (인건비+직접비)', '10일', '함체는 사급 지원', '박승한 상무', '연구소']) {
+    for (const text of ['견    적    서', '인건비 소계', '15% (인건비+직접비)', '10일', '함체는 사급 지원', '박승한 상무', '연구소', '산출물 : 회로도 · 거버 · 펌웨어 소스 · 앱 소스', '별도 실비 : PCB 제작비·부품비 별도']) {
       expect(sheetText, `엑셀: ${text}`).toContain(text);
     }
     // 인쇄용 보기 — 1쪽 견적서(공용 시트) + 별지
@@ -391,6 +391,9 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await printSheet.getByTestId('develop-quote-supply').textContent()).toBe('9,828,000');
     expect(await printSheet.getByTestId('develop-quote-total').textContent()).toBe('10,810,800');
     expect(await printSheet.getByText('3회', { exact: true }).count()).toBe(1);
+    // 1쪽 Remark 에 산출물·별도 실비(별지에도 그대로 있다)
+    expect(await printSheet.getByText('회로도 · 거버 · 펌웨어 소스 · 앱 소스', { exact: true }).count()).toBe(1);
+    expect(await printSheet.getByText('PCB 제작비·부품비 별도', { exact: true }).count()).toBe(1);
     expect(await page.getByRole('heading', { name: '견적서 별지' }).count()).toBe(1);
     expect(await page.getByRole('button', { name: '엑셀 내려받기' }).count()).toBe(1);
     await snap(page, 'develop-quote-print');
