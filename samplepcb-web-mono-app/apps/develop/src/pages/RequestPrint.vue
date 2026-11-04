@@ -111,6 +111,9 @@ const stackStyle = computed(() => ({
   width: px(PRINT_PAGE.width),
   minHeight: px(pageCount.value === 0 ? PRINT_PAGE.height : pageCount.value * PRINT_PITCH - PRINT_PAGE.gap),
 }));
+// 판 사이 가림 수 — 쪽 수보다 하나 적다. 0 쪽(아직 안 나눔)일 때 음수가 되지 않게 막는다: 운영 빌드의 v-for 숫자 범위는
+// new Array(n) 그대로라 -1 이면 RangeError 로 화면 전체가 비고(개발 빌드는 경고 뒤 빈 목록이라 로컬·e2e 에선 안 보였다 — 2026-11-04 실측).
+const maskCount = computed(() => Math.max(0, pageCount.value - 1));
 const frameStyle = (k: number): Record<string, string> => ({ top: px(k * PRINT_PITCH), width: px(PRINT_PAGE.width), height: px(PRINT_PAGE.height) });
 const FLOW_STYLE = {
   width: px(PRINT_PAGE.width - PRINT_PAGE.padX * 2),
@@ -279,7 +282,7 @@ const CARD = 'rounded-[14px] border border-[#ebebeb] bg-white px-[24px] py-[26px
               </div>
             </section>
           </div>
-          <template v-for="k in pageCount - 1" :key="`mask${String(k)}`">
+          <template v-for="k in maskCount" :key="`mask${String(k)}`">
             <div
               v-for="(m, mi) in maskStyles(k - 1)"
               :key="mi"
