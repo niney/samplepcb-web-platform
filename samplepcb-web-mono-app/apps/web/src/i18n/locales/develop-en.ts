@@ -400,6 +400,7 @@ export const develop = {
     "xlsx": "Excel",
     "xlsxFail": "Could not download the Excel file.",
     "errTooLarge": "Amount too large (up to 2 billion KRW per item and total).",
+    "ratesLegacyHint": "Surcharge rates (settings defaults) are edited in the new admin quote editor.",
     "internal": "Internal",
     "internalShow": "Show internal cost",
     "internalHide": "Hide internal cost",

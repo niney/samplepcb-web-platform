@@ -208,6 +208,9 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
       ]);
       const b = computeDevelopQuoteBreakdown(q.items, { indirectBp: q.indirectBp, overheadBp: q.overheadBp, profitBp: q.profitBp }, q.vatMode);
       expect(q.supplyAmount).toBe(b.supplyAmount);
+      // 옛 화면엔 가산율 칸이 없지만 가산 줄은 카드에 읽기 전용으로 보인다(비율 0 인 줄은 빠진다)
+      const nonZero = [q.indirectBp, q.overheadBp, q.profitBp].filter((bp: number) => bp > 0).length;
+      await expect.poll(async () => page.getByTestId('legacy-card-surcharge').count()).toBe(nonZero);
     }
 
     await openQueue('contracts');

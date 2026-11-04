@@ -1153,6 +1153,7 @@ async function run() {
   const q6d = q6.json?.data;
   assert(q6.status === 200 && q6d.items[0].amount === 4_000_000 && q6d.items[0].qty === 0.5 && q6d.items[0].unit === '개월' && q6d.items[0].grade === '특급', '산출 내역: 인건비 단가 × 0.5개월 = 4,000,000', q6d?.items);
   assert(q6d.items[1].category === 'direct' && q6d.items[1].amount === 3_900_000, '산출 내역: 직접비 금액은 서버가 단가 × 수량으로 다시 계산(보낸 amount 무시)', q6d?.items?.[1]);
+  assert(q6d.items[1].grade === null, '산출 내역: 직접비 줄의 기술등급은 서버가 버린다(API 로 보내도)', q6d?.items?.[1]);
   assert(
     q6d.breakdown.laborSubtotal === 4_000_000 && q6d.breakdown.directSubtotal === 3_900_000 && q6d.breakdown.indirectAmount === 1_185_000 && q6d.breakdown.overheadAmount === 454_000 && q6d.breakdown.profitAmount === 953_000,
     '산출 내역: 소계·간접비·제경비·이윤(천 원 미만 버림)',

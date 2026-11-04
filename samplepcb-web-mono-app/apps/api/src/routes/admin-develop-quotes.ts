@@ -66,7 +66,8 @@ function resolveQuoteBody(b: AdminDevelopQuoteBodyType): ResolvedQuote | null {
     return {
       category: it.category,
       title: it.title,
-      grade: it.grade === null || it.grade === '' ? null : it.grade,
+      // 기술등급은 인건비만 — 직접비 줄엔 칸이 없어 API 로 보내도 버린다(카드·견적서·엑셀이 같게).
+      grade: it.category === 'direct' || it.grade === null || it.grade === '' ? null : it.grade,
       description: it.description,
       unitPrice,
       qty,

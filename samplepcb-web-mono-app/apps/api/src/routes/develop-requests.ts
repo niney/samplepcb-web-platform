@@ -1376,7 +1376,9 @@ async function createChangeQuoteDraft(r: SpDevelopRequest, doc: SpDevelopDocumen
   const change = typeof content.change === 'string' ? content.change.trim().replace(/\s+/g, ' ') : '';
   const last = await prisma.spDevelopQuote.findFirst({ where: { requestId: r.id }, orderBy: { version: 'desc' }, select: { version: true } });
   const validUntil = kstToday(new Date(Date.now() + settings.defaultValidDays * 86_400_000));
-  const amounts = computeDevelopQuoteAmounts([0], settings.defaultVatMode);
+  // VAT '포함'은 산출 내역 서식과 맞지 않아 편집기 선택지에서 뺐다 — 설정이 옛 값이면 초안은 '별도'로 깐다(§5).
+  const vatMode = settings.defaultVatMode === 'included' ? 'separate' : settings.defaultVatMode;
+  const amounts = computeDevelopQuoteAmounts([0], vatMode);
   const split = splitDevelopMilestoneAmounts(amounts.totalAmount, settings.defaultMilestones.map((m) => m.ratioBp));
   await prisma.$transaction(async (tx) => {
     const q = await tx.spDevelopQuote.create({
@@ -1385,7 +1387,7 @@ async function createChangeQuoteDraft(r: SpDevelopRequest, doc: SpDevelopDocumen
         version: (last?.version ?? 0) + 1,
         kind: 'change',
         title: `추가 견적 — ${docNo} 변경요청`,
-        vatMode: settings.defaultVatMode,
+        vatMode,
         indirectBp: settings.defaultIndirectBp,
         overheadBp: settings.defaultOverheadBp,
         profitBp: settings.defaultProfitBp,

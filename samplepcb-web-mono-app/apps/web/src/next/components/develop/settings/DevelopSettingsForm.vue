@@ -11,6 +11,7 @@ import {
 import type { DevelopMilestoneTriggerType, DevelopVatModeType } from '@sp/api-contract';
 import { apiErrorMessage } from '@sp/ui';
 import { useAdminDevelopSettings, useSaveAdminDevelopSettings } from '@/admin/useAdminDevelop';
+import { developQuoteVatOptions } from '@/components/admin/develop/develop-quote-edit';
 import { formatDateTime } from '@/lib/format';
 import { Alert, AlertDescription } from '@/next/components/ui/alert';
 import { Button } from '@/next/components/ui/button';
@@ -195,7 +196,7 @@ async function onSubmit(): Promise<void> {
         <Field>
           <FieldLabel for="develop-settings-vat">{{ t('admin.develop.settings.vatMode') }}</FieldLabel>
           <NativeSelect id="develop-settings-vat" :model-value="vatMode" class="w-full" @update:model-value="onVatModePick">
-            <NativeSelectOption v-for="mode in DEVELOP_VAT_MODES" :key="mode" :value="mode">
+            <NativeSelectOption v-for="mode in developQuoteVatOptions(vatMode)" :key="mode" :value="mode">
               {{ DEVELOP_VAT_MODE_LABELS[mode] }}
             </NativeSelectOption>
           </NativeSelect>

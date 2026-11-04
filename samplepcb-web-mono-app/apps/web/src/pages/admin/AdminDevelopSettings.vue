@@ -4,13 +4,13 @@ import { useI18n } from 'vue-i18n';
 import {
   DEVELOP_MILESTONE_TRIGGERS,
   DEVELOP_MILESTONE_TRIGGER_LABELS,
-  DEVELOP_VAT_MODES,
   DEVELOP_VAT_MODE_LABELS,
 } from '@sp/api-contract';
 import type { DevelopMilestoneTriggerType, DevelopVatModeType } from '@sp/api-contract';
 import { apiErrorMessage } from '@sp/ui';
 import { useAdminDevelopSettings, useSaveAdminDevelopSettings } from '../../admin/useAdminDevelop';
 import { formatDateTime } from '../../lib/format';
+import { developQuoteVatOptions } from '../../components/admin/develop/develop-quote-edit';
 
 // 개발의뢰 설정 싱글턴(docs/DEVELOP_FLOW.md §7.3) — 견적 생성이 복사해 쓰는 기본값 + 알림 수신자 + AI 자동 초안.
 // 마일스톤 비율은 bp(1/100 %)로 저장되고 합이 정확히 100% 여야 서버가 받는다.
@@ -159,7 +159,7 @@ async function onSubmit(): Promise<void> {
           <label class="block text-base">
             <span class="font-medium text-gray-800">{{ t('admin.develop.settings.vatMode') }}</span>
             <select v-model="vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
-              <option v-for="mode in DEVELOP_VAT_MODES" :key="mode" :value="mode">{{ DEVELOP_VAT_MODE_LABELS[mode] }}</option>
+              <option v-for="mode in developQuoteVatOptions(vatMode)" :key="mode" :value="mode">{{ DEVELOP_VAT_MODE_LABELS[mode] }}</option>
             </select>
           </label>
         </div>

@@ -5,9 +5,9 @@ import {
   DEVELOP_MILESTONE_TRIGGERS,
   DEVELOP_MILESTONE_TRIGGER_LABELS,
   DEVELOP_QUOTE_KIND_LABELS,
-  DEVELOP_VAT_MODES,
   DEVELOP_VAT_MODE_LABELS,
   devReviewScheduleTotals,
+  developQuoteSheetRows,
   parseDevelopQuoteLines,
 } from '@sp/api-contract';
 import type {
@@ -31,7 +31,9 @@ import {
   developQuoteFormToBody,
   developQuoteIssues,
   developQuoteMilestoneAmounts,
+  developQuotePreview,
   developQuoteRatioSum,
+  developQuoteVatOptions,
   emptyQuoteItemRow,
   formatAmountInput,
   newDevelopQuoteForm,
@@ -86,6 +88,10 @@ const busy = computed(
 );
 
 const amounts = computed(() => developQuoteAmounts(form.value));
+const vatOptions = computed(() => developQuoteVatOptions(form.value.vatMode));
+// 가산 줄(간접비·제경비·이윤) — 이 옛 화면엔 가산율 칸이 없지만 새 견적은 설정 비율을 복사하므로 금액이 왜 늘었는지
+// 읽기 전용으로 보인다(2026-11-04 리뷰, 비율은 새 화면에서 고친다). 줄 모양은 견적서와 같은 계약 함수.
+const surchargeRows = computed(() => developQuoteSheetRows(developQuotePreview(form.value)).filter((r) => r.kind === 'surcharge'));
 const milestoneAmounts = computed(() => developQuoteMilestoneAmounts(form.value));
 const ratioSum = computed(() => developQuoteRatioSum(form.value));
 const liveIssues = computed(() => developQuoteIssues(form.value));
@@ -311,7 +317,7 @@ async function onDeleteConfirm(): Promise<void> {
       <label class="block text-sm">
         <span class="font-medium text-gray-800">{{ t('admin.develop.quote.vatMode') }}</span>
         <select v-model="form.vatMode" class="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
-          <option v-for="mode in DEVELOP_VAT_MODES" :key="mode" :value="mode">{{ DEVELOP_VAT_MODE_LABELS[mode] }}</option>
+          <option v-for="mode in vatOptions" :key="mode" :value="mode">{{ DEVELOP_VAT_MODE_LABELS[mode] }}</option>
         </select>
       </label>
       <label class="block text-sm">
@@ -454,6 +460,13 @@ async function onDeleteConfirm(): Promise<void> {
 
       <!-- 합계 -->
       <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-t border-gray-100 pt-2 text-sm">
+        <template v-for="row in surchargeRows" :key="row.kind === 'surcharge' ? row.surcharge : ''">
+          <template v-if="row.kind === 'surcharge'">
+            <dt class="text-gray-500" data-testid="legacy-quote-surcharge">{{ row.label }} · {{ row.text }}</dt>
+            <dd class="text-right text-gray-800">{{ formatKrw(row.amount) }}</dd>
+          </template>
+        </template>
+        <dd v-if="surchargeRows.length > 0" class="col-span-2 text-xs text-gray-400">{{ t('admin.develop.quote.ratesLegacyHint') }}</dd>
         <dt class="text-gray-500">{{ t('admin.develop.quote.supply') }}</dt>
         <dd class="text-right text-gray-800">{{ formatKrw(amounts.supplyAmount) }}</dd>
         <dt class="text-gray-500">{{ t('admin.develop.quote.vat') }}</dt>

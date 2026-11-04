@@ -399,6 +399,7 @@ export const develop = {
     "xlsx": "엑셀",
     "xlsxFail": "엑셀을 내려받지 못했습니다.",
     "errTooLarge": "금액이 너무 큽니다(항목·합계는 20억 원까지).",
+    "ratesLegacyHint": "가산율(설정 기본값)은 새 관리자 화면의 견적 편집기에서 고칩니다.",
     "internal": "내부",
     "internalShow": "내부 원가 보기",
     "internalHide": "내부 원가 숨기기",

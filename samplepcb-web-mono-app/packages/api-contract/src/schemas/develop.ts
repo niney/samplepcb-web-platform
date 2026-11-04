@@ -1105,9 +1105,16 @@ export function developQuoteQtyText(qty: number, unit: string): string {
 /** 견적번호 — 의뢰·판에서 만든다(별도 채번 없음). */
 export const developQuoteNo = (requestId: number, version: number): string => `Q${String(requestId)}-v${String(version)}`;
 
-/** 엑셀 파일 이름 — '{제목} 견적서 Q12-v1.xlsx'(참고 견적서 파일 이름 관례). 경로·예약 문자는 지운다(서버 헤더·화면 저장 공용). */
+/** 엑셀 파일 이름 — '{제목} 견적서 Q12-v1.xlsx'(참고 견적서 파일 이름 관례). 경로·예약 문자는 지운다(서버 헤더·화면 저장 공용).
+ * 80자는 **글자(코드 포인트) 단위**로 자른다 — UTF-16 단위로 자르면 이모지가 반으로 쪼개져 encodeURIComponent 가
+ * URIError 를 던지고 엑셀 라우트가 500 이 된다(2026-11-04 리뷰). 짝 없는 서로게이트도 미리 지운다. */
 export function developQuoteXlsxName(q: { title: string; requestId: number; version: number }): string {
-  const title = q.title.replace(/[\\/:*?"<>|\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const cleaned = q.title
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+    .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const title = Array.from(cleaned).slice(0, 80).join('').trim();
   return `${title === '' ? '' : `${title} `}견적서 ${developQuoteNo(q.requestId, q.version)}.xlsx`;
 }
 
@@ -1129,8 +1136,12 @@ export function developQuoteRemarks(q: {
   const note = (q.scheduleNote ?? '').trim();
   const days = q.durationDays === null ? '' : `착수 후 ${String(q.durationDays)}일`;
   const delivery = [days, note].filter((s) => s !== '').join(' · ');
+  // '명칭 비율%(청구 시점)' — 문자열 치환 없이 조립한다(명칭 안의 ' (' 를 건드리지 않게, 2026-11-04 리뷰).
   const payment = q.milestones
-    .map((m) => `${m.title} ${m.ratioBp === null ? '' : `${developBpPercent(m.ratioBp)}%`}(${DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger]})`.replace(' (', '('))
+    .map((m) => {
+      const head = [m.title.trim(), m.ratioBp === null ? '' : `${developBpPercent(m.ratioBp)}%`].filter((s) => s !== '').join(' ');
+      return `${head}(${DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger]})`;
+    })
     .join(', ');
   return [
     { label: '납기', text: delivery === '' ? '협의' : delivery },
@@ -1207,7 +1218,7 @@ export function developQuoteSheetRows(
         groupFirst: i === 0,
         groupSize: items.length,
         title: it.title,
-        grade: it.grade,
+        grade: category === 'labor' ? it.grade : null, // 기술등급은 인건비만(직접비 줄엔 칸이 없다)
         description: it.description,
         unitPrice: it.unitPrice,
         qtyText: developQuoteQtyText(it.qty, it.unit),

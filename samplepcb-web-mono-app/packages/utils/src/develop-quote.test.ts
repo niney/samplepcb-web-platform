@@ -9,6 +9,7 @@ import {
   developQuoteRemarks,
   developQuoteSheetRows,
   developQuoteSurchargeText,
+  developQuoteXlsxName,
   parseDevelopQuoteLines,
   splitDevelopMilestoneAmounts,
 } from '@sp/api-contract';
@@ -176,6 +177,37 @@ describe('견적서 표기', () => {
       '단계별 설계 및 개발 과정은 모두 발주처 승인 후 진행합니다.',
     ]);
     expect(remarks[3]?.label).toBeNull();
+  });
+
+  it('Remark 결제 조건 — 명칭 안의 " (" 는 그대로 둔다(문자열 치환 없이 조립)', () => {
+    const remarks = developQuoteRemarks({
+      durationDays: null,
+      scheduleNote: null,
+      validUntil: '2026-12-04',
+      milestones: [
+        { title: '착수금 (1차)', ratioBp: 10_000, trigger: 'on_accept' },
+        { title: '잔금', ratioBp: null, trigger: 'manual' },
+      ],
+    });
+    expect(remarks[2]?.text).toBe('착수금 (1차) 100%(견적 수락 시), 잔금(담당자가 청구할 때)');
+  });
+
+  it('엑셀 파일 이름 — 80자는 글자 단위로 자른다(이모지를 반으로 쪼개면 encodeURIComponent 가 URIError)', () => {
+    const name = developQuoteXlsxName({ title: `${'가'.repeat(79)}😀끝`, requestId: 12, version: 3 });
+    expect(name).toBe(`${'가'.repeat(79)}😀 견적서 Q12-v3.xlsx`);
+    expect(() => encodeURIComponent(name)).not.toThrow();
+    // 짝 없는 서로게이트·경로 문자는 지운다
+    const odd = developQuoteXlsxName({ title: 'A/B\uD83D: 견적', requestId: 1, version: 1 });
+    expect(odd).toBe('A B 견적 견적서 Q1-v1.xlsx');
+    expect(() => encodeURIComponent(odd)).not.toThrow();
+  });
+
+  it('표의 행 — 직접비 줄엔 기술등급을 싣지 않는다(칸이 없다)', () => {
+    const items = [
+      { itemId: 1, seq: 1, category: 'direct' as const, title: 'PCB 제작', grade: '무시됨', description: '4층', unitPrice: 1000, qty: 1, unit: '식', amount: 1000, durationDays: null },
+    ];
+    const rows = developQuoteSheetRows({ items, breakdown: computeDevelopQuoteBreakdown(items, { indirectBp: 0, overheadBp: 0, profitBp: 0 }, 'separate'), indirectBp: 0, overheadBp: 0, profitBp: 0 });
+    expect(rows[0]?.kind === 'item' && rows[0].grade).toBeNull();
   });
 
   it('표의 행 — 순위는 나타난 구분 순서, 가산 0% 행은 빠진다', () => {

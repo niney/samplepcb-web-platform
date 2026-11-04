@@ -7,6 +7,7 @@ import {
   DEVELOP_QUOTE_KIND_LABELS,
   DEVELOP_QUOTE_STATUS_LABELS,
   DEVELOP_VAT_MODE_LABELS,
+  developQuoteSheetRows,
 } from '@sp/api-contract';
 import type { DevelopQuoteViewType } from '@sp/api-contract';
 import { apiErrorMessage } from '@sp/ui';
@@ -24,6 +25,9 @@ import { formatDateTime, formatKrw } from '../../../lib/format';
 const props = defineProps<{ quote: DevelopQuoteViewType & { internalNote: string | null } }>();
 
 const emit = defineEmits<{ edit: [] }>();
+
+// 가산 줄(간접비·제경비·이윤) — 항목 합계와 공급가가 왜 다른지 보이게(2026-11-04 리뷰). 견적서와 같은 계약 함수.
+const surchargeRows = computed(() => developQuoteSheetRows(props.quote).filter((r) => r.kind === 'surcharge'));
 
 const { t } = useI18n();
 const withdraw = useAdminDevelopQuoteWithdraw();
@@ -157,6 +161,12 @@ async function onMarkPaid(): Promise<void> {
       </li>
     </ul>
     <dl class="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 border-t border-gray-100 pt-1.5 text-xs">
+      <template v-for="row in surchargeRows" :key="row.kind === 'surcharge' ? row.surcharge : ''">
+        <template v-if="row.kind === 'surcharge'">
+          <dt class="text-gray-500" data-testid="legacy-card-surcharge">{{ row.label }} · {{ row.text }}</dt>
+          <dd class="text-right text-gray-700">{{ formatKrw(row.amount) }}</dd>
+        </template>
+      </template>
       <dt class="text-gray-500">{{ t('admin.develop.quote.supply') }}</dt>
       <dd class="text-right text-gray-700">{{ formatKrw(quote.supplyAmount) }}</dd>
       <dt class="text-gray-500">{{ t('admin.develop.quote.vat') }}</dt>
