@@ -16,6 +16,7 @@ export { default as DevelopQuoteSheet } from './components/DevelopQuoteSheet.vue
 
 export type { QuestionState } from './types';
 export { apiErrorMessage, errorMessage } from './lib/error-msg';
+export { downloadElementsPdf } from './lib/pdf-capture';
 export {
   canPreview,
   decodeTextBlob,

@@ -1064,18 +1064,28 @@ export function developQuoteQtyText(qty: number, unit: string): string {
 /** 견적번호 — 의뢰·판에서 만든다(별도 채번 없음). */
 export const developQuoteNo = (requestId: number, version: number): string => `Q${String(requestId)}-v${String(version)}`;
 
-/** 엑셀 파일 이름 — '{제목} 견적서 Q12-v1.xlsx'(참고 견적서 파일 이름 관례). 경로·예약 문자는 지운다(서버 헤더·화면 저장 공용).
- * 80자는 **글자(코드 포인트) 단위**로 자른다 — UTF-16 단위로 자르면 이모지가 반으로 쪼개져 encodeURIComponent 가
- * URIError 를 던지고 엑셀 라우트가 500 이 된다(2026-11-04 리뷰). 짝 없는 서로게이트도 미리 지운다. */
-export function developQuoteXlsxName(q: { title: string; requestId: number; version: number }): string {
-  const cleaned = q.title
-    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
-    .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const title = Array.from(cleaned).slice(0, 80).join('').trim();
-  return `${title === '' ? '' : `${title} `}견적서 ${developQuoteNo(q.requestId, q.version)}.xlsx`;
+/** 견적서 파일 이름 — '{제목} 견적서 {견적번호}.{확장자}'(참고 견적서 파일 이름 관례). 경로·예약 문자는 지운다
+ * (서버 헤더·화면 저장 공용 — 엑셀과 PDF 가 같은 이름을 쓴다). 80자는 **글자(코드 포인트) 단위**로 자른다 — UTF-16
+ * 단위로 자르면 이모지가 반으로 쪼개져 encodeURIComponent 가 URIError 를 던지고 엑셀 라우트가 500 이 된다
+ * (2026-11-04 리뷰). 짝 없는 서로게이트도 미리 지운다. 견적번호 자리는 발송 전 미리보기면 '발송 전' 같은 글이 온다. */
+export function developQuoteFileName(title: string, quoteNo: string, ext: 'xlsx' | 'pdf'): string {
+  const clean = (v: string): string =>
+    v
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+      .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const t = Array.from(clean(title)).slice(0, 80).join('').trim();
+  return `${t === '' ? '' : `${t} `}견적서 ${clean(quoteNo)}.${ext}`;
 }
+
+/** 엑셀 파일 이름 — '{제목} 견적서 Q12-v1.xlsx'. */
+export const developQuoteXlsxName = (q: { title: string; requestId: number; version: number }): string =>
+  developQuoteFileName(q.title, developQuoteNo(q.requestId, q.version), 'xlsx');
+
+/** PDF 파일 이름 — '{제목} 견적서 Q12-v1.pdf'(엑셀과 같은 규칙). */
+export const developQuotePdfName = (q: { title: string; requestId: number; version: number }): string =>
+  developQuoteFileName(q.title, developQuoteNo(q.requestId, q.version), 'pdf');
 
 export interface DevelopQuoteRemark {
   label: string | null;

@@ -16,6 +16,7 @@
 // 사전 조건: sp-node(3333)·nginx(local-web)·sp-vue 가 떠 있을 것. 메일은 로컬 Mailpit 으로 간다(실발송 없음).
 // 만든 의뢰는 afterAll 이 e2e 계정 단위로 지운다(공유 DB — 스스로 만들고 스스로 지운다).
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { computeDevelopQuoteBreakdown } from '@sp/api-contract';
 import { RUN, closeBrowser, disconnectPrisma, mailpitSearch, newSession, snap } from '../helpers';
@@ -196,6 +197,12 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
       expect(await sheet.getByText('회로도 · 펌웨어 소스', { exact: true }).count()).toBe(1);
       expect(await sheet.getByText('별도 실비', { exact: true }).count()).toBe(1);
       await snap(page, `admin-develop-${UI}-quote-preview`);
+      // PDF — 미리보기 1쪽을 찍어 내려받는다(저장 전이라 견적번호 자리는 '발송 전')
+      const pdfDownloading = page.waitForEvent('download');
+      await page.getByTestId('develop-quote-preview').getByRole('button', { name: 'PDF', exact: true }).click();
+      const pdfFile = await pdfDownloading;
+      expect(pdfFile.suggestedFilename()).toBe(`${TITLE} 견적서 발송 전.pdf`);
+      expect(readFileSync(await pdfFile.path()).subarray(0, 5).toString()).toBe('%PDF-');
       await page.keyboard.press('Escape');
       await sheet.waitFor({ state: 'detached' });
     } else {
@@ -228,6 +235,14 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
       expect([q.breakdown.indirectAmount, q.breakdown.overheadAmount, q.breakdown.profitAmount, q.supplyAmount]).toEqual([1_335_000, 511_000, 1_074_000, 11_820_000]);
       expect(q.items.some((i: any) => 'costPrice' in i || 'vendor' in i), '원가 칸은 없다').toBe(false);
       expect(await page.getByRole('button', { name: '원가 고치기' }).count()).toBe(0);
+      // 카드 「PDF」 — 견적서 대화상자를 열어 그려지자마자 내려받는다(이름의 견적번호 = 발송한 판)
+      const cardPdf = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'PDF', exact: true }).first().click();
+      const cardFile = await cardPdf;
+      expect(cardFile.suggestedFilename()).toBe(`${TITLE} 견적서 Q${String(rid)}-v${String(q.version)}.pdf`);
+      expect(readFileSync(await cardFile.path()).subarray(0, 5).toString()).toBe('%PDF-');
+      await page.keyboard.press('Escape');
+      await page.getByTestId('develop-quote-preview').waitFor({ state: 'detached' });
     } else {
       // 옛 화면은 가산율 칸이 없다 — 새 견적은 설정 기본값을 복사하고, 금액은 서버가 같은 계약 함수로 맞춘다.
       expect(q.items.map((i: any) => [i.category, i.title, i.amount])).toEqual([

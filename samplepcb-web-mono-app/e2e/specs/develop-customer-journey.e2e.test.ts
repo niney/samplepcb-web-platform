@@ -22,10 +22,12 @@
 // 사전 조건: sp-node(3333)·nginx(local-web)·sp-develop(5177)·Mailpit. 관리자 화면(sp-vue)은 필요 없다.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { API_URL, RUN, closeBrowser, disconnectPrisma, getPrisma, mailpitMessage, mailpitSearch, newSession, signJwt, snap, xlsxText } from '../helpers';
 import type { E2eSession } from '../helpers';
 import { developAdminIdentity } from '../helpers/develop-admin';
+import { outputDir } from '../helpers/env';
 
 const LONG = 180_000;
 const CART_BUCKET = '7777000003'; // 다른 하네스(…001 마켓·…002 개발 API)와 다른 합성 장바구니 버킷
@@ -383,6 +385,8 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     for (const text of ['견    적    서', '인건비 소계', '15% (인건비+직접비)', '10일', '함체는 사급 지원', '박승한 상무', '연구소', '산출물 : 회로도 · 거버 · 펌웨어 소스 · 앱 소스', '별도 실비 : PCB 제작비·부품비 별도']) {
       expect(sheetText, `엑셀: ${text}`).toContain(text);
     }
+    // 카드 「PDF」 = 인쇄용 보기를 ?download=pdf 로 연다(그려지자마자 한 번 내려받는다)
+    expect(await v2card.getByRole('link', { name: 'PDF', exact: true }).getAttribute('href')).toContain(`/quotes/${String(q2.quoteId)}/print?download=pdf`);
     // 인쇄용 보기 — 1쪽 견적서(공용 시트) + 별지
     await page.goto(`/develop/requests/${String(rid)}/quotes/${String(q2.quoteId)}/print?_t=${String(Date.now())}`);
     const printSheet = page.getByTestId('develop-quote-sheet');
@@ -397,6 +401,23 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await page.getByRole('heading', { name: '견적서 별지' }).count()).toBe(1);
     expect(await page.getByRole('button', { name: '엑셀 내려받기' }).count()).toBe(1);
     await snap(page, 'develop-quote-print');
+    // PDF 내려받기 — 화면의 1쪽 견적서 + 별지를 찍은 A4 PDF(2쪽 이상), 이름은 엑셀과 같은 규칙
+    const pdfName = `2차 견적(Android 우선) 견적서 Q${String(rid)}-v${String(q2.version)}.pdf`;
+    const pageCount = (buf: Buffer): number => buf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g)?.length ?? 0;
+    const pdfDownloading = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'PDF 내려받기', exact: true }).click();
+    const pdfFile = await pdfDownloading;
+    expect(pdfFile.suggestedFilename(), 'PDF 파일 이름').toBe(pdfName);
+    const pdfBuf = readFileSync(await pdfFile.path());
+    expect(pdfBuf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pageCount(pdfBuf), 'PDF 쪽 수(견적서 + 별지)').toBeGreaterThanOrEqual(2);
+    await pdfFile.saveAs(join(outputDir, 'develop-quote.pdf')); // 눈으로 확인할 산출물(output 은 git 밖)
+    // ?download=pdf 로 열면 그려지자마자 받고, 주소에서 그 쿼리를 지운다
+    const autoDownloading = page.waitForEvent('download');
+    await page.goto(`/develop/requests/${String(rid)}/quotes/${String(q2.quoteId)}/print?download=pdf&_t=${String(Date.now())}`);
+    const autoFile = await autoDownloading;
+    expect(autoFile.suggestedFilename()).toBe(pdfName);
+    await expect.poll(() => new URL(page.url()).searchParams.has('download')).toBe(false);
     await openTab('#quotes', '3. 견적서');
     await page.getByText('2차 견적(Android 우선)').waitFor();
     const accept = page.getByRole('button', { name: '견적 수락' });

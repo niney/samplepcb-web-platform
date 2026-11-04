@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   DEVELOP_MILESTONE_STATUS_LABELS,
   DEVELOP_MILESTONE_TRIGGER_LABELS,
@@ -8,10 +8,11 @@ import {
   DEVELOP_QUOTE_SUPPLIER,
   developBpPercent,
   developQuoteNo,
+  developQuotePdfName,
   developQuoteXlsxName,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
-import { DevelopQuoteSheet } from '@sp/ui';
+import { DevelopQuoteSheet, downloadElementsPdf } from '@sp/ui';
 import { developRequestPath, useDevelopRequest } from '../api/useDevelopRequests';
 import { developPath, loginUrl } from '../lib/auth-urls';
 import { downloadAuthedFile } from '../lib/download';
@@ -26,9 +27,14 @@ import { dateShort, dateTimeKst, won } from '../lib/format';
 // `?mode=contract` = **계약서 보기**(§2 결정 11 "견적 승인이 곧 계약") — 별도 계약 문서를 만들지 않고 수락된 견적서를
 // 그대로 두고 별지 머리를 계약서로 바꾼 뒤 동의 기록·발주서·서명란을 덧붙인다. 수락 전 견적에는 뜻이 없으므로
 // 그때는 안내만 띄우고 평범한 견적서로 그린다.
+//
+// PDF 내려받기(2026-11-04) — 화면의 1쪽 견적서 + 2쪽 별지(계약서 모드면 계약서)를 그대로 찍어 A4 PDF 로 저장한다
+// (@sp/ui downloadElementsPdf — 상업송장 PDF 와 같은 화면 캡처 방식). 카드의 「PDF」는 이 화면을 `?download=pdf` 로 열어
+// 그려지자마자 한 번 내려받는다(주소에서 그 쿼리는 지워 새로고침이 다시 받지 않게).
 
 const auth = useAuthStore();
 const route = useRoute();
+const router = useRouter();
 const loggedIn = computed(() => auth.isLoggedIn);
 const requestId = computed<number | null>(() => {
   const n = Number(route.params.id);
@@ -98,6 +104,41 @@ async function downloadXlsx(): Promise<void> {
   }
 }
 
+const sheetBox = ref<HTMLElement | null>(null);
+const annexEl = ref<HTMLElement | null>(null);
+const pdfBusy = ref(false);
+const pdfError = ref('');
+async function downloadPdf(): Promise<void> {
+  const q = quote.value;
+  if (q === undefined || pdfBusy.value) return;
+  const sheet = sheetBox.value?.querySelector<HTMLElement>('[data-testid="develop-quote-sheet"]') ?? null;
+  const pages = [sheet, annexEl.value].filter((el): el is HTMLElement => el !== null);
+  pdfBusy.value = true;
+  pdfError.value = '';
+  try {
+    await downloadElementsPdf(pages, developQuotePdfName(q));
+  } catch (e) {
+    pdfError.value = errorMessage(e, 'PDF를 만들지 못했습니다.');
+  } finally {
+    pdfBusy.value = false;
+  }
+}
+// 카드에서 `?download=pdf` 로 열렸으면 견적서가 그려진 뒤 한 번만 내려받는다.
+let autoPdfDone = false;
+watch(
+  quote,
+  async (q) => {
+    if (q === undefined || autoPdfDone || route.query.download !== 'pdf') return;
+    autoPdfDone = true;
+    const query = { ...route.query };
+    delete query.download;
+    await router.replace({ query });
+    await nextTick();
+    await downloadPdf();
+  },
+  { immediate: true },
+);
+
 // @page 는 문서 전역이라 들어올 때 붙이고 나갈 때 뗀다(의뢰 출력물은 PPT 4:3 을 따로 붙인다).
 let pageStyle: HTMLStyleElement | null = null;
 onMounted(() => {
@@ -144,6 +185,7 @@ onBeforeUnmount(() => {
           의뢰 상세로
         </RouterLink>
         <span v-if="xlsxError !== ''" role="alert" class="text-label font-semibold text-red-700">{{ xlsxError }}</span>
+        <span v-if="pdfError !== ''" role="alert" class="text-label font-semibold text-red-700">{{ pdfError }}</span>
         <button
           type="button"
           class="ml-auto h-10 rounded-lg border border-line-2 bg-white px-4 text-label font-bold text-tx-2 transition hover:border-tx-3 disabled:opacity-50"
@@ -154,10 +196,18 @@ onBeforeUnmount(() => {
         </button>
         <button
           type="button"
+          class="h-10 rounded-lg border border-line-2 bg-white px-4 text-label font-bold text-tx-2 transition hover:border-tx-3 disabled:opacity-50"
+          :disabled="pdfBusy"
+          @click="downloadPdf"
+        >
+          {{ pdfBusy ? 'PDF 만드는 중…' : 'PDF 내려받기' }}
+        </button>
+        <button
+          type="button"
           class="h-10 rounded-lg bg-ink-950 px-5 text-label font-bold text-white transition hover:bg-brand-600"
           @click="print"
         >
-          인쇄 / PDF 저장
+          인쇄
         </button>
       </div>
 
@@ -169,12 +219,13 @@ onBeforeUnmount(() => {
       </p>
 
       <!-- 1쪽 — 견적서 -->
-      <div class="mx-auto w-fit shadow-sm print:w-auto print:shadow-none">
+      <div ref="sheetBox" class="mx-auto w-fit shadow-sm print:w-auto print:shadow-none">
         <DevelopQuoteSheet :quote="quote" :recipient="recipient" :quote-no="quoteNo" :issued-on="issuedOn" />
       </div>
 
       <!-- 2쪽 — 별지(계약서 모드면 계약서) -->
       <article
+        ref="annexEl"
         class="quote-annex mx-auto mt-6 box-border w-[210mm] bg-white p-[12mm] text-tx-1 shadow-sm print:mt-0 print:w-auto print:p-0 print:shadow-none"
       >
         <header class="flex flex-wrap items-end gap-4 border-b-2 border-ink-950 pb-4">

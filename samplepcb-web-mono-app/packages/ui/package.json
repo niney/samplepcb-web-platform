@@ -15,7 +15,9 @@
   "dependencies": {
     "@sp/api-contract": "workspace:*",
     "@sp/shared": "workspace:*",
-    "@sp/utils": "workspace:*"
+    "@sp/utils": "workspace:*",
+    "html2canvas-pro": "^2.3.2",
+    "jspdf": "^4.2.1"
   },
   "peerDependencies": {
     "vue": "^3.5.0"

@@ -7,7 +7,9 @@ import {
   computeDevelopQuoteAmounts,
   computeDevelopQuoteBreakdown,
   developBpPercent,
+  developQuoteFileName,
   developQuoteItemAmount,
+  developQuotePdfName,
   developQuoteQtyText,
   developQuoteRemarks,
   developQuoteSheetRows,
@@ -190,6 +192,12 @@ describe('견적서 표기', () => {
     const odd = developQuoteXlsxName({ title: 'A/B\uD83D: 견적', requestId: 1, version: 1 });
     expect(odd).toBe('A B 견적 견적서 Q1-v1.xlsx');
     expect(() => encodeURIComponent(odd)).not.toThrow();
+  });
+
+  it('PDF 파일 이름 — 엑셀과 같은 규칙, 발송 전 미리보기는 견적번호 자리에 그 글', () => {
+    expect(developQuotePdfName({ title: 'RF 감지기 개발', requestId: 12, version: 3 })).toBe('RF 감지기 개발 견적서 Q12-v3.pdf');
+    expect(developQuoteFileName('RF/감지기', '발송 전', 'pdf')).toBe('RF 감지기 견적서 발송 전.pdf');
+    expect(developQuoteFileName('  ', 'Q1-v1', 'xlsx')).toBe('견적서 Q1-v1.xlsx');
   });
 
   it('표의 행 — 직접비 줄엔 기술등급을 싣지 않는다(칸이 없다)', () => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { DownloadIcon, EyeIcon, PencilIcon, Undo2Icon } from '@lucide/vue';
+import { DownloadIcon, EyeIcon, FileDownIcon, PencilIcon, Undo2Icon } from '@lucide/vue';
 import {
   DEVELOP_MILESTONE_TRIGGER_LABELS,
   DEVELOP_QUOTE_KIND_LABELS,
@@ -57,6 +57,12 @@ const sheetRows = computed(() => developQuoteSheetRows(props.quote));
 
 // 견적서 보기·엑셀 — 고객이 받는 1쪽(작성 중이면 발송 전 모양).
 const sheetOpen = ref(false);
+// 「PDF」 — 같은 대화상자를 열어 그려지자마자 내려받는다(1쪽을 찍는다).
+const sheetAutoPdf = ref(false);
+const openSheet = (autoPdf: boolean): void => {
+  sheetAutoPdf.value = autoPdf;
+  sheetOpen.value = true;
+};
 const sheetRecipient = computed(() => ({
   company: props.contact?.company ?? null,
   dept: props.quote.recipientDept,
@@ -262,13 +268,17 @@ async function onMarkPaid(milestoneId: number, title: string): Promise<void> {
     </Panel>
 
     <div class="flex flex-wrap items-center gap-2">
-      <Button v-if="contact !== undefined" variant="outline" size="sm" @click="sheetOpen = true">
+      <Button v-if="contact !== undefined" variant="outline" size="sm" @click="openSheet(false)">
         <EyeIcon />
         {{ t('admin.develop.quote.sheet') }}
       </Button>
       <Button variant="outline" size="sm" :disabled="xlsxBusy" @click="onXlsx">
         <DownloadIcon />
         {{ t('admin.develop.quote.xlsx') }}
+      </Button>
+      <Button v-if="contact !== undefined" variant="outline" size="sm" @click="openSheet(true)">
+        <FileDownIcon />
+        {{ t('admin.develop.quote.pdf') }}
       </Button>
       <Button v-if="quote.status === 'draft'" variant="outline" size="sm" @click="emit('edit')">
         <PencilIcon />
@@ -299,6 +309,7 @@ async function onMarkPaid(milestoneId: number, title: string): Promise<void> {
       :quote-no="developQuoteNo(quote.requestId, quote.version)"
       :issued-on="sheetIssuedOn"
       :xlsx="quote"
+      :auto-pdf="sheetAutoPdf"
       @close="sheetOpen = false"
     />
   </Panel>

@@ -178,6 +178,15 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
         >
           인쇄용 보기
         </a>
+        <!-- PDF = 인쇄용 보기를 열어 그려지자마자 내려받는다(1쪽 견적서 + 별지, 화면 캡처 — QuotePrint) -->
+        <a
+          :href="`${printPath}?download=pdf`"
+          target="_blank"
+          rel="noopener"
+          class="flex h-[34px] items-center rounded-[6px] border border-[#d9d9d9] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad]"
+        >
+          PDF
+        </a>
         <button
           type="button"
           class="flex h-[34px] items-center rounded-[6px] border border-[#d9d9d9] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad] disabled:opacity-50"
