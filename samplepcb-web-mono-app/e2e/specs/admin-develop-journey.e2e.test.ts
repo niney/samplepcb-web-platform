@@ -15,6 +15,7 @@
 // 만든 의뢰는 afterAll 이 e2e 계정 단위로 지운다(공유 DB — 스스로 만들고 스스로 지운다).
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { computeDevelopQuoteBreakdown } from '@sp/api-contract';
 import { RUN, closeBrowser, disconnectPrisma, mailpitSearch, newSession, snap } from '../helpers';
 import type { E2eSession } from '../helpers';
 import {
@@ -122,13 +123,48 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
     await page.getByText('검토 중', { exact: true }).first().waitFor();
   }, LONG);
 
-  test('2. 견적서 — 붙여넣기 2줄 → 초안 저장 → 발송(확인) → quoted', async () => {
+  test('2. 견적서 — 붙여넣기 2줄 (+새 화면: 직접비 행·가산율·미리보기) → 초안 저장 → 발송(확인) → quoted', async () => {
     const page = s.page;
     await detailTab(page, '견적서').click();
     await page.getByRole('button', { name: '새 견적서', exact: true }).click();
     await page.getByPlaceholder(/H\/W 회로·PCB 설계/).fill('회로·PCB 설계 3,000,000원\n펌웨어 개발 2,000,000원');
     await page.getByRole('button', { name: '채우기', exact: true }).click();
     await saved('2줄을 항목으로 넣었습니다.');
+    if (UI === 'next') {
+      // 산출 내역(§5.1) — 직접비 한 행(1,300,000 × 3회) + 가산율을 명시값으로(설정 기본값에 기대지 않는다).
+      await page.getByRole('button', { name: '직접비 행', exact: true }).click();
+      await page.getByLabel('3 항목', { exact: true }).fill('PCB 제작');
+      await page.getByLabel('3 규격', { exact: true }).fill('6층 빌드업');
+      await page.getByLabel('3 단가(원)', { exact: true }).fill('1300000');
+      await page.getByLabel('3 수량', { exact: true }).fill('3');
+      await page.getByLabel('3 단위', { exact: true }).fill('회'); // 직접비 기본 단위는 '식'
+      // 내부 원가(관리자 전용) — 원가 900,000 × 3 = 2,700,000 → 그 줄 마진 1,200,000(30.8%)
+      await page.getByLabel('3 원가 단가', { exact: true }).fill('900000');
+      await page.getByLabel('3 업체', { exact: true }).fill('E2E내부업체');
+      expect(await page.getByTestId('quote-item-margin-3').textContent()).toBe('원가 2,700,000원 · 마진 1,200,000원 (30.8%)');
+      await page.getByLabel('간접비 %', { exact: true }).fill('15');
+      await page.getByLabel('제경비(일반관리비) %', { exact: true }).fill('5');
+      await page.getByLabel('기업이윤 %', { exact: true }).fill('10');
+      await page.getByLabel('수신 부서', { exact: true }).fill('연구소');
+      // 합계·마진 띠 — 공급가 11,820,000 − 원가 2,700,000 = 9,120,000(77.2%), 원가 안 적은 줄 2
+      const sticky = page.getByTestId('quote-sticky-totals');
+      expect(await sticky.getByTestId('quote-sticky-margin').textContent()).toContain('9,120,000원 (77.2%)');
+      expect(await sticky.getByText('원가 미입력 2행', { exact: false }).count()).toBe(1);
+      // 미리보기 = 고객이 받는 1쪽(저장 전 폼 그대로)
+      await page.getByRole('button', { name: '견적서 미리보기', exact: true }).click();
+      const sheet = page.getByTestId('develop-quote-preview').getByTestId('develop-quote-sheet');
+      await sheet.waitFor();
+      // 8,900,000 → 간접비 1,335,000 → 제경비(10,235,000 × 5%) 511,000 → 이윤(10,746,000 × 10%) 1,074,000 → 공급가 11,820,000
+      expect(await sheet.getByTestId('develop-quote-supply').textContent()).toBe('11,820,000');
+      expect(await sheet.getByTestId('develop-quote-total').textContent()).toBe('13,002,000');
+      expect(await sheet.getByText('15% (인건비+직접비)', { exact: true }).count()).toBe(1);
+      expect(await sheet.getByText('3회', { exact: true }).count()).toBe(1);
+      expect(await sheet.getByText('연구소', { exact: true }).count()).toBe(1);
+      expect(await sheet.getByText(/E2E내부업체|2,700,000/).count(), '미리보기(고객 1쪽)엔 내부 원가가 없다').toBe(0);
+      await snap(page, `admin-develop-${UI}-quote-preview`);
+      await page.keyboard.press('Escape');
+      await sheet.waitFor({ state: 'detached' });
+    }
     await page.getByRole('button', { name: '초안 저장', exact: true }).click();
     await saved('초안을 저장했습니다.');
     await expect.poll(async () => (await detail())?.quotes?.length ?? 0).toBe(1);
@@ -140,11 +176,39 @@ describe.skipIf(!RUN)(`관리자 개발 화면 여정 (${UI})`, () => {
     const q = d.quotes[0];
     quoteId = q.quoteId;
     expect(q.status).toBe('sent');
-    expect(q.items.map((i: any) => [i.title, i.amount])).toEqual([
-      ['회로·PCB 설계', 3_000_000],
-      ['펌웨어 개발', 2_000_000],
-    ]);
-    expect(q.supplyAmount).toBe(5_000_000);
+    if (UI === 'next') {
+      expect(q.items.map((i: any) => [i.category, i.title, i.amount])).toEqual([
+        ['labor', '회로·PCB 설계', 3_000_000],
+        ['labor', '펌웨어 개발', 2_000_000],
+        ['direct', 'PCB 제작', 3_900_000],
+      ]);
+      expect([q.indirectBp, q.overheadBp, q.profitBp, q.recipientDept]).toEqual([1500, 500, 1000, '연구소']);
+      expect([q.breakdown.indirectAmount, q.breakdown.overheadAmount, q.breakdown.profitAmount, q.supplyAmount]).toEqual([1_335_000, 511_000, 1_074_000, 11_820_000]);
+      expect(q.items.map((i: any) => [i.costPrice, i.vendor])).toEqual([[null, null], [null, null], [900_000, 'E2E내부업체']]);
+      // 발송 뒤 원가 고치기(카드) — 고객 금액은 그대로, 원가만 바뀐다
+      await page.getByRole('button', { name: '원가 고치기', exact: true }).first().click();
+      const costs = page.getByTestId('develop-quote-costs');
+      await costs.waitFor();
+      await costs.getByLabel('1 원가 단가', { exact: true }).fill('2000000');
+      await costs.getByRole('button', { name: '원가 저장', exact: true }).click();
+      await costs.waitFor({ state: 'detached' });
+      await expect.poll(async () => (await detail())?.quotes?.[0]?.items?.[0]?.costPrice).toBe(2_000_000);
+      const after = (await detail()).quotes[0];
+      expect([after.status, after.totalAmount]).toEqual(['sent', q.totalAmount]);
+      expect(await page.getByTestId('quote-card-margin').first().textContent()).toContain('원가 4,700,000원');
+      // 고객 응답엔 원가가 없다
+      const cust = await customerApi.get(`/api/develop/requests/${String(rid)}`);
+      expect(JSON.stringify(cust.json)).not.toContain('E2E내부업체');
+      expect(cust.json.data.quotes[0].items.some((i: any) => 'costPrice' in i)).toBe(false);
+    } else {
+      // 옛 화면은 가산율 칸이 없다 — 새 견적은 설정 기본값을 복사하고, 금액은 서버가 같은 계약 함수로 맞춘다.
+      expect(q.items.map((i: any) => [i.title, i.amount])).toEqual([
+        ['회로·PCB 설계', 3_000_000],
+        ['펌웨어 개발', 2_000_000],
+      ]);
+      const b = computeDevelopQuoteBreakdown(q.items, { indirectBp: q.indirectBp, overheadBp: q.overheadBp, profitBp: q.profitBp }, q.vatMode);
+      expect(q.supplyAmount).toBe(b.supplyAmount);
+    }
 
     await openQueue('contracts');
     await queueTab(page, '견적 발송').click();

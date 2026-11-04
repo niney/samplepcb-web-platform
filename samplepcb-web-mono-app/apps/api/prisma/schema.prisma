@@ -2407,6 +2407,14 @@ model SpDevelopQuote {
   status         String               @default("draft") @db.VarChar(12) // draft|sent|accepted|declined|expired|superseded|withdrawn
   title          String               @db.VarChar(200)
   vatMode        String               @default("separate") @db.VarChar(10)
+  // 산출 내역(2026-11-04) — 가산율(bp)과 저장 때 계산한 가산 금액(천 원 미만 버림). 옛 견적은 0 이라 공급가 = 항목 합계.
+  indirectBp     Int                  @default(0)
+  overheadBp     Int                  @default(0)
+  profitBp       Int                  @default(0)
+  indirectAmount Int                  @default(0)
+  overheadAmount Int                  @default(0)
+  profitAmount   Int                  @default(0)
+  recipientDept  String?              @db.VarChar(100)
   supplyAmount   Int                  @default(0)
   vatAmount      Int                  @default(0)
   totalAmount    Int                  @default(0)
@@ -2443,10 +2451,17 @@ model SpDevelopQuoteItem {
   id           BigInt         @id @default(autoincrement())
   quoteId      BigInt
   seq          Int
-  title        String         @db.VarChar(200)
-  description  String?        @db.Text
-  amount       Int // 공급가(원)
+  category     String         @default("labor") @db.VarChar(10) // labor(인건비)|direct(직접비)
+  title        String         @db.VarChar(200) // 직무 · 항목
+  grade        String?        @db.VarChar(50) // 기술등급
+  description  String?        @db.Text // 담당업무 · 규격
+  unitPrice    Int            @default(0)
+  qty          Decimal        @default(1) @db.Decimal(10, 2)
+  unit         String         @default("식") @db.VarChar(20)
+  amount       Int // 공급가(원) = 단가 × 수량(서버 계산)
   durationDays Int?
+  costPrice    Int? // 내부 원가 단가(관리자 전용 — 고객 응답·인쇄·엑셀에 싣지 않는다)
+  vendor       String?        @db.VarChar(100) // 내부 원가 업체명
   quote        SpDevelopQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@unique([quoteId, seq])
@@ -2488,6 +2503,9 @@ model SpDevelopSettings {
   defaultReviewDays   Int      @default(7)
   defaultValidDays    Int      @default(30)
   defaultVatMode      String   @default("separate") @db.VarChar(10)
+  defaultIndirectBp   Int      @default(1500)
+  defaultOverheadBp   Int      @default(500)
+  defaultProfitBp     Int      @default(1000)
   defaultMilestones   Json // [{title, ratioBp, trigger}]
   notifyEmails        Json // string[]
   aiAutoDraft         Boolean  @default(true)

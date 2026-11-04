@@ -1,25 +1,33 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { PencilIcon, Undo2Icon } from '@lucide/vue';
+import { CoinsIcon, DownloadIcon, EyeIcon, PencilIcon, Undo2Icon } from '@lucide/vue';
 import {
   DEVELOP_MILESTONE_TRIGGER_LABELS,
   DEVELOP_QUOTE_KIND_LABELS,
   DEVELOP_VAT_MODE_LABELS,
+  computeDevelopQuoteMargin,
+  developQuoteNo,
+  developQuoteSheetRows,
 } from '@sp/api-contract';
-import type { DevelopQuoteViewType } from '@sp/api-contract';
+import type { AdminDevelopQuoteViewType, DevelopContactType } from '@sp/api-contract';
 import { apiErrorMessage } from '@sp/ui';
+import { kstToday } from '@sp/utils';
 import {
+  downloadAdminDevelopQuoteXlsx,
   useAdminDevelopMilestoneMarkPaid,
   useAdminDevelopMilestoneOpen,
   useAdminDevelopQuoteWithdraw,
 } from '@/admin/useAdminDevelop';
+import { marginRateText } from '@/components/admin/develop/develop-quote-edit';
 import { formatDateTime, formatKrw } from '@/lib/format';
 import Panel from '@/next/components/common/Panel.vue';
 import { Badge } from '@/next/components/ui/badge';
 import { Button } from '@/next/components/ui/button';
 import { confirmDialog, promptDialog } from '@/next/lib/dialog';
 import { developMilestoneStatusBadge, developQuoteStatusBadge } from '@/next/components/develop/develop-badges';
+import DevelopQuoteCostsDialog from './DevelopQuoteCostsDialog.vue';
+import DevelopQuoteSheetDialog from './DevelopQuoteSheetDialog.vue';
 
 // 견적서 한 장(읽기) — 옛 components/admin/develop/DevelopQuoteCard.vue 의 짝(같은 props·emits).
 // 항목·금액·결제 조건·수락 흔적. 초안이면 편집으로 넘기고, 발송분은 철회만 할 수 있다(고친 값을 보내려면
@@ -27,7 +35,8 @@ import { developMilestoneStatusBadge, developQuoteStatusBadge } from '@/next/com
 // trigger=manual(담당자가 청구할 때) 마일스톤은 「고객 결제 열기」로 열어야 payable 이 된다(2026-09-10, G milestone.open 이식).
 // 확인은 리뉴얼 대화상자(@/next/lib/dialog) — 옛 인라인 확인 패널과 같은 문구·같은 버튼 이름(확인/취소).
 // 수동 입금 확인은 메모를 함께 받으므로 입력 대화상자에서 연 채로 처리하고, 실패하면 입력을 둔 채 오류를 보인다.
-const props = defineProps<{ quote: DevelopQuoteViewType & { internalNote: string | null } }>();
+// contact = 견적서 보기의 수신 칸(의뢰 연락처) — 없으면 견적서 보기 버튼이 안 뜬다.
+const props = defineProps<{ quote: AdminDevelopQuoteViewType; contact?: DevelopContactType }>();
 
 const emit = defineEmits<{ edit: [] }>();
 
@@ -45,6 +54,37 @@ const setNotice = (message: string, isError: boolean): void => {
 };
 
 const statusBadge = computed(() => developQuoteStatusBadge(props.quote.status));
+
+// 산출 내역 줄(§5.1) — 견적서 1쪽과 같은 계약 함수로 항목·소계·가산 행을 뽑는다.
+const sheetRows = computed(() => developQuoteSheetRows(props.quote));
+
+// 내부 원가·마진(관리자 전용, §5.1) — 발송 뒤에도 원가만 고칠 수 있다(작성 중 초안은 편집기에서).
+const margin = computed(() => computeDevelopQuoteMargin(props.quote.items, props.quote.supplyAmount));
+const costsOpen = ref(false);
+
+// 견적서 보기·엑셀 — 고객이 받는 1쪽(작성 중이면 발송 전 모양).
+const sheetOpen = ref(false);
+const sheetRecipient = computed(() => ({
+  company: props.contact?.company ?? null,
+  dept: props.quote.recipientDept,
+  name: props.contact?.name ?? '',
+  phone: props.contact?.phone ?? '',
+  email: props.contact?.email ?? '',
+}));
+const sheetIssuedOn = computed(() => (props.quote.sentAt === null ? kstToday() : kstToday(new Date(props.quote.sentAt))));
+const xlsxBusy = ref(false);
+async function onXlsx(): Promise<void> {
+  if (xlsxBusy.value) return;
+  xlsxBusy.value = true;
+  notice.value = '';
+  try {
+    await downloadAdminDevelopQuoteXlsx(props.quote);
+  } catch (error) {
+    setNotice(apiErrorMessage(error, t('admin.develop.quote.xlsxFail')), true);
+  } finally {
+    xlsxBusy.value = false;
+  }
+}
 
 const errorCodes = computed(() => ({
   QUOTE_NOT_OPEN: t('admin.develop.quote.errNotOpen'),
@@ -149,15 +189,27 @@ async function onMarkPaid(milestoneId: number, title: string): Promise<void> {
       </p>
     </div>
 
-    <!-- 항목 -->
-    <ul class="flex flex-col gap-0.5 border-t pt-2 text-sm">
-      <li v-for="it in quote.items" :key="it.itemId" class="flex flex-wrap items-baseline gap-2">
-        <span class="min-w-0 flex-1 truncate" :title="it.title">{{ it.title }}</span>
-        <span v-if="it.durationDays !== null" class="text-muted-foreground text-xs">
-          {{ t('admin.develop.quote.durationDaysShort', { days: it.durationDays }) }}
-        </span>
-        <span class="font-medium tabular-nums">{{ formatKrw(it.amount) }}</span>
-      </li>
+    <!-- 산출 내역(항목 · 소계 · 가산) -->
+    <ul class="flex flex-col gap-0.5 border-t pt-2 text-sm" data-testid="quote-card-rows">
+      <template v-for="(row, i) in sheetRows" :key="i">
+        <li v-if="row.kind === 'item'" class="flex flex-wrap items-baseline gap-2">
+          <span class="text-muted-foreground w-12 shrink-0 text-xs">{{ row.groupLabel }}</span>
+          <span class="min-w-0 flex-1 truncate" :title="row.title">
+            {{ row.title }}<template v-if="row.grade !== null"> · {{ row.grade }}</template>
+          </span>
+          <span class="text-muted-foreground text-xs tabular-nums">{{ formatKrw(row.unitPrice) }} × {{ row.qtyText }}</span>
+          <span class="font-medium tabular-nums">{{ formatKrw(row.amount) }}</span>
+        </li>
+        <li v-else-if="row.kind === 'subtotal'" class="text-muted-foreground flex items-baseline gap-2 text-xs">
+          <span class="min-w-0 flex-1 text-right">{{ row.label }}</span>
+          <span class="tabular-nums">{{ formatKrw(row.amount) }}</span>
+        </li>
+        <li v-else class="flex flex-wrap items-baseline gap-2">
+          <span class="text-muted-foreground w-12 shrink-0 text-xs">{{ row.label }}</span>
+          <span class="text-muted-foreground min-w-0 flex-1 truncate text-xs">{{ row.text }}</span>
+          <span class="font-medium tabular-nums">{{ formatKrw(row.amount) }}</span>
+        </li>
+      </template>
     </ul>
     <dl class="grid grid-cols-[auto_1fr] gap-x-3 border-t pt-1.5 text-xs">
       <dt class="text-muted-foreground">{{ t('admin.develop.quote.supply') }}</dt>
@@ -212,11 +264,31 @@ async function onMarkPaid(milestoneId: number, title: string): Promise<void> {
       </Panel>
     </div>
 
+    <!-- 내부 원가·마진(관리자 전용) -->
+    <Panel size="xs" tone="muted" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums" data-testid="quote-card-margin">
+      <span class="text-warning font-semibold">{{ t('admin.develop.quote.internal') }}</span>
+      <span>{{ t('admin.develop.quote.costTotal') }} {{ formatKrw(margin.costTotal) }}</span>
+      <span>{{ t('admin.develop.quote.margin') }} <b>{{ formatKrw(margin.totalMargin) }}</b> ({{ marginRateText(margin.marginRate) }})</span>
+      <span v-if="margin.missingRows > 0" class="text-warning font-semibold">{{ t('admin.develop.quote.costMissingRows', { count: margin.missingRows }) }}</span>
+      <Button v-if="quote.status !== 'draft'" variant="ghost" size="xs" class="ml-auto" @click="costsOpen = true">
+        <CoinsIcon />
+        {{ t('admin.develop.quote.costEdit') }}
+      </Button>
+    </Panel>
+
     <Panel v-if="quote.internalNote !== null" size="xs" tone="muted" class="text-muted-foreground text-xs">
       {{ t('admin.develop.quote.internalNote') }}: {{ quote.internalNote }}
     </Panel>
 
     <div class="flex flex-wrap items-center gap-2">
+      <Button v-if="contact !== undefined" variant="outline" size="sm" @click="sheetOpen = true">
+        <EyeIcon />
+        {{ t('admin.develop.quote.sheet') }}
+      </Button>
+      <Button variant="outline" size="sm" :disabled="xlsxBusy" @click="onXlsx">
+        <DownloadIcon />
+        {{ t('admin.develop.quote.xlsx') }}
+      </Button>
       <Button v-if="quote.status === 'draft'" variant="outline" size="sm" @click="emit('edit')">
         <PencilIcon />
         {{ t('admin.develop.quote.edit') }}
@@ -238,5 +310,17 @@ async function onMarkPaid(milestoneId: number, title: string): Promise<void> {
         :class="noticeError ? 'text-destructive' : 'text-success'"
       >{{ notice }}</span>
     </div>
+
+    <DevelopQuoteCostsDialog v-if="costsOpen" :quote="quote" @close="costsOpen = false" />
+
+    <DevelopQuoteSheetDialog
+      v-if="sheetOpen"
+      :quote="quote"
+      :recipient="sheetRecipient"
+      :quote-no="developQuoteNo(quote.requestId, quote.version)"
+      :issued-on="sheetIssuedOn"
+      :xlsx="quote"
+      @close="sheetOpen = false"
+    />
   </Panel>
 </template>

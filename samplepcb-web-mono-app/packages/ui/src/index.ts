@@ -12,6 +12,7 @@ export { default as FileDropZone } from './components/FileDropZone.vue';
 export { default as FilePreviewModal } from './components/FilePreviewModal.vue';
 export { default as DevReviewView } from './components/DevReviewView.vue';
 export { default as DevDiagramSection } from './components/DevDiagramSection.vue';
+export { default as DevelopQuoteSheet } from './components/DevelopQuoteSheet.vue';
 
 export type { QuestionState } from './types';
 export { apiErrorMessage, errorMessage } from './lib/error-msg';

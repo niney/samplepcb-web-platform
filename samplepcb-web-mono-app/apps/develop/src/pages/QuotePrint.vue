@@ -1,32 +1,31 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   DEVELOP_MILESTONE_STATUS_LABELS,
   DEVELOP_MILESTONE_TRIGGER_LABELS,
-  DEVELOP_QUOTE_KIND_LABELS,
   DEVELOP_VAT_MODE_LABELS,
+  DEVELOP_QUOTE_SUPPLIER,
+  developBpPercent,
+  developQuoteNo,
+  developQuoteXlsxName,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
-import { useDevelopRequest } from '../api/useDevelopRequests';
+import { DevelopQuoteSheet } from '@sp/ui';
+import { developRequestPath, useDevelopRequest } from '../api/useDevelopRequests';
 import { developPath, loginUrl } from '../lib/auth-urls';
+import { downloadAuthedFile } from '../lib/download';
 import { errorMessage } from '../lib/error-msg';
 import { dateShort, dateTimeKst, won } from '../lib/format';
 
-// 견적서 인쇄용(docs/DEVELOP_FLOW.md §7.2) — A4 한 장. 셸이 없는 라우트(meta.bare)라 화면 자체가 종이다.
-// 데이터는 상세 응답에서 qid 견적 하나를 골라 쓴다(견적 단건 라우트가 없다 — 캐시도 상세와 공유한다).
-// 공급자 정보는 회사 정보 API 가 P2 라 상수로 둔다 — 바뀌면 여기 한 곳만 고치면 된다.
+// 견적서 인쇄용(docs/DEVELOP_FLOW.md §5.1) — 셸이 없는 라우트(meta.bare)라 화면 자체가 종이다.
+// 1쪽 = 참고 견적서 서식의 견적서(@sp/ui DevelopQuoteSheet — 관리자 미리보기·서버 엑셀과 같은 표),
+// 2쪽(별지) = 결제 조건 표 · 개발 기간 · 산출물 · 검수 · 별도 실비 · 표준 조건. 데이터는 상세 응답에서 qid 견적 하나를
+// 골라 쓴다(견적 단건 라우트가 없다 — 캐시도 상세와 공유한다). 엑셀은 서버가 같은 표로 만든다(GET …/quotes/:qid/xlsx).
 //
-// `?mode=contract` = **계약서 보기**(§2 결정 11 "견적 승인이 곧 계약") — 별도 계약 문서를 만들지 않고
-// 수락된 견적서를 계약서 서식으로 다시 인쇄한다. 본문(항목·결제 조건·산출물·표준 조건)은 그대로 두고
-// 머리 문구를 바꾸고 아래에 동의 기록·발주서·서명란을 덧붙인다. 기본(견적) 모드는 한 글자도 바뀌지 않는다.
-// 수락 전 견적에는 뜻이 없으므로 그때는 안내만 띄우고 평범한 견적서로 그린다.
-
-const SUPPLIER = {
-  name: '샘플피씨비',
-  desc: '회로 · PCB · 펌웨어 · 기구 · 앱 · 서버 개발',
-  site: 'samplepcb.co.kr',
-} as const;
+// `?mode=contract` = **계약서 보기**(§2 결정 11 "견적 승인이 곧 계약") — 별도 계약 문서를 만들지 않고 수락된 견적서를
+// 그대로 두고 별지 머리를 계약서로 바꾼 뒤 동의 기록·발주서·서명란을 덧붙인다. 수락 전 견적에는 뜻이 없으므로
+// 그때는 안내만 띄우고 평범한 견적서로 그린다.
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -46,12 +45,22 @@ const quote = computed(() => detail.value?.quotes.find((q) => q.quoteId === quot
 
 const quoteNo = computed(() => {
   const q = quote.value;
-  return q === undefined ? '' : `Q${String(q.requestId)}-v${String(q.version)}`;
+  return q === undefined ? '' : developQuoteNo(q.requestId, q.version);
 });
-const issuedAt = computed(() => {
-  const q = quote.value;
-  if (q === undefined) return '—';
-  return q.sentAt === null ? '—' : dateShort(q.sentAt);
+// 견적일자 = 발송일(KST). 상세 응답은 발송된 견적만 싣지만 방어로 오늘을 쓴다.
+const issuedOn = computed(() => {
+  const at = quote.value?.sentAt ?? null;
+  return at === null ? dateShort(new Date().toISOString()) : dateShort(at);
+});
+const recipient = computed(() => {
+  const d = detail.value;
+  return {
+    company: d?.contact.company ?? null,
+    dept: quote.value?.recipientDept ?? null,
+    name: d?.contact.name ?? '',
+    phone: d?.contact.phone ?? '',
+    email: d?.contact.email ?? '',
+  };
 });
 
 // 수락 전에는 마일스톤이 전부 draft("작성 중")라 그 열은 종이 위에서 뜻 없는 문구가 된다 —
@@ -72,6 +81,34 @@ function goLogin(): void {
 function print(): void {
   window.print();
 }
+
+const xlsxBusy = ref(false);
+const xlsxError = ref('');
+async function downloadXlsx(): Promise<void> {
+  const q = quote.value;
+  if (q === undefined || xlsxBusy.value) return;
+  xlsxBusy.value = true;
+  xlsxError.value = '';
+  try {
+    await downloadAuthedFile(`${developRequestPath(q.requestId)}/quotes/${String(q.quoteId)}/xlsx`, developQuoteXlsxName(q));
+  } catch (e) {
+    xlsxError.value = errorMessage(e, '엑셀을 내려받지 못했습니다.');
+  } finally {
+    xlsxBusy.value = false;
+  }
+}
+
+// @page 는 문서 전역이라 들어올 때 붙이고 나갈 때 뗀다(의뢰 출력물은 PPT 4:3 을 따로 붙인다).
+let pageStyle: HTMLStyleElement | null = null;
+onMounted(() => {
+  pageStyle = document.createElement('style');
+  pageStyle.textContent = '@page { size: A4 portrait; margin: 12mm; }';
+  document.head.appendChild(pageStyle);
+});
+onBeforeUnmount(() => {
+  pageStyle?.remove();
+  pageStyle = null;
+});
 </script>
 
 <template>
@@ -98,17 +135,26 @@ function print(): void {
     </div>
 
     <template v-else>
-      <!-- 인쇄 버튼(종이에는 안 나온다) -->
-      <div class="print-hidden mx-auto mb-4 flex w-full max-w-[860px] items-center gap-2.5 px-6">
+      <!-- 도구 줄(종이에는 안 나온다) -->
+      <div class="print-hidden mx-auto mb-4 flex w-full max-w-[210mm] flex-wrap items-center gap-2.5">
         <RouterLink
           :to="`/requests/${String(detail.requestId)}`"
           class="h-10 rounded-lg border border-line-2 bg-white px-4 text-label font-bold leading-10 text-tx-2 transition hover:border-tx-3"
         >
           의뢰 상세로
         </RouterLink>
+        <span v-if="xlsxError !== ''" role="alert" class="text-label font-semibold text-red-700">{{ xlsxError }}</span>
         <button
           type="button"
-          class="ml-auto h-10 rounded-lg bg-ink-950 px-5 text-label font-bold text-white transition hover:bg-brand-600"
+          class="ml-auto h-10 rounded-lg border border-line-2 bg-white px-4 text-label font-bold text-tx-2 transition hover:border-tx-3 disabled:opacity-50"
+          :disabled="xlsxBusy"
+          @click="downloadXlsx"
+        >
+          {{ xlsxBusy ? '내려받는 중…' : '엑셀 내려받기' }}
+        </button>
+        <button
+          type="button"
+          class="h-10 rounded-lg bg-ink-950 px-5 text-label font-bold text-white transition hover:bg-brand-600"
           @click="print"
         >
           인쇄 / PDF 저장
@@ -117,104 +163,40 @@ function print(): void {
 
       <p
         v-if="contractAsked && !contract"
-        class="print-hidden mx-auto mb-4 w-full max-w-[860px] px-6 text-label font-semibold text-amber-800"
+        class="print-hidden mx-auto mb-4 w-full max-w-[210mm] text-label font-semibold text-amber-800"
       >
         계약서는 수락된 견적서에서만 볼 수 있습니다 — 아래는 견적서 원본입니다.
       </p>
 
-      <!-- A4 한 장 -->
-      <article class="mx-auto w-full max-w-[860px] bg-white px-10 py-11 text-tx-1 shadow-sm print:max-w-none print:px-0 print:py-0 print:shadow-none">
-        <!-- 제목 -->
-        <header class="flex flex-wrap items-start gap-4 border-b-2 border-ink-950 pb-5">
+      <!-- 1쪽 — 견적서 -->
+      <div class="mx-auto w-fit shadow-sm print:w-auto print:shadow-none">
+        <DevelopQuoteSheet :quote="quote" :recipient="recipient" :quote-no="quoteNo" :issued-on="issuedOn" />
+      </div>
+
+      <!-- 2쪽 — 별지(계약서 모드면 계약서) -->
+      <article
+        class="quote-annex mx-auto mt-6 box-border w-[210mm] bg-white p-[12mm] text-tx-1 shadow-sm print:mt-0 print:w-auto print:p-0 print:shadow-none"
+      >
+        <header class="flex flex-wrap items-end gap-4 border-b-2 border-ink-950 pb-4">
           <div class="grid gap-1">
-            <h1 class="text-h1 font-extrabold tracking-tight">{{ contract ? '개발 용역 계약서' : '견 적 서' }}</h1>
-            <p v-if="contract" class="text-label text-tx-3">견적서 {{ quoteNo }} 기준 · {{ quote.title }}</p>
-            <p v-else class="text-label text-tx-3">{{ DEVELOP_QUOTE_KIND_LABELS[quote.kind] }} · {{ quote.title }}</p>
+            <h1 class="text-title font-extrabold tracking-tight">{{ contract ? '개발 용역 계약서' : '견적서 별지' }}</h1>
+            <p class="text-label text-tx-3">
+              견적서 {{ quoteNo }} · {{ quote.title }}
+            </p>
           </div>
-          <dl class="ml-auto grid grid-cols-[auto_auto] gap-x-4 gap-y-1 text-label">
-            <dt class="text-tx-3">견적번호</dt>
-            <dd class="font-mono font-bold tabular-nums">{{ quoteNo }}</dd>
-            <dt class="text-tx-3">발행일</dt>
-            <dd class="font-mono tabular-nums">{{ issuedAt }}</dd>
-            <dt class="text-tx-3">{{ contract ? '계약일' : '유효기간' }}</dt>
-            <dd class="font-mono tabular-nums">{{ contract ? acceptedOn.slice(0, 10) : quote.validUntil }}</dd>
-          </dl>
+          <p v-if="contract" class="ml-auto text-label text-tx-3">계약일 <span class="font-mono tabular-nums">{{ acceptedOn.slice(0, 10) }}</span></p>
         </header>
 
-        <!-- 수신 · 공급자 -->
-        <section class="mt-6 grid gap-5 sm:grid-cols-2">
-          <div class="grid gap-1.5">
-            <h2 class="text-label font-bold text-tx-3">수신</h2>
-            <p class="text-title font-extrabold">
-              {{ detail.contact.company ?? detail.contact.name }}<span v-if="detail.contact.company !== null"> 귀중</span>
-            </p>
-            <p class="text-body text-tx-2">
-              담당 {{ detail.contact.name }} · {{ detail.contact.phone }}<br>{{ detail.contact.email }}
-            </p>
-          </div>
-          <div class="grid gap-1.5 sm:justify-items-end sm:text-right">
-            <h2 class="text-label font-bold text-tx-3">공급자</h2>
-            <p class="text-title font-extrabold">{{ SUPPLIER.name }}</p>
-            <p class="text-body text-tx-2">{{ SUPPLIER.desc }}<br>{{ SUPPLIER.site }}</p>
-          </div>
-        </section>
-
-        <p class="mt-5 rounded-lg bg-paper px-4 py-3 text-body text-tx-2 print:bg-transparent print:px-0">
+        <p class="mt-4 text-body text-tx-2">
           <template v-if="contract">
-            아래 견적서의 내용과 표준 조건에 고객이 동의하여 계약이 성립되었습니다. 의뢰
+            견적서 {{ quoteNo }}의 내용과 아래 조건에 고객이 동의하여 계약이 성립되었습니다. 의뢰
           </template>
-          <template v-else>아래와 같이 견적서를 제출합니다. 의뢰 </template>
+          <template v-else>견적서 {{ quoteNo }}의 결제 조건과 진행 조건입니다. 의뢰 </template>
           <span class="font-bold text-tx-1">#{{ detail.requestId }} {{ detail.title }}</span>
         </p>
 
-        <!-- 합계(먼저 눈에 들어와야 하는 숫자) -->
-        <div class="mt-5 flex flex-wrap items-baseline gap-3 border-y-2 border-ink-950 py-4">
-          <span class="text-label font-bold text-tx-3">합계 금액</span>
-          <span class="font-mono text-h1 font-extrabold tabular-nums">{{ won(quote.totalAmount) }}</span>
-          <span class="text-label text-tx-3">({{ DEVELOP_VAT_MODE_LABELS[quote.vatMode] }})</span>
-        </div>
-
-        <!-- 항목 -->
-        <table class="mt-6 w-full border-collapse text-body">
-          <thead>
-            <tr class="border-b border-ink-950 text-label text-tx-3">
-              <th class="w-10 py-2 text-left font-semibold">No</th>
-              <th class="py-2 text-left font-semibold">항목</th>
-              <th class="w-20 py-2 text-right font-semibold">기간</th>
-              <th class="w-32 py-2 text-right font-semibold">금액</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, i) in quote.items" :key="item.itemId" class="border-b border-line align-top">
-              <td class="py-2.5 font-mono tabular-nums text-tx-3">{{ i + 1 }}</td>
-              <td class="py-2.5 pr-4">
-                <p class="font-bold">{{ item.title }}</p>
-                <p v-if="item.description !== null" class="mt-1 whitespace-pre-wrap text-label leading-relaxed text-tx-2">{{ item.description }}</p>
-              </td>
-              <td class="py-2.5 text-right font-mono tabular-nums text-tx-2">
-                {{ item.durationDays === null ? '—' : `${item.durationDays}일` }}
-              </td>
-              <td class="py-2.5 text-right font-mono tabular-nums">{{ won(item.amount) }}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr class="border-b border-line">
-              <td colspan="3" class="py-2 text-right text-tx-2">공급가액</td>
-              <td class="py-2 text-right font-mono tabular-nums">{{ won(quote.supplyAmount) }}</td>
-            </tr>
-            <tr class="border-b border-line">
-              <td colspan="3" class="py-2 text-right text-tx-2">부가세</td>
-              <td class="py-2 text-right font-mono tabular-nums">{{ won(quote.vatAmount) }}</td>
-            </tr>
-            <tr class="border-b-2 border-ink-950">
-              <td colspan="3" class="py-2.5 text-right font-extrabold">합계</td>
-              <td class="py-2.5 text-right font-mono font-extrabold tabular-nums">{{ won(quote.totalAmount) }}</td>
-            </tr>
-          </tfoot>
-        </table>
-
         <!-- 결제 조건 -->
-        <section v-if="quote.milestones.length > 0" class="mt-7 break-inside-avoid">
+        <section v-if="quote.milestones.length > 0" class="mt-6 break-inside-avoid">
           <h2 class="text-label font-bold text-tx-3">결제 조건</h2>
           <table class="mt-2 w-full border-collapse text-body">
             <thead>
@@ -222,7 +204,7 @@ function print(): void {
                 <th class="py-2 text-left font-semibold">명칭</th>
                 <th class="w-16 py-2 text-right font-semibold">비율</th>
                 <th class="w-32 py-2 text-right font-semibold">금액</th>
-                <th class="w-32 py-2 pl-3 text-left font-semibold">청구 시점</th>
+                <th class="w-36 py-2 pl-3 text-left font-semibold">청구 시점</th>
                 <th v-if="showMilestoneStatus" class="w-20 py-2 text-right font-semibold">상태</th>
               </tr>
             </thead>
@@ -230,7 +212,7 @@ function print(): void {
               <tr v-for="m in quote.milestones" :key="m.milestoneId" class="border-b border-line">
                 <td class="py-2 pr-3 font-bold">{{ m.title }}</td>
                 <td class="py-2 text-right font-mono tabular-nums text-tx-2">
-                  {{ m.ratioBp === null ? '—' : `${(m.ratioBp / 100).toFixed(0)}%` }}
+                  {{ m.ratioBp === null ? '—' : `${developBpPercent(m.ratioBp)}%` }}
                 </td>
                 <td class="py-2 text-right font-mono tabular-nums">{{ won(m.amount) }}</td>
                 <td class="py-2 pl-3 text-label text-tx-2">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger] }}</td>
@@ -238,10 +220,11 @@ function print(): void {
               </tr>
             </tbody>
           </table>
+          <p class="mt-1.5 text-micro text-tx-3">결제 금액은 최종 견적 합계({{ won(quote.totalAmount) }}, {{ DEVELOP_VAT_MODE_LABELS[quote.vatMode] }})를 비율로 나눈 금액입니다.</p>
         </section>
 
         <!-- 기간 · 산출물 · 실비 -->
-        <dl class="mt-7 grid gap-3 break-inside-avoid text-body sm:grid-cols-[120px_1fr]">
+        <dl class="mt-6 grid gap-3 break-inside-avoid text-body sm:grid-cols-[120px_1fr]">
           <dt class="text-label font-bold text-tx-3">개발 기간</dt>
           <dd>
             <template v-if="quote.durationDays !== null">{{ quote.durationDays }}일</template>
@@ -268,15 +251,10 @@ function print(): void {
             <dt class="text-label font-bold text-tx-3">별도 실비</dt>
             <dd class="whitespace-pre-wrap leading-relaxed">{{ quote.exclusions }}</dd>
           </template>
-
-          <template v-if="quote.note !== null">
-            <dt class="text-label font-bold text-tx-3">비고</dt>
-            <dd class="whitespace-pre-wrap leading-relaxed">{{ quote.note }}</dd>
-          </template>
         </dl>
 
         <!-- 표준 조건 -->
-        <section class="mt-7 break-inside-avoid border-t border-line pt-4">
+        <section class="mt-6 break-inside-avoid border-t border-line pt-4">
           <h2 class="text-label font-bold text-tx-3">표준 조건</h2>
           <p class="mt-2 whitespace-pre-wrap text-label leading-relaxed text-tx-2">{{ quote.terms }}</p>
         </section>
@@ -284,7 +262,7 @@ function print(): void {
         <!-- ── 계약서 모드에만 붙는 것 ── -->
         <template v-if="contract">
           <!-- 동의 기록(수락 = 계약, §2 결정 11) -->
-          <section class="mt-7 break-inside-avoid border-t border-line pt-4">
+          <section class="mt-6 break-inside-avoid border-t border-line pt-4">
             <h2 class="text-label font-bold text-tx-3">계약 동의 기록</h2>
             <dl class="mt-2 grid gap-2 text-body sm:grid-cols-[120px_1fr]">
               <dt class="text-label font-bold text-tx-3">수락 일시</dt>
@@ -311,9 +289,9 @@ function print(): void {
                 <dd class="pt-6 text-tx-3">서명일 __________________ (서명 / 인)</dd>
               </dl>
               <dl class="grid gap-2 border border-line p-4 text-body">
-                <dt class="text-label font-bold text-tx-3">{{ SUPPLIER.name }}</dt>
-                <dd>담당자 · __________________</dd>
-                <dd>대표자 · __________________</dd>
+                <dt class="text-label font-bold text-tx-3">{{ DEVELOP_QUOTE_SUPPLIER.name }}</dt>
+                <dd>담당자 · {{ DEVELOP_QUOTE_SUPPLIER.managerName }}</dd>
+                <dd>대표자 · {{ DEVELOP_QUOTE_SUPPLIER.owner }}</dd>
                 <dd class="pt-6 text-tx-3">서명일 __________________ (서명 / 인)</dd>
               </dl>
             </div>
@@ -338,3 +316,11 @@ function print(): void {
     </template>
   </main>
 </template>
+
+<style scoped>
+@media print {
+  .quote-annex {
+    break-before: page;
+  }
+}
+</style>

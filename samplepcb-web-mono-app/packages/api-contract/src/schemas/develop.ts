@@ -434,6 +434,56 @@ export const DEVELOP_VAT_MODE_LABELS = {
   exempt: '면세',
 } as const satisfies Record<DevelopVatModeType, string>;
 export const DEVELOP_VAT_RATE_BP = 1000; // 10%
+// 견적 편집기가 고르게 하는 VAT 방식 — '포함'은 표 금액이 VAT 포함이 되어 산출 내역 서식(공급가 → 부가세 → 합계)과
+// 맞지 않고 공급가 역산이 끝자리를 다시 만든다(2026-11-04). 값은 남겨 두어 옛 견적·설정은 그대로 읽힌다.
+export const DEVELOP_QUOTE_EDITABLE_VAT_MODES = ['separate', 'exempt'] as const satisfies readonly DevelopVatModeType[];
+
+// ── 견적 산출 내역(2026-11-04, 참고 견적서 '개발견적서' 서식) ─────────────────────────
+// 항목 = 구분(인건비·직접비) × 단가 × 수량(인건비는 개월·M/M, 직접비는 회·식·EA). 그 뒤 간접비 → 제경비(일반관리비)
+// → 기업이윤이 **앞 합계 × 비율**로 계단식으로 붙는다. 가산 세 행은 각각 천 원 미만을 버린다 — 단가가 천 원 단위면
+// 공급가도 천 원 단위로 끝나고, 표의 행을 더한 값이 그대로 공급가다(따로 '단수 정리' 행이 없다).
+export const DEVELOP_QUOTE_ITEM_CATEGORIES = ['labor', 'direct'] as const;
+export type DevelopQuoteItemCategoryType = (typeof DEVELOP_QUOTE_ITEM_CATEGORIES)[number];
+export const DevelopQuoteItemCategory = z.enum(DEVELOP_QUOTE_ITEM_CATEGORIES);
+export const DEVELOP_QUOTE_ITEM_CATEGORY_LABELS = {
+  labor: '인건비',
+  direct: '직접비',
+} as const satisfies Record<DevelopQuoteItemCategoryType, string>;
+// 단위 — 자유 글(20자)이고 편집기 입력칸이 이 목록을 제안한다.
+export const DEVELOP_QUOTE_UNIT_SUGGESTIONS = ['개월', 'M/M', '일', 'M/D', '식', '회', 'EA', '세트'] as const;
+export const DEVELOP_QUOTE_DEFAULT_UNIT = { labor: '개월', direct: '식' } as const satisfies Record<DevelopQuoteItemCategoryType, string>;
+export const DEVELOP_QUOTE_QTY_MAX = 9999.99; // 소수 둘째 자리까지(0.5개월)
+export const DEVELOP_QUOTE_RATE_MAX_BP = 5000; // 가산율 한 칸 상한 50%
+export const DEVELOP_QUOTE_AMOUNT_MAX = 2_000_000_000; // 항목·합계 상한(정수 컬럼)
+export const DEVELOP_QUOTE_SURCHARGES = ['indirect', 'overhead', 'profit'] as const;
+export type DevelopQuoteSurchargeType = (typeof DEVELOP_QUOTE_SURCHARGES)[number];
+export const DEVELOP_QUOTE_SURCHARGE_LABELS = {
+  indirect: '간접비',
+  overhead: '제경비',
+  profit: '기업이윤',
+} as const satisfies Record<DevelopQuoteSurchargeType, string>;
+// 가산 행의 근거 문구 — 비율 뒤에 붙는다('15% (인건비+직접비)').
+export const DEVELOP_QUOTE_SURCHARGE_BASIS = {
+  indirect: '(인건비+직접비)',
+  overhead: '일반관리비 (인건비+직접비+간접비)',
+  profit: '(인건비+직접비+간접비+제경비)',
+} as const satisfies Record<DevelopQuoteSurchargeType, string>;
+
+// 견적서 발신처 — 2026-11-04 사용자 결정 '일단 고정'(참고 견적서 원본 값). 회사 정보 API·설정 화면으로 옮길 때 여기 한 곳만 바꾼다.
+// 고객 인쇄·관리자 미리보기·엑셀이 같은 값을 쓴다. 의뢰 출력물 표지의 '개인 연락처를 내보내지 않는다' 규칙과 달리 견적서는 담당자 연락처를 싣는다.
+export const DEVELOP_QUOTE_SUPPLIER = {
+  name: '㈜ 샘플피시비',
+  owner: '오혜영',
+  managerName: '박승한 상무',
+  managerPhone: '010-5254-4490',
+  managerEmail: 'james@samplepcb.co.kr',
+  address: '경기도 광명시 하안로 60 광명테크노파크 A동 1303, 1407호',
+  tel: '070-8667-1080',
+  fax: '02-6455-4490',
+  email: 'info@samplepcb.co.kr',
+} as const;
+// Remark 마지막 줄(고정 문구) — 단계 승인(프로젝트 문서 stage_review)과 같은 약속.
+export const DEVELOP_QUOTE_APPROVAL_REMARK = '단계별 설계 및 개발 과정은 모두 발주처 승인 후 진행합니다.';
 
 // ── 마일스톤(결제 단위) ────────────────────────────────────────────────────────
 export const DEVELOP_MILESTONE_TRIGGERS = ['on_accept', 'on_delivery', 'on_completion', 'manual'] as const;
@@ -643,12 +693,24 @@ export type DevelopFileMetaType = z.infer<typeof DevelopFileMeta>;
 export const DevelopQuoteItemView = z.object({
   itemId: z.number(),
   seq: z.number(),
-  title: z.string(),
-  description: z.string().nullable(),
-  amount: z.number().int(), // 공급가(원)
-  durationDays: z.number().int().nullable(),
+  category: DevelopQuoteItemCategory,
+  title: z.string(), // 직무(인건비) · 항목(직접비)
+  grade: z.string().nullable(), // 기술등급(인건비, 선택)
+  description: z.string().nullable(), // 담당업무 · 규격
+  unitPrice: z.number().int(),
+  qty: z.number(), // 소수 둘째 자리까지
+  unit: z.string(),
+  amount: z.number().int(), // 공급가(원) = 단가 × 수량
+  durationDays: z.number().int().nullable(), // 옛 항목별 기간 — 새 편집기는 쓰지 않는다
 });
 export type DevelopQuoteItemViewType = z.infer<typeof DevelopQuoteItemView>;
+
+// 관리자 전용 항목 — 내부 원가(원가 단가·업체). 고객 응답·인쇄 시트·엑셀에는 절대 싣지 않는다(2026-11-04, §5.1).
+export const AdminDevelopQuoteItemView = DevelopQuoteItemView.extend({
+  costPrice: z.number().int().nullable(), // 원가 단가 — 원가 금액 = 원가 단가 × 같은 수량
+  vendor: z.string().nullable(), // 업체명(여러 곳이면 함께 적는다)
+});
+export type AdminDevelopQuoteItemViewType = z.infer<typeof AdminDevelopQuoteItemView>;
 
 export const DevelopMilestoneView = z.object({
   milestoneId: z.number(),
@@ -675,6 +737,18 @@ export const DevelopQuoteView = z.object({
   status: DevelopQuoteStatus,
   title: z.string(),
   vatMode: DevelopVatMode,
+  // 산출 내역 — 비율은 견적마다 저장, 가산 금액은 저장 때 계산해 박제한다(규칙이 바뀌어도 나간 견적은 그대로).
+  indirectBp: z.number().int(),
+  overheadBp: z.number().int(),
+  profitBp: z.number().int(),
+  breakdown: z.object({
+    laborSubtotal: z.number().int(),
+    directSubtotal: z.number().int(),
+    indirectAmount: z.number().int(),
+    overheadAmount: z.number().int(),
+    profitAmount: z.number().int(),
+  }),
+  recipientDept: z.string().nullable(), // 견적서 수신 부서(의뢰 연락처엔 없다)
   supplyAmount: z.number().int(),
   vatAmount: z.number().int(),
   totalAmount: z.number().int(),
@@ -697,6 +771,13 @@ export const DevelopQuoteView = z.object({
   poFile: MarketFileMeta.nullable(), // 고객이 수락 때 붙인 발주서
 });
 export type DevelopQuoteViewType = z.infer<typeof DevelopQuoteView>;
+
+// 관리자 견적 — 내부 메모 + 항목 내부 원가.
+export const AdminDevelopQuoteView = DevelopQuoteView.extend({
+  internalNote: z.string().nullable(),
+  items: z.array(AdminDevelopQuoteItemView),
+});
+export type AdminDevelopQuoteViewType = z.infer<typeof AdminDevelopQuoteView>;
 
 // ── 타임라인 이벤트(뷰) ────────────────────────────────────────────────────────
 export const DevelopEventView = z.object({
@@ -918,6 +999,244 @@ export function splitDevelopMilestoneAmounts(totalAmount: number, ratiosBp: read
   return out;
 }
 
+// ── 산출 내역 순수 함수(FE·서버·엑셀 공유) ──────────────────────────────────────
+/** 항목 금액 = 단가 × 수량(소수 둘째 자리). 정수 연산으로 부동소수 오차를 피하고 원 단위 반올림. */
+export function developQuoteItemAmount(unitPrice: number, qty: number): number {
+  const hundredths = Math.round(qty * 100);
+  return Math.round((Math.max(0, Math.round(unitPrice)) * Math.max(0, hundredths)) / 100);
+}
+
+export interface DevelopQuoteRates {
+  indirectBp: number;
+  overheadBp: number;
+  profitBp: number;
+}
+
+export interface DevelopQuoteBreakdown extends DevelopQuoteAmounts {
+  laborSubtotal: number;
+  directSubtotal: number;
+  indirectAmount: number;
+  overheadAmount: number;
+  profitAmount: number;
+}
+
+// 가산 한 행 = floor(앞 합계 × 비율, 천 원 단위). base·bp 가 정수라 곱은 정확하고, 몫이 정수면 나눗셈도 정확하다.
+const developSurcharge = (base: number, bp: number): number => {
+  if (bp <= 0 || base <= 0) return 0;
+  const raw = Math.floor((base * Math.round(bp)) / 10_000);
+  return Math.floor(raw / 1000) * 1000;
+};
+
+/**
+ * 산출 내역 — 인건비·직접비 소계 → 간접비(인건비+직접비) → 제경비(+간접비) → 기업이윤(+제경비) → 공급가 → VAT.
+ * 비율이 모두 0 이면 공급가 = 항목 합계라 옛 견적과 같다. VAT 방식은 가산까지 더한 합에 지금 규칙(computeDevelopQuoteAmounts)을 쓴다.
+ */
+export function computeDevelopQuoteBreakdown(
+  items: readonly { category: DevelopQuoteItemCategoryType; amount: number }[],
+  rates: DevelopQuoteRates,
+  vatMode: DevelopVatModeType,
+): DevelopQuoteBreakdown {
+  const sumOf = (category: DevelopQuoteItemCategoryType): number =>
+    items.filter((it) => it.category === category).reduce((a, it) => a + Math.max(0, Math.round(it.amount)), 0);
+  const laborSubtotal = sumOf('labor');
+  const directSubtotal = sumOf('direct');
+  const base = laborSubtotal + directSubtotal;
+  const indirectAmount = developSurcharge(base, rates.indirectBp);
+  const overheadAmount = developSurcharge(base + indirectAmount, rates.overheadBp);
+  const profitAmount = developSurcharge(base + indirectAmount + overheadAmount, rates.profitBp);
+  const amounts = computeDevelopQuoteAmounts([base + indirectAmount + overheadAmount + profitAmount], vatMode);
+  return { laborSubtotal, directSubtotal, indirectAmount, overheadAmount, profitAmount, ...amounts };
+}
+
+export interface DevelopQuoteMargin {
+  costTotal: number; // 원가를 적은 줄의 원가 금액 합
+  costedRows: number;
+  missingRows: number; // 원가를 안 적은 줄 — 있으면 마진이 실제보다 크게 나온다
+  itemMargin: number; // 원가를 적은 줄의 (금액 − 원가 금액) 합
+  totalMargin: number; // 공급가 − 원가 합계(가산 행은 원가가 없어 전부 마진)
+  marginRate: number | null; // totalMargin / 공급가(공급가 0 이면 null)
+}
+
+/** 내부 원가·마진(관리자 전용) — 원가 금액 = 원가 단가 × 같은 수량(항목 금액과 같은 반올림). */
+export function computeDevelopQuoteMargin(
+  items: readonly { amount: number; qty: number; costPrice: number | null }[],
+  supplyAmount: number,
+): DevelopQuoteMargin {
+  let costTotal = 0;
+  let costedRows = 0;
+  let itemMargin = 0;
+  for (const it of items) {
+    if (it.costPrice === null) continue;
+    const cost = developQuoteItemAmount(it.costPrice, it.qty);
+    costTotal += cost;
+    costedRows += 1;
+    itemMargin += it.amount - cost;
+  }
+  const totalMargin = supplyAmount - costTotal;
+  return {
+    costTotal,
+    costedRows,
+    missingRows: items.length - costedRows,
+    itemMargin,
+    totalMargin,
+    marginRate: supplyAmount > 0 ? totalMargin / supplyAmount : null,
+  };
+}
+
+/** 1500 → '15', 250 → '2.5' (퍼센트 숫자만). */
+export const developBpPercent = (bp: number): string => {
+  const pct = Math.round(bp) / 100;
+  return Number.isInteger(pct) ? String(pct) : pct.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+};
+
+/** 가산 행 문구 — '15% (인건비+직접비)'. */
+export const developQuoteSurchargeText = (kind: DevelopQuoteSurchargeType, bp: number): string =>
+  `${developBpPercent(bp)}% ${DEVELOP_QUOTE_SURCHARGE_BASIS[kind]}`;
+
+/** 수량 표기 — 0.5 → '0.5', 3 → '3'. 단위가 영문이면 한 칸 띄운다('0.5 M/M', '3회'). */
+export function developQuoteQtyText(qty: number, unit: string): string {
+  const n = Math.round(qty * 100) / 100;
+  const num = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '');
+  const u = unit.trim();
+  if (u === '') return num;
+  return /^[A-Za-z]/.test(u) ? `${num} ${u}` : `${num}${u}`;
+}
+
+/** 견적번호 — 의뢰·판에서 만든다(별도 채번 없음). */
+export const developQuoteNo = (requestId: number, version: number): string => `Q${String(requestId)}-v${String(version)}`;
+
+/** 엑셀 파일 이름 — '{제목} 견적서 Q12-v1.xlsx'(참고 견적서 파일 이름 관례). 경로·예약 문자는 지운다(서버 헤더·화면 저장 공용). */
+export function developQuoteXlsxName(q: { title: string; requestId: number; version: number }): string {
+  const title = q.title.replace(/[\\/:*?"<>|\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return `${title === '' ? '' : `${title} `}견적서 ${developQuoteNo(q.requestId, q.version)}.xlsx`;
+}
+
+export interface DevelopQuoteRemark {
+  label: string | null;
+  text: string;
+}
+
+/**
+ * 견적서 Remark — 이미 있는 칸에서 문장을 만든다(인쇄 시트·엑셀 공용). 납기 · 견적 유효기간 · 결제 조건 · 승인 후 진행(고정).
+ * 결제 조건은 마일스톤마다 '명칭 비율%(청구 시점)'.
+ */
+export function developQuoteRemarks(q: {
+  durationDays: number | null;
+  scheduleNote: string | null;
+  validUntil: string;
+  milestones: readonly { title: string; ratioBp: number | null; trigger: DevelopMilestoneTriggerType }[];
+}): DevelopQuoteRemark[] {
+  const note = (q.scheduleNote ?? '').trim();
+  const days = q.durationDays === null ? '' : `착수 후 ${String(q.durationDays)}일`;
+  const delivery = [days, note].filter((s) => s !== '').join(' · ');
+  const payment = q.milestones
+    .map((m) => `${m.title} ${m.ratioBp === null ? '' : `${developBpPercent(m.ratioBp)}%`}(${DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger]})`.replace(' (', '('))
+    .join(', ');
+  return [
+    { label: '납기', text: delivery === '' ? '협의' : delivery },
+    { label: '견적 유효기간', text: `${q.validUntil}까지` },
+    { label: '결제 조건', text: payment === '' ? '협의' : payment },
+    { label: null, text: DEVELOP_QUOTE_APPROVAL_REMARK },
+  ];
+}
+
+// ── 견적서 1쪽 표의 행 — 인쇄 시트(@sp/ui)와 서버 엑셀이 같은 행을 그린다 ─────────────────
+// 순위 = 나타난 구분 순서(인건비 1 · 직접비 2 · 간접비 3 …, 없는 구분은 건너뛴다). 순위 칸은 구분 항목 + 소계 행을,
+// 구분 칸은 항목 행만 묶는다(참고 견적서 병합 그대로). 가산 행은 비율이 0 이면 빠진다.
+export interface DevelopQuoteSheetRecipient {
+  company: string | null;
+  dept: string | null;
+  name: string;
+  phone: string;
+  email: string;
+}
+
+// 인쇄 시트가 받는 견적 — 저장된 견적(DevelopQuoteView)과 관리자 편집기의 미리보기(폼에서 만든 것)가 둘 다 맞춘다.
+export type DevelopQuoteSheetQuote = Pick<
+  DevelopQuoteViewType,
+  | 'title'
+  | 'vatMode'
+  | 'items'
+  | 'breakdown'
+  | 'indirectBp'
+  | 'overheadBp'
+  | 'profitBp'
+  | 'supplyAmount'
+  | 'vatAmount'
+  | 'totalAmount'
+  | 'durationDays'
+  | 'scheduleNote'
+  | 'validUntil'
+  | 'note'
+> & { milestones: readonly { title: string; ratioBp: number | null; trigger: DevelopMilestoneTriggerType }[] };
+
+export type DevelopQuoteSheetRow =
+  | {
+      kind: 'item';
+      rank: number;
+      category: DevelopQuoteItemCategoryType;
+      groupLabel: string;
+      groupFirst: boolean; // 구분의 첫 행 — 순위·구분 칸을 여기서 그린다
+      groupSize: number; // 그 구분의 항목 수
+      title: string;
+      grade: string | null;
+      description: string | null;
+      unitPrice: number;
+      qtyText: string;
+      amount: number;
+    }
+  | { kind: 'subtotal'; category: DevelopQuoteItemCategoryType; label: string; amount: number }
+  | { kind: 'surcharge'; rank: number; surcharge: DevelopQuoteSurchargeType; label: string; text: string; amount: number };
+
+export function developQuoteSheetRows(
+  q: Pick<DevelopQuoteViewType, 'items' | 'breakdown' | 'indirectBp' | 'overheadBp' | 'profitBp'>,
+): DevelopQuoteSheetRow[] {
+  const rows: DevelopQuoteSheetRow[] = [];
+  let rank = 0;
+  for (const category of DEVELOP_QUOTE_ITEM_CATEGORIES) {
+    const items = q.items.filter((it) => it.category === category);
+    if (items.length === 0) continue;
+    rank += 1;
+    const groupLabel = DEVELOP_QUOTE_ITEM_CATEGORY_LABELS[category];
+    items.forEach((it, i) => {
+      rows.push({
+        kind: 'item',
+        rank,
+        category,
+        groupLabel,
+        groupFirst: i === 0,
+        groupSize: items.length,
+        title: it.title,
+        grade: it.grade,
+        description: it.description,
+        unitPrice: it.unitPrice,
+        qtyText: developQuoteQtyText(it.qty, it.unit),
+        amount: it.amount,
+      });
+    });
+    const amount = category === 'labor' ? q.breakdown.laborSubtotal : q.breakdown.directSubtotal;
+    rows.push({ kind: 'subtotal', category, label: `${groupLabel} 소계`, amount });
+  }
+  const surcharges: { surcharge: DevelopQuoteSurchargeType; bp: number; amount: number }[] = [
+    { surcharge: 'indirect', bp: q.indirectBp, amount: q.breakdown.indirectAmount },
+    { surcharge: 'overhead', bp: q.overheadBp, amount: q.breakdown.overheadAmount },
+    { surcharge: 'profit', bp: q.profitBp, amount: q.breakdown.profitAmount },
+  ];
+  for (const s of surcharges) {
+    if (s.bp <= 0) continue;
+    rank += 1;
+    rows.push({
+      kind: 'surcharge',
+      rank,
+      surcharge: s.surcharge,
+      label: DEVELOP_QUOTE_SURCHARGE_LABELS[s.surcharge],
+      text: developQuoteSurchargeText(s.surcharge, s.bp),
+      amount: s.amount,
+    });
+  }
+  return rows;
+}
+
 // ── 관리자 ───────────────────────────────────────────────────────────────────
 export const DEVELOP_ADMIN_TABS = [
   'all',
@@ -1085,7 +1404,7 @@ export const AdminDevelopRequestDetail = AdminDevelopRequestListItem.extend({
   files: z.array(DevelopFileMeta),
   review: AdminDevelopReviewState,
   diagram: AdminDevelopDiagramState,
-  quotes: z.array(DevelopQuoteView.extend({ internalNote: z.string().nullable() })),
+  quotes: z.array(AdminDevelopQuoteView),
   events: z.array(DevelopEventView),
   documents: z.array(AdminDevelopDocumentView), // 프로젝트 문서(§13) — draft·이전 버전·메일 확인본 포함
   progress: DevelopProgressView, // 전 업무 행
@@ -1149,12 +1468,44 @@ export const AdminDevelopEventPayload = z.object({
 });
 export type AdminDevelopEventPayloadType = z.infer<typeof AdminDevelopEventPayload>;
 
-export const DevelopQuoteItemInput = z.object({
-  title: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(2000).nullable().default(null),
-  amount: z.number().int().min(0).max(2_000_000_000),
-  durationDays: z.number().int().positive().max(3650).nullable().default(null),
+// 항목 입력 — 금액은 서버가 단가 × 수량으로 다시 계산한다. unitPrice 가 없으면 amount 를 단가로(수량 1) 읽는다
+// (붙여넣기·옛 호출 호환). 둘 다 없으면 400.
+export const DevelopQuoteItemInput = z
+  .object({
+    category: DevelopQuoteItemCategory.default('labor'),
+    title: z.string().trim().min(1).max(200),
+    grade: z.string().trim().max(50).nullable().default(null),
+    description: z.string().trim().max(2000).nullable().default(null),
+    unitPrice: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX).optional(),
+    qty: z
+      .number()
+      .positive()
+      .max(DEVELOP_QUOTE_QTY_MAX)
+      .refine((n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6, { message: '수량은 소수 둘째 자리까지입니다' })
+      .default(1),
+    unit: z.string().trim().min(1).max(20).default('식'),
+    amount: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX).optional(),
+    durationDays: z.number().int().positive().max(3650).nullable().default(null),
+    // 내부 원가(관리자 전용) — 비우면 원가 미입력 줄.
+    costPrice: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX).nullable().default(null),
+    vendor: z.string().trim().max(100).nullable().default(null),
+  })
+  .refine((it) => it.unitPrice !== undefined || it.amount !== undefined, { message: '단가가 필요합니다', path: ['unitPrice'] });
+
+// 발송 뒤에도 내부 원가만 고친다(고객 금액은 그대로 — 수락 뒤 들어온 실제 매입가 반영). 항목 id 는 그 견적의 것이어야 한다.
+export const AdminDevelopQuoteCostsBody = z.object({
+  items: z
+    .array(
+      z.object({
+        itemId: z.number().int().positive(),
+        costPrice: z.number().int().min(0).max(DEVELOP_QUOTE_AMOUNT_MAX).nullable(),
+        vendor: z.string().trim().max(100).nullable(),
+      }),
+    )
+    .min(1)
+    .max(100),
 });
+export type AdminDevelopQuoteCostsBodyType = z.infer<typeof AdminDevelopQuoteCostsBody>;
 export type DevelopQuoteItemInputType = z.infer<typeof DevelopQuoteItemInput>;
 
 export const DevelopMilestoneInput = z.object({
@@ -1172,6 +1523,10 @@ export const AdminDevelopQuoteBody = z
     kind: DevelopQuoteKind.default('initial'),
     title: z.string().trim().min(1).max(200),
     vatMode: DevelopVatMode.default('separate'),
+    indirectBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP).default(0),
+    overheadBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP).default(0),
+    profitBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP).default(0),
+    recipientDept: z.string().trim().max(100).nullable().default(null),
     durationDays: z.number().int().positive().max(3650).nullable().default(null),
     scheduleNote: z.string().trim().max(4000).nullable().default(null),
     deliverables: z.array(z.string().trim().min(1).max(200)).max(50).default([]),
@@ -1198,7 +1553,7 @@ export type AdminDevelopQuoteBodyType = z.infer<typeof AdminDevelopQuoteBody>;
 
 export const AdminDevelopQuoteResponse = z.object({
   result: z.literal(true),
-  data: DevelopQuoteView.extend({ internalNote: z.string().nullable() }),
+  data: AdminDevelopQuoteView,
 });
 export type AdminDevelopQuoteResponseType = z.infer<typeof AdminDevelopQuoteResponse>;
 
@@ -1222,6 +1577,10 @@ export const AdminDevelopSettings = z.object({
   defaultReviewDays: z.number().int().min(1).max(90),
   defaultValidDays: z.number().int().min(1).max(365),
   defaultVatMode: DevelopVatMode,
+  // 견적 산출 내역 가산율 기본값(bp) — 새 견적이 복사한다(참고 견적서 표기: 간접비 15% · 일반관리비 5% · 기업이윤 10%).
+  defaultIndirectBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP),
+  defaultOverheadBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP),
+  defaultProfitBp: z.number().int().min(0).max(DEVELOP_QUOTE_RATE_MAX_BP),
   defaultMilestones: z.array(DevelopMilestonePreset).min(1).max(10),
   notifyEmails: z.array(z.string().trim().email()).max(20),
   aiAutoDraft: z.boolean(),
@@ -1245,10 +1604,11 @@ export const DEVELOP_DEFAULT_TERMS = [
   '3. 개발 범위·사양의 변경은 추가 견적서로 합의한 뒤 진행합니다.',
   '4. 착수 후 의뢰자 사유로 취소하는 경우 착수금은 반환되지 않으며, 진행분에 대한 비용이 정산될 수 있습니다.',
   '5. 검수 기간 안에 의견이 없으면 납품이 확정된 것으로 봅니다.',
-  '6. PCB 제작·부품 구매·인증 시험 등 실비는 본 견적에 포함되지 않으며 별도 안내합니다.',
+  '6. 견적서 직접비에 적지 않은 PCB 제작·부품 구매·인증 시험 등 실비는 본 견적에 포함되지 않으며 별도 안내합니다.',
 ].join('\n');
 
-export const DEVELOP_DEFAULT_EXCLUSIONS = 'PCB 제작비 · 부품 구매비 · SMT/조립비 · 인증(KC·CE 등) 시험비 · 양산 비용은 별도이며, 당사 PCB/부품 주문으로 진행할 수 있습니다.';
+// 2026-11-04 — PCB 제작·재료비·SMT 를 견적서 직접비로 넣을 수 있게 되어 '별도 실비'는 직접비에 적지 않은 것만 안내한다.
+export const DEVELOP_DEFAULT_EXCLUSIONS = '견적서 직접비에 적지 않은 PCB 제작비 · 부품 구매비 · SMT/조립비 · 인증(KC·CE 등) 시험비 · 양산 비용은 별도이며, 당사 PCB/부품 주문으로 진행할 수 있습니다.';
 
 // ── 검토서 버전 원장(docs/DEVELOP_FLOW.md §6.2) ─────────────────────────────────
 // 3층(초안·작업본·공개본)은 현재 포인터, 원장은 이력. AI 초안 완성·관리자 저장·공개의 세 순간에 한 판씩.

@@ -45,6 +45,10 @@ const warrantyDays = ref<NumInput>('0');
 const reviewDays = ref<NumInput>('7');
 const validDays = ref<NumInput>('30');
 const vatMode = ref<DevelopVatModeType>('separate');
+// 견적 산출 내역 가산율 기본값(%, 저장은 bp) — 새 견적이 복사한다(docs/DEVELOP_FLOW.md §5.1).
+const indirectPct = ref<NumInput>('15');
+const overheadPct = ref<NumInput>('5');
+const profitPct = ref<NumInput>('10');
 const milestones = ref<MilestoneRow[]>([]);
 const notifyEmails = ref('');
 const aiAutoDraft = ref(false);
@@ -62,6 +66,9 @@ watch(
     reviewDays.value = String(s.defaultReviewDays);
     validDays.value = String(s.defaultValidDays);
     vatMode.value = s.defaultVatMode;
+    indirectPct.value = String(s.defaultIndirectBp / 100);
+    overheadPct.value = String(s.defaultOverheadBp / 100);
+    profitPct.value = String(s.defaultProfitBp / 100);
     milestones.value = s.defaultMilestones.map((m) => ({
       title: m.title,
       percent: String(m.ratioBp / 100),
@@ -75,6 +82,8 @@ watch(
 );
 
 const ratioBpOf = (row: MilestoneRow): number => Math.round(Number(row.percent) * 100);
+const rateBpOf = (pct: NumInput): number => (String(pct).trim() === '' ? 0 : Math.round(Number(pct) * 100));
+const RATE_MAX_BP = 5000;
 const ratioSum = computed(() => milestones.value.reduce((n, m) => n + ratioBpOf(m), 0));
 const emailList = computed(() =>
   notifyEmails.value
@@ -94,6 +103,9 @@ const issues = computed<string[]>(() => {
   }
   if (milestones.value.length > 0 && ratioSum.value !== 10_000) list.push(t('admin.develop.settings.errRatioSum'));
   if (badEmails.value.length > 0) list.push(t('admin.develop.settings.errEmail', { emails: badEmails.value.join(', ') }));
+  if ([indirectPct.value, overheadPct.value, profitPct.value].some((p) => !Number.isFinite(rateBpOf(p)) || rateBpOf(p) < 0 || rateBpOf(p) > RATE_MAX_BP)) {
+    list.push(t('admin.develop.settings.errRate'));
+  }
   return list;
 });
 
@@ -127,6 +139,9 @@ async function onSubmit(): Promise<void> {
       defaultReviewDays: Number(reviewDays.value),
       defaultValidDays: Number(validDays.value),
       defaultVatMode: vatMode.value,
+      defaultIndirectBp: rateBpOf(indirectPct.value),
+      defaultOverheadBp: rateBpOf(overheadPct.value),
+      defaultProfitBp: rateBpOf(profitPct.value),
       defaultMilestones: milestones.value.map((m) => ({
         title: m.title.trim(),
         ratioBp: ratioBpOf(m),
@@ -186,6 +201,21 @@ async function onSubmit(): Promise<void> {
           </NativeSelect>
         </Field>
       </div>
+      <div class="grid gap-4 sm:grid-cols-3">
+        <Field>
+          <FieldLabel for="develop-settings-indirect">{{ t('admin.develop.settings.rateIndirect') }}</FieldLabel>
+          <Input id="develop-settings-indirect" v-model="indirectPct" inputmode="decimal" class="text-right tabular-nums" />
+        </Field>
+        <Field>
+          <FieldLabel for="develop-settings-overhead">{{ t('admin.develop.settings.rateOverhead') }}</FieldLabel>
+          <Input id="develop-settings-overhead" v-model="overheadPct" inputmode="decimal" class="text-right tabular-nums" />
+        </Field>
+        <Field>
+          <FieldLabel for="develop-settings-profit">{{ t('admin.develop.settings.rateProfit') }}</FieldLabel>
+          <Input id="develop-settings-profit" v-model="profitPct" inputmode="decimal" class="text-right tabular-nums" />
+        </Field>
+      </div>
+      <FieldDescription>{{ t('admin.develop.settings.ratesHint') }}</FieldDescription>
     </SectionCard>
 
     <!-- 기본 마일스톤 -->

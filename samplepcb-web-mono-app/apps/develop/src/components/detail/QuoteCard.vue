@@ -6,8 +6,14 @@ import {
   DEVELOP_QUOTE_KIND_LABELS,
   DEVELOP_QUOTE_STATUS_LABELS,
   DEVELOP_VAT_MODE_LABELS,
+  developBpPercent,
+  developQuoteSheetRows,
+  developQuoteXlsxName,
 } from '@sp/api-contract';
 import type { DevelopMilestoneViewType, DevelopQuoteStatusType, DevelopQuoteViewType } from '@sp/api-contract';
+import { developRequestPath } from '../../api/useDevelopRequests';
+import { downloadAuthedFile } from '../../lib/download';
+import { errorMessage } from '../../lib/error-msg';
 import { dateShort, won } from '../../lib/format';
 import iconQuote from '../../assets/detail/quote-doc.svg';
 import checkboxEmpty from '../../assets/detail/checkbox.svg';
@@ -56,11 +62,52 @@ const statusTone: Record<DevelopQuoteStatusType, string> = {
 
 const printPath = computed(() => `/develop/requests/${String(props.requestId)}/quotes/${String(q.value.quoteId)}/print`);
 
-// 항목표는 시안처럼 두 열로 나눠 싣는다(앞 절반 · 뒤 절반).
+// 항목표는 시안처럼 두 열로 나눠 싣는다(앞 절반 · 뒤 절반). 줄은 견적서 1쪽과 같은 산출 내역(계약 developQuoteSheetRows)에서
+// 항목·가산 행만 뽑는다 — 항목은 '구분 · 기술등급 · 담당업무'와 '단가 × 수량', 가산은 '15% (인건비+직접비)'.
+interface CardLine {
+  key: string;
+  title: string;
+  sub: string;
+  meta: string;
+  amount: number;
+}
+const lines = computed<CardLine[]>(() =>
+  developQuoteSheetRows(q.value).flatMap((row, i): CardLine[] => {
+    if (row.kind === 'item') {
+      return [
+        {
+          key: `i${String(i)}`,
+          title: row.title,
+          sub: [row.groupLabel, row.grade, row.description].filter((v): v is string => v !== null && v !== '').join(' · '),
+          meta: `${won(row.unitPrice)} × ${row.qtyText}`,
+          amount: row.amount,
+        },
+      ];
+    }
+    if (row.kind === 'surcharge') return [{ key: `s${String(i)}`, title: row.label, sub: row.text, meta: '', amount: row.amount }];
+    return [];
+  }),
+);
 const itemColumns = computed(() => {
-  const half = Math.ceil(q.value.items.length / 2);
-  return [q.value.items.slice(0, half), q.value.items.slice(half)].filter((c) => c.length > 0);
+  const half = Math.ceil(lines.value.length / 2);
+  return [lines.value.slice(0, half), lines.value.slice(half)].filter((c) => c.length > 0);
 });
+
+// 엑셀 — 서버가 견적서 1쪽과 같은 표로 만든다(Authorization 이 필요해 blob 으로 받는다).
+const xlsxBusy = ref(false);
+const xlsxError = ref('');
+async function downloadXlsx(): Promise<void> {
+  if (xlsxBusy.value) return;
+  xlsxBusy.value = true;
+  xlsxError.value = '';
+  try {
+    await downloadAuthedFile(`${developRequestPath(props.requestId)}/quotes/${String(q.value.quoteId)}/xlsx`, developQuoteXlsxName(q.value));
+  } catch (e) {
+    xlsxError.value = errorMessage(e, '엑셀을 내려받지 못했습니다.');
+  } finally {
+    xlsxBusy.value = false;
+  }
+}
 
 // 조건 목록 — 값이 있는 것만
 const terms = computed(() => {
@@ -131,7 +178,16 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
         >
           인쇄용 보기
         </a>
+        <button
+          type="button"
+          class="flex h-[34px] items-center rounded-[6px] border border-[#d9d9d9] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad] disabled:opacity-50"
+          :disabled="xlsxBusy"
+          @click="downloadXlsx"
+        >
+          {{ xlsxBusy ? '내려받는 중…' : '엑셀' }}
+        </button>
       </div>
+      <p v-if="xlsxError !== ''" role="alert" class="w-full text-[14px] font-semibold text-red-700">{{ xlsxError }}</p>
     </header>
 
     <!-- 항목표(2열) -->
@@ -141,13 +197,13 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
           <span class="min-w-0 flex-1">항목</span>
           <span class="w-[144px] shrink-0">금액</span>
         </div>
-        <div v-for="item in col" :key="item.itemId" class="flex items-start gap-[14px] px-[10px]">
+        <div v-for="line in col" :key="line.key" class="flex items-start gap-[14px] px-[10px]">
           <div class="min-w-0 flex-1">
-            <p class="text-[15px] font-bold text-black">{{ item.title }}</p>
-            <p v-if="item.description !== null" class="whitespace-pre-wrap text-[14px] leading-[1.6] text-[#666]">{{ item.description }}</p>
-            <p v-if="item.durationDays !== null" class="text-[14px] leading-[1.6] text-[#666]">{{ item.durationDays }}일</p>
+            <p class="text-[15px] font-bold text-black">{{ line.title }}</p>
+            <p v-if="line.sub !== ''" class="whitespace-pre-wrap text-[14px] leading-[1.6] text-[#666]">{{ line.sub }}</p>
+            <p v-if="line.meta !== ''" class="text-[14px] tabular-nums leading-[1.6] text-[#666]">{{ line.meta }}</p>
           </div>
-          <span class="w-[144px] shrink-0 text-[15px] tabular-nums text-[#141e34]">{{ won(item.amount) }}</span>
+          <span class="w-[144px] shrink-0 text-[15px] tabular-nums text-[#141e34]">{{ won(line.amount) }}</span>
         </div>
       </div>
     </div>
@@ -190,7 +246,7 @@ const amountParts = (n: number): string => n.toLocaleString('ko-KR');
               {{ m.title }}
               <span v-if="m.unlocksDeliverables" class="ml-[6px] rounded-[37px] bg-[#f5f6f8] px-[8px] py-[2px] text-[12px] font-semibold text-[#475569]">산출물 해제</span>
             </span>
-            <span class="w-[60px] shrink-0 text-right tabular-nums">{{ m.ratioBp === null ? '—' : `${(m.ratioBp / 100).toFixed(0)}%` }}</span>
+            <span class="w-[60px] shrink-0 text-right tabular-nums">{{ m.ratioBp === null ? '—' : `${developBpPercent(m.ratioBp)}%` }}</span>
             <span class="w-[130px] shrink-0 text-right tabular-nums">{{ won(m.amount) }}</span>
             <span class="w-[150px] shrink-0 text-[14px]">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger] }}</span>
             <span class="flex w-[150px] shrink-0 flex-col items-end gap-[2px]">

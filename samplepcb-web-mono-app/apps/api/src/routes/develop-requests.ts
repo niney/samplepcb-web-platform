@@ -19,6 +19,7 @@ import {
   DEVELOP_NO_PRODUCTION,
   DEVELOP_BUDGET_RANGE_LABELS,
   DEVELOP_ENDED_STATUSES,
+  DEVELOP_QUOTE_DEFAULT_UNIT,
   DEVELOP_REGISTRY,
   applyDevelopFollowupAnswers,
   computeDevelopQuoteAmounts,
@@ -48,6 +49,7 @@ import {
   splitDevelopMilestoneAmounts,
 } from '@sp/api-contract';
 import type {
+  AdminDevelopQuoteViewType,
   DevelopAiQuestionsType,
   DevelopMilestoneViewType,
   DevelopQuoteViewType,
@@ -89,6 +91,7 @@ import {
   transitionDevelopStatus,
 } from '../lib/develop';
 import { startDevelopAiDrafts } from '../lib/develop-ai';
+import { XLSX_CONTENT_TYPE, developQuoteSheetData, developQuoteXlsxDisposition, renderDevelopQuoteXlsx } from '../lib/develop-quote-xlsx';
 import {
   REF_DEVELOP_DOCUMENT,
   asDocType,
@@ -197,6 +200,17 @@ export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusTy
   status: asQuoteStatus(q.status),
   title: q.title,
   vatMode: asVatMode(q.vatMode),
+  indirectBp: q.indirectBp,
+  overheadBp: q.overheadBp,
+  profitBp: q.profitBp,
+  breakdown: {
+    laborSubtotal: q.items.filter((it) => it.category !== 'direct').reduce((a, it) => a + it.amount, 0),
+    directSubtotal: q.items.filter((it) => it.category === 'direct').reduce((a, it) => a + it.amount, 0),
+    indirectAmount: q.indirectAmount,
+    overheadAmount: q.overheadAmount,
+    profitAmount: q.profitAmount,
+  },
+  recipientDept: q.recipientDept,
   supplyAmount: q.supplyAmount,
   vatAmount: q.vatAmount,
   totalAmount: q.totalAmount,
@@ -220,8 +234,13 @@ export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusTy
     .map((it) => ({
       itemId: Number(it.id),
       seq: it.seq,
+      category: it.category === 'direct' ? ('direct' as const) : ('labor' as const),
       title: it.title,
+      grade: it.grade,
       description: it.description,
+      unitPrice: it.unitPrice,
+      qty: Number(it.qty),
+      unit: it.unit,
       amount: it.amount,
       durationDays: it.durationDays,
     })),
@@ -231,6 +250,25 @@ export const toQuoteView = (q: QuoteWithChildren, status: DevelopRequestStatusTy
     .map((m) => toMilestoneView(m, status, opened)),
   poFile: poFile === null ? null : toDevelopFileMeta(poFile),
 });
+
+// 관리자 견적 — 고객 뷰 + 내부 메모 + 항목 내부 원가(§5.1). 고객 뷰(toQuoteView)는 원가를 모른다 — 고객 응답·엑셀은 그쪽만 쓴다.
+export const toAdminQuoteView = (
+  q: QuoteWithChildren,
+  status: DevelopRequestStatusType,
+  poFile: SpFile | null,
+  opened: ReadonlySet<number> = new Set(),
+): AdminDevelopQuoteViewType => {
+  const view = toQuoteView(q, status, poFile, opened);
+  const byId = new Map(q.items.map((it) => [Number(it.id), it]));
+  return {
+    ...view,
+    internalNote: q.internalNote,
+    items: view.items.map((it) => {
+      const row = byId.get(it.itemId);
+      return { ...it, costPrice: row?.costPrice ?? null, vendor: row?.vendor ?? null };
+    }),
+  };
+};
 
 // 고객이 지금 할 일 — 견적 검토 > 결제 > 검수 > 확인 요청 답변.
 const nextActionOf = (
@@ -924,6 +962,28 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
     },
   );
 
+  // ── GET /develop/requests/:id/quotes/:qid/xlsx — 견적서 엑셀(소유자, 발송된 견적만 — 상세 응답과 같은 범위) ───
+  fastify.get(
+    '/develop/requests/:id/quotes/:qid/xlsx',
+    { schema: { params: RequestQuoteParams }, preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const found = await loadOwned(request.params.id, request.user.mbId);
+      if (!found.ok) return reply.status(found.status).send({ result: false, error: found.error });
+      const r = found.request;
+      const q = await prisma.spDevelopQuote.findFirst({
+        where: { id: BigInt(request.params.qid), requestId: r.id, status: { not: 'draft' } },
+        include: { items: true, milestones: true },
+      });
+      if (q === null) return reply.status(404).send({ result: false, error: 'NOT_FOUND' });
+      const view = toQuoteView(q, asDevelopStatus(r.status), null);
+      const buffer = await renderDevelopQuoteXlsx(developQuoteSheetData(view, r));
+      return reply
+        .header('content-type', XLSX_CONTENT_TYPE)
+        .header('content-disposition', developQuoteXlsxDisposition(view))
+        .send(buffer);
+    },
+  );
+
   // ── POST /develop/requests/:id/quotes/:qid/accept — 견적 수락(조건 동의 기록 = 계약 갈음) ───
   // sent ∧ 유효기간 안 → accepted(시각·IP·이름) · 마일스톤 draft→pending · 첫/수정 견적이면 의뢰 quoted→accepted + reviewDays 복사.
   // 추가 견적(change)은 의뢰 상태를 바꾸지 않는다(이미 진행 중).
@@ -1326,6 +1386,9 @@ async function createChangeQuoteDraft(r: SpDevelopRequest, doc: SpDevelopDocumen
         kind: 'change',
         title: `추가 견적 — ${docNo} 변경요청`,
         vatMode: settings.defaultVatMode,
+        indirectBp: settings.defaultIndirectBp,
+        overheadBp: settings.defaultOverheadBp,
+        profitBp: settings.defaultProfitBp,
         supplyAmount: amounts.supplyAmount,
         vatAmount: amounts.vatAmount,
         totalAmount: amounts.totalAmount,
@@ -1340,7 +1403,18 @@ async function createChangeQuoteDraft(r: SpDevelopRequest, doc: SpDevelopDocumen
       },
     });
     await tx.spDevelopQuoteItem.create({
-      data: { quoteId: q.id, seq: 1, title: change === '' ? '변경 작업' : `변경 작업 — ${change.slice(0, 120)}`, description: null, amount: 0, durationDays: null },
+      data: {
+        quoteId: q.id,
+        seq: 1,
+        category: 'labor',
+        title: change === '' ? '변경 작업' : `변경 작업 — ${change.slice(0, 120)}`,
+        description: null,
+        unitPrice: 0,
+        qty: 1,
+        unit: DEVELOP_QUOTE_DEFAULT_UNIT.labor,
+        amount: 0,
+        durationDays: null,
+      },
     });
     await tx.spDevelopMilestone.createMany({
       data: settings.defaultMilestones.map((m, i) => ({

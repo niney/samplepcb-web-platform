@@ -11,10 +11,10 @@ import {
   parseDevelopQuoteLines,
 } from '@sp/api-contract';
 import type {
+  AdminDevelopQuoteViewType,
   AdminDevelopSettingsType,
   DevReviewScheduleType,
   DevelopQuoteKindType,
-  DevelopQuoteViewType,
 } from '@sp/api-contract';
 import { apiErrorMessage } from '@sp/ui';
 import {
@@ -42,7 +42,7 @@ import {
 // 발송 버튼은 저장부터 하고(내용이 화면과 어긋나지 않게) 인라인 확인을 한 번 거친다.
 const props = defineProps<{
   requestId: number;
-  quote: (DevelopQuoteViewType & { internalNote: string | null }) | null;
+  quote: AdminDevelopQuoteViewType | null;
   settings: AdminDevelopSettingsType;
   initialKind: DevelopQuoteKindType;
   allowedKinds: readonly DevelopQuoteKindType[];
@@ -96,6 +96,7 @@ const errorCodes = computed(() => ({
   QUOTE_NOT_OPEN: t('admin.develop.quote.errNotOpen'),
   QUOTE_EMPTY: t('admin.develop.quote.errEmpty'),
   INVALID_TRANSITION: t('admin.develop.quote.errClosed'),
+  AMOUNT_TOO_LARGE: t('admin.develop.quote.errTooLarge'),
 }));
 
 // ── 항목 편집 ────────────────────────────────────────────────────────────────
@@ -122,14 +123,14 @@ const applyPaste = (): void => {
     pasteNote.value = t('admin.develop.quote.pasteEmpty');
     return;
   }
-  const kept = form.value.items.filter((it) => it.title.trim() !== '' || it.amount.trim() !== '');
+  const kept = form.value.items.filter((it) => it.title.trim() !== '' || it.unitPrice.trim() !== '');
   form.value.items = [
     ...kept,
     ...parsed.items.map((it) => ({
+      ...emptyQuoteItemRow('labor'),
       title: it.title,
-      description: '',
-      amount: it.amount.toLocaleString('ko-KR'),
-      durationDays: '',
+      unitPrice: it.amount.toLocaleString('ko-KR'),
+      unit: '식',
     })),
   ].slice(0, DEVELOP_QUOTE_LIMITS.items);
   pasteText.value = '';
@@ -379,12 +380,12 @@ async function onDeleteConfirm(): Promise<void> {
             class="h-9 min-w-40 flex-1 rounded-md border border-gray-300 px-3 text-sm"
           >
           <input
-            v-model="it.amount"
+            v-model="it.unitPrice"
             type="text"
             inputmode="numeric"
-            :placeholder="t('admin.develop.quote.itemAmount')"
+            :placeholder="t('admin.develop.quote.itemUnitPrice')"
             class="h-9 w-36 rounded-md border border-gray-300 px-3 text-right text-sm"
-            @blur="it.amount = formatAmountInput(it.amount)"
+            @blur="it.unitPrice = formatAmountInput(it.unitPrice)"
           >
           <input
             v-model="it.durationDays"

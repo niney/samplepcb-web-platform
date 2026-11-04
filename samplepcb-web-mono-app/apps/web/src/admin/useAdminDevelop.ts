@@ -15,8 +15,10 @@ import {
   DevelopOkResponse,
   DevelopRequestStatusResponse,
   apiRoutes,
+  developQuoteXlsxName,
 } from '@sp/api-contract';
 import type {
+  AdminDevelopQuoteCostsBodyType,
   AdminDevelopDocumentCreateBodyType,
   AdminDevelopDocumentPatchBodyType,
   AdminDevelopDocumentSendBodyType,
@@ -32,7 +34,7 @@ import type {
   DevelopTaskInputType,
   MarketDevReviewType,
 } from '@sp/api-contract';
-import { apiGet, apiSend, apiSendForm } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendForm } from '@sp/shared';
 
 // 개발의뢰 관리(/admin/develop/*) 서버 상태 훅 — 워크큐·전면 상세·AI 산출물·타임라인·설정.
 // 계약은 @sp/api-contract(develop.ts), 호출은 @sp/shared(마켓 관리 훅 관례 그대로).
@@ -321,6 +323,18 @@ export function useAdminDevelopQuoteSend() {
   });
 }
 
+// 내부 원가만 고친다(모든 상태, docs/DEVELOP_FLOW.md §5.1) — 고객 금액은 그대로.
+export function useAdminDevelopQuoteCosts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, body }: { quoteId: number; body: AdminDevelopQuoteCostsBodyType }) =>
+      apiSend('PATCH', `${quoteBase}/${String(quoteId)}/costs`, body, AdminDevelopQuoteResponse),
+    onSuccess: () => {
+      invalidateDevelop(qc);
+    },
+  });
+}
+
 export function useAdminDevelopQuoteWithdraw() {
   const qc = useQueryClient();
   return useMutation({
@@ -492,4 +506,21 @@ export function useSaveAdminDevelopSettings() {
       invalidateDevelop(qc);
     },
   });
+}
+
+// 견적서 엑셀(docs/DEVELOP_FLOW.md §5.1) — 관리자 라우트는 작성 중 초안도 받는다(발송 전 확인). Bearer 필요라
+// <a href> 대신 blob 으로 받아 저장한다. 파일 이름은 서버 헤더와 같은 계약 developQuoteXlsxName.
+export async function downloadAdminDevelopQuoteXlsx(target: { quoteId: number; title: string; requestId: number; version: number }): Promise<void> {
+  const blob = await apiGetBlob(`${quoteBase}/${String(target.quoteId)}/xlsx`);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = developQuoteXlsxName(target);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

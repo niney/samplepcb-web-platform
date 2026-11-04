@@ -21,8 +21,9 @@
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-customer-journey
 // 사전 조건: sp-node(3333)·nginx(local-web)·sp-develop(5177)·Mailpit. 관리자 화면(sp-vue)은 필요 없다.
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { API_URL, RUN, closeBrowser, disconnectPrisma, getPrisma, mailpitMessage, mailpitSearch, newSession, signJwt } from '../helpers';
+import { API_URL, RUN, closeBrowser, disconnectPrisma, getPrisma, mailpitMessage, mailpitSearch, newSession, signJwt, snap, xlsxText } from '../helpers';
 import type { E2eSession } from '../helpers';
 import { developAdminIdentity } from '../helpers/develop-admin';
 
@@ -348,8 +349,51 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await page.getByText('거절', { exact: true }).count()).toBe(0);
     expect(await page.getByText('수정 요청', { exact: true }).count()).toBe(1);
 
-    const q2 = ok(await admin.post(`/api/admin/develop/requests/${String(rid)}/quotes`, quoteBody('revision', '2차 견적(Android 우선)')), '견적 v2 초안');
+    // v2 = 산출 내역 견적(§5.1) — 인건비 단가 × 개월 + 직접비 + 가산율. 인건비 7,000,000 × 0.5 + 직접비 1,300,000 × 3회 = 7,400,000
+    // → 간접비 15% 1,110,000 → 제경비 5%(8,510,000 × 5% = 425,500) 425,000 → 이윤 10%(8,935,000 × 10% = 893,500) 893,000 → 공급가 9,828,000
+    const q2 = ok(
+      await admin.post(`/api/admin/develop/requests/${String(rid)}/quotes`, {
+        ...quoteBody('revision', '2차 견적(Android 우선)'),
+        indirectBp: 1500,
+        overheadBp: 500,
+        profitBp: 1000,
+        recipientDept: '연구소',
+        note: '함체는 사급 지원',
+        items: [
+          { category: 'labor', title: 'PM', grade: '특급', description: '시스템 설계', unitPrice: 7_000_000, qty: 0.5, unit: '개월' },
+          { category: 'direct', title: 'PCB 제작', description: '4층', unitPrice: 1_300_000, qty: 3, unit: '회' },
+        ],
+      }),
+      '견적 v2 초안(산출 내역)',
+    );
     ok(await admin.post(`/api/admin/develop/quotes/${String(q2.quoteId)}/send`), '견적 v2 발송');
+    await openTab('#quotes', '3. 견적서');
+    await page.getByText('2차 견적(Android 우선)').waitFor();
+    // 카드 — 산출 내역 줄(구분 · 등급 · 담당업무 / 단가 × 수량 / 가산)
+    const v2card = page.locator('article', { hasText: '2차 견적(Android 우선)' });
+    expect(await v2card.getByText('인건비 · 특급 · 시스템 설계', { exact: true }).count()).toBe(1);
+    expect(await v2card.getByText('7,000,000원 × 0.5개월', { exact: true }).count()).toBe(1);
+    expect(await v2card.getByText('15% (인건비+직접비)', { exact: true }).count()).toBe(1);
+    // 엑셀 — 카드 버튼(Authorization 이 필요한 blob 저장). 서버가 1쪽과 같은 표로 만든다.
+    const downloading = page.waitForEvent('download');
+    await v2card.getByRole('button', { name: '엑셀', exact: true }).click();
+    const file = await downloading;
+    expect(file.suggestedFilename(), '파일 이름').toBe(`2차 견적(Android 우선) 견적서 Q${String(rid)}-v${String(q2.version)}.xlsx`);
+    const sheetText = xlsxText(readFileSync(await file.path()));
+    for (const text of ['견    적    서', '인건비 소계', '15% (인건비+직접비)', '0.5개월', '함체는 사급 지원', '박승한 상무', '연구소']) {
+      expect(sheetText, `엑셀: ${text}`).toContain(text);
+    }
+    // 인쇄용 보기 — 1쪽 견적서(공용 시트) + 별지
+    await page.goto(`/develop/requests/${String(rid)}/quotes/${String(q2.quoteId)}/print?_t=${String(Date.now())}`);
+    const printSheet = page.getByTestId('develop-quote-sheet');
+    await printSheet.waitFor();
+    expect(await printSheet.getByTestId('develop-quote-no').textContent()).toBe(`Q${String(rid)}-v${String(q2.version)}`);
+    expect(await printSheet.getByTestId('develop-quote-supply').textContent()).toBe('9,828,000');
+    expect(await printSheet.getByTestId('develop-quote-total').textContent()).toBe('10,810,800');
+    expect(await printSheet.getByText('3회', { exact: true }).count()).toBe(1);
+    expect(await page.getByRole('heading', { name: '견적서 별지' }).count()).toBe(1);
+    expect(await page.getByRole('button', { name: '엑셀 내려받기' }).count()).toBe(1);
+    await snap(page, 'develop-quote-print');
     await openTab('#quotes', '3. 견적서');
     await page.getByText('2차 견적(Android 우선)').waitFor();
     const accept = page.getByRole('button', { name: '견적 수락' });

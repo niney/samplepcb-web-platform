@@ -76,7 +76,7 @@ import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
 import { collectMultipart, toAnswers, toDevDiagram, toDevReview, toTools } from '../lib/market';
 import { prisma } from '../lib/prisma';
-import { buildDevelopRequestDetail, customerEmailOf, toQuoteView } from './develop-requests';
+import { buildDevelopRequestDetail, customerEmailOf, toAdminQuoteView } from './develop-requests';
 
 // ── /api/admin/develop/requests — 개발의뢰 관리자(docs/DEVELOP_FLOW.md §7.3·§8) ────────────
 // 전 라우트 requireAdmin. 워크큐(탭·검색·counts) · 전면 상세 · 상태 전이 · AI 초안(재생성·편집·공개) · 구성도(재생성·교체·공개) ·
@@ -265,7 +265,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         publishedAt: r.devDiagramPublishedAt?.toISOString() ?? null,
         publishedStale: r.devDiagramPublicHtml !== null && r.devDiagramHtml !== null && r.devDiagramPublicHtml !== r.devDiagramHtml,
       },
-      quotes: quotes.map((q) => ({ ...toQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null, opened), internalNote: q.internalNote })),
+      quotes: quotes.map((q) => toAdminQuoteView(q, status, poByQuote.get(q.id.toString()) ?? null, opened)),
       events: events.map((e) => toDevelopEventView(e, eventFiles.get(e.id.toString()) ?? [], actorName(e), false)),
       // 프로젝트 문서(§13) — draft·이전 판·메일 확인본까지. 진행 현황은 전 업무 행.
       documents: documents.rows.map((d) => toAdminDevelopDocumentView(d, documents.files.get(d.id.toString()) ?? [], documents.current.has(d.id.toString()))),

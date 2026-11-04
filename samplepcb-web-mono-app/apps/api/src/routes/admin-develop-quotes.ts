@@ -5,19 +5,28 @@ import { z } from 'zod';
 import {
   AdminDevelopMilestoneMarkPaidBody,
   AdminDevelopQuoteBody,
+  AdminDevelopQuoteCostsBody,
   AdminDevelopQuoteResponse,
   ApiError,
+  DEVELOP_QUOTE_AMOUNT_MAX,
   DevelopOkResponse,
-  computeDevelopQuoteAmounts,
+  computeDevelopQuoteBreakdown,
+  developQuoteItemAmount,
   splitDevelopMilestoneAmounts,
 } from '@sp/api-contract';
-import type { AdminDevelopQuoteBodyType, AdminDevelopQuoteResponseType } from '@sp/api-contract';
+import type {
+  AdminDevelopQuoteBodyType,
+  AdminDevelopQuoteResponseType,
+  DevelopQuoteBreakdown,
+  DevelopQuoteItemCategoryType,
+} from '@sp/api-contract';
 import { OPENED_MILESTONE_EVENT, REF_DEVELOP_QUOTE, addDevelopEvent, asDevelopStatus, openedDevelopMilestones, transitionDevelopStatus } from '../lib/develop';
 import { buildQuoteSentEmail, sendDevelopMail } from '../lib/develop-email';
 import { cancelPendingMilestones, ensureDevelopLazy, markMilestonePaid } from '../lib/develop-payment';
+import { XLSX_CONTENT_TYPE, developQuoteSheetData, developQuoteXlsxDisposition, renderDevelopQuoteXlsx } from '../lib/develop-quote-xlsx';
 import { toAreaCodes } from '../lib/market';
 import { prisma } from '../lib/prisma';
-import { customerEmailOf, toQuoteView } from './develop-requests';
+import { customerEmailOf, toAdminQuoteView, toQuoteView } from './develop-requests';
 
 // ── /api/admin/develop/{requests/:id/quotes, quotes/:qid, milestones/:mid} — 견적서·마일스톤(docs/DEVELOP_FLOW.md §5) ──
 // 견적서 = 조건 문서: 항목표 + 결제 조건(마일스톤 비율) + 기간·산출물·별도 실비·표준 조건·검수 기간·유효기간.
@@ -29,6 +38,49 @@ const QuoteIdParams = z.object({ qid: z.string().regex(/^\d+$/) });
 const MilestoneIdParams = z.object({ mid: z.string().regex(/^\d+$/) });
 
 const notFound = { error: 'NOT_FOUND', message: '대상이 없습니다' };
+const tooLarge = { error: 'AMOUNT_TOO_LARGE', message: '금액이 너무 큽니다(항목·합계는 20억 원까지)' };
+
+interface ResolvedQuoteItem {
+  category: DevelopQuoteItemCategoryType;
+  title: string;
+  grade: string | null;
+  description: string | null;
+  unitPrice: number;
+  qty: number;
+  unit: string;
+  amount: number;
+  durationDays: number | null;
+  costPrice: number | null;
+  vendor: string | null;
+}
+interface ResolvedQuote {
+  items: ResolvedQuoteItem[];
+  breakdown: DevelopQuoteBreakdown;
+}
+
+// 본문 → 저장할 항목(단가 없으면 금액을 단가로·수량 1 — 붙여넣기·옛 호출 호환) + 산출 내역. 금액이 정수 컬럼 상한을 넘으면 null.
+function resolveQuoteBody(b: AdminDevelopQuoteBodyType): ResolvedQuote | null {
+  const items = b.items.map((it): ResolvedQuoteItem => {
+    const unitPrice = it.unitPrice ?? it.amount ?? 0;
+    const qty = it.unitPrice === undefined ? 1 : it.qty;
+    return {
+      category: it.category,
+      title: it.title,
+      grade: it.grade === null || it.grade === '' ? null : it.grade,
+      description: it.description,
+      unitPrice,
+      qty,
+      unit: it.unit,
+      amount: developQuoteItemAmount(unitPrice, qty),
+      durationDays: it.durationDays,
+      costPrice: it.costPrice,
+      vendor: it.vendor === null || it.vendor === '' ? null : it.vendor,
+    };
+  });
+  const breakdown = computeDevelopQuoteBreakdown(items, { indirectBp: b.indirectBp, overheadBp: b.overheadBp, profitBp: b.profitBp }, b.vatMode);
+  if (items.some((it) => it.amount > DEVELOP_QUOTE_AMOUNT_MAX) || breakdown.totalAmount > DEVELOP_QUOTE_AMOUNT_MAX) return null;
+  return { items, breakdown };
+}
 
 export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
@@ -40,13 +92,14 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
       prisma.spFile.findFirst({ where: { refType: REF_DEVELOP_QUOTE, refId: q.id, fileType: 'po' } }),
       openedDevelopMilestones(q.requestId),
     ]);
-    return { ...toQuoteView(full, asDevelopStatus(request.status), po, opened), internalNote: full.internalNote };
+    return toAdminQuoteView(full, asDevelopStatus(request.status), po, opened);
   };
 
   // 항목·마일스톤 행을 통째로 갈아 끼운다(draft 전용). 금액은 발송 시 확정하지만 화면 표시용으로 미리 계산해 둔다.
-  const writeQuoteBody = async (quoteId: bigint, requestId: bigint, b: AdminDevelopQuoteBodyType): Promise<void> => {
-    const amounts = computeDevelopQuoteAmounts(b.items.map((i) => i.amount), b.vatMode);
-    const split = splitDevelopMilestoneAmounts(amounts.totalAmount, b.milestones.map((m) => m.ratioBp));
+  // 항목 금액 = 단가 × 수량(서버 계산), 가산 금액은 계약 computeDevelopQuoteBreakdown 이 정한다(화면 미리보기와 같은 함수).
+  const writeQuoteBody = async (quoteId: bigint, requestId: bigint, b: AdminDevelopQuoteBodyType, resolved: ResolvedQuote): Promise<void> => {
+    const { items, breakdown } = resolved;
+    const split = splitDevelopMilestoneAmounts(breakdown.totalAmount, b.milestones.map((m) => m.ratioBp));
     await prisma.$transaction(async (tx) => {
       await tx.spDevelopQuote.update({
         where: { id: quoteId },
@@ -54,9 +107,16 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
           kind: b.kind,
           title: b.title,
           vatMode: b.vatMode,
-          supplyAmount: amounts.supplyAmount,
-          vatAmount: amounts.vatAmount,
-          totalAmount: amounts.totalAmount,
+          indirectBp: b.indirectBp,
+          overheadBp: b.overheadBp,
+          profitBp: b.profitBp,
+          indirectAmount: breakdown.indirectAmount,
+          overheadAmount: breakdown.overheadAmount,
+          profitAmount: breakdown.profitAmount,
+          recipientDept: b.recipientDept,
+          supplyAmount: breakdown.supplyAmount,
+          vatAmount: breakdown.vatAmount,
+          totalAmount: breakdown.totalAmount,
           durationDays: b.durationDays,
           scheduleNote: b.scheduleNote,
           deliverables: b.deliverables,
@@ -71,7 +131,21 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
       });
       await tx.spDevelopQuoteItem.deleteMany({ where: { quoteId } });
       await tx.spDevelopQuoteItem.createMany({
-        data: b.items.map((it, i) => ({ quoteId, seq: i + 1, title: it.title, description: it.description, amount: it.amount, durationDays: it.durationDays })),
+        data: items.map((it, i) => ({
+          quoteId,
+          seq: i + 1,
+          category: it.category,
+          title: it.title,
+          grade: it.grade,
+          description: it.description,
+          unitPrice: it.unitPrice,
+          qty: it.qty,
+          unit: it.unit,
+          amount: it.amount,
+          durationDays: it.durationDays,
+          costPrice: it.costPrice,
+          vendor: it.vendor,
+        })),
       });
       // 마일스톤은 paymentKey(uuid) 를 새로 만든다 — draft 라 카트행이 없어 안전.
       await tx.spDevelopMilestone.deleteMany({ where: { quoteId } });
@@ -95,10 +169,12 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
   // ── POST /admin/develop/requests/:id/quotes — 초안 생성 ─────────────────────────
   fastify.post(
     '/develop/requests/:id/quotes',
-    { schema: { params: RequestIdParams, body: AdminDevelopQuoteBody, response: { 200: AdminDevelopQuoteResponse, 404: ApiError, 409: ApiError } } },
+    { schema: { params: RequestIdParams, body: AdminDevelopQuoteBody, response: { 200: AdminDevelopQuoteResponse, 400: ApiError, 404: ApiError, 409: ApiError } } },
     async (request, reply) => {
       const r = await prisma.spDevelopRequest.findUnique({ where: { id: BigInt(request.params.id) } });
       if (r === null) return reply.status(404).send(notFound);
+      const resolved = resolveQuoteBody(request.body);
+      if (resolved === null) return reply.status(400).send(tooLarge);
       const status = asDevelopStatus(r.status);
       if (status === 'cancelled' || status === 'declined' || status === 'completed') {
         return reply.status(409).send({ error: 'INVALID_TRANSITION', message: '종결된 의뢰에는 견적을 만들 수 없습니다' });
@@ -126,7 +202,7 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
           createdBy: request.user.mbId,
         },
       });
-      await writeQuoteBody(created.id, r.id, b);
+      await writeQuoteBody(created.id, r.id, b, resolved);
       return { result: true as const, data: await quoteView(created) };
     },
   );
@@ -134,13 +210,57 @@ export const adminDevelopQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts
   // ── PATCH /admin/develop/quotes/:qid — 초안 수정(전체 교체) ───────────────────
   fastify.patch(
     '/develop/quotes/:qid',
-    { schema: { params: QuoteIdParams, body: AdminDevelopQuoteBody, response: { 200: AdminDevelopQuoteResponse, 404: ApiError, 409: ApiError } } },
+    { schema: { params: QuoteIdParams, body: AdminDevelopQuoteBody, response: { 200: AdminDevelopQuoteResponse, 400: ApiError, 404: ApiError, 409: ApiError } } },
     async (request, reply) => {
       const q = await prisma.spDevelopQuote.findUnique({ where: { id: BigInt(request.params.qid) } });
       if (q === null) return reply.status(404).send(notFound);
       if (q.status !== 'draft') return reply.status(409).send({ error: 'QUOTE_NOT_DRAFT', message: '발송한 견적은 고칠 수 없습니다 — 수정 견적을 새로 만드세요' });
-      await writeQuoteBody(q.id, q.requestId, request.body);
+      const resolved = resolveQuoteBody(request.body);
+      if (resolved === null) return reply.status(400).send(tooLarge);
+      await writeQuoteBody(q.id, q.requestId, request.body, resolved);
       return { result: true as const, data: await quoteView(q) };
+    },
+  );
+
+  // ── PATCH /admin/develop/quotes/:qid/costs — 내부 원가만 고친다(모든 상태, §5.1) ─────────────────
+  // 고객 금액·마일스톤은 그대로라 발송·수락 뒤에도 안전하다(수락 뒤 들어온 실제 매입가 반영). 고객 타임라인엔 남기지 않는다.
+  fastify.patch(
+    '/develop/quotes/:qid/costs',
+    { schema: { params: QuoteIdParams, body: AdminDevelopQuoteCostsBody, response: { 200: AdminDevelopQuoteResponse, 400: ApiError, 404: ApiError } } },
+    async (request, reply) => {
+      const q = await prisma.spDevelopQuote.findUnique({ where: { id: BigInt(request.params.qid) }, include: { items: { select: { id: true } } } });
+      if (q === null) return reply.status(404).send(notFound);
+      const own = new Set(q.items.map((it) => Number(it.id)));
+      const ids = request.body.items.map((it) => it.itemId);
+      if (ids.some((id) => !own.has(id)) || new Set(ids).size !== ids.length) {
+        return reply.status(400).send({ error: 'ITEM_MISMATCH', message: '이 견적의 항목이 아닙니다' });
+      }
+      await prisma.$transaction(
+        request.body.items.map((it) =>
+          prisma.spDevelopQuoteItem.update({
+            where: { id: BigInt(it.itemId) },
+            data: { costPrice: it.costPrice, vendor: it.vendor === null || it.vendor === '' ? null : it.vendor },
+          }),
+        ),
+      );
+      return { result: true as const, data: await quoteView(q) };
+    },
+  );
+
+  // ── GET /admin/develop/quotes/:qid/xlsx — 견적서 엑셀(작성 중 포함 — 발송 전 확인용) ─────────
+  fastify.get(
+    '/develop/quotes/:qid/xlsx',
+    { schema: { params: QuoteIdParams } },
+    async (request, reply) => {
+      const q = await prisma.spDevelopQuote.findUnique({ where: { id: BigInt(request.params.qid) }, include: { items: true, milestones: true } });
+      if (q === null) return reply.status(404).send(notFound);
+      const r = await prisma.spDevelopRequest.findUniqueOrThrow({ where: { id: q.requestId } });
+      const view = toQuoteView(q, asDevelopStatus(r.status), null);
+      const buffer = await renderDevelopQuoteXlsx(developQuoteSheetData(view, r));
+      return reply
+        .header('content-type', XLSX_CONTENT_TYPE)
+        .header('content-disposition', developQuoteXlsxDisposition(view))
+        .send(buffer);
     },
   );
 

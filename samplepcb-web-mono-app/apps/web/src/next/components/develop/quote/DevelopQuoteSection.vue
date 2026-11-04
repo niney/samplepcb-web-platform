@@ -92,11 +92,12 @@ const closeEditor = (): void => {
       :allowed-kinds="allowedKinds"
       :request-title="detail.title"
       :schedule="reviewSchedule"
+      :contact="detail.contact"
       @close="closeEditor"
     />
 
     <div v-if="detail.quotes.length > 0" class="flex flex-col gap-2">
-      <DevelopQuoteCard v-for="q in detail.quotes" :key="q.quoteId" :quote="q" @edit="openEdit(q.quoteId)" />
+      <DevelopQuoteCard v-for="q in detail.quotes" :key="q.quoteId" :quote="q" :contact="detail.contact" @edit="openEdit(q.quoteId)" />
     </div>
     <p v-else-if="!editing" class="text-muted-foreground py-4 text-center text-sm">
       {{ t('admin.develop.quote.empty') }}

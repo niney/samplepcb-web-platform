@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { SendIcon, Trash2Icon, XIcon } from '@lucide/vue';
+import { EyeIcon, SendIcon, Trash2Icon, XIcon } from '@lucide/vue';
 import type { AcceptableValue } from 'reka-ui';
 import {
   DEVELOP_MILESTONE_TRIGGER_LABELS,
@@ -9,13 +9,16 @@ import {
   DEVELOP_VAT_MODES,
   DEVELOP_VAT_MODE_LABELS,
   devReviewScheduleTotals,
+  developQuoteNo,
 } from '@sp/api-contract';
 import type {
+  AdminDevelopQuoteViewType,
   AdminDevelopSettingsType,
   DevReviewScheduleType,
+  DevelopContactType,
   DevelopQuoteKindType,
-  DevelopQuoteViewType,
 } from '@sp/api-contract';
+import { kstToday } from '@sp/utils';
 import { apiErrorMessage } from '@sp/ui';
 import {
   useAdminDevelopQuoteCreate,
@@ -29,8 +32,12 @@ import {
   developQuoteFormFrom,
   developQuoteFormToBody,
   developQuoteIssues,
+  developQuoteMarginOf,
   developQuoteMilestoneAmounts,
+  developQuotePreview,
   developQuoteRatioSum,
+  developQuoteVatOptions,
+  marginRateText,
   newDevelopQuoteForm,
 } from '@/components/admin/develop/develop-quote-edit';
 import { formatKrw } from '@/lib/format';
@@ -42,6 +49,7 @@ import { Input } from '@/next/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/next/components/ui/native-select';
 import { Textarea } from '@/next/components/ui/textarea';
 import { confirmDialog } from '@/next/lib/dialog';
+import DevelopQuoteSheetDialog from './DevelopQuoteSheetDialog.vue';
 import QuoteItemsField from './QuoteItemsField.vue';
 import QuoteMilestonesField from './QuoteMilestonesField.vue';
 
@@ -52,13 +60,15 @@ import QuoteMilestonesField from './QuoteMilestonesField.vue';
 // 폼은 문자열로 들고 저장 직전에만 계약 모양으로 바꾼다(develop-quote-edit.ts — 옛 화면과 같은 순수 모듈).
 const props = defineProps<{
   requestId: number;
-  quote: (DevelopQuoteViewType & { internalNote: string | null }) | null;
+  quote: AdminDevelopQuoteViewType | null;
   settings: AdminDevelopSettingsType;
   initialKind: DevelopQuoteKindType;
   allowedKinds: readonly DevelopQuoteKindType[];
   requestTitle: string;
   // 검토서(작업본 ?? 초안 ?? 공개본)의 개발 일정(예상) — 없으면 null 이고 가져오기 버튼이 아예 안 뜬다.
   schedule: DevReviewScheduleType | null;
+  // 견적서 미리보기의 수신 칸(의뢰 연락처). 옛 화면은 넘기지 않는다(미리보기 버튼이 안 뜬다).
+  contact?: DevelopContactType;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -96,6 +106,26 @@ const busy = computed(
 );
 
 const amounts = computed(() => developQuoteAmounts(form.value));
+const vatOptions = computed(() => developQuoteVatOptions(form.value.vatMode));
+// 내부 원가·마진(관리자 전용, §5.1) — 아래 띠에 늘 보인다(편집기가 길어 합계가 화면 밖으로 나가기 쉽다).
+const margin = computed(() => developQuoteMarginOf(form.value));
+
+// 견적서 미리보기(§5.1) — 저장 전 폼 그대로 고객이 받을 1쪽을 본다. 번호는 저장된 판이 있을 때만, 견적일자는 오늘(발송하면 그날).
+const previewOpen = ref(false);
+const preview = computed(() => developQuotePreview(form.value));
+const previewRecipient = computed(() => ({
+  company: props.contact?.company ?? null,
+  dept: form.value.recipientDept.trim() === '' ? null : form.value.recipientDept.trim(),
+  name: props.contact?.name ?? '',
+  phone: props.contact?.phone ?? '',
+  email: props.contact?.email ?? '',
+}));
+const previewNo = computed(() => (version.value === null ? t('admin.develop.quote.previewNoNumber') : developQuoteNo(props.requestId, version.value)));
+const previewXlsx = computed(() =>
+  quoteId.value === null || version.value === null
+    ? null
+    : { quoteId: quoteId.value, title: form.value.title, requestId: props.requestId, version: version.value },
+);
 const milestoneAmounts = computed(() => developQuoteMilestoneAmounts(form.value));
 const ratioSum = computed(() => developQuoteRatioSum(form.value));
 const liveIssues = computed(() => developQuoteIssues(form.value));
@@ -106,6 +136,7 @@ const errorCodes = computed(() => ({
   QUOTE_NOT_OPEN: t('admin.develop.quote.errNotOpen'),
   QUOTE_EMPTY: t('admin.develop.quote.errEmpty'),
   INVALID_TRANSITION: t('admin.develop.quote.errClosed'),
+  AMOUNT_TOO_LARGE: t('admin.develop.quote.errTooLarge'),
 }));
 
 // NativeSelect 는 AcceptableValue 를 내므로 사전에 있는 값만 받는다.
@@ -248,10 +279,15 @@ async function onDelete(): Promise<void> {
       <Field>
         <FieldLabel :for="`${uid}-vat`">{{ t('admin.develop.quote.vatMode') }}</FieldLabel>
         <NativeSelect :id="`${uid}-vat`" :model-value="form.vatMode" @update:model-value="pickVatMode">
-          <NativeSelectOption v-for="mode in DEVELOP_VAT_MODES" :key="mode" :value="mode">
+          <NativeSelectOption v-for="mode in vatOptions" :key="mode" :value="mode">
             {{ DEVELOP_VAT_MODE_LABELS[mode] }}
           </NativeSelectOption>
         </NativeSelect>
+      </Field>
+      <Field>
+        <FieldLabel :for="`${uid}-dept`">{{ t('admin.develop.quote.recipientDept') }}</FieldLabel>
+        <Input :id="`${uid}-dept`" v-model="form.recipientDept" :maxlength="DEVELOP_QUOTE_LIMITS.recipientDeptLen" />
+        <FieldDescription>{{ t('admin.develop.quote.recipientDeptHint') }}</FieldDescription>
       </Field>
       <Field>
         <FieldLabel :for="`${uid}-valid`">{{ t('admin.develop.quote.validUntil') }}</FieldLabel>
@@ -309,7 +345,13 @@ async function onDelete(): Promise<void> {
       </Field>
     </Panel>
 
-    <QuoteItemsField v-model:items="form.items" :amounts="amounts" />
+    <QuoteItemsField
+      v-model:items="form.items"
+      v-model:indirect-pct="form.indirectPct"
+      v-model:overhead-pct="form.overheadPct"
+      v-model:profit-pct="form.profitPct"
+      :amounts="amounts"
+    />
 
     <QuoteMilestonesField
       v-model:milestones="form.milestones"
@@ -350,6 +392,23 @@ async function onDelete(): Promise<void> {
         <FieldDescription>{{ t('admin.develop.quote.internalNoteHint') }}</FieldDescription>
       </Field>
     </Panel>
+
+    <!-- 합계·마진 띠 — 스크롤해도 화면 아래에 붙어 있다 -->
+    <div
+      class="bg-card/95 sticky bottom-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border px-3 py-2 text-sm tabular-nums shadow-sm backdrop-blur"
+      data-testid="quote-sticky-totals"
+    >
+      <span><span class="text-muted-foreground">{{ t('admin.develop.quote.supply') }}</span> {{ formatKrw(amounts.supplyAmount) }}</span>
+      <span><span class="text-muted-foreground">{{ t('admin.develop.quote.total') }}</span> <b>{{ formatKrw(amounts.totalAmount) }}</b></span>
+      <span class="ml-auto"><span class="text-muted-foreground">{{ t('admin.develop.quote.costTotal') }}</span> {{ formatKrw(margin.costTotal) }}</span>
+      <span data-testid="quote-sticky-margin">
+        <span class="text-muted-foreground">{{ t('admin.develop.quote.margin') }}</span>
+        {{ formatKrw(margin.totalMargin) }} ({{ marginRateText(margin.marginRate) }})
+      </span>
+      <span v-if="margin.missingRows > 0" class="text-warning text-xs font-semibold">
+        {{ t('admin.develop.quote.costMissingRows', { count: margin.missingRows }) }}
+      </span>
+    </div>
 
     <!-- 검사 결과 -->
     <Alert v-if="issues.length > 0" variant="destructive" size="sm">
@@ -396,6 +455,10 @@ async function onDelete(): Promise<void> {
         <SendIcon />
         {{ t('admin.develop.quote.send') }}
       </Button>
+      <Button v-if="contact !== undefined" variant="outline" @click="previewOpen = true">
+        <EyeIcon />
+        {{ t('admin.develop.quote.preview') }}
+      </Button>
       <Button v-if="quoteId !== null" variant="outline" :disabled="busy" @click="onDelete">
         <Trash2Icon class="text-destructive" />
         {{ t('admin.develop.quote.delete') }}
@@ -407,5 +470,15 @@ async function onDelete(): Promise<void> {
         :class="noticeError ? 'text-destructive' : 'text-success'"
       >{{ notice }}</span>
     </div>
+
+    <DevelopQuoteSheetDialog
+      v-if="previewOpen"
+      :quote="preview"
+      :recipient="previewRecipient"
+      :quote-no="previewNo"
+      :issued-on="kstToday()"
+      :xlsx="previewXlsx"
+      @close="previewOpen = false"
+    />
   </Panel>
 </template>

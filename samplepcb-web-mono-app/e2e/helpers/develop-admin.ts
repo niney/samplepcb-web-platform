@@ -110,6 +110,9 @@ export async function createDevelopRequestAsCustomer(title: string): Promise<num
     description: '[e2e-ui] 관리자 개발 화면 여정 픽스처입니다. BLE 온습도 로거, 배터리 구동, 스마트폰 앱 연동.',
     answers: [
       { code: 'pcb.type', choices: ['new'] },
+      // 2026-11-02 §7.2.6 부터 PCB 회로도·BOM 은 필수(회로 설계를 같이 고르지 않았을 때) — 하네스 basePayload 와 같은 답.
+      { code: 'pcb.schematic', choices: ['source'] },
+      { code: 'pcb.bom', choices: ['partial'] },
       { code: 'appserver.scope', choices: ['app'] }, // '앱 및 서버' 카드 — 앱만(2026-10-30 메뉴 6장)
       { code: 'app.features', choices: ['device', 'status'], note: '로그인 → 제품 등록 → 상태 확인' },
     ],
