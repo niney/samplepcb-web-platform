@@ -302,16 +302,24 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     }
     for (const r of REVIEW.requirements) expect(await page.getByText(r.text, { exact: true }).count()).toBe(1);
     expect(await page.getByText('e2e-model-hidden').count(), '모델명은 고객에게 안 보인다').toBe(0);
-    // 구성도 — 문서를 읽어 요약·도면 2장·정리로 가른다
+    // 구성도 — 문서를 읽어 도면 2장과 글로 가른다. 글(요약·정리)은 도면 아래 토글 안, 기본 접힘(2026-11-05)
     await page.getByText('시스템 토폴로지 및 하드웨어 기능 블록도').waitFor();
-    expect(await page.getByText('요구사항 확인 요약').count()).toBe(1);
+    expect(await page.getByText('요구사항 확인 요약').count(), '글은 기본 접힘').toBe(0);
+    expect(await page.getByText('확정된 구성').count()).toBe(0);
     await page.getByText('1 / 2').waitFor();
     expect(await page.getByText('① 시스템 토폴로지 — 장치와 앱 사이 BLE 만 선으로 표시.').count()).toBe(1);
     await page.getByRole('button', { name: '다음 도면' }).click();
     await page.getByText('2 / 2').waitFor();
     expect(await page.getByText('② 하드웨어 블록도 — MCU 중심, 센서 입력 왼쪽.').count()).toBe(1);
+    const notesToggle = page.getByRole('button', { name: /구성도 설명 보기/ });
+    expect(await notesToggle.getAttribute('aria-expanded')).toBe('false');
+    await notesToggle.click();
+    await page.getByText('요구사항 확인 요약').waitFor();
+    expect(await page.getByText('의뢰: BLE 온습도 로거의 신규 PCB 와 앱 연동.').count()).toBe(1);
     expect(await page.getByText('확정된 구성').count()).toBe(1);
     expect(await page.getByText('미확정 항목').count()).toBe(1);
+    await page.getByRole('button', { name: /구성도 설명 접기/ }).click();
+    expect(await page.getByText('확정된 구성').count(), '다시 접힘').toBe(0);
     // 간트·합계
     expect(await page.locator('main [title$="주"]').count()).toBe(PHASES.length);
     await page.getByText(`${String(MIN_SUM)}주~${String(MAX_SUM)}주`).waitFor();

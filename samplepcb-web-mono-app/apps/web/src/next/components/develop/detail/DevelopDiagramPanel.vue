@@ -15,7 +15,7 @@ import ActionNotice from './ActionNotice.vue';
 // 시스템 구성도 패널(옛 components/admin/develop/DevelopDiagramPanel.vue 와 같은 props·동작) — AI 재생성 · 담당자 교체
 // 업로드(svg·png·jpg·webp·html) · 공개/공개 취소. 뷰어는 고객·마켓과 공용(@sp/ui DevDiagramSection — 고객이 보는 것과 같은
 // 모양이어야 해서 리뉴얼하지 않는다): 본문은 sandbox iframe 으로만 렌더한다. 공개본은 별도 스냅샷이라 현재본을 고친 뒤에는
-// 다시 공개해야 고객 화면이 바뀐다(publishedStale).
+// 다시 공개해야 고객 화면이 바뀐다(publishedStale). split = 도면과 글을 나눠 그린다(글 토글 기본 접힘, 2026-11-05).
 const props = defineProps<{ requestId: number; diagram: AdminDevelopDiagramStateType; aiConsent: boolean }>();
 
 const { t } = useI18n();
@@ -129,6 +129,7 @@ async function onPickFile(event: Event): Promise<void> {
         <DevDiagramSection
           :diagram="view"
           :uploaded="props.diagram.source === 'upload'"
+          split
           :can-regenerate="props.aiConsent"
           :regenerating="aiRun.isPending.value"
           @regenerate="onRegenerate"

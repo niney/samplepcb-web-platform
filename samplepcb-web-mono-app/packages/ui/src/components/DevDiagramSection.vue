@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { DEV_DIAGRAM_DISCLAIMER, MARKET_DEV_DIAGRAM_STATUS_LABELS } from '@sp/api-contract';
 import type { MarketDevDiagramViewType } from '@sp/api-contract';
+import { figureSrcdoc, parseDiagramDoc } from '../lib/diagram-doc';
+import type { DiagramSection } from '../lib/diagram-doc';
 
 // 정밀 시스템 구성도 섹션(docs/AI_DEV_REVIEW.md §13.5·§13.9) — 등록 뒤 비동기로 만들어지는 전문가용
 // 기초 자산. 상태(대기·생성 중·완성·실패·생략)를 보이고, 완성이면 살균된 HTML 을 sandbox iframe
@@ -16,7 +18,11 @@ const props = withDefaults(defineProps<{
   failed?: boolean; // 3단계: 잡 조회 실패
   reused?: boolean; // 3단계: 같은 입력(제목·분야·설명·답변·첨부)의 1시간 안 잡을 재사용
   uploaded?: boolean; // 개발의뢰: 담당자가 교체 업로드한 도면 — 모델·thinking 메타 줄을 숨기고 "담당자 작성" 으로
-}>(), { canRegenerate: false, regenerating: false, regenerateError: '', skipReason: null, failed: false, reused: false, uploaded: false });
+  // 개발의뢰 관리자: 도면과 글을 나눠 그린다(사용자 결정 2026-11-05 — 고객 화면 ReviewDiagram 과 같은 파서). 도면은 세로로
+  // 나열하고 글은 아래 토글에 — 고객 화면과 같이 기본 접힘(사용자 결정 2026-11-05).
+  // 문서 구조를 못 읽으면(이미지 업로드 포함) 지금처럼 문서 전체 한 장. 마켓은 끄고 쓴다.
+  split?: boolean;
+}>(), { canRegenerate: false, regenerating: false, regenerateError: '', skipReason: null, failed: false, reused: false, uploaded: false, split: false });
 const emit = defineEmits<{ regenerate: [] }>();
 
 const meta = computed(() => props.diagram.meta);
@@ -31,16 +37,37 @@ const statusClass = computed(() => {
   }
 });
 
-// 미리보기 비율 — 첫 SVG viewBox(폭×높이). 없으면 1900×1200(프롬프트 최소 규격).
-const ratio = computed(() => {
-  const m = /<svg[^>]*viewBox="\s*[\d.-]+\s+[\d.-]+\s+([\d.]+)\s+([\d.]+)\s*"/i.exec(html.value ?? '');
+// 미리보기 높이 — 첫 SVG viewBox(폭×높이) 비율. 없으면 1900×1200(프롬프트 최소 규격).
+const heightOf = (src: string): string => {
+  const m = /<svg[^>]*viewBox="\s*[\d.-]+\s+[\d.-]+\s+([\d.]+)\s+([\d.]+)\s*"/i.exec(src);
   const w = Number(m?.[1]);
   const h = Number(m?.[2]);
-  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? h / w : 1200 / 1900;
+  const ratio = Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? h / w : 1200 / 1900;
+  return `${String(Math.round(Math.min(720, Math.max(320, 900 * ratio + 120))))}px`;
+};
+const previewHeight = computed(() => heightOf(html.value ?? ''));
+
+// split — 도면 장마다 iframe 문서·높이, 글은 도면 앞(요약)·뒤(정리)를 한 묶음으로.
+const doc = computed(() => (props.split && html.value !== null ? parseDiagramDoc(html.value) : null));
+const figures = computed(() => {
+  const d = doc.value;
+  return d === null ? [] : d.figures.map((f) => ({ caption: f.caption, srcdoc: figureSrcdoc(d.styles, f.svg), height: heightOf(f.svg) }));
 });
-const previewHeight = computed(() => `${String(Math.round(Math.min(720, Math.max(320, 900 * ratio.value + 120))))}px`);
+const notes = computed<DiagramSection[]>(() => (doc.value === null ? [] : [...doc.value.before, ...doc.value.after]));
+const notesOpen = ref(false);
 
 const open = ref(false);
+// 크게 보기 — split 이면 누른 도면 한 장만(글은 토글에 있다, 2026-11-05), 아니면 원문 전체.
+const zoomIndex = ref<number | null>(null);
+const zoomFigure = computed(() => (zoomIndex.value === null ? null : (figures.value[zoomIndex.value] ?? null)));
+function openZoom(index: number | null): void {
+  zoomIndex.value = index;
+  open.value = true;
+}
+function moveZoom(step: number): void {
+  const n = figures.value.length;
+  if (zoomIndex.value !== null && n > 0) zoomIndex.value = (zoomIndex.value + step + n) % n;
+}
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') open.value = false;
 }
@@ -56,6 +83,9 @@ onBeforeUnmount(() => {
 // (검토서와 달리 화면을 다시 열어도 값이 살아 있다). 단계 목록은 두지 않는다 — 구성도 잡의 상태는
 // queued/running 둘뿐이라 3칸으로 그리면 없는 진척을 지어내는 셈이다(§13.12).
 const pending = computed(() => meta.value?.status === 'queued' || meta.value?.status === 'running');
+// 담당자 업로드 도면 — AI 생성 기록(meta)이 없거나 생략·실패로 남아 있어도 문서를 보인다(생성 중이면 진행 표시가 먼저).
+// 전에는 meta 가 없으면 html 이 있어도 "아직 만들지 않았습니다" 로 빠져 업로드만 한 의뢰의 관리자 화면이 비었다(2026-11-05).
+const showUploaded = computed(() => props.uploaded && html.value !== null && !pending.value);
 const elapsed = ref(0);
 let timer: ReturnType<typeof setInterval> | null = null;
 const stopTimer = (): void => {
@@ -120,17 +150,17 @@ const generatedAt = computed(() => {
     </p>
 
     <!-- 상태별 안내 -->
-    <div v-if="meta === null && skipReason !== null" class="grid gap-1.5 rounded-2xl border border-dashed border-line-2 bg-paper px-6 py-7 text-center">
+    <div v-if="meta === null && !showUploaded && skipReason !== null" class="grid gap-1.5 rounded-2xl border border-dashed border-line-2 bg-paper px-6 py-7 text-center">
       <p class="text-body font-semibold text-tx-1">{{ skipReason === 'DISABLED' ? '시스템 구성도 생성이 지금 중지되어 있습니다' : '자료가 아직 적어 정밀 구성도를 만들지 않았습니다' }}</p>
       <p class="mx-auto max-w-lg text-label leading-relaxed text-tx-3">
         <template v-if="skipReason === 'DISABLED'">관리자가 다시 켜면 자료가 충분한 의뢰부터 만들어집니다.</template>
         <template v-else>{{ skipReason }} 설명을 500자 이상 적거나 회로도·사양서를 첨부하면 5~10분 안에 만들어집니다.</template>
       </p>
     </div>
-    <p v-else-if="meta === null && failed" class="rounded-xl bg-red-50 px-4 py-3 text-body leading-relaxed text-red-700">
+    <p v-else-if="meta === null && !showUploaded && failed" class="rounded-xl bg-red-50 px-4 py-3 text-body leading-relaxed text-red-700">
       구성도 생성 상태를 불러오지 못했습니다. 검토서를 다시 만들면 구성도도 다시 시작됩니다.
     </p>
-    <div v-else-if="meta === null" class="grid gap-1.5 rounded-2xl border border-dashed border-line-2 bg-paper px-6 py-7 text-center">
+    <div v-else-if="meta === null && !showUploaded" class="grid gap-1.5 rounded-2xl border border-dashed border-line-2 bg-paper px-6 py-7 text-center">
       <p class="text-body font-semibold text-tx-1">아직 만들지 않았습니다</p>
       <p class="mx-auto max-w-lg text-label leading-relaxed text-tx-3">AI 동의로 등록한 의뢰는 자료가 충분하면 자동으로 만들어집니다.</p>
     </div>
@@ -139,7 +169,7 @@ const generatedAt = computed(() => {
       <div class="flex flex-wrap items-center gap-2.5">
         <span class="pulse-dot h-2 w-2 shrink-0 rounded-full bg-brand-500" />
         <p class="text-body font-extrabold text-tx-1">
-          {{ meta.status === 'queued' ? '대기 중 — 곧 시작합니다' : '구성도를 그리는 중입니다' }}
+          {{ meta?.status === 'queued' ? '대기 중 — 곧 시작합니다' : '구성도를 그리는 중입니다' }}
         </p>
         <p class="ml-auto font-mono text-label tabular-nums text-tx-2">
           경과 {{ elapsedLabel }} <span class="text-tx-3">/ 보통 5~10분</span>
@@ -180,24 +210,73 @@ const generatedAt = computed(() => {
         예상보다 오래 걸리고 있습니다 — 자료가 많으면 15분까지 걸릴 수 있습니다.
       </p>
     </div>
-    <div v-else-if="meta.status === 'skipped'" class="grid gap-1.5 rounded-2xl border border-dashed border-line-2 bg-paper px-6 py-7 text-center">
-      <p class="text-body font-semibold text-tx-1">{{ meta.skipReason ?? '자료가 아직 적어 정밀 구성도를 만들지 않았습니다.' }}</p>
+    <div v-else-if="!showUploaded && meta?.status === 'skipped'" class="grid gap-1.5 rounded-2xl border border-dashed border-line-2 bg-paper px-6 py-7 text-center">
+      <p class="text-body font-semibold text-tx-1">{{ meta?.skipReason ?? '자료가 아직 적어 정밀 구성도를 만들지 않았습니다.' }}</p>
       <p class="mx-auto max-w-lg text-label leading-relaxed text-tx-3">설명을 500자 이상 적거나 회로도·사양서를 첨부하면 5~10분 안에 만들어집니다.</p>
     </div>
-    <p v-else-if="meta.status === 'error'" class="rounded-xl bg-red-50 px-4 py-3 text-body leading-relaxed text-red-700">
-      생성에 실패했습니다{{ meta.error === null ? '' : ` (${meta.error})` }}. 다시 만들거나 관리자에게 문의해 주세요.
+    <p v-else-if="!showUploaded && meta?.status === 'error'" class="rounded-xl bg-red-50 px-4 py-3 text-body leading-relaxed text-red-700">
+      생성에 실패했습니다{{ (meta?.error ?? null) === null ? '' : ` (${meta?.error ?? ''})` }}. 다시 만들거나 관리자에게 문의해 주세요.
     </p>
 
     <!-- 완성 -->
     <template v-else-if="html !== null">
+      <!-- split — 도면 장마다 세로로, 글은 아래 토글 -->
+      <template v-if="doc !== null">
+        <figure v-for="(f, fi) in figures" :key="fi" class="grid gap-2">
+          <div
+            role="button"
+            tabindex="0"
+            :aria-label="`시스템 구성도 ${fi + 1} 크게 보기`"
+            class="group relative w-full cursor-zoom-in overflow-hidden rounded-2xl border border-line bg-white"
+            :style="{ height: f.height }"
+            @click="openZoom(fi)"
+            @keydown.enter="openZoom(fi)"
+          >
+            <iframe
+              sandbox=""
+              :srcdoc="f.srcdoc"
+              :title="`시스템 구성도 ${fi + 1}`"
+              class="pointer-events-none absolute inset-3 h-[calc(100%-24px)] w-[calc(100%-24px)] border-0"
+            />
+            <span v-if="figures.length > 1" class="absolute left-3 top-3 rounded-full bg-ink-900/80 px-2.5 py-1 text-micro font-bold text-white">
+              {{ fi + 1 }} / {{ figures.length }}
+            </span>
+            <div class="absolute inset-0 flex items-end justify-end p-3 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+              <span class="rounded-lg bg-ink-900/80 px-3.5 py-2 text-label font-bold text-white">🔍 크게 보기</span>
+            </div>
+          </div>
+          <figcaption v-if="f.caption !== ''" class="px-1 text-label leading-relaxed text-tx-2">{{ f.caption }}</figcaption>
+        </figure>
+        <div v-if="notes.length > 0" class="grid gap-3">
+          <button
+            type="button"
+            class="flex h-9 items-center gap-2 justify-self-start rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-tx-3"
+            :aria-expanded="notesOpen"
+            @click="notesOpen = !notesOpen"
+          >
+            {{ notesOpen ? '구성도 설명 접기' : '구성도 설명 보기' }}
+            <span class="font-normal text-tx-3">{{ notes.length }}개 항목</span>
+            <span class="text-micro transition-transform" :class="notesOpen ? 'rotate-180' : ''" aria-hidden="true">▾</span>
+          </button>
+          <div v-if="notesOpen" class="grid gap-4 rounded-2xl border border-line bg-paper px-5 py-4">
+            <div v-for="(s, si) in notes" :key="si" class="grid gap-1.5">
+              <p v-if="s.title !== ''" class="text-body font-extrabold text-brand-700">{{ s.title }}</p>
+              <ul class="grid list-disc gap-1 ps-5 text-body leading-relaxed text-tx-1">
+                <li v-for="(t, ti) in s.items" :key="ti">{{ t }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </template>
       <div
+        v-else
         role="button"
         tabindex="0"
         aria-label="시스템 구성도 크게 보기"
         class="group relative w-full cursor-zoom-in overflow-hidden rounded-2xl border border-line bg-white"
         :style="{ height: previewHeight }"
-        @click="open = true"
-        @keydown.enter="open = true"
+        @click="openZoom(null)"
+        @keydown.enter="openZoom(null)"
       >
         <iframe
           sandbox=""
@@ -210,7 +289,7 @@ const generatedAt = computed(() => {
         </div>
       </div>
       <p v-if="uploaded" class="text-micro text-tx-3">담당자가 검토 후 작성한 구성도입니다.</p>
-      <p v-else class="text-micro text-tx-3">
+      <p v-else-if="meta !== null" class="text-micro text-tx-3">
         {{ meta.model }} · thinking {{ meta.think }} · {{ generatedAt }} 생성
         <template v-if="meta.elapsedSecs !== null"> · {{ Math.round(meta.elapsedSecs / 60) }}분 소요</template>
         <template v-if="meta.audit !== null && meta.audit.ungroundedTokens.length > 0">
@@ -223,10 +302,20 @@ const generatedAt = computed(() => {
         <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-6" @click.self="open = false">
           <div class="flex h-[94vh] w-[96vw] max-w-[1800px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div class="flex items-center justify-between gap-6 border-b border-line px-5 py-3">
-              <p class="text-body font-extrabold text-tx-1">시스템 구성도 <span class="font-normal text-tx-3">(AI 기술 초안)</span></p>
-              <button type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="open = false">닫기 ✕</button>
+              <p class="text-body font-extrabold text-tx-1">
+                시스템 구성도
+                <span class="font-normal text-tx-3">{{ zoomFigure === null ? '(AI 기술 초안)' : figures.length > 1 ? `${(zoomIndex ?? 0) + 1} / ${figures.length}` : '' }}</span>
+              </p>
+              <div class="flex items-center gap-2">
+                <template v-if="zoomFigure !== null && figures.length > 1">
+                  <button type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="moveZoom(-1)">‹ 이전</button>
+                  <button type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="moveZoom(1)">다음 ›</button>
+                </template>
+                <button type="button" class="h-9 rounded-lg border border-line-2 px-3.5 text-label font-bold text-tx-2 hover:border-tx-3" @click="open = false">닫기 ✕</button>
+              </div>
             </div>
-            <iframe sandbox="" :srcdoc="html" title="시스템 구성도 전체" class="min-h-0 flex-1 border-0" />
+            <iframe sandbox="" :srcdoc="zoomFigure?.srcdoc ?? html" title="시스템 구성도 크게 보기" class="min-h-0 flex-1 border-0" />
+            <p v-if="zoomFigure !== null && zoomFigure.caption !== ''" class="border-t border-line px-5 py-3 text-label leading-relaxed text-tx-2">{{ zoomFigure.caption }}</p>
           </div>
         </div>
       </Teleport>

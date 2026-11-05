@@ -143,6 +143,7 @@ async function onPickFile(event: Event): Promise<void> {
       <DevDiagramSection
         :diagram="view"
         :uploaded="diagram.source === 'upload'"
+        split
         :can-regenerate="aiConsent"
         :regenerating="aiRun.isPending.value"
         @regenerate="onRegenerate"
