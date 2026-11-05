@@ -82,6 +82,27 @@ const hasPrevInFlow = (el: Element): boolean => {
   for (let p = el.previousElementSibling; p !== null; p = p.previousElementSibling) if (isFlowBlock(p)) return true;
   return false;
 };
+const hasNextInFlow = (el: Element): boolean => {
+  for (let n = el.nextElementSibling; n !== null; n = n.nextElementSibling) if (isFlowBlock(n)) return true;
+  return false;
+};
+
+// 덩어리 바로 아래에 붙는 조상들의 아래 안쪽 여백·테두리 — 마지막 흐름 자식인 동안 위로 올라가며 더한다. 인쇄(Chrome)는 이
+// 여백을 다음 쪽으로 떼어 보내지 않고 마지막 덩어리째 넘기므로(2026-11-05 실측: 담당자 의견 카드의 아래 여백 26px 이 쪽 아래를
+// 넘자 카드 내용이 통째로 다음 쪽으로 가 화면 판보다 한 쪽 늘었다) 이 쪽에 드는지 볼 때 같이 잰다. 화면이 더 미는 건
+// 인쇄도 data-pb 로 같은 자리에서 끊으니 어긋나지 않는다 — 어긋나는 건 덜 밀 때뿐이다.
+function trailingOf(el: Element, flow: Element): number {
+  let sum = 0;
+  let node = el;
+  let parent = el.parentElement;
+  while (parent !== null && parent !== flow && !hasNextInFlow(node)) {
+    const cs = getComputedStyle(parent);
+    sum += (Number.parseFloat(cs.paddingBottom) || 0) + (Number.parseFloat(cs.borderBottomWidth) || 0);
+    node = parent;
+    parent = parent.parentElement;
+  }
+  return sum;
+}
 
 // 이 행 앞에서 표를 둘로 나눈다 — 뒷 표는 같은 모양(머리글 복제)으로 바로 뒤에 붙고, 행은 그대로 옮겨 간다.
 function splitTableBefore(row: HTMLTableRowElement): HTMLTableElement | null {
@@ -184,9 +205,9 @@ interface Spot {
   nextTop: number; // 다음 쪽 내용 위
   atTop: boolean; // 이 쪽 첫머리에서 시작
   inGap: boolean; // 여백(쪽 사이)에서 시작
-  fits: boolean;
+  fits: boolean; // 조상의 아래 여백(trailing)까지 이 쪽에 든다
 }
-function spotOf(el: Box, origin: () => number): Spot {
+function spotOf(el: Box, origin: () => number, trailing = 0): Spot {
   const rect = el.getBoundingClientRect();
   const top = rect.top - origin();
   const page = pageOf(top);
@@ -197,7 +218,7 @@ function spotOf(el: Box, origin: () => number): Spot {
     nextTop: (page + 1) * PRINT_PITCH,
     atTop: top <= page * PRINT_PITCH + EPS,
     inGap: top >= limit - EPS,
-    fits: top < limit - EPS && top + rect.height <= limit + EPS,
+    fits: top < limit - EPS && top + rect.height + trailing <= limit + EPS,
   };
 }
 
@@ -212,7 +233,7 @@ export function paginatePrint(flow: HTMLElement): number {
     const item = items[i];
     if (item === undefined) break;
     const { el, force } = item;
-    const spot = spotOf(el, origin);
+    const spot = spotOf(el, origin, trailingOf(el, flow));
     if (spot.height <= 0) continue;
     if (force) {
       if (!spot.atTop) push(el, spot.nextTop);
