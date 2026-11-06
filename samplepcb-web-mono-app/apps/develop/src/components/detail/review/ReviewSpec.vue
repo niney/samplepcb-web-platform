@@ -10,7 +10,8 @@ import iconExpert from '../../../assets/detail/spec-expert.svg';
 // 개발 명세서 카드 — 피그마 「00-3 의뢰 상세」 45:10535: 분야마다 파란 제목 + 명세 상자 2열 + 그 분야의
 // "전문가 검토"(상의 항목) 상자. 상자는 접힌 채 질문 한 줄을 보이고, 펼치면 이유·확인 결과까지 보인다.
 // 분야에 안 속하는 상의 항목(general)은 맨 뒤 "공통"으로 모은다. 아이콘은 시안에 있는 회로·PCB·펌웨어만.
-// print = 출력물 — 전문가 검토를 전부 펼친 채, 접기 버튼 없이.
+// print = 출력물 — 전문가 검토를 전부 펼친 채, 접기 버튼 없이. 출력물 크기 규칙(글자 −2px·여백 −10px, lib/print-scale)의
+// 예외다(디자이너 메모 2026-11-05 '2-4 개발 명세서는 예외') — 카드째 data-print-noscale.
 const props = defineProps<{ review: MarketDevReviewType; print?: boolean; no?: string }>(); // no = 소제목 번호 접두('2-4. ')
 
 const ICONS: Record<string, string> = { circuit: iconCircuit, pcb: iconPcb, firmware: iconFirmware };
@@ -56,7 +57,10 @@ const hasMore = (q: DevReviewOpenQuestionType): boolean => q.why !== '' || (q.re
 </script>
 
 <template>
-  <section class="flex flex-col gap-[26px] rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]">
+  <section
+    class="flex flex-col gap-[26px] rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]"
+    :data-print-noscale="print ? '' : undefined"
+  >
     <div class="flex flex-col gap-[2px] leading-[1.8]">
       <h3 class="text-[18px] font-bold text-black">{{ no }}개발 명세서</h3>
       <p class="text-[14px] text-[#666]">고객 자료에서 확정된 항목만 담았습니다. 나머지는 전문가가 상담 후 채웁니다.</p>

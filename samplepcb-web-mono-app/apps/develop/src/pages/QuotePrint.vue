@@ -20,7 +20,7 @@ import { errorMessage } from '../lib/error-msg';
 import { dateShort, dateTimeKst, won } from '../lib/format';
 
 // 견적서 인쇄용(docs/DEVELOP_FLOW.md §5.1) — 셸이 없는 라우트(meta.bare)라 화면 자체가 종이다.
-// 1쪽 = 참고 견적서 서식의 견적서(@sp/ui DevelopQuoteSheet — 관리자 미리보기·서버 엑셀과 같은 표),
+// 1쪽 = 피그마 「통합 견적서」 모양의 견적서(@sp/ui DevelopQuoteSheet — 관리자 미리보기·의뢰 출력물·서버 엑셀과 같은 표),
 // 2쪽(별지) = 결제 조건 표 · 개발 기간 · 산출물 · 검수 · 별도 실비 · 표준 조건. 데이터는 상세 응답에서 qid 견적 하나를
 // 골라 쓴다(견적 단건 라우트가 없다 — 캐시도 상세와 공유한다). 엑셀은 서버가 같은 표로 만든다(GET …/quotes/:qid/xlsx).
 //
@@ -140,10 +140,11 @@ watch(
 );
 
 // @page 는 문서 전역이라 들어올 때 붙이고 나갈 때 뗀다(의뢰 출력물은 PPT 4:3 을 따로 붙인다).
+// 여백 = 화면 견적서의 안쪽 여백(위 44 · 좌우 50 · 아래 50px)과 같은 mm — 인쇄는 그 패딩을 풀고 여기에 맡겨 본문 폭(694px)이 같다.
 let pageStyle: HTMLStyleElement | null = null;
 onMounted(() => {
   pageStyle = document.createElement('style');
-  pageStyle.textContent = '@page { size: A4 portrait; margin: 12mm; }';
+  pageStyle.textContent = '@page { size: A4 portrait; margin: 11.6mm 13.2mm 13.2mm; }';
   document.head.appendChild(pageStyle);
 });
 onBeforeUnmount(() => {
@@ -219,14 +220,14 @@ onBeforeUnmount(() => {
       </p>
 
       <!-- 1쪽 — 견적서 -->
-      <div ref="sheetBox" class="mx-auto w-fit shadow-sm print:w-auto print:shadow-none">
+      <div ref="sheetBox" class="quote-sheet-box mx-auto w-fit shadow-sm print:w-auto print:shadow-none">
         <DevelopQuoteSheet :quote="quote" :recipient="recipient" :quote-no="quoteNo" :issued-on="issuedOn" />
       </div>
 
       <!-- 2쪽 — 별지(계약서 모드면 계약서) -->
       <article
         ref="annexEl"
-        class="quote-annex mx-auto mt-6 box-border w-[210mm] bg-white p-[12mm] text-tx-1 shadow-sm print:mt-0 print:w-auto print:p-0 print:shadow-none"
+        class="quote-annex mx-auto mt-6 box-border w-[210mm] bg-white px-[50px] pb-[50px] pt-[44px] text-tx-1 shadow-sm print:mt-0 print:w-auto print:p-0 print:shadow-none"
       >
         <header class="flex flex-wrap items-end gap-4 border-b-2 border-ink-950 pb-4">
           <div class="grid gap-1">
@@ -370,6 +371,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 @media print {
+  /* 견적서는 화면에서만 종이 폭·여백을 갖고, 인쇄는 @page 여백에 맡긴다(의뢰 출력물은 화면 모양 그대로 찍어 이 규칙이 없다). */
+  .quote-sheet-box :deep(.dq-sheet) {
+    width: auto;
+    padding: 0;
+  }
   .quote-annex {
     break-before: page;
   }

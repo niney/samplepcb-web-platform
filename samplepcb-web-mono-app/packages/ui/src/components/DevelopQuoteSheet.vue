@@ -1,15 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { DEVELOP_QUOTE_SUPPLIER, developQuoteRemarks, developQuoteSheetRows } from '@sp/api-contract';
-import type { DevelopQuoteSheetQuote, DevelopQuoteSheetRecipient } from '@sp/api-contract';
+import { DEVELOP_QUOTE_SUPPLIER, developQuoteDurationText, developQuoteRemarks, developQuoteSheetRows } from '@sp/api-contract';
+import type { DevelopQuoteSheetQuote, DevelopQuoteSheetRecipient, DevelopQuoteSheetRow } from '@sp/api-contract';
 import logoUrl from '../assets/develop-quote-logo.svg';
 import stampUrl from '../assets/develop-quote-stamp.png';
 
-// 개발의뢰 견적서 1쪽(docs/DEVELOP_FLOW.md §5.1, 2026-11-04) — 참고 견적서 '개발견적서' 서식.
-// 고객 인쇄 화면(apps/develop QuotePrint)과 관리자 미리보기(apps/web 견적 편집기·카드)가 같이 쓴다. 표의 행은 서버 엑셀과
-// 같은 계약 함수 developQuoteSheetRows 가 정한다(순위·구분 병합·소계·가산 행). 순수 표시 — fetch 하지 않는다.
-// 모양은 소비 앱의 Tailwind 토큰과 무관하게 scoped CSS(A4 폭 고정)로 그린다 — 종이는 앱마다 달라지면 안 된다.
-// 발신처는 계약 DEVELOP_QUOTE_SUPPLIER(사용자 결정 '일단 고정'), 직인은 참고 견적서 원본의 도장이다.
+// 개발의뢰 견적서 1쪽(docs/DEVELOP_FLOW.md §5.1) — 2026-11-06 피그마 「통합 견적서」(285:18, 794 폭 = A4 96dpi) 모양에
+// 지금 개발 견적 데이터를 싣는다. 제목은 '견적서'(개발 견적은 PCB·부품을 한데 묶는 통합 견적이 아니다).
+// 고객 인쇄 화면(apps/develop QuotePrint)·의뢰 출력물(RequestPrint '3. 견적서')·관리자 미리보기(apps/web)가 같이 쓴다.
+// 표의 행은 서버 엑셀과 같은 계약 함수 developQuoteSheetRows 가 정한다. 순수 표시 — fetch 하지 않는다.
+// 모양은 소비 앱의 Tailwind 토큰과 무관하게 scoped CSS 로 그린다(종이는 앱마다 달라지면 안 된다). 인쇄 여백은 쓰는 화면이
+// 정한다 — A4 인쇄(QuotePrint)는 패딩을 풀고 @page 여백에 맡기고, 출력물(PPT 4:3)은 화면 모양 그대로 찍는다.
+// 표는 <table> 이 아니라 묶음(구분 하나 = 항목 행 + 소계 행) 단위 div 다 — 출력물 쪽 나누기(lib/print-paginate)가 가로 flex 를
+// 통째로 다뤄 묶음이 쪽 경계에서 갈리지 않는다(표였다면 쪽마다 행 병합이 끊긴다).
+// 시안과 다르게 둔 것: 비고(별첨) 열 없음(개발 견적엔 별첨이 없다 — 폭은 항목 열로), 결제계좌 없음(결제는 사이트 주문),
+// 출고예정일 자리는 '개발 기간' + '특기 사항', 소계·가산(간접비·제경비·기업이윤) 행. 발신처는 계약 DEVELOP_QUOTE_SUPPLIER,
+// 직인은 참고 견적서 원본 도장이다.
 const props = defineProps<{
   quote: DevelopQuoteSheetQuote;
   recipient: DevelopQuoteSheetRecipient;
@@ -18,383 +24,554 @@ const props = defineProps<{
 }>();
 
 const S = DEVELOP_QUOTE_SUPPLIER;
-const rows = computed(() => developQuoteSheetRows(props.quote));
-const remarks = computed(() => developQuoteRemarks(props.quote));
 const num = (n: number): string => n.toLocaleString('ko-KR');
-const issued = computed(() => props.issuedOn.replace(/-/g, '. '));
+const won = (n: number): string => `${num(n)}원`;
+
+// 수신 — 비어 있는 칸(개인 의뢰의 회사명·부서)은 줄째 뺀다.
+const recipientFields = computed(() =>
+  [
+    { label: '회사명', value: props.recipient.company ?? '' },
+    { label: '부서', value: props.recipient.dept ?? '' },
+    { label: '이름', value: props.recipient.name },
+    { label: '연락처', value: props.recipient.phone },
+    { label: '이메일', value: props.recipient.email },
+  ].filter((f) => f.value.trim() !== ''),
+);
+
+// 표 묶음 — 구분(인건비·직접비)마다 항목 행 + 소계 행, 가산(간접비·제경비·기업이윤)은 한 줄짜리 묶음.
+type ItemRow = Extract<DevelopQuoteSheetRow, { kind: 'item' }>;
+interface ItemGroup {
+  kind: 'items';
+  key: string;
+  label: string;
+  items: ItemRow[];
+  subtotal: { label: string; amount: number } | null;
+}
+interface SurchargeGroup {
+  kind: 'surcharge';
+  key: string;
+  label: string;
+  text: string;
+  amount: number;
+}
+const groups = computed<(ItemGroup | SurchargeGroup)[]>(() => {
+  const out: (ItemGroup | SurchargeGroup)[] = [];
+  let current: ItemGroup | null = null;
+  for (const row of developQuoteSheetRows(props.quote)) {
+    if (row.kind === 'item') {
+      if (row.groupFirst || current === null) {
+        current = { kind: 'items', key: `g${String(row.rank)}`, label: row.groupLabel, items: [], subtotal: null };
+        out.push(current);
+      }
+      current.items.push(row);
+    } else if (row.kind === 'subtotal') {
+      if (current !== null) current.subtotal = { label: row.label, amount: row.amount };
+      current = null;
+    } else {
+      current = null;
+      out.push({ kind: 'surcharge', key: `s${String(row.rank)}`, label: row.label, text: row.text, amount: row.amount });
+    }
+  }
+  return out;
+});
+// 항목 칸 — 인건비는 '기술등급 · 담당업무', 직접비는 내용. 비면 시안처럼 '-'.
+const itemText = (it: ItemRow): string => {
+  const parts = it.category === 'labor' ? [it.grade, it.description] : [it.description];
+  const text = parts.filter((v): v is string => v !== null && v.trim() !== '').join(' · ');
+  return text === '' ? '-' : text;
+};
+
+// Remark — 이름 붙은 줄은 시안처럼 두 단(앞 절반 · 뒤 절반), 고정 문구(승인 후 진행)는 그 아래 한 줄.
+const remarks = computed(() => developQuoteRemarks(props.quote));
+const remarkColumns = computed(() => {
+  const labeled = remarks.value.filter((r) => r.label !== null);
+  const half = Math.ceil(labeled.length / 2);
+  return [labeled.slice(0, half), labeled.slice(half)].filter((c) => c.length > 0);
+});
+const remarkNotes = computed(() => remarks.value.filter((r) => r.label === null));
+
+const duration = computed(() => developQuoteDurationText(props.quote));
+const note = computed(() => (props.quote.note ?? '').trim());
 const vatLabel = computed(() =>
   props.quote.vatMode === 'exempt' ? '부가세 (면세)' : props.quote.vatMode === 'included' ? '부가세 (포함)' : '부가세',
 );
+const totalLabel = computed(() => (props.quote.vatMode === 'exempt' ? '총합계' : '총합계 (VAT 포함)'));
 </script>
 
 <template>
   <div class="dq-sheet" data-testid="develop-quote-sheet">
     <header class="dq-head">
-      <img :src="logoUrl" alt="SAMPLEPCB" class="dq-logo" width="150" height="47">
-      <div class="dq-addr">
-        <p>{{ S.address }}</p>
-        <p class="dq-b">T {{ S.tel }}&nbsp;&nbsp; F {{ S.fax }}&nbsp;&nbsp; E {{ S.email }}</p>
-      </div>
+      <h1 class="dq-title">견적서</h1>
+      <img :src="logoUrl" alt="SAMPLEPCB" class="dq-logo" width="125" height="39">
     </header>
+    <p class="dq-sub">{{ quote.title }}</p>
 
-    <h1 class="dq-title">견&nbsp;&nbsp;&nbsp;적&nbsp;&nbsp;&nbsp;서</h1>
+    <dl class="dq-meta">
+      <div>
+        <dt>견적번호</dt>
+        <dd data-testid="develop-quote-no">{{ quoteNo }}</dd>
+      </div>
+      <div>
+        <dt>견적일자</dt>
+        <dd>{{ issuedOn }}</dd>
+      </div>
+      <div>
+        <dt>유효기간</dt>
+        <dd>{{ quote.validUntil }}</dd>
+      </div>
+    </dl>
 
-    <div class="dq-meta">
-      <p><b>견적번호 :</b> <span data-testid="develop-quote-no">{{ quoteNo }}</span></p>
-      <p><b>견적일자 :</b> {{ issued }}</p>
+    <div class="dq-parties">
+      <section class="dq-party">
+        <h2 class="dq-party-head">수신</h2>
+        <dl class="dq-fields">
+          <template v-for="f in recipientFields" :key="f.label">
+            <dt>{{ f.label }}</dt>
+            <dd>{{ f.value }}</dd>
+          </template>
+        </dl>
+      </section>
+      <section class="dq-party">
+        <h2 class="dq-party-head">공급자</h2>
+        <span class="dq-stamp-box"><img :src="stampUrl" alt="" class="dq-stamp" width="48" height="46"></span>
+        <dl class="dq-fields">
+          <dt>상호</dt>
+          <dd class="dq-by-stamp">{{ S.name }}</dd>
+          <dt>대표자</dt>
+          <dd class="dq-by-stamp">{{ S.owner }}</dd>
+          <dt class="dq-multi">주소</dt>
+          <dd class="dq-multi">{{ S.address }}</dd>
+          <dt>연락처</dt>
+          <dd class="dq-contact"><span>{{ S.managerName }}</span><span>{{ S.managerPhone }}</span></dd>
+          <dt>이메일</dt>
+          <dd>{{ S.managerEmail }}</dd>
+        </dl>
+      </section>
     </div>
 
-    <table class="dq-parties">
-      <colgroup>
-        <col class="dq-pk">
-        <col>
-        <col class="dq-pk">
-        <col>
-      </colgroup>
-      <tbody>
-        <tr>
-          <th>수신</th>
-          <td class="dq-b">{{ recipient.company ?? recipient.name }}</td>
-          <th>발신</th>
-          <td class="dq-b">{{ S.name }}</td>
-        </tr>
-        <tr>
-          <th>부서</th>
-          <td>{{ recipient.dept ?? '' }}</td>
-          <th>대표자</th>
-          <td class="dq-owner">
-            {{ S.owner }}
-            <img :src="stampUrl" alt="" class="dq-stamp" width="52" height="56">
-          </td>
-        </tr>
-        <tr>
-          <th>담당자</th>
-          <td class="dq-b">{{ recipient.name }} 님</td>
-          <th>담당자</th>
-          <td class="dq-b">{{ S.managerName }}</td>
-        </tr>
-        <tr>
-          <th>핸드폰</th>
-          <td>{{ recipient.phone }}</td>
-          <th>연락처</th>
-          <td>{{ S.managerPhone }}</td>
-        </tr>
-        <tr>
-          <th>e-mail</th>
-          <td>{{ recipient.email }}</td>
-          <th>e-mail</th>
-          <td>{{ S.managerEmail }}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <p class="dq-name"><b>견적명 :</b> <strong>{{ quote.title }}</strong></p>
-    <p class="dq-lead">아래와 같이 견적합니다.</p>
-
-    <table class="dq-items">
-      <colgroup>
-        <col class="dq-c-rank">
-        <col class="dq-c-group">
-        <col class="dq-c-title">
-        <col class="dq-c-grade">
-        <col>
-        <col class="dq-c-price">
-        <col class="dq-c-qty">
-        <col class="dq-c-amount">
-      </colgroup>
-      <thead>
-        <tr>
-          <th>순위</th>
-          <th>구분</th>
-          <th>직무</th>
-          <th>기술등급</th>
-          <th>담당업무</th>
-          <th>단가</th>
-          <th>기간</th>
-          <th>합계</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template v-for="(row, i) in rows" :key="i">
-          <tr v-if="row.kind === 'item'" class="dq-item">
-            <template v-if="row.groupFirst">
-              <td :rowspan="row.groupSize + 1" class="dq-center">{{ row.rank }}</td>
-              <td :rowspan="row.groupSize" class="dq-center dq-b">{{ row.groupLabel }}</td>
-            </template>
-            <td>{{ row.title }}</td>
-            <template v-if="row.category === 'labor'">
-              <td class="dq-center">{{ row.grade ?? '' }}</td>
-              <td>{{ row.description ?? '' }}</td>
-            </template>
-            <td v-else colspan="2">{{ row.description ?? '' }}</td>
-            <td class="dq-num">{{ num(row.unitPrice) }}</td>
-            <td class="dq-center">{{ row.qtyText }}</td>
-            <td class="dq-num">{{ num(row.amount) }}</td>
-          </tr>
-          <tr v-else-if="row.kind === 'subtotal'" class="dq-subtotal">
-            <td colspan="6" class="dq-center dq-b">{{ row.label }}</td>
-            <td class="dq-num dq-b">{{ num(row.amount) }}</td>
-          </tr>
-          <tr v-else class="dq-surcharge">
-            <td class="dq-center">{{ row.rank }}</td>
-            <td class="dq-center dq-b">{{ row.label }}</td>
-            <td colspan="5">{{ row.text }}</td>
-            <td class="dq-num dq-b">{{ num(row.amount) }}</td>
-          </tr>
+    <!-- 산출 내역 — 머리줄 + 묶음. 바깥 테두리·머리줄은 짙게, 열 구분선은 옅게, 묶음 사이는 중간 회색(시안). -->
+    <div class="dq-items">
+      <div class="dq-tr dq-thead">
+        <span class="dq-cell dq-k1">구분</span>
+        <span class="dq-cell dq-k2">구분</span>
+        <span class="dq-cell dq-k3">항목</span>
+        <span class="dq-cell dq-kq">적용 수량</span>
+        <span class="dq-cell dq-kp">단가</span>
+        <span class="dq-cell dq-ka">금액</span>
+      </div>
+      <div v-for="g in groups" :key="g.key" class="dq-group">
+        <template v-if="g.kind === 'items'">
+          <span class="dq-cell dq-k1 dq-c">{{ g.label }}</span>
+          <div class="dq-rows">
+            <div v-for="(it, i) in g.items" :key="i" class="dq-tr">
+              <span class="dq-cell dq-k2">{{ it.title }}</span>
+              <span class="dq-cell dq-k3">{{ itemText(it) }}</span>
+              <span class="dq-cell dq-kq dq-c">{{ it.qtyText }}</span>
+              <span class="dq-cell dq-kp dq-c">{{ won(it.unitPrice) }}</span>
+              <span class="dq-cell dq-ka dq-c">{{ won(it.amount) }}</span>
+            </div>
+            <div v-if="g.subtotal !== null" class="dq-tr dq-subtotal">
+              <span class="dq-cell dq-kspan dq-c">{{ g.subtotal.label }}</span>
+              <span class="dq-cell dq-ka dq-c">{{ won(g.subtotal.amount) }}</span>
+            </div>
+          </div>
         </template>
-        <tr v-if="rows.length === 0">
-          <td colspan="8" class="dq-center dq-muted">견적 항목이 없습니다.</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="dq-bottom">
-      <p class="dq-note">{{ quote.note ?? '' }}</p>
-      <table class="dq-totals">
-        <tbody>
-          <tr>
-            <th>공급가 합계</th>
-            <td class="dq-num" data-testid="develop-quote-supply">{{ num(quote.supplyAmount) }}</td>
-          </tr>
-          <tr>
-            <th>{{ vatLabel }}</th>
-            <td class="dq-num">{{ num(quote.vatAmount) }}</td>
-          </tr>
-          <tr class="dq-final">
-            <th>최종 견적 합계</th>
-            <td class="dq-num" data-testid="develop-quote-total">{{ num(quote.totalAmount) }}</td>
-          </tr>
-        </tbody>
-      </table>
+        <template v-else>
+          <span class="dq-cell dq-k1 dq-c">{{ g.label }}</span>
+          <div class="dq-rows">
+            <div class="dq-tr">
+              <span class="dq-cell dq-kspan">{{ g.text }}</span>
+              <span class="dq-cell dq-ka dq-c">{{ won(g.amount) }}</span>
+            </div>
+          </div>
+        </template>
+      </div>
+      <p v-if="groups.length === 0" class="dq-empty">견적 항목이 없습니다.</p>
     </div>
 
-    <section class="dq-remark">
-      <h2>Remark</h2>
-      <ol>
-        <li v-for="(rm, i) in remarks" :key="i" :class="{ 'dq-b': rm.label === null }">
-          <template v-if="rm.label !== null"><span class="dq-rk">{{ rm.label }}</span> : </template><span class="dq-rt">{{ rm.text }}</span>
-        </li>
-      </ol>
+    <!-- print-keep = 출력물 쪽 나누기가 상자째 다룬다(테두리 상자가 쪽 경계에서 갈리지 않게) -->
+    <section class="dq-remark print-keep">
+      <h2 class="dq-remark-title">Remark</h2>
+      <div v-if="remarkColumns.length > 0" class="dq-remark-cols">
+        <ul v-for="(col, ci) in remarkColumns" :key="ci">
+          <li v-for="rm in col" :key="rm.label ?? ''">
+            <span class="dq-rk">{{ rm.label }}</span> :&nbsp; <span class="dq-rt">{{ rm.text }}</span>
+          </li>
+        </ul>
+      </div>
+      <ul v-if="remarkNotes.length > 0">
+        <li v-for="(rm, i) in remarkNotes" :key="i" class="dq-strong">{{ rm.text }}</li>
+      </ul>
     </section>
+
+    <div class="dq-summary">
+      <dl class="dq-info">
+        <dt>개발 기간</dt>
+        <dd>{{ duration }}</dd>
+        <template v-if="note !== ''">
+          <dt>특기 사항</dt>
+          <dd class="dq-note">{{ note }}</dd>
+        </template>
+      </dl>
+      <dl class="dq-totals">
+        <dt>공급가액</dt>
+        <dd><span data-testid="develop-quote-supply">{{ num(quote.supplyAmount) }}</span>원</dd>
+        <dt>{{ vatLabel }}</dt>
+        <dd>{{ won(quote.vatAmount) }}</dd>
+        <dt>{{ totalLabel }}</dt>
+        <dd><span data-testid="develop-quote-total">{{ num(quote.totalAmount) }}</span>원</dd>
+      </dl>
+    </div>
   </div>
 </template>
 
 <style scoped>
-/* A4 — 화면은 종이 한 장(여백 12mm 포함 210mm), 인쇄는 @page 여백(소비 화면이 붙인다)에 맡기고 패딩을 푼다.
-   배경색(제목 띠·머리줄·소계·합계)은 인쇄 '배경 그래픽'을 꺼도 찍히게 print-color-adjust 를 건다. */
+/* 종이 = 시안 794 폭(A4 96dpi) · 여백 위 44 · 좌우 50 · 아래 50(본문 폭 694). 배경색(머리띠·표 머리·소계·합계 상자)은 인쇄
+   '배경 그래픽'을 꺼도 찍히게 print-color-adjust 를 건다. */
 .dq-sheet {
   box-sizing: border-box;
   width: 210mm;
-  padding: 12mm;
+  padding: 44px 50px 50px;
   background: #fff;
-  color: #1f2329;
+  color: #39404d;
   font-family: Pretendard, 'Pretendard Variable', 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', sans-serif;
   font-size: 12px;
-  line-height: 1.45;
-  letter-spacing: -0.01em;
+  line-height: 14px;
   word-break: keep-all;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
-.dq-sheet *,
-.dq-sheet *::before,
-.dq-sheet *::after {
+/* 시안 자간은 전부 -4% — em 은 선언한 요소의 글자 크기로 굳어 상속되므로 요소마다 건다(apps/web EstimateSheet 와 같은 방식).
+   PDF(@sp/ui downloadElementsPdf)는 찍는 복제본에서 0 으로 되돌린다(html2canvas 글자 어긋남). */
+.dq-sheet,
+.dq-sheet * {
   box-sizing: border-box;
+  letter-spacing: -0.04em;
 }
-.dq-sheet :where(p, h1, h2, ol) {
+/* :where 로 명시도를 낮춰 아래 블록별 여백이 이긴다 */
+.dq-sheet :where(p, h1, h2, dl, dt, dd, ul, li) {
   margin: 0;
-}
-@media print {
-  .dq-sheet {
-    width: auto;
-    padding: 0;
-  }
-}
-
-.dq-b {
-  font-weight: 700;
-}
-.dq-center {
-  text-align: center;
-}
-.dq-num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.dq-muted {
-  color: #8a9099;
+  padding: 0;
 }
 
 .dq-head {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
+.dq-title {
+  font-family: 'Noto Sans KR', Pretendard, sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #061023;
+}
+/* 로고 오른쪽 끝은 시안대로 표보다 4px 안(740) */
 .dq-logo {
   display: block;
-  width: 150px;
-  height: auto;
+  flex-shrink: 0;
+  width: 125px;
+  height: 39px;
+  margin: 2px 4px 0 0;
 }
-.dq-addr {
-  text-align: right;
-  font-size: 11px;
-  color: #3a4048;
-}
-
-.dq-title {
-  margin-top: 14px;
-  padding: 8px 0;
-  border: 1px solid #8c8c8c;
-  background: #d9d9d9;
-  text-align: center;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+.dq-sub {
+  margin-top: 10px;
+  font-family: 'Noto Sans KR', Pretendard, sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #061023;
+  overflow-wrap: anywhere;
 }
 
 .dq-meta {
   display: flex;
-  justify-content: space-between;
-  margin-top: 12px;
-  font-size: 13px;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-top: 14px;
+  padding-left: 1px;
 }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
+.dq-meta div {
+  display: flex;
+  gap: 6px;
 }
-th,
-td {
-  border: 1px solid #8c8c8c;
-  padding: 5px 7px;
-  vertical-align: middle;
-  overflow-wrap: anywhere;
+.dq-meta dt {
+  color: #646464;
+}
+.dq-meta dd {
+  font-weight: 500;
+  color: #191919;
 }
 
 .dq-parties {
-  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 14px;
+  break-inside: avoid;
 }
-.dq-parties .dq-pk {
-  width: 13%;
-}
-.dq-parties th {
-  background: #f2f2f2;
-  font-weight: 700;
-}
-.dq-owner {
+.dq-party {
   position: relative;
+  min-height: 221px;
+  border: 1px solid #d9d9d9;
+}
+.dq-party-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border-bottom: 1px solid #d9d9d9;
+  background: #eee;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 14px;
+}
+.dq-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 14px;
+  padding: 20px 20px 18px 19px;
+  font-size: 13px;
+  line-height: 1.1;
+}
+.dq-fields dt {
+  color: #646464;
+}
+.dq-fields dd {
+  min-width: 0;
+  font-weight: 500;
+  color: #191919;
+  overflow-wrap: anywhere;
+}
+/* 여러 줄로 흐르는 값(주소)은 줄 간격을 넓히고, 라벨도 첫 줄에 맞춘다 */
+.dq-fields .dq-multi {
+  line-height: 1.3;
+}
+.dq-contact {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 8px;
+}
+/* 직인 자리(오른쪽 위 50×50)와 겹치는 두 행은 값을 그 앞에서 접는다 */
+.dq-by-stamp {
+  padding-right: 60px;
+}
+.dq-stamp-box {
+  position: absolute;
+  top: 50px;
+  right: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  border: 1px solid #f3f3f3;
+  border-radius: 9px;
 }
 .dq-stamp {
-  position: absolute;
-  top: 50%;
-  left: 92px;
-  width: 52px;
-  height: auto;
-  transform: translateY(-50%);
-  pointer-events: none;
+  display: block;
+  width: 48px;
+  height: 46px;
+  object-fit: contain;
 }
 
-.dq-name {
-  margin-top: 16px;
-  font-size: 14px;
-}
-.dq-name strong {
-  margin-left: 6px;
-  font-size: 15px;
-}
-.dq-lead {
-  margin-top: 6px;
-  color: #3a4048;
-}
-
+/* ── 산출 내역 ── 칸 폭은 머리줄과 묶음이 같다(테두리를 칸 안에 넣어 border-box 로 맞춘다). */
 .dq-items {
-  margin-top: 8px;
+  margin-top: 20px;
+  line-height: 1.3;
+  color: #000;
 }
-.dq-items thead th {
-  background: #d9d9d9;
-  font-weight: 700;
+.dq-tr {
+  display: flex;
 }
-.dq-c-rank {
-  width: 6%;
+.dq-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
-.dq-c-group {
-  width: 9%;
+.dq-c {
+  justify-content: center;
+  text-align: center;
 }
-.dq-c-title {
-  width: 14%;
+.dq-k1,
+.dq-k2,
+.dq-k3,
+.dq-kq,
+.dq-kp,
+.dq-kspan {
+  border-right: 1px solid #d9d9d9;
 }
-.dq-c-grade {
-  width: 9%;
+.dq-k1 {
+  flex: 0 0 70px;
 }
-.dq-c-price {
-  width: 14%;
+.dq-k2 {
+  flex: 0 0 110px;
 }
-.dq-c-qty {
-  width: 9%;
+.dq-k3,
+.dq-kspan {
+  flex: 1 1 0;
 }
-.dq-c-amount {
-  width: 14%;
+.dq-kq {
+  flex: 0 0 63px;
 }
-.dq-subtotal td {
-  background: #f2f2f2;
+.dq-kp,
+.dq-ka {
+  flex: 0 0 97px;
 }
-.dq-items tr {
+.dq-thead {
+  height: 33px;
+  border: 1px solid #3b424f;
+  background: #fbfbfb;
+  line-height: 14px;
+  color: #39404d;
+}
+.dq-thead .dq-cell {
+  justify-content: center;
+  padding: 0 4px;
+  font-weight: 400;
+  text-align: center;
+}
+.dq-group {
+  display: flex;
+  border: 1px solid #3b424f;
+  border-top: 0;
+  border-bottom-color: #999;
   break-inside: avoid;
 }
+.dq-group:last-child {
+  border-bottom-color: #3b424f;
+}
+/* 출력물에서 다음 쪽으로 민 묶음(data-pb — lib/print-paginate)은 표 윗선을 다시 긋는다(시안 Slide 10). */
+.dq-group[data-pb] {
+  border-top: 1px solid #3b424f;
+}
+.dq-rows {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+}
+.dq-rows > .dq-tr {
+  flex: 1 0 auto;
+}
+.dq-rows > .dq-tr + .dq-tr {
+  border-top: 1px solid #d9d9d9;
+}
+.dq-subtotal {
+  background: #fbfbfb;
+}
+.dq-subtotal .dq-cell {
+  font-weight: 600;
+}
+.dq-empty {
+  padding: 14px;
+  border: 1px solid #3b424f;
+  border-top: 0;
+  text-align: center;
+  color: #8a9099;
+}
 
-.dq-bottom {
-  display: grid;
-  grid-template-columns: 1fr 37%;
-  margin-top: -1px;
-  break-inside: avoid;
-}
-.dq-note {
-  border: 1px solid #8c8c8c;
-  border-right: 0;
-  padding: 7px;
-  font-weight: 700;
-  white-space: pre-wrap;
-}
-.dq-totals th {
-  width: 52%;
-  background: #f2f2f2;
-  font-weight: 700;
-}
-.dq-totals td {
-  font-weight: 700;
-}
-.dq-final th,
-.dq-final td {
-  background: #fff2cc;
-  font-size: 13px;
-}
-
+/* ── Remark ── 글머리는 ::before 점(목록 기호보다 PDF 캡처에서 자리가 안정적이다) */
 .dq-remark {
-  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
   break-inside: avoid;
 }
-.dq-remark h2 {
+.dq-remark-title {
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 14px;
 }
-/* 소비 앱의 Tailwind 기본 초기화가 ol 번호를 지우므로 다시 건다(참고 견적서 '1. 납기 …'). */
-.dq-remark ol {
-  margin-top: 4px;
-  padding-left: 22px;
-  list-style: decimal;
+.dq-remark-cols {
+  display: flex;
+  gap: 13px;
 }
-.dq-remark li + li {
-  margin-top: 2px;
+.dq-remark-cols > ul {
+  flex: 1 1 0;
+  min-width: 0;
 }
-.dq-rk {
-  display: inline-block;
-  min-width: 82px;
+.dq-remark li {
+  position: relative;
+  padding-left: 16.5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #75777d;
+  list-style: none;
+}
+.dq-remark li::before {
+  content: '';
+  position: absolute;
+  top: calc(0.75em - 1.5px);
+  left: 7px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dq-remark .dq-strong {
+  font-weight: 700;
+  color: #39404d;
 }
 /* 별도 실비처럼 여러 줄로 적은 글은 줄바꿈 그대로 찍는다. */
 .dq-rt {
   white-space: pre-line;
+}
+
+/* ── 아래 — 개발 기간·특기 사항(왼쪽) + 합계 상자(오른쪽), 위아래 짙은 선 사이 ── */
+.dq-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+  border-top: 1px solid #3b424f;
+  border-bottom: 1px solid #3b424f;
+  break-inside: avoid;
+}
+.dq-info {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 105px minmax(0, 1fr);
+  align-content: start;
+  row-gap: 12px;
+  min-width: 0;
+  padding: 12px 0;
+}
+.dq-info dd {
+  min-width: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.dq-info .dq-note {
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+.dq-totals {
+  display: grid;
+  flex: 0 0 220px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 12px 8px;
+  min-height: 87px;
+  padding: 9px 14px;
+  background: #eee;
+}
+.dq-totals dt {
+  font-weight: 600;
+}
+/* tabular-nums 를 쓰지 않는다 — PDF 캡처(html2canvas)는 캔버스에 비례 숫자로 그려 숫자와 '원' 사이가 벌어진다. */
+.dq-totals dd {
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
 }
 </style>

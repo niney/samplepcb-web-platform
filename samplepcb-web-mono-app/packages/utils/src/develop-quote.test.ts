@@ -7,6 +7,7 @@ import {
   computeDevelopQuoteAmounts,
   computeDevelopQuoteBreakdown,
   developBpPercent,
+  developQuoteDurationText,
   developQuoteFileName,
   developQuoteItemAmount,
   developQuotePdfName,
@@ -134,11 +135,8 @@ describe('견적서 표기', () => {
     expect(developQuoteQtyText(1.25, '')).toBe('1.25');
   });
 
-  it('Remark — 납기·유효기간·결제 조건(명칭 비율%(시점))·산출물·별도 실비·승인 문구', () => {
+  it('Remark — 결제 조건(명칭 비율%(시점))·산출물·별도 실비·승인 문구(납기·유효기간은 같은 쪽 다른 칸에)', () => {
     const remarks = developQuoteRemarks({
-      durationDays: 120,
-      scheduleNote: '1차 시제품 12월 말',
-      validUntil: '2026-12-04',
       milestones: [
         { title: '계약금', ratioBp: 4000, trigger: 'on_accept' },
         { title: '중도금', ratioBp: 3000, trigger: 'manual' },
@@ -148,8 +146,6 @@ describe('견적서 표기', () => {
       exclusions: 'PCB 제작비·부품비 별도\n인증 시험비 별도',
     });
     expect(remarks.map((r) => [r.label, r.text])).toEqual([
-      ['납기', '착수 후 120일 · 1차 시제품 12월 말'],
-      ['견적 유효기간', '2026-12-04까지'],
       ['결제 조건', '계약금 40%(견적 수락 시), 중도금 30%(담당자가 청구할 때), 잔금 30%(검수 확정 시)'],
       ['산출물', '회로도 · 거버 · 펌웨어 소스'],
       ['별도 실비', 'PCB 제작비·부품비 별도\n인증 시험비 별도'],
@@ -158,22 +154,15 @@ describe('견적서 표기', () => {
   });
 
   it('Remark — 산출물·별도 실비가 비어 있으면 그 줄을 뺀다', () => {
-    const remarks = developQuoteRemarks({
-      durationDays: null,
-      scheduleNote: null,
-      validUntil: '2026-12-04',
-      milestones: [],
-      deliverables: [' ', ''],
-      exclusions: '   ',
-    });
-    expect(remarks.map((r) => r.label)).toEqual(['납기', '견적 유효기간', '결제 조건', null]);
+    const remarks = developQuoteRemarks({ milestones: [], deliverables: [' ', ''], exclusions: '   ' });
+    expect(remarks.map((r) => [r.label, r.text])).toEqual([
+      ['결제 조건', '협의'],
+      [null, '단계별 설계 및 개발 과정은 모두 발주처 승인 후 진행합니다.'],
+    ]);
   });
 
   it('Remark 결제 조건 — 명칭 안의 " (" 는 그대로 둔다(문자열 치환 없이 조립)', () => {
     const remarks = developQuoteRemarks({
-      durationDays: null,
-      scheduleNote: null,
-      validUntil: '2026-12-04',
       milestones: [
         { title: '착수금 (1차)', ratioBp: 10_000, trigger: 'on_accept' },
         { title: '잔금', ratioBp: null, trigger: 'manual' },
@@ -181,7 +170,14 @@ describe('견적서 표기', () => {
       deliverables: [],
       exclusions: null,
     });
-    expect(remarks[2]?.text).toBe('착수금 (1차) 100%(견적 수락 시), 잔금(담당자가 청구할 때)');
+    expect(remarks[0]?.text).toBe('착수금 (1차) 100%(견적 수락 시), 잔금(담당자가 청구할 때)');
+  });
+
+  it('개발 기간 — 일수 · 일정 메모, 둘 다 없으면 협의', () => {
+    expect(developQuoteDurationText({ durationDays: 120, scheduleNote: ' 1차 시제품 12월 말 ' })).toBe('착수 후 120일 · 1차 시제품 12월 말');
+    expect(developQuoteDurationText({ durationDays: 60, scheduleNote: null })).toBe('착수 후 60일');
+    expect(developQuoteDurationText({ durationDays: null, scheduleNote: '양산 일정 별도 협의' })).toBe('양산 일정 별도 협의');
+    expect(developQuoteDurationText({ durationDays: null, scheduleNote: '  ' })).toBe('협의');
   });
 
   it('엑셀 파일 이름 — 80자는 글자 단위로 자른다(이모지를 반으로 쪼개면 encodeURIComponent 가 URIError)', () => {

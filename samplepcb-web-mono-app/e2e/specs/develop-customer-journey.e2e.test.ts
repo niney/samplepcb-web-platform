@@ -21,7 +21,7 @@
 // 실행: PORTAL_E2E=1 pnpm -F e2e e2e develop-customer-journey
 // 사전 조건: sp-node(3333)·nginx(local-web)·sp-develop(5177)·Mailpit. 관리자 화면(sp-vue)은 필요 없다.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { API_URL, RUN, closeBrowser, disconnectPrisma, getPrisma, mailpitMessage, mailpitSearch, newSession, signJwt, snap, xlsxText } from '../helpers';
@@ -279,7 +279,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await link.getAttribute('target')).toBe('_blank');
     const p = await openPrint();
     expect(p.cover).toBe('제품 개발 제안서');
-    expect(p.sections).toEqual(['1. 상세 의뢰 내용', '2. 진행 사항']);
+    expect(p.sections).toEqual(['1. 상세 의뢰 내용', '2. 진행 · 문의']);
     expect(p.buttons, '출력물에 누를 것이 없다').toBe(0);
   }, LONG);
 
@@ -390,7 +390,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     const file = await downloading;
     expect(file.suggestedFilename(), '파일 이름').toBe(`2차 견적(Android 우선) 견적서 Q${String(rid)}-v${String(q2.version)}.xlsx`);
     const sheetText = xlsxText(readFileSync(await file.path()));
-    for (const text of ['견    적    서', '인건비 소계', '15% (인건비+직접비)', '10일', '함체는 사급 지원', '박승한 상무', '연구소', '산출물 : 회로도 · 거버 · 펌웨어 소스 · 앱 소스', '별도 실비 : PCB 제작비·부품비 별도']) {
+    for (const text of ['견적서', '인건비 소계', '15% (인건비+직접비)', '10일', '함체는 사급 지원', '박승한 상무', '연구소', '산출물 : 회로도 · 거버 · 펌웨어 소스 · 앱 소스', '별도 실비 : PCB 제작비·부품비 별도']) {
       expect(sheetText, `엑셀: ${text}`).toContain(text);
     }
     // 카드 「PDF」 = 인쇄용 보기를 ?download=pdf 로 연다(그려지자마자 한 번 내려받는다)
@@ -420,6 +420,10 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(pdfBuf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(pageCount(pdfBuf), 'PDF 쪽 수(견적서 + 별지)').toBeGreaterThanOrEqual(2);
     await pdfFile.saveAs(join(outputDir, 'develop-quote.pdf')); // 눈으로 확인할 산출물(output 은 git 밖)
+    // 브라우저 인쇄(A4 · @page 여백 = 화면 견적서 안쪽 여백, 인쇄에선 견적서 패딩을 푼다) — 견적서 1쪽 + 별지 1쪽
+    const printPdf = await page.pdf({ preferCSSPageSize: true, printBackground: false });
+    writeFileSync(join(outputDir, 'develop-quote-print.pdf'), printPdf); // 눈으로 확인할 산출물
+    expect(pageCount(printPdf), '인쇄 쪽 수(견적서 + 별지)').toBe(2);
     // ?download=pdf 로 열면 그려지자마자 받고, 주소에서 그 쿼리를 지운다
     const autoDownloading = page.waitForEvent('download');
     await page.goto(`/develop/requests/${String(rid)}/quotes/${String(q2.quoteId)}/print?download=pdf&_t=${String(Date.now())}`);
@@ -575,22 +579,34 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
   test('11. 완료 뒤 출력물 — 개발 진행 보고서(섹션 5·구성도 이미지 2장·조작 UI 0·PDF 여러 쪽)', async () => {
     const p = await openPrint();
     expect(p.cover).toBe('개발 진행 보고서');
-    expect(p.sections).toEqual(['1. 상세 의뢰 내용', '2. AI 사전 검토서', '3. 견적서', '4. 진행 현황 · 프로젝트 문서', '5. 진행 사항']);
+    expect(p.sections).toEqual(['1. 상세 의뢰 내용', '2. AI 사전 검토서', '3. 견적서', '4. 진행 현황 · 프로젝트 문서', '5. 진행 · 문의']);
     expect(p.buttons, '출력물에 누를 것이 없다(수락·결제·검수·받기·접기)').toBe(0);
     expect(p.iframes, '구성도는 iframe 이 아니라 이미지로').toBe(0);
     expect(p.figures.length).toBe(2);
     expect(p.figures.every((w) => w > 0), '도면 이미지가 디코드된다').toBe(true);
     const page = s.page;
-    // 견적서는 수락한 v2 하나 — 수정 요청한 v1 은 싣지 않는다
+    // 쪽 나누기(와 그 앞의 크기 규칙)가 끝날 때까지 — data-pages 가 0 이면 아직이다
+    await page.waitForFunction(() => Number(document.querySelector('.develop-print')?.getAttribute('data-pages') ?? '0') > 0, undefined, { timeout: 20_000 });
+    // 견적서는 수락한 v2 하나 — 수정 요청한 v1 은 싣지 않는다. 카드 대신 고객이 받는 견적서 문서 + 수락·결제 기록(2026-11-06 시안)
     const quotes = page.locator('[data-print-section="quotes"]');
     expect(await quotes.locator('article').count()).toBe(1);
+    expect(await quotes.getByTestId('develop-quote-sheet').count()).toBe(1);
+    expect(await quotes.getByTestId('develop-quote-total').textContent()).toBe('10,810,800');
+    expect(await quotes.getByText('견적 수락 기록', { exact: true }).count()).toBe(1);
     expect(await quotes.getByText('수락', { exact: true }).count()).toBe(1);
     expect(await quotes.getByText('수정 요청', { exact: true }).count()).toBe(0);
+    // 첫 내용 쪽 머리 띠(의뢰 제목 · 개발 분야 · 접수일자 · 진행상태) · 크기 규칙(글자 −2px — 섹션 제목 22→20, 표지·견적서 문서는 예외)
+    expect(await page.locator('[data-print-section="content"] > [data-print-noscale]').textContent()).toMatch(/개발 분야 :.+접수일자 :.+진행상태 :/);
+    const sizes = await page.evaluate(() => {
+      const fs = (sel: string): string => getComputedStyle(document.querySelector(sel) ?? document.body).fontSize;
+      return { section: fs('[data-print-section="content"] > h2'), cover: fs('[data-print-section="cover"] h1'), sheet: fs('[data-print-section="quotes"] .dq-title') };
+    });
+    expect(sizes).toEqual({ section: '20px', cover: '42px', sheet: '32px' });
     // 인쇄(PPT 4:3, 디자인 체크리스트 8번) — 표지 + 섹션마다 새 쪽이라 최소 6쪽이고, 화면 판 수(data-pages)와 인쇄 쪽 수가 같다
     // (화면이 민 자리에서 인쇄도 끊는다). 배경 그래픽을 끈 기본 설정으로도 찍힌다(print-color-adjust).
-    await page.waitForFunction(() => Number(document.querySelector('.develop-print')?.getAttribute('data-pages') ?? '0') > 0, undefined, { timeout: 20_000 });
     const screenPages = Number(await page.locator('.develop-print').getAttribute('data-pages'));
     const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: false });
+    writeFileSync(join(outputDir, 'develop-request-print.pdf'), pdf); // 눈으로 확인할 산출물(output 은 git 밖)
     const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
     expect(pages).toBeGreaterThanOrEqual(6);
     expect(pages, '화면 판 수 = 인쇄 쪽 수').toBe(screenPages);

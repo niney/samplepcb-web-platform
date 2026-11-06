@@ -56,7 +56,7 @@ const quote: DevelopQuoteViewType = {
 };
 
 describe('renderDevelopQuoteXlsx', () => {
-  it('1쪽 서식(머리·수신/발신·산출 내역·합계·Remark)과 조건 시트를 만든다', async () => {
+  it('1쪽 서식(머리·수신/공급자·산출 내역·Remark·개발 기간·합계)과 조건 시트를 만든다', async () => {
     const buf = await renderDevelopQuoteXlsx({
       quote,
       recipient: { company: '(주)멀티', dept: '연구소', name: '김태욱', phone: '010-0000-0000', email: 'a@example.com' },
@@ -81,21 +81,32 @@ describe('renderDevelopQuoteXlsx', () => {
       });
     });
     const joined = texts.join('\n');
-    expect(joined).toContain('견    적    서');
-    expect(joined).toContain('견적번호 : Q42-v2');
-    expect(joined).toContain('견적일자 : 2026. 11. 04');
-    expect(joined).toContain('(주)멀티');
-    expect(joined).toContain('김태욱 님');
+    // 제목·견적명·번호/일자/유효기간(피그마 「통합 견적서」 머리, 2026-11-06)
+    expect(texts).toContain('견적서');
+    expect(texts).toContain(quote.title);
+    expect(joined).toContain('견적번호  Q42-v2');
+    expect(joined).toContain('견적일자  2026-11-04');
+    expect(joined).toContain('유효기간  2026-12-04');
+    // 수신(회사명·부서·이름·연락처·이메일) · 공급자(상호·대표자·주소·담당자 연락처·이메일)
+    for (const t of ['수신', '공급자', '(주)멀티', '연구소', '김태욱', '010-0000-0000', 'a@example.com']) expect(texts).toContain(t);
     expect(joined).toContain(DEVELOP_QUOTE_SUPPLIER.owner);
-    expect(joined).toContain(DEVELOP_QUOTE_SUPPLIER.managerPhone);
-    expect(joined).toContain('0.5개월');
-    expect(joined).toContain('인건비 소계');
-    expect(joined).toContain('15% (인건비+직접비)');
-    expect(joined).toContain('함체는 사급 지원');
+    expect(joined).toContain(`${DEVELOP_QUOTE_SUPPLIER.managerName}  ${DEVELOP_QUOTE_SUPPLIER.managerPhone}`);
+    // 표 — 구분 · 구분 · 항목(기술등급 · 담당업무) · 적용 수량 · 단가 · 금액
+    for (const t of ['구분', '항목', '적용 수량', '단가', '금액', '인건비', '직접비', 'PM', '특급 · 시스템 설계', '0.5개월', '인건비 소계', '간접비', '15% (인건비+직접비)']) {
+      expect(texts).toContain(t);
+    }
+    // Remark — 결제 조건 · 산출물 · 별도 실비 · 승인 문구(납기·유효기간 줄은 머리·아래 칸에 있어 뺐다)
     expect(joined).toContain('결제 조건 : 계약금 40%(견적 수락 시), 잔금 60%(검수 확정 시)');
-    // 1쪽 Remark 에 산출물·별도 실비(2026-11-04 — 조건 시트에도 그대로 있다)
-    expect(joined).toContain('4. 산출물 : 회로도 · 펌웨어 소스');
-    expect(joined).toContain('5. 별도 실비 : 인증 시험비 별도');
+    expect(joined).toContain('산출물 : 회로도 · 펌웨어 소스');
+    expect(joined).toContain('별도 실비 : 인증 시험비 별도');
+    expect(joined).toContain('단계별 설계 및 개발 과정은 모두 발주처 승인 후 진행합니다.');
+    expect(joined).not.toContain('납기 :');
+    // 아래 — 개발 기간 · 특기 사항 · 합계 상자
+    expect(texts).toContain('개발 기간');
+    expect(texts).toContain('착수 후 120일');
+    expect(texts).toContain('특기 사항');
+    expect(texts).toContain('함체는 사급 지원');
+    for (const t of ['공급가액', '부가세', '총합계 (VAT 포함)']) expect(texts).toContain(t);
     // 값으로 들어간 금액(수식 아님) — 소계·가산·합계
     for (const n of [b.laborSubtotal, b.directSubtotal, b.indirectAmount, b.overheadAmount, b.profitAmount, b.supplyAmount, b.vatAmount, b.totalAmount]) {
       expect(numbers).toContain(n);

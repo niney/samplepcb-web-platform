@@ -1,31 +1,46 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { DEVELOP_BUDGET_RANGE_LABELS, developAreaBadge, developWishLabel } from '@sp/api-contract';
-import type { DevelopRequestStatusType } from '@sp/api-contract';
+import {
+  DEVELOP_BUDGET_RANGE_LABELS,
+  DEVELOP_MILESTONE_STATUS_LABELS,
+  DEVELOP_MILESTONE_TRIGGER_LABELS,
+  DEVELOP_QUOTE_STATUS_LABELS,
+  developAreaBadge,
+  developBpPercent,
+  developQuoteNo,
+  developWishLabel,
+} from '@sp/api-contract';
+import type { DevelopQuoteSheetRecipient, DevelopRequestStatusType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
+import { DevelopQuoteSheet } from '@sp/ui';
 import { useDevelopRequest } from '../api/useDevelopRequests';
 import { developPath, loginUrl } from '../lib/auth-urls';
 import { COMPANY } from '../lib/company';
 import { errorMessage } from '../lib/error-msg';
-import { dateDotFull, statusLabel } from '../lib/format';
+import { dateDotFull, dateShort, dateTimeKst, statusLabel, statusToneClass, won } from '../lib/format';
 import { PRINT_PAGE, PRINT_PITCH, paginatePrint } from '../lib/print-paginate';
+import { applyPrintScale } from '../lib/print-scale';
 import HeaderLogo from '../components/layout/HeaderLogo.vue';
 import RequestContent from '../components/detail/RequestContent.vue';
-import QuoteCard from '../components/detail/QuoteCard.vue';
 import Timeline from '../components/detail/Timeline.vue';
 import AttachmentList from '../components/detail/AttachmentList.vue';
 import ProjectProgress from '../components/detail/ProjectProgress.vue';
 import DocumentList from '../components/detail/DocumentList.vue';
 import DevelopReview from '../components/detail/review/DevelopReview.vue';
+import iconQuote from '../assets/detail/quote-doc.svg';
 
-// 의뢰 출력물('출력하기', 피그마 「개발 의뢰」 Slide 4:3 1~12) — 브라우저 인쇄만, PDF 파일은 만들지 않는다(견적서 인쇄 D12 관례).
+// 의뢰 출력물('출력하기', 피그마 「개발 의뢰 > 내 의뢰 > 출력하기」 Slide 4:3) — 브라우저 인쇄만, PDF 파일은 만들지 않는다(견적서 인쇄 D12 관례).
 // 셸이 없는 라우트(meta.bare)라 화면 자체가 종이 미리보기다. 용지는 PPT 4:3(10×7.5in) — 2026-10-22 엔 A4 가로였고,
 // 디자인 체크리스트 8번(10-30)으로 화면도 4:3 판에 쪽 단위로 나눠 보이고 인쇄도 같은 자리에서 끊는다(lib/print-paginate).
-// 시안은 상세 화면을 4:3 판에 잘라 붙인 모양이라 고정 12장을 옮기지 않고 규칙으로 나눈다:
+// 시안은 상세 화면을 4:3 판에 잘라 붙인 모양이라 고정 장수를 옮기지 않고 규칙으로 나눈다:
 // 표지 1장 → 섹션마다 새 쪽 → 카드·행은 쪽 경계에서 쪼개지 않는다(큰 글 덩어리만 줄 경계에서 쪼갠다).
 // 섹션은 상세 탭과 같은 순서이되 내용이 없는 섹션은 뺀다(빈 쪽을 찍지 않는다).
 // 컴포넌트는 상세 화면 것을 print 모드로 다시 쓴다 — 조작 UI(수락·결제·문의·검수 응답·받기) 없이 읽기 전용.
+// 2026-11-06 시안 재대조: 표지(Slide 11)·첫 쪽 머리 띠(Slide 1)를 시안 크기로, 견적서 섹션은 견적 카드 대신 고객이 받는 견적서
+// 문서(@sp/ui DevelopQuoteSheet — 시안 「통합 견적서」 모양) + 수락·결제 기록(시안의 수락 패널 자리 — 종이엔 누를 것이 없다).
+// 디자이너 메모(11-05)의 크기 규칙(글자 −2px · 16px 이상 여백 −10px)은 쪽 나누기 전에 건다(lib/print-scale) — 표지·머리 띠·
+// 견적서 문서·2-4 개발 명세서는 예외(data-print-noscale).
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -48,6 +63,16 @@ const printQuote = computed(() => {
   const latestFirst = [...(detail.value?.quotes ?? [])].reverse(); // 서버가 version 오름차순으로 준다
   return latestFirst.find((q) => q.status === 'accepted') ?? latestFirst.find((q) => q.status === 'sent') ?? null;
 });
+// 견적서 문서의 수신·번호·일자 — 견적서 인쇄 화면(QuotePrint)과 같은 값.
+const quoteRecipient = computed<DevelopQuoteSheetRecipient>(() => ({
+  company: detail.value?.contact.company ?? null,
+  dept: printQuote.value?.recipientDept ?? null,
+  name: detail.value?.contact.name ?? '',
+  phone: detail.value?.contact.phone ?? '',
+  email: detail.value?.contact.email ?? '',
+}));
+const quoteNo = computed(() => (printQuote.value === null ? '' : developQuoteNo(printQuote.value.requestId, printQuote.value.version)));
+const quoteIssuedOn = computed(() => dateShort(printQuote.value?.sentAt ?? new Date().toISOString()));
 
 type SectionId = 'content' | 'review' | 'quotes' | 'documents' | 'timeline' | 'files';
 const sections = computed<{ id: SectionId; title: string }[]>(() => {
@@ -58,7 +83,7 @@ const sections = computed<{ id: SectionId; title: string }[]>(() => {
   if (d.review !== null || d.diagram !== null) list.push({ id: 'review', title: 'AI 사전 검토서' });
   if (printQuote.value !== null) list.push({ id: 'quotes', title: '견적서' });
   if (!closed && !BEFORE_START.includes(d.status)) list.push({ id: 'documents', title: '진행 현황 · 프로젝트 문서' });
-  list.push({ id: 'timeline', title: '진행 사항' });
+  list.push({ id: 'timeline', title: '진행 · 문의' });
   if (d.files.length > 0) list.push({ id: 'files', title: '첨부 자료' });
   return list;
 });
@@ -68,7 +93,17 @@ const reviewVersionLabel = computed(() => {
   return seq === null ? '' : `v${String(seq)} 공개본`;
 });
 const wishLabel = computed(() => (detail.value === undefined ? '' : developWishLabel(detail.value.wishDate, detail.value.wishNote)));
-const printedOn = dateDotFull(new Date().toISOString());
+// 표지 '의뢰 내용' — 시안 두 단(왼쪽 접수 일자·예산, 오른쪽 개발 분야·희망 완료 시기)이 행 순서로 흐르게 놓는다.
+const coverRows = computed(() => {
+  const d = detail.value;
+  if (d === undefined) return [];
+  return [
+    { label: '접수 일자', value: dateDotFull(d.createdAt) },
+    { label: '개발 분야', value: developAreaBadge(d.serviceAreas) },
+    { label: '예산', value: DEVELOP_BUDGET_RANGE_LABELS[d.budgetRange] },
+    { label: '희망 완료 시기', value: wishLabel.value === '' ? '—' : wishLabel.value },
+  ];
+});
 
 // 용지 — 이 화면에서만 PPT 4:3(10×7.5in). 여백은 화면 판 여백과 같게 둬 인쇄 쪽 내용 폭·높이가 화면 판과 같다(864×640).
 // @page 는 문서 전역이라 들어올 때 붙이고 나갈 때 뗀다(견적서 인쇄는 A4 세로 그대로).
@@ -83,6 +118,7 @@ onBeforeUnmount(() => {
 });
 
 // 쪽 나누기(lib/print-paginate) — 글꼴·그림이 다 들어온 뒤에 잰다. 내용이 바뀌면(다시 받은 의뢰) 흐름을 새로 그린 뒤(key) 다시 잰다.
+// 그 전에 출력물 크기 규칙(lib/print-scale)을 건다 — 줄어든 크기로 재야 화면 판과 인쇄 쪽이 맞는다.
 // pageCount 0 = 아직 안 나눔(판·가림을 그리지 않는다). data-pages 는 e2e 가 인쇄 쪽 수와 맞대 본다.
 const flowEl = ref<HTMLElement | null>(null);
 const flowKey = ref(0);
@@ -101,6 +137,7 @@ watch(
     if (flow === null || run !== paginateRun) return;
     await Promise.all([...flow.querySelectorAll('img')].map((img) => img.decode().catch(() => undefined)));
     if (run !== paginateRun) return;
+    applyPrintScale(flow);
     pageCount.value = paginatePrint(flow);
   },
   { immediate: true },
@@ -198,45 +235,59 @@ const CARD = 'rounded-[14px] border border-[#ebebeb] bg-white px-[24px] py-[26px
             aria-hidden="true"
           />
           <div :key="flowKey" ref="flowEl" class="relative flex flex-col print:!m-0 print:!w-auto" :style="FLOW_STYLE">
-            <!-- 표지 -->
-            <section class="print-page" data-print-section="cover">
+            <!-- 표지 — 시안 Slide 11(1024×768 판)의 세로 간격 그대로. 판이 시안보다 48 낮아 남는 높이는 위 여백(줄어들 수 있다)과
+                 '의뢰 내용' 앞 빈자리가 나눠 갖고, 높이를 한 쪽(쪽 나누기 한도 636) 안으로 묶어 표지가 두 쪽으로 넘치지 않게 한다.
+                 연락처는 담당자 개인 번호가 아니라 회사 대표번호(개인 연락처를 내보내지 않는 규칙). -->
+            <section class="print-page flex h-[632px] flex-col" data-print-section="cover" data-print-noscale>
+              <div class="h-[64px] min-h-[16px] shrink" aria-hidden="true" />
               <HeaderLogo />
-              <div class="mt-[28px] h-px bg-[#0a151e]" />
-              <div class="flex flex-col gap-[14px] py-[28px]">
-                <h1 class="text-[38px] font-bold leading-[1.3] text-[#141e34]">{{ coverTitle }}</h1>
-                <p class="text-[26px] font-medium leading-[1.4] text-[#141e34]">{{ detail.title }}</p>
-                <p v-if="detail.review !== null && detail.review.summary !== ''" class="line-clamp-3 text-[16px] leading-[1.6] text-[#666]">{{ detail.review.summary }}</p>
-              </div>
-              <div class="h-px bg-[#0a151e]" />
-              <p class="flex flex-wrap gap-x-[30px] gap-y-[6px] px-[4px] py-[16px] text-[15px] leading-[1.3]">
-                <span>담당자 : <b class="font-semibold">{{ detail.assigneeName ?? '샘플피씨비 개발팀' }}</b></span>
-                <span>연락처 : <b class="font-semibold">{{ COMPANY.tel }}</b></span>
-                <span>이메일 : <b class="font-semibold">{{ COMPANY.email }}</b></span>
+              <div class="mt-[26px] h-px shrink-0 bg-[#0a151e]" />
+              <h1 class="mt-[34px] text-[42px] font-bold leading-[1.3] text-[#141e34]">{{ coverTitle }}</h1>
+              <p class="mt-[24px] text-[26px] font-medium leading-[1.3] text-[#141e34]">{{ detail.title }}</p>
+              <p v-if="detail.review !== null && detail.review.summary !== ''" class="mt-[9px] line-clamp-2 text-[18px] leading-[1.8] text-[#666]">
+                {{ detail.review.summary }}
               </p>
-
-              <div class="mt-[28px] flex flex-col gap-[14px]">
-                <h2 class="text-[18px] font-bold leading-[1.3] text-black">의뢰 개요</h2>
-                <dl class="grid gap-x-[40px] gap-y-[12px] rounded-[10px] bg-[#f5f6f8] px-[28px] py-[22px] text-[15px] leading-[1.5] sm:grid-cols-2">
-                  <div class="flex gap-[8px]"><dt>· 접수 일자 :</dt><dd class="font-semibold">{{ dateDotFull(detail.createdAt) }}</dd></div>
-                  <div class="flex gap-[8px]"><dt>· 개발 분야 :</dt><dd class="font-semibold">{{ developAreaBadge(detail.serviceAreas) }}</dd></div>
-                  <div class="flex gap-[8px]"><dt>· 예산 :</dt><dd class="font-semibold">{{ DEVELOP_BUDGET_RANGE_LABELS[detail.budgetRange] }}</dd></div>
-                  <div class="flex gap-[8px]"><dt>· 희망 완료 시기 :</dt><dd class="font-semibold">{{ wishLabel === '' ? '—' : wishLabel }}</dd></div>
-                  <div class="flex gap-[8px]"><dt>· 진행 상태 :</dt><dd class="font-semibold">{{ statusLabel(detail.status) }}</dd></div>
-                  <div class="flex gap-[8px]"><dt>· 출력일 :</dt><dd class="font-semibold">{{ printedOn }}</dd></div>
-                </dl>
-              </div>
-              <p class="mt-[24px] text-[13px] leading-[1.6] text-[#999]">
-                {{ COMPANY.name }} · {{ COMPANY.addr }} · Tel {{ COMPANY.tel }} · Fax {{ COMPANY.fax }}
+              <div class="mt-[34px] h-px shrink-0 bg-[#0a151e]" />
+              <p class="mt-[20px] flex flex-wrap gap-x-[20px] leading-[1.8]">
+                <span class="flex items-baseline gap-[6px]">
+                  <span class="text-[15px] text-[#141e34]">담당자 :</span>
+                  <b class="text-[16px] font-semibold text-black">{{ detail.assigneeName ?? '샘플피씨비 개발팀' }}</b>
+                </span>
+                <span class="flex items-baseline gap-[6px]">
+                  <span class="text-[15px] text-[#141e34]">연락처 :</span>
+                  <b class="text-[16px] font-semibold text-black">{{ COMPANY.tel }}</b>
+                </span>
               </p>
+              <div class="min-h-[24px] flex-1" aria-hidden="true" />
+              <div class="flex flex-col gap-[16px] pb-[12px]">
+                <h2 class="text-[20px] font-bold leading-[1.3] text-black">의뢰 내용</h2>
+                <ul class="grid grid-cols-2 gap-[2px] rounded-[8px] bg-[#f5f6f8] px-[24px] py-[20px] leading-[1.8]">
+                  <li v-for="row in coverRows" :key="row.label" class="ms-[22.5px] list-disc text-[15px] text-[#141e34]">
+                    {{ row.label }} :<b class="ml-[6px] text-[16px] font-semibold text-black">{{ row.value }}</b>
+                  </li>
+                </ul>
+              </div>
             </section>
 
             <!-- 섹션 — 상세 탭 순서, 내용 없는 섹션은 뺀다 -->
             <section v-for="(s, si) in sections" :key="s.id" class="print-page" :data-print-section="s.id">
+              <!-- 첫 내용 쪽 머리 띠 — 시안 Slide 1: 의뢰 제목 + 위아래 선 사이 개발 분야·접수일자·진행상태(시안 크기 그대로) -->
+              <div v-if="si === 0" class="mb-[20px]" data-print-noscale>
+                <p class="text-[26px] font-bold leading-[1.3] text-[#141e34]">{{ detail.title }}</p>
+                <div
+                  class="mt-[12px] flex flex-wrap items-center gap-x-[30px] gap-y-[6px] border-y border-b-[#d8d8d8] border-t-[#0a151e] px-[10px] py-[13px] text-[14px] leading-[1.3] text-[#141e34]"
+                >
+                  <span class="flex items-center gap-[5px]">개발 분야 :<b class="font-medium">{{ developAreaBadge(detail.serviceAreas) }}</b></span>
+                  <span class="flex items-center gap-[8px]">접수일자 :<b class="font-medium">{{ dateDotFull(detail.createdAt) }}</b></span>
+                  <span class="flex items-center gap-[8px]">
+                    진행상태 :<span class="rounded-[37px] px-[8px] py-[4px] text-[12px] font-semibold" :class="statusToneClass[detail.status]">{{ statusLabel(detail.status) }}</span>
+                  </span>
+                </div>
+              </div>
               <h2 class="text-[22px] font-bold leading-[1.3] text-black">{{ si + 1 }}. {{ s.title }}</h2>
               <div class="mt-[22px] flex flex-col gap-[22px]">
-                <div v-if="s.id === 'content'" :class="CARD">
-                  <RequestContent :detail="detail" />
-                </div>
+                <!-- 상세 의뢰 내용 — 바깥 카드 없이(시안 Slide 1) -->
+                <RequestContent v-if="s.id === 'content'" :detail="detail" />
 
                 <DevelopReview
                   v-else-if="s.id === 'review'"
@@ -251,12 +302,46 @@ const CARD = 'rounded-[14px] border border-[#ebebeb] bg-white px-[24px] py-[26px
                   print
                 />
 
-                <QuoteCard
-                  v-else-if="s.id === 'quotes' && printQuote !== null"
-                  :quote="printQuote"
-                  :request-id="detail.requestId"
-                  print
-                />
+                <!-- 견적서 — 고객이 받는 견적서 문서(시안 Slide 9·10: 회색 바탕 가운데 종이) + 수락·결제 기록 -->
+                <article v-else-if="s.id === 'quotes' && printQuote !== null" class="flex flex-col gap-[22px]">
+                  <div class="bg-[#f7f7f7]" data-print-noscale>
+                    <div class="mx-auto w-fit">
+                      <DevelopQuoteSheet :quote="printQuote" :recipient="quoteRecipient" :quote-no="quoteNo" :issued-on="quoteIssuedOn" />
+                    </div>
+                  </div>
+                  <section class="print-keep flex flex-col gap-[10px] rounded-[10px] border border-[#d7deec] bg-[#f1f6ff] px-[16px] py-[14px]">
+                    <p class="flex flex-wrap items-center gap-[8px] text-[16px] font-bold leading-[1.3] text-black">
+                      <img :src="iconQuote" alt="" class="block size-[19px]">
+                      <span>{{ printQuote.status === 'accepted' ? '견적 수락 기록' : '견적 수락 전' }}</span>
+                      <span
+                        class="rounded-[37px] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] text-white"
+                        :class="printQuote.status === 'accepted' ? 'bg-[#1b2b39]' : 'bg-[#1b6ff3]'"
+                      >{{ DEVELOP_QUOTE_STATUS_LABELS[printQuote.status] }}</span>
+                    </p>
+                    <p v-if="printQuote.acceptedAt !== null" class="text-[15px] leading-[1.8] text-[#141e34]">
+                      {{ dateTimeKst(printQuote.acceptedAt) }} 수락 · 수락자 {{ printQuote.acceptedName ?? detail.contact.name }} — 표준 조건에 동의하여 계약을 갈음했습니다.
+                    </p>
+                    <p v-else class="text-[15px] leading-[1.8] text-[#141e34]">
+                      {{ printQuote.validUntil }}까지 유효합니다. 수락은 의뢰 상세 화면의 견적서에서 하실 수 있습니다.
+                    </p>
+                    <!-- 결제 진행 — 수락 뒤에만(수락 전 마일스톤은 전부 '작성 중'이라 뜻이 없다) -->
+                    <div v-if="printQuote.status === 'accepted' && printQuote.milestones.length > 0" class="flex flex-col">
+                      <div
+                        v-for="m in printQuote.milestones"
+                        :key="m.milestoneId"
+                        class="flex items-baseline gap-[14px] text-[15px] leading-[1.8] text-[#141e34]"
+                      >
+                        <span class="min-w-0 flex-1 font-semibold text-black">{{ m.title }}</span>
+                        <span class="w-[60px] shrink-0 text-right tabular-nums">{{ m.ratioBp === null ? '—' : `${developBpPercent(m.ratioBp)}%` }}</span>
+                        <span class="w-[130px] shrink-0 text-right tabular-nums">{{ won(m.amount) }}</span>
+                        <span class="w-[150px] shrink-0 text-[14px]">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger] }}</span>
+                        <span class="w-[170px] shrink-0 text-right text-[14px] font-semibold" :class="m.status === 'paid' ? 'text-[#2945e8]' : 'text-[#999]'">
+                          {{ DEVELOP_MILESTONE_STATUS_LABELS[m.status] }}<template v-if="m.paidAt !== null"> · {{ dateShort(m.paidAt) }}</template>
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+                </article>
 
                 <div v-else-if="s.id === 'documents'" :class="CARD" class="flex flex-col gap-[16px]">
                   <ProjectProgress :progress="detail.progress" :status="detail.status" />

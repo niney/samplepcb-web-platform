@@ -1092,22 +1092,26 @@ export interface DevelopQuoteRemark {
   text: string;
 }
 
+/** 개발 기간 — '착수 후 120일 · 일정 메모', 둘 다 없으면 '협의'(견적서 1쪽 아래 '개발 기간' 칸 · 엑셀 공용). */
+export function developQuoteDurationText(q: { durationDays: number | null; scheduleNote: string | null }): string {
+  const note = (q.scheduleNote ?? '').trim();
+  const days = q.durationDays === null ? '' : `착수 후 ${String(q.durationDays)}일`;
+  const text = [days, note].filter((s) => s !== '').join(' · ');
+  return text === '' ? '협의' : text;
+}
+
 /**
- * 견적서 Remark — 이미 있는 칸에서 문장을 만든다(인쇄 시트·관리자 미리보기·엑셀 공용). 납기 · 견적 유효기간 · 결제 조건 ·
- * 산출물 · 별도 실비 · 승인 후 진행(고정). 결제 조건은 마일스톤마다 '명칭 비율%(청구 시점)', 산출물은 ' · '로 잇는다.
+ * 견적서 Remark — 이미 있는 칸에서 문장을 만든다(인쇄 시트·관리자 미리보기·엑셀 공용). 결제 조건 · 산출물 · 별도 실비 ·
+ * 승인 후 진행(고정). 결제 조건은 마일스톤마다 '명칭 비율%(청구 시점)', 산출물은 ' · '로 잇는다.
  * 산출물·별도 실비는 비어 있으면 줄을 뺀다(2026-11-04 사용자 요청 — 1쪽에서 바로 보이게, 자세한 것은 별지에도 그대로).
+ * 납기·견적 유효기간 줄은 2026-11-06 피그마 「통합 견적서」 서식으로 옮기며 뺐다 — 같은 쪽 머리(유효기간)와 아래
+ * '개발 기간' 칸(developQuoteDurationText)에 이미 있어 두 번 찍히지 않게.
  */
 export function developQuoteRemarks(q: {
-  durationDays: number | null;
-  scheduleNote: string | null;
-  validUntil: string;
   milestones: readonly { title: string; ratioBp: number | null; trigger: DevelopMilestoneTriggerType }[];
   deliverables: readonly string[];
   exclusions: string | null;
 }): DevelopQuoteRemark[] {
-  const note = (q.scheduleNote ?? '').trim();
-  const days = q.durationDays === null ? '' : `착수 후 ${String(q.durationDays)}일`;
-  const delivery = [days, note].filter((s) => s !== '').join(' · ');
   // '명칭 비율%(청구 시점)' — 문자열 치환 없이 조립한다(명칭 안의 ' (' 를 건드리지 않게, 2026-11-04 리뷰).
   const payment = q.milestones
     .map((m) => {
@@ -1121,8 +1125,6 @@ export function developQuoteRemarks(q: {
     .join(' · ');
   const exclusions = (q.exclusions ?? '').trim();
   return [
-    { label: '납기', text: delivery === '' ? '협의' : delivery },
-    { label: '견적 유효기간', text: `${q.validUntil}까지` },
     { label: '결제 조건', text: payment === '' ? '협의' : payment },
     ...(deliverables === '' ? [] : [{ label: '산출물', text: deliverables }]),
     ...(exclusions === '' ? [] : [{ label: '별도 실비', text: exclusions }]),
@@ -1131,8 +1133,8 @@ export function developQuoteRemarks(q: {
 }
 
 // ── 견적서 1쪽 표의 행 — 인쇄 시트(@sp/ui)와 서버 엑셀이 같은 행을 그린다 ─────────────────
-// 순위 = 나타난 구분 순서(인건비 1 · 직접비 2 · 간접비 3 …, 없는 구분은 건너뛴다). 순위 칸은 구분 항목 + 소계 행을,
-// 구분 칸은 항목 행만 묶는다(참고 견적서 병합 그대로). 가산 행은 비율이 0 이면 빠진다.
+// 순위 = 나타난 구분 순서(인건비 1 · 직접비 2 · 간접비 3 …, 없는 구분은 건너뛴다). 가산 행은 비율이 0 이면 빠진다.
+// 2026-11-06 피그마 「통합 견적서」 서식부터 시트·엑셀은 순위 칸 없이 구분 칸 하나가 항목 + 소계 행을 묶는다(rank 는 묶음 열쇠로만 쓴다).
 export interface DevelopQuoteSheetRecipient {
   company: string | null;
   dept: string | null;
