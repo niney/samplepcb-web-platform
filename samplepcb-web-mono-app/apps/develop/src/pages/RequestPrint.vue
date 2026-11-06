@@ -1,34 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import {
-  DEVELOP_BUDGET_RANGE_LABELS,
-  DEVELOP_MILESTONE_STATUS_LABELS,
-  DEVELOP_MILESTONE_TRIGGER_LABELS,
-  DEVELOP_QUOTE_STATUS_LABELS,
-  developAreaBadge,
-  developBpPercent,
-  developQuoteNo,
-  developWishLabel,
-} from '@sp/api-contract';
-import type { DevelopQuoteSheetRecipient, DevelopRequestStatusType } from '@sp/api-contract';
+import { DEVELOP_BUDGET_RANGE_LABELS, developAreaBadge, developWishLabel } from '@sp/api-contract';
+import type { DevelopRequestStatusType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
-import { DevelopQuoteSheet } from '@sp/ui';
 import { useDevelopRequest } from '../api/useDevelopRequests';
 import { developPath, loginUrl } from '../lib/auth-urls';
 import { COMPANY } from '../lib/company';
 import { errorMessage } from '../lib/error-msg';
-import { dateDotFull, dateShort, dateTimeKst, statusLabel, statusToneClass, won } from '../lib/format';
+import { dateDotFull, statusLabel, statusToneClass } from '../lib/format';
 import { PRINT_PAGE, PRINT_PITCH, paginatePrint } from '../lib/print-paginate';
 import { applyPrintScale } from '../lib/print-scale';
 import HeaderLogo from '../components/layout/HeaderLogo.vue';
 import RequestContent from '../components/detail/RequestContent.vue';
-import Timeline from '../components/detail/Timeline.vue';
 import AttachmentList from '../components/detail/AttachmentList.vue';
 import ProjectProgress from '../components/detail/ProjectProgress.vue';
 import DocumentList from '../components/detail/DocumentList.vue';
 import DevelopReview from '../components/detail/review/DevelopReview.vue';
-import iconQuote from '../assets/detail/quote-doc.svg';
 
 // 의뢰 출력물('출력하기', 피그마 「개발 의뢰 > 내 의뢰 > 출력하기」 Slide 4:3) — 브라우저 인쇄만, PDF 파일은 만들지 않는다(견적서 인쇄 D12 관례).
 // 셸이 없는 라우트(meta.bare)라 화면 자체가 종이 미리보기다. 용지는 PPT 4:3(10×7.5in) — 2026-10-22 엔 A4 가로였고,
@@ -37,10 +25,10 @@ import iconQuote from '../assets/detail/quote-doc.svg';
 // 표지 1장 → 섹션마다 새 쪽 → 카드·행은 쪽 경계에서 쪼개지 않는다(큰 글 덩어리만 줄 경계에서 쪼갠다).
 // 섹션은 상세 탭과 같은 순서이되 내용이 없는 섹션은 뺀다(빈 쪽을 찍지 않는다).
 // 컴포넌트는 상세 화면 것을 print 모드로 다시 쓴다 — 조작 UI(수락·결제·문의·검수 응답·받기) 없이 읽기 전용.
-// 2026-11-06 시안 재대조: 표지(Slide 11)·첫 쪽 머리 띠(Slide 1)를 시안 크기로, 견적서 섹션은 견적 카드 대신 고객이 받는 견적서
-// 문서(@sp/ui DevelopQuoteSheet — 시안 「통합 견적서」 모양) + 수락·결제 기록(시안의 수락 패널 자리 — 종이엔 누를 것이 없다).
+// 2026-11-06 시안 재대조: 표지(Slide 11)·첫 쪽 머리 띠(Slide 1)를 시안 크기로.
+// 같은 날 사용자 결정: 견적서·진행 · 문의 섹션은 출력물에서 뺀다(견적서는 견적서 인쇄·PDF 가 따로 있고, 진행 기록은 화면에서 본다).
 // 디자이너 메모(11-05)의 크기 규칙(글자 −2px · 16px 이상 여백 −10px)은 쪽 나누기 전에 건다(lib/print-scale) — 표지·머리 띠·
-// 견적서 문서·2-4 개발 명세서는 예외(data-print-noscale).
+// 2-4 개발 명세서는 예외(data-print-noscale).
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -58,32 +46,15 @@ const REPORT_STATUSES: readonly DevelopRequestStatusType[] = ['accepted', 'in_pr
 const BEFORE_START: readonly DevelopRequestStatusType[] = ['received', 'reviewing', 'quoted', 'accepted'];
 const coverTitle = computed(() => (detail.value !== undefined && REPORT_STATUSES.includes(detail.value.status) ? '개발 진행 보고서' : '제품 개발 제안서'));
 
-// 견적서 — 수락된 것 하나, 없으면 가장 최근에 받은 발송본. 수정 요청·만료·대체된 판은 싣지 않는다.
-const printQuote = computed(() => {
-  const latestFirst = [...(detail.value?.quotes ?? [])].reverse(); // 서버가 version 오름차순으로 준다
-  return latestFirst.find((q) => q.status === 'accepted') ?? latestFirst.find((q) => q.status === 'sent') ?? null;
-});
-// 견적서 문서의 수신·번호·일자 — 견적서 인쇄 화면(QuotePrint)과 같은 값.
-const quoteRecipient = computed<DevelopQuoteSheetRecipient>(() => ({
-  company: detail.value?.contact.company ?? null,
-  dept: printQuote.value?.recipientDept ?? null,
-  name: detail.value?.contact.name ?? '',
-  phone: detail.value?.contact.phone ?? '',
-  email: detail.value?.contact.email ?? '',
-}));
-const quoteNo = computed(() => (printQuote.value === null ? '' : developQuoteNo(printQuote.value.requestId, printQuote.value.version)));
-const quoteIssuedOn = computed(() => dateShort(printQuote.value?.sentAt ?? new Date().toISOString()));
-
-type SectionId = 'content' | 'review' | 'quotes' | 'documents' | 'timeline' | 'files';
+// 견적서·진행 · 문의는 싣지 않는다(위 머리말 — 2026-11-06 사용자 결정).
+type SectionId = 'content' | 'review' | 'documents' | 'files';
 const sections = computed<{ id: SectionId; title: string }[]>(() => {
   const d = detail.value;
   if (d === undefined) return [];
   const closed = d.status === 'cancelled' || d.status === 'declined';
   const list: { id: SectionId; title: string }[] = [{ id: 'content', title: '상세 의뢰 내용' }];
   if (d.review !== null || d.diagram !== null) list.push({ id: 'review', title: 'AI 사전 검토서' });
-  if (printQuote.value !== null) list.push({ id: 'quotes', title: '견적서' });
   if (!closed && !BEFORE_START.includes(d.status)) list.push({ id: 'documents', title: '진행 현황 · 프로젝트 문서' });
-  list.push({ id: 'timeline', title: '진행 · 문의' });
   if (d.files.length > 0) list.push({ id: 'files', title: '첨부 자료' });
   return list;
 });
@@ -302,47 +273,6 @@ const CARD = 'rounded-[14px] border border-[#ebebeb] bg-white px-[24px] py-[26px
                   print
                 />
 
-                <!-- 견적서 — 고객이 받는 견적서 문서(시안 Slide 9·10: 회색 바탕 가운데 종이) + 수락·결제 기록 -->
-                <article v-else-if="s.id === 'quotes' && printQuote !== null" class="flex flex-col gap-[22px]">
-                  <div class="bg-[#f7f7f7]" data-print-noscale>
-                    <div class="mx-auto w-fit">
-                      <DevelopQuoteSheet :quote="printQuote" :recipient="quoteRecipient" :quote-no="quoteNo" :issued-on="quoteIssuedOn" />
-                    </div>
-                  </div>
-                  <section class="print-keep flex flex-col gap-[10px] rounded-[10px] border border-[#d7deec] bg-[#f1f6ff] px-[16px] py-[14px]">
-                    <p class="flex flex-wrap items-center gap-[8px] text-[16px] font-bold leading-[1.3] text-black">
-                      <img :src="iconQuote" alt="" class="block size-[19px]">
-                      <span>{{ printQuote.status === 'accepted' ? '견적 수락 기록' : '견적 수락 전' }}</span>
-                      <span
-                        class="rounded-[37px] px-[8px] py-[4px] text-[12px] font-semibold leading-[1.3] text-white"
-                        :class="printQuote.status === 'accepted' ? 'bg-[#1b2b39]' : 'bg-[#1b6ff3]'"
-                      >{{ DEVELOP_QUOTE_STATUS_LABELS[printQuote.status] }}</span>
-                    </p>
-                    <p v-if="printQuote.acceptedAt !== null" class="text-[15px] leading-[1.8] text-[#141e34]">
-                      {{ dateTimeKst(printQuote.acceptedAt) }} 수락 · 수락자 {{ printQuote.acceptedName ?? detail.contact.name }} — 표준 조건에 동의하여 계약을 갈음했습니다.
-                    </p>
-                    <p v-else class="text-[15px] leading-[1.8] text-[#141e34]">
-                      {{ printQuote.validUntil }}까지 유효합니다. 수락은 의뢰 상세 화면의 견적서에서 하실 수 있습니다.
-                    </p>
-                    <!-- 결제 진행 — 수락 뒤에만(수락 전 마일스톤은 전부 '작성 중'이라 뜻이 없다) -->
-                    <div v-if="printQuote.status === 'accepted' && printQuote.milestones.length > 0" class="flex flex-col">
-                      <div
-                        v-for="m in printQuote.milestones"
-                        :key="m.milestoneId"
-                        class="flex items-baseline gap-[14px] text-[15px] leading-[1.8] text-[#141e34]"
-                      >
-                        <span class="min-w-0 flex-1 font-semibold text-black">{{ m.title }}</span>
-                        <span class="w-[60px] shrink-0 text-right tabular-nums">{{ m.ratioBp === null ? '—' : `${developBpPercent(m.ratioBp)}%` }}</span>
-                        <span class="w-[130px] shrink-0 text-right tabular-nums">{{ won(m.amount) }}</span>
-                        <span class="w-[150px] shrink-0 text-[14px]">{{ DEVELOP_MILESTONE_TRIGGER_LABELS[m.trigger] }}</span>
-                        <span class="w-[170px] shrink-0 text-right text-[14px] font-semibold" :class="m.status === 'paid' ? 'text-[#2945e8]' : 'text-[#999]'">
-                          {{ DEVELOP_MILESTONE_STATUS_LABELS[m.status] }}<template v-if="m.paidAt !== null"> · {{ dateShort(m.paidAt) }}</template>
-                        </span>
-                      </div>
-                    </div>
-                  </section>
-                </article>
-
                 <div v-else-if="s.id === 'documents'" :class="CARD" class="flex flex-col gap-[16px]">
                   <ProjectProgress :progress="detail.progress" :status="detail.status" />
                   <DocumentList
@@ -355,10 +285,6 @@ const CARD = 'rounded-[14px] border border-[#ebebeb] bg-white px-[24px] py-[26px
                     decide-error=""
                     print
                   />
-                </div>
-
-                <div v-else-if="s.id === 'timeline'" :class="CARD">
-                  <Timeline :events="detail.events" print />
                 </div>
 
                 <div v-else-if="s.id === 'files'" :class="CARD">
