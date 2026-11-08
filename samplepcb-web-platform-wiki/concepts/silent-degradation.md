@@ -1,7 +1,7 @@
 ---
 concept: 실패가 오류가 아니라 그럴듯한 값으로 나타난다 (Silent Degradation)
-last_compiled: 2026-10-12
-topics_connected: [sp-node-api, infrastructure, spcb-bridge, gnuboard-integration, parts-engine, shared-packages, testing, api-contract]
+last_compiled: 2026-11-09
+topics_connected: [sp-node-api, infrastructure, spcb-bridge, gnuboard-integration, parts-engine, shared-packages, testing, api-contract, sp-develop-web, theme-sp-lite, sp-market-web]
 status: active
 ---
 
@@ -10,13 +10,19 @@ status: active
 ## Pattern
 이 리포에서 가장 오래 숨어 있던 결함들은 **오류를 내지 않았다.** 대신 그럴듯한 값을 냈다 — 전부 같은 IP, 0원 가산, 고정 문구, 잘린 이름, 기본값. 화면은 멀쩡하고 테스트는 통과하고 로그는 조용하다. 기전은 매번 같다: **실패를 부드럽게 넘기려고 둔 장치(폴백·기본값·격리·자동 이스케이프)가 실패 신호 자체를 삼킨다.**
 
-세 부류로 나뉜다:
+네 부류로 나뉜다:
 
-- **경계에서 값이 평탄해진다** — 프록시 뒤의 `request.ip`, 코어가 건 `addslashes`, DB 가 조용히 자르는 긴 문자열. 값은 있는데 뜻이 사라졌다.
+- **경계에서 값이 평탄해진다** — 프록시 뒤의 `request.ip`, 코어가 건 `addslashes`, DB 가 조용히 자르는 긴 문자열, 조각 경계에서 깨지는 다바이트 글자. 값은 있는데 뜻이 사라졌다.
 - **폴백이 다른 실패를 흡수한다** — 표에 없으면 0, 헤더가 없으면 연결 주소, 옵션 오류면 옵션 빼고 재시도. 원래 잡으려던 실패 말고도 걸려든다.
 - **격리가 원인을 지운다** — 행 하나의 예외가 배치를 죽이지 않게 한 격리가 메시지를 고정 문구로 바꾼다.
+- **검증한 것과 도는 것이 다르다** (2026-10~11 추가) — 개발 빌드·개발 서버·실행 중에 바뀐 스크립트는 운영 산출물과 다른 방식으로 실패를 삼킨다. 테스트는 통과했는데 운영만 다르다.
 
 ## Instances
+- **2026-11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [testing](../topics/testing.md): **의뢰 출력물이 운영 빌드에서만 빈 화면** — 쪽 나누기 전(`pageCount` 0)에 판 사이 가림 `v-for` 가 `pageCount - 1` = −1 을 받았다. 운영 빌드의 숫자 범위 `v-for` 는 `new Array(-1)` 그대로라 RangeError 로 출력물 전체가 비고, **개발 빌드는 경고 뒤 빈 목록**이라 로컬·개발 서버 위 e2e 에선 쪽 나누기를 넣은 `c4875889d` 이후 고칠 때까지 드러나지 않았다. 처방은 0 아래로 내려가지 않는 `maskCount` + 같은 데이터로 운영 빌드 전/후 비교(전 RangeError·빈 화면, 후 22쪽·오류 0)
+- **2026-10-30** in [sp-node-api](../topics/sp-node-api.md) / [sp-market-web](../topics/sp-market-web.md) / [sp-develop-web](../topics/sp-develop-web.md): **AI 스트림의 한글이 조각 경계에서 U+FFFD 로** — Ollama 스트림을 조각마다 `Buffer.toString` 으로 따로 디코딩해 경계에 걸린 3바이트 글자가 깨졌다("열처리" → "열처�"). 오류도 없고 JSON 파싱도 통과한다. 검토서·구성도·EQ 번역·후속 질문이 모두 같은 클라이언트라 전부 해당됐고, 맞춤 질문 **프로빙**이 찾았다([probe-before-decide](probe-before-decide.md)). `TextDecoder` 스트림 모드로 고쳤지만 10-30 이전에 저장된 AI 산출물의 깨진 글자는 정리하지 않았다
+- **2026-10-22** in [infrastructure](../topics/infrastructure.md): **배포 스크립트가 받은 자기 자신을 실행하지 않았다** — `deploy.sh` 는 도중에 자기를 `git pull` 하는데 bash 는 함수를 시작할 때 이미 읽어 두므로 그 실행은 옛 단계로 돌았다. 빌드에서 `vue-tsc` 를 뺀 첫 배포에서 `vue-tsc` 가 그대로 돈 원인. 처방은 pull 전후 해시 비교 → 같은 케이스로 한 번만 `exec`(DB 원복 기준 커밋은 처음 실행의 HEAD 를 물려받음). ⚠ 자체 `git pull` 을 쓰는 케이스 6·10 은 이 재시작을 안 탄다
+- **2026-10-22** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): **로그인이 오류 없이 안 붙는다** — 레거시 사이트가 `.samplepcb.co.kr` 전체에 심은 `PHPSESSID` 와 이 서버의 호스트 전용 `PHPSESSID` 가 같이 실리면 PHP 는 먼저 만들어진 레거시 쪽을 읽고 `/spcb/api/me` 는 401 이다. 우회(`legacy-session-pick.php`)가 이 서버에 실제로 있는 세션을 고르는데, 그 우회도 세션 저장이 `files` 가 아니면 **조용히 꺼진 채 지나간다**
+- **2026-10-13** in [theme-sp-lite](../topics/theme-sp-lite.md): 로그인 아이디 칸 `maxLength` 20 — 07-07 코어가 이메일 아이디를 허용한 뒤로 20자를 넘는 이관 회원 855명(6,402명 중)이 석 달 동안 아이디를 끝까지 칠 수 없었다. 입력칸은 글자를 더 받지 않을 뿐 아무 말도 하지 않는다. 30자로 늘렸고 30자를 넘는 8명은 여전히 못 친다
 - **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): **`$_POST` addslashes 오염** — 그누보드 코어 `common.php` 가 `$_POST` 전체에 이스케이프를 거는데 브리지가 그 값을 그대로 sp-node 에 넘겨, 고객이 쓴 따옴표·백슬래시가 `\'` 로 저장됐다. PHP 화면은 코어가 다시 풀어 보여 주므로 멀쩡해 보였고 네 브리지가 같은 상태였다. 처방은 역변환이 아니라 **원문 다시 읽기**(`sp_bridge_text` — `filter_input`)
 - **2026-10-11** in [sp-node-api](../topics/sp-node-api.md): **AI 호출의 4xx 폴백이 엉뚱한 실패를 삼켰다** — `format`/`think` 미지원이면 옵션을 빼고 1회 재시도하는 장치가 429·401·403·408 까지 "옵션 문제"로 읽어, 구조화 출력 없이 같은 벽에 다시 부딪히거나 형식이 깨진 답을 정상처럼 받았다. 같은 날 JSON 추출기는 배열 원소를 줄 맨 앞에 찍는 모델에서 **마지막 원소 하나만** 뽑아 오고도 성공으로 답했다
 - **2026-10-09** in [shared-packages](../topics/shared-packages.md): 대리 접속 헤더는 조건(관리자 ∧ `/api/partner/` ∧ 값 있음)이 안 맞으면 **오류 없이 빠진다** — 의도된 동작이지만, 같은 탭에서 계정이 바뀌면 붉은 띠 없이 평소 포털로 돌아간다. 클라이언트 `^\d+$` 와 서버 `^\d{1,18}$` 의 틈도 같은 종류
@@ -28,14 +34,17 @@ status: active
 - **2026-07-03** in [sp-node-api](../topics/sp-node-api.md): 가격 엔진 `optionPrice` 는 **표에 없는 값이면 0**(레거시 `getPrice` 동일)이고 `panel` 이 `yes` 면 수량이 0이 돼 견적요청으로 떨어진다 — 거버 뷰어가 값 표기를 하나 바꾸면 오류 없이 주문 금액만 달라진다. 담기 API 가 모르는 spec 키를 막지 않고 `unknownSpecKeys` 로 **보고**하는 것이 이 틈의 유일한 신호
 
 ## What This Means
-"방어적으로 짠다"가 여기서는 양날이다. 폴백·기본값·격리는 장애를 좁히지만 **좁힌 만큼 보이지 않게 된다.** 위 아홉 건 중 테스트가 먼저 잡은 것은 08-11 의 셋뿐이고 나머지는 운영 데이터나 사용자 제보가 먼저였다 — 그리고 그 셋도 "주행이 통과했는데 화면이 이상하다"는 육안에서 시작했다([journey-recheck-loop](journey-recheck-loop.md)의 "검증이 조용히 비는 3패턴").
+"방어적으로 짠다"가 여기서는 양날이다. 폴백·기본값·격리는 장애를 좁히지만 **좁힌 만큼 보이지 않게 된다.** 10-12 까지의 아홉 건 중 테스트가 먼저 잡은 것은 08-11 의 셋뿐이고 나머지는 운영 데이터나 사용자 제보가 먼저였다 — 그리고 그 셋도 "주행이 통과했는데 화면이 이상하다"는 육안에서 시작했다([journey-recheck-loop](journey-recheck-loop.md)의 "검증이 조용히 비는 3패턴"). 10-13~11-04 의 다섯 건도 테스트가 먼저 잡은 것은 없다 — 프로빙(스트림 한글)·운영 빌드(출력물)·배포 그 자체(deploy.sh)·운영 사이트(세션)가 먼저였고, 아이디 길이는 석 달이 걸렸다.
 
-리포가 찾은 처방은 넷이다.
+이번 기간이 더한 부류는 **검증 환경의 격차**다. 개발 서버 위 e2e 는 운영 빌드에만 있는 실패를 원리적으로 못 본다. 10-22 배포 빌드에서 타입 검사를 뺀 것(운영 서버 메모리)도 같은 축의 선택이다 — 검사는 "푸시 전 로컬 `typecheck`"로 옮겨 갔는데 그 규칙은 `deploy.sh` 주석에만 있고 CI 는 없다.
+
+리포가 찾은 처방은 다섯이다.
 
 1. **조용히 넘기지 말고 멈춘다** — `strictPort`(포트가 밀리면 기동 실패), 분류 안 된 테이블 앞에서 중단하는 재이관, 길면 우리가 자르고 표시를 남기는 `clampPcbProjectName`([judgment-single-owner](judgment-single-owner.md)의 fail-closed).
 2. **경계에서 출처를 다시 읽는다** — 변환된 값을 되돌리려 하지 않고 원문을 다시 읽거나(`sp_bridge_text`), 믿을 조건을 좁힌다(연결 상대가 루프백일 때만 `X-Real-IP`).
 3. **폴백의 입구를 좁힌다** — "4xx 면 재시도"가 아니라 "이 코드들은 그대로 던진다".
-4. **삼키더라도 지문은 남긴다** — `_batch_error_type`, `unknownSpecKeys`, AI 초안의 `aiFlags`, 잡의 실패 사유 코드.
+4. **삼키더라도 지문은 남긴다** — `_batch_error_type`, `unknownSpecKeys`, AI 초안의 `aiFlags`, 잡의 실패 사유 코드. 막지 않기로 했다면 드러내는 짝을 같이 짓는다([surface-dont-block](surface-dont-block.md)).
+5. **운영과 같은 산출물로 확인한다** (2026-11 추가) — 운영 빌드 전후를 같은 데이터로 비교하고(`vite build` + preview), 배포 스크립트는 받은 자기 자신으로 다시 시작한다.
 
 새 폴백을 넣을 때 물을 것은 하나다 — **이 장치가 실패를 가렸을 때 누가 어떻게 알게 되는가.** 답이 "아무도"면 그것은 방어가 아니라 지연이다.
 
@@ -48,6 +57,12 @@ status: active
 - [shared-packages](../topics/shared-packages.md)
 - [testing](../topics/testing.md)
 - [api-contract](../topics/api-contract.md)
+- [sp-develop-web](../topics/sp-develop-web.md)
+- [theme-sp-lite](../topics/theme-sp-lite.md)
+- [sp-market-web](../topics/sp-market-web.md)
+- [apps/api/src/lib/ai/ollama.ts](../../samplepcb-web-mono-app/apps/api/src/lib/ai/ollama.ts) — 스트림 `TextDecoder`(10-30)
+- [samplepcb-web/spcb/lib/legacy-session-pick.php](../../samplepcb-web/spcb/lib/legacy-session-pick.php) — 겹친 `PHPSESSID` 중 이 서버의 세션 고르기(임시)
+- [deploy.sh](../../deploy.sh) — 받은 자기 자신이 바뀌면 다시 시작
 - [apps/api/src/lib/client-ip.ts](../../samplepcb-web-mono-app/apps/api/src/lib/client-ip.ts) — 루프백일 때만 `X-Real-IP`
 - [apps/api/src/pricing/engine.ts](../../samplepcb-web-mono-app/apps/api/src/pricing/engine.ts) — `optionPrice`: 표에 없으면 0
 - [samplepcb-web/extend/sp_pcb_eq.extend.php](../../samplepcb-web/extend/sp_pcb_eq.extend.php) — `sp_bridge_text`

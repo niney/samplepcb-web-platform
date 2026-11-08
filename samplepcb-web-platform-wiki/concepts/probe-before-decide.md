@@ -1,7 +1,7 @@
 ---
 concept: 정하기 전에 잰다 (Probe Before Decide)
-last_compiled: 2026-10-12
-topics_connected: [sp-node-api, docs-knowledge, testing, theme-sp-lite, spcb-bridge, sp-market-web, infrastructure]
+last_compiled: 2026-11-09
+topics_connected: [sp-node-api, docs-knowledge, testing, theme-sp-lite, spcb-bridge, sp-market-web, infrastructure, sp-develop-web]
 status: active
 ---
 
@@ -20,6 +20,8 @@ status: active
 재고 난 도구는 버리지 않고 리포에 남겨 **회귀 감시**로 바꾼다.
 
 ## Instances
+- **2026-11-03** in [sp-develop-web](../topics/sp-develop-web.md) / [infrastructure](../topics/infrastructure.md): 개발의뢰 랜딩 히어로를 반복 영상에서 **캔버스 프레임 재생**으로 바꾸며 프레임 팩의 폭·용량을 재서 정했다(`hero-frames.mjs` — ffmpeg 없이 시스템 Chrome 디코더로 굽는다, 4.93MB 1요청). 재는 도구는 이번에도 `ops/scripts/` 에 남았다
+- **2026-10-30** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md) / [testing](../topics/testing.md): **개별 메뉴 AI 맞춤 질문 프로빙** — 예시 의뢰 17건(메뉴별 짧은 설명·자세한 설명·첨부 + 여러 메뉴 2)을 `probe-develop-area-followup.ts` 로 돌리며 프롬프트를 v1 → v4(→ v5)로 고쳤고, 같은 프롬프트를 think low·medium 으로 34회씩 돌렸다. low 는 3~13초·형식 오류 0 이지만 정황으로 짐작한 답을 채웠고, medium 은 14~118초(중간값 약 50초)지만 직접 적힌 것만 채웠다 → **medium**. EQ 프로빙(10-11)은 "사고 수준을 올려도 정확도가 안 오른다"로 low 를 골랐는데 여기선 반대로 갔다 — 같은 절차, 반대 결론, 갈림은 표가 냈다(잘못 채운 답은 고객 답처럼 저장된다, [ai-removable-layer](ai-removable-layer.md)). 두 가지가 새로웠다: ① **채점식 없이 사람이 나란히 보는 프로빙**(EQ 는 합성 정답 채점) ② 프로빙이 출하된 코드의 결함을 찾았다 — 모든 AI 기능 공통의 스트림 한글 깨짐([silent-degradation](silent-degradation.md)). 결정도 "시험 운영 + 끄면 롤백"이라 **운영 자체가 다음 프로빙**이다
 - **2026-10-11** in [sp-node-api](../topics/sp-node-api.md) / [docs-knowledge](../topics/docs-knowledge.md) / [testing](../topics/testing.md): **PCB EQ 엑셀 AI 분석 프로빙** — 15모델·LLM 작업 543건을 합성 코퍼스(사양 하나에서 파일과 정답을 같이 만든 14종, 홀드아웃 포함)로 채점해 `kimi-k3`·think `low`·프롬프트 `eq-parse-v3` 를 골랐다. 표가 직관을 뒤집었다 — **사고 수준을 올려도 정확도는 안 오르고 지연만 3배.** 근거는 설계 문서와 분리된 [PCB_EQ_AI_PROBE](../../docs/PCB_EQ_AI_PROBE.md) 에 채점식·실패 유형·"남은 의문"까지 남겼고, 프로빙 하네스(`probe-eq-parse.ts`)와 코퍼스는 단위·e2e 가 같이 쓴다
 - **2026-10-05** in [sp-node-api](../topics/sp-node-api.md): **sp-node 전수 점검 — "측정이나 코드로 확인된 결함만" 고친다.** 폴링 경로가 읽던 0.5~3.5MB → 거의 0, 관리자 비교 로더 14.9 → 6.9초, PCB Case 목록 ~500 → 216ms 처럼 고친 것마다 전후 수치가 붙는다. 확인되지 않은 것은 손대지 않았고 `/api/svc` 보호는 사용자 결정으로 범위에서 뺐다
 - **2026-10-05** in [testing](../topics/testing.md): **여정 25호는 정책을 정하기 전의 현행 관찰** — 고객 BOM 견적 취소가 지금 무엇을 하는지 상태별로 따라가 다섯 가지(취소 뒤 열린 RFQ·삭제 시 회신 유실·검토 중 화면/서버 불일치·검색 중 굳음·확정↔취소 겹침)를 드러낸 뒤에 사용자가 정책을 정했고, 구현 뒤 기대값을 뒤집어 회귀선이 됐다
@@ -29,7 +31,7 @@ status: active
 - **2026-08-25** in [testing](../topics/testing.md) / [api-contract](../topics/api-contract.md): **관측 러너 `status-matrix`** — 어서션은 "조작 API 가 200 인가"뿐이고 산출물은 표(관리자 조작 → `od_status` → 배지·탭 → 고객 배지·스텝퍼). 고객 진행 표시 시안을 정하기 **전에** 지금 보이는 것을 확정했고, 그 표가 `/api/order-progress` 와 PHP 사전 교정의 근거가 됐다
 
 ## What This Means
-이 리포의 결정 기록이 유독 **"A 가 아니라 B, 왜냐하면 수치가"** 꼴인 이유다. 프로빙을 건너뛴 자리에는 대신 "직관으로 정했다가 되돌린" 기록이 남는다. 재는 단계가 주는 것은 정답이 아니라 **뒤집힐 때의 근거**다 — 모델이 바뀌거나 양식이 늘면 같은 채점식으로 다시 돌리면 된다.
+이 리포의 결정 기록이 유독 **"A 가 아니라 B, 왜냐하면 수치가"** 꼴인 이유다. 프로빙을 건너뛴 자리에는 대신 "직관으로 정했다가 되돌린" 기록이 남는다. 재는 단계가 주는 것은 정답이 아니라 **뒤집힐 때의 근거**다 — 모델이 바뀌거나 양식이 늘면 같은 채점식으로 다시 돌리면 된다. 10-11 EQ(→ think low)와 10-30 맞춤 질문(→ think medium)이 같은 질문에 반대로 답한 것이 그 증거다: "think 는 낮게"라는 관례가 생기지 않은 것은 매번 쟀기 때문이다. 기준도 표 밖에서 왔다 — 지연을 얼마나 참을지는 **틀린 값이 어디에 저장되는가**가 정했다.
 
 [golden-as-spec](golden-as-spec.md) 과 짝이다. 골든은 "정해진 것을 고정"하고 프로빙은 "정하기 전에 잰다" — EQ 코퍼스처럼 프로빙용으로 만든 표가 결정 뒤에는 골든이 된다. [journey-recheck-loop](journey-recheck-loop.md) 의 "관찰 → 엄선"도 같은 순서를 여정 단위로 밟는다.
 
@@ -43,6 +45,10 @@ status: active
 - [spcb-bridge](../topics/spcb-bridge.md)
 - [sp-market-web](../topics/sp-market-web.md)
 - [infrastructure](../topics/infrastructure.md)
+- [sp-develop-web](../topics/sp-develop-web.md)
+- [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.4 맞춤 질문 프로빙(v1 → v4, low/medium 34회씩)
+- [apps/api/src/scripts/probe-develop-area-followup.ts](../../samplepcb-web-mono-app/apps/api/src/scripts/probe-develop-area-followup.ts) — 예시 의뢰 17건
+- [ops/scripts/hero-frames.mjs](../../ops/scripts/hero-frames.mjs) — 히어로 프레임 팩 굽기
 - [docs/PCB_EQ_AI_PROBE.md](../../docs/PCB_EQ_AI_PROBE.md) — 채점식·코퍼스·모델 표·남은 의문
 - [docs/AI_DEV_REVIEW.md](../../docs/AI_DEV_REVIEW.md) — 검토서·정밀 구성도 모델 선택
 - [docs/FIGMA_PAGES.md](../../docs/FIGMA_PAGES.md) — 히어로 저사양 대응 실측

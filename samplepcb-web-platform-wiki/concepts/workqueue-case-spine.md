@@ -1,6 +1,6 @@
 ---
 concept: 역할별 워크큐 + 단일 Case 척추 (Workqueue & Case Spine)
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [sp-vue-web, partner-tracks, sp-develop-web, sp-node-api, api-contract]
 status: active
 ---
@@ -19,6 +19,7 @@ BOM·PCB·협력사 포털·개발 네 모듈이 같은 화면 문법을 반복�
 그리고 이 문법을 떠받치는 것은 저장이 아니라 **파생**이다. 12단계 타임라인·대기 큐 소속·`myTurn`·배지 숫자는 어느 것도 컬럼이 아니고 서버가 원장에서 계산해 내려준다([lazy-derived-state](lazy-derived-state.md)).
 
 ## Instances
+- **2026-10-22~11-03** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-vue-web](../topics/sp-vue-web.md): 고객 앱도 같은 문법을 쓴다 — 의뢰 상세는 **해시 = 탭**(`#content`·`#review`·`#quotes`·`#timeline`·`#documents` …), 내 의뢰 표는 할 일이 있으면 상태 칩 대신 할 일 칩과 그 탭으로 가는 버튼, 고객 메일 링크도 할 일 탭을 바로 연다. 관리자 워크큐에는 파생 행 플래그 배지('권리 확인 필요'·'사전 견적')가 붙었다
 - **2026-10-11** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): **Case 안에서도 "순서대로"** — 발주 행 아래 EQ 줄이 요청 회차 → 협력사 제출 → 고객 확인 → 판정을 절차 순으로 세우고(지난 회차는 읽기 전용), Case ID 요청 건은 윗줄의 두 버튼 대신 **아래 스트립 3칸이 유일한 작업 자리**다(인보이스 → 운송서류 → Case ID·운송장, 3 은 2 전까지 잠기고 이유를 말한다). 워크큐가 "누구 차례"를 말했다면 줄은 "다음에 무엇"을 말한다
 - **2026-10-09** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 포털 — 하위 협력사는 모듈이 아니라 **공통 영역 메뉴**, 마스터딜러 중개는 새 페이지 없이 발주·견적 **상세 안 패널**. 역할이 늘어도 화면 수를 늘리지 않고 Case(상세) 안에 얹는다
 - **2026-10-06~10** in [sp-vue-web](../topics/sp-vue-web.md): 관리자 리뉴얼이 골격을 **그대로 이식**했다 — 머리 → 탭(건수 배지)+검색 → 카드 안의 표 → 페이지네이션, `?from=` 큐 복귀, 대기 큐가 첫 탭, URL 이 상태 정본(`next/lib/list-query.ts`). 바뀐 것은 표현뿐: 옛 화면의 행 바탕 강조(내 차례·미입금 노랑)를 **배지로** 옮겼다. 디자인을 갈아도 문법은 안 바뀐다는 확인

@@ -1,6 +1,6 @@
 ---
 concept: 예외·편차는 원장에 등록한다 (Exception Ledger)
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [gnuboard-integration, theme-sp-lite, docs-knowledge, infrastructure, partner-tracks, sp-develop-web, sp-node-api, testing]
 status: active
 ---
@@ -18,6 +18,7 @@ status: active
 공통 구조는 같다 — **편차 + 이유 + (가능하면) 검사**. 세 번째가 없으면 원장은 낡고, 원장이 낡으면 편차는 추적 가능한 부채가 아니라 조용한 회귀가 된다([manual-sync-drift](manual-sync-drift.md)).
 
 ## Instances
+- **2026-10-21~11-06** in [sp-develop-web](../topics/sp-develop-web.md) / [docs-knowledge](../topics/docs-knowledge.md): **디자인 원장이 개발의뢰 앱으로 넓어지고 양방향이 됐다** — FIGMA_PAGES 에 개발의뢰 랜딩·내 의뢰·상세·위저드 4절("피그마와 다르게 둔 것 · 결정")이 붙었고, 피그마 파일은 고치지 않은 채 시안 오류(자리표시 금액·복사된 문구·오탈자)와 **디자이너에게 보낸 시안 요청**·미결 ②③ 을 같은 문서에 적는다 — 우리가 고른 편차와 시안이 고쳐야 할 편차를 한 원장에서 가른다. DEVELOP_FLOW §5.1 에는 "고치지 않은 옛 견적 1건(사용자 결정)"이 등록됐다. ⚠ 닫히지 않는 원장: §15 프로세스 검토 23건은 한 달째 사용자 결정 대기다(A-1~A-3 은 코드도 그대로)
 - **2026-10-09** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md): **통로를 열면서 행을 남긴다** — 관리자 대리 접속의 쓰기 전량(GET 이외)이 `sp_partner_act_log` 에 1행씩, 진행 중 발주가 있는 조직을 하위로 묶는 강제 전환은 관리자에게만 열리고 사유(`force`+`forceReason`)가 필수다. 규칙을 넘는 일을 막지 않고 원장에 등록하는 형태([act-as-actor-stamp](act-as-actor-stamp.md))
 - **2026-10-07** in [sp-develop-web](../topics/sp-develop-web.md) / [docs-knowledge](../topics/docs-knowledge.md) / [testing](../topics/testing.md): **고치지 않고 등록한 23건** — 개발 모듈 리뉴얼과 옛·새 양쪽 e2e 가 찾은 프로세스 결함을 [DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) §15 에 사용자 결정 대기로 올렸다. 항목마다 근거 등급(확인=코드 직접 읽음 / 실측=e2e 로그 / 보고=미검증)이 붙는다 — 원장이 "얼마나 믿을 수 있는가"까지 적는 첫 사례
 - **2026-10-05** in [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): `sp_delete_audit` 이 **모듈 횡단 원장**으로 승격 — 사람의 강제 삭제와 자동 정리(`system:retention`)가 같은 표에 남고 관리자 '삭제 기록' 화면이 그것을 읽는다(계약 `admin-delete-audit.ts`). 09-19 까지는 쓰기만 하고 볼 곳이 없던 원장이다

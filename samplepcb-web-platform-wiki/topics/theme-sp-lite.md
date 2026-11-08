@@ -1,22 +1,24 @@
 ---
 topic: theme-sp-lite
-last_compiled: 2026-10-12
-sources_count: 89
+last_compiled: 2026-11-09
+sources_count: 91
 status: active
 ---
 
 # theme-sp-lite
 
-## Purpose [coverage: high — 16 sources]
+## Purpose [coverage: high — 17 sources]
 
-`samplepcb-web/theme/sp-lite/` 는 그누보드5/영카트의 **코어 비수정 오버라이드 지점**인 커스텀 테마다(소스 범위 2026-07-04 ~ 2026-10-11). 코어는 subtree 로 들어와 손대지 않고([core-nonmodification](../concepts/core-nonmodification.md), [AGENTS.md](../../AGENTS.md)), 화면 표현·마크업이 필요한 커스텀은 전부 이 테마와 `spcb/pages/` 안에서 해결한다. `readme.txt` 기준 "베이직(basic) 기반 PC 전용 경량 테마" — `theme.config.php` 의 `G5_THEME_DEVICE='pc'` 로 **모든 기기가 이 테마 하나를 쓰고 반응형은 CSS** 로 처리한다(단, `mobile/skin/shop` 은 코어 요구로 존재해야 함 — Gotchas).
+`samplepcb-web/theme/sp-lite/` 는 그누보드5/영카트의 **코어 비수정 오버라이드 지점**인 커스텀 테마다(소스 범위 2026-07-04 ~ 2026-10-13 — 테마 코드의 마지막 커밋은 10-13 로그인 아이디 한도. 대장 FIGMA_PAGES 는 2026-11-05 커밋 + 11-09 미커밋 1줄). 코어는 subtree 로 들어와 손대지 않고([core-nonmodification](../concepts/core-nonmodification.md), [AGENTS.md](../../AGENTS.md)), 화면 표현·마크업이 필요한 커스텀은 전부 이 테마와 `spcb/pages/` 안에서 해결한다. `readme.txt` 기준 "베이직(basic) 기반 PC 전용 경량 테마" — `theme.config.php` 의 `G5_THEME_DEVICE='pc'` 로 **모든 기기가 이 테마 하나를 쓰고 반응형은 CSS** 로 처리한다(단, `mobile/skin/shop` 은 코어 요구로 존재해야 함 — Gotchas).
 
 역할이 세 축이다:
 1. **거버 주문 플로우의 표현 계층**(2026-07 확립) — [GERBER_ORDER_FLOW](../../docs/GERBER_ORDER_FLOW.md) 4장 기법 #8 테마 cart 스킨 분기: 견적 행을 건별(ct_id) 카드로 풀고 수량·주문·삭제를 sp-node 경유로 돌려 코어 [선택사항수정]의 선형 곱 버그를 차단.
 2. **sp-vue 관리 ↔ sp-php 소비 브릿지의 소비측**([admin-vue-consume-php](../concepts/admin-vue-consume-php.md)) — `inc/main_slider.php`(`g5_shop_banner`+`sp_config`)·`inc/seo_head.php`(`sp_seo`)가 공유 DB 를 read-only 로 직접 조회해 SSR 출력.
-3. **피그마 「Samplepcb_Web」 → sp-php 페이지 구현의 착지점**(2026-08-25 ~ 10-04, [FIGMA_PAGES](../../docs/FIGMA_PAGES.md)·[MYPAGE_REDESIGN](../../docs/MYPAGE_REDESIGN.md)) — 홈·헤더·푸터·회사소개/연혁/위치·로그인·마이페이지·주문내역/상세·포인트·쿠폰·견적관리를 피그마 좌표 그대로 옮겼고, "고객 대면 신규 화면은 sp-php 우선" 플랫폼 결정(AGENTS.md)의 실체가 이 테마의 CSS 토큰·페이지 블록이다. 09-21 이후는 새 페이지가 아니라 **시안 갱신 추종**(헤더·회사소개·연혁·One-Stop 재편)과 움직임(히어로 영상·저사양 강등·카운트업·스크롤 진입 등장)이 중심이다.
+3. **피그마 「Samplepcb_Web」 → sp-php 페이지 구현의 착지점**(2026-08-25 ~ 10-04, [FIGMA_PAGES](../../docs/FIGMA_PAGES.md)·[MYPAGE_REDESIGN](../../docs/MYPAGE_REDESIGN.md)) — 홈·헤더·푸터·회사소개/연혁/위치·로그인·마이페이지·주문내역/상세·포인트·쿠폰·견적관리를 피그마 좌표 그대로 옮겼고, "고객 대면 신규 화면은 sp-php 우선" 플랫폼 결정(AGENTS.md)의 실체가 이 테마의 CSS 토큰·페이지 블록이다. 09-21 이후는 새 페이지가 아니라 **시안 갱신 추종**(헤더·회사소개·연혁·One-Stop 재편)과 움직임(히어로 영상·저사양 강등·카운트업·스크롤 진입 등장)이 중심이다. → 대장 FIGMA_PAGES 는 10-04 sp-vue PCB 견적서에 이어 **10-22~11-05 개발의뢰 앱(`apps/develop`, 다른 피그마 파일 「개발 의뢰」)의 랜딩·내 의뢰·의뢰 상세·위저드**까지 싣는다 — 대장이 더는 이 테마만의 것이 아니고, 그 절들의 착지점은 테마가 아니라 [sp-develop-web](sp-develop-web.md)다.
 
 2026-09-30 ~ 10-11 에는 **결제 뒤 고객이 답해야 하는 화면**이 주문 상세의 부분 파일로 붙었다 — 부품 확인(D43, [SMARTBOM_PARTNER_RFQ](../../docs/SMARTBOM_PARTNER_RFQ.md) §6.39)과 제조 확인 문항형 회차(D20, [PCB_PARTNER_TRACK](../../docs/PCB_PARTNER_TRACK.md)). 판정·저장은 전부 sp-node 이고 테마는 그리기만 한다(트랙 쪽 서술은 [partner-tracks](partner-tracks.md)).
+
+2026-10-12 ~ 11-09 에는 테마 코드가 거의 멈췄다 — 커밋은 로그인 스킨 한 줄(10-13, 아이디 입력 한도 20 → 30자)뿐이다. 헤더 '개발' 메뉴를 개발의뢰 랜딩 `/develop/` 로 연결한 것(10-22 사용자 결정)은 `g5_menu` **DB 값**이라 커밋에 없고, 그 기록 줄(FIGMA_PAGES 공용 헤더 절)도 미커밋이다(2026-11-09 작업트리).
 
 ## Architecture [coverage: high — 36 sources]
 
@@ -39,7 +41,7 @@ theme/sp-lite/
   shop/_account_nav.php     계정 사이드바 SSOT(카드형, 2243:2386) · cart.php · mypage.php · coupon.php(2334:30444)
   shop/orderinquiry.sub.php(목록+유형 탭) · orderinquiryview.php(상세 단일 컬럼, 1,036줄)
   shop/_pcb_eq_items_round.php(제조 확인 문항형 회차 카드) · _bom_confirm_section.php(부품 확인 섹션) — 주문 상세가 include
-  skin/latest/home-help/    홈 "도움이 필요하신가요?" qa·notice 스킨 · skin/member/basic/login·point 스킨
+  skin/latest/home-help/    홈 "도움이 필요하신가요?" qa·notice 스킨 · skin/member/basic/login(아이디 maxLength 30, 10-13)·point 스킨
   img/{home(79)·about(36)·account(20)·history·location·header·footer}/ 페이지별 에셋 · video/home/hero/(배너 05 영상)
   mobile/skin/shop/basic/   PC 스킨 복사본(코어 readdir Fatal 방지)
 ```
@@ -54,8 +56,9 @@ theme/sp-lite/
 
 **주문서만 코어 원본**이다(cart·quotes·orderinquiry 는 테마가 덮었지만 `shop/orderform.sub.php` 는 영카트 마크업): 테마는 `#sod_frm` 스코프 CSS 로 장바구니 시각 문법을 재현하고, `js/orderform-defaults.js`(배송지·결제수단·계좌 기본 선택을 코어 핸들러의 프로그램적 click 으로)·`js/order-vat-breakdown.js`(견적 행 부가세 분해, `extend/sp_quote_cart.extend.php` 의 `sp_quote_it_ids()` + `sp-bom-parts`)를 `shop.head.php` 가 주문서에서만 싣는다. 코어 최소 수정 2곳(기법 #11)은 `ops/scripts/check-core-patches.sh` 가 감시.
 
-## Talks To [coverage: high — 23 sources]
+## Talks To [coverage: high — 24 sources]
 
+- **개발의뢰 앱(sp-develop)으로 나가는 첫 사이트 메뉴(10-22)**: 헤더 '개발'(`g5_menu` me_code 10)의 링크가 `/develop/` — nginx `location /develop/` 가 개발의뢰 앱(로컬 Vite 5177, 운영 정적 빌드)으로 넘긴다. 테마 코드는 그대로이고 바뀐 것은 DB 값뿐이다. 반대 방향(개발의뢰 앱 → 사이트)은 그 앱의 자체 헤더·푸터가 맡는다([sp-develop-web](sp-develop-web.md)).
 - **영카트 코어 훅**: `G5_THEME_SHOP_PATH/{cart,coupon}.php` include-after-return, `orderinquiry.sub.php` 테마 위임, 코어 `head.sub.php` → 테마 위임. 주문내역 유형 탭은 코어 `get_paging` 이 sub include **뒤에** 실행되는 순서를 이용해 `$total_count/$total_page/$qstr` 를 덮어쓴다(코어 무수정). 홈 게시판은 코어 `latest('theme/home-help', …)`.
 - **공유 DB 직접 조회(read-only)**: `g5_shop_banner`('메인')·`sp_config`(`home_slides`, Node 소유 표를 `sql_fetch(…, false)` 로 읽기만)·`sp_seo`·`g5_menu`(GNB)·`g5_point`(소멸 예정 30일)·`g5_shop_coupon`(쿠폰 요약·목록 — 코어와 같은 유효기간·미사용 판정을 `coupon.php` 가 다시 조회)·`sp_order_spec`+`sp_bom_quote`(마이페이지 요약 밴드 합산)·`$default` 쇼핑몰 설정(푸터 회사정보 폴백). `sp_review` 는 `spcb/pages/reviews.php` 만 읽는다(홈 쇼케이스는 09-06 홈 재편으로 제거).
 - **sp-node**: `cart.php` 하단 JS 가 `/spcb/api/me` JWT 로 `PATCH·DELETE /api/pcb-projects/:id`·`POST /order`·`GET /cart-thumbs`. 제조 확인·A/S·주문 상세 진행 카드는 서버사이드 브리지(`extend/sp_pcb_eq·sp_pcb_claim·sp_bom_claim.extend.php` → sp-node `*/mine`) — 견적관리(`quotes.php`)만 브라우저 JS 가 두 API(`/api/pcb-projects`·`/api/bom/quotes`)를 한 리스트로 섞는다. 09-30 이후 **부품 확인**이 같은 브리지 문법으로 붙었다: 목록·섹션은 `extend/sp_bom_confirm.extend.php` → sp-node `/api/bom/confirms*`, 회신은 POST+CSRF 브리지(`spcb/api/bom-confirm-answer.php`, 제조 확인 문항형은 `spcb/api/eq-answer.php`), 추가결제만 브라우저 JS(`/spcb/api/me` 토큰 → `POST /api/bom/confirms/settlements/:id/checkout` → 주문서). 상세는 [spcb-bridge](spcb-bridge.md)·[sp-node-api](sp-node-api.md).
@@ -64,15 +67,15 @@ theme/sp-lite/
 - **피그마·검증 도구**: 파일 `Samplepcb_Web`(oviaZUKfcQml2IvwPVICpU) 노드 id 가 각 PHP/CSS 헤더 주석에 박혀 있다. 화면 대조는 `node ops/scripts/shot.mjs <url> <out.png> [--selector|--full|--scroll|--mobile]`(playwright-core + 시스템 Edge, 콘솔·4xx 목록 출력), 히어로 성능·강등 회귀는 `node ops/scripts/hero-perf.mjs perf|verify`(헤드리스 Chrome/Edge + CDP CPU 스로틀 — 배너별 rAF 프레임 간격 / 라이트·감시 강등·리사이즈 점프·이음새 5종 점검). 로그인 배경 실험실 2곳(`spcb/previews/login-bg-claude`·`login-bg-gpt`)은 그누보드 무관 정적 페이지. 움직임의 참고 원본은 외부 사이트 공개 번들이다 — megazone.com 메인(framer-motion `whileInView`)·회사소개 숫자 영역(CountUp), 포트폴리오 마퀴는 korlinx 사이트.
 - **e2e**: `customer-eq-menu`·`customer-as-menu`·`orderinquiry-tabs`·`journey-pcb-as-mypage` 스펙이 사이드바 클래스 훅(`nav_group·nav_glabel·lbl·nav_badge·aria-current`)과 탭·총건을 읽는다. 결정 화면은 `journey-bom-confirm`(`#bomc-{id}`·`.sp_bomc_pay`·`#sp_bomc_origin`)·`journey-eq-items-customer`(`#eq-{id}`·`.sp_eqi_card`·`.sp_eqi_submit`·`#sp_eqi_figdlg`)가 테마 마크업을 그대로 읽는다([testing](testing.md)).
 
-## API Surface [coverage: high — 17 sources]
+## API Surface [coverage: high — 18 sources]
 
 테마라 HTTP API 는 없지만 외부·후속 작업이 의존하는 계약면:
 
 - **홈 확장 계약**: 섹션 = `inc/home/NN-*.php`(번호가 순서, 각 파일은 `$sp_hi` = `img/home` 을 전제) · 스타일 = `css/home.css` 하나 또는 `css/home/*.css` 부분 파일(있으면 우선) · 스크립트 = `js/home/<이름>.js` 가 `export function init()` 을 내보내고 `js/home.js` 의 모듈 목록(현재 `hero·onestop·portfolio·stats·reveal`)에 이름을 추가, `?ver` 는 진입 모듈이 그대로 넘긴다. 새 섹션에 진입 등장을 주려면 `reveal.js` 의 `TARGETS` 에 선택자를 더한다(탭 패널·마퀴는 컨테이너 단위로만).
 - **히어로 설정**: `sp_config` key `home_slides` = `{"templates":["gerber-eyes","order-now","korlinx","one-stop","rapid-proto"]}` — 배열 순서·포함 여부가 노출·순서, 행이 없으면 5장 전부. 이미지 슬라이드는 `g5_shop_banner`(`bn_position='메인'`, 기간·device 필터, 실파일 존재 검사). 저사양 강등은 설정이 아니라 런타임 판정이다 — 기기 신호(`deviceMemory ≤4`·코어 ≤2·`saveData`) 또는 회전 중 1.5초 창의 프레임 실측으로 `.sp-hero.is-lite`, 한 번 강등되면 `sessionStorage` 로 같은 탭 다음 페이지도 처음부터 라이트.
-- **헤더 메뉴 계약(09-21)**: 링크·노출 순서는 `g5_menu`, **표시명은 테마가 덮는다** — `$sp_header_labels`(DB `me_name` → 「개발/PCB/전자 부품/PCBA」)·`$sp_company_labels`(회사소개 하위는 About US·History·Location 3항목만 통과). 현재 페이지 하위 항목은 `aria-current="page"`, 1차 항목은 `data-menu` 키.
+- **헤더 메뉴 계약(09-21)**: 링크·노출 순서는 `g5_menu`, **표시명은 테마가 덮는다** — `$sp_header_labels`(DB `me_name` → 「개발/PCB/전자 부품/PCBA」)·`$sp_company_labels`(회사소개 하위는 About US·History·Location 3항목만 통과). 현재 페이지 하위 항목은 `aria-current="page"`, 1차 항목은 `data-menu` 키. **링크도 DB 값이다(10-22)** — 사용자 결정으로 새 항목 없이 1번 메뉴(me_code 10, `me_name` 'PCB 설계' → 표시 '개발', 하위메뉴 없음)의 링크를 `#` → `/develop/` 로 바꿨다(시안 6항목·폭 유지). PCBA·블로그는 아직 `#`.
 - **결정 화면 딥링크**: `orderinquiryview.php?od_id=…#eq-{회차 id}`·`#bomc-{요청 id}` — 메일·마이페이지 목록(`/shop/eq`·`/shop/parts-confirm`)이 모두 이 앵커로 온다. 목록은 목록만, 선택·회신 폼은 주문 상세 한 곳.
-- **링크 슬롯 관례**: 링크는 사용자 결정으로 전부 비어 있다 — `sp_hero_link()`·`sp_help_more()`·`$sp_help_more` 배열에 URL 을 넣으면 `<a>`, 비면 `<span>`. 자리표시 수치는 `$sp_home_stats`(홈) — 연혁의 `$sp_stats` 는 09-21 개편으로 블록째 삭제됐다.
+- **링크 슬롯 관례**: 링크는 사용자 결정으로 전부 비어 있다 — `sp_hero_link()`·`sp_help_more()`·`$sp_help_more` 배열에 URL 을 넣으면 `<a>`, 비면 `<span>`. (11-09 현재도 테마 슬롯은 전부 비어 있다. 헤더 '개발' 링크는 슬롯이 아니라 `g5_menu` 라 별개 — FIGMA_PAGES 머리말 "링크는 전부 비워 두었다"는 그 한 줄만큼 낡았다.) 자리표시 수치는 `$sp_home_stats`(홈) — 연혁의 `$sp_stats` 는 09-21 개편으로 블록째 삭제됐다.
 - **계정 셸**: `$sp_account_active` 키 `home|orders|cart|wish|quotes|eq|bomc|as|point|coupon|memo|scrap`; 쇼핑 페이지는 `shop.head.php` 가 자동, 커스텀 페이지는 `.account-layout` 래퍼 + include. '부품 확인'(`bomc`) 메뉴는 조건부 — 대기 건이 있거나 부품 BOM 축 회원일 때만 선다. 쿠폰 페이지는 자기가 센 `$sp_coupon_count` 를 사이드바에 넘겨 요약·목록·배지 수량을 한 조회로 맞춘다. `.nav_badge` 안은 **숫자만**(단위는 `.nav_unit`) — e2e 가 `Number(textContent)` 로 파싱. 주문내역 탭 파라미터 `?track=pcb|bom`(판별키 = 카트행 it_id).
 - **CSS 계층·토큰**: 전역 `--sp-*`(`default.css`, **불변** — 사용자 결정) 위에 계정 셸 스코프 `--acc-*`(`#container.is-account, .account-layout`, 피그마 색값), 견적관리 신규 규칙은 `.sp-quotes--fig` 스코프(보관함은 옛 카드 문법 B), 주문 상태 배지 `status_01~06` 전역. 링크 CSS/JS 는 `?ver=G5_CSS_VER`/`G5_JS_VER`(현재 26101102 / 26100208).
 - **공용 팝업**: `spDialog.alert(msg, {title,tone,okText})`·`spDialog.confirm(...)` → Promise, 의존성 없음, `textContent` 만(XSS 안전); 서버가 `?sp_msg=` 로 실어 보낸 문구도 로드 직후 모달. 코어 `alert()` 은 `bbs/alert.php` 로 페이지를 통째로 이동시키므로 새 화면은 이것을 쓴다.
@@ -88,8 +91,10 @@ theme/sp-lite/
 - 푸터 회사정보는 쇼핑몰 설정 `$default`(`de_admin_company_*`) 가 있으면 그 값, 없으면 피그마 문구 폴백(팩스만 고정) — 관리는 영카트 `/adm` 쇼핑몰설정.
 - 위시리스트 데이터(`g5_shop_wish`)·코어 코드는 보존, 진입점만 숨김([wishlist-hidden](../../docs/wishlist-hidden.md)).
 
-## Key Decisions [coverage: high — 28 sources]
+## Key Decisions [coverage: high — 30 sources]
 
+- **2026-10-22 — 헤더 '개발' → 개발의뢰 랜딩, 새 메뉴 없이 기존 1번 메뉴의 링크만(사용자 결정, DB 값)**: `g5_menu` me_code 10('PCB 설계', 표시 '개발')의 링크 `#` → `/develop/`. 끝 슬래시까지 넣는다 — 로컬 nginx 는 `location /develop/` 만 있어 `/develop` 은 catch-all 로 PHP 에 떨어진다. **커밋으로 안 간다** — 운영·dev 도 관리자 > 메뉴설정에서 같은 값으로 바꿔야 한다([FIGMA_PAGES](../../docs/FIGMA_PAGES.md) 공용 헤더 절, 미커밋 줄 — 2026-11-09 작업트리). 같은 기간 FIGMA_PAGES 에 늘어난 개발의뢰 4절(랜딩·내 의뢰·상세·위저드)과 1d6397c51 의 "개발의뢰 공용 헤더"는 이 테마가 아니라 `apps/develop` 의 것이다.
+- **2026-10-13 — 로그인 아이디 입력 한도 20 → 30자**(9aa836884): 이관 회원 아이디가 이메일이라 `g5_member` 6,402명 중 855명이 20자를 넘는데, 로그인 폼 `maxLength="20"` 때문에 아이디를 끝까지 칠 수 없었다. 서버(`login_check`·`get_member`)와 DB(`mb_id varchar(255)`)엔 길이 제한이 없어 **화면 속성만** 고쳤다. 30자를 넘는 8명(최대 36자)은 여전히 못 친다. 07-07 코어 `get_member()` 이메일 아이디 허용([gnuboard-integration](gnuboard-integration.md) Key Decisions)의 화면 쪽 짝이 석 달 늦게 맞춰진 것 — 입력칸은 오류 없이 21번째 글자부터 받지 않을 뿐이라, 고객에겐 잘린 아이디로 제출한 뒤의 코어 문구 "가입된 회원아이디가 아니거나 비밀번호가 틀립니다"(`bbs/login_check.php`)로만 보였다([silent-degradation](../concepts/silent-degradation.md)).
 - **2026-10-11 — 제조 확인 문항형 회차(D20)의 고객 화면은 주문 상세 부분 파일**(5ae802e7e·540e046b3): `orderinquiryview.php` 가 `format=items` 회차마다 `_pcb_eq_items_round.php` 를 include 하고 문구형(D16) 폼과 섞지 않는다. 형식은 부품 확인(D43) 섹션을 따름(항목 카드·선택지 라디오·확대 `<dialog>`·회신 폼). 화면의 검사(전 항목·의견 필수·동의)는 **안내용**이고 판정은 서버, 알림·확인은 `spDialog`([no-native-dialogs](../concepts/no-native-dialogs.md)). 고객 어휘에 'EQ'·협력사명·공장 원문·그림 파일명을 쓰지 않는다.
 - **2026-10-02~04 — 홈 스크롤 진입 페이드업 + 시안 재대조**(8eea76735·0c97980a5·c6946496c): megazone.com 메인의 `whileInView` 패턴을 공개 번들로 확인해 `js/home/reveal.js` 로 옮김(아래 20px·투명 → 0.3초, 1회, 묶음 0.1초 간격) — 숨김 클래스는 JS 가 **첫 화면 아래 요소에만** 걸고 등장 뒤 걷는다. 같은 주에 One-Stop 문구 굵기·색, Parts Eyes 화면 GIF, Our Network 로고 20종 크기를 시안에 다시 맞춤. `3 EYES ↔ Your Idea 간격: 09-22 제거(0px, ea53474ec) → 10-02 복원(데스크톱 141px·1023 이하 80px)`, `회사소개 드롭다운: 8px 위치 보정 → 상위 메뉴 항목 중심 정렬·글자 왼쪽 정렬`.
 - **2026-09-30 — 부품 확인(D43) 고객 경로 = 목록은 목록만, 결정은 주문 상세 한 곳**(b9fc5edb7, 유형 확장 D44 는 10-01 8f95e2888): `/shop/parts-confirm` 목록(`spcb/pages/parts-confirm.php`) + 주문 상세 `_bom_confirm_section.php`(`#bomc-{id}`) — 제조 확인 `/shop/eq` 와 같은 결정이라 선택지·근거 팝업·추가결제 버튼이 두 곳에서 갈리지 않는다. 사이드바·마이페이지 밴드의 '부품 확인'은 부품 축 회원에게만(PCB 만 쓰는 회원에게 빈 메뉴를 세우지 않음), 장바구니는 추가결제 행을 계약 행처럼(옵션 수정 없음·'부품 추가결제' 배지).
@@ -112,8 +117,10 @@ theme/sp-lite/
 - **2026-07-29~30 — 견적관리 BOM 탭·통합 목록(D17)** — 테마는 CSS 만 기여.
 - (2026-07-04~10, 이전 컴파일 유지) 주문 3형제 전 기기 pc 통일·계정 사이드바 SSOT·위시 "삭제 아닌 숨김"(`SP_USE_WISHLIST`)·홈 슬라이드 브릿지·`/reviews` + `reviews_lib`·SEO head 브릿지 옵션 B(전역변수 매칭, [SEO_MANAGEMENT](../../docs/SEO_MANAGEMENT.md))·게시판 `review` 명칭 "고객후기"([review-naming](../../docs/review-naming.md)). "표현은 테마, 데이터는 sp-node" 원칙과 quicklinks 소거식 인벤토리도 그대로.
 
-## Gotchas [coverage: high — 20 sources]
+## Gotchas [coverage: high — 23 sources]
 
+- **헤더 메뉴 링크는 커밋으로 안 간다(10-22)** — `g5_menu` 는 DB 데이터라 환경마다 관리자 > 메뉴설정에서 손으로 맞춘다('개발' = `/develop/`). 끝 슬래시를 빼면 로컬에선 nginx `location /develop/` 를 비껴 PHP catch-all 로 떨어진다(운영 nginx 실설정 — gitignore `ops/nginx-live` — 에는 `location = /develop { return 301 /develop/; }` 가 있어 로컬에만 걸린다). 표시명 매핑은 `me_name` 문자열 일치라 링크만 바꾼 이번 변경은 매핑에 영향이 없다 — [manual-sync-drift](../concepts/manual-sync-drift.md).
+- **아이디 길이 제한이 화면마다 따로다(10-13 기준)** — 로그인 스킨만 30자이고, 회원가입 폼 `register_form.skin.php` 는 `minlength 3·maxlength 20` 그대로다(새 가입 아이디는 코어 `valid_mb_id()` 규칙상 영문·숫자·`_` 만이라 이메일 아이디가 새로 생기지 않는다). outlogin 스킨 3종(`skin/outlogin/{basic,shop_basic,shop_side}`)도 20자지만 테마가 `outlogin()` 을 부르지 않아 화면에 없다. 비밀번호 칸은 코어 기본 스킨처럼 `maxLength="20"` 그대로다. 30자 초과 이관 아이디 8명(최대 36자)은 화면으로 로그인할 수 없다.
 - **CSS·JS 캐시버스팅은 두 상수 다 올려야 한다** — `extend/version.extend.php` 의 `G5_CSS_VER`(26101102)·`G5_JS_VER`(26100208). 안 올리면 옛 파일이 캐시돼 "적용 안 됨". `js/home.js` 는 자기 `?ver` 를 섹션 모듈·`motion-path.js` 에 넘기므로 홈 JS 도 이 상수 하나로 갱신된다. 스킨 인라인 `<style>` 은 무관. **같은 이름으로 바꿔 끼운 이미지**는 URL 에 `?ver=G5_CSS_VER` 를 직접 붙여야 한다(09-21 이후 `gerber-monitor.png`·`parts-screen.gif`·네트워크 로고) — 영상은 파일명을 바꿔 구분했다. 다른 트랙의 CSS 수정(10-11 제조 확인)도 같은 상수를 올리므로 FIGMA_PAGES 에 적힌 버전은 그 시점 값일 뿐이다.
 - **팬 진폭 `--sp-pan` 을 뷰포트 단위로 계산하지 말 것** — `100vw` 기반이면 창 폭이 바뀌는 순간 키프레임 값이 바뀌어 배경이 점프한다(1920→3400 실측 146px). 상수 600px 이 성립하는 근거는 3720 리소스 양끝 색 = 슬라이드 전폭 바탕색이라는 것 — 배경 리소스를 바꾸면 `.sp-s2~4` 바탕색도 같이 맞춰야 이음새가 안 보인다(`hero-perf.mjs verify` ⑤).
 - **라이트 강등 감시는 시간 창이어야 한다** — 배너 01 이 6초만 머물러 "프레임 60개 세기"는 판정 전에 슬라이드가 넘어갔다(1.5초 창으로 교정). 실측 감시는 메인스레드만 본다 — 팬·backdrop 의 GPU 부담은 못 잡아 기기 신호·reduced-motion 몫. `deviceMemory` 는 2의 거듭제곱 내림이라 6GB 기기도 4 로 잡혀 라이트가 된다.
@@ -135,9 +142,9 @@ theme/sp-lite/
 - **`mobile/skin/shop` 은 잔재가 아니다** — 코어 관리자(쇼핑몰설정)가 `readdir` 하므로 없으면 PHP8 Fatal. 프런트는 타지 않는다.
 - **seo_head 는 전 페이지 경유 코드** — `sql_query($sql, false)` 방어 유지, description·OG 를 `cf_add_meta` 에 넣으면 이중출력. 위시는 `SP_USE_WISHLIST=true` 한 줄로 전체 복귀(직접 URL 은 여전히 동작). 주문 알림 체크박스 게이트는 sp-vue 영역이지만 코어 orderlist 무조건 노출을 결함으로 판단한 인접 결정([order-notify-gating](../../docs/order-notify-gating.md)).
 
-## Sources [coverage: high — 89 sources]
+## Sources [coverage: high — 91 sources]
 
-- [docs/FIGMA_PAGES.md](../../docs/FIGMA_PAGES.md) — 피그마 → sp-php 페이지 구현 대장(홈·헤더·푸터·about·history·location·쿠폰, 히어로 저사양 대응 실측, 미결·공통 함정) 2026-09-18 / 09-21 / 10-04
+- [docs/FIGMA_PAGES.md](../../docs/FIGMA_PAGES.md) — 피그마 → sp-php 페이지 구현 대장(홈·헤더·푸터·about·history·location·쿠폰, 히어로 저사양 대응 실측, 미결·공통 함정) 2026-09-18 / 09-21 / 10-04 · 10-22~11-05 개발의뢰 앱 4절(테마 밖 — [sp-develop-web](sp-develop-web.md)) · 공용 헤더 '개발' → `/develop/`(미커밋 줄, 2026-11-09 작업트리)
 - [docs/MYPAGE_REDESIGN.md](../../docs/MYPAGE_REDESIGN.md) — 마이페이지·사이드바·주문내역 탭 재설계 2026-08-25 / 09-15
 - [docs/SMARTBOM_PARTNER_RFQ.md](../../docs/SMARTBOM_PARTNER_RFQ.md) §6.39 · [docs/PCB_PARTNER_TRACK.md](../../docs/PCB_PARTNER_TRACK.md) D20 — 부품 확인(D43)·제조 확인 문항형의 고객 화면 파일 색인(정본은 트랙 문서, 여기선 테마 접점만) 2026-09-30 / 10-11
 - [docs/GERBER_ORDER_FLOW.md](../../docs/GERBER_ORDER_FLOW.md) — 기법 #8 테마 cart 스킨·#11 주문서 최소 수정·파일 색인
@@ -164,7 +171,9 @@ theme/sp-lite/
 - [shop/cart.php](../../samplepcb-web/theme/sp-lite/shop/cart.php) · [shop/orderinquiry.sub.php](../../samplepcb-web/theme/sp-lite/shop/orderinquiry.sub.php) · [shop/orderinquiryview.php](../../samplepcb-web/theme/sp-lite/shop/orderinquiryview.php) — 장바구니 건별 카드·주문내역 탭·상세 단일 컬럼
 - [shop/_pcb_eq_items_round.php](../../samplepcb-web/theme/sp-lite/shop/_pcb_eq_items_round.php) · [shop/_bom_confirm_section.php](../../samplepcb-web/theme/sp-lite/shop/_bom_confirm_section.php) — 주문 상세 결정 화면 부분 파일(제조 확인 문항형 회차·부품 확인)
 - [skin/latest/home-help/latest.skin.php](../../samplepcb-web/theme/sp-lite/skin/latest/home-help/latest.skin.php) · [skin/latest/home/latest.skin.php](../../samplepcb-web/theme/sp-lite/skin/latest/home/latest.skin.php)(미사용) — 홈 게시판 스킨
-- [skin/member/basic/login.skin.php](../../samplepcb-web/theme/sp-lite/skin/member/basic/login.skin.php) · [point.skin.php](../../samplepcb-web/theme/sp-lite/skin/member/basic/point.skin.php) · [style.css](../../samplepcb-web/theme/sp-lite/skin/member/basic/style.css) — 로그인 카드·포인트 페이지
+- [skin/member/basic/login.skin.php](../../samplepcb-web/theme/sp-lite/skin/member/basic/login.skin.php) · [point.skin.php](../../samplepcb-web/theme/sp-lite/skin/member/basic/point.skin.php) · [style.css](../../samplepcb-web/theme/sp-lite/skin/member/basic/style.css) — 로그인 카드(아이디 maxLength 20 → 30, 2026-10-13 9aa836884)·포인트 페이지
+- [skin/member/basic/register_form.skin.php](../../samplepcb-web/theme/sp-lite/skin/member/basic/register_form.skin.php) — 가입 아이디 `minlength 3·maxlength 20`(로그인과 다른 한도 — Gotchas)
+- [ops/nginx/local-web.conf](../../ops/nginx/local-web.conf) — 로컬은 `location /develop/` 만(헤더 '개발' 링크 끝 슬래시 근거)
 - [mobile/skin/shop/basic/](../../samplepcb-web/theme/sp-lite/mobile/skin/shop/basic) — 코어 readdir Fatal 방지 복사본
 - [extend/version.extend.php](../../samplepcb-web/extend/version.extend.php) · [extend/default.config.php](../../samplepcb-web/extend/default.config.php) · [extend/sp_quote_cart.extend.php](../../samplepcb-web/extend/sp_quote_cart.extend.php) · [extend/sp_partner.extend.php](../../samplepcb-web/extend/sp_partner.extend.php) · [extend/sp_bom_confirm.extend.php](../../samplepcb-web/extend/sp_bom_confirm.extend.php) — 캐시버스팅·위시 토글·견적 it_id·파트너 헬퍼·부품 확인 브리지
 - [spcb/pages/about.php](../../samplepcb-web/spcb/pages/about.php) · [history.php](../../samplepcb-web/spcb/pages/history.php) · [location.php](../../samplepcb-web/spcb/pages/location.php) — 정적 페이지 3종(테마 head.php 사용)

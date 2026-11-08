@@ -1,15 +1,15 @@
 ---
 topic: parts-engine
-last_compiled: 2026-10-12
-sources_count: 38
+last_compiled: 2026-11-09
+sources_count: 40
 status: active
 ---
 
 # parts-engine
 
-## Purpose [coverage: high — 8 sources]
+## Purpose [coverage: high — 10 sources]
 
-소스 범위는 2026-07-18(이식 커밋)부터 2026-10-05([BOM_QUOTE](../../docs/BOM_QUOTE.md) 최종 갱신)까지, 엔진 코드 자체의 마지막 변경은 2026-09-30(양산 Reel 사유 충돌 교정, `procurement.py` 6줄 — 2026-09-19 컴파일 이후 유일한 엔진 변경)이다. **최근 합의(2026-08-19~09-14)**는 "엔진의 입구를 넓히되 판단은 여전히 엔진 안에서만"이다 — 두 번째 추출 프로필(`inventory`), 로컬 소스 주입(`local_products`), 강제 라이브(`force_live`), 조회 identity 덮어쓰기(`identity_overrides`)가 모두 **옵션·입력 통로**로만 추가됐고, 후보 판정·조달 판정 경로는 하나다. **이전 패턴(2026-07-18~07-27)**은 패리티 이식과 판단 계약 단일화였다. 2026-07-27 컴파일 이후 엔진 커밋 19건(파일 변경 횟수: 검색 src 36·추출 src 12·app src 9) 중 엔진만 고친 커밋은 3건(07-27 핀헤더 정밀화·08-21 다단 헤더·09-30 양산 Reel 사유)이고 나머지 16건은 sp-node·sp-vue와 한 커밋에 묶였다 — 엔진 변경은 거의 항상 소비자 계약 변경을 동반한다.
+소스 범위는 2026-07-18(이식 커밋)부터 2026-10-22(유휴 잡 TTL 커밋 `b3ea07324`)까지다. 엔진 코드의 마지막 변경은 2026-09-30(양산 Reel 사유 충돌 교정, `procurement.py` 6줄) → **2026-10-22(끝난 잡을 유휴 6시간 뒤 메모리·업로드 원본에서 지우는 TTL — `app/` 의 `jobs.py`·`config.py` 만, 판단 엔진 두 패키지와 계약 식별자는 무변경)** 이고, 2026-10-12 컴파일 이후 엔진 커밋은 이 하나다(5파일 +193줄, pytest 642 → 648). 계기는 판단이 아니라 **운영 관측**이었다 — 만료 없는 인메모리 잡 스토어 때문에 운영 엔진 프로세스가 4.6GB 까지 자랐고, 같은 서버의 배포 빌드가 스왑까지 찬 메모리에 멈췄다([infrastructure](infrastructure.md)). **최근 합의(2026-08-19~09-14)**는 "엔진의 입구를 넓히되 판단은 여전히 엔진 안에서만"이다 — 두 번째 추출 프로필(`inventory`), 로컬 소스 주입(`local_products`), 강제 라이브(`force_live`), 조회 identity 덮어쓰기(`identity_overrides`)가 모두 **옵션·입력 통로**로만 추가됐고, 후보 판정·조달 판정 경로는 하나다. **이전 패턴(2026-07-18~07-27)**은 패리티 이식과 판단 계약 단일화였다. 2026-07-27 컴파일 이후 엔진 커밋 19건 → 20건(파일 변경 횟수: 검색 src 36·추출 src 12·app src 9 → 11) 중 엔진만 고친 커밋은 3건 → 4건(07-27 핀헤더 정밀화·08-21 다단 헤더·09-30 양산 Reel 사유·**10-22 잡 TTL**)이고 나머지 16건은 sp-node·sp-vue와 한 커밋에 묶였다 — 엔진 변경은 거의 항상 소비자 계약 변경을 동반한다. 10-22 TTL 은 예외적으로 소비자 쪽을 고치지 않았다: 지워진 잡은 sp-node 가 이미 갖고 있던 재시작 대비 경로(`ENGINE_JOB_GONE`·영속 스냅샷 재개)를 그대로 탄다.
 
 `samplepcb-parts-engine/`(별칭 **sp-engine**)은 PCB 부품 **BOM 추출 + 공급사 검색**을 담당하는 Python 엔진이다. `samplepcb-web-platform` 단일 repo의 형제 서브폴더로 폴리글랏 우산을 완성한다: `samplepcb-web/`=PHP, `samplepcb-web-mono-app/`=Vue+Node, `samplepcb-parts-engine/`=**Python**. 출처는 `sp-smartbom-eye/bom_probing_web` 실험용 웹앱이며, 2026-08-23부터는 협력사 재고표까지 읽는 **두 번째 입력 프로필**을 가진다([PARTNER_PARTS](../../docs/PARTNER_PARTS.md)).
 
@@ -20,7 +20,7 @@ status: active
 - **sp-engine ↔ sp-vue 직접 연결 금지.** sp-vue는 `selection_eligibility`·`reason_codes`·`search_scope`·수명주기 상태를 *표시*할 뿐 재판정하지 않는다.
 - 필요한 판단이 엔진에 없으면 응용 계층에서 추측하지 말고, 엔진 수정 필요성을 사용자에게 알린 뒤 **엔진부터 고친다**. 2026-08-04 `search_scope`(Any Vendor 근거)·2026-09-14 수량 누락 상태가 이 규칙의 실제 사례다 — 화면이 필요로 한 구분을 엔진 필드로 먼저 만들었다.
 
-## Architecture [coverage: high — 11 sources]
+## Architecture [coverage: high — 12 sources]
 
 **uv workspace** (루트는 aggregator, `[tool.uv] package = false`). `requires-python >= 3.11`, 공유 `.venv` 하나(`uv sync`). 멤버는 `packages/*` + `app`:
 
@@ -28,23 +28,23 @@ status: active
 |---|---|---|
 | `packages/bom-extraction-engine/` | `bom_extraction_engine` | 구 `smartbom_engine`. 스프레드시트(xlsx/xlsm/xls/csv/tsv/`.BOM`) → 헤더 탐지(`fusion`·`workbook`) → 열 역할 분류(`field_lexicon`·`row_features`) → 행별 구조화(`rule_extractor`·`adapter`). **100% 규칙 기반, LLM/네트워크 없음**. 2026-08-23 신설 `inventory.py` = 협력사 재고표 프로필(별도 파이프라인), `bom_loader.py` = 두 프로필 공용 로더 |
 | `packages/supplier-search-engine/` | `supplier_search_engine` | 공급사 API 검색 → 정규화 → **기술 판정·조달 판정**. `planner`·`supplier_query`·`suppliers/{digikey,mouser,unikeyic}`·`normalizer`/`normalization`·`matcher`·`physical`·`connector`(2026-07-27 핀헤더 계열)·`procurement`·`preflight`·`contract`·`service`(오케스트레이션·소스 순위·대체 폴백)·`cache`/`request_cache`/`budget`/`singleflight`/`routing`/`pricing`/`settings` |
-| `app/` | `parts_engine_app` | FastAPI 오케스트레이션. `main`·`routes`·`jobs`(인메모리 잡 레지스트리 + ThreadPoolExecutor 4)·`refresh`(단건/배치 강제 라이브·카탈로그 보강)·`capabilities`·`config` |
+| `app/` | `parts_engine_app` | FastAPI 오케스트레이션. `main`·`routes`·`jobs`(인메모리 잡 레지스트리 + ThreadPoolExecutor 4, 2026-10-22 부터 유휴 잡 정리 `_sweep_expired`)·`refresh`(단건/배치 강제 라이브·카탈로그 보강)·`capabilities`·`config` |
 
 - **두 추출 프로필은 모드 플래그가 아니라 모듈 분리**: BOM 추출기는 단가·재고·stock 열을 `_IGNORE_PAT`로 명시 폐기하고 재고 시트를 fail-closed 기각하는데, 재고표는 정확히 그 반대의 표라 같은 파이프라인에 분기를 넣으면 회귀 위험만 커진다(`inventory.py` 머리말, 2026-08-23). `inventory-rules/1.0`은 무유실(`part_number_raw`·`raw_fields`·`flags`)·판단 최소·`role_overrides` 재실행이 원칙이다.
 - **로컬 회귀 코퍼스(2026-08-21)**: `local-corpus/bom-extraction/`에 실제 고객 BOM을 SHA-256 단위로 보관한다(`workbooks/`·`manifest.local.json`·`reports/`는 Git 제외, [corpus README](../../samplepcb-parts-engine/local-corpus/bom-extraction/README.md)·[manifest.example.json](../../samplepcb-parts-engine/local-corpus/bom-extraction/manifest.example.json)만 추적). `scripts/verify-bom-extraction-corpus.py --check headers|extraction|all`이 시트 단위 정답(헤더 블록·anchor 허용 행·component 첫 행·금지 행·기대 열)을 검사하며, **정답은 엔진 결과를 보기 전에 원본 셀로 작성**한다(runner는 엔진 출력에서 기대값을 절대 유도하지 않는다). 08-21 실측 206파일·350시트·0이슈, 사람 확인 헤더 정답 111/111. 새 실파일 패턴은 개인정보를 뺀 합성 테스트로도 `tests/`에 고정한다.
 - 의존성 대비: 추출 엔진은 pandas·openpyxl·python-calamine·xlrd·rapidfuzz·model2vec·scikit-learn 등 두터운 편, 검색 엔진은 httpx+pydantic 최소, app은 fastapi+uvicorn+python-multipart+python-dotenv.
-- 테스트: 루트 pytest가 세 워크스페이스 `tests/`를 한꺼번에 수집(`asyncio_mode = "auto"`). 이식 시점 171 → 07-27 537 → **2026-09-19 수집 기준 640건 / 29파일**(08-24 커밋 메시지 627, 09-14 추출 패키지만 179) → 2026-09-30 **642 passed·1 skipped**(커밋 `6638bfe37` 본문 — `test_procurement.py` 에 회귀 3건 추가, 파일 수는 29 그대로). 검색 엔진 15본·추출 10본·app 4본.
+- 테스트: 루트 pytest가 세 워크스페이스 `tests/`를 한꺼번에 수집(`asyncio_mode = "auto"`). 이식 시점 171 → 07-27 537 → **2026-09-19 수집 기준 640건 / 29파일**(08-24 커밋 메시지 627, 09-14 추출 패키지만 179) → 2026-09-30 **642 passed·1 skipped**(커밋 `6638bfe37` 본문 — `test_procurement.py` 에 회귀 3건 추가, 파일 수는 29 그대로) → 2026-10-22 **648 passed**(커밋 `b3ea07324` 본문 — `app/tests/test_app.py` 에 유휴 잡 TTL 6건, skipped 언급 없음). 파일 수는 여전히 29 — 검색 엔진 15본·추출 10본·app 4본(2026-11-09 실측). TTL 테스트는 `sleep` 없이 `Job.touched_at` 을 과거 `time.monotonic()` 값으로 돌려 유휴 시간을 흉내 내고 `_sweep_expired(force=True)` 로 60초 간격을 건너뛴다.
 - 실행 스크립트 `run.sh` / `run.ps1`(uv 확인 + `.env` 부트스트랩 + `uv sync` + uvicorn, 포트 인자 지원).
 
-## Talks To [coverage: high — 9 sources]
+## Talks To [coverage: high — 11 sources]
 
-- **sp-node(Fastify) 게이트웨이 — 유일한 소비자**([sp-node-api](sp-node-api.md)). `apps/api/src/lib/engine-client.ts`가 `BOM_ENGINE_URL`(기본 `http://127.0.0.1:8400`)·`BOM_ENGINE_TIMEOUT_MS`(기본 120,000)로 호출하며, 소비 지점은 14파일(bom-engine-jobs·bom-local-catalog·bom-quote·bom-search-requirements·bom-supplier-operations·partner-parts·bom-case-delete·admin-parts·bom·bom-quotes·admin-bom-rfqs + 스크립트 import-parts-catalog·refresh-catalog-prices). 엔진은 **무인증 사설 서비스**라 인증·일일 한도·계약 경계는 sp-node가 소유한다. sp-node는 엔진 결정을 재정렬하지 않고 키·수량·금액 불변식만 검증해 저장하며, `decision`이 없는 후보는 자체 규칙으로 복구하지 않고 차단한다.
-- **nginx location 없음.** README 머리말의 "nginx `/engine` 프록시" 문구와 달리 로컬·운영 nginx 어디에도 `/engine`은 없다 — 운영 설정 주석대로 "sp-engine :8400 은 sp-api 가 내부 호출하므로 location 을 만들지 않는다"(dev 호스트는 `sp-engine-dev :8401`). 운영 기동은 `ops/systemd/sp-engine.service`(`uv run --no-sync uvicorn … --host 127.0.0.1 --port 8400`, 127.0.0.1 바인딩 필수)와 루트 `deploy.sh` 케이스 10(`uv sync --frozen` + `systemctl restart sp-engine` + `/health` 확인) — 상세는 [infrastructure](infrastructure.md).
+- **sp-node(Fastify) 게이트웨이 — 유일한 소비자**([sp-node-api](sp-node-api.md)). 엔진이 잡을 지운 뒤(재시작·2026-10-22 부터 유휴 TTL) sp-node 의 결과 GET(`/jobs/{id}/result`)이 실패하면 `routes/bom-quotes.ts` 가 409 `ENGINE_JOB_GONE` 으로 바꿔 재업로드 또는 영속 스냅샷 `POST /supplier-jobs` 재개로 보낸다 — TTL 도입에 소비자 변경이 필요 없었던 이유다. `apps/api/src/lib/engine-client.ts`가 `BOM_ENGINE_URL`(기본 `http://127.0.0.1:8400`)·`BOM_ENGINE_TIMEOUT_MS`(기본 120,000)로 호출하며, 소비 지점은 14파일(bom-engine-jobs·bom-local-catalog·bom-quote·bom-search-requirements·bom-supplier-operations·partner-parts·bom-case-delete·admin-parts·bom·bom-quotes·admin-bom-rfqs + 스크립트 import-parts-catalog·refresh-catalog-prices). 엔진은 **무인증 사설 서비스**라 인증·일일 한도·계약 경계는 sp-node가 소유한다. sp-node는 엔진 결정을 재정렬하지 않고 키·수량·금액 불변식만 검증해 저장하며, `decision`이 없는 후보는 자체 규칙으로 복구하지 않고 차단한다.
+- **nginx location 없음.** README 머리말의 "nginx `/engine` 프록시" 문구와 달리 로컬·운영 nginx 어디에도 `/engine`은 없다 — 운영 설정 주석대로 "sp-engine :8400 은 sp-api 가 내부 호출하므로 location 을 만들지 않는다"(dev 호스트는 `sp-engine-dev :8401`). 운영 기동은 `ops/systemd/sp-engine.service`(`uv run --no-sync uvicorn … --host 127.0.0.1 --port 8400`, 127.0.0.1 바인딩 필수)와 루트 `deploy.sh` 케이스 10(`uv sync --frozen` + `systemctl restart sp-engine` + `/health` 확인) — 상세는 [infrastructure](infrastructure.md). **운영 서버 자원은 공유다**: RAM 15GB 를 Elasticsearch·sp-engine·xpse 등이 나눠 쓰고 스왑까지 찬 상태였다(2026-10-22 `deploy.sh` 커밋 `158014483` 본문) — 엔진 프로세스 크기가 배포 빌드의 성패에 걸린다.
 - **외부 공급사 API**(supplier-search-engine만): Mouser(API key), DigiKey(OAuth2 client_credentials, 2026-08-02부터 **Substitutions API**를 재고 부족 시 조건부 1회 추가 호출), UniKeyIC(API key + base URL). 동시 호출 수 `SEARCH_SUPPLIER_CONCURRENCY`(기본 4), 작업 시간 상한 `SEARCH_JOB_TIMEOUT_SECONDS`(기본 60초). BOM 추출은 네트워크·자격증명 모두 불필요.
 - **로컬 소스 identity**(외부 호출 아님): `CatalogSupplier` enum — `samplepcb`·`yeonho`·`walsin`·`yageo`·`samsung`·`murata`·`tdk`·`vishay`·`koa` + 2026-08 추가 `eleparts`·`icbanq`·**`partner`**. "never routed as external clients" — DB는 sp-node가 조회하고 엔진은 그 히트를 **판정만** 한다. `partner`는 sp-node가 검색 잡 옵션 `local_products`(키=정규 품번)로 주입하는 협력사 보유 부품([partner-tracks](partner-tracks.md))이며, **exact 품번 질의에만** 붙고 파라메트릭 질의에는 주입하지 않는다(스펙 호환 판정을 협력사 주장에 기대지 않는다).
 - **엔진이 관여하지 않는 인접 기능(명시)**: DigiKey/Mouser API 카트 인계(D41)와 ECIA 2D 라벨 바코드 입고 스캔(D42)은 엔진 소스에 흔적이 없다(`cart|barcode|ecia` grep 0건) — 전부 sp-node 몫이다. 2026-09-17~18 단일 검색 "공급사 확인 후 최종 후보 누락 없이 표시"(커밋 `59a232e85`)도 sp-node·sp-vue·api-contract만 바꿨고 엔진 응답 계약은 그대로다. 2026-10-01 단일 검색 "구매 조건 없는 후보 목록" 제거(커밋 `a3c410a83`)도 같다 — 원인은 DB 에서 사라진 부품의 옛 ES 문서였고, sp-node 카탈로그 검색이 그런 부품을 응답에서 빼도록 고쳤을 뿐 엔진·DB 스키마·API 계약 변경은 없다(운영 ES 의 옛 문서는 `parts:reindex --recreate` 로 별도 정리).
 
-## API Surface [coverage: high — 6 sources]
+## API Surface [coverage: high — 7 sources]
 
 - 서버: `uv run uvicorn parts_engine_app.main:app --host 127.0.0.1 --port 8400 --reload`(또는 `./run.sh` / `.\run.ps1 -Port …`). Swagger `/docs`. 소비자 문서 [BOM_SERVICE_API](../../docs/BOM_SERVICE_API.md)의 `502 BOM_ENGINE_UNREACHABLE|BOM_ENGINE_ERROR`·`409 ENGINE_JOB_GONE`이 엔진 장애·잡 소실의 sp-node 측 표현이다.
 
@@ -54,26 +54,27 @@ status: active
 | `GET /supplier-search/requirements/capabilities` · `POST …/validate` | 부품 유형별 필수·선택·조건부 필드 공개 · DB 저장·공급사 호출 없이 검색 조건만 엔진 정책으로 검증 |
 | `POST /supplier-search/catalog-evaluate-batch` | sp-node의 exact 로컬 카탈로그 히트에 엔진 matcher·후보 결정·조달 정책을 그대로 적용(외부 호출 0) |
 | `POST /jobs` (202) | 파일 업로드 → 추출 잡. 2026-08-23부터 form 필드 `engine=smartbom\|inventory`와 `inventory_options`(JSON — `role_overrides{sheet:{col:role}}`·`header_row_overrides{sheet:1-based row}`, 역할 12종 화이트리스트) |
-| `GET /jobs/{id}` · `GET /jobs/{id}/result` | 잡 상태 · 추출 결과 |
-| `DELETE /jobs/{id}` (204) | 2026-08-01 신설 — SmartBOM Case 영구 삭제 전용 수명주기 계약. 완료·실패 잡의 인메모리 결과와 `uploads/` 임시 원본을 함께 삭제. 없는 잡 404(호출부가 멱등 성공 처리), 파싱·검색 실행 중은 취소 불가라 409 |
+| `GET /jobs/{id}` · `GET /jobs/{id}/result` | 잡 상태 · 추출 결과. 2026-10-22 부터 **조회가 유휴 시각(`touched_at`)을 갱신**한다 — 폴링 중인 잡은 지워지지 않는다. 지워진 잡은 404 `job_not_found` |
+| `DELETE /jobs/{id}` (204) | 2026-08-01 신설 — SmartBOM Case 영구 삭제 전용 수명주기 계약. 완료·실패 잡의 인메모리 결과와 `uploads/` 임시 원본을 함께 삭제. 없는 잡 404(호출부가 멱등 성공 처리), 파싱·검색 실행 중은 취소 불가라 409. 2026-10-22 부터 같은 삭제(레지스트리 + 업로드 원본)를 **유휴 TTL 정리가 자동으로**도 한다(Data) |
 | `POST /supplier-jobs` (201) | sp-node **영속 분석 스냅샷**을 검색 입력으로 등록(파일 재업로드 없이 재개). body: `analysis`·`required_quantities`·`requirement_overrides`·`requirement_defaults` |
 | `POST /jobs/{id}/supplier-search/preflight` | 예상·최악 호출량 사전 계산(조건부 2차 검색 포함) |
 | `POST /jobs/{id}/supplier-search` (202) · `GET …` · `GET …/result` | 검색 잡. 옵션: `max_calls`(≤3,000)·`cache_only`·`reset_cache`·**`force_live`**(08-19, 셋 중 하나만)·`sheet_indexes`·`component_ids`(≤5,000)·**`identity_overrides`**(08-21, `component_ids`의 부분집합만)·`passive_defaults`·`procurement`·**`local_products`**(08-23) |
 | `POST /supplier-search/procurement/reevaluate` · `/reevaluate-batch` | 저장된 기술 후보에 새 수량·환율만 재적용(**공급사 호출 없음**). 배치 상한 200(초과 422), 행 하나의 실패가 배치를 막지 않음 |
 | `POST /parts/refresh` · **`POST /parts/refresh-batch`** · `POST /parts/search` | MPN 1건 강제 라이브(max_calls 기본 25, ≤100) · 카탈로그 사전 가격용 exact MPN 배치(≤100건, max_calls 기본 120 ≤3,000, 공급사 선택, timeout 10~300초 — 소비자는 `refresh-catalog-prices.ts` 스크립트뿐) · 로컬 색인 exact miss 보강(캐시 우선, max_calls 기본 12 ≤25). 셋 다 공급사·네트워크 오류를 502로 정규화 |
 
-## Data [coverage: high — 8 sources]
+## Data [coverage: high — 10 sources]
 
 - **자격증명**: `.env`(`.env.example` 복사, `.gitignore` 등록) — 백엔드 전용, 브라우저 전달 금지. `main.py`가 `load_dotenv()`로 자동 로드.
-- **앱 설정(`config.py`, 환경변수)**: `PARTS_ENGINE_DATA_DIR`(기본 `data/` — `uploads/` 임시 원본 + `supplier-search-cache.sqlite3`, 둘 다 gitignore)·`BOM_M2V_PATH`(""=HF 캐시·경로=오프라인·`off`)·`BOM_COMPONENT_LIMIT`(5,000)·**`INVENTORY_ROW_LIMIT`**(50,000 — 재고표는 만 단위가 정상이라 BOM 상한과 별개, 08-23)·`MAX_UPLOAD_BYTES`(60MB)·`SUPPLIER_MAX_CALLS`(3,000 — 공급사 검색 1회당 외부 호출 **안전 상한**, sp-node 관리자 한도와 둘 중 작은 값이 실효).
+- **앱 설정(`config.py`, 환경변수)**: `PARTS_ENGINE_DATA_DIR`(기본 `data/` — `uploads/` 임시 원본 + `supplier-search-cache.sqlite3`, 둘 다 gitignore)·`BOM_M2V_PATH`(""=HF 캐시·경로=오프라인·`off`)·`BOM_COMPONENT_LIMIT`(5,000)·**`INVENTORY_ROW_LIMIT`**(50,000 — 재고표는 만 단위가 정상이라 BOM 상한과 별개, 08-23)·`MAX_UPLOAD_BYTES`(60MB)·`SUPPLIER_MAX_CALLS`(3,000 — 공급사 검색 1회당 외부 호출 **안전 상한**, sp-node 관리자 한도와 둘 중 작은 값이 실효)·**`JOB_IDLE_TTL_SECONDS`**(21,600 = 6시간, `0` = 끄기 — 2026-10-22, `.env.example` 에도 같은 값).
 - **캐시**: SQLite(raw/keyword/stale TTL, `stale_if_error`). `cache_only`·`reset_cache`·`force_live`는 상호 배타. `force_live`는 현재 잡의 **읽기만** 우회하고 성공 응답은 캐시에 기록해 이후 BOM 검색이 재사용한다(`refresh.py` LiveReadCache와 같은 성향).
-- **잡 스토어**: 인메모리 `dict` + 스레드풀([in-memory-async-jobs](../concepts/in-memory-async-jobs.md)) — TTL·자동 만료 없음, 비우는 경로는 `DELETE /jobs/{id}`와 프로세스 재시작뿐. 영속은 sp-node 원장(분석 append-only·gzip 아티팩트)이 맡는다.
-- **계약 식별자**(소비자 계약이므로 임의 변경 금지, 2026-09-19 코드 현재값): 추출 `parser_version="smartbom-rules/1.12 (hierarchical headers and helper sheets)"`(2026-08: 1.10 → 1.12)·`SCHEMA_VERSION=1.4`·`"engine":"smartbom"`, 재고표 `inventory-rules/1.0`·`INVENTORY_SCHEMA_VERSION=1.0`, 검색 `search_schema_version=1.10`(2026-08: 1.7 → 1.10)·`SEARCH_CONTRACT_VERSION=1.2`, 판정 `supplier-candidate-decision-v3`·`candidate-category-policy-v2`·`candidate-identity-key-v1`·`candidate-evidence-key-v1`·`candidate-selection-recommendation-v1`·**`supplier-selection-application-v4`**(2026-07-29: v3 → v4)·`supplier-procurement-decision-v1`·`supplier-procurement-unavailability-v1`·`supplier-offer-key-v2`(저장 v1 계속 지원)·`supplier-procurement-reevaluation-v1`/`-batch-v1`·`bom-search-requirement-policy-v1`·`bom-user-search-requirements-v2`·`passive-requirement-defaults-v1`·`supplier-search-trace-v1`.
+- **잡 스토어**: 인메모리 `dict` + 스레드풀([in-memory-async-jobs](../concepts/in-memory-async-jobs.md)). 영속은 sp-node 원장(분석 append-only·gzip 아티팩트)이 맡는다. ⚠ **[2026-10-22 이전]** TTL·자동 만료 없음 — 비우는 경로는 `DELETE /jobs/{id}`와 프로세스 재시작뿐이었고 운영 프로세스가 4.6GB 까지 자랐다 → **2026-10-22 유휴 TTL**: 끝난(`completed`·`failed`) 잡을 `touched_at`(`time.monotonic` — 생성·끝난 때·조회 때 갱신) 기준 `JOB_IDLE_TTL_SECONDS` 가 지나면 레지스트리와 `uploads/` 원본에서 지운다(`deleted=True` 박제 후 pop, 원본 삭제 실패는 경고 로그만). 실행 중(추출 `status`·공급사 `supplier_status` 가 `running`)은 지우지 않고, `delete()`·`submit_supplier()` 와 같은 `_supplier_state_lock` 안에서 다시 확인해 방금 검색이 시작된 잡을 건드리지 않는다. 정리 시점은 **요청이 올 때뿐** — 새 잡 등록(`submit_parse`·`submit_analysis_snapshot`, 강제)과 조회(`get`, `_SWEEP_INTERVAL_SECONDS` 60초 간격, 없는 잡 조회도 포함). 백그라운드 타이머는 없다.
+- **계약 식별자**(소비자 계약이므로 임의 변경 금지, 2026-09-19 코드 현재값 — 09-30 Reel 교정·10-22 잡 TTL 모두 식별자를 올리지 않아 2026-11-09 현재 그대로): 추출 `parser_version="smartbom-rules/1.12 (hierarchical headers and helper sheets)"`(2026-08: 1.10 → 1.12)·`SCHEMA_VERSION=1.4`·`"engine":"smartbom"`, 재고표 `inventory-rules/1.0`·`INVENTORY_SCHEMA_VERSION=1.0`, 검색 `search_schema_version=1.10`(2026-08: 1.7 → 1.10)·`SEARCH_CONTRACT_VERSION=1.2`, 판정 `supplier-candidate-decision-v3`·`candidate-category-policy-v2`·`candidate-identity-key-v1`·`candidate-evidence-key-v1`·`candidate-selection-recommendation-v1`·**`supplier-selection-application-v4`**(2026-07-29: v3 → v4)·`supplier-procurement-decision-v1`·`supplier-procurement-unavailability-v1`·`supplier-offer-key-v2`(저장 v1 계속 지원)·`supplier-procurement-reevaluation-v1`/`-batch-v1`·`bom-search-requirement-policy-v1`·`bom-user-search-requirements-v2`·`passive-requirement-defaults-v1`·`supplier-search-trace-v1`.
 - **2026-08 신설 enum**: `SearchScope`(`part_number`·`manufacturer_spec`·`any_vendor_spec`·`not_searchable`, 컴포넌트 결과가 최종 질의에서 파생), `LifecycleCode`(`nrnd`·`eol`·`discontinued`·`obsolete` + `unknown`), `ReplacementSource`(`digikey_substitution`·`engine_stock_fallback`·`engine_procurement_fallback`·`engine_mpn_fallback`), trace 시도 종류 `stock_alternative`. `CatalogProductMetadata`에 `partner_id`·`partner_stock_qty`·`partner_date_code`·`partner_lead_time`·`partner_uploaded_at`(조직명은 담지 않음).
 - DB(Prisma/그누보드)와 직접 연결 없음 — 파일 업로드 또는 JSON 스냅샷 입력, JSON 구조화 출력. `contracts/fixtures/component-record.json`은 sp-node와 공유하는 골든(2026-07-24).
 
-## Key Decisions [coverage: high — 16 sources]
+## Key Decisions [coverage: high — 18 sources]
 
+- **2026-10-22 — 끝난 잡은 유휴 6시간 뒤 지운다(엔진의 첫 수명 정책)**: 결과를 인메모리 `dict` 에 쌓고 만료시키지 않아 운영 프로세스가 4.6GB 까지 자랐고, 같은 서버의 배포 빌드가 스왑까지 찬 메모리 때문에 멈췄다(커밋 `b3ea07324` 본문 실측). 근거는 "결과는 sp-node 가 끝나는 즉시 DB 원장(분석 실행·공급사 결과 아티팩트)으로 옮기므로 엔진에 오래 남길 이유가 없다". 설계 셋 — ① 기준은 끝난 시각이 아니라 **마지막으로 읽힌 시각**(폴링 중인 잡 보호) ② 실행 중 잡은 절대 안 지운다(삭제 계약과 같은 락에서 재확인) ③ 늦게 찾은 잡은 엔진 재시작 때와 **같은** `ENGINE_JOB_GONE`·영속 스냅샷 재개 경로 — 새 실패 모드를 만들지 않는다. `JOB_IDLE_TTL_SECONDS=0` 이 되돌림 스위치. 신규 테스트 6(유휴 정리·실행 중 보존·조회가 수명 연장·0=끄기·새 업로드가 정리·기본 6시간), pytest 648 passed. 판단 경로·계약 식별자 무변경([in-memory-async-jobs](../concepts/in-memory-async-jobs.md) — "TTL 없음" 잔존 인메모리 항목의 해소).
 - **2026-09-30 — 후보 교체 사유는 하나뿐: 양산 Reel 선택은 그룹이 그대로일 때만 포장 사유로 올린다**: `mass` 모드에서 동급 그룹을 가격으로 교체(`price_optimization_used`)한 뒤 Reel 오퍼를 고르면 `packaging_preference_used` 까지 켜져 사유가 둘이 됐고, `ComponentProcurementDecision` 검증기("changed application candidates require exactly one application reason")가 거부했다(운영 견적 231·226, 양산에서만 발생). 수정은 `procurement.py` 6줄 — 적용 그룹이 기술 1순위(`preselected_group`) 그대로일 때만 포장 플래그를 올리고, 가격·기술 대체로 이미 바뀐 경우엔 그 사유를 유지한 채 `mass_production_reel_preferred` **사유 코드**로만 남긴다. sp-node 는 Reel 표시를 사유 코드에서 읽어 화면 표시는 유지되고, 양산 기술 대체+Reel 이 포장 사유로 오표기되던 것도 샘플과 같은 기술 대체로 교정됐다. 정책 버전 리터럴(`supplier-selection-application-v4`)은 올리지 않았다. 회귀 테스트 3건(가격 교체+Reel·기술 대체+Reel·더 비싼 Reel 동급 그룹 — 수정 전 코드에서 2건 실패 확인), 운영 231 행을 같은 캐시·API 0회로 재생해 확인.
 - **2026-09-14 — 기술 사양 개수 열은 구매 수량이 아니다**: `outputs/inputs/channels/circuits/gates/pins/positions/contacts`(+한글 출력·입력·채널·회로·핀·접점 수) 헤더를 `_TECHNICAL_COUNT_PAT`로 수량 분류·참조번호 상관 추론·숫자 내용 추론 **세 곳 모두에서 제외**. 수량 열이 없는 BOM은 기본값 1 대신 `quantityState=missing`으로 내려 sp-vue가 재업로드/행별 직접 입력을 안내한다. 기존 견적 스냅샷은 일괄 수정하지 않고 새 업로드부터 적용.
 - **2026-08-24 — 합성 코퍼스는 회귀 방지용이지 발견용이 아니다**: 재고표 병리(헤더 5행 아래·품번의 날짜 변환·앞자리 0 손실·소계 행·중간 머리글·병합 셀·전각·숨긴 열)를 3본에 **섞어** 담았다(실제 파일이 그렇게 오고 겹칠 때가 사고 지점). 그래도 결함 둘을 즉시 잡았다 — `1k`가 1로 읽힘(`_parse_int` k 접미 ×1,000), 소계·재출현 머리글이 검토 표시 없이 부품으로 앉음(영숫자 없는 값은 `mpn_needs_review`, 버리지 않는다).
@@ -99,11 +100,11 @@ status: active
 - **2026-07-21 — 후보 판단 단일 소유권**(`supplier-candidate-decision-v3`, [sp-engine-candidate-decision](../../docs/prompts/sp-engine-candidate-decision.md)): 후보마다 완결된 `decision`을 반환, 근거 부족은 `blocked`로 축퇴.
 - **2026-07-18 — 패리티 우선·리팩토링 나중**(연구 계보 re-sync 대상 vendored 코드, 리팩토링은 `app/`에 집중) · **기본 포트 8400**(Windows Hyper-V/WSL 예약 범위 8089–8188 회피).
 
-## Gotchas [coverage: high — 10 sources]
+## Gotchas [coverage: high — 12 sources]
 
 - **한 행의 세 공급사가 한꺼번에 "미실행·0ms·오류"면 공급사 장애가 아니라 엔진 후처리 예외다(2026-09-30 실측)**: `service.py` 의 배치 격리(`except Exception … # Batch isolation: preserve every component row`)가 행 단위 예외를 삼키고 `_batch_failure_result` 로 합성한다 — 메시지는 고정 문구("공급사 검색 작업을 완료하지 못했습니다.")로 바뀌고 남는 단서는 `error_type`(예외 클래스명, `_batch_error_type`)뿐이다. 양산 Reel 결함이 운영에서 이 모양(`ValidationError`)으로만 보였고, 원인은 같은 행을 같은 캐시로 재생해서야 드러났다.
-- **README 머리·구조 절이 뒤처진다**(본문은 2026-08-19까지 갱신됨): "현재 437 passed"(실제 2026-09-30 기준 642 passed·1 skipped)·`parser_version="smartbom-rules/1.6"`(실제 `1.12`)·`app/ ← Phase 2 (예정)`(운영 중)·"nginx `/engine` 프록시"(location 없음). 버전·개수는 코드 상수(`engine.py PARSER_VERSION`, `models.py`, `inventory.py`)를 정본으로 볼 것([manual-sync-drift](../concepts/manual-sync-drift.md)).
-- **운영 배포 문서가 갈려 있다**: [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md)(2026-09-16 갱신)에는 엔진 절이 **없다** — 구성 표가 nginx·php-fpm·sp-api·mariadb 넷뿐이다. 엔진 운영 정본은 `ops/systemd/sp-engine.service` 머리말(uv 설치 → `uv sync` → `.env` → 유닛 등록 → `/health`) + `deploy.sh` 케이스 10 + `ops/README.md`. 유닛은 `--no-sync`라 배포 스크립트가 sync를 먼저 해야 하고, `TimeoutStopSec=30`은 공급사 타임아웃 대비다.
+- **README 머리·구조 절이 뒤처진다**(본문은 2026-08-19까지 갱신, 2026-10-22 잡 수명 한 단락만 추가): "현재 437 passed"(실제 2026-09-30 642 passed·1 skipped → 2026-10-22 648 passed)·`parser_version="smartbom-rules/1.6"`(실제 `1.12`)·`app/ ← Phase 2 (예정)`(운영 중)·"nginx `/engine` 프록시"(location 없음). 버전·개수는 코드 상수(`engine.py PARSER_VERSION`, `models.py`, `inventory.py`)를 정본으로 볼 것([manual-sync-drift](../concepts/manual-sync-drift.md)).
+- **운영 배포 문서가 갈려 있다**: [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md)(2026-09-16 갱신 → 2026-10-22 STEP 5 (d) 추가 뒤에도 `sp-engine`·`8400`·`JOB_IDLE` 언급 0, 2026-11-09 실측)에는 엔진 절이 **없다** — 구성 표가 nginx·php-fpm·sp-api·mariadb 넷뿐이다. 엔진 운영 정본은 `ops/systemd/sp-engine.service` 머리말(uv 설치 → `uv sync` → `.env` → 유닛 등록 → `/health`) + `deploy.sh` 케이스 10 + `ops/README.md`. 유닛은 `--no-sync`라 배포 스크립트가 sync를 먼저 해야 하고, `TimeoutStopSec=30`은 공급사 타임아웃 대비다.
 - **포트 함정**: app pyproject 주석 예시는 `--port 8100`이지만 Windows에서 8100대는 예약 범위에 걸릴 수 있다(`netsh interface ipv4 show excludedportrange protocol=tcp`). 운영은 8400, dev 호스트는 8401. 변경 시 sp-node `BOM_ENGINE_URL` 동기화 필수.
 - **엔진 왕복 필드명 비대칭**: pydantic alias로 받는 필드(`partnerId`)는 **필드명(`partner_id`)으로 직렬화**된다. "보낸 이름으로 읽으면 된다"는 가정이 깨져 `matchEvidence.partnerStock`이 조용히 null이 됐다(2026-08-23 실측).
 - **로컬 소스는 `supplier_results` 밖에 산다**: 외부 호출·캐시·trace를 오염시키지 않으려는 설계 때문에, 후보를 다시 계산하는 경로(대체 폴백 재검색·병합 재평가)마다 `local_products`를 명시적으로 다시 넘겨야 한다. 안 넘기면 판정 결과가 아니라 후보 자체가 사라진다.
@@ -111,14 +112,14 @@ status: active
 - **`resultCount` 의미 혼동**: 화면의 "검색 과정" 건수는 **가공 전 공급사 원응답** 수, 후보 목록 수는 기술 검증·중복 제거·shortlist를 거친 **최종 후보** 수다. 특히 응답 상한이 없는 UniKeyIC.
 - **연구 계보 re-sync 전제**: 동기화 기준은 여전히 `sp-smartbom-eye 62d3bab`(README 하단)인데 07-27 이후 검색 엔진 src만 36회 바뀌었다 — 역동기화 갭이 커졌고 seam 밖 수정도 늘었다(service.py 대체 폴백·소스 순위). 재동기화 시 diff 기준을 다시 잡아야 한다.
 - **preflight는 차단 게이트가 아니다**: 예상 호출이 한도를 넘어도 검색은 시작하고, 실제 호출 시점의 **원자적 job budget**이 `max_calls`를 강제한다(`job_call_limit_exhausted`).
-- **인메모리 잡은 만료되지 않는다**: TTL이 없어 `DELETE /jobs/{id}` 또는 재시작만이 지운다. 반대로 재시작 뒤 결과 GET은 sp-node `ENGINE_JOB_GONE`(재업로드 또는 영속 스냅샷에서 `/supplier-jobs` 재개)로 표면화된다.
+- **인메모리 잡의 수명**: ~~TTL이 없어 `DELETE /jobs/{id}` 또는 재시작만이 지운다~~ → 2026-10-22 부터 유휴 6시간 뒤 자동으로 지운다. 재시작·TTL 뒤 결과 GET은 sp-node `ENGINE_JOB_GONE`(재업로드 또는 영속 스냅샷에서 `/supplier-jobs` 재개)로 표면화된다. 세 가지를 기억할 것 — ① 정리는 **요청이 와야** 돈다(새 잡 등록은 강제, 조회는 1분 간격) — 요청이 끊긴 엔진은 쥔 메모리를 그대로 둔다 ② `/supplier-jobs` 로 등록한 영속 스냅샷 잡도 등록 순간부터 '끝난 잡'(`status=completed`)이라, 등록 뒤 공급사 검색을 시작하지 않고 6시간 동안 아무도 안 읽으면 지워진다 ③ `JOB_IDLE_TTL_SECONDS=0` 은 2026-10-22 이전 동작(무기한 보관)으로 되돌린다 — 운영에선 메모리가 다시 자란다.
 - **엔진 결과 원문을 통째로 DB 열에 넣지 말 것**: 재고표 12,175행(6.36MB) `previewJson`이 MySQL 패킷 벽에 부딪혀 `BOM_ENGINE_ERROR`로 위장됐다(2026-08-23). 표본 200행 + 보관 원본 재실행(추출은 결정론적이라 결과가 같다)이 처방이다 — sp-node 측 규칙이지만 엔진 출력 크기를 설계할 때 같이 볼 것.
 - **공급사 키는 백엔드 전용**: 추출 엔진은 키가 불필요하므로 키 없이도 BOM 추출 경로는 동작한다.
 
-## Sources [coverage: high — 38 sources]
+## Sources [coverage: high — 40 sources]
 
-- [samplepcb-parts-engine/README.md](../../samplepcb-parts-engine/README.md) — 정본(추출/검색 계약·관계 기반 추출·대체 검색·기술 순위와 구매 적용 후보, 2026-08-19)
-- [samplepcb-parts-engine/.env.example](../../samplepcb-parts-engine/.env.example) — 자격증명 + `SUPPLIER_MAX_CALLS`
+- [samplepcb-parts-engine/README.md](../../samplepcb-parts-engine/README.md) — 정본(추출/검색 계약·관계 기반 추출·대체 검색·기술 순위와 구매 적용 후보, 2026-08-19 + 잡 수명 단락 2026-10-22 — "그전에는 만료가 없어 운영 프로세스가 4.6GB까지 자랐다")
+- [samplepcb-parts-engine/.env.example](../../samplepcb-parts-engine/.env.example) — 자격증명 + `SUPPLIER_MAX_CALLS` + `JOB_IDLE_TTL_SECONDS=21600`(0=끄기, 2026-10-22)
 - [local-corpus/bom-extraction/README.md](../../samplepcb-parts-engine/local-corpus/bom-extraction/README.md) — 로컬 회귀 코퍼스 저장·검증·정답 작성 원칙(2026-08-21)
 - [local-corpus/bom-extraction/manifest.example.json](../../samplepcb-parts-engine/local-corpus/bom-extraction/manifest.example.json) — manifest v2 스키마
 - [samplepcb-parts-engine/pyproject.toml](../../samplepcb-parts-engine/pyproject.toml) — uv workspace 루트·pytest 수집
@@ -131,10 +132,11 @@ status: active
 - [docs/prompts/sp-engine-candidate-decision.md](../../docs/prompts/sp-engine-candidate-decision.md) — 후보 판단 단일화 계약
 - [docs/DEPLOY_CENTRAFAB.md](../../docs/DEPLOY_CENTRAFAB.md) — 운영 런북(엔진 절 부재 확인용)
 - [AGENTS.md (루트)](../../AGENTS.md) — 호칭 표의 sp-engine + **BOM 역할 경계** 절
-- [ops/README.md](../../ops/README.md) · [ops/systemd/sp-engine.service](../../ops/systemd/sp-engine.service) · [deploy.sh](../../deploy.sh) — 운영 유닛·케이스 10
+- [ops/README.md](../../ops/README.md) · [ops/systemd/sp-engine.service](../../ops/systemd/sp-engine.service) · [deploy.sh](../../deploy.sh) — 운영 유닛·케이스 10 · 2026-10-22 빌드 메모리 커밋 본문(서버 15GB 를 ES·sp-engine·xpse 와 공유)
 - [app/src/parts_engine_app/routes.py](../../samplepcb-parts-engine/app/src/parts_engine_app/routes.py) — 엔드포인트·옵션 스키마·상한
-- [app/src/parts_engine_app/jobs.py](../../samplepcb-parts-engine/app/src/parts_engine_app/jobs.py) — 인메모리 잡·삭제·두 프로필
-- [app/src/parts_engine_app/config.py](../../samplepcb-parts-engine/app/src/parts_engine_app/config.py) · [refresh.py](../../samplepcb-parts-engine/app/src/parts_engine_app/refresh.py) · [capabilities.py](../../samplepcb-parts-engine/app/src/parts_engine_app/capabilities.py)
+- [app/src/parts_engine_app/jobs.py](../../samplepcb-parts-engine/app/src/parts_engine_app/jobs.py) — 인메모리 잡·삭제·두 프로필·유휴 TTL 정리(`touched_at`·`_sweep_expired`·60초 간격, 2026-10-22)
+- [app/src/parts_engine_app/config.py](../../samplepcb-parts-engine/app/src/parts_engine_app/config.py)(`job_idle_ttl_seconds` 기본 6시간) · [refresh.py](../../samplepcb-parts-engine/app/src/parts_engine_app/refresh.py) · [capabilities.py](../../samplepcb-parts-engine/app/src/parts_engine_app/capabilities.py)
+- [app/tests/test_app.py](../../samplepcb-parts-engine/app/tests/test_app.py) — 잡 삭제 계약 + 유휴 TTL 6건(유휴 정리·실행 중 보존·조회가 수명 연장·0=끄기·새 업로드가 정리·기본값, 2026-10-22)
 - [supplier_search_engine/models.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/models.py) — 정책 버전 리터럴·`CatalogSupplier`·`SearchScope`·`LifecycleCode`·`ReplacementSource`
 - [supplier_search_engine/contract.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/contract.py) · [service.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/service.py) · [settings.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/settings.py)
 - [supplier_search_engine/procurement.py](../../samplepcb-parts-engine/packages/supplier-search-engine/src/supplier_search_engine/procurement.py) · [tests/test_procurement.py](../../samplepcb-parts-engine/packages/supplier-search-engine/tests/test_procurement.py) — 양산 Reel 사유 단일화(2026-09-30)·회귀 테스트 3건
@@ -142,4 +144,5 @@ status: active
 - [scripts/verify-bom-extraction-corpus.py](../../samplepcb-parts-engine/scripts/verify-bom-extraction-corpus.py) — 코퍼스 runner
 - [tests/test_partner_local_products.py](../../samplepcb-parts-engine/packages/supplier-search-engine/tests/test_partner_local_products.py) · [tests/test_inventory_synthetic_corpus.py](../../samplepcb-parts-engine/packages/bom-extraction-engine/tests/test_inventory_synthetic_corpus.py) — 설계 결정을 담은 테스트 머리말
 - [apps/api/src/lib/engine-client.ts](../../samplepcb-web-mono-app/apps/api/src/lib/engine-client.ts) · [apps/api/.env.example](../../samplepcb-web-mono-app/apps/api/.env.example) — 소비자 측 접속 설정
-- git log `samplepcb-parts-engine` 2026-07-27~09-30 — 커밋 19건 본문(결정 근거·실측 수치) + sp-node 커밋 `a3c410a83`(2026-10-01) 본문
+- [apps/api/src/routes/bom-quotes.ts](../../samplepcb-web-mono-app/apps/api/src/routes/bom-quotes.ts) — 엔진 결과 GET 실패 → 409 `ENGINE_JOB_GONE`(재시작·TTL 뒤 소실의 소비자 측 표현)
+- git log `samplepcb-parts-engine` 2026-07-27~10-22 — 커밋 20건 본문(결정 근거·실측 수치, 10-22 `b3ea07324` 의 4.6GB·648 passed) + sp-node 커밋 `a3c410a83`(2026-10-01) 본문

@@ -1,6 +1,6 @@
 ---
 concept: cron 없는 lazy 파생 상태
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [sp-node-api, partner-tracks, sp-develop-web, sp-vue-web, spcb-bridge, api-contract, sp-market-web, parts-engine]
 status: active
 ---
@@ -13,6 +13,7 @@ status: active
 2026-08~09 에 이 패턴은 **"아예 저장하지 않는다"** 쪽으로 더 갔다. 협력 트랙의 12단계 타임라인·워크큐 대기 큐·고객 진행 표시·`bom-orders` 주문 축은 컬럼이 없다 — 원장(RFQ·PO·선적·od·`sp_file`)에서 조회 시점에 계산해 내려준다. 덕분에 영카트 `od` 를 **무접촉**으로 두고도 고객이 제작 진행을 본다. [snapshot-freeze](snapshot-freeze.md)와는 정확히 반대편 짝이다 — 결정 시점의 **사실**은 굳히고, 원장에서 다시 셀 수 있는 **상태**는 굳히지 않는다.
 
 ## Instances
+- **2026-10-30~11-03** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 관리자 목록의 `rightsCheck`(역설계 권리 확인 답이 '유지보수 목적'·'상담')·`preQuote`(PCB 설계만 의뢰의 사전 견적 요청)는 저장 컬럼이 아니라 **목록을 낼 때 답에서 파생**한다 — 답에서 셀 수 있으니 컬럼을 만들지 않는다
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md) / [api-contract](../topics/api-contract.md): 협력사 '선적 완료'는 저장된 단계가 아니라 **가상 단계**(기록 `shipConfirmedAt` + 조회 시점 판정), 고객 확인 회차 번호·발송 여부도 파생. 관리자가 미확인 채 다음 단계로 넘기면 협력사 쪽은 끝난 것으로 **보이되** 기록은 생기지 않는다([record-not-state](record-not-state.md))
 - **2026-10-10 (반례 — 파생에서 저장으로)** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): 마스터딜러 판정: "하위 소속 링크가 하나라도 있으면"(파생) → **`sp_partner.isMasterDealer` 저장 표시**. 하위 없이 처음부터 마스터딜러로 지정해야 하는 사실은 원장에서 셀 수 없었다. 저장으로 돌아가자 가드가 따라 붙었다(끄기는 `HAS_CHILDREN` 이 막는다) — 파생이 공짜로 주던 정합성을 손으로 지켜야 한다
 - **2026-10-05 (경계 — 타이머가 필요한 곳)** in [sp-node-api](../topics/sp-node-api.md): 취소 견적 보존 기간 정리는 lazy 가 아니라 **서버 타이머 6시간**이다. 취소한 고객은 그 견적을 다시 조회하지 않으니 "조회 시점에 판정"할 조회가 없다. 그래도 정상 여부(`backlog`)는 실행 기록이 아니라 데이터에서 센다 — 원칙의 뒤 절반은 유지

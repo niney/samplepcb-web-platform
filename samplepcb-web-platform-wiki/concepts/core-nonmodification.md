@@ -1,6 +1,6 @@
 ---
 concept: 코어 비수정 우회 기법
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [gnuboard-integration, theme-sp-lite, spcb-bridge, sp-node-api, infrastructure, api-contract, sp-develop-web]
 status: active
 ---
@@ -13,6 +13,8 @@ status: active
 2026-08 이후 원칙 자체가 두 방향으로 자랐다. ① **해석이 넓어졌다** — "코어 파일을 안 고친다"는 그대로지만, 컬럼을 새로 추가하거나 코어 필드를 공유하는 것은 허용으로 정리됐다(코어가 스스로 런타임 ALTER 하는 전례가 근거). ② **예외를 운영한다** — 피할 수 없는 코어 한 줄 수정은 주석 + 가드 스크립트 등록이 규칙이 됐다([exception-ledger](exception-ledger.md)). 그리고 `extend/` 가 단순 훅에서 **PHP→sp-node 브리지 계층**으로 자라면서, 코어 무수정으로 얹을 수 있는 기능의 상한이 크게 올라갔다.
 
 ## Instances
+- **2026-10-22** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md) / [infrastructure](../topics/infrastructure.md): **실행 순서가 확장점을 정했다** — 레거시 쿠키와 겹친 `PHPSESSID` 를 고르는 우회는 세션 시작 **전에** 돌아야 하는데 `extend/` 는 너무 늦다(`common.php`: dbconfig 156행 → `session_start` 약 402행 → extend 로드 837행~). 세션 전에 읽히는 코어 밖 파일이 git 밖 `data/dbconfig.php` 뿐이라 거기에 include 한 줄(`spcb/lib/legacy-session-pick.php`)을 넣었다 — 코어·`config.php` 0줄, 세션 이름도 유지. 대가는 git 이 모르는 한 줄이다(재설치 때 다시 넣기 — [manual-sync-drift](manual-sync-drift.md)). 코어 수정 7파일·가드 5건은 그대로
+- **2026-10-13** in [theme-sp-lite](../topics/theme-sp-lite.md): 07-07 코어 최소 수정(이메일 아이디 허용)의 화면 쪽 짝인 아이디 입력 한도는 코어가 아니라 테마 스킨 `login.skin.php` 에서 20 → 30자로 풀었다 — 같은 문제를 코어 한 줄 + 테마 한 줄로 나눠 담는 배치
 - **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): 코어 `common.php` 가 `$_POST` 전체에 거는 `addslashes` 를 **고치지 않고** 브리지가 `filter_input` 으로 원문을 다시 읽는다(`sp_bridge_text`·`sp_bridge_text_map`). 역변환(`stripslashes`)이 아니라 재읽기라 코어가 이스케이프 방식을 바꿔도 깨지지 않는다 — 코어용 방어가 다른 런타임으로 새는 문제를 코어 0줄로 막은 사례([silent-degradation](silent-degradation.md)). 10-12 재확인: 코어 수정 7파일·가드 5건 그대로
 - **2026-09-30** in [gnuboard-integration](../topics/gnuboard-integration.md) / [spcb-bridge](../topics/spcb-bridge.md): sp 훅 6 → **7종** — `sp_bom_confirm.extend.php` 가 주문 상세·마이페이지에 부품 확인 섹션을 얹고, 추가결제 앵커 `sp-bom-extra` 가 it_id 사전에 **다섯 번째 계열**로 합류했다. 앵커 상품 패턴(기법 #1)의 다섯 번째 재사용 — 이번에는 "원 주문은 1건 그대로 두고 차액만 별도 주문"이라는 용도
 - **2026-09-21** in [theme-sp-lite](../topics/theme-sp-lite.md): 마이페이지 쿠폰 개편 — 코어의 쿠폰 판정(사용 가능·만료)을 테마가 **재조회**해 피그마 요약·목록으로 다시 그렸고 발급·할인·DB 는 무변경
@@ -39,3 +41,4 @@ status: active
 - [infrastructure](../topics/infrastructure.md)
 - [api-contract](../topics/api-contract.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
+- [samplepcb-web/spcb/lib/legacy-session-pick.php](../../samplepcb-web/spcb/lib/legacy-session-pick.php) — 세션 전 우회(git 밖 `dbconfig.php` 가 부름)

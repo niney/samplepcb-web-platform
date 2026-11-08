@@ -1,7 +1,7 @@
 ---
 concept: 대행은 통로를 열되 주체를 박제한다 (Act-As with Actor Stamp)
-last_compiled: 2026-10-12
-topics_connected: [partner-tracks, sp-node-api, sp-vue-web, shared-packages, api-contract, spcb-bridge]
+last_compiled: 2026-11-09
+topics_connected: [partner-tracks, sp-node-api, sp-vue-web, shared-packages, api-contract, spcb-bridge, sp-develop-web]
 status: active
 ---
 
@@ -17,6 +17,7 @@ status: active
 - **평소엔 숨긴다.** 대행 버튼은 필요할 때만 드러난다 — 무계정 조직에는 늘, 계정이 있는 조직에는 스위치를 켰을 때만.
 
 ## Instances
+- **2026-11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 관리자가 고객 대신 **의뢰 연락처를 고친다**(상태 무관 — 고객은 접수·검토 중에만 고칠 수 있어 견적을 보낸 뒤 담당자 교체·오타를 손댈 길이 없었다). 고객에게도 보이는 기록은 '담당자가 연락처를 수정했습니다'로 주체를 박제하고, 이전 → 이후는 관리자 줄에만 남긴다([audience-split-dto](audience-split-dto.md))
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md) / [sp-vue-web](../topics/sp-vue-web.md): **EQ 문항형 회차의 대리 회신** — 관리자가 고객 대신 답을 넣을 때는 `web` 을 뺀 채널(전화·메일…)과 메모가 필수이고 이벤트 `proxy_answered` 로 남는다. 기록은 남기되 **보여 줄 곳은 가린다** — 대리 입력 경로는 관리자용 회신서에만 적히고 협력사용에는 싣지 않는다(포털이 안 보이는 것은 파일에도 없다). 같은 날 관리자 Case 에 **[협력사 대행 동작 보기] 스위치**(기본 꺼짐, 무계정 조직은 늘 보임) — 협력사 몫 버튼이 평소 화면을 덮지 않게
 - **2026-10-09** in [sp-node-api](../topics/sp-node-api.md) / [shared-packages](../topics/shared-packages.md) / [sp-vue-web](../topics/sp-vue-web.md): **관리자 대리 접속 = 관리자 토큰 + 헤더** — 그 회원으로 로그인하는 안을 기각하고 `x-sp-act-as-partner` 헤더 하나로 냈다. 서버는 `requirePartner`·`/partner/access` 가 같은 `lib/partner-act-as.ts` 로 다시 판정하고 GET 이외 요청을 `sp_partner_act_log` 에 1행씩 남긴다(기록 실패는 요청을 막지 않는다). 클라이언트는 조직 id 만 탭 단위(sessionStorage)로 기억하고 셸이 붉은 띠로 늘 알린다
 - **2026-10-09** in [partner-tracks](../topics/partner-tracks.md): 무계정 대행 안내 메일의 주체 = '샘플피씨비 담당자' 고정 → **그 문서의 발주처**. 마스터딜러가 하위 협력사 대신 움직인 일을 본사가 한 것처럼 적지 않는다. 마스터딜러의 하위 협력사 등록도 같은 결 — **회원은 만들지 않고** 초대 링크로 본인이 자기 계정을 연결한다

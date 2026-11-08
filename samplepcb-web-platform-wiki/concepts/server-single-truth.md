@@ -1,6 +1,6 @@
 ---
 concept: 서버 단일 진실 (Server as Single Source of Truth)
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [sp-node-api, api-contract, spcb-bridge, sp-vue-web, sp-market-web, sp-develop-web, partner-tracks, gnuboard-integration, shared-packages, theme-sp-lite, testing]
 status: active
 ---
@@ -15,6 +15,7 @@ status: active
 [judgment-single-owner](judgment-single-owner.md)가 "중복 구현을 불신"한다면 이 패턴은 **"클라이언트를 불신"**한다. 둘은 한 쌍으로 붙어 다닌다 — 판정 함수를 계약에 올려도(②) 그 함수를 **호출하는 주체**는 서버여야 하고, FE 가 같은 함수를 부르는 것은 선반영일 뿐 진실이 아니다.
 
 ## Instances
+- **2026-10-30~11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): 견적 항목 금액은 **서버가 단가 × 수량으로 다시 계산**하고 클라이언트가 보낸 `amount` 는 버린다(가산 금액·공급가도 서버). 의뢰 분야도 서버가 답에서 확정하고(`resolveDevelopServiceAreas`) 화면에서 숨은 질문의 답은 저장 전에 지운다(`pruneDevelopHiddenAnswers`) — 위저드는 같은 계약 함수로 미리 보여 줄 뿐 정본은 서버다
 - **2026-10-11** in [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md) / [testing](../topics/testing.md): AI 분석의 주의 띠·실패 안내는 **서버가 만든 문구**다 — 계약 `PCB_EQ_AI_FAIL_REASONS` 의 라벨이 곧 관리자 안내문이고 e2e 도 서버 문구로 확인한다. 번역도 서버가 저장 시 1회 하고, 원문의 숫자가 번역에 그대로 없으면 번역을 **버린다**(화면은 있는 것만 병기)
 - **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [theme-sp-lite](../topics/theme-sp-lite.md): 고객 결정 화면(EQ 문항·부품 확인)의 클라이언트 검사는 안내용이다 — 판정은 sp-node 가 하고 거절 사유는 재조회로 표시한다. PHP·JS 가 "이 조합은 안 된다"를 미리 알지 않는다
 - **2026-10-11** in [sp-vue-web](../topics/sp-vue-web.md) / [api-contract](../topics/api-contract.md): 포털의 마스터딜러 회신가 미리보기는 서버 박제와 **같은 계약 함수**로 계산하고, 화면은 저장된 값과 아직 저장 안 한 값을 라벨로 가른다('저장된 회신가' / '예상 회신가'). 폼 키에 서버 회신 값을 넣어 서버 상태가 달라지면 폼을 새로 띄운다

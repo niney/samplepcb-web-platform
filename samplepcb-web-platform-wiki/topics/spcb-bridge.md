@@ -1,17 +1,17 @@
 ---
 topic: spcb-bridge
-last_compiled: 2026-10-12
-sources_count: 67
+last_compiled: 2026-11-09
+sources_count: 70
 status: active
 ---
 
 # spcb-bridge
 
-## Purpose [coverage: high — 15 sources]
+## Purpose [coverage: high — 17 sources]
 
-소스 범위 2026-07-02(`me.php`) ~ 2026-10-11(`eq-answer.php`·`sp_bridge_text`). `samplepcb-web/spcb/`는 그누보드5/영카트(sp-php) subtree **안에 있지만 코어가 아닌** 커스텀 브리지 영역이다. "코어 비수정" 원칙(subtree pull 로 보안 패치를 계속 받기 위함) 아래 PHP 쪽에 반드시 있어야 하는 커스텀 코드를 담는 유일한 신규 폴더이며, 모든 `api/*.php` 헤더가 같은 규칙을 반복한다 — "spcb/ 밖 PHP 는 include(재사용)만 하고 수정하지 않는다". 2026-07-13 컴파일 때 세 갈래였던 역할이 **다섯 갈래**로 늘었다:
+소스 범위 2026-07-02(`me.php`) ~ 2026-10-22(`lib/legacy-session-pick.php`). 2026-10-12 컴파일 이후 spcb/ 의 변화는 **한 파일** — 인증 브리지 앞단에 붙은 임시 세션 고르기(아래 1번)뿐이고, api·pages·extend 브리지와 sp-node 쪽 상대 라우트는 그대로다. `samplepcb-web/spcb/`는 그누보드5/영카트(sp-php) subtree **안에 있지만 코어가 아닌** 커스텀 브리지 영역이다. "코어 비수정" 원칙(subtree pull 로 보안 패치를 계속 받기 위함) 아래 PHP 쪽에 반드시 있어야 하는 커스텀 코드를 담는 유일한 신규 폴더이며, 모든 `api/*.php` 헤더가 같은 규칙을 반복한다 — "spcb/ 밖 PHP 는 include(재사용)만 하고 수정하지 않는다". 2026-07-13 컴파일 때 세 갈래였던 역할이 **다섯 갈래**로 늘었다:
 
-1. **인증 브리지** (`api/me.php`, 2026-07-02) — 그누보드 세션(PHPSESSID)을 sp-node(Fastify)가 검증하는 HS256 JWT(10분)로 변환. 그누보드 = IdP.
+1. **인증 브리지** (`api/me.php`, 2026-07-02) — 그누보드 세션(PHPSESSID)을 sp-node(Fastify)가 검증하는 HS256 JWT(10분)로 변환. 그누보드 = IdP. **2026-10-22 부터 세션 시작 전 단계가 하나 붙었다** — 레거시 운영 `samplepcb.co.kr` 이 `.samplepcb.co.kr` 전체에 심은 PHPSESSID 와 이 서버의 host-only PHPSESSID 가 한 요청에 같이 실리면 PHP 가 첫 번째(먼저 만들어진 레거시 쪽)를 읽어 g5 로그인은 됐는데 `/spcb/api/me` 가 401 이던 것을, `lib/legacy-session-pick.php`(임시)가 **이 서버에 실제로 있는 세션**을 골라 막는다. 부르는 곳은 spcb/ 가 아니라 git 밖 설치 생성 파일 `data/dbconfig.php` 의 한 줄이다(운영 반영 [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md) STEP 5 (d)).
 2. **주문 알림 브리지** (`api/order-notify.php`, 2026-07-05) — sp-node 가 **역방향**으로 호출. 입금/배송 메일·SMS 를 Node 재구현이 아니라 레거시 커스텀 템플릿으로 발송하고 채널별 결과(sent/failed/skipped)만 돌려준다.
 3. **고객 쓰기 브리지 (PHP → sp-node, 2026-08-07 ~ 10-11)** — 09-19 컴파일의 4종이 **6종**이 됐다: 폼 POST 4종 `eq-decide`(문구형 EQ 승인·반려)·**`eq-answer`(문항형 EQ 회신 D20, 10-11)**·**`bom-confirm-answer`(결제 후 부품 확인 회신 D43, 09-30)**·`claim-create`(A/S 접수, 사진 multipart) + 파일 GET 2종 `eq-file`(확인 요청 첨부·문항 그림)·`coord-file`(메탈마스크 좌표파일). 그누보드 폼 POST 를 받아 **2분짜리 회원 JWT** 로 sp-node 에 중계하고 원래 화면으로 되돌린다. sp-php 가 **처음으로 쓰기 경로에 들어간** 작업(PCB_PARTNER_TRACK P4.1)이며, 판정·저장은 전부 sp-node 다 — PHP 는 로그인·CSRF·형식만 본다.
 4. **사용자 노출 페이지** (`pages/`) — 계정 셸 5종(견적관리 `/shop/quotes`·보관함 `/shop/quotes/archive`·제조 확인 `/shop/eq`(08-25)·**부품 확인 `/shop/parts-confirm`(09-30)**·A/S 접수 `/shop/as`(08-25)), 공개 서버렌더 `/reviews`(07-10), 피그마 정적 3종 `/about`·`/history`·`/location`(09-06, **about·history 는 09-21 최신 시안으로 개편**), `/spec`(07-02 의 "준비 중" 한 줄 그대로).
@@ -19,7 +19,7 @@ status: active
 
 견적 페이지의 위상(2026-07-06 위시리스트 숨김·견적관리 일원화)은 그대로다. 2026-08-27 헤더 재편으로 헤더 유틸 아이콘도 견적관리·장바구니·마이페이지 3개가 됐다.
 
-## Architecture [coverage: high — 23 sources]
+## Architecture [coverage: high — 25 sources]
 
 ```
 samplepcb-web/spcb/
@@ -35,7 +35,8 @@ samplepcb-web/spcb/
 │   └── bom-confirm-answer.php  POST 전용: 결제 후 부품 확인 회신 → sp-node /api/bom/confirms/:id/answer (09-30)
 ├── lib/                   include 전용 — Require all denied + _GNUBOARD_ 가드
 │   ├── jwt.php            순수 PHP HS256 인코더 + spcb_jwt_decode (Composer 없음)
-│   └── secret.php(.example)  SPCB_JWT_SECRET — gitignore, apps/api/.env JWT_SECRET 과 수동 동기
+│   ├── secret.php(.example)  SPCB_JWT_SECRET — gitignore, apps/api/.env JWT_SECRET 과 수동 동기
+│   └── legacy-session-pick.php  세션 시작 전 PHPSESSID 고르기 — 임시 (10-22). 부르는 곳 = git 밖 data/dbconfig.php 한 줄
 ├── pages/
 │   ├── quotes.php · quotes-archive.php     셸 + 브라우저 JS (Figma 103:2659 행 문법, 08-27)
 │   ├── eq.php · as.php · parts-confirm.php 서버사이드 브리지 렌더 — 목록만, 결정·접수 폼 없음 (08-25 · 09-30)
@@ -46,6 +47,7 @@ samplepcb-web/spcb/
 ```
 
 - 모든 PHP 가 `include_once __DIR__ . '/../../common.php'` 로 그누보드를 부트스트랩 — `$member`·`$config`·테마 상수·메일/SMS 라이브러리·`sql_*` 를 빌려 쓴다. 브리지 6종은 여기에 `extend/sp_pcb_eq.extend.php` 를 더 include 한다(부품 확인 회신도 전송·CSRF·자유 입력 헬퍼를 이 파일에서 빌린다).
+- **세션 시작 전 단계(2026-10-22, 임시)** — 코어 `common.php` 의 순서는 `config.php`(`_GNUBOARD_`·`G5_COOKIE_DOMAIN=''`) → `data/dbconfig.php` include(156행) → 세션 이름·쿠키 설정·`session_start`(~402행) → `extend/` natsort 로드(837행~)다. extend 훅은 세션이 이미 시작된 뒤라 PHPSESSID 를 고를 수 없어, 세션 전에 읽히는 유일한 코어 밖 파일 `dbconfig.php`(설치가 만드는 서버별 파일·gitignore)에 `is_file` 가드 include 한 줄을 넣는다. `legacy-session-pick.php` 는 즉시 실행 함수 하나(전역 변수를 남기지 않는다): `*.samplepcb.co.kr` 호스트이고 `session.save_handler=files` 일 때만, 원본 `HTTP_COOKIE` 에서 세션 이름이 같은 쿠키를 전부 꺼내(id 형식 `[a-zA-Z0-9,-]{22,256}` 만) 세션 저장 폴더에 `sess_<id>` 가 실제로 있는 것을 고른다 — 본문에 `ss_mb_id|` 가 든 **로그인 세션 우선**, 하나도 없으면 `session_create_id()` 새 id. PHP 가 어차피 고를 첫 쿠키와 같으면 손대지 않고(쿠키가 하나뿐인 평소 요청은 그대로), 다르면 `session_id($pick)`. 저장 폴더를 못 보면 판정하지 않는다("멀쩡한 세션을 버리게 된다"). 코어·`config.php` 는 0줄 수정 — 개념 [core-nonmodification](../concepts/core-nonmodification.md).
 - **라우팅은 Apache mod_rewrite 두 겹**(nginx 는 `/spcb`·`/shop/*` 를 catch-all `/` 로 PHP 에 넘길 뿐 — `ops/nginx/local-web.conf` 에 전용 location 이 없어 새 경로는 `.htaccess` 한 줄로 끝난다):
   - `spcb/.htaccess`: ① Authorization 헤더 패스스루(`E=HTTP_AUTHORIZATION`) ② 실존 파일/디렉터리 그대로 — **`previews/` 는 실존 디렉터리라 이 규칙으로 서빙된다** ③ 무확장 요청 → 같은 이름 `.php`.
   - 루트 `samplepcb-web/.htaccess`: 규칙 2 = 최상위 슬러그 `/{slug}` → `spcb/pages/{slug}.php`(`/about`·`/history`·`/location`·`/reviews`·`/quotes`·`/eq`·`/as`·`/parts-confirm` 별칭이 전부 이걸로) / 규칙 3 = 쇼핑 네임스페이스 명시 리라이트 `/shop/quotes`·`/shop/quotes/archive`·`/shop/eq`·`/shop/as`(08-25 추가)·**`/shop/parts-confirm`(09-30 추가)**.
@@ -59,24 +61,26 @@ samplepcb-web/spcb/
 - **결과 안내는 코어 `alert()` 을 쓰지 않는다** — 코어 alert 은 `bbs/alert.php` 로 페이지를 갈아치운 뒤 네이티브 팝업을 띄운다. 대신 원래 화면으로 리다이렉트하며 `?sp_msg=&sp_tone=` 를 실어 보내고 테마 `js/sp-dialog.js` 가 모달로 띄운 뒤 `replaceState` 로 지운다.
 - **계정 사이드바 SSOT**(`theme/sp-lite/shop/_account_nav.php`)가 `$sp_account_active`(quotes|eq|bomc|as)로 활성 메뉴를 받고, 배지 건수는 브리지 count 함수(`sp_pcb_eq_open_count`·`sp_bom_confirm_open_count`·`sp_pcb_claim_active_count`+`sp_bom_claim_active_count`)로 채운다. '부품 확인' 메뉴는 대기 건이 있거나 `sp_bom_confirm_has_track()`(부품 BOM 주문 이력 또는 요청 수신)이 참인 회원에게만 선다 — PCB 만 쓰는 회원에게 늘 빈 메뉴를 보이지 않으려는 것. 마이페이지 요약 밴드(`mypage.php` '확인요청' 칸)도 같은 모수·같은 노출 조건을 쓴다.
 
-## Talks To [coverage: high — 22 sources]
+## Talks To [coverage: high — 25 sources]
 
 | 상대 | 방향 | 내용 |
 |---|---|---|
+| 그누보드 설치 생성 파일 `data/dbconfig.php`(git 밖) | include(역방향 — 이쪽이 spcb 를 부른다) | 2026-10-22 부터 `lib/legacy-session-pick.php` 를 부르는 한 줄(`?>` 앞, `is_file` 가드). 코어 `session_start` 앞에 끼는 유일한 자리. 로컬은 77~78행에 들어가 있고(11-09 확인) 운영은 서버에서 직접 넣는다(DEPLOY_CENTRAFAB STEP 5 (d)) |
+| 레거시 운영 `samplepcb.co.kr`(그누보드) | 브라우저 쿠키(간접) | 레거시는 `G5_COOKIE_DOMAIN='.samplepcb.co.kr'` 이라 PHPSESSID 를 도메인 전체에 심고, 이 플랫폼은 `config.php` `G5_COOKIE_DOMAIN=''`(host-only)라 `new.samplepcb.co.kr`·`local-web.samplepcb.co.kr` 요청에 같은 이름의 쿠키가 둘 실린다. `centrafab.co.kr` 은 다른 도메인이라 무관 — 우회도 `*.samplepcb.co.kr` 에서만 동작 |
 | 그누보드 코어 | include | `common.php` 부트스트랩, `set_cart_id()`/`get_session('ss_cart_id')`, `mailer.lib.php`, `ordermail.inc.php`, `get_paging()`, `get_token()`·`_get_token_key/secret()`(CSRF 복제용), `goto_url()`, `get_session()`·`set_session()`(문항형 회신 초안 플래시), `array_map_deep()`(원문을 못 읽을 때의 `stripslashes` 폴백) — 그리고 `common.php` 의 `$_POST` 전역 이스케이프는 **우회 대상**(`filter_input` 으로 원문 재읽기) |
 | sp-node `/api` (nginx 경유) | 브라우저 | quotes 페이지 JS 가 me.php JWT 로 `/api/pcb-projects`·`/api/bom/quotes`·`…/order` 호출. 주문 상세 부품 확인 섹션 JS 가 같은 토큰으로 `POST /api/bom/confirms/settlements/:id/checkout`(추가결제 주문서 직행, 09-30) |
 | sp-node **내부 직결** `127.0.0.1:3333` | **PHP → Node (서버 간)** | extend 브리지가 nginx 를 거치지 않고 curl: `GET /api/pcb-eq-reviews?odId=`·`/mine?scope=`·`POST …/:id/decide`·**`POST …/:id/answer`(10-11)**·`GET …/:id/files/:fileId`, **`GET /api/bom/confirms?odId=`·`/mine?scope=`·`POST /api/bom/confirms/:id/answer`(09-30)**, `GET /api/pcb-claims?odId=`·`/mine`·`POST /api/pcb-claims`(multipart), `GET /api/bom/claims/mine`, `GET /api/order-progress?odId=`·`POST /api/order-progress/batch`, `GET /api/pcb-progress/coord-files/:id` |
 | sp-node → PHP | **Node → PHP (서버 간)** | `php-bridge.ts` `notifyOrderEvent` 가 `SPCB_BRIDGE_URL`(기본 `http://127.0.0.1:8888`)`/spcb/api/order-notify` 에 서비스 JWT(`svc:'sp-node'`, 10초 타임아웃)로 POST. 결과는 sp-node 가 `sp_mail_log` 에 기록(`notifyOrderEventLogged`, kind `order_deposit`·`order_delivery`) |
-| sp-vue · sp-market · 거버 뷰어 · e2e | 클라이언트 | `GET /spcb/api/me`(credentials: include)로 토큰 수령. e2e 하네스는 이 라우트를 **스텁**해 로그인을 대신한다(`e2e/helpers/browser.ts`) |
+| sp-vue · sp-market · 거버 뷰어 · e2e | 클라이언트 | `GET /spcb/api/me`(credentials: include)로 토큰 수령. e2e 하네스는 이 라우트를 **스텁**해 로그인을 대신한다(`e2e/helpers/browser.ts`). 거버 뷰어 담당자용 연동 가이드([GERBER_SUBMIT_GUIDE.html](../../docs/GERBER_SUBMIT_GUIDE.html), 10-21 커밋)는 예시 호스트 `https://new.samplepcb.co.kr` 의 `/spcb/api/me` → `/api/pcb-projects` 두 번 호출로 담기를 안내한다 — 바로 다음 날 쿠키 충돌 우회의 대상이 된 그 호스트라, 레거시 쿠키를 든 브라우저의 교차 출처 호출도 같은 우회를 탄다(우회는 그 호스트로 오는 모든 PHP 요청에 걸린다) |
 | 영카트 shop | 링크·리다이렉트 | [바로 주문]→`orderform.php`, 비로그인→`bbs/login.php?url=…`, 브리지 결과→`orderinquiryview.php?od_id=…&sp_msg=` |
 | 테마 sp-lite | include·폼·asset | `_account_nav.php`(사이드바 SSOT)·`inc/reviews_lib.php`·`default_shop.css`·`sp-dialog.js`; `orderinquiryview.php` 의 승인·반려 폼이 `/spcb/api/eq-decide` 로, A/S 폼이 `/spcb/api/claim-create` 로, `_pcb_eq_items_round.php` 의 문항형 회신 폼이 `/spcb/api/eq-answer` 로, `_bom_confirm_section.php` 의 선택 폼이 `/spcb/api/bom-confirm-answer` 로 POST; `mypage.php` 요약 밴드·`cart.php`('부품 추가결제' 행)가 extend 함수를 소비; `inc/seo_head.php` 가 spcb 페이지를 파일명으로 매칭; 홈 `js/home/hero.js` 가 previews 채택안을 사용 |
 | `sp_*` 테이블 (Prisma 소유) | **read-only SELECT** | `sp_review`(reviews.php) · `sp_pcb_eq_review ⋈ sp_order_spec`·`sp_pcb_claim`·`sp_bom_claim`(사이드바 배지 count) · **`sp_bom_confirm_request`·`sp_bom_settlement`(⋈ `g5_shop_cart` — 부품 확인 배지 count·추가결제 주문 역추적)·`sp_bom_quote`(메뉴 노출 판정·역추적 제목)** · `sp_seo`(seo_head) · `sp_order_spec ⋈ sp_file`(주문서 썸네일 서명 URL, `sp_quote_cart.extend.php`) — "PHP 는 sp_* 에 쓰지 않는다"의 읽기 전용 예외들 |
 
-CORS: me.php 는 `https://*.samplepcb.co.kr` 오리진만 반사(credentialed 라 와일드카드 불가). 서버 간 호출 두 방향(order-notify·extend curl)은 CORS 대상이 아니다.
+CORS: me.php 는 `https://*.samplepcb.co.kr` 오리진만 반사(credentialed 라 와일드카드 불가). 서버 간 호출 두 방향(order-notify·extend curl)은 CORS 대상이 아니다 — 쿠키를 싣지 않으니 10-22 세션 고르기와도 무관하다.
 
-## API Surface [coverage: high — 15 sources]
+## API Surface [coverage: high — 16 sources]
 
-**`GET /spcb/api/me`** — 세션으로 회원 확인, 비로그인 `401 {"message":"not authenticated"}`. 성공 `{ token, member:{mbId,mbNick,level,isAdmin} }`, `Cache-Control: no-store`. 클레임 `mbId·mbNick·level·isAdmin(cf_admin 만 true)·cartId(ss_cart_id = g5_shop_cart.od_id)·iat·exp(+600초)`. `@sp/api-contract` `Me`/`JwtClaims` 와 정합.
+**`GET /spcb/api/me`** — 세션으로 회원 확인, 비로그인 `401 {"message":"not authenticated"}`. 성공 `{ token, member:{mbId,mbNick,level,isAdmin} }`, `Cache-Control: no-store`. 클레임 `mbId·mbNick·level·isAdmin(cf_admin 만 true)·cartId(ss_cart_id = g5_shop_cart.od_id)·iat·exp(+600초)`. `@sp/api-contract` `Me`/`JwtClaims` 와 정합. 응답·클레임은 10-22 에도 그대로이고, 바뀐 것은 **어느 세션을 읽느냐**뿐이다 — `*.samplepcb.co.kr` 에서 PHPSESSID 가 둘 오면 이 서버 저장소에 있는 쪽(로그인 세션 우선)으로 판정한다(`lib/legacy-session-pick.php`, 로컬 curl 실측: 레거시 쿠키가 앞일 때 401 → 200, 레거시 쿠키를 든 채 로그인 401 → 200, 레거시 쿠키만 오면 그 id 로 세션 파일을 만들지 않는다).
 
 **`POST /spcb/api/order-notify`** — 서비스 JWT(`svc:'sp-node'`, `spcb_jwt_decode` 검증) 필수. body `{odId, event:'입금'|'준비'|'배송'|'완료', mail, sms, dryRun}`. 입금·배송만 발송 대상(`ordermail.inc.php` include + `conv_sms_contents` 미러), 준비·완료는 `skipped`. 응답 `{mail, sms}` = sent/skipped/failed — **`mailer()` 반환을 검사하지 않아** SMTP 실패도 `sent`.
 
@@ -94,9 +98,11 @@ CORS: me.php 는 `https://*.samplepcb.co.kr` 오리진만 반사(credentialed �
 
 **페이지 URL**: `/shop/quotes`(=`/quotes`) · `/shop/quotes/archive`(=`/quotes-archive`) · `/shop/eq?scope=open|all`(=`/eq`) · `/shop/parts-confirm?scope=open|all`(=`/parts-confirm`) · `/shop/as?track=pcb|bom&scope=open|all`(=`/as`) · `/reviews?page=` · `/about` · `/history` · `/location` · `/spec` · `/spcb/previews/login-bg-{claude,gpt}/`(정적, 설정은 localStorage·`#effect=` 해시).
 
-## Data [coverage: high — 17 sources]
+## Data [coverage: high — 18 sources]
 
 spcb/ 자체는 **DB 테이블을 소유하지 않는다**. 실체(sp_quote·sp_order_spec·sp_review·sp_pcb_eq_review·sp_pcb_claim·sp_bom_claim·sp_bom_confirm_request·sp_bom_settlement·sp_seo·sp_mail_log)는 sp-node(Prisma) 소유이고, PHP 는 어느 것에도 쓰지 않는다.
+
+- **PHP 세션 저장소는 읽기만 한다(10-22)** — 세션 고르기는 `files` 저장 폴더(`session_save_path()`; `N;/path` 형식이면 끝 경로, 비면 `sys_get_temp_dir()`. 코어는 `session_save_path(G5_SESSION_PATH)` 를 주석 처리해 두어 php.ini 값을 쓴다 — Ubuntu 기본 `/var/lib/php/sessions`)에서 `sess_<id>` 존재와 본문의 그누보드 로그인 키 `ss_mb_id|` 만 본다. 세션을 만들거나 고치지 않는다(새 id 는 `session_create_id()` 로 받아 PHP 가 만든다). 자동 로그인 쿠키 `ck_auto` 충돌은 다루지 않는다.
 
 - **JWT 는 한 대칭키에 네 용도**: ① 회원 JWT 10분(me.php, cartId 포함) ② 서비스 JWT(sp-node 가 서명, PHP 가 검증) ③ **브리지 회원 JWT 2분**(`sp_pcb_member_token()` — 요청 1회용, cartId 없음) ④ 주문서 썸네일 서명 URL(`sp_quote_cart.extend.php`, `HMAC("thumb:{id}:{exp}")` 15분). `lib/secret.php` ↔ `apps/api/.env` `JWT_SECRET` 수동 동기(gitignore, `.example` 만 추적).
 - **판정과 세기의 분리**: 목록·결정·접수·진행은 전부 sp-node API 응답을 그리고, **사이드바 배지 건수만 DB 직접 count** 한다(`sp_pcb_eq_review.status='requested'` ⋈ `sp_order_spec.mbId`, `sp_pcb_claim`/`sp_bom_claim` `status in ('open','reviewing')`). 이유: 사이드바는 마이페이지·장바구니·포인트·쪽지 등 **모든 계정 페이지**에서 렌더돼 API 를 태우면 그 전부에 HTTP 왕복이 붙는다. 상태 문자열이 유효한 대기인 근거는 sp-node 쪽 전이(`closeOpenEqReviews`)에 있다. **부품 확인 배지(09-30)** `sp_bom_confirm_open_count` 는 모수가 한 겹 더 깊다: 확인 대기(`requested`) + **결제할** 추가결제(취소 안 된 요청의 `sp_bom_settlement kind='charge' status='pending'` 이면서 그 `ctId` 카트행이 아직 주문서에 안 실린 것 — `ct_status` 가 쇼핑·취소·반품·품절·삭제 밖이면 이미 낸 것으로 본다). 무통장 주문서를 냈으면 입금 확인 대기라 세지 않는다. sp-node `/mine` 의 `openCount` 와 같은 모수여야 하고 e2e 여정 22호가 둘의 일치를 어서션한다.
@@ -106,13 +112,14 @@ spcb/ 자체는 **DB 테이블을 소유하지 않는다**. 실체(sp_quote·sp_
 - reviews.php: `sp_review` `isConfirm=1` 최신순 10건/페이지, `legacyJson.is_name` 추출, 본문 태그 전제거→이스케이프→`nl2br`, 실명 가운데 마스킹.
 - 정적 페이지 인라인 데이터: `history.php` `$sp_history_groups`(09-21 — 2026~2022 는 새 시안, 2021~2019 는 옛 내역 보존, 8개 연도)·`$sp_certs`(시안의 실물 10종), `about.php` `$sp_about_problems`(5)·`$sp_about_services`(4)·`$sp_about_benefits`(4), `location.php` `$sp_offices`(본사 A-1303·공사 A-1407)·`$sp_map_src`(구글 임베드, 키 불필요). 옛 `$sp_history`·자리표시 통계 `$sp_stats` 는 09-21 개편으로 없어졌다.
 - 견적관리 목록은 취소한 BOM 견적에 `purgeAfter`(취소 때 고지한 자동 삭제 예정 시각)를 KST 날짜로 바꿔 "YY.MM.DD 이후 자동 삭제"로 보인다(`quotes.php` `fmtKstDay`, 10-05 — `/app/bom` 과 같은 안내).
-- 캐시버스팅 상수는 `extend/version.extend.php` — 10-12 현재 `G5_CSS_VER 26101102`·`G5_JS_VER 26100208`. spcb 페이지가 싣는 테마 css/js 링크가 전부 이 값을 쓴다.
+- 캐시버스팅 상수는 `extend/version.extend.php` — 10-12 현재 `G5_CSS_VER 26101102`·`G5_JS_VER 26100208`(11-09 그대로 — 이 기간 테마 CSS/JS 무변경). spcb 페이지가 싣는 테마 css/js 링크가 전부 이 값을 쓴다.
 - SEO: `seo_head.php` 가 spcb 페이지를 `scope=page, refKey=<파일명>.php`(예 `about.php`)로 `sp_seo` 에서 read-only 조회 — 관리는 sp-vue `/app/admin/seo`.
 - 견적 카드 썸네일 `category→it_id` 매핑은 여전히 sp-node `g5-db.ts` `TEMPLATE_ITEMS` 와 수동 동기(quotes·quotes-archive 두 곳).
 - 알림 발송 조건은 `g5_config`(`cf_email_use`·`cf_sms_use==='icode'`)·`g5_shop_default`(`de_sms_use4/5`)·`g5_shop_order`(수납액·운송장)를 코어 함수로 읽어 판정.
 
-## Key Decisions [coverage: high — 18 sources]
+## Key Decisions [coverage: high — 20 sources]
 
+- **2026-10-22 — 레거시 도메인 쿠키 충돌은 세션 이름을 바꾸지 않고, 세션 시작 전에 "이 서버에 실제로 있는 세션"을 고르는 임시 우회로**(d870ce057): 문제 — `new.samplepcb.co.kr` 에서 로그인이 안 붙는다(같은 브라우저로 레거시도 쓰면 레거시가 `.samplepcb.co.kr` 에 심은 PHPSESSID 가 먼저 실려 PHP 가 그쪽을 읽고 `/spcb/api/me` 401). 판단: ① **세션 이름 유지**(파일 머리·런북 모두 "세션 이름은 바꾸지 않는다") ② 판정 근거는 쿠키 순서가 아니라 **이 서버 세션 저장소의 실존**(로그인 세션 우선) — 요청의 Cookie 헤더엔 어느 쪽이 레거시인지 표시가 없다 ③ 고를 것이 없으면 레거시 id 를 이어 쓰지 않고 **새 id** — 이 서버가 레거시 id 로 세션을 만들기 시작하면 다음부터 둘 다 '있는 세션'이 돼 못 가른다 ④ 걸리는 곳을 좁혀 기본 동작을 지킨다 — `*.samplepcb.co.kr` 호스트·`files` 저장·저장 폴더가 보일 때만, 그 밖에는 PHP 기본 동작 ⑤ 부르는 곳은 세션 전에 읽히는 유일한 코어 밖 파일 `data/dbconfig.php` 한 줄 — 코어·`config.php` 무수정([core-nonmodification](../concepts/core-nonmodification.md)) ⑥ **걷어내는 때를 같이 적는다** — 운영 교체 뒤에도 브라우저에 남은 레거시 쿠키(세션 쿠키는 브라우저를 닫을 때까지, 자동 로그인은 최대 31일)가 사라질 때까지 둔다. 고치기 전 증상은 오류 없이 "로그인이 안 붙는" 것뿐이었다([silent-degradation](../concepts/silent-degradation.md)).
 - **2026-10-11: 브리지 자유 입력 — `$_POST` 그대로 중계 → 원문 재읽기(`sp_bridge_text`)** — 코어 `common.php` 가 `$_POST` 전체에 `addslashes` 를 걸어, JSON 으로 sp-node 에 넘기던 세 브리지(`eq-decide` note·`bom-confirm-answer` note·`claim-create` description)가 고객의 `it's "A" \` 를 `it\'s \"A\" \\` 로 sp_ 원장에 저장하고 있었다(D20 고객 화면 작업 중 실 PHP 경유 실측). 고친 방식은 **역변환이 아니라 원문을 다시 읽기** — `sp_bridge_raw()` 가 `filter_input(INPUT_POST, …, FILTER_UNSAFE_RAW)` 로 PHP 가 받은 원문을 읽고, 못 읽는 환경에서만 `stripslashes` 1회. 칸 이름으로 읽으니 이중 되돌림이 구조적으로 없고 코어의 이스케이프 설정(`G5_ESCAPE_PATTERN` 포함)이 바뀌어도 따라 고칠 것이 없다. 공용 함수는 `sp_bridge_text($key, $max)`(한 칸)·`sp_bridge_text_map($key, $max)`(`name="comment[12]"` 배열 칸)·내부 `sp_bridge_raw`·`sp_bridge_clean`(trim·NUL 제거·`mb_substr` 절단)이고 POST 브리지 넷이 모두 쓴다(같은 날 먼저 `stripslashes` 로 나갔던 `eq-answer` 도 통일). **규약: sp-node 로 보내는 자유 문장은 `$_POST` 를 직접 읽지 않는다**(id·enum·화이트리스트 값은 무해 — 전수 조사 완료). e2e `php-bridge-escape` 6/6(고치기 전 1/6).
 - **2026-10-11 — 문항형(D20) 회신은 새 브리지 `eq-answer`, 문구형 `eq-decide` 는 그대로** — 같은 원장(`sp_pcb_eq_review`, `format=items`)이지만 폼·브리지·sp-node 라우트를 나눴다(문항형에 decide 를 부르면 409). 세 가지 판단: ① 거절 시 값 보존은 **세션 플래시 1회**(쿼리스트링은 의견 원문이 URL·로그에 남아 기각) ② "항목 N" 안내는 판정이 아니라 **이미 거절된 뒤의 재조회**(sp-node 고객 응답이 `{error, message}` 뿐이라 브리지가 회차를 다시 읽는다 — 규칙 정본은 sp-node `validateEqAnswers`) ③ 문항 그림은 `eq-file` 을 인라인으로 넓히되 **이미지 4종만·중립 파일명**(HTML·SVG 가 같은 출처에서 열리면 스크립트가 돌고, 그림 원본명에 공장명이 섞인다 — 좌표파일·여정 43호와 같은 이유). `draft` 회차는 sp-node 가 빼지만 PHP 도 목록·주문 상세 두 곳에서 한 번 더 거른다. 목록 `/shop/eq` 는 "확인 항목 N개"·"N차 확인"만 알리고 폼은 여전히 주문 상세 한 곳.
 - **2026-10-05 — 취소 견적의 삭제 예정일은 견적관리 목록에서도 고지** — BOM 견적 취소가 "보존 기간(기본 30일) 뒤 자동 삭제되는 동결 기록"이 되면서 `quotes.php` 가 `purgeAfter` 를 KST 날짜로 보인다(판정·삭제는 sp-node 배치, `docs/BOM_QUOTE.md` "취소와 보존 기간").
@@ -131,8 +138,10 @@ spcb/ 자체는 **DB 테이블을 소유하지 않는다**. 실체(sp_quote·sp_
 - **2026-07-05 — 알림은 Node 가 아니라 PHP 브리지 재사용 + 서비스 JWT** — `order-notify.php` 가 `ordermail.inc.php` 를 그대로 쓰고, 실패는 sp-node 가 삼켜 전이 성공을 흔들지 않는다. 회원 JWT 와 같은 시크릿으로 `svc:'sp-node'` 서명.
 - **2026-07-03 / 07-02 — 견적관리는 sp-php(`spcb/pages/`)·한 건은 한 화면에만·코어 비수정의 PHP 측 수용처가 spcb/** — 라우팅은 `.htaccess` 리라이트로만, JWT 는 TTL 10분·저장 금지(세션=진실원본), `jwt.php` 는 Composer 없는 순수 PHP.
 
-## Gotchas [coverage: high — 18 sources]
+## Gotchas [coverage: high — 20 sources]
 
+- **세션 고르기를 부르는 한 줄은 git 밖이다(10-22)** — `data/dbconfig.php` 는 STEP 4 설치가 만드는 서버별 파일(gitignore)이라 운영은 서버에서 직접 넣어야 하고(DEPLOY_CENTRAFAB STEP 5 (d)), **재설치로 `dbconfig.php` 를 다시 만들면 줄이 사라진다**. 빠져도 오류가 없다 — 레거시 쿠키를 든 사용자만 조용히 "g5 로그인 성공 → `/spcb/api/me` 401 → `/app` 익명"이 된다. `check-core-patches.sh` 는 추적되는 코어 파일만 보므로 이 줄을 지켜 주지 않는다. 로컬 `dbconfig.php` 엔 77~78행으로 들어가 있다(11-09 확인) — [manual-sync-drift](../concepts/manual-sync-drift.md).
+- **우회가 꺼진 채 지나가는 조건** — 세션 저장이 `files` 가 아니거나 저장 폴더가 안 보이면 판정하지 않는다(그때는 PHP 기본대로 첫 번째 쿠키 — 대개 먼저 만들어진 레거시 쪽 — 를 읽어 증상이 그대로 난다). 로그인 세션 판별은 세션 파일 본문에서 `ss_mb_id|` 를 찾는 것이라 기본 직렬화(`session.serialize_handler=php`) 전제다. dbconfig 시점의 `session_name()` 은 코어 `chrome_domain_session_name()`(common.php 263행)이 이름을 바꾸기 **전** 값이라, 하위 폴더 설치처럼 코어가 `G5…PHPSESSID` 로 바꾸는 환경이면 다른 이름의 쿠키를 보게 된다(루트 설치인 지금 서버들은 해당 없음 — 코드 읽기 기준). 자동 로그인 쿠키 `ck_auto` 충돌은 미대응이라, 레거시 자동 로그인이 남은 브라우저에서 증상이 보이면 이쪽을 먼저 의심할 것.
 - **`$_POST` 는 이미 `addslashes` 된 값이다(10-11 실측 결함)** — `common.php`(119행)가 `$_POST`·`$_GET`·`$_COOKIE`·`$_REQUEST` 전체에 `G5_ESCAPE_FUNCTION`(`config.php` = `sql_escape_string`)을 건다. g5 SQL 을 문자열로 조립하는 코어에는 맞지만 Prisma 바인딩인 sp-node 로 그대로 넘기면 `'`·`"`·`\` 앞에 `\` 가 붙어 저장되고, 관리자 화면·알림 메일이 그 값을 그대로 쓰며, 길이 검사는 군더더기 `\` 를 글자로 센다(반려 사유 `'` 한 글자가 2자로 세어져 최소 길이를 통과했다). 고객 화면은 `get_text()` 가 `\'` 만 되돌려 홑따옴표만 써 보면 멀쩡해 보여 오래 안 드러났다. **새 브리지의 자유 문장 칸은 `sp_bridge_text`/`sp_bridge_text_map` 으로 읽을 것.** 반대로 그렇게 읽은 값은 **이스케이프 전**이라 g5 SQL(`sql_query` 문자열)에 넣으면 안 된다 — sp-node 전용.
 - **오염된 기존 데이터는 운영에서 미조사** — 로컬 DB 는 0건이었다. 탐지는 `LOCATE(CONCAT(CHAR(92),CHAR(39)), col)` 류, 복구는 눈으로 확인한 id 만·**수정 배포 시각 이전 행에 한정**(배포 뒤 행의 정상 백슬래시가 깨진다). 남은 것: 브라우저 폼은 줄바꿈을 CRLF 로 보내는데(Vue 경로는 LF) 정규화하지 않았고, `maxlength` 는 줄바꿈을 1자로 세고 전송은 2자라 줄바꿈 많은 긴 글이 서버 상한에 걸릴 수 있다(`docs/PCB_PARTNER_TRACK.md` 「sp-php 브리지 자유 입력 교정」).
 - **자유 문장 출력은 `get_text()` 가 아니라 `sp_pcb_eq_h()`** — `get_text` 는 홑따옴표를 그대로 둔다. 질문·선택지·의견처럼 사람(또는 AI 번역)이 쓴 문장은 `htmlspecialchars(ENT_QUOTES)` 로 낸다.
@@ -147,20 +156,23 @@ spcb/ 자체는 **DB 테이블을 소유하지 않는다**. 실체(sp_quote·sp_
 - **`secret.php` 미배치 시 동작이 갈린다** — extend 브리지와 썸네일 URL 은 `is_file` 확인 후 로드해 빈 문자열로 폴백하지만, `me.php`·`order-notify.php` 는 `include_once` 직행이라 Fatal.
 - **배지 count 의 상태 문자열은 sp-node 사전과 수동 동기** — `'requested'`·`'open'`·`'reviewing'` 을 PHP 가 직접 SELECT 한다. sp-node 가 상태값을 바꾸면 배지만 조용히 0 이 된다. 부품 확인 배지는 여기에 `sp_bom_settlement` 의 `kind='charge'`·`status='pending'` 과 영카트 `ct_status` 한글 5종까지 물려 있어 어긋날 자리가 더 많다(사이드바 숫자 ≠ 목록 탭 숫자면 이쪽).
 - **라벨 사전 PHP 미러 6종**(Data 절)도 같은 함정 — 계약 라벨·유형을 바꾸면 PHP 쪽 switch·배열을 따로 고쳐야 한다. 모르는 문항 유형은 '기타', 모르는 엔진 판정은 '—'·'미확인'으로 조용히 떨어진다.
-- **previews/ 는 운영에 그대로 노출된다** — 실존 디렉터리라 `.htaccess` 규칙 1 로 서빙되고 인증이 없다. 채택은 끝났으니 삭제 후보. README 가 참조하는 형제 `login-background/` 는 리포에 없다(다른 세션 실험실, 미커밋).
+- **previews/ 는 운영에 그대로 노출된다** — 실존 디렉터리라 `.htaccess` 규칙 1 로 서빙되고 인증이 없다. 채택은 끝났으니 삭제 후보(README 의 "검토 끝나면 폴더째 삭제"는 11-09 현재도 실행되지 않았다). README 가 참조하는 형제 `login-background/` 는 리포에 없다(다른 세션 실험실, 미커밋).
 - **정적 페이지의 권리 미확정 자산** — 09-21 개편으로 `history.php` 의 자리표시 통계(`$sp_stats`)와 "2023-05 까지" 문제는 사라졌다. 남은 것은 about 배너 `banner-manufacturing.png`(시안 원본에 iStock 워터마크 — 사용자 확정으로 유지)와 로고 사용 허락 같은 라이선스 항목이다(`docs/FIGMA_PAGES.md`).
 - **CSS/JS 를 고치면 `extend/version.extend.php` 를 올릴 것** — spcb 페이지는 `?ver=G5_CSS_VER`·`G5_JS_VER` 고정 링크라 안 올리면 옛 파일이 캐시돼 "적용 안 됨"으로 보인다.
 - **SEO 매칭 키는 슬러그가 아니라 파일명** — `/about` 의 `sp_seo` refKey 는 `about.php`.
 - **알림이 안 나가면 확인 순서**: ① `SPCB_BRIDGE_URL`/JWT 시크릿 정합(불일치=401) ② `access.log` 에 `POST /spcb/api/order-notify` ③ 로컬은 `127.0.0.1:25` Mailpit ④ 발송 조건(입금/배송·수납액/운송장·`cf_email_use`). **브리지는 `sent` 라도 실제 발송 실패 가능**(`mailer()` 반환 미검사 — `apache/logs/error.log`).
 - **Authorization 패스스루 없으면 서비스 JWT 유실** — `.htaccess` 의 `E=HTTP_AUTHORIZATION` 규칙 필수. 무확장/슬러그 라우팅은 **Apache(mod_php) 전제**(`AllowOverride All`+mod_rewrite).
-- me.php 의 CORS 는 **https 오리진만** — http dev 오리진 미반사. `lib/` 는 `Require all denied`+`_GNUBOARD_` 가드 이중 차단.
+- me.php 의 CORS 는 **https 오리진만** — http dev 오리진 미반사. `lib/` 는 `Require all denied`+`_GNUBOARD_` 가드 이중 차단(10-22 의 `legacy-session-pick.php` 도 같은 가드 — `_GNUBOARD_` 는 `config.php` 8행에서 dbconfig 보다 먼저 정의된다).
 - 썸네일 `category→it_id` 매핑은 sp-node `TEMPLATE_ITEMS` 와 수동 동기(quotes·quotes-archive 두 곳). **reviews.php 는 shop.head 밖**이라 페이징 스타일을 인라인 `<style>` 로 정의. 숨긴 위시리스트는 직접 URL 로는 여전히 동작.
 
-## Sources [coverage: high — 67 sources]
+## Sources [coverage: high — 70 sources]
 
 - [samplepcb-web/spcb/.htaccess](../../samplepcb-web/spcb/.htaccess) — 무확장 라우팅·Authorization 패스스루
 - [samplepcb-web/spcb/lib/.htaccess](../../samplepcb-web/spcb/lib/.htaccess) · [lib/.gitignore](../../samplepcb-web/spcb/lib/.gitignore) · [lib/secret.php.example](../../samplepcb-web/spcb/lib/secret.php.example) — lib 차단·시크릿 템플릿
 - [samplepcb-web/spcb/lib/jwt.php](../../samplepcb-web/spcb/lib/jwt.php) — HS256 인코더 + spcb_jwt_decode
+- [samplepcb-web/spcb/lib/legacy-session-pick.php](../../samplepcb-web/spcb/lib/legacy-session-pick.php) — 레거시 도메인 쿠키와 겹친 PHPSESSID 중 이 서버의 세션 고르기(임시, 2026-10-22). 부르는 곳 `samplepcb-web/data/dbconfig.php` 는 git 밖 설치 생성 파일이라 링크하지 않는다(로컬 77~78행 include 를 grep 으로만 확인 — 비밀값 포함 파일)
+- [docs/DEPLOY_CENTRAFAB.md](../../docs/DEPLOY_CENTRAFAB.md) — STEP 5 (d) 운영 반영 한 줄·전제(`files` 세션)·확인·걷어내는 때 (2026-10-22)
+- [docs/GERBER_SUBMIT_GUIDE.html](../../docs/GERBER_SUBMIT_GUIDE.html) — 거버 뷰어 쪽 `/spcb/api/me` → `/api/pcb-projects` 호출 안내(예시 호스트 `new.samplepcb.co.kr`, 2026-10-21 커밋)
 - [samplepcb-web/spcb/api/me.php](../../samplepcb-web/spcb/api/me.php) — 인증 브리지
 - [samplepcb-web/spcb/api/order-notify.php](../../samplepcb-web/spcb/api/order-notify.php) — 주문 알림 브리지
 - [samplepcb-web/spcb/api/eq-decide.php](../../samplepcb-web/spcb/api/eq-decide.php) — 문구형 EQ 승인·반려 브리지(POST 전용)
@@ -182,7 +194,7 @@ spcb/ 자체는 **DB 테이블을 소유하지 않는다**. 실체(sp_quote·sp_
 - [samplepcb-web/extend/sp_order_status.extend.php](../../samplepcb-web/extend/sp_order_status.extend.php) — 고객 상태 라벨 SSOT(진행 병합)
 - [samplepcb-web/extend/sp_quote_cart.extend.php](../../samplepcb-web/extend/sp_quote_cart.extend.php) — 썸네일 서명 URL(같은 시크릿)·`sp_bom_extra_it_ids()`
 - [samplepcb-web/extend/version.extend.php](../../samplepcb-web/extend/version.extend.php) — `G5_CSS_VER`·`G5_JS_VER` 캐시버스팅
-- [samplepcb-web/common.php](../../samplepcb-web/common.php) · [config.php](../../samplepcb-web/config.php) — 코어의 `$_POST` 전역 이스케이프(`G5_ESCAPE_FUNCTION`, 읽기만)
+- [samplepcb-web/common.php](../../samplepcb-web/common.php) · [config.php](../../samplepcb-web/config.php) — 코어의 `$_POST` 전역 이스케이프(`G5_ESCAPE_FUNCTION`)·부트스트랩 순서(dbconfig 156행 → `session_start` ~402행 → extend 837행~)·`G5_COOKIE_DOMAIN=''`(읽기만)
 - [theme/sp-lite/shop/_account_nav.php](../../samplepcb-web/theme/sp-lite/shop/_account_nav.php) · [shop/orderinquiryview.php](../../samplepcb-web/theme/sp-lite/shop/orderinquiryview.php) — 사이드바 SSOT·브리지 폼 호출부
 - [theme/sp-lite/shop/_pcb_eq_items_round.php](../../samplepcb-web/theme/sp-lite/shop/_pcb_eq_items_round.php) · [shop/_bom_confirm_section.php](../../samplepcb-web/theme/sp-lite/shop/_bom_confirm_section.php) — 문항형 회신 폼·부품 확인 섹션(브리지 POST·checkout JS)
 - [theme/sp-lite/shop/mypage.php](../../samplepcb-web/theme/sp-lite/shop/mypage.php) · [shop/cart.php](../../samplepcb-web/theme/sp-lite/shop/cart.php) · [shop/shop.head.php](../../samplepcb-web/theme/sp-lite/shop/shop.head.php) — 요약 밴드 배지·추가결제 행·VAT 명세(extend 함수 소비)
@@ -203,4 +215,4 @@ spcb/ 자체는 **DB 테이블을 소유하지 않는다**. 실체(sp_quote·sp_
 - [docs/SEO_MANAGEMENT.md](../../docs/SEO_MANAGEMENT.md) — sp_seo·spcb 페이지 basename 매칭
 - [docs/review-naming.md](../../docs/review-naming.md) · [docs/wishlist-hidden.md](../../docs/wishlist-hidden.md) — /reviews 배경·위시 숨김
 - [AGENTS.md](../../AGENTS.md) — 인증 브리지 단일 설명원본
-- 관련 토픽: [theme-sp-lite](theme-sp-lite.md) · [sp-node-api](sp-node-api.md) · [gnuboard-integration](gnuboard-integration.md) · [partner-tracks](partner-tracks.md) · 개념 [core-nonmodification](../concepts/core-nonmodification.md) · [judgment-single-owner](../concepts/judgment-single-owner.md) · [manual-sync-drift](../concepts/manual-sync-drift.md) · [lazy-derived-state](../concepts/lazy-derived-state.md) · [get-opens-post-decides](../concepts/get-opens-post-decides.md) · [no-native-dialogs](../concepts/no-native-dialogs.md)
+- 관련 토픽: [theme-sp-lite](theme-sp-lite.md) · [sp-node-api](sp-node-api.md) · [gnuboard-integration](gnuboard-integration.md) · [partner-tracks](partner-tracks.md) · 개념 [core-nonmodification](../concepts/core-nonmodification.md) · [judgment-single-owner](../concepts/judgment-single-owner.md) · [manual-sync-drift](../concepts/manual-sync-drift.md) · [lazy-derived-state](../concepts/lazy-derived-state.md) · [get-opens-post-decides](../concepts/get-opens-post-decides.md) · [no-native-dialogs](../concepts/no-native-dialogs.md) · [silent-degradation](../concepts/silent-degradation.md)

@@ -1,7 +1,7 @@
 ---
 concept: 상태 기계는 포크하지 않고 기록으로 넓힌다 (Record, Not State)
-last_compiled: 2026-10-12
-topics_connected: [partner-tracks, api-contract, sp-node-api, sp-vue-web, docs-knowledge]
+last_compiled: 2026-11-09
+topics_connected: [partner-tracks, api-contract, sp-node-api, sp-vue-web, docs-knowledge, sp-develop-web]
 status: active
 ---
 
@@ -17,6 +17,7 @@ status: active
 3. **가상 단계·차례 신호** — 화면에는 단계처럼 보이지만 저장된 상태가 아니라 조회 시점 파생이다([lazy-derived-state](lazy-derived-state.md)).
 
 ## Instances
+- **2026-10-30~11-06** in [sp-develop-web](../topics/sp-develop-web.md) / [api-contract](../topics/api-contract.md): 개발의뢰도 같은 문장으로 넓혔다 — 역설계 '권리 확인 필요'·PCB 설계만 의뢰의 '사전 견적'은 상태가 아니라 답에서 파생한 행 플래그이고([lazy-derived-state](lazy-derived-state.md)), PCB 제작 칸 7개는 컬럼 없이 `production` JSON 안에서 넓혔다(옛 저장분은 기본값으로 읽힘). 시스템개발 범위(미커밋)도 **저장 분야 6개는 그대로** 두고 AI 원천 분야만 파생한다 — '시스템 개발' 배지를 쓰는 곳 25곳과 질문 목록·답 검증이 저장 분야를 읽기 때문이다
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md) / [sp-vue-web](../topics/sp-vue-web.md): **협력사 '선적 완료' = 상태가 아니라 기록** — 국제 발송에서 협력사의 일을 끝내는 자리를 `sp_pcb_shipment.shipConfirmedAt/By` 와 판정 둘(`pcbShipConfirmPending`·`pcbShipmentSenderDone`)로 냈다. 선적 상태 사전이 BOM 과 공유라 단계를 끼우면 BOM 화면이 전부 바뀌고 관리자 진행이 협력사 클릭에 묶인다. 포털 스텝퍼의 '선적 완료' 칸은 가상 단계(`lib/pcb-ship-steps.ts`)이고, 관리자가 미확인 채 국내도착으로 넘기면 협력사 쪽은 끝난 것으로 보되 확인 기록은 비워 둔다
 - **2026-10-11** in [api-contract](../topics/api-contract.md) / [partner-tracks](../topics/partner-tracks.md): **추가 EQ 요청은 전이 사전을 트랙으로 가르지 않고 트랙별 문턱으로** — `PCB_EQ_REOPEN` 은 되돌리기 사전과 다른 축이고 스텐실은 `canReopenPcbEq` 가 막는다. 부작용도 같이 왔다: `issued` 가 더는 "아직 아무것도 안 낸 상태"가 아니어서(승인됐다 다시 열린 건일 수 있다) 파일 삭제 판정에 `isPcbEqFileRecord`, 워크큐 반려 표시에 `lastPcbEqReworkBoundary` 가 필요해졌다 — 상태를 안 늘린 값은 **판정 함수가 늘어나는 것**으로 치른다
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md) / [docs-knowledge](../topics/docs-knowledge.md): **D20 EQ 문항형 회차** — 새 원장을 만들지 않고 D16 원장 `sp_pcb_eq_review` 에 `format`·`version`·문항·이벤트를 더했고, 발주 상태 머신은 그대로다. 설계 절이 "상태 머신은 포크하지 않는다 — 원장을 회차로 넓힌다"를 구조 원칙으로 명문화했다(스텐실의 교훈이라고 적는다). 고객 확인 회차 번호·발송 여부도 저장이 아니라 파생

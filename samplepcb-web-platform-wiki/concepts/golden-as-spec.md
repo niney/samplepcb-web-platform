@@ -1,7 +1,7 @@
 ---
 concept: 골든 표가 곧 명세 (Golden as Spec)
-last_compiled: 2026-10-12
-topics_connected: [shared-packages, parts-engine, testing, sp-node-api, api-contract, partner-tracks, docs-knowledge]
+last_compiled: 2026-11-09
+topics_connected: [shared-packages, parts-engine, testing, sp-node-api, api-contract, partner-tracks, docs-knowledge, sp-develop-web]
 status: active
 ---
 
@@ -15,6 +15,7 @@ status: active
 이 패턴은 [judgment-single-owner](judgment-single-owner.md)와 짝이다 — FE/BE 가 **같은 함수를 공유**하는 형태가 허용되는 근거가 "골든 벡터가 명세 노릇을 한다"이기 때문이다. 골든이 없으면 공유 함수도, 두 계층의 사전도 조용히 갈린다([manual-sync-drift](manual-sync-drift.md)).
 
 ## Instances
+- **2026-11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [api-contract](../topics/api-contract.md) / [shared-packages](../topics/shared-packages.md): 견적서 산출 규칙의 명세는 **참고 견적서의 숫자**다 — 참고 자동견적 서식의 공급가 80,226,000·합계 88,248,600 을 utils 단위 테스트가 그대로 재현하고, 계약 산출 함수 `computeDevelopQuoteBreakdown` 이 그 표를 따라간다
 - **2026-10-11** in [testing](../topics/testing.md) / [sp-node-api](../topics/sp-node-api.md) / [partner-tracks](../topics/partner-tracks.md): **EQ 엑셀 합성 코퍼스 14종 + `gold.json`** — 사양 하나에서 파일과 정답을 **같이** 만들어(`gen-pcb-eq-fixtures.ts`) 기대값이 구현 출력에서 나오지 않는다. 홀드아웃 묶음을 따로 두고, 프로빙 채점·단위 테스트·e2e 가 같은 표를 쓴다. LLM 없는 사후 검사(`coerceEqDraft`·`findDroppedFacts`)의 기대값도 여기서 온다 — 프로빙용 표가 결정 뒤 골든이 된 경로([probe-before-decide](probe-before-decide.md))
 - **2026-10-11** in [api-contract](../topics/api-contract.md) / [testing](../topics/testing.md): 계약 사전 ↔ 포털 문구 대조를 e2e 가 맡는다 — 회신서 엑셀이 서버에서 만들어져 EQ 문항 유형 라벨만은 계약(`PCB_EQ_ITEM_CATEGORY_LABELS_BY_LOCALE`)에 3개 언어로 있고, 포털 `partner/locales/pcb.ts` 와 같은지를 `journey-eq-items-portal` 이 본다. ⚠ 계약 주석은 그 스펙을 `journey-eq-reply-xlsx` 라 적었는데 그런 파일은 없다. 계약 순수 함수의 단위 테스트는 여전히 `apps/api` 쪽에 산다(`pcb-ship-confirm`·`pcb-eq-rounds`·`bom-confirm-types`·`bom-remittance`·`exchange-rate.pcb`)
 - **2026-09-30** in [parts-engine](../topics/parts-engine.md): 양산 Reel 결함의 회귀 3건(`test_procurement.py`) — 검증기의 불변식 **"후보가 바뀌었으면 사유는 정확히 하나"**가 곧 명세이고, 수정 6줄은 그 문장을 지키는 쪽으로만 움직였다(642 passed, 버전 리터럴 불변)

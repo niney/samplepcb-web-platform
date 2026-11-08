@@ -1,6 +1,6 @@
 ---
 concept: 수동 동기화 지점과 드리프트 리스크
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [sp-node-api, api-contract, spcb-bridge, theme-sp-lite, gnuboard-integration, docs-knowledge, infrastructure, parts-engine, testing, sp-develop-web, sp-vue-web, shared-packages, partner-tracks]
 status: active
 ---
@@ -13,6 +13,7 @@ status: active
 2026-08~09 에 지점 수가 크게 늘었다(협력 트랙 2개·개발의뢰·운영 도메인 3개). 아래는 전수가 아니라 **범주별 대표 사례 + 위험도**다.
 
 ## Instances
+- **2026-10-22~11-06 (git 밖 운영 상태가 늘었다)** in [infrastructure](../topics/infrastructure.md) / [gnuboard-integration](../topics/gnuboard-integration.md) / [theme-sp-lite](../topics/theme-sp-lite.md) / [sp-develop-web](../topics/sp-develop-web.md) / [testing](../topics/testing.md): 스크립트 밖 뒤처리가 2 → 6건 — git 밖 `data/dbconfig.php` 의 include 한 줄(STEP 4 재설치 때 다시 넣어야 하고 `check-core-patches.sh` 도 지켜 주지 못한다), 공용 헤더 '개발' 링크(`g5_menu` DB 값이라 운영·dev 관리자 메뉴설정에서 손으로), AI 설정의 `develop.area-followup` 켜기, 인건비 기본값·별도 실비 문구 확인. 코드 안의 복제도 늘었다 — 견적서 로고·직인이 `@sp/ui` 자산과 서버 base64 사본 두 벌(`develop-quote-images.ts` 는 "생성 파일"이라 적혔지만 생성 스크립트가 없다), 테스트가 끄는 유스케이스 목록이 계약 `AI_USECASES` 와 따로(10-30 새 유스케이스가 11-02 에야 들어감), 옛·새 관리자 화면 이중 수정, i18n ko/en 쌍. 문서 쪽은 세부 질문 확정본 HTML(`docs/prototypes/develop-menu-questions-plan.html`)과 `develop-areas.ts` 가 11-02 부터 어긋났고, DEVELOP_FLOW §8 API 지도에 없는 라우트가 적혀 있고 엑셀 라우트 2개가 빠졌다
 - **실동작이 어긋나 있는 곳 (2026-10-12 현재)** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 하위 협력사 메뉴 — `partner/menu.ts` 는 `requiresTrack: 'pcb'`, 서버 `canManageChildren` 과 [PARTNER_PORTAL](../../docs/PARTNER_PORTAL.md) §5.1 은 "견적 트랙 중 하나라도". 부품 조달만 하는 마스터딜러는 사이드바에 메뉴가 안 뜬다(코드 읽기 기준, 미실행). 계약·라우터 주석과 같은 문서의 화면 트리도 "PCB 트랙"으로 남아 있다
 - **운영 반영 지점이 흩어졌다 (2026-09-30~10-11)** in [infrastructure](../topics/infrastructure.md) / [docs-knowledge](../topics/docs-knowledge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): 마이그레이션 12본과 **스크립트가 안 해 주는 뒤처리 둘**(`smartbom:seed-extra-anchor` 1회, 관리자 설정에서 "PCB EQ 분석" 켜기)이 다섯 문서에 나뉘어 적혀 있고 [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md)·`deploy.sh` 에는 없다. 한 겹 더 — `reset-data-policy.ts` 와 재이관 시드 목록에 `sp-bom-extra` 가 없어 `migrate:reset-data` 뒤에는 추가결제 앵커가 사라진다
 - **PHP 미러 3종 → 6종 (2026-09-30~10-11)** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md) / [api-contract](../topics/api-contract.md) / [theme-sp-lite](../topics/theme-sp-lite.md): EQ 문항 유형 16·변화 3·회차 상태 라벨(계약 ↔ `sp_pcb_eq.extend.php`) · `sp-bom-extra` it_id 가 네 곳 · 부품 확인 배지 SQL ↔ sp-node `openCount` · sp-vue `bomConfirmPreviewDelta` ↔ PHP `sp_bom_confirm_delta_text`. 테마 쪽에도 하나 — 헤더 `$sp_header_labels` 가 DB `me_name` **문자열 일치**라 /adm 에서 메뉴 이름을 바꾸면 조용히 빗나간다
@@ -49,3 +50,4 @@ status: active
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [shared-packages](../topics/shared-packages.md)
 - [partner-tracks](../topics/partner-tracks.md)
+- [docs/DEPLOY_CENTRAFAB.md](../../docs/DEPLOY_CENTRAFAB.md) — STEP 5 (d) git 밖 `dbconfig.php` 한 줄

@@ -1,6 +1,6 @@
 ---
 concept: 파괴 작업 가드레일 (Destructive Op Guardrails)
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [infrastructure, sp-node-api, gnuboard-integration, partner-tracks, sp-vue-web, sp-develop-web, api-contract]
 status: active
 ---
@@ -21,6 +21,7 @@ status: active
 확인 UI 의 형태는 [no-native-dialogs](no-native-dialogs.md)가 맡고, 업무 데이터의 시점 보존인 [snapshot-freeze](snapshot-freeze.md)와는 결이 다르다 — 이쪽은 **운영 안전장치**다.
 
 ## Instances
+- **2026-11-04** in [infrastructure](../topics/infrastructure.md) / [sp-develop-web](../topics/sp-develop-web.md): 같은 날 더했다 지운 원가 칸 때문에 마이그레이션 4본 중 하나가 `DROP COLUMN` 이다(같은 묶음에서 더한 칸이라 주석상 데이터 손실 없음) — 그래도 `deploy.sh` 의 "파괴적 마이그레이션인가요?" 질문에 걸린다. 10-22 `deploy.sh` 가 자기 갱신으로 다시 시작할 때도 **DB 원복 기준 커밋**(`PRE_DEPLOY_CODE_REF`)은 처음 실행의 HEAD 를 물려받게 했다 — 재시작이 원복 지점을 옮기지 않게
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md): **굳은 EQ 파일** — 그 뒤에 승인이 있었거나 고객에게 나간 회차의 근거가 된 파일은 포털에서 지울 수 없다(`isPcbEqFileRecord`). 추가 EQ 요청으로 상태가 `issued` 로 돌아가도 삭제 판정은 상태가 아니라 **기록**을 본다([record-not-state](record-not-state.md))
 - **2026-10-09** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md): **잠김→정리→열림의 포털판** — 마스터딜러의 하위 협력사 삭제는 이력이 없을 때만 진짜 삭제이고, 있으면 같은 버튼이 '사용 중지'로 수렴하며, 진행 중이면 `RELATION_ACTIVE`(PCB 견적·발주 + BOM 회신 왕복 중 견적요청·수령 전 하위 발주를 함께 센다). 내가 등록한 조직에만(`NOT_OWNED`). 마스터딜러 표시 끄기도 `HAS_CHILDREN` 이 막는다
 - **2026-10-05** in [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md) / [api-contract](../topics/api-contract.md): **취소는 삭제가 아니다 + 자동 정리는 사람의 길을 탄다** — 고객 삭제 대상 `draft`·`canceled` → **`draft` 만**(협력사 회신 같은 업무 기록이 cascade 로 사라지던 것을 막는다). 취소 견적은 고지한 `purgeAfter` 뒤에 지워지는데, 삭제 로직을 새로 만들지 않고 관리자 "Case 강제 영구 삭제"(`loadBomCaseDeletePlan`→`purgeBomCase`, audited)를 실행자 `system:retention` 으로 부른다 — 범위·순서(엔진 잡→파일서버→DB)·감사 기록이 사람이 지울 때와 같다(mb_id 에 콜론을 쓸 수 없어 사람 계정과 겹치지 않는다). 통합 메뉴 '삭제 기록'이 `sp_delete_audit` 과 자동 정리 상태·[지금 실행]을 보여 준다

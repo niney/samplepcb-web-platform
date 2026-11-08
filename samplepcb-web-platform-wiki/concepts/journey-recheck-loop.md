@@ -1,6 +1,6 @@
 ---
 concept: 완주 여정 재점검 루프 (Journey Recheck Loop)
-last_compiled: 2026-10-12
+last_compiled: 2026-11-09
 topics_connected: [testing, partner-tracks, sp-node-api, api-contract, sp-develop-web, sp-market-web, docs-knowledge, sp-vue-web]
 status: active
 ---
@@ -15,6 +15,7 @@ status: active
 이 패턴의 값은 잡은 결함 수(PCB 계열 확정 60여 건)가 아니라 **검증이 조용히 비는 자리를 알게 된 것**이다. 판정을 복제하지 않는 규율([judgment-single-owner](judgment-single-owner.md))의 테스트판이기도 하다 — 하네스는 출하 코드와 **같은 함수를 임포트**한다.
 
 ## Instances
+- **2026-10-22~11-03** in [testing](../topics/testing.md) / [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰에 **고객 여정**(`develop-customer-journey` — 관리자 여정의 거울상: 고객 화면 + 관리자 API)이 생겼고 첫 주행이 고객 문구 6건을 고쳤다(`db558821b`). ⚠ 루프는 돌려야 돈다: 11-02~03 필수 문항(PCB 회로도·BOM)을 바꾼 세 절의 검증 줄에 관리자 여정이 빠져 관리자 여정이 이틀간 깨진 채였다
 - **2026-10-11** in [testing](../topics/testing.md): **검증이 조용히 비는 네 번째 패턴 — 전역 설정을 건드리는 스펙** — AI e2e 는 `pcbEqParse.enabled` 를 켰다가 원래 값으로 되돌리는데, 따로 돌리면 서로의 되돌림을 밟는다(실측 2회; 31호의 `cf_email_use` 가 선례). 규율: 그런 스펙은 **한 실행에 묶는다**. 반대 방향 함정도 있다 — 옵트인(`EQ_AI_E2E`)을 꺼도 로컬 설정이 켜져 있으면 승인요청마다 실 LLM 잡이 선다
 - **2026-10-09** in [testing](../topics/testing.md) / [partner-tracks](../topics/partner-tracks.md): BOM 외화·마스터딜러 **상세 여정**(SMARTBOM §6.45)이 API 여정은 통과하던 화면 결함 3건을 잡았고 재점검에서 가드 2건이 더해졌다 — "API 로 박제하고 화면별로 다시 주행한다"가 편의 기본 꼴이 됐다
 - **2026-10-07** in [testing](../topics/testing.md) / [sp-develop-web](../topics/sp-develop-web.md) / [sp-vue-web](../topics/sp-vue-web.md): 화면 이식을 검증하려고 접수→완료를 끝까지 몬 주행(`admin-develop-journey`, 옛·새 양쪽 9/9)이 화면이 아니라 **업무 흐름** 결함 23건을 찾았다. 고치지 않고 [DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) §15 에 등록 — 루프의 "엄선" 단계가 "이번엔 고치지 않는다"로 끝난 첫 편([parallel-build-cutover](parallel-build-cutover.md))

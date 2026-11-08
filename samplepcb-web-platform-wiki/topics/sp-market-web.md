@@ -1,19 +1,19 @@
 ---
 topic: sp-market-web
-last_compiled: 2026-09-19
-sources_count: 35
+last_compiled: 2026-11-09
+sources_count: 41
 status: active
 ---
 
 # sp-market-web
 
-## Purpose [coverage: high — 9 sources]
+## Purpose [coverage: high — 12 sources]
 
-`sp-market` — PCB **재능마켓(회로·PCB·펌웨어·앱·서버 전문가 ↔ 의뢰인 매칭) 고객 대면 Vue 3 SPA** (`samplepcb-web-mono-app/apps/market`). 그누보드(`sp-php`)와 같은 도메인에서 nginx 로 합류하며 **`/market` 경로**(dev 5176, 운영 `apps/market/dist` 정적)에 마운트된다. 2026-07-08 신설. 소스 날짜 범위는 2026-07-08(1차·2차·nginx 반영) ~ 2026-09-11(개발의뢰 정본 승격)이며 코드 마지막 변경은 2026-09-08(레지스트리 팩토리 분리)이다. 2026-07-20 마지막 컴파일 이후 `apps/market` 커밋 20건·파일 변경 139회.
+`sp-market` — PCB **재능마켓(회로·PCB·펌웨어·앱·서버 전문가 ↔ 의뢰인 매칭) 고객 대면 Vue 3 SPA** (`samplepcb-web-mono-app/apps/market`). 그누보드(`sp-php`)와 같은 도메인에서 nginx 로 합류하며 **`/market` 경로**(dev 5176, 운영 `apps/market/dist` 정적)에 마운트된다. 2026-07-08 신설. 소스 날짜 범위는 2026-07-08(1차·2차·nginx 반영) ~ 2026-09-11(개발의뢰 정본 승격)이며 코드 마지막 변경은 2026-09-08(레지스트리 팩토리 분리)이다. 2026-07-20 마지막 컴파일 이후 `apps/market` 커밋 20건·파일 변경 139회. → 2026-11-09: `apps/market` 커밋은 09-08 뒤로 **0건**(2026-10-12 컴파일은 변경이 없어 건너뜀)이고, 소스 날짜 범위만 ~ 2026-11-05 로 늘었다 — 마켓에 닿은 것은 **공용 층 넷**: 서버 AI 스트림 한글 깨짐 수정(10-30, 마켓 검토서·구성도에도 적용)·공용 구성도 뷰어의 '도면·글 분리' `split`(11-05, 마켓은 끔)·계약 레지스트리 팩토리의 선택 필드(10-30~11-03, 마켓 불변)·잡 응답 계약의 `areaFollowup` 칸(10-30, 마켓 잡엔 null). 마켓 화면·질문·프롬프트는 그대로다.
 
 **최근 합의(2026-08-28 ~ 09-05) vs 이전 패턴(2026-07)**: 7월의 "4 AI 산출물(명세 JSON·구성도 HTML·작업검토지시서·분야별 카드)+80문항 인터뷰+선분석+provenance" 체계는 **2026-08-28 "AI 사전 검토서 1건" 체계로 전면 대체**됐고(정본 [AI_DEV_REVIEW](../../docs/AI_DEV_REVIEW.md), [AI_DIAGRAM](../../docs/AI_DIAGRAM.md) 은 경위 기록), 9월 첫 주에 v2 간소화(09-02) → **v3 분야 레지스트리 5종·3스텝 위저드·정밀 구성도 비동기(09-04)** → v4 구성도 단일화·v5 공통 조건 6 필수(09-04) → **의뢰 수정·버전(09-05)** → **렌더 컴포넌트 `@sp/ui` 추출(09-05)** 로 이어졌다. 같은 날 형제 앱 **sp-develop(개발의뢰, `/develop`, 5177)** 이 신설됐는데 마켓의 **위저드·흐름을 이관한 것이 아니라** 별도 앱·별도 테이블로 세우고 `@sp/ui`·계약 레지스트리·서버 AI 러너만 공유한다(정본 [DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) §0·§2, 토픽 [sp-develop-web](sp-develop-web.md)).
 
-**플랫폼 결정의 명시적 예외**(유지): "고객 대면 신규 화면은 sp-php" 원칙(루트 [AGENTS](../../AGENTS.md))의 예외로 SPA급 인터랙션이 필요해 별도 Vue 앱. sp-vue(`/app`)는 관리자 전용이며 **마켓 관리 화면은 `/app/admin/market/{experts,projects,settings,contracts}` + `/app/admin/settings` "AI 연동" 탭** — sp-market 에는 관리자 가드 자체가 없다.
+**플랫폼 결정의 명시적 예외**(유지): "고객 대면 신규 화면은 sp-php" 원칙(루트 [AGENTS](../../AGENTS.md))의 예외로 SPA급 인터랙션이 필요해 별도 Vue 앱. sp-vue(`/app`)는 관리자 전용이며(→ 07-19 회원 BOM·08-10 협력사 포털까지 담는다 — [sp-vue-web](sp-vue-web.md); 마켓 관리 4화면은 2026-10-10 관리자 컷오버 뒤에도 리뉴얼 없이 옛 셸의 정식 경로 그대로, AI 연동 탭은 리뉴얼 설정 화면) **마켓 관리 화면은 `/app/admin/market/{experts,projects,settings,contracts}` + `/app/admin/settings` "AI 연동" 탭** — sp-market 에는 관리자 가드 자체가 없다.
 
 기능 범위(1차+2차 완료 2026-07-08, 정본 [MARKET_FLOW](../../docs/MARKET_FLOW.md)): 전문가 등록·승인 → 의뢰(역견적 공개 블라인드 / 지정견적 1:1) → NDA 게이트 첨부 → 블라인드 입찰·채택 → 계약 → 영카트 재사용 결제 → 납품 → 검수(7일 자동확정) → 정산. 여기에 **AI 사전 검토서(deepseek, 동기 30초~3분) + 정밀 시스템 구성도(kimi-k3 thinking high, 비동기 5~10분)** 가 얹히고, 등록 뒤 **의뢰 수정·이력·입찰자 경고**(§11)와 **첨부 미리보기**(§5.1)가 추가됐다.
 
@@ -68,25 +68,31 @@ sp-market 자체는 API 를 노출하지 않는 소비자. 노출 표면은 브�
 - **클라이언트는 산출물 본문을 보내지 않는다** — 등록 payload 는 `devReviewJobId`(·`devDiagramJobId`)만, 서버가 자기 저장분을 소유자·완료·유스케이스·해시까지 대조해 박제. 해시 대조·"고객 수정본" provenance 라벨 체계는 08-28 통째로 사라졌다. 채택 트랜잭션 `requestSnapshot` 에는 `devReview` 가 들어간다.
 - v1 검토서 저장분은 `safeParse` 실패 → null(검토서 없음)로 취급하나 `hasDevReview` 는 컬럼 존재 기준이라 목록 배지가 남을 수 있다. 설정 `sp_market_settings.feeRateBp` 10% 단일 공제(계약 생성 시 스냅샷)는 불변.
 
-## Key Decisions [coverage: high — 10 sources]
+## Key Decisions [coverage: high — 14 sources]
 
-1. **2026-09-11 — sp-develop 정본 승격·프로토타입 G 제거**([develop-prototypes](../../docs/develop-prototypes.md)): 마켓 코드·데이터 무영향. 마켓과의 분리(별도 앱·테이블) 유지.
-2. **2026-09-08 — 분야 레지스트리 팩토리 분리**(`area-registry.ts` → `MARKET_REGISTRY`/`DEVELOP_REGISTRY`): 마켓 export 이름·시그니처 불변, 프롬프트·JSON 스키마 바이트 동일(dev-review 26·market-areas 14 tests). `DevReviewView` 에 `registry` prop, `--color-area-mech` 토큰이 마켓 style.css 에도 추가.
-3. **2026-09-05 — 렌더 컴포넌트를 `@sp/ui` 로 추출(복사 아님)**: 관리자·개발의뢰가 고객과 같은 렌더러로 검토서를 미리보기·편집해야 해서. 규칙 = i18n 미사용·**시맨틱 토큰만**(`copper-*`→`brand-*`, 마켓은 별칭으로 시각 무변경)·API 경로 하드코딩 금지(`filesPath` prop). 마켓 typecheck·lint 0, e2e-market 148/0.
-4. **2026-09-05 — sp-develop 을 별도 앱·별도 테이블로**(`sp_market_project` channel 컬럼 기각 — 공개 목록 쿼리에서 필터 하나 빠지면 비공개 의뢰가 마켓에 샌다). 위저드에서 AI 를 전부 뺀 관리자 주도 구조라 **마켓 위저드 오케스트레이션은 이식 대상이 아니었다**. 서버 러너만 타깃 어댑터로 일반화(마켓 동작 불변).
-5. **2026-09-05 — 의뢰 수정·버전(§11)**: `2026-09: 입찰 1건이라도 있으면 잠금 + 검토서 붙으면 원천 수정 불가(DEV_REVIEW_ATTACHED) → 접수 중(bidding ∧ 마감 전)이면 입찰 유무 무관 수정 가능`. 수정 = append-only revision(수정 직전 스냅샷), 중대(분야·설명·답변·마감·첨부)/사소 구분, 중대 + 24시간 미만이면 마감 48시간 자동 연장, 검토서는 지우지 않고 `devReviewStale` 배지. **검토서 갱신은 자동이 아니라 선택**(구성도 5~10분·연속 수정 잡 폭주 방지). **저장 = 편집의 끝**(`SaveResultModal`, Esc·바깥 클릭은 닫기만).
-6. **2026-09-04 밤 — AI 분석 대상 = 1스텝 참고 자료뿐(§13.10)**: 2스텝 분야 슬롯 자료는 저장·전문가 열람만, 외부 LLM 미전송. 신선도 서명·입력 해시·구성도 재생성 소스가 같은 집합.
-7. **2026-09-04 밤 — 의뢰하기·상세 재설계(§13.9)**: 타입 스케일 6단계 토큰(12/13/14/15/18/28) · 의뢰하기 1280 + sticky 사이드 + 하단 액션 바 · 상세 1440 + sticky 섹션 내비 · 답변 표는 "의뢰 내용" 한 곳만(검토서 브리프 섹션 삭제) · 첨부 **드롭존 누적 + 파일별 ✕ + 페이지 드롭 가드** · 분석 카드·청사진 액자·`dev/review-states`.
-8. **2026-09-04 저녁 — v5 공통 조건 6 을 2스텝 필수로 + 분야 맞춤 질문 14**: 답변형 3 은 `answers`, 예산·방식·NDA 는 컬럼. 등록 게이트 `ANSWERS_REQUIRED`. 풀 개발이면 분야당 앞 2문항. "설명에서 확인한 항목은 다시 안 묻기"(선분석 재도입)는 **안 한다**.
-9. **2026-09-04 — v4 구성도 단일화(§13.7)**: `2026-09: 검토서 안 3열 카드 구성도 + kimi 정밀 SVG 두 개 → kimi 정밀 SVG 하나("시스템 구성도")`. 구성도 잡은 **3단계 진입 시 검토서와 병렬 시작**, 같은 입력 해시면 진행 중 잡도 재사용, `DevDiagramTray` 플로팅 알림(SSE·헤더 배지 안 함), 연결 안 된 잡은 재시작 시 `ABANDONED`.
-10. **2026-09-04 — v3 재설계(§13)**: `2026-09: 분야 3종(회로·PCB·펌웨어) → 5종(+앱·서버)` · `위저드 2스텝(09-02) → 3스텝` · **레지스트리 하나에서 전부 파생** · 문자열+검증 저장 · **정밀 구성도 = 등록 뒤 서버 큐(동시 1)** + 게이트(첨부 ≥800자 ∨ 설명 ≥500자 ∨ 설계 단계∧첨부).
-11. **2026-09-03 — 검토서 섹션 정리**: 작업 항목·개발 단계 제거(정적 안내가 AI 판단처럼 읽힘) · 기술개발 검토 결과 보강(분야별 준비 상태·답변↔자료 정합 R9·검토 관찰) · 구성도 제목 띠·범례·페이지 비율 옵션 · R8 자료 간 불일치 규칙. 프롬프트 `dev-review.v2.1`.
-12. **2026-09-02 — v2 간소화**: 의뢰자는 이 분야를 모른다는 전제 — 2스텝·4문항·**확정만**(확인 필요 상태 축 폐지, 근거 없으면 삭제)·상의 항목 ≤6·판정어·등급·금액·주수 없음. 이 원칙은 v3 이후에도 유지.
-13. **2026-08-28 — "AI 사전 검토서" 1건 체계로 전면 재구성**: `2026-08: 4산출물 + 80문항 인터뷰 + 선분석 + provenance → 검토서 1건, 클라이언트는 jobId 만`. 파이프라인 2단(비전 첨부 판독 `qwen3.5:397b` → 주모델 `deepseek-v4-pro:0813` think off, 프로빙으로 확정) · 프롬프트는 코드 정본(관리자는 토글·모델·추가 지침만) · 인메모리 잡 → `sp_ai_job` · **회사 전용 입찰 제한(`FULL_SERVICE_COMPANY_ONLY`) 폐지**·`requestType` UI 제거 · 너비 1152→1440 · sp-rnd 삭제. 마켓 화면 구현 지시서 [dev-review-phase4a-market](../../docs/prompts/dev-review-phase4a-market.md)(Opus 워커, `apps/market/` 스코프).
-14. **(대체됨) 2026-07-16 위저드 v2 AI-우선 4스텝·선분석 v2·첨부 분석 / 07-15 결정적 렌더러·provenance / 07-12 sandbox iframe + ROC 라인 파서·전체서비스 입찰 제한 / 07-08 영카트 재사용·별도 앱·strictPort·액션 단위 로그인 왕복** — 07-08 결정(결제·별도 앱·포트·로그인)은 유지, 나머지는 08-28 이후 체계로 교체됐다(경위는 [AI_DIAGRAM](../../docs/AI_DIAGRAM.md)).
+1. **2026-11-05 — 공용 구성도 뷰어에 '도면·글 분리'(`split`)가 생겼지만 마켓은 끈다**(f3b2ac129, [shared-packages](shared-packages.md)): 개발의뢰 관리자 패널용으로 `DevDiagramSection` 에 `split`(기본 false)이 더해졌다 — 마켓 `ProjectDetail`·`dev/ReviewStates`·`@sp/ui` `DevReviewView` 안 어디도 넘기지 않아 마켓은 문서 한 장 그대로다. 같은 커밋의 `showUploaded`(담당자 업로드 도면 분기)도 `uploaded` prop 을 쓰지 않는 마켓엔 닿지 않는다. 마켓 화면에서 바뀐 것은 크게 보기 iframe 의 접근성 이름('시스템 구성도 전체' → '시스템 구성도 크게 보기')뿐.
+2. **2026-10-30 — AI 스트림 한글 깨짐 수정이 마켓에도 적용**(387524330, `apps/api/src/lib/ai/ollama.ts`): ollama 스트림을 조각마다 `Buffer.toString` 으로 따로 디코딩해 조각 경계에 걸린 한글(3바이트)이 U+FFFD 로 깨지던 것을 `TextDecoder` 스트림 모드로 이어 붙였다. 마켓 검토서(`market.dev-review`)·정밀 구성도(`market.dev-diagram`)도 `runner.ts` `chatWithOptionFallback` → `ollamaChatDetailed` 같은 클라이언트라 함께 고쳐졌다(발견은 개발의뢰 맞춤 질문 프로빙의 "열처리" → "열처�").
+3. **2026-10-30~11-03 — 계약 레지스트리 팩토리 확장은 마켓 불변**: `area-registry.ts` 에 선택 필드 `showWhen`·`hideWithAreas`·`fullCodes` 와 공유 문항 dedupe, 필수 판정이 보이는 문항만 보게(`visibleQuestionsFor`) 하는 변경이 들어갔다 — 개발의뢰 메뉴 6장 재편용이고 `MARKET_REGISTRY` 는 어느 것도 쓰지 않아 질문·프롬프트·필수 판정이 그대로다(`market-areas.ts`·`market-areas` 테스트 14 무변경). 같은 날 계약 `AiJobResponse` 에 `areaFollowup`(nullable 필수 키)이 더해져 마켓 `useAi` 잡 폴링 스키마도 바뀌었지만 서버(`routes/ai.ts`)가 모든 잡에 실어 보내 마켓 잡엔 null 이다.
+4. **2026-09-11 — sp-develop 정본 승격·프로토타입 G 제거**([develop-prototypes](../../docs/develop-prototypes.md)): 마켓 코드·데이터 무영향. 마켓과의 분리(별도 앱·테이블) 유지.
+5. **2026-09-08 — 분야 레지스트리 팩토리 분리**(`area-registry.ts` → `MARKET_REGISTRY`/`DEVELOP_REGISTRY`): 마켓 export 이름·시그니처 불변, 프롬프트·JSON 스키마 바이트 동일(dev-review 26·market-areas 14 tests). `DevReviewView` 에 `registry` prop, `--color-area-mech` 토큰이 마켓 style.css 에도 추가.
+6. **2026-09-05 — 렌더 컴포넌트를 `@sp/ui` 로 추출(복사 아님)**: 관리자·개발의뢰가 고객과 같은 렌더러로 검토서를 미리보기·편집해야 해서. 규칙 = i18n 미사용·**시맨틱 토큰만**(`copper-*`→`brand-*`, 마켓은 별칭으로 시각 무변경)·API 경로 하드코딩 금지(`filesPath` prop). 마켓 typecheck·lint 0, e2e-market 148/0.
+7. **2026-09-05 — sp-develop 을 별도 앱·별도 테이블로**(`sp_market_project` channel 컬럼 기각 — 공개 목록 쿼리에서 필터 하나 빠지면 비공개 의뢰가 마켓에 샌다). 위저드에서 AI 를 전부 뺀 관리자 주도 구조라 **마켓 위저드 오케스트레이션은 이식 대상이 아니었다**. 서버 러너만 타깃 어댑터로 일반화(마켓 동작 불변).
+8. **2026-09-05 — 의뢰 수정·버전(§11)**: `2026-09: 입찰 1건이라도 있으면 잠금 + 검토서 붙으면 원천 수정 불가(DEV_REVIEW_ATTACHED) → 접수 중(bidding ∧ 마감 전)이면 입찰 유무 무관 수정 가능`. 수정 = append-only revision(수정 직전 스냅샷), 중대(분야·설명·답변·마감·첨부)/사소 구분, 중대 + 24시간 미만이면 마감 48시간 자동 연장, 검토서는 지우지 않고 `devReviewStale` 배지. **검토서 갱신은 자동이 아니라 선택**(구성도 5~10분·연속 수정 잡 폭주 방지). **저장 = 편집의 끝**(`SaveResultModal`, Esc·바깥 클릭은 닫기만).
+9. **2026-09-04 밤 — AI 분석 대상 = 1스텝 참고 자료뿐(§13.10)**: 2스텝 분야 슬롯 자료는 저장·전문가 열람만, 외부 LLM 미전송. 신선도 서명·입력 해시·구성도 재생성 소스가 같은 집합.
+10. **2026-09-04 밤 — 의뢰하기·상세 재설계(§13.9)**: 타입 스케일 6단계 토큰(12/13/14/15/18/28) · 의뢰하기 1280 + sticky 사이드 + 하단 액션 바 · 상세 1440 + sticky 섹션 내비 · 답변 표는 "의뢰 내용" 한 곳만(검토서 브리프 섹션 삭제) · 첨부 **드롭존 누적 + 파일별 ✕ + 페이지 드롭 가드** · 분석 카드·청사진 액자·`dev/review-states`.
+11. **2026-09-04 저녁 — v5 공통 조건 6 을 2스텝 필수로 + 분야 맞춤 질문 14**: 답변형 3 은 `answers`, 예산·방식·NDA 는 컬럼. 등록 게이트 `ANSWERS_REQUIRED`. 풀 개발이면 분야당 앞 2문항. "설명에서 확인한 항목은 다시 안 묻기"(선분석 재도입)는 **안 한다**.
+12. **2026-09-04 — v4 구성도 단일화(§13.7)**: `2026-09: 검토서 안 3열 카드 구성도 + kimi 정밀 SVG 두 개 → kimi 정밀 SVG 하나("시스템 구성도")`. 구성도 잡은 **3단계 진입 시 검토서와 병렬 시작**, 같은 입력 해시면 진행 중 잡도 재사용, `DevDiagramTray` 플로팅 알림(SSE·헤더 배지 안 함), 연결 안 된 잡은 재시작 시 `ABANDONED`.
+13. **2026-09-04 — v3 재설계(§13)**: `2026-09: 분야 3종(회로·PCB·펌웨어) → 5종(+앱·서버)` · `위저드 2스텝(09-02) → 3스텝` · **레지스트리 하나에서 전부 파생** · 문자열+검증 저장 · **정밀 구성도 = 등록 뒤 서버 큐(동시 1)** + 게이트(첨부 ≥800자 ∨ 설명 ≥500자 ∨ 설계 단계∧첨부).
+14. **2026-09-03 — 검토서 섹션 정리**: 작업 항목·개발 단계 제거(정적 안내가 AI 판단처럼 읽힘) · 기술개발 검토 결과 보강(분야별 준비 상태·답변↔자료 정합 R9·검토 관찰) · 구성도 제목 띠·범례·페이지 비율 옵션 · R8 자료 간 불일치 규칙. 프롬프트 `dev-review.v2.1`.
+15. **2026-09-02 — v2 간소화**: 의뢰자는 이 분야를 모른다는 전제 — 2스텝·4문항·**확정만**(확인 필요 상태 축 폐지, 근거 없으면 삭제)·상의 항목 ≤6·판정어·등급·금액·주수 없음. 이 원칙은 v3 이후에도 유지.
+16. **2026-08-28 — "AI 사전 검토서" 1건 체계로 전면 재구성**: `2026-08: 4산출물 + 80문항 인터뷰 + 선분석 + provenance → 검토서 1건, 클라이언트는 jobId 만`. 파이프라인 2단(비전 첨부 판독 `qwen3.5:397b` → 주모델 `deepseek-v4-pro:0813` think off, 프로빙으로 확정) · 프롬프트는 코드 정본(관리자는 토글·모델·추가 지침만) · 인메모리 잡 → `sp_ai_job` · **회사 전용 입찰 제한(`FULL_SERVICE_COMPANY_ONLY`) 폐지**·`requestType` UI 제거 · 너비 1152→1440 · sp-rnd 삭제. 마켓 화면 구현 지시서 [dev-review-phase4a-market](../../docs/prompts/dev-review-phase4a-market.md)(Opus 워커, `apps/market/` 스코프).
+17. **(대체됨) 2026-07-16 위저드 v2 AI-우선 4스텝·선분석 v2·첨부 분석 / 07-15 결정적 렌더러·provenance / 07-12 sandbox iframe + ROC 라인 파서·전체서비스 입찰 제한 / 07-08 영카트 재사용·별도 앱·strictPort·액션 단위 로그인 왕복** — 07-08 결정(결제·별도 앱·포트·로그인)은 유지, 나머지는 08-28 이후 체계로 교체됐다(경위는 [AI_DIAGRAM](../../docs/AI_DIAGRAM.md)).
 
-## Gotchas [coverage: high — 9 sources]
+## Gotchas [coverage: high — 13 sources]
 
+- **2026-10-30 이전에 만든 검토서·구성도에는 U+FFFD(�)가 남아 있을 수 있다**: 고친 것은 스트림 디코딩뿐이고 저장분(`devReview`·`devDiagramHtml`)을 고치는 작업은 없었다. 한글이 스트림 조각 경계에 걸린 자리만 깨지므로 드물고, 오류 없이 저장됐다 — 다시 만들면 사라진다([silent-degradation](../concepts/silent-degradation.md)).
+- **공용 구성도 뷰어가 개발의뢰 관리자 모드를 품었다**(11-05): `DevDiagramSection` 을 고치면 마켓 경로(`split`·`uploaded` 없음)만으로 확인이 끝나지 않는다 — 개발의뢰 관리자 패널(둘 다 켬)과 같이 볼 것. 마켓 e2e·`dev/review-states` 는 `split` 경로를 타지 않는다.
+- **잡 응답 계약은 마켓·개발의뢰·EQ 가 같이 쓴다**: 새 AI 잡 종류가 생길 때마다 `AiJobResponse` 에 nullable 필수 키가 늘어난다(10-30 `areaFollowup`). `deploy.sh` 4번(sp-market 정적 빌드만)으로 마켓만 먼저 내보내고 API 가 옛 판이면 키가 빠진 응답에서 마켓 잡 폴링의 zod 파싱이 실패한다 — 계약이 바뀐 커밋은 API 와 같이 내보낼 것.
 - **main.ts 설치 순서 함정**: `app.use(router)` 를 auth `bootstrap()` **뒤에** — 어기면 딥링크가 비로그인 상태로 첫 렌더.
 - **strictPort·host·allowedHosts**: 5176 점유 시 실패가 정상 신호, `host: '127.0.0.1'` 필수(IPv6 만 열리면 nginx 502), `allowedHosts` 누락 시 403. 워크트리 두 번째 인스턴스는 `SP_MARKET_PORT`/`SP_API_TARGET` 로 옮긴다. **통합 라우팅은 `local-web` 호스트 하나뿐**.
 - **nginx keepalive 는 선택이 아니다**(2026-08-16): `Connection "upgrade"` 고정값이 일반 요청까지 새 연결로 만들어 e2e 연속 주행 시 임시 포트 고갈 → 502 → "버튼이 안 보인다"로 죽는다 — 원인은 화면이 아니라 프록시. 라이브 nginx 는 Windows 서비스라 `-s reload` 불가, 관리자 `net stop/start nginx`.
@@ -103,7 +109,7 @@ sp-market 자체는 API 를 노출하지 않는 소비자. 노출 표면은 브�
 - **운영 런북 드리프트**: [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md) 의 nginx 전문·pnpm 필터에 `/rnd` 가 남아 있고 `/develop` 은 없다(08-28 폐지·09-05 신설 미반영).
 - UI/UX 는 프로토타입 선언 지속(모노레포 AGENTS) — 단 타입 강성(`any` 금지)은 불변. 첫 `dev/review-states` 는 DEV 전용이라 운영 URL 에 없다.
 
-## Sources [coverage: high — 35 sources]
+## Sources [coverage: high — 41 sources]
 
 - [AGENTS.md (root)](../../AGENTS.md) — 호칭 표(sp-market·sp-develop)·"고객 대면=sp-php" 예외·nginx 예약 경로
 - [samplepcb-web-mono-app/AGENTS.md](../../samplepcb-web-mono-app/AGENTS.md) — 스택·타입 강성·`@sp/ui` 규칙·apps 4종·dev 포트
@@ -140,3 +146,4 @@ sp-market 자체는 API 를 노출하지 않는 소비자. 노출 표면은 브�
 - [apps/market/src/api/useMarketProjects.ts](../../samplepcb-web-mono-app/apps/market/src/api/useMarketProjects.ts) — 10훅(재생성·구성도·이력·첨부)
 - [apps/market/src/lib/error-msg.ts](../../samplepcb-web-mono-app/apps/market/src/lib/error-msg.ts) — 마켓 에러 코드 사전
 - [packages/ui/src/index.ts](../../samplepcb-web-mono-app/packages/ui/src/index.ts) — `@sp/ui` 규칙·export 목록
+- 2026-10-30~11-05 공용 층(마켓 코드 무변경): [packages/ui/src/components/DevDiagramSection.vue](../../samplepcb-web-mono-app/packages/ui/src/components/DevDiagramSection.vue) — `split`(기본 false)·`showUploaded`·크게 보기 접근성 이름 · [packages/api-contract/src/schemas/area-registry.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/area-registry.ts) — 팩토리 선택 필드 · [packages/api-contract/src/schemas/ai.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/ai.ts) — `AiJobResponse.areaFollowup` · [apps/api/src/lib/ai/ollama.ts](../../samplepcb-web-mono-app/apps/api/src/lib/ai/ollama.ts) — 스트림 UTF-8 디코딩 · [apps/api/src/lib/ai/runner.ts](../../samplepcb-web-mono-app/apps/api/src/lib/ai/runner.ts) — 마켓 검토서·구성도가 같은 클라이언트를 부르는 자리 · [deploy.sh](../../deploy.sh) — 4번 sp-market 단독 배포

@@ -1,5 +1,5 @@
 {
-  "last_compiled": "2026-10-12",
+  "last_compiled": "2026-11-09",
   "topics": [
     "sp-node-api",
     "sp-vue-web",
@@ -38,7 +38,10 @@
     "parallel-build-cutover",
     "probe-before-decide",
     "record-not-state",
-    "silent-degradation"
+    "silent-degradation",
+    "ai-removable-layer",
+    "audience-split-dto",
+    "surface-dont-block"
   ],
   "source_locations": [
     "AGENTS.md",
