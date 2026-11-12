@@ -11,8 +11,8 @@
 //   8. 관리자: 최종 납품(잠금) → 🔒 → 검수 확정 → 완료 → 잔금 결제 버튼 → 주문서 → 수동 입금 확인 → 다운로드 열림
 //   9. 완료 뒤 A/S 요청 → 진행 사항 'A/S 요청'
 //  10. 내 의뢰 '완료' · 390px 가로 넘침 0 · 고객 알림 메일(Mailpit) · pageErrors 0
-//  11. '출력하기' 출력물 — 완료 뒤 '개발 진행 보고서'(구성도 이미지 2장·조작 UI 0·PDF 여러 쪽).
-//      접수 직후 판('제품 개발 제안서', 내용 없는 섹션 생략)은 1-1 에서 본다.
+//  11. '출력하기' 출력물(16:9 장 판) — 완료 뒤 '개발 진행 보고서'(장 순서 · 구성도 도면 2장 · 도면 앞뒤 글 없음 · 조작 UI 0 ·
+//      넘친 장 0 · 장 수 = PDF 쪽 수 · 용지 13.33×7.5in). 접수 직후 판('제품 개발 제안서', 내용 없는 장 생략)은 1-1 에서 본다.
 //
 // 데이터는 **지우지 않는다**(사용자 요청 2026-10-22 — 화면으로 다시 볼 수 있게). 실행마다 제목에 시각을 붙여 새 의뢰를 만든다.
 // 의뢰인 = cf_admin(로컬에서 평소 로그인으로 내 의뢰에 바로 보인다). DEVELOP_JOURNEY_MB 로 다른 계정을 지정할 수 있다.
@@ -162,22 +162,43 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     await s.page.goto(`/develop/requests/${String(rid)}?_t=${String(Date.now())}${hash}`);
     await s.page.getByRole('heading', { name: heading }).waitFor({ timeout: 20_000 });
   };
-  // 출력물 — 섹션 제목·표지 제목·조작 UI 수를 읽는다(이미지는 디코드까지 기다린다).
-  const openPrint = async (): Promise<{ cover: string; sections: string[]; buttons: number; iframes: number; figures: number[] }> => {
+  // 출력물(16:9 장 판) — 장 종류 · 표지의 문서 이름 · 실린 표 · 조작 UI 수 · 넘친 장 수를 읽는다(이미지는 디코드까지 기다린다).
+  // 장은 높이를 잰 뒤에 그려지므로 첫 장이 뜰 때까지 기다린다.
+  interface PrintInfo {
+    doc: string;
+    kinds: string[];
+    tables: string[];
+    buttons: number;
+    iframes: number;
+    figures: number[];
+    overflow: number;
+    sizes: string[];
+    text: string;
+  }
+  const openPrint = async (): Promise<PrintInfo> => {
     await s.page.goto(`/develop/requests/${String(rid)}/print?_t=${String(Date.now())}`);
-    await s.page.getByRole('heading', { name: '1. 상세 의뢰 내용' }).waitFor({ timeout: 20_000 });
+    await s.page.locator('.develop-deck .deck-slide').first().waitFor({ timeout: 20_000 });
     return s.page.evaluate(async () => {
       await Promise.all([...document.images].map((i) => i.decode().catch(() => null)));
-      const root = document.querySelector('.develop-print');
+      const root = document.querySelector('.develop-deck');
+      const slides = [...(root?.querySelectorAll<HTMLElement>('.deck-slide') ?? [])];
       return {
-        cover: root?.querySelector('h1')?.textContent?.trim() ?? '',
-        sections: [...(root?.querySelectorAll('[data-print-section] > h2') ?? [])].map((h) => h.textContent?.trim() ?? ''),
+        doc: root?.querySelector('[data-deck="doc-name"]')?.textContent?.trim() ?? '',
+        kinds: slides.map((el) => el.getAttribute('data-deck-kind') ?? ''),
+        tables: [...(root?.querySelectorAll('[data-deck-table]') ?? [])].map((el) => el.getAttribute('data-deck-table') ?? ''),
         buttons: root?.querySelectorAll('button, a, input, textarea, select, details').length ?? -1,
         iframes: root?.querySelectorAll('iframe').length ?? -1,
-        figures: [...(root?.querySelectorAll('figure img') ?? [])].map((i) => (i as HTMLImageElement).naturalWidth),
+        figures: [...(root?.querySelectorAll('img[data-deck="diagram"]') ?? [])].map((i) => (i as HTMLImageElement).naturalWidth),
+        overflow: root?.querySelectorAll('[data-deck-overflow]').length ?? -1,
+        sizes: [...new Set(slides.map((el) => `${String(el.offsetWidth)}x${String(el.offsetHeight)}`))],
+        text: root?.textContent ?? '',
       };
     });
   };
+  // 장 종류의 차례 — 같은 종류가 이어지면 하나로, 내용 양에 따라 생기는 장(세부 답변 · 첨부 · 문서가 제 장을 가질 때)은 뺀다.
+  const OPTIONAL_KINDS = ['brief', 'files', 'docs', 'text', 'qa'];
+  const kindOrder = (kinds: readonly string[]): string[] =>
+    kinds.filter((k) => !OPTIONAL_KINDS.includes(k)).filter((k, i, all) => i === 0 || all[i - 1] !== k);
   // 마일스톤 결제 — 화면의 결제 버튼이 주문서로 보내는지까지 보고, 완료는 관리자 수동 입금 확인. 체크아웃이 넣은 장바구니 행만 지운다.
   const payMilestone = async (title: string): Promise<void> => {
     await openTab('#quotes', '3. 견적서');
@@ -271,16 +292,19 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(await row.getByText('PCB + 앱', { exact: true }).count()).toBe(1);
   }, LONG);
 
-  test('1-1. 접수 직후 출력물 — 제품 개발 제안서, 내용 없는 섹션은 뺀다', async () => {
+  test('1-1. 접수 직후 출력물 — 제품 개발 제안서, 내용 없는 장은 만들지 않는다', async () => {
     await s.page.goto(`/develop/requests/${String(rid)}`);
     const link = s.page.getByRole('link', { name: '출력하기' });
     await link.waitFor();
     expect(await link.getAttribute('href')).toBe(`/develop/requests/${String(rid)}/print`);
     expect(await link.getAttribute('target')).toBe('_blank');
     const p = await openPrint();
-    expect(p.cover).toBe('제품 개발 제안서');
-    expect(p.sections, '진행 · 문의는 출력물에 싣지 않는다(2026-11-06)').toEqual(['1. 상세 의뢰 내용']);
+    expect(p.doc).toBe('제품 개발 제안서');
+    expect(kindOrder(p.kinds), '검토서 · 진행 현황 장은 아직 없다(견적서 · 진행 · 문의는 원래 싣지 않는다 — 2026-11-06)').toEqual(['cover', 'overview']);
+    expect(p.tables, '의뢰 조건 표').toContain('overview');
+    expect(p.text).toContain(TITLE);
     expect(p.buttons, '출력물에 누를 것이 없다').toBe(0);
+    expect(p.overflow, '넘친 장 없음').toBe(0);
   }, LONG);
 
   test('2. 관리자 검토서·구성도 공개 → 검토서 탭(요약·도면 2장·간트·전문가 검토·모델명 숨김)', async () => {
@@ -576,35 +600,41 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(s.pageErrors).toEqual([]);
   }, LONG);
 
-  test('11. 완료 뒤 출력물 — 개발 진행 보고서(섹션 3·구성도 이미지 2장·조작 UI 0·PDF 여러 쪽)', async () => {
+  test('11. 완료 뒤 출력물 — 개발 진행 보고서(16:9 장 · 구성도 도면 2장 · 조작 UI 0 · 장 수 = PDF 쪽 수)', async () => {
     const p = await openPrint();
-    expect(p.cover).toBe('개발 진행 보고서');
-    // 견적서·진행 · 문의는 싣지 않는다(2026-11-06 사용자 결정 — 견적서는 견적서 인쇄·PDF 가 따로 있다)
-    expect(p.sections).toEqual(['1. 상세 의뢰 내용', '2. AI 사전 검토서', '3. 진행 현황 · 프로젝트 문서']);
-    expect(p.buttons, '출력물에 누를 것이 없다(수락·결제·검수·받기·접기)').toBe(0);
+    expect(p.doc).toBe('개발 진행 보고서');
+    // 장 순서 — 표지 → 의뢰 개요 → 검토 요약 → 구성도 → 개발 분석 → 일정 → 확인 사항 → 진행 현황.
+    // 견적서 · 진행 · 문의는 싣지 않는다(2026-11-06 사용자 결정 — 견적서는 견적서 인쇄 · PDF 가 따로 있다).
+    expect(kindOrder(p.kinds)).toEqual(['cover', 'overview', 'summary', 'diagram', 'area', 'schedule', 'questions', 'tasks']);
+    expect(p.kinds.filter((k) => k === 'diagram').length, '도면 한 장에 한 장').toBe(2);
+    expect(p.tables, '의뢰 조건 · 일정 · 프로젝트 문서 표').toEqual(expect.arrayContaining(['overview', 'schedule', 'docs']));
+    expect(p.buttons, '출력물에 누를 것이 없다(수락 · 결제 · 검수 · 받기 · 접기)').toBe(0);
     expect(p.iframes, '구성도는 iframe 이 아니라 이미지로').toBe(0);
     expect(p.figures.length).toBe(2);
     expect(p.figures.every((w) => w > 0), '도면 이미지가 디코드된다').toBe(true);
+    expect(p.overflow, '넘친 장 없음(배분 · 글자 맞춤이 다 담았다)').toBe(0);
+    expect(p.sizes, '장은 모두 1280×720').toEqual(['1280x720']);
+    // 구성도는 도면만 — 도면 앞뒤 글(요구사항 확인 요약 · 확정된 구성 · 미확정 항목)은 싣지 않는다(2026-11-12 사용자 결정).
+    for (const gone of ['요구사항 확인 요약', '확정된 구성', '미확정 항목']) expect(p.text, gone).not.toContain(gone);
+    // 검토서 내용 — 요구사항 · 분야 명세 · 일정 합계 · 확인 결과 · 담당자 의견이 실린다. 생성 모델명은 싣지 않는다.
+    for (const kept of ['배터리 구동 · 저전력 BLE 광고 1초 주기', 'CR2032 · LDO 3.0V', `${String(MIN_SUM)}~${String(MAX_SUM)}주`, '상담 결과: 3D 프린팅 외장으로 진행', '배터리 수명 목표(1년)']) {
+      expect(p.text, kept).toContain(kept);
+    }
+    expect(p.text).not.toContain('e2e-model-hidden');
     const page = s.page;
-    // 쪽 나누기(와 그 앞의 크기 규칙)가 끝날 때까지 — data-pages 가 0 이면 아직이다
-    await page.waitForFunction(() => Number(document.querySelector('.develop-print')?.getAttribute('data-pages') ?? '0') > 0, undefined, { timeout: 20_000 });
-    expect(await page.locator('[data-print-section="quotes"], [data-print-section="timeline"]').count(), '견적서·진행 · 문의 섹션 없음').toBe(0);
-    expect(await page.getByTestId('develop-quote-sheet').count()).toBe(0);
-    // 첫 내용 쪽 머리 띠(의뢰 제목 · 개발 분야 · 접수일자 · 진행상태) · 크기 규칙(글자 −2px — 섹션 제목 22→20, 표지는 예외)
-    expect(await page.locator('[data-print-section="content"] > [data-print-noscale]').textContent()).toMatch(/개발 분야 :.+접수일자 :.+진행상태 :/);
-    const sizes = await page.evaluate(() => {
-      const fs = (sel: string): string => getComputedStyle(document.querySelector(sel) ?? document.body).fontSize;
-      return { section: fs('[data-print-section="content"] > h2'), cover: fs('[data-print-section="cover"] h1') };
-    });
-    expect(sizes).toEqual({ section: '20px', cover: '42px' });
-    // 인쇄(PPT 4:3, 디자인 체크리스트 8번) — 표지 + 섹션(3)마다 새 쪽이라 최소 4쪽이고, 화면 판 수(data-pages)와 인쇄 쪽 수가 같다
-    // (화면이 민 자리에서 인쇄도 끊는다). 배경 그래픽을 끈 기본 설정으로도 찍힌다(print-color-adjust).
-    const screenPages = Number(await page.locator('.develop-print').getAttribute('data-pages'));
+    expect(await page.getByTestId('develop-quote-sheet').count(), '견적서 문서 없음').toBe(0);
+    // 인쇄 — 장마다 한 쪽이고 용지는 장 크기 그대로(13.333×7.5in = 960×540pt). 배경 그래픽을 끈 기본 설정으로 뽑는다(print-color-adjust).
+    const slideCount = Number(await page.locator('.develop-deck').getAttribute('data-slides'));
+    await page.emulateMedia({ media: 'print' });
     const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: false });
+    await page.emulateMedia({ media: 'screen' });
     writeFileSync(join(outputDir, 'develop-request-print.pdf'), pdf); // 눈으로 확인할 산출물(output 은 git 밖)
-    const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
-    expect(pages).toBeGreaterThanOrEqual(4);
-    expect(pages, '화면 판 수 = 인쇄 쪽 수').toBe(screenPages);
+    const raw = pdf.toString('latin1');
+    const pages = (raw.match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+    expect(slideCount).toBe(p.kinds.length);
+    expect(pages, '장 수 = 인쇄 쪽 수').toBe(slideCount);
+    const box = (/\/MediaBox\s*\[([^\]]+)\]/.exec(raw)?.[1] ?? '').trim().split(/\s+/).map(Number);
+    expect(box.slice(2).map((n) => Math.round(n)), '용지 = 16:9 장').toEqual([960, 540]);
     expect(s.pageErrors).toEqual([]);
   }, LONG);
 });

@@ -20,7 +20,6 @@ const props = defineProps<{
   versionLabel: string;
   pendingNote: string;
   wishLabel: string; // 의뢰의 희망 완료 시기(날짜 또는 자유문) — 일정 카드의 희망 시점 칸
-  print?: boolean; // 출력물 — 구성도는 이미지로, 전문가 검토는 펼친 채
   sectionNo?: number; // 상위 섹션 번호(탭 '2. AI 사전 검토서') — 있으면 소제목에 '2-1.'~'2-4.'를 붙인다(시안 70:7029·출력 슬라이드)
 }>();
 
@@ -93,11 +92,11 @@ const schedule = computed(() => props.review?.schedule ?? null);
       </div>
     </section>
 
-    <ReviewDiagram v-if="diagramHtml !== null" :html="diagramHtml" :meta-line="diagramMeta" :print="print" :no="noOf('diagram')" />
+    <ReviewDiagram v-if="diagramHtml !== null" :html="diagramHtml" :meta-line="diagramMeta" :no="noOf('diagram')" />
 
     <template v-if="review !== null">
       <ReviewSchedule v-if="schedule !== null && schedule.phases.length > 0" :schedule="schedule" :wish-label="wishLabel" :no="noOf('schedule')" />
-      <ReviewSpec :review="review" :print="print" :no="noOf('spec')" />
+      <ReviewSpec :review="review" :no="noOf('spec')" />
 
       <!-- 담당자 의견(시안에 없음 — 같은 카드 모양) -->
       <section v-if="review.adminComment" class="flex flex-col gap-[8px] rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]">

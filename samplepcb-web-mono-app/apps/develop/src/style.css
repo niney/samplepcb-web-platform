@@ -79,22 +79,16 @@ body {
   .print-hidden { display: none !important; }
 }
 
-/* 의뢰 출력물(RequestPrint) — 브라우저는 인쇄 때 배경을 지우므로(간트 막대·칩·요약 카드가 사라진다) 그대로 찍게 하고,
-   쪽은 화면 판과 같은 자리에서 넘긴다(lib/print-paginate 가 민 덩어리 = data-pb). 표지 뒤 섹션은 새 쪽에서 시작하고(나누기 전에
-   인쇄해도), 카드·행·도면은 쪽 경계에서 쪼개지 않는다. 용지(PPT 4:3 10×7.5in)는 화면이 @page 를 붙인다.
-   쪽을 넘은 카드는 화면처럼 이어 붙인다(box-decoration-break 기본 slice) — 쪽마다 여백을 다시 두르면 인쇄 쪽이 화면 판보다 길어진다.
-   도면은 한 쪽(내용 높이 640)에 들게 줄인다. */
-.develop-print {
+/* 의뢰 출력물(RequestPrint, 16:9 장 판) — 장(.deck-slide)은 1280×720 고정이고 용지도 같은 크기라(@page 는 화면이 붙인다) 장 = 쪽.
+   화면에서는 장마다 테두리 · 그림자를 두르고 창 폭에 맞춰 줄여 보인다(zoom). 인쇄는 원래 크기로, 장마다 쪽을 넘긴다.
+   바탕(옅은 파랑 상자)이 '배경 그래픽' 꺼짐에서도 찍히게 한다. */
+.develop-deck {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
-.develop-print figure img { max-height: 480px; object-fit: contain; }
-.develop-print iframe { max-height: 520px; }
+.develop-deck .deck-slide { box-shadow: 0 0 0 1px #e3e6eb, 0 10px 28px rgba(11, 18, 32, 0.06); }
 @media print {
-  .develop-print .print-page + .print-page { break-before: page; }
-  .develop-print [data-pb] { margin-top: 0 !important; break-before: page; }
-  .develop-print :is(h2, h3, h4) { break-after: avoid; }
-  .develop-print :is(li, tr, img, figure, .print-keep) { break-inside: avoid; }
-  /* 카드 그림자는 쪽 경계에서 검은 띠로 찍힌다 — 종이에선 얇은 테두리로 바꾼다. */
-  .develop-print [class*='shadow-'] { box-shadow: none !important; outline: 1px solid #e3e6eb; outline-offset: -1px; }
+  .develop-deck { zoom: 1 !important; gap: 0 !important; margin: 0 !important; }
+  .develop-deck .deck-slide { box-shadow: none; break-after: page; break-inside: avoid; }
+  .develop-deck .deck-slide:last-child { break-after: auto; }
 }

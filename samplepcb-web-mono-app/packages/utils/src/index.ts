@@ -44,6 +44,7 @@ export * from './dev-review-diff';
 export * from './dev-review-view';
 export * from './spec-units';
 
+export * from './deck-pack';
 export * from './bom-pricing';
 export * from './bom-quote-presentation';
 export * from './kst-date';
