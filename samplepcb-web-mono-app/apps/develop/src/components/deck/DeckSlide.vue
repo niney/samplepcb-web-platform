@@ -76,7 +76,7 @@ onUpdated(fit);
           <p v-if="subtitle !== ''" class="mt-[8px] h-[26px] truncate text-[17px] leading-[26px] text-tx-2">{{ subtitle }}</p>
         </template>
       </header>
-      <div ref="bodyEl" class="mx-[64px] mb-[18px] min-h-0 flex-1 overflow-hidden" :class="title === '' ? '' : 'mt-[26px]'">
+      <div ref="bodyEl" class="mx-[64px] mb-[18px] min-h-0 flex-1 overflow-hidden" :class="title === '' ? '' : 'mt-[26px]'" data-deck-body>
         <div ref="fitEl" class="flex min-h-full flex-col"><slot /></div>
       </div>
     </template>

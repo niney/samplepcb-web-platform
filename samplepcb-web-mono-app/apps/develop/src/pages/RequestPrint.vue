@@ -173,7 +173,8 @@ interface TextPlan {
 }
 interface Measured {
   sizes: Record<string, number[]>;
-  description: TextPlan;
+  description: TextPlan; // 제 장에 실을 때의 계획(wide · columns)
+  descriptionInline: boolean; // 의뢰 개요 오른쪽 단에 들 수 있는가
   comment: TextPlan;
 }
 const measureEl = ref<HTMLElement | null>(null);
@@ -202,14 +203,14 @@ watch(
       const el = host(`${key}-dense`);
       return { mode: 'columns', chunks: el === null ? [text] : splitTextToFit(el, text, CAP) };
     };
-    // 의뢰 내용 — 조건 표가 한 단에 들고 글도 한 단에 들면 의뢰 개요 한 장에 같이 싣는다.
-    const overviewFits = DECK_TABLE_HEAD.dense + sum(sizes['overview:dense'] ?? []) + 2 <= CAP;
-    const descInline = overviewFits && TEXT_HEAD + one('desc-dense') <= CAP;
+    // 의뢰 내용 — 조건 표와 글이 저마다 한 단에 들면 의뢰 개요 한 장에 같이 실을 수 있다(실제로 그렇게 할지는 장 수를 보고 정한다).
+    const overviewFits = DECK_TABLE_HEAD.dense + sum(sizes['overview:dense'] ?? []) + 2 <= CAP * DECK_STRETCH;
     // 담당자 의견 — 검토 요약 장에 같이 들면 거기에, 아니면 뒤쪽 장으로.
     const commentText = d.review?.adminComment ?? '';
     measured.value = {
       sizes,
-      description: descInline ? { mode: 'inline', chunks: [d.description] } : flow(d.description, 'desc'),
+      description: flow(d.description, 'desc'),
+      descriptionInline: overviewFits && TEXT_HEAD + one('desc-dense') <= CAP * DECK_STRETCH,
       comment: commentText === '' || one('summary') <= CAP ? { mode: 'inline', chunks: [commentText] } : flow(commentText, 'comment'),
     };
   },
@@ -241,7 +242,7 @@ type Slide = SlideHead &
     | { kind: 'overview'; rows: DeckRow[]; text: string; extras: TableId[] }
     | TableSlide
     | { kind: 'text'; wide: boolean; columns: string[] }
-    | { kind: 'qa'; understood: string; items: DeckQaItem[] }
+    | { kind: 'qa'; understood: string; columns: DeckQaItem[][] }
     | { kind: 'summary'; comment: string }
     | { kind: 'diagram'; figure: DiagramFigure | null; name: string; index: number; count: number }
     | { kind: 'area-solo'; area: DeckArea }
@@ -325,18 +326,27 @@ const slides = computed<Slide[]>(() => {
   push({ kind: 'cover', key: 'cover', section: '', title: '', subtitle: '' });
 
   // 의뢰 개요 — 왼쪽 단에 조건 표, 오른쪽 단에 의뢰 내용 · 세부 질문 답변 · 첨부 자료를 드는 만큼 쌓는다(행 두셋짜리 표가
-  // 한 장을 혼자 쓰지 않게). 오른쪽에 실을 것이 없으면 조건 표만 넓게. 못 실은 것은 아래에서 제 장을 갖는다.
-  const inlined = new Set<TableId>();
-  let used = m.description.mode === 'inline' ? TEXT_HEAD + one('desc-dense') : 0;
-  if (denseHeight('overview') <= CAP) {
-    for (const id of ['brief', 'files'] as const) {
+  // 한 장을 혼자 쓰지 않게). 짜임은 둘 — ㉠ 의뢰 내용을 오른쪽 단에 싣고 남는 자리에 표 ㉡ 오른쪽 단은 표만, 의뢰 내용은 제 장 —
+  // 가운데 장 수가 적은 쪽(같으면 ㉠: 조건 옆에 내용이 있는 편이 읽기 좋다). 조건 표가 한 단에 안 들면 표만 넓게 싣고 나머지는 제 장.
+  const smallTables = (['brief', 'files'] as const).filter((id) => tables.value[id].rows.length > 0);
+  const stack = (start: number): TableId[] => {
+    const ids: TableId[] = [];
+    let used = start;
+    for (const id of smallTables) {
       const next = used + (used > 0 ? EXTRA_GAP : 0) + denseHeight(id);
-      if (tables.value[id].rows.length === 0 || next > CAP * DECK_STRETCH) continue;
-      inlined.add(id);
+      if (next > CAP * DECK_STRETCH) continue;
+      ids.push(id);
       used = next;
     }
-  }
-  if (used > 0) {
+    return ids;
+  };
+  const overviewFits = denseHeight('overview') <= CAP * DECK_STRETCH;
+  const textSlideCount = m.description.mode === 'wide' ? 1 : Math.ceil(m.description.chunks.length / 2);
+  const besideText = stack(TEXT_HEAD + one('desc-dense'));
+  const tablesOnly = stack(0);
+  const textInline = overviewFits && m.descriptionInline && smallTables.length - besideText.length <= textSlideCount + smallTables.length - tablesOnly.length;
+  const inlined = new Set<TableId>(overviewFits ? (textInline ? besideText : tablesOnly) : []);
+  if (textInline || inlined.size > 0) {
     push({
       kind: 'overview',
       key: 'overview',
@@ -344,23 +354,28 @@ const slides = computed<Slide[]>(() => {
       title: '의뢰 개요',
       subtitle: '',
       rows: tables.value.overview.rows,
-      text: m.description.mode === 'inline' ? d.description : '',
+      text: textInline ? d.description : '',
       extras: [...inlined],
     });
   } else {
     list.push(...tableSlides('overview', SECTION.request, '의뢰 개요'));
   }
-  if (m.description.mode !== 'inline') textSlides(m.description, 'description', SECTION.request, '의뢰 내용');
+  if (!textInline) textSlides(m.description, 'description', SECTION.request, '의뢰 내용');
 
-  // AI 추가 질문 — 'AI 가 이해한 내용'은 첫 장 위에.
+  // AI 추가 질문 — 'AI 가 이해한 내용'은 첫 장 위에. 한 단으로 한 장에 들면 그대로, 아니면 두 단씩(짧은 문답이라 두 단이 잘 찬다).
   const stored = qa.value;
   if (stored !== null && size('qa').length === stored.items.length) {
     const lead = stored.understood === '' ? 0 : one('qa-lead') + LEAD_GAP;
     const head = { kind: 'qa' as const, section: SECTION.request, subtitle: '자료를 읽고 더 여쭌 질문과 주신 답변입니다.' };
-    const chunks = stored.items.length === 0 ? [[]] : balanceDeckChunks(size('qa'), CAP_SUB, QA_GAP, { lead });
-    chunks.forEach((chunk, i) => {
-      push({ ...head, key: `qa${String(i)}`, title: numbered('AI 추가 질문', i, chunks.length), understood: i === 0 ? stored.understood : '', items: pick(stored.items, chunk) });
-    });
+    const single = lead + sum(size('qa')) + Math.max(0, stored.items.length - 1) * QA_GAP;
+    if (single <= CAP_SUB * DECK_STRETCH) {
+      push({ ...head, key: 'qa0', title: 'AI 추가 질문', understood: stored.understood, columns: [stored.items] });
+    } else {
+      const groups = pairs(balanceDeckChunks(size('qa:dense'), CAP_SUB - lead, QA_GAP, { multipleOf: 2 }));
+      groups.forEach((group, i) => {
+        push({ ...head, key: `qa${String(i)}`, title: numbered('AI 추가 질문', i, groups.length), understood: i === 0 ? stored.understood : '', columns: group.map((c) => pick(stored.items, c)) });
+      });
+    }
   }
 
   // 세부 질문 답변
@@ -521,6 +536,7 @@ const px = (n: number): string => `${String(n)}px`;
         <div :style="{ width: px(DECK_COLUMN_WIDTH) }">
           <DeckTable v-for="id in HALVES" :key="id" :cols="tables[id].denseCols" :rows="tables[id].rows" dense :measure="`${id}:dense`" />
           <DeckAreaBlock v-for="a in areas" :key="a.key" :area="a" variant="column" data-measure="area" />
+          <template v-if="qa !== null"><DeckQa v-for="item in qa.items" :key="item.key" :item="item" data-measure="qa:dense" /></template>
           <p :class="TEXT_DENSE" data-measure="desc-dense">{{ description }}</p>
           <p v-if="comment !== ''" :class="TEXT_DENSE" data-measure="comment-dense">{{ comment }}</p>
         </div>
@@ -596,8 +612,15 @@ const px = (n: number): string => `${String(n)}px`;
             <!-- AI 추가 질문 -->
             <DeckSlide v-else-if="s.kind === 'qa'" :page="si + 1" :kind="s.kind" :footer="detail.title" :section="s.section" :title="s.title" :subtitle="s.subtitle">
               <p v-if="s.understood !== ''" :class="QA_LEAD" :style="{ marginBottom: px(LEAD_GAP) }"><b class="font-semibold">AI 가 이해한 내용</b> — {{ s.understood }}</p>
-              <div v-if="s.items.length > 0" class="flex flex-col" :style="{ rowGap: px(QA_GAP) }">
-                <DeckQa v-for="item in s.items" :key="item.key" :item="item" />
+              <div
+                v-if="s.columns.some((c) => c.length > 0)"
+                class="grid items-start"
+                :class="s.columns.length > 1 ? 'grid-cols-2' : ''"
+                :style="{ columnGap: px(DECK.colGap) }"
+              >
+                <div v-for="(col, ci) in s.columns" :key="ci" class="flex flex-col" :style="{ rowGap: px(QA_GAP) }">
+                  <DeckQa v-for="item in col" :key="item.key" :item="item" />
+                </div>
               </div>
               <p v-else class="text-[17px] leading-[1.6] text-tx-3">자료가 충분해 추가 질문이 없었습니다.</p>
             </DeckSlide>
