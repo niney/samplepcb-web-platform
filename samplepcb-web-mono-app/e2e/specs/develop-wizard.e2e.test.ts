@@ -152,9 +152,9 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       await fillDescribe(s, titles.system);
       await s.page.getByText('전문가에게 맡김', { exact: false }).first().click();
       await next(s);
-      // ③ 맡김 박스 + 디자인·기구 범위 2문항. 외부 업체 메모는 해당 선택에서만 보인다.
+      // ③ 맡김 박스 + 외관·기구·앱/서버 범위 3문항. 외부 업체 메모는 해당 선택에서만 보인다.
       await s.page.getByText('전문가 검토로 접수합니다').waitFor();
-      await s.page.getByText('제품 외관·기구 개발 범위').waitFor();
+      await s.page.getByText('외관·기구·앱/서버 개발 범위').waitFor();
       expect(await s.page.locator('textarea').count()).toBe(0);
       expect(await s.page.getByText('제품디자인·기구설계 업무를 어떤 방식으로 진행할까요?').count()).toBe(0);
       const vendorNote = s.page.getByPlaceholder('업체가 맡는 범위와 자료 전달 예정 시기 (선택)');
@@ -166,6 +166,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(await vendorNote.count()).toBe(0);
       await s.page.getByRole('button', { name: '다른 업체가 진행 중·진행 예정', exact: true }).nth(1).click();
       await vendorNote.fill('기구설계 업체, 10월 초 도면 전달');
+      // 앱·서버가 필요 없는 제품(2026-11-06) — 저장 분야는 6분야 그대로, AI 검토 분야에서만 빠진다.
+      await s.page.getByRole('button', { name: '앱·서버는 필요 없음', exact: true }).click();
       await next(s);
       // ④ 시제품 수량 미정 + 제작 범위 하나 → 자재 조달·납품 형태 선택이 열린다.
       await s.page.getByRole('heading', { name: '시제품과 생산 계획' }).waitFor();
@@ -186,12 +188,16 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(d.answers).toEqual([
         { code: 'system.product_design', choices: ['modify'] },
         { code: 'system.mech_design', choices: ['other_vendor'], note: '기구설계 업체, 10월 초 도면 전달' },
+        { code: 'system.software', choices: ['none'] },
       ]);
       expect(d.production?.prototype).toBe('undecided');
       expect(d.production?.scopes).toEqual(['pcb_fab']);
       expect(d.currentStage).toBe('idea');
       expect(d.targetStage).toBe('prototype_done');
       expect(d.wishNote).toBe('계약 후 3개월');
+      // 고객 상세 — 저장 분야는 6분야 그대로, 범위 답으로 AI 검토에서 뺀 분야를 메뉴 옆에 적는다(2026-11-06)
+      await s.page.goto(`/develop/requests/${String(d.requestId)}?_t=${String(Date.now())}`);
+      await s.page.getByText('시스템 개발 (기구·앱·서버 제외)', { exact: true }).waitFor({ timeout: 20_000 });
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();
@@ -749,6 +755,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(await s.page.getByText('전문가 맡김', { exact: false }).count()).toBeGreaterThan(0);
       expect(await s.page.getByText('시제품 수량 미정 · PCB 제작').count()).toBeGreaterThan(0);
       expect(await s.page.getByText('아이디어 → 시제품 완성').count()).toBeGreaterThan(0);
+      // 범위 답(기구 다른 업체 · 앱·서버 필요 없음)으로 AI 검토에서 뺀 분야 — 의뢰 방식 칩 옆(2026-11-06)
+      expect(await s.page.getByText('기구·앱·서버 제외', { exact: true }).count()).toBeGreaterThan(0);
 
       await s.page.goto(`${web}/app/admin/develop/requests/${String(ind.requestId)}`);
       await s.page.getByText('[e2e] 온도 3점 → 임계 초과 → 밸브 닫기').first().waitFor({ timeout: 20_000 });

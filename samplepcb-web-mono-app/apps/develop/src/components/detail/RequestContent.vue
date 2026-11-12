@@ -12,6 +12,7 @@ import {
   developFollowupAnswerText,
   developPcbMaterialsMode,
   developProductionSummary,
+  developSystemScopeNote,
   developWishLabel,
   isDevelopFollowupAnswered,
   isDevelopFollowupUnknown,
@@ -41,7 +42,12 @@ const aiRows = computed(() =>
     muted: !isDevelopFollowupAnswered(q) || isDevelopFollowupUnknown(q),
   })),
 );
-const menuLabel = computed(() => developAreaBadge(props.detail.serviceAreas));
+// 시스템개발은 범위 답으로 뺀 분야를 붙인다('시스템 개발 (앱·서버 제외)', 2026-11-06).
+const menuLabel = computed(() => {
+  const note = developSystemScopeNote(props.detail.requestMode, props.detail.answers);
+  const badge = developAreaBadge(props.detail.serviceAreas);
+  return note === '' ? badge : `${badge} (${note})`;
+});
 const budgetLabel = computed(() => DEVELOP_BUDGET_RANGE_LABELS[props.detail.budgetRange]);
 const currentStageLabel = computed(() => (props.detail.currentStage === null ? '—' : DEVELOP_CURRENT_STAGE_LABELS[props.detail.currentStage]));
 const targetStageLabel = computed(() => (props.detail.targetStage === null ? '—' : DEVELOP_TARGET_STAGE_LABELS[props.detail.targetStage]));

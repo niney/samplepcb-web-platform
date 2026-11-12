@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
-import { DEVELOP_REQUEST_MODE_LABELS, DEVELOP_REQUEST_STATUS_LABELS, apiRoutes, developAreaBadge } from '@sp/api-contract';
+import { DEVELOP_REQUEST_MODE_LABELS, DEVELOP_REQUEST_STATUS_LABELS, apiRoutes, developAreaBadge, developSystemScopeNote } from '@sp/api-contract';
 import { FilePreviewModal, apiErrorMessage } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
 import { developBackTo } from '../../admin/develop-navigation';
@@ -48,6 +48,8 @@ const detail = computed(() => data.value?.data);
 const areaBadge = computed(() => {
   const d = detail.value;
   if (d === undefined) return '';
+  const scope = developSystemScopeNote(d.requestMode, d.answers); // 시스템개발 범위 답으로 뺀 분야(2026-11-06)
+  if (scope !== '') return scope;
   const badge = developAreaBadge(d.serviceAreas);
   return badge === DEVELOP_REQUEST_MODE_LABELS[d.requestMode] ? '' : badge;
 });

@@ -28,8 +28,11 @@ import {
   developQuestion,
   developQuestionsFor,
   developRequiredMissing,
+  developReviewAreas,
   developReverseRightsCheckNeeded,
   developSlotLabel,
+  developSystemExcludedAreas,
+  developSystemScopeNote,
   developVisibleQuestionsFor,
   developWishCode,
   isDevelopSystemAreas,
@@ -70,7 +73,7 @@ describe('개발의뢰 레지스트리 정합성', () => {
       if (isTextQuestion(q)) expect(q.options).toEqual([]);
       else expect(q.options.some((o) => o.code === 'unknown')).toBe(true);
     }
-    expect(DEVELOP_SYSTEM_QUESTIONS.filter((q) => q.askOnDelegate === true).length).toBe(2);
+    expect(DEVELOP_SYSTEM_QUESTIONS.filter((q) => q.askOnDelegate === true).length).toBe(3); // 외관·기구·앱/서버 범위(2026-11-06)
     // 기구는 개별 메뉴가 없으니 분야별 질문도 없다(시스템개발 외관·기구 2문항이 대신한다).
     expect(DEVELOP_AREAS.find((a) => a.code === 'mech')?.questions).toEqual([]);
     // 탈출구 없는 choice 문항은 역설계 권리 확인(필수) 하나뿐이다. 필수는 그것과 PCB 회로도·BOM(탈출구 있음, 2026-11-02),
@@ -148,14 +151,14 @@ describe('개발의뢰 레지스트리 정합성', () => {
     for (const code of [...developBudgetOptions(false), ...developBudgetOptions(true)]) expect(DEVELOP_BUDGET_RANGE_LABELS[code]).not.toBe('');
   });
 
-  it('시스템개발이면 분야별 질문 대신 시스템 문항(분석 후 확인 5 + 외관·기구 2), 개별이면 고른 분야 문항만', () => {
+  it('시스템개발이면 분야별 질문 대신 시스템 문항(분석 후 확인 5 + 외관·기구·앱/서버 범위 3), 개별이면 고른 분야 문항만', () => {
     expect(developQuestionsFor(DEVELOP_SYSTEM_AREA_CODES).map((q) => q.code)).toEqual([
-      'system.io', 'system.env', 'system.power', 'system.connect', 'system.cert', 'system.product_design', 'system.mech_design',
+      'system.io', 'system.env', 'system.power', 'system.connect', 'system.cert', 'system.product_design', 'system.mech_design', 'system.software',
     ]);
     expect(isDevelopSystemAreas(DEVELOP_SYSTEM_AREA_CODES)).toBe(true);
     // 역설계가 더 있어도 6분야가 다 있으면 시스템개발 — 6분야 중 하나라도 빠지면 아니다.
     expect(isDevelopSystemAreas(['circuit', 'pcb', 'firmware', 'reverse', 'app', 'server'])).toBe(false);
-    expect(DEVELOP_DELEGATE_KEPT_CODES).toEqual(['system.product_design', 'system.mech_design']);
+    expect(DEVELOP_DELEGATE_KEPT_CODES).toEqual(['system.product_design', 'system.mech_design', 'system.software']);
     expect(keepDevelopDelegateAnswers([
       { code: 'system.io' }, { code: 'system.product_design' }, { code: 'system.mech_design' },
     ]).map((a) => a.code)).toEqual(['system.product_design', 'system.mech_design']);
@@ -363,5 +366,34 @@ describe('등록 payload·생산 계획·희망 시기', () => {
     expect(developWishCode(null, from)).toBeNull();
     expect(developWishCode('2026-01-01', from)).toBeNull();
     expect(developWishCode('not-a-date', from)).toBeNull();
+  });
+
+  it('시스템개발 범위 답 → AI 검토 분야(2026-11-06) — 앱·서버·기구만 빼고 저장 분야·질문 목록은 그대로', () => {
+    const ans = (sw?: string, mech?: string): { code: string; choices: string[] }[] => [
+      ...(sw === undefined ? [] : [{ code: 'system.software', choices: [sw] }]),
+      ...(mech === undefined ? [] : [{ code: 'system.mech_design', choices: [mech] }]),
+    ];
+    // 앱·서버
+    expect(developSystemExcludedAreas(ans('both'))).toEqual([]);
+    expect(developSystemExcludedAreas(ans('app'))).toEqual(['server']);
+    expect(developSystemExcludedAreas(ans('server'))).toEqual(['app']);
+    expect(developSystemExcludedAreas(ans('existing'))).toEqual(['app', 'server']);
+    expect(developSystemExcludedAreas(ans('none'))).toEqual(['app', 'server']);
+    expect(developSystemExcludedAreas(ans('unknown'))).toEqual([]);
+    expect(developSystemExcludedAreas([])).toEqual([]); // 무응답(옛 의뢰)은 지금처럼 6분야
+    // 기구 — 준비됨·다른 업체·필요 없음만 뺀다
+    for (const c of ['ready', 'other_vendor', 'none']) expect(developSystemExcludedAreas(ans(undefined, c)), c).toEqual(['mech']);
+    for (const c of ['request', 'modify', 'unknown']) expect(developSystemExcludedAreas(ans(undefined, c)), c).toEqual([]);
+    expect(developSystemExcludedAreas(ans('none', 'ready'))).toEqual(['mech', 'app', 'server']); // 레지스트리 순서
+    // AI 검토 분야 — 시스템개발만 덜어 내고, 개별 의뢰는 그대로
+    expect(developReviewAreas('system', DEVELOP_SYSTEM_AREA_CODES, ans('app', 'none'))).toEqual(['circuit', 'pcb', 'firmware', 'app']);
+    expect(developReviewAreas('individual', ['app', 'server'], ans('none'))).toEqual(['app', 'server']);
+    expect(developSystemScopeNote('system', ans('none', 'ready'))).toBe('기구·앱·서버 제외');
+    expect(developSystemScopeNote('system', ans('both'))).toBe('');
+    expect(developSystemScopeNote('individual', ans('none'))).toBe('');
+    // 저장 분야는 6분야 그대로라 시스템개발 질문·배지가 유지되고, 범위 질문은 맡김에서도 남는다
+    expect(developQuestionsFor(DEVELOP_SYSTEM_AREA_CODES).map((q) => q.code)).toContain('system.software');
+    expect(DEVELOP_DELEGATE_KEPT_CODES).toEqual(['system.product_design', 'system.mech_design', 'system.software']);
+    expect(developAnswerIssues([{ code: 'system.software', choices: ['none'] }], DEVELOP_SYSTEM_AREA_CODES)).toEqual([]);
   });
 });

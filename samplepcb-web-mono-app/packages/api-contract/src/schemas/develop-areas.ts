@@ -121,9 +121,9 @@ const APP_SERVER_SHARED: readonly MarketQuestionDef[] = [
   },
 ];
 
-// ── 시스템개발 전용 문항 — 분석 후 추가 확인 5 + 디자인·기구 범위 2(선택지) ────
+// ── 시스템개발 전용 문항 — 분석 후 추가 확인 5 + 개발 범위 3(디자인·기구·앱/서버, 선택지) ────
 // 분석 후 추가 확인은 AI 후속 질문이 꺼졌거나 실패했을 때만 보인다(AI 질문이 대신한다). 목적·현재 단계는 2스텝이 받는다.
-// 디자인·기구의 담당을 각각 묻는다. 범위 2문항은 견적 전제라 **전문가에게 맡김을 골라도 묻는다**(askOnDelegate).
+// 디자인·기구의 담당과 앱·서버 개발 여부를 묻는다. 범위 3문항은 견적 전제라 **전문가에게 맡김을 골라도 묻는다**(askOnDelegate).
 const DELEGATE_UNKNOWN_LABEL = '잘 모르겠음 (전문가 판단 요청)'; // 피그마 01-3(135:21830) 표기
 export const DEVELOP_SYSTEM_COLLAB_QUESTIONS: readonly MarketQuestionDef[] = [
   {
@@ -153,6 +153,21 @@ export const DEVELOP_SYSTEM_COLLAB_QUESTIONS: readonly MarketQuestionDef[] = [
     notePlaceholder: '업체가 맡는 범위와 자료 전달 예정 시기 (선택)',
     noteVisibleFor: ['other_vendor'],
     promptHint: '기구설계 자료의 유무·주체는 PCB 외형 제약과 기구 항목의 범위를 정한다',
+  },
+  // 2026-11-06 사용자 결정 — 앱·서버가 필요 없는 제품도 시스템개발이면 6분야가 다 붙어 검토서·구성도에 빈 앱·서버 칸과
+  // 지어낸 토폴로지가 생겼다. AI 후속 질문의 답은 선택지 코드가 의뢰마다 달라 분야 판정에 못 써서 고정 질문으로 받는다.
+  // 답 → AI 검토 분야는 developSystemExcludedAreas.
+  {
+    code: 'system.software', label: '스마트폰 앱이나 서버(웹)도 새로 개발해야 하나요?', short: '앱·서버 개발', multi: false, askOnDelegate: true,
+    why: '제품과 연결되는 스마트폰 앱, 데이터를 모으는 서버·웹 관리 화면을 말합니다.',
+    options: withUnknown([
+      { code: 'both', label: '앱과 서버 모두 개발' },
+      { code: 'app', label: '앱만 개발' },
+      { code: 'server', label: '서버(웹)만 개발' },
+      { code: 'existing', label: '이미 있는 앱·서버와 연동만' },
+      { code: 'none', label: '앱·서버는 필요 없음' },
+    ], DELEGATE_UNKNOWN_LABEL),
+    promptHint: '앱·서버를 새로 만드는지는 앱·서버 항목이 이번 범위인지 정한다 — 연동만이면 펌웨어 통신 규격이 기존 앱·서버에 맞춰진다',
   },
 ];
 export const DEVELOP_SYSTEM_QUESTIONS: readonly MarketQuestionDef[] = [
@@ -856,6 +871,42 @@ export function applyDevelopAppServerScope(areas: readonly string[], answers: re
   const keep = scope === 'app' ? ['app'] : scope === 'server' ? ['server'] : ['app', 'server'];
   return sortDevelopAreas([...areas.filter((c) => c !== 'app' && c !== 'server'), ...keep]);
 }
+
+// ── 시스템개발 범위 답 → AI 검토 분야(2026-11-06, 사용자 결정) ────────────────────────────────
+// 저장 serviceAreas 는 6분야 그대로 둔다 — 시스템개발 판정·질문 목록·답 검증(팩토리 isFull)과 '시스템 개발' 배지가 6분야 전부를
+// 보고 동작한다. 줄이는 곳은 AI 사전 검토서·구성도에 넘기는 분야뿐(apps/api develop-ai-source) — 빈 분야 칸·지어낸 토폴로지를 막는다.
+// 회로·PCB·펌웨어는 빼지 않는다(시스템개발의 몸통 — 필요 없으면 개별 메뉴가 맞다).
+export const DEVELOP_SYSTEM_SOFTWARE_CODE = 'system.software';
+export const DEVELOP_SYSTEM_MECH_CODE = 'system.mech_design';
+// 기구설계를 샘플피씨비가 하지 않는 답 — 준비됨·다른 업체·필요 없음(의뢰·수정 의뢰·잘 모르겠음은 남긴다).
+const MECH_OUT_OF_SCOPE: readonly string[] = ['ready', 'other_vendor', 'none'];
+export function developSystemExcludedAreas(answers: readonly { code: string; choices: readonly string[] }[]): string[] {
+  const pick = (code: string): string | undefined => answers.find((a) => a.code === code)?.choices[0];
+  const out: string[] = [];
+  const mech = pick(DEVELOP_SYSTEM_MECH_CODE);
+  if (mech !== undefined && MECH_OUT_OF_SCOPE.includes(mech)) out.push('mech');
+  const software = pick(DEVELOP_SYSTEM_SOFTWARE_CODE);
+  if (software === 'app') out.push('server');
+  else if (software === 'server') out.push('app');
+  else if (software === 'existing' || software === 'none') out.push('app', 'server');
+  return sortDevelopAreas(out);
+}
+// AI 검토 분야 — 시스템개발이면 범위 답으로 뺀 분야를 덜어 낸다. 개별 의뢰는 저장 분야 그대로(이미 고른 것만 있다).
+export function developReviewAreas(
+  mode: string | null,
+  areas: readonly string[],
+  answers: readonly { code: string; choices: readonly string[] }[],
+): string[] {
+  if (mode !== 'system') return [...areas];
+  const excluded = developSystemExcludedAreas(answers);
+  return areas.filter((c) => !excluded.includes(c));
+}
+// 화면 표시 — '기구·앱·서버 제외'. 뺀 분야가 없거나 개별 의뢰면 ''.
+export const developSystemScopeNote = (mode: string | null, answers: readonly { code: string; choices: readonly string[] }[]): string => {
+  if (mode !== 'system') return '';
+  const excluded = developSystemExcludedAreas(answers);
+  return excluded.length === 0 ? '' : `${excluded.map(developAreaShort).join('·')} 제외`;
+};
 
 // 회로 설계 '회로 설계 후 PCB 설계도 필요한가요?' → 저장 분야. 필요함이면 PCB 설계를 더한다(PCB 를 이미 골랐으면 그 문항이 없다).
 export function applyDevelopCircuitPcb(areas: readonly string[], answers: readonly { code: string; choices: readonly string[] }[]): string[] {

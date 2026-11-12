@@ -78,7 +78,7 @@ interface Group {
 }
 const GROUP_AI: Group = { id: 'q-ai', title: '확인이 필요한 항목' };
 const GROUP_BASIC: Group = { id: 'q-basic', title: '분석 후 추가 확인' };
-const GROUP_COLLAB: Group = { id: 'q-collab', title: '제품 외관·기구 개발 범위' };
+const GROUP_COLLAB: Group = { id: 'q-collab', title: '외관·기구·앱/서버 개발 범위' };
 const groups = computed<Group[]>(() => {
   if (!isSystem.value) return shownGroups.value.map((g) => ({ id: `q-area-${g.code}`, title: g.label }));
   const list: Group[] = [];

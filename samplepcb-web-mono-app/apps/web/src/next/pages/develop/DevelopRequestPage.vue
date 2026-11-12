@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { ArrowLeftIcon, TriangleAlertIcon } from '@lucide/vue';
-import { DEVELOP_REQUEST_MODE_LABELS, apiRoutes, developAreaBadge } from '@sp/api-contract';
+import { DEVELOP_REQUEST_MODE_LABELS, apiRoutes, developAreaBadge, developSystemScopeNote } from '@sp/api-contract';
 import { FilePreviewModal, apiErrorMessage } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
 import { useAdminDevelopDetail } from '@/admin/useAdminDevelop';
@@ -56,9 +56,12 @@ const { data, isLoading, isError } = useAdminDevelopDetail(requestId);
 const detail = computed(() => data.value?.data);
 
 // 분야 배지 — 시스템개발은 분야가 6개 전부라 배지 문구도 '시스템개발' 이라 의뢰 방식 칩과 겹친다. 겹치면 지운다.
+// 시스템개발이 범위 답으로 뺀 분야가 있으면 그 자리에 '앱·서버 제외'(2026-11-06 — AI 검토서·구성도도 그 분야를 뺀다).
 const areaBadge = computed(() => {
   const d = detail.value;
   if (d === undefined) return '';
+  const scope = developSystemScopeNote(d.requestMode, d.answers);
+  if (scope !== '') return scope;
   const badge = developAreaBadge(d.serviceAreas);
   return badge === DEVELOP_REQUEST_MODE_LABELS[d.requestMode] ? '' : badge;
 });

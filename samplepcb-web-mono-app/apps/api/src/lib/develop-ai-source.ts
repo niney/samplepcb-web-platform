@@ -8,9 +8,12 @@ import {
   DEVELOP_SOURCING_MODE_LABELS,
   DEVELOP_TARGET_STAGE_LABELS,
   MARKET_ATTACHMENT_FIELD,
+  developAreaLabel,
   developFollowupAnswerText,
   developPcbMaterialsMode,
   developProductionSummary,
+  developReviewAreas,
+  developSystemExcludedAreas,
   developWishCode,
   developWishLabel,
   isDevelopFollowupAnswered,
@@ -92,6 +95,12 @@ export function developConditionLines(r: SourceColumns): string[] {
     if (production.delivery !== null) lines.push(`- 납품 형태 → ${DEVELOP_DELIVERY_FORM_LABELS[production.delivery]}`);
   }
   if (r.expertDelegate) lines.push('- 후속 질문 → 전문가에게 맡김(기술 사양 미입력)');
+  // 시스템개발 범위 답으로 뺀 분야(2026-11-06) — 검토서·구성도 분야는 이미 덜어 냈고(developReviewAreas), 다른 분야 글에서도
+  // 그 작업을 이번 범위로 쓰지 않게 이유를 한 줄로 알린다. 뺀 분야가 없으면 줄이 없어 원천 서명도 그대로다.
+  if (asDevelopRequestMode(r.requestMode) === 'system') {
+    const excluded = developSystemExcludedAreas(toAnswers(r.answers));
+    if (excluded.length > 0) lines.push(`- 이번 의뢰에서 뺀 개발 분야 → ${excluded.map(developAreaLabel).join(', ')} (고객이 개발 범위 질문에 답함)`);
+  }
   return lines;
 }
 
@@ -137,7 +146,8 @@ export async function buildDevelopReviewSource(request: SpDevelopRequest): Promi
   return {
     source: {
       title: request.title,
-      serviceAreas: toDevelopAreaCodes(request.serviceAreas),
+      // 시스템개발은 범위 답으로 뺀 분야를 덜어 낸 분야(검토서 분야 카드·일정·구성도 토폴로지·검토사항이 따라간다)
+      serviceAreas: developReviewAreas(asDevelopRequestMode(request.requestMode), toDevelopAreaCodes(request.serviceAreas), toAnswers(request.answers)),
       description: request.description,
       answers: toAnswers(request.answers),
       attachmentContext,
