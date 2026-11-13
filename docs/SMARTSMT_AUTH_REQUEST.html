@@ -177,6 +177,15 @@
     content: ""; position: absolute; left: 0; top: 5px; width: 16px; height: 16px;
     border: 2px solid var(--ink-3); border-radius: 4px;
   }
+  /* 이미 마친 일 — 채운 상자에 체크. 인쇄할 때도 색이 빠지지 않게 한다. */
+  .check.done li::before {
+    background: var(--ok); border-color: var(--ok);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .check.done li::after {
+    content: ""; position: absolute; left: 5px; top: 7px; width: 6px; height: 10px;
+    border: solid var(--surface); border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
 
   footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
 
@@ -735,11 +744,11 @@ Content-Type: multipart/form-data; boundary=----smartsmtQuoteBoundary</pre>
     <li>7.3 의 견본으로 토큰 검사 코드 확인</li>
   </ul>
 
-  <h3>samplepcb 에서 할 일</h3>
-  <ul class="check">
+  <h3>samplepcb 에서 할 일 <span class="tag sp">모두 마쳤습니다</span></h3>
+  <ul class="check done">
     <li>개발용 공유 비밀을 만들어 전달</li>
     <li>인계 주소 · 견적서 수신 주소를 개발 서버(<code>https://new.samplepcb.co.kr</code>)에 배포</li>
-    <li>로그인 수신 주소 등록 — <code>http://1.255.226.33:8090/auth/samplepcb</code> 로 등록해 둠 (바뀌면 다시 등록)</li>
+    <li>로그인 수신 주소 등록 — <code>http://1.255.226.33:8090/auth/samplepcb</code> (바뀌면 다시 등록합니다)</li>
   </ul>
 
   <h3>회신 부탁드리는 것</h3>
