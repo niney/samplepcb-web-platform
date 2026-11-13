@@ -1,6 +1,7 @@
 # SmartSMT 연동 (로그인 인계 · 견적서 수신 · 관리자 화면)
 
-> **1차 구현 중 (2026-11-13).** 로그인 인계 · 토큰 · 견적서 수신까지 만들었다(§8). 남은 것은 가져오기와 관리자 화면.
+> **1차 구현 완료 (2026-11-14).** 로그인 인계 · 토큰 · 견적서 수신 · 가져오기 · 관리자 화면까지 만들었다(§8).
+> 남은 것은 개발 서버 배포와, SmartSMT 회신(로그인 수신 주소 · 실제 견본 견적서)을 받아 맞추는 일.
 > 결정 대기 항목은 §7, SmartSMT 에 물어야 할 것은 §6.
 > 근거 문서(리포 밖, `.tmp/smt/`): `2026-11-13_smartSMT_API_요청주소.xlsx`(판 0.1),
 > `2026-10-20_smartSMT_견적서_포맷_v0.3.xlsx`(판 0.3, 본문 날짜 2026-10-22).
@@ -248,8 +249,8 @@ SmartSMT 에는 이 값을 요청서와 별도 경로로 전달한다. sp-php `s
 | 1 | 로그인 인계 주소 `GET /spcb/sso/smartsmt` | 완료 |
 | 2 | 토큰 만들기·검사 (sp-node) | 완료 |
 | 3 | 저장 구조(표 3개) + 견적서 수신 `POST /api/smartsmt/quotes` + 수신 기록 | 완료 |
-| 4 | 견적서 가져오기(관리자) | 남음 — SmartSMT 가 토큰 검사로 바꾼 뒤에야 실제 호출 가능 |
-| 5 | 관리자 화면(모듈 `SMT`: 목록 · 상세 · 연동 상태) | 남음 — 세부 칸은 견본 견적서가 와야 확정 |
+| 4 | 견적서 가져오기 `POST /api/admin/smt/pull` | API 완료(2026-11-13) — 관리자 화면의 버튼은 5단계와 함께. 실제 견적서 수신은 SmartSMT 가 토큰 검사로 바꾼 뒤 확인 |
+| 5 | 관리자 화면(모듈 `SMT`: 받은 견적 · 견적 상세 · 연동 상태) | 완료(2026-11-14) — 칸 구성은 문서로 짠 가짜 견본 기준. 실제 견본이 오면 맞춘다 |
 
 **파일**
 - sp-php: `samplepcb-web/spcb/sso/smartsmt.php`, `spcb/lib/secret.php.example`(설정 항목 2개 추가)
@@ -277,16 +278,58 @@ cd ../../e2e && PORTAL_E2E=1 npx vitest run smartsmt-sso   # 로그인 인계 (3
   잘못된 토큰 401 · 파일 내용 바뀜 400 · 파일 없이 200. 수신 기록에 일곱 줄이 남았다. 확인 뒤 시험 행과 파일은 지웠다.
 - 로그인 인계의 토큰은 SmartSMT 전용 비밀로만 검증되고 `JWT_SECRET` 으로는 검증되지 않는다(e2e 가 지킨다).
 
+**가져오기 (4단계)**
+- `POST /api/admin/smt/pull` `{orderId}`(requireAdmin) → sp-node 가 `GET {SMARTSMT_BASE_URL}/api/pricing/envelope?orderId=` 를
+  `Authorization: Bearer`(iss=samplepcb, aud=smartsmt)로 부른다. 받은 견적서는 전송과 같은 길로 저장한다(출처 `pull`, 파일은 전부 `missing`,
+  견적서는 받은 글자 그대로). 이미 가진 `quote_id` 면 저장하지 않고 `duplicate`.
+- 파일: `lib/smartsmt-pull.ts` · `routes/admin-smt.ts` · 테스트 `lib/smartsmt-pull.test.ts`(18) · `routes/admin-smt.test.ts`(8).
+- 실패 코드: `SMARTSMT_NOT_CONFIGURED`(503) · `SMARTSMT_UNREACHABLE`(502) · `SMARTSMT_AUTH_REJECTED`(502) ·
+  `SMARTSMT_NOT_FOUND`(404, 보관 24시간) · `SMARTSMT_NOT_READY`(409, 계산 전 · 확정 전) · `SMARTSMT_BAD_RESPONSE`(502).
+- 물어본 주문과 다른 주문의 견적서가 오면 저장하지 않는다. 다른 주소로 넘기는 응답(3xx)은 따라가지 않는다(토큰이 엉뚱한 곳으로 가지 않게).
+- 가져오기는 수신 기록(`sp_smt_receive_log`)에 남기지 않는다 — 그 원장은 SmartSMT 가 보낸 시도만 담는다. 결과는 화면 응답과 서버 로그에 남는다.
+- 실측(2026-11-13): 실제 SmartSMT 개발 서버를 불렀더니 `403 BAD_KEY` 가 왔고 `502 SMARTSMT_AUTH_REJECTED (HTTP 403 · BAD_KEY)` 로 답했다.
+  SmartSMT 가 아직 `X-API-Key` 방식이라서다 — 요청서대로 토큰 검사로 바뀌면 통한다.
+- 설정: `SMARTSMT_BASE_URL`(비우면 503), `SMARTSMT_TIMEOUT_MS`(기본 10000).
+
+**관리자 화면 (5단계)** — `/app/admin/smt/*`, 리뉴얼 셸(`src/next`)에만 있다(옛 화면 없음).
+- API(`routes/admin-smt.ts`, 전부 requireAdmin): `GET /smt/orders`(탭 · 검색 · 탭별 건수) · `GET /smt/quotes/:id`(견적서 전체 + 파일 + 이력) ·
+  `GET /smt/files/:id`(서버 경유 내려받기 — SmartSMT 견적의 파일만) · `GET /smt/receive-logs` · `GET /smt/link-status` · `POST /smt/pull`.
+  계약과 **라벨 사전**은 `packages/api-contract/src/schemas/smartsmt.ts`. 테스트 `routes/admin-smt.test.ts`(25).
+- 화면: `next/pages/smt/SmtQuotesPage.vue`(받은 견적) · `SmtQuotePage.vue`(견적 상세) · `SmtLinkPage.vue`(연동 상태 + 수신 기록),
+  조각 `next/components/smt/*`(`smt-envelope.ts` = 견적서를 타입 가드로 읽는 곳, `smt-badges.ts` = 배지 색, `useAdminSmt.ts` = 서버 상태 훅),
+  배선 `next/smt-navigation.ts` · `next/admin-menu.ts` · `admin/menu.ts` · `router.ts` · i18n.
+- e2e `specs/admin-smt.e2e.test.ts`(8, `PORTAL_E2E=1`): 견적 4건을 수신 주소로 넣고 목록 · 상세 · 파일 내려받기 · 이력 · 연동 상태 · 가져오기 실패 문장을 보고,
+  끝나면 자기가 만든 것만 지운다. 스크린샷은 `e2e/output/admin-smt-*.png`. 가져오기 단언은 실제 SmartSMT 개발 서버를 1회 부른다.
+- 화면에서 정한 것:
+  - 목록의 한 줄은 주문 1건, 금액 · 상태는 마지막에 받은 견적. 탭은 전체 / 검토 필요(`REVIEW_REQUIRED`) / **합계 미확정**(최종 금액이 null).
+  - 최종 금액이 미정이면 "미정"이라 쓰고 SMT 작업비를 이름을 붙여 보조로 보인다(최종 금액으로 읽히지 않게).
+  - 견적서의 `owner_mb_id` 가 우리 회원이 아니면 "회원 아님" 표지. 아이디가 없거나 회원 조회에 실패하면 표지를 달지 않는다(모름).
+  - 상세의 칸 이름은 SmartSMT 「견적서 전송 양식」의 "뜻" 칸을 따른다. 사전에 없는 코드는 코드 그대로 보인다.
+    블록의 `request_status` · `valuation` · `completeness` 는 값 목록을 받지 못해 코드 그대로다(§6-2).
+  - 요율 · 제어값과 원문 JSON 은 접힌 채로 둔다. 원문에는 관리자 전용 값(`labor_charge` · `user_edits`)이 들어 있다.
+  - 관리자 메모(`sp_smt_order.adminMemo`) 편집은 아직 없다.
+- 견본 데이터로 화면 보기: `pnpm smartsmt:send-sample`(apps/api) 뒤 `/app/admin/smt/quotes`.
+
 **구현하며 정한 것**
 - 인증 실패 기록은 시간당 30건까지만 원장에 남긴다 — 바깥에서 얼마든지 만들 수 있는 요청이라서다.
 - 같은 새 주문의 서로 다른 견적 두 건이 동시에 오면 주문 행에서 유니크 충돌이 난다. 중복으로 답하면 견적을 잃으므로 한 번 더 쓴다.
 - 보낸 서버의 주소는 `X-Real-IP` 에서 읽는다(`lib/client-ip.ts`) — nginx 뒤라 `request.ip` 는 언제나 127.0.0.1 이다.
-- `spcb/lib/secret.php` 의 로그인 수신 주소는 **임시값**(요청서의 예시 경로 `http://1.255.226.33:8090/auth/samplepcb`)이다.
-  SmartSMT 회신을 받으면 바꾼다.
+- 로그인 수신 주소는 **우리가 정해서 알린다**(2026-11-14 사용자 결정): `http://1.255.226.33:8090/auth/samplepcb`.
+  `spcb/lib/secret.php` 에 이 값이 들어 있다. 요청서에는 "다르게 쓰려면 알려 달라"로 적었다 — SmartSMT 의 고객 화면이
+  API 서버(8090)와 다른 주소에 있으면 바꿔야 한다(수신 주소는 고객 화면과 같은 주소여야 세션 쿠키가 실린다).
+- 요청서의 회신 항목은 셋으로 줄였다(2026-11-14): 보내 줄 것 = 실제 견적서 견본 하나, 다르면 알려 줄 것 = 로그인 수신 주소 · 회원 정보 항목.
+  뺀 것 — 구현 가능 여부(어려우면 알려 올 내용), 운영 환경(오픈 전에 다시 묻는다), 담당자 로그인(권한은 SmartSMT 가 직접 관리한다고 요청서 4.4 에 적음).
+- 요청서 5.1 "견적서 보내는 법"을 넣었다 — 보낼 주소 · 인증 헤더 · 파트 표 · 규칙 · curl 예시(로컬 서버로 실제 실행해 확인).
 
 **운영에 올릴 때**
 1. `prisma migrate deploy`(표 3개).
 2. 운영용 공유 비밀을 새로 만들어 `apps/api/.env` 의 `SMARTSMT_SHARED_SECRET` 과 `spcb/lib/secret.php` 의 `SPCB_SMARTSMT_SECRET` 에 같은 값으로 넣는다.
    개발용 값을 그대로 쓰지 않는다. `JWT_SECRET` 과 같은 값이면 두 주소 모두 503 으로 닫힌다.
 3. `secret.php` 의 `SPCB_SMARTSMT_LOGIN_URL` 에 SmartSMT 운영 로그인 수신 주소를 넣는다.
-4. SmartSMT 가 HTTPS 로 바뀌었는지 확인한다(§4.2 "나중에").
+4. `.env` 의 `SMARTSMT_BASE_URL` 에 SmartSMT 운영 주소를 넣는다(가져오기가 부른다).
+5. SmartSMT 가 HTTPS 로 바뀌었는지 확인한다(§4.2 "나중에").
+
+**개발 단계 배포 (2026-11-13 사용자 결정)** — `new.samplepcb.co.kr` · `centrafab.co.kr`(같은 서버, 아직 오픈 전)에 그대로 올려
+SmartSMT 개발 서버와 맞춰 본다. 오픈 전이라 개발용 비밀을 그대로 쓴다: 위 1번, 그리고 서버의 `.env`(`SMARTSMT_SHARED_SECRET` ·
+`SMARTSMT_BASE_URL=http://1.255.226.33:8090`)와 `secret.php`(`SPCB_SMARTSMT_SECRET` · `SPCB_SMARTSMT_LOGIN_URL`)에 로컬과 같은 값을 넣는다.
+**실제 오픈 전에는 2~5번을 다시 한다.**
