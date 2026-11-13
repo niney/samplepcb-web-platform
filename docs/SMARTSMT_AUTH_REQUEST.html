@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartSMT 인증 연동 요청서 — samplepcb</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #f0f2f6;
+    --ink: #15181e;
+    --ink-2: #454c59;
+    --ink-3: #6d7584;
+    --line: #dfe3ea;
+    --accent: #1e56d6;
+    --accent-soft: #e6eefd;
+    --back: #9a4a00;
+    --back-soft: #fdf1e2;
+    --ok: #0b6b4a;
+    --ok-soft: #e3f3ec;
+    --no: #a32222;
+    --no-soft: #fbe9e9;
+    --code-bg: #11151c;
+    --code-ink: #e3e8f0;
+    --code-mute: #8691a3;
+    --radius: 10px;
+    --mono: ui-monospace, "Cascadia Code", "D2Coding", Consolas, Menlo, monospace;
+    --sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116;
+      --surface: #161a21;
+      --surface-2: #1d222b;
+      --ink: #e8ebf1;
+      --ink-2: #b4bbc8;
+      --ink-3: #8891a0;
+      --line: #2a303b;
+      --accent: #7ea6ff;
+      --accent-soft: #18264a;
+      --back: #f0b877;
+      --back-soft: #2e2415;
+      --ok: #5fd0a4;
+      --ok-soft: #12302a;
+      --no: #ff8f8f;
+      --no-soft: #361a1a;
+      --code-bg: #0a0d12;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 940px; margin: 0 auto; padding: 40px 24px 96px; }
+  a { color: var(--accent); }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, pre, kbd { font-family: var(--mono); }
+  :not(pre) > code {
+    font-size: 0.88em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 5px;
+    overflow-wrap: anywhere;
+  }
+
+  /* 머리 */
+  .eyebrow { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); margin: 0 0 8px; }
+  h1 { font-size: 34px; line-height: 1.25; letter-spacing: -0.02em; margin: 0 0 12px; text-wrap: balance; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 0 0 20px; padding: 0; list-style: none; }
+  .meta li {
+    margin: 0; font-size: 13px; color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 2px 12px;
+  }
+  .lead { font-size: 17px; color: var(--ink-2); max-width: 68ch; }
+
+  /* 차례 */
+  .toc {
+    margin: 28px 0 8px; padding: 16px 20px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .toc h2 { font-size: 13px; color: var(--ink-3); margin: 0 0 8px; padding: 0; border: 0; letter-spacing: 0.04em; }
+  .toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 32px; font-size: 15px; }
+  .toc li { break-inside: avoid; }
+  .toc a { text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* 본문 */
+  section { margin-top: 56px; }
+  h2 {
+    font-size: 24px; line-height: 1.35; letter-spacing: -0.01em;
+    margin: 0 0 16px; padding-bottom: 10px; border-bottom: 2px solid var(--ink);
+  }
+  h2 .num { color: var(--accent); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 18px; margin: 32px 0 10px; }
+  h3 .tag {
+    display: inline-block; vertical-align: 2px; margin-left: 8px;
+    font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 10px;
+  }
+  .tag.sp { color: var(--accent); background: var(--accent-soft); }
+  .tag.smt { color: var(--back); background: var(--back-soft); }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+  .card .k { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; }
+  .card h4 { font-size: 16px; margin: 4px 0 6px; }
+  .card p { font-size: 14.5px; color: var(--ink-2); margin: 0; }
+
+  .note, .warn {
+    border-radius: var(--radius); padding: 14px 18px; margin: 16px 0;
+    border: 1px solid var(--line); background: var(--surface);
+    border-left: 4px solid var(--accent);
+  }
+  .warn { background: var(--no-soft); border-color: transparent; border-left-color: var(--no); }
+  .note > :last-child, .warn > :last-child { margin-bottom: 0; }
+  .note strong:first-child, .warn strong:first-child { display: block; margin-bottom: 4px; }
+
+  .tablewrap { overflow-x: auto; margin: 12px 0 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  th { font-size: 13px; color: var(--ink-3); font-weight: 600; background: var(--surface-2); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.nowrap { white-space: nowrap; }
+  .req { color: var(--no); font-weight: 600; white-space: nowrap; }
+  .opt { color: var(--ink-3); white-space: nowrap; }
+
+  pre {
+    margin: 12px 0 16px; padding: 16px 18px;
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: var(--radius); font-size: 13.5px; line-height: 1.6;
+    overflow-x: auto; tab-size: 2;
+  }
+  pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
+  pre .c { color: var(--code-mute); }
+  .cap { font-size: 13px; color: var(--ink-3); margin: -8px 0 16px; }
+
+  /* 순서 그림 */
+  .figure { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: 16px 0; overflow-x: auto; }
+  .figure svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: var(--sans); }
+  .seq .lane { fill: var(--surface-2); stroke: var(--line); }
+  .seq .lane-t { fill: var(--ink); font-size: 15px; font-weight: 700; text-anchor: middle; }
+  .seq .lane-s { fill: var(--ink-3); font-size: 12px; text-anchor: middle; }
+  .seq .life { stroke: var(--line); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; }
+  .seq .msg { stroke: var(--ink-2); stroke-width: 1.6; fill: none; }
+  .seq .lbl { fill: var(--ink); font-size: 13.5px; text-anchor: middle; paint-order: stroke; stroke: var(--surface); stroke-width: 7px; stroke-linejoin: round; }
+  .seq .box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+  .seq .box.smt { fill: var(--back-soft); stroke: var(--back); }
+  .seq .box-t { fill: var(--ink); font-size: 13px; text-anchor: middle; }
+  .seq #ah path { fill: var(--ink-2); }
+
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 40px; margin: 10px 0; }
+  .steps > li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 700;
+    display: grid; place-items: center; font-variant-numeric: tabular-nums;
+  }
+  .steps .why { display: block; font-size: 14px; color: var(--ink-3); }
+
+  .check { list-style: none; padding: 0; }
+  .check li { position: relative; padding-left: 30px; margin: 8px 0; }
+  .check li::before {
+    content: ""; position: absolute; left: 0; top: 5px; width: 16px; height: 16px;
+    border: 2px solid var(--ink-3); border-radius: 4px;
+  }
+
+  footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+
+  @media (max-width: 720px) {
+    .page { padding: 28px 16px 72px; }
+    h1 { font-size: 27px; }
+    .cards { grid-template-columns: 1fr; }
+    .toc ol { columns: 1; }
+  }
+  @media print {
+    body { background: #fff; font-size: 11pt; }
+    .page { max-width: none; padding: 0; }
+    section { margin-top: 28pt; }
+    pre, .tablewrap, .figure, .card, .note, .warn { break-inside: avoid; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    h2, h3 { break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <p class="eyebrow">samplepcb → SmartSMT</p>
+  <h1>SmartSMT 인증 연동 요청서</h1>
+  <ul class="meta">
+    <li>판 0.1</li>
+    <li>2026-11-13</li>
+    <li>협의용 초안</li>
+    <li>대상: SmartSMT 서버 · 화면 개발 담당</li>
+  </ul>
+  <p class="lead">
+    SmartSMT 를 samplepcb 로그인으로 쓰고, 두 서버가 서로를 부를 때 쓸 인증 방식을 제안합니다.
+    두 서버가 <strong>비밀 문자열 하나</strong>를 나눠 갖고, 그것으로 서명한 2분짜리 토큰(JWT)을 주고받는 방식입니다.
+    구현이 어려운 부분은 <a href="#reply">10장 회신 항목</a>으로 알려 주시면 맞추겠습니다.
+  </p>
+</header>
+
+<nav class="toc" aria-label="차례">
+  <h2>차례</h2>
+  <ol>
+    <li><a href="#summary">요청 요약</a></li>
+    <li><a href="#terms">이름과 주소</a></li>
+    <li><a href="#token">토큰 규칙</a></li>
+    <li><a href="#login">회원 로그인 인계</a></li>
+    <li><a href="#s2s">서버 간 호출</a></li>
+    <li><a href="#secret">공유 비밀 다루기</a></li>
+    <li><a href="#examples">예시와 검증 견본</a></li>
+    <li><a href="#changes">기존 문서에서 바뀌는 점</a></li>
+    <li><a href="#later">지금은 하지 않는 것</a></li>
+    <li><a href="#reply">할 일과 회신 항목</a></li>
+  </ol>
+</nav>
+
+<!-- ───────────────────────── 1 ───────────────────────── -->
+<section id="summary">
+  <h2><span class="num">1</span>요청 요약</h2>
+
+  <div class="cards">
+    <div class="card">
+      <div class="k">요청 1</div>
+      <h4>회원 로그인은 samplepcb 가 맡습니다</h4>
+      <p>SmartSMT 는 아이디·비밀번호를 받지 않습니다. samplepcb 가 로그인을 확인하고, 회원 아이디가 든 토큰을 붙여 SmartSMT 로 보냅니다.</p>
+    </div>
+    <div class="card">
+      <div class="k">요청 2</div>
+      <h4>서버 간 호출도 같은 토큰으로</h4>
+      <p><code>X-API-Key</code> 대신 <code>Authorization: Bearer</code> 헤더에 토큰을 싣습니다. 양방향 모두 같습니다.</p>
+    </div>
+    <div class="card">
+      <div class="k">요청 3</div>
+      <h4>나눠 갖는 것은 비밀 하나</h4>
+      <p>두 서버가 같은 비밀 문자열을 설정에 넣어 둡니다. 로그인과 서버 호출이 모두 이 하나를 씁니다.</p>
+    </div>
+  </div>
+
+  <h3>고정 키를 그대로 보내지 않는 이유</h3>
+  <ul>
+    <li>SmartSMT 는 지금 평문 HTTP 입니다. 헤더에 키를 그대로 실으면 요청마다 키가 드러나고, 한 번 드러난 키는 바꿀 때까지 계속 쓸 수 있습니다.</li>
+    <li>토큰 방식에서는 <strong>비밀 자체가 전송되지 않습니다.</strong> 지나가는 것은 2분 뒤 못 쓰게 되는 토큰뿐입니다.</li>
+    <li>구현은 표준 JWT 라이브러리로 만들기 한 줄, 검사 한 줄입니다(<a href="#examples">7장</a>).</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 2 ───────────────────────── -->
+<section id="terms">
+  <h2><span class="num">2</span>이름과 주소</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>표기</th><th>뜻</th><th>값</th></tr></thead>
+      <tbody>
+        <tr><td><code>samplepcb</code></td><td>samplepcb 의 식별자 (토큰의 <code>iss</code> · <code>aud</code>)</td><td>고정 글자</td></tr>
+        <tr><td><code>smartsmt</code></td><td>SmartSMT 의 식별자</td><td>고정 글자</td></tr>
+        <tr><td><code>{SAMPLEPCB}</code></td><td>samplepcb 접속 주소</td><td>개발 · 운영 주소를 확정해 전달드립니다</td></tr>
+        <tr><td><code>{SMARTSMT}</code></td><td>SmartSMT 접속 주소</td><td>개발 <code>http://1.255.226.33:8090</code> · 운영 미정</td></tr>
+        <tr><td><code>{로그인 수신 주소}</code></td><td>로그인 뒤 samplepcb 가 회원을 보낼 SmartSMT 주소</td><td>SmartSMT 가 환경별로 1개씩 정해 알려 주십시오</td></tr>
+        <tr><td><code>{공유 비밀}</code></td><td>두 서버가 나눠 갖는 비밀 문자열</td><td>samplepcb 가 만들어 전달드립니다 (<a href="#secret">6장</a>)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>samplepcb 쪽 경로(<code>/spcb/sso/smartsmt</code>, <code>/api/smartsmt/quotes</code>)는 <strong>확정됐고 구현을 마쳤습니다.</strong> 접속 주소 <code>{SAMPLEPCB}</code> 는 SmartSMT 서버에서 접속할 수 있는 개발 서버를 준비해 알려 드립니다.</p>
+</section>
+
+<!-- ───────────────────────── 3 ───────────────────────── -->
+<section id="token">
+  <h2><span class="num">3</span>토큰 규칙</h2>
+  <p>로그인 인계와 서버 간 호출이 같은 규칙을 씁니다. 표준 JWT 이고, 서명 방식은 <code>HS256</code>(공유 비밀로 만드는 HMAC-SHA256) 하나로 고정합니다.</p>
+
+  <h3>3.1 들어가는 칸</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>칸</th><th>필수</th><th>값</th></tr></thead>
+      <tbody>
+        <tr><td><code>iss</code></td><td class="req">필수</td><td>만든 쪽 식별자</td></tr>
+        <tr><td><code>aud</code></td><td class="req">필수</td><td>받는 쪽과 쓰임. 3.2 의 표대로</td></tr>
+        <tr><td><code>iat</code></td><td class="req">필수</td><td>만든 시각 (유닉스 초)</td></tr>
+        <tr><td><code>exp</code></td><td class="req">필수</td><td>만료 시각. <code>iat + 120</code> (2분)</td></tr>
+        <tr><td><code>sub</code></td><td class="opt">로그인 토큰만</td><td>samplepcb 회원 아이디</td></tr>
+        <tr><td><code>name</code></td><td class="opt">로그인 토큰만</td><td>회원 이름 (표시용)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>3.2 쓰임 세 가지</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>쓰임</th><th><code>iss</code></th><th><code>aud</code></th><th>싣는 곳</th></tr></thead>
+      <tbody>
+        <tr><td>회원 로그인 인계</td><td><code>samplepcb</code></td><td><code>smartsmt-login</code></td><td>주소의 <code>token</code> 파라미터</td></tr>
+        <tr><td>samplepcb → SmartSMT 서버 호출</td><td><code>samplepcb</code></td><td><code>smartsmt</code></td><td><code>Authorization: Bearer</code></td></tr>
+        <tr><td>SmartSMT → samplepcb 서버 호출</td><td><code>smartsmt</code></td><td><code>samplepcb</code></td><td><code>Authorization: Bearer</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <code>aud</code> 가 쓰임을 가릅니다. 로그인 토큰을 서버 호출에 쓰거나 그 반대로 쓰면 <code>aud</code> 가 달라 거절됩니다.
+    그래서 받는 쪽은 <strong>자기 자리에 맞는 <code>aud</code> 만</strong> 받아야 합니다.
+  </p>
+
+  <h3>3.3 받는 쪽 검사</h3>
+  <ol class="steps">
+    <li>서명 방식이 <code>HS256</code> 인지 보고, 공유 비밀로 서명을 확인합니다. <span class="why">틀리면 <code>BAD_TOKEN</code>. <code>none</code> 등 다른 방식은 받지 않습니다.</span></li>
+    <li><code>iss</code> 와 <code>aud</code> 가 이 자리에서 기대하는 값인지 봅니다. <span class="why">아니면 <code>WRONG_AUDIENCE</code></span></li>
+    <li><code>exp</code> 가 지나지 않았는지 봅니다. 시계 오차는 30초까지 봐줍니다. <span class="why">지났으면 <code>EXPIRED</code></span></li>
+    <li>로그인 토큰이면 <code>sub</code> 가 있는지 봅니다. <span class="why">없으면 <code>BAD_TOKEN</code></span></li>
+  </ol>
+  <p>JWT 라이브러리가 1~3 을 한 번의 호출로 처리합니다.</p>
+
+  <h3 id="errors">3.4 오류 응답</h3>
+  <p>서버 호출의 인증 실패는 <code>401</code> 이고, 본문은 지금 SmartSMT 개발 서버가 쓰는 모양과 같게 맞춥니다.</p>
+<pre>HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+
+{"detail":{"reason":"EXPIRED","message":"토큰이 만료됐습니다"}}</pre>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th><code>reason</code></th><th>뜻</th><th>흔한 원인</th></tr></thead>
+      <tbody>
+        <tr><td><code>NO_TOKEN</code></td><td>토큰이 없음</td><td>헤더 누락, <code>Bearer</code> 빠짐</td></tr>
+        <tr><td><code>BAD_TOKEN</code></td><td>토큰을 읽을 수 없거나 서명이 틀림</td><td>비밀이 서로 다름(개발 · 운영 값 뒤바뀜), 필수 칸 누락</td></tr>
+        <tr><td><code>WRONG_AUDIENCE</code></td><td>만든 쪽 · 받는 쪽이 맞지 않음</td><td><code>iss</code> · <code>aud</code> 를 반대로 넣음, 로그인 토큰을 서버 호출에 씀</td></tr>
+        <tr><td><code>EXPIRED</code></td><td>만료됨</td><td>서버 시계가 어긋남, 오래된 토큰을 다시 씀</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ───────────────────────── 4 ───────────────────────── -->
+<section id="login">
+  <h2><span class="num">4</span>회원 로그인 인계</h2>
+  <p>회원의 브라우저만 두 사이트를 오갑니다. 로그인을 위해 두 서버가 서로를 부르지 않습니다.</p>
+
+  <div class="figure">
+    <svg class="seq" viewBox="0 0 960 520" role="img" aria-label="회원 로그인 인계 순서. 아래 번호 목록과 같은 내용입니다.">
+      <defs>
+        <marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,1 L9,5 L0,9 Z"/></marker>
+      </defs>
+
+      <rect class="lane" x="60" y="8" width="200" height="50" rx="8"/>
+      <text class="lane-t" x="160" y="30">SmartSMT</text>
+      <text class="lane-s" x="160" y="48">화면 + 서버</text>
+      <rect class="lane" x="380" y="8" width="200" height="50" rx="8"/>
+      <text class="lane-t" x="480" y="30">회원 브라우저</text>
+      <text class="lane-s" x="480" y="48">주소 이동만 따라감</text>
+      <rect class="lane" x="700" y="8" width="200" height="50" rx="8"/>
+      <text class="lane-t" x="800" y="30">samplepcb</text>
+      <text class="lane-s" x="800" y="48">로그인 담당</text>
+
+      <line class="life" x1="160" y1="62" x2="160" y2="510"/>
+      <line class="life" x1="480" y1="62" x2="480" y2="510"/>
+      <line class="life" x1="800" y1="62" x2="800" y2="510"/>
+
+      <!-- 1 -->
+      <text class="lbl" x="320" y="96">① SmartSMT 화면 열기 (세션 없음)</text>
+      <line class="msg" x1="476" y1="106" x2="166" y2="106" marker-end="url(#ah)"/>
+      <!-- 2 -->
+      <text class="lbl" x="320" y="146">② 302 이동</text>
+      <line class="msg" x1="164" y1="156" x2="474" y2="156" marker-end="url(#ah)"/>
+      <!-- 3 -->
+      <text class="lbl" x="640" y="196">③ GET /spcb/sso/smartsmt?state=…</text>
+      <line class="msg" x1="484" y1="206" x2="794" y2="206" marker-end="url(#ah)"/>
+      <!-- 4 -->
+      <rect class="box" x="668" y="226" width="264" height="44" rx="6"/>
+      <text class="box-t" x="800" y="244">④ 로그인 확인</text>
+      <text class="box-t" x="800" y="261">안 돼 있으면 samplepcb 로그인 화면</text>
+      <!-- 5 -->
+      <text class="lbl" x="640" y="306">⑤ 302 이동 · token + state</text>
+      <line class="msg" x1="796" y1="316" x2="486" y2="316" marker-end="url(#ah)"/>
+      <!-- 6 -->
+      <text class="lbl" x="320" y="356">⑥ GET {로그인 수신 주소}?token=…</text>
+      <line class="msg" x1="476" y1="366" x2="166" y2="366" marker-end="url(#ah)"/>
+      <!-- 7 -->
+      <rect class="box smt" x="28" y="386" width="264" height="44" rx="6"/>
+      <text class="box-t" x="160" y="404">⑦ 토큰 검사</text>
+      <text class="box-t" x="160" y="421">맞으면 SmartSMT 세션 만들기</text>
+      <!-- 8 -->
+      <text class="lbl" x="320" y="466">⑧ 302 이동 · 세션 쿠키 · 처음 화면으로</text>
+      <line class="msg" x1="164" y1="476" x2="474" y2="476" marker-end="url(#ah)"/>
+    </svg>
+  </div>
+
+  <ol class="steps">
+    <li>회원이 SmartSMT 화면을 엽니다. SmartSMT 세션이 없으면 로그인 인계를 시작합니다.</li>
+    <li>SmartSMT 가 브라우저를 samplepcb 의 인계 주소로 보냅니다.
+      <span class="why">돌아올 화면을 기억해야 하면 <code>state</code> 에 표시를 실어 보냅니다. samplepcb 가 그대로 돌려줍니다.</span></li>
+    <li>브라우저가 samplepcb 인계 주소를 엽니다.</li>
+    <li>samplepcb 가 로그인 여부를 확인합니다. 로그인돼 있지 않으면 samplepcb 로그인 화면을 거칩니다.</li>
+    <li>samplepcb 가 로그인 토큰을 만들어, 등록된 로그인 수신 주소로 브라우저를 보냅니다.</li>
+    <li>브라우저가 SmartSMT 의 로그인 수신 주소를 엽니다.</li>
+    <li>SmartSMT 가 토큰을 검사하고(<a href="#token">3.3</a>, <code>aud</code> = <code>smartsmt-login</code>), <code>sub</code> 의 회원 아이디로 자체 세션을 만듭니다.</li>
+    <li>SmartSMT 가 <strong>토큰이 없는 주소</strong>로 다시 이동시킵니다. 토큰이 주소창과 방문 기록에 남지 않게 하기 위해서입니다.</li>
+  </ol>
+
+  <div class="note">
+    <strong>samplepcb 화면에서 SmartSMT 로 들어갈 때</strong>
+    samplepcb 의 메뉴는 인계 주소(③)로 바로 연결합니다. 회원은 이미 로그인돼 있으므로 ⑤ 부터 이어져 곧바로 SmartSMT 화면이 열립니다.
+  </div>
+
+  <h3>4.1 인계 주소 <span class="tag sp">samplepcb 제공</span></h3>
+<pre>GET {SAMPLEPCB}/spcb/sso/smartsmt?state={state}</pre>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>이름</th><th>필수</th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td><code>state</code></td><td class="opt">선택</td><td>SmartSMT 가 정한 임의의 값. 200자 이하, 영문 · 숫자 · <code>-</code> · <code>_</code> 만. samplepcb 는 뜻을 보지 않고 그대로 돌려줍니다. 돌아올 화면을 찾는 표시로 쓰거나, 내가 보낸 요청이 맞는지 대조하는 데 씁니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>결과는 등록된 로그인 수신 주소로의 302 이동입니다.</p>
+<pre>{로그인 수신 주소}?token={로그인 토큰}&amp;state={state}</pre>
+  <ul>
+    <li>회원이 로그인하지 않으면 SmartSMT 로 돌아가지 않습니다. samplepcb 로그인 화면에 머뭅니다.</li>
+    <li><strong>로그인 수신 주소는 요청 파라미터로 받지 않습니다.</strong> samplepcb 는 미리 등록한 주소(환경별 1개)로만 보냅니다. 주소를 파라미터로 받으면 다른 사이트가 토큰을 받아 갈 수 있기 때문입니다.</li>
+  </ul>
+
+  <h3>4.2 로그인 토큰</h3>
+<pre>{
+  "iss": "samplepcb",
+  "aud": "smartsmt-login",
+  "sub": "hong123",          <span class="c">// samplepcb 회원 아이디</span>
+  "name": "홍길동",           <span class="c">// 회원 이름 (표시용)</span>
+  "iat": 1794538800,
+  "exp": 1794538920
+}</pre>
+  <ul>
+    <li><code>sub</code> 가 <strong>회원을 가리키는 유일한 값</strong>입니다. 견적서의 <code>owner_mb_id</code> 에 글자 그대로 넣어 주십시오.</li>
+    <li>처음 보는 <code>sub</code> 이면 SmartSMT 쪽 사용자 정보를 그때 만듭니다. 미리 회원 목록을 맞출 필요는 없습니다.</li>
+    <li>넘기는 회원 정보는 아이디와 이름 두 가지입니다. 더 필요한 항목은 <a href="#reply">회신 항목</a>으로 요청해 주십시오.</li>
+  </ul>
+
+  <h3>4.3 로그인 수신 주소 <span class="tag smt">SmartSMT 제공</span></h3>
+  <p>주소는 SmartSMT 가 정합니다(예: <code>{SMARTSMT}/auth/samplepcb</code>). 처리 순서는 다음과 같습니다.</p>
+  <ol>
+    <li><code>token</code> 을 검사합니다. 실패하면 세션을 만들지 않고 안내 화면을 보입니다.</li>
+    <li><code>state</code> 를 보냈다면, 돌아온 값이 보낸 값과 같은지 확인합니다.</li>
+    <li><code>sub</code> 로 SmartSMT 세션을 만듭니다.</li>
+    <li>토큰이 없는 주소로 다시 이동시킵니다.</li>
+  </ol>
+
+  <h3>4.4 SmartSMT 세션 <span class="tag smt">SmartSMT 책임</span></h3>
+  <ul>
+    <li>세션 쿠키는 <code>HttpOnly</code> · <code>SameSite=Lax</code> 로 둡니다. HTTPS 로 바꾼 뒤에는 <code>Secure</code> 도 붙입니다.</li>
+    <li>수명은 짧게 둡니다. 권장: 사용이 없으면 2시간, 길어도 12시간. 끝나면 로그인 인계를 다시 시작합니다(회원이 samplepcb 에 로그인돼 있으면 화면에 드러나지 않습니다).</li>
+    <li>SmartSMT 의 로그아웃은 SmartSMT 세션만 끝냅니다.</li>
+  </ul>
+
+  <h3>4.5 하지 않을 것</h3>
+  <div class="warn">
+    <ul>
+      <li>SmartSMT 화면에서 samplepcb 아이디 · 비밀번호를 입력받지 않습니다.</li>
+      <li>samplepcb 의 쿠키를 읽거나 믿지 않습니다.</li>
+      <li>회원 아이디를 주소 · 폼 · 헤더의 다른 값에서 받지 않습니다. 오직 검사를 통과한 토큰의 <code>sub</code> 에서만 받습니다.</li>
+      <li>토큰을 로그 · 분석 도구에 남기지 않습니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ───────────────────────── 5 ───────────────────────── -->
+<section id="s2s">
+  <h2><span class="num">5</span>서버 간 호출</h2>
+<pre>Authorization: Bearer {토큰}</pre>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>방향</th><th>호출</th><th><code>iss</code></th><th><code>aud</code></th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">SmartSMT → samplepcb</td><td><code>POST {SAMPLEPCB}/api/smartsmt/quotes</code><br>견적서 전송 (multipart)</td><td><code>smartsmt</code></td><td><code>samplepcb</code></td></tr>
+        <tr><td class="nowrap">samplepcb → SmartSMT</td><td><code>GET {SMARTSMT}/api/pricing/envelope?orderId=…</code><br>견적서 가져가기</td><td><code>samplepcb</code></td><td><code>smartsmt</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>보내는 쪽은 <strong>요청할 때마다 토큰을 새로 만듭니다.</strong> 만드는 비용이 거의 없고, 만료를 신경 쓸 일이 없어집니다.</li>
+    <li>받는 쪽은 <strong>본문을 읽기 전에</strong> 토큰을 검사합니다. 인증되지 않은 요청이 큰 파일을 올리지 못하게 하기 위해서입니다.</li>
+    <li>앞으로 호출이 늘어도 같은 규칙을 그대로 씁니다.</li>
+  </ul>
+
+  <h3>5.1 견적서 전송의 응답</h3>
+  <p>성공은 <code>200</code> 하나입니다. 실패 본문은 <a href="#errors">3.4</a> 와 같은 모양이고, <code>reason</code> 으로 원인을 알 수 있습니다.</p>
+<pre><span class="c"># 200</span>
+{"result":true,"data":{"quoteId":"Q-123456-123456-123abc","orderId":"123456789abc","duplicate":false}}</pre>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>HTTP</th><th><code>reason</code></th><th>뜻</th><th>다시 보내면</th></tr></thead>
+      <tbody>
+        <tr><td>200</td><td>—</td><td>받았습니다. <code>duplicate</code> 가 <code>true</code> 면 같은 <code>quote_id</code> 를 이미 받아 둔 것입니다(덮어쓰지 않습니다).</td><td>필요 없음</td></tr>
+        <tr><td>401</td><td>3.4 의 네 가지</td><td>토큰 문제</td><td>토큰을 새로 만들어 보내면 됨</td></tr>
+        <tr><td>400</td><td><code>INVALID_REQUEST</code></td><td>multipart 가 아니거나 파트를 읽을 수 없음</td><td>고친 뒤</td></tr>
+        <tr><td>400</td><td><code>INVALID_ENVELOPE</code></td><td><code>envelope</code> 파트가 없거나 <code>kind</code> · <code>envelope_version</code> · <code>header.quote_id</code> · <code>header.order_id</code> · <code>header.made_at</code> · <code>quote</code> 중 빠진 칸이 있음. <code>message</code> 에 칸 이름이 나옵니다.</td><td>고친 뒤</td></tr>
+        <tr><td>400</td><td><code>ID_MISMATCH</code></td><td><code>quote_id</code> · <code>order_id</code> 파트가 견적서 안의 값과 다름</td><td>고친 뒤</td></tr>
+        <tr><td>400</td><td><code>FILE_MISMATCH</code></td><td>동봉 파일의 크기나 SHA-256 이 견적서 파일 목록(<code>files</code>)의 값과 다름</td><td>고친 뒤</td></tr>
+        <tr><td>413</td><td><code>TOO_LARGE</code></td><td>요청 전체가 100MB 를 넘거나 <code>envelope</code> 가 8MB 를 넘음. 앞단 서버에서 막히면 본문이 JSON 이 아닐 수 있습니다.</td><td>줄인 뒤</td></tr>
+        <tr><td>502</td><td><code>FILE_STORE_FAILED</code></td><td>samplepcb 쪽 파일 저장 실패. 견적은 저장되지 않았습니다.</td><td>그대로 다시 보내면 됨</td></tr>
+        <tr><td>503</td><td><code>NOT_CONFIGURED</code></td><td>samplepcb 쪽 공유 비밀이 설정되지 않음</td><td>samplepcb 에 알려 주십시오</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>견적서에 모르는 칸이나 모르는 코드 값이 있어도 받습니다. 견적서 양식이 바뀌어도 위의 여섯 칸만 있으면 거절하지 않습니다.</li>
+    <li>파일은 <code>gerber_archive</code> · <code>bom</code> · <code>cpl</code> 세 파트만 받습니다. 파일 없이 견적서만 보내도 받습니다.</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 6 ───────────────────────── -->
+<section id="secret">
+  <h2><span class="num">6</span>공유 비밀 다루기</h2>
+  <ul>
+    <li>32바이트 이상의 난수 문자열입니다. samplepcb 가 만들어 전달드립니다.</li>
+    <li><strong>개발용과 운영용을 다른 값으로</strong> 씁니다. 지금 전달하는 것은 개발용입니다.</li>
+    <li>서버 설정(환경 변수 등)에만 둡니다. 소스 저장소 · 문서 · 화면 코드에 넣지 않습니다.</li>
+    <li>브라우저로 내려가는 코드에서 쓰지 않습니다. 토큰을 만들고 검사하는 일은 서버에서만 합니다.</li>
+    <li>새어 나간 것 같으면 바로 알려 주십시오. 새 값으로 양쪽 설정을 바꾸면 그때부터 옛 값으로 만든 토큰은 통하지 않습니다.</li>
+  </ul>
+<pre><span class="c"># 같은 형태의 값을 만드는 명령 (참고)</span>
+openssl rand -base64 48</pre>
+  <p>이 비밀은 SmartSMT 연동에만 쓰는 값입니다. samplepcb 의 다른 인증에는 쓰이지 않습니다.</p>
+</section>
+
+<!-- ───────────────────────── 7 ───────────────────────── -->
+<section id="examples">
+  <h2><span class="num">7</span>예시와 검증 견본</h2>
+
+  <h3>7.1 Python 예시 (PyJWT 2.x)</h3>
+  <p class="cap">참고용 예시입니다. 실행해 검증한 코드가 아니므로 SmartSMT 코드에 맞춰 써 주십시오.</p>
+<pre>import os, time
+import jwt   <span class="c"># pip install pyjwt</span>
+
+SECRET = os.environ["SAMPLEPCB_SHARED_SECRET"]
+
+
+def make_token() -&gt; str:
+    <span class="c">"""samplepcb 를 부를 때 — 요청마다 새로 만든다."""</span>
+    now = int(time.time())
+    claims = {"iss": "smartsmt", "aud": "samplepcb", "iat": now, "exp": now + 120}
+    return jwt.encode(claims, SECRET, algorithm="HS256")
+
+
+def check_token(token: str, audience: str) -&gt; dict:
+    <span class="c">"""samplepcb 가 만든 토큰을 받을 때."""</span>
+    try:
+        return jwt.decode(
+            token, SECRET,
+            algorithms=["HS256"],                    <span class="c"># 다른 방식은 받지 않는다</span>
+            issuer="samplepcb", audience=audience,
+            leeway=30,
+            options={"require": ["iss", "aud", "iat", "exp"]},
+        )
+    except jwt.ExpiredSignatureError:
+        raise AuthError("EXPIRED")
+    except (jwt.InvalidIssuerError, jwt.InvalidAudienceError):
+        raise AuthError("WRONG_AUDIENCE")
+    except jwt.InvalidTokenError:
+        raise AuthError("BAD_TOKEN")
+
+
+<span class="c"># 견적서 가져가기 호출을 받을 때</span>
+check_token(bearer_token, audience="smartsmt")
+
+<span class="c"># 로그인 수신 주소에서</span>
+claims = check_token(token_from_query, audience="smartsmt-login")
+if "sub" not in claims:
+    raise AuthError("BAD_TOKEN")
+mb_id, name = claims["sub"], claims.get("name", "")</pre>
+
+  <h3>7.2 호출 예시</h3>
+<pre><span class="c"># 로그인 인계 시작 (SmartSMT → 브라우저)</span>
+HTTP/1.1 302 Found
+Location: {SAMPLEPCB}/spcb/sso/smartsmt?state=k3Jx8QpL
+
+<span class="c"># 로그인 뒤 (samplepcb → 브라우저)</span>
+HTTP/1.1 302 Found
+Location: {로그인 수신 주소}?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.…&amp;state=k3Jx8QpL
+
+<span class="c"># 견적서 전송 (SmartSMT → samplepcb)</span>
+POST /api/smartsmt/quotes HTTP/1.1
+Host: {SAMPLEPCB}
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.…
+Content-Type: multipart/form-data; boundary=----smartsmtQuoteBoundary</pre>
+
+  <h3>7.3 검증 견본</h3>
+  <p>
+    SmartSMT 의 토큰 검사 코드를 실제 연동 전에 확인할 수 있도록 견본을 드립니다.
+    아래 비밀은 <strong>이 문서 전용 견본</strong>이며 실제 연동에는 쓰지 않습니다.
+  </p>
+
+  <p><strong>견본 비밀</strong></p>
+<pre class="wrap">EXAMPLE-ONLY-do-not-use-this-secret-0123456789</pre>
+
+  <p><strong>견본 토큰 1</strong> — 로그인 토큰 (<code>aud</code> = <code>smartsmt-login</code>)</p>
+<pre class="wrap">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYW1wbGVwY2IiLCJhdWQiOiJzbWFydHNtdC1sb2dpbiIsInN1YiI6ImhvbmcxMjMiLCJuYW1lIjoi7ZmN6ri464-ZIiwiaWF0IjoxNzk0NTM4ODAwLCJleHAiOjE3OTQ1Mzg5MjB9.dJAixi3lK9Gyfmopw_x1YCHwaAC3vgJ8T449IIhBLec</pre>
+
+  <p><strong>견본 토큰 2</strong> — 서버 호출 토큰 (<code>aud</code> = <code>smartsmt</code>)</p>
+<pre class="wrap">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYW1wbGVwY2IiLCJhdWQiOiJzbWFydHNtdCIsImlhdCI6MTc5NDUzODgwMCwiZXhwIjoxNzk0NTM4OTIwfQ.U2xa1D1bXR_Zs4ZvYi8ZTp1dZ_ce2UxAZgyeeSaXt2I</pre>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>확인할 것</th><th>나와야 하는 결과</th></tr></thead>
+      <tbody>
+        <tr><td>견본 비밀로 두 토큰의 서명만 확인 (시각 검사 끔)</td><td>둘 다 통과</td></tr>
+        <tr><td>토큰 1 의 내용</td><td><code>sub</code> = <code>hong123</code>, <code>name</code> = <code>홍길동</code> (한글이 깨지지 않아야 합니다)</td></tr>
+        <tr><td>시각 검사까지 켜고 확인</td><td><code>EXPIRED</code> (만든 시각이 2026-11-13 12:00:00 +09:00, 수명 2분)</td></tr>
+        <tr><td>토큰 1 을 <code>aud</code> = <code>smartsmt</code> 로 검사</td><td><code>WRONG_AUDIENCE</code></td></tr>
+        <tr><td>토큰 2 를 <code>aud</code> = <code>smartsmt-login</code> 으로 검사</td><td><code>WRONG_AUDIENCE</code></td></tr>
+        <tr><td>토큰의 마지막 글자 몇 개를 바꿔 확인</td><td><code>BAD_TOKEN</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">위 결과는 samplepcb 쪽에서 JWT 라이브러리로 직접 확인한 값입니다.</p>
+</section>
+
+<!-- ───────────────────────── 8 ───────────────────────── -->
+<section id="changes">
+  <h2><span class="num">8</span>기존 문서에서 바뀌는 점</h2>
+  <p>「SmartSMT API 요청 주소 0.1」과 「견적서 전송 양식 0.3」 기준입니다. 견적서 JSON 의 내용은 바꾸지 않습니다.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>기존</th><th>변경 요청</th></tr></thead>
+      <tbody>
+        <tr><td><code>X-API-Key: {공유 키}</code> (양방향)</td><td><code>Authorization: Bearer {토큰}</code></td></tr>
+        <tr><td>설정값 <code>SMARTSMT_QUOTE_API_KEY</code></td><td>공유 비밀 (헤더에 그대로 싣지 않고 토큰을 만드는 데만 씀)</td></tr>
+        <tr><td>견적서 전송 주소 "전달 요청"</td><td><code>POST {SAMPLEPCB}/api/smartsmt/quotes</code></td></tr>
+        <tr><td><code>user_edits.owner_mb_id</code></td><td>로그인 토큰의 <code>sub</code> 를 글자 그대로</td></tr>
+        <tr><td>견적서의 <code>signature</code> · <code>POST /api/pricing/received</code></td><td>지금 단계에서 samplepcb 는 쓰지 않습니다. 그대로 두셔도 됩니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ───────────────────────── 9 ───────────────────────── -->
+<section id="later">
+  <h2><span class="num">9</span>지금은 하지 않는 것</h2>
+  <p>개발 단계라 단순하게 시작합니다. 아래는 나중에 붙여도 이 문서의 구조를 바꾸지 않습니다.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>항목</th><th>언제</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">HTTPS</td><td class="nowrap">실제 고객 오픈 전 <strong>필수</strong></td><td>평문 HTTP 에서는 SmartSMT 세션 쿠키와 고객이 올린 파일이 그대로 보입니다. 토큰으로는 막을 수 없습니다. 전환할 때 공유 비밀도 새 값으로 바꿉니다.</td></tr>
+        <tr><td class="nowrap">로그인 토큰 1회용 처리</td><td class="nowrap">HTTPS 전환 뒤 검토</td><td>한 번 쓴 로그인 토큰을 2분 동안 기억해 다시 오면 거절합니다.</td></tr>
+        <tr><td class="nowrap">보내는 서버 IP 제한</td><td class="nowrap">운영 주소 확정 뒤</td><td>samplepcb 가 SmartSMT 서버의 IP 에서 온 호출만 받습니다.</td></tr>
+        <tr><td class="nowrap">견적서 본문 서명</td><td class="nowrap">견적을 주문 · 결제로 잇기 전 검토</td><td>금액이 중간에 바뀌지 않았음을 확인하는 장치입니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="warn">
+    <strong>개발 기간에는 시험 계정과 시험 파일만 써 주십시오</strong>
+    HTTP 구간에서는 주고받는 내용이 보호되지 않습니다. 실제 고객의 계정이나 제조 파일은 HTTPS 전환 뒤에 다룹니다.
+  </div>
+</section>
+
+<!-- ───────────────────────── 10 ───────────────────────── -->
+<section id="reply">
+  <h2><span class="num">10</span>할 일과 회신 항목</h2>
+
+  <h3>SmartSMT 에서 해 주실 일</h3>
+  <ul class="check">
+    <li>공유 비밀을 서버 설정에 넣기</li>
+    <li>로그인 인계: 세션이 없을 때 인계 주소로 보내기, 로그인 수신 주소 구현 (4장)</li>
+    <li>회원용 화면에 자체 로그인 입력이 있다면 제거</li>
+    <li>견적서 가져가기 호출에서 <code>X-API-Key</code> 대신 토큰 검사 (3.3)</li>
+    <li>견적서 전송에 토큰 붙이기, <code>owner_mb_id</code> 는 받은 <code>sub</code> 그대로</li>
+    <li>7.3 의 견본으로 토큰 검사 코드 확인</li>
+  </ul>
+
+  <h3>samplepcb 에서 할 일</h3>
+  <ul class="check">
+    <li>개발용 공유 비밀을 만들어 전달</li>
+    <li>SmartSMT 서버에서 접속할 수 있는 개발 서버 주소 전달 (인계 주소 · 견적서 수신 주소는 구현 완료)</li>
+    <li>SmartSMT 의 로그인 수신 주소 등록</li>
+  </ul>
+
+  <h3>회신 부탁드리는 것</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>#</th><th>항목</th><th>필요한 답</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>로그인 수신 주소</td><td>개발 환경의 주소 1개 (운영은 정해지면)</td></tr>
+        <tr><td>2</td><td>이 방식의 구현 가능 여부</td><td>어려운 부분이 있다면 어느 부분인지</td></tr>
+        <tr><td>3</td><td>회원 정보 항목</td><td>아이디 · 이름으로 충분한지. 더 필요한 항목과 쓰임새</td></tr>
+        <tr><td>4</td><td>담당자(운영자) 로그인</td><td>SmartSMT 담당자 화면은 별도 계정을 쓰는지, samplepcb 로그인을 쓰려는지</td></tr>
+        <tr><td>5</td><td>운영 환경</td><td>운영 주소와 HTTPS 적용 일정, 보내는 서버의 고정 IP</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  samplepcb · SmartSMT 인증 연동 요청서 · 판 0.1 (2026-11-13) · 협의 결과에 따라 판을 올려 다시 전달드립니다.
+</footer>
+
+</div>
+</body>
+</html>
