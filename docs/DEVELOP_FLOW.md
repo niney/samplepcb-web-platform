@@ -98,7 +98,7 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 
 ### 4.3 이벤트 `type`
 
-`status_changed` · `edited`(고객 수정) · `note`(관리자 진행 메모, 공개 토글) · `comment`(문의, 양방향, 첨부) · `review_request`(중간 확인 요청, 첨부) · `review_approved` · `review_changes` · `deliverable`(납품, `final`·`locked`) · `quote_sent` · `quote_accepted` · `quote_declined` · `payment_confirmed` · `ai_drafted` · `published`(검토서·구성도 공개) · `tax_invoice` · `as_request`(완료 후 A/S, comment 의 태그).
+`status_changed` · `edited`(고객 수정) · `note`(관리자 진행 메모, 공개 토글) · `comment`(문의, 양방향, 첨부) · `review_request`(중간 확인 요청, 첨부) · `review_approved` · `review_changes` · `deliverable`(납품, `final`·`locked`) · `quote_sent` · `quote_accepted` · `quote_declined` · `payment_confirmed` · `ai_drafted` · `published`(검토서·구성도 공개) · `tax_invoice` · `as_request`(완료 후 A/S, comment 의 태그) · `question_answered`(확인이 필요한 사항에 고객이 직접 답함 — payload 가 답의 저장이다, §7.2.13).
 
 ## 5. 견적서
 
@@ -187,7 +187,7 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 | `/develop` | 랜딩 — **피그마 「개발 의뢰」 00-1(2026-10-21, 기록 `docs/FIGMA_PAGES.md`)**: 히어로(분야 카드 5)·개발 분야 5·진행 방식 7단계(레거시 계승)·왜 직접 개발인가·FAQ·CTA. 분야 카드는 위저드를 그 메뉴를 고른 채 연다(`?menu=`) |
 | `/develop/request` | **위저드 v2 5스텝(2026-09-08, §7.2.1)** · 화면 = **피그마 「개발 의뢰」 01-1~01-5(2026-10-22, 어두운 앱 셸 — 11-03 부터 내 의뢰·상세·수정도 같은 틀(`AppShellLayout`), 기록 `docs/FIGMA_PAGES.md`)** — `?menu=<코드>`(system·circuit·pcb·firmware·reverse·appserver, 옛 랜딩 코드 mech→시스템개발·app/server→'앱 및 서버'+범위)면 1스텝 메뉴를 미리 고른다(아무것도 안 골랐을 때만) — ① 개발 메뉴(**2026-10-30 피그마 6장, §7.2.3**: 시스템개발 배타 / 회로·PCB·펌웨어·역설계·앱 및 서버 복수) ② 의뢰 내용(제목·설명·현재/목표 단계·희망 완료 시기·예산·참고 자료·AI 동의·NDA·시스템개발이면 후속 질문 방식) ③ 세부 질문(시스템개발 3문항 또는 전문가 맡김 / 개별은 분야별 질문·툴·슬롯) ④ 제작 계획(시제품 수량·제작 범위·연간 수량·조달·납품 형태) ⑤ 검토·접수(**연락처** + 요약 + 동의) |
 | `/develop/me` | 내 의뢰(`?scope=active` = 사이드바 '진행 사항') — **피그마 「개발 의뢰」 00-2(2026-10-22)** 표(틀은 11-03 앱 셸 — 위 바에 할 일 건수): 제목·분야·접수일(YY.MM.DD)·상태 칩(할 일이 있으면 할 일 칩으로 대체)·검토서/구성도 칩, 오른쪽 할 일 버튼(상세의 그 섹션) + '진행 상태'. 행 전체 클릭 → 상세 |
-| `/develop/requests/:id` | 상세 — **피그마 「개발 의뢰」 00-3 탭형(2026-10-22)**: 제목·정보 줄 · 상태 스텝퍼 · 탭(한 번에 한 섹션, 해시 = 탭; 11-03 앱 셸 — 위 바에 지금 할 일 + 그 탭으로 가는 버튼) — 상세 의뢰 내용 · AI 사전 검토서 · 견적서(수락·수정 요청·마일스톤 결제) · 진행 현황·문서 · 진행·문의(타임라인·검수·확인 응답) · 첨부(있을 때만). **읽는 탭 셋(상세 의뢰 내용 · AI 사전 검토서 · 진행 현황)은 출력물과 같은 장**(2026-11-13, §7.2.11) — PC 는 한 번에 한 장씩 넘겨 보고 좁은 화면은 세로 흐름. **견적서도 장**(요약 → 산출 내역, 수락 · 결제는 장 아래 판)이고 진행·문의 · 첨부 · 문서 목록은 장과 같은 모양의 판(§7.2.12) |
+| `/develop/requests/:id` | 상세 — **피그마 「개발 의뢰」 00-3 탭형(2026-10-22)**: 제목·정보 줄 · 상태 스텝퍼 · 탭(한 번에 한 섹션, 해시 = 탭; 11-03 앱 셸 — 위 바에 지금 할 일 + 그 탭으로 가는 버튼) — 상세 의뢰 내용 · AI 사전 검토서 · 견적서(수락·수정 요청·마일스톤 결제) · 진행 현황·문서 · 진행·문의(타임라인·검수·확인 응답) · 첨부(있을 때만). **읽는 탭 셋(상세 의뢰 내용 · AI 사전 검토서 · 진행 현황)은 출력물과 같은 장**(2026-11-13, §7.2.11) — PC 는 한 번에 한 장씩 넘겨 보고 좁은 화면은 세로 흐름. **견적서도 장**(요약 → 산출 내역, 수락 · 결제는 장 아래 판)이고 진행·문의 · 첨부 · 문서 목록은 장과 같은 모양의 판(§7.2.12). 검토서의 '확인이 필요한 사항'에는 고객이 직접 답할 수 있다(§7.2.13) |
 | `/develop/requests/:id/edit` | 수정(received·reviewing) — 11-03 앱 셸, 그만두기·저장은 위 바 |
 | `/develop/requests/:id/print` | **출력물('출력하기')** — 16:9 장(슬라이드) 판(2026-11-12, §7.2.10): 표지 → 의뢰 개요 → 검토 요약 → 구성도 → 개발 분석 → 일정 → 확인 사항 → 진행 현황. 장마다 한 쪽으로 인쇄(브라우저 인쇄·PDF 저장). 읽기 전용, 내용 없는 장은 만들지 않는다. 그 전(10-22~11-06)은 PPT 4:3 쪽 나눔(§12) |
 | `/develop/requests/:id/quotes/:qid/print` | 견적서 인쇄용 |
@@ -344,7 +344,7 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
   | 시스템 구성도 `diagram` | 도면 한 장에 한 장(이름 · 도면 설명 한 줄 · 면책) — **도면 앞뒤 글은 싣지 않는다** | 왼쪽 제목 단 + 도면 |
   | 개발 분석 `area` | 분야마다 요약 · 명세(같은 항목명은 한 제목 아래) · 검토 포인트(검토 관찰) | 두 단에 쌓기, 큰 분야는 혼자 한 장(왼쪽 개발 구성 · 오른쪽 검토 포인트 판) |
   | 예상 개발 일정 `schedule` | 단계 표(번호 · 단계 · 기간 · 일정 막대 · 산출물 · 선행 조건/비고) + 합계 띠(예상 n~m주 · 희망 시점 · 전제) | 표 + 아래 띠 |
-  | 확인이 필요한 사항 `questions` | 상의 항목(공통 먼저 → 분야 순). 질문 · 이유 · 답변 칸 — 담당자 확인 결과가 있으면 칸에 적고 없으면 빈 칸 | 장마다 2~3문항, 번호는 이어진다 |
+  | 확인이 필요한 사항 `questions` | 상의 항목(공통 먼저 → 분야 순). 질문 · 이유 · 답변 칸 — 고객이 직접 적은 답('고객 답변', §7.2.13)과 담당자 확인 결과가 있으면 칸에 적고 없으면 빈 칸 | 장마다 2~3문항, 번호는 이어진다 |
   | 담당자 의견 `text` | 검토 요약 장에 안 드는 긴 의견(4천 자까지) | 긴 글과 같다 |
   | 진행 현황 `tasks` | 달성도 · 날짜 넷 · 단계 띠 + 공유된 업무 표. **프로젝트 문서 표**(종류 · 번호 · 상태 · 발송일 · 회신)는 마지막 장에 자리가 있으면 이어 붙이고 없으면 제 장(`docs`) | 착수 뒤 · 끝난(취소 · 사양) 의뢰가 아닐 때만 |
 
@@ -393,6 +393,20 @@ received(접수됨) → reviewing(검토 중) → quoted(견적 발송) → acce
 - **검증** — `develop-print-deck` 6/6: (5) 견적서 탭을 끝 장까지 넘기며 장 종류 `quote` → `quote-items` · 항목 · 마일스톤 누락 없음 · 넘친 장 0 · 장 안에 결제 단추 0 · 장 아래 판 1 · 진행·문의 / 첨부 판의 폭 · 왼쪽 선 = 장, (6) 390px 에서 견적 판 뒤에 수락 · 결제 판 · 판들 가로 넘침 0. 고객 여정 12/12: 3번을 다시 썼다(요약 장의 합계 · 결제 조건 · 견적 조건 → 산출 내역 → 앞 견적 3/4 장 · 장 아래 판이 지금 장의 견적을 따라감 · 갱신 중 입력 유지 · 건너가기 단추 → 수락 판이 창 안에 → 수락 → 안내가 '결제하기'로). 출력물은 그대로(로컬 257 = 13장). 운영 빌드로도 같은 결과.
 - **남은 것** — 관리자 화면의 견적 카드(`DevelopQuoteCard`)는 그대로다. 견적 요약 장은 높이를 재지 않고 넘치면 글자를 줄여 담는다(마일스톤이 많은 견적에서 줄어든다 — 몇 개부터인지는 재 보지 않았다). 판의 본문 글자는 장을 91% 로 줄인 화면에서도 100% 라 장보다 조금 크다.
 
+#### 7.2.13 확인이 필요한 사항 — 고객이 직접 답한다 (2026-11-13, 사용자 결정 '권장 진행')
+
+'확인이 필요한 사항'의 답변 칸은 담당자가 상담 뒤 '확인 결과'를 적는 자리였다(관리자 검토서 편집기 — `openQuestions[].resolution`). 질문은 고객에게 묻는 것인데 고객이 화면에서 답할 길이 없었다(참고한 pptx 는 그 칸을 고객이 편집한다). 사용자가 "직접 답할 수도 있게"를 요청했고 아래 안을 승인했다.
+
+- **고객 답변과 확인 결과는 따로** — 고객이 적은 답은 '고객 답변', 담당자가 확정한 것은 '확인 결과'. 답변 칸에 위아래로 같이 보인다(화면 · 출력물 같다). 고객 답을 곧바로 확인 결과로 쓰지 않는다 — "잘 모르겠다"고 적어도 확정된 것처럼 보이고, 누가 적었는지가 사라진다.
+- **사용자 결정** — ① 담당자가 확인 결과를 적기 전까지 고객이 고칠 수 있다(적히면 그 문항은 잠긴다) ② 답은 필수가 아니다 — 견적 수락을 막지 않는다 ③ 내 의뢰 목록 · 위 바의 '할 일'에 띄우는 것 ④ 고객 답변을 다음 AI 검토서 생성의 입력으로 쓰는 것은 후속.
+- **화면** — 확인 사항 장의 답변 칸에 단추(빈 칸 '답변하기' / 답이 있으면 '고치기', 확인 결과가 적힌 문항엔 없음). 누르면 오른쪽 판(`components/detail/QuestionAnswerPanel.vue`)이 열려 그 검토서의 문항을 한 번에 답한다 — 누른 문항에 커서가 간다. 장 안에 입력 칸을 넣지 않는 까닭은 견적 수락과 같다(장은 높이가 고정이다). 저장하면 장을 다시 재어 배분한다(답이 길면 문항이 다음 장으로 넘어간다). 쓰던 글이 있으면 바깥을 누르거나 Esc 로는 닫히지 않는다. 끝난 의뢰(취소 · 사양 · 완료)에서는 단추가 없다 — 완료 뒤에 바꿀 것은 문의 · A/S 로 온다.
+- **저장 = 진행 기록** — 답할 때마다 `question_answered` 이벤트 하나(`payload.answers = [{qid, question, answer}]`, 바뀐 문항만, 빈 답 = 지움). 응답의 `questionAnswers` 는 그 이벤트들을 시간순으로 접은 '지금 답변'이다(`apps/api/src/lib/develop-questions.ts` `foldDevelopQuestionAnswers`). 처음 낸 안은 '별도 표'였는데 이벤트로 바꿨다: 이벤트는 추가 전용이라(고치거나 지우는 길이 없다) 답의 이력이 그대로 남고, 진행 사항에 보이는 기록과 저장이 한 몸이라 어긋날 수 없으며, **DB 변경이 없어 운영 마이그레이션이 필요 없다**. 검토서 본문(JSON)에 넣지 않은 까닭은 그대로다 — 검토서는 담당자가 고쳐 다시 공개하는 문서라 그 안에 넣으면 재공개 때 덮인다.
+- **문항 번호** — 답은 문항 번호(`openQuestions[].id`)에 붙는다. 번호가 없으면 담당자가 문구를 고치거나 순서를 바꿀 때 답이 엉뚱한 문항에 붙는다. 서버가 번호를 채운다(`withDevReviewQuestionIds`): 있는 번호는 그대로, 없으면 질문 문구의 해시(`devReviewQuestionId` — 옛 저장분도 읽는 쪽마다 같은 번호가 된다). 관리자 상세가 번호를 채워 내려주고 편집기가 그것을 쥔 채 저장하므로(`cloneDevelopReview` 가 `id` 를 옮긴다) 문구를 고쳐도 번호가 남는다. AI 가 초안을 다시 만들어도 문구가 같은 문항은 같은 번호라 답이 이어진다. 문항이 사라져 짝을 잃은 답은 고객 화면에 싣지 않고 관리자 편집기 아래에 따로 보인다.
+- **관리자** — 검토서 편집기(새 · 옛 화면 모두)의 문항마다 확인 결과 칸 아래에 '고객 답변 · 시각'과 **'확인 결과로 가져오기'**(답을 확인 결과에 옮겨 적는다 — 이미 적힌 것이 있으면 그 아래에 잇는다, 500자). 저장 · 공개는 지금과 같다. 고객이 답하면 진행 사항에 '확인 사항 답변' 기록(본문 `Q. … / A. …`)이 생기고 담당자 알림 메일(`settings.notifyEmails`, kind `develop_admin_answer`)이 간다. 워크큐의 '문의 대기' 신호에는 넣지 않았다(답에 댓글로 답해야만 꺼지는 신호라 맞지 않는다).
+- **API** — `PUT /api/develop/requests/:id/review/answers` `{answers:[{qid, answer}]}`(1~12개, 답 500자 — 확인 결과와 같은 한도) → 상세 전체. 409: `INVALID_TRANSITION`(끝난 의뢰) · `REVIEW_NOT_PUBLISHED` · `QUESTION_NOT_FOUND` · `QUESTION_RESOLVED`(확인 결과가 적힌 문항). 같은 답을 다시 보내면 기록을 늘리지 않는다. 상세 응답(고객 · 관리자)에 `questionAnswers: [{qid, question, answer, answeredAt}]`.
+- **검증** — 단위 6(`develop-questions.test.ts` — 번호 · 접기 · 진행 사항 글). 고객 여정 e2e 13/13: 2-1 단계(답변하기 → 판에서 저장 → 답변 칸 '고객 답변' · '고치기' → 진행 기록 · 관리자 상세 → 같은 답 재전송은 기록 없음 → 담당자가 문구를 고치고 확인 결과를 적어 재공개 → 답이 따라가고 단추가 사라짐 → 잠긴 문항 409)와 완료 뒤 409. 관리자 여정 11/11 · 실전 규모 6/6 · 위저드 통과. 관리자 편집기(새 · 옛)는 캡처로 답변 블록과 '확인 결과로 가져오기'를 확인했다.
+- **남은 것** — 결정 ③④(할 일 표시 · AI 재검토 반영). 번호가 없던 옛 검토서에서 '작업본 문구를 고쳐 놓고 아직 재공개하지 않은' 문항은, 그 사이 고객이 답하면 재공개 때 답이 짝을 잃는다(공개본 문구의 해시와 작업본 문구의 해시가 달라서 — 관리자 편집기 아래에 따로 보인다).
+
 ### 7.3 관리자 (`apps/web` `/app/admin/develop`)
 
 2026-09-09~10 두 프로토타입(G 수행관리·C 문서/워크큐)을 `prototype/develop-g-c`에서 나란히 비교한 뒤 **C 를 정본으로 승격하고 G 를 제거**했다(2026-09-10). 관리자 「개발」 모듈의 화면·API·문서 모델은 아래 §13·§14 가 정본이다. 정리 기록: [개발 프로토타입 정리](develop-prototypes.md).
@@ -427,7 +441,7 @@ P2 관리자 견적 화면(2026-09-05): 상세 본문에 견적 섹션(`componen
 
 ## 8. API 지도
 
-회원(prefix `/api`, 소유자만): `GET /ai/develop.followup/status`·`POST /ai/develop.followup/run`(multipart, §7.2.2)·`GET /ai/develop.area-followup/status`·`POST /ai/develop.area-followup/run`(multipart, §7.2.4)·`GET /ai/jobs/:jobId` · `POST /develop/requests`(multipart) · `GET /develop/my/requests`(`?scope=active` = 끝난 의뢰 제외 — 위저드 사이드바 '진행 사항', 2026-10-29) · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3).
+회원(prefix `/api`, 소유자만): `GET /ai/develop.followup/status`·`POST /ai/develop.followup/run`(multipart, §7.2.2)·`GET /ai/develop.area-followup/status`·`POST /ai/develop.area-followup/run`(multipart, §7.2.4)·`GET /ai/jobs/:jobId` · `POST /develop/requests`(multipart) · `GET /develop/my/requests`(`?scope=active` = 끝난 의뢰 제외 — 위저드 사이드바 '진행 사항', 2026-10-29) · `GET /develop/requests/:id` · `PATCH /develop/requests/:id` · `POST|DELETE /develop/requests/:id/files(/:fileId)` · `GET …/files/:fileId(/preview)` · `POST …/cancel` · `POST …/comments`(P2) · `PUT …/review/answers`(확인 사항 고객 답변, §7.2.13) · `GET …/quotes/:qid` · `POST …/quotes/:qid/accept|decline`(P2) · `POST …/milestones/:mid/checkout`(P2) · `POST …/deliveries/:eventId/confirm|changes`·`POST …/review-requests/:eventId/approve|changes`(P3).
 
 관리자(prefix `/api/admin`, requireAdmin): `GET /develop/requests`(+counts) · `GET|PATCH /develop/requests/:id` · `POST …/status` · `POST …/ai/review`·`POST …/ai/diagram` · `PUT …/review`·`POST …/review/publish|unpublish|reset` · `POST …/diagram/publish|unpublish|upload` · `POST …/quotes`·`PATCH /develop/quotes/:qid`·`POST …/send|withdraw` · `POST …/events`(multipart) · `POST /develop/milestones/:mid/mark-paid` · `GET …/review/versions`·`GET …/review/versions/:seq`·`POST …/review/versions/:seq/restore`(§6.2 버전 원장) · `GET /develop/files/:fileId(/preview)`(의뢰·이벤트·견적 파일 한 번호 체계, 미리보기는 고객 라우트와 같은 buildFilePreview) · `GET|PATCH /develop/settings`.
 
