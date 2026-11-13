@@ -6,6 +6,7 @@ import iconClip from '../../assets/detail/attach-clip.svg';
 // 아래쪽 '파일 첨부 (선택)'. 완료된 의뢰에서는 같은 창구가 A/S 요청이 된다(서버가 completed 일 때만
 // as_request 로 받는다). 종결(cancelled·declined)이면 부모가 이 컴포넌트를 아예 그리지 않는다.
 // 첨부는 누적하고 name+size+lastModified 로만 중복을 거른다(위저드와 같은 규칙). 상자에 끌어다 놓아도 붙는다.
+// 모양은 2026-11-13 부터 장의 글자 · 색(§7.2.12) — 소제목은 파란 22px, 테두리 · 단추는 장의 것.
 const props = withDefaults(defineProps<{ canRequestAs?: boolean; pending?: boolean; error?: string }>(), {
   canRequestAs: false,
   pending: false,
@@ -61,15 +62,15 @@ defineExpose({ reset });
   <div class="flex flex-col gap-[10.5px]">
     <div class="flex flex-wrap items-center justify-between gap-[10px]">
       <div class="flex flex-wrap items-center gap-[12px]">
-        <h3 class="text-[18px] font-medium leading-[1.3] text-black">{{ canRequestAs && asRequest ? 'A/S 요청' : '문의하기' }}</h3>
-        <label v-if="canRequestAs" class="flex cursor-pointer items-center gap-[6px] text-[14px] text-[#141e34]">
-          <input v-model="asRequest" type="checkbox" class="size-[16px] accent-[#212121]">
+        <h3 class="text-[20px] font-bold leading-[1.35] text-brand-600 sm:text-[22px]">{{ canRequestAs && asRequest ? 'A/S 요청' : '문의하기' }}</h3>
+        <label v-if="canRequestAs" class="flex cursor-pointer items-center gap-[6px] text-[15px] text-[#141e34]">
+          <input v-model="asRequest" type="checkbox" class="size-[16px] accent-[#141e34]">
           A/S 요청으로 보내기
         </label>
       </div>
       <button
         type="button"
-        class="flex h-[34px] min-w-[84px] items-center justify-center rounded-[6px] bg-[#f0f4fa] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:bg-[#e2e8f2] disabled:opacity-50"
+        class="flex h-[38px] min-w-[96px] items-center justify-center rounded-[6px] bg-[#141e34] px-[16px] text-[14px] font-medium leading-[1.3] text-white transition-opacity hover:opacity-85 disabled:opacity-40"
         :disabled="!canSend"
         @click="send"
       >
@@ -77,7 +78,7 @@ defineExpose({ reset });
       </button>
     </div>
     <div
-      class="flex min-h-[157px] flex-col justify-between gap-[10px] rounded-[10px] border border-[#d9d9d9] p-[14px]"
+      class="flex min-h-[157px] flex-col justify-between gap-[10px] rounded-[10px] border border-line-2 p-[16px] focus-within:border-brand-600"
       @dragover.prevent
       @drop.prevent="onDrop"
     >
@@ -86,23 +87,23 @@ defineExpose({ reset });
         rows="3"
         maxlength="5000"
         placeholder="궁금한 점이나 전달할 내용을 적어 주세요. 담당자에게 바로 전달됩니다."
-        class="w-full flex-1 resize-y border-0 bg-transparent p-0 text-[15px] leading-[1.8] text-[#141e34] outline-none placeholder:text-[#141e34]"
+        class="w-full flex-1 resize-y border-0 bg-transparent p-0 text-[16px] leading-[1.75] text-[#141e34] outline-none placeholder:text-tx-3"
       />
       <div class="flex flex-wrap items-center gap-[10px]">
         <button type="button" class="flex items-center gap-[10px]" @click="fileInput?.click()">
-          <span class="flex size-[26px] items-center justify-center rounded-[6px] border border-[#d9d9d9] bg-[#f2f2f2]">
+          <span class="flex size-[26px] items-center justify-center rounded-[6px] border border-line-2 bg-brand-50">
             <img :src="iconClip" alt="" class="block size-[15.167px]">
           </span>
-          <span class="text-[14px] leading-[1.2] text-[#333]">파일 첨부 (선택)</span>
+          <span class="text-[14px] leading-[1.2] text-[#3b4558]">파일 첨부 (선택)</span>
         </button>
         <input ref="fileInput" type="file" multiple class="hidden" @change="onPick">
         <span
           v-for="(f, i) in files"
           :key="`${f.name}-${i}`"
-          class="flex max-w-full items-center gap-[6px] rounded-[37px] bg-[#f5f6f8] px-[10px] py-[4px] text-[13px] text-[#141e34]"
+          class="flex max-w-full items-center gap-[6px] rounded-full bg-brand-50 px-[10px] py-[4px] text-[13px] text-[#141e34]"
         >
           <span class="truncate">{{ f.name }}</span>
-          <button type="button" class="shrink-0 text-[#999] hover:text-black" :aria-label="`${f.name} 빼기`" @click="removeFile(i)">✕</button>
+          <button type="button" class="shrink-0 text-tx-3 hover:text-[#141e34]" :aria-label="`${f.name} 빼기`" @click="removeFile(i)">✕</button>
         </span>
       </div>
     </div>

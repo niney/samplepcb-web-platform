@@ -13,6 +13,7 @@ import DocumentDecision from './DocumentDecision.vue';
 // 프로젝트 문서 목록(docs/DEVELOP_FLOW.md §13) — 서버는 **보낸 판만** 내려준다(draft 는 어떤 응답에도 없다).
 // 같은 종류·번호(docNo)의 판이 여러 개면 최신 판(isCurrent)만 카드로 세우고 이전 판은 그 안에 접어 둔다.
 // 회신할 문서(승인형 sent)는 처음부터 펼쳐 둔다 — 고객이 이 화면에 온 이유가 그것이다.
+// 카드의 모서리 · 테두리 · 글 색은 2026-11-13 부터 장의 것(§7.2.12) — 문서 본문 · 회신 입력은 그대로다.
 const props = defineProps<{
   documents: DevelopDocumentViewType[];
   requestId: number;
@@ -50,7 +51,7 @@ const badgeText = (d: DevelopDocumentViewType): string => {
   return DEVELOP_DOC_STATUS_LABELS[d.status];
 };
 const badgeClass = (d: DevelopDocumentViewType): string => {
-  if (d.status === 'sent') return d.approval ? 'bg-brand-500 text-white' : 'bg-paper text-tx-2';
+  if (d.status === 'sent') return d.approval ? 'bg-brand-600 text-white' : 'bg-brand-50 text-tx-2';
   if (d.status === 'approved') return 'bg-emerald-600 text-white';
   if (d.status === 'conditional') return 'bg-emerald-100 text-emerald-700';
   if (d.status === 'changes_requested' || d.status === 'discuss_requested') return 'bg-amber-100 text-amber-800';
@@ -87,8 +88,8 @@ function togglePrev(id: number): void {
       v-for="d in current"
       :id="`document-${String(d.documentId)}`"
       :key="d.documentId"
-      class="scroll-mt-32 rounded-2xl border bg-white"
-      :class="openable(d) ? 'border-2 border-brand-500' : 'border-line'"
+      class="scroll-mt-32 rounded-[10px] border bg-white text-[#141e34]"
+      :class="openable(d) ? 'border-2 border-brand-600' : 'border-line'"
     >
       <!-- 카드 머리(클릭 = 펼침) -->
       <button type="button" class="grid w-full gap-2 p-5 text-left sm:p-6" :aria-expanded="isOpen(d.documentId)" @click="toggle(d.documentId)">
@@ -100,7 +101,7 @@ function togglePrev(id: number): void {
           <span class="ml-auto text-label font-bold text-tx-3">{{ isOpen(d.documentId) ? '접기' : '펼치기' }}</span>
         </div>
         <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span class="text-title font-extrabold text-tx-1">{{ typeLabel(d) }}</span>
+          <span class="text-[20px] font-bold leading-[1.35] text-[#141e34]">{{ typeLabel(d) }}</span>
           <span v-if="d.sentAt !== null" class="font-mono text-micro tabular-nums text-tx-3">발송 {{ dateShort(d.sentAt) }}</span>
           <span v-if="d.replyDueOn !== null" class="font-mono text-micro tabular-nums text-tx-3">회신 요청일 {{ d.replyDueOn }}</span>
         </div>
@@ -164,7 +165,7 @@ function togglePrev(id: number): void {
     </article>
   </div>
 
-  <p v-else class="rounded-2xl border border-dashed border-line-2 bg-white px-6 py-10 text-center text-body text-tx-3">
+  <p v-else class="rounded-[10px] border border-dashed border-line-2 px-[20px] py-[26px] text-center text-[16px] leading-[1.7] text-tx-3">
     아직 받으신 프로젝트 문서가 없습니다. 담당자가 착수 확인서·검토·승인서·진행보고를 보내면 여기에 모입니다.
   </p>
 </template>

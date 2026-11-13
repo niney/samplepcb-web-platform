@@ -8,6 +8,7 @@ import { dateTimeDot, fileSize } from '../../lib/format';
 // 서버가 visibleToCustomer 이벤트만 내려준다(비공개 메모는 오지 않는다). 본문·첨부·작성자·응답 패널은 그 줄 아래에 붙인다.
 // 잠긴 산출물(locked)은 파일명·크기만 보이고 받기가 막힌다 — 서버도 403 LOCKED_UNTIL_PAID 로 막는다.
 // 내가 답할 차례인 이벤트(산출물 검수·중간 확인 요청)에는 부모가 `event-actions` 슬롯으로 패널을 꽂는다.
+// 종류 칩 · 점의 네 톤은 시안 그대로이고, 글자 크기 · 글 상자 · 테두리 · 단추는 2026-11-13 부터 장의 것(§7.2.12).
 defineProps<{ events: DevelopEventViewType[] }>();
 const emit = defineEmits<{ download: [DevelopFileMetaType]; preview: [DevelopFileMetaType]; openDocuments: [] }>();
 
@@ -68,13 +69,13 @@ const toneOf = (t: DevelopEventTypeType): Tone => {
 </script>
 
 <template>
-  <ol v-if="events.length > 0" class="flex flex-col px-[12px]">
+  <ol v-if="events.length > 0" class="flex flex-col px-[4px]">
     <li v-for="(e, i) in events" :key="e.eventId" class="grid grid-cols-[10px_1fr] gap-x-[14px]">
       <!-- 세로선 + 점 -->
       <div class="relative flex justify-center">
-        <span v-if="i > 0" class="absolute top-0 h-[7px] w-px bg-[#d9d9d9]" aria-hidden="true" />
-        <span class="relative mt-[7px] size-[10px] shrink-0 rounded-full" :class="TONE[toneOf(e.type)].dot" />
-        <span v-if="i < events.length - 1" class="absolute bottom-0 top-[17px] w-px bg-[#d9d9d9]" aria-hidden="true" />
+        <span v-if="i > 0" class="absolute top-0 h-[8px] w-px bg-line-2" aria-hidden="true" />
+        <span class="relative mt-[8px] size-[10px] shrink-0 rounded-full" :class="TONE[toneOf(e.type)].dot" />
+        <span v-if="i < events.length - 1" class="absolute bottom-0 top-[18px] w-px bg-line-2" aria-hidden="true" />
       </div>
 
       <div class="flex min-w-0 flex-col gap-[6px]" :class="i < events.length - 1 ? 'pb-[20px]' : ''">
@@ -89,37 +90,37 @@ const toneOf = (t: DevelopEventTypeType): Tone => {
             >
               {{ docNo(e) }}
             </button>
-            <span class="min-w-0 text-[15px] leading-[1.3] text-[#141e34]">{{ titleOf(e) }}</span>
+            <span class="min-w-0 text-[16px] leading-[1.4] text-[#141e34]">{{ titleOf(e) }}</span>
             <!-- 누가 썼는지는 문의·A/S 에서만 뜻이 있다(나머지는 늘 '담당자'라 시안처럼 뺀다) -->
-            <span v-if="(e.type === 'comment' || e.type === 'as_request') && e.actorName !== ''" class="text-[13px] leading-[1.3] text-[#999]">{{ e.actorName }}</span>
+            <span v-if="(e.type === 'comment' || e.type === 'as_request') && e.actorName !== ''" class="text-[14px] leading-[1.4] text-tx-3">{{ e.actorName }}</span>
           </div>
-          <span class="shrink-0 whitespace-pre text-[14px] leading-[1.3] tabular-nums text-[#666]">{{ dateTimeDot(e.createdAt) }}</span>
+          <span class="shrink-0 whitespace-pre text-[14px] leading-[1.4] tabular-nums text-tx-2">{{ dateTimeDot(e.createdAt) }}</span>
         </div>
-        <p v-if="e.body !== null" class="whitespace-pre-wrap rounded-[10px] bg-[#f5f6f8] px-[14px] py-[10px] text-[15px] leading-[1.8] text-[#141e34]">{{ e.body }}</p>
+        <p v-if="e.body !== null" class="whitespace-pre-wrap rounded-[10px] bg-brand-50 px-[18px] py-[12px] text-[16px] leading-[1.7] text-[#141e34]">{{ e.body }}</p>
 
         <ul v-if="e.files.length > 0" class="flex flex-col gap-[6px]">
           <li
             v-for="f in e.files"
             :key="f.fileId"
-            class="flex min-w-0 flex-wrap items-center gap-[8px] rounded-[10px] border border-[#d9d9d9] px-[12px] py-[8px] text-[14px]"
+            class="flex min-w-0 flex-wrap items-center gap-[8px] rounded-[10px] border border-line px-[14px] py-[8px] text-[15px]"
           >
-            <span class="min-w-0 flex-1 truncate font-medium" :class="f.locked ? 'text-[#999]' : 'text-black'">
+            <span class="min-w-0 flex-1 truncate font-medium" :class="f.locked ? 'text-tx-3' : 'text-[#141e34]'">
               <span v-if="f.locked" aria-hidden="true">🔒 </span>{{ f.name }}
             </span>
-            <span class="shrink-0 tabular-nums text-[#999]">{{ fileSize(f.size) }}</span>
-            <span v-if="f.locked" class="shrink-0 text-[#999]">잔금 결제 후 내려받기</span>
+            <span class="shrink-0 tabular-nums text-tx-3">{{ fileSize(f.size) }}</span>
+            <span v-if="f.locked" class="shrink-0 text-tx-3">잔금 결제 후 내려받기</span>
             <template v-else>
               <button
                 v-if="canPreview(f)"
                 type="button"
-                class="flex h-[30px] shrink-0 items-center rounded-[6px] border border-[#d9d9d9] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad]"
+                class="flex h-[32px] shrink-0 items-center rounded-[6px] border border-line-2 bg-white px-[12px] text-[14px] leading-[1.3] text-[#141e34] transition-colors hover:bg-brand-50"
                 @click="emit('preview', f)"
               >
                 미리보기
               </button>
               <button
                 type="button"
-                class="flex h-[30px] shrink-0 items-center rounded-[6px] border border-[#d9d9d9] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:border-[#9aa3ad]"
+                class="flex h-[32px] shrink-0 items-center rounded-[6px] border border-line-2 bg-white px-[12px] text-[14px] leading-[1.3] text-[#141e34] transition-colors hover:bg-brand-50"
                 @click="emit('download', f)"
               >
                 다운로드
@@ -133,7 +134,7 @@ const toneOf = (t: DevelopEventTypeType): Tone => {
       </div>
     </li>
   </ol>
-  <p v-else class="rounded-[10px] border border-[#d9d9d9] px-[16px] py-[14px] text-[15px] leading-[1.8] text-[#666]">
+  <p v-else class="rounded-[10px] border border-dashed border-line-2 px-[20px] py-[22px] text-center text-[16px] leading-[1.7] text-tx-3">
     아직 진행 기록이 없습니다. 담당자가 검토를 시작하면 여기에 쌓입니다.
   </p>
 </template>

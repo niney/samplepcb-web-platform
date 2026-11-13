@@ -21,8 +21,8 @@ const span = computed(() =>
 </script>
 
 <template>
-  <div class="mt-[14px] flex items-end gap-[40px]">
-    <div class="min-w-0 flex-1 text-[13px] leading-[1.55] text-tx-2">
+  <div class="mt-[14px] flex flex-wrap items-end gap-x-[40px] gap-y-[10px]">
+    <div class="min-w-[240px] flex-1 text-[13px] leading-[1.55] text-tx-2">
       <p v-if="fit.status !== 'unknown' && wishText === fit.wishLabel">{{ fit.text }}</p>
       <p v-if="schedule.assumptions !== ''">전제 — {{ schedule.assumptions }}</p>
       <p>{{ DEV_REVIEW_SCHEDULE_CAPTION }}</p>

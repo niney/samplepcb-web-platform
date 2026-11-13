@@ -197,7 +197,8 @@ describe.skipIf(!RUN)('개발의뢰 위저드 v2 — 브라우저 스모크', ()
       expect(d.wishNote).toBe('계약 후 3개월');
       // 고객 상세 — 저장 분야는 6분야 그대로, 범위 답으로 AI 검토에서 뺀 분야를 메뉴 옆에 적는다(2026-11-06)
       await s.page.goto(`/develop/requests/${String(d.requestId)}?_t=${String(Date.now())}`);
-      await s.page.getByText('시스템 개발 (기구·앱·서버 제외)', { exact: true }).waitFor({ timeout: 20_000 });
+      // 장 안에서 찾는다 — 장을 배분하려고 높이를 재는 동안에는 같은 표가 숨은 자리에 두 벌(넓은 판 · 한 단 판) 있다
+      await s.page.locator('.develop-deck').getByText('시스템 개발 (기구·앱·서버 제외)', { exact: true }).waitFor({ timeout: 20_000 });
       expect(s.pageErrors).toEqual([]);
     } finally {
       await s.close();

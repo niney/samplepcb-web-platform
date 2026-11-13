@@ -8,6 +8,7 @@ defineProps<{
   area: DeckArea;
   variant: 'column' | 'solo';
   questionsPage?: number | null; // '확인이 필요한 사항' 첫 장의 쪽 번호 — solo 가 이 분야의 확인 사항이 어디 있는지 가리킨다
+  stack?: boolean; // 좁은 화면의 세로 흐름 — solo 의 검토 포인트 판을 아래로 내린다
 }>();
 </script>
 
@@ -33,7 +34,7 @@ defineProps<{
   </div>
 
   <!-- 분야 하나가 한 장 -->
-  <div v-else class="flex min-h-full flex-1 gap-[56px]">
+  <div v-else class="flex min-h-full flex-1" :class="stack ? 'flex-col gap-[22px]' : 'gap-[56px]'">
     <div class="flex min-w-0 flex-1 flex-col">
       <p v-if="area.summary !== ''" class="text-[19px] leading-[1.55] text-[#3b4558]">{{ area.summary }}</p>
       <p class="text-[14px] font-bold leading-[1.4] text-brand-600" :class="area.summary !== '' ? 'mt-[22px]' : ''">개발 구성</p>
@@ -51,13 +52,17 @@ defineProps<{
       </div>
       <p v-else class="mt-[10px] text-[17px] leading-[1.5] text-tx-3">상담 후 작성</p>
     </div>
-    <aside v-if="area.notes.length > 0 || area.questionCount > 0" class="flex w-[440px] shrink-0 flex-col rounded-[10px] bg-brand-50 px-[28px] py-[24px]">
+    <aside
+      v-if="area.notes.length > 0 || area.questionCount > 0"
+      class="flex shrink-0 flex-col rounded-[10px] bg-brand-50"
+      :class="stack ? 'w-full px-[18px] py-[18px]' : 'w-[440px] px-[28px] py-[24px]'"
+    >
       <template v-if="area.notes.length > 0">
         <p class="text-[14px] font-bold leading-[1.4] text-brand-600">검토 포인트</p>
         <p v-for="(n, ni) in area.notes" :key="ni" class="text-[17px] leading-[1.6]" :class="ni === 0 ? 'mt-[10px]' : 'mt-[14px]'">{{ n }}</p>
       </template>
       <p v-if="area.questionCount > 0" class="mt-auto pt-[20px] text-[15px] leading-[1.5] text-tx-2">
-        확인이 필요한 사항 <b class="font-bold text-[#141e34]">{{ area.questionCount }}건</b><template v-if="questionsPage != null"> — {{ String(questionsPage).padStart(2, '0') }}쪽부터</template>
+        확인이 필요한 사항 <b class="font-bold text-[#141e34]">{{ area.questionCount }}건</b><template v-if="questionsPage != null && !stack"> — {{ String(questionsPage).padStart(2, '0') }}쪽부터</template>
       </p>
     </aside>
   </div>

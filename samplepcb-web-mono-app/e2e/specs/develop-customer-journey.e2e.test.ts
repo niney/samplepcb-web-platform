@@ -3,7 +3,9 @@
 //
 //   1. 랜딩 분야 카드(PCB 설계) → 위저드(미리 선택 + 앱 및 서버 → 앱만) → 접수 → 내 의뢰 '접수됨'
 //   2. 관리자: 검토 시작 · 검토서(일정 8단계·전문가 검토·담당자 의견) 공개 · 구성도(도면 2장 HTML) 공개 → 검토서 탭
+//      (출력물과 같은 장으로 넘겨 본다 — 2026-11-13, docs/DEVELOP_FLOW.md §7.2.11)
 //   3. 관리자: 견적 v1 발송 → 내 의뢰 '견적 확인' 칩·'견적서 확인' 버튼 → 견적 탭 → 견적 수정 요청 → 관리자 v2 → 동의·성함 → 수락
+//      (견적서 탭도 장으로 넘겨 본다 — 요약 → 산출 내역, 수락 · 결제는 장 아래 판. 2026-11-13, docs/DEVELOP_FLOW.md §7.2.12)
 //   4. 착수금 결제 버튼 → 쇼핑몰 주문서로 이동 → 관리자 수동 입금 확인 → 개발 진행 중
 //   5. 관리자: 착수 확인서 발송 → 진행 현황 탭 배너 '확인하러 가기' → 회신(승인) → 배너 해소
 //   6. 관리자: 중간 확인 요청 → 진행·문의 탭 '확인 · 승인'
@@ -307,7 +309,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(p.overflow, '넘친 장 없음').toBe(0);
   }, LONG);
 
-  test('2. 관리자 검토서·구성도 공개 → 검토서 탭(요약·도면 2장·간트·전문가 검토·모델명 숨김)', async () => {
+  test('2. 관리자 검토서·구성도 공개 → 검토서 탭(장 넘겨 보기 — 요약·도면 2장·분석·일정·확인 사항·모델명 숨김)', async () => {
     ok(await admin.post(`/api/admin/develop/requests/${String(rid)}/status`, { to: 'reviewing' }), '검토 시작');
     ok(await admin.put(`/api/admin/develop/requests/${String(rid)}/review`, { review: REVIEW }), '검토서 작업본 저장');
     ok(await admin.post(`/api/admin/develop/requests/${String(rid)}/review/publish`), '검토서 공개');
@@ -318,43 +320,55 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
 
     const page = s.page;
     await openTab('#review', '2. AI 사전 검토서');
-    await page.getByText(REVIEW.summary).waitFor();
-    // 소제목 번호 — 시안 70:7029 처럼 2-1(요약)~2-4(명세서)
-    expect(await page.getByRole('heading', { name: `2-1. ${REVIEW.summary}` }).count()).toBe(1);
-    for (const h of ['2-2. 시스템 구성도', '2-3. 예상 개발 일정', '2-4. 개발 명세서']) {
-      expect(await page.getByRole('heading', { name: h, exact: true }).count(), h).toBe(1);
-    }
-    for (const r of REVIEW.requirements) expect(await page.getByText(r.text, { exact: true }).count()).toBe(1);
+    // 읽는 탭은 출력물과 같은 장으로, 한 번에 하나씩 넘겨 본다: 요약 → 구성도 2 → 개발 분석 → 일정 → 확인 사항(여섯 장)
+    const stage = page.locator('[data-deck-stage]');
+    const slideTitle = (): Promise<string> => stage.locator('.deck-slide h2').innerText();
+    const next = async (): Promise<void> => {
+      await stage.locator('[data-deck="next"]').click();
+    };
+    await stage.getByText(REVIEW.summary).waitFor();
+    expect(await slideTitle()).toBe('AI 사전 검토 요약');
+    for (const r of REVIEW.requirements) expect(await stage.getByText(r.text, { exact: true }).count()).toBe(1);
+    expect(await stage.getByText(REVIEW.adminComment).count(), '담당자 의견은 요약 장의 옅은 판에').toBe(1);
     expect(await page.getByText('e2e-model-hidden').count(), '모델명은 고객에게 안 보인다').toBe(0);
-    // 구성도 — 문서를 읽어 도면 2장과 글로 가른다. 글(요약·정리)은 도면 아래 토글 안, 기본 접힘(2026-11-05)
-    await page.getByText('시스템 토폴로지 및 하드웨어 기능 블록도').waitFor();
-    expect(await page.getByText('요구사항 확인 요약').count(), '글은 기본 접힘').toBe(0);
+    // 구성도 — 도면 한 장에 한 장. 글(요약·정리)은 버튼으로 여는 옆 판 안, 기본 닫힘(2026-11-05 기본 접힘 그대로)
+    await next();
+    await stage.getByText('1 / 2').waitFor();
+    expect(await slideTitle()).toBe('시스템 구성도');
+    expect(await stage.getByText('① 시스템 토폴로지 — 장치와 앱 사이 BLE 만 선으로 표시.').count()).toBe(1);
+    expect(await page.getByText('요구사항 확인 요약').count(), '글은 기본 닫힘').toBe(0);
     expect(await page.getByText('확정된 구성').count()).toBe(0);
-    await page.getByText('1 / 2').waitFor();
-    expect(await page.getByText('① 시스템 토폴로지 — 장치와 앱 사이 BLE 만 선으로 표시.').count()).toBe(1);
-    await page.getByRole('button', { name: '다음 도면' }).click();
-    await page.getByText('2 / 2').waitFor();
-    expect(await page.getByText('② 하드웨어 블록도 — MCU 중심, 센서 입력 왼쪽.').count()).toBe(1);
-    const notesToggle = page.getByRole('button', { name: /구성도 설명 보기/ });
+    const notesToggle = stage.getByRole('button', { name: /구성도 설명 보기/ });
     expect(await notesToggle.getAttribute('aria-expanded')).toBe('false');
     await notesToggle.click();
-    await page.getByText('요구사항 확인 요약').waitFor();
-    expect(await page.getByText('의뢰: BLE 온습도 로거의 신규 PCB 와 앱 연동.').count()).toBe(1);
-    expect(await page.getByText('확정된 구성').count()).toBe(1);
-    expect(await page.getByText('미확정 항목').count()).toBe(1);
-    await page.getByRole('button', { name: /구성도 설명 접기/ }).click();
-    expect(await page.getByText('확정된 구성').count(), '다시 접힘').toBe(0);
-    // 간트·합계
-    expect(await page.locator('main [title$="주"]').count()).toBe(PHASES.length);
-    await page.getByText(`${String(MIN_SUM)}주~${String(MAX_SUM)}주`).waitFor();
-    // 명세서 — 전문가 검토 펼침 → 확인 결과 · 담당자 의견
-    expect(await page.getByText('상담 결과: 3D 프린팅 외장으로 진행').count()).toBe(0);
-    await page.getByRole('button', { name: '내용 보기' }).first().click();
-    await page.getByText('상담 결과: 3D 프린팅 외장으로 진행').waitFor();
-    expect(await page.getByText(REVIEW.adminComment).count()).toBe(1);
+    const notes = page.locator('[data-deck-overlay="notes"]');
+    await notes.getByText('요구사항 확인 요약').waitFor();
+    expect(await notes.getByText('의뢰: BLE 온습도 로거의 신규 PCB 와 앱 연동.').count()).toBe(1);
+    expect(await notes.getByText('확정된 구성').count()).toBe(1);
+    expect(await notes.getByText('미확정 항목').count()).toBe(1);
+    await notes.getByRole('button', { name: /닫기/ }).click();
+    expect(await page.getByText('확정된 구성').count(), '다시 닫힘').toBe(0);
+    await next();
+    await stage.getByText('2 / 2').waitFor();
+    expect(await stage.getByText('② 하드웨어 블록도 — MCU 중심, 센서 입력 왼쪽.').count()).toBe(1);
+    // 개발 분석 — 분야 명세
+    await next();
+    await stage.getByText('개발 분석: PCB 설계 · 앱 개발').waitFor();
+    expect(await stage.getByText('CR2032 · LDO 3.0V', { exact: true }).count()).toBe(1);
+    // 일정 — 단계 표 · 합계
+    await next();
+    await stage.getByText(`${String(MIN_SUM)}~${String(MAX_SUM)}주`).waitFor();
+    expect(await slideTitle()).toBe('예상 개발 일정');
+    for (const p of PHASES) expect(await stage.getByText(p[0], { exact: true }).count(), p[0]).toBe(1);
     // 희망 완료 시점 — 검토서 wishCode(마켓 코드)가 아니라 의뢰의 희망 시기(자유문)를 보인다('미응답' 회귀 방지)
-    expect(await page.getByText('계약 후 3개월', { exact: true }).count()).toBeGreaterThan(0);
-    expect(await page.getByText('미응답', { exact: true }).count()).toBe(0);
+    expect(await stage.getByText('계약 후 3개월', { exact: true }).count()).toBeGreaterThan(0);
+    expect(await stage.getByText('미응답', { exact: true }).count()).toBe(0);
+    // 확인이 필요한 사항 — 담당자 확인 결과가 답변 칸에. 마지막 장의 다음은 다음 탭
+    await next();
+    await stage.getByText('상담 결과: 3D 프린팅 외장으로 진행').waitFor();
+    expect(Number(await stage.getAttribute('data-deck-page')), '여섯 장').toBe(6);
+    expect(await stage.locator('[data-deck="next"]').innerText()).toContain('견적서');
+    expect(await stage.locator('[data-deck-overflow]').count(), '넘친 장 없음').toBe(0);
 
     await page.goto('/develop/me');
     const row = page.locator('main li', { hasText: TITLE });
@@ -377,6 +391,17 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
 
     await page.getByRole('button', { name: '견적 수정 요청' }).click();
     await page.getByPlaceholder('수정하고 싶은 내용 (선택)').fill('앱은 Android 만 먼저 진행하고 싶습니다');
+    // 쓰는 도중에 의뢰가 갱신돼도(창으로 돌아오면 다시 읽는다) 입력이 지워지지 않는다 — 장을 다시 재는 동안 장 아래 판을 걷지 않는다
+    ok(await admin.form(`/api/admin/develop/requests/${String(rid)}/events`, eventForm({ type: 'comment', body: '[e2e 여정] 견적 검토 중 안내' })), '갱신 유발');
+    const refetched = page.waitForResponse((r) => r.request().method() === 'GET' && new URL(r.url()).pathname === `/api/develop/requests/${String(rid)}`);
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    await refetched;
+    await expect.poll(async () => ((await customerDetail())?.events ?? []).some((e: any) => e.body === '[e2e 여정] 견적 검토 중 안내')).toBe(true);
+    await page.waitForTimeout(300); // 다시 재고 그릴 틈
+    expect(await page.getByPlaceholder('수정하고 싶은 내용 (선택)').inputValue(), '갱신 뒤에도 쓰던 글이 남는다').toBe('앱은 Android 만 먼저 진행하고 싶습니다');
     await page.getByRole('button', { name: '수정 요청 보내기' }).click();
     await page.getByText(/수정 요청함 · 앱은 Android 만 먼저/).waitFor();
     // 고객 어휘 — 상태 칩도 '거절'이 아니라 '수정 요청'
@@ -402,13 +427,35 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     );
     ok(await admin.post(`/api/admin/develop/quotes/${String(q2.quoteId)}/send`), '견적 v2 발송');
     await openTab('#quotes', '3. 견적서');
-    await page.getByText('2차 견적(Android 우선)').waitFor();
-    // 카드 — 산출 내역 줄(구분 · 등급 · 담당업무 / 단가 × 수량 / 가산)
-    const v2card = page.locator('article', { hasText: '2차 견적(Android 우선)' });
-    expect(await v2card.getByText('인건비 · 특급 · 시스템 설계', { exact: true }).count()).toBe(1);
-    expect(await v2card.getByText('350,000원 × 10일', { exact: true }).count()).toBe(1);
-    expect(await v2card.getByText('15% (인건비+직접비)', { exact: true }).count()).toBe(1);
-    // 엑셀 — 카드 버튼(Authorization 이 필요한 blob 저장). 서버가 1쪽과 같은 표로 만든다.
+    // 견적서 탭도 장으로 넘겨 본다 — 최신 견적이 첫 장: 요약(금액 · 결제 조건 · 견적 조건) → 산출 내역 → 앞 견적(v1)의 두 장
+    const stage = page.locator('[data-deck-stage]');
+    await stage.getByRole('heading', { name: '2차 견적(Android 우선)' }).waitFor();
+    expect(await stage.locator('.deck-slide').getAttribute('data-deck-kind')).toBe('quote');
+    expect(await stage.locator('[data-deck="quote-total"]').innerText()).toBe('10,810,800원');
+    expect(await stage.getByText(/^수정 견적 v\d+ · 발송 · /).count(), '부제 — 종류 · 판 · 상태').toBe(1);
+    for (const text of ['착수금', '잔금', '견적 수락 시', '함체는 사급 지원', 'PCB 제작비·부품비 별도']) {
+      expect(await stage.getByText(text, { exact: true }).count(), `견적 요약 장: ${text}`).toBe(1);
+    }
+    // 답할 견적이면 요약 장에 안내와 장 아래 판으로 내려가는 단추가 있다
+    expect(await stage.locator('[data-deck="quote-jump"]').innerText()).toContain('수락 · 수정 요청');
+    // 산출 내역 — 항목(등급 · 담당업무) / 단가 × 수량 / 구분 소계 / 가산
+    await stage.locator('[data-deck="next"]').click();
+    await stage.getByRole('heading', { name: /^산출 내역: 수정 견적 v\d+$/ }).waitFor();
+    for (const text of ['특급 · 시스템 설계', '350,000원 × 10일', '인건비 소계', '15% (인건비+직접비)']) {
+      expect(await stage.getByText(text, { exact: true }).count(), `산출 내역 장: ${text}`).toBe(1);
+    }
+    // 앞 견적(수정 요청한 v1)은 그 뒤 — 모두 네 장, 넘친 장 없음. 장 아래 판은 지금 장의 견적을 따라간다(v1 은 수락 단추가 없다)
+    await stage.locator('[data-deck="next"]').click();
+    await stage.getByRole('heading', { name: '1차 견적' }).waitFor();
+    expect(await stage.locator('footer').innerText()).toMatch(/3\s*\/\s*4/);
+    expect(await stage.locator('[data-deck-overflow]').count(), '넘친 장 없음').toBe(0);
+    expect(await page.locator('[data-quote-actions]').count(), '장 아래 판은 하나').toBe(1);
+    expect(await page.locator('[data-quote-actions]').getByRole('button', { name: '견적 수락' }).count()).toBe(0);
+    await stage.locator('[data-deck="prev"]').click();
+    await stage.locator('[data-deck="prev"]').click();
+    await stage.getByRole('heading', { name: '2차 견적(Android 우선)' }).waitFor();
+    const v2card = page.locator('[data-quote-actions]', { hasText: '2차 견적(Android 우선)' });
+    // 엑셀 — 장 아래 판의 단추(Authorization 이 필요한 blob 저장). 서버가 1쪽과 같은 표로 만든다.
     const downloading = page.waitForEvent('download');
     await v2card.getByRole('button', { name: '엑셀', exact: true }).click();
     const file = await downloading;
@@ -417,7 +464,7 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     for (const text of ['견적서', '인건비 소계', '15% (인건비+직접비)', '10일', '함체는 사급 지원', '박승한 상무', '연구소', '산출물 : 회로도 · 거버 · 펌웨어 소스 · 앱 소스', '별도 실비 : PCB 제작비·부품비 별도']) {
       expect(sheetText, `엑셀: ${text}`).toContain(text);
     }
-    // 카드 「PDF」 = 인쇄용 보기를 ?download=pdf 로 연다(그려지자마자 한 번 내려받는다)
+    // 판의 「PDF」 = 인쇄용 보기를 ?download=pdf 로 연다(그려지자마자 한 번 내려받는다)
     expect(await v2card.getByRole('link', { name: 'PDF', exact: true }).getAttribute('href')).toContain(`/quotes/${String(q2.quoteId)}/print?download=pdf`);
     // 인쇄용 보기 — 1쪽 견적서(공용 시트) + 별지
     await page.goto(`/develop/requests/${String(rid)}/quotes/${String(q2.quoteId)}/print?_t=${String(Date.now())}`);
@@ -455,8 +502,13 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     expect(autoFile.suggestedFilename()).toBe(pdfName);
     await expect.poll(() => new URL(page.url()).searchParams.has('download')).toBe(false);
     await openTab('#quotes', '3. 견적서');
-    await page.getByText('2차 견적(Android 우선)').waitFor();
+    await stage.getByRole('heading', { name: '2차 견적(Android 우선)' }).waitFor();
     const accept = page.getByRole('button', { name: '견적 수락' });
+    // 요약 장의 단추 → 장 아래 수락 판이 창 안으로
+    await stage.locator('[data-deck="quote-jump"]').click();
+    await expect
+      .poll(() => accept.evaluate((el) => el.getBoundingClientRect().top >= 0 && el.getBoundingClientRect().bottom <= window.innerHeight), { timeout: 10_000 })
+      .toBe(true);
     expect(await accept.isDisabled(), '동의 전엔 수락이 막힌다').toBe(true);
     await page.getByText('위 조건에 동의합니다', { exact: true }).click();
     await page.getByPlaceholder('성함').fill('여정고객');
@@ -465,12 +517,16 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     // '착수금 대기'는 스텝퍼 라벨에도 늘 있어 기다림이 못 된다 — 결제 버튼 자체를 기다린다.
     await page.getByRole('button', { name: /원 결제$/ }).first().waitFor({ timeout: 20_000 });
     expect(await page.getByRole('button', { name: /원 결제$/ }).count(), '착수금 결제 버튼').toBe(1);
+    // 수락 뒤 요약 장의 안내는 결제로 바뀐다
+    expect(await stage.locator('[data-deck="quote-jump"]').innerText()).toContain('결제하기');
   }, LONG);
 
   test('4. 착수금 결제 버튼 → 주문서 → 수동 입금 확인 → 개발 진행 중', async () => {
     await payMilestone('착수금');
     await expect.poll(async () => (await customerDetail())?.status, { timeout: 20_000 }).toBe('in_progress');
     await openTab('#quotes', '3. 견적서');
+    // 견적 요약 장의 결제 조건 표(장은 높이를 잰 뒤에 그려진다)
+    await s.page.locator('[data-deck-stage]').getByText('결제 완료', { exact: true }).waitFor();
     expect(await s.page.getByText('결제 완료', { exact: true }).count()).toBe(1);
     expect(await s.page.getByText('개발 진행 중', { exact: true }).count()).toBeGreaterThan(0);
   }, LONG);

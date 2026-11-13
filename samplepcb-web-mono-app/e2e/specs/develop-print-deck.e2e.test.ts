@@ -9,6 +9,10 @@
 //   2. 장 구성 — 순서 · 분야 6개가 두 장 안팎 · 문항 고르게 · 일정 한 장 · 진행 현황에 문서 표 · AI 추가 질문 · 도면만
 //   3. 품질 — 넘친 장 0 · 글자 줄임 15% 이내 · 주요 장은 본문의 40% 이상 참 · 도면 가로 900px 이상
 //   4. 인쇄 — 장 수 = PDF 쪽 수 · 용지 16:9 · 장마다 PNG(output/develop-print-deck/)
+//   5. 의뢰 상세(PC) — 읽는 탭 셋(상세 의뢰 내용 · AI 사전 검토서 · 진행 현황)과 견적서를 같은 장으로 넘겨 본다(§7.2.11 · §7.2.12): 넘긴 장이 창 안에
+//      통째로 · 마지막 장의 다음은 다음 탭 · ←/→ 키 · 구성도 설명은 옆 판(기본 닫힘) · 문서 목록은 장 아래 그대로
+//      · 견적서는 요약 → 산출 내역, 수락 · 결제는 장 아래 판 · 진행·문의 / 첨부는 넘기지 않고 장과 같은 폭의 판
+//   6. 의뢰 상세(390px) — 같은 덩어리를 세로 흐름으로: 가로 넘침 0 · 내용 누락 없음 · 구성도 설명은 그 자리에서 펼침 · 견적 판 뒤에 수락 · 결제 판
 //
 // 데이터: 기본은 e2e 전용 계정(e2e-develop-deck)으로 만들고 끝나면 통째로 지운다(공유 DB — 스스로 만들고 스스로 지운다).
 // DEVELOP_DECK_KEEP=1 이면 의뢰인을 cf_admin 으로 해 남긴다 — 평소 로그인으로 /develop/requests/:id/print 를 열어 볼 수 있다.
@@ -407,5 +411,191 @@ describe.skipIf(!RUN)('개발의뢰 출력물(16:9 장) — 실전 규모', () =
     const box = (/\/MediaBox\s*\[([^\]]+)\]/.exec(raw)?.[1] ?? '').trim().split(/\s+/).map(Number);
     expect(box.slice(2).map((n) => Math.round(n)), '용지 = 13.333×7.5in').toEqual([960, 540]);
     expect(s.pageErrors).toEqual([]);
+  }, LONG);
+
+  // ── 의뢰 상세 — 같은 장을 탭 안에서 ──────────────────────────────────────────────
+  interface StageInfo {
+    page: number;
+    count: number;
+    scale: number;
+    kind: string;
+    title: string;
+    overflow: boolean;
+    inView: boolean;
+    text: string;
+    next: string;
+  }
+  const stageInfo = (): Promise<StageInfo> =>
+    s.page.evaluate(() => {
+      const stage = document.querySelector('[data-deck-stage]');
+      const slide = stage?.querySelector('.deck-slide');
+      const nav = document.querySelector('nav[aria-label="의뢰 상세 탭"]');
+      const r = slide?.getBoundingClientRect();
+      const n = nav?.getBoundingClientRect();
+      return {
+        page: Number(stage?.getAttribute('data-deck-page') ?? '0'),
+        count: Number(/\/\s*(\d+)/.exec(stage?.querySelector('footer')?.textContent ?? '')?.[1] ?? '0'),
+        scale: Number(stage?.getAttribute('data-deck-scale') ?? '0'),
+        kind: slide?.getAttribute('data-deck-kind') ?? '',
+        title: slide?.querySelector('h2')?.textContent?.trim() ?? '',
+        overflow: slide?.hasAttribute('data-deck-overflow') ?? true,
+        inView: r !== undefined && n !== undefined && r.top >= n.bottom - 1 && r.bottom <= window.innerHeight + 1,
+        text: (slide?.textContent ?? '').replace(/\s+/g, ' '),
+        next: stage?.querySelector('[data-deck="next"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      };
+    });
+  // 탭을 열어 첫 장부터 끝 장까지 넘긴다 — 넘길 때마다 그 장이 탭 줄 아래 창 안에 통째로 들어와야 한다.
+  const walk = async (hash: string, heading: string): Promise<StageInfo[]> => {
+    const page = s.page;
+    await page.goto(`/develop/requests/${String(rid)}?_t=${String(Date.now())}${hash}`);
+    await page.getByRole('heading', { name: heading }).waitFor({ timeout: 20_000 }); // 넘겨 보는 중엔 화면에서만 숨긴 제목
+    await page.locator('[data-deck-stage] .deck-slide').first().waitFor({ timeout: 20_000 });
+    const first = await stageInfo();
+    const seen = [first];
+    for (let i = 2; i <= first.count; i += 1) {
+      await page.locator('[data-deck="next"]').click();
+      await expect.poll(async () => (await stageInfo()).page, { timeout: 10_000 }).toBe(i);
+      await expect.poll(async () => (await stageInfo()).inView, { timeout: 10_000, message: `${hash} ${String(i)}번째 장이 창 안에` }).toBe(true);
+      seen.push(await stageInfo());
+    }
+    return seen;
+  };
+  const flat = (text: string): string => text.replace(/\s+/g, ' ');
+
+  test('5. 의뢰 상세(PC) — 읽는 탭 셋을 같은 장으로 넘겨 본다 · 문서 목록은 장 아래', async () => {
+    const page = s.page;
+    // 상세 의뢰 내용 — 의뢰 개요 + AI 추가 질문
+    const content = await walk('#content', '1. 상세 의뢰 내용');
+    expect(content.map((x) => x.kind)).toEqual(['overview', 'qa']);
+    expect(content[0]?.text).toContain('한빛설비');
+    expect(content[1]?.text).toContain(flat(DECK_AI_QUESTIONS.understood));
+    expect(content.at(-1)?.next, '마지막 장의 다음 = 다음 탭').toContain('AI 사전 검토서');
+
+    // AI 사전 검토서 — 출력물의 그 묶음과 같은 장
+    const review = await walk('#review', '2. AI 사전 검토서');
+    const printed = slides.filter((x) => ['summary', 'diagram', 'area', 'schedule', 'questions'].includes(x.kind));
+    expect(review.map((x) => x.title), '출력물과 같은 장').toEqual(printed.map((x) => x.title));
+    expect(review.every((x) => !x.overflow), '넘친 장 없음').toBe(true);
+    expect(review[0]?.scale, '1440×900 에서는 줄이지 않는다').toBe(1);
+    const reviewText = review.map((x) => x.text).join(' ');
+    for (const text of [
+      ...DECK_REVIEW.requirements.map((r: any) => r.text),
+      ...DECK_REVIEW.areas.flatMap((a: any) => [...a.spec.map((x: any) => x.text), ...a.observations.map((x: any) => x.text)]),
+      ...DECK_PHASES.map((p) => p[0]),
+      ...DECK_REVIEW.openQuestions.map((q: any) => q.question),
+      DECK_REVIEW.adminComment,
+    ]) {
+      expect(reviewText, `검토서 탭에 있어야 한다: ${String(text).slice(0, 40)}`).toContain(flat(String(text)));
+    }
+    expect(review.at(-1)?.next).toContain('견적서');
+    // ← → 키로도 넘긴다
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(async () => (await stageInfo()).page).toBe(review.length - 1);
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await stageInfo()).page).toBe(review.length);
+    // 마지막 장의 다음 → 견적서 탭
+    await page.locator('[data-deck="next"]').click();
+    await expect.poll(() => new URL(page.url()).hash).toBe('#quotes');
+    // 구성도 설명 — 기본 닫힘, 버튼으로 옆 판
+    await page.goto(`/develop/requests/${String(rid)}?_t=${String(Date.now())}#review`);
+    await page.locator('[data-deck-stage] .deck-slide').first().waitFor({ timeout: 20_000 });
+    await page.locator('[data-deck="next"]').click();
+    await page.locator('[data-deck="notes-toggle"]').waitFor();
+    expect(await page.locator('[data-deck-overlay="notes"]').count(), '기본 닫힘').toBe(0);
+    await page.locator('[data-deck="notes-toggle"]').click();
+    const notes = page.locator('[data-deck-overlay="notes"]');
+    for (const text of DECK_DIAGRAM_ONLY_TEXTS.slice(0, 4)) await notes.getByText(text, { exact: false }).first().waitFor();
+    await page.keyboard.press('Escape');
+    await expect.poll(() => page.locator('[data-deck-overlay="notes"]').count()).toBe(0);
+
+    // 진행 현황 — 달성도 · 업무만 장으로, 문서 표는 싣지 않고 장 아래 문서 목록(본문 · 회신)이 그대로
+    const progress = await walk('#documents', '4. 진행 현황 · 프로젝트 문서');
+    expect([...new Set(progress.map((x) => x.kind))]).toEqual(['tasks']);
+    const progressText = progress.map((x) => x.text).join(' ');
+    for (const t of DECK_TASKS) expect(progressText).toContain(t.name);
+    expect(await page.locator('[data-deck-stage] [data-deck-table="docs"]').count(), '문서 표는 장에 싣지 않는다').toBe(0);
+    expect(await page.getByText('계약·개발착수 확인', { exact: true }).count(), '장 아래 문서 목록').toBeGreaterThan(0);
+    expect(progress.at(-1)?.next).toContain('진행·문의');
+
+    // 견적서 — 견적마다 요약 → 산출 내역. 수락 · 결제 · 받기는 장에 넣지 않고 장 아래 판에
+    const quotes = await walk('#quotes', '3. 견적서');
+    expect([...new Set(quotes.map((x) => x.kind))]).toEqual(['quote', 'quote-items']);
+    expect(quotes[0]?.title).toBe(DECK_QUOTE.title);
+    expect(quotes.every((x) => !x.overflow), '넘친 견적 장 없음').toBe(true);
+    const quoteText = quotes.map((x) => x.text).join(' ');
+    for (const it of DECK_QUOTE.items) expect(quoteText, `산출 내역: ${String(it.title)}`).toContain(flat(String(it.title)));
+    for (const m of DECK_QUOTE.milestones) expect(quoteText, `결제 조건: ${String(m.title)}`).toContain(String(m.title));
+    expect(await page.locator('[data-deck-stage] button', { hasText: /원 결제$/ }).count(), '장 안에 결제 단추 없음').toBe(0);
+    expect(await page.locator('[data-deck-below] [data-quote-actions]').count(), '장 아래 수락 · 결제 판').toBe(1);
+    expect(await page.locator('[data-quote-actions]').getByRole('link', { name: '인쇄용 보기' }).count()).toBe(1);
+    expect(quotes.at(-1)?.next).toContain('진행 현황·문서');
+
+    // 넘기지 않는 탭 — 장과 같은 폭 · 같은 왼쪽 선의 판(제목은 판이 갖는다)
+    const stageBox = await page.locator('[data-deck-stage]').boundingBox();
+    for (const [hash, heading, title] of [['#timeline', '5. 진행 · 문의', '진행 · 문의'], ['#files', '6. 첨부 자료', '첨부 자료']] as const) {
+      await page.goto(`/develop/requests/${String(rid)}?_t=${String(Date.now())}${hash}`);
+      await page.getByRole('heading', { name: heading }).waitFor({ timeout: 20_000 });
+      const panel = page.locator('.deck-panel').first();
+      await panel.waitFor();
+      expect(await page.locator('[data-deck-stage]').count(), `${hash} 는 넘기지 않는다`).toBe(0);
+      expect(await panel.locator('h3').first().innerText(), `${hash} 판 제목`).toBe(title);
+      const box = await panel.boundingBox();
+      expect(Math.round(box?.width ?? 0), `${hash} 판 폭 = 장 폭`).toBe(Math.round(stageBox?.width ?? -1));
+      expect(Math.round(box?.x ?? 0), `${hash} 판 왼쪽 = 장 왼쪽`).toBe(Math.round(stageBox?.x ?? -1));
+    }
+    expect(s.pageErrors).toEqual([]);
+  }, LONG);
+
+  test('6. 의뢰 상세(390px) — 같은 덩어리를 세로 흐름으로 · 가로 넘침 0', async () => {
+    const page = s.page;
+    await page.setViewportSize({ width: 390, height: 844 });
+    try {
+      const flowText = async (hash: string, heading: string): Promise<string> => {
+        await page.goto(`/develop/requests/${String(rid)}?_t=${String(Date.now())}${hash}`);
+        await page.getByRole('heading', { name: heading }).waitFor({ timeout: 20_000 });
+        await page.locator('.deck-flow').first().waitFor({ timeout: 20_000 });
+        expect(await page.locator('[data-deck-stage]').count(), `${hash} 좁은 화면은 넘겨 보기가 아니다`).toBe(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth), `${hash} 가로 넘침`).toBeLessThanOrEqual(390);
+        return flat(await page.locator('.develop-deck').innerText());
+      };
+      const content = await flowText('#content', '1. 상세 의뢰 내용');
+      for (const text of ['한빛설비', DECK_AI_QUESTIONS.understood, ...DECK_AI_QUESTIONS.questions.map((q) => q.question)]) expect(content).toContain(flat(text));
+
+      const review = await flowText('#review', '2. AI 사전 검토서');
+      for (const text of [
+        ...DECK_REVIEW.requirements.map((r: any) => r.text),
+        ...DECK_REVIEW.areas.flatMap((a: any) => a.spec.map((x: any) => x.text)),
+        ...DECK_PHASES.map((p) => p[0]),
+        ...DECK_REVIEW.openQuestions.map((q: any) => q.question),
+      ]) {
+        expect(review, `세로 흐름에 있어야 한다: ${String(text).slice(0, 40)}`).toContain(flat(String(text)));
+      }
+      // 구성도 설명 — 그 자리에서 펼치고 접는다(기본 접힘)
+      expect(await page.locator('[data-deck="notes"]').count()).toBe(0);
+      const toggle = page.locator('[data-deck="notes-toggle"]').first();
+      await toggle.click();
+      await page.locator('[data-deck="notes"]').first().getByText('확정된 구성').waitFor();
+      await toggle.click();
+      await expect.poll(() => page.locator('[data-deck="notes"]').count()).toBe(0);
+
+      const progress = await flowText('#documents', '4. 진행 현황 · 프로젝트 문서');
+      for (const t of DECK_TASKS) expect(progress).toContain(t.name);
+
+      // 견적서 — 견적 판(요약 · 산출 내역) 뒤에 그 견적의 수락 · 결제 판
+      const quotes = await flowText('#quotes', '3. 견적서');
+      for (const it of DECK_QUOTE.items) expect(quotes).toContain(flat(String(it.title)));
+      expect(await page.locator('.deck-flow').evaluateAll((els) => els.map((el) => el.getAttribute('data-deck-kind')))).toEqual(['quote', 'quote-items']);
+      expect(await page.locator('.develop-deck [data-quote-actions]').count(), '견적 판 뒤 수락 · 결제 판').toBe(1);
+      // 진행·문의 · 첨부 — 판, 가로 넘침 0
+      for (const [hash, heading] of [['#timeline', '5. 진행 · 문의'], ['#files', '6. 첨부 자료']] as const) {
+        await page.goto(`/develop/requests/${String(rid)}?_t=${String(Date.now())}${hash}`);
+        await page.getByRole('heading', { name: heading }).waitFor({ timeout: 20_000 });
+        await page.locator('.deck-panel').first().waitFor();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth), `${hash} 가로 넘침`).toBeLessThanOrEqual(390);
+      }
+      expect(s.pageErrors).toEqual([]);
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
   }, LONG);
 });

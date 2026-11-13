@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { developAreaBadge, developWishLabel } from '@sp/api-contract';
-import type { DevelopDocDecisionType, DevelopEventViewType, DevelopFileMetaType, MarketFileMetaType } from '@sp/api-contract';
+import { developAreaBadge } from '@sp/api-contract';
+import type { DevelopDocDecisionType, DevelopEventViewType, DevelopFileMetaType, DevelopQuoteViewType, MarketFileMetaType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import { FilePreviewModal } from '@sp/ui';
 import type { PreviewTarget } from '@sp/ui';
@@ -19,30 +19,35 @@ import {
   useReviewRequestDecision,
 } from '../api/useDevelopRequests';
 import { developPath, loginUrl } from '../lib/auth-urls';
+import { DECK_SECTION } from '../lib/deck-content';
 import { downloadAuthedFile } from '../lib/download';
 import { errorCode, errorMessage } from '../lib/error-msg';
 import { addDaysKst, dateDotFull, dateShort, NEXT_ACTION_TARGETS, nextActionLabel, statusLabel, statusToneClass } from '../lib/format';
 import AppBar from '../components/layout/AppBar.vue';
 import ProgressStepper from '../components/detail/ProgressStepper.vue';
-import RequestContent from '../components/detail/RequestContent.vue';
-import QuoteCard from '../components/detail/QuoteCard.vue';
+import QuoteActions from '../components/detail/QuoteActions.vue';
 import Timeline from '../components/detail/Timeline.vue';
 import AttachmentList from '../components/detail/AttachmentList.vue';
 import CommentComposer from '../components/detail/CommentComposer.vue';
 import DecisionPanel from '../components/detail/DecisionPanel.vue';
-import ProjectProgress from '../components/detail/ProjectProgress.vue';
 import DocumentList from '../components/detail/DocumentList.vue';
-import DevelopReview from '../components/detail/review/DevelopReview.vue';
+import DeckBook from '../components/deck/DeckBook.vue';
+import DeckPanel from '../components/deck/DeckPanel.vue';
+import DeckStage from '../components/deck/DeckStage.vue';
 import icoPrint from '../assets/detail/ico-print.svg';
 import arrowNext from '../assets/wizard/arrow-next.svg';
 
 // 의뢰 상세(docs/DEVELOP_FLOW.md §7.2) — 소유자 전용. 서버가 **공개본만** 내려주므로(초안·작업본은 어떤
-// 응답에도 없다) 화면은 온 것을 그대로 그린다. 고객 행동: 견적 수락·수정 요청(QuoteCard), 마일스톤 결제(영카트
+// 응답에도 없다) 화면은 온 것을 그대로 그린다. 고객 행동: 견적 수락·수정 요청(QuoteActions), 마일스톤 결제(영카트
 // 주문서로 이동), 문의·A/S(CommentComposer), 납품 검수와 중간 확인 응답(타임라인 슬롯), 프로젝트 문서 회신.
 // 화면 = 피그마 「개발 의뢰」 00-3 의뢰 상세(Design done 70:5924 등 탭형, 사용자 결정 2026-10-22):
 // 제목·정보 줄 → 스텝퍼 → 탭(한 번에 한 섹션, 번호 제목). 탭은 URL 해시(#quotes 등)와 맞물린다 — 내 의뢰의
 // 할 일 버튼·타임라인 문서번호가 그 탭을 연다. 첨부는 없으면 탭째 숨기고, 종결된 의뢰는 진행 현황 탭이 없다.
-// '출력하기'는 전 섹션을 이어 붙인 인쇄 화면(RequestPrint)을 새 창으로 연다.
+// '출력하기'는 출력물(RequestPrint — 16:9 장)을 새 창으로 연다.
+// 읽는 탭 셋(상세 의뢰 내용 · AI 사전 검토서 · 진행 현황)은 그 출력물과 **같은 장**으로 보인다(2026-11-13, 사용자 결정 —
+// docs/DEVELOP_FLOW.md §7.2.11): 자리가 되면 한 번에 한 장씩 넘겨 보고, 좁으면(모바일) 같은 덩어리를 세로로 쌓는다.
+// 견적서 탭도 장이다(2026-11-13 §7.2.12): 견적마다 요약 · 산출 내역을 넘겨 보고, 수락 · 수정 요청 · 결제는 장 아래 판(QuoteActions)이 맡는다.
+// 진행·문의 · 첨부 · 프로젝트 문서 목록(본문 · 회신)은 넘기지 않는다 — 쓰고 누르는 화면이라 장과 같은 모양의 판(DeckPanel)에 그대로 둔다.
 // 틀은 앱 셸(사용자 결정 2026-11-03 — 시안 00-3 은 흰 사이트 헤더): 본문은 시안 그대로 판에, 위 바는 '의뢰 상세' + 지금 할 일
 // 안내와 그 탭으로 가는 버튼(내 의뢰 행 버튼과 같은 글자).
 
@@ -105,7 +110,80 @@ watch(
 );
 function selectTab(id: TabId): void {
   activeTab.value = id;
-  void router.replace({ hash: `#${id}` });
+  void router.replace({ query: route.query, hash: `#${id}` });
+}
+
+// ── 장으로 보기 ─────────────────────────────────────────────────────────────
+// 사용자 의도 = 출력하기처럼 한 화면에 딱 담기고 이전 · 다음이 이어지게. 장을 만들고 배분하는 일은 출력물과 같은 DeckBook 이 한다.
+// 화면 머리(제목 · 정보 줄 · 스텝퍼 · 탭 줄)의 모양은 그대로이고, 탭 줄만 스크롤할 때 위 바 아래에 붙는다 — 그 아래가 장의 자리다.
+// 넘겨 보는 장(1280×690)은 통째로 줄여 맞춘다: 폭은 본문 판(contentBox), 높이는 창에서 위 바(62)와 탭 줄을 뺀 만큼.
+// 75% 아래로 줄여야 하거나 본문 판이 900px 보다 좁으면 세로 흐름(DeckBook flow)으로 보인다.
+const STAGE = { width: 1280, height: 690, chrome: 62 + 56 + 20, minScale: 0.75, minWidth: 900 } as const;
+const contentBox = ref<HTMLElement | null>(null);
+const stageWidth = ref(0);
+const winHeight = ref(typeof window === 'undefined' ? 900 : window.innerHeight);
+let stageObserver: ResizeObserver | null = null;
+watch(contentBox, (el) => {
+  stageObserver?.disconnect();
+  stageObserver = null;
+  if (el === null) {
+    stageWidth.value = 0;
+    return;
+  }
+  stageWidth.value = el.getBoundingClientRect().width;
+  stageObserver = new ResizeObserver((entries) => {
+    const w = entries[0]?.contentRect.width;
+    if (w !== undefined) stageWidth.value = w;
+  });
+  stageObserver.observe(el);
+});
+function onWinResize(): void {
+  winHeight.value = window.innerHeight;
+}
+onMounted(() => {
+  window.addEventListener('resize', onWinResize);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWinResize);
+  stageObserver?.disconnect();
+});
+const stageScale = computed<number | null>(() => {
+  if (stageWidth.value < STAGE.minWidth) return null;
+  const k = Math.min(1, stageWidth.value / STAGE.width, (winHeight.value - STAGE.chrome) / STAGE.height);
+  return k >= STAGE.minScale ? k : null;
+});
+// 탭 → 장 묶음(없으면 null). 검토서 탭은 공개된 검토서 · 구성도가 있을 때, 진행 현황 탭은 착수 뒤에만 장이 있다.
+const NOT_STARTED: readonly string[] = ['received', 'reviewing', 'quoted', 'accepted'];
+const deckSection = computed<string | null>(() => {
+  const d = detail.value;
+  if (d === undefined) return null;
+  if (activeTab.value === 'content') return DECK_SECTION.request;
+  if (activeTab.value === 'review') return d.review !== null || d.diagram !== null ? DECK_SECTION.review : null;
+  if (activeTab.value === 'documents') return !closed.value && !NOT_STARTED.includes(d.status) ? DECK_SECTION.progress : null;
+  if (activeTab.value === 'quotes') return d.quotes.length > 0 ? DECK_SECTION.quotes : null;
+  return null;
+});
+// PC(장을 넘겨 볼 자리가 되는 화면) — 장도 판도 제 제목과 여백을 가지므로 탭 아래 번호 제목 줄과 본문 좌우 여백을 뺀다.
+// 넘기지 않는 탭의 판(DeckPanel)도 장과 같은 폭으로 그린다.
+const board = computed(() => stageScale.value !== null);
+const panelWidth = computed(() => (stageScale.value === null ? null : STAGE.width * stageScale.value));
+const neighborLabel = (step: number): string => tabs.value[activeIndex.value + step]?.label ?? '';
+// 장을 넘기거나 옆 탭으로 넘어가면 탭 줄이 위 바 바로 아래에 오게 내린다 — 그 아래에 장이 통째로 보인다.
+// 붙는 탭 줄 자체가 아니라 그 앞의 고정 자리(tabAnchor)를 기준으로 잰다 — 붙어 있는 요소에 scrollIntoView 를 걸면
+// 붙은 자리 기준으로 계산돼 넘길 때마다 더 내려간다(2026-11-13 실측).
+const tabAnchor = ref<HTMLElement | null>(null);
+const APP_BAR = 62;
+async function scrollTabsToTop(): Promise<void> {
+  await nextTick();
+  const anchor = tabAnchor.value;
+  if (anchor === null) return;
+  window.scrollTo({ top: Math.max(0, anchor.getBoundingClientRect().top + window.scrollY - APP_BAR), behavior: 'smooth' });
+}
+function stepTab(step: number): void {
+  const t = tabs.value[activeIndex.value + step];
+  if (t === undefined) return;
+  selectTab(t.id);
+  void scrollTabsToTop();
 }
 
 // ── AI 산출물(공개본) ───────────────────────────────────────────────────────
@@ -115,10 +193,6 @@ const reviewPendingNote = computed<string>(() => {
   if (!d.aiConsent) return 'AI 분석에 동의하지 않으셨습니다 — 담당자 검토로 진행합니다.';
   if (d.status === 'received' || d.status === 'reviewing') return '담당자가 검토 중입니다. 검토서는 검토 후 공개됩니다.';
   return '이 의뢰는 검토서 없이 상담으로 진행되고 있습니다.';
-});
-const reviewVersionLabel = computed(() => {
-  const seq = detail.value?.reviewPublicSeq ?? null;
-  return seq === null ? '' : `v${String(seq)} 공개본`;
 });
 
 // 잠긴 산출물이 실제로 있을 때만 안내한다 — viewer.deliverablesLocked 는 잔금 전이면 늘 참이라
@@ -204,6 +278,8 @@ const actionQuoteId = ref<number | null>(null);
 const quoteError = ref('');
 const payingMilestoneId = ref<number | null>(null);
 const quoteErrorFor = (quoteId: number): string => (actionQuoteId.value === quoteId ? quoteError.value : '');
+// 장(또는 세로 흐름의 견적 묶음)이 가리키는 견적 — 수락 · 결제 판이 그 견적을 그린다.
+const quotesById = (quoteId: number | null): DevelopQuoteViewType[] => (detail.value?.quotes ?? []).filter((q) => q.quoteId === quoteId);
 
 async function onAccept(p: { quoteId: number; name: string }): Promise<void> {
   actionQuoteId.value = p.quoteId;
@@ -387,7 +463,6 @@ const barGuide = computed(() => {
   if (d === undefined) return '';
   return nextTarget.value?.guide ?? `진행 상태: ${statusLabel(d.status)}`;
 });
-const tabNav = ref<HTMLElement | null>(null);
 async function goNextAction(): Promise<void> {
   const t = nextTarget.value;
   if (t === null) return;
@@ -398,11 +473,12 @@ async function goNextAction(): Promise<void> {
   const id = tabFromHash(t.hash);
   if (id === null) return;
   selectTab(id);
-  await nextTick();
-  tabNav.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  await scrollTabsToTop();
 }
 
-const CARD = 'rounded-[14px] bg-white px-[24px] py-[26px] shadow-[0_8px_15px_rgba(0,0,0,0.06)]';
+const NOTE_HEAD = 'text-[18px] font-bold leading-[1.6]';
+const NOTE_BODY = 'mt-[4px] text-[16px] leading-[1.75] text-[#3b4558]';
+const DARK_BTN = 'flex h-[38px] items-center rounded-[6px] bg-[#141e34] px-[16px] text-[14px] font-medium text-white transition-opacity hover:opacity-85';
 const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#f0f4fa] px-[10px] text-[14px] leading-[1.3] text-[#0a151e] transition-colors hover:bg-[#e2e8f2]';
 </script>
 
@@ -419,7 +495,7 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
     </template>
   </AppBar>
   <section class="tracking-normal">
-    <div class="mx-auto w-full max-w-[1280px]">
+    <div ref="contentBox" class="mx-auto w-full max-w-[1280px]">
       <!-- 비로그인 -->
       <div v-if="!loggedIn" class="border-y border-[#d9d9d9] px-[10px] py-[60px] text-center">
         <p class="text-[15px] leading-[1.3] text-[#666]">의뢰 상세는 로그인 후 확인할 수 있습니다.</p>
@@ -527,8 +603,9 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
         </div>
 
         <!-- 탭 -->
-        <!-- scroll-mt = 위 바(62) 아래로 띄워 멈춘다(위 바 '할 일' 버튼이 여기로 내린다) -->
-        <nav ref="tabNav" class="print-hidden relative mt-[24px] scroll-mt-[86px] overflow-x-auto" aria-label="의뢰 상세 탭">
+        <!-- 탭 줄은 스크롤할 때 위 바(62) 아래에 붙는다 — 그 아래가 장의 자리. 위 바 '할 일' 버튼 · 장 넘김은 앞의 고정 자리(tabAnchor)로 내린다 -->
+        <div ref="tabAnchor" class="mt-[24px]" aria-hidden="true" />
+        <nav class="print-hidden sticky top-[62px] z-30 -mt-[10px] overflow-x-auto bg-[#fdfdfd] pt-[10px]" aria-label="의뢰 상세 탭">
           <span class="absolute bottom-0 left-0 h-px w-full min-w-max bg-[#d9d9d9]" aria-hidden="true" />
           <ul class="relative flex min-w-max gap-[14px]" role="tablist">
             <li v-for="t in tabs" :key="t.id">
@@ -548,141 +625,166 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
           </ul>
         </nav>
 
-        <div class="pt-[40px] lg:px-[40px]">
-          <h2 class="text-[22px] font-bold leading-[1.3] text-black">{{ activeTitle }}</h2>
-          <p v-if="fileError !== ''" class="mt-[16px] rounded-[10px] bg-red-50 px-[16px] py-[12px] text-[14px] font-semibold text-red-700">{{ fileError }}</p>
+        <div :class="board ? 'pt-[20px]' : 'pt-[40px] lg:px-[40px]'">
+          <h2 :class="board ? 'sr-only' : 'text-[22px] font-bold leading-[1.3] text-black'">{{ activeTitle }}</h2>
+          <p v-if="fileError !== ''" class="rounded-[10px] bg-red-50 px-[16px] py-[12px] text-[14px] font-semibold text-red-700" :class="board ? 'mb-[16px]' : 'mt-[16px]'">{{ fileError }}</p>
 
-          <div class="mt-[22px] flex flex-col gap-[22px]">
-            <!-- 1. 상세 의뢰 내용 -->
-            <div v-if="activeTab === 'content'" :class="CARD">
-              <RequestContent :detail="detail" />
-            </div>
-
-            <!-- 2. AI 사전 검토서 -->
-            <DevelopReview
-              v-else-if="activeTab === 'review'"
-              :review="detail.review"
-              :diagram-html="detail.diagram?.html ?? null"
-              :diagram-uploaded="detail.diagram?.source === 'upload'"
-              :diagram-generated-at="detail.diagram?.meta?.generatedAt ?? detail.diagram?.publishedAt ?? null"
-              :version-label="reviewVersionLabel"
-              :pending-note="reviewPendingNote"
-              :wish-label="developWishLabel(detail.wishDate, detail.wishNote)"
-              :section-no="activeIndex + 1"
-            />
-
-            <!-- 3. 견적서 -->
-            <template v-else-if="activeTab === 'quotes'">
-              <template v-if="detail.quotes.length > 0">
-                <QuoteCard
-                  v-for="q in detail.quotes"
-                  :key="q.quoteId"
-                  :quote="q"
-                  :request-id="detail.requestId"
-                  :contact-name="detail.contact.name"
-                  :accept-pending="acceptQuote.isPending.value"
-                  :decline-pending="declineQuote.isPending.value"
-                  :paying-milestone-id="payingMilestoneId"
-                  :action-error="quoteErrorFor(q.quoteId)"
-                  @accept="void onAccept($event)"
-                  @decline="void onDecline($event)"
-                  @pay="void onPay(q.quoteId, $event)"
-                />
-              </template>
-              <div v-else :class="CARD" class="flex flex-col gap-[4px] leading-[1.8]">
-                <p class="text-[15px] font-bold text-black">아직 견적서가 없습니다</p>
-                <p class="text-[15px] text-[#141e34]">
-                  {{ detail.status === 'received' || detail.status === 'reviewing' ? '담당자가 요구사항을 정리한 뒤 항목별 견적서를 보내드립니다.' : '담당자에게 문의해 주세요.' }}
-                </p>
-              </div>
+          <div class="flex flex-col gap-[22px]" :class="board ? '' : 'mt-[22px]'">
+            <!-- 장으로 보는 탭(1 상세 의뢰 내용 · 2 AI 사전 검토서 · 3 견적서 · 4 진행 현황) — 출력물과 같은 장. 자리가 되면 넘겨 보고, 좁으면 세로 흐름.
+                 견적서는 장 아래(세로 흐름은 그 견적의 판 뒤)에 수락 · 결제 판이 붙는다 -->
+            <template v-if="deckSection !== null">
+              <DeckStage
+                v-if="stageScale !== null"
+                :key="deckSection"
+                :detail="detail"
+                :section="deckSection"
+                :scale="stageScale"
+                :with-docs="false"
+                :prev-label="neighborLabel(-1)"
+                :next-label="neighborLabel(1)"
+                @paged="void scrollTabsToTop()"
+                @prev-tab="stepTab(-1)"
+                @next-tab="stepTab(1)"
+              >
+                <template #below="{ quoteId }">
+                  <QuoteActions
+                    v-for="q in quotesById(quoteId)"
+                    :key="q.quoteId"
+                    :scale="stageScale"
+                    :quote="q"
+                    :request-id="detail.requestId"
+                    :contact-name="detail.contact.name"
+                    :accept-pending="acceptQuote.isPending.value"
+                    :decline-pending="declineQuote.isPending.value"
+                    :paying-milestone-id="payingMilestoneId"
+                    :action-error="quoteErrorFor(q.quoteId)"
+                    @accept="void onAccept($event)"
+                    @decline="void onDecline($event)"
+                    @pay="void onPay(q.quoteId, $event)"
+                  />
+                </template>
+              </DeckStage>
+              <DeckBook v-else :key="`flow-${deckSection}`" :detail="detail" mode="flow" :section="deckSection" :with-docs="false">
+                <template #after="{ quoteId }">
+                  <QuoteActions
+                    v-for="q in quotesById(quoteId)"
+                    :key="q.quoteId"
+                    :quote="q"
+                    :request-id="detail.requestId"
+                    :contact-name="detail.contact.name"
+                    :accept-pending="acceptQuote.isPending.value"
+                    :decline-pending="declineQuote.isPending.value"
+                    :paying-milestone-id="payingMilestoneId"
+                    :action-error="quoteErrorFor(q.quoteId)"
+                    @accept="void onAccept($event)"
+                    @decline="void onDecline($event)"
+                    @pay="void onPay(q.quoteId, $event)"
+                  />
+                </template>
+              </DeckBook>
             </template>
 
-            <!-- 4. 진행 현황 · 프로젝트 문서 -->
+            <!-- 2. AI 사전 검토서 — 공개된 검토서 · 구성도가 아직 없다 -->
+            <DeckPanel v-if="activeTab === 'review' && deckSection === null" :scale="stageScale" :title="board ? 'AI 사전 검토서' : ''">
+              <p :class="NOTE_HEAD">{{ reviewPendingNote }}</p>
+              <p :class="NOTE_BODY">검토서는 의뢰 자료로 만든 기술 초안입니다. 담당자가 확인한 뒤 공개되며, 확정 사항은 견적서에 담깁니다.</p>
+            </DeckPanel>
+
+            <!-- 3. 견적서 — 아직 받은 견적이 없다 -->
+            <DeckPanel v-else-if="activeTab === 'quotes' && deckSection === null" :scale="stageScale" :title="board ? '견적서' : ''">
+              <p :class="NOTE_HEAD">아직 견적서가 없습니다</p>
+              <p :class="NOTE_BODY">
+                {{ detail.status === 'received' || detail.status === 'reviewing' ? '담당자가 요구사항을 정리한 뒤 항목별 견적서를 보내드립니다.' : '담당자에게 문의해 주세요.' }}
+              </p>
+            </DeckPanel>
+
+            <!-- 4. 진행 현황 · 프로젝트 문서 — 진행 현황(달성도 · 업무)은 위의 장이 보이고(착수 뒤), 여기는 문서 목록(본문 · 회신) -->
             <template v-else-if="activeTab === 'documents'">
-              <div v-if="documentsEmpty" :class="CARD" class="flex flex-col gap-[4px] leading-[1.8]">
-                <p class="text-[15px] font-bold text-black">착수 뒤 진행 현황이 표시됩니다.</p>
-                <p class="text-[15px] text-[#141e34]">아직 받으신 프로젝트 문서가 없습니다. 담당자가 착수 확인서·검토·승인서·진행보고를 보내면 여기에 모입니다.</p>
-              </div>
+              <DeckPanel v-if="documentsEmpty" :scale="stageScale" :title="board ? '진행 현황 · 프로젝트 문서' : ''">
+                <p :class="NOTE_HEAD">착수 뒤 진행 현황이 표시됩니다.</p>
+                <p :class="NOTE_BODY">아직 받으신 프로젝트 문서가 없습니다. 담당자가 착수 확인서·검토·승인서·진행보고를 보내면 여기에 모입니다.</p>
+              </DeckPanel>
               <template v-else>
                 <div
                   v-if="detail.progress.pendingApprovals > 0"
-                  class="flex flex-wrap items-center justify-between gap-[12px] rounded-[10px] border border-[#d7deec] bg-[#f1f6ff] px-[16px] py-[14px]"
+                  class="mx-auto flex w-full flex-wrap items-center justify-between gap-[12px] rounded-[10px] bg-brand-50 px-[20px] py-[14px] text-[#141e34]"
+                  :style="panelWidth === null ? undefined : { maxWidth: `${String(panelWidth)}px` }"
                 >
-                  <p class="text-[16px] font-bold leading-[1.3] text-black">담당자가 확인을 요청한 문서 {{ detail.progress.pendingApprovals }}건이 있습니다</p>
-                  <button
-                    type="button"
-                    class="flex h-[34px] items-center rounded-[6px] bg-[#212121] px-[14px] text-[14px] font-medium text-white transition-opacity hover:opacity-85"
-                    @click="void scrollToPendingDoc()"
-                  >
-                    확인하러 가기
-                  </button>
+                  <p class="text-[17px] font-bold leading-[1.4]">담당자가 확인을 요청한 문서 {{ detail.progress.pendingApprovals }}건이 있습니다</p>
+                  <button type="button" :class="DARK_BTN" @click="void scrollToPendingDoc()">확인하러 가기</button>
                 </div>
-                <div :class="CARD" class="flex flex-col gap-[16px]">
-                  <ProjectProgress :progress="detail.progress" :status="detail.status" />
-                  <DocumentList
-                    :documents="detail.documents"
-                    :request-id="detail.requestId"
-                    :contact-name="detail.contact.name"
-                    :deciding-doc-id="decidingDocId"
-                    :decide-pending="decideDocument.isPending.value"
-                    :decide-error="documentError"
-                    :balance-note="balanceNote"
-                    @decide="void onDecideDocument($event)"
-                    @download="void downloadDocFile($event)"
-                    @preview="previewDocFile"
-                  />
-                </div>
+                <DeckPanel :scale="stageScale" title="프로젝트 문서">
+                  <div class="flex flex-col gap-[16px]">
+                    <p v-if="deckSection === null" class="rounded-[10px] border border-dashed border-line-2 px-[20px] py-[26px] text-center text-[17px] text-tx-3">
+                      착수 뒤 진행 현황이 표시됩니다.
+                    </p>
+                    <DocumentList
+                      :documents="detail.documents"
+                      :request-id="detail.requestId"
+                      :contact-name="detail.contact.name"
+                      :deciding-doc-id="decidingDocId"
+                      :decide-pending="decideDocument.isPending.value"
+                      :decide-error="documentError"
+                      :balance-note="balanceNote"
+                      @decide="void onDecideDocument($event)"
+                      @download="void downloadDocFile($event)"
+                      @preview="previewDocFile"
+                    />
+                  </div>
+                </DeckPanel>
               </template>
             </template>
 
             <!-- 5. 진행 · 문의 -->
-            <div v-else-if="activeTab === 'timeline'" :class="CARD" class="flex flex-col gap-[26px]">
-              <CommentComposer
-                v-if="canComment"
-                ref="composer"
-                :can-request-as="canRequestAs"
-                :pending="postComment.isPending.value"
-                :error="commentError"
-                @submit="void onComment($event)"
-              />
-              <div class="flex flex-col gap-[16px]">
-                <h3 class="text-[18px] font-medium leading-[1.3] text-black">진행 사항</h3>
-                <p v-if="lockedNote" class="rounded-[10px] bg-[#f5f6f8] px-[16px] py-[12px] text-[14px] leading-[1.8] text-[#141e34]">
-                  🔒 표시된 산출물은 잔금 결제가 확인되면 바로 내려받으실 수 있습니다. 파일명과 크기는 미리 보실 수 있습니다.
-                </p>
-                <Timeline :events="detail.events" @download="void download($event)" @preview="openPreview" @open-documents="selectTab('documents')">
-                  <template #event-actions="{ event }">
-                    <!-- 납품 검수 — delivered 상태의 최종 산출물 이벤트에만 -->
-                    <DecisionPanel
-                      v-if="event.eventId === deliveryEventId"
-                      class="mt-2"
-                      primary-label="검수 확정"
-                      secondary-label="수정 요청"
-                      :hint="deliveryHint"
-                      :pending="deliveryDecision.isPending.value"
-                      :error="decisionError"
-                      @decide="(kind, note) => void onDelivery(kind, note)"
-                    />
-                    <!-- 중간 확인 요청 — 아직 답하지 않은 것에만 -->
-                    <DecisionPanel
-                      v-else-if="pendingReviewIds.includes(event.eventId)"
-                      class="mt-2"
-                      primary-label="확인 · 승인"
-                      secondary-label="수정 요청"
-                      hint="담당자가 중간 결과 확인을 요청했습니다. 승인하시면 다음 단계로 진행합니다."
-                      :pending="reviewDecision.isPending.value"
-                      :error="decisionError"
-                      @decide="(kind, note) => void onReviewAnswer(event.eventId, kind, note)"
-                    />
-                  </template>
-                </Timeline>
+            <DeckPanel v-else-if="activeTab === 'timeline'" :scale="stageScale" :title="board ? '진행 · 문의' : ''">
+              <div class="flex flex-col gap-[30px]">
+                <CommentComposer
+                  v-if="canComment"
+                  ref="composer"
+                  :can-request-as="canRequestAs"
+                  :pending="postComment.isPending.value"
+                  :error="commentError"
+                  @submit="void onComment($event)"
+                />
+                <div class="flex flex-col gap-[16px]">
+                  <h3 class="text-[20px] font-bold leading-[1.35] text-brand-600 sm:text-[22px]">진행 사항</h3>
+                  <p v-if="lockedNote" class="rounded-[10px] bg-brand-50 px-[20px] py-[12px] text-[15px] leading-[1.7]">
+                    🔒 표시된 산출물은 잔금 결제가 확인되면 바로 내려받으실 수 있습니다. 파일명과 크기는 미리 보실 수 있습니다.
+                  </p>
+                  <Timeline :events="detail.events" @download="void download($event)" @preview="openPreview" @open-documents="selectTab('documents')">
+                    <template #event-actions="{ event }">
+                      <!-- 납품 검수 — delivered 상태의 최종 산출물 이벤트에만 -->
+                      <DecisionPanel
+                        v-if="event.eventId === deliveryEventId"
+                        class="mt-2"
+                        primary-label="검수 확정"
+                        secondary-label="수정 요청"
+                        :hint="deliveryHint"
+                        :pending="deliveryDecision.isPending.value"
+                        :error="decisionError"
+                        @decide="(kind, note) => void onDelivery(kind, note)"
+                      />
+                      <!-- 중간 확인 요청 — 아직 답하지 않은 것에만 -->
+                      <DecisionPanel
+                        v-else-if="pendingReviewIds.includes(event.eventId)"
+                        class="mt-2"
+                        primary-label="확인 · 승인"
+                        secondary-label="수정 요청"
+                        hint="담당자가 중간 결과 확인을 요청했습니다. 승인하시면 다음 단계로 진행합니다."
+                        :pending="reviewDecision.isPending.value"
+                        :error="decisionError"
+                        @decide="(kind, note) => void onReviewAnswer(event.eventId, kind, note)"
+                      />
+                    </template>
+                  </Timeline>
+                </div>
               </div>
-            </div>
+            </DeckPanel>
 
             <!-- 6. 첨부 자료 -->
-            <div v-else-if="activeTab === 'files'" :class="CARD">
+            <DeckPanel v-else-if="activeTab === 'files'" :scale="stageScale" :title="board ? '첨부 자료' : ''">
               <AttachmentList :files="detail.files" @download="void download($event)" @preview="openPreview" />
-            </div>
+            </DeckPanel>
           </div>
         </div>
 

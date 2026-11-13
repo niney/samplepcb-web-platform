@@ -10,11 +10,12 @@ defineProps<{
   comment: string;
   checks: DevReviewCheckType[];
   meta: string; // "2026-09-25 14:51 생성 · v2 공개본 · 첨부 a.pdf" — 모델명은 고객에게 보이지 않는다(사용자 결정)
+  stack?: boolean; // 좁은 화면의 세로 흐름 — 옅은 판을 아래로 내린다
 }>();
 </script>
 
 <template>
-  <div class="flex min-h-full flex-1 gap-[56px]">
+  <div class="flex min-h-full flex-1" :class="stack ? 'flex-col gap-[22px]' : 'gap-[56px]'">
     <div class="flex min-w-0 flex-1 flex-col">
       <p v-if="summary !== ''" class="text-[21px] font-medium leading-[1.5]">{{ summary }}</p>
       <p class="text-[14px] font-bold leading-[1.4] text-brand-600" :class="summary !== '' ? 'mt-[24px]' : ''">핵심 요구사항</p>
@@ -34,8 +35,8 @@ defineProps<{
 
     <!-- 의견 · 불일치가 없으면 판이 내용만큼만 — 빈 판을 장 높이로 늘이지 않는다 -->
     <aside
-      class="flex w-[420px] shrink-0 flex-col rounded-[10px] bg-brand-50 px-[28px] py-[24px]"
-      :class="comment === '' && checks.length === 0 ? 'self-start' : ''"
+      class="flex shrink-0 flex-col rounded-[10px] bg-brand-50"
+      :class="[stack ? 'w-full px-[18px] py-[18px]' : 'w-[420px] px-[28px] py-[24px]', !stack && comment === '' && checks.length === 0 ? 'self-start' : '']"
     >
       <template v-if="comment !== ''">
         <p class="text-[14px] font-bold leading-[1.4] text-brand-600">담당자 의견</p>
