@@ -2565,3 +2565,81 @@ model SpDevelopTask {
   @@map("sp_develop_task")
 }
 
+// ── SmartSMT 연동 (docs/SMARTSMT_INTEGRATION.md) ─────────────────────────────────────────
+// 바깥(SmartSMT)에서 계산을 끝낸 SMT 견적서가 들어온다. sp-node 는 계산하지 않고 받은 값을 보관·표시한다.
+// 같은 주문을 다시 보내면 order_id 는 같고 quote_id 는 달라진다 → 주문 1 : 견적 N.
+
+// SmartSMT 주문 1건. 화면의 한 줄은 이 표에서 나오고, 금액·상태는 최신 견적(latestQuote)에서 읽는다.
+// 최신 = 마지막에 받은 견적(SmartSMT 의 최신 판정 기준은 미확인 — 문서 §6-4).
+model SpSmtOrder {
+  id              BigInt       @id @default(autoincrement())
+  orderId         String       @unique @db.VarChar(100) // SmartSMT 주문 번호(header.order_id)
+  ownerMbId       String?      @db.VarChar(60) // 견적서의 owner_mb_id = 로그인 인계 토큰의 sub. g5_member 와 느슨한 참조
+  ownerName       String?      @db.VarChar(191)
+  latestQuoteId   BigInt?      @unique
+  quoteCount      Int          @default(0)
+  adminMemo       String?      @db.Text // 내부 메모
+  firstReceivedAt DateTime
+  lastReceivedAt  DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  quotes          SpSmtQuote[] @relation("SmtOrderQuotes")
+  latestQuote     SpSmtQuote?  @relation("SmtOrderLatestQuote", fields: [latestQuoteId], references: [id], onDelete: SetNull)
+
+  @@index([lastReceivedAt])
+  @@index([ownerMbId])
+  @@map("sp_smt_order")
+}
+
+// SmartSMT 견적 1건. envelope 는 받은 견적서 JSON 전체 — 모르는 칸까지 그대로 둔다(요율 키는 칸 수가 고정이 아니다).
+// 나머지 열은 목록·정렬용으로 견적서에서 뽑아 올린 값이다. 목록 조회는 envelope 를 읽지 않는다.
+// 금액은 통화(currency)가 USD 일 수 있어 소수 둘째 자리까지 둔다. null = 미정, 0 = 0원(섞지 않는다).
+model SpSmtQuote {
+  id               BigInt      @id @default(autoincrement())
+  orderRefId       BigInt
+  quoteId          String      @unique @db.VarChar(100) // header.quote_id
+  orderId          String      @db.VarChar(100) // header.order_id (조인 없이 찾기 위한 사본)
+  source           String      @db.VarChar(8) // push(SmartSMT 가 보냄) | pull(관리자가 가져옴 — 파일 없음)
+  envelopeVersion  String      @db.VarChar(16)
+  madeAt           DateTime? // header.made_at — 읽지 못하면 null
+  currency         String?     @db.VarChar(8)
+  lang             String?     @db.VarChar(8)
+  strategy         String?     @db.VarChar(16) // SAMPLE | MASS
+  quoteStatus      String?     @db.VarChar(32) // CALCULATED | REVIEW_REQUIRED (모르는 값도 그대로)
+  quantity         Int? // quote.quantity — 금액을 센 기준 수량
+  smtTotal         Decimal?    @db.Decimal(16, 2) // quote.total — SMT 작업비만(PCB·부품·배송 제외)
+  finalSupplyPrice Decimal?    @db.Decimal(16, 2) // quote.integrated.totals.supply_price
+  finalVat         Decimal?    @db.Decimal(16, 2) // quote.integrated.totals.vat
+  finalTotal       Decimal?    @db.Decimal(16, 2) // quote.integrated.totals.total — **최종 금액**
+  blockedBy        Json? // quote.integrated.blocked_by — 비어 있지 않으면 합계 미확정
+  files            Json? // 동봉 파일 대조 결과 [{part,name,bytes,sha256,check}]
+  envelope         String      @db.MediumText
+  receivedAt       DateTime    @default(now())
+  order            SpSmtOrder  @relation("SmtOrderQuotes", fields: [orderRefId], references: [id], onDelete: Cascade)
+  latestFor        SpSmtOrder? @relation("SmtOrderLatestQuote")
+
+  @@index([orderRefId, id])
+  @@index([receivedAt])
+  @@map("sp_smt_quote")
+}
+
+// 견적서 수신 시도 1건. 보내는 쪽은 재시도가 없고 화면에 HTTP_<코드> 만 띄우므로, "왜 실패했는가"는
+// 이 원장에서만 찾을 수 있다. 인증 실패는 바깥에서 얼마든지 만들 수 있어 시간당 건수를 제한해 남긴다.
+model SpSmtReceiveLog {
+  id         BigInt   @id @default(autoincrement())
+  result     String   @db.VarChar(24) // accepted | duplicate | rejected | failed
+  reason     String?  @db.VarChar(32) // 응답 본문 detail.reason 과 같은 값
+  httpStatus Int
+  quoteId    String?  @db.VarChar(100)
+  orderId    String?  @db.VarChar(100)
+  bytes      BigInt? // 요청 본문 크기(Content-Length)
+  durationMs Int
+  remoteAddr String?  @db.VarChar(64)
+  message    String?  @db.VarChar(500)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([orderId])
+  @@map("sp_smt_receive_log")
+}
+
