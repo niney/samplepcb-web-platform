@@ -22,6 +22,9 @@ const CODE_MESSAGES: Record<string, string> = {
   NOT_APPROVAL_DOC: '이 문서는 공유용이라 회신이 필요하지 않습니다. 의견은 문의로 남겨 주세요.',
   DOC_NOT_OPEN: '이미 회신한 문서입니다. 새로고침 후 다시 확인해 주세요.',
   DECISION_INVALID: '이 문서에서 고를 수 없는 선택지입니다. 새로고침 후 다시 시도해 주세요.',
+  REVIEW_NOT_PUBLISHED: '검토서가 공개된 뒤에 답하실 수 있습니다.',
+  QUESTION_NOT_FOUND: '문항이 바뀌었습니다. 새로고침 후 다시 확인해 주세요.',
+  QUESTION_RESOLVED: '담당자가 확인 결과를 적은 문항은 더 고칠 수 없습니다. 바꾸실 내용은 문의로 남겨 주세요.',
 };
 
 export function errorMessage(err: unknown, fallback = '요청에 실패했습니다. 잠시 후 다시 시도해 주세요.'): string {

@@ -9,6 +9,7 @@ import type { PreviewTarget } from '@sp/ui';
 import {
   developFilesPath,
   useAcceptQuote,
+  useAnswerQuestions,
   useCancelDevelopRequest,
   useCheckoutMilestone,
   useDeclineQuote,
@@ -19,13 +20,14 @@ import {
   useReviewRequestDecision,
 } from '../api/useDevelopRequests';
 import { developPath, loginUrl } from '../lib/auth-urls';
-import { DECK_SECTION } from '../lib/deck-content';
+import { DECK_SECTION, buildDeckQuestions } from '../lib/deck-content';
 import { downloadAuthedFile } from '../lib/download';
 import { errorCode, errorMessage } from '../lib/error-msg';
 import { addDaysKst, dateDotFull, dateShort, NEXT_ACTION_TARGETS, nextActionLabel, statusLabel, statusToneClass } from '../lib/format';
 import AppBar from '../components/layout/AppBar.vue';
 import ProgressStepper from '../components/detail/ProgressStepper.vue';
 import QuoteActions from '../components/detail/QuoteActions.vue';
+import QuestionAnswerPanel from '../components/detail/QuestionAnswerPanel.vue';
 import Timeline from '../components/detail/Timeline.vue';
 import AttachmentList from '../components/detail/AttachmentList.vue';
 import CommentComposer from '../components/detail/CommentComposer.vue';
@@ -184,6 +186,35 @@ function stepTab(step: number): void {
   if (t === undefined) return;
   selectTab(t.id);
   void scrollTabsToTop();
+}
+
+// ── 확인이 필요한 사항 — 고객이 직접 답한다(§7.2.13) ───────────────────────────────
+// 장의 답변 칸에서 '답변하기'를 누르면 오른쪽 판이 열린다(장 안에는 입력 칸을 두지 않는다 — 높이가 고정이다). 저장하면 답변 칸에
+// '고객 답변'으로 찍히고 진행 사항에 기록된다. 담당자가 확인 결과를 적은 문항은 잠긴다. 끝난(취소 · 사양 · 완료) 의뢰에서는 답하지 못한다.
+const answerQuestions = useAnswerQuestions(requestId);
+const answerable = computed(() => !closed.value && detail.value?.status !== 'completed' && (detail.value?.review ?? null) !== null);
+const panelQuestions = computed(() => {
+  const d = detail.value;
+  const review = d?.review ?? null;
+  return d === undefined || review === null ? [] : buildDeckQuestions(review, d.questionAnswers);
+});
+const answerOpen = ref(false);
+const answerFocus = ref<string | null>(null);
+const answerError = ref('');
+function openAnswers(qid: string): void {
+  answerError.value = '';
+  answerFocus.value = qid;
+  answerOpen.value = true;
+}
+async function onAnswer(answers: { qid: string; answer: string }[]): Promise<void> {
+  answerError.value = '';
+  try {
+    await answerQuestions.mutateAsync(answers);
+    answerOpen.value = false;
+  } catch (err) {
+    answerError.value = errorMessage(err);
+    void detailQ.refetch(); // QUESTION_RESOLVED · QUESTION_NOT_FOUND 는 그사이 검토서가 바뀐 것이라 재조회로 맞춘다
+  }
 }
 
 // ── AI 산출물(공개본) ───────────────────────────────────────────────────────
@@ -640,8 +671,10 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
                 :section="deckSection"
                 :scale="stageScale"
                 :with-docs="false"
+                :answerable="answerable"
                 :prev-label="neighborLabel(-1)"
                 :next-label="neighborLabel(1)"
+                @answer="openAnswers"
                 @paged="void scrollTabsToTop()"
                 @prev-tab="stepTab(-1)"
                 @next-tab="stepTab(1)"
@@ -664,7 +697,16 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
                   />
                 </template>
               </DeckStage>
-              <DeckBook v-else :key="`flow-${deckSection}`" :detail="detail" mode="flow" :section="deckSection" :with-docs="false">
+              <DeckBook
+                v-else
+                :key="`flow-${deckSection}`"
+                :detail="detail"
+                mode="flow"
+                :section="deckSection"
+                :with-docs="false"
+                :answerable="answerable"
+                @answer="openAnswers"
+              >
                 <template #after="{ quoteId }">
                   <QuoteActions
                     v-for="q in quotesById(quoteId)"
@@ -788,6 +830,15 @@ const SMALL_BTN = 'flex h-[34px] items-center justify-center rounded-[6px] bg-[#
           </div>
         </div>
 
+        <QuestionAnswerPanel
+          :open="answerOpen"
+          :questions="panelQuestions"
+          :focus-qid="answerFocus"
+          :pending="answerQuestions.isPending.value"
+          :error="answerError"
+          @close="answerOpen = false"
+          @submit="void onAnswer($event)"
+        />
         <FilePreviewModal
           :open="previewFile !== null"
           :files-path="filesPath"

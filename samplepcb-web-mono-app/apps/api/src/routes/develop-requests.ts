@@ -10,6 +10,7 @@ import {
   DevelopCancelBody,
   DevelopCommentBody,
   DevelopDocumentDecideBody,
+  DevelopQuestionAnswersBody,
   DevelopQuoteAcceptBody,
   DevelopQuoteDeclineBody,
   DevelopRequestCreatePayload,
@@ -117,6 +118,7 @@ import {
   sendDevelopMailToAdmins,
 } from '../lib/develop-email';
 import { cancelPendingMilestones, deriveMilestonePayment, ensureDevelopLazy } from '../lib/develop-payment';
+import { foldDevelopQuestionAnswers, questionAnswerEventBody, questionAnswerEventTitle, toDevelopReview } from '../lib/develop-questions';
 import { getDevelopSettings } from '../lib/develop-settings';
 import { developReviewPublicSeq } from '../lib/develop-review-versions';
 import { buildFilePreview } from '../lib/file-preview';
@@ -141,7 +143,6 @@ import {
   splitMarketAttachments,
   toAnswers,
   toDevDiagram,
-  toDevReview,
   toTools,
 } from '../lib/market';
 import { prisma } from '../lib/prisma';
@@ -356,7 +357,9 @@ export async function buildDevelopRequestDetail(r: SpDevelopRequest): Promise<De
     ndaWanted: r.ndaWanted,
     aiConsent: r.aiConsent,
     files: files.map((f) => toDevelopFileMeta(f)),
-    review: toDevReview(r.devReviewPublic),
+    review: toDevelopReview(r.devReviewPublic),
+    // 확인이 필요한 사항에 고객이 적은 답 — question_answered 이벤트를 접은 '지금 답변'(§7.2.13)
+    questionAnswers: foldDevelopQuestionAnswers(events),
     reviewPublishedAt: r.devReviewPublishedAt?.toISOString() ?? null,
     reviewPublicSeq: await developReviewPublicSeq(prisma, r.id, r.devReviewPublic),
     diagram:
@@ -1278,6 +1281,62 @@ export const developRequestRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         { kind: 'develop_admin_review', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
       );
       return { result: true as const, data: toDevelopEventView(event, [], '나', false) };
+    },
+  );
+
+  // ── PUT /develop/requests/:id/review/answers — 확인이 필요한 사항에 고객이 직접 답한다(§7.2.13) ─────
+  // 공개된 검토서의 문항에만, 담당자의 확인 결과가 아직 없는 문항에만 답할 수 있다(확인 결과가 적히면 잠긴다). 답은 필수가 아니고
+  // 견적 수락을 막지 않는다. 바뀐 문항만 이벤트 하나로 기록하고(빈 답 = 지움) 담당자에게 메일로 알린다. 응답은 상세 전체.
+  // 끝난 의뢰(취소 · 사양 · 완료)에서는 받지 않는다 — 완료 뒤에 바꿀 것은 문의 · A/S 로 온다.
+  fastify.put(
+    '/develop/requests/:id/review/answers',
+    { schema: { params: RequestIdParams, body: DevelopQuestionAnswersBody }, preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const found = await loadOwned(request.params.id, request.user.mbId);
+      if (!found.ok) return reply.status(found.status).send({ result: false, error: found.error });
+      const r = found.request;
+      const status = asDevelopStatus(r.status);
+      if (status === 'cancelled' || status === 'declined' || status === 'completed') return reply.status(409).send({ result: false, error: 'INVALID_TRANSITION' });
+      const review = toDevelopReview(r.devReviewPublic);
+      if (review === null) return reply.status(409).send({ result: false, error: 'REVIEW_NOT_PUBLISHED' });
+      const questions = new Map(review.openQuestions.map((q) => [q.id, q]));
+      const past = await prisma.spDevelopEvent.findMany({ where: { requestId: r.id, type: 'question_answered' }, orderBy: { id: 'asc' } });
+      const current = new Map(foldDevelopQuestionAnswers(past).map((a) => [a.qid, a.answer]));
+      // 같은 문항이 두 번 오면 뒤의 것
+      const wanted = new Map(request.body.answers.map((a) => [a.qid, a.answer]));
+      const changed: { qid: string; question: string; answer: string }[] = [];
+      for (const [qid, answer] of wanted) {
+        const q = questions.get(qid);
+        if (q === undefined) return reply.status(409).send({ result: false, error: 'QUESTION_NOT_FOUND' });
+        if ((current.get(qid) ?? '') === answer) continue;
+        if ((q.resolution ?? '').trim() !== '') return reply.status(409).send({ result: false, error: 'QUESTION_RESOLVED' });
+        changed.push({ qid, question: q.question, answer });
+      }
+      if (changed.length > 0) {
+        const event = await addDevelopEvent(prisma, r.id, {
+          type: 'question_answered',
+          actorMbId: request.user.mbId,
+          byAdmin: false,
+          title: questionAnswerEventTitle(changed),
+          body: questionAnswerEventBody(changed),
+          payload: { answers: changed },
+        });
+        const settings = await getDevelopSettings();
+        const first = changed.find((a) => a.answer !== '');
+        void sendDevelopMailToAdmins(
+          request.log,
+          settings.notifyEmails,
+          buildCommentEmail({
+            requestId: Number(r.id),
+            title: r.title,
+            serviceAreas: toDevelopAreaCodes(r.serviceAreas),
+            forAdmin: true,
+            excerpt: `${event.title}${first === undefined ? '' : ` — ${first.question}: ${first.answer.slice(0, 160)}`}`,
+          }),
+          { kind: 'develop_admin_answer', refType: 'develop_request', refId: r.id, sentBy: request.user.mbId, toMbId: null },
+        );
+      }
+      return { result: true as const, data: await buildDevelopRequestDetail(r) };
     },
   );
 

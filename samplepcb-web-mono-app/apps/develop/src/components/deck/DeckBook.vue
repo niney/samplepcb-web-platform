@@ -64,13 +64,16 @@ const props = withDefaults(
     zoom?: number; // print — 화면에서 장 묶음을 창 폭에 맞춰 줄이는 비율
     // 프로젝트 문서 표를 싣는가 — 의뢰 상세는 같은 탭 아래에 문서 목록(본문 · 회신)이 따로 있어 뺀다.
     withDocs?: boolean;
+    // 확인이 필요한 사항에 고객이 답할 수 있는가(의뢰 상세, §7.2.13) — 답변 칸에 '답변하기 / 고치기' 단추를 세운다(출력물엔 없다).
+    answerable?: boolean;
   }>(),
-  { mode: 'print', section: '', page: 0, zoom: 1, withDocs: true },
+  { mode: 'print', section: '', page: 0, zoom: 1, withDocs: true, answerable: false },
 );
 const emit = defineEmits<{
   planned: [{ count: number; titles: string[] }];
   shown: [{ quoteId: number | null }]; // stage — 지금 장이 어느 견적의 것인가(견적 장이 아니면 null)
   jump: []; // stage — 견적 요약 장의 '아래에서 수락 · 결제' 단추
+  answer: [qid: string]; // 확인 사항 답변 칸의 단추 — 부모가 답변 판을 연다
 }>();
 
 // ── 표지 ──────────────────────────────────────────────────────────────────────
@@ -186,7 +189,9 @@ const quoteCta = (q: DevelopQuoteViewType): QuoteCta | null => {
 };
 
 const areas = computed<DeckArea[]>(() => (review.value === null ? [] : buildDeckAreas(review.value)));
-const questions = computed<DeckQuestionItem[]>(() => (review.value === null ? [] : buildDeckQuestions(review.value)));
+const questions = computed<DeckQuestionItem[]>(() => (review.value === null ? [] : buildDeckQuestions(review.value, props.detail.questionAnswers)));
+// 답변 단추는 화면에서만 — 단추가 든 칸의 높이까지 그대로 재야 하므로 재는 자리에도 같은 값을 준다.
+const canAnswer = computed(() => props.answerable && props.mode !== 'print');
 const qa = computed(() => buildDeckQa(props.detail));
 
 const diagram = computed(() => props.detail.diagram);
@@ -606,7 +611,7 @@ const px = (n: number): string => `${String(n)}px`;
   >
     <div :style="{ width: px(DECK_BODY_WIDTH) }">
       <DeckTable v-for="id in TABLE_IDS" :key="id" :cols="tables[id].cols" :rows="tables[id].rows" :dense="tables[id].compact" :measure="`${id}:wide`" />
-      <DeckQuestion v-for="q in questions" :key="q.no" :item="q" data-measure="question" />
+      <DeckQuestion v-for="q in questions" :key="q.no" :item="q" :answerable="canAnswer" data-measure="question" />
       <template v-if="qa !== null">
         <p v-if="qa.understood !== ''" :class="QA_LEAD" data-measure="qa-lead"><b class="font-semibold">AI 가 이해한 내용</b> — {{ qa.understood }}</p>
         <DeckQa v-for="item in qa.items" :key="item.key" :item="item" data-measure="qa" />
@@ -862,7 +867,7 @@ const px = (n: number): string => `${String(n)}px`;
           :variant="variant"
         >
           <div class="flex flex-1 flex-col" :style="{ rowGap: px(QUESTION_GAP) }">
-            <DeckQuestion v-for="q in s.items" :key="q.no" :item="q" />
+            <DeckQuestion v-for="q in s.items" :key="q.no" :item="q" :answerable="canAnswer" @answer="emit('answer', q.qid)" />
           </div>
           <template v-if="mode === 'stage'" #foot><slot name="foot" /></template>
         </DeckSlide>

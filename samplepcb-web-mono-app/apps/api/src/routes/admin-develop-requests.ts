@@ -9,6 +9,7 @@ import {
   AdminDevelopRequestDetailResponse,
   AdminDevelopRequestPatchBody,
   AdminDevelopReviewPutBody,
+  withDevReviewQuestionIds,
   AdminDevelopReviewVersionListResponse,
   AdminDevelopReviewVersionResponse,
   AdminDevelopStatusBody,
@@ -77,6 +78,7 @@ import {
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
+import { toDevelopReview } from '../lib/develop-questions';
 import { collectMultipart, toAnswers, toDevDiagram, toDevReview, toTools } from '../lib/market';
 import { prisma } from '../lib/prisma';
 import { buildDevelopRequestDetail, customerEmailOf, toAdminQuoteView } from './develop-requests';
@@ -231,8 +233,9 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
     const item = await toItem(r, toOwner(r.mbId, members.get(r.mbId)), files, quotes, opsMap.get(r.id.toString()) ?? emptyDevelopOps());
     const status = asDevelopStatus(r.status);
     const draftJob = r.devReviewDraftJobId === null ? null : await getAiJob(r.devReviewDraftJobId);
-    const working = toDevReview(r.devReview);
-    const publicReview = toDevReview(r.devReviewPublic);
+    // 문항 번호를 채워 내려준다 — 편집기가 그 번호를 쥐고 저장하므로 문구를 고쳐도 고객 답변이 따라간다(§7.2.13)
+    const working = toDevelopReview(r.devReview);
+    const publicReview = toDevelopReview(r.devReviewPublic);
     const actorName = (e: { actorMbId: string | null; byAdmin: boolean }): string =>
       e.byAdmin ? (e.actorMbId === null ? '시스템' : members.get(e.actorMbId)?.name ?? e.actorMbId) : (members.get(r.mbId)?.name ?? '고객');
     return {
@@ -246,7 +249,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       aiSupplement: r.aiSupplement,
       files: allFiles.map((f) => toDevelopFileMeta(f)),
       review: {
-        draft: toDevReview(r.devReviewDraft),
+        draft: toDevelopReview(r.devReviewDraft),
         draftAt: r.devReviewDraftAt?.toISOString() ?? null,
         draftJobId: r.devReviewDraftJobId,
         draftRunning: draftJob?.status === 'running',
@@ -260,6 +263,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
         publishedStale:
           publicReview !== null && r.devReviewPublishedAt !== null && r.devReviewEditedAt !== null && r.devReviewEditedAt > r.devReviewPublishedAt,
       },
+      questionAnswers: customerDetail.questionAnswers,
       diagram: {
         meta: toDevDiagram(r.devDiagram),
         html: r.devDiagramHtml,
@@ -519,10 +523,10 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       const r = await load(request.params.id);
       if (r === null) return reply.status(404).send(notFound);
       const now = new Date();
-      const review: MarketDevReviewType = {
+      const review: MarketDevReviewType = withDevReviewQuestionIds({
         ...request.body.review,
         meta: { ...request.body.review.meta, editedAt: now.toISOString(), editedBy: request.user.mbId },
-      };
+      });
       const updated = await prisma.$transaction(async (tx) => {
         const u = await tx.spDevelopRequest.update({
           where: { id: r.id },
@@ -578,7 +582,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       if (r === null) return reply.status(404).send(notFound);
       const seq = Number(request.params.seq);
       const row = await prisma.spDevelopReviewVersion.findUnique({ where: { requestId_seq: { requestId: r.id, seq } } });
-      const source = row === null ? null : toDevReview(row.review);
+      const source = row === null ? null : toDevelopReview(row.review);
       if (row === null || source === null) return reply.status(404).send({ error: 'NOT_FOUND', message: '버전이 없습니다' });
       const now = new Date();
       const review: MarketDevReviewType = { ...source, meta: { ...source.meta, editedAt: now.toISOString(), editedBy: request.user.mbId } };
@@ -611,7 +615,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       const now = new Date();
       let updated: SpDevelopRequest;
       if (action === 'publish') {
-        const working = toDevReview(r.devReview);
+        const working = toDevelopReview(r.devReview);
         if (working === null) return reply.status(409).send({ error: 'REVIEW_EMPTY', message: '공개할 작업본이 없습니다' });
         updated = await prisma.$transaction(async (tx) => {
           const u = await tx.spDevelopRequest.update({ where: { id: r.id }, data: { devReviewPublic: working, devReviewPublishedAt: now } });
@@ -629,7 +633,7 @@ export const adminDevelopRequestRoutes: FastifyPluginCallbackZod = (fastify, _op
       } else if (action === 'unpublish') {
         updated = await prisma.spDevelopRequest.update({ where: { id: r.id }, data: { devReviewPublic: Prisma.DbNull, devReviewPublishedAt: null } });
       } else {
-        const draft = toDevReview(r.devReviewDraft);
+        const draft = toDevelopReview(r.devReviewDraft);
         if (draft === null) return reply.status(409).send({ error: 'DRAFT_EMPTY', message: '가져올 초안이 없습니다' });
         updated = await prisma.$transaction(async (tx) => {
           const u = await tx.spDevelopRequest.update({

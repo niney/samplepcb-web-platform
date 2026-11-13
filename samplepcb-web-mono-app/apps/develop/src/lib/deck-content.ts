@@ -18,6 +18,7 @@ import {
   DEVELOP_TASK_PHASE_LABELS,
   DEVELOP_TASK_STATUS_LABELS,
   DEV_REVIEW_GENERAL_AREA,
+  devReviewQuestionId,
   developAreaBadge,
   developBpPercent,
   developDocDecisionLabel,
@@ -36,6 +37,7 @@ import type {
   DevelopDocumentViewType,
   DevelopFileMetaType,
   DevelopProgressViewType,
+  DevelopQuestionAnswerType,
   DevelopQuoteViewType,
   DevelopRequestDetailType,
   MarketDevReviewType,
@@ -303,10 +305,12 @@ export interface DeckArea {
 }
 export interface DeckQuestion {
   no: number; // 장을 넘어 이어지는 번호
+  qid: string; // 검토서 문항 번호 — 고객 답변이 이 번호에 붙는다
   areaLabel: string;
   question: string;
   why: string;
-  resolution: string; // 담당자가 상담 뒤 적은 확인 결과 — 없으면 ''
+  resolution: string; // 담당자가 상담 뒤 적은 확인 결과 — 없으면 ''. 적히면 고객 답변은 잠긴다
+  answer: string; // 고객이 직접 적은 답(§7.2.13) — 없으면 ''
 }
 
 const GENERAL_LABEL = '공통';
@@ -330,8 +334,12 @@ export function buildDeckAreas(review: MarketDevReviewType): DeckArea[] {
   });
 }
 
-/** 확인 사항 — 공통(분야에 안 속하는 것) 먼저, 그다음 검토서의 분야 순서대로. 같은 분야 안에서는 원래 순서. */
-export function buildDeckQuestions(review: MarketDevReviewType): DeckQuestion[] {
+/**
+ * 확인 사항 — 공통(분야에 안 속하는 것) 먼저, 그다음 검토서의 분야 순서대로. 같은 분야 안에서는 원래 순서.
+ * 고객이 적은 답은 문항 번호로 붙인다(문항이 바뀌어 짝이 없는 답은 싣지 않는다).
+ */
+export function buildDeckQuestions(review: MarketDevReviewType, answers: readonly DevelopQuestionAnswerType[] = []): DeckQuestion[] {
+  const answerOf = new Map(answers.map((a) => [a.qid, a.answer]));
   const order = review.areas.map((a) => a.area);
   const rank = (area: string): number => {
     const i = order.indexOf(area);
@@ -340,13 +348,18 @@ export function buildDeckQuestions(review: MarketDevReviewType): DeckQuestion[] 
   return review.openQuestions
     .map((q, i) => ({ q, i, r: rank(q.area) }))
     .sort((a, b) => a.r - b.r || a.i - b.i)
-    .map(({ q, r }, i) => ({
-      no: i + 1,
-      areaLabel: r < 0 ? GENERAL_LABEL : DEVELOP_REGISTRY.areaLabel(q.area),
-      question: q.question,
-      why: q.why,
-      resolution: q.resolution ?? '',
-    }));
+    .map(({ q, r }, i) => {
+      const qid = q.id ?? devReviewQuestionId(q.question);
+      return {
+        no: i + 1,
+        qid,
+        areaLabel: r < 0 ? GENERAL_LABEL : DEVELOP_REGISTRY.areaLabel(q.area),
+        question: q.question,
+        why: q.why,
+        resolution: (q.resolution ?? '').trim(),
+        answer: answerOf.get(qid) ?? '',
+      };
+    });
 }
 
 /** 장 제목 꼬리 — 그 장에 실린 분야 이름을 겹치지 않게 순서대로('공통 · 회로 개발'). */

@@ -8,13 +8,14 @@ import {
   devReviewScheduleFit,
   devReviewScheduleTotals,
 } from '@sp/api-contract';
-import type { MarketDevReviewType } from '@sp/api-contract';
+import type { DevelopQuestionAnswerType, MarketDevReviewType } from '@sp/api-contract';
 import {
   DEVELOP_REVIEW_LIMITS,
   cloneDevelopReview,
   emptyDevelopSchedule,
   emptyDevelopSchedulePhase,
 } from '@/components/admin/develop/develop-review-edit';
+import { formatDateTime } from '@/lib/format';
 import { confirmDialog } from '@/next/lib/dialog';
 import Panel from '@/next/components/common/Panel.vue';
 import { Badge } from '@/next/components/ui/badge';
@@ -31,7 +32,7 @@ import ReviewRemoveButton from './ReviewRemoveButton.vue';
 // 재시드는 seedKey 가 바뀔 때만 — 폴링 재조회가 편집 중인 내용을 지우면 안 된다.
 // dirty = 지금 JSON ≠ 시드 JSON(옛 편집기와 같은 판정 — 상세의 이탈 가드가 이 값을 쓴다).
 // `evidence`(근거)와 `checks`(답변↔자료 정합)는 AI 산출 사실이라 표시만 한다.
-const props = defineProps<{ source: MarketDevReviewType; seedKey: string; disabled: boolean }>();
+const props = defineProps<{ source: MarketDevReviewType; seedKey: string; disabled: boolean; answers?: DevelopQuestionAnswerType[] }>();
 const emit = defineEmits<{ update: [review: MarketDevReviewType, dirty: boolean] }>();
 
 const { t } = useI18n();
@@ -86,6 +87,20 @@ const setResolution = (index: number, value: string | number): void => {
 };
 const setAdminComment = (value: string | number): void => {
   local.value.adminComment = String(value);
+};
+
+// 고객이 확인 사항에 직접 적은 답(§7.2.13) — 문항 번호로 붙여 확인 결과 칸 아래에 보인다. '확인 결과로 가져오기'는 답을
+// 확인 결과에 옮겨 적는다(이미 적힌 것이 있으면 그 아래에 잇는다). 문항이 바뀌어 짝을 잃은 답은 목록 아래에 따로 보인다.
+const answersOf = (id: string | undefined): DevelopQuestionAnswerType[] => (props.answers ?? []).filter((a) => a.qid === id);
+const orphanAnswers = computed(() => {
+  const ids = new Set(local.value.openQuestions.map((q) => q.id));
+  return (props.answers ?? []).filter((a) => !ids.has(a.qid));
+});
+const adoptAnswer = (index: number, answer: string): void => {
+  const row = local.value.openQuestions[index];
+  if (row === undefined) return;
+  const current = (row.resolution ?? '').trim();
+  row.resolution = (current === '' ? answer : `${current}\n${answer}`).slice(0, L.resolutionLen);
 };
 
 const hasEvidence = (evidence: string | null | undefined): evidence is string =>
@@ -401,6 +416,28 @@ async function clearSchedule(): Promise<void> {
           :placeholder="t('admin.develop.editor.resolutionPlaceholder')"
           @update:model-value="(v) => setResolution(qi, v)"
         />
+        <div
+          v-for="a in answersOf(row.id)"
+          :key="a.qid"
+          class="bg-muted/50 grid gap-1 rounded-md border px-3 py-2"
+          data-testid="develop-customer-answer"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-semibold">{{ t('admin.develop.editor.customerAnswer') }}</span>
+            <span class="text-muted-foreground text-xs tabular-nums">{{ formatDateTime(a.answeredAt) }}</span>
+            <Button variant="outline" size="xs" class="ml-auto" :disabled="props.disabled" @click="adoptAnswer(qi, a.answer)">
+              {{ t('admin.develop.editor.adoptAnswer') }}
+            </Button>
+          </div>
+          <p class="text-sm whitespace-pre-wrap">{{ a.answer }}</p>
+        </div>
+      </Panel>
+      <Panel v-if="orphanAnswers.length > 0" tone="muted" class="grid gap-2">
+        <span class="text-muted-foreground text-xs font-semibold">{{ t('admin.develop.editor.orphanAnswers') }}</span>
+        <div v-for="a in orphanAnswers" :key="a.qid" class="grid gap-0.5 text-sm">
+          <p class="font-medium">{{ a.question }}</p>
+          <p class="whitespace-pre-wrap">{{ a.answer }}</p>
+        </div>
       </Panel>
       <p v-if="local.openQuestions.length === 0" class="text-muted-foreground text-sm">
         {{ t('admin.develop.editor.noRows') }}

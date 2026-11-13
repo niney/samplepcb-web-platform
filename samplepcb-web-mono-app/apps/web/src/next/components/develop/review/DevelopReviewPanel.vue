@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { SparklesIcon } from '@lucide/vue';
 import { DEVELOP_REGISTRY } from '@sp/api-contract';
-import type { AdminDevelopReviewStateType, DevelopAiReviewStateType, MarketDevReviewType } from '@sp/api-contract';
+import type { AdminDevelopReviewStateType, DevelopAiReviewStateType, DevelopQuestionAnswerType, MarketDevReviewType } from '@sp/api-contract';
 import { DevReviewView, apiErrorMessage } from '@sp/ui';
 import {
   useAdminDevelopAiRun,
@@ -43,6 +43,7 @@ const props = defineProps<{
   aiConsent: boolean;
   aiSupplement: string | null;
   title: string;
+  answers: DevelopQuestionAnswerType[]; // 고객이 확인 사항에 적은 답(§7.2.13)
 }>();
 const emit = defineEmits<{ dirty: [value: boolean] }>();
 
@@ -327,6 +328,7 @@ const busy = computed(() => reviewPut.isPending.value || reviewAction.isPending.
           :source="source"
           :seed-key="seedKey"
           :disabled="busy"
+          :answers="props.answers"
           @update="onEditorUpdate"
         />
         <!-- 고객이 보는 것과 같은 렌더러(@sp/ui) — 저장 전 편집 내용으로 미리 본다 -->

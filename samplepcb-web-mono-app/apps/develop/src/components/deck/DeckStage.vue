@@ -18,10 +18,11 @@ const props = withDefaults(
     prevLabel?: string; // 앞 탭 이름 — 없으면 첫 장에서 '이전'이 꺼진다
     nextLabel?: string;
     withDocs?: boolean; // 프로젝트 문서 표를 장에 싣는가(DeckBook 으로 넘긴다)
+    answerable?: boolean; // 확인 사항에 고객이 답할 수 있는가(DeckBook 으로 넘긴다)
   }>(),
-  { prevLabel: '', nextLabel: '', withDocs: true },
+  { prevLabel: '', nextLabel: '', withDocs: true, answerable: false },
 );
-const emit = defineEmits<{ paged: []; prevTab: []; nextTab: [] }>();
+const emit = defineEmits<{ paged: []; prevTab: []; nextTab: []; answer: [qid: string] }>();
 
 const STAGE_HEIGHT = 690; // 화면 장(DeckSlide embedded) 높이
 const page = ref(0);
@@ -91,7 +92,9 @@ const BTN = 'flex h-[34px] items-center gap-[6px] rounded-[6px] px-[12px] text-[
           :section="section"
           :page="page"
           :with-docs="withDocs"
+          :answerable="answerable"
           @planned="onPlanned"
+          @answer="emit('answer', $event)"
           @shown="shownQuote = $event.quoteId"
           @jump="onJump"
         >

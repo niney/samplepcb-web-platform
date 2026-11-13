@@ -235,6 +235,18 @@ export function useDecideDocument(requestId: Ref<number | null>) {
   });
 }
 
+// 확인이 필요한 사항에 직접 답한다(§7.2.13) — 바뀐 문항만 보낸다(빈 답 = 지움). 응답은 상세 전체라 캐시를 갈아 끼운다.
+export function useAnswerQuestions(requestId: Ref<number | null>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (answers: { qid: string; answer: string }[]) =>
+      apiSend('PUT', `${developRequestPath(requestId.value ?? 0)}/review/answers`, { answers }, DevelopRequestDetailResponse),
+    onSuccess: (data) => {
+      setDetail(qc, requestId, data);
+    },
+  });
+}
+
 // 중간 확인 요청 응답 — 승인 / 수정 요청. 의뢰 상태는 바뀌지 않고 이벤트만 쌓인다.
 export function useReviewRequestDecision(requestId: Ref<number | null>) {
   const qc = useQueryClient();

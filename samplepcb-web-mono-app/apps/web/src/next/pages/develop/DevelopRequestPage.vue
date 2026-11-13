@@ -253,6 +253,7 @@ async function downloadFromPreview(fileId: number, name: string): Promise<void> 
               :ai-consent="detail.aiConsent"
               :ai-supplement="detail.aiSupplement"
               :title="detail.title"
+              :answers="detail.questionAnswers"
               @dirty="reviewDirty = $event"
             />
           </div>

@@ -535,6 +535,7 @@ export const DEVELOP_EVENT_TYPES = [
   'document_sent', // 프로젝트 문서 발송(§13) — payload {documentId,type,seq,version,docNo,replyDueOn}
   'document_decided', // 고객 문서 결정 — payload {documentId,docNo,decision}
   'milestone_opened', // 수동 청구 열기(2026-09-10, G milestone.open 이식) — payload {milestoneId,quoteId,title,amount}. 열림 판정은 이 이벤트가 진실
+  'question_answered', // 확인이 필요한 사항에 고객이 직접 답함(2026-11-13 §7.2.13) — payload {answers:[{qid,question,answer}]}. 지금 답변은 이 이벤트들을 접어 만든다
   'schedule_changed', // 프로젝트 일정 변경(2026-09-11, 옛 plan 문서 대신) — payload {from:{baseStartOn,plannedEndOn,expectedEndOn}, to:{…}}
 ] as const;
 export type DevelopEventTypeType = (typeof DEVELOP_EVENT_TYPES)[number];
@@ -556,6 +557,7 @@ export const DEVELOP_EVENT_TYPE_LABELS = {
   published: '공개',
   tax_invoice: '세금계산서',
   as_request: 'A/S 요청',
+  question_answered: '확인 사항 답변',
   document_sent: '문서 발송',
   document_decided: '문서 회신',
   milestone_opened: '청구 열기',
@@ -879,6 +881,27 @@ export const DevelopWizardFields = z.object({
 });
 export type DevelopWizardFieldsType = z.infer<typeof DevelopWizardFields>;
 
+// 확인이 필요한 사항 — 고객이 직접 적은 답(§7.2.13). 담당자가 상담 뒤 적는 '확인 결과'(검토서 openQuestions[].resolution)와 따로 둔다:
+// 검토서는 담당자가 고쳐 다시 공개하는 문서라 그 안에 넣으면 재공개 때 덮인다. 저장은 진행 기록(question_answered 이벤트)이고
+// 응답의 이 목록은 그것을 접은 '지금 답변'이다. 확인 결과가 적힌 문항은 잠긴다(고객이 더 고치지 못한다). 답변은 필수가 아니다.
+export const DEVELOP_QUESTION_ANSWER_MAX = 500; // 확인 결과(resolution)와 같은 한도 — 담당자가 그대로 옮겨 적을 수 있다
+export const DevelopQuestionAnswer = z.object({
+  qid: z.string(), // 검토서 문항 번호(openQuestions[].id)
+  question: z.string(), // 답할 때의 질문 문구(문항이 바뀌거나 사라져도 무엇에 대한 답인지 남는다)
+  answer: z.string(),
+  answeredAt: z.string(),
+});
+export type DevelopQuestionAnswerType = z.infer<typeof DevelopQuestionAnswer>;
+
+// PUT /develop/requests/:id/review/answers — 빈 답은 지움. 바뀐 것만 기록한다.
+export const DevelopQuestionAnswersBody = z.object({
+  answers: z
+    .array(z.object({ qid: z.string().trim().min(1).max(24), answer: z.string().trim().max(DEVELOP_QUESTION_ANSWER_MAX) }))
+    .min(1)
+    .max(12),
+});
+export type DevelopQuestionAnswersBodyType = z.infer<typeof DevelopQuestionAnswersBody>;
+
 export const DevelopRequestDetail = DevelopRequestListItem.extend({
   ...DevelopWizardFields.shape,
   description: z.string(),
@@ -889,6 +912,7 @@ export const DevelopRequestDetail = DevelopRequestListItem.extend({
   aiConsent: z.boolean(),
   files: z.array(DevelopFileMeta), // 의뢰 첨부(참고 자료·슬롯)
   review: MarketDevReview.nullable(), // **공개본만**
+  questionAnswers: z.array(DevelopQuestionAnswer), // 확인이 필요한 사항에 고객이 적은 답(지금 것만)
   reviewPublishedAt: z.string().nullable(),
   reviewPublicSeq: z.number().int().nullable(), // 지금 공개본과 같은 최근 published 버전의 seq(§6.2) — 고객 화면 "v3" 라벨
   diagram: DevelopPublicDiagram.nullable(), // **공개본만**
@@ -1397,6 +1421,7 @@ export const AdminDevelopRequestDetail = AdminDevelopRequestListItem.extend({
   aiSupplement: z.string().nullable(),
   files: z.array(DevelopFileMeta),
   review: AdminDevelopReviewState,
+  questionAnswers: z.array(DevelopQuestionAnswer), // 고객이 확인 사항에 적은 답 — 편집기가 문항 옆에 보이고 '확인 결과'로 옮겨 적는다
   diagram: AdminDevelopDiagramState,
   quotes: z.array(AdminDevelopQuoteView),
   events: z.array(DevelopEventView),

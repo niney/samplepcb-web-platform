@@ -4,6 +4,8 @@
 //   1. 랜딩 분야 카드(PCB 설계) → 위저드(미리 선택 + 앱 및 서버 → 앱만) → 접수 → 내 의뢰 '접수됨'
 //   2. 관리자: 검토 시작 · 검토서(일정 8단계·전문가 검토·담당자 의견) 공개 · 구성도(도면 2장 HTML) 공개 → 검토서 탭
 //      (출력물과 같은 장으로 넘겨 본다 — 2026-11-13, docs/DEVELOP_FLOW.md §7.2.11)
+//   2-1. 확인이 필요한 사항에 고객이 직접 답한다(§7.2.13) → 답변 칸 '고객 답변' · 진행 기록 · 담당자가 문구를 고쳐도 답이 따라가고
+//      확인 결과가 적히면 잠긴다
 //   3. 관리자: 견적 v1 발송 → 내 의뢰 '견적 확인' 칩·'견적서 확인' 버튼 → 견적 탭 → 견적 수정 요청 → 관리자 v2 → 동의·성함 → 수락
 //      (견적서 탭도 장으로 넘겨 본다 — 요약 → 산출 내역, 수락 · 결제는 장 아래 판. 2026-11-13, docs/DEVELOP_FLOW.md §7.2.12)
 //   4. 착수금 결제 버튼 → 쇼핑몰 주문서로 이동 → 관리자 수동 입금 확인 → 개발 진행 중
@@ -376,6 +378,79 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     for (const chip of ['검토 중', '검토서', '구성도']) expect(await row.getByText(chip, { exact: true }).count(), chip).toBe(1);
   }, LONG);
 
+  test('2-1. 확인 사항에 직접 답한다 → 답변 칸 · 진행 기록 · 담당자가 문구를 고쳐도 답이 따라가고 확인 결과 뒤엔 잠긴다', async () => {
+    const page = s.page;
+    const ANSWER = 'CSV 면 충분합니다. 엑셀로 열 수 있으면 됩니다.';
+    const stage = page.locator('[data-deck-stage]');
+    const toQuestions = async (): Promise<void> => {
+      await openTab('#review', '2. AI 사전 검토서');
+      await stage.locator('.deck-slide').waitFor();
+      await stage.locator('footer button[aria-label$="번째 장"]').last().click(); // 마지막 장 = 확인이 필요한 사항
+      await stage.locator('.deck-slide[data-deck-kind="questions"]').waitFor();
+    };
+    await toQuestions();
+    // 확인 결과가 이미 적힌 문항은 잠겨 있다 — 단추는 빈 문항 하나에만
+    const open = stage.locator('[data-deck="answer-open"]');
+    expect(await open.count(), '답할 수 있는 문항').toBe(1);
+    expect((await open.innerText()).trim()).toBe('답변하기');
+    await open.click();
+    const panel = page.locator('[data-deck-overlay="answers"]');
+    await panel.waitFor();
+    expect(await panel.locator('textarea').count(), '잠긴 문항에는 입력 칸이 없다').toBe(1);
+    expect(await panel.getByText('상담 결과: 3D 프린팅 외장으로 진행').count()).toBe(1);
+    const save = panel.getByRole('button', { name: '답변 저장' });
+    expect(await save.isDisabled(), '쓴 것이 없으면 저장이 막힌다').toBe(true);
+    await panel.locator('textarea').fill(ANSWER);
+    await save.click();
+    await panel.waitFor({ state: 'detached' });
+    // 장의 답변 칸에 '고객 답변'으로, 단추는 '고치기'로
+    const answerBox = stage.locator('[data-deck="answer"]');
+    await answerBox.waitFor();
+    expect(await answerBox.innerText()).toContain(ANSWER);
+    expect(await answerBox.innerText()).toContain('고객 답변');
+    expect((await stage.locator('[data-deck="answer-open"]').innerText()).trim()).toBe('고치기');
+    expect(await stage.locator('[data-deck-overflow]').count(), '넘친 장 없음').toBe(0);
+
+    // 서버 — 지금 답변 · 진행 기록 · 관리자 상세(편집기가 문항 옆에 보인다)
+    const d = await customerDetail();
+    expect(d.questionAnswers.map((a: any) => a.answer)).toEqual([ANSWER]);
+    const answered = d.events.filter((e: any) => e.type === 'question_answered');
+    expect(answered.map((e: any) => e.title)).toEqual(['확인 사항 1건에 답했습니다']);
+    expect(answered[0].body).toBe(`Q. 기록 내보내기 형식은 CSV 면 되나요?\nA. ${ANSWER}`);
+    const adminDetail = ok(await admin.get(`/api/admin/develop/requests/${String(rid)}`), '관리자 상세');
+    expect(adminDetail.questionAnswers.map((a: any) => a.answer)).toEqual([ANSWER]);
+    // 같은 답을 다시 보내면 기록이 늘지 않는다
+    const qid = d.questionAnswers[0].qid;
+    const same = await call('PUT', `/api/develop/requests/${String(rid)}/review/answers`, customerToken, { body: { answers: [{ qid, answer: ANSWER }] } });
+    expect(same.status).toBe(200);
+    expect((await customerDetail()).events.filter((e: any) => e.type === 'question_answered').length).toBe(1);
+    // 없는 문항
+    const unknown = await call('PUT', `/api/develop/requests/${String(rid)}/review/answers`, customerToken, { body: { answers: [{ qid: 'q-none', answer: 'x' }] } });
+    expect(unknown.status).toBe(409);
+    expect(unknown.json?.error).toBe('QUESTION_NOT_FOUND');
+
+    // 담당자가 문구를 고치고 확인 결과를 적어 다시 공개 — 문항 번호가 남아 답이 따라가고, 확인 결과가 적힌 문항은 잠긴다
+    const working = adminDetail.review.working;
+    const row = working.openQuestions.find((q: any) => String(q.question).startsWith('기록 내보내기'));
+    expect(row.id, '편집기가 받는 문항 번호 = 답이 붙은 번호').toBe(qid);
+    row.question = '기록 내보내기 형식은 CSV 로 확정할까요?';
+    row.resolution = '확인: CSV 로 진행합니다';
+    ok(await admin.put(`/api/admin/develop/requests/${String(rid)}/review`, { review: working }), '검토서 다시 저장');
+    ok(await admin.post(`/api/admin/develop/requests/${String(rid)}/review/publish`), '검토서 다시 공개');
+    await toQuestions();
+    await stage.getByText('기록 내보내기 형식은 CSV 로 확정할까요?').waitFor();
+    expect(await stage.locator('[data-deck="answer"]').innerText(), '문구를 고쳐도 답이 남는다').toContain(ANSWER);
+    expect(await stage.getByText('확인: CSV 로 진행합니다', { exact: true }).count()).toBe(1);
+    expect(await stage.locator('[data-deck="answer-open"]').count(), '확인 결과가 적히면 답을 더 고칠 수 없다').toBe(0);
+    const locked = await call('PUT', `/api/develop/requests/${String(rid)}/review/answers`, customerToken, { body: { answers: [{ qid, answer: '바꾸고 싶습니다' }] } });
+    expect(locked.status).toBe(409);
+    expect(locked.json?.error).toBe('QUESTION_RESOLVED');
+    // 진행·문의에 기록
+    await openTab('#timeline', '5. 진행 · 문의');
+    await page.getByText('확인 사항 1건에 답했습니다', { exact: true }).waitFor();
+    expect(await page.getByText('확인 사항 답변', { exact: true }).count(), '종류 칩').toBe(1);
+  }, LONG);
+
   test('3. 견적 — 내 의뢰 버튼 → 견적 수정 요청 → 새 견적 → 동의·성함 → 수락', async () => {
     const q1 = ok(await admin.post(`/api/admin/develop/requests/${String(rid)}/quotes`, quoteBody('initial', '1차 견적')), '견적 v1 초안');
     ok(await admin.post(`/api/admin/develop/quotes/${String(q1.quoteId)}/send`), '견적 v1 발송');
@@ -619,6 +694,10 @@ describe.skipIf(!RUN)('개발의뢰 고객 화면 여정', () => {
     const row = page.locator('main li', { hasText: TITLE });
     await row.waitFor();
     expect(await row.getByText('완료', { exact: true }).count()).toBe(1);
+    // 완료된 의뢰에서는 확인 사항 답변을 받지 않는다(바꿀 것은 문의 · A/S 로)
+    const late = await call('PUT', `/api/develop/requests/${String(rid)}/review/answers`, customerToken, { body: { answers: [{ qid: 'q-any', answer: '완료 뒤 답변' }] } });
+    expect(late.status).toBe(409);
+    expect(late.json?.error).toBe('INVALID_TRANSITION');
 
     await page.setViewportSize({ width: 390, height: 844 });
     for (const [hash, heading] of [['#content', '1. 상세 의뢰 내용'], ['#review', '2. AI 사전 검토서'], ['#quotes', '3. 견적서'], ['#documents', '4. 진행 현황 · 프로젝트 문서'], ['#timeline', '5. 진행 · 문의']] as const) {

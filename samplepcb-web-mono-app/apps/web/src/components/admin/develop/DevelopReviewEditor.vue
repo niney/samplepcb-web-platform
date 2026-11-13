@@ -7,19 +7,20 @@ import {
   devReviewScheduleFit,
   devReviewScheduleTotals,
 } from '@sp/api-contract';
-import type { MarketDevReviewType } from '@sp/api-contract';
+import type { DevelopQuestionAnswerType, MarketDevReviewType } from '@sp/api-contract';
 import {
   DEVELOP_REVIEW_LIMITS,
   cloneDevelopReview,
   emptyDevelopSchedule,
   emptyDevelopSchedulePhase,
 } from './develop-review-edit';
+import { formatDateTime } from '@/lib/format';
 
 // 검토서 작업본 구조 편집기 — 요약·핵심 요구사항·분야별 명세/관찰·상의 항목(확인 결과)·담당자 의견.
 // 로컬 상태는 서버 응답의 **복사본**이다(같은 객체를 참조하면 미리보기가 저장 전 값으로 튄다).
 // 재시드는 seedKey 가 바뀔 때만 — 폴링 재조회가 편집 중인 내용을 지우면 안 된다.
 // `evidence`(근거)와 `checks`(답변↔자료 정합)는 AI 산출 사실이라 표시만 한다.
-const props = defineProps<{ source: MarketDevReviewType; seedKey: string; disabled: boolean }>();
+const props = defineProps<{ source: MarketDevReviewType; seedKey: string; disabled: boolean; answers?: DevelopQuestionAnswerType[] }>();
 const emit = defineEmits<{ update: [review: MarketDevReviewType, dirty: boolean] }>();
 
 const { t } = useI18n();
@@ -27,6 +28,20 @@ const L = DEVELOP_REVIEW_LIMITS;
 
 const local = ref(cloneDevelopReview(props.source));
 const seedJson = ref(JSON.stringify(local.value));
+
+// 고객이 확인 사항에 직접 적은 답(§7.2.13) — 문항 번호로 붙여 확인 결과 칸 아래에 보인다. '확인 결과로 가져오기'는 답을
+// 확인 결과에 옮겨 적는다(이미 적힌 것이 있으면 그 아래에 잇는다). 문항이 바뀌어 짝을 잃은 답은 목록 아래에 따로 보인다.
+const answersOf = (id: string | undefined): DevelopQuestionAnswerType[] => (props.answers ?? []).filter((a) => a.qid === id);
+const orphanAnswers = computed(() => {
+  const ids = new Set(local.value.openQuestions.map((q) => q.id));
+  return (props.answers ?? []).filter((a) => !ids.has(a.qid));
+});
+const adoptAnswer = (index: number, answer: string): void => {
+  const row = local.value.openQuestions[index];
+  if (row === undefined) return;
+  const current = (row.resolution ?? '').trim();
+  row.resolution = (current === '' ? answer : `${current}\n${answer}`).slice(0, L.resolutionLen);
+};
 
 watch(
   () => props.seedKey,
@@ -432,6 +447,28 @@ const clearSchedule = (): void => {
           :placeholder="t('admin.develop.editor.resolutionPlaceholder')"
           class="w-full rounded-md border border-emerald-200 px-2.5 py-1.5 text-xs leading-relaxed"
         />
+        <div v-for="a in answersOf(row.id)" :key="a.qid" class="grid gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-2" data-testid="develop-customer-answer">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[11px] font-bold text-gray-700">{{ t('admin.develop.editor.customerAnswer') }}</span>
+            <span class="text-[11px] tabular-nums text-gray-500">{{ formatDateTime(a.answeredAt) }}</span>
+            <button
+              type="button"
+              class="ml-auto rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              :disabled="props.disabled"
+              @click="adoptAnswer(qi, a.answer)"
+            >
+              {{ t('admin.develop.editor.adoptAnswer') }}
+            </button>
+          </div>
+          <p class="whitespace-pre-wrap text-xs leading-relaxed text-gray-800">{{ a.answer }}</p>
+        </div>
+      </div>
+      <div v-if="orphanAnswers.length > 0" class="grid gap-2 rounded-md border border-gray-200 bg-gray-50 p-3">
+        <span class="text-[11px] font-bold text-gray-500">{{ t('admin.develop.editor.orphanAnswers') }}</span>
+        <div v-for="a in orphanAnswers" :key="a.qid" class="grid gap-0.5 text-xs">
+          <p class="font-bold text-gray-700">{{ a.question }}</p>
+          <p class="whitespace-pre-wrap text-gray-800">{{ a.answer }}</p>
+        </div>
       </div>
       <p v-if="local.openQuestions.length === 0" class="text-sm text-gray-400">{{ t('admin.develop.editor.noRows') }}</p>
     </div>

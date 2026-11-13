@@ -49,6 +49,7 @@ const toneOf = (t: DevelopEventTypeType): Tone => {
     case 'review_request':
     case 'quote_sent':
     case 'document_sent':
+    case 'question_answered':
       return 'purple'; // 오가는 요청·전달
     case 'quote_accepted':
     case 'payment_confirmed':

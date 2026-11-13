@@ -55,6 +55,9 @@ export const DEV_REVIEW_GENERAL_AREA = 'general';
 export const DevReviewQuestionArea = z.string().max(32).catch(DEV_REVIEW_GENERAL_AREA);
 
 export const DevReviewOpenQuestion = z.object({
+  // 문항 번호(개발의뢰 §7.2.13) — 고객이 직접 적은 답이 이 번호에 붙는다. 담당자가 문구를 고치거나 순서를 바꿔도 답이 따라가게
+  // 하려는 것이다. 저장분에 없으면 질문 문구에서 만든다(devReviewQuestionId) — 읽는 쪽마다 같은 번호를 얻는다. 마켓 저장분엔 없다(additive).
+  id: z.string().max(24).optional(),
   question: z.string().trim().min(1).max(120),
   why: z.string().trim().max(120).catch(''),
   area: DevReviewQuestionArea,
@@ -62,6 +65,32 @@ export const DevReviewOpenQuestion = z.object({
   resolution: z.string().trim().max(500).nullable().optional(),
 });
 export type DevReviewOpenQuestionType = z.infer<typeof DevReviewOpenQuestion>;
+
+/** 문항 번호 — 질문 문구의 해시(FNV-1a 32비트, 36진). 번호가 없는 옛 저장분도 문구가 같으면 같은 번호가 된다. */
+export function devReviewQuestionId(question: string): string {
+  const text = question.trim();
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `q${(h >>> 0).toString(36)}`;
+}
+
+/** 문항마다 번호를 채운다 — 있는 번호는 그대로 두고, 없으면 문구에서 만든다. 한 검토서 안에서 겹치면 뒤 문항에 순번을 붙인다. */
+export function withDevReviewQuestionIds<T extends { openQuestions: DevReviewOpenQuestionType[] }>(
+  review: T,
+): Omit<T, 'openQuestions'> & { openQuestions: (DevReviewOpenQuestionType & { id: string })[] } {
+  const seen = new Set<string>();
+  const openQuestions = review.openQuestions.map((q) => {
+    const base = q.id !== undefined && q.id !== '' ? q.id : devReviewQuestionId(q.question);
+    let id = base;
+    for (let n = 2; seen.has(id); n += 1) id = `${base}-${String(n)}`;
+    seen.add(id);
+    return { ...q, id };
+  });
+  return { ...review, openQuestions };
+}
 
 // 답변↔자료 정합 — 공통 질문 답과 설명·첨부가 범주 수준에서 어긋난 것(R9).
 export const DEV_REVIEW_CHECK_CODES = ['stage', 'external'] as const;

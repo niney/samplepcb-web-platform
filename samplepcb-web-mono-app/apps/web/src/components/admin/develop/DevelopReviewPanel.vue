@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { DEVELOP_REGISTRY } from '@sp/api-contract';
-import type { AdminDevelopReviewStateType, MarketDevReviewType } from '@sp/api-contract';
+import type { AdminDevelopReviewStateType, DevelopQuestionAnswerType, MarketDevReviewType } from '@sp/api-contract';
 import { DevReviewView, apiErrorMessage } from '@sp/ui';
 import {
   useAdminDevelopAiRun,
@@ -26,6 +26,7 @@ const props = defineProps<{
   aiConsent: boolean;
   aiSupplement: string | null;
   title: string;
+  answers: DevelopQuestionAnswerType[]; // 고객이 확인 사항에 적은 답(§7.2.13)
 }>();
 const emit = defineEmits<{ dirty: [value: boolean] }>();
 
@@ -331,6 +332,7 @@ const busy = computed(
           :source="source"
           :seed-key="seedKey"
           :disabled="busy"
+          :answers="props.answers"
           @update="onEditorUpdate"
         />
         <DevReviewView

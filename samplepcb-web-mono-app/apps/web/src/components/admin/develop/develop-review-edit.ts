@@ -68,6 +68,8 @@ export function cloneDevelopReview(r: MarketDevReviewType): MarketDevReviewType 
       observations: a.observations.map((o) => ({ text: o.text, evidence: o.evidence })),
     })),
     openQuestions: r.openQuestions.map((q) => ({
+      // 문항 번호(§7.2.13) — 고객 답변이 이 번호에 붙는다. 서버가 채워 내려준 것을 그대로 돌려보낸다(새 행은 저장 때 서버가 붙인다).
+      ...(q.id === undefined ? {} : { id: q.id }),
       question: q.question,
       why: q.why,
       area: q.area,
