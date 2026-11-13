@@ -29,7 +29,7 @@ export interface AdminMenuItem {
   activeRouteNames?: readonly string[];
 }
 
-export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'develop' | 'market';
+export type AdminModuleKey = 'core' | 'smartbom' | 'pcb' | 'smt' | 'develop' | 'market';
 
 export interface AdminModule {
   key: AdminModuleKey;
@@ -168,6 +168,17 @@ const pcbMenu: AdminMenuItem[] = [
   },
 ];
 
+// SmartSMT 모듈(docs/SMARTSMT_INTEGRATION.md §4.6) — 바깥(SmartSMT)에서 계산을 끝낸 SMT 견적서를 받아 보는 곳.
+// 리뉴얼 셸(src/next)에만 화면이 있고 옛 화면은 없다 — 옛 셸 안에서도 이 이름 그대로 리뉴얼 화면으로 건다.
+const smtMenu: AdminMenuItem[] = [
+  { to: { name: 'admin-smt-quotes' }, labelKey: 'admin.menu.smtQuotes', activeRouteNames: ['admin-smt-quote'] },
+  { to: { name: 'admin-smt-link' }, labelKey: 'admin.menu.smtLink' },
+];
+
+/** SmartSMT 모듈의 라우트('admin-smt', 'admin-smt-*'). 'admin-smartbom…' 과 섞이지 않게 접두를 '-' 까지 본다. */
+export const isSmtAdminRoute = (routeName: string): boolean =>
+  routeName === 'admin-smt' || routeName.startsWith('admin-smt-');
+
 // 모듈 사전 — core(통합) = 공용 기준정보와 기존 관리 기능, pcb·smartbom = 업무 모듈.
 // 개발은 의뢰 접수부터 수행·납품·결제까지 별도 업무 모듈로 제공한다.
 export const adminModules: readonly AdminModule[] = [
@@ -184,6 +195,7 @@ export const adminModules: readonly AdminModule[] = [
     homeTo: { name: 'admin-smartbom' },
     menu: smartbomMenu,
   },
+  { key: 'smt', labelKey: 'admin.modules.smt', homeTo: { name: 'admin-smt-quotes' }, menu: smtMenu },
   // 개발의뢰 모듈(docs/DEVELOP_FLOW.md §14) — 단계별 워크큐. 2026-09-10 G 프로토타입 제거로 C 구현이 정본.
   { key: 'develop', labelKey: 'admin.modules.develop', homeTo: { name: 'admin-develop' }, menu: developMenu },
   {
@@ -198,7 +210,9 @@ export const adminModules: readonly AdminModule[] = [
 // /admin/legacy/* · 'admin-legacy-*' 로 물러났다. 견적관리(admin-quotes)·재능마켓(admin-market-*)은 리뉴얼하지
 // 않아 정식 이름 그대로 이 셸에 남는다. 메뉴 정의는 정식 이름으로 두고, 셸이 옛 화면 안에서는 옛 이름으로 바꿔 건다.
 const LEGACY_PREFIX = 'admin-legacy';
-const isUnrenewed = (name: string): boolean => name === 'admin-quotes' || name.startsWith('admin-market-');
+// 옛 화면이 없는 이름 — 리뉴얼하지 않은 화면(견적관리·마켓)과 리뉴얼 셸에만 있는 화면(SMT). 옛 이름으로 바꾸면 없는 라우트가 된다.
+const isUnrenewed = (name: string): boolean =>
+  name === 'admin-quotes' || name.startsWith('admin-market-') || isSmtAdminRoute(name);
 
 export const isLegacyAdminRoute = (routeName: string): boolean =>
   routeName === LEGACY_PREFIX || routeName.startsWith(`${LEGACY_PREFIX}-`);
@@ -223,7 +237,10 @@ export const legacyAdminTo = (to: RouteLocationRaw): RouteLocationRaw =>
 // 진입에서도 메뉴가 어긋나지 않는다(레거시 useAppMode gotcha 회수). 옛 이름도 정식 이름으로 읽는다.
 export const resolveAdminModuleKey = (name: string): AdminModuleKey => {
   const routeName = canonicalAdminRouteName(name);
-  return routeName === 'admin-develop' || routeName.startsWith('admin-develop-')
+  // SMT 를 SmartBOM 보다 먼저 — 둘 다 'admin-sm' 으로 시작한다(isSmtAdminRoute 는 'admin-smt-' 까지 본다).
+  return isSmtAdminRoute(routeName)
+    ? 'smt'
+    : routeName === 'admin-develop' || routeName.startsWith('admin-develop-')
     ? 'develop'
     : routeName.startsWith('admin-smartbom') || routeName === 'admin-bom' || routeName === 'admin-bom-quote'
     ? 'smartbom'

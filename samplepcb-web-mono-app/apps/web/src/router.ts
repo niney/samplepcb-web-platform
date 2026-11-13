@@ -14,6 +14,7 @@ import { NEXT_CORE_ROUTES } from './next/core-navigation';
 import { NEXT_DEVELOP_ROUTES } from './next/develop-navigation';
 import { NEXT_PCB_ROUTES } from './next/pcb-navigation';
 import { NEXT_SMARTBOM_ROUTES } from './next/smartbom-navigation';
+import { NEXT_SMT_ROUTES } from './next/smt-navigation';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
 import AdminQuotes from './pages/admin/AdminQuotes.vue';
 import AdminOrders from './pages/admin/AdminOrders.vue';
@@ -368,6 +369,15 @@ const routes: RouteRecordRaw[] = [
       },
       // 2026-08-06 통합 관리로 이동. 기존 북마크·외부 링크는 정식 경로로 보낸다.
       { path: 'smartbom/partners', redirect: { name: NEXT_CORE_ROUTES.partners } },
+      // ── SMT(next/smt-navigation.ts) — SmartSMT 가 보낸 견적서. 리뉴얼 셸에만 있다(옛 화면 없음).
+      { path: 'smt', redirect: { name: NEXT_SMT_ROUTES.quotes } },
+      { path: 'smt/quotes', name: NEXT_SMT_ROUTES.quotes, component: () => import('./next/pages/smt/SmtQuotesPage.vue') },
+      {
+        path: 'smt/quotes/:id(\\d+)',
+        name: NEXT_SMT_ROUTES.quote,
+        component: () => import('./next/pages/smt/SmtQuotePage.vue'),
+      },
+      { path: 'smt/link', name: NEXT_SMT_ROUTES.link, component: () => import('./next/pages/smt/SmtLinkPage.vue') },
       // BOM 업로드·작업대는 옛 화면처럼 본문 여백 없이 전체 높이를 쓴다(adminContentFlush).
       {
         path: 'bom',

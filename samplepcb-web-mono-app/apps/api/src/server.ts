@@ -84,6 +84,7 @@ import { adminDevelopSettingsRoutes } from './routes/admin-develop-settings';
 import { adminDevelopQuoteRoutes } from './routes/admin-develop-quotes';
 import { adminDevelopDocRoutes } from './routes/admin-develop-docs';
 import { smartsmtInboundRoutes } from './routes/smartsmt-inbound';
+import { adminSmtRoutes } from './routes/admin-smt';
 import { scheduleKoreaEximExchangeRateRefresh } from './lib/exchange-rate';
 import { registerErrorHandler } from './lib/error-handler';
 import { closeG5Pool } from './lib/g5-db';
@@ -229,6 +230,8 @@ await app.register(adminDevelopDocRoutes, { prefix: '/api/admin' });
 // SmartSMT 연동(docs/SMARTSMT_INTEGRATION.md) — SmartSMT 서버가 부르는 견적서 수신 주소.
 // 회원 JWT 가 아니라 SmartSMT 전용 토큰(HS256 2분, SMARTSMT_SHARED_SECRET)으로 인증하고, 미설정이면 503 으로 닫는다.
 await app.register(smartsmtInboundRoutes, { prefix: '/api' });
+// 관리자 전용(requireAdmin) — SmartSMT 견적서 가져오기(주문 번호로 SmartSMT 에서 당겨 온다)
+await app.register(adminSmtRoutes, { prefix: '/api/admin' });
 
 // ES sp-parts 부트스트랩 + 색인 실패 큐 드레인 — ES 다운이어도 앱은 뜬다(검색만 축퇴).
 // 기동 시 1회에 그치면 장기 실행 서버의 일시 실패가 재시작 전까지 남으므로 1분마다 수렴시킨다.

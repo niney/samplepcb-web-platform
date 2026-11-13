@@ -136,9 +136,13 @@ export const ko = {
       market: '마켓',
       pcb: 'PCB',
       smartbom: 'BOM',
+      smt: 'SMT',
       develop: '개발',
     },
     menu: {
+      smtQuotes: '받은 견적',
+      smtLink: '연동 상태',
+
       developHome: "진행현황",
       developIntake: "접수·검토",
       developContracts: "견적·계약",

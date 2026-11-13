@@ -135,9 +135,13 @@ export const en = {
       market: 'Market',
       pcb: 'PCB',
       smartbom: 'BOM',
+      smt: 'SMT',
       develop: 'Development',
     },
     menu: {
+      smtQuotes: 'Received quotes',
+      smtLink: 'Link status',
+
       developHome: "Overview",
       developIntake: "Intake · Review",
       developContracts: "Quote · Contract",

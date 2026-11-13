@@ -59,6 +59,302 @@ export const SmartsmtErrorBody = z.object({
 });
 export type SmartsmtErrorBodyType = z.infer<typeof SmartsmtErrorBody>;
 
+// ── 견적서 가져오기 (관리자) — POST /api/admin/smt/pull ─────────────────────────────────────
+// 관리자가 주문 번호로 SmartSMT 에서 견적서를 당겨 온다(GET {SmartSMT}/api/pricing/envelope). 파일은 오지 않는다.
+// 전송을 놓쳤을 때의 보완 수단이다 — SmartSMT 의 보관 기간(24시간)이 지나면 가져올 수 없다.
+
+export const AdminSmtPullBody = z.object({
+  orderId: z.string().trim().min(1).max(100),
+});
+export type AdminSmtPullBodyType = z.infer<typeof AdminSmtPullBody>;
+
+/** duplicate=true 는 SmartSMT 가 준 견적(quote_id)을 이미 갖고 있는 경우 — 새로 저장하지 않는다. */
+export const AdminSmtPullResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    quoteId: z.string(),
+    orderId: z.string(),
+    duplicate: z.boolean(),
+  }),
+});
+export type AdminSmtPullResponseType = z.infer<typeof AdminSmtPullResponse>;
+
+/**
+ * 가져오기 실패 코드 — 응답 `{error, message}` 의 error.
+ *  SMARTSMT_NOT_CONFIGURED  503  우리 쪽 SmartSMT 주소 또는 공유 비밀 미설정
+ *  SMARTSMT_UNREACHABLE     502  접속 실패 · 응답 시간 초과
+ *  SMARTSMT_AUTH_REJECTED   502  SmartSMT 가 우리 토큰을 받지 않음(비밀이 서로 다르거나 SmartSMT 가 아직 토큰 방식이 아님)
+ *  SMARTSMT_NOT_FOUND       404  주문 없음 또는 보관 기간(24시간) 만료
+ *  SMARTSMT_NOT_READY       409  담당자 계산 전(NO_INPUTS) 또는 확정 전 견적(NOT_PUBLISHABLE)
+ *  SMARTSMT_BAD_RESPONSE    502  견적서가 아닌 응답 · 다른 주문의 견적서 · 예상하지 못한 상태 코드
+ */
+export const SMARTSMT_PULL_ERRORS = [
+  'SMARTSMT_NOT_CONFIGURED',
+  'SMARTSMT_UNREACHABLE',
+  'SMARTSMT_AUTH_REJECTED',
+  'SMARTSMT_NOT_FOUND',
+  'SMARTSMT_NOT_READY',
+  'SMARTSMT_BAD_RESPONSE',
+] as const;
+export type SmartsmtPullError = (typeof SMARTSMT_PULL_ERRORS)[number];
+
+// ── 관리자 화면 — /api/admin/smt/* (모듈 SMT) ───────────────────────────────────────────────
+// 금액 칸은 number | null 이다. **null = 미정, 0 = 0원** — 화면에서 둘을 섞지 않는다.
+
+/** 받은 견적 목록의 탭. undetermined = 최종 금액이 미정(합계가 막혔거나 금액이 오지 않음). */
+export const ADMIN_SMT_ORDER_TABS = ['all', 'review', 'undetermined'] as const;
+export type AdminSmtOrderTab = (typeof ADMIN_SMT_ORDER_TABS)[number];
+
+export const AdminSmtOrderListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  tab: z.enum(ADMIN_SMT_ORDER_TABS).default('all'),
+  /** 주문 번호 · 고객 아이디 · 고객 이름 부분 일치. */
+  search: z.string().trim().min(1).max(100).optional(),
+});
+export type AdminSmtOrderListQueryType = z.infer<typeof AdminSmtOrderListQuery>;
+
+/** 견적 한 건의 요약(목록용으로 뽑아 올린 값). id 는 sp_smt_quote 의 행 번호 — 상세 주소에 쓴다. */
+export const AdminSmtQuoteSummary = z.object({
+  id: z.number(),
+  quoteId: z.string(),
+  /** push = SmartSMT 가 보냄, pull = 관리자가 가져옴(파일 없음). */
+  source: z.string(),
+  madeAt: z.string().nullable(),
+  receivedAt: z.string(),
+  currency: z.string().nullable(),
+  strategy: z.string().nullable(),
+  quoteStatus: z.string().nullable(),
+  quantity: z.number().nullable(),
+  /** SMT 작업비만(quote.total). */
+  smtTotal: z.number().nullable(),
+  /** 최종 금액(quote.integrated.totals.total). */
+  finalTotal: z.number().nullable(),
+  /** 합계를 막은 블록 이름. 비어 있지 않으면 합계 미확정. */
+  blockedBy: z.array(z.string()),
+});
+export type AdminSmtQuoteSummaryType = z.infer<typeof AdminSmtQuoteSummary>;
+
+export const AdminSmtOrder = z.object({
+  id: z.number(),
+  orderId: z.string(),
+  ownerMbId: z.string().nullable(),
+  ownerName: z.string().nullable(),
+  /** 견적서의 owner_mb_id 가 우리 회원인가. 아이디가 오지 않았으면 null. */
+  ownerIsMember: z.boolean().nullable(),
+  quoteCount: z.number(),
+  firstReceivedAt: z.string(),
+  lastReceivedAt: z.string(),
+});
+export type AdminSmtOrderType = z.infer<typeof AdminSmtOrder>;
+
+export const AdminSmtOrderItem = AdminSmtOrder.extend({
+  /** 마지막에 받은 견적. */
+  latest: AdminSmtQuoteSummary.nullable(),
+});
+export type AdminSmtOrderItemType = z.infer<typeof AdminSmtOrderItem>;
+
+export const AdminSmtOrderListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(AdminSmtOrderItem),
+    total: z.number(),
+    page: z.number(),
+    pageSize: z.number(),
+    /** 검색어를 뺀 탭별 주문 수. */
+    counts: z.object({ all: z.number(), review: z.number(), undetermined: z.number() }),
+  }),
+});
+export type AdminSmtOrderListResponseType = z.infer<typeof AdminSmtOrderListResponse>;
+
+/** 동봉 파일 한 줄. fileId 가 있으면 내려받을 수 있다(GET /api/admin/smt/files/:fileId). */
+export const AdminSmtQuoteFile = z.object({
+  part: z.string(),
+  name: z.string().nullable(),
+  bytes: z.number().nullable(),
+  sha256: z.string().nullable(),
+  /** match | unlisted | missing — SMARTSMT_FILE_CHECK_LABELS */
+  check: z.string(),
+  fileId: z.number().nullable(),
+});
+export type AdminSmtQuoteFileType = z.infer<typeof AdminSmtQuoteFile>;
+
+export const AdminSmtQuoteDetailResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    order: AdminSmtOrder,
+    quote: AdminSmtQuoteSummary.extend({
+      envelopeVersion: z.string(),
+      lang: z.string().nullable(),
+      finalSupplyPrice: z.number().nullable(),
+      finalVat: z.number().nullable(),
+      /** 이 주문의 마지막 견적인가. */
+      isLatest: z.boolean(),
+    }),
+    /**
+     * 받은 견적서 전체(관리자 전용). 칸 구성은 SmartSMT 「견적서 전송 양식」을 따르고 모르는 칸도 그대로 온다 —
+     * 화면은 아는 칸만 골라 보이고 나머지는 원문으로 보인다. labor_charge · user_edits 는 고객 화면에 내보내지 않는 값이다.
+     */
+    envelope: z.record(z.string(), z.unknown()),
+    files: z.array(AdminSmtQuoteFile),
+    /** 같은 주문의 견적들(최근 것부터). */
+    history: z.array(AdminSmtQuoteSummary.extend({ isLatest: z.boolean() })),
+  }),
+});
+export type AdminSmtQuoteDetailResponseType = z.infer<typeof AdminSmtQuoteDetailResponse>;
+
+/** 수신 기록의 결과 — accepted 받음 · duplicate 이미 받은 견적 · rejected 거절(4xx) · failed 실패(5xx). */
+export const SMARTSMT_RECEIVE_RESULTS = ['accepted', 'duplicate', 'rejected', 'failed'] as const;
+export type SmartsmtReceiveResult = (typeof SMARTSMT_RECEIVE_RESULTS)[number];
+
+export const AdminSmtReceiveLogQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(30),
+  result: z.enum(SMARTSMT_RECEIVE_RESULTS).optional(),
+});
+export type AdminSmtReceiveLogQueryType = z.infer<typeof AdminSmtReceiveLogQuery>;
+
+export const AdminSmtReceiveLogItem = z.object({
+  id: z.number(),
+  result: z.string(),
+  reason: z.string().nullable(),
+  httpStatus: z.number(),
+  quoteId: z.string().nullable(),
+  orderId: z.string().nullable(),
+  bytes: z.number().nullable(),
+  durationMs: z.number(),
+  remoteAddr: z.string().nullable(),
+  message: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type AdminSmtReceiveLogItemType = z.infer<typeof AdminSmtReceiveLogItem>;
+
+export const AdminSmtReceiveLogResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(AdminSmtReceiveLogItem),
+    total: z.number(),
+    page: z.number(),
+    pageSize: z.number(),
+  }),
+});
+export type AdminSmtReceiveLogResponseType = z.infer<typeof AdminSmtReceiveLogResponse>;
+
+/** 연동 상태 — 설정 여부만 알린다. 공유 비밀의 값은 어떤 응답에도 싣지 않는다. */
+export const AdminSmtLinkStatusResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    /** 공유 비밀이 쓸 수 있는 값으로 설정돼 있는가(없음 · 너무 짧음 · JWT_SECRET 과 같음 = false). */
+    secretConfigured: z.boolean(),
+    /** 가져오기가 부르는 SmartSMT 주소. 미설정이면 null. */
+    baseUrl: z.string().nullable(),
+    timeoutMs: z.number(),
+    /** SmartSMT 가 견적서를 보내는 우리 경로. */
+    inboundPath: z.string(),
+    /** SmartSMT 가 회원 브라우저를 보내는 우리 경로(로그인 인계 — 설정은 sp-php 쪽에 있다). */
+    ssoPath: z.string(),
+    fileServiceType: z.string(),
+    /** 마지막으로 견적서를 받은 시각. */
+    lastAcceptedAt: z.string().nullable(),
+    /** 최근 24시간의 수신 시도 수. */
+    last24h: z.object({ accepted: z.number(), duplicate: z.number(), rejected: z.number(), failed: z.number() }),
+  }),
+});
+export type AdminSmtLinkStatusResponseType = z.infer<typeof AdminSmtLinkStatusResponse>;
+
+// ── 라벨 사전 — SmartSMT 「견적서 전송 양식 0.3」의 코드 값을 한국어로 ─────────────────────────
+// 화면은 사전에 없는 코드를 **코드 그대로** 보인다(SmartSMT 가 값을 늘려도 깨지지 않게).
+
+/** 사전에 있으면 라벨, 없으면 코드 그대로. 빈 값은 fallback. */
+export const smartsmtLabel = (
+  labels: Readonly<Record<string, string>>,
+  code: string | null | undefined,
+  fallback = '—',
+): string => (code === null || code === undefined || code === '' ? fallback : (labels[code] ?? code));
+
+export const SMARTSMT_QUOTE_STATUS_LABELS: Readonly<Record<string, string>> = {
+  CALCULATED: '계산 완료',
+  REVIEW_REQUIRED: '검토 필요',
+};
+export const SMARTSMT_STRATEGY_LABELS: Readonly<Record<string, string>> = { SAMPLE: '샘플', MASS: '양산' };
+export const SMARTSMT_SOURCE_LABELS: Readonly<Record<string, string>> = { push: '전송', pull: '가져오기' };
+export const SMARTSMT_ORDER_SCENARIO_LABELS: Readonly<Record<string, string>> = {
+  NEW_OR_CHANGED: '신규 · 변경',
+  REORDER_SAME_REVISION: '재주문 (동일 리비전)',
+};
+export const SMARTSMT_ASSEMBLY_SIDES_LABELS: Readonly<Record<string, string>> = { SINGLE: '단면', DOUBLE: '양면' };
+export const SMARTSMT_REFLOW_LABELS: Readonly<Record<string, string>> = { AIR: '대기', N2: '질소(N₂)' };
+/** 조달 구분 — parts_supply · metal_mask_supply · lines[].supply. */
+export const SMARTSMT_SUPPLY_LABELS: Readonly<Record<string, string>> = {
+  TURNKEY: '도급',
+  CUSTOMER: '사급',
+  REUSE: '재사용',
+};
+
+/** lines[].basis — 세는 기준. */
+export const SMARTSMT_BASIS_LABELS: Readonly<Record<string, string>> = {
+  FIXED: '고정 금액',
+  PER_EA: '보드 1장당',
+  PER_SET: 'SET 당',
+  PER_POINT: '실장점당',
+  PER_COMPONENT: '부품 개수당',
+  PER_COMPONENT_TYPE: '부품 종수당',
+  PER_PIN: '핀당',
+  PER_SLOT: '피더 칸당',
+  PER_CUT_TAPE_TYPE: '컷테이프 종수당',
+  PER_EA_WITH_LOT_MINIMUM: '보드 1장당 (최소금액 적용)',
+  PER_TYPE_WITH_LOT_MINIMUM: '종수당 (최소금액 적용)',
+  PER_DAY: '일수당',
+  VALUE: '값 그대로',
+  LEGACY_LOT: '견적 당 한 번 (구 모델)',
+  LEGACY_TOTAL: '수량이 든 총액 (구 모델)',
+};
+
+/** lines[].status — 빈 글자는 확정. */
+export const SMARTSMT_LINE_STATUS_LABELS: Readonly<Record<string, string>> = {
+  UNKNOWN_RATE: '요율 없음',
+  REVIEW_REQUIRED: '검토 필요',
+  UNKNOWN_TYPE: '부품 종류 미상',
+  UNKNOWN_INPUT: '입력값 없음',
+};
+
+/**
+ * integrated.blocks[].reason — 사유와 "합계에 드는가".
+ *  counted: no = 안 든다 · amount_only = 금액은 있지만 안 든다 · na = 해당 없음(이 주문에서 사지 않음)
+ * 사유가 없으면(null) 정상이고 합계에 든다.
+ */
+export const SMARTSMT_BLOCK_REASONS: Readonly<
+  Record<string, { label: string; counted: 'no' | 'amount_only' | 'na' }>
+> = {
+  NO_REQUEST: { label: '아직 요청하지 않음', counted: 'no' },
+  MISSING_INPUT: { label: '사람이 적을 값이 오지 않음', counted: 'no' },
+  EMPTY_RESULT: { label: '호출했으나 금액이 0', counted: 'no' },
+  CALL_FAILED: { label: '출처 호출 실패', counted: 'no' },
+  QTY_UNVERIFIED: { label: '몇 장분인지 확인되지 않음', counted: 'amount_only' },
+  QTY_MISMATCH: { label: '수량이 어긋남', counted: 'amount_only' },
+  CURRENCY_UNVERIFIED: { label: '통화를 확인할 수 없음', counted: 'amount_only' },
+  CUSTOMER_SUPPLIED: { label: '고객이 지급함', counted: 'na' },
+  PCB_ONLY: { label: 'PCB 만 주문', counted: 'na' },
+  NOT_ORDERED: { label: '주문하지 않은 공정', counted: 'na' },
+};
+
+export const SMARTSMT_FILE_PART_LABELS: Readonly<Record<string, string>> = {
+  gerber_archive: '제조 파일 묶음',
+  bom: 'BOM',
+  cpl: 'CPL',
+};
+export const SMARTSMT_FILE_CHECK_LABELS: Readonly<Record<string, string>> = {
+  match: '일치',
+  unlisted: '목록에 없음',
+  missing: '파일 없음',
+};
+export const SMARTSMT_RECEIVE_RESULT_LABELS: Readonly<Record<string, string>> = {
+  accepted: '받음',
+  duplicate: '이미 받은 견적',
+  rejected: '거절',
+  failed: '실패',
+};
+
 /** 수신 성공. duplicate=true 는 같은 quote_id 를 이미 받아 둔 경우(덮어쓰지 않는다). */
 export const SmartsmtInboundAccepted = z.object({
   result: z.literal(true),

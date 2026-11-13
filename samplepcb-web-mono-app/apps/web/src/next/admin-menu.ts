@@ -21,6 +21,8 @@ import {
   MessageSquareQuote,
   MessagesSquare,
   PackageCheck,
+  PlugZap,
+  ReceiptText,
   Settings,
   ShoppingBag,
   ShoppingCart,
@@ -29,7 +31,7 @@ import {
   Users,
   Warehouse,
 } from '@lucide/vue';
-import { adminModules, type AdminModuleKey } from '@/admin/menu';
+import { adminModules, isSmtAdminRoute, type AdminModuleKey } from '@/admin/menu';
 import { isNextCoreRoute, LEGACY_CORE_QUOTES_ROUTE, legacyCoreRouteName, NEXT_CORE_ROUTES } from '@/next/core-navigation';
 import {
   isNextDevelopQueueRoute,
@@ -44,12 +46,14 @@ import {
   type PcbAdminMemory,
 } from '@/next/pcb-navigation';
 import { legacySmartbomRouteName, NEXT_SMARTBOM_ROUTES, smartbomSectionOf } from '@/next/smartbom-navigation';
+import { isNextSmtRoute, NEXT_SMT_ROUTES } from '@/next/smt-navigation';
 
 // 리뉴얼 셸(AdminNextLayout)의 모듈·메뉴 정의 — 옛 admin/menu.ts 의 짝. 모듈을 하나 더 리뉴얼할 때는
 // 여기 nextModules 에 항목을 더하고 배지 훅(useNextMenuBadges)에 합산식을 옮기면 사이드바·스위처·
 // '이전 화면'이 그대로 따라온다. 메뉴 순서·라벨(i18n 키)·배지 식별자는 옛 메뉴와 같게 둔다.
+// SMT 는 리뉴얼 셸에서 처음 지은 모듈이라 옛 화면이 없다(legacyNextRoute 가 null — '이전 화면' 버튼 없음).
 
-export type NextModuleKey = Extract<AdminModuleKey, 'core' | 'pcb' | 'smartbom' | 'develop'>;
+export type NextModuleKey = Extract<AdminModuleKey, 'core' | 'pcb' | 'smartbom' | 'smt' | 'develop'>;
 
 export type NextMenuBadge =
   | 'rfqCount'
@@ -206,6 +210,29 @@ const smartbomModule: NextModule = {
   ],
 };
 
+// SmartSMT(docs/SMARTSMT_INTEGRATION.md §4.6) — 받은 견적(목록·상세) + 연동 상태. 배지는 두지 않는다.
+const smtModule: NextModule = {
+  key: 'smt',
+  labelKey: 'admin.modules.smt',
+  items: [
+    {
+      key: 'smt-quotes',
+      routeName: NEXT_SMT_ROUTES.quotes,
+      labelKey: 'admin.menu.smtQuotes',
+      icon: ReceiptText,
+      to: () => ({ name: NEXT_SMT_ROUTES.quotes }),
+      activeRouteNames: [NEXT_SMT_ROUTES.quote],
+    },
+    {
+      key: 'smt-link',
+      routeName: NEXT_SMT_ROUTES.link,
+      labelKey: 'admin.menu.smtLink',
+      icon: PlugZap,
+      to: () => ({ name: NEXT_SMT_ROUTES.link }),
+    },
+  ],
+};
+
 const developItem = (
   key: keyof typeof NEXT_DEVELOP_ROUTES,
   labelKey: string,
@@ -237,7 +264,7 @@ const developModule: NextModule = {
   ],
 };
 
-export const nextModules: readonly NextModule[] = [coreModule, pcbModule, smartbomModule, developModule];
+export const nextModules: readonly NextModule[] = [coreModule, pcbModule, smartbomModule, smtModule, developModule];
 
 /** 라우트 이름 → 리뉴얼 모듈. 리뉴얼 라우트가 아니면 null. */
 export const resolveNextModuleKey = (routeName: string): NextModuleKey | null =>
@@ -245,15 +272,27 @@ export const resolveNextModuleKey = (routeName: string): NextModuleKey | null =>
     ? 'core'
     : routeName.startsWith('admin-pcb-')
       ? 'pcb'
-      : routeName.startsWith('admin-smartbom') || routeName.startsWith('admin-bom')
-        ? 'smartbom'
-        : routeName.startsWith('admin-develop')
-          ? 'develop'
-          : null;
+      : // SMT 를 SmartBOM 보다 먼저 — 'admin-smt-*' 와 'admin-smartbom*' 은 'admin-sm' 까지 같다.
+        isSmtAdminRoute(routeName)
+        ? 'smt'
+        : routeName.startsWith('admin-smartbom') || routeName.startsWith('admin-bom')
+          ? 'smartbom'
+          : routeName.startsWith('admin-develop')
+            ? 'develop'
+            : null;
 
+const MODULE_BY_KEY: Readonly<Record<NextModuleKey, NextModule>> = {
+  core: coreModule,
+  pcb: pcbModule,
+  smartbom: smartbomModule,
+  smt: smtModule,
+  develop: developModule,
+};
+
+/** 리뉴얼 라우트가 아니면(없는 이름 등) PCB 를 그린다 — 예전부터의 기본. */
 export const nextModuleOf = (routeName: string): NextModule => {
   const key = resolveNextModuleKey(routeName);
-  return key === 'core' ? coreModule : key === 'smartbom' ? smartbomModule : key === 'develop' ? developModule : pcbModule;
+  return key === null ? pcbModule : MODULE_BY_KEY[key];
 };
 
 export interface NextModuleLink {
@@ -296,6 +335,8 @@ export const legacyNextRoute = (
   params: RouteParamsRawGeneric,
   query: LocationQueryRaw,
 ): RouteLocationRaw | null => {
+  // SMT 는 리뉴얼 셸에서 처음 지은 모듈이라 옛 화면이 없다 — '이전 화면' 버튼을 띄우지 않는다.
+  if (isNextSmtRoute(routeName)) return null;
   const pcbEntry = Object.entries(NEXT_PCB_ROUTES).find(([, name]) => name === routeName);
   if (pcbEntry !== undefined) {
     const nextQuery: LocationQueryRaw = { ...query };
