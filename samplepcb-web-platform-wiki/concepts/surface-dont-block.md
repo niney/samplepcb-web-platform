@@ -1,7 +1,7 @@
 ---
 concept: 막지 않고 드러낸다 (Surface, Don't Block)
-last_compiled: 2026-11-09
-topics_connected: [sp-node-api, partner-tracks, sp-develop-web, sp-vue-web, api-contract]
+last_compiled: 2026-11-15
+topics_connected: [sp-node-api, partner-tracks, sp-develop-web, sp-vue-web, api-contract, smartsmt-integration, infrastructure]
 status: active
 ---
 
@@ -20,6 +20,8 @@ status: active
 09-19 판에 "부수 원장은 본 흐름을 막지 않는다"(side-ledger-never-blocks)로 처음 관찰했고, 10-12 판에 AI 분석·번역·통지로 넓어져(side-effects-never-block) 보류됐다가, 이번에 "막지 않는 것"과 "드러내는 것"이 짝이라는 점까지 확인돼 승격했다.
 
 ## Instances
+- **2026-11-13~14** in [smartsmt-integration](../topics/smartsmt-integration.md) / [sp-node-api](../topics/sp-node-api.md) / [infrastructure](../topics/infrastructure.md) / [sp-vue-web](../topics/sp-vue-web.md): **SmartSMT 수신 원장 `sp_smt_receive_log`** — 보내는 쪽은 타임아웃 10초·**재시도 없음**이고 실패를 자기 화면에 `HTTP_<코드>` 로만 띄우므로, "왜 실패했나"는 이 원장(결과 accepted|duplicate|rejected|failed + 응답과 같은 `reason`·`durationMs`·보낸 주소)에서만 찾는다. 읽는 화면도 같이 지었다('연동 상태'의 수신 기록, 결과 필터). 원장 기록 실패는 수신 결과를 바꾸지 않고, 바깥에서 얼마든지 만들 수 있는 인증 실패는 시간당 30건까지만 적는다. 받는 계약은 느슨하다 — 모르는 칸·코드는 거절하지 않고(필수 6칸 밖은 `passthrough`, 화면은 사전에 없는 코드를 **코드 그대로**) "모르는 값이라 거절 = 재시도 없는 상대에게는 데이터 유실"이라 적었다. 10초 타임아웃 상향도 미리 요청하지 않고 `durationMs` 로 지켜본다. 대신 **막는 자리**를 좁혀 정했다 — 인증·형식·번호 불일치·파일 해시 불일치, 그리고 파일 저장이 실패하면 견적을 반쪽으로 남기지 않고 502(다시 보내게). ⚠ 원장의 테두리: 관리자 가져오기(pull)는 이 원장에 남지 않고(서버 로그뿐), nginx·Cloudflare 앞단에서 413 으로 끊긴 요청은 sp-node 에 닿지 않아 원장에도 없다(추정)
+- **2026-11-12~13** in [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰 두 자리 — ① 확인 사항 고객 답변은 **필수가 아니고 견적 수락을 막지 않는다**(사용자 결정 ②). 답이 오면 진행 사항의 '확인 사항 답변' 줄과 담당자 알림 메일로 드러난다 ② 16:9 장 배분은 넘침 8% 까지 한 장에 싣고 글자를 줄이며(`zoom` 하한 0.72), 그래도 넘치면 막거나 다시 쪼개지 않고 `data-deck-overflow` 표시만 남긴다 — 그 표시를 읽는 쪽은 e2e 다(`develop-print-deck` 이 0 인지 본다)
 - **2026-11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 관리자 연락처 수정은 **바뀐 칸이 없으면 기록하지 않고**, 사용자 결정으로 알림 메일도 보내지 않는다(다음 알림부터 새 주소로) — 덧붙은 일을 아예 만들지 않는 쪽의 선택
 - **2026-10-22** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 개발의뢰 고객 메일 2종(담당자 답변 `develop_reply`·중간 확인 요청 `develop_review_request`) — 조작이 끝난 뒤 던지고(`void sendDevelopMail`), 실패는 `sp_mail_log` 의 `failed` 행(사유 포함)으로 남아 관리자 발송 이력 화면에 보인다
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): **PCB EQ 엑셀 AI 분석**은 승인요청 전이·회신 뒤에 던질 뿐 **어떤 실패도 본 흐름을 막지 않는다** — 실패는 계약 사유 코드로만 남는다([ai-removable-layer](ai-removable-layer.md)). 같은 날 협력사 **'선적 완료' 확인**도 관리자 진행을 막지 않는 기록(`shipConfirmedAt/By`)으로 넣었다 — 미확인 채 국내도착으로 넘어가면 뒤늦은 확인은 `SHIP_CONFIRM_UNAVAILABLE` 로 닫힌다([record-not-state](record-not-state.md))
@@ -35,12 +37,19 @@ status: active
 
 기록 원장에 FK 를 걸지 않는 것도 같은 판단이다. 원장은 대상보다 오래 살아야 하고(삭제·정리 뒤에도 "누가 무엇을 했나"가 남아야 한다), 원장 쓰기가 대상 쪽 제약 때문에 실패해 본 흐름을 깨면 안 된다. 대가는 고아 행이고, 그것은 [destructive-op-guardrails](destructive-op-guardrails.md) 의 정리 경로가 받는다.
 
+2026-11 SmartSMT 는 **바깥 상대가 재시도하지 않는** 경우의 모양을 보여 준다. 거기서는 막는 것이 곧 잃는 것이라, 거절은 받아들이면 틀린 사실이 굳는 경우(가짜 토큰·다른 번호·다른 파일·반쪽 저장)로만 좁히고 나머지 실패·편차는 원장 한 줄 + 연동 상태 화면으로 드러낸다. 드러내는 짝의 읽는 쪽이 사람이 아닐 수도 있다 — `data-deck-overflow` 는 e2e 가 읽는 표시다.
+
 ## Sources
 - [sp-node-api](../topics/sp-node-api.md)
 - [partner-tracks](../topics/partner-tracks.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [api-contract](../topics/api-contract.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [infrastructure](../topics/infrastructure.md)
+- [apps/api/src/routes/smartsmt-inbound.ts](../../samplepcb-web-mono-app/apps/api/src/routes/smartsmt-inbound.ts) — 수신 순서·실패 사유·수신 원장
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §4.4 재시도 없음·느슨한 수신·§8 구현하며 정한 것
+- [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.10 넘침 표시·§7.2.13 답은 수락을 막지 않는다
 - [apps/api/src/lib/develop-email.ts](../../samplepcb-web-mono-app/apps/api/src/lib/develop-email.ts) — 발송 실패 → `failed` 행
 - [apps/api/src/lib/mail-log.ts](../../samplepcb-web-mono-app/apps/api/src/lib/mail-log.ts) — `recordMailLog`
 - [apps/api/src/lib/partner-act-as.ts](../../samplepcb-web-mono-app/apps/api/src/lib/partner-act-as.ts) — 기록 실패는 요청을 막지 않는다

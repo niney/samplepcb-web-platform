@@ -1,5 +1,5 @@
 {
-  "last_compiled": "2026-11-09",
+  "last_compiled": "2026-11-15",
   "topics": [
     "sp-node-api",
     "sp-vue-web",
@@ -14,7 +14,8 @@
     "gnuboard-integration",
     "infrastructure",
     "testing",
-    "docs-knowledge"
+    "docs-knowledge",
+    "smartsmt-integration"
   ],
   "concepts": [
     "judgment-single-owner",
@@ -41,7 +42,8 @@
     "silent-degradation",
     "ai-removable-layer",
     "audience-split-dto",
-    "surface-dont-block"
+    "surface-dont-block",
+    "itemized-customer-confirm"
   ],
   "source_locations": [
     "AGENTS.md",
@@ -83,6 +85,9 @@
     "docs/PCB_EQ_AI_PROBE.md",
     "docs/PCB_PARTNER_TRACK.md",
     "docs/pricing-engine-parity.md",
+    "docs/prompts/dev-review-phase3-backend.md",
+    "docs/prompts/dev-review-phase4a-market.md",
+    "docs/prompts/dev-review-phase4b-admin.md",
     "docs/prompts/develop-followup-admin.md",
     "docs/prompts/develop-followup-app.md",
     "docs/prompts/develop-phase1a-app.md",
@@ -93,14 +98,12 @@
     "docs/prompts/develop-phase3-schedule.md",
     "docs/prompts/develop-wizard-v2a-app.md",
     "docs/prompts/develop-wizard-v2b-admin.md",
-    "docs/prompts/dev-review-phase3-backend.md",
-    "docs/prompts/dev-review-phase4a-market.md",
-    "docs/prompts/dev-review-phase4b-admin.md",
     "docs/prompts/sp-engine-candidate-decision.md",
     "docs/review-naming.md",
     "docs/samplepcb-pricing-api-body-cases.md",
     "docs/SEO_MANAGEMENT.md",
     "docs/SMARTBOM_PARTNER_RFQ.md",
+    "docs/SMARTSMT_INTEGRATION.md",
     "docs/UPSTREAM_SYNC.md",
     "docs/wishlist-hidden.md",
     "ops/nginx/local-web.conf",
@@ -109,13 +112,6 @@
     "samplepcb-parts-engine/.env.example",
     "samplepcb-parts-engine/local-corpus/bom-extraction/README.md",
     "samplepcb-parts-engine/README.md",
-    "samplepcb-web/.htaccess",
-    "samplepcb-web/extend/.htaccess",
-    "samplepcb-web/README.md",
-    "samplepcb-web/spcb/.htaccess",
-    "samplepcb-web/spcb/lib/.htaccess",
-    "samplepcb-web/spcb/previews/login-bg-claude/README.md",
-    "samplepcb-web/spcb/previews/login-bg-gpt/README.md",
     "samplepcb-web-mono-app/AGENTS.md",
     "samplepcb-web-mono-app/apps/api/.env.example",
     "samplepcb-web-mono-app/apps/api/catalog-migrations/walsin/prepared-prices/README.md",
@@ -127,7 +123,14 @@
     "samplepcb-web-mono-app/apps/api/prisma/schema.prisma",
     "samplepcb-web-mono-app/apps/web/src/components/admin/bom/README.md",
     "samplepcb-web-mono-app/e2e/fixtures/README.md",
-    "samplepcb-web-mono-app/e2e/README.md"
+    "samplepcb-web-mono-app/e2e/README.md",
+    "samplepcb-web/.htaccess",
+    "samplepcb-web/extend/.htaccess",
+    "samplepcb-web/README.md",
+    "samplepcb-web/spcb/.htaccess",
+    "samplepcb-web/spcb/lib/.htaccess",
+    "samplepcb-web/spcb/previews/login-bg-claude/README.md",
+    "samplepcb-web/spcb/previews/login-bg-gpt/README.md"
   ],
-  "total_sources_scanned": 84
+  "total_sources_scanned": 85
 }

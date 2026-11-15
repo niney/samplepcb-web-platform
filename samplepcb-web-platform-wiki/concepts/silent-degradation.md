@@ -1,7 +1,7 @@
 ---
 concept: 실패가 오류가 아니라 그럴듯한 값으로 나타난다 (Silent Degradation)
-last_compiled: 2026-11-09
-topics_connected: [sp-node-api, infrastructure, spcb-bridge, gnuboard-integration, parts-engine, shared-packages, testing, api-contract, sp-develop-web, theme-sp-lite, sp-market-web]
+last_compiled: 2026-11-15
+topics_connected: [sp-node-api, infrastructure, spcb-bridge, gnuboard-integration, parts-engine, shared-packages, testing, api-contract, sp-develop-web, theme-sp-lite, sp-market-web, smartsmt-integration, sp-vue-web]
 status: active
 ---
 
@@ -18,6 +18,9 @@ status: active
 - **검증한 것과 도는 것이 다르다** (2026-10~11 추가) — 개발 빌드·개발 서버·실행 중에 바뀐 스크립트는 운영 산출물과 다른 방식으로 실패를 삼킨다. 테스트는 통과했는데 운영만 다르다.
 
 ## Instances
+- **2026-11-13~14 (반대편 처방 — 시끄럽게 닫는다)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [spcb-bridge](../topics/spcb-bridge.md) / [infrastructure](../topics/infrastructure.md) / [sp-node-api](../topics/sp-node-api.md): SmartSMT 공유 비밀이 비었거나·32자 미만이거나·**`JWT_SECRET` 과 같으면** sp-node(수신·가져오기)와 PHP 로그인 인계가 **둘 다 503 으로 닫힌다**. 운영에 같은 값을 넣는 실수가 가장 위험해서(그 값을 가진 쪽은 로그인 없이 관리자 토큰을 만들 수 있다) 코드로 막았고, 정본은 "조용히 열려 있는 것보다 시끄럽게 닫히는 쪽"을 골랐다고 적는다. 그래서 런북에 반영 단계가 없어도 빠뜨리면 조용하지는 않다. 다만 소리가 닿는 곳이 좁다 — 503 은 SmartSMT 화면에 `HTTP_503` 으로만 뜨고 재시도가 없으며, 관리자 '연동 상태'의 '공유 비밀 설정됨'은 **sp-node 쪽만** 보므로 PHP `secret.php` 가 빠져 인계가 503 이어도 "설정됨"으로 보일 수 있다(구조상 그렇다는 판독 — 실제로 겪은 사례는 아니다. 인계 쪽은 `/spcb/sso/smartsmt` 를 직접 열어 확인한다)
+- **2026-11-13~14 (바깥 원문을 화면이 조용히 비운다)** in [sp-vue-web](../topics/sp-vue-web.md) / [sp-node-api](../topics/sp-node-api.md) / [smartsmt-integration](../topics/smartsmt-integration.md): SMT 견적 상세는 바깥 JSON 을 타입 가드로만 읽어 칸이 없거나 모양이 다르면 '—' 로 둔다(화면이 죽지 않는 것이 먼저). 그런데 그 칸 목록은 SmartSMT 문서로 짠 **가짜 견본**(`smartsmt-sample.ts`) 기준이라, 실제 견적서의 칸 이름·모양이 다르면 화면은 **조용히 비고** 값은 접힌 '원문' 섹션에만 남는다(실제 견본이 오면 원문과 나란히 대조할 것). 같은 축의 코드 읽기 발견 둘 — ① 중복 판정이 파일 대조보다 먼저라, 관리자가 **가져오기로 먼저 저장한 견적**(파일 없음)과 같은 `quote_id` 로 전송이 뒤늦게 오면 200 `duplicate` 로 끝나고 동봉 파일이 버려진다(문서·테스트엔 없는 경우) ② 인증 실패 기록 상한(시간당 30건, 프로세스 메모리 창)에 `NOT_CONFIGURED` 도 묶여, 미설정 상태에서 SmartSMT 가 계속 보내면 31번째부터는 기록이 남지 않는다
+- **2026-11-13** in [sp-develop-web](../topics/sp-develop-web.md): **장을 다시 재는 한 틱이 쓰던 글을 지웠다** — 16:9 장 판에서 다시 재는 동안 장 목록이 비면 장 아래 판(`QuoteActions`)이 걷혔다 다시 서는데, 수정 요청 사유를 쓰다 창을 옮겼다 오면(vue-query 재조회) 그 사이에 입력이 오류 없이 비워졌다. `settled`(앞서 그린 장 유지)로 막았고 고객 여정이 그것을 되돌리면 실패하는 것까지 확인했다 — 지워진 입력은 화면에 아무 흔적도 남기지 않는다
 - **2026-11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [testing](../topics/testing.md): **의뢰 출력물이 운영 빌드에서만 빈 화면** — 쪽 나누기 전(`pageCount` 0)에 판 사이 가림 `v-for` 가 `pageCount - 1` = −1 을 받았다. 운영 빌드의 숫자 범위 `v-for` 는 `new Array(-1)` 그대로라 RangeError 로 출력물 전체가 비고, **개발 빌드는 경고 뒤 빈 목록**이라 로컬·개발 서버 위 e2e 에선 쪽 나누기를 넣은 `c4875889d` 이후 고칠 때까지 드러나지 않았다. 처방은 0 아래로 내려가지 않는 `maskCount` + 같은 데이터로 운영 빌드 전/후 비교(전 RangeError·빈 화면, 후 22쪽·오류 0)
 - **2026-10-30** in [sp-node-api](../topics/sp-node-api.md) / [sp-market-web](../topics/sp-market-web.md) / [sp-develop-web](../topics/sp-develop-web.md): **AI 스트림의 한글이 조각 경계에서 U+FFFD 로** — Ollama 스트림을 조각마다 `Buffer.toString` 으로 따로 디코딩해 경계에 걸린 3바이트 글자가 깨졌다("열처리" → "열처�"). 오류도 없고 JSON 파싱도 통과한다. 검토서·구성도·EQ 번역·후속 질문이 모두 같은 클라이언트라 전부 해당됐고, 맞춤 질문 **프로빙**이 찾았다([probe-before-decide](probe-before-decide.md)). `TextDecoder` 스트림 모드로 고쳤지만 10-30 이전에 저장된 AI 산출물의 깨진 글자는 정리하지 않았다
 - **2026-10-22** in [infrastructure](../topics/infrastructure.md): **배포 스크립트가 받은 자기 자신을 실행하지 않았다** — `deploy.sh` 는 도중에 자기를 `git pull` 하는데 bash 는 함수를 시작할 때 이미 읽어 두므로 그 실행은 옛 단계로 돌았다. 빌드에서 `vue-tsc` 를 뺀 첫 배포에서 `vue-tsc` 가 그대로 돈 원인. 처방은 pull 전후 해시 비교 → 같은 케이스로 한 번만 `exec`(DB 원복 기준 커밋은 처음 실행의 HEAD 를 물려받음). ⚠ 자체 `git pull` 을 쓰는 케이스 6·10 은 이 재시작을 안 탄다
@@ -48,6 +51,8 @@ status: active
 
 새 폴백을 넣을 때 물을 것은 하나다 — **이 장치가 실패를 가렸을 때 누가 어떻게 알게 되는가.** 답이 "아무도"면 그것은 방어가 아니라 지연이다.
 
+2026-11-13~14 에는 처방 1('멈춘다')이 **바깥 연동의 설계 결정**으로 먼저 적혔다 — SmartSMT 는 위험한 설정을 503 으로 닫고, `settled` 는 고친 자리를 e2e 가 되돌림 시험으로 지킨다. 남은 숙제는 **닫힌 소리가 누구에게 들리는가**다. 바깥 상대 화면의 `HTTP_503` 한 줄과 두 쪽 중 한쪽(sp-node)만 보는 상태 화면은 '시끄럽게 닫기'를 반쯤 조용하게 만든다 — 닫는 장치를 둘 때 그 상태를 읽는 화면이 닫히는 쪽을 전부 보고 있는지 같이 물을 것.
+
 ## Sources
 - [sp-node-api](../topics/sp-node-api.md)
 - [infrastructure](../topics/infrastructure.md)
@@ -60,6 +65,11 @@ status: active
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [theme-sp-lite](../topics/theme-sp-lite.md)
 - [sp-market-web](../topics/sp-market-web.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [sp-vue-web](../topics/sp-vue-web.md)
+- [apps/api/src/lib/smartsmt-token.ts](../../samplepcb-web-mono-app/apps/api/src/lib/smartsmt-token.ts) — `smartsmtSecret()`: 비었거나·짧거나·`JWT_SECRET` 과 같으면 null → 503
+- [samplepcb-web/spcb/sso/smartsmt.php](../../samplepcb-web/spcb/sso/smartsmt.php) — PHP 쪽 같은 거부 판정(따로 구현)
+- [apps/web/src/next/components/smt/smt-envelope.ts](../../samplepcb-web-mono-app/apps/web/src/next/components/smt/smt-envelope.ts) — 타입 가드 판독, 모르는 모양은 '—'
 - [apps/api/src/lib/ai/ollama.ts](../../samplepcb-web-mono-app/apps/api/src/lib/ai/ollama.ts) — 스트림 `TextDecoder`(10-30)
 - [samplepcb-web/spcb/lib/legacy-session-pick.php](../../samplepcb-web/spcb/lib/legacy-session-pick.php) — 겹친 `PHPSESSID` 중 이 서버의 세션 고르기(임시)
 - [deploy.sh](../../deploy.sh) — 받은 자기 자신이 바뀌면 다시 시작

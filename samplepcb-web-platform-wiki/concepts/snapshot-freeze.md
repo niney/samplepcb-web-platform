@@ -1,7 +1,7 @@
 ---
 concept: 스냅샷 박제 + 서버 재계산 (Snapshot Freeze)
-last_compiled: 2026-11-09
-topics_connected: [partner-tracks, sp-node-api, api-contract, sp-market-web, sp-develop-web, parts-engine, sp-vue-web, gnuboard-integration]
+last_compiled: 2026-11-15
+topics_connected: [partner-tracks, sp-node-api, api-contract, sp-market-web, sp-develop-web, parts-engine, sp-vue-web, gnuboard-integration, smartsmt-integration]
 status: active
 ---
 
@@ -13,6 +13,8 @@ status: active
 2026-08~09 에 박제 대상이 값에서 **문서와 이력**으로 넓어졌다. 발주서·견적서·프로젝트 문서는 "생성 시점에 굳은 한 벌"이고, 마켓 수정 이력·개발의뢰 검토서 버전 원장은 스냅샷을 **이력으로 승격**한 변형이다. 반대 방향의 규율도 같이 섰다 — **박제하지 말아야 할 것은 파생으로 둔다**([lazy-derived-state](lazy-derived-state.md)). 원장에서 매번 계산할 수 있는 것을 굳히면 동기화 코드가 생기고, 결정 시점의 사실을 안 굳히면 과거 거래가 소급 오염된다.
 
 ## Instances
+- **2026-11-13~14** in [smartsmt-integration](../topics/smartsmt-integration.md) / [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md): **바깥 견적서는 받은 글자 그대로** — SmartSMT 가 계산을 끝내 보낸 견적서(envelope)를 `sp_smt_quote.envelope`(MEDIUMTEXT)에 **모르는 칸까지** 통째로 둔다(객체로 파싱돼 온 multipart 값만 `JSON.stringify` 로 되돌리고, 가져오기는 응답 글자를 그대로). 요율 키는 칸 수가 고정이 아니고 "모르는 키도 보관(되보낼 때 필요)"이라는 요구를 통째 보관이 채운다. 같은 `quote_id` 를 다시 보내면 **덮지 않고** 200 `duplicate`(파일도 다시 올리지 않는다), 다시 계산한 견적은 새 `quote_id` 로 한 벌 더 쌓인다(주문 1 : 견적 N). 목록용으로 뽑아 올린 금액은 **null = 미정, 0 = 0원**을 저장·API·화면 어디서도 섞지 않는다. ⚠ 이 패턴의 뒤 절반(서버 재계산)은 없다 — 정본이 바깥이라 sp-node 는 계산하지 않고, 견적서 본문 서명(`signature`) 확인도 "주문·결제로 잇기 전"으로 미뤘다
+- **2026-11-13** in [sp-develop-web](../topics/sp-develop-web.md) / [api-contract](../topics/api-contract.md): 확인 사항 고객 답변 이벤트는 답만이 아니라 **답할 때의 질문 문구**(`question`)를 같이 굳힌다 — 담당자가 문항을 고치거나 지워도 무엇에 대한 답이었는지 남는다. 짝은 번호(`qid`)로 맞추고, 문구 사본은 짝을 잃었을 때의 증거다
 - **2026-11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): **견적서 산출 내역** — 가산율(간접비·제경비·이윤 bp)로 낸 가산 금액을 **저장할 때 계산해 굳히고**(천 원 미만 버림), 옛 견적은 가산율 0 이라 공급가 = 항목 합계로 그대로 읽힌다. 설정의 인건비 기본값은 견적 줄로 **값을 복사**한다(나중에 기본값을 고쳐도 만든 견적은 그대로). 인건비 단위를 '개월'에서 '일'로 바꿀 때도 저장된 옛 '개월' 줄은 고쳐 쓰지 않았다. ⚠ 경계: 견적서·문서 인쇄의 수신 칸은 사용자 결정으로 **지금 연락처**를 그린다 — 굳히는 것은 수락 기록이고 연락처는 아니다
 - **2026-10-30~11-06 (선택지를 좁혀도 저장값은 그대로)** in [api-contract](../topics/api-contract.md) / [sp-node-api](../topics/sp-node-api.md) / [sp-develop-web](../topics/sp-develop-web.md): 쓰기 입구만 좁히고 읽기는 옛 값을 받는다 — think 낮음·끔은 고를 수 없게 막았지만 DB 에 남은 낮음은 실행 때 기본값으로 보정하고, 원가·업체를 보내는 옛 호출은 400 이 아니라 계약이 버리며, 시스템개발 저장 분야는 6개 그대로 두고 AI 원천만 줄인다(미커밋)
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md) / [sp-node-api](../topics/sp-node-api.md): **번역이 어긋나도 사실은 어긋나지 않게** — EQ 문항 선택지의 `key` 는 공장 원문 기호(A·B·C) 그대로 굳히고, 번역은 원문을 치우지 않고 병기하며, AI 잡에는 LLM 원출력을 저장한다. 마스터딜러의 하위 선정도 `sourceCurrency`·`sourceAmount`·`sourceRate`·`marginRate` 를 박제한 뒤 계약 산식으로만 회신가를 낸다
@@ -41,6 +43,8 @@ DB 백업 매니페스트(SHA-256)도 형태는 스냅샷이지만 성격이 달
 
 11월에 박제는 **선택지를 좁히는 규율**로도 나타났다 — 인건비 단위를 '일'로 바꾸고 think 낮음을 막고 원가 칸을 없앨 때, 쓰기 입구만 좁히고 이미 저장된 옛 값('개월' 줄·가산율 0·DB 의 낮음)은 고쳐 쓰지 않았다. 과거의 결정을 지금 규칙으로 다시 쓰지 않는다는 점에서 굳히기와 같은 뿌리다. 경계도 하나 생겼다: 견적서 수신 칸은 **지금 연락처**를 그린다 — 무엇을 굳힐지는 "계약의 근거가 되는가"(수락 기록)로 가른다.
 
+2026-11 SmartSMT 는 이 패턴의 **경계 사례**다 — 결정(계산)이 우리 밖에서 일어나 굳힐 수는 있어도 서버 재계산으로 확인할 원천이 없다. 그 빈칸을 리포는 셋으로 메웠다: 받은 글자를 바꾸지 않고 보관하고(뒤에 서명 확인·되보내기를 할 수 있게), 같은 번호는 덮지 않으며, 돈으로 잇기 전에 서명 확인을 붙인다는 보류 조건을 적었다. 재계산 칸이 비어 있는 동안 그 견적은 관리자 화면까지만 간다(P0).
+
 ## Sources
 - [partner-tracks](../topics/partner-tracks.md)
 - [sp-node-api](../topics/sp-node-api.md)
@@ -50,3 +54,5 @@ DB 백업 매니페스트(SHA-256)도 형태는 스냅샷이지만 성격이 달
 - [parts-engine](../topics/parts-engine.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [gnuboard-integration](../topics/gnuboard-integration.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §2 견적서 뼈대·금액 읽는 법(null = 미정)·§4.1 원문 보관

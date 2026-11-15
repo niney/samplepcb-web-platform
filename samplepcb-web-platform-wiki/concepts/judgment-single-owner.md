@@ -1,7 +1,7 @@
 ---
 concept: 판단 단일 소유권 (Judgment Single Owner)
-last_compiled: 2026-11-09
-topics_connected: [api-contract, parts-engine, sp-node-api, spcb-bridge, gnuboard-integration, sp-vue-web, sp-develop-web, sp-market-web, infrastructure, partner-tracks, theme-sp-lite]
+last_compiled: 2026-11-15
+topics_connected: [api-contract, parts-engine, sp-node-api, spcb-bridge, gnuboard-integration, sp-vue-web, sp-develop-web, sp-market-web, infrastructure, partner-tracks, theme-sp-lite, smartsmt-integration]
 status: active
 ---
 
@@ -15,6 +15,8 @@ status: active
 [server-single-truth](server-single-truth.md)가 "클라이언트를 불신"한다면 이 패턴은 **"중복 구현을 불신"**한다 — 같은 판단이 두 곳에 있으면 반드시 드리프트한다([manual-sync-drift](manual-sync-drift.md)의 코드판 예방). 다만 반대편 규율도 같이 선다: 트랙 사이 **어휘·사전은 오히려 공유하지 않는다**([share-render-mirror-domain](share-render-mirror-domain.md)).
 
 ## Instances
+- **2026-11-13~14 (판정의 주인이 리포 밖)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [api-contract](../topics/api-contract.md) / [sp-vue-web](../topics/sp-vue-web.md): SmartSMT 견적은 금액·상태를 **바깥 서비스가 계산을 끝내** 보낸다. 그래서 sp-node 는 다시 계산하지 않고 받은 글자 그대로 보관·표시만 하고, 계약 [smartsmt.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/smartsmt.ts) 도 판정을 소유하지 않는다 — 필수 칸 몇 개만 검사하고 나머지는 `.passthrough()`, 코드 값은 `z.enum` 으로 막지 않는다. "계약이 업무 판정을 소유한다"가 우리가 만드는 값의 규칙이라면, 남이 만든 값은 **형태를 최소로만 붙잡고 원문을 보존한다**는 짝 규칙이다. 우리 쪽에 남은 판단은 둘이고 둘 다 임시다: ① "최신 견적" = **받은 순서**(SmartSMT 의 최신 판정 기준이 `made_at` 인지 미확인 — 확인되면 `saveSmartsmtQuote` 의 `latestQuoteId` 갱신 한 줄을 고칠 자리) ② 견적서 해석("최종 금액 = `quote.integrated.totals.total`, `quote.total` 은 SMT 작업비만, null = 미정 ≠ 0원")은 계약 함수가 아니라 서버 `summarizeSmartsmtEnvelope` 와 화면 `smt-envelope.ts` 가 **각자 읽는다** — 실제 견본이 아직 없어 해석이 바뀔 여지가 커 계약에 박지 않았다. 블록 사유가 "합계에 드는가"(`counted`)만 계약 사전 `SMARTSMT_BLOCK_REASONS` 한 곳이다
+- **2026-11-13 (식별을 계약이 정한다)** in [api-contract](../topics/api-contract.md) / [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 개발의뢰 고객 답이 붙을 문항 번호를 계약 [market-dev-review.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/market-dev-review.ts) 의 순수 함수 둘이 정한다 — `devReviewQuestionId`(trim 한 문구의 FNV-1a 해시)·`withDevReviewQuestionIds`(있는 번호 유지·없으면 해시·겹치면 `-2`·`-3`). 서버와 고객 앱이 같은 함수를 부르고 **관리자 편집기는 받은 번호를 보존만** 한다(`cloneDevelopReview` 가 옮긴다). 번호 없는 옛 검토서도 읽는 쪽마다 같은 번호를 얻는다. 새 파일이 아니라 `market-dev-review.ts` 에 선 것은 `DevReviewOpenQuestion` 이 마켓·개발의뢰 공용 스키마라서다(마켓 저장분엔 없고 무시 — additive). 반대로 이벤트를 접어 '지금 답변'을 만드는 `foldDevelopQuestionAnswers` 는 이벤트를 읽는 쪽이 서버뿐이라 계약이 아니라 `apps/api/src/lib/develop-questions.ts` 에 있다 — 소비자가 하나면 계약으로 올리지 않는다
 - **2026-10-30~11-06** in [api-contract](../topics/api-contract.md) / [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 개발의뢰가 업무 판정을 계약 함수로 더 모았다 — 견적 산출 `computeDevelopQuoteBreakdown`(편집기·서버·인쇄·엑셀), 저장 분야 확정 `resolveDevelopServiceAreas`(위저드·등록·수정 — 서버가 답으로 분야를 정하고 숨은 답은 버린다), 제작 칸 정리 `normalizeDevelopProduction`, think 하한 목록 `DEVELOP_AREA_FOLLOWUP_THINK_LEVELS`(관리자 선택지·저장 검증·실행 보정이 한 목록을 본다), 시스템개발 범위 `developSystemExcludedAreas`(미커밋). AI 는 이 목록에 들지 못한다 — 판정에 쓰이는 질문은 AI 에 맡기지 않는다([ai-removable-layer](ai-removable-layer.md))
 - **2026-10-11** in [api-contract](../topics/api-contract.md) / [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md): **계약 순수 함수가 한날 넷** — `pcbMdQuoteAmount`·`roundPcbAmount`(서버 박제와 포털 미리보기가 따로 계산하면 1원·1센트가 갈린다 — 산식을 api 에서 계약으로 옮겼다) · `pcbShipConfirmPending`·`pcbShipmentSenderDone`(보드 건수와 완료 내역이 같은 함수) · `isPcbEqFileRecord`(파일을 지울 수 있는가) · `summarizePcbEqRounds`. 상태를 늘리지 않기로 한 값이 여기서 치러진다([record-not-state](record-not-state.md))
 - **2026-10-11** in [sp-node-api](../topics/sp-node-api.md) / [partner-tracks](../topics/partner-tracks.md): PCB 견적 회신이 만들어지는 세 길(포털·매직링크·마스터딜러의 하위 선정)이 `notifyPcbRfqReplied` **하나**를 쓴다 — 셋째 길에만 통지가 없던 결함이 계기. 길이 늘 때 통지를 복사하면 하나는 빠진다
@@ -44,6 +46,8 @@ status: active
 
 어느 쪽이든 **재구현은 없다**. 엔진 장애 시에도 판단을 대행하지 않고 stale 축퇴(기존 선택 보존)로 흡수하며, 분류 못 한 것은 처리하지 않고 멈춘다. 반대로 이 패턴이 "전부 공유하라"는 뜻은 아니다 — 값이 같아 보여도 트랙·도메인 사전은 교차 import 하지 않는다(`pcb-claim` vs `bom-claims`, `DEVELOP_BUDGET_RANGES` vs `MARKET_BUDGET_RANGES`). 공유하는 것은 **판정**이고, 나누는 것은 **어휘**다.
 
+11월 중순에 경계가 둘 그어졌다. ① **판정의 주인이 리포 밖이면 우리는 소유하지 않는다** — SmartSMT 견적은 다시 계산하지 않고 원문을 보관하며, 계약은 형태만 최소로 붙잡는다. 이것은 이 패턴의 예외가 아니라 연장이다: "단일 소유"의 소유자가 바깥에 있을 뿐이고, 우리가 재계산하면 그 순간 판정이 둘이 된다. 다만 우리 쪽에 남은 **해석**(어느 칸이 최종 금액인가)은 지금 서버·화면 두 곳이 따로 읽는다 — 실제 견본이 오기 전이라 일부러 계약에 박지 않은 것이고, 견본이 와서 해석이 굳으면 계약 함수 하나로 모을 자리다. ② **식별도 판정이다** — 고객 답이 어느 문항에 붙는지는 번호가 정하므로, 번호 만들기를 계약 함수 하나에 두고 편집기는 보존만 한다. 계약으로 올리는 기준도 드러났다: 소비자가 둘 이상(서버·고객 앱)이면 계약, 하나(이벤트를 접는 서버)면 그 쪽 `lib/`.
+
 ## Sources
 - [api-contract](../topics/api-contract.md)
 - [parts-engine](../topics/parts-engine.md)
@@ -56,3 +60,8 @@ status: active
 - [infrastructure](../topics/infrastructure.md)
 - [partner-tracks](../topics/partner-tracks.md)
 - [theme-sp-lite](../topics/theme-sp-lite.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §2 금액 읽는 법 · §4.3 계약(느슨하게) · §6-4 최신 판정 기준(미확인)
+- [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.13 문항 번호·고객 답변
+- [packages/api-contract/src/schemas/market-dev-review.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/market-dev-review.ts) — `devReviewQuestionId`·`withDevReviewQuestionIds`
+- [apps/api/src/lib/develop-questions.ts](../../samplepcb-web-mono-app/apps/api/src/lib/develop-questions.ts) — `foldDevelopQuestionAnswers`(서버 전용)

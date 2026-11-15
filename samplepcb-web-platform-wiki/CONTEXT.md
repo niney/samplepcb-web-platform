@@ -10,7 +10,7 @@ This project has a compiled knowledge wiki. Use it instead of scanning raw files
    - [coverage: high] — trust this section, skip raw files
    - [coverage: medium] — good overview, check raw sources for implementation details
    - [coverage: low] — read the raw source files listed in Sources
-4. Check concepts/ for cross-cutting patterns (25종 — 판단 단일 소유권·서버 단일 진실·스냅샷 박제·lazy 파생·코어 비수정·수동 동기화 드리프트·비동기 잡·관리/소비 브릿지 + 2026-09 신설 9종: 공유vs격리 경계·워크큐 척추·여정 재점검 루프·골든=명세·예외 원장·앱 온보딩·파괴 작업 가드레일·GET 무부작용·네이티브 대화상자 금지 + 2026-10 신설 5종: 상태 대신 기록·나란히 짓고 넘기기·대행과 주체 박제·조용한 평탄화·정하기 전에 재기 + 2026-11 신설 3종: AI 는 떼어낼 수 있는 층·보는 사람마다 자르기·막지 않고 드러내기)
+4. Check concepts/ for cross-cutting patterns (26종 — 판단 단일 소유권·서버 단일 진실·스냅샷 박제·lazy 파생·코어 비수정·수동 동기화 드리프트·비동기 잡·관리/소비 브릿지 + 2026-09 신설 9종: 공유vs격리 경계·워크큐 척추·여정 재점검 루프·골든=명세·예외 원장·앱 온보딩·파괴 작업 가드레일·GET 무부작용·네이티브 대화상자 금지 + 2026-10 신설 5종: 상태 대신 기록·나란히 짓고 넘기기·대행과 주체 박제·조용한 평탄화·정하기 전에 재기 + 2026-11 신설 3종: AI 는 떼어낼 수 있는 층·보는 사람마다 자르기·막지 않고 드러내기 + 2026-11-15 신설 1종: 고객 확인은 문항으로)
 5. Only read raw source files when you need code-level detail
 
 ## When NOT to use the wiki
@@ -19,4 +19,4 @@ This project has a compiled knowledge wiki. Use it instead of scanning raw files
 - The wiki article says [coverage: low] for what you need
 
 ## Stats
-Compiled: 2026-11-09 | Topics: 14 | Concepts: 25 | Sources: 84 | Auto-updates: prompt on stale
+Compiled: 2026-11-15 | Topics: 15 | Concepts: 26 | Sources: 85 | Auto-updates: prompt on stale

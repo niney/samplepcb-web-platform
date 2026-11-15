@@ -1,7 +1,7 @@
 ---
 concept: 네이티브 대화상자를 쓰지 않는다 (No Native Dialogs)
-last_compiled: 2026-10-12
-topics_connected: [sp-vue-web, theme-sp-lite, spcb-bridge, sp-develop-web, docs-knowledge, partner-tracks]
+last_compiled: 2026-11-15
+topics_connected: [sp-vue-web, theme-sp-lite, spcb-bridge, sp-develop-web, docs-knowledge, partner-tracks, smartsmt-integration]
 status: active
 ---
 
@@ -18,6 +18,7 @@ status: active
 대체물은 두 벌이다 — Vue 쪽 `confirmDialog()` + 앱 루트 `UiConfirmHost` 하나(+값 입력은 `UiPromptModal`), PHP 테마 쪽 `js/sp-dialog.js`. 둘 다 **호출 모양은 네이티브 그대로**(`if (!(await confirmDialog('…'))) return;`) 유지해 교체 비용을 호출부에 떠넘기지 않았다.
 
 ## Instances
+- **2026-11-14** in [sp-vue-web](../topics/sp-vue-web.md) / [smartsmt-integration](../topics/smartsmt-integration.md) / [sp-develop-web](../topics/sp-develop-web.md): 관리자 SMT 모듈의 **[견적서 가져오기]** 는 공용 `promptDialog`([next/lib/dialog.ts](../../samplepcb-web-mono-app/apps/web/src/next/lib/dialog.ts))로 주문 번호를 받는다 — `submit`·`errorFallback` 으로 **대화상자를 연 채 서버를 부르고**, 실패하면 입력을 둔 채 서버 문장을 그대로 띄운다(`SMARTSMT_NOT_FOUND`·`NOT_READY`·`AUTH_REJECTED` … 6종이 제각기 다른 문장). 성공 뒤의 안내도 네이티브 창이 아니다 — 새 견적이면 그 상세로 옮겨 가고, 이미 받은 견적(`duplicate`)이면 알림 띠 + 그 주문 번호로 목록 검색. e2e `admin-smt` 의 마지막 케이스가 이 대화상자에 실패 문장이 뜨는지를 본다. 같은 시기 개발의뢰 고객 앱의 확인 사항 답변도 모달이 아니라 오른쪽 판(`QuestionAnswerPanel` — 쓰던 글이 있으면 바깥 클릭·Esc 로 안 닫힌다)으로 받는다(11-13)
 - **2026-10-11** in [theme-sp-lite](../topics/theme-sp-lite.md) / [spcb-bridge](../topics/spcb-bridge.md) / [partner-tracks](../topics/partner-tracks.md): 고객 결정 화면 2종(EQ 문항형 회신·부품 확인)도 `spDialog`, 브리지 결과 안내는 `sp_msg` + sp-dialog. 묻는 **때**도 정했다 — 의견을 적은 뒤 선택을 바꾸면 그 자리에서 묻지도 지우지도 않고 알리기만 하고, [회신] 버튼에서 한 번만 묻는다
 - **2026-10-11** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): **확인은 무언가를 덮을 때만** — 마스터딜러 견적 화면은 회신을 만드는 두 길(하위 선정·직접 입력) 중 다른 길의 회신을 덮을 때만 `confirmDialog` 를 띄운다. 반대로 확인을 붙일 수 없는 자리에는 조작 자체를 두지 않는다 — 파트너 관리 목록에 마스터딜러 토글을 두지 않은 이유(행 클릭과 겹쳐 오조작)
 - **2026-10-06** in [sp-vue-web](../topics/sp-vue-web.md): 리뉴얼 화면이 규율을 **같은 호출 문법으로** 받았다 — `next/lib/dialog.ts` 의 `confirmDialog`·`promptDialog`(약 82곳; 옛 화면·포털의 `confirmDialog` 는 약 77곳). 값 입력 뒤 저장이 따르는 경우 `submit`·`errorFallback` 으로 **대화상자를 연 채 저장**해 실패해도 입력이 날아가지 않는다
@@ -39,6 +40,8 @@ status: active
 
 ⚠ 남은 예외는 하나, 클립보드 복사 실패 폴백의 `window.prompt` 다(복사할 텍스트를 선택 가능한 형태로 내놓는 것 외에 대안이 마땅치 않은 자리). 새로 만들지 말 것.
 
+11-14 SMT 의 가져오기는 이 규율의 값이 가장 잘 보이는 자리다 — 바깥 서버를 부르는 입력이라 실패가 흔하고 이유가 여럿(설정 없음·연결 실패·인증 거절·주문 없음·계산 전·이상한 응답)인데, `prompt()` 였다면 실패 뒤 입력이 사라지고 서버 문장을 띄울 곳도 없었다. **값을 받고 → 서버를 부르고 → 실패를 설명하는 한 동작**은 대화상자를 연 채 끝까지 가는 공용 `promptDialog` 의 `submit`·`errorFallback` 형태로 짓는다. 그리고 입력이 길거나 쓰던 글을 지켜야 하면(고객 답변) 모달보다 **판**이 낫다는 개발 모듈 관례가 고객 앱에도 이어졌다.
+
 ⚠ 브라우저 자동화에도 영향이 있다 — 네이티브 대화상자는 드라이버가 별도 핸들러로 받아야 하고 그 전까지 페이지가 멈춘다. 같은 결로 `FileDropZone` 의 숨은 input 을 `display:none` 대신 `sr-only` 로 둔 것도 자동화가 잡을 수 있게 하기 위함이다 — **화면 부품의 선택이 검증 가능성을 좌우한다.**
 
 ## Sources
@@ -48,3 +51,6 @@ status: active
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [docs-knowledge](../topics/docs-knowledge.md)
 - [partner-tracks](../topics/partner-tracks.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [apps/web/src/next/lib/dialog.ts](../../samplepcb-web-mono-app/apps/web/src/next/lib/dialog.ts) — 리뉴얼 `confirmDialog`·`promptDialog`(`submit`·`errorFallback`)
+- [apps/web/src/next/pages/smt/SmtQuotesPage.vue](../../samplepcb-web-mono-app/apps/web/src/next/pages/smt/SmtQuotesPage.vue) — [견적서 가져오기] 대화상자

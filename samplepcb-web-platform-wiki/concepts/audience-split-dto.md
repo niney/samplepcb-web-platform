@@ -1,7 +1,7 @@
 ---
 concept: 보는 사람마다 따로 자른다 (Audience-Split DTO)
-last_compiled: 2026-11-09
-topics_connected: [sp-develop-web, sp-node-api, api-contract, sp-vue-web, partner-tracks]
+last_compiled: 2026-11-15
+topics_connected: [sp-develop-web, sp-node-api, api-contract, sp-vue-web, partner-tracks, smartsmt-integration, spcb-bridge]
 status: active
 ---
 
@@ -17,6 +17,8 @@ status: active
 [server-single-truth](server-single-truth.md) 가 "무엇이 맞는 값인가"를 서버에 둔다면, 이 개념은 **"누구에게 무엇을 보여 주는가"** 를 서버에 둔다.
 
 ## Instances
+- **2026-11-13~14 (고객 화면이 생기기 전에 가른다)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md) / [spcb-bridge](../topics/spcb-bridge.md): SmartSMT 견적 상세 응답의 `envelope` 는 받은 원문 전체라 관리자 전용 값이 그대로 들어 있다 — `labor_charge`(SmartSMT 쪽에서도 전달 전용이라 고객용 사본에서 빠지는 값)와 `user_edits`(담당자 메모·`owner_mb_id`). P0 에는 고객 화면이 아예 없는데도 사용자 결정으로 **"관리자용 응답과 고객용 응답은 처음부터 나눈다"** 를 정했고, 이 응답이 관리자 전용이라고 계약·라우트 주석에 박았다(고객 화면을 붙일 때 이 응답을 재사용하지 말고 고객용을 따로 만든다). 관리자 화면도 요율·원문 JSON 을 접어 둔다. 바깥으로 나가는 쪽도 같은 생각이다 — 로그인 인계 토큰에 싣는 회원 정보는 아이디·이름 둘뿐(이메일·관리자 여부 없음), 연동 상태 API 는 비밀의 **설정 여부만**, 동봉 파일은 서버를 거쳐 내려줘 파일서버 `pathToken` 을 화면에 내놓지 않는다
+- **2026-11-13 (경계 — 화면에서만 가른 것)** in [sp-develop-web](../topics/sp-develop-web.md) / [api-contract](../topics/api-contract.md) / [sp-node-api](../topics/sp-node-api.md): 확인 사항 고객 답변 중 **짝을 잃은 답**(문항 번호가 더는 공개본 문항과 맞지 않는 답)은 고객 화면에 그리지 않고 관리자 편집기 아래에만 따로 보인다. 그런데 접힌 목록 `questionAnswers` 자체는 고객·관리자 상세에 같은 것이 실린다(관리자 상세는 고객 상세의 접은 목록을 그대로 싣는다) — 서버에서 자르지 않고 화면에서 가른 드문 경우인데, 그 목록은 고객이 직접 쓴 글이라 새는 값이 없다
 - **2026-11-04** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md) / [sp-vue-web](../topics/sp-vue-web.md): **연락처 수정의 타임라인 두 줄** — 관리자가 의뢰 연락처를 고치면 서버가 고객도 보는 줄('담당자가 연락처를 수정했습니다' + 바뀐 칸 **이름**)과 관리자만 보는 '연락처 변경 내역'(이전 → 이후)을 따로 남긴다. 이벤트 payload·body 가 고객 응답에도 실리기 때문에 **이전 값은 고객 줄에 처음부터 넣지 않는다** — 응답에서 지우는 것이 아니라 쓸 때 가른 사례. 바뀐 칸 판정은 계약 `developContactChanges`, sp-vue 는 그리기만 한다
 - **2026-11-04 (없는 칸이 가장 안전하다)** in [sp-develop-web](../topics/sp-develop-web.md) / [api-contract](../topics/api-contract.md) / [sp-vue-web](../topics/sp-vue-web.md): 견적 항목별 **내부 원가·마진**을 낮에 관리자 전용 칸으로 넣고(`ecc1f504c` — 마이그레이션·원가 대화상자·발송 뒤 원가 고치기 라우트까지) 같은 날 저녁 사용자 결정으로 **계약째 걷어냈다**(`c1edfe0e3`, `DROP COLUMN` 마이그레이션). 관리자 견적 뷰는 계약 이름 `AdminDevelopQuoteView` = 고객 뷰 + 내부 메모만 남았고, 옛 호출이 원가·업체를 보내도 zod 가 조용히 버린다(400 아님)
 - **2026-10-22** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 고객 메일은 **고객 공개로 남긴 답변·중간 확인 요청만** 보내고 내부 메모는 보내지 않는다. 같은 기간 고객 화면은 검토서 정보 줄의 **AI 모델명을 숨기고**, 출력물 표지는 담당자 휴대전화 대신 회사 대표번호를 싣는다(개인 연락처 미노출 — 견적서의 공급자 칸만 계약 상수 `DEVELOP_QUOTE_SUPPLIER` 로 예외). 고객 상세의 `assigneeName` 은 그누보드 기본 관리자 이름이면 null 로 내린다
@@ -31,12 +33,18 @@ status: active
 
 자르는 판단도 한 곳이 소유한다([judgment-single-owner](judgment-single-owner.md)) — `PoMoneyAudience` 같은 인자나 계약의 판별 타입으로 갈라야 화면마다 다르게 숨기는 일이 생기지 않는다. 대리 접속처럼 관리자가 협력사의 눈으로 볼 때도 서버는 협력사용으로 자른 응답을 내린다([act-as-actor-stamp](act-as-actor-stamp.md)).
 
+2026-11-13 에는 이 판단이 **고객 화면보다 먼저** 왔다. 나중에 고객 화면을 붙이는 사람에게 가장 쉬운 길은 이미 있는 관리자 응답을 재사용하는 것이라, SmartSMT 는 그 길을 주석과 사용자 결정으로 미리 막았다 — 관리자 전용 값이 바깥 원문 안에 섞여 오는 경우에는 "나중에 자른다"가 곧 "새는 채로 시작한다"이기 때문이다. 화면에서만 가려도 되는 것은 **보는 사람 자신의 기록**뿐이다(짝 잃은 고객 답).
+
 ## Sources
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-node-api](../topics/sp-node-api.md)
 - [api-contract](../topics/api-contract.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [partner-tracks](../topics/partner-tracks.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [spcb-bridge](../topics/spcb-bridge.md)
+- [apps/api/src/routes/admin-smt.ts](../../samplepcb-web-mono-app/apps/api/src/routes/admin-smt.ts) — 상세 `envelope` = 관리자 전용(머리 주석)·서버 경유 파일 내려받기
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §2 관리자 전용 값 "관리자용 응답과 고객용 응답을 처음부터 나눈다"·§7 결정(넘기는 회원 정보는 아이디·이름)
 - [packages/api-contract/src/schemas/develop.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/develop.ts) — `AdminDevelopQuoteView`·`developContactChanges`
 - [apps/api/src/lib/bom-po.ts](../../samplepcb-web-mono-app/apps/api/src/lib/bom-po.ts) — `PoMoneyAudience`
 - [apps/api/src/routes/admin-pcb-projects.ts](../../samplepcb-web-mono-app/apps/api/src/routes/admin-pcb-projects.ts) — `toClientSpec`

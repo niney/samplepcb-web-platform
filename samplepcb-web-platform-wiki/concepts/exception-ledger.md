@@ -1,7 +1,7 @@
 ---
 concept: 예외·편차는 원장에 등록한다 (Exception Ledger)
-last_compiled: 2026-11-09
-topics_connected: [gnuboard-integration, theme-sp-lite, docs-knowledge, infrastructure, partner-tracks, sp-develop-web, sp-node-api, testing]
+last_compiled: 2026-11-15
+topics_connected: [gnuboard-integration, theme-sp-lite, docs-knowledge, infrastructure, partner-tracks, sp-develop-web, sp-node-api, testing, smartsmt-integration, spcb-bridge]
 status: active
 ---
 
@@ -18,6 +18,8 @@ status: active
 공통 구조는 같다 — **편차 + 이유 + (가능하면) 검사**. 세 번째가 없으면 원장은 낡고, 원장이 낡으면 편차는 추적 가능한 부채가 아니라 조용한 회귀가 된다([manual-sync-drift](manual-sync-drift.md)).
 
 ## Instances
+- **2026-11-12~13 (원칙 자체의 예외를 원장에)** in [sp-develop-web](../topics/sp-develop-web.md) / [docs-knowledge](../topics/docs-knowledge.md): 개발의뢰 출력물을 16:9 장으로, 의뢰 상세의 읽는 탭을 같은 장으로 바꾸며 피그마 00-3 탭 본문 모양(요약 카드 그라데이션·접이식 '전문가 검토'·개월 눈금 간트·도면 좌우 넘김)과 시안 Slide 4:3·디자이너 크기 규칙·체크리스트 8·10번에서 **사용자 결정으로 벗어났다**. 정본 절과 대장이 같은 커밋에서 같이 움직였다 — `0d51612ed`(§7.2.10 + [FIGMA_PAGES](../../docs/FIGMA_PAGES.md) '출력하기' 11-12 줄)·`ab7beef99`("의뢰 상세의 장 · 판(§7.2.11 · §7.2.12)과 시안에서 벗어난 점을 적다" — FIGMA 11-13 두 줄·미결 ② 갱신 괄호), 의뢰 상세 절에 모두 3줄. 이번엔 '피그마와 다르게 둔 것'이 아니라 **"시안에서 벗어남 · 디자이너에게 알릴 것: 출력물은 피그마 시안이 아니라 코드가 기준이 됐다, 새 시안이 오면 `DeckSlide.vue` 부터"** 로 적고, 시안대로 남은 것 / 벗어난 것을 목록으로 나눴다. 09-06 원칙 "피그마와 동일 구현"의 **첫 명시적 범위 예외**(한 화면의 편차가 아니라 한 영역 전체가 기준을 바꿈)이고, 상세 규칙은 [DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) §7.2.10~§7.2.12 로 넘긴다. ⚠ 원장의 머리가 따라오지 않았다: FIGMA_PAGES 머리 원칙 줄은 이 예외를 알리지 않고(의뢰 상세 절 안에만 있다), 대장 표 상세 행은 지운 파일(`RequestContent`·`QuoteCard`·`components/detail/review/*`)을 그대로 적는다
+- **2026-11-13~14 (바깥 원문에서 벗어난 것)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [spcb-bridge](../topics/spcb-bridge.md) / [docs-knowledge](../topics/docs-knowledge.md): SmartSMT 연동은 상대 원문의 인증(`X-API-Key` 고정 키·견적서 `signature`·서명 확인 호출)을 **따르지 않고** 전용 공유 비밀 + 2분 HS256 토큰으로 바꿨다(사용자 결정). 벗어난 자리마다 원장이 셋이다 — 정본 [SMARTSMT_INTEGRATION](../../docs/SMARTSMT_INTEGRATION.md) §2 머리 "인증은 §4.2 로 대체한다. 나머지는 그대로 따른다" · §4.2 **결정 경과 표**(기각한 ES256·`X-API-Key`+1회용 코드·`JWT_SECRET` 공유와 이유, 감수하는 것, 나중으로 미룬 것) · 상대에게 보낼 요청서 [SMARTSMT_AUTH_REQUEST.html](../../docs/SMARTSMT_AUTH_REQUEST.html) 8장 "기존 문서에서 바뀌는 점"·9장 "지금은 하지 않는 것". 우선순위도 적혔다(요청서 > §4.2 > 상대 원문). 그리고 **검사가 코드에 있다** — `JWT_SECRET` 과 같은 값이면 sp-node·sp-php 둘 다 503 으로 닫는다(운영에서 가장 위험한 실수를 원장 대신 코드가 막는다)
 - **2026-10-21~11-06** in [sp-develop-web](../topics/sp-develop-web.md) / [docs-knowledge](../topics/docs-knowledge.md): **디자인 원장이 개발의뢰 앱으로 넓어지고 양방향이 됐다** — FIGMA_PAGES 에 개발의뢰 랜딩·내 의뢰·상세·위저드 4절("피그마와 다르게 둔 것 · 결정")이 붙었고, 피그마 파일은 고치지 않은 채 시안 오류(자리표시 금액·복사된 문구·오탈자)와 **디자이너에게 보낸 시안 요청**·미결 ②③ 을 같은 문서에 적는다 — 우리가 고른 편차와 시안이 고쳐야 할 편차를 한 원장에서 가른다. DEVELOP_FLOW §5.1 에는 "고치지 않은 옛 견적 1건(사용자 결정)"이 등록됐다. ⚠ 닫히지 않는 원장: §15 프로세스 검토 23건은 한 달째 사용자 결정 대기다(A-1~A-3 은 코드도 그대로)
 - **2026-10-09** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md): **통로를 열면서 행을 남긴다** — 관리자 대리 접속의 쓰기 전량(GET 이외)이 `sp_partner_act_log` 에 1행씩, 진행 중 발주가 있는 조직을 하위로 묶는 강제 전환은 관리자에게만 열리고 사유(`force`+`forceReason`)가 필수다. 규칙을 넘는 일을 막지 않고 원장에 등록하는 형태([act-as-actor-stamp](act-as-actor-stamp.md))
 - **2026-10-07** in [sp-develop-web](../topics/sp-develop-web.md) / [docs-knowledge](../topics/docs-knowledge.md) / [testing](../topics/testing.md): **고치지 않고 등록한 23건** — 개발 모듈 리뉴얼과 옛·새 양쪽 e2e 가 찾은 프로세스 결함을 [DEVELOP_FLOW](../../docs/DEVELOP_FLOW.md) §15 에 사용자 결정 대기로 올렸다. 항목마다 근거 등급(확인=코드 직접 읽음 / 실측=e2e 로그 / 보고=미검증)이 붙는다 — 원장이 "얼마나 믿을 수 있는가"까지 적는 첫 사례
@@ -45,6 +47,8 @@ status: active
 - **정본을 갱신할 땐 새 문서를 만들지 말고 같은 문서에 절을 덧붙이고 우선순위 문장을 헤더에 박는다.** 커밋 메시지에 절 번호가 들어가므로 **절 재번호는 이력을 끊는다**(같은 번호가 두 번 쓰인 곳도 있어 절 번호 + 제목을 함께 적는다).
 - **지우지 말고 표시하라** — 폐기 문서는 `⚠ 대체됨` 헤더로, 프로토타입은 태그로, 레거시 자료는 수정 금지 스냅샷으로 남긴다. 되돌릴 지점이 없는 정리는 정리가 아니다([destructive-op-guardrails](destructive-op-guardrails.md)).
 
+11월 중순에 원장이 두 방향으로 넓어졌다. ① **원칙의 범위 예외** — 지금까지 디자인 원장은 화면 하나하나의 편차를 적었는데, 11-12~13 에는 한 영역(개발의뢰 출력물·상세 탭 본문) 전체에서 "시안이 기준"이라는 원칙이 "코드가 기준"으로 바뀌었다. 이런 예외는 해당 절 안에만 두면 원칙 줄을 읽는 사람이 놓친다 — **범위 예외는 원장의 머리(원칙 줄)에도 걸어야** 한다. 또 상대(디자이너)에게 "알릴 것"이 생기므로 원장이 통지 목록 노릇도 한다. ② **바깥 정본에서 벗어난 것** — SmartSMT 처럼 정본이 다른 회사 문서이면, 편차를 우리 문서에만 적어서는 안 되고 **상대에게 보낼 문서**(요청서 "바뀌는 점")에도 적어야 상대 구현이 맞춰진다.
+
 ## Sources
 - [gnuboard-integration](../topics/gnuboard-integration.md)
 - [theme-sp-lite](../topics/theme-sp-lite.md)
@@ -54,3 +58,9 @@ status: active
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-node-api](../topics/sp-node-api.md)
 - [testing](../topics/testing.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [spcb-bridge](../topics/spcb-bridge.md)
+- [docs/FIGMA_PAGES.md](../../docs/FIGMA_PAGES.md) — 의뢰 상세 절 11-12~13 줄("시안에서 벗어남", 0d51612ed·ab7beef99)
+- [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.10~§7.2.12 장·판(시안에서 벗어난 상세 규칙)
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §2 "인증은 §4.2 로 대체" · §4.2 결정 경과 표
+- [docs/SMARTSMT_AUTH_REQUEST.html](../../docs/SMARTSMT_AUTH_REQUEST.html) — 8장 기존 문서에서 바뀌는 점 · 9장 지금은 하지 않는 것

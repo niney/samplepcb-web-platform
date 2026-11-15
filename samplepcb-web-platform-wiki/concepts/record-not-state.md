@@ -1,7 +1,7 @@
 ---
 concept: 상태 기계는 포크하지 않고 기록으로 넓힌다 (Record, Not State)
-last_compiled: 2026-11-09
-topics_connected: [partner-tracks, api-contract, sp-node-api, sp-vue-web, docs-knowledge, sp-develop-web]
+last_compiled: 2026-11-15
+topics_connected: [partner-tracks, api-contract, sp-node-api, sp-vue-web, docs-knowledge, sp-develop-web, testing]
 status: active
 ---
 
@@ -17,6 +17,7 @@ status: active
 3. **가상 단계·차례 신호** — 화면에는 단계처럼 보이지만 저장된 상태가 아니라 조회 시점 파생이다([lazy-derived-state](lazy-derived-state.md)).
 
 ## Instances
+- **2026-11-13** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md) / [testing](../topics/testing.md): **개발의뢰 확인 사항 고객 답변 = 표가 아니라 진행 기록** — 검토서 '확인이 필요한 사항'에 고객이 직접 단 답은 별도 표도 검토서 JSON 도 아닌 `sp_develop_event` 의 `question_answered` 행이다(`payload.answers=[{qid, question, answer}]`, 바뀐 문항만·빈 답 = 지움·같은 답 재전송은 기록 없음). 상세 응답의 `questionAnswers` 는 서버 `foldDevelopQuestionAnswers` 가 이벤트를 시간순으로 접은 '지금 답변'이다([lazy-derived-state](lazy-derived-state.md)). 처음 낸 안은 '별도 표'였고 이벤트로 바꾼 이유는 셋이다 — 추가 전용이라 답의 이력이 그대로 남고, 진행 사항에 보이는 기록과 저장이 한 몸이라 어긋날 수 없고, `sp_develop_event.type` 이 VarChar 라 **DB 변경이 없어 운영 마이그레이션이 필요 없다**. 검토서 JSON 에 넣지 않은 것은 담당자가 고쳐 재공개하면 덮이기 때문이다. 계약은 이벤트 종류 하나와 읽기 모양(`DevelopQuestionAnswer[]`)만 정하고 접는 함수는 서버에 둔다. 상태 축도 늘지 않았다 — 문항 잠금은 공개본 `resolution` 유무로 판정하고(409 `QUESTION_RESOLVED`), e2e 는 새 여정이 아니라 고객 여정의 단계(2-1)로 끼웠다. 묻는 쪽의 모양은 [itemized-customer-confirm](itemized-customer-confirm.md)
 - **2026-10-30~11-06** in [sp-develop-web](../topics/sp-develop-web.md) / [api-contract](../topics/api-contract.md): 개발의뢰도 같은 문장으로 넓혔다 — 역설계 '권리 확인 필요'·PCB 설계만 의뢰의 '사전 견적'은 상태가 아니라 답에서 파생한 행 플래그이고([lazy-derived-state](lazy-derived-state.md)), PCB 제작 칸 7개는 컬럼 없이 `production` JSON 안에서 넓혔다(옛 저장분은 기본값으로 읽힘). 시스템개발 범위(미커밋)도 **저장 분야 6개는 그대로** 두고 AI 원천 분야만 파생한다 — '시스템 개발' 배지를 쓰는 곳 25곳과 질문 목록·답 검증이 저장 분야를 읽기 때문이다
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [api-contract](../topics/api-contract.md) / [sp-vue-web](../topics/sp-vue-web.md): **협력사 '선적 완료' = 상태가 아니라 기록** — 국제 발송에서 협력사의 일을 끝내는 자리를 `sp_pcb_shipment.shipConfirmedAt/By` 와 판정 둘(`pcbShipConfirmPending`·`pcbShipmentSenderDone`)로 냈다. 선적 상태 사전이 BOM 과 공유라 단계를 끼우면 BOM 화면이 전부 바뀌고 관리자 진행이 협력사 클릭에 묶인다. 포털 스텝퍼의 '선적 완료' 칸은 가상 단계(`lib/pcb-ship-steps.ts`)이고, 관리자가 미확인 채 국내도착으로 넘기면 협력사 쪽은 끝난 것으로 보되 확인 기록은 비워 둔다
 - **2026-10-11** in [api-contract](../topics/api-contract.md) / [partner-tracks](../topics/partner-tracks.md): **추가 EQ 요청은 전이 사전을 트랙으로 가르지 않고 트랙별 문턱으로** — `PCB_EQ_REOPEN` 은 되돌리기 사전과 다른 축이고 스텐실은 `canReopenPcbEq` 가 막는다. 부작용도 같이 왔다: `issued` 가 더는 "아직 아무것도 안 낸 상태"가 아니어서(승인됐다 다시 열린 건일 수 있다) 파일 삭제 판정에 `isPcbEqFileRecord`, 워크큐 반려 표시에 `lastPcbEqReworkBoundary` 가 필요해졌다 — 상태를 안 늘린 값은 **판정 함수가 늘어나는 것**으로 치른다
@@ -33,12 +34,18 @@ status: active
 
 반례도 기록해 둔다. **파생으로 표현할 수 없는 사실은 저장으로 돌아간다** — 마스터딜러 판정은 "하위 링크가 하나라도 있으면"(파생)이었다가 2026-10-10 에 `isMasterDealer` 저장 표시가 됐다(하위 없이 처음부터 지정해야 했다). 기록으로 넓히는 것은 수단이지 교리가 아니다.
 
+2026-11-13 에는 단계가 아니라 **사용자 입력의 저장 자체**를 기록으로 냈다. 새 표를 만들 자리에 이미 있는 추가 전용 이벤트 원장을 쓰고 '지금 값'은 읽을 때 접는다 — 이력·진행 화면의 줄·저장이 한 벌이고 DDL 이 없다. 값은 같은 문장으로 치른다: 접는 함수(`foldDevelopQuestionAnswers`)가 판정의 단일 소유자가 되고, 짝을 맞추는 열쇠(문항 번호)가 흔들리면 기록은 남아도 '지금 답변'에서 빠진다(짝 잃은 답).
+
 ## Sources
 - [partner-tracks](../topics/partner-tracks.md)
 - [api-contract](../topics/api-contract.md)
 - [sp-node-api](../topics/sp-node-api.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [docs-knowledge](../topics/docs-knowledge.md)
+- [sp-develop-web](../topics/sp-develop-web.md)
+- [testing](../topics/testing.md)
+- [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.13 확인 사항 고객 답변(저장 = `question_answered` 이벤트, 별도 표 안을 버린 이유)
+- [apps/api/src/lib/develop-questions.ts](../../samplepcb-web-mono-app/apps/api/src/lib/develop-questions.ts) — `foldDevelopQuestionAnswers`
 - [docs/PCB_PARTNER_TRACK.md](../../docs/PCB_PARTNER_TRACK.md) — D16·스텐실 트랙·D20 설계·협력사 '선적 완료' 확인
 - [docs/SMARTBOM_PARTNER_RFQ.md](../../docs/SMARTBOM_PARTNER_RFQ.md) — §6.43 하위 발주를 별도 표로
 - [docs/BOM_QUOTE.md](../../docs/BOM_QUOTE.md) — 취소와 보존 기간

@@ -1,7 +1,7 @@
 ---
 concept: 완주 여정 재점검 루프 (Journey Recheck Loop)
-last_compiled: 2026-11-09
-topics_connected: [testing, partner-tracks, sp-node-api, api-contract, sp-develop-web, sp-market-web, docs-knowledge, sp-vue-web]
+last_compiled: 2026-11-15
+topics_connected: [testing, partner-tracks, sp-node-api, api-contract, sp-develop-web, sp-market-web, docs-knowledge, sp-vue-web, shared-packages, smartsmt-integration]
 status: active
 ---
 
@@ -15,6 +15,8 @@ status: active
 이 패턴의 값은 잡은 결함 수(PCB 계열 확정 60여 건)가 아니라 **검증이 조용히 비는 자리를 알게 된 것**이다. 판정을 복제하지 않는 규율([judgment-single-owner](judgment-single-owner.md))의 테스트판이기도 하다 — 하네스는 출하 코드와 **같은 함수를 임포트**한다.
 
 ## Instances
+- **2026-11-12~13 (작은 픽스처는 배분 경로를 타지 않는다)** in [testing](../topics/testing.md) / [sp-develop-web](../topics/sp-develop-web.md) / [shared-packages](../topics/shared-packages.md): 개발의뢰 출력물을 16:9 장 판으로 바꾼 뒤 고객 여정은 통과했지만, 여정 픽스처(분야 2·명세 3/2)는 장이 거의 비어 **배분 코드가 한 번도 일어나지 않았다**. 로컬 #257 과 크기만 같은 지어낸 제품([e2e/fixtures/develop-deck-rich.ts](../../samplepcb-web-mono-app/e2e/fixtures/develop-deck-rich.ts) — 시스템개발 6분야·명세 6/5/6/2/1/0·확인 사항 6·일정 8단계·도면 2장 …)으로 [develop-print-deck](../../samplepcb-web-mono-app/e2e/specs/develop-print-deck.e2e.test.ts)(4 → 6)을 세우자 첫 주행이 "조건 표가 한 단을 조금 넘거나 의뢰 내용이 조금 길면 개요·의뢰 내용·세부 답변·첨부가 네 장으로 흩어진다"를 잡았고, 의뢰 개요 짜임 둘(㉠·㉡ 중 장 수가 적은 쪽)을 넣어 **17장 → 14장**(`40c3992b4`). 품질은 **숫자 문턱**(넘친 장 `data-deck-overflow` 0·글자 줄임 15% 이내·주요 장 본문 40% 이상·장 수 = PDF 쪽 수)으로 박았고 운영 빌드(`vite build`+preview)로도 16/16. 같은 기간 고객 여정에는 "다시 재는 한 틱에 수정 요청 사유가 지워지던 것"(`DeckBook` `settled`)을 넣고 **고친 코드를 되돌리면 실패하는 것까지** 확인했다(DEVELOP_FLOW §7.2.12 검증 줄) — 회귀선이 정말 그 결함을 잡는지를 뒤집어서 본 것
+- **2026-11-13~14 (바깥 시스템 흉내 시드)** in [testing](../topics/testing.md) / [smartsmt-integration](../topics/smartsmt-integration.md): SmartSMT 관리자 화면 e2e `admin-smt`(8)의 beforeAll 은 apps/api 의 출하 코드(`buildSampleEnvelope`·`buildSampleMultipart`·`signSmartsmtToken`)를 **그대로 import** 해 수신 주소에 견적 4건(정상·같은 주문 두 번째 = 검토 필요 + 합계 막힘·파일 없이·회원 아닌 주인)을 보낸다 — 시드가 곧 수신 라우트의 실주행이고, 정리는 이 실행의 주문 번호 접두만 지운 뒤 잔재 0 을 단언한다. ⚠ 새 함정: 마지막 케이스(가져오기 대화상자)는 옵트인 변수 없이 **실제 SmartSMT 개발 서버를 1회** 부르고 "실패 문장이 뜨는가"만 본다 — 바깥 서버 상태에 따라 오는 코드가 바뀌어도(`AUTH_REJECTED`→`NOT_FOUND`) 통과하므로, 이 단언은 결함을 잡는 회귀선이 아니라 **연결 확인편**이다
 - **2026-10-22~11-03** in [testing](../topics/testing.md) / [sp-develop-web](../topics/sp-develop-web.md): 개발의뢰에 **고객 여정**(`develop-customer-journey` — 관리자 여정의 거울상: 고객 화면 + 관리자 API)이 생겼고 첫 주행이 고객 문구 6건을 고쳤다(`db558821b`). ⚠ 루프는 돌려야 돈다: 11-02~03 필수 문항(PCB 회로도·BOM)을 바꾼 세 절의 검증 줄에 관리자 여정이 빠져 관리자 여정이 이틀간 깨진 채였다
 - **2026-10-11** in [testing](../topics/testing.md): **검증이 조용히 비는 네 번째 패턴 — 전역 설정을 건드리는 스펙** — AI e2e 는 `pcbEqParse.enabled` 를 켰다가 원래 값으로 되돌리는데, 따로 돌리면 서로의 되돌림을 밟는다(실측 2회; 31호의 `cf_email_use` 가 선례). 규율: 그런 스펙은 **한 실행에 묶는다**. 반대 방향 함정도 있다 — 옵트인(`EQ_AI_E2E`)을 꺼도 로컬 설정이 켜져 있으면 승인요청마다 실 LLM 잡이 선다
 - **2026-10-09** in [testing](../topics/testing.md) / [partner-tracks](../topics/partner-tracks.md): BOM 외화·마스터딜러 **상세 여정**(SMARTBOM §6.45)이 API 여정은 통과하던 화면 결함 3건을 잡았고 재점검에서 가드 2건이 더해졌다 — "API 로 박제하고 화면별로 다시 주행한다"가 편의 기본 꼴이 됐다
@@ -38,6 +40,8 @@ status: active
 
 결함 0 인 편은 실패가 아니다 — 구조를 증명한 **확인편**으로 남기고, 화면 판단처럼 어서션이 닿지 않는 자리는 관측 러너·실브라우저 워크로 사람 눈 1회를 절차에 포함한다.
 
+11-12~13 이 "검증이 조용히 비는" 다섯 번째 자리를 더했다 — **작은 픽스처는 배분 경로를 타지 않는다.** 흐름을 보는 여정 픽스처는 짧고 가볍게 만들기 마련인데, 크기에 따라 갈리는 코드(배분·쪽 나누기·글자 맞춤)는 그 크기에서만 돈다. 그래서 편이 둘로 갈렸다: **여정 픽스처는 흐름을, 실전 규모 픽스처는 모양을** 맡는다. 실전 규모는 실데이터를 옮기지 않고 길이·개수만 맞춘 지어낸 내용으로 만든다(사적 자료 비커밋). 그리고 엄선한 수정이 회귀선이 됐는지는 **고친 코드를 되돌려 실패하는지**로 확인한다 — 어서션을 뒤집는 것만으로는 그 어서션이 결함 자리를 지나는지 알 수 없다.
+
 ## Sources
 - [testing](../topics/testing.md)
 - [partner-tracks](../topics/partner-tracks.md)
@@ -47,3 +51,7 @@ status: active
 - [sp-market-web](../topics/sp-market-web.md)
 - [docs-knowledge](../topics/docs-knowledge.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
+- [shared-packages](../topics/shared-packages.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.10 의뢰 개요 짜임 둘(17장 → 14장)·검증 줄 · §7.2.12 `settled`(되돌리면 실패 확인)
+- [e2e/specs/develop-print-deck.e2e.test.ts](../../samplepcb-web-mono-app/e2e/specs/develop-print-deck.e2e.test.ts) · [e2e/fixtures/develop-deck-rich.ts](../../samplepcb-web-mono-app/e2e/fixtures/develop-deck-rich.ts) — 실전 규모 픽스처

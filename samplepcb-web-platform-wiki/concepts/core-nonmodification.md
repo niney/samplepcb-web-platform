@@ -1,7 +1,7 @@
 ---
 concept: 코어 비수정 우회 기법
-last_compiled: 2026-11-09
-topics_connected: [gnuboard-integration, theme-sp-lite, spcb-bridge, sp-node-api, infrastructure, api-contract, sp-develop-web]
+last_compiled: 2026-11-15
+topics_connected: [gnuboard-integration, theme-sp-lite, spcb-bridge, sp-node-api, infrastructure, api-contract, sp-develop-web, smartsmt-integration]
 status: active
 ---
 
@@ -13,6 +13,7 @@ status: active
 2026-08 이후 원칙 자체가 두 방향으로 자랐다. ① **해석이 넓어졌다** — "코어 파일을 안 고친다"는 그대로지만, 컬럼을 새로 추가하거나 코어 필드를 공유하는 것은 허용으로 정리됐다(코어가 스스로 런타임 ALTER 하는 전례가 근거). ② **예외를 운영한다** — 피할 수 없는 코어 한 줄 수정은 주석 + 가드 스크립트 등록이 규칙이 됐다([exception-ledger](exception-ledger.md)). 그리고 `extend/` 가 단순 훅에서 **PHP→sp-node 브리지 계층**으로 자라면서, 코어 무수정으로 얹을 수 있는 기능의 상한이 크게 올라갔다.
 
 ## Instances
+- **2026-11-13** in [spcb-bridge](../topics/spcb-bridge.md) / [smartsmt-integration](../topics/smartsmt-integration.md): **그누보드 로그인을 바깥 서비스로 넘기는 첫 출구도 코어 0줄** — SmartSMT 로그인 인계 [spcb/sso/smartsmt.php](../../samplepcb-web/spcb/sso/smartsmt.php)(77줄)는 `spcb/` 의 새 폴더 `sso/` 에 섰다. 라우팅은 기존 [spcb/.htaccess](../../samplepcb-web/spcb/.htaccess) 규칙 ③(무확장 → 같은 이름 `.php`, `^(.+?)/?$` 라 하위 폴더도 덮는다)을 그대로 타서 `.htaccess` 변경이 없고, `common.php`(`$member`·`$is_member`·`goto_url()` — 차단·탈퇴 회원은 코어가 이미 로그아웃)와 [lib/jwt.php](../../samplepcb-web/spcb/lib/jwt.php) 를 include 해 기존 `spcb_jwt_encode($claims, $secret)` 를 다시 쓴다 — 함수가 원래 비밀을 인자로 받아 `jwt.php` 도 무변경. 바뀐 것은 `secret.php.example` 의 상수 두 줄뿐이다. 비로그인이면 코어 로그인 화면(`bbs/login.php?url=`)을 거쳐 돌아온다 — 로그인 흐름도 코어 것을 빌린다
 - **2026-10-22** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md) / [infrastructure](../topics/infrastructure.md): **실행 순서가 확장점을 정했다** — 레거시 쿠키와 겹친 `PHPSESSID` 를 고르는 우회는 세션 시작 **전에** 돌아야 하는데 `extend/` 는 너무 늦다(`common.php`: dbconfig 156행 → `session_start` 약 402행 → extend 로드 837행~). 세션 전에 읽히는 코어 밖 파일이 git 밖 `data/dbconfig.php` 뿐이라 거기에 include 한 줄(`spcb/lib/legacy-session-pick.php`)을 넣었다 — 코어·`config.php` 0줄, 세션 이름도 유지. 대가는 git 이 모르는 한 줄이다(재설치 때 다시 넣기 — [manual-sync-drift](manual-sync-drift.md)). 코어 수정 7파일·가드 5건은 그대로
 - **2026-10-13** in [theme-sp-lite](../topics/theme-sp-lite.md): 07-07 코어 최소 수정(이메일 아이디 허용)의 화면 쪽 짝인 아이디 입력 한도는 코어가 아니라 테마 스킨 `login.skin.php` 에서 20 → 30자로 풀었다 — 같은 문제를 코어 한 줄 + 테마 한 줄로 나눠 담는 배치
 - **2026-10-11** in [spcb-bridge](../topics/spcb-bridge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): 코어 `common.php` 가 `$_POST` 전체에 거는 `addslashes` 를 **고치지 않고** 브리지가 `filter_input` 으로 원문을 다시 읽는다(`sp_bridge_text`·`sp_bridge_text_map`). 역변환(`stripslashes`)이 아니라 재읽기라 코어가 이스케이프 방식을 바꿔도 깨지지 않는다 — 코어용 방어가 다른 런타임으로 새는 문제를 코어 0줄로 막은 사례([silent-degradation](silent-degradation.md)). 10-12 재확인: 코어 수정 7파일·가드 5건 그대로
@@ -33,6 +34,8 @@ status: active
 ## What This Means
 "코어를 못 고친다"는 제약이 오히려 아키텍처를 깨끗하게 유지시킨다 — 모든 커스텀이 명시적 경계(`extend/`·`spcb/`·테마·모노레포·접근 카탈로그) 안에 있어 업스트림 동기화·소유권·책임이 명확하다. 새 요구사항이 코어와 충돌하면: ① 기법·접근 카탈로그에서 유사 사례를 먼저 찾고 ② **컬럼 추가·코어 필드 공유·실행 순서 역이용·extend 브리지**가 코어 파일 수정보다 항상 먼저 검토되며 ③ 그래도 만져야 하면 최소·no-op·주석 + **가드 등록**으로 봉인한다. 가드는 등록해야만 지켜지고, 지금 2건이 빠져 있다 — `assert_contains` 두 줄 추가가 이 개념의 가장 값싼 부채 상환이다. 한편 첫 subtree pull 은 아직 오지 않았다: 가드·충돌 처리·재적용 규약 전체가 **한 번도 실행되지 않은 절차**라는 사실을 계획에 넣어야 한다.
 
+11-13 의 SmartSMT 인계는 `spcb/` 가 코어 무수정의 **바깥 출구**까지 맡게 된 사례다 — 지금까지 `spcb/` 는 그누보드 = IdP 를 안쪽(sp-node)으로 열었는데, 같은 자리·같은 함수로 바깥 회사에도 열었다. 새 진입점이 기존 라우팅 규칙과 기존 서명 함수 위에 한 파일로 얹힌 것은 `spcb/.htaccess` 의 무확장 규칙과 `spcb_jwt_encode` 가 처음부터 하위 폴더·비밀 인자를 일반형으로 받게 지어졌기 때문이다. 확장점을 좁게 짓지 않으면 다음 기능은 코어가 아니라 그 확장점 위에 붙는다.
+
 ## Sources
 - [gnuboard-integration](../topics/gnuboard-integration.md)
 - [theme-sp-lite](../topics/theme-sp-lite.md)
@@ -41,4 +44,6 @@ status: active
 - [infrastructure](../topics/infrastructure.md)
 - [api-contract](../topics/api-contract.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [samplepcb-web/spcb/sso/smartsmt.php](../../samplepcb-web/spcb/sso/smartsmt.php) — 바깥 서비스 로그인 인계(새 폴더 `sso/`, 코어·`jwt.php`·`.htaccess` 무변경)
 - [samplepcb-web/spcb/lib/legacy-session-pick.php](../../samplepcb-web/spcb/lib/legacy-session-pick.php) — 세션 전 우회(git 밖 `dbconfig.php` 가 부름)

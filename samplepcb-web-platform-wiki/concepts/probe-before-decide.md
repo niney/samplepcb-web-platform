@@ -1,7 +1,7 @@
 ---
 concept: 정하기 전에 잰다 (Probe Before Decide)
-last_compiled: 2026-11-09
-topics_connected: [sp-node-api, docs-knowledge, testing, theme-sp-lite, spcb-bridge, sp-market-web, infrastructure, sp-develop-web]
+last_compiled: 2026-11-15
+topics_connected: [sp-node-api, docs-knowledge, testing, theme-sp-lite, spcb-bridge, sp-market-web, infrastructure, sp-develop-web, smartsmt-integration, api-contract]
 status: active
 ---
 
@@ -20,6 +20,7 @@ status: active
 재고 난 도구는 버리지 않고 리포에 남겨 **회귀 감시**로 바꾼다.
 
 ## Instances
+- **2026-11-13~14 (바깥 상대를 짓기 전에 잰다)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): SmartSMT 연동은 상대 문서가 말하지 않는 것을 **짓기 전에 실측**으로 채웠다 — ① 개발 서버를 키 없이 불러 `403 {"detail":{"reason":"BAD_KEY",…}}` 를 받고 **실패 사유가 `detail.reason` 에 있다**는 것을 알았다(문서 미기재 — 우리 실패 본문도 그 모양으로 맞췄다) ② `@fastify/multipart` 10.0.0 이 `application/json` 값 파트를 **객체로 바꿔 넘긴다**는 것을 플러그인 소스(index.js 312–326)로 확인하고, 그대로 쓰면 공용 `collectMultipart` 가 견적서를 버린다는 것을 알아 전용 `collectSmartsmtParts` 를 지었다 ③ 파일서버가 새 버킷 `smt` 를 받는지(올리기·내려받기·지우기·해시 일치)를 재고 정했다 ④ 실제 서버·DB 로 여섯 경우(정상·중복·같은 주문 새 견적·잘못된 토큰·파일 내용 바뀜·파일 없음)를 보내 기대대로 답하는지 본 뒤 시험 행을 지웠다 ⑤ 가져오기는 실제 개발 서버를 불러 `403 BAD_KEY` → `502 SMARTSMT_AUTH_REJECTED` 를 확인했다(상대가 아직 `X-API-Key` 방식). 요청서의 curl 예시도 로컬 서버에 실제로 돌려 `duplicate` false → true 를 본 뒤 넣었다. 반대로 **아직 잴 수 없는 것은 정하지 않고 재는 자리를 남겼다** — 10초 타임아웃 상향은 미리 요청하지 않고(사용자 결정) 걸린 시간을 수신 원장 `durationMs` 에 남기며, 실제 견본이 없어 화면 칸은 문서로 짠 가짜 견본 기준이고 계약은 해석 함수를 갖지 않는다
 - **2026-11-03** in [sp-develop-web](../topics/sp-develop-web.md) / [infrastructure](../topics/infrastructure.md): 개발의뢰 랜딩 히어로를 반복 영상에서 **캔버스 프레임 재생**으로 바꾸며 프레임 팩의 폭·용량을 재서 정했다(`hero-frames.mjs` — ffmpeg 없이 시스템 Chrome 디코더로 굽는다, 4.93MB 1요청). 재는 도구는 이번에도 `ops/scripts/` 에 남았다
 - **2026-10-30** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md) / [testing](../topics/testing.md): **개별 메뉴 AI 맞춤 질문 프로빙** — 예시 의뢰 17건(메뉴별 짧은 설명·자세한 설명·첨부 + 여러 메뉴 2)을 `probe-develop-area-followup.ts` 로 돌리며 프롬프트를 v1 → v4(→ v5)로 고쳤고, 같은 프롬프트를 think low·medium 으로 34회씩 돌렸다. low 는 3~13초·형식 오류 0 이지만 정황으로 짐작한 답을 채웠고, medium 은 14~118초(중간값 약 50초)지만 직접 적힌 것만 채웠다 → **medium**. EQ 프로빙(10-11)은 "사고 수준을 올려도 정확도가 안 오른다"로 low 를 골랐는데 여기선 반대로 갔다 — 같은 절차, 반대 결론, 갈림은 표가 냈다(잘못 채운 답은 고객 답처럼 저장된다, [ai-removable-layer](ai-removable-layer.md)). 두 가지가 새로웠다: ① **채점식 없이 사람이 나란히 보는 프로빙**(EQ 는 합성 정답 채점) ② 프로빙이 출하된 코드의 결함을 찾았다 — 모든 AI 기능 공통의 스트림 한글 깨짐([silent-degradation](silent-degradation.md)). 결정도 "시험 운영 + 끄면 롤백"이라 **운영 자체가 다음 프로빙**이다
 - **2026-10-11** in [sp-node-api](../topics/sp-node-api.md) / [docs-knowledge](../topics/docs-knowledge.md) / [testing](../topics/testing.md): **PCB EQ 엑셀 AI 분석 프로빙** — 15모델·LLM 작업 543건을 합성 코퍼스(사양 하나에서 파일과 정답을 같이 만든 14종, 홀드아웃 포함)로 채점해 `kimi-k3`·think `low`·프롬프트 `eq-parse-v3` 를 골랐다. 표가 직관을 뒤집었다 — **사고 수준을 올려도 정확도는 안 오르고 지연만 3배.** 근거는 설계 문서와 분리된 [PCB_EQ_AI_PROBE](../../docs/PCB_EQ_AI_PROBE.md) 에 채점식·실패 유형·"남은 의문"까지 남겼고, 프로빙 하네스(`probe-eq-parse.ts`)와 코퍼스는 단위·e2e 가 같이 쓴다
@@ -37,6 +38,8 @@ status: active
 
 함정은 문서다. **프로빙 문서의 "제안" 절은 구현과 어긋난 채 남는다** — [PCB_EQ_AI_PROBE](../../docs/PCB_EQ_AI_PROBE.md) §8 은 잡 결과에 `eqDraft` 를 저장하고 번역용 유스케이스를 따로 두자고 했지만 코드는 LLM 원출력만 저장하고 `pcb.eq-parse` 스위치를 같이 쓴다. §10 의 "번역은 넣지 않는다"는 같은 날 P4 가 뒤집었다. 프로빙 문서는 **측정 절만 정본**이고 제안 절은 그 시점의 생각으로 읽어야 한다([manual-sync-drift](manual-sync-drift.md)). 또 하나 — 실험실은 "검토 끝나면 삭제"라 적고도 남는다(`previews/` 10-12 현재 잔존).
 
+11-13 의 SmartSMT 는 재는 대상이 **우리 모델·우리 화면이 아니라 바깥 상대**인 첫 사례다. 상대 문서는 우리가 고칠 수 없고 빠진 곳(실패 사유의 위치)이 있으며, 상대 서버는 개발 단계라 바뀐다. 그래서 측정 결과가 결정의 근거이자 **상대에게 되묻는 목록**이 된다 — 정본은 "실측으로 확인한 것"(§8)과 "SmartSMT 에 물어야 할 것"(§6)을 따로 둔다. 그리고 잴 수 없는 것(실제 견본·상대의 최신 판정 기준·10초 안에 끝나는지)은 결정을 미루되 **잴 자리**(원장의 `durationMs`, 받은 글자 그대로 보관한 원문, 바꿀 한 줄의 위치)를 먼저 깔아 둔다. "정하기 전에 잰다"의 짝은 "지금 못 재면 나중에 잴 수 있게 짓는다"다.
+
 ## Sources
 - [sp-node-api](../topics/sp-node-api.md)
 - [docs-knowledge](../topics/docs-knowledge.md)
@@ -46,6 +49,9 @@ status: active
 - [sp-market-web](../topics/sp-market-web.md)
 - [infrastructure](../topics/infrastructure.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [api-contract](../topics/api-contract.md)
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §1 `detail.reason` 실측 · §4.4 envelope 객체 변환(확인됨) · §6 SmartSMT 에 물어야 할 것 · §8 "실측으로 확인한 것"·가져오기 실측
 - [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.4 맞춤 질문 프로빙(v1 → v4, low/medium 34회씩)
 - [apps/api/src/scripts/probe-develop-area-followup.ts](../../samplepcb-web-mono-app/apps/api/src/scripts/probe-develop-area-followup.ts) — 예시 의뢰 17건
 - [ops/scripts/hero-frames.mjs](../../ops/scripts/hero-frames.mjs) — 히어로 프레임 팩 굽기

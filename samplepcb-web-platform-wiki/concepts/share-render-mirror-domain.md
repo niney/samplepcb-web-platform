@@ -1,7 +1,7 @@
 ---
 concept: 렌더는 추출해 공유, 도메인 어휘는 격리 (Share Render, Mirror Domain)
-last_compiled: 2026-11-09
-topics_connected: [shared-packages, sp-market-web, sp-develop-web, api-contract, sp-node-api, partner-tracks, sp-vue-web]
+last_compiled: 2026-11-15
+topics_connected: [shared-packages, sp-market-web, sp-develop-web, api-contract, sp-node-api, partner-tracks, sp-vue-web, testing, smartsmt-integration]
 status: active
 ---
 
@@ -17,6 +17,8 @@ status: active
 [judgment-single-owner](judgment-single-owner.md)와 짝이되 **방향이 반대**다 — 그쪽은 "같은 판단을 두 번 구현하지 말라", 이쪽은 "다른 도메인의 어휘를 한 벌로 합치지 말라". 두 규율이 만나는 자리가 계약 패키지다: 판정 함수는 한 곳, 트랙 사전은 파일별로 따로.
 
 ## Instances
+- **2026-11-12~13** in [sp-develop-web](../topics/sp-develop-web.md) / [shared-packages](../topics/shared-packages.md) / [testing](../topics/testing.md): **종이와 화면이 같은 장** — 개발의뢰 의뢰 출력물(16:9 PDF)을 장 판으로 바꾼 이튿날, 내용 만들기·숨은 자리 높이 재기·배분·장 그리기를 `RequestPrint` 에서 [DeckBook](../../samplepcb-web-mono-app/apps/develop/src/components/deck/DeckBook.vue) 으로 옮겨 **장 계획 하나를 보이는 방식 셋**(`mode` = `print` 전부 쌓기 / `stage` 의뢰 상세 넘겨 보기 / `flow` 좁은 화면 세로 흐름)이 같이 쓴다 — 한쪽만 고쳐 어긋날 일이 없다. 넘기지 않는 탭(진행·문의·첨부·문서 목록)도 장과 같은 모양의 판(`DeckPanel`)이고, 견적 산출 내역 장은 견적서 1쪽과 같은 계약 행 `developQuoteSheetRows` 를 그린다. 배분 규칙은 순수 함수 [@sp/utils deck-pack](../../samplepcb-web-mono-app/packages/utils/src/deck-pack.ts)(`packDeckColumns`·`balanceDeckChunks`·`DECK_STRETCH 1.08`, 단위 13)로 앱 밖에 섰는데 — **FE/BE 공유가 아니라 develop 한 앱만 쓰는** utils 의 첫 모듈이다(테스트 러너가 있는 자리라서 들어왔다). ⚠ 반례 심화: 같은 교체로 고객 상세의 검토서 컴포넌트(`DevelopReview`·`ReviewDiagram`)가 지워지며 고객 앱은 `@sp/utils buildDevReviewView` 도 더는 쓰지 않는다(`deck-content.ts` 가 `MarketDevReview` 를 직접 읽는다) — 10-22 에 렌더러가 갈라진 뒤 남아 있던 **뷰 모델 공유까지 끊겼고**, `@sp/ui figureSrcdoc` 은 바깥 소비자가 0(패키지 안 `DevDiagramSection` 만)이 됐다. 관리자 미리보기와 고객 문서가 같은 모양이라는 보장은 견적서 시트·구성도 파서·산출 내역 행에만 남았다
+- **2026-11-13~14** in [api-contract](../topics/api-contract.md) / [smartsmt-integration](../topics/smartsmt-integration.md): **바깥 도메인의 어휘는 더 멀리 격리한다** — SmartSMT 견적서 계약 [smartsmt.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/smartsmt.ts)(367줄)는 zod 외 import 가 없다. SMT 조달 구분 `TURNKEY|CUSTOMER|REUSE` 가 BOM `customer_supply` 와 뜻이 닮아도 따로 서고, 라벨 사전도 우리 관례(`as const` + `satisfies Record<enum>`)가 아니라 `Record<string, string>` + 폴백 `smartsmtLabel`(사전에 없으면 코드 그대로)이다 — 코드의 주인이 바깥이라 값을 막지 않는다. 반대로 공유한 것은 화면 키트뿐이다(리뉴얼 `next/components/common` 조각과 `promptDialog`)
 - **2026-11-04~06** in [sp-develop-web](../topics/sp-develop-web.md) / [shared-packages](../topics/shared-packages.md) / [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md): **종이 한 장을 한 번만 그린다** — 개발의뢰 견적서 1쪽(`@sp/ui` `DevelopQuoteSheet`, 피그마 「통합 견적서」)을 고객 인쇄 화면과 관리자 미리보기가 같이 쓰고, PDF 는 그 DOM 을 캡처하며(`downloadElementsPdf`), 서버 엑셀은 같은 계약 함수(`developQuoteSheetRows`·`computeDevelopQuoteBreakdown`)로 같은 표를 만든다. PCB `EstimateSheet`·BOM `BomEstimateSheet` 와는 합치지 않았다(서식이 다른 업무 문서 — 미러 쪽). 11-05 구성도 도면·글 분리 파서 `parseDiagramDoc` 도 `@sp/ui` 로 옮겨 마켓·개발의뢰가 같이 쓰되 마켓은 `split` 을 끈 채 쓴다. ⚠ 반례·비용: 고객 검토서(`DevelopReview`)와 관리자 미리보기(`DevReviewView`)는 **다른 렌더러로 갈라졌고**, `@sp/ui` 는 처음으로 `@sp/*` 밖 런타임 의존(`html2canvas-pro`·`jspdf`)을 가졌으며, 상업송장 PDF 캡처는 공용 헬퍼를 쓰지 않아 글자 간격 처방이 거기엔 없다
 - **2026-10-11 (공유가 낳은 결합)** in [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md): 포털 문구 파일(`partner/locales`)이 BOM·PCB **공용**이라 PCB 를 보고 정한 '선적' 어휘 통일이 BOM 포털 화면도 함께 바꿨다. 같은 날 선적 상태 사전이 두 트랙 공용이라 '선적 완료'를 상태로 넣지 못했다([record-not-state](record-not-state.md)). 공유한 것은 한쪽만 고칠 수 없다 — 이 개념의 비용 쪽 사례
 - **2026-10-09** in [api-contract](../topics/api-contract.md) / [partner-tracks](../topics/partner-tracks.md): BOM 송금 원장은 PCB 와 **같은 모양·같은 규칙**이되 사전은 따로(`BOM_REMITTANCE_STATUSES`) — 08-06 "공용화 아님" 결정을 유지했다. 문항형 고객 확인도 같다: D43(부품 확인)과 D20(EQ 문항)이 요청 1건 = 문항 N × 선택지·낙관적 잠금·대리 회신(채널+메모)이라는 형식을 공유하지만 유형·선택지 사전은 격리돼 있다
@@ -40,6 +42,8 @@ status: active
 
 11월의 견적서는 공유의 단위가 컴포넌트에서 **종이 한 장**으로 커진 경우다 — 화면·인쇄·PDF·엑셀 네 출력이 한 서식 정의(`DevelopQuoteSheet` + 계약 행 함수)를 보면 고객이 받은 문서와 관리자가 미리 본 문서가 어긋날 수 없다. 같은 달 검토서는 반대로 고객용과 관리자용 렌더러가 갈라져, "미리보기 = 고객 문서"를 보장하는 곳이 이제 견적서뿐이다. 공유의 대가도 커졌다 — 그 한 장의 고정 색·고정 폭은 `@sp/ui` 의 "시맨틱 토큰만" 규칙의 예외인데 그 예외는 아직 패키지 헤더에 적혀 있지 않다.
 
+11월 중순에는 공유의 축이 **앱 사이에서 한 앱 안의 출력 사이로** 옮겨 갔다. `DeckBook` 은 종이(출력물)와 화면(의뢰 상세 넘겨 보기·세로 흐름)을 한 장 계획으로 묶었지만, 그 대가로 고객 앱은 관리자 쪽과 남아 있던 뷰 모델 공유를 버렸다 — "같은 픽셀"을 어디와 맞출지(종이와 화면 vs 고객과 관리자)를 골라야 했고 앞쪽을 골랐다. 공유 패키지(`@sp/utils`)에 한 앱 전용 모듈이 들어온 것도 같은 흐름이다: 들어온 이유가 "같이 쓰니까"가 아니라 "단위 테스트 자리가 거기 있어서"라, utils 를 고칠 때 "서버도 이걸 쓰나"를 import 로 확인해야 한다. 어휘 쪽 끝도 하나 생겼다 — 정본이 리포 밖에 있는 도메인(SmartSMT)은 사전을 따로 세우는 데서 그치지 않고 **값을 막지 않는 사전**으로 둔다.
+
 ## Sources
 - [shared-packages](../topics/shared-packages.md)
 - [sp-market-web](../topics/sp-market-web.md)
@@ -48,5 +52,11 @@ status: active
 - [sp-node-api](../topics/sp-node-api.md)
 - [partner-tracks](../topics/partner-tracks.md)
 - [sp-vue-web](../topics/sp-vue-web.md)
+- [testing](../topics/testing.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [docs/DEVELOP_FLOW.md](../../docs/DEVELOP_FLOW.md) — §7.2.10 장 계획·배분 · §7.2.11 "장 계획은 하나, 보이는 방식이 셋" · §7.2.12 견적서 장·나머지 판
+- [apps/develop/src/components/deck/DeckBook.vue](../../samplepcb-web-mono-app/apps/develop/src/components/deck/DeckBook.vue) — 출력물·의뢰 상세 공용 장 계획
+- [packages/utils/src/deck-pack.ts](../../samplepcb-web-mono-app/packages/utils/src/deck-pack.ts) — 장 배분 순수 함수(develop 전용)
+- [packages/api-contract/src/schemas/smartsmt.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/smartsmt.ts) — 바깥 도메인 사전(값을 막지 않음)
 - [packages/ui/src/components/DevelopQuoteSheet.vue](../../samplepcb-web-mono-app/packages/ui/src/components/DevelopQuoteSheet.vue) — 견적서 1쪽(고객 인쇄·관리자 미리보기·PDF 공용)
 - [packages/ui/src/lib/pdf-capture.ts](../../samplepcb-web-mono-app/packages/ui/src/lib/pdf-capture.ts) — `downloadElementsPdf`

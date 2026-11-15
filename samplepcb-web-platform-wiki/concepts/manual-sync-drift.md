@@ -1,7 +1,7 @@
 ---
 concept: 수동 동기화 지점과 드리프트 리스크
-last_compiled: 2026-11-09
-topics_connected: [sp-node-api, api-contract, spcb-bridge, theme-sp-lite, gnuboard-integration, docs-knowledge, infrastructure, parts-engine, testing, sp-develop-web, sp-vue-web, shared-packages, partner-tracks]
+last_compiled: 2026-11-15
+topics_connected: [sp-node-api, api-contract, spcb-bridge, theme-sp-lite, gnuboard-integration, docs-knowledge, infrastructure, parts-engine, testing, sp-develop-web, sp-vue-web, shared-packages, partner-tracks, smartsmt-integration]
 status: active
 ---
 
@@ -13,6 +13,9 @@ status: active
 2026-08~09 에 지점 수가 크게 늘었다(협력 트랙 2개·개발의뢰·운영 도메인 3개). 아래는 전수가 아니라 **범주별 대표 사례 + 위험도**다.
 
 ## Instances
+- **2026-11-13~15 (두 번째 대칭키 — 이번엔 바깥 회사와 나눠 갖는다 · 런북 밖 반영)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [spcb-bridge](../topics/spcb-bridge.md) / [infrastructure](../topics/infrastructure.md) / [sp-node-api](../topics/sp-node-api.md): SmartSMT 공유 비밀은 `apps/api/.env` `SMARTSMT_SHARED_SECRET` ↔ `spcb/lib/secret.php` `SPCB_SMARTSMT_SECRET` ↔ SmartSMT 서버 **세 곳에 손으로 같은 값**이고, 기존 쌍 `JWT_SECRET` ↔ `SPCB_JWT_SECRET` 과는 **달라야** 한다(쌍 안은 같게, 쌍끼리는 다르게). 거부 판정(32자 이상·`JWT_SECRET` 과 다름)도 PHP·sp-node 에 따로 쓰였고 Node 는 `trim()` 뒤, PHP 는 그대로 비교한다. 같은 쌍이 어긋나도 우리 쪽엔 오류가 없다 — PHP 가 서명한 인계 토큰을 SmartSMT 가 거부하거나 SmartSMT 토큰을 sp-node 가 401 로 막을 뿐이고, 로컬에선 e2e `smartsmt-sso` 가 잡지만 운영엔 그런 검사가 없다. 운영 반영(마이그레이션 17번째 본·`.env` 2값·`secret.php` 2값)은 `deploy.sh`·[DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md)·ops/README 어디에도 없고 정본 §8 '운영에 올릴 때'에만 있다(스크립트 밖 뒤처리 6 → 8건). 기존 서버의 `secret.php` 엔 새 상수가 없어(`.example` 만 바뀜) 손으로 넣기 전까지 인계 주소는 503 이다
+- **2026-11-13~15 (정본이 바깥 문서인 사본)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [api-contract](../topics/api-contract.md) / [sp-vue-web](../topics/sp-vue-web.md) / [docs-knowledge](../topics/docs-knowledge.md) / [testing](../topics/testing.md): 계약의 SmartSMT 라벨 사전과 화면 칸 목록은 SmartSMT 양식 문서와, 그 문서로 짠 **가짜 견본**(`smartsmt-sample.ts`)의 사본이다 — 실제 견본은 회신 대기이고 `user_edits`·`files` 의 위치는 문서에 없어 두 자리를 다 읽는다. 우리 정본 문서도 벌써 코드보다 뒤처졌다: [SMARTSMT_INTEGRATION](../../docs/SMARTSMT_INTEGRATION.md) §8 제목 "(2026-11-13, 미커밋)"(실제로는 커밋됨) · §4.3 "`basis` 16종·블록 `reason` 11종"(계약 사전은 15·10) · §4.6 연동 상태 '시험 호출'(미구현) · §7 '남은 것'의 수신 주소(이미 정해짐). [ADMIN_NEXT_UI](../../docs/ADMIN_NEXT_UI.md) 엔 SMT 모듈 절이 없다. 요청서의 "samplepcb 할 일 모두 마쳤습니다"는 SmartSMT 가 받을 때를 기준으로 **앞당겨** 그린 표시라, 배포·비밀 전달 전에 보내면 문서가 사실과 다르다. e2e README 는 10-10 그대로라 스펙 149개 중 **68개 미등재**(11-13~14 신규 `develop-print-deck`·`admin-smt`·`smartsmt-sso` 포함)
+- **2026-11-13 (코드 안의 두 벌)** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-vue-web](../topics/sp-vue-web.md): 개발의뢰 3막이 남긴 손 맞춤 셋 — ① 관리자 편집기의 필드별 복사 `cloneDevelopReview`(`structuredClone` 이 reactive proxy 에서 던져서)는 새 필드를 손으로 옮겨야 한다. 11-13 문항 `id` 를 옮기게 고쳤고, 빠뜨리면 저장 때 해시로 다시 붙어 문구를 고친 문항의 고객 답이 짝을 잃는다 ② 고객 검토서(`DeckBook` 의 장 — `deck-content.ts` 가 `MarketDevReview` 를 직접 읽음)와 관리자 미리보기(`DevReviewView`)가 11-13 부터 뷰 모델 `buildDevReviewView` 도 공유하지 않는다. DEVELOP_FLOW §2 결정 1("같은 렌더러로 미리보기")의 전제는 견적서 시트·구성도 파서·산출 내역 행에만 남았다 ③ 판 크기 상수 `deck-layout.ts` 는 `DeckSlide`·`DeckTable` 클래스와 같은 값이어야 한다(하나만 바꾸면 배분이 틀린다). 고객 답변 기능은 새·옛 관리자 편집기를 둘 다 고쳤다
 - **2026-10-22~11-06 (git 밖 운영 상태가 늘었다)** in [infrastructure](../topics/infrastructure.md) / [gnuboard-integration](../topics/gnuboard-integration.md) / [theme-sp-lite](../topics/theme-sp-lite.md) / [sp-develop-web](../topics/sp-develop-web.md) / [testing](../topics/testing.md): 스크립트 밖 뒤처리가 2 → 6건 — git 밖 `data/dbconfig.php` 의 include 한 줄(STEP 4 재설치 때 다시 넣어야 하고 `check-core-patches.sh` 도 지켜 주지 못한다), 공용 헤더 '개발' 링크(`g5_menu` DB 값이라 운영·dev 관리자 메뉴설정에서 손으로), AI 설정의 `develop.area-followup` 켜기, 인건비 기본값·별도 실비 문구 확인. 코드 안의 복제도 늘었다 — 견적서 로고·직인이 `@sp/ui` 자산과 서버 base64 사본 두 벌(`develop-quote-images.ts` 는 "생성 파일"이라 적혔지만 생성 스크립트가 없다), 테스트가 끄는 유스케이스 목록이 계약 `AI_USECASES` 와 따로(10-30 새 유스케이스가 11-02 에야 들어감), 옛·새 관리자 화면 이중 수정, i18n ko/en 쌍. 문서 쪽은 세부 질문 확정본 HTML(`docs/prototypes/develop-menu-questions-plan.html`)과 `develop-areas.ts` 가 11-02 부터 어긋났고, DEVELOP_FLOW §8 API 지도에 없는 라우트가 적혀 있고 엑셀 라우트 2개가 빠졌다
 - **실동작이 어긋나 있는 곳 (2026-10-12 현재)** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 하위 협력사 메뉴 — `partner/menu.ts` 는 `requiresTrack: 'pcb'`, 서버 `canManageChildren` 과 [PARTNER_PORTAL](../../docs/PARTNER_PORTAL.md) §5.1 은 "견적 트랙 중 하나라도". 부품 조달만 하는 마스터딜러는 사이드바에 메뉴가 안 뜬다(코드 읽기 기준, 미실행). 계약·라우터 주석과 같은 문서의 화면 트리도 "PCB 트랙"으로 남아 있다
 - **운영 반영 지점이 흩어졌다 (2026-09-30~10-11)** in [infrastructure](../topics/infrastructure.md) / [docs-knowledge](../topics/docs-knowledge.md) / [gnuboard-integration](../topics/gnuboard-integration.md): 마이그레이션 12본과 **스크립트가 안 해 주는 뒤처리 둘**(`smartbom:seed-extra-anchor` 1회, 관리자 설정에서 "PCB EQ 분석" 켜기)이 다섯 문서에 나뉘어 적혀 있고 [DEPLOY_CENTRAFAB](../../docs/DEPLOY_CENTRAFAB.md)·`deploy.sh` 에는 없다. 한 겹 더 — `reset-data-policy.ts` 와 재이관 시드 목록에 `sp-bom-extra` 가 없어 `migrate:reset-data` 뒤에는 추가결제 앵커가 사라진다
@@ -36,6 +39,8 @@ status: active
 
 우선순위는 분명하다 — **런북 값 불일치(`SPCB_BRIDGE_URL`)는 배포 사고로 직결되므로 1순위로 고칠 것**. 그다음이 가드 미등록 2건(코어가 조용히 되돌아간다), 그다음이 문서 드리프트(사람을 틀린 방향으로 보낸다). 캐시 버전·병합 파일 두 벌은 자주 물리지만 증상이 즉시 눈에 보이므로 후순위다.
 
+2026-11-13 에 동기화 지점이 **회사 경계**를 넘었다 — SmartSMT 비밀의 셋째 사본은 상대 서버에 있고, 라벨 사전·화면 칸은 상대 문서의 사본이다. 상대 쪽은 우리가 패리티 검사를 걸 수 없으므로 리포가 쓴 수단은 둘이었다: 어긋나면 **닫는다**(같은 키면 503 — [silent-degradation](silent-degradation.md)의 반대편 처방), 모르는 것은 **원문 그대로 보인다**(사전 밖 코드·접힌 원문 섹션). 없앨 수도 자동 검증할 수도 없는 지점에서는 어긋남의 증상을 보이는 쪽으로 고정하는 것이 세 번째 길이다.
+
 ## Sources
 - [sp-node-api](../topics/sp-node-api.md)
 - [api-contract](../topics/api-contract.md)
@@ -50,4 +55,7 @@ status: active
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [shared-packages](../topics/shared-packages.md)
 - [partner-tracks](../topics/partner-tracks.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §8 '운영에 올릴 때'(런북 밖 유일한 반영 목록)·코드보다 뒤처진 §4.3·§4.6·§8 제목
+- [samplepcb-web/spcb/lib/secret.php.example](../../samplepcb-web/spcb/lib/secret.php.example) — `SPCB_SMARTSMT_SECRET`(= `.env` `SMARTSMT_SHARED_SECRET`)·`SPCB_SMARTSMT_LOGIN_URL`
 - [docs/DEPLOY_CENTRAFAB.md](../../docs/DEPLOY_CENTRAFAB.md) — STEP 5 (d) git 밖 `dbconfig.php` 한 줄

@@ -1,7 +1,7 @@
 ---
 concept: 나란히 짓고 한 번에 넘긴다 (Parallel Build, Then Cutover)
-last_compiled: 2026-11-09
-topics_connected: [sp-vue-web, testing, sp-develop-web, infrastructure, gnuboard-integration, sp-node-api, docs-knowledge, spcb-bridge]
+last_compiled: 2026-11-15
+topics_connected: [sp-vue-web, testing, sp-develop-web, infrastructure, gnuboard-integration, sp-node-api, docs-knowledge, spcb-bridge, smartsmt-integration]
 status: active
 ---
 
@@ -16,6 +16,8 @@ status: active
 4. **물림** — 옛 것은 지우지 않고 뒤로 물리거나 되돌릴 지점(태그·스냅샷)을 남긴다.
 
 ## Instances
+- **2026-11-14 (새 모듈은 한 벌)** in [sp-vue-web](../topics/sp-vue-web.md) / [smartsmt-integration](../topics/smartsmt-integration.md): 관리자 여섯 번째 모듈 **`SMT`**(받은 견적·견적 상세·연동 상태)는 컷오버(10-10) 뒤 처음 생긴 모듈이라 **리뉴얼 셸(`src/next`)에만 지었다** — 옛 화면이 없으니 `legacyNextRoute` 가 null 이라 '이전 화면' 버튼이 없고, 옛 셸 스위처는 그 이름을 옛 이름으로 바꾸지 않는 목록(`isUnrenewed`)에 넣어 리뉴얼 화면으로 건다. 라우트 이름 `NEXT_SMT_ROUTES` 도 처음부터 정식 이름(`admin-smt-*`)이다. 리뉴얼 문법(`nextModules`·`NEXT_*_ROUTES`·`*-navigation.ts`·`*-badges.ts`)이 "옮겨 오는 틀"에서 **새 모듈을 짓는 기본 틀**이 됐다
+- **2026-11-13 (병존 비용의 실측)** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-vue-web](../topics/sp-vue-web.md): 개발의뢰 '확인이 필요한 사항'에 고객이 직접 단 답을 관리자 검토서 편집기가 보여 주고 확인 결과로 옮겨 적는 기능은 **새·옛 편집기 둘 다**(`next/components/develop/review/DevelopReviewEditor.vue`·`components/admin/develop/DevelopReviewEditor.vue`) 고쳤다 — 11-04 연락처 수정을 새 화면에만 넣은 것과 반대 선택이다(sp-develop-web 이 이 대비를 병존 비용으로 적는다). 문항 번호를 옮기는 `cloneDevelopReview` 는 옛 폴더의 순수 모듈(`develop-review-edit.ts`)이고 새 화면도 그것을 import 한다 — 물린 옛 쪽이 순수 모듈로는 새 화면의 의존처이기도 하다
 - **2026-11-04 (물려 둔 옛 화면의 유지비)** in [sp-vue-web](../topics/sp-vue-web.md) / [sp-develop-web](../topics/sp-develop-web.md) / [testing](../topics/testing.md): 컷오버 뒤 처음으로 기능마다 **옛 화면에도 넣을지**를 정해야 했다 — 이 기간 옛 화면 8파일을 정합 수준으로 손봤지만 견적서 리뷰(`9fc21f8eb`)는 옛 화면에 가산 줄이 없다는 것을 짚었고, 옛 편집기의 「행 추가」는 수량·단위 칸이 없어 직접비 1식으로 넣는 반쪽이며, 연락처 수정은 새 화면에만 있다. e2e 는 같은 스펙을 old|next 로 돌리지만 새 화면 전용 단계는 옛 모드에서 `return` 으로 '통과'한다(`skipIf` 가 정직하다)
 - **2026-10-22** in [spcb-bridge](../topics/spcb-bridge.md) / [infrastructure](../topics/infrastructure.md): **나란히 선 두 사이트가 쿠키에서 부딪혔다** — 레거시 `samplepcb.co.kr` 과 새 `new.samplepcb.co.kr` 이 형제 서브도메인으로 공존하는 동안 레거시의 도메인 전체 `PHPSESSID` 가 새 사이트 로그인을 가렸다. 우회는 처음부터 **'임시'와 걷어내는 때**(운영 교체 뒤 브라우저에 남은 레거시 쿠키가 사라질 때까지 — 세션 쿠키는 브라우저를 닫을 때까지, 자동 로그인은 최대 31일)를 같이 적었다
 - **2026-10-10** in [sp-vue-web](../topics/sp-vue-web.md) / [sp-develop-web](../topics/sp-develop-web.md): **관리자 컷오버** — 리뉴얼 `/app/admin/next/*`·`admin-next-*` 를 정식 `/app/admin/*`·`admin-*` 로, 옛 화면은 `/app/admin/legacy/*`·`admin-legacy-*` 로. `NEXT_*_ROUTES` 값을 옛 이름으로 바꾸는 방식이라 메일 딥링크·QR·e2e URL 은 그대로 새 화면이 받는다. 당초 계획 "옛 파일을 지운다" → **지우지 않고 물림**('이전 화면'·'새 화면' 버튼이 같은 params·query 로 오간다). 견적관리·재능마켓은 리뉴얼 없이 옛 셸 그대로
@@ -34,6 +36,8 @@ status: active
 
 10월 말의 두 '임시'는 철거 조건을 **짓기 전에** 적었다 — 쿠키 우회는 걷어내는 때(레거시 쿠키가 브라우저에서 사라질 때)를, AI 맞춤 질문 시험 운영은 되돌리는 길(관리자 스위치 끄기·되돌릴 커밋 3개, [ai-removable-layer](ai-removable-layer.md))을. 반대로 10-10 컷오버의 옛 화면은 철거 조건 없이 물렸고 11월에 그 값을 치르기 시작했다 — 새 기능마다 "옛 화면에도 넣나"를 정해야 하고, 안 넣으면 옛 화면이 조용히 반쪽이 된다.
 
+11월 중순에 이 패턴의 끝이 두 방향으로 보였다. **새 모듈은 한 벌로 짓는다** — 11-14 `SMT` 는 나란히 지을 옛 것이 없어 동치 확인·한 점 전환·물림 네 걸음을 모두 건너뛰고 새 틀에만 섰다. 컷오버는 "옛 것을 옮기는 절차"로 끝나고, 옮겨진 틀이 이후의 기본값이 된다. 반면 **옛 것이 있는 기능은 여전히 두 벌 값을 낸다** — 11-13 고객 답변은 옛 편집기까지 고쳤다. 철거 조건이 없는 한, 새 모듈이 늘수록 "옛 화면이 있는 모듈"과 "없는 모듈"이 섞인 셸을 같이 유지하게 된다(옛 셸 스위처의 `isUnrenewed` 목록이 그 경계를 손으로 적는다).
+
 ## Sources
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [testing](../topics/testing.md)
@@ -42,6 +46,8 @@ status: active
 - [gnuboard-integration](../topics/gnuboard-integration.md)
 - [sp-node-api](../topics/sp-node-api.md)
 - [docs-knowledge](../topics/docs-knowledge.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §8 관리자 화면(5단계) "리뉴얼 셸에만, 옛 화면 없음"
 - [docs/ADMIN_NEXT_UI.md](../../docs/ADMIN_NEXT_UI.md) — §0 컷오버·"나란히 짓고 한 번에 넘긴다"
 - [docs/develop-prototypes.md](../../docs/develop-prototypes.md) — G 제거·C 승격, 원복 태그
 - [docs/LEGACY_DB_MIGRATION.md](../../docs/LEGACY_DB_MIGRATION.md) — sync 쿡북·컷오버 런북

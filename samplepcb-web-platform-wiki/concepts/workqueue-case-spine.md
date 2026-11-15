@@ -1,7 +1,7 @@
 ---
 concept: 역할별 워크큐 + 단일 Case 척추 (Workqueue & Case Spine)
-last_compiled: 2026-11-09
-topics_connected: [sp-vue-web, partner-tracks, sp-develop-web, sp-node-api, api-contract]
+last_compiled: 2026-11-15
+topics_connected: [sp-vue-web, partner-tracks, sp-develop-web, sp-node-api, api-contract, smartsmt-integration]
 status: active
 ---
 
@@ -19,6 +19,7 @@ BOM·PCB·협력사 포털·개발 네 모듈이 같은 화면 문법을 반복�
 그리고 이 문법을 떠받치는 것은 저장이 아니라 **파생**이다. 12단계 타임라인·대기 큐 소속·`myTurn`·배지 숫자는 어느 것도 컬럼이 아니고 서버가 원장에서 계산해 내려준다([lazy-derived-state](lazy-derived-state.md)).
 
 ## Instances
+- **2026-11-14** in [sp-vue-web](../topics/sp-vue-web.md) / [smartsmt-integration](../topics/smartsmt-integration.md) / [sp-node-api](../topics/sp-node-api.md): **관리자 여섯 번째 모듈 `SMT`** 가 문법을 새로 발명하지 않고 받았다 — 모듈 스위처의 한 칸(BOM 과 개발 사이), 목록 [SmtQuotesPage](../../samplepcb-web-mono-app/apps/web/src/next/pages/smt/SmtQuotesPage.vue) 는 **주문 한 줄**(한 주문에 견적이 여럿이면 마지막에 받은 견적이 대표)에 탭 전체 / 검토 필요(`REVIEW_REQUIRED`) / 합계 미확정(최종 금액 null) + 검색, **URL 이 상태 정본**(`?tab=`·`q`·`page`, 공용 `next/lib/list-query`), 탭별 건수 `counts` 는 서버가 **검색어를 뺀** 값으로 낸다. 상세는 견적 하나 + 같은 주문의 견적 이력이고 `?returnTo=` 로 떠난 목록에 돌아온다(받은 견적 목록 경로만 받는다 — `safePcbReturnTo` 와 같은 생각의 열린 리다이렉트 방지). 목록은 승격 열만 읽고 견적서 원문(`envelope`)은 상세에서만 온다. ⚠ 다른 점: **배지가 없다**(P0 밖) — 바깥에서 계산된 견적을 보관·표시하는 모듈이라 아직 "누가 지금 무엇을 해야 하는가"의 대기 큐가 정의되지 않았고, 탭은 역할의 차례가 아니라 견적서의 상태(검토 필요·합계 미확정)로 갈린다
 - **2026-10-22~11-03** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-vue-web](../topics/sp-vue-web.md): 고객 앱도 같은 문법을 쓴다 — 의뢰 상세는 **해시 = 탭**(`#content`·`#review`·`#quotes`·`#timeline`·`#documents` …), 내 의뢰 표는 할 일이 있으면 상태 칩 대신 할 일 칩과 그 탭으로 가는 버튼, 고객 메일 링크도 할 일 탭을 바로 연다. 관리자 워크큐에는 파생 행 플래그 배지('권리 확인 필요'·'사전 견적')가 붙었다
 - **2026-10-11** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): **Case 안에서도 "순서대로"** — 발주 행 아래 EQ 줄이 요청 회차 → 협력사 제출 → 고객 확인 → 판정을 절차 순으로 세우고(지난 회차는 읽기 전용), Case ID 요청 건은 윗줄의 두 버튼 대신 **아래 스트립 3칸이 유일한 작업 자리**다(인보이스 → 운송서류 → Case ID·운송장, 3 은 2 전까지 잠기고 이유를 말한다). 워크큐가 "누구 차례"를 말했다면 줄은 "다음에 무엇"을 말한다
 - **2026-10-09** in [sp-vue-web](../topics/sp-vue-web.md) / [partner-tracks](../topics/partner-tracks.md): 포털 — 하위 협력사는 모듈이 아니라 **공통 영역 메뉴**, 마스터딜러 중개는 새 페이지 없이 발주·견적 **상세 안 패널**. 역할이 늘어도 화면 수를 늘리지 않고 Case(상세) 안에 얹는다
@@ -43,9 +44,14 @@ BOM·PCB·협력사 포털·개발 네 모듈이 같은 화면 문법을 반복�
 
 ⚠ 그리고 이 문법에는 검증을 조용히 비게 만드는 함정이 하나 있다: **워크큐의 기본 탭은 "우리 건"의 탭이 아니다.** `/admin/pcb/pos`는 '발주 대기'(발주서 **없는** 건), `/pcb/orders`는 '입금 대기', 포털은 `todo`. 방금 만든 건은 기본 탭에 없는 것이 정상이고, RFQ·발주 큐의 기본 대기 탭엔 검색창조차 없다. 화면 검증은 반드시 **탭 클릭 + 검색**으로 좁혀야 하며, 이것이 주행 검증 오탐의 단골 원인이다([journey-recheck-loop](journey-recheck-loop.md)).
 
+11-14 SMT 는 문법이 **업무 흐름이 아직 없는 모듈**에서도 기본값으로 쓰인다는 것을 보였다 — 다섯 조각 중 목록·URL 상태·단일 상세·모듈 스위처는 그대로 왔고, 배지와 "첫 탭 = 대기 큐"만 비었다. 역할의 차례가 정의되기 전까지는 탭을 대상의 상태(검토 필요·합계 미확정)로 자르고 배지는 두지 않는 편이 정직하다 — 차례가 없는데 배지를 달면 "지금 움직여야 하는 수"가 거짓이 된다. 견적서 처리 업무(주문·결제 전환, P0 밖)가 붙는 날 이 모듈도 역할 큐와 배지를 얻을 자리다.
+
 ## Sources
 - [sp-vue-web](../topics/sp-vue-web.md)
 - [partner-tracks](../topics/partner-tracks.md)
 - [sp-develop-web](../topics/sp-develop-web.md)
 - [sp-node-api](../topics/sp-node-api.md)
 - [api-contract](../topics/api-contract.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [docs/SMARTSMT_INTEGRATION.md](../../docs/SMARTSMT_INTEGRATION.md) — §4.6 관리자 화면 · §8 화면 결정(목록 한 줄 = 주문 1건)
+- [apps/web/src/next/pages/smt/SmtQuotesPage.vue](../../samplepcb-web-mono-app/apps/web/src/next/pages/smt/SmtQuotesPage.vue) — 받은 견적(탭·검색·`returnTo`)

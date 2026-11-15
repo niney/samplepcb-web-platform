@@ -1,7 +1,7 @@
 ---
 concept: cron 없는 lazy 파생 상태
-last_compiled: 2026-11-09
-topics_connected: [sp-node-api, partner-tracks, sp-develop-web, sp-vue-web, spcb-bridge, api-contract, sp-market-web, parts-engine]
+last_compiled: 2026-11-15
+topics_connected: [sp-node-api, partner-tracks, sp-develop-web, sp-vue-web, spcb-bridge, api-contract, sp-market-web, parts-engine, smartsmt-integration]
 status: active
 ---
 
@@ -13,6 +13,8 @@ status: active
 2026-08~09 에 이 패턴은 **"아예 저장하지 않는다"** 쪽으로 더 갔다. 협력 트랙의 12단계 타임라인·워크큐 대기 큐·고객 진행 표시·`bom-orders` 주문 축은 컬럼이 없다 — 원장(RFQ·PO·선적·od·`sp_file`)에서 조회 시점에 계산해 내려준다. 덕분에 영카트 `od` 를 **무접촉**으로 두고도 고객이 제작 진행을 본다. [snapshot-freeze](snapshot-freeze.md)와는 정확히 반대편 짝이다 — 결정 시점의 **사실**은 굳히고, 원장에서 다시 셀 수 있는 **상태**는 굳히지 않는다.
 
 ## Instances
+- **2026-11-13~14 (경계 — 쓸 때 뽑아 두는 값, 읽을 때 대조하는 값)** in [smartsmt-integration](../topics/smartsmt-integration.md) / [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md): SMT 받은 견적 목록은 대부분 이 패턴의 반대편이다 — 목록용 값(최종 금액 `finalTotal`·`quoteStatus`·`blockedBy` …)은 견적서를 **받을 때** `summarizeSmartsmtEnvelope` 로 뽑아 열에 올리고, '최신 견적'도 저장할 때마다 옮기는 포인터 `latestQuoteId`(받은 순서)다. 그래서 '합계 미확정' 탭은 저장된 `finalTotal` null 을 거르는 것이고, 목록·이력 조회는 MEDIUMTEXT 원문 `envelope` 를 읽지 않는다. 반면 **'회원 아님' 표지는 저장하지 않는다** — 목록·상세 응답을 만들 때마다 `owner_mb_id` 를 `g5_member` 와 한 번에 대조하고(`getMembersByIds`), 조회가 실패하면 null(모름)이라 표지를 달지 않는다(모름 ≠ 아님)
+- **2026-11-13** in [sp-develop-web](../topics/sp-develop-web.md) / [api-contract](../topics/api-contract.md) / [sp-node-api](../topics/sp-node-api.md): 개발의뢰 확인 사항 고객 답변의 **파생 둘** — ① 번호가 없던 옛 검토서 문항은 읽을 때 문구 해시로 번호를 얻는다(계약 `devReviewQuestionId` — trim 한 문구의 FNV-1a 32비트를 36진으로; `withDevReviewQuestionIds` 는 있는 번호는 두고 없으면 채우고 겹치면 `-2`…). 저장분을 고쳐 쓰는 작업 없이 서버·고객 앱 등 읽는 쪽마다 같은 번호가 되고, LLM 출력 스키마엔 `id` 가 없어 모델도 번호를 만들지 않는다 ② '지금 답변'(`questionAnswers`)은 저장 칸이 아니라 `question_answered` 이벤트를 조회 때 시간순으로 접은 값이다(같은 문항은 마지막 것, [record-not-state](record-not-state.md)). 함정은 해시 파생의 몫이다 — 작업본 문구를 고쳐 놓고 재공개 전에 고객이 답하면 공개본·작업본 해시가 달라 답이 짝을 잃고(관리자 편집기 아래에 따로 보임), 필드별 복사 `cloneDevelopReview` 가 `id` 를 빠뜨리면 저장 때 해시로 다시 붙는다. 그래서 서버가 번호를 채워 내려주고 편집기는 그 번호를 쥔 채 저장한다
 - **2026-10-30~11-03** in [sp-develop-web](../topics/sp-develop-web.md) / [sp-node-api](../topics/sp-node-api.md): 관리자 목록의 `rightsCheck`(역설계 권리 확인 답이 '유지보수 목적'·'상담')·`preQuote`(PCB 설계만 의뢰의 사전 견적 요청)는 저장 컬럼이 아니라 **목록을 낼 때 답에서 파생**한다 — 답에서 셀 수 있으니 컬럼을 만들지 않는다
 - **2026-10-11** in [partner-tracks](../topics/partner-tracks.md) / [sp-vue-web](../topics/sp-vue-web.md) / [api-contract](../topics/api-contract.md): 협력사 '선적 완료'는 저장된 단계가 아니라 **가상 단계**(기록 `shipConfirmedAt` + 조회 시점 판정), 고객 확인 회차 번호·발송 여부도 파생. 관리자가 미확인 채 다음 단계로 넘기면 협력사 쪽은 끝난 것으로 **보이되** 기록은 생기지 않는다([record-not-state](record-not-state.md))
 - **2026-10-10 (반례 — 파생에서 저장으로)** in [partner-tracks](../topics/partner-tracks.md) / [sp-node-api](../topics/sp-node-api.md) / [api-contract](../topics/api-contract.md): 마스터딜러 판정: "하위 소속 링크가 하나라도 있으면"(파생) → **`sp_partner.isMasterDealer` 저장 표시**. 하위 없이 처음부터 마스터딜러로 지정해야 하는 사실은 원장에서 셀 수 없었다. 저장으로 돌아가자 가드가 따라 붙었다(끄기는 `HAS_CHILDREN` 이 막는다) — 파생이 공짜로 주던 정합성을 손으로 지켜야 한다
@@ -40,6 +42,8 @@ status: active
 
 검증할 때도 파생임을 기억해야 한다 — 워크큐 **기본 탭이 우리 건의 탭이 아니고**(pos=발주 대기·orders=입금 대기), 없는 필드를 읽으면 기본값이 조용히 어서션을 통과한다.
 
+2026-11 에 파생은 **식별자**로도 넓어졌다 — 번호가 없던 옛 저장분에 마이그레이션 대신 읽을 때 문구 해시로 번호를 붙였다. 다만 파생 키는 원천(문구)이 바뀌면 같이 바뀌므로, 원천을 고칠 수 있는 곳에서는 한 번 받은 번호를 쥐고 다니게(편집기가 보존) 하는 것이 짝이다. 반대 경계도 섰다 — SmartSMT 처럼 받은 뒤 바뀌지 않는 바깥 원문은 쓸 때 목록 값을 뽑아 두고(큰 원문을 목록이 읽지 않게), 우리 쪽에서 바뀌는 사실(회원 여부)만 읽을 때 대조한다.
+
 ## Sources
 - [sp-node-api](../topics/sp-node-api.md)
 - [partner-tracks](../topics/partner-tracks.md)
@@ -49,3 +53,5 @@ status: active
 - [api-contract](../topics/api-contract.md)
 - [sp-market-web](../topics/sp-market-web.md)
 - [parts-engine](../topics/parts-engine.md)
+- [smartsmt-integration](../topics/smartsmt-integration.md)
+- [packages/api-contract/src/schemas/market-dev-review.ts](../../samplepcb-web-mono-app/packages/api-contract/src/schemas/market-dev-review.ts) — `devReviewQuestionId`·`withDevReviewQuestionIds`
