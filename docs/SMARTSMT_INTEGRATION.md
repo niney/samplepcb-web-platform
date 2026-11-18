@@ -243,7 +243,7 @@ SmartSMT 에는 이 값을 요청서와 별도 경로로 전달한다. sp-php `s
 - 요청서(`docs/SMARTSMT_AUTH_REQUEST.html`)와 개발용 공유 비밀을 SmartSMT 에 전달하는 시점.
 - SmartSMT 가 견적서를 보낼 수 있는 우리 개발 서버 주소(로컬 개발기는 SmartSMT 서버에서 닿지 않는다).
 
-## 8. 구현 현황 (2026-11-13, 미커밋)
+## 8. 구현 현황
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
@@ -358,3 +358,38 @@ SmartSMT 개발 서버와 맞춰 본다. 오픈 전이라 개발용 **SmartSMT �
 `node ops/scripts/smartsmt-server-config.mjs --apply` 를 돌린다(위 "서버 설정 스크립트").
 ⚠ **로컬 `.env` · `secret.php` 를 서버에 통째로 올리지 말 것** — 로그인 토큰 비밀(`JWT_SECRET`) · DB 주소 · 경로가 로컬 값으로 바뀐다.
 **실제 오픈 전에는 2~5번을 다시 한다.**
+
+### 실제 견적서에서 알게 된 것 (2026-11-18)
+
+SmartSMT 가 서버(`new.samplepcb.co.kr`)로 실제 견적서를 보냈다 — 17:10 · 20:50 · 22:41 세 건, 모두 200 으로 받았고 저장한 파일의 sha256 이 견적서 값과 같다.
+받은 견적서는 `envelope_version` **9** 로, 「견적서 전송 양식 0.3」과 다른 곳이 있다.
+
+| 무엇 | 실제 견적서(판 9) | 우리 쪽 대응 |
+|---|---|---|
+| 확정 금액 | 세 건 모두 `REVIEW_REQUIRED` — `quote.total` · `integrated.totals.total` 이 전부 `null` | 그대로 "미정" |
+| 추정 금액 | `quote.estimated_total`(SMT 작업비) · `integrated.totals.estimated_total`(통합) · `estimated_blocks` 가 따로 온다. 고객 화면의 "최종합계"가 이 값 | 열 2개 추가(`smtEstimatedTotal` · `finalEstimatedTotal`, 마이그레이션 `20261118230000_smartsmt_estimated_totals` — 이미 받은 견적도 채운다). 목록 · 상세 · 이력에 **"추정"** 이라고 이름 붙여 보인다 |
+| 블록 | `blocks` 는 PCB · PARTS · SHIPPING. `DETAIL` 은 줄이 없고 SMT 작업비 자신을 가리킨다(`blocked_by` · `known.blocks` · `estimated_blocks`) | 블록 · 출처 · 요청 상태 · 금액 성격 · 완전성 · 공정 묶음에 한국어 이름(계약 사전) |
+| 수량 | `quantities` 의 칸이 `make_set_qty` · `spare_set_qty` · `total_set_qty` · `price_set_qty` · `order_type` | 온 칸을 온 순서대로 보인다(양식 0.3 의 이름도 사전에 남김) |
+| 주문 공정 | `header.processes` = `["pcb","parts","stencil","smt"]` 또는 `["smt"]` | 조건 맨 앞에 "주문 공정" |
+| 고객 요청 | `quote_request` 가 `{text, mb_id, mb_name, updated_at}` 객체, `user_edits.preorder`(긴급 · 추가 요청 · 부품 형태) | 글(`text`)만 보이고 긴급 제작 · 추가 요청을 함께 |
+| PCB 사양 | `user_edits.pcb_spec_inputs`(고객이 넣은 값, PCB 를 시켰을 때) | 주문 정보에 "PCB 사양 (고객 입력)" — 칸 이름은 SmartSMT 것 그대로 |
+| 그 밖 | 파일 목록은 `header.files`, 맨 위 `signature` 는 `null`, `lang` 없음 | 변경 없음 |
+
+⚠ **새 코드 값의 한국어 이름은 우리가 붙였다** — 양식 0.3 에 값 목록이 없다(`packages/api-contract` `smartsmt.ts` 의 "실제 견적서에서 본 코드").
+SmartSMT 가 값 목록을 주면 그 뜻으로 고친다. 사전에 없는 값은 화면에 코드 그대로 나온다.
+
+**SmartSMT 에 알리거나 물을 것**
+
+1. 첨부는 세 번 모두 `gerber_archive` · `bom` **2개**였다. `cpl` 은 파트도 없고 `header.files` 에도 없다(고객이 파일 3개를 올린 주문 포함).
+2. `GET /api/pricing/envelope` 는 **부를 때마다 견적번호(`quote_id`) · `made_at` 을 새로 만든다**(13초 간격 3번 = 번호 3개).
+   우리는 `quote_id` 로 중복을 가리므로 "가져오기"를 누를 때마다 이력이 한 줄씩 는다. 내용이 같으면 같은 번호가 필요하다.
+3. 주문이 금방 사라진다 — 17:10 에 보낸 주문을 21:40 에 가져오니 404 "세션이 없거나 만료"(안내는 24시간). 실패 본문도 `{"detail":"글자"}` 모양이다.
+4. 2026-11-18 「확인 및 요청 사항 0.1」(로그인 토큰에 회사 · 부서 · 연락처 · 이메일 추가, 담당자 확정 견적을 `POST /api/pricing/received` 로 되돌려 보내기,
+   `packing` · `stackup` · `report` 파트)은 **아직 결정 · 구현 전**이다. 담당자 확정은 "수정"이 아니라 미정 블록(부품 · 배송 · SMT 작업비)을 채우는 일이라
+   범위(어느 칸을 우리가 바꾸는가)를 SmartSMT 와 먼저 맞춘다.
+
+**서버 로그인이 30분쯤에 풀리던 것** — 연동과 무관한 서버 설정이다. `/etc/php/8.1/fpm/php.ini` 의 `session.gc_maxlifetime = 1440` 을
+Ubuntu 세션 청소 타이머(매시 9 · 39분)가 그대로 써서, 24분 넘게 안 쓴 세션을 지운다(그누보드의 3시간 설정은 요청 처리 중에만 적용).
+`10800` 으로 바꾸고 `php8.1-fpm` 을 다시 읽힌다. smteyes 로그인은 인계 뒤 SmartSMT 자체 세션이라 samplepcb 세션이 끝나도 남는다.
+
+**운영 반영** — `prisma migrate deploy`(열 2개 추가 + 기존 견적 채우기) 뒤 API · 웹을 다시 올린다.
