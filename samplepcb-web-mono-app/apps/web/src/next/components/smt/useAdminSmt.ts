@@ -6,7 +6,9 @@ import {
   AdminSmtPullResponse,
   AdminSmtQuoteDetailResponse,
   AdminSmtReceiveLogResponse,
+  AdminSmtReviewResponse,
   type AdminSmtOrderTab,
+  type AdminSmtReviewBodyType,
   type SmartsmtReceiveResult,
 } from '@sp/api-contract';
 import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
@@ -92,6 +94,32 @@ export function usePullSmtQuote() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (orderId: string) => apiSend('POST', `${base}/pull`, { orderId }, AdminSmtPullResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: SMT_KEY });
+    },
+  });
+}
+
+/**
+ * 견적 확정 저장 — 항목(견적 줄 · 블록)의 금액만 보낸다. 합계는 서버가 계산한다. confirm=true 는 빈 금액이 없을 때만 받는다(409).
+ * 성공하면 목록 · 상세를 다시 부른다(목록의 확정 표시가 함께 바뀐다).
+ */
+export function useSaveSmtReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: number; body: AdminSmtReviewBodyType }) =>
+      apiSend('PUT', `${base}/quotes/${String(input.id)}/review`, input.body, AdminSmtReviewResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: SMT_KEY });
+    },
+  });
+}
+
+/** 고친 금액을 버리고 SmartSMT 가 보낸 금액으로 되돌린다. */
+export function useResetSmtReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiSend('DELETE', `${base}/quotes/${String(id)}/review`, undefined, AdminSmtReviewResponse),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: SMT_KEY });
     },

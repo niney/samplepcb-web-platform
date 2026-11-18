@@ -232,7 +232,11 @@ function openPulledQuote(): void {
                   {{ smtAmount(v.latest.finalTotal, v.latest.currency) }}
                 </div>
                 <!-- 최종 금액이 미정이면 SmartSMT 의 추정(고객 화면의 가견적)을 보조로 — 확정으로 읽히지 않게 이름을 붙인다. -->
-                <template v-if="v.latest.finalTotal === null">
+                <!-- 관리자가 항목 금액을 확정했으면 그 합계를 먼저 보인다. -->
+                <div v-if="v.latest.reviewStatus === 'confirmed'" class="text-success text-xs tabular-nums" data-testid="smt-row-confirmed">
+                  확정 {{ smtAmount(v.latest.reviewTotal, v.latest.currency) }}
+                </div>
+                <template v-else-if="v.latest.finalTotal === null">
                   <div
                     v-if="v.latest.finalEstimatedTotal !== null"
                     class="text-muted-foreground text-xs tabular-nums"

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import auth from '../plugins/auth';
 import { downloadFromFileServer } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
+import { buildSampleEnvelope } from '../lib/smartsmt-sample';
 import { pullSmartsmtQuote } from '../lib/smartsmt-pull';
 import type * as SmartsmtPull from '../lib/smartsmt-pull';
 import { adminSmtRoutes } from './admin-smt';
@@ -16,6 +17,7 @@ const { db } = vi.hoisted(() => ({
     spSmtQuote: { findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     spFile: { findMany: vi.fn(), findUnique: vi.fn() },
     spSmtReceiveLog: { findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
+    spSmtReview: { upsert: vi.fn(), deleteMany: vi.fn() },
   },
 }));
 vi.mock('../lib/prisma', () => ({ prisma: db }));
@@ -56,6 +58,7 @@ const quoteRow = (over: Record<string, unknown> = {}) => ({
   smtEstimatedTotal: null,
   finalEstimatedTotal: null,
   blockedBy: [],
+  review: null,
   ...over,
 });
 const orderRow = (over: Record<string, unknown> = {}) => ({
@@ -94,7 +97,7 @@ afterAll(async () => {
   vi.unstubAllEnvs();
 });
 
-const call = (method: 'GET' | 'POST', url: string, options: { identity?: typeof admin | null; body?: unknown } = {}) => {
+const call = (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, options: { identity?: typeof admin | null; body?: unknown } = {}) => {
   const identity = options.identity === undefined ? admin : options.identity;
   return app.inject({
     method,
@@ -112,8 +115,10 @@ describe('SmartSMT 관리자 API — 권한', () => {
     ['GET', '/smt/receive-logs'],
     ['GET', '/smt/link-status'],
     ['POST', '/smt/pull'],
+    ['PUT', '/smt/quotes/70/review'],
+    ['DELETE', '/smt/quotes/70/review'],
   ] as const)('%s %s — 비로그인 401, 일반 회원 403, 아무것도 조회하지 않는다', async (method, url) => {
-    const body = method === 'POST' ? { orderId: 'O-1' } : undefined;
+    const body = method === 'POST' ? { orderId: 'O-1' } : method === 'PUT' ? { lineAmounts: {} } : undefined;
     expect((await call(method, url, { identity: null, body })).statusCode).toBe(401);
     expect((await call(method, url, { identity: member, body })).statusCode).toBe(403);
     for (const model of Object.values(db)) for (const fn of Object.values(model)) expect(fn).not.toHaveBeenCalled();
@@ -368,5 +373,104 @@ describe('SmartSMT 관리자 API — 견적서 가져오기', () => {
     expect((await call('POST', '/smt/pull', { body: {} })).statusCode).toBe(400);
     expect((await call('POST', '/smt/pull', { body: { orderId: 'x'.repeat(101) } })).statusCode).toBe(400);
     expect(pull).not.toHaveBeenCalled();
+  });
+});
+
+describe('SmartSMT 관리자 API — 견적 확정(항목별 가격 수정)', () => {
+  // 실제로 받은 모양(판 9)의 견본: 줄 STN-01 120,000 · SMT-P03 미정, 블록 PCB 87,000 · 부품 15,360 · 배송 미정, 요율 8 · 10 · 10.
+  const stored = () => ({ id: 70n, quoteId: 'Q-1', envelope: JSON.stringify(buildSampleEnvelope({ review: true })) });
+  const now = new Date('2026-11-19T01:00:00Z');
+  beforeEach(() => {
+    db.spSmtQuote.findUnique.mockResolvedValue(stored());
+    db.spSmtReview.upsert.mockImplementation(({ create }: { create: Record<string, unknown> }) =>
+      Promise.resolve({ id: 1n, ...create, createdAt: now, updatedAt: now }),
+    );
+    db.spSmtReview.deleteMany.mockResolvedValue({ count: 1 });
+  });
+  const saved = (): Record<string, unknown> =>
+    (db.spSmtReview.upsert.mock.calls[0]?.[0] as { create: Record<string, unknown> }).create;
+
+  it('항목 금액만 받고 합계는 서버가 계산해 저장한다 — 임시 저장', async () => {
+    const res = await call('PUT', '/smt/quotes/70/review', {
+      body: { lineAmounts: { 'STN-01': 100000 }, blockAmounts: {}, customerNote: '  피더 수량 확인 중입니다  ' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(saved()).toMatchObject({
+      quoteRefId: 70n,
+      status: 'draft',
+      lineAmounts: { 'STN-01': 100000 },
+      blockAmounts: {},
+      customerNote: '피더 수량 확인 중입니다',
+      directCost: 100000,
+      indirectCost: 8000,
+      profit: 10800,
+      supplyPrice: 221160, // 118,800 + PCB 87,000 + 부품 15,360
+      vat: 22116,
+      total: 243276,
+      updatedBy: 'admin',
+      confirmedAt: null,
+    });
+    const review = res.json<Body>().data.review as { status: string; totals: Record<string, unknown>; confirmedAt: unknown };
+    expect(review.status).toBe('draft');
+    expect(review.totals).toMatchObject({ total: 243276, unknownLines: ['SMT-P03'], unknownBlocks: ['SHIPPING'], complete: false });
+    expect(review.confirmedAt).toBeNull();
+  });
+
+  it('빈 금액이 남아 있으면 확정하지 않는다 (409, 저장하지 않는다)', async () => {
+    const res = await call('PUT', '/smt/quotes/70/review', { body: { lineAmounts: { 'SMT-P03': 30000 }, confirm: true } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ message: string }>().message).toContain('SHIPPING');
+    expect(db.spSmtReview.upsert).not.toHaveBeenCalled();
+  });
+
+  it('빈 항목을 모두 채우면 확정한다 — 0원도 정한 금액이다', async () => {
+    const res = await call('PUT', '/smt/quotes/70/review', {
+      body: { lineAmounts: { 'SMT-P03': 30000 }, blockAmounts: { SHIPPING: 0 }, confirm: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(saved()).toMatchObject({ status: 'confirmed', directCost: 150000, indirectCost: 12000, profit: 16200, supplyPrice: 280560, vat: 28056, total: 308616 });
+    expect(saved().confirmedAt).toBeInstanceOf(Date);
+    expect((res.json<Body>().data.review as { totals: { complete: boolean } }).totals.complete).toBe(true);
+  });
+
+  it('이 견적에 없는 줄 · 사지 않는 블록의 금액은 버린다', async () => {
+    const res = await call('PUT', '/smt/quotes/70/review', {
+      body: { lineAmounts: { 'NO-SUCH': 5 }, blockAmounts: { GHOST: 7 } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(saved()).toMatchObject({ lineAmounts: {}, blockAmounts: {} });
+  });
+
+  it('금액은 0 이상의 정수만 받는다 (400)', async () => {
+    for (const bad of [-1, 1.5, '1000', null]) {
+      const res = await call('PUT', '/smt/quotes/70/review', { body: { lineAmounts: { 'STN-01': bad } } });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(db.spSmtReview.upsert).not.toHaveBeenCalled();
+  });
+
+  it('없는 견적은 404, 견적서를 읽을 수 없으면 409', async () => {
+    db.spSmtQuote.findUnique.mockResolvedValue(null);
+    expect((await call('PUT', '/smt/quotes/70/review', { body: {} })).statusCode).toBe(404);
+    db.spSmtQuote.findUnique.mockResolvedValue({ id: 70n, quoteId: 'Q-1', envelope: '{broken' });
+    expect((await call('PUT', '/smt/quotes/70/review', { body: {} })).statusCode).toBe(409);
+    expect(db.spSmtReview.upsert).not.toHaveBeenCalled();
+  });
+
+  it('되돌리기 — 고친 금액을 지운다', async () => {
+    const res = await call('DELETE', '/smt/quotes/70/review');
+    expect(res.statusCode).toBe(200);
+    expect(db.spSmtReview.deleteMany).toHaveBeenCalledWith({ where: { quoteRefId: 70n } });
+    expect(res.json<Body>().data.review).toBeNull();
+  });
+
+  it('목록은 확정 상태와 그때의 합계를 함께 준다', async () => {
+    db.spSmtOrder.count.mockResolvedValue(1);
+    db.spSmtOrder.findMany.mockResolvedValue([
+      { ...orderRow(), latestQuote: quoteRow({ finalTotal: null, review: { status: 'confirmed', total: new Prisma.Decimal(308616) } }) },
+    ]);
+    const res = await call('GET', '/smt/orders');
+    expect(res.statusCode).toBe(200);
+    expect(res.json<Body>().data.items[0]?.latest).toMatchObject({ reviewStatus: 'confirmed', reviewTotal: 308616, finalTotal: null });
   });
 });

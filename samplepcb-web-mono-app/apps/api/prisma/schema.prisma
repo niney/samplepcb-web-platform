@@ -2619,10 +2619,36 @@ model SpSmtQuote {
   receivedAt       DateTime    @default(now())
   order            SpSmtOrder  @relation("SmtOrderQuotes", fields: [orderRefId], references: [id], onDelete: Cascade)
   latestFor        SpSmtOrder? @relation("SmtOrderLatestQuote")
+  review           SpSmtReview?
 
   @@index([orderRefId, id])
   @@index([receivedAt])
   @@map("sp_smt_quote")
+}
+
+// SmartSMT 견적의 관리자 확정 — 항목별 가격 수정(docs/SMARTSMT_INTEGRATION.md §9). 견적 하나에 한 벌.
+// 관리자는 견적 줄 · 블록의 금액만 고친다. 합계(간접비 · 기업이윤 · 부가세 포함)는 저장할 때 서버가 계산해 함께 남긴다.
+model SpSmtReview {
+  id           BigInt     @id @default(autoincrement())
+  quoteRefId   BigInt     @unique // 고친 견적(sp_smt_quote)
+  status       String     @db.VarChar(16) // draft(임시 저장) | confirmed(확정)
+  lineAmounts  Json // 견적 줄 금액 덮어쓰기 { lines[].code: 금액 } — 없는 줄은 SmartSMT 금액 그대로
+  blockAmounts Json // 블록 금액 덮어쓰기 { PCB | PARTS | SHIPPING …: 금액 }
+  customerNote String?    @db.Text // 고객 안내 글
+  directCost   Decimal    @db.Decimal(16, 2) // 직접공정비 = 견적 줄 금액의 합
+  indirectCost Decimal    @db.Decimal(16, 2)
+  profit       Decimal    @db.Decimal(16, 2)
+  supplyPrice  Decimal    @db.Decimal(16, 2) // 공급가액 = 직접 + 간접 + 이윤 + 블록
+  vat          Decimal    @db.Decimal(16, 2)
+  total        Decimal    @db.Decimal(16, 2)
+  totals       Json // 계산 결과 전체(요율 · 빈 항목 포함) — 계약 SmartsmtSheetTotals
+  updatedBy    String?    @db.VarChar(60)
+  confirmedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  quote        SpSmtQuote @relation(fields: [quoteRefId], references: [id], onDelete: Cascade)
+
+  @@map("sp_smt_review")
 }
 
 // 견적서 수신 시도 1건. 보내는 쪽은 재시도가 없고 화면에 HTTP_<코드> 만 띄우므로, "왜 실패했는가"는

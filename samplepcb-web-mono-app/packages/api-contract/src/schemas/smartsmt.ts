@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AdminSmtReview } from './smartsmt-review';
 
 // SmartSMT 연동 — 견적서 수신 계약 (docs/SMARTSMT_INTEGRATION.md).
 //
@@ -145,6 +146,12 @@ export const AdminSmtQuoteSummary = z.object({
    */
   smtEstimatedTotal: z.number().nullable(),
   finalEstimatedTotal: z.number().nullable(),
+  /**
+   * 관리자 확정(항목별 가격 수정, smartsmt-review.ts) — draft 임시 저장 · confirmed 확정. 손대지 않았으면 null.
+   * reviewTotal 은 그때 계산한 합계(부가세 포함).
+   */
+  reviewStatus: z.string().nullable(),
+  reviewTotal: z.number().nullable(),
   /** 합계를 막은 블록 이름. 비어 있지 않으면 합계 미확정. */
   blockedBy: z.array(z.string()),
 });
@@ -212,6 +219,8 @@ export const AdminSmtQuoteDetailResponse = z.object({
      */
     envelope: z.record(z.string(), z.unknown()),
     files: z.array(AdminSmtQuoteFile),
+    /** 관리자가 항목 금액을 고쳐 저장한 것. 없으면 null. */
+    review: AdminSmtReview.nullable(),
     /** 같은 주문의 견적들(최근 것부터). */
     history: z.array(AdminSmtQuoteSummary.extend({ isLatest: z.boolean() })),
   }),

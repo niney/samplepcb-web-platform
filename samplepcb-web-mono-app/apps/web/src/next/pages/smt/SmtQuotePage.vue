@@ -27,7 +27,7 @@ import TableCard from '@/next/components/common/TableCard.vue';
 import TableEmptyRow from '@/next/components/common/TableEmptyRow.vue';
 import SmtBlocksSection from '@/next/components/smt/SmtBlocksSection.vue';
 import SmtFieldGrid from '@/next/components/smt/SmtFieldGrid.vue';
-import SmtQuoteLinesSection from '@/next/components/smt/SmtQuoteLinesSection.vue';
+import SmtQuoteSheet from '@/next/components/smt/SmtQuoteSheet.vue';
 import {
   smtBlockNames,
   smtBlockedBadge,
@@ -44,8 +44,8 @@ import {
   usePullSmtQuote,
 } from '@/next/components/smt/useAdminSmt';
 
-// SMT 견적 상세 — docs/SMARTSMT_INTEGRATION.md §4.6. 받은 견적서 한 건을 위에서 아래로:
-// 머리 → 금액(최종 금액 = 통합 합계) → 주문 정보 → 견적 줄(SMT 작업비) → 통합 합계 블록 → 경고 → 고객 요청 →
+// SMT 견적 상세 — docs/SMARTSMT_INTEGRATION.md §4.6 · §9. 받은 견적서 한 건을 위에서 아래로:
+// 머리 → 금액(최종 금액 = 통합 합계) → 견적서(항목별로 금액을 고쳐 확정) → 주문 정보 → 통합 합계 블록 → 경고 → 고객 요청 →
 // 동봉 파일 → 견적 이력 → 요율·제어값(접힘) → 원문(접힘).
 // 견적서(envelope)는 바깥 JSON 이라 칸이 없거나 모양이 달라도 죽지 않게 smt-envelope.ts 가 타입 가드로 읽는다.
 // 견적서의 글자는 글자로만 넣는다(v-html 없음). 이 화면은 관리자 전용 값(labor_charge·user_edits)을 담은
@@ -303,6 +303,15 @@ async function copyRaw(): Promise<void> {
         </div>
       </SectionCard>
 
+      <!-- 견적서 — SmartSMT 통합 견적서와 같은 순서. 항목의 금액을 고치면 합계가 다시 계산된다. -->
+      <SmtQuoteSheet
+        v-if="quoteRowId !== null"
+        :quote-row-id="quoteRowId"
+        :envelope="detail.envelope"
+        :review="detail.review"
+        :currency="currency"
+      />
+
       <SectionCard title="주문 정보">
         <SmtFieldGrid title="고객 · 시각" :fields="customerFields" />
         <SmtFieldGrid title="요율 판" :fields="view.versions" />
@@ -310,14 +319,6 @@ async function copyRaw(): Promise<void> {
         <SmtFieldGrid title="수량" :fields="view.quantities" />
         <SmtFieldGrid v-if="pcbSpecFields.length > 0" title="PCB 사양 (고객 입력)" :fields="pcbSpecFields" />
       </SectionCard>
-
-      <SmtQuoteLinesSection
-        :lines="view.lines"
-        :subtotals="view.subtotals"
-        :costs="view.costs"
-        :estimates="view.estimates?.smt ?? []"
-        :currency="currency"
-      />
 
       <SmtBlocksSection :blocks="view.blocks" :known="view.known" :currency="currency" />
 
@@ -429,8 +430,11 @@ async function copyRaw(): Promise<void> {
               </TableCell>
               <TableCell class="text-right font-medium tabular-nums" :class="entry.finalTotal === null ? 'text-warning' : ''">
                 {{ smtAmount(entry.finalTotal, entry.currency) }}
+                <div v-if="entry.reviewStatus === 'confirmed'" class="text-success text-xs font-normal">
+                  확정 {{ smtAmount(entry.reviewTotal, entry.currency) }}
+                </div>
                 <div
-                  v-if="entry.finalTotal === null && entry.finalEstimatedTotal !== null"
+                  v-else-if="entry.finalTotal === null && entry.finalEstimatedTotal !== null"
                   class="text-muted-foreground text-xs font-normal"
                 >
                   {{ smtEstimate(entry.finalEstimatedTotal, entry.currency) }}

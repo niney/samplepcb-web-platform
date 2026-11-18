@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FastifyBaseLogger } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
-import type { Prisma, SpSmtOrder } from '@prisma/client';
+import type { Prisma, SpSmtOrder, SpSmtReview } from '@prisma/client';
 import {
   AdminSmtLinkStatusResponse,
   AdminSmtOrderListQuery,
@@ -11,7 +11,13 @@ import {
   AdminSmtQuoteDetailResponse,
   AdminSmtReceiveLogQuery,
   AdminSmtReceiveLogResponse,
+  AdminSmtReviewBody,
+  AdminSmtReviewResponse,
   ApiError,
+  SmartsmtSheetTotals,
+  computeSmartsmtSheet,
+  pickSmartsmtSheetEdits,
+  readSmartsmtSheetInput,
 } from '@sp/api-contract';
 import type {
   SmartsmtReceiveResult,
@@ -19,6 +25,7 @@ import type {
   AdminSmtOrderType,
   AdminSmtQuoteFileType,
   AdminSmtQuoteSummaryType,
+  AdminSmtReviewType,
 } from '@sp/api-contract';
 import { downloadFromFileServer } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
@@ -51,6 +58,7 @@ const QUOTE_SUMMARY_SELECT = {
   smtEstimatedTotal: true,
   finalEstimatedTotal: true,
   blockedBy: true,
+  review: { select: { status: true, total: true } },
 } satisfies Prisma.SpSmtQuoteSelect;
 type QuoteSummaryRow = Prisma.SpSmtQuoteGetPayload<{ select: typeof QUOTE_SUMMARY_SELECT }>;
 
@@ -73,7 +81,31 @@ const toQuoteSummary = (row: QuoteSummaryRow): AdminSmtQuoteSummaryType => ({
   smtEstimatedTotal: toNumber(row.smtEstimatedTotal),
   finalEstimatedTotal: toNumber(row.finalEstimatedTotal),
   blockedBy: toStrings(row.blockedBy),
+  reviewStatus: row.review?.status ?? null,
+  reviewTotal: row.review === null ? null : row.review.total.toNumber(),
 });
+
+const toAmounts = (value: Prisma.JsonValue): Record<string, number> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === 'number'))
+    : {};
+
+/** 저장된 확정 한 벌. 계산 결과를 읽지 못하면(모양이 바뀜) 없는 것으로 본다 — 화면은 SmartSMT 금액에서 다시 시작한다. */
+const toReview = (row: SpSmtReview | null): AdminSmtReviewType | null => {
+  if (row === null) return null;
+  const totals = SmartsmtSheetTotals.safeParse(row.totals);
+  if (!totals.success) return null;
+  return {
+    status: row.status === 'confirmed' ? 'confirmed' : 'draft',
+    lineAmounts: toAmounts(row.lineAmounts),
+    blockAmounts: toAmounts(row.blockAmounts),
+    customerNote: row.customerNote ?? '',
+    totals: totals.data,
+    updatedBy: row.updatedBy,
+    updatedAt: row.updatedAt.toISOString(),
+    confirmedAt: row.confirmedAt?.toISOString() ?? null,
+  };
+};
 
 const toOrder = (row: SpSmtOrder, members: ReadonlySet<string> | null): AdminSmtOrderType => ({
   id: Number(row.id),
@@ -186,7 +218,7 @@ export const adminSmtRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     async (request, reply) => {
       const quote = await prisma.spSmtQuote.findUnique({
         where: { id: request.params.id },
-        include: { order: true },
+        include: { order: true, review: true },
       });
       if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
 
@@ -230,9 +262,92 @@ export const adminSmtRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
           },
           envelope,
           files: toQuoteFiles(quote.files, stored),
+          review: toReview(quote.review),
           history: history.map((row) => ({ ...toQuoteSummary(row), isLatest: latestId === row.id })),
         },
       };
+    },
+  );
+
+  // 관리자 확정 — 항목(견적 줄 · 블록)의 금액을 고쳐 저장한다. 합계는 받지 않는다: 저장된 견적서와 고친 금액으로
+  // 서버가 다시 계산한다(직접공정비 → 간접비 → 기업이윤 → 공급가액 → 부가세, 계약 computeSmartsmtSheet).
+  // confirm=true 는 빈 금액이 하나도 없을 때만 받는다. 견적 하나에 한 벌이라 다시 저장하면 덮어쓴다.
+  fastify.put(
+    '/smt/quotes/:id/review',
+    {
+      schema: {
+        params: IdParams,
+        body: AdminSmtReviewBody,
+        response: { 200: AdminSmtReviewResponse, 404: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const quote = await prisma.spSmtQuote.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, quoteId: true, envelope: true },
+      });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+
+      let envelope: unknown = null;
+      try {
+        envelope = JSON.parse(quote.envelope);
+      } catch {
+        // 아래에서 "고칠 항목이 없다"로 답한다.
+      }
+      const input = readSmartsmtSheetInput(envelope);
+      if (input.lines.length === 0 && input.blocks.length === 0) {
+        return reply.conflict('이 견적서에는 고칠 항목이 없습니다');
+      }
+      // 이 견적에 없는 줄 · 사지 않는 블록의 금액은 버린다(화면이 옛 견적의 값을 들고 있었을 때).
+      const edits = pickSmartsmtSheetEdits(input, {
+        lineAmounts: request.body.lineAmounts,
+        blockAmounts: request.body.blockAmounts,
+      });
+      const totals = computeSmartsmtSheet(input, edits);
+      if (request.body.confirm && !totals.complete) {
+        const empty = [...totals.unknownLines, ...totals.unknownBlocks].join(', ');
+        return reply.conflict(`금액이 비어 있는 항목이 있어 확정할 수 없습니다 (${empty})`);
+      }
+
+      const note = request.body.customerNote.trim();
+      const data = {
+        status: request.body.confirm ? 'confirmed' : 'draft',
+        lineAmounts: { ...edits.lineAmounts },
+        blockAmounts: { ...edits.blockAmounts },
+        customerNote: note === '' ? null : note,
+        directCost: totals.directCost,
+        indirectCost: totals.indirectCost,
+        profit: totals.profit,
+        supplyPrice: totals.supplyPrice,
+        vat: totals.vat,
+        total: totals.total,
+        totals: { ...totals },
+        updatedBy: request.user.mbId,
+        confirmedAt: request.body.confirm ? new Date() : null,
+      };
+      const row = await prisma.spSmtReview.upsert({
+        where: { quoteRefId: quote.id },
+        create: { quoteRefId: quote.id, ...data },
+        update: data,
+      });
+      request.log.info(
+        { quoteId: quote.quoteId, status: data.status, total: totals.total, by: request.user.mbId },
+        'smartsmt: 견적 확정 저장',
+      );
+      return { result: true as const, data: { review: toReview(row) } };
+    },
+  );
+
+  // 고친 금액을 버리고 SmartSMT 가 보낸 금액으로 되돌린다.
+  fastify.delete(
+    '/smt/quotes/:id/review',
+    { schema: { params: IdParams, response: { 200: AdminSmtReviewResponse } } },
+    async (request) => {
+      const removed = await prisma.spSmtReview.deleteMany({ where: { quoteRefId: request.params.id } });
+      if (removed.count > 0) {
+        request.log.info({ quoteRowId: Number(request.params.id), by: request.user.mbId }, 'smartsmt: 견적 확정 되돌림');
+      }
+      return { result: true as const, data: { review: null } };
     },
   );
 

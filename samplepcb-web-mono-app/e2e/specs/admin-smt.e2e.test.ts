@@ -313,8 +313,11 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
     for (const text of ['주문 정보', 'PRICING_V1', '양면', '도급', '대기', 'E2E 고객', member]) expect(body).toContain(text);
 
     const lines = (await page.getByTestId('smt-lines').textContent()) ?? '';
-    for (const text of ['STN-01', '메탈마스크 제작', 'SET 당', '120,000원 × 1 SET', '확정']) expect(lines).toContain(text);
-    expect((await page.getByTestId('smt-costs').textContent()) ?? '').toContain('1,042,826원');
+    for (const text of ['STN-01', '메탈마스크 제작', '120,000원 × 1 SET', '간접비', '기업이윤']) expect(lines).toContain(text);
+    // 합계는 항목에서 계산된다 — 줄 120,000 → 간접비 9,600 · 이윤 12,960 = 공급가액 142,560(PCB 는 금액이 비어 0 으로 센다).
+    const costs = (await page.getByTestId('smt-costs').textContent()) ?? '';
+    for (const text of ['120,000원', '22,560원', '142,560원', '14,256원', '156,816원']) expect(costs).toContain(text);
+    expect((await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('고치지 않음');
 
     const blocks = (await page.getByTestId('smt-blocks').textContent()) ?? '';
     for (const text of ['PCB', 'GerberEye', '몇 장분인지 확인되지 않음', 'QTY_UNVERIFIED', '금액은 있지만 안 든다']) {
@@ -482,7 +485,6 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
       expect(estimates).toContain(text);
     }
     await page.getByText('합계가 막혔습니다: 부품, 배송, SMT 작업비').waitFor();
-    expect((await page.getByTestId('smt-cost-estimates').textContent()) ?? '').toContain('396,979원');
 
     const body = await page.locator('body').innerText();
     for (const text of [
@@ -502,7 +504,7 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
     expect(body).not.toContain('"mb_id"');
 
     const lines = (await page.getByTestId('smt-lines').textContent()) ?? '';
-    for (const text of ['작업 준비', '실장', '피더 작업비', '피더 칸당', '입력값 없음']) expect(lines).toContain(text);
+    for (const text of ['메탈마스크', 'SMT', '피더 작업비', '입력값 없음', '배송', '관리자가 정합니다']) expect(lines).toContain(text);
 
     const blocks = (await page.getByTestId('smt-blocks').textContent()) ?? '';
     for (const text of ['부품', '배송', 'GerberEye', 'PartsEyes', '사람이 입력', '입력 대기', '추정', '일부', '사람이 적을 값이 오지 않음']) {
@@ -511,6 +513,63 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
     expect(blocks).not.toContain('WAITING_INPUT');
 
     await snapTop(page, 'admin-smt-detail-v9');
+
+    // ── 항목별로 금액을 고친다 — 총액은 입력하지 않고 계산돼 나온다 ──────────────────────────────────
+    const total = page.getByTestId('smt-review-total');
+    const confirm = page.getByTestId('smt-review-confirm');
+    // SmartSMT 금액 그대로: 줄 120,000 → 간접비 9,600 · 이윤 12,960, + PCB 87,000 + 부품 15,360 = 244,920 → 합계 269,412.
+    expect(((await total.textContent()) ?? '').trim()).toBe('269,412원');
+    const empty = (await page.getByTestId('smt-sheet-empty').textContent()) ?? '';
+    expect(empty).toContain('2건');
+    expect(empty).toContain('피더 작업비');
+    expect(empty).toContain('배송');
+    expect(await confirm.isDisabled()).toBe(true);
+
+    // 빈 항목 둘을 채운다 — 피더 작업비 30,000 · 배송 5,000.
+    await page.getByTestId('smt-row-SMT-P03').getByRole('textbox').fill('30,000');
+    await expect.poll(async () => ((await total.textContent()) ?? '').trim()).toBe('308,616원');
+    await page.getByTestId('smt-row-SHIPPING').getByRole('textbox').fill('5000');
+    // 줄 150,000 → 간접비 12,000 · 이윤 16,200, + 87,000 + 15,360 + 5,000 = 285,560 → 부가세 28,556 → 314,116.
+    await expect.poll(async () => ((await total.textContent()) ?? '').trim()).toBe('314,116원');
+    expect((await page.getByTestId('smt-row-indirect').textContent()) ?? '').toContain('12,000원');
+    expect((await page.getByTestId('smt-row-profit').textContent()) ?? '').toContain('16,200원');
+    expect(await page.getByTestId('smt-sheet-empty').count()).toBe(0);
+    expect(await confirm.isDisabled()).toBe(false);
+
+    // 숫자가 아니면 저장할 수 없다.
+    await page.getByTestId('smt-row-STN-01').getByRole('textbox').fill('십만원');
+    await page.getByText('금액은 0 이상의 숫자로 넣어 주세요.').waitFor();
+    expect(await page.getByTestId('smt-review-save').isDisabled()).toBe(true);
+    await page.getByTestId('smt-row-STN-01').getByRole('textbox').fill('');
+
+    // 임시 저장 → 새로 불러와도 남아 있다.
+    await page.locator('#smt-review-note').fill('피더 작업비와 배송비를 반영했습니다.');
+    await page.getByTestId('smt-review-save').click();
+    await page.getByText('임시 저장했습니다.').waitFor();
+    expect((await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('임시 저장');
+    await page.reload();
+    await page.getByTestId('smt-lines').waitFor();
+    expect(await page.getByTestId('smt-row-SMT-P03').getByRole('textbox').inputValue()).toBe('30000');
+    expect(await page.getByTestId('smt-row-SHIPPING').getByRole('textbox').inputValue()).toBe('5000');
+    expect(await page.locator('#smt-review-note').inputValue()).toBe('피더 작업비와 배송비를 반영했습니다.');
+    expect(((await page.getByTestId('smt-review-total').textContent()) ?? '').trim()).toBe('314,116원');
+
+    // 확정 → 목록에 확정 합계가 보인다.
+    await page.getByTestId('smt-review-confirm').click();
+    await page.getByText('확정했습니다.').waitFor();
+    expect((await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('확정');
+    await page.goto(`/app/admin/smt/quotes?q=${encodeURIComponent(ORDER_E)}`);
+    await orderRow(page, ORDER_E).waitFor();
+    expect((await orderRow(page, ORDER_E).getByTestId('smt-row-confirmed').textContent()) ?? '').toContain('확정 314,116원');
+
+    // 되돌리기 → SmartSMT 금액으로.
+    await orderRow(page, ORDER_E).click();
+    await page.getByTestId('smt-lines').waitFor();
+    await page.getByTestId('smt-review-revert').click();
+    await page.getByText('SmartSMT 가 보낸 금액으로 되돌렸습니다.').waitFor();
+    expect((await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('고치지 않음');
+    expect(await page.getByTestId('smt-row-SMT-P03').getByRole('textbox').inputValue()).toBe('');
+    expect(((await page.getByTestId('smt-review-total').textContent()) ?? '').trim()).toBe('269,412원');
     expect(session.pageErrors).toEqual([]);
   });
 });
