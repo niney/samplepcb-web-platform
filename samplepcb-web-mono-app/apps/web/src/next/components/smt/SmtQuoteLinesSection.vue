@@ -14,6 +14,8 @@ defineProps<{
   lines: readonly SmtLine[];
   subtotals: readonly SmtSubtotal[];
   costs: readonly SmtCost[];
+  /** SMT 작업비 추정(확정 금액이 미정일 때 SmartSMT 가 싣는 가견적). 없으면 빈 배열. */
+  estimates: readonly SmtCost[];
   currency: string | null;
 }>();
 </script>
@@ -41,7 +43,7 @@ defineProps<{
           <TableCell>
             <span class="block max-w-xs truncate font-medium" :title="line.item">{{ line.item }}</span>
           </TableCell>
-          <TableCell class="text-muted-foreground font-mono text-xs">{{ line.group }}</TableCell>
+          <TableCell class="text-muted-foreground">{{ line.group }}</TableCell>
           <TableCell class="text-muted-foreground">{{ line.basis }}</TableCell>
           <TableCell class="text-muted-foreground">
             <span class="block max-w-xs truncate" :title="line.formula">{{ line.formula }}</span>
@@ -86,6 +88,21 @@ defineProps<{
             <dd class="tabular-nums">{{ smtAmount(cost.amount, currency) }}</dd>
           </div>
         </dl>
+        <!-- 확정 금액이 미정일 때 SmartSMT 가 함께 싣는 추정 — 확정 금액과 섞이지 않게 따로 둔다. -->
+        <template v-if="estimates.length > 0">
+          <h3 class="text-muted-foreground mt-2 text-xs font-medium">추정 금액 구성 <span class="font-normal">(확정 아님)</span></h3>
+          <dl class="flex flex-col gap-1 text-sm" data-testid="smt-cost-estimates">
+            <div
+              v-for="cost in estimates"
+              :key="cost.key"
+              class="flex justify-between gap-4"
+              :class="cost.key === 'estimated_total' ? 'border-t pt-1 font-semibold' : ''"
+            >
+              <dt :class="cost.key === 'estimated_total' ? '' : 'text-muted-foreground'" :title="cost.key">{{ cost.label }}</dt>
+              <dd class="tabular-nums">{{ smtAmount(cost.amount, currency) }}</dd>
+            </div>
+          </dl>
+        </template>
       </div>
     </div>
   </SectionCard>

@@ -15,6 +15,13 @@ export const smtAmount = (value: number | null, currency?: string | null): strin
   return `${FOREIGN.format(value)} ${currency}`;
 };
 
+/**
+ * 확정 금액이 미정인데 추정 금액이 있으면 '추정 1,234원' — 확정처럼 읽히지 않게 이름을 앞에 붙인다.
+ * 추정은 SmartSMT 가 고객 화면에 가견적으로 보이는 값(estimated_total)이다.
+ */
+export const smtEstimate = (estimated: number | null, currency?: string | null): string | null =>
+  estimated === null ? null : `추정 ${smtAmount(estimated, currency)}`;
+
 /** 수량·개수 — null 이면 '—'(금액이 아니므로 '미정'이라 하지 않는다). */
 export const smtCount = (value: number | null): string => (value === null ? '—' : FOREIGN.format(value));
 

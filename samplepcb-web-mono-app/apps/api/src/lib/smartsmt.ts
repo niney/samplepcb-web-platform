@@ -66,6 +66,10 @@ export interface SmartsmtEnvelopeSummary {
   finalVat: number | null;
   /** quote.integrated.totals.total — 최종 금액. */
   finalTotal: number | null;
+  /** quote.estimated_total — SMT 작업비 추정. 확정 금액(smtTotal)이 미정일 때 SmartSMT 가 싣는 가견적. */
+  smtEstimatedTotal: number | null;
+  /** quote.integrated.totals.estimated_total — 최종 금액 추정(고객 화면의 "최종합계"). 확정 금액이 아니다. */
+  finalEstimatedTotal: number | null;
   /** quote.integrated.blocked_by — 비어 있지 않으면 합계 미확정. 칸이 없으면 null. */
   blockedBy: string[] | null;
   ownerMbId: string | null;
@@ -101,6 +105,8 @@ export function summarizeSmartsmtEnvelope(envelope: SmartsmtEnvelopeType): Smart
     finalSupplyPrice: asAmount(totals?.supply_price),
     finalVat: asAmount(totals?.vat),
     finalTotal: asAmount(totals?.total),
+    smtEstimatedTotal: asAmount(quote.estimated_total),
+    finalEstimatedTotal: asAmount(totals?.estimated_total),
     blockedBy: Array.isArray(blocked) ? blocked.map((item) => String(item).slice(0, 64)) : null,
     ownerMbId: asText(edits?.owner_mb_id, 60),
     ownerName: asText(edits?.owner_name, 191),
@@ -332,6 +338,8 @@ export async function saveSmartsmtQuote(
           finalSupplyPrice: toDecimal(summary.finalSupplyPrice),
           finalVat: toDecimal(summary.finalVat),
           finalTotal: toDecimal(summary.finalTotal),
+          smtEstimatedTotal: toDecimal(summary.smtEstimatedTotal),
+          finalEstimatedTotal: toDecimal(summary.finalEstimatedTotal),
           blockedBy: summary.blockedBy ?? Prisma.DbNull,
           files: input.fileChecks.map((check) => ({ ...check })),
           envelope: input.envelopeText,

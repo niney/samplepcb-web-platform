@@ -29,7 +29,7 @@ import {
   smtQuoteStatusBadge,
   smtSourceBadge,
 } from '@/next/components/smt/smt-badges';
-import { smtAmount, smtCount, smtDateTime } from '@/next/components/smt/smt-format';
+import { smtAmount, smtCount, smtDateTime, smtEstimate } from '@/next/components/smt/smt-format';
 import {
   findSmtQuoteRowId,
   useAdminSmtOrders,
@@ -231,10 +231,19 @@ function openPulledQuote(): void {
                 <div class="font-medium tabular-nums" :class="v.latest.finalTotal === null ? 'text-warning' : ''">
                   {{ smtAmount(v.latest.finalTotal, v.latest.currency) }}
                 </div>
-                <!-- 최종 금액이 미정이면 아는 것(SMT 작업비)을 보조로 — 최종 금액으로 읽히지 않게 이름을 붙인다. -->
-                <div v-if="v.latest.finalTotal === null" class="text-muted-foreground text-xs tabular-nums">
-                  SMT 작업비 {{ smtAmount(v.latest.smtTotal, v.latest.currency) }}
-                </div>
+                <!-- 최종 금액이 미정이면 SmartSMT 의 추정(고객 화면의 가견적)을 보조로 — 확정으로 읽히지 않게 이름을 붙인다. -->
+                <template v-if="v.latest.finalTotal === null">
+                  <div
+                    v-if="v.latest.finalEstimatedTotal !== null"
+                    class="text-muted-foreground text-xs tabular-nums"
+                    data-testid="smt-row-estimate"
+                  >
+                    {{ smtEstimate(v.latest.finalEstimatedTotal, v.latest.currency) }}
+                  </div>
+                  <div v-else class="text-muted-foreground text-xs tabular-nums">
+                    SMT 작업비 {{ smtAmount(v.latest.smtTotal, v.latest.currency) }}
+                  </div>
+                </template>
               </template>
               <span v-else class="text-muted-foreground">—</span>
             </TableCell>

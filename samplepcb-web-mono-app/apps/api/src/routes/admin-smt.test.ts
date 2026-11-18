@@ -53,6 +53,8 @@ const quoteRow = (over: Record<string, unknown> = {}) => ({
   quantity: 20,
   smtTotal: new Prisma.Decimal(1042826),
   finalTotal: new Prisma.Decimal(1186232),
+  smtEstimatedTotal: null,
+  finalEstimatedTotal: null,
   blockedBy: [],
   ...over,
 });
@@ -154,6 +156,30 @@ describe('SmartSMT 관리자 API — 받은 견적 목록', () => {
     // 목록은 견적서 본문을 읽지 않는다.
     const args = db.spSmtOrder.findMany.mock.calls[0]?.[0] as { include: { latestQuote: { select: Record<string, unknown> } } };
     expect(args.include.latestQuote.select).not.toHaveProperty('envelope');
+  });
+
+  it('확정 금액이 미정인 견적은 추정 금액을 따로 준다 — 확정 자리에 넣지 않는다', async () => {
+    db.spSmtOrder.findMany.mockResolvedValue([
+      {
+        ...orderRow(),
+        latestQuote: quoteRow({
+          smtTotal: null,
+          finalTotal: null,
+          smtEstimatedTotal: new Prisma.Decimal(396979),
+          finalEstimatedTotal: new Prisma.Decimal(509575),
+          blockedBy: ['PARTS', 'SHIPPING', 'DETAIL'],
+          quoteStatus: 'REVIEW_REQUIRED',
+        }),
+      },
+    ]);
+    const res = await call('GET', '/smt/orders');
+    expect(res.statusCode).toBe(200);
+    expect(res.json<Body>().data.items[0]?.latest).toMatchObject({
+      smtTotal: null,
+      finalTotal: null,
+      smtEstimatedTotal: 396979,
+      finalEstimatedTotal: 509575,
+    });
   });
 
   it('탭과 검색어가 조건으로 들어간다', async () => {

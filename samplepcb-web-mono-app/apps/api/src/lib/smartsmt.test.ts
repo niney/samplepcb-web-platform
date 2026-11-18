@@ -42,6 +42,28 @@ describe('SmartSMT 견적서에서 목록용 값 뽑기', () => {
     expect(summary.smtTotal).toBe(1042826);
   });
 
+  it('실제로 받은 모양(판 9) — 확정 금액은 미정이고 추정 금액을 따로 뽑는다', () => {
+    const summary = summarize(buildSampleEnvelope({ review: true }));
+    expect(summary).toMatchObject({
+      envelopeVersion: '9',
+      quoteStatus: 'REVIEW_REQUIRED',
+      smtTotal: null,
+      finalSupplyPrice: null,
+      finalVat: null,
+      finalTotal: null,
+      smtEstimatedTotal: 396979,
+      finalEstimatedTotal: 509575,
+      blockedBy: ['PARTS', 'SHIPPING', 'DETAIL'],
+    });
+  });
+
+  it('추정 금액이 없는 견적(양식 0.3)은 추정을 null 로 둔다 — 확정 금액을 추정 자리에 넣지 않는다', () => {
+    const summary = summarize(buildSampleEnvelope());
+    expect(summary.finalTotal).toBe(1186232);
+    expect(summary.smtEstimatedTotal).toBeNull();
+    expect(summary.finalEstimatedTotal).toBeNull();
+  });
+
   it('0 은 0원이다 — 미정과 섞지 않는다', () => {
     const envelope = buildSampleEnvelope() as { quote: { total: number; integrated: { totals: Record<string, number> } } };
     envelope.quote.total = 0;
@@ -72,6 +94,8 @@ describe('SmartSMT 견적서에서 목록용 값 뽑기', () => {
       finalSupplyPrice: null,
       finalVat: null,
       finalTotal: null,
+      smtEstimatedTotal: null,
+      finalEstimatedTotal: null,
       blockedBy: null,
       ownerMbId: null,
       ownerName: null,

@@ -1,7 +1,11 @@
 import {
   SMARTSMT_ASSEMBLY_SIDES_LABELS,
   SMARTSMT_BASIS_LABELS,
+  SMARTSMT_LINE_GROUP_LABELS,
   SMARTSMT_ORDER_SCENARIO_LABELS,
+  SMARTSMT_PACKING_MODE_LABELS,
+  SMARTSMT_PROCESS_LABELS,
+  SMARTSMT_QUANTITY_LABELS,
   SMARTSMT_REFLOW_LABELS,
   SMARTSMT_STRATEGY_LABELS,
   SMARTSMT_SUPPLY_LABELS,
@@ -11,8 +15,9 @@ import {
 // SmartSMT 견적서(envelope)를 화면용 값으로 읽는다 — 견적 상세(SmtQuotePage)가 쓴다.
 //
 // 견적서는 바깥(SmartSMT)이 만든 JSON 이고 계약은 꼭 필요한 칸만 검사한다(나머지는 모르는 칸까지 그대로 온다).
-// 지금 칸 구성은 문서로 짠 가짜 견본(apps/api lib/smartsmt-sample.ts)에 맞췄을 뿐이라 실제 견적서는 칸이 더 있거나
-// 없거나 모양이 다를 수 있다. 그래서 모든 칸을 타입 가드로 읽고, 없거나 모양이 다르면 빈 값('—')으로 둔다 —
+// 칸 구성은 「견적서 전송 양식 0.3」으로 짠 뒤 **실제 견적서(envelope_version 9, 2026-11-18 수신분)** 에 맞춰 고쳤다 —
+// 추정 금액(estimated_*) · 수량 칸 이름(…_set_qty) · 주문 공정(processes) · 고객 요청(quote_request.text · preorder).
+// 양식은 또 바뀔 수 있다. 그래서 모든 칸을 타입 가드로 읽고, 없거나 모양이 다르면 빈 값('—')으로 둔다 —
 // 화면이 죽지 않는 것이 먼저다. 아는 칸에 없는 값은 '원문' 섹션에서 그대로 볼 수 있다.
 // 코드 값은 계약의 라벨 사전으로 읽고, 사전에 없으면 코드 그대로(smartsmtLabel).
 
@@ -104,6 +109,16 @@ export interface SmtBlock {
   reason: string | null;
 }
 
+/** 추정 금액 — 확정 금액이 미정일 때 SmartSMT 가 따로 싣는 가견적. 확정 금액이 아니다. */
+export interface SmtEstimates {
+  /** 통합(최종) 추정 — 공급가 · 부가세 · 합계. 고객 화면의 "최종합계"가 이 합계다. */
+  final: SmtCost[];
+  /** 추정에 든 블록(integrated.totals.estimated_blocks). */
+  finalBlocks: string[];
+  /** SMT 작업비 추정 — 금액이 확인된 줄의 합 · 간접비 · 이윤 · 공급가 · 부가세 · 합계. */
+  smt: SmtCost[];
+}
+
 export interface SmtKnown {
   sum: number | null;
   blocks: string[];
@@ -138,6 +153,8 @@ export interface SmtQuoteView {
   lines: SmtLine[];
   subtotals: SmtSubtotal[];
   costs: SmtCost[];
+  /** 추정 금액이 하나도 오지 않았으면 null. */
+  estimates: SmtEstimates | null;
   blocks: SmtBlock[];
   /** 참고값 — 금액이 확인된 블록의 합(integrated.known). 합계가 아니다. */
   known: SmtKnown | null;
@@ -145,6 +162,8 @@ export interface SmtQuoteView {
   request: SmtRequestField[];
   controls: SmtEntry[];
   rates: SmtEntry[];
+  /** 고객이 넣은 PCB 사양(user_edits.pcb_spec_inputs) — 칸 이름은 SmartSMT 화면의 것 그대로. */
+  pcbSpec: SmtEntry[];
 }
 
 // 라벨은 SmartSMT 「견적서 전송 양식 0.3」의 "뜻" 칸을 따른다(우리가 지어 붙인 이름이 아니다).
@@ -168,17 +187,25 @@ const CONDITION_FIELDS: readonly (readonly [string, string, Labels | null])[] = 
   ['cut_tape_types', '컷테이프 종수', null],
   ['fixture_quantity', '고정지그 수', null],
   ['hand_solder_pins', '수삽 핀 수 (보드 1장분)', null],
+  ['packing_mode', '포장', SMARTSMT_PACKING_MODE_LABELS],
 ];
 
-// 수량 7칸 — pcb_qty = 세트 × 제작 + 예비, 제작이 0 이면 PCB 만 주문(조립 0).
-const QUANTITY_FIELDS: readonly (readonly [string, string])[] = [
-  ['set_qty', '세트 (한 판의 PCB 수)'],
-  ['panel_qty', '제작 (PCBA 판 수)'],
-  ['spare_qty', '예비 (낱장 PCB)'],
-  ['order_type', '주문 구분'],
-  ['pcb_qty', 'PCB 장 수'],
-  ['pcb_price_qty', 'PCB 가격 기준 장 수'],
-  ['assembled_qty', '조립 보드 수'],
+// 수량은 온 칸을 온 순서대로 보인다 — 칸 이름이 양식 0.3(set_qty …)과 판 9(make_set_qty …)에서 다르다.
+// 라벨은 계약의 SMARTSMT_QUANTITY_LABELS, 사전에 없는 칸은 이름 그대로.
+
+const ESTIMATED_FINAL_FIELDS: readonly (readonly [string, string])[] = [
+  ['estimated_supply_price', '추정 공급가'],
+  ['estimated_vat', '추정 부가세'],
+  ['estimated_total', '추정 합계'],
+];
+
+const ESTIMATED_SMT_FIELDS: readonly (readonly [string, string])[] = [
+  ['known_subtotal', '금액이 확인된 줄의 합'],
+  ['estimated_indirect_cost', '추정 간접비'],
+  ['estimated_profit', '추정 이윤'],
+  ['estimated_supply_price', '추정 공급가'],
+  ['estimated_vat', '추정 부가세'],
+  ['estimated_total', '추정 합계 (SMT 작업비)'],
 ];
 
 const COST_FIELDS: readonly (readonly [string, string])[] = [
@@ -206,6 +233,14 @@ const REQUEST_FIELDS: readonly (readonly [string, string])[] = [
   ['remark_warn', '견적서 주의 문구'],
 ];
 
+// 주문 전 단계에서 고객이 고른 값(user_edits.preorder). rush 는 참일 때만 보인다.
+const PREORDER_FIELDS: readonly (readonly [string, string])[] = [
+  ['extra_note', '추가 요청'],
+  ['extras', '추가 작업'],
+  ['parts_form', '부품 형태'],
+  ['region', '지역'],
+];
+
 /** 경고 한 건 — 글자는 그대로, 객체는 message(또는 code·reason)를 앞세우고 없으면 JSON. */
 const warningText = (value: unknown): string => {
   if (!isRecord(value)) return valueText(value);
@@ -215,10 +250,14 @@ const warningText = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
-/** 고객이 쓴 값 — 비었으면 null(섹션에서 뺀다). 객체는 들여쓴 JSON. */
+/**
+ * 고객이 쓴 값 — 비었으면 null(섹션에서 뺀다). 객체는 들여쓴 JSON.
+ * quote_request 는 판 9 에서 { text, mb_id, mb_name, updated_at } 객체로 온다 — 글(text)만 보인다(쓴 사람은 주문 정보에 있다).
+ */
 const requestText = (value: unknown): string | null => {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string') return value.trim() === '' ? null : value;
+  if (isRecord(value) && typeof value.text === 'string') return value.text.trim() === '' ? null : value.text;
   if (isRecord(value) && Object.keys(value).length === 0) return null;
   if (Array.isArray(value) && value.length === 0) return null;
   return typeof value === 'object' ? JSON.stringify(value, null, 2) : rawText(value);
@@ -230,7 +269,7 @@ const readLine = (value: unknown): SmtLine | null => {
   return {
     code: valueText(value.code),
     item: valueText(value.item),
-    group: valueText(value.group),
+    group: labelText(value.group, SMARTSMT_LINE_GROUP_LABELS),
     basis: basis === null ? valueText(value.basis) : smartsmtLabel(SMARTSMT_BASIS_LABELS, basis),
     formula: valueText(value.formula),
     count: asNumber(value.count),
@@ -261,12 +300,34 @@ const readBlock = (value: unknown): SmtBlock | null => {
 const entriesOf = (value: unknown): SmtEntry[] =>
   Object.entries(asRecord(value)).map(([key, entry]) => ({ key, value: rawText(entry) }));
 
+const stringsOf = (value: unknown): string[] =>
+  asArray(value).flatMap((entry) => (typeof entry === 'string' ? [entry] : []));
+
+const costsOf = (source: Readonly<Record<string, unknown>>, fields: readonly (readonly [string, string])[]): SmtCost[] =>
+  fields.map(([key, label]) => ({ key, label, amount: asNumber(source[key]) }));
+
+/** 추정 금액 — 통합 추정도 SMT 추정도 오지 않았으면 null(양식 0.3 의 견적서에는 이 칸이 없다). */
+const readEstimates = (
+  quote: Readonly<Record<string, unknown>>,
+  totals: Readonly<Record<string, unknown>>,
+): SmtEstimates | null => {
+  if (asNumber(totals.estimated_total) === null && asNumber(quote.estimated_total) === null) return null;
+  return {
+    final: costsOf(totals, ESTIMATED_FINAL_FIELDS),
+    finalBlocks: stringsOf(totals.estimated_blocks),
+    smt: costsOf(quote, ESTIMATED_SMT_FIELDS),
+  };
+};
+
 export function readSmtQuoteView(envelope: Readonly<Record<string, unknown>>): SmtQuoteView {
   const header = asRecord(envelope.header);
   const quote = asRecord(envelope.quote);
   const quantities = asRecord(header.quantities);
   const integrated = asRecord(quote.integrated);
   const known = isRecord(integrated.known) ? integrated.known : null;
+  const edits = asRecord(header.user_edits);
+  const preorder = asRecord(edits.preorder);
+  const processes = stringsOf(header.processes);
   // 문서 예시가 문자열 "false" 였다(docs §6-6) — 글자 'true' 도 참으로 읽는다. 머리에 없으면 quote 쪽 칸.
   const policyFlag = header.policy_is_default ?? quote.policy_is_default;
 
@@ -276,34 +337,58 @@ export function readSmtQuoteView(envelope: Readonly<Record<string, unknown>>): S
     lang: asText(header.lang),
     policyIsDefault: policyFlag === true || policyFlag === 'true',
     versions: VERSION_FIELDS.map(([key, label]) => ({ key, label, value: valueText(header[key]) })),
-    conditions: CONDITION_FIELDS.map(([key, label, labels]) => ({
+    conditions: [
+      ...(processes.length === 0
+        ? []
+        : [
+            {
+              key: 'processes',
+              label: '주문 공정',
+              value: processes.map((code) => smartsmtLabel(SMARTSMT_PROCESS_LABELS, code)).join(' · '),
+            },
+          ]),
+      ...CONDITION_FIELDS.map(([key, label, labels]) => ({
+        key,
+        label,
+        value: labels === null ? valueText(header[key]) : labelText(header[key], labels),
+      })),
+    ],
+    quantities: Object.entries(quantities).map(([key, value]) => ({
       key,
-      label,
-      value: labels === null ? valueText(header[key]) : labelText(header[key], labels),
+      label: smartsmtLabel(SMARTSMT_QUANTITY_LABELS, key),
+      value: valueText(value),
     })),
-    quantities: QUANTITY_FIELDS.map(([key, label]) => ({ key, label, value: valueText(quantities[key]) })),
     lines: asArray(quote.lines).flatMap((entry) => readLine(entry) ?? []),
     subtotals: asArray(quote.subtotals).flatMap((entry) =>
       isRecord(entry) ? [{ label: valueText(entry.label), amount: asNumber(entry.amount) }] : [],
     ),
-    costs: COST_FIELDS.map(([key, label]) => ({ key, label, amount: asNumber(quote[key]) })),
+    costs: costsOf(quote, COST_FIELDS),
+    estimates: readEstimates(quote, asRecord(integrated.totals)),
     blocks: asArray(integrated.blocks).flatMap((entry) => readBlock(entry) ?? []),
     known:
       known === null
         ? null
         : {
             sum: asNumber(known.sum),
-            blocks: asArray(known.blocks).flatMap((entry) => (typeof entry === 'string' ? [entry] : [])),
+            blocks: stringsOf(known.blocks),
           },
     warnings: WARNING_FIELDS.flatMap(([key, label]) => {
       const items = asArray(quote[key]).map(warningText);
       return items.length === 0 ? [] : [{ key, label, items }];
     }),
-    request: REQUEST_FIELDS.flatMap(([key, label]) => {
-      const value = requestText(header[key]);
-      return value === null ? [] : [{ key, label, value }];
-    }),
+    request: [
+      ...REQUEST_FIELDS.flatMap(([key, label]) => {
+        const value = requestText(header[key]);
+        return value === null ? [] : [{ key, label, value }];
+      }),
+      ...(preorder.rush === true ? [{ key: 'preorder.rush', label: '긴급 제작', value: '요청함' }] : []),
+      ...PREORDER_FIELDS.flatMap(([key, label]) => {
+        const value = requestText(preorder[key]);
+        return value === null ? [] : [{ key: 'preorder.' + key, label, value }];
+      }),
+    ],
     controls: entriesOf(header.controls),
     rates: entriesOf(header.rates),
+    pcbSpec: entriesOf(edits.pcb_spec_inputs),
   };
 }

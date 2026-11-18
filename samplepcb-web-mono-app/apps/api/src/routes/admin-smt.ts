@@ -48,6 +48,8 @@ const QUOTE_SUMMARY_SELECT = {
   quantity: true,
   smtTotal: true,
   finalTotal: true,
+  smtEstimatedTotal: true,
+  finalEstimatedTotal: true,
   blockedBy: true,
 } satisfies Prisma.SpSmtQuoteSelect;
 type QuoteSummaryRow = Prisma.SpSmtQuoteGetPayload<{ select: typeof QUOTE_SUMMARY_SELECT }>;
@@ -68,6 +70,8 @@ const toQuoteSummary = (row: QuoteSummaryRow): AdminSmtQuoteSummaryType => ({
   quantity: row.quantity,
   smtTotal: toNumber(row.smtTotal),
   finalTotal: toNumber(row.finalTotal),
+  smtEstimatedTotal: toNumber(row.smtEstimatedTotal),
+  finalEstimatedTotal: toNumber(row.finalEstimatedTotal),
   blockedBy: toStrings(row.blockedBy),
 });
 

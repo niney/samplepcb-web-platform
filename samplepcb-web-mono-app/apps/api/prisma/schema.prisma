@@ -2611,6 +2611,8 @@ model SpSmtQuote {
   finalSupplyPrice Decimal?    @db.Decimal(16, 2) // quote.integrated.totals.supply_price
   finalVat         Decimal?    @db.Decimal(16, 2) // quote.integrated.totals.vat
   finalTotal       Decimal?    @db.Decimal(16, 2) // quote.integrated.totals.total — **최종 금액**
+  smtEstimatedTotal   Decimal? @db.Decimal(16, 2) // quote.estimated_total — SMT 작업비 추정(확정 금액이 미정일 때의 가견적)
+  finalEstimatedTotal Decimal? @db.Decimal(16, 2) // quote.integrated.totals.estimated_total — 최종 금액 추정(고객 화면의 "최종합계")
   blockedBy        Json? // quote.integrated.blocked_by — 비어 있지 않으면 합계 미확정
   files            Json? // 동봉 파일 대조 결과 [{part,name,bytes,sha256,check}]
   envelope         String      @db.MediumText

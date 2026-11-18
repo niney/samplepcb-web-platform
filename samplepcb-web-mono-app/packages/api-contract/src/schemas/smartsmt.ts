@@ -130,6 +130,13 @@ export const AdminSmtQuoteSummary = z.object({
   smtTotal: z.number().nullable(),
   /** 최종 금액(quote.integrated.totals.total). */
   finalTotal: z.number().nullable(),
+  /**
+   * 추정 금액 — 확정 금액이 미정(null)일 때 SmartSMT 가 따로 싣는 가견적이다. 고객 화면의 "최종합계"가 이 값이다.
+   * smtEstimatedTotal = quote.estimated_total(SMT 작업비만), finalEstimatedTotal = quote.integrated.totals.estimated_total.
+   * **확정 금액이 아니다** — 화면에서 "추정"이라고 이름을 붙여 보인다.
+   */
+  smtEstimatedTotal: z.number().nullable(),
+  finalEstimatedTotal: z.number().nullable(),
   /** 합계를 막은 블록 이름. 비어 있지 않으면 합계 미확정. */
   blockedBy: z.array(z.string()),
 });
@@ -305,6 +312,9 @@ export const SMARTSMT_BASIS_LABELS: Readonly<Record<string, string>> = {
   PER_EA_WITH_LOT_MINIMUM: '보드 1장당 (최소금액 적용)',
   PER_TYPE_WITH_LOT_MINIMUM: '종수당 (최소금액 적용)',
   PER_DAY: '일수당',
+  PER_REEL: '릴당',
+  PER_PCBA: 'PCBA 1장당',
+  PER_PCBA_WITH_LOT_MINIMUM: 'PCBA 1장당 (최소금액 적용)',
   VALUE: '값 그대로',
   LEGACY_LOT: '견적 당 한 번 (구 모델)',
   LEGACY_TOTAL: '수량이 든 총액 (구 모델)',
@@ -316,6 +326,74 @@ export const SMARTSMT_LINE_STATUS_LABELS: Readonly<Record<string, string>> = {
   REVIEW_REQUIRED: '검토 필요',
   UNKNOWN_TYPE: '부품 종류 미상',
   UNKNOWN_INPUT: '입력값 없음',
+  ESTIMATED_PITCH: '피치 추정',
+};
+
+// ── 실제 견적서(envelope_version 9, 2026-11-18 수신분)에서 본 코드 ─────────────────────────────
+// 「견적서 전송 양식 0.3」에는 값 목록이 없다 — 아래 라벨은 값의 쓰임을 보고 **우리가 붙인 이름**이다.
+// SmartSMT 가 값 목록을 주면 그 뜻으로 고친다. 사전에 없는 코드는 화면에 코드 그대로 나온다.
+
+/**
+ * 통합 합계의 블록 이름 — blocks[].block · blocked_by · known.blocks · estimated_blocks.
+ * DETAIL 은 blocks 배열에는 없다: SMT 작업비(이 견적서의 lines) 자신을 가리킨다.
+ */
+export const SMARTSMT_BLOCK_LABELS: Readonly<Record<string, string>> = {
+  PCB: 'PCB',
+  PARTS: '부품',
+  SHIPPING: '배송',
+  DETAIL: 'SMT 작업비',
+};
+/** blocks[].source — 금액을 낸 곳. */
+export const SMARTSMT_BLOCK_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  GERBEREYE: 'GerberEye',
+  PARTSEYES: 'PartsEyes',
+  MANUAL: '사람이 입력',
+};
+export const SMARTSMT_REQUEST_STATUS_LABELS: Readonly<Record<string, string>> = {
+  DONE: '받음',
+  WAITING_INPUT: '입력 대기',
+  SKIPPED: '건너뜀',
+};
+export const SMARTSMT_VALUATION_LABELS: Readonly<Record<string, string>> = {
+  CONFIRMED: '확정',
+  ESTIMATED: '추정',
+  NA: '해당 없음',
+};
+export const SMARTSMT_COMPLETENESS_LABELS: Readonly<Record<string, string>> = {
+  COMPLETE: '전부',
+  PARTIAL: '일부',
+  NA: '해당 없음',
+};
+/** lines[].group — 공정 묶음. */
+export const SMARTSMT_LINE_GROUP_LABELS: Readonly<Record<string, string>> = {
+  PREP: '작업 준비',
+  PLACEMENT: '실장',
+  REFLOW: '리플로우',
+  POST: '후공정',
+  QA: '검사',
+  ASSEMBLY: '조립 · 포장',
+};
+/** header.processes — 고객이 이 주문에서 시킨 공정. */
+export const SMARTSMT_PROCESS_LABELS: Readonly<Record<string, string>> = {
+  pcb: 'PCB',
+  parts: '부품',
+  stencil: '메탈마스크',
+  smt: 'SMT',
+};
+export const SMARTSMT_PACKING_MODE_LABELS: Readonly<Record<string, string>> = { STANDARD: '기본 포장' };
+/** header.quantities 의 칸 이름 — 판 9 의 이름(…_set_qty)과 양식 0.3 의 이름을 함께 둔다. */
+export const SMARTSMT_QUANTITY_LABELS: Readonly<Record<string, string>> = {
+  make_set_qty: '제작 수량 (SET)',
+  spare_set_qty: '예비 수량 (SET)',
+  total_set_qty: '합계 수량 (SET)',
+  price_set_qty: '가격 기준 수량 (SET)',
+  order_type: '주문 구분',
+  set_qty: '세트 (한 판의 PCB 수)',
+  panel_qty: '제작 (PCBA 판 수)',
+  spare_qty: '예비 (낱장 PCB)',
+  pcb_qty: 'PCB 장 수',
+  pcb_price_qty: 'PCB 가격 기준 장 수',
+  assembled_qty: '조립 보드 수',
 };
 
 /**

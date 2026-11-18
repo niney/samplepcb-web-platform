@@ -51,10 +51,12 @@ const PREFIX = `SIM-E2E-${RUN_TAG}-`;
 const ORDER_A = `${PREFIX}A`;
 const ORDER_C = `${PREFIX}C`;
 const ORDER_D = `${PREFIX}D`;
+const ORDER_E = `${PREFIX}E`;
 const QUOTE_A1 = `Q-E2E-${RUN_TAG}-A1`;
 const QUOTE_A2 = `Q-E2E-${RUN_TAG}-A2`;
 const QUOTE_C1 = `Q-E2E-${RUN_TAG}-C1`;
 const QUOTE_D1 = `Q-E2E-${RUN_TAG}-D1`;
+const QUOTE_E1 = `Q-E2E-${RUN_TAG}-E1`;
 const NON_MEMBER = `sim-e2e-nobody-${RUN_TAG.toLowerCase()}`;
 
 const FILE_SERVER_URL = process.env.FILE_SERVER_URL ?? readApiEnv('FILE_SERVER_URL') ?? 'https://file.samplepcb.kr';
@@ -98,6 +100,8 @@ interface SendOptions {
   withFiles: boolean;
   review?: boolean;
   blocked?: boolean;
+  /** 실제로 받은 모양(envelope_version 9) — 확정 금액 미정 + 추정 금액. */
+  version9?: boolean;
 }
 
 /** SmartSMT 처럼 견적서를 보낸다 — multipart(envelope + 번호 + 파일) + SmartSMT 전용 토큰(iss=smartsmt, aud=samplepcb). */
@@ -112,6 +116,7 @@ async function sendQuote(secret: string, o: SendOptions): Promise<void> {
     files,
     blocked: o.blocked === true,
     quoteStatus: o.review === true ? 'REVIEW_REQUIRED' : 'CALCULATED',
+    review: o.version9 === true,
   };
   const { boundary, body } = buildSampleMultipart(buildSampleEnvelope(options), files, {
     quoteId: o.quoteId,
@@ -181,12 +186,14 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
   let member: string;
   let session: E2eSession;
   let detailA2Url = '';
+  let sharedSecret = '';
 
   beforeAll(async () => {
     await mustReach(`${API_URL}/api/health`, 'API 서버를 켜세요 (127.0.0.1:3333)');
     await mustReach(`${BASE_URL}/app/`, 'nginx 와 웹(5173)을 확인하세요');
     const secret = readApiEnv('SMARTSMT_SHARED_SECRET');
     if (secret === null) throw new Error('apps/api/.env 에 SMARTSMT_SHARED_SECRET 이 없습니다');
+    sharedSecret = secret;
 
     // 회원 대조에 쓸 실제 회원 하나(dev 상비 계정 tester 우선).
     const rows = (await getPrisma().$queryRawUnsafe(
@@ -310,7 +317,7 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
     expect((await page.getByTestId('smt-costs').textContent()) ?? '').toContain('1,042,826원');
 
     const blocks = (await page.getByTestId('smt-blocks').textContent()) ?? '';
-    for (const text of ['PCB', 'GERBEREYE', '몇 장분인지 확인되지 않음', 'QTY_UNVERIFIED', '금액은 있지만 안 든다']) {
+    for (const text of ['PCB', 'GerberEye', '몇 장분인지 확인되지 않음', 'QTY_UNVERIFIED', '금액은 있지만 안 든다']) {
       expect(blocks).toContain(text);
     }
 
@@ -440,6 +447,70 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
 
     await dialog.getByRole('button', { name: '취소' }).click();
     await dialog.waitFor({ state: 'hidden' });
+    expect(session.pageErrors).toEqual([]);
+  });
+
+  // 2026-11-18 에 실제로 받은 견적서의 모양 — 확정 금액은 전부 미정이고 추정 금액이 따로 온다.
+  // 앞의 건수 검증이 끝난 뒤에 보낸다(탭 건수를 흔들지 않게). 정리는 PREFIX 로 함께 된다.
+  test('실제로 받은 모양(판 9) — 확정은 미정, 추정 금액 · 수량 · 공정 · 블록 이름을 읽는다', async () => {
+    const { page } = session;
+    await sendQuote(sharedSecret, {
+      orderId: ORDER_E,
+      quoteId: QUOTE_E1,
+      madeAt: new Date().toISOString(),
+      owner: { mbId: member, name: 'E2E 고객' },
+      withFiles: false,
+      version9: true,
+    });
+
+    await page.goto(`/app/admin/smt/quotes?q=${encodeURIComponent(ORDER_E)}`);
+    await orderRow(page, ORDER_E).waitFor();
+    const rowE = (await orderRow(page, ORDER_E).textContent()) ?? '';
+    expect(rowE).toContain('미정');
+    expect(rowE).toContain('추정 509,575원');
+    expect(rowE).not.toContain('SMT 작업비 미정');
+    expect(rowE).toContain('합계 막힘: 부품, 배송, SMT 작업비');
+
+    await orderRow(page, ORDER_E).click();
+    await page.waitForURL(/\/app\/admin\/smt\/quotes\/\d+/);
+    await page.getByTestId('smt-lines').waitFor();
+
+    // 확정 금액은 미정 그대로 — 추정은 이름을 붙여 따로.
+    expect((await page.getByTestId('smt-amounts').textContent()) ?? '').toContain('미정');
+    const estimates = (await page.getByTestId('smt-estimates').textContent()) ?? '';
+    for (const text of ['확정 금액이 아닙니다', '463,250원', '46,325원', '509,575원', '396,979원', '추정에 든 블록: PCB, 부품, SMT 작업비']) {
+      expect(estimates).toContain(text);
+    }
+    await page.getByText('합계가 막혔습니다: 부품, 배송, SMT 작업비').waitFor();
+    expect((await page.getByTestId('smt-cost-estimates').textContent()) ?? '').toContain('396,979원');
+
+    const body = await page.locator('body').innerText();
+    for (const text of [
+      '주문 공정',
+      'PCB · 부품 · 메탈마스크 · SMT',
+      '제작 수량 (SET)',
+      '가격 기준 수량 (SET)',
+      '기본 포장',
+      'PCB 사양 (고객 입력)',
+      'surfaceFinish',
+      '긴급 제작',
+      '긴급 제작 테스트입니다',
+    ]) {
+      expect(body).toContain(text);
+    }
+    // 고객 요청은 글만 — 쓴 사람 정보(JSON)를 그대로 쏟지 않는다.
+    expect(body).not.toContain('"mb_id"');
+
+    const lines = (await page.getByTestId('smt-lines').textContent()) ?? '';
+    for (const text of ['작업 준비', '실장', '피더 작업비', '피더 칸당', '입력값 없음']) expect(lines).toContain(text);
+
+    const blocks = (await page.getByTestId('smt-blocks').textContent()) ?? '';
+    for (const text of ['부품', '배송', 'GerberEye', 'PartsEyes', '사람이 입력', '입력 대기', '추정', '일부', '사람이 적을 값이 오지 않음']) {
+      expect(blocks).toContain(text);
+    }
+    expect(blocks).not.toContain('WAITING_INPUT');
+
+    await snapTop(page, 'admin-smt-detail-v9');
     expect(session.pageErrors).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  SMARTSMT_BLOCK_LABELS,
   SMARTSMT_BLOCK_REASONS,
   SMARTSMT_FILE_CHECK_LABELS,
   SMARTSMT_LINE_STATUS_LABELS,
@@ -31,7 +32,11 @@ export const smtQuoteStatusBadge = (status: string | null): SmtBadge => ({
 
 /** 합계를 막은 블록(blocked_by) — 비어 있으면 null(배지 없음). 최종 금액이 미정이라는 문제 신호다. */
 export const smtBlockedBadge = (blockedBy: readonly string[]): SmtBadge | null =>
-  blockedBy.length === 0 ? null : { label: `합계 막힘: ${blockedBy.join(', ')}`, variant: 'danger' };
+  blockedBy.length === 0 ? null : { label: `합계 막힘: ${smtBlockNames(blockedBy)}`, variant: 'danger' };
+
+/** 블록 이름들(PCB · PARTS · SHIPPING · DETAIL)을 한국어로 이어 붙인다. 모르는 이름은 코드 그대로. */
+export const smtBlockNames = (blocks: readonly string[]): string =>
+  blocks.map((block) => smartsmtLabel(SMARTSMT_BLOCK_LABELS, block)).join(', ');
 
 /** 출처 — push(전송)·pull(가져오기). 부가 표지라 outline. */
 export const smtSourceBadge = (source: string): SmtBadge => ({

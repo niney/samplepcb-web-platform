@@ -29,13 +29,14 @@ import SmtBlocksSection from '@/next/components/smt/SmtBlocksSection.vue';
 import SmtFieldGrid from '@/next/components/smt/SmtFieldGrid.vue';
 import SmtQuoteLinesSection from '@/next/components/smt/SmtQuoteLinesSection.vue';
 import {
+  smtBlockNames,
   smtBlockedBadge,
   smtFileCheckBadge,
   smtQuoteStatusBadge,
   smtSourceBadge,
 } from '@/next/components/smt/smt-badges';
 import { readSmtQuoteView, type SmtField } from '@/next/components/smt/smt-envelope';
-import { smtAmount, smtBytes, smtDateTime } from '@/next/components/smt/smt-format';
+import { smtAmount, smtBytes, smtDateTime, smtEstimate } from '@/next/components/smt/smt-format';
 import {
   downloadAdminSmtFile,
   findSmtQuoteRowId,
@@ -80,6 +81,10 @@ const backTo = computed<RouteLocationRaw>(() => returnTo.value ?? { name: NEXT_S
 const quote = computed(() => detail.value?.quote ?? null);
 const currency = computed(() => quote.value?.currency ?? view.value?.currency ?? null);
 const blockedBadge = computed(() => (quote.value === null ? null : smtBlockedBadge(quote.value.blockedBy)));
+// 고객이 넣은 PCB 사양 — 칸 이름은 SmartSMT 화면의 것 그대로 보인다(우리 사양 이름으로 바꾸지 않는다).
+const pcbSpecFields = computed<SmtField[]>(() =>
+  (view.value?.pcbSpec ?? []).map((entry) => ({ key: `pcb_spec_inputs.${entry.key}`, label: entry.key, value: entry.value })),
+);
 
 // ── 주문 정보 — 견적서 머리(header)에서 읽은 칸 + 서버가 대조한 주인(회원 여부) ──────────────────────
 const memberText = (isMember: boolean | null): string =>
@@ -246,7 +251,7 @@ async function copyRaw(): Promise<void> {
       <SectionCard title="금액">
         <template #notice>
           <NoticeBand v-if="quote.blockedBy.length > 0" tone="destructive">
-            합계가 막혔습니다: {{ quote.blockedBy.join(', ') }} — 최종 금액이 정해지지 않았습니다. 아래 통합 합계 블록의 사유를 보세요.
+            합계가 막혔습니다: {{ smtBlockNames(quote.blockedBy) }} — 최종 금액이 정해지지 않았습니다. 아래 통합 합계 블록의 사유를 보세요.
           </NoticeBand>
           <NoticeBand v-if="view.policyIsDefault" tone="warning">
             예시 요율로 계산된 견적입니다 — SmartSMT 의 실제 요율이 아니라 기본값으로 계산됐습니다.
@@ -279,6 +284,23 @@ async function copyRaw(): Promise<void> {
             <dd class="font-mono text-base font-semibold whitespace-nowrap">{{ currency ?? '—' }}</dd>
           </div>
         </dl>
+        <!-- 추정 금액 — 확정 금액이 미정일 때 SmartSMT 가 따로 싣는 가견적. 고객은 SmartSMT 화면에서 이 합계를 본다. -->
+        <div v-if="view.estimates !== null" class="mt-4 flex flex-col gap-2 border-t pt-3" data-testid="smt-estimates">
+          <p class="text-muted-foreground text-xs">
+            추정 금액 — SmartSMT 가 고객 화면에 가견적으로 보이는 값입니다. 확정 금액이 아닙니다.
+            <template v-if="view.estimates.finalBlocks.length > 0">추정에 든 블록: {{ smtBlockNames(view.estimates.finalBlocks) }}</template>
+          </p>
+          <dl class="flex flex-wrap items-stretch gap-y-3 divide-x">
+            <div v-for="cost in view.estimates.final" :key="cost.key" class="px-6 first:pl-0">
+              <dt class="text-muted-foreground text-xs whitespace-nowrap" :title="`integrated.totals.${cost.key}`">{{ cost.label }}</dt>
+              <dd class="text-base font-semibold whitespace-nowrap tabular-nums">{{ smtAmount(cost.amount, currency) }}</dd>
+            </div>
+            <div class="pl-6">
+              <dt class="text-muted-foreground text-xs whitespace-nowrap" title="quote.estimated_total">SMT 작업비 추정</dt>
+              <dd class="text-base font-semibold whitespace-nowrap tabular-nums">{{ smtAmount(quote.smtEstimatedTotal, currency) }}</dd>
+            </div>
+          </dl>
+        </div>
       </SectionCard>
 
       <SectionCard title="주문 정보">
@@ -286,9 +308,16 @@ async function copyRaw(): Promise<void> {
         <SmtFieldGrid title="요율 판" :fields="view.versions" />
         <SmtFieldGrid title="조건" :fields="view.conditions" />
         <SmtFieldGrid title="수량" :fields="view.quantities" />
+        <SmtFieldGrid v-if="pcbSpecFields.length > 0" title="PCB 사양 (고객 입력)" :fields="pcbSpecFields" />
       </SectionCard>
 
-      <SmtQuoteLinesSection :lines="view.lines" :subtotals="view.subtotals" :costs="view.costs" :currency="currency" />
+      <SmtQuoteLinesSection
+        :lines="view.lines"
+        :subtotals="view.subtotals"
+        :costs="view.costs"
+        :estimates="view.estimates?.smt ?? []"
+        :currency="currency"
+      />
 
       <SmtBlocksSection :blocks="view.blocks" :known="view.known" :currency="currency" />
 
@@ -400,6 +429,12 @@ async function copyRaw(): Promise<void> {
               </TableCell>
               <TableCell class="text-right font-medium tabular-nums" :class="entry.finalTotal === null ? 'text-warning' : ''">
                 {{ smtAmount(entry.finalTotal, entry.currency) }}
+                <div
+                  v-if="entry.finalTotal === null && entry.finalEstimatedTotal !== null"
+                  class="text-muted-foreground text-xs font-normal"
+                >
+                  {{ smtEstimate(entry.finalEstimatedTotal, entry.currency) }}
+                </div>
               </TableCell>
               <TableCell class="text-right">
                 <span class="inline-flex items-center gap-1">
