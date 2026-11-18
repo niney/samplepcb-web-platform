@@ -7,6 +7,7 @@
 //      (같은 값이면 SmartSMT 가 우리 회원·관리자 토큰을 만들 수 있게 된다)
 //   ③ 비로그인은 토큰 없이 그누보드 로그인 화면으로 간다(돌아올 주소 = 인계 주소)
 //   ④ state 는 좁은 글자만 받고 그대로 돌려준다
+//   ⑤ 회사명 · 연락처 · 이메일은 값이 있을 때만 싣고, 그 밖의 회원 정보는 싣지 않는다
 //
 // 302 를 따라가지 않는다 — 따라가면 진짜 토큰이 SmartSMT 개발 서버로 나간다.
 //
@@ -21,7 +22,9 @@ import {
   RUN,
   apiDir,
   closeBrowser,
+  disconnectPrisma,
   getBrowser,
+  getPrisma,
   newPhpSession,
   requireCustomerCreds,
   requireJwtSecret,
@@ -61,6 +64,7 @@ describe.skipIf(!RUN)('SmartSMT 로그인 인계 — /spcb/sso/smartsmt', () => 
   afterAll(async () => {
     await customer?.close();
     await closeBrowser();
+    await disconnectPrisma();
   });
 
   test('로그인한 회원 → 등록된 주소로 302, 토큰이 규격대로다', async () => {
@@ -84,8 +88,28 @@ describe.skipIf(!RUN)('SmartSMT 로그인 인계 — /spcb/sso/smartsmt', () => 
     expect(typeof claims.name).toBe('string');
     expect(Number(claims.exp) - Number(claims.iat)).toBe(120);
     expect(Math.abs(Number(claims.iat) - before)).toBeLessThanOrEqual(60);
-    // 넘기는 회원 정보는 아이디·이름뿐이다.
-    expect(Object.keys(claims).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'name', 'sub']);
+    // 넘기는 회원 정보 — 아이디 · 이름은 늘, 회사명 · 연락처 · 이메일은 값이 있을 때만. 그 밖의 칸은 없다.
+    const rows = (await getPrisma().$queryRawUnsafe(
+      `SELECT m.mb_hp, m.mb_tel, m.mb_email, m.mb_2, p.companyName
+         FROM g5_member m LEFT JOIN sp_member_profile p ON p.mbId = m.mb_id
+        WHERE m.mb_id = ?`,
+      customer.mbId,
+    )) as { mb_hp: string | null; mb_tel: string | null; mb_email: string | null; mb_2: string | null; companyName: string | null }[];
+    const row = rows[0];
+    if (row === undefined) throw new Error('g5_member 에 고객 계정이 없습니다');
+    const clean = (value: string | null): string => (value ?? '').trim();
+    const email = clean(row.mb_email);
+    const expected: Record<string, string> = {};
+    const company = clean(row.companyName) || clean(row.mb_2);
+    const phone = clean(row.mb_hp) || clean(row.mb_tel);
+    if (company !== '') expected.company = company;
+    if (phone !== '') expected.phone = phone;
+    if (email !== '' && email.toLowerCase() !== customer.mbId.toLowerCase()) expected.email = email;
+
+    expect(Object.keys(claims).sort()).toEqual([...Object.keys(expected), 'aud', 'exp', 'iat', 'iss', 'name', 'sub'].sort());
+    for (const [key, value] of Object.entries(expected)) expect(claims[key]).toBe(value);
+    // 빈 글자를 보내지 않는다 — 없는 값은 칸 자체가 없다.
+    for (const key of ['company', 'phone', 'email']) expect(claims[key]).not.toBe('');
 
     // SmartSMT 전용 비밀로는 검증되고, 우리 JWT_SECRET 으로는 검증되지 않는다.
     expect(signatureOf(signingInput, readSmartsmtSecret()) === signature).toBe(true);

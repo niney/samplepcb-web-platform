@@ -5,6 +5,9 @@
 // SmartSMT 가 세션 없는 회원의 브라우저를 이 주소로 보낸다. 여기서 그누보드 로그인을 확인하고
 // (안 돼 있으면 로그인 화면을 거쳐 돌아온다), 회원 아이디가 든 2분짜리 토큰(HS256)을 주소에 실어
 // 등록된 SmartSMT 로그인 수신 주소로 돌려보낸다. 서버끼리 부르는 단계는 없다.
+//
+// 토큰에 싣는 회원 정보: 아이디(sub) · 이름(name)은 늘, 회사명(company) · 연락처(phone) · 이메일(email)은
+// 값이 있을 때만(2026-11-18 SmartSMT 요청 — 견적서 수신란 표시용, SmartSMT 는 저장하지 않는다). 부서는 우리 회원 정보에 없다.
 // 정본: docs/SMARTSMT_INTEGRATION.md §4.2 · SmartSMT 전달 규격 docs/SMARTSMT_AUTH_REQUEST.html 4장.
 //
 // ⚠ 서명 비밀은 SmartSMT 전용 값(SPCB_SMARTSMT_SECRET)이다. SPCB_JWT_SECRET 을 쓰면 SmartSMT 가
@@ -27,6 +30,14 @@ function sp_smartsmt_sso_fail($status, $message)
     header('Content-Type: text/plain; charset=utf-8');
     echo $message;
     exit;
+}
+
+/** 글자를 다듬어 길이를 자른다(멀티바이트). 값이 없으면 빈 글자. */
+function sp_smartsmt_sso_text($value, $max)
+{
+    $text = trim((string) $value);
+    if ($text === '') return '';
+    return function_exists('mb_substr') ? mb_substr($text, 0, $max, 'UTF-8') : substr($text, 0, $max);
 }
 
 $secret    = defined('SPCB_SMARTSMT_SECRET') ? (string) SPCB_SMARTSMT_SECRET : '';
@@ -55,18 +66,36 @@ if (empty($is_member) || empty($member['mb_id'])) {
     goto_url(G5_BBS_URL . '/login.php?url=' . urlencode($self));
 }
 
-// 로그인 토큰 — 넘기는 회원 정보는 아이디와 이름 두 가지뿐이다.
+// 로그인 토큰 — 아이디와 이름은 늘 넘긴다.
 $now    = time();
 $claims = array(
     'iss'  => 'samplepcb',
     'aud'  => 'smartsmt-login',
     'sub'  => (string) $member['mb_id'],
-    'name' => function_exists('mb_substr')
-        ? mb_substr((string) $member['mb_name'], 0, 100, 'UTF-8')
-        : (string) $member['mb_name'],
+    'name' => sp_smartsmt_sso_text($member['mb_name'], 100),
     'iat'  => $now,
     'exp'  => $now + 120,   // 2분
 );
+
+// 회사명 · 연락처 · 이메일 — 값이 있을 때만 칸을 넣는다(빈 글자를 보내지 않는다).
+// 회사명은 sp-node 와 같은 순서로 읽는다(lib/member-company.ts): 회원 프로필 → 옛 회원 정보(mb_2).
+// 프로필 표가 없거나 조회가 실패해도 로그인은 넘긴다(두 번째 인자 false = 오류를 화면에 내지 않는다).
+$profile = sql_fetch(
+    " select companyName from sp_member_profile where mbId = '" . sql_real_escape_string($member['mb_id']) . "' ",
+    false
+);
+$company = sp_smartsmt_sso_text(isset($profile['companyName']) ? $profile['companyName'] : '', 100);
+if ($company === '') $company = sp_smartsmt_sso_text(isset($member['mb_2']) ? $member['mb_2'] : '', 100);
+if ($company !== '') $claims['company'] = $company;
+
+$phone = sp_smartsmt_sso_text(isset($member['mb_hp']) ? $member['mb_hp'] : '', 30);
+if ($phone === '') $phone = sp_smartsmt_sso_text(isset($member['mb_tel']) ? $member['mb_tel'] : '', 30);
+if ($phone !== '') $claims['phone'] = $phone;
+
+// 이메일은 아이디와 다를 때만 — 이 사이트는 아이디가 이메일인 회원이 많다.
+$email = sp_smartsmt_sso_text(isset($member['mb_email']) ? $member['mb_email'] : '', 100);
+if ($email !== '' && strtolower($email) !== strtolower((string) $member['mb_id'])) $claims['email'] = $email;
+
 $token = spcb_jwt_encode($claims, $secret);
 
 $sep      = strpos($login_url, '?') === false ? '?' : '&';
