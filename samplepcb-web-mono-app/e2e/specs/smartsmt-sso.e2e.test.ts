@@ -108,6 +108,21 @@ describe.skipIf(!RUN)('SmartSMT 로그인 인계 — /spcb/sso/smartsmt', () => 
     }
   });
 
+  test('우리 로그인 토큰(/spcb/api/me)은 SmartSMT 화면에 주지 않는다 — 다른 하위 도메인은 그대로', async () => {
+    // /spcb/api/me 의 토큰은 그 회원으로 우리 /api 전체를 부를 수 있다. SmartSMT 는 인계 주소의 별도 토큰만 받는다.
+    const me = `${BASE_URL}/spcb/api/me`;
+    const blocked = await customer.context.request.get(me, { headers: { origin: 'https://smteyes.samplepcb.co.kr' } });
+    expect(blocked.headers()['access-control-allow-origin']).toBeUndefined();
+    expect(blocked.headers()['access-control-allow-credentials']).toBeUndefined();
+    // 대소문자를 바꿔도 통하지 않는다.
+    const mixed = await customer.context.request.get(me, { headers: { origin: 'https://SMTEYES.samplepcb.co.kr' } });
+    expect(mixed.headers()['access-control-allow-origin']).toBeUndefined();
+    // 우리 거버 뷰어(다른 하위 도메인)는 지금처럼 받는다.
+    const gerber = await customer.context.request.get(me, { headers: { origin: 'https://local-gerber.samplepcb.co.kr' } });
+    expect(gerber.headers()['access-control-allow-origin']).toBe('https://local-gerber.samplepcb.co.kr');
+    expect(gerber.headers()['access-control-allow-credentials']).toBe('true');
+  });
+
   test('비로그인 → 토큰 없이 로그인 화면으로, 돌아올 주소는 인계 주소다', async () => {
     const browser = await getBrowser();
     const anonymous = await browser.newContext({ baseURL: BASE_URL, ignoreHTTPSErrors: true });

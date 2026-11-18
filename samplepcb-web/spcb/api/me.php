@@ -15,9 +15,16 @@ header('Cache-Control: no-store');
 // 세션 쿠키를 실어 토큰을 받아갈 수 있게 한다(same-site 라 쿠키는 브라우저가 전달).
 // credentialed 요청은 와일드카드(*) 불가 → 패턴 검사 후 오리진 반사.
 // 접미사 위조(evil-samplepcb.co.kr) 방지를 위해 정규식을 도메인 경계에 고정한다.
+//
+// ⚠ 이 응답의 토큰은 그 회원(관리자 포함)으로 우리 /api 전체를 부를 수 있다. 하위 도메인이라고 다 우리 화면은
+//   아니다 — SmartSMT(smteyes)는 바깥에서 만든 서비스이고 로그인은 전용 인계 주소(spcb/sso/smartsmt, 아이디·이름만
+//   든 별도 토큰)로 받는다. 그래서 이 주소의 토큰은 주지 않는다(docs/SMARTSMT_INTEGRATION.md §4.2).
+//   같은 처지의 하위 도메인이 생기면 여기에 더한다.
+$sp_me_blocked_origins = array('https://smteyes.samplepcb.co.kr');
 if (isset($_SERVER['HTTP_ORIGIN'])) {
     $origin = $_SERVER['HTTP_ORIGIN'];
-    if (preg_match('/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.samplepcb\.co\.kr(:\d+)?$/i', $origin)) {
+    if (preg_match('/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.samplepcb\.co\.kr(:\d+)?$/i', $origin)
+        && !in_array(strtolower(rtrim($origin, '/')), $sp_me_blocked_origins, true)) {
         header('Access-Control-Allow-Origin: ' . $origin);
         header('Access-Control-Allow-Credentials: true');
         header('Vary: Origin');
