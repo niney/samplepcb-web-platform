@@ -3,8 +3,8 @@ import { Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import { Prisma } from '@prisma/client';
-import { SMARTSMT_FILE_PARTS } from '@sp/api-contract';
-import type { SmartsmtEnvelopeType, SmartsmtFilePart } from '@sp/api-contract';
+import { SMARTSMT_FILE_PART_PATTERN, SMARTSMT_MAX_FILE_PARTS } from '@sp/api-contract';
+import type { SmartsmtEnvelopeType } from '@sp/api-contract';
 import { deleteFromFileServer, uploadToFileServer } from './file-server';
 import type { UploadedFileType } from './file-server';
 import { prisma } from './prisma';
@@ -20,13 +20,12 @@ export const SMARTSMT_FILE_REF_TYPE = 'sp_smt_quote';
 /** envelope 값 파트 한도 — multipart 기본(1MB)으로는 줄 수가 많은 견적서가 잘린다. */
 export const SMARTSMT_MAX_ENVELOPE_BYTES = 8 * 1024 * 1024;
 
-const FILE_TYPE_BY_PART: Record<SmartsmtFilePart, string> = {
-  gerber_archive: 'gerber',
-  bom: 'bom',
-  cpl: 'cpl',
-};
-const isFilePart = (name: string): name is SmartsmtFilePart =>
-  SMARTSMT_FILE_PARTS.some((part) => part === name);
+// 보관 종류(sp_file.fileType) — 아는 파트는 다른 모듈과 같은 이름을 쓰고, 모르는 파트는 파트 이름 그대로 둔다.
+const FILE_TYPE_BY_PART: Readonly<Record<string, string>> = { gerber_archive: 'gerber' };
+const fileTypeOf = (part: string): string => FILE_TYPE_BY_PART[part] ?? part;
+/** 번호 · 견적서 자리의 이름은 파일로 치지 않는다. 그 밖에는 이름 규칙만 본다(SmartSMT 가 파트를 늘려도 받는다). */
+const RESERVED_PARTS: readonly string[] = ['envelope', 'quote_id', 'order_id'];
+const isFilePart = (name: string): boolean => !RESERVED_PARTS.includes(name) && SMARTSMT_FILE_PART_PATTERN.test(name);
 
 // ── 견적서에서 목록용 값 뽑기 ───────────────────────────────────────────────────────────
 
@@ -127,7 +126,8 @@ export function summarizeSmartsmtEnvelope(envelope: SmartsmtEnvelopeType): Smart
 // ── 동봉 파일 대조 ──────────────────────────────────────────────────────────────────────
 
 export interface SmartsmtReceivedFile {
-  part: SmartsmtFilePart;
+  /** multipart 파트 이름 — gerber_archive · bom · cpl 과 그 밖의 이름(규칙: SMARTSMT_FILE_PART_PATTERN). */
+  part: string;
   filename: string;
   mimetype: string;
   buffer: Buffer;
@@ -222,7 +222,11 @@ export async function collectSmartsmtParts(request: FastifyRequest): Promise<Sma
     if (part.type === 'file') {
       if (part.fieldname === 'envelope' && out.envelope === undefined && out.envelopeText === null) {
         takeEnvelopeText((await part.toBuffer()).toString('utf8'));
-      } else if (isFilePart(part.fieldname) && !out.files.some((file) => file.part === part.fieldname)) {
+      } else if (
+        isFilePart(part.fieldname) &&
+        out.files.length < SMARTSMT_MAX_FILE_PARTS &&
+        !out.files.some((file) => file.part === part.fieldname)
+      ) {
         out.files.push({
           part: part.fieldname,
           filename: part.filename,
@@ -361,7 +365,7 @@ export async function saveSmartsmtQuote(
             pathToken: stored.pathToken,
             size: BigInt(stored.size),
             writeDate: receivedAt,
-            fileType: FILE_TYPE_BY_PART[file.part],
+            fileType: fileTypeOf(file.part),
             uploadedBy: 'SMARTSMT',
             slot: file.part,
           },

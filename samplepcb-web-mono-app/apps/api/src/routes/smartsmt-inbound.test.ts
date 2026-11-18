@@ -177,6 +177,52 @@ describe('SmartSMT 견적서 수신 — 저장', () => {
     expect(lastLog()).toMatchObject({ result: 'accepted', httpStatus: 200, quoteId: 'Q-123456-123456-123abc', orderId: '123456789abc' });
   });
 
+  it('이름을 모르는 파일 파트도 받는다 — 이름 규칙에 맞으면 저장하고, 맞지 않으면 읽지 않고 기록만 남긴다', async () => {
+    const extra = (part: string, filename: string): SmartsmtSampleFile => ({
+      part,
+      filename,
+      mimetype: 'application/octet-stream',
+      buffer: Buffer.from(`내용-${part}`),
+    });
+    const files = [...sampleFiles(), extra('stackup', 'stackup.pdf'), extra('report', 'report.xlsx'), extra('Bad-Name', 'x.bin')];
+    const res = await send({ files });
+    expect(res.statusCode).toBe(200);
+
+    // 규칙에 맞는 다섯 개만 올린다(대문자 · 하이픈이 든 이름은 읽지 않는다).
+    expect(upload).toHaveBeenCalledTimes(5);
+    expect(tx.spFile.create.mock.calls.map((call) => (call[0] as { data: { slot: string; fileType: string } }).data))
+      .toMatchObject([
+        { slot: 'gerber_archive', fileType: 'gerber' },
+        { slot: 'bom', fileType: 'bom' },
+        { slot: 'cpl', fileType: 'cpl' },
+        { slot: 'stackup', fileType: 'stackup' },
+        { slot: 'report', fileType: 'report' },
+      ]);
+    // 견적서의 파일 목록에 없던 파일은 '목록에 없음'으로 적는다.
+    const quote = (tx.spSmtQuote.create.mock.calls[0]?.[0] as { data: { files: { part: string; check: string }[] } }).data;
+    expect(quote.files.map((file) => [file.part, file.check])).toEqual([
+      ['gerber_archive', 'match'],
+      ['bom', 'match'],
+      ['cpl', 'match'],
+      ['stackup', 'unlisted'],
+      ['report', 'unlisted'],
+    ]);
+    expect(lastLog()).toMatchObject({ result: 'accepted', message: '읽지 않은 파트: Bad-Name' });
+  });
+
+  it('파일은 12개까지 받는다 — 넘는 파일은 읽지 않는다', async () => {
+    const many: SmartsmtSampleFile[] = Array.from({ length: 14 }, (_, index) => ({
+      part: `extra_${String(index)}`,
+      filename: `extra-${String(index)}.bin`,
+      mimetype: 'application/octet-stream',
+      buffer: Buffer.from(String(index)),
+    }));
+    const res = await send({ files: many, envelope: buildSampleEnvelope({ files: [] }) });
+    expect(res.statusCode).toBe(200);
+    expect(upload).toHaveBeenCalledTimes(12);
+    expect(lastLog()).toMatchObject({ result: 'accepted', message: '읽지 않은 파트: extra_12, extra_13' });
+  });
+
   it('모르는 코드·모르는 칸·모르는 판이어도 받는다 (재시도가 없다)', async () => {
     const envelope = buildSampleEnvelope() as Record<string, unknown> & { quote: Record<string, unknown> };
     envelope.envelope_version = '9';

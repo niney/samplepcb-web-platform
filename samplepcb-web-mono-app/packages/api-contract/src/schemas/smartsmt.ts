@@ -7,8 +7,16 @@ import { z } from 'zod';
 // 나머지는 모르는 칸까지 그대로 통과시킨다. 코드 값(basis·status·reason …)을 enum 으로 막지 않는다.
 
 /** multipart 파트 이름 — 견적서 전송 양식 0.3 의 "Multipart 파트 목록". */
+/** 이름을 아는 파일 파트 — 화면 라벨과 보관 종류를 정해 둔 것. 이 밖의 이름도 아래 규칙에 맞으면 받는다. */
 export const SMARTSMT_FILE_PARTS = ['gerber_archive', 'bom', 'cpl'] as const;
 export type SmartsmtFilePart = (typeof SMARTSMT_FILE_PARTS)[number];
+/**
+ * 파일 파트의 이름 규칙 — 소문자로 시작하고 소문자 · 숫자 · 밑줄, 32자까지(packing · stackup · report 처럼).
+ * SmartSMT 가 파트를 늘려도 우리 코드를 고치지 않고 받기 위한 규칙이다. 이름이 규칙에 맞지 않는 파일은 읽지 않는다.
+ */
+export const SMARTSMT_FILE_PART_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
+/** 견적서 하나에 딸려 오는 파일 수의 한도. 넘는 파일은 읽지 않는다. */
+export const SMARTSMT_MAX_FILE_PARTS = 12;
 
 /** 견적서(envelope) — 수신 때 꼭 있어야 하는 칸만. 나머지는 passthrough. */
 export const SmartsmtEnvelope = z
@@ -419,7 +427,8 @@ export const SMARTSMT_BLOCK_REASONS: Readonly<
 export const SMARTSMT_FILE_PART_LABELS: Readonly<Record<string, string>> = {
   gerber_archive: '제조 파일 묶음',
   bom: 'BOM',
-  cpl: 'CPL',
+  cpl: '좌표 파일 (CPL)',
+  stackup: 'Stackup',
 };
 export const SMARTSMT_FILE_CHECK_LABELS: Readonly<Record<string, string>> = {
   match: '일치',

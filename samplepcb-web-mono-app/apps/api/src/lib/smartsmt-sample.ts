@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import type { SmartsmtFilePart } from '@sp/api-contract';
 
 // SmartSMT 견적서 **가짜 견본** — 「견적서 전송 양식 0.3」의 칸 표와 예시 값으로 짠 것이다.
 // SmartSMT 가 실제로 보낸 견적서가 아니다. `review: true` 는 2026-11-18 에 실제로 받은 견적서(envelope_version 9)의
@@ -10,7 +9,8 @@ import type { SmartsmtFilePart } from '@sp/api-contract';
 // `files` · `user_edits` 가 JSON 어디에 놓이는지는 문서에 없다 — 여기서는 머리(header) 안에 두었다.
 
 export interface SmartsmtSampleFile {
-  part: SmartsmtFilePart;
+  /** multipart 파트 이름 — 아는 세 파트 말고도 규칙에 맞는 이름이면 받는다. */
+  part: string;
   filename: string;
   mimetype: string;
   buffer: Buffer;
