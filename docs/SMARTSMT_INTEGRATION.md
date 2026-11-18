@@ -23,7 +23,8 @@ sp-node ──(C) 견적서 가져가기 GET /api/pricing/envelope?orderId= (Bea
 - 지금까지 견적·주문은 이 플랫폼 안에서 만들었다(PCB 거버, 스마트 BOM). SmartSMT 는 **바깥에서 계산을
   끝낸 견적서가 들어오는** 첫 축이다. sp-node 는 계산하지 않고 받은 값을 그대로 보관·표시한다.
 - **고객은 우리 로그인으로 SmartSMT 를 쓴다**(2026-11-13 사용자 확인).
-- SmartSMT 는 개발 단계다. 개발 서버 `http://1.255.226.33:8090`(평문 HTTP, 운영 주소 미정). 2026-11-13 실측: 키 없이
+- SmartSMT 주소는 `https://smteyes.samplepcb.co.kr`(2026-11-18 부터 — 화면과 API 모두, §8 "SmartSMT 회신과 그 뒤").
+  처음에는 개발 서버 `http://1.255.226.33:8090`(평문 HTTP)였다. 2026-11-13 실측: 키 없이
   조회하면 `403 {"detail":{"reason":"BAD_KEY","message":"키가 맞지 않습니다"}}` — 사유는 `detail.reason` 에 있다(문서 미기재).
 
 ## 2. SmartSMT 원문이 말하는 것
@@ -314,12 +315,35 @@ cd ../../e2e && PORTAL_E2E=1 npx vitest run smartsmt-sso   # 로그인 인계 (3
 - 인증 실패 기록은 시간당 30건까지만 원장에 남긴다 — 바깥에서 얼마든지 만들 수 있는 요청이라서다.
 - 같은 새 주문의 서로 다른 견적 두 건이 동시에 오면 주문 행에서 유니크 충돌이 난다. 중복으로 답하면 견적을 잃으므로 한 번 더 쓴다.
 - 보낸 서버의 주소는 `X-Real-IP` 에서 읽는다(`lib/client-ip.ts`) — nginx 뒤라 `request.ip` 는 언제나 127.0.0.1 이다.
-- 로그인 수신 주소는 **우리가 정해서 알린다**(2026-11-14 사용자 결정): `http://1.255.226.33:8090/auth/samplepcb`.
-  `spcb/lib/secret.php` 에 이 값이 들어 있다. 요청서에는 "다르게 쓰려면 알려 달라"로 적었다 — SmartSMT 의 고객 화면이
-  API 서버(8090)와 다른 주소에 있으면 바꿔야 한다(수신 주소는 고객 화면과 같은 주소여야 세션 쿠키가 실린다).
+- 로그인 수신 주소는 우리가 정해서 알렸고(2026-11-14), SmartSMT 가 고객 화면 주소로 바꿔 달라고 회신했다(2026-11-18):
+  **`https://smteyes.samplepcb.co.kr/auth/samplepcb`**. 수신 주소는 고객 화면과 같은 주소여야 세션 쿠키가 실린다.
 - 요청서의 회신 항목은 셋으로 줄였다(2026-11-14): 보내 줄 것 = 실제 견적서 견본 하나, 다르면 알려 줄 것 = 로그인 수신 주소 · 회원 정보 항목.
   뺀 것 — 구현 가능 여부(어려우면 알려 올 내용), 운영 환경(오픈 전에 다시 묻는다), 담당자 로그인(권한은 SmartSMT 가 직접 관리한다고 요청서 4.4 에 적음).
 - 요청서 5.1 "견적서 보내는 법"을 넣었다 — 보낼 주소 · 인증 헤더 · 파트 표 · 규칙 · curl 예시(로컬 서버로 실제 실행해 확인).
+
+**SmartSMT 회신과 그 뒤 (2026-11-18)**
+- SmartSMT 가 요청서대로 구현을 마쳤다. 화면과 API 가 **`https://smteyes.samplepcb.co.kr`** 로 옮겨졌다(옛 `http://1.255.226.33:8090` 도 같은 서버).
+  실측: 로그인 수신 주소는 토큰이 없으면 `/?login_error=NO_TOKEN` 으로 돌려보내고, API 는 `X-API-Key` 대신 토큰을 검사한다 —
+  우리 비밀로 만든 토큰은 통하고(없는 주문 → 404), 쓰임이 다른 토큰은 `WRONG_AUDIENCE`, 다른 비밀은 `BAD_TOKEN`.
+  로컬 sp-node 에서 `POST /api/admin/smt/pull` 을 불러 `404 SMARTSMT_NOT_FOUND` 까지 확인했다(인증 통과).
+  SmartSMT 의 404 본문은 `{"detail":"…"}`(글자)라서 `detail.reason` 이 없다 — 우리 쪽은 상태 코드로 가르므로 문제없다.
+- **서버 설정 스크립트** `ops/scripts/smartsmt-server-config.mjs` — 서버의 `.env` · `secret.php` 는 git 이 추적하지 않아 손으로 고쳐야 했고,
+  그 과정에서 서버 `.env` 의 `JWT_SECRET` 이 로컬 개발용 값으로 바뀌어 로그인한 모든 API 가 401 이 됐다(2026-11-17).
+  스크립트가 두 파일을 한 번에 맞춘다: 로그인 토큰 비밀(두 파일이 같게), SmartSMT 공유 비밀(같게), 로그인 수신 주소, SmartSMT 주소.
+  비밀 값은 찍지 않고 백업은 웹 밖(`~/samplepcb-config-backups`)에 둔다. 서버에서:
+  ```bash
+  cd /home/samplepcb/samplepcb-web-platform && git pull
+  node ops/scripts/smartsmt-server-config.mjs            # 점검만
+  node ops/scripts/smartsmt-server-config.mjs --apply    # 고친다
+  sudo systemctl restart sp-api && sudo systemctl reload php8.1-fpm
+  ```
+  로그인 토큰 비밀이 둘 다 실제 값이거나 둘 다 개발용 자리표시 값이면 자동으로 고르지 않는다(`--jwt-from=php|env` · `--new-jwt-secret`).
+- **`/spcb/api/me` 는 SmartSMT 화면에 토큰을 주지 않는다.** 이 주소는 `https://*.samplepcb.co.kr` 전체에 열려 있었는데(거버 뷰어용),
+  `smteyes` 도 하위 도메인이라 그 화면의 스크립트가 로그인한 회원(관리자 포함)의 우리 토큰을 받을 수 있었다 — SmartSMT 용 비밀을 따로 둔
+  취지가 무너진다. `me.php` 에서 `https://smteyes.samplepcb.co.kr` 만 막았다(e2e `smartsmt-sso` 가 지킨다). 허용 목록으로 바꾸려면
+  거버 뷰어의 운영 주소를 알아야 한다(이 리포에 없다).
+- SmartSMT 세션 쿠키는 `smteyes` 주소에만, 이름은 `PHPSESSID` 가 아닌 것으로 — 요청서 4.4 에 한 줄 넣었다(판 0.2).
+  상위 도메인 전체에 같은 이름으로 심으면 우리 로그인이 풀린다(예전 사이트와 겪은 문제 — `spcb/lib/legacy-session-pick.php`).
 
 **운영에 올릴 때**
 1. `prisma migrate deploy`(표 3개).
@@ -330,6 +354,7 @@ cd ../../e2e && PORTAL_E2E=1 npx vitest run smartsmt-sso   # 로그인 인계 (3
 5. SmartSMT 가 HTTPS 로 바뀌었는지 확인한다(§4.2 "나중에").
 
 **개발 단계 배포 (2026-11-13 사용자 결정)** — `new.samplepcb.co.kr` · `centrafab.co.kr`(같은 서버, 아직 오픈 전)에 그대로 올려
-SmartSMT 개발 서버와 맞춰 본다. 오픈 전이라 개발용 비밀을 그대로 쓴다: 위 1번, 그리고 서버의 `.env`(`SMARTSMT_SHARED_SECRET` ·
-`SMARTSMT_BASE_URL=http://1.255.226.33:8090`)와 `secret.php`(`SPCB_SMARTSMT_SECRET` · `SPCB_SMARTSMT_LOGIN_URL`)에 로컬과 같은 값을 넣는다.
+SmartSMT 개발 서버와 맞춰 본다. 오픈 전이라 개발용 **SmartSMT 공유 비밀**을 그대로 쓴다: 위 1번을 한 뒤 서버에서
+`node ops/scripts/smartsmt-server-config.mjs --apply` 를 돌린다(위 "서버 설정 스크립트").
+⚠ **로컬 `.env` · `secret.php` 를 서버에 통째로 올리지 말 것** — 로그인 토큰 비밀(`JWT_SECRET`) · DB 주소 · 경로가 로컬 값으로 바뀐다.
 **실제 오픈 전에는 2~5번을 다시 한다.**

@@ -212,9 +212,9 @@
   <p class="eyebrow">samplepcb → SmartSMT</p>
   <h1>SmartSMT 인증 연동 요청서</h1>
   <ul class="meta">
-    <li>판 0.1</li>
-    <li>2026-11-13</li>
-    <li>협의용 초안</li>
+    <li>판 0.2</li>
+    <li>2026-11-18</li>
+    <li>SmartSMT 회신 반영 (주소 변경)</li>
     <li>대상: SmartSMT 서버 · 화면 개발 담당</li>
   </ul>
   <p class="lead">
@@ -264,7 +264,7 @@
 
   <h3>고정 키를 그대로 보내지 않는 이유</h3>
   <ul>
-    <li>SmartSMT 는 지금 평문 HTTP 입니다. 헤더에 키를 그대로 실으면 요청마다 키가 드러나고, 한 번 드러난 키는 바꿀 때까지 계속 쓸 수 있습니다.</li>
+    <li>헤더에 키를 그대로 실으면 요청마다 키가 지나가고, 한 번 드러난 키는 바꿀 때까지 계속 쓸 수 있습니다.</li>
     <li>토큰 방식에서는 <strong>비밀 자체가 전송되지 않습니다.</strong> 지나가는 것은 2분 뒤 못 쓰게 되는 토큰뿐입니다.</li>
     <li>구현은 표준 JWT 라이브러리로 만들기 한 줄, 검사 한 줄입니다(<a href="#examples">7장</a>).</li>
   </ul>
@@ -280,8 +280,8 @@
         <tr><td><code>samplepcb</code></td><td>samplepcb 의 식별자 (토큰의 <code>iss</code> · <code>aud</code>)</td><td>고정 글자</td></tr>
         <tr><td><code>smartsmt</code></td><td>SmartSMT 의 식별자</td><td>고정 글자</td></tr>
         <tr><td><code>{SAMPLEPCB}</code></td><td>samplepcb 접속 주소</td><td>개발 <code>https://new.samplepcb.co.kr</code> · 운영 주소는 오픈 때 알려 드립니다</td></tr>
-        <tr><td><code>{SMARTSMT}</code></td><td>SmartSMT 접속 주소</td><td>개발 <code>http://1.255.226.33:8090</code> · 운영 미정</td></tr>
-        <tr><td><code>{로그인 수신 주소}</code></td><td>로그인 뒤 samplepcb 가 회원을 보낼 SmartSMT 주소</td><td>개발 <code>http://1.255.226.33:8090/auth/samplepcb</code> 로 등록해 두었습니다 (다르게 쓰시려면 알려 주십시오)</td></tr>
+        <tr><td><code>{SMARTSMT}</code></td><td>SmartSMT 접속 주소</td><td><code>https://smteyes.samplepcb.co.kr</code> (화면과 API 모두)</td></tr>
+        <tr><td><code>{로그인 수신 주소}</code></td><td>로그인 뒤 samplepcb 가 회원을 보낼 SmartSMT 주소</td><td>개발 <code>https://smteyes.samplepcb.co.kr/auth/samplepcb</code> 로 등록해 두었습니다 (다르게 쓰시려면 알려 주십시오)</td></tr>
         <tr><td><code>{공유 비밀}</code></td><td>두 서버가 나눠 갖는 비밀 문자열</td><td>samplepcb 가 만들어 전달드립니다 (<a href="#secret">6장</a>)</td></tr>
       </tbody>
     </table>
@@ -467,7 +467,7 @@ Content-Type: application/json
 
   <h3>4.3 로그인 수신 주소 <span class="tag smt">SmartSMT 제공</span></h3>
   <p>
-    개발 단계의 주소는 <code>http://1.255.226.33:8090/auth/samplepcb</code> 로 등록해 두었습니다. 이 주소에 아래 처리를 만들어 주시면 됩니다.
+    개발 단계의 주소는 <code>https://smteyes.samplepcb.co.kr/auth/samplepcb</code> 로 등록해 두었습니다. 이 주소에 아래 처리를 만들어 주시면 됩니다.
     고객 화면이 다른 주소에 있거나 다른 경로를 쓰시려면 알려 주십시오 — samplepcb 쪽 등록값을 바꿉니다.
     (이 주소는 고객이 쓰는 SmartSMT 화면과 <strong>같은 주소</strong>여야 합니다. 여기서 만든 세션 쿠키가 그 화면에 실려야 하기 때문입니다.)
   </p>
@@ -481,7 +481,8 @@ Content-Type: application/json
 
   <h3>4.4 SmartSMT 세션 <span class="tag smt">SmartSMT 책임</span></h3>
   <ul>
-    <li>세션 쿠키는 <code>HttpOnly</code> · <code>SameSite=Lax</code> 로 둡니다. HTTPS 로 바꾼 뒤에는 <code>Secure</code> 도 붙입니다.</li>
+    <li>세션 쿠키는 <code>HttpOnly</code> · <code>Secure</code> · <code>SameSite=Lax</code> 로 둡니다.</li>
+    <li>세션 쿠키는 <strong><code>smteyes.samplepcb.co.kr</code> 에만</strong> 심고(<code>Domain</code> 속성을 주지 않습니다), 이름은 <code>PHPSESSID</code> 를 쓰지 않습니다. samplepcb 와 상위 도메인이 같아서, <code>.samplepcb.co.kr</code> 전체에 같은 이름으로 심으면 samplepcb 로그인이 풀립니다.</li>
     <li>수명은 짧게 둡니다. 권장: 사용이 없으면 2시간, 길어도 12시간. 끝나면 로그인 인계를 다시 시작합니다(회원이 samplepcb 에 로그인돼 있으면 화면에 드러나지 않습니다).</li>
     <li>SmartSMT 의 로그아웃은 SmartSMT 세션만 끝냅니다.</li>
     <li>SmartSMT 담당자(견적을 계산하는 직원)의 권한은 SmartSMT 가 직접 관리합니다. 로그인 토큰에는 회원 아이디와 이름만 있고 권한 정보는 없습니다.</li>
@@ -717,16 +718,16 @@ Content-Type: multipart/form-data; boundary=----smartsmtQuoteBoundary</pre>
     <table>
       <thead><tr><th>항목</th><th>언제</th><th>내용</th></tr></thead>
       <tbody>
-        <tr><td class="nowrap">HTTPS</td><td class="nowrap">실제 고객 오픈 전 <strong>필수</strong></td><td>평문 HTTP 에서는 SmartSMT 세션 쿠키와 고객이 올린 파일이 그대로 보입니다. 토큰으로는 막을 수 없습니다. 전환할 때 공유 비밀도 새 값으로 바꿉니다.</td></tr>
-        <tr><td class="nowrap">로그인 토큰 1회용 처리</td><td class="nowrap">HTTPS 전환 뒤 검토</td><td>한 번 쓴 로그인 토큰을 2분 동안 기억해 다시 오면 거절합니다.</td></tr>
+        <tr><td class="nowrap">공유 비밀 새로 발급</td><td class="nowrap">실제 고객 오픈 전 <strong>필수</strong></td><td>지금 쓰는 값은 개발용입니다. 오픈할 때 새 값을 만들어 양쪽 설정을 함께 바꿉니다. (SmartSMT 화면과 API 는 2026-11-18 부터 HTTPS 입니다.)</td></tr>
+        <tr><td class="nowrap">로그인 토큰 1회용 처리</td><td class="nowrap">오픈 전 검토</td><td>한 번 쓴 로그인 토큰을 2분 동안 기억해 다시 오면 거절합니다.</td></tr>
         <tr><td class="nowrap">보내는 서버 IP 제한</td><td class="nowrap">운영 주소 확정 뒤</td><td>samplepcb 가 SmartSMT 서버의 IP 에서 온 호출만 받습니다.</td></tr>
         <tr><td class="nowrap">견적서 본문 서명</td><td class="nowrap">견적을 주문 · 결제로 잇기 전 검토</td><td>금액이 중간에 바뀌지 않았음을 확인하는 장치입니다.</td></tr>
       </tbody>
     </table>
   </div>
   <div class="warn">
-    <strong>개발 기간에는 시험 계정과 시험 파일만 써 주십시오</strong>
-    HTTP 구간에서는 주고받는 내용이 보호되지 않습니다. 실제 고객의 계정이나 제조 파일은 HTTPS 전환 뒤에 다룹니다.
+    <strong>옛 주소(<code>http://1.255.226.33:8090</code>)는 쓰지 않습니다</strong>
+    평문 HTTP 라 주고받는 내용이 보호되지 않습니다. 화면도 API 호출도 <code>https://smteyes.samplepcb.co.kr</code> 로만 합니다.
   </div>
 </section>
 
@@ -748,7 +749,7 @@ Content-Type: multipart/form-data; boundary=----smartsmtQuoteBoundary</pre>
   <ul class="check done">
     <li>개발용 공유 비밀을 만들어 전달</li>
     <li>인계 주소 · 견적서 수신 주소를 개발 서버(<code>https://new.samplepcb.co.kr</code>)에 배포</li>
-    <li>로그인 수신 주소 등록 — <code>http://1.255.226.33:8090/auth/samplepcb</code> (바뀌면 다시 등록합니다)</li>
+    <li>로그인 수신 주소 등록 — <code>https://smteyes.samplepcb.co.kr/auth/samplepcb</code> (바뀌면 다시 등록합니다)</li>
   </ul>
 
   <h3>회신 부탁드리는 것</h3>
@@ -772,7 +773,7 @@ Content-Type: multipart/form-data; boundary=----smartsmtQuoteBoundary</pre>
       <tbody>
         <tr>
           <td class="nowrap">로그인 뒤 회원을 돌려보낼 주소</td>
-          <td><code>http://1.255.226.33:8090/auth/samplepcb</code></td>
+          <td><code>https://smteyes.samplepcb.co.kr/auth/samplepcb</code></td>
           <td>고객이 쓰는 화면이 다른 주소에 있거나, 다른 경로를 쓰고 싶을 때</td>
         </tr>
         <tr>
@@ -786,7 +787,7 @@ Content-Type: multipart/form-data; boundary=----smartsmtQuoteBoundary</pre>
 </section>
 
 <footer>
-  samplepcb · SmartSMT 인증 연동 요청서 · 판 0.1 (2026-11-13) · 협의 결과에 따라 판을 올려 다시 전달드립니다.
+  samplepcb · SmartSMT 인증 연동 요청서 · 판 0.2 (2026-11-18) · 판 0.1(2026-11-13)에서 바뀐 것: 로그인 수신 주소와 SmartSMT 주소를 <code>https://smteyes.samplepcb.co.kr</code> 로, 세션 쿠키 규칙 한 줄 추가.
 </footer>
 
 </div>
