@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartSMT 확인 요청 회신 — samplepcb</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #f0f2f6;
+    --ink: #15181e;
+    --ink-2: #454c59;
+    --ink-3: #6d7584;
+    --line: #dfe3ea;
+    --accent: #1e56d6;
+    --accent-soft: #e6eefd;
+    --back: #9a4a00;
+    --back-soft: #fdf1e2;
+    --ok: #0b6b4a;
+    --ok-soft: #e3f3ec;
+    --no: #a32222;
+    --no-soft: #fbe9e9;
+    --code-bg: #11151c;
+    --code-ink: #e3e8f0;
+    --code-mute: #8691a3;
+    --radius: 10px;
+    --mono: ui-monospace, "Cascadia Code", "D2Coding", Consolas, Menlo, monospace;
+    --sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116;
+      --surface: #161a21;
+      --surface-2: #1d222b;
+      --ink: #e8ebf1;
+      --ink-2: #b4bbc8;
+      --ink-3: #8891a0;
+      --line: #2a303b;
+      --accent: #7ea6ff;
+      --accent-soft: #18264a;
+      --back: #f0b877;
+      --back-soft: #2e2415;
+      --ok: #5fd0a4;
+      --ok-soft: #12302a;
+      --no: #ff8f8f;
+      --no-soft: #361a1a;
+      --code-bg: #0a0d12;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 940px; margin: 0 auto; padding: 40px 24px 96px; }
+  a { color: var(--accent); }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, pre, kbd { font-family: var(--mono); }
+  :not(pre) > code {
+    font-size: 0.88em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 5px;
+    overflow-wrap: anywhere;
+  }
+
+  /* 머리 */
+  .eyebrow { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); margin: 0 0 8px; }
+  h1 { font-size: 34px; line-height: 1.25; letter-spacing: -0.02em; margin: 0 0 12px; text-wrap: balance; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 0 0 20px; padding: 0; list-style: none; }
+  .meta li {
+    margin: 0; font-size: 13px; color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 2px 12px;
+  }
+  .lead { font-size: 17px; color: var(--ink-2); max-width: 68ch; }
+
+  /* 차례 */
+  .toc {
+    margin: 28px 0 8px; padding: 16px 20px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .toc h2 { font-size: 13px; color: var(--ink-3); margin: 0 0 8px; padding: 0; border: 0; letter-spacing: 0.04em; }
+  .toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 32px; font-size: 15px; }
+  .toc li { break-inside: avoid; }
+  .toc a { text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* 본문 */
+  section { margin-top: 56px; }
+  h2 {
+    font-size: 24px; line-height: 1.35; letter-spacing: -0.01em;
+    margin: 0 0 16px; padding-bottom: 10px; border-bottom: 2px solid var(--ink);
+  }
+  h2 .num { color: var(--accent); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 18px; margin: 32px 0 10px; }
+  h3 .tag {
+    display: inline-block; vertical-align: 2px; margin-left: 8px;
+    font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 10px;
+  }
+  .tag.sp { color: var(--accent); background: var(--accent-soft); }
+  .tag.smt { color: var(--back); background: var(--back-soft); }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+  .card .k { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; }
+  .card h4 { font-size: 16px; margin: 4px 0 6px; }
+  .card p { font-size: 14.5px; color: var(--ink-2); margin: 0; }
+
+  .note, .warn {
+    border-radius: var(--radius); padding: 14px 18px; margin: 16px 0;
+    border: 1px solid var(--line); background: var(--surface);
+    border-left: 4px solid var(--accent);
+  }
+  .warn { background: var(--no-soft); border-color: transparent; border-left-color: var(--no); }
+  .note > :last-child, .warn > :last-child { margin-bottom: 0; }
+  .note strong:first-child, .warn strong:first-child { display: block; margin-bottom: 4px; }
+
+  .tablewrap { overflow-x: auto; margin: 12px 0 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  th { font-size: 13px; color: var(--ink-3); font-weight: 600; background: var(--surface-2); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.nowrap { white-space: nowrap; }
+  .req { color: var(--no); font-weight: 600; white-space: nowrap; }
+  .opt { color: var(--ink-3); white-space: nowrap; }
+
+  pre {
+    margin: 12px 0 16px; padding: 16px 18px;
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: var(--radius); font-size: 13.5px; line-height: 1.6;
+    overflow-x: auto; tab-size: 2;
+  }
+  pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
+  pre .c { color: var(--code-mute); }
+  .cap { font-size: 13px; color: var(--ink-3); margin: -8px 0 16px; }
+
+  /* 순서 그림 */
+  .figure { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: 16px 0; overflow-x: auto; }
+  .figure svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: var(--sans); }
+  .seq .lane { fill: var(--surface-2); stroke: var(--line); }
+  .seq .lane-t { fill: var(--ink); font-size: 15px; font-weight: 700; text-anchor: middle; }
+  .seq .lane-s { fill: var(--ink-3); font-size: 12px; text-anchor: middle; }
+  .seq .life { stroke: var(--line); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; }
+  .seq .msg { stroke: var(--ink-2); stroke-width: 1.6; fill: none; }
+  .seq .lbl { fill: var(--ink); font-size: 13.5px; text-anchor: middle; paint-order: stroke; stroke: var(--surface); stroke-width: 7px; stroke-linejoin: round; }
+  .seq .box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+  .seq .box.smt { fill: var(--back-soft); stroke: var(--back); }
+  .seq .box-t { fill: var(--ink); font-size: 13px; text-anchor: middle; }
+  .seq #ah path { fill: var(--ink-2); }
+
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 40px; margin: 10px 0; }
+  .steps > li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 700;
+    display: grid; place-items: center; font-variant-numeric: tabular-nums;
+  }
+  .steps .why { display: block; font-size: 14px; color: var(--ink-3); }
+
+  .check { list-style: none; padding: 0; }
+  .check li { position: relative; padding-left: 30px; margin: 8px 0; }
+  .check li::before {
+    content: ""; position: absolute; left: 0; top: 5px; width: 16px; height: 16px;
+    border: 2px solid var(--ink-3); border-radius: 4px;
+  }
+  /* 이미 마친 일 — 채운 상자에 체크. 인쇄할 때도 색이 빠지지 않게 한다. */
+  .check.done li::before {
+    background: var(--ok); border-color: var(--ok);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .check.done li::after {
+    content: ""; position: absolute; left: 5px; top: 7px; width: 6px; height: 10px;
+    border: solid var(--surface); border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+
+  footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+
+  @media (max-width: 720px) {
+    .page { padding: 28px 16px 72px; }
+    h1 { font-size: 27px; }
+    .cards { grid-template-columns: 1fr; }
+    .toc ol { columns: 1; }
+  }
+  @media print {
+    body { background: #fff; font-size: 11pt; }
+    .page { max-width: none; padding: 0; }
+    section { margin-top: 28pt; }
+    pre, .tablewrap, .figure, .card, .note, .warn { break-inside: avoid; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    h2, h3 { break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <p class="eyebrow">samplepcb → SmartSMT</p>
+  <h1>SmartSMT 확인 요청 회신</h1>
+  <ul class="meta">
+    <li>판 0.1</li>
+    <li>2026-11-18</li>
+    <li>「SmartSMT 확인 및 요청 사항 0.1」에 대한 답</li>
+    <li>대상: SmartSMT 서버 · 화면 개발 담당</li>
+  </ul>
+  <p class="lead">
+    보내 주신 견적서는 잘 받았습니다. 요청하신 것에 답을 드리고, 저희가 <strong>부탁드릴 두 가지</strong>를 적었습니다.
+    두 가지는 좌표 파일과 견적번호입니다. 회신을 부탁드리는 것은 <a href="#reply">9장</a>에 모았습니다.
+  </p>
+</header>
+
+<nav class="toc" aria-label="차례">
+  <h2>차례</h2>
+  <ol>
+    <li><a href="#summary">한눈에</a></li>
+    <li><a href="#received">견적서 수신 확인</a></li>
+    <li><a href="#cpl">부탁 ① 좌표 파일</a></li>
+    <li><a href="#quoteno">부탁 ② 견적번호</a></li>
+    <li><a href="#member">로그인 인계 회원 정보</a></li>
+    <li><a href="#review">담당자 견적 전송 (제안)</a></li>
+    <li><a href="#parts">첨부 파트</a></li>
+    <li><a href="#changes">문서 변경 사항 확인</a></li>
+    <li><a href="#reply">회신 부탁드리는 것</a></li>
+  </ol>
+</nav>
+
+<!-- ───────────────────────── 1 ───────────────────────── -->
+<section id="summary">
+  <h2><span class="num">1</span>한눈에</h2>
+
+  <h3>요청하신 것에 대한 답</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>요청</th><th>답</th><th>자세히</th></tr></thead>
+      <tbody>
+        <tr><td>견적서 수신 확인</td><td>세 건 모두 받았습니다. 다만 <strong>첨부는 매번 2개</strong>였습니다 (좌표 파일 없음)</td><td class="nowrap"><a href="#received">2장</a> · <a href="#cpl">3장</a></td></tr>
+        <tr><td>로그인 인계 시 회원 정보 추가</td><td><strong>넣었습니다</strong> — 회사명 · 연락처 · 이메일. 부서는 저희 회원 정보에 없습니다</td><td class="nowrap"><a href="#member">5장</a></td></tr>
+        <tr><td>담당자 견적 전송</td><td>보낼 모양을 <strong>제안</strong>드립니다. 세 가지를 확인해 주시면 만들겠습니다</td><td class="nowrap"><a href="#review">6장</a></td></tr>
+        <tr><td><code>packing</code> · <code>stackup</code> · <code>report</code> 파트</td><td><strong>받습니다</strong> — 파트 이름을 미리 정하지 않아도 됩니다</td><td class="nowrap"><a href="#parts">7장</a></td></tr>
+        <tr><td>모르는 파트가 오면</td><td>거절하지 않습니다 (<code>200</code>)</td><td class="nowrap"><a href="#parts">7장</a></td></tr>
+        <tr><td>요청주소 문서 변경 사항</td><td>확인했습니다. 저희 쪽에서 맞출 것은 없습니다</td><td class="nowrap"><a href="#changes">8장</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>저희가 부탁드리는 것</h3>
+  <div class="cards" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <div class="k">부탁 ①</div>
+      <h4>좌표 파일을 함께 보내 주십시오</h4>
+      <p>전송에 <code>cpl</code> 파트가 빠져 있습니다. 함께 보내도록 수정 부탁드립니다.</p>
+    </div>
+    <div class="card">
+      <div class="k">부탁 ②</div>
+      <h4>견적번호를 고정해 주십시오</h4>
+      <p>같은 견적서를 읽을 때마다 번호가 달라집니다. 고정이 어렵다면 번호는 저희가 관리하겠습니다.</p>
+    </div>
+  </div>
+  <p class="cap">5장 · 7장의 내용은 이 문서를 받으신 시점에 <code>https://new.samplepcb.co.kr</code> 에 반영돼 있습니다.</p>
+</section>
+
+<!-- ───────────────────────── 2 ───────────────────────── -->
+<section id="received">
+  <h2><span class="num">2</span>견적서 수신 확인</h2>
+  <p>2026-11-18 에 받은 견적서는 세 건이고, 모두 <code>200</code> 으로 받아 저장했습니다. 받은 파일의 크기와 해시는 견적서의 <code>header.files</code> 와 같았습니다.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>받은 시각</th><th>주문 번호</th><th>견적번호</th><th>받은 파일</th><th>대조</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">17:10</td><td><code>b588167e6a36</code></td><td><code>Q-261118-171031-b58816</code></td><td><code>gerber_archive</code> 3,043,894 · <code>bom</code> 44,210</td><td class="nowrap">2개 일치</td></tr>
+        <tr><td class="nowrap">20:50</td><td><code>7de6b5bd0fbb</code></td><td><code>Q-261118-205026-7de6b5</code></td><td><code>gerber_archive</code> 140,036 · <code>bom</code> 30,336</td><td class="nowrap">2개 일치</td></tr>
+        <tr><td class="nowrap">22:41</td><td><code>9cea45ca1704</code></td><td><code>Q-261118-224103-9cea45</code></td><td><code>gerber_archive</code> 2,589,401 · <code>bom</code> 44,210</td><td class="nowrap">2개 일치</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">크기는 바이트입니다. 처리 시간은 0.1 ~ 1.1초였습니다.</p>
+  <ul>
+    <li>요청하신 <code>Q-261118-171031-b58816</code> 은 <strong>3개가 아니라 2개</strong>를 받았습니다. <code>cpl</code> 은 오지 않았습니다 (<a href="#cpl">3장</a>).</li>
+    <li>17:00 의 첫 전송 한 번은 multipart 가 아니어서 <code>400 INVALID_REQUEST</code> 로 답했습니다. 그 뒤로는 정상입니다.</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 3 ───────────────────────── -->
+<section id="cpl">
+  <h2><span class="num">3</span>부탁 ① 좌표 파일</h2>
+  <p>
+    세 건 모두 <code>cpl</code> 파트가 오지 않았습니다. 아래는 22:41 의 주문(<code>9cea45ca1704</code>)에서 화면에 올린 파일과 전송된 파일입니다.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>화면에 올린 파일</th><th>크기</th><th>전송에 왔는가</th><th>견적서 <code>header.files</code></th></tr></thead>
+      <tbody>
+        <tr><td>Gerber — <code>MULTI_MAIN_REV0.Zip</code></td><td class="nowrap">2,589,401</td><td class="nowrap">왔습니다 (<code>gerber_archive</code>)</td><td class="nowrap">있음</td></tr>
+        <tr><td>BOM — <code>MULTI_MAIN_REV0.4_BOM_260812.xlsx</code></td><td class="nowrap">44,210</td><td class="nowrap">왔습니다 (<code>bom</code>)</td><td class="nowrap">있음</td></tr>
+        <tr><td>좌표 — <code>Pick Place for MULTI_MAIN_REV0.4.csv</code></td><td class="nowrap">74,025</td><td class="req">오지 않았습니다</td><td class="req">없음</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <strong>부탁드리는 것</strong>
+    좌표 파일도 <code>cpl</code> 파트로 함께 보내도록 수정 부탁드립니다. 견적서의 <code>header.files</code> 에도 함께 넣어 주십시오.
+  </div>
+  <p>저희 쪽은 파일 형식을 가리지 않고 받습니다.</p>
+</section>
+
+<!-- ───────────────────────── 4 ───────────────────────── -->
+<section id="quoteno">
+  <h2><span class="num">4</span>부탁 ② 견적번호</h2>
+  <p><strong>같은 주문의 견적서를 읽을 때마다 견적번호가 새로 만들어집니다.</strong> 아래는 주문 한 건(<code>9cea45ca1704</code>)을 내용 변경 없이 다섯 번 받아 본 결과입니다.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>시각</th><th>어떻게 받았나</th><th>견적번호</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">22:33:22</td><td>가져오기 (<code>GET /api/pricing/envelope</code>)</td><td><code>Q-261118-<strong>223322</strong>-9cea45</code></td></tr>
+        <tr><td class="nowrap">22:33:35</td><td>가져오기</td><td><code>Q-261118-<strong>223335</strong>-9cea45</code></td></tr>
+        <tr><td class="nowrap">22:33:49</td><td>가져오기</td><td><code>Q-261118-<strong>223349</strong>-9cea45</code></td></tr>
+        <tr><td class="nowrap">22:41:03</td><td>고객이 "견적 요청" → 저희 쪽으로 전송</td><td><code>Q-261118-<strong>224103</strong>-9cea45</code></td></tr>
+        <tr><td class="nowrap">23:04:50</td><td>가져오기</td><td><code>Q-261118-<strong>230450</strong>-9cea45</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">금액과 내용은 다섯 번 모두 같았습니다. 번호 가운데 여섯 자리가 받은 시각(시 · 분 · 초)입니다.</p>
+
+  <h3>쉽게 말하면</h3>
+  <div class="note">
+    <strong>같은 계약서를 복사할 때마다 문서 번호가 새로 찍히는 것과 같습니다.</strong>
+    복사본 다섯 장의 번호가 모두 달라서, 번호만 보고는 같은 계약서인지 알 수 없습니다.
+    그리고 "3번 복사본에 서명했다"고 말해도, 원본을 가진 쪽에는 3번이라는 문서가 없습니다.
+  </div>
+
+  <h3>무엇이 곤란한가</h3>
+  <ol class="steps">
+    <li><strong>같은 견적인지 가릴 수 없습니다.</strong> <span class="why">저희는 견적번호로 "이미 받은 견적"을 가립니다. 담당자가 '견적서 가져오기'를 누를 때마다 번호가 달라서, 같은 견적이 새 견적으로 계속 쌓입니다.</span></li>
+    <li><strong>어느 견적을 확정했는지 가리킬 수 없습니다.</strong> <span class="why">담당자가 22:41 에 받은 견적을 보고 확정해 돌려보내도(<a href="#review">6장</a>), SmartSMT 쪽에는 그 번호의 견적이 남아 있지 않습니다.</span></li>
+  </ol>
+
+  <h3>부탁드리는 것 — 둘 중 하나를 골라 주십시오</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>내용</th><th>바뀌는 쪽</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="nowrap"><strong>가. 번호 고정</strong><br><span class="opt">먼저 부탁드리는 안</span></td>
+          <td>고객이 "견적 요청"을 누른 때의 번호를 그 견적의 번호로 정합니다. 주문 내용이 바뀌기 전에는 가져오기에서도 <strong>같은 번호</strong>를 돌려줍니다. 내용이 바뀌어 다시 요청하면 새 번호를 붙입니다.</td>
+          <td class="nowrap">SmartSMT</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><strong>나. samplepcb 가 관리</strong><br><span class="opt">가 안이 어려울 때</span></td>
+          <td>견적 기록과 견적번호는 samplepcb 가 관리합니다. SmartSMT 는 계산과 화면을 맡고, 두 서버가 주고받을 때는 <strong>주문 번호(<code>order_id</code>)만</strong> 공통으로 씁니다. 담당자가 확정한 견적에는 저희가 번호를 붙여 보냅니다.</td>
+          <td class="nowrap">samplepcb</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    "가"로 해 주시면 위 표의 22:41 이후 가져오기는 <code>Q-261118-224103-9cea45</code> 를 그대로 돌려주게 됩니다.
+    "나"로 가도 됩니다 — 이때 SmartSMT 에서 바꾸실 것은 없고, 저희가 견적번호 대신 주문 번호와 내용으로 가리도록 고칩니다.
+    어느 쪽이든 <strong>주문 번호는 바뀌지 않는다</strong>는 것만 확인해 주십시오.
+  </p>
+</section>
+
+<!-- ───────────────────────── 5 ───────────────────────── -->
+<section id="member">
+  <h2><span class="num">5</span>로그인 인계 회원 정보</h2>
+  <p>요청하신 칸 이름 그대로 로그인 토큰에 넣었습니다. 값이 없는 회원은 <strong>칸 자체가 없습니다</strong>(빈 글자를 보내지 않습니다).</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>칸</th><th>내용</th><th>들어가는 때</th></tr></thead>
+      <tbody>
+        <tr><td><code>company</code></td><td>회사명</td><td>회원 정보에 회사명이 있을 때</td></tr>
+        <tr><td><code>phone</code></td><td>연락처 (휴대폰, 없으면 전화번호)</td><td>값이 있을 때</td></tr>
+        <tr><td><code>email</code></td><td>이메일</td><td>아이디와 다를 때 — 아이디가 이메일인 회원이 많습니다</td></tr>
+        <tr><td><code>department</code></td><td>부서</td><td class="req">넘기지 않습니다 — samplepcb 회원 정보에 부서가 없습니다</td></tr>
+      </tbody>
+    </table>
+  </div>
+<pre>{
+  "iss": "samplepcb",
+  "aud": "smartsmt-login",
+  "sub": "hong123",
+  "name": "홍길동",
+  "company": "(주)샘플전자",       <span class="c">// 있을 때만</span>
+  "phone": "010-1234-5678",      <span class="c">// 있을 때만</span>
+  "email": "hong@example.com",   <span class="c">// 아이디와 다를 때만</span>
+  "iat": 1794538800,
+  "exp": 1794538920
+}</pre>
+  <div class="warn">
+    <strong>지켜 주실 것</strong>
+    <ul>
+      <li>말씀하신 대로 이 값들은 <b>저장하지 않고</b> 로그인 중에 견적서 수신란 표시에만 씁니다.</li>
+      <li>로그인 토큰은 주소(<code>?token=…</code>)에 실려 갑니다. 서버 접속 기록 · 분석 도구에 <b>token 값을 남기지 않습니다</b>(요청서 4.5).</li>
+    </ul>
+  </div>
+  <p>토큰 검사 방법과 그 밖의 칸은 바뀌지 않았습니다. 「SmartSMT 인증 연동 요청서」 판 0.3 의 4.2 에 같은 내용을 적었습니다.</p>
+</section>
+
+<!-- ───────────────────────── 6 ───────────────────────── -->
+<section id="review">
+  <h2><span class="num">6</span>담당자 견적 전송 (제안)</h2>
+  <p>
+    받은 견적은 세 건 모두 <code>REVIEW_REQUIRED</code> 이고 확정 금액(<code>total</code>)이 비어 있었습니다 — 부품 · 배송 · SMT 작업비가 아직 정해지지 않아서입니다.
+    저희 담당자는 주문 화면의 결과를 그대로 놓고 <strong>항목별로 금액을 고치거나 채워서 확정</strong>합니다. 총액은 직접 고치지 않고, 통합 견적서와 같은 식(직접공정비 → 간접비 → 기업이윤 → 부가세)으로 다시 계산합니다. 배송비는 samplepcb 가 정합니다. 이 기준으로 보낼 모양을 제안드립니다.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>항목</th><th>제안</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">주소</td><td><code>POST https://smteyes.samplepcb.co.kr/api/pricing/received</code></td></tr>
+        <tr><td class="nowrap">인증</td><td><code>Authorization: Bearer {토큰}</code> — <code>iss</code> = <code>samplepcb</code>, <code>aud</code> = <code>smartsmt</code> (견적서 가져오기와 같은 토큰)</td></tr>
+        <tr><td class="nowrap">본문</td><td><code>application/json</code> — 받은 견적서 JSON 그대로. <code>header</code>(주문 번호 · 회원 아이디)는 바꾸지 않습니다</td></tr>
+        <tr><td class="nowrap">담당자가 고치는 칸</td><td>견적 줄의 금액 <code>quote.lines[].amount</code>, 블록의 금액 <code>quote.integrated.blocks[].amount</code>(PCB · 부품 · 배송)</td></tr>
+        <tr><td class="nowrap">다시 계산해 채우는 칸</td><td><code>quote</code> 의 <code>direct_cost</code> · <code>indirect_cost</code> · <code>profit</code> · <code>supply_price</code> · <code>vat</code> · <code>total</code> 과 <code>quote.integrated.totals</code> 의 <code>supply_price</code> · <code>vat</code> · <code>total</code>. 요율은 견적서의 <code>header.controls</code> 값을 씁니다</td></tr>
+        <tr><td class="nowrap">맨 위 추가 칸</td><td><code>review_status</code> · <code>customer_note</code> · <code>reviewed_at</code> (아래 표)</td></tr>
+        <tr><td class="nowrap">응답</td><td><code>stored</code> 가 <code>true</code> 일 때만 성공으로 봅니다. 그 밖(<code>stored: false</code> · <code>401</code>)은 실패로 보고 담당자에게 알립니다</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>추가 칸</th><th>종류</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td><code>review_status</code></td><td>문자</td><td>담당자 처리 상태 — <code>CONFIRMED</code>(확정) · <code>HOLD</code>(보류, 고객 확인이 필요함)</td></tr>
+        <tr><td><code>customer_note</code></td><td>문자</td><td>고객 안내 글. 없으면 빈 글자</td></tr>
+        <tr><td><code>reviewed_at</code></td><td>문자</td><td>담당자가 처리한 시각 (ISO 8601, 예: <code>2026-11-19T10:30:00+09:00</code>)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <strong>만들기 전에 확인 부탁드리는 세 가지</strong>
+    <ol>
+      <li><strong>고객 화면이 읽는 칸</strong> 위 표의 칸을 채워 보내면 됩니까? <code>quote_status</code> · <code>blocked_by</code> · 줄의 <code>status</code> 도 저희가 바꿔 보내야 합니까?</li>
+      <li><strong>토큰의 <code>aud</code></strong> 위 제안대로 <code>smartsmt</code> 로 보내면 됩니까?</li>
+      <li><strong>다시 보낼 때</strong> 같은 주문에 한 번 더 보내면 마지막 것으로 바뀝니까?</li>
+    </ol>
+  </div>
+  <p>칸 이름이나 값이 다르면 알려 주십시오. 맞추겠습니다.</p>
+</section>
+
+<!-- ───────────────────────── 7 ───────────────────────── -->
+<section id="parts">
+  <h2><span class="num">7</span>첨부 파트</h2>
+  <p>파트 이름을 미리 정해 두지 않도록 바꿨습니다. <code>packing</code> · <code>stackup</code> · <code>report</code> 를 포함해, 아래 규칙에 맞는 파일 파트는 모두 받아 보관합니다.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>항목</th><th>규칙</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">파트 이름</td><td>소문자로 시작하고 소문자 · 숫자 · 밑줄만, 32자까지 (예: <code>stackup</code>, <code>report_2</code>)</td></tr>
+        <tr><td class="nowrap">개수</td><td>견적서 하나에 파일 12개까지</td></tr>
+        <tr><td class="nowrap">형식</td><td>가리지 않습니다 (받은 그대로 보관)</td></tr>
+        <tr><td class="nowrap">크기</td><td>요청 하나의 전체 크기 100MB 까지</td></tr>
+        <tr><td class="nowrap">대조</td><td>견적서 <code>header.files</code> 에 있으면 크기 · 해시를 대조합니다(다르면 <code>400 FILE_MISMATCH</code>). 목록에 없는 파일도 받습니다</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>모르는 파트가 와도 거절하지 않습니다</strong>(<code>200</code>). 이름이 규칙에 맞는 파일은 저장하고, 규칙에 맞지 않는 파일과 모르는 글자 파트는 읽지 않고 넘어갑니다.</li>
+    <li>새 파트를 보내기 시작하실 때 미리 알려 주실 필요는 없습니다. 무엇이 든 파일인지만 한 줄 알려 주시면 관리자 화면의 이름을 맞추겠습니다.</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 8 ───────────────────────── -->
+<section id="changes">
+  <h2><span class="num">8</span>문서 변경 사항 확인</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>알려 주신 것</th><th>저희 쪽</th></tr></thead>
+      <tbody>
+        <tr><td>견적서 가져가기의 <code>409 NOT_PUBLISHABLE</code> 없어짐 — 확정 전 견적도 보냄</td><td>확인했습니다. 확정 전 견적도 그대로 받고, 정해지지 않은 금액(<code>null</code>)은 "미정"으로 둡니다</td></tr>
+        <tr><td><code>POST /api/pricing/received</code> 에 토큰을 붙이면 담당자 견적으로 저장</td><td><a href="#review">6장</a>의 제안대로 쓰겠습니다</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>견적서에 함께 오는 <strong>추정 금액</strong>(<code>estimated_total</code> 등)은 관리자 화면에 "추정"이라고 이름을 붙여 보입니다. 고객 화면의 "최종합계"와 같은 값입니다.</li>
+    <li>받은 견적서는 <code>envelope_version</code> 9 로, 「견적서 전송 양식 0.3」과 칸이 조금 달랐습니다(수량 칸 이름 · 추정 금액 · 주문 공정 등). 받은 견적서를 보고 저희 화면을 맞췄습니다. 앞으로 칸이나 코드가 늘어도 거절하지 않습니다.</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 9 ───────────────────────── -->
+<section id="reply">
+  <h2><span class="num">9</span>회신 부탁드리는 것</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>번호</th><th>항목</th><th>필요</th><th>자세히</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><strong>좌표 파일(<code>cpl</code>)</strong>도 함께 보내도록 수정 부탁드립니다</td><td class="req">필수</td><td class="nowrap"><a href="#cpl">3장</a></td></tr>
+        <tr><td>2</td><td><strong>견적번호</strong> — "가. 번호 고정"과 "나. samplepcb 가 관리" 중 어느 쪽으로 할지</td><td class="req">필수</td><td class="nowrap"><a href="#quoteno">4장</a></td></tr>
+        <tr><td>3</td><td><strong>담당자 견적 전송</strong> — 고객 화면이 읽는 칸 · 토큰의 <code>aud</code> · 다시 보낼 때의 동작</td><td class="opt">이 기능을 만들 때</td><td class="nowrap"><a href="#review">6장</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>그 밖의 내용은 다르게 하실 것이 있을 때만 알려 주시면 됩니다.</p>
+</section>
+
+<footer>
+  samplepcb · SmartSMT 확인 요청 회신 · 판 0.1 (2026-11-18) · 함께 보는 문서: 「SmartSMT 인증 연동 요청서」 판 0.3
+</footer>
+
+</div>
+</body>
+</html>

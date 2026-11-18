@@ -107,7 +107,7 @@ SmartSMT 에 전달하는 규격은 `docs/SMARTSMT_AUTH_REQUEST.html` 이 정본
 
 - 공통 칸 `iss`·`aud`·`iat`·`exp`(= iat + 120). 로그인 토큰만 `sub`(회원 아이디)·`name`.
 - 받는 쪽은 자기 자리에 맞는 `aud` 만 받는다 — 로그인 토큰과 호출 토큰이 서로 바뀌어 쓰이지 않는다.
-- 넘기는 회원 정보는 아이디·이름 두 가지(이메일·관리자 여부는 넘기지 않음).
+- 넘기는 회원 정보는 아이디·이름(늘) + 회사명·연락처·이메일(값이 있을 때만, 2026-11-18 SmartSMT 요청 — §8 "회신 준비"). 부서·관리자 여부는 넘기지 않는다.
 
 **결정 경과 (2026-11-13)** — 같은 논의를 반복하지 않도록 남긴다.
 
@@ -393,3 +393,40 @@ Ubuntu 세션 청소 타이머(매시 9 · 39분)가 그대로 써서, 24분 넘
 `10800` 으로 바꾸고 `php8.1-fpm` 을 다시 읽힌다. smteyes 로그인은 인계 뒤 SmartSMT 자체 세션이라 samplepcb 세션이 끝나도 남는다.
 
 **운영 반영** — `prisma migrate deploy`(열 2개 추가 + 기존 견적 채우기) 뒤 API · 웹을 다시 올린다.
+
+### 회신 준비 (2026-11-18 밤)
+
+SmartSMT 「확인 및 요청 사항 0.1」에 답하면서 우리 쪽에서 할 수 있는 것을 먼저 했다. 전달 문서는 두 개다 —
+`docs/SMARTSMT_REPLY.html`(회신, 판 0.1) · `docs/SMARTSMT_AUTH_REQUEST.html`(요청서, 판 0.3).
+
+**사용자 결정**
+
+| 건 | 결정 |
+|---|---|
+| 주문이 4시간 반 만에 사라진 것 | 일단 넘어간다(더 보고 판단). 회신에 넣지 않는다 |
+| 견적서 양식(판 9) | 값 목록을 요구하지 않고 **받은 것을 보고 맞춘다** |
+| 좌표 파일(`cpl`) | 수정을 요청한다 |
+| 견적번호 | 고정을 요청하고, 어려우면 **samplepcb 가 관리**하자고 제안한다(양쪽 공통 열쇠는 주문 번호) |
+
+**구현한 것**
+
+- **파일 파트를 이름 규칙으로 받는다** — `gerber_archive` · `bom` · `cpl` 세 이름만 받던 것을 규칙으로 바꿨다:
+  소문자로 시작 · 소문자·숫자·밑줄 · 32자(`SMARTSMT_FILE_PART_PATTERN`), 견적서 하나에 12개(`SMARTSMT_MAX_FILE_PARTS`).
+  `packing` · `stackup` · `report` 는 견본이 없어 형식을 묻는 대신 이렇게 열어 두었다. 규칙에 맞지 않는 이름과 모르는 글자 파트는
+  읽지 않고 수신 기록에 남긴다(200). 보관 종류(`sp_file.fileType`)는 `gerber_archive` 만 `gerber`, 나머지는 파트 이름 그대로.
+- **형식 실측** — SmartSMT 화면이 받는 형식(7z · rar · tar · zip · xls · xlsx · csv · txt · pos)과 실제 좌표 파일(74,025바이트, CP949)을
+  로컬 수신 주소로 보내 파일서버에서 되받아 해시를 대조했다(11개 모두 같음, `.tmp/smt-tools/ext-test.cjs`). 요청 전체 한도는 nginx 100MB.
+- **로그인 토큰의 회원 정보** — `company`(회원 프로필 → 옛 `mb_2`, sp-node `member-company.ts` 와 같은 순서) · `phone`(`mb_hp` → `mb_tel`) ·
+  `email`(아이디와 다를 때만). 값이 없으면 칸을 넣지 않는다. 부서는 저장하는 곳이 없어 넘기지 않는다.
+  SmartSMT 는 저장하지 않고, 토큰이 주소에 실리므로 접속 기록에 남기지 않는다는 조건을 두 문서에 적었다.
+  **실제 오픈 전에는 개인정보처리방침에 SmartSMT 로 넘기는 항목을 적어야 한다.**
+
+**아직 만들지 않은 것 — 담당자 견적 전송**
+
+회신에 보낼 모양을 제안해 두었다: `POST {SmartSMT}/api/pricing/received`, 토큰은 `iss=samplepcb` · `aud=smartsmt`, 본문은 받은 견적서 JSON 에
+`quote.integrated.totals`(공급가 · 부가세 · 합계)와 정한 블록의 `amount` 를 채우고 맨 위에 `review_status`(`CONFIRMED` · `HOLD`) ·
+`customer_note` · `reviewed_at`. `stored: true` 만 성공으로 본다. SmartSMT 의 답(고객 화면이 읽는 칸 · `aud` · 다시 보낼 때)을 받은 뒤 만든다.
+견적번호가 "나"(samplepcb 관리)로 정해지면 가져오기의 중복 판별을 견적번호 대신 주문 번호 + 내용으로 바꾼다.
+
+**운영 반영 순서** — 푸시 → 서버에서 `git pull` · `prisma migrate deploy` · API·웹 재배포 → 그 뒤에 두 문서를 전달한다
+(회신 5장 · 7장이 "반영돼 있습니다"라고 적혀 있다).
