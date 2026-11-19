@@ -277,7 +277,7 @@
       <p>부품이 합계만 옵니다. 담당자가 부품별 수량 · 단가를 볼 수 있게 줄을 실어 주십시오.</p>
     </div>
   </div>
-  <p class="cap">5장 · 8장의 내용은 이 문서를 받으신 시점에 <code>https://new.samplepcb.co.kr</code> 에 반영돼 있습니다. 6장의 samplepcb 쪽 주소는 준비되는 대로 알려 드립니다(<a href="#reply">10장</a>).</p>
+  <p class="cap">5장 · 8장의 내용과 6장의 samplepcb 쪽 주소(<code>state</code> 보관 · 읽기 주소 세 개)는 이 문서를 받으신 시점에 <code>https://new.samplepcb.co.kr</code> 에 반영돼 있습니다. 바로 붙여 시험하실 수 있습니다.</p>
 </section>
 
 <!-- ───────────────────────── 2 ───────────────────────── -->
@@ -617,8 +617,8 @@
         <tr><td><code>quote.lines[].amount</code></td><td>담당자가 정한 금액. 고치지 않은 줄은 보내신 값 그대로, 비어 있던 줄은 채워집니다</td></tr>
         <tr><td><code>quote.lines[].status</code></td><td>빈 글자 (확정)</td></tr>
         <tr><td><code>quote.subtotals[]</code></td><td><code>amount</code> · <code>known_amount</code> 를 줄의 합으로 다시 계산, <code>unknown_count</code> 는 0</td></tr>
-        <tr><td><code>quote.integrated.blocks[].amount</code></td><td>PCB · 부품 · 배송의 확정 금액. 배송비는 samplepcb 가 정합니다</td></tr>
-        <tr><td><code>quote.direct_cost</code> · <code>indirect_cost</code> · <code>profit</code> · <code>supply_price</code> · <code>vat</code> · <code>total</code></td><td>다시 계산한 SMT 작업비</td></tr>
+        <tr><td><code>quote.integrated.blocks[]</code><br><span class="opt">이 주문에서 사는 블록</span></td><td><code>amount</code> 는 PCB · 부품 · 배송의 확정 금액(배송비는 samplepcb 가 정합니다). 함께 <code>reason</code> 은 <code>null</code>, <code>request_status</code> 는 <code>DONE</code>, <code>valuation</code> 은 <code>CONFIRMED</code>, <code>completeness</code> 는 <code>COMPLETE</code> 로 바뀝니다</td></tr>
+        <tr><td><code>quote.direct_cost</code> · <code>known_subtotal</code> · <code>indirect_cost</code> · <code>profit</code> · <code>supply_price</code> · <code>vat</code> · <code>total</code></td><td>다시 계산한 SMT 작업비</td></tr>
         <tr><td><code>quote.integrated.totals</code> 의 <code>supply_price</code> · <code>vat</code> · <code>total</code></td><td>다시 계산한 통합 합계 — 견적서의 공급가액 · 부가세 · 총합계</td></tr>
         <tr><td><code>quote.quote_status</code></td><td><code>CALCULATED</code></td></tr>
         <tr><td><code>quote.unknown_lines</code> · <code>quote.integrated.blocked_by</code></td><td>빈 배열</td></tr>
@@ -746,10 +746,11 @@
     <li>로그인 토큰에 회사명 · 연락처 · 이메일 (<a href="#member">5장</a>)</li>
     <li>파일 파트를 이름 규칙으로 받기 (<a href="#parts">8장</a>)</li>
     <li>담당자가 항목별로 금액을 고쳐 확정하는 관리자 화면</li>
+    <li><code>state</code> 보관과 읽기 주소 세 개 (<a href="#data">6.1 · 6.2</a>)</li>
+    <li>견적관리에 SMT 의뢰 표시 (<a href="#data">6.5</a>) — 지금은 SmartSMT 견적서 화면(<code>/quote?order=…</code>)으로 연결해 두었습니다</li>
   </ul>
   <ul class="check">
-    <li><code>state</code> 보관과 읽기 주소 세 개 (<a href="#data">6.1 · 6.2</a>) — 준비되면 알려 드립니다</li>
-    <li>견적관리에 SMT 의뢰 표시와 열기 주소 연결 (<a href="#data">6.5</a>)</li>
+    <li>견적관리의 링크를 열기 주소로 바꾸기 (<a href="#data">6.5</a>) — 주소를 알려 주시면 바꿉니다</li>
     <li>부품 줄을 관리자 견적서에 표시 (<a href="#partlines">7장</a>) — 줄이 오기 시작하면 맞춥니다</li>
   </ul>
 
@@ -759,7 +760,7 @@
       <thead><tr><th>번호</th><th>항목</th><th>필요</th><th>자세히</th></tr></thead>
       <tbody>
         <tr><td>1</td><td><strong>열기 주소</strong> — 제안(<code>/open?order=…</code>)과 다르면 실제 주소</td><td class="req">필수</td><td class="nowrap"><a href="#data">6.5</a></td></tr>
-        <tr><td>2</td><td><strong>반영 시점</strong> — 6장을 반영하실 예상 시점. 저희 주소를 그 전에 열어 두고 함께 시험하겠습니다</td><td class="req">필수</td><td class="nowrap"><a href="#data">6장</a></td></tr>
+        <tr><td>2</td><td><strong>반영 시점</strong> — 6장을 반영하실 예상 시점. 저희 주소는 열려 있으니 개발하시면서 바로 시험하실 수 있습니다</td><td class="req">필수</td><td class="nowrap"><a href="#data">6장</a></td></tr>
         <tr><td>3</td><td><strong>작업 상태 크기</strong> — 8MB 를 넘을 것 같으면 알려 주십시오</td><td class="opt">다를 때만</td><td class="nowrap"><a href="#data">6.1</a></td></tr>
         <tr><td>4</td><td><strong>부품 줄</strong> — 칸 이름이나 놓는 자리가 제안과 다르면</td><td class="opt">다를 때만</td><td class="nowrap"><a href="#partlines">7장</a></td></tr>
       </tbody>
