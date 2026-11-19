@@ -4,6 +4,7 @@ import { SmartsmtEnvelope, SmartsmtErrorBody, SmartsmtInboundAccepted } from '@s
 import type { SmartsmtErrorBodyType, SmartsmtInboundReason } from '@sp/api-contract';
 import { clientIp } from '../lib/client-ip';
 import {
+  SMARTSMT_REASON_MESSAGES as MESSAGES,
   checkSmartsmtFiles,
   collectSmartsmtParts,
   recordSmartsmtReceive,
@@ -30,20 +31,6 @@ import {
 //  · 같은 quote_id 가 다시 오면 덮어쓰지 않고 2xx 로 답한다.
 //  · 수신 시도는 성공·실패 모두 sp_smt_receive_log 에 남긴다(보내는 쪽 화면에는 HTTP_<코드> 만 뜬다).
 
-const MESSAGES: Record<SmartsmtInboundReason, string> = {
-  NO_TOKEN: '토큰이 없습니다',
-  BAD_TOKEN: '토큰을 읽을 수 없거나 서명이 맞지 않습니다',
-  WRONG_AUDIENCE: '토큰의 만든 쪽 또는 받는 쪽이 맞지 않습니다',
-  EXPIRED: '토큰이 만료됐습니다',
-  NOT_CONFIGURED: 'SmartSMT 연동이 설정되지 않았습니다',
-  INVALID_REQUEST: '요청을 읽을 수 없습니다 (multipart/form-data 여야 합니다)',
-  TOO_LARGE: '파일 또는 견적서가 허용 크기를 넘습니다',
-  INVALID_ENVELOPE: '견적서(envelope)가 없거나 꼭 있어야 하는 칸이 없습니다',
-  ID_MISMATCH: 'quote_id 또는 order_id 가 견적서 안의 값과 다릅니다',
-  FILE_MISMATCH: '동봉 파일이 견적서의 파일 목록과 다릅니다',
-  FILE_STORE_FAILED: '동봉 파일을 저장하지 못했습니다. 다시 보내 주십시오',
-};
-
 const startedAt = new WeakMap<object, number>();
 
 const requestMeta = (request: FastifyRequest): Pick<SmartsmtReceiveEntry, 'bytes' | 'durationMs' | 'remoteAddr'> => {
@@ -55,6 +42,10 @@ const requestMeta = (request: FastifyRequest): Pick<SmartsmtReceiveEntry, 'bytes
     remoteAddr: clientIp(request),
   };
 };
+
+/** JSON 값 파트(envelope · state)를 읽지 못했는가 — JSON 이 아니거나 한도(8MB)에서 잘렸다. */
+const isBadJsonField = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'FST_INVALID_JSON_FIELD_ERROR';
 
 /** multipart 한도 초과(파일·값·파트 수)인가. */
 const isTooLarge = (error: unknown): boolean => {
@@ -88,7 +79,7 @@ export const smartsmtInboundRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
     return { detail: { reason, message } };
   };
 
-  // 견적서 전송 — envelope(JSON) + quote_id + order_id + gerber_archive + bom + cpl
+  // 견적서 전송 — envelope(JSON) + quote_id + order_id + state(작업 상태, 선택) + 파일(gerber_archive · bom · cpl …)
   fastify.post(
     '/smartsmt/quotes',
     {
@@ -130,9 +121,26 @@ export const smartsmtInboundRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           parts = await collectSmartsmtParts(request);
         } catch (err) {
           request.log.warn({ err }, 'smartsmt: multipart 를 읽지 못했습니다');
-          return isTooLarge(err)
-            ? await reply.status(413).send(await failure(request, 413, 'TOO_LARGE'))
-            : await reply.status(400).send(await failure(request, 400, 'INVALID_REQUEST'));
+          if (isTooLarge(err)) return await reply.status(413).send(await failure(request, 413, 'TOO_LARGE'));
+          return await reply.status(400).send(
+            await failure(
+              request,
+              400,
+              'INVALID_REQUEST',
+              isBadJsonField(err)
+                ? { message: 'JSON 값 파트(envelope · state)를 읽을 수 없습니다 — JSON 이 아니거나 8MB 를 넘습니다' }
+                : {},
+            ),
+          );
+        }
+        if (parts.stateTooLarge) {
+          return await reply.status(413).send(
+            await failure(request, 413, 'TOO_LARGE', {
+              message: '작업 상태(state)가 8MB 를 넘습니다',
+              quoteId: parts.quoteId,
+              orderId: parts.orderId,
+            }),
+          );
         }
 
         const parsed = SmartsmtEnvelope.safeParse(parts.envelope);
@@ -179,6 +187,7 @@ export const smartsmtInboundRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             source: 'push',
             files: parts.files,
             fileChecks: files.files,
+            stateText: parts.stateText,
             receivedAt: new Date(),
           },
           request.log,

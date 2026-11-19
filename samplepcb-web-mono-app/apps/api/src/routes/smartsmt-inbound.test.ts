@@ -73,10 +73,16 @@ const send = (options: {
   envelope?: unknown;
   files?: readonly SmartsmtSampleFile[];
   ids?: { quoteId?: string; orderId?: string };
+  state?: string;
 } = {}) => {
   const files = options.files ?? sampleFiles();
   const envelope = options.envelope === undefined ? buildSampleEnvelope({ files: sampleFiles() }) : options.envelope;
-  const { boundary, body } = buildSampleMultipart(envelope, files, options.ids ?? { quoteId: 'Q-123456-123456-123abc', orderId: '123456789abc' });
+  const { boundary, body } = buildSampleMultipart(
+    envelope,
+    files,
+    options.ids ?? { quoteId: 'Q-123456-123456-123abc', orderId: '123456789abc' },
+    options.state === undefined ? {} : { state: options.state },
+  );
   const token = options.token === undefined ? validToken() : options.token;
   return app.inject({
     method: 'POST',
@@ -368,5 +374,50 @@ describe('SmartSMT 견적서 수신 — 거절', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(reasonOf(res)).toBe('INVALID_REQUEST');
+  });
+});
+
+describe('SmartSMT 견적서 수신 — 작업 상태(state) · 의뢰 이름', () => {
+  const savedQuote = (): Record<string, unknown> =>
+    (tx.spSmtQuote.create.mock.calls[0]?.[0] as { data: Record<string, unknown> }).data;
+
+  it('작업 상태를 뜻을 보지 않고 보관한다 — 다시 읽으면 보낸 값 그대로다', async () => {
+    const state = { step: 'order', parts: { C1: { qty: 2, supply: 'TURNKEY' } }, memo: '한글 메모', list: [1, 2, 3] };
+    const res = await send({ state: JSON.stringify(state) });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(savedQuote().state as string)).toEqual(state);
+    // 작업 상태는 파일이 아니다 — 파일서버에 올리지 않고 '읽지 않은 파트'로도 적지 않는다.
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(lastLog()).toMatchObject({ result: 'accepted', message: null });
+  });
+
+  it('작업 상태가 오지 않으면 null 로 둔다', async () => {
+    expect((await send()).statusCode).toBe(200);
+    expect(savedQuote().state).toBeNull();
+  });
+
+  it('작업 상태가 8MB 를 넘으면 받지 않는다 (아무것도 저장하지 않는다)', async () => {
+    const res = await send({ state: JSON.stringify({ big: 'x'.repeat(8 * 1024 * 1024) }) });
+    expect([400, 413]).toContain(res.statusCode);
+    expect(res.json<{ detail: { message: string } }>().detail.message).toContain('8MB');
+    expect(upload).not.toHaveBeenCalled();
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('의뢰 이름과 주문 공정을 함께 저장한다', async () => {
+    const envelope = buildSampleEnvelope({ review: true, files: sampleFiles() }) as { header: Record<string, unknown> };
+    envelope.header.title = 'MULTI_MAIN_REV0';
+    const res = await send({ envelope });
+    expect(res.statusCode).toBe(200);
+    const order = tx.spSmtOrder.upsert.mock.calls[0]?.[0] as { create: Record<string, unknown>; update: Record<string, unknown> };
+    expect(order.create).toMatchObject({ title: 'MULTI_MAIN_REV0' });
+    expect(order.update).toMatchObject({ title: 'MULTI_MAIN_REV0' });
+    expect(savedQuote().processes).toEqual(['pcb', 'parts', 'stencil', 'smt']);
+  });
+
+  it('의뢰 이름이 없는 견적은 앞서 받은 이름을 지우지 않는다', async () => {
+    expect((await send()).statusCode).toBe(200);
+    const order = tx.spSmtOrder.upsert.mock.calls[0]?.[0] as { update: Record<string, unknown> };
+    expect('title' in order.update).toBe(false);
   });
 });

@@ -99,6 +99,8 @@ describe('SmartSMT 견적서에서 목록용 값 뽑기', () => {
       blockedBy: null,
       ownerMbId: null,
       ownerName: null,
+      title: null,
+      processes: null,
       manifest: [],
     });
   });
@@ -167,3 +169,24 @@ describe('SmartSMT 동봉 파일 대조', () => {
     expect(result.ok && result.files.every((file) => file.check === 'missing')).toBe(true);
   });
 });
+
+describe('SmartSMT 견적서 — 의뢰 이름 · 공정', () => {
+  it('의뢰 이름(header.title)과 주문 공정(header.processes)을 뽑는다', () => {
+    const envelope = buildSampleEnvelope({ review: true }) as { header: Record<string, unknown> };
+    envelope.header.title = '  MULTI_MAIN_REV0  ';
+    const summary = summarize(envelope);
+    expect(summary.title).toBe('MULTI_MAIN_REV0');
+    expect(summary.processes).toEqual(['pcb', 'parts', 'stencil', 'smt']);
+  });
+
+  it('이름이 없으면 null, 공정이 배열이 아니면 null — 문자열이 아닌 값은 뺀다', () => {
+    const plain = summarize(buildSampleEnvelope());
+    expect(plain.title).toBeNull();
+    expect(plain.processes).toBeNull(); // 양식 0.3 견본은 processes: null
+    const envelope = buildSampleEnvelope() as { header: Record<string, unknown> };
+    envelope.header.processes = ['smt', 3, '', null];
+    expect(summarize(envelope).processes).toEqual(['smt']);
+  });
+});
+
+describe('SmartSMT 견

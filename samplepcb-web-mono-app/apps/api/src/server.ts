@@ -84,6 +84,8 @@ import { adminDevelopSettingsRoutes } from './routes/admin-develop-settings';
 import { adminDevelopQuoteRoutes } from './routes/admin-develop-quotes';
 import { adminDevelopDocRoutes } from './routes/admin-develop-docs';
 import { smartsmtInboundRoutes } from './routes/smartsmt-inbound';
+import { smartsmtOrderRoutes } from './routes/smartsmt-orders';
+import { smtOrderRoutes } from './routes/smt-orders';
 import { adminSmtRoutes } from './routes/admin-smt';
 import { scheduleKoreaEximExchangeRateRefresh } from './lib/exchange-rate';
 import { registerErrorHandler } from './lib/error-handler';
@@ -230,6 +232,9 @@ await app.register(adminDevelopDocRoutes, { prefix: '/api/admin' });
 // SmartSMT 연동(docs/SMARTSMT_INTEGRATION.md) — SmartSMT 서버가 부르는 견적서 수신 주소.
 // 회원 JWT 가 아니라 SmartSMT 전용 토큰(HS256 2분, SMARTSMT_SHARED_SECRET)으로 인증하고, 미설정이면 503 으로 닫는다.
 await app.register(smartsmtInboundRoutes, { prefix: '/api' });
+// SmartSMT 가 의뢰를 읽어 가는 주소(같은 토큰) · 고객 본인의 SMT 의뢰 목록(회원 JWT) — docs/SMARTSMT_INTEGRATION.md §10
+await app.register(smartsmtOrderRoutes, { prefix: '/api' });
+await app.register(smtOrderRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — SmartSMT 견적서 가져오기(주문 번호로 SmartSMT 에서 당겨 온다)
 await app.register(adminSmtRoutes, { prefix: '/api/admin' });
 

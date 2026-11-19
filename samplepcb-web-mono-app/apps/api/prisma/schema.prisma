@@ -2576,6 +2576,7 @@ model SpSmtOrder {
   orderId         String       @unique @db.VarChar(100) // SmartSMT 주문 번호(header.order_id)
   ownerMbId       String?      @db.VarChar(60) // 견적서의 owner_mb_id = 로그인 인계 토큰의 sub. g5_member 와 느슨한 참조
   ownerName       String?      @db.VarChar(191)
+  title           String?      @db.VarChar(191) // 의뢰 이름(header.title). 없으면 화면이 파일 이름으로 대신한다
   latestQuoteId   BigInt?      @unique
   quoteCount      Int          @default(0)
   adminMemo       String?      @db.Text // 내부 메모
@@ -2614,6 +2615,8 @@ model SpSmtQuote {
   smtEstimatedTotal   Decimal? @db.Decimal(16, 2) // quote.estimated_total — SMT 작업비 추정(확정 금액이 미정일 때의 가견적)
   finalEstimatedTotal Decimal? @db.Decimal(16, 2) // quote.integrated.totals.estimated_total — 최종 금액 추정(고객 화면의 "최종합계")
   blockedBy        Json? // quote.integrated.blocked_by — 비어 있지 않으면 합계 미확정
+  processes        Json? // header.processes — 이 주문에서 시킨 공정(pcb · parts · stencil · smt)
+  state            String?     @db.MediumText // SmartSMT 의 작업 상태(state 파트) — 뜻을 보지 않고 받은 그대로 보관했다가 돌려준다
   files            Json? // 동봉 파일 대조 결과 [{part,name,bytes,sha256,check}]
   envelope         String      @db.MediumText
   receivedAt       DateTime    @default(now())

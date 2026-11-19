@@ -143,3 +143,17 @@ export function verifySmartsmtToken(
     },
   };
 }
+
+/**
+ * SmartSMT 서버가 부른 요청인가 — 우리 수신용 토큰(iss=smartsmt, aud=samplepcb)을 검사한다.
+ * 통과하면 null, 아니면 답할 상태와 사유. 비밀이 설정되지 않았으면 연동을 닫는다(503).
+ */
+export function checkSmartsmtCaller(
+  authorization: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): { status: 401; reason: SmartsmtTokenFailure } | { status: 503; reason: 'NOT_CONFIGURED' } | null {
+  const secret = smartsmtSecret(env);
+  if (secret === null) return { status: 503, reason: 'NOT_CONFIGURED' };
+  const checked = verifySmartsmtToken(readBearerToken(authorization), secret, { iss: SMARTSMT_PEER, aud: SMARTSMT_SELF });
+  return checked.ok ? null : { status: 401, reason: checked.reason };
+}

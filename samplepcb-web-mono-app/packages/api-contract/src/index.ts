@@ -44,4 +44,5 @@ export * from './schemas/admin-delete-audit';
 export * from './schemas/file-preview';
 export * from './schemas/smartsmt';
 export * from './schemas/smartsmt-review';
+export * from './schemas/smartsmt-orders';
 export * from './routes';

@@ -18,6 +18,8 @@ export type SmartsmtFilePart = (typeof SMARTSMT_FILE_PARTS)[number];
 export const SMARTSMT_FILE_PART_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 /** 견적서 하나에 딸려 오는 파일 수의 한도. 넘는 파일은 읽지 않는다. */
 export const SMARTSMT_MAX_FILE_PARTS = 12;
+/** 작업 상태(state 파트)의 한도 — 8MB. 넘으면 견적서를 받지 않는다(413). */
+export const SMARTSMT_MAX_STATE_BYTES = 8 * 1024 * 1024;
 
 /** 견적서(envelope) — 수신 때 꼭 있어야 하는 칸만. 나머지는 passthrough. */
 export const SmartsmtEnvelope = z
@@ -55,6 +57,8 @@ export const SMARTSMT_INBOUND_REASONS = [
   'INVALID_ENVELOPE',
   /** multipart 의 quote_id·order_id 가 견적서 안 값과 다름. */
   'ID_MISMATCH',
+  /** 읽기 주소 — 그런 의뢰 · 파일이 없거나 주인이 다름(404). */
+  'NOT_FOUND',
   /** 동봉 파일의 크기·해시가 견적서의 파일 목록과 다름. */
   'FILE_MISMATCH',
   /** 파일서버 저장 실패(502) — 다시 보내면 된다. */

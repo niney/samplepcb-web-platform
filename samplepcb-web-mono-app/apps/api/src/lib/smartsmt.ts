@@ -3,8 +3,8 @@ import { Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import { Prisma } from '@prisma/client';
-import { SMARTSMT_FILE_PART_PATTERN, SMARTSMT_MAX_FILE_PARTS } from '@sp/api-contract';
-import type { SmartsmtEnvelopeType } from '@sp/api-contract';
+import { SMARTSMT_FILE_PART_PATTERN, SMARTSMT_MAX_FILE_PARTS, SMARTSMT_MAX_STATE_BYTES } from '@sp/api-contract';
+import type { SmartsmtEnvelopeType, SmartsmtInboundReason } from '@sp/api-contract';
 import { deleteFromFileServer, uploadToFileServer } from './file-server';
 import type { UploadedFileType } from './file-server';
 import { prisma } from './prisma';
@@ -23,8 +23,24 @@ export const SMARTSMT_MAX_ENVELOPE_BYTES = 8 * 1024 * 1024;
 // 보관 종류(sp_file.fileType) — 아는 파트는 다른 모듈과 같은 이름을 쓰고, 모르는 파트는 파트 이름 그대로 둔다.
 const FILE_TYPE_BY_PART: Readonly<Record<string, string>> = { gerber_archive: 'gerber' };
 const fileTypeOf = (part: string): string => FILE_TYPE_BY_PART[part] ?? part;
-/** 번호 · 견적서 자리의 이름은 파일로 치지 않는다. 그 밖에는 이름 규칙만 본다(SmartSMT 가 파트를 늘려도 받는다). */
-const RESERVED_PARTS: readonly string[] = ['envelope', 'quote_id', 'order_id'];
+/** 번호 · 견적서 · 작업 상태 자리의 이름은 파일로 치지 않는다. 그 밖에는 이름 규칙만 본다(SmartSMT 가 파트를 늘려도 받는다). */
+const RESERVED_PARTS: readonly string[] = ['envelope', 'quote_id', 'order_id', 'state'];
+
+/** 실패 사유의 문장 — SmartSMT 가 부르는 주소(견적서 전송 · 의뢰 읽기)가 함께 쓴다. */
+export const SMARTSMT_REASON_MESSAGES: Record<SmartsmtInboundReason, string> = {
+  NO_TOKEN: '토큰이 없습니다',
+  BAD_TOKEN: '토큰을 읽을 수 없거나 서명이 맞지 않습니다',
+  WRONG_AUDIENCE: '토큰의 만든 쪽 또는 받는 쪽이 맞지 않습니다',
+  EXPIRED: '토큰이 만료됐습니다',
+  NOT_CONFIGURED: 'SmartSMT 연동이 설정되지 않았습니다',
+  INVALID_REQUEST: '요청을 읽을 수 없습니다 (multipart/form-data 여야 합니다)',
+  TOO_LARGE: '파일 또는 견적서가 허용 크기를 넘습니다',
+  INVALID_ENVELOPE: '견적서(envelope)가 없거나 꼭 있어야 하는 칸이 없습니다',
+  ID_MISMATCH: 'quote_id 또는 order_id 가 견적서 안의 값과 다릅니다',
+  NOT_FOUND: '의뢰를 찾을 수 없습니다',
+  FILE_MISMATCH: '동봉 파일이 견적서의 파일 목록과 다릅니다',
+  FILE_STORE_FAILED: '동봉 파일을 저장하지 못했습니다. 다시 보내 주십시오',
+};
 const isFilePart = (name: string): boolean => !RESERVED_PARTS.includes(name) && SMARTSMT_FILE_PART_PATTERN.test(name);
 
 // ── 견적서에서 목록용 값 뽑기 ───────────────────────────────────────────────────────────
@@ -73,6 +89,10 @@ export interface SmartsmtEnvelopeSummary {
   blockedBy: string[] | null;
   ownerMbId: string | null;
   ownerName: string | null;
+  /** header.title — 의뢰 이름. 오지 않으면 null(화면이 파일 이름으로 대신한다). */
+  title: string | null;
+  /** header.processes — 이 주문에서 시킨 공정. 칸이 없으면 null. */
+  processes: string[] | null;
   manifest: SmartsmtManifestEntry[];
 }
 
@@ -109,6 +129,10 @@ export function summarizeSmartsmtEnvelope(envelope: SmartsmtEnvelopeType): Smart
     blockedBy: Array.isArray(blocked) ? blocked.map((item) => String(item).slice(0, 64)) : null,
     ownerMbId: asText(edits?.owner_mb_id, 60),
     ownerName: asText(edits?.owner_name, 191),
+    title: asText(header.title, 191),
+    processes: Array.isArray(header.processes)
+      ? header.processes.flatMap((item) => (typeof item === 'string' && item !== '' ? [item.slice(0, 32)] : []))
+      : null,
     manifest: fileList.flatMap((entry) => {
       const row = asObject(entry);
       const part = asText(row?.part, 32);
@@ -193,6 +217,10 @@ export interface SmartsmtParts {
   quoteId: string | null;
   orderId: string | null;
   files: SmartsmtReceivedFile[];
+  /** 작업 상태(state 파트) — 받은 글자 그대로(객체로 왔으면 다시 글자로). 오지 않았으면 null. */
+  stateText: string | null;
+  /** 작업 상태가 한도(SMARTSMT_MAX_STATE_BYTES)를 넘었다 — 호출부가 413 으로 답한다. */
+  stateTooLarge: boolean;
   /** 읽지 않고 버린 파트 이름(모르는 파트·중복 파트). */
   ignored: string[];
 }
@@ -208,7 +236,22 @@ const discard = (stream: NodeJS.ReadableStream): Promise<void> =>
  *   견적서가 사라진다. 그래서 따로 읽는다. envelope 가 글자나 파일 파트로 와도 받는다.
  */
 export async function collectSmartsmtParts(request: FastifyRequest): Promise<SmartsmtParts> {
-  const out: SmartsmtParts = { envelope: undefined, envelopeText: null, quoteId: null, orderId: null, files: [], ignored: [] };
+  const out: SmartsmtParts = {
+    envelope: undefined,
+    envelopeText: null,
+    quoteId: null,
+    orderId: null,
+    files: [],
+    stateText: null,
+    stateTooLarge: false,
+    ignored: [],
+  };
+  // 작업 상태는 뜻을 보지 않는다 — 글자로 보관한다. 첫 번째 것만 받는다.
+  const stateTaken = (): boolean => out.stateText !== null || out.stateTooLarge;
+  const takeState = (text: string, truncated: boolean): void => {
+    if (truncated || Buffer.byteLength(text) > SMARTSMT_MAX_STATE_BYTES) out.stateTooLarge = true;
+    else out.stateText = text;
+  };
   const takeEnvelopeText = (text: string): void => {
     out.envelopeText = text;
     try {
@@ -222,6 +265,8 @@ export async function collectSmartsmtParts(request: FastifyRequest): Promise<Sma
     if (part.type === 'file') {
       if (part.fieldname === 'envelope' && out.envelope === undefined && out.envelopeText === null) {
         takeEnvelopeText((await part.toBuffer()).toString('utf8'));
+      } else if (part.fieldname === 'state' && !stateTaken()) {
+        takeState((await part.toBuffer()).toString('utf8'), false);
       } else if (
         isFilePart(part.fieldname) &&
         out.files.length < SMARTSMT_MAX_FILE_PARTS &&
@@ -247,6 +292,10 @@ export async function collectSmartsmtParts(request: FastifyRequest): Promise<Sma
       out.quoteId = part.value.trim();
     } else if (part.fieldname === 'order_id' && typeof part.value === 'string') {
       out.orderId = part.value.trim();
+    } else if (part.fieldname === 'state' && !stateTaken()) {
+      // application/json 값 파트는 객체로 온다(위 ⚠) — 다시 글자로 만들어 둔다.
+      if (typeof part.value === 'string') takeState(part.value, part.valueTruncated);
+      else takeState(JSON.stringify(part.value), false);
     } else {
       out.ignored.push(part.fieldname);
     }
@@ -290,6 +339,8 @@ export async function saveSmartsmtQuote(
     source: 'push' | 'pull';
     files: readonly SmartsmtReceivedFile[];
     fileChecks: readonly SmartsmtFileCheck[];
+    /** 작업 상태(state 파트). 가져오기(pull)에는 없다. */
+    stateText?: string | null;
     receivedAt: Date;
   },
   log: FastifyBaseLogger,
@@ -315,9 +366,11 @@ export async function saveSmartsmtQuote(
 
   const write = (): Promise<void> =>
     prisma.$transaction(async (tx) => {
+      // 주인 · 의뢰 이름은 온 값이 있을 때만 바꾼다(칸이 빠진 견적이 앞의 값을 지우지 않게).
       const owner = {
         ...(summary.ownerMbId === null ? {} : { ownerMbId: summary.ownerMbId }),
         ...(summary.ownerName === null ? {} : { ownerName: summary.ownerName }),
+        ...(summary.title === null ? {} : { title: summary.title }),
       };
       const order = await tx.spSmtOrder.upsert({
         where: { orderId: summary.orderId },
@@ -345,6 +398,8 @@ export async function saveSmartsmtQuote(
           smtEstimatedTotal: toDecimal(summary.smtEstimatedTotal),
           finalEstimatedTotal: toDecimal(summary.finalEstimatedTotal),
           blockedBy: summary.blockedBy ?? Prisma.DbNull,
+          processes: summary.processes ?? Prisma.DbNull,
+          state: input.stateText ?? null,
           files: input.fileChecks.map((check) => ({ ...check })),
           envelope: input.envelopeText,
           receivedAt,

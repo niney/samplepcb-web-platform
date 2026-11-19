@@ -245,6 +245,8 @@ export function buildSampleMultipart(
   envelope: unknown,
   files: readonly SmartsmtSampleFile[],
   ids: { quoteId?: string; orderId?: string } = {},
+  /** state — 작업 상태(JSON 글자). SmartSMT 처럼 application/json 값 파트로 싣는다. */
+  extra: { state?: string } = {},
 ): { boundary: string; body: Buffer } {
   const boundary = '----smartsmtQuoteBoundary';
   const chunks: Buffer[] = [];
@@ -256,6 +258,7 @@ export function buildSampleMultipart(
   text('envelope', 'application/json; charset=utf-8', typeof envelope === 'string' ? envelope : JSON.stringify(envelope));
   if (ids.quoteId !== undefined) text('quote_id', 'text/plain; charset=utf-8', ids.quoteId);
   if (ids.orderId !== undefined) text('order_id', 'text/plain; charset=utf-8', ids.orderId);
+  if (extra.state !== undefined) text('state', 'application/json; charset=utf-8', extra.state);
   for (const file of files) {
     chunks.push(Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="${file.part}"; filename="${file.filename}"\r\nContent-Type: ${file.mimetype}\r\n\r\n`,

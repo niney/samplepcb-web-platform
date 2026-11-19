@@ -177,3 +177,95 @@ export function computeSmartsmtSheet(input: SmartsmtSheetInput, edits: SmartsmtS
     rates: { ...input.rates },
   };
 }
+
+// ── 확정 금액을 견적서에 채우기 ───────────────────────────────────────────────────────────
+
+export interface SmartsmtReviewToApply extends SmartsmtSheetEdits {
+  customerNote: string;
+  /** 확정한 시각(ISO 8601). */
+  reviewedAt: string;
+}
+
+const isJson = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * 받은 견적서에 담당자가 확정한 금액을 채운 **새 견적서**를 만든다(받은 견적서는 바꾸지 않는다). 순수 함수.
+ * 모양은 받은 견적서와 같다 — SmartSMT 가 지금 견적서 화면에 그대로 넣어 그릴 수 있게(docs/SMARTSMT_REPLY.html 6.3).
+ *
+ * 바뀌는 칸:
+ *   quote.lines[].amount · status("")                          줄 금액(고친 값, 없으면 받은 값)
+ *   quote.subtotals[].amount · known_amount · unknown_count(0)  묶음별 합
+ *   quote.integrated.blocks[] (이 주문에서 사는 것)             amount, reason=null, request_status=DONE, valuation=CONFIRMED, completeness=COMPLETE
+ *   quote.direct_cost … total · known_subtotal                 다시 계산한 SMT 작업비
+ *   quote.integrated.totals.supply_price · vat · total         다시 계산한 통합 합계
+ *   quote.quote_status=CALCULATED, quote.unknown_lines=[], quote.integrated.blocked_by=[]
+ *   맨 위 review_status=CONFIRMED · customer_note · reviewed_at
+ * 그 밖의 칸(header · estimated_* · 경고 …)은 받은 값 그대로다.
+ */
+export function applySmartsmtReview(envelope: unknown, review: SmartsmtReviewToApply): Record<string, unknown> {
+  const copy: unknown = JSON.parse(JSON.stringify(envelope ?? {}));
+  const root: Json = isJson(copy) ? copy : {};
+  const input = readSmartsmtSheetInput(root);
+  const totals = computeSmartsmtSheet(input, review);
+
+  const quote = isJson(root.quote) ? root.quote : {};
+  root.quote = quote;
+  const amountOf = new Map<string, number>();
+  if (Array.isArray(quote.lines)) {
+    for (const entry of quote.lines as unknown[]) {
+      if (!isJson(entry) || typeof entry.code !== 'string') continue;
+      const amount = review.lineAmounts[entry.code] ?? asAmount(entry.amount) ?? 0;
+      entry.amount = amount;
+      entry.status = '';
+      amountOf.set(entry.code, amount);
+    }
+  }
+  if (Array.isArray(quote.subtotals)) {
+    for (const entry of quote.subtotals as unknown[]) {
+      if (!isJson(entry)) continue;
+      const sum = asList(entry.codes).reduce<number>(
+        (acc, code) => acc + (typeof code === 'string' ? (amountOf.get(code) ?? 0) : 0),
+        0,
+      );
+      entry.amount = sum;
+      entry.known_amount = sum;
+      entry.unknown_count = 0;
+    }
+  }
+
+  const smtVat = Math.round((totals.smtSupplyPrice * totals.rates.vat) / 100);
+  quote.direct_cost = totals.directCost;
+  quote.known_subtotal = totals.directCost;
+  quote.indirect_cost = totals.indirectCost;
+  quote.profit = totals.profit;
+  quote.supply_price = totals.smtSupplyPrice;
+  quote.vat = smtVat;
+  quote.total = totals.smtSupplyPrice + smtVat;
+  quote.quote_status = 'CALCULATED';
+  quote.unknown_lines = [];
+
+  const integrated = isJson(quote.integrated) ? quote.integrated : {};
+  quote.integrated = integrated;
+  if (Array.isArray(integrated.blocks)) {
+    for (const entry of integrated.blocks as unknown[]) {
+      if (!isJson(entry) || entry.included !== true || typeof entry.block !== 'string') continue;
+      entry.amount = review.blockAmounts[entry.block] ?? asAmount(entry.amount) ?? 0;
+      entry.reason = null;
+      entry.request_status = 'DONE';
+      entry.valuation = 'CONFIRMED';
+      entry.completeness = 'COMPLETE';
+    }
+  }
+  integrated.totals = {
+    ...(isJson(integrated.totals) ? integrated.totals : {}),
+    supply_price: totals.supplyPrice,
+    vat: totals.vat,
+    total: totals.total,
+  };
+  integrated.blocked_by = [];
+
+  root.review_status = 'CONFIRMED';
+  root.customer_note = review.customerNote;
+  root.reviewed_at = review.reviewedAt;
+  return root;
+}
