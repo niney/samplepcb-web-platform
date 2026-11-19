@@ -11,6 +11,9 @@
 //   회신 완료+확정가 건만 체크 가능하고, 서버가 확정가×1.1(부가세 포함)로 담는다(D16).
 //   화면의 개별 금액과 선택 합계도 실제 장바구니 금액과 같은 부가세 포함 기준으로 표시한다.
 //   삭제 툴바는 PCB 전용(부품 BOM 삭제·수정은 /app/bom 담당).
+//   SMT : GET /api/smt/orders (목록 전용 — SmartSMT 에서 견적 요청한 의뢰, docs/SMARTSMT_INTEGRATION.md §10).
+//         작업 · 견적서는 SmartSMT 화면(행의 링크)에서 본다. 여기서 주문 · 삭제하지 않는다(체크 잠금).
+//         의뢰가 하나도 없으면 [SMT] 필터를 보이지 않는다.
 //
 // 독립 모델(장바구니와 분리): PCB 목록 API 가 순수 견적(ctId 없음)만 내려준다.
 // 장바구니에 담긴/주문된 건은 이 화면에 나오지 않고, 장바구니에서 삭제하면
@@ -60,6 +63,7 @@ foreach (array(
     <button type="button" class="sp-quotes-tab is-active" data-filter="all">전체</button>
     <button type="button" class="sp-quotes-tab" data-filter="pcb">PCB</button>
     <button type="button" class="sp-quotes-tab" data-filter="bom">부품</button>
+    <button type="button" class="sp-quotes-tab" data-filter="smt" id="sp-quotes-tab-smt" hidden>SMT</button>
     <?php /* 시안엔 없는 진입로 — 목록이 있을 때도 보관함에 갈 수 있게(사용자 결정 08-26) */ ?>
     <a class="sp-quotes-tabs__aside" href="<?php echo G5_URL; ?>/shop/quotes/archive">지난 견적 보관함 ›</a>
 </div>
@@ -143,6 +147,7 @@ foreach (array(
 
     var API_BASE = '/api/pcb-projects';
     var BOM_API = '/api/bom/quotes';
+    var SMT_API = '/api/smt/orders';
     var statusEl = document.getElementById('sp-quotes-status');
     var emptyEl = document.getElementById('sp-quotes-empty');
     var formEl = document.getElementById('sp-quotes-form');
@@ -342,8 +347,63 @@ foreach (array(
         return li;
     }
 
-    // ── 통합 렌더 — 두 트랙을 최신순으로 섞고, 실패한 트랙은 상태줄로 안내 ──────
-    function render(pcbItems, bomItems, loadErrors) {
+    // SMT 의뢰 행 — SmartSMT 에서 견적 요청한 의뢰. 제목 · 썸네일이 SmartSMT 화면으로 가는 링크(새 창).
+    // 금액은 부가세 포함: 담당자가 확정했으면 확정 금액, 아니면 SmartSMT 의 가견적("예상").
+    // 주문 · 삭제 대상이 아니라 체크는 잠근다(.sp-smt__check — 요약 · 전체선택 선택자에 들지 않는다).
+    // 이름 · 주소 · 공정은 바깥(SmartSMT)에서 온 글자라 innerHTML 에 넣지 않는다(textContent · setAttribute).
+    var SMT_PROCESS_LABEL = { pcb: 'PCB', parts: '부품', stencil: '메탈마스크', smt: 'SMT' };
+    function renderSmtRow(o, index) {
+        var confirmed = o.reviewStatus === 'confirmed' && typeof o.confirmedTotal === 'number';
+        var amount = confirmed ? o.confirmedTotal : o.estimatedTotal;
+        var payment = typeof amount === 'number' && amount > 0 ? vatIncludedBreakdown(amount) : null;
+        var chkId = 'sp-smt-check-' + index;
+        var href = /^https?:\/\//i.test(String(o.openUrl || '')) ? String(o.openUrl) : '';
+
+        var li = document.createElement('li');
+        li.className = 'sp-cart-item sp-quotes__item sp-quotes__item--locked';
+        li.dataset.type = 'smt';
+        li.innerHTML =
+            '<span class="sp-chk sp-cart-item-chk">' +
+                '<input type="checkbox" class="sp-smt__check selec_chk" id="' + chkId + '" disabled>' +
+                '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
+            '</span>' +
+            '<a class="sp-cart-thumb sp-quotes__thumb--text" aria-label="SMT 견적 보기">SMT</a>' +
+            '<span class="prd_name"><a class="sp-smt__name"><b></b></a></span>' +
+            '<div class="sp-cart-info">' +
+                '<div class="sp-cart-meta">' +
+                    '<span>SMT 조립</span>' +
+                    '<span class="sp-smt__proc"></span>' +
+                    '<span>' + ICO_RCV + '접수 ' + fmtKstDay(o.requestedAt) + '</span>' +
+                '</div>' +
+            '</div>' +
+            '<div class="sp-cart-calc">' +
+                (payment !== null
+                    ? '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' + vatTip(payment, confirmed ? '확정 ' : '예상 ')
+                    : '<span class="sp-quotes__pending">금액 산정 전</span>') +
+                (confirmed ? '' : '<span class="sp-quotes__note">' + (payment !== null ? '가견적 · 담당자 검토 중' : '담당자 검토 중') + '</span>') +
+                '<div class="sp-quotes__badges">' +
+                    badge(confirmed ? '견적 확정' : '검토 중', confirmed ? 'quoted' : 'reviewing') +
+                '</div>' +
+            '</div>';
+        li.querySelector('.sp-smt__name b').textContent = o.title || o.orderId || '';
+        var proc = (Array.isArray(o.processes) ? o.processes : []).map(function (code) {
+            return SMT_PROCESS_LABEL[code] || String(code);
+        });
+        var procEl = li.querySelector('.sp-smt__proc');
+        if (proc.length > 0) { procEl.textContent = '공정 ' + proc.join(' · '); }
+        else { procEl.parentNode.removeChild(procEl); }
+        if (href) {
+            li.querySelectorAll('a.sp-cart-thumb, a.sp-smt__name').forEach(function (a) {
+                a.setAttribute('href', href);
+                a.setAttribute('target', '_blank');
+                a.setAttribute('rel', 'noopener');
+            });
+        }
+        return li;
+    }
+
+    // ── 통합 렌더 — 세 트랙을 최신순으로 섞고, 실패한 트랙은 상태줄로 안내 ──────
+    function render(pcbItems, bomItems, smtItems, loadErrors) {
         rowsEl.innerHTML = '';
         var rows = [];
         pcbItems.forEach(function (it) {
@@ -352,6 +412,11 @@ foreach (array(
         bomItems.forEach(function (q) {
             rows.push({ date: q.requestedAt || q.updatedAt || '', el: renderBomRow(q) });
         });
+        smtItems.forEach(function (o, index) {
+            rows.push({ date: o.requestedAt || '', el: renderSmtRow(o, index) });
+        });
+        // SMT 필터는 의뢰가 있을 때만 보인다.
+        document.getElementById('sp-quotes-tab-smt').hidden = smtItems.length === 0;
         rows.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
 
         statusEl.textContent = (loadErrors && loadErrors.length > 0) ? loadErrors.join(' · ') : '';
@@ -430,6 +495,10 @@ foreach (array(
                     bomApi('GET', '?page=1&pageSize=50').then(function (r) {
                         if (!r.ok) { throw new Error(errMsg(r.json)); }
                         return r.json.data.items;
+                    }).catch(function (e) { return { error: e.message }; }),
+                    callApi(SMT_API, 'GET', '?page=1&pageSize=50').then(function (r) {
+                        if (!r.ok) { throw new Error(errMsg(r.json)); }
+                        return r.json.data.items;
                     }).catch(function (e) { return { error: e.message }; })
                 ]);
             })
@@ -437,7 +506,8 @@ foreach (array(
                 var errs = [];
                 var pcb = Array.isArray(res[0]) ? res[0] : (errs.push('PCB 견적을 불러오지 못했습니다: ' + res[0].error), []);
                 var bom = Array.isArray(res[1]) ? res[1] : (errs.push('부품 BOM 견적을 불러오지 못했습니다: ' + res[1].error), []);
-                render(pcb, bom, errs);
+                var smt = Array.isArray(res[2]) ? res[2] : (errs.push('SMT 견적을 불러오지 못했습니다: ' + res[2].error), []);
+                render(pcb, bom, smt, errs);
             })
             .catch(function (e) {
                 statusEl.textContent = '목록을 불러오지 못했습니다: ' + e.message;
@@ -587,6 +657,7 @@ foreach (array(
     });
 
     if (location.hash === '#bom') { currentFilter = 'bom'; applyFilter('bom'); }
+    if (location.hash === '#smt') { currentFilter = 'smt'; applyFilter('smt'); }
     load();
 })();
 </script>

@@ -755,6 +755,8 @@
     font-weight: 600;
 }
 .sp-quotes-tab:hover { color: #05f; }
+/* 버튼에 display 를 주는 규칙이 hidden 속성을 덮지 않게 — 의뢰가 없을 때 숨기는 [SMT] 필터 */
+.sp-quotes-tab[hidden] { display: none; }
 
 /* BOM 행 액션(견적 보기·주문하기) — 금액 아래 우측 정렬 */
 .sp-bom__acts {
@@ -987,6 +989,8 @@
 .sp-quotes--fig .sp-quotes__item:hover { border-color: #d9d9d9; box-shadow: none; }
 .sp-quotes--fig .sp-quotes__item > .sp-cart-item-chk { margin: 0; align-self: center; }
 .sp-quotes--fig .sp-quotes__item > .sp-cart-thumb { display: block; width: 74px; height: 74px; margin-right: 10px; border: 0; border-radius: 0; background: #f4f4f4; }
+/* 그림 대신 글자를 넣는 썸네일 — SMT 의뢰 행(템플릿 상품 이미지가 없다) */
+.sp-quotes--fig .sp-quotes__item > .sp-cart-thumb.sp-quotes__thumb--text { display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; letter-spacing: .04em; color: #8a8f98; text-decoration: none; }
 .sp-quotes--fig .sp-quotes__item > .prd_name { font-size: 14px; font-weight: 500; line-height: 1.3; color: var(--acc-text, #141e34); }
 .sp-quotes--fig .sp-quotes__item > .prd_name a:hover { color: var(--acc-primary, #1e64fd); text-decoration: underline; text-underline-offset: 2px; }
 .sp-quotes--fig .sp-quotes__item--locked .prd_name { color: var(--acc-muted, #666); }
