@@ -9,7 +9,7 @@ const { db, tx, upload } = vi.hoisted(() => ({
     spSmtQuote: { create: vi.fn() },
     spFile: { create: vi.fn() },
   },
-  db: { spSmtQuote: { findUnique: vi.fn() }, $transaction: vi.fn() },
+  db: { spSmtQuote: { findUnique: vi.fn() }, spSmtOrder: { findUnique: vi.fn() }, $transaction: vi.fn() },
   upload: vi.fn(),
 }));
 vi.mock('./prisma', () => ({ prisma: db }));
@@ -39,6 +39,7 @@ beforeEach(() => {
   vi.stubEnv('JWT_SECRET', 'pull-test-jwt-secret-0123456789abcdefghijklmnop');
   vi.stubEnv('SMARTSMT_BASE_URL', `${BASE}/`);
   db.spSmtQuote.findUnique.mockResolvedValue(null);
+  db.spSmtOrder.findUnique.mockResolvedValue(null);
   db.$transaction.mockImplementation((run: (client: typeof tx) => Promise<unknown>) => run(tx));
   tx.spSmtOrder.upsert.mockResolvedValue({ id: 7n });
   tx.spSmtQuote.create.mockResolvedValue({ id: 70n });
@@ -144,5 +145,37 @@ describe('SmartSMT 견적서 가져오기 — SmartSMT 가 거절할 때', () =>
   it('접속 실패 · 시간 초과 → 502 SMARTSMT_UNREACHABLE', async () => {
     const fetchImpl = (() => Promise.reject(new TypeError('fetch failed'))) as unknown as typeof fetch;
     expect(await pullSmartsmtQuote(ORDER, log, fetchImpl)).toMatchObject({ ok: false, status: 502, error: 'SMARTSMT_UNREACHABLE' });
+  });
+});
+
+describe('SmartSMT 견적서 가져오기 — 같은 견적인지는 주문 번호와 내용으로 가린다', () => {
+  // SmartSMT 는 읽을 때마다 견적번호 · 만든 시각을 새로 만든다 — 번호만 보면 같은 견적이 계속 새 견적으로 쌓인다.
+  const stored = (over: Record<string, unknown> = {}): string =>
+    JSON.stringify(buildSampleEnvelope({ review: true, orderId: ORDER, quoteId: 'Q-KEPT', madeAt: '2026-11-19T01:01:02+09:00', ...over }));
+  const pulled = (over: Record<string, unknown> = {}): string =>
+    JSON.stringify(buildSampleEnvelope({ review: true, orderId: ORDER, quoteId: 'Q-NEW', madeAt: '2026-11-19T01:06:45+09:00', ...over }));
+
+  it('마지막 견적과 내용이 같으면 저장하지 않고, 우리가 보관한 견적번호를 돌려준다', async () => {
+    db.spSmtOrder.findUnique.mockResolvedValue({ latestQuote: { quoteId: 'Q-KEPT', envelope: stored() } });
+    const { fetchImpl } = peer(200, pulled());
+    expect(await pullSmartsmtQuote(ORDER, log, fetchImpl)).toEqual({ ok: true, quoteId: 'Q-KEPT', orderId: ORDER, duplicate: true });
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.spSmtOrder.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { orderId: ORDER } }));
+  });
+
+  it('내용이 달라졌으면 새 견적으로 저장한다', async () => {
+    db.spSmtOrder.findUnique.mockResolvedValue({ latestQuote: { quoteId: 'Q-KEPT', envelope: stored({ ownerName: '다른 이름' }) } });
+    const { fetchImpl } = peer(200, pulled());
+    expect(await pullSmartsmtQuote(ORDER, log, fetchImpl)).toEqual({ ok: true, quoteId: 'Q-NEW', orderId: ORDER, duplicate: false });
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('처음 받는 주문이거나 보관한 견적서를 읽을 수 없으면 저장한다', async () => {
+    const first = peer(200, pulled());
+    expect(await pullSmartsmtQuote(ORDER, log, first.fetchImpl)).toMatchObject({ ok: true, duplicate: false });
+    db.spSmtOrder.findUnique.mockResolvedValue({ latestQuote: { quoteId: 'Q-KEPT', envelope: '{broken' } });
+    const second = peer(200, pulled());
+    expect(await pullSmartsmtQuote(ORDER, log, second.fetchImpl)).toMatchObject({ ok: true, duplicate: false });
+    expect(db.$transaction).toHaveBeenCalledTimes(2);
   });
 });

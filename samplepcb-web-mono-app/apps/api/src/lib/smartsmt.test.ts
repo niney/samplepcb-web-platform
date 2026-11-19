@@ -6,7 +6,7 @@ import { buildSampleEnvelope, sampleFiles } from './smartsmt-sample';
 vi.mock('./prisma', () => ({ prisma: {} }));
 vi.mock('./file-server', () => ({ uploadToFileServer: vi.fn(), deleteFromFileServer: vi.fn() }));
 
-const { checkSmartsmtFiles, summarizeSmartsmtEnvelope } = await import('./smartsmt');
+const { checkSmartsmtFiles, smartsmtContentKey, summarizeSmartsmtEnvelope } = await import('./smartsmt');
 
 const summarize = (envelope: unknown) => summarizeSmartsmtEnvelope(SmartsmtEnvelope.parse(envelope));
 
@@ -189,4 +189,26 @@ describe('SmartSMT 견적서 — 의뢰 이름 · 공정', () => {
   });
 });
 
-describe('SmartSMT 견
+describe('SmartSMT 견적서 — 내용 비교 (가져오기 중복 판별)', () => {
+  it('견적번호와 만든 시각만 다르면 같은 내용이다 (키 순서도 상관없다)', () => {
+    const first = buildSampleEnvelope({ review: true, quoteId: 'Q-1', madeAt: '2026-11-19T01:01:02+09:00' });
+    const second = buildSampleEnvelope({ review: true, quoteId: 'Q-2', madeAt: '2026-11-19T01:06:45+09:00' });
+    expect(smartsmtContentKey(first)).toBe(smartsmtContentKey(second));
+    // 보낼 때(키 정렬)와 가져올 때(넣은 순서)의 키 순서가 달라도 같다.
+    const reversed = (value: unknown): unknown =>
+      Array.isArray(value)
+        ? value.map(reversed)
+        : typeof value === 'object' && value !== null
+          ? Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reversed(item)]))
+          : value;
+    expect(smartsmtContentKey(reversed(second))).toBe(smartsmtContentKey(first));
+  });
+
+  it('금액이나 주문 번호가 다르면 다른 내용이다', () => {
+    const base = buildSampleEnvelope({ review: true });
+    const changed = buildSampleEnvelope({ review: true }) as { quote: Record<string, unknown> };
+    changed.quote.estimated_total = 1;
+    expect(smartsmtContentKey(changed)).not.toBe(smartsmtContentKey(base));
+    expect(smartsmtContentKey(buildSampleEnvelope({ review: true, orderId: 'other' }))).not.toBe(smartsmtContentKey(base));
+  });
+});

@@ -449,6 +449,54 @@ export async function saveSmartsmtQuote(
   }
 }
 
+// ── 같은 내용인가 — 가져오기의 중복 판별 ─────────────────────────────────────────────────
+
+/** 키 순서에 상관없이 같은 글자가 나오는 JSON — 보낼 때(키 정렬)와 가져올 때(넣은 순서)의 키 순서가 다르다. */
+function stableJson(value: unknown): string {
+  if (value === undefined) return 'null';
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value as JsonObject).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * 견적서의 "내용" — 견적번호와 만든 시각을 뺀 나머지. SmartSMT 는 같은 주문을 읽을 때마다 이 두 칸만 새로 만든다
+ * (2026-11-19 실측: 5분 간격으로 두 번 읽은 견적서의 차이가 header.quote_id · header.made_at 둘뿐).
+ */
+export function smartsmtContentKey(envelope: unknown): string {
+  const root = asObject(envelope);
+  if (root === null) return stableJson(envelope);
+  const header = asObject(root.header);
+  if (header === null) return stableJson(root);
+  const rest: JsonObject = { ...header };
+  delete rest.quote_id;
+  delete rest.made_at;
+  return stableJson({ ...root, header: rest });
+}
+
+/**
+ * 그 주문의 마지막 견적과 내용이 같으면 그 견적번호를, 다르면(또는 주문이 없으면) null 을 준다.
+ * 가져오기는 견적번호가 매번 달라 번호로는 같은 견적인지 가릴 수 없다 — 주문 번호와 내용으로 가린다.
+ */
+export async function findSmartsmtSameContent(orderId: string, envelope: unknown): Promise<string | null> {
+  const order = await prisma.spSmtOrder.findUnique({
+    where: { orderId },
+    select: { latestQuote: { select: { quoteId: true, envelope: true } } },
+  });
+  const latest = order?.latestQuote ?? null;
+  if (latest === null) return null;
+  let stored: unknown;
+  try {
+    stored = JSON.parse(latest.envelope);
+  } catch {
+    return null;
+  }
+  return smartsmtContentKey(stored) === smartsmtContentKey(envelope) ? latest.quoteId : null;
+}
+
 // ── 수신 기록 ─────────────────────────────────────────────────────────────────────────
 
 export interface SmartsmtReceiveEntry {

@@ -4,6 +4,7 @@ import type { SmartsmtPullError } from '@sp/api-contract';
 import {
   SMARTSMT_MAX_ENVELOPE_BYTES,
   checkSmartsmtFiles,
+  findSmartsmtSameContent,
   saveSmartsmtQuote,
   smartsmtQuoteExists,
   summarizeSmartsmtEnvelope,
@@ -55,7 +56,9 @@ function peerReason(text: string): string | null {
 }
 
 /**
- * 주문 번호로 견적서를 가져와 저장한다. 이미 갖고 있는 견적(quote_id)이면 저장하지 않고 duplicate 로 답한다.
+ * 주문 번호로 견적서를 가져와 저장한다. 이미 갖고 있는 견적이면 저장하지 않고 duplicate 로 답한다.
+ * SmartSMT 는 읽을 때마다 견적번호를 새로 만들므로(docs §8) 번호가 달라도 **그 주문의 마지막 견적과 내용이 같으면**
+ * 이미 가진 견적으로 본다 — 그때 돌려주는 quoteId 는 우리가 보관한 번호다.
  * `fetchImpl` 은 테스트용 — 기본은 전역 fetch.
  */
 export async function pullSmartsmtQuote(
@@ -135,6 +138,8 @@ export async function pullSmartsmtQuote(
   }
   const ids = { quoteId: summary.quoteId, orderId: summary.orderId };
   if (await smartsmtQuoteExists(summary.quoteId)) return { ok: true, ...ids, duplicate: true };
+  const sameAs = await findSmartsmtSameContent(orderId, json);
+  if (sameAs !== null) return { ok: true, quoteId: sameAs, orderId: summary.orderId, duplicate: true };
 
   // 파일은 오지 않는다 — 견적서의 파일 목록은 전부 missing 으로 적힌다.
   const files = checkSmartsmtFiles(summary.manifest, []);
