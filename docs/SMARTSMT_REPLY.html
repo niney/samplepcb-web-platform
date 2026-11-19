@@ -212,14 +212,15 @@
   <p class="eyebrow">samplepcb → SmartSMT</p>
   <h1>SmartSMT 확인 요청 회신</h1>
   <ul class="meta">
-    <li>판 0.1</li>
-    <li>2026-11-18</li>
-    <li>「SmartSMT 확인 및 요청 사항 0.1」에 대한 답</li>
+    <li>판 0.2</li>
+    <li>2026-11-19</li>
+    <li>「SmartSMT 확인 및 요청 사항 0.1」에 대한 답 + 의뢰 데이터 연동 방법</li>
     <li>대상: SmartSMT 서버 · 화면 개발 담당</li>
   </ul>
   <p class="lead">
-    보내 주신 견적서는 잘 받았습니다. 요청하신 것에 답을 드리고, 저희가 <strong>부탁드릴 두 가지</strong>를 적었습니다.
-    두 가지는 좌표 파일과 견적번호입니다. 회신을 부탁드리는 것은 <a href="#reply">9장</a>에 모았습니다.
+    보내 주신 견적서는 잘 받았습니다. 요청하신 것에 답을 드리고, 협의한 대로
+    <strong>의뢰 데이터는 samplepcb 가 보관하고 SmartSMT 가 읽어 가는 방식</strong>으로 맞추는 방법을 <a href="#data">6장</a>에 적었습니다.
+    SmartSMT 에서 해 주실 일은 <a href="#reply">10장</a>에 모았습니다.
   </p>
 </header>
 
@@ -228,13 +229,14 @@
   <ol>
     <li><a href="#summary">한눈에</a></li>
     <li><a href="#received">견적서 수신 확인</a></li>
-    <li><a href="#cpl">부탁 ① 좌표 파일</a></li>
-    <li><a href="#quoteno">부탁 ② 견적번호</a></li>
+    <li><a href="#cpl">좌표 파일</a></li>
+    <li><a href="#quoteno">견적번호</a></li>
     <li><a href="#member">로그인 인계 회원 정보</a></li>
-    <li><a href="#review">담당자 견적 전송 (제안)</a></li>
+    <li><a href="#data">의뢰 데이터 연동</a></li>
+    <li><a href="#partlines">견적서에 부품 줄 넣기</a></li>
     <li><a href="#parts">첨부 파트</a></li>
     <li><a href="#changes">문서 변경 사항 확인</a></li>
-    <li><a href="#reply">회신 부탁드리는 것</a></li>
+    <li><a href="#reply">할 일과 회신 항목</a></li>
   </ol>
 </nav>
 
@@ -249,28 +251,33 @@
       <tbody>
         <tr><td>견적서 수신 확인</td><td>세 건 모두 받았습니다. 다만 <strong>첨부는 매번 2개</strong>였습니다 (좌표 파일 없음)</td><td class="nowrap"><a href="#received">2장</a> · <a href="#cpl">3장</a></td></tr>
         <tr><td>로그인 인계 시 회원 정보 추가</td><td><strong>넣었습니다</strong> — 회사명 · 연락처 · 이메일. 부서는 저희 회원 정보에 없습니다</td><td class="nowrap"><a href="#member">5장</a></td></tr>
-        <tr><td>담당자 견적 전송</td><td>보낼 모양을 <strong>제안</strong>드립니다. 세 가지를 확인해 주시면 만들겠습니다</td><td class="nowrap"><a href="#review">6장</a></td></tr>
-        <tr><td><code>packing</code> · <code>stackup</code> · <code>report</code> 파트</td><td><strong>받습니다</strong> — 파트 이름을 미리 정하지 않아도 됩니다</td><td class="nowrap"><a href="#parts">7장</a></td></tr>
-        <tr><td>모르는 파트가 오면</td><td>거절하지 않습니다 (<code>200</code>)</td><td class="nowrap"><a href="#parts">7장</a></td></tr>
-        <tr><td>요청주소 문서 변경 사항</td><td>확인했습니다. 저희 쪽에서 맞출 것은 없습니다</td><td class="nowrap"><a href="#changes">8장</a></td></tr>
+        <tr><td>담당자 견적 전송</td><td><strong>쓰지 않습니다.</strong> 확정 견적은 samplepcb 가 보관하고 SmartSMT 가 읽어 갑니다</td><td class="nowrap"><a href="#data">6장</a></td></tr>
+        <tr><td><code>packing</code> · <code>stackup</code> · <code>report</code> 파트</td><td><strong>받습니다</strong> — 파트 이름을 미리 정하지 않아도 됩니다</td><td class="nowrap"><a href="#parts">8장</a></td></tr>
+        <tr><td>모르는 파트가 오면</td><td>거절하지 않습니다 (<code>200</code>)</td><td class="nowrap"><a href="#parts">8장</a></td></tr>
+        <tr><td>요청주소 문서 변경 사항</td><td>확인했습니다</td><td class="nowrap"><a href="#changes">9장</a></td></tr>
       </tbody>
     </table>
   </div>
 
-  <h3>저희가 부탁드리는 것</h3>
-  <div class="cards" style="grid-template-columns: repeat(2, 1fr);">
+  <h3>SmartSMT 에서 해 주실 일</h3>
+  <div class="cards">
     <div class="card">
-      <div class="k">부탁 ①</div>
-      <h4>좌표 파일을 함께 보내 주십시오</h4>
+      <div class="k">①</div>
+      <h4>고객이 올린 파일을 모두 보내기</h4>
       <p>전송에 <code>cpl</code> 파트가 빠져 있습니다. 함께 보내도록 수정 부탁드립니다.</p>
     </div>
     <div class="card">
-      <div class="k">부탁 ②</div>
-      <h4>견적번호를 고정해 주십시오</h4>
-      <p>같은 견적서를 읽을 때마다 번호가 달라집니다. 고정이 어렵다면 번호는 저희가 관리하겠습니다.</p>
+      <div class="k">②</div>
+      <h4>의뢰 데이터를 samplepcb 에서 읽기</h4>
+      <p>작업 상태를 견적서와 함께 보내고, 내 의뢰 목록 · 다시 부르기 · 견적서를 samplepcb 에서 읽어 옵니다.</p>
+    </div>
+    <div class="card">
+      <div class="k">③</div>
+      <h4>견적서에 부품 줄 넣기</h4>
+      <p>부품이 합계만 옵니다. 담당자가 부품별 수량 · 단가를 볼 수 있게 줄을 실어 주십시오.</p>
     </div>
   </div>
-  <p class="cap">5장 · 7장의 내용은 이 문서를 받으신 시점에 <code>https://new.samplepcb.co.kr</code> 에 반영돼 있습니다.</p>
+  <p class="cap">5장 · 8장의 내용은 이 문서를 받으신 시점에 <code>https://new.samplepcb.co.kr</code> 에 반영돼 있습니다. 6장의 samplepcb 쪽 주소는 준비되는 대로 알려 드립니다(<a href="#reply">10장</a>).</p>
 </section>
 
 <!-- ───────────────────────── 2 ───────────────────────── -->
@@ -296,7 +303,7 @@
 
 <!-- ───────────────────────── 3 ───────────────────────── -->
 <section id="cpl">
-  <h2><span class="num">3</span>부탁 ① 좌표 파일</h2>
+  <h2><span class="num">3</span>좌표 파일</h2>
   <p>
     세 건 모두 <code>cpl</code> 파트가 오지 않았습니다. 아래는 22:41 의 주문(<code>9cea45ca1704</code>)에서 화면에 올린 파일과 전송된 파일입니다.
   </p>
@@ -314,12 +321,12 @@
     <strong>부탁드리는 것</strong>
     좌표 파일도 <code>cpl</code> 파트로 함께 보내도록 수정 부탁드립니다. 견적서의 <code>header.files</code> 에도 함께 넣어 주십시오.
   </div>
-  <p>저희 쪽은 파일 형식을 가리지 않고 받습니다.</p>
+  <p>저희 쪽은 파일 형식을 가리지 않고 받습니다. 이 파일들은 의뢰를 다시 부를 때도 쓰입니다(<a href="#data">6장</a>).</p>
 </section>
 
 <!-- ───────────────────────── 4 ───────────────────────── -->
 <section id="quoteno">
-  <h2><span class="num">4</span>부탁 ② 견적번호</h2>
+  <h2><span class="num">4</span>견적번호</h2>
   <p><strong>같은 주문의 견적서를 읽을 때마다 견적번호가 새로 만들어집니다.</strong> 아래는 주문 한 건(<code>9cea45ca1704</code>)을 내용 변경 없이 다섯 번 받아 본 결과입니다.</p>
   <div class="tablewrap">
     <table>
@@ -342,35 +349,16 @@
     그리고 "3번 복사본에 서명했다"고 말해도, 원본을 가진 쪽에는 3번이라는 문서가 없습니다.
   </div>
 
-  <h3>무엇이 곤란한가</h3>
+  <h3>이렇게 정리합니다 — samplepcb 가 보관한 번호를 씁니다</h3>
   <ol class="steps">
-    <li><strong>같은 견적인지 가릴 수 없습니다.</strong> <span class="why">저희는 견적번호로 "이미 받은 견적"을 가립니다. 담당자가 '견적서 가져오기'를 누를 때마다 번호가 달라서, 같은 견적이 새 견적으로 계속 쌓입니다.</span></li>
-    <li><strong>어느 견적을 확정했는지 가리킬 수 없습니다.</strong> <span class="why">담당자가 22:41 에 받은 견적을 보고 확정해 돌려보내도(<a href="#review">6장</a>), SmartSMT 쪽에는 그 번호의 견적이 남아 있지 않습니다.</span></li>
+    <li>고객이 "견적 요청"을 눌러 보내신 견적번호를 samplepcb 가 <strong>그 견적의 번호</strong>로 보관합니다. <span class="why">위 표에서는 22:41 의 <code>Q-261118-224103-9cea45</code> 입니다.</span></li>
+    <li>SmartSMT 가 의뢰를 읽어 갈 때(<a href="#data">6장</a>) 그 번호를 돌려 드립니다. 견적서 화면에는 그 번호를 보여 주십시오.</li>
+    <li>번호를 고정하는 작업은 하지 않으셔도 됩니다. <span class="why">가져오기에서 새 번호가 나와도 저희는 주문 번호로 같은 의뢰인지 가립니다.</span></li>
   </ol>
-
-  <h3>부탁드리는 것 — 둘 중 하나를 골라 주십시오</h3>
-  <div class="tablewrap">
-    <table>
-      <thead><tr><th></th><th>내용</th><th>바뀌는 쪽</th></tr></thead>
-      <tbody>
-        <tr>
-          <td class="nowrap"><strong>가. 번호 고정</strong><br><span class="opt">먼저 부탁드리는 안</span></td>
-          <td>고객이 "견적 요청"을 누른 때의 번호를 그 견적의 번호로 정합니다. 주문 내용이 바뀌기 전에는 가져오기에서도 <strong>같은 번호</strong>를 돌려줍니다. 내용이 바뀌어 다시 요청하면 새 번호를 붙입니다.</td>
-          <td class="nowrap">SmartSMT</td>
-        </tr>
-        <tr>
-          <td class="nowrap"><strong>나. samplepcb 가 관리</strong><br><span class="opt">가 안이 어려울 때</span></td>
-          <td>견적 기록과 견적번호는 samplepcb 가 관리합니다. SmartSMT 는 계산과 화면을 맡고, 두 서버가 주고받을 때는 <strong>주문 번호(<code>order_id</code>)만</strong> 공통으로 씁니다. 담당자가 확정한 견적에는 저희가 번호를 붙여 보냅니다.</td>
-          <td class="nowrap">samplepcb</td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="note">
+    <strong>부탁드리는 것</strong>
+    <b>주문 번호(<code>order_id</code>)는 바뀌지 않게</b> 해 주십시오. 의뢰를 다시 불러 고친 뒤 견적 요청을 해도 같은 주문 번호여야 합니다.
   </div>
-  <p>
-    "가"로 해 주시면 위 표의 22:41 이후 가져오기는 <code>Q-261118-224103-9cea45</code> 를 그대로 돌려주게 됩니다.
-    "나"로 가도 됩니다 — 이때 SmartSMT 에서 바꾸실 것은 없고, 저희가 견적번호 대신 주문 번호와 내용으로 가리도록 고칩니다.
-    어느 쪽이든 <strong>주문 번호는 바뀌지 않는다</strong>는 것만 확인해 주십시오.
-  </p>
 </section>
 
 <!-- ───────────────────────── 5 ───────────────────────── -->
@@ -410,50 +398,298 @@
 </section>
 
 <!-- ───────────────────────── 6 ───────────────────────── -->
-<section id="review">
-  <h2><span class="num">6</span>담당자 견적 전송 (제안)</h2>
+<section id="data">
+  <h2><span class="num">6</span>의뢰 데이터 연동</h2>
   <p>
-    받은 견적은 세 건 모두 <code>REVIEW_REQUIRED</code> 이고 확정 금액(<code>total</code>)이 비어 있었습니다 — 부품 · 배송 · SMT 작업비가 아직 정해지지 않아서입니다.
-    저희 담당자는 주문 화면의 결과를 그대로 놓고 <strong>항목별로 금액을 고치거나 채워서 확정</strong>합니다. 총액은 직접 고치지 않고, 통합 견적서와 같은 식(직접공정비 → 간접비 → 기업이윤 → 부가세)으로 다시 계산합니다. 배송비는 samplepcb 가 정합니다. 이 기준으로 보낼 모양을 제안드립니다.
+    지금 SmartSMT 의 "내 의뢰" 목록과 원본 파일은 <strong>고객 브라우저</strong>에 저장됩니다. 그래서 다른 PC 나 다른 브라우저에서는 의뢰가 보이지 않습니다.
+    협의한 대로, 의뢰 데이터를 <strong>samplepcb 한 곳에 보관</strong>하고 SmartSMT 는 필요할 때 읽어 가도록 맞춥니다.
+    담당자가 확정한 금액도 같은 길로 읽어 가므로, 담당자 견적 전송(<code>POST /api/pricing/received</code>)은 쓰지 않습니다.
   </p>
   <div class="tablewrap">
     <table>
-      <thead><tr><th>항목</th><th>제안</th></tr></thead>
+      <thead><tr><th>무엇</th><th>맡는 곳</th></tr></thead>
       <tbody>
-        <tr><td class="nowrap">주소</td><td><code>POST https://smteyes.samplepcb.co.kr/api/pricing/received</code></td></tr>
-        <tr><td class="nowrap">인증</td><td><code>Authorization: Bearer {토큰}</code> — <code>iss</code> = <code>samplepcb</code>, <code>aud</code> = <code>smartsmt</code> (견적서 가져오기와 같은 토큰)</td></tr>
-        <tr><td class="nowrap">본문</td><td><code>application/json</code> — 받은 견적서 JSON 그대로. <code>header</code>(주문 번호 · 회원 아이디)는 바꾸지 않습니다</td></tr>
-        <tr><td class="nowrap">담당자가 고치는 칸</td><td>견적 줄의 금액 <code>quote.lines[].amount</code>, 블록의 금액 <code>quote.integrated.blocks[].amount</code>(PCB · 부품 · 배송)</td></tr>
-        <tr><td class="nowrap">다시 계산해 채우는 칸</td><td><code>quote</code> 의 <code>direct_cost</code> · <code>indirect_cost</code> · <code>profit</code> · <code>supply_price</code> · <code>vat</code> · <code>total</code> 과 <code>quote.integrated.totals</code> 의 <code>supply_price</code> · <code>vat</code> · <code>total</code>. 요율은 견적서의 <code>header.controls</code> 값을 씁니다</td></tr>
-        <tr><td class="nowrap">맨 위 추가 칸</td><td><code>review_status</code> · <code>customer_note</code> · <code>reviewed_at</code> (아래 표)</td></tr>
-        <tr><td class="nowrap">응답</td><td><code>stored</code> 가 <code>true</code> 일 때만 성공으로 봅니다. 그 밖(<code>stored: false</code> · <code>401</code>)은 실패로 보고 담당자에게 알립니다</td></tr>
+        <tr><td>계산 · 작업 화면(PCB · PART · SMT · Order)</td><td>SmartSMT</td></tr>
+        <tr><td>의뢰 기록 보관 — 견적서 · 원본 파일 · 작업 상태</td><td>samplepcb</td></tr>
+        <tr><td>담당자 확정 — 항목별 금액, 배송비</td><td>samplepcb 관리자</td></tr>
+        <tr><td>내 의뢰 목록 · 다시 부르기 · 견적서 표시</td><td>SmartSMT 화면 (데이터는 samplepcb 에서 읽음)</td></tr>
       </tbody>
     </table>
   </div>
+
+  <div class="figure">
+    <svg class="seq" viewBox="0 0 960 600" role="img" aria-label="의뢰 데이터가 오가는 순서. 아래 번호 목록과 같은 내용입니다.">
+      <defs>
+        <marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,1 L9,5 L0,9 Z"/></marker>
+      </defs>
+
+      <rect class="lane" x="60" y="8" width="200" height="50" rx="8"/>
+      <text class="lane-t" x="160" y="30">고객 브라우저</text>
+      <text class="lane-s" x="160" y="48">SmartSMT 화면</text>
+      <rect class="lane" x="380" y="8" width="200" height="50" rx="8"/>
+      <text class="lane-t" x="480" y="30">SmartSMT 서버</text>
+      <text class="lane-s" x="480" y="48">계산</text>
+      <rect class="lane" x="700" y="8" width="200" height="50" rx="8"/>
+      <text class="lane-t" x="800" y="30">samplepcb</text>
+      <text class="lane-s" x="800" y="48">보관 · 담당자 확정</text>
+
+      <line class="life" x1="160" y1="62" x2="160" y2="590"/>
+      <line class="life" x1="480" y1="62" x2="480" y2="590"/>
+      <line class="life" x1="800" y1="62" x2="800" y2="590"/>
+
+      <!-- 1 -->
+      <text class="lbl" x="320" y="96">① 견적 요청</text>
+      <line class="msg" x1="164" y1="106" x2="474" y2="106" marker-end="url(#ah)"/>
+      <!-- 2 -->
+      <text class="lbl" x="640" y="146">② 견적서 + 작업 상태 + 파일</text>
+      <line class="msg" x1="484" y1="156" x2="794" y2="156" marker-end="url(#ah)"/>
+      <!-- 3 -->
+      <rect class="box" x="668" y="176" width="264" height="44" rx="6"/>
+      <text class="box-t" x="800" y="194">③ 보관</text>
+      <text class="box-t" x="800" y="211">견적서 · 작업 상태 · 원본 파일</text>
+      <!-- 4 -->
+      <text class="lbl" x="320" y="256">④ 내 의뢰 열기</text>
+      <line class="msg" x1="164" y1="266" x2="474" y2="266" marker-end="url(#ah)"/>
+      <!-- 5 -->
+      <text class="lbl" x="640" y="306">⑤ 목록 읽기</text>
+      <line class="msg" x1="484" y1="316" x2="794" y2="316" marker-end="url(#ah)"/>
+      <!-- 6 -->
+      <text class="lbl" x="320" y="356">⑥ 진행 상태 (다시 부르기)</text>
+      <line class="msg" x1="164" y1="366" x2="474" y2="366" marker-end="url(#ah)"/>
+      <!-- 7 -->
+      <text class="lbl" x="640" y="406">⑦ 한 건 · 원본 파일 읽기</text>
+      <line class="msg" x1="484" y1="416" x2="794" y2="416" marker-end="url(#ah)"/>
+      <!-- 8 -->
+      <rect class="box" x="668" y="436" width="264" height="44" rx="6"/>
+      <text class="box-t" x="800" y="454">⑧ 담당자 확정</text>
+      <text class="box-t" x="800" y="471">항목별 금액 → 합계 다시 계산</text>
+      <!-- 9 -->
+      <text class="lbl" x="320" y="516">⑨ 검토서 · 견적서 열기</text>
+      <line class="msg" x1="164" y1="526" x2="474" y2="526" marker-end="url(#ah)"/>
+      <!-- 10 -->
+      <text class="lbl" x="640" y="566">⑩ 한 건 읽기 → 확정 금액</text>
+      <line class="msg" x1="484" y1="576" x2="794" y2="576" marker-end="url(#ah)"/>
+    </svg>
+  </div>
+
+  <ol class="steps">
+    <li>고객이 "견적 요청"을 누릅니다.</li>
+    <li>SmartSMT 가 견적서와 함께 <strong>작업 상태 · 원본 파일</strong>을 보냅니다. <span class="why">지금 쓰시는 <code>POST /api/smartsmt/quotes</code> 에 파트 하나가 늘어납니다 — 6.1</span></li>
+    <li>samplepcb 가 받은 것을 보관합니다.</li>
+    <li>고객이 "내 의뢰"를 엽니다.</li>
+    <li>SmartSMT 가 그 회원의 의뢰 목록을 samplepcb 에서 읽습니다. <span class="why">6.2 의 목록 주소</span></li>
+    <li>고객이 의뢰의 "진행 상태"를 누릅니다(다시 부르기).</li>
+    <li>SmartSMT 가 작업 상태와 원본 파일을 samplepcb 에서 읽어 작업 화면을 복원합니다. <span class="why">6.2 의 한 건 · 파일 주소</span></li>
+    <li>samplepcb 담당자가 항목별로 금액을 고쳐 확정합니다. 합계는 통합 견적서와 같은 식으로 다시 계산됩니다.</li>
+    <li>고객이 "검토서"나 견적서를 엽니다.</li>
+    <li>SmartSMT 가 한 건을 다시 읽으면 <strong>확정 금액이 담긴 견적서</strong>가 함께 옵니다. <span class="why">6.3</span></li>
+  </ol>
+
+  <h3>6.1 견적서를 보낼 때 바뀌는 것 <span class="tag smt">SmartSMT</span></h3>
+  <p>주소(<code>POST https://new.samplepcb.co.kr/api/smartsmt/quotes</code>)와 인증은 지금 그대로입니다. 아래 네 가지만 맞춰 주십시오.</p>
   <div class="tablewrap">
     <table>
-      <thead><tr><th>추가 칸</th><th>종류</th><th>내용</th></tr></thead>
+      <thead><tr><th>무엇</th><th>어떻게</th><th>왜</th></tr></thead>
       <tbody>
-        <tr><td><code>review_status</code></td><td>문자</td><td>담당자 처리 상태 — <code>CONFIRMED</code>(확정) · <code>HOLD</code>(보류, 고객 확인이 필요함)</td></tr>
-        <tr><td><code>customer_note</code></td><td>문자</td><td>고객 안내 글. 없으면 빈 글자</td></tr>
-        <tr><td><code>reviewed_at</code></td><td>문자</td><td>담당자가 처리한 시각 (ISO 8601, 예: <code>2026-11-19T10:30:00+09:00</code>)</td></tr>
+        <tr>
+          <td class="nowrap"><strong>작업 상태</strong><br><code>state</code> 파트 추가</td>
+          <td>값 파트, <code>application/json</code>, 8MB 까지. 의뢰를 다시 부를 때 필요한 내용(지금 브라우저에 저장하시는 옵션 · 부품별 선택 · 메모 등)을 <strong>SmartSMT 가 정한 모양 그대로</strong> 넣습니다. 그림 · 파일 같은 큰 내용은 넣지 않습니다</td>
+          <td>samplepcb 는 내용을 해석하지 않고 보관했다가 <strong>그대로 돌려 드립니다</strong></td>
+        </tr>
+        <tr>
+          <td class="nowrap"><strong>원본 파일</strong><br>빠짐없이</td>
+          <td>고객이 올린 파일 전부 — <code>gerber_archive</code> · <code>bom</code> · <code>cpl</code> · <code>stackup</code> · <code>packing</code></td>
+          <td>다시 부를 때 이 파일로 복원합니다</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><strong>주문 번호</strong><br>그대로</td>
+          <td>다시 불러 고친 뒤 견적 요청을 해도 같은 <code>order_id</code> 로 보냅니다. 견적번호(<code>quote_id</code>)는 새로 붙여도 됩니다</td>
+          <td>samplepcb 는 주문 번호로 한 의뢰를 묶고, 그 안에 견적을 차례로 쌓습니다</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><strong>의뢰 이름</strong> <span class="opt">선택</span><br><code>header.title</code></td>
+          <td>화면에 보이는 의뢰 이름 (예: <code>MULTI_MAIN_REV0</code>)</td>
+          <td>양쪽 목록에 같은 이름이 보입니다. 없으면 파일 이름을 씁니다</td>
+        </tr>
       </tbody>
     </table>
   </div>
-  <div class="note">
-    <strong>만들기 전에 확인 부탁드리는 세 가지</strong>
-    <ol>
-      <li><strong>고객 화면이 읽는 칸</strong> 위 표의 칸을 채워 보내면 됩니까? <code>quote_status</code> · <code>blocked_by</code> · 줄의 <code>status</code> 도 저희가 바꿔 보내야 합니까?</li>
-      <li><strong>토큰의 <code>aud</code></strong> 위 제안대로 <code>smartsmt</code> 로 보내면 됩니까?</li>
-      <li><strong>다시 보낼 때</strong> 같은 주문에 한 번 더 보내면 마지막 것으로 바뀝니까?</li>
-    </ol>
+<pre class="wrap">curl -X POST "https://new.samplepcb.co.kr/api/smartsmt/quotes" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "envelope=@envelope.json;type=application/json" \
+  -F "state=@state.json;type=application/json" \         <span class="c"># 새로 추가</span>
+  -F "gerber_archive=@board.zip;type=application/octet-stream" \
+  -F "bom=@bom.xlsx;type=application/octet-stream" \
+  -F "cpl=@cpl.csv;type=application/octet-stream"</pre>
+  <ul>
+    <li>고객이 의뢰를 고쳐 다시 견적 요청을 하면 같은 주문에 새 견적이 쌓이고, 담당자 확정은 새 견적에서 다시 합니다(상태가 "검토중"으로 돌아갑니다).</li>
+    <li>"저장"만 하고 보내지 않은 의뢰는 지금처럼 브라우저에 두셔도 됩니다. 저장할 때도 보내는 방법은 다음 단계에서 정하겠습니다.</li>
+  </ul>
+
+  <h3>6.2 samplepcb 가 제공하는 주소 <span class="tag sp">samplepcb 제공</span></h3>
+  <p>
+    SmartSMT <strong>서버</strong>가 부릅니다(브라우저가 직접 부르지 않습니다). 인증은 견적서 전송과 같은 토큰입니다 —
+    <code>Authorization: Bearer {토큰}</code>, <code>iss</code> = <code>smartsmt</code>, <code>aud</code> = <code>samplepcb</code>.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>쓰임</th><th>주소 (<code>https://new.samplepcb.co.kr</code>)</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">내 의뢰 목록</td><td><code>GET /api/smartsmt/orders?owner={회원 아이디}&amp;page=1&amp;page_size=20</code></td></tr>
+        <tr><td class="nowrap">의뢰 한 건</td><td><code>GET /api/smartsmt/orders/{order_id}?owner={회원 아이디}</code></td></tr>
+        <tr><td class="nowrap">원본 파일</td><td><code>GET /api/smartsmt/orders/{order_id}/files/{part}?owner={회원 아이디}</code></td></tr>
+      </tbody>
+    </table>
   </div>
-  <p>칸 이름이나 값이 다르면 알려 주십시오. 맞추겠습니다.</p>
+  <div class="warn">
+    <strong><code>owner</code> 는 꼭 넣습니다</strong>
+    로그인한 회원의 아이디(로그인 토큰의 <code>sub</code>)입니다. samplepcb 는 그 회원의 의뢰만 내주고, 주인이 다르면 없는 의뢰로 답합니다(<code>404</code>).
+    화면이 보낸 값을 그대로 쓰지 말고 <b>SmartSMT 세션의 회원 아이디</b>를 넣어 주십시오.
+  </div>
+
+  <p><strong>내 의뢰 목록</strong> — 견적 요청한 의뢰를 최근 것부터 줍니다.</p>
+<pre>{
+  "result": true,
+  "data": {
+    "total": 2,
+    "items": [
+      {
+        "order_id": "a49af3b5fa9f",
+        "title": "MULTI_MAIN_REV0",
+        "processes": ["pcb", "parts", "smt"],
+        "quote_id": "Q-261119-005701-a49af3",   <span class="c">// samplepcb 가 보관한 견적번호</span>
+        "requested_at": "2026-11-18T15:57:01.000Z",
+        "review_status": "CONFIRMED",            <span class="c">// REVIEWING 검토중 · CONFIRMED 확정</span>
+        "estimated_total": 2138950,              <span class="c">// 보내신 가견적 합계</span>
+        "confirmed_total": 2171950,              <span class="c">// 확정 합계. 확정 전에는 null</span>
+        "currency": "KRW"
+      }
+    ]
+  }
+}</pre>
+
+  <p><strong>의뢰 한 건</strong> — 그 주문에서 마지막으로 보내신 견적 기준입니다.</p>
+<pre>{
+  "result": true,
+  "data": {
+    "order_id": "a49af3b5fa9f",
+    "title": "MULTI_MAIN_REV0",
+    "quote_id": "Q-261119-005701-a49af3",
+    "requested_at": "2026-11-18T15:57:01.000Z",
+    "review_status": "CONFIRMED",
+    "confirmed_at": "2026-11-19T01:30:00.000Z",  <span class="c">// 확정 전에는 null</span>
+    "customer_note": "배송비를 반영했습니다.",      <span class="c">// 고객 안내 글. 없으면 빈 글자</span>
+    "envelope": { … },                           <span class="c">// 보내신 견적서 그대로</span>
+    "confirmed_envelope": { … },                 <span class="c">// 확정 금액을 채운 견적서(6.3). 확정 전에는 null</span>
+    "state": { … },                              <span class="c">// 보내신 작업 상태 그대로. 보내지 않았으면 null</span>
+    "files": [
+      { "part": "gerber_archive", "name": "MULTI_MAIN_REV0.Zip", "bytes": 2589401, "sha256": "1fa0…" },
+      { "part": "bom", "name": "MULTI_MAIN_REV0.4_BOM_260812.xlsx", "bytes": 44210, "sha256": "7ede…" },
+      { "part": "cpl", "name": "Pick Place for MULTI_MAIN_REV0.4.csv", "bytes": 74025, "sha256": "6116…" }
+    ]
+  }
+}</pre>
+
+  <p><strong>원본 파일</strong> — <code>{part}</code> 는 위 <code>files</code> 의 <code>part</code> 입니다. 응답은 파일 내용 그대로이고(<code>application/octet-stream</code>), 원래 이름은 <code>Content-Disposition</code> 에 있습니다. 받은 뒤 <code>sha256</code> 으로 대조하실 수 있습니다.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>HTTP</th><th><code>reason</code></th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td>401</td><td class="nowrap"><code>NO_TOKEN</code> · <code>BAD_TOKEN</code> · <code>WRONG_AUDIENCE</code> · <code>EXPIRED</code></td><td>토큰 문제 (요청서 3.4 와 같습니다)</td></tr>
+        <tr><td>400</td><td class="nowrap"><code>INVALID_REQUEST</code></td><td><code>owner</code> 가 없음</td></tr>
+        <tr><td>404</td><td class="nowrap"><code>NOT_FOUND</code></td><td>그런 의뢰 · 파일이 없거나 주인이 다름</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">오류 본문은 견적서 전송과 같은 모양입니다 — <code>{"detail":{"reason":"…","message":"…"}}</code></p>
+
+  <h3>6.3 확정 금액이 담긴 견적서 <code>confirmed_envelope</code></h3>
+  <p>
+    samplepcb 담당자는 주문 화면의 결과를 놓고 <strong>항목별로 금액을 고치거나 채웁니다</strong>(배송비 포함). 총액은 직접 고치지 않고 통합 견적서와 같은 식으로 다시 계산합니다 —
+    직접공정비(줄의 합) → 간접비 → 기업이윤 → PCB · 부품 · 배송을 더해 공급가액 → 부가세. 요율은 보내신 견적서의 <code>header.controls</code> 값을 씁니다.
+    <code>confirmed_envelope</code> 는 <strong>보내신 견적서와 같은 모양</strong>이라, 지금 견적서 화면에 그대로 넣어 그리실 수 있습니다. 아래 칸만 바뀝니다.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>칸</th><th>바뀌는 내용</th></tr></thead>
+      <tbody>
+        <tr><td><code>quote.lines[].amount</code></td><td>담당자가 정한 금액. 고치지 않은 줄은 보내신 값 그대로, 비어 있던 줄은 채워집니다</td></tr>
+        <tr><td><code>quote.lines[].status</code></td><td>빈 글자 (확정)</td></tr>
+        <tr><td><code>quote.subtotals[]</code></td><td><code>amount</code> · <code>known_amount</code> 를 줄의 합으로 다시 계산, <code>unknown_count</code> 는 0</td></tr>
+        <tr><td><code>quote.integrated.blocks[].amount</code></td><td>PCB · 부품 · 배송의 확정 금액. 배송비는 samplepcb 가 정합니다</td></tr>
+        <tr><td><code>quote.direct_cost</code> · <code>indirect_cost</code> · <code>profit</code> · <code>supply_price</code> · <code>vat</code> · <code>total</code></td><td>다시 계산한 SMT 작업비</td></tr>
+        <tr><td><code>quote.integrated.totals</code> 의 <code>supply_price</code> · <code>vat</code> · <code>total</code></td><td>다시 계산한 통합 합계 — 견적서의 공급가액 · 부가세 · 총합계</td></tr>
+        <tr><td><code>quote.quote_status</code></td><td><code>CALCULATED</code></td></tr>
+        <tr><td><code>quote.unknown_lines</code> · <code>quote.integrated.blocked_by</code></td><td>빈 배열</td></tr>
+        <tr><td>맨 위 <code>review_status</code> · <code>customer_note</code> · <code>reviewed_at</code></td><td>확정 표시 · 고객 안내 글 · 확정한 시각</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">그 밖의 칸(<code>header</code> · 추정 금액 <code>estimated_*</code> · 경고 등)은 보내신 값 그대로입니다.</p>
+
+  <h3>6.4 화면에서 바뀌는 것 <span class="tag smt">SmartSMT</span></h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>화면</th><th>지금</th><th>바뀐 뒤</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap">내 의뢰 목록</td><td>브라우저 저장소</td><td>견적 요청한 의뢰는 목록 주소에서 읽습니다. 상태는 <code>review_status</code>(검토중 · 확정), 확정이면 <code>confirmed_total</code> 을 보입니다</td></tr>
+        <tr><td class="nowrap">진행 상태<br>(다시 부르기)</td><td>브라우저에 저장한 파일 · 상태로 복원</td><td>한 건 주소의 <code>state</code> 와 원본 파일로 복원합니다. 주문 번호는 그대로입니다</td></tr>
+        <tr><td class="nowrap">검토서 · 견적서</td><td>가견적</td><td>확정이면 <code>confirmed_envelope</code> 로 그리고 <code>customer_note</code> 를 함께 보입니다. 확정 전이면 지금처럼 가견적과 "검토중"</td></tr>
+        <tr><td class="nowrap">열기 주소 <span class="opt">새로</span></td><td>—</td><td>samplepcb 견적관리에서 들어오는 주소입니다 — 6.5</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>samplepcb 가 답하지 않을 때(시간 초과 · 5xx)는 목록을 비우지 말고 "잠시 후 다시 시도" 안내를 보여 주십시오.</li>
+    <li>가견적 화면에는 "확정 견적은 담당자 검토 후 안내됩니다" 같은 안내를 부탁드립니다. 가견적과 확정 금액이 다를 수 있습니다.</li>
+  </ul>
+
+  <h3>6.5 samplepcb 견적관리에서 SmartSMT 화면으로</h3>
+  <p>
+    samplepcb 마이페이지의 "견적관리"에 SMT 의뢰가 PCB · 부품 견적과 함께 보이게 합니다. 고객이 누르면 SmartSMT 의 <strong>열기 주소</strong>로 이동합니다.
+  </p>
+<pre>https://smteyes.samplepcb.co.kr/open?order={order_id}     <span class="c"># 제안 — 다른 주소가 편하시면 알려 주십시오</span></pre>
+  <ol class="steps">
+    <li>SmartSMT 세션이 없으면 로그인 인계를 거칩니다. <span class="why">요청서 4장. 돌아올 자리는 <code>state</code> 에 실어 두시면 됩니다</span></li>
+    <li>한 건 주소로 의뢰를 읽습니다(<code>owner</code> = 세션의 회원 아이디). <span class="why"><code>404</code> 면 "의뢰를 찾을 수 없습니다" 안내</span></li>
+    <li>확정된 의뢰는 견적서(확정 금액)를, 검토 중인 의뢰는 작업 화면을 엽니다. <span class="why">작업 화면은 다시 부르기와 같습니다</span></li>
+  </ol>
 </section>
 
 <!-- ───────────────────────── 7 ───────────────────────── -->
+<section id="partlines">
+  <h2><span class="num">7</span>견적서에 부품 줄 넣기</h2>
+  <p>
+    지금 견적서의 부품은 <strong>합계만</strong> 옵니다(<code>PARTS</code> 블록의 <code>amount</code>). 담당자가 부품별 수량 · 단가를 확인하고 고칠 수 있도록, BOM 견적서에 나오는 부품 줄을 견적서에 함께 실어 주십시오.
+  </p>
+  <p>위치(제안): <code>quote.integrated.blocks[]</code> 의 <code>PARTS</code> 블록 안 <code>detail.lines</code> 배열.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>칸</th><th>종류</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td><code>refs</code></td><td>문자 배열</td><td>REF (예: <code>["C1","C2"]</code>)</td></tr>
+        <tr><td><code>name</code></td><td>문자</td><td>품명 (품번 또는 BOM 표기)</td></tr>
+        <tr><td><code>spec</code></td><td>문자</td><td>제조사 · 규격</td></tr>
+        <tr><td><code>mount</code></td><td>문자</td><td><code>SMT</code> · <code>THT</code>(수삽) · <code>NC</code>(미실장)</td></tr>
+        <tr><td><code>supply</code></td><td>문자</td><td><code>TURNKEY</code>(도급) · <code>CUSTOMER</code>(사급)</td></tr>
+        <tr><td><code>qty</code></td><td>숫자</td><td>구매 수량 — 세트 수량을 곱한 총 수량</td></tr>
+        <tr><td><code>unit_price</code></td><td>숫자 · null</td><td>단가(원)</td></tr>
+        <tr><td><code>amount</code></td><td>숫자 · null</td><td>금액(원). 가격이 없으면 <code>null</code></td></tr>
+        <tr><td><code>match</code></td><td>문자</td><td><code>MATCHED</code> · <code>REVIEW</code> · <code>UNMATCHED</code> · <code>NOSTOCK</code> · <code>EXCLUDED</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>줄 금액의 합이 <code>PARTS</code> 블록의 <code>amount</code> 와 같아야 합니다.</strong> 미실장으로 뺀 부품은 줄에 넣지 않거나 금액을 0 으로 둡니다.</li>
+    <li>담당자는 부품별 구매 수량과 단가만 고칩니다. 세트 수량 · 미실장 · 사급 전환처럼 SMT 계산이 함께 바뀌는 수정은 SmartSMT 화면에서 하고 다시 견적 요청을 합니다.</li>
+    <li>칸 이름이나 놓는 자리가 다르면 알려 주십시오. 맞추겠습니다.</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 8 ───────────────────────── -->
 <section id="parts">
-  <h2><span class="num">7</span>첨부 파트</h2>
+  <h2><span class="num">8</span>첨부 파트</h2>
   <p>파트 이름을 미리 정해 두지 않도록 바꿨습니다. <code>packing</code> · <code>stackup</code> · <code>report</code> 를 포함해, 아래 규칙에 맞는 파일 파트는 모두 받아 보관합니다.</p>
   <div class="tablewrap">
     <table>
@@ -470,18 +706,19 @@
   <ul>
     <li><strong>모르는 파트가 와도 거절하지 않습니다</strong>(<code>200</code>). 이름이 규칙에 맞는 파일은 저장하고, 규칙에 맞지 않는 파일과 모르는 글자 파트는 읽지 않고 넘어갑니다.</li>
     <li>새 파트를 보내기 시작하실 때 미리 알려 주실 필요는 없습니다. 무엇이 든 파일인지만 한 줄 알려 주시면 관리자 화면의 이름을 맞추겠습니다.</li>
+    <li>작업 상태(<code>state</code>)는 파일이 아니라 값 파트입니다 — <a href="#data">6.1</a>.</li>
   </ul>
 </section>
 
-<!-- ───────────────────────── 8 ───────────────────────── -->
+<!-- ───────────────────────── 9 ───────────────────────── -->
 <section id="changes">
-  <h2><span class="num">8</span>문서 변경 사항 확인</h2>
+  <h2><span class="num">9</span>문서 변경 사항 확인</h2>
   <div class="tablewrap">
     <table>
       <thead><tr><th>알려 주신 것</th><th>저희 쪽</th></tr></thead>
       <tbody>
         <tr><td>견적서 가져가기의 <code>409 NOT_PUBLISHABLE</code> 없어짐 — 확정 전 견적도 보냄</td><td>확인했습니다. 확정 전 견적도 그대로 받고, 정해지지 않은 금액(<code>null</code>)은 "미정"으로 둡니다</td></tr>
-        <tr><td><code>POST /api/pricing/received</code> 에 토큰을 붙이면 담당자 견적으로 저장</td><td><a href="#review">6장</a>의 제안대로 쓰겠습니다</td></tr>
+        <tr><td><code>POST /api/pricing/received</code> 에 토큰을 붙이면 담당자 견적으로 저장</td><td>쓰지 않습니다. 확정 견적은 SmartSMT 가 samplepcb 에서 읽어 가는 방식으로 합니다(<a href="#data">6장</a>)</td></tr>
       </tbody>
     </table>
   </div>
@@ -491,16 +728,40 @@
   </ul>
 </section>
 
-<!-- ───────────────────────── 9 ───────────────────────── -->
+<!-- ───────────────────────── 10 ───────────────────────── -->
 <section id="reply">
-  <h2><span class="num">9</span>회신 부탁드리는 것</h2>
+  <h2><span class="num">10</span>할 일과 회신 항목</h2>
+
+  <h3>SmartSMT 에서 해 주실 일</h3>
+  <ul class="check">
+    <li>고객이 올린 파일을 모두 보냅니다 — 좌표 파일(<code>cpl</code>) 포함. <a href="#cpl">3장</a> · <a href="#data">6.1</a></li>
+    <li>견적서 전송에 <code>state</code> 파트를 넣고, 다시 불러도 같은 <code>order_id</code> 를 씁니다. <a href="#data">6.1</a></li>
+    <li>내 의뢰 목록 · 다시 부르기 · 검토서/견적서를 samplepcb 주소에서 읽습니다. <a href="#data">6.2 ~ 6.4</a></li>
+    <li>열기 주소를 만듭니다. <a href="#data">6.5</a></li>
+    <li>견적서에 부품 줄을 넣습니다. <a href="#partlines">7장</a></li>
+  </ul>
+
+  <h3>samplepcb 에서 할 일</h3>
+  <ul class="check done">
+    <li>로그인 토큰에 회사명 · 연락처 · 이메일 (<a href="#member">5장</a>)</li>
+    <li>파일 파트를 이름 규칙으로 받기 (<a href="#parts">8장</a>)</li>
+    <li>담당자가 항목별로 금액을 고쳐 확정하는 관리자 화면</li>
+  </ul>
+  <ul class="check">
+    <li><code>state</code> 보관과 읽기 주소 세 개 (<a href="#data">6.1 · 6.2</a>) — 준비되면 알려 드립니다</li>
+    <li>견적관리에 SMT 의뢰 표시와 열기 주소 연결 (<a href="#data">6.5</a>)</li>
+    <li>부품 줄을 관리자 견적서에 표시 (<a href="#partlines">7장</a>) — 줄이 오기 시작하면 맞춥니다</li>
+  </ul>
+
+  <h3>회신 부탁드리는 것</h3>
   <div class="tablewrap">
     <table>
       <thead><tr><th>번호</th><th>항목</th><th>필요</th><th>자세히</th></tr></thead>
       <tbody>
-        <tr><td>1</td><td><strong>좌표 파일(<code>cpl</code>)</strong>도 함께 보내도록 수정 부탁드립니다</td><td class="req">필수</td><td class="nowrap"><a href="#cpl">3장</a></td></tr>
-        <tr><td>2</td><td><strong>견적번호</strong> — "가. 번호 고정"과 "나. samplepcb 가 관리" 중 어느 쪽으로 할지</td><td class="req">필수</td><td class="nowrap"><a href="#quoteno">4장</a></td></tr>
-        <tr><td>3</td><td><strong>담당자 견적 전송</strong> — 고객 화면이 읽는 칸 · 토큰의 <code>aud</code> · 다시 보낼 때의 동작</td><td class="opt">이 기능을 만들 때</td><td class="nowrap"><a href="#review">6장</a></td></tr>
+        <tr><td>1</td><td><strong>열기 주소</strong> — 제안(<code>/open?order=…</code>)과 다르면 실제 주소</td><td class="req">필수</td><td class="nowrap"><a href="#data">6.5</a></td></tr>
+        <tr><td>2</td><td><strong>반영 시점</strong> — 6장을 반영하실 예상 시점. 저희 주소를 그 전에 열어 두고 함께 시험하겠습니다</td><td class="req">필수</td><td class="nowrap"><a href="#data">6장</a></td></tr>
+        <tr><td>3</td><td><strong>작업 상태 크기</strong> — 8MB 를 넘을 것 같으면 알려 주십시오</td><td class="opt">다를 때만</td><td class="nowrap"><a href="#data">6.1</a></td></tr>
+        <tr><td>4</td><td><strong>부품 줄</strong> — 칸 이름이나 놓는 자리가 제안과 다르면</td><td class="opt">다를 때만</td><td class="nowrap"><a href="#partlines">7장</a></td></tr>
       </tbody>
     </table>
   </div>
@@ -508,7 +769,7 @@
 </section>
 
 <footer>
-  samplepcb · SmartSMT 확인 요청 회신 · 판 0.1 (2026-11-18) · 함께 보는 문서: 「SmartSMT 인증 연동 요청서」 판 0.3
+  samplepcb · SmartSMT 확인 요청 회신 · 판 0.2 (2026-11-19) · 함께 보는 문서: 「SmartSMT 인증 연동 요청서」 판 0.3
 </footer>
 
 </div>

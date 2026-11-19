@@ -475,9 +475,48 @@ SmartSMT 「확인 및 요청 사항 0.1」에 답하면서 우리 쪽에서 할
 
 ### 9.3 아직 없는 것
 
-- **SmartSMT 로 돌려보내기** — 회신문 6장의 제안(고친 줄 · 블록 금액과 다시 계산한 합계를 견적서 JSON 에 채워 `POST /api/pricing/received`)에
-  SmartSMT 가 답하면 만든다. 그때까지 확정은 우리 쪽 기록이다.
+- **확정 견적을 SmartSMT 에 알리기** — 우리가 보내지 않는다(`POST /api/pricing/received` 는 쓰지 않기로 했다).
+  SmartSMT 가 우리 쪽에서 읽어 간다 — §10. 읽기 주소를 만들기 전까지 확정은 우리 쪽 기록이다.
 - 고객에게 메일로 알리기, 확정 견적서 출력(통합 견적서 모양)은 정하지 않았다.
 
 **운영 반영** — `prisma migrate deploy`(표 1개 추가) 뒤 API · 웹 재배포.
+
+## 10. 의뢰 데이터는 samplepcb 가 보관한다 (2026-11-19 결정, 미구현)
+
+**결정(사용자) · SmartSMT 동의** — 의뢰 데이터를 양쪽이 따로 갖지 않는다. samplepcb 가 보관하고 SmartSMT 는 읽어 간다.
+담당자 견적 전송(우리 → SmartSMT)은 만들지 않는다. SmartSMT 가 고칠 것은 SmartSMT 에 요청하고, 금액은 우리 관리자가 항목별로 고친다(§9).
+SmartSMT 에 전달하는 규격은 `docs/SMARTSMT_REPLY.html` 판 0.2 의 6장 · 7장이다(이 절은 그 배경과 우리 쪽 할 일).
+
+### 10.1 실측 — 왜 필요한가
+
+- SmartSMT 의 "내 의뢰" 목록과 원본 파일은 **고객 브라우저의 IndexedDB**(`SmartsmtHistoryDB` — quotes · payloads · sources, 10건 · 200MB 한도)에 있다.
+  계정이 아니라 브라우저에 묶여 다른 PC · 브라우저에서는 보이지 않는다. "진행 상태" 버튼이 다시 부르기(그 저장분으로 주문을 다시 연다)다.
+- 주소로 주문을 여는 길은 `/quote?order={주문 번호}`(견적서 화면)뿐이고, SmartSMT 서버에 주문이 살아 있을 때만 된다(4시간 반 뒤 404 를 본 적이 있다).
+- 받는 견적서에는 부품 줄이 없다 — `PARTS` 블록의 합계 · 장당 금액 · PartsEyes 견적 번호뿐. 수량 · NC · 사급을 바꾸면 SMT 줄이 함께 바뀌어 SmartSMT 재계산이 필요하다.
+- 견적관리(`spcb/pages/quotes.php`)는 `/api/pcb-projects` · `/api/bom/quotes` 두 목록을 합쳐 그린다 — SMT 는 세 번째 출처로 넣는다.
+- 살펴본 방법: 공개 스크립트를 받아 낱말로 찾는다(`.tmp/smt-tools/scan-smteyes3.cjs` · `grep-bundle.cjs`). 화면에서 "진행 상태"는 누르지 않는다(의뢰가 다시 열린다).
+
+### 10.2 규격 요약 (회신문 6장 · 7장)
+
+| 방향 | 무엇 |
+|---|---|
+| SmartSMT → samplepcb | `POST /api/smartsmt/quotes` 에 `state` 값 파트(작업 상태 JSON, 8MB, 우리는 뜻을 보지 않고 보관), 원본 파일 전부, 같은 `order_id`, `header.title`(선택) |
+| SmartSMT → samplepcb (읽기) | `GET /api/smartsmt/orders?owner=` 목록 · `GET /api/smartsmt/orders/{order_id}?owner=` 한 건 · `GET …/files/{part}?owner=` 파일. 토큰은 견적서 전송과 같다(`aud=samplepcb`). 주인이 다르면 404 |
+| 한 건 응답 | `envelope`(받은 그대로) · `confirmed_envelope`(확정 금액을 채운 견적서, 확정 전 null) · `state` · `files` · `review_status`(REVIEWING · CONFIRMED) · `customer_note` |
+| 고객 → SmartSMT | 견적관리의 SMT 행 → 열기 주소(제안 `https://smteyes.samplepcb.co.kr/open?order=`) — SmartSMT 가 만들고 주소를 알려 준다 |
+| 견적서의 부품 줄 | `PARTS` 블록 `detail.lines[]`(refs · name · spec · mount · supply · qty · unit_price · amount · match), 줄 합 = 블록 금액 |
+
+- 견적번호는 고객이 "견적 요청"으로 보낸 번호를 우리가 보관해 돌려준다 — SmartSMT 에 번호 고정을 요구하지 않는다.
+  그래서 **가져오기의 중복 판별을 견적번호 대신 주문 번호 + 내용으로** 바꿔야 한다.
+- 읽기 응답의 칸 이름은 견적서와 같은 밑줄 표기(`order_id` …)다. 견적서 전송의 응답(`data.quoteId`)은 그대로 둔다.
+- 저장만 한("보내기 전") 의뢰는 1차에서 SmartSMT 브라우저에 그대로 둔다.
+
+### 10.3 우리 쪽 할 일 (순서)
+
+1. **수신** — `state` 파트 보관(열 추가), `header.title` 을 주문 이름으로.
+2. **읽기 주소 세 개** — 주인 대조, 확정 금액을 채운 견적서를 만드는 함수(§9 계산을 견적서 모양에 적용), 흉내 스크립트와 테스트.
+3. **가져오기 중복 판별** — 주문 번호 + 내용.
+4. **고객 화면** — 고객용 `GET /api/smt/orders`(본인 것만) + 견적관리에 SMT 행(이름 · 공정 · 상태 · 확정 금액 또는 "예상") + 열기 주소 링크.
+5. **SmartSMT 반영 뒤** — 실제 작업 상태로 왕복 시험, 부품 줄이 오면 관리자 견적서 표에 부품 묶음(부품별 수량 · 단가).
+6. **다음 단계** — 저장만 한 의뢰, 확정 알림 메일, 요청서(판 0.4)에 6장 내용 합치기.
 
