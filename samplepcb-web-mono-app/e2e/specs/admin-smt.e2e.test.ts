@@ -546,7 +546,7 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
     await page.locator('#smt-review-note').fill('피더 작업비와 배송비를 반영했습니다.');
     await page.getByTestId('smt-review-save').click();
     await page.getByText('임시 저장했습니다.').waitFor();
-    expect((await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('임시 저장');
+    await expect.poll(async () => (await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('임시 저장');
     await page.reload();
     await page.getByTestId('smt-lines').waitFor();
     expect(await page.getByTestId('smt-row-SMT-P03').getByRole('textbox').inputValue()).toBe('30000');
@@ -557,7 +557,7 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
     // 확정 → 목록에 확정 합계가 보인다.
     await page.getByTestId('smt-review-confirm').click();
     await page.getByText('확정했습니다.').waitFor();
-    expect((await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('확정');
+    await expect.poll(async () => (await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('확정');
     await page.goto(`/app/admin/smt/quotes?q=${encodeURIComponent(ORDER_E)}`);
     await orderRow(page, ORDER_E).waitFor();
     expect((await orderRow(page, ORDER_E).getByTestId('smt-row-confirmed').textContent()) ?? '').toContain('확정 314,116원');
@@ -567,7 +567,7 @@ describe.skipIf(!RUN)('SMT 관리자 화면 — 받은 견적 · 상세 · 연�
     await page.getByTestId('smt-lines').waitFor();
     await page.getByTestId('smt-review-revert').click();
     await page.getByText('SmartSMT 가 보낸 금액으로 되돌렸습니다.').waitFor();
-    expect((await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('고치지 않음');
+    await expect.poll(async () => (await page.getByTestId('smt-review-status').textContent()) ?? '').toContain('고치지 않음');
     expect(await page.getByTestId('smt-row-SMT-P03').getByRole('textbox').inputValue()).toBe('');
     expect(((await page.getByTestId('smt-review-total').textContent()) ?? '').trim()).toBe('269,412원');
     expect(session.pageErrors).toEqual([]);
